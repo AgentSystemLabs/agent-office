@@ -18,11 +18,15 @@ const NAMES = [
 ];
 const COLORS = ['#ff8a5b', '#5bc0eb', '#9bc53d', '#fde74c', '#c3423f', '#b388eb', '#f7aef8', '#72ddf7', '#ffb400', '#00a6a6'];
 
-// Env vars from a parent agent session that would confuse a nested claude.
-const SCRUB_ENV = [
-  'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SSE_PORT', 'NO_COLOR', 'FORCE_COLOR',
-  'NEBULA_AGENT_ID', 'NEBULA_API_URL', 'NEBULA_API_TOKEN', 'VSCODE_INJECTION', 'TERM_PROGRAM',
-];
+// Env vars from a parent agent session (e.g. starting the office from inside Claude Code) that
+// would make a worker think it is a child session — that silently turns off transcript saving,
+// which breaks resume.
+const SCRUB_ENV = new Set([
+  'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_CODE_EXECPATH', 'CLAUDE_PID', 'CLAUDE_EFFORT',
+  'NO_COLOR', 'FORCE_COLOR', 'VSCODE_INJECTION', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION',
+]);
+const SCRUB_PREFIXES = ['CLAUDE_CODE_SESSION', 'CLAUDE_CODE_CHILD', 'CLAUDE_CODE_MESSAGING', 'NEBULA_', 'AGENT_OFFICE_'];
+const scrubbed = (k: string) => SCRUB_ENV.has(k) || SCRUB_PREFIXES.some((p) => k.startsWith(p));
 
 const SCROLLBACK = 3000;
 const SCREEN_INTERVAL_MS = 250;
@@ -311,7 +315,7 @@ export class WorkerManager {
       if (prompt) args.push(prompt);
     }
     const env: Record<string, string> = {};
-    for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !SCRUB_ENV.includes(k)) env[k] = v;
+    for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !scrubbed(k)) env[k] = v;
     Object.assign(env, {
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
