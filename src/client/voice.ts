@@ -22,7 +22,7 @@ type Signal = { description?: RTCSessionDescriptionInit; candidate?: RTCIceCandi
  * Uses the "perfect negotiation" pattern so either side can add tracks at any time.
  */
 export class Voice {
-  private conns = new Map<string, Conn>();
+  readonly conns = new Map<string, Conn>();
   private mic: MediaStream | null = null;
   private screen: MediaStream | null = null;
   private audioCtx: AudioContext | null = null;

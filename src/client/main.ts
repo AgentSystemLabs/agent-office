@@ -736,3 +736,4 @@ if (saved) {
 
 // Debug handle for quick checks from the console / headless screenshots.
 (window as any).__office = { store, player, camera, workerViews, scene, net, renderer };
+(window as any).__voice = voice;
