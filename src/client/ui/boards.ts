@@ -49,7 +49,7 @@ function card(n: number, title: string, meta: (Node | string)[], i: number, oncl
     { style: `--tilt:${TILTS[n % TILTS.length]};background:${NOTE_COLORS[n % NOTE_COLORS.length]};--pin:${['#ef476f', '#118ab2', '#06d6a0', '#ffd166'][i % 4]}`, tabindex: 0, onclick, onkeydown: ((e: KeyboardEvent) => e.key === 'Enter' && onclick()) as EventListener },
     h('div.num', {}, `#${n}`),
     h('div.ttl', {}, title),
-    h('div.meta', {}, ...meta),
+    h('div.meta', {}, ...meta.filter((m) => m !== '').map((m) => (typeof m === 'string' ? h('span', {}, m) : m))),
   );
 }
 
@@ -128,7 +128,7 @@ function detailModal(title: string, rows: (Node | string)[], bodyText: string, u
     'div.modal.detail',
     { role: 'dialog', 'aria-label': title, style: 'width:min(720px,100%)' },
     h('header', {}, h('h2', {}, title), close),
-    h('div.body', {}, h('div.row', {}, ...rows), bodyText.trim() ? h('pre', {}, bodyText) : h('p.empty', {}, 'No description.')),
+    h('div.body', {}, h('div.row', {}, ...rows.filter((r) => r !== '').map((r) => (typeof r === 'string' ? h('span', {}, r) : r))), bodyText.trim() ? h('pre', {}, bodyText) : h('p.empty', {}, 'No description.')),
     h('footer', {}, h('a', { href: url, target: '_blank', rel: 'noopener', class: 'grow' }, 'Open on GitHub ↗'), ...buttons),
   );
   const modal = openModal(el);

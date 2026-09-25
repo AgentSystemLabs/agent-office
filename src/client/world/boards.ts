@@ -63,10 +63,13 @@ export class BoardTexture {
       this.texture.needsUpdate = true;
       return;
     }
-    const cols = 5;
-    const rows = 3;
-    const nw = 208;
-    const nh = 164;
+    // Fewer notes -> bigger notes, so a quiet board is still readable from across the room.
+    const n = Math.min(open.length, 15);
+    const cols = n <= 2 ? n : n <= 4 ? 2 : n <= 6 ? 3 : n <= 8 ? 4 : 5;
+    const rows = Math.min(3, Math.ceil(n / cols));
+    const scale = Math.min(2, Math.max(1, 3 / Math.max(cols, rows * 1.3)));
+    const nw = Math.min(208 * scale, (W - 40) / cols - 30);
+    const nh = Math.min(164 * scale, (H - 40) / rows - 30);
     const gx = (W - cols * nw) / (cols + 1);
     const gy = (H - rows * nh) / (rows + 1);
     open.slice(0, cols * rows).forEach((it, i) => {
@@ -83,10 +86,11 @@ export class BoardTexture {
       g.fillStyle = draft ? '#e9ecef' : NOTE_COLORS[it.number % NOTE_COLORS.length];
       g.fillRect(-nw / 2, -nh / 2, nw, nh);
       g.fillStyle = '#2b2d42';
-      g.font = '900 30px Nunito, ui-rounded, system-ui, sans-serif';
-      g.fillText(`#${it.number}`, -nw / 2 + 14, -nh / 2 + 44);
-      g.font = '700 22px Nunito, ui-rounded, system-ui, sans-serif';
-      wrap(g, it.title, nw - 28, 4).forEach((line, li) => g.fillText(line, -nw / 2 + 14, -nh / 2 + 76 + li * 24));
+      const fs = Math.round(22 * Math.min(scale, nh / 164));
+      g.font = `900 ${Math.round(fs * 1.35)}px Nunito, ui-rounded, system-ui, sans-serif`;
+      g.fillText(`#${it.number}`, -nw / 2 + 14, -nh / 2 + fs * 2);
+      g.font = `700 ${fs}px Nunito, ui-rounded, system-ui, sans-serif`;
+      wrap(g, it.title, nw - 28, Math.max(2, Math.floor((nh - fs * 3) / (fs * 1.1)))).forEach((line, li) => g.fillText(line, -nw / 2 + 14, -nh / 2 + fs * 3.4 + li * fs * 1.1));
       g.beginPath();
       g.arc(0, -nh / 2 + 10, 11, 0, Math.PI * 2);
       g.fillStyle = PINS[i % PINS.length];

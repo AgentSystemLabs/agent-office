@@ -621,6 +621,11 @@ voice.onChange(() => {
   refreshShares();
 });
 
+// Buttons must not keep focus, or Space (jump) would click them again.
+$('hud').addEventListener('click', (e) => {
+  const btn = (e.target as HTMLElement).closest('button');
+  if (btn) setTimeout(() => btn.blur(), 0);
+});
 $('btn-voice').addEventListener('click', () => void toggleVoice());
 $('btn-mute').addEventListener('click', () => voice.toggleMute());
 $('btn-share').addEventListener('click', () => void toggleShare());
