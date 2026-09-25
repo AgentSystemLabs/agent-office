@@ -1,0 +1,19 @@
+:root { --bg: #ffe8cc; --ink: #2b2d42; --card: #fffaf3; --accent: #ff8a5b; --muted: #7a6f65; --border: #2b2d42; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: radial-gradient(circle at 20% 20%, #ffd6a5 0, transparent 40%), radial-gradient(circle at 80% 70%, #caffbf 0, transparent 45%), var(--bg);
+  font-family: 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
+  color: var(--ink); display: grid; place-items: center; padding: 16px;
+}
+.card { width: min(380px, 100%); background: var(--card); border: 3px solid var(--border); border-radius: 22px; padding: 28px; box-shadow: 0 8px 0 var(--border); text-align: center; }
+.logo { display: grid; place-items: center; }
+h1 { margin: 8px 0 4px; font-size: 28px; }
+.sub { margin: 0 0 20px; color: var(--muted); }
+label { display: block; text-align: left; font-weight: 700; font-size: 14px; }
+input { width: 100%; margin-top: 6px; padding: 12px 14px; font-size: 16px; border: 3px solid var(--border); border-radius: 12px; background: #fff; color: var(--ink); outline: none; }
+input:focus { border-color: var(--accent); }
+button { margin-top: 16px; width: 100%; padding: 12px; font-size: 16px; font-weight: 800; border: 3px solid var(--border); border-radius: 12px; background: var(--accent); color: #fff; cursor: pointer; box-shadow: 0 4px 0 var(--border); }
+button:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--border); }
+button:disabled { opacity: .6; cursor: default; }
+.error { min-height: 1.2em; color: #c3423f; font-weight: 700; margin: 12px 0 0; }

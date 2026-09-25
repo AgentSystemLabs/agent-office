@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Office</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="scene"></canvas>
+      <div id="hud">
+        <header class="topbar">
+          <div class="project panel">
+            <div class="project-name" id="project-name">Agent Office</div>
+            <div class="project-meta" id="project-meta"></div>
+          </div>
+          <div class="controls panel">
+            <button id="btn-voice" class="btn" title="Join voice (V)">🎙️ <span>Join voice</span></button>
+            <button id="btn-mute" class="btn hidden" title="Mute (M)">🔇</button>
+            <button id="btn-share" class="btn" title="Share your screen">🖥️ <span>Share screen</span></button>
+            <button id="btn-issues" class="btn" title="Issues board">📌 Issues</button>
+            <button id="btn-pulls" class="btn" title="Pull requests board">🔀 PRs</button>
+            <button id="btn-help" class="btn" title="Controls (H)">❓</button>
+          </div>
+        </header>
+        <aside class="side">
+          <section class="panel people">
+            <h3>In the office <span id="people-count" class="count"></span></h3>
+            <ul id="people"></ul>
+          </section>
+          <section class="panel workers">
+            <h3>Workers <span id="worker-count" class="count"></span></h3>
+            <ul id="workers"></ul>
+          </section>
+        </aside>
+        <section class="chat panel" id="chat">
+          <ul id="chat-log"></ul>
+          <input id="chat-input" maxlength="500" placeholder="Press T to chat" autocomplete="off" />
+        </section>
+        <div id="hint" class="hint hidden"></div>
+        <div id="toasts"></div>
+        <div id="shares"></div>
+        <div id="conn" class="conn hidden">Reconnecting…</div>
+      </div>
+      <div id="modal-root"></div>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
