@@ -1,7 +1,7 @@
 import type { GhCheck, GhComment, GhIssue, GhIssueDetail, GhMergeMethod, GhPull, GhPullDetail, GhReviewComment, ServerMsg } from '../../shared/protocol';
 import type { Net } from '../net';
-import { AVATAR_COLORS, store } from '../state';
-import type { BoardActions } from './boards';
+import { AVATAR_COLORS, store, workerForPull } from '../state';
+import { issuePrompt, type BoardActions } from './boards';
 import { h, openModal, timeAgo, type Modal } from './dom';
 import { markdown, repoUrlOf } from './markdown';
 import { buildTree, looksGenerated, parseDiff, renderFileDiff, renderThread, repliesOf, Reviewed, STATUS_WORD, treeOrder, type DiffFile, type TreeDir } from './pulldiff';
@@ -385,8 +385,10 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
     const conflicts = !!detail && conflicted(detail);
     const merge = h(conflicts ? 'button.btn' : 'button.btn.primary', { type: 'button', disabled: !detail, title: detail ? 'Merge this pull request' : 'Loading…' }, '🔀 Merge…');
     merge.addEventListener('click', () => detail && openMerge(it, detail, net, handToWorker, loadAll));
+    const w = workerForPull(store.workers.values(), it);
     footBtns.replaceChildren(
       ...nodes(
+      w ? h('button.btn', { type: 'button', onclick: () => actions.goToDesk(w.deskId) }, `🪑 Go to ${w.name}'s desk`) : null,
       h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this PR', onclick: () => actions.ask(pullContext(it), `Ask about PR #${it.number}`) }, '✍️ Ask a worker…'),
       isOpen ? h('button.btn', { type: 'button', onclick: () => actions.assign(reviewPrompt(it), `Review PR #${it.number}`) }, '🔍 Review') : null,
       conflicts
@@ -798,6 +800,16 @@ export function openIssue(it: GhIssue, actions: BoardActions) {
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const conv = h('div.gh-conv');
   const [word, cls] = it.state === 'OPEN' ? ['open', 'done'] : ['closed', 'offline'];
+  const task = store.taskForIssue(it.number);
+  const onQueue = !!task && task.status !== 'done';
+  const queue =
+    it.state === 'OPEN'
+      ? h(
+          'button.btn',
+          { type: 'button', disabled: onQueue, title: onQueue ? undefined : 'A worker picks it up by itself when a desk is free and there is room under the worker limit', onclick: () => (modal.close(), actions.queue(issuePrompt(it), `#${it.number} ${it.title}`, it.number)) },
+          onQueue ? (task!.status === 'running' ? `🤖 ${task!.workerName ?? 'A worker'} is on it` : '📋 On the queue') : '📋 Add to queue',
+        )
+      : null;
   const el = h(
     'div.modal.gh-window.issue',
     { role: 'dialog', 'aria-label': `Issue #${it.number}` },
@@ -817,18 +829,8 @@ export function openIssue(it: GhIssue, actions: BoardActions) {
       {},
       h('a.grow', { href: it.url, target: '_blank', rel: 'noopener noreferrer' }, 'Open on GitHub ↗'),
       h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this issue', onclick: () => actions.ask(issueContext(it), `Ask about issue #${it.number}`) }, '✍️ Ask a worker…'),
-      h(
-        'button.btn.primary',
-        {
-          type: 'button',
-          onclick: () =>
-            actions.assign(
-              `Work on GitHub issue #${it.number}: "${it.title}".\n\nRead it first with \`gh issue view ${it.number} --comments\`. Create a new branch, implement the change, verify it, then open a pull request that closes #${it.number}.`,
-              `Hand issue #${it.number} to a worker`,
-            ),
-        },
-        '🤖 Hand to a worker',
-      ),
+      queue,
+      h('button.btn.primary', { type: 'button', onclick: () => actions.assign(issuePrompt(it), `Hand issue #${it.number} to a worker`) }, '🤖 Hand to a worker'),
     ),
   );
   const render = () => {

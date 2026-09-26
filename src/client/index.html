@@ -23,6 +23,7 @@
             <button id="btn-issues" class="btn" title="Issues board">📌 Issues</button>
             <button id="btn-pulls" class="btn" title="Pull requests board">🔀 PRs</button>
             <button id="btn-services" class="btn" title="Web servers the workers are running">🌐 Services</button>
+            <button id="btn-queue" class="btn" title="Task queue: issues and tasks waiting for a worker">📋 Queue</button>
             <button id="btn-team" class="btn hidden" title="Invite teammates">👥 Invite</button>
             <button id="btn-upgrade" class="btn hidden" title="Upgrade the office">⬆️</button>
             <button id="btn-decor" class="btn" title="Hang a picture on a wall (F)">🖼️</button>
@@ -36,8 +37,9 @@
             <ul id="people"></ul>
           </section>
           <section class="panel workers">
-            <h3>Workers <span id="worker-count" class="count"></span></h3>
+            <h3>Workers <span id="worker-count" class="count"></span><span id="workers-cost" class="cost" title="Spent by the workers at their desks"></span></h3>
             <ul id="workers"></ul>
+            <div id="usage" class="usage hidden"></div>
           </section>
         </aside>
         <section class="chat panel" id="chat">

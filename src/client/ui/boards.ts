@@ -1,6 +1,7 @@
-import type { GhIssue, GhPull } from '../../shared/protocol';
+import { DESK_BY_ID } from '../../shared/layout';
+import type { GhIssue, GhPull, WorkerInfo } from '../../shared/protocol';
 import type { Net } from '../net';
-import { store } from '../state';
+import { store, workerForPull } from '../state';
 import { h, openModal, timeAgo } from './dom';
 import { labelChip, openIssue, openPull } from './pull';
 
@@ -9,6 +10,15 @@ export interface BoardActions {
   assign(prompt: string, title: string): void;
   /** Your own prompt about an issue or PR; `context` goes first so the worker knows which. */
   ask(context: string, title: string): void;
+  /** Walks you to the desk a pull request came from. */
+  goToDesk(deskId: string): void;
+  /** Put an issue on the 📋 task queue; a worker is seated for it when there's room. */
+  queue(prompt: string, title: string, issue: number): void;
+}
+
+/** The task a worker gets for an issue, from the board or the queue. */
+export function issuePrompt(it: GhIssue): string {
+  return `Work on GitHub issue #${it.number}: "${it.title}".\n\nRead it first with \`gh issue view ${it.number} --comments\`. Create a new branch, implement the change, verify it, then open a pull request that closes #${it.number}.`;
 }
 
 const TILTS = ['-1.2deg', '0.8deg', '-0.4deg', '1.4deg', '0deg', '-0.9deg'];
@@ -21,7 +31,7 @@ interface Column<T> {
 
 function issueColumns(items: GhIssue[]): Column<GhIssue>[] {
   const open = items.filter((i) => i.state === 'OPEN');
-  const inProgress = open.filter((i) => i.assignees.length > 0 || i.labels.some((l) => /progress|doing|wip|started/i.test(l.name)));
+  const inProgress = open.filter((i) => i.assignees.length > 0 || i.labels.some((l) => /progress|doing|wip|started/i.test(l.name)) || store.taskForIssue(i.number)?.status === 'running');
   const todo = open.filter((i) => !inProgress.includes(i));
   const closed = items.filter((i) => i.state !== 'OPEN').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 40);
   return [
@@ -47,6 +57,20 @@ function labelChips(labels: { name: string; color: string }[]) {
 }
 
 const CHECK_ICON: Record<GhPull['checks'], string> = { pass: '🟢', fail: '🔴', pending: '🟡', none: '' };
+
+/** A chip naming the worker and desk a pull request came from. */
+function deskChip(w: WorkerInfo) {
+  return h('span.desk-link', { style: `--dot:${w.color}`, title: `Opened from ${w.name}'s desk (${w.worktree?.branch ?? 'its branch'})` }, `🪑 ${w.name} · ${DESK_BY_ID.get(w.deskId)?.label ?? 'a desk'}`);
+}
+
+/** Where an issue stands on the 📋 queue, for its card. */
+function queueChip(issue: number): Node | '' {
+  const t = store.taskForIssue(issue);
+  if (!t) return '';
+  if (t.status === 'queued') return h('span.qchip', {}, store.queue.tasks.find((x) => x.status === 'queued') === t ? '📋 up next' : '📋 queued');
+  if (t.status === 'running') return h('span.qchip.running', {}, `🤖 ${t.workerName ?? 'a worker'}`);
+  return t.pr ? h('span.qchip.done', {}, `🔀 PR #${t.pr.number}`) : '';
+}
 
 function card(n: number, title: string, meta: (Node | string)[], i: number, onclick: () => void) {
   return h(
@@ -78,7 +102,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
         const ul = h('ul');
         col.items.forEach((it, i) =>
           ul.append(
-            card(it.number, it.title, [...labelChips(it.labels), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, actions)),
+            card(it.number, it.title, [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, actions)),
           ),
         );
         if (!col.items.length) ul.append(h('li.empty', {}, 'Nothing here'));
@@ -87,12 +111,14 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
     } else {
       for (const col of pullColumns(store.pulls.items)) {
         const ul = h('ul');
-        col.items.forEach((it, i) =>
+        col.items.forEach((it, i) => {
+          const w = workerForPull(store.workers.values(), it);
           ul.append(
             card(
               it.number,
               it.title,
               [
+                w ? deskChip(w) : '',
                 ...labelChips(it.labels),
                 `by ${it.author}`,
                 it.reviewDecision === 'CHANGES_REQUESTED' ? '🛠 changes requested' : '',
@@ -104,22 +130,24 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
               i,
               () => openPull(it, net, actions),
             ),
-          ),
-        );
+          );
+        });
         if (!col.items.length) ul.append(h('li.empty', {}, 'Nothing here'));
         body.append(h('section.column', {}, h('h4', {}, col.title, h('span', {}, String(col.items.length))), ul));
       }
     }
   };
 
-  const unsub = store.on(kind, render);
+  const unsubs = [store.on(kind, render), store.on('queue', render)];
+  // Which desk a PR came from can change (a worker sent home, a PR opened from a desk).
+  if (kind === 'pulls') unsubs.push(store.on('workers', render));
   const timer = setInterval(() => {
     const st = kind === 'issues' ? store.issues : store.pulls;
     status.textContent = st.loading ? 'Refreshing…' : st.fetchedAt ? `Updated ${timeAgo(st.fetchedAt)}` : '';
   }, 15000);
   const modal = openModal(el, {
     onClose: () => {
-      unsub();
+      unsubs.forEach((u) => u());
       clearInterval(timer);
     },
   });

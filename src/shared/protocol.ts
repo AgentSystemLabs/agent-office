@@ -33,8 +33,15 @@ export interface WorkerInfo {
   createdBy: string;
   createdAt: number;
   prompt?: string;
-  /** Set when the worker runs in its own git worktree (path relative to the office dir). */
-  worktree?: { path: string; branch: string; base: string };
+  /**
+   * Set when the worker runs in its own git worktree (path relative to the office dir). `from` is
+   * the branch the office was on when the worktree was cut, which its pull request targets.
+   */
+  worktree?: { path: string; branch: string; base: string; from?: string };
+  /** The pull request opened from this desk for the worktree branch (see 'worker.pr'). */
+  pr?: { number: number; url: string };
+  /** True while the branch is being pushed and its pull request opened. */
+  prOpening?: boolean;
   title?: string;
   sessionId?: string;
   exitCode?: number;
@@ -46,6 +53,54 @@ export interface WorkerInfo {
   activity?: string;
   /** Written by a small model from its prompts and recent tool calls (see server/tasks.ts). */
   task?: WorkerTask;
+  /** Tokens and cost of its Claude session so far, subagents included (agents only). */
+  usage?: Usage;
+}
+
+/** Tokens and what they cost, summed over a Claude Code session or the whole office. */
+export interface Usage {
+  /** Input tokens that missed the prompt cache. */
+  input: number;
+  output: number;
+  /** Tokens written to the prompt cache. */
+  cacheWrite: number;
+  /** Tokens read from the prompt cache. */
+  cacheRead: number;
+  /** USD: estimated from the office's price list while a session runs, Claude Code's own figure once it has ended. */
+  cost: number;
+  /** API calls (assistant messages) counted. */
+  calls: number;
+}
+
+/** Spend across the whole office, kept on disk (see server/usage.ts). */
+export interface UsageState {
+  /** Every worker the office ever ran, including ones sent home. */
+  total: Usage;
+  /** Since midnight on the office's machine. */
+  today: Usage;
+  /** The day `today` covers, YYYY-MM-DD on the office's machine. */
+  day: string;
+  /** Daily budget in USD (--budget), when one is set. */
+  budget?: number;
+  /** New hires are refused for the rest of the day once the budget is spent (--budget-pause). */
+  pauseHiring: boolean;
+}
+
+/** What becomes of a worker's git worktree when it is sent home. */
+export type WorktreeCleanup = 'keep' | 'worktree' | 'all';
+
+/** What a worker's worktree holds, so whoever sends it home knows what deleting it would lose. */
+export interface WorktreeState {
+  /** The worktree folder is still there. */
+  exists: boolean;
+  /** Files with uncommitted changes, new ones included. */
+  dirty: number;
+  /** Commits on its branch since it was made. */
+  ahead: number;
+  /** Commits only its branch has: on no remote, and not in the office's own checkout. */
+  unpushed: number;
+  /** Set when git couldn't tell, e.g. the branch is gone. */
+  error?: string;
 }
 
 export interface PeerInfo {
@@ -103,6 +158,40 @@ export interface GhPull {
   deletions: number;
   checks: 'pass' | 'fail' | 'pending' | 'none';
   body: string;
+  /** Issues it closes ("closes #12" in its description), as GitHub links them. */
+  closes: number[];
+}
+
+export type TaskStatus = 'queued' | 'running' | 'done';
+
+/** A task on the 📋 queue whiteboard: a GitHub issue or free text, seated to a worker by itself. */
+export interface QueueTask {
+  id: string;
+  /** The GitHub issue it came from, when it did. */
+  issue?: number;
+  title: string;
+  prompt: string;
+  addedBy: string;
+  addedAt: number;
+  status: TaskStatus;
+  /** The worker seated for it (it may have gone home since). */
+  workerId?: string;
+  workerName?: string;
+  /** The worker's own branch, when it got a worktree. */
+  branch?: string;
+  startedAt?: number;
+  finishedAt?: number;
+  /** How it ended: the worker finished its turn, stopped or fell asleep, was sent home, or never started. */
+  outcome?: 'done' | 'exited' | 'killed' | 'failed';
+  error?: string;
+  /** The pull request that closes the issue, or was opened from the worker's branch. */
+  pr?: { number: number; url: string; state: string; title: string };
+}
+
+export interface QueueState {
+  tasks: QueueTask[];
+  /** How many workers the queue may keep busy at once; 0 pauses it. */
+  maxWorkers: number;
 }
 
 export interface GhState<T> {
@@ -234,6 +323,50 @@ export interface ServicesState {
   ssh?: string;
 }
 
+export type ChangeStatus = 'M' | 'A' | 'D' | 'R' | 'T' | '?';
+
+/** One file a worker changed, against the base of its branch. */
+export interface ChangedFile {
+  path: string;
+  /** The old path, when the file was renamed. */
+  from?: string;
+  /** M modified, A added, D deleted, R renamed, T type changed, ? untracked (new, never committed). */
+  status: ChangeStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  /** Not committed yet: staged, unstaged or untracked. */
+  uncommitted: boolean;
+  /** Fingerprint of the working copy (size and mtime); a new value means the diff changed. */
+  sig: string;
+}
+
+/** What a worker changed in its checkout, against the branch the office was opened on. */
+export interface ChangesState {
+  workerId: string;
+  /** The checkout, relative to the office dir ('' is the project folder itself, shared by everyone). */
+  dir: string;
+  /** Current branch of that checkout ('HEAD' when detached). */
+  branch?: string;
+  /** What the diff is against: the base branch, an upstream, or 'HEAD' (uncommitted changes only). */
+  base: string;
+  /** Commits on the branch since the base. */
+  ahead: number;
+  /** Subject of the newest commit, when ahead > 0. */
+  subject?: string;
+  files: ChangedFile[];
+  /** Files left out because there were more than the office lists. */
+  more: number;
+  /** The branch a pull request would target, when this checkout is on a branch of its own. */
+  prBase?: string;
+  /** An open pull request for the branch. */
+  pr?: { number: number; url: string };
+  /** A commit, discard or pull request in progress. */
+  busy?: string;
+  error?: string;
+  at: number;
+}
+
 export interface VersionInfo {
   sha: string;
   subject: string;
@@ -275,21 +408,42 @@ export type ClientMsg =
   | { t: 'profile'; name: string; color: string; look: Look }
   | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind }
   | { t: 'worker.resume'; workerId: string }
-  | { t: 'worker.kill'; workerId: string }
+  | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
+  /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
+  | { t: 'worker.worktree'; workerId: string }
   | { t: 'worker.attach'; workerId: string }
   | { t: 'worker.detach'; workerId: string }
   | { t: 'worker.prompt'; workerId: string; prompt: string }
+  /** Push a worktree worker's branch and open a pull request for it, drafted from its task. */
+  | { t: 'worker.pr'; workerId: string }
   | { t: 'term.input'; workerId: string; data: string }
   | { t: 'term.resize'; workerId: string; cols: number; rows: number }
   | { t: 'gh.refresh' }
   /** Merge a pull request; the answer comes back as gh.merged. */
   | { t: 'gh.merge'; number: number; method: GhMergeMethod; deleteBranch: boolean; auto?: boolean }
+  | { t: 'queue.add'; prompt: string; title?: string; issue?: number }
+  | { t: 'queue.remove'; taskId: string }
+  /** Move a queued task up (-1) or down (+1) the queue. */
+  | { t: 'queue.move'; taskId: string; delta: number }
+  /** Put a finished task back on the queue. */
+  | { t: 'queue.retry'; taskId: string }
+  /** Forget the finished tasks. */
+  | { t: 'queue.clear' }
+  | { t: 'queue.limit'; maxWorkers: number }
   | { t: 'voice'; voice: boolean; muted: boolean; sharing: boolean }
   | { t: 'rtc'; to: string; data: unknown }
   | { t: 'chat'; text: string }
   | { t: 'team.get' }
   | { t: 'team.invite'; github: string }
   | { t: 'team.remove'; name: string }
+  /** Follow what a worker changed (the office polls its checkout while anyone watches). */
+  | { t: 'changes.watch'; workerId: string }
+  | { t: 'changes.unwatch'; workerId: string }
+  | { t: 'changes.diff'; workerId: string; path: string }
+  | { t: 'changes.commit'; workerId: string; message: string }
+  /** Without a path, throws away every uncommitted change in that checkout. */
+  | { t: 'changes.discard'; workerId: string; path?: string }
+  | { t: 'changes.pr'; workerId: string; title: string; body: string }
   | { t: 'upgrade.check' }
   | { t: 'upgrade.start' }
   /** Hang a picture on a wall. */
@@ -318,6 +472,8 @@ export type ServerMsg =
       services: ServicesState;
       /** Pictures on the walls. */
       decor: Decoration[];
+      usage: UsageState;
+      queue: QueueState;
     }
   | { t: 'peer.join'; peer: PeerInfo }
   | { t: 'peer.update'; peer: PeerInfo }
@@ -326,6 +482,7 @@ export type ServerMsg =
   | { t: 'peer.act'; id: string }
   | { t: 'worker.update'; worker: WorkerInfo }
   | { t: 'worker.remove'; workerId: string }
+  | { t: 'worker.worktree'; workerId: string; state: WorktreeState }
   | { t: 'screen'; workerId: string; cols: number; rows: number; lines: Record<number, Run[]>; full: boolean; cursor: [number, number] }
   | { t: 'term.snapshot'; workerId: string; data: string; cols: number; rows: number }
   | { t: 'term.data'; workerId: string; data: string }
@@ -340,6 +497,11 @@ export type ServerMsg =
   | { t: 'upgrade'; state: UpgradeState }
   | { t: 'services'; state: ServicesState }
   | { t: 'decor'; items: Decoration[] }
+  | { t: 'usage'; state: UsageState }
+  | { t: 'queue'; state: QueueState }
+  /** Sent to whoever watches that worker's changes, whenever they change. */
+  | { t: 'changes'; state: ChangesState }
+  | { t: 'changes.diff'; workerId: string; path: string; diff: string; truncated: boolean; error?: string }
   /** Sent to whoever asked for the invite. */
   | { t: 'team.invited'; github: string; name?: string; keys?: number; error?: string }
   | { t: 'pong'; at: number };

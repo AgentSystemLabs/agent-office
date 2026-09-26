@@ -14,6 +14,9 @@ import { Team } from './team.js';
 import { Upgrader } from './upgrade.js';
 import { Services } from './services.js';
 import { Decor, ImageProxy } from './decor.js';
+import { Ledger } from './usage.js';
+import { TaskQueue } from './queue.js';
+import { Changes } from './changes.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import type { ChatLine, ClientMsg, PeerInfo, ProjectInfo, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { SPAWN } from '../shared/layout.js';
@@ -33,6 +36,8 @@ const MIME: Record<string, string> = {
   '.mp3': 'audio/mpeg',
   '.ogg': 'audio/ogg',
 };
+
+const CLEANUPS = new Set(['keep', 'worktree', 'all']);
 
 interface Client {
   id: string;
@@ -132,6 +137,8 @@ export async function startServer(cfg: Config) {
 
   // --- Loopback-only endpoint that Claude Code hooks POST to --------------------------------
   let workers!: WorkerManager;
+  let queue!: TaskQueue;
+  let changes!: Changes;
   const hookServer = http.createServer(async (req, res) => {
     let url: URL;
     try {
@@ -154,6 +161,14 @@ export async function startServer(cfg: Config) {
   await new Promise<void>((resolve) => hookServer.listen(0, '127.0.0.1', resolve));
   const hookPort = (hookServer.address() as { port: number }).port;
 
+  // What the workers spend, all time and today, with the optional daily budget.
+  const ledger = new Ledger(
+    cfg.dataDir,
+    { budget: cfg.budget, pauseHiring: cfg.budgetPause },
+    (state) => broadcast({ t: 'usage', state }),
+    (text, level) => broadcast({ t: 'toast', text, level }),
+  );
+
   workers = new WorkerManager(
     cfg.dir,
     cfg.dataDir,
@@ -161,8 +176,15 @@ export async function startServer(cfg: Config) {
     cfg.agentArgs,
     { url: `http://127.0.0.1:${hookPort}`, token: '' },
     {
-      update: (worker) => broadcast({ t: 'worker.update', worker }),
-      remove: (workerId) => broadcast({ t: 'worker.remove', workerId }),
+      update: (worker) => {
+        broadcast({ t: 'worker.update', worker });
+        queue?.onWorker(worker);
+      },
+      remove: (workerId) => {
+        changes.forget(workerId);
+        broadcast({ t: 'worker.remove', workerId });
+        queue?.onWorkerGone(workerId);
+      },
       data: (workerId, data, viewers) => {
         const json = JSON.stringify({ t: 'term.data', workerId, data } satisfies ServerMsg);
         for (const id of viewers) {
@@ -177,14 +199,51 @@ export async function startServer(cfg: Config) {
       screen: (workerId, frame) => broadcast({ t: 'screen', workerId, ...frame }, undefined, true),
       toast: (text, level) => broadcast({ t: 'toast', text, level }),
     },
+    ledger,
   );
 
   const github = new GitHub(
     cfg.dir,
     (state) => broadcast({ t: 'gh.issues', state }),
-    (state) => broadcast({ t: 'gh.pulls', state }),
+    (state) => {
+      broadcast({ t: 'gh.pulls', state });
+      queue?.onPulls(state.items);
+    },
   );
+  // The 📋 task queue seats workers by itself: it watches the workers and links PRs from GitHub.
+  queue = new TaskQueue(cfg.dataDir, workers, !!project.branch, {
+    update: (state) => broadcast({ t: 'queue', state }),
+    toast: (text, level) => broadcast({ t: 'toast', text, level }),
+    claimIssue: (issue) => github.claim(issue),
+    refreshGitHub: () => void github.refresh(),
+    hiringPaused: () => ledger.hiringPaused,
+  });
   github.start();
+
+  // What each worker changed, for the Changes window at its desk (see changes.ts).
+  changes = new Changes(
+    cfg.dir,
+    project.branch,
+    (workerId) => {
+      const w = workers.get(workerId);
+      if (!w) return undefined;
+      return { name: w.name, cwd: w.worktree ? path.join(cfg.dir, w.worktree.path) : cfg.dir, rel: w.worktree?.path ?? '', worktreeBase: w.worktree?.base };
+    },
+    (branch) => {
+      const pr = github.pulls.items.find((p) => p.state === 'OPEN' && p.headRefName === branch);
+      return pr ? { number: pr.number, url: pr.url } : undefined;
+    },
+    {
+      state: (state, ids) => {
+        for (const id of ids) {
+          const c = clients.get(id);
+          if (c) sendTo(c, { t: 'changes', state });
+        }
+      },
+      toast: (text, level) => broadcast({ t: 'toast', text, level }),
+      refreshGitHub: () => void github.refresh(),
+    },
+  );
 
   const team = new Team(cfg.publicHost, cfg.port);
 
@@ -422,6 +481,8 @@ export async function startServer(cfg: Config) {
       upgrade: upgrader.state,
       services: servicesState(),
       decor: decor.list(),
+      usage: ledger.state(),
+      queue: queue.state(),
     });
     for (const { workerId, frame } of workers.fullScreens()) sendTo(client, { t: 'screen', workerId, ...frame, full: true });
     broadcast({ t: 'peer.join', peer: client.peer }, id);
@@ -441,6 +502,7 @@ export async function startServer(cfg: Config) {
     ws.on('close', () => {
       clients.delete(id);
       workers.detachAll(id);
+      changes.unwatchAll(id);
       broadcast({ t: 'peer.leave', id });
     });
     ws.on('error', () => ws.terminate());
@@ -508,10 +570,21 @@ export async function startServer(cfg: Config) {
       }
       case 'worker.kill': {
         const w = workers.get(str(msg.workerId, 32));
-        if (w) {
-          workers.kill(w.id);
-          broadcast({ t: 'toast', text: `${who} sent ${w.name} home`, level: 'info' });
-        }
+        if (!w) break;
+        // The worker leaves right away; its worktree is dealt with after that, and the outcome follows.
+        const done = workers.kill(w.id, CLEANUPS.has(String(msg.cleanup)) ? msg.cleanup : undefined);
+        broadcast({ t: 'toast', text: `${who} sent ${w.name} home`, level: 'info' });
+        void done.then(({ note, error }) => {
+          if (note) broadcast({ t: 'toast', text: note, level: 'info' });
+          if (error) broadcast({ t: 'toast', text: error, level: 'warn' });
+        });
+        break;
+      }
+      case 'worker.worktree': {
+        const wid = str(msg.workerId, 32);
+        void workers.inspectWorktree(wid).then((state) => {
+          if (state) sendTo(c, { t: 'worker.worktree', workerId: wid, state });
+        });
         break;
       }
       case 'worker.attach': {
@@ -534,6 +607,21 @@ export async function startServer(cfg: Config) {
         if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
         break;
       }
+      case 'worker.pr': {
+        const wid = str(msg.workerId, 32);
+        void workers.openPr(wid, who).then((r) => {
+          if (typeof r === 'string') return sendTo(c, { t: 'toast', text: r, level: 'warn' });
+          const name = workers.get(wid)?.name ?? 'the worker';
+          broadcast({ t: 'toast', text: r.existed ? `${name}'s branch already has PR #${r.number}` : `${who} opened PR #${r.number} for ${name}`, level: 'info' });
+          if (r.dirty) sendTo(c, { t: 'toast', text: `${name} still has uncommitted changes in its worktree — they are not in the PR`, level: 'warn' });
+          // Put it on the board now rather than at the next poll. A refresh already in flight
+          // returns at once and can miss it, so look again shortly after.
+          void github.refresh().then(() => {
+            if (!github.pulls.items.some((p) => p.number === r.number)) setTimeout(() => void github.refresh(), 3000);
+          });
+        });
+        break;
+      }
       case 'term.input':
         if (c.attached.has(msg.workerId)) workers.write(msg.workerId, str(msg.data, 64 * 1024));
         break;
@@ -553,6 +641,62 @@ export async function startServer(cfg: Config) {
         });
         break;
       }
+      case 'queue.add': {
+        const issue = Number.isInteger(msg.issue) && (msg.issue as number) > 0 ? (msg.issue as number) : undefined;
+        const err = queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue);
+        if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+        else broadcast({ t: 'toast', text: `📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`, level: 'info' });
+        break;
+      }
+      case 'queue.remove': {
+        const err = queue.remove(str(msg.taskId, 32));
+        if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+        break;
+      }
+      case 'queue.move':
+        queue.move(str(msg.taskId, 32), num(msg.delta) < 0 ? -1 : 1);
+        break;
+      case 'queue.retry': {
+        const err = queue.retry(str(msg.taskId, 32));
+        if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+        break;
+      }
+      case 'queue.clear':
+        queue.clear();
+        break;
+      case 'queue.limit':
+        queue.setLimit(num(msg.maxWorkers));
+        break;
+      case 'changes.watch':
+        if (workers.get(str(msg.workerId, 32))) changes.watch(str(msg.workerId, 32), c.id);
+        break;
+      case 'changes.unwatch':
+        changes.unwatch(str(msg.workerId, 32), c.id);
+        break;
+      case 'changes.diff': {
+        const workerId = str(msg.workerId, 32);
+        const file = str(msg.path, 4096);
+        void changes.diff(workerId, file).then((r) => {
+          if (typeof r === 'string') sendTo(c, { t: 'changes.diff', workerId, path: file, diff: '', truncated: false, error: r });
+          else sendTo(c, { t: 'changes.diff', workerId, path: file, ...r });
+        });
+        break;
+      }
+      case 'changes.commit':
+        void changes.commit(str(msg.workerId, 32), str(msg.message, 5000), who).then((err) => {
+          if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+        });
+        break;
+      case 'changes.discard':
+        void changes.discard(str(msg.workerId, 32), typeof msg.path === 'string' ? str(msg.path, 4096) : undefined, who).then((err) => {
+          if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+        });
+        break;
+      case 'changes.pr':
+        void changes.pullRequest(str(msg.workerId, 32), str(msg.title, 300), str(msg.body, 20000), who).then((err) => {
+          if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+        });
+        break;
       case 'upgrade.check':
         void upgrader.check();
         break;
@@ -645,7 +789,10 @@ export async function startServer(cfg: Config) {
     github.stop();
     upgrader.stop();
     services.stop();
+    queue.shutdown();
+    changes.stop();
     workers.shutdown();
+    ledger.flush();
     for (const c of clients.values()) c.ws.close();
     server.close();
     hookServer.close();

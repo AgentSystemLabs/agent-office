@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { DESK_BY_ID, DESKS, SPAWN } from '../shared/layout';
+import { DESK_BY_ID, DESKS, SPAWN, deskSeat } from '../shared/layout';
 import type { PeerInfo, WorkerInfo } from '../shared/protocol';
 import { Net } from './net';
 import { store, loadProfile, loadSettings, saveSettings, type Profile } from './state';
@@ -11,24 +11,27 @@ import { buildOffice, type InteractKind, type Interactable } from './world/offic
 import { Person, Worker } from './world/character';
 import { Hands } from './world/hands';
 import { Laptop } from './world/laptop';
-import { BoardTexture, ServicesBoardTexture } from './world/boards';
+import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import { Gallery } from './world/gallery';
 import { Hanger } from './hanging';
 import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
 import { OfficeSound } from './sound';
-import { $, h, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
+import { $, h, closeAllModals, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
-import { openPrompt, confirmDialog } from './ui/prompt';
+import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
+import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage } from './ui/prompt';
 import { openBoard } from './ui/boards';
-import { routePullMessage } from './ui/pull';
+import { openPull, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { mountServicesButton, openServices } from './ui/services';
+import { mountQueueButton, openQueue } from './ui/queue';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
 import { openHelp, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
 import { openCharacter } from './ui/character';
 import { openSettings } from './ui/settings';
+import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -81,9 +84,17 @@ for (const [meshKey, tex] of [
   mat.needsUpdate = true;
 }
 store.on('issues', () => issuesTex.render(store.issues));
-store.on('pulls', () => pullsTex.render(store.pulls));
+store.on('pulls', () => pullsTex.render(store.pulls, store.workers));
 issuesTex.render(store.issues);
-pullsTex.render(store.pulls);
+pullsTex.render(store.pulls, store.workers);
+// PR notes name the desk they came from. Redraw when that changes, not on every worker update.
+let deskLinks = '';
+store.on('workers', () => {
+  const k = JSON.stringify([...store.workers.values()].filter((w) => w.worktree).map((w) => [w.worktree!.branch, w.pr?.number, w.name, w.color, w.deskId]));
+  if (k === deskLinks) return;
+  deskLinks = k;
+  pullsTex.render(store.pulls, store.workers);
+});
 const servicesTex = new ServicesBoardTexture();
 const servicesMat = office.boardMeshes.services.material as THREE.MeshBasicMaterial;
 servicesMat.map = servicesTex.texture;
@@ -92,6 +103,14 @@ const renderServicesBoard = () => servicesTex.render(store.services.items, store
 store.on('services', renderServicesBoard);
 store.on('workers', renderServicesBoard);
 renderServicesBoard();
+const queueTex = new QueueBoardTexture();
+const queueMat = office.boardMeshes.queue.material as THREE.MeshBasicMaterial;
+queueMat.map = queueTex.texture;
+queueMat.needsUpdate = true;
+const renderQueueBoard = () => queueTex.render(store.queue, store.workers);
+store.on('queue', renderQueueBoard);
+store.on('workers', renderQueueBoard);
+renderQueueBoard();
 
 // Pictures people hung on the walls
 const gallery = new Gallery();
@@ -193,6 +212,7 @@ net.onMessage((msg) => {
   if (msg.t === 'welcome') voice.reset();
   store.apply(msg);
   routeTerminalMessage(msg);
+  routeChangesMessage(msg);
   routeTeamMessage(msg);
   routePullMessage(msg);
   switch (msg.t) {
@@ -206,6 +226,8 @@ net.onMessage((msg) => {
       // After a reconnect the server has forgotten which terminal we had open.
       const openId = openTerminalFor();
       if (openId && store.workers.has(openId)) net.send({ t: 'worker.attach', workerId: openId });
+      const watching = openChangesFor();
+      if (watching && store.workers.has(watching)) net.send({ t: 'changes.watch', workerId: watching });
       renderProject();
       $('btn-team').classList.toggle('hidden', !store.invites);
       // Back from a restart on another version: this page's code is stale, so load the new one.
@@ -221,6 +243,9 @@ net.onMessage((msg) => {
       break;
     case 'rtc':
       void voice.handleSignal(msg.from, msg.data as never);
+      break;
+    case 'worker.worktree':
+      routeWorktreeMessage(msg);
       break;
     case 'toast':
       toast(msg.text, msg.level);
@@ -375,6 +400,8 @@ function syncWorkers() {
   renderWorkers((id) => openWorkerTerminal(id));
 }
 store.on('workers', syncWorkers);
+store.on('workers', renderUsage);
+store.on('usage', renderUsage);
 
 // ---- Actions ------------------------------------------------------------------------------------
 function freeDesk(): string | null {
@@ -432,7 +459,20 @@ function promptAtDesk(deskId: string) {
 function killWorker(id: string) {
   const w = store.workers.get(id);
   if (!w) return;
-  confirmDialog(`Send ${w.name} home?`, `This stops the Claude Code session at ${DESK_BY_ID.get(w.deskId)?.label ?? 'the desk'} for everyone and frees the desk.`, 'Send home', () =>
+  const where = DESK_BY_ID.get(w.deskId)?.label ?? 'the desk';
+  if (w.worktree) {
+    // A worker with its own worktree: choose what becomes of the worktree and its branch.
+    sendHomeDialog({
+      workerId: id,
+      name: w.name,
+      where,
+      worktree: w.worktree,
+      ask: () => net.send({ t: 'worker.worktree', workerId: id }),
+      onConfirm: (cleanup) => net.send({ t: 'worker.kill', workerId: id, cleanup }),
+    });
+    return;
+  }
+  confirmDialog(`Send ${w.name} home?`, `This stops the Claude Code session at ${where} for everyone and frees the desk.`, 'Send home', () =>
     net.send({ t: 'worker.kill', workerId: id }),
   );
 }
@@ -442,12 +482,57 @@ function resumeWorker(w: WorkerInfo) {
   net.send({ t: 'worker.resume', workerId: w.id });
 }
 
+/** Whether a worker's branch can become a PR: it has its own worktree and isn't mid-turn. */
+function prReady(w: WorkerInfo) {
+  return !!w.worktree && w.status !== 'starting' && w.status !== 'working' && w.status !== 'needs_input';
+}
+
+/** O at a desk: see the worker's pull request, or push its branch and open one. */
+function pullRequestFor(w: WorkerInfo) {
+  if (w.pr) {
+    const it = store.pulls.items.find((p) => p.number === w.pr!.number);
+    if (it) openPull(it, net, boardActions());
+    else window.open(w.pr.url, '_blank', 'noopener');
+    return;
+  }
+  if (!w.worktree) return toast(`${w.name} works in the main checkout — only workers with their own worktree can open a PR`, 'warn');
+  if (w.prOpening) return;
+  if (!prReady(w)) return toast(`${w.name} is still ${STATUS_LABEL[w.status]} — wait until it's done`, 'warn');
+  toast(`Pushing ${w.worktree.branch} and opening a pull request…`);
+  net.send({ t: 'worker.pr', workerId: w.id });
+}
+
+/** Puts you in front of a desk, looking at it: the PR board's "Go to desk". */
+function goToDesk(deskId: string) {
+  const desk = DESK_BY_ID.get(deskId);
+  if (!desk) return;
+  closeAllModals();
+  const spot = deskSeat(desk, 2.4);
+  player.pos.set(spot.x, 0, spot.z);
+  player.vy = 0;
+  player.facing = Math.atan2(desk.x - spot.x, desk.z - spot.z);
+  player.camYaw = player.facing - Math.PI;
+  player.lookPitch = -0.2;
+  const w = store.workerAtDesk(deskId);
+  toast(w ? `You're at ${desk.label}, ${w.name}'s desk` : `You're at ${desk.label}`);
+}
+
 /** Opening a sleeping worker's terminal wakes it, so there's nothing to press first. */
 function openWorkerTerminal(id: string) {
   const w = store.workers.get(id);
   if (!w) return;
   if (w.status === 'exited' || w.status === 'offline') resumeWorker(w);
-  openTerminal(net, id);
+  openTerminal(net, id, () => openWorkerChanges(id));
+}
+
+/** What the worker changed: changed files, diff, commit / discard / open a PR. */
+function openWorkerChanges(id: string) {
+  if (!store.workers.has(id)) return;
+  openChanges(net, id, () => openWorkerTerminal(id));
+}
+
+function showQueue() {
+  openQueue(net, { openTerminal: openWorkerTerminal });
 }
 
 /** A prompt from the boards goes to a new worker at a free desk, or to one already at a desk. */
@@ -473,8 +558,10 @@ function sendToWorker(title: string, text: { context?: string; initial?: string 
 
 function boardActions() {
   return {
+    queue: (prompt: string, title: string, issue: number) => net.send({ t: 'queue.add', prompt, title, issue }),
     assign: (prompt: string, title: string) => sendToWorker(`🤖 ${title}`, { initial: prompt }),
     ask: (context: string, title: string) => sendToWorker(`✍️ ${title}`, { context }),
+    goToDesk,
   };
 }
 
@@ -493,20 +580,23 @@ function watchShare() {
   close.addEventListener('click', () => modal.close());
 }
 
-function interact(target: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B') {
+function interact(target: Interactable | null, key: DeskKey) {
   if (!target) return;
   if (target.kind === 'desk' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
     if (key === 'B' && !w) return openShell(target.deskId);
     if (key === 'P') return promptAtDesk(target.deskId);
     if (key === 'E') return w ? openWorkerTerminal(w.id) : hire(target.deskId);
+    if (key === 'C' && w) return openWorkerChanges(w.id);
     if (key === 'R' && w && (w.status === 'exited' || w.status === 'offline')) return resumeWorker(w);
     if (key === 'X' && w) return killWorker(w.id);
+    if (key === 'O' && w) return pullRequestFor(w);
     return;
   }
   if (key !== 'E') return;
   if (target.kind === 'issues' || target.kind === 'pulls') openBoard(target.kind, net, boardActions());
   else if (target.kind === 'services') openServices();
+  else if (target.kind === 'queue') showQueue();
   else if (target.kind === 'tv') watchShare();
   else if (target.kind === 'decor' && target.decorId) hanger.view(target.decorId);
   else if (target.kind === 'coffee') {
@@ -553,23 +643,39 @@ function renderHint() {
   if (target.kind === 'desk' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
     const desk = DESK_BY_ID.get(target.deskId)!;
-    if (!w) parts = [h('span.title', {}, `${desk.label} · empty`), key('E', 'Hire a worker'), key('P', 'Hire with a task'), key('B', 'Shell')];
-    else {
-      k += w.status + w.id;
+    if (!w) {
+      const paused = hiringPaused();
+      k += String(paused);
+      parts = [
+        h('span.title', {}, `${desk.label} · empty`),
+        ...(paused ? [h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow')] : [key('E', 'Hire a worker'), key('P', 'Hire with a task')]),
+        key('B', 'Shell'),
+      ];
+    } else {
+      k += w.status + w.id + (w.pr?.number ?? '') + (w.prOpening ? '!' : '');
       const asleep = w.status === 'exited' || w.status === 'offline';
       const doing = w.activity ? (w.activity.length > 48 ? `${w.activity.slice(0, 47)}…` : w.activity) : '';
-      k += doing;
+      const spent = w.usage?.calls ? usageLabel(w.usage) : '';
+      k += doing + spent;
       parts = [
         h('span.title', {}, `${w.name} · ${STATUS_LABEL[w.status]}`),
         doing ? h('span', { style: 'opacity:.75;font-weight:600' }, doing) : '',
+        spent ? h('span.cost', { title: usageTitle(w.usage!) }, spent) : '',
         key('E', 'Open terminal'),
+        key('C', 'Changes'),
         asleep ? key('R', w.kind === 'shell' ? 'Restart' : 'Resume') : key('P', w.kind === 'shell' ? 'Run command' : 'Prompt'),
+        w.pr ? key('O', `PR #${w.pr.number}`) : w.prOpening ? h('span', { style: 'opacity:.75;font-weight:600' }, '⏳ Opening PR…') : prReady(w) ? key('O', 'Open PR') : '',
         key('X', 'Send home'),
       ];
     }
   } else if (target.kind === 'issues') parts = [h('span.title', {}, '📌 Issues board'), key('E', 'Open')];
   else if (target.kind === 'pulls') parts = [h('span.title', {}, '🔀 Pull request board'), key('E', 'Open')];
   else if (target.kind === 'services') parts = [h('span.title', {}, '🌐 Services board'), key('E', 'Open')];
+  else if (target.kind === 'queue') {
+    const n = store.queue.tasks.filter((t) => t.status !== 'done').length;
+    k += n;
+    parts = [h('span.title', {}, `📋 Task queue${n ? ` · ${n}` : ''}`), key('E', 'Open')];
+  }
   else if (target.kind === 'tv') {
     const any = currentShares().length > 0;
     k += any;
@@ -624,7 +730,9 @@ function reach() {
   }
 }
 
-function use(it: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B') {
+type DeskKey = 'E' | 'P' | 'R' | 'X' | 'B' | 'C' | 'O';
+
+function use(it: Interactable | null, key: DeskKey) {
   if (!it) return;
   reach();
   interact(it, key);
@@ -653,6 +761,12 @@ window.addEventListener('keydown', (e) => {
       break;
     case 'KeyB':
       use(target, 'B');
+      break;
+    case 'KeyC':
+      use(target, 'C');
+      break;
+    case 'KeyO':
+      use(target, 'O');
       break;
     case 'KeyT':
     case 'Enter':
@@ -731,7 +845,7 @@ function backToGame() {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, tv: 10, decor: 9 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
@@ -871,6 +985,7 @@ $('btn-share').addEventListener('click', () => void toggleShare());
 $('btn-issues').addEventListener('click', () => openBoard('issues', net, boardActions()));
 $('btn-pulls').addEventListener('click', () => openBoard('pulls', net, boardActions()));
 mountServicesButton($('btn-services'));
+mountQueueButton($('btn-queue'), showQueue);
 $('btn-team').addEventListener('click', () => openTeam(net));
 $('btn-upgrade').addEventListener('click', () => openUpgrade(net));
 $('btn-help').addEventListener('click', () => openHelp());

@@ -12,7 +12,7 @@ function friendly(raw: string): string {
   return raw;
 }
 
-function gh(args: string[], cwd: string, timeout = 30_000): Promise<string> {
+export function gh(args: string[], cwd: string, timeout = 30_000): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile('gh', args, { cwd, maxBuffer: 32 * 1024 * 1024, timeout }, (err, stdout, stderr) => {
       if (err) {
@@ -173,6 +173,17 @@ export class GitHub {
     return undefined;
   }
 
+  /** Assigns the issue to whoever gh is signed in as, which moves it to In progress on the board. */
+  async claim(issue: number): Promise<string | undefined> {
+    try {
+      await gh(['issue', 'edit', String(issue), '--add-assignee', '@me'], this.dir);
+    } catch (err) {
+      return (err as Error).message;
+    }
+    void this.refreshIssues();
+    return undefined;
+  }
+
   private async refreshIssues() {
     if (this.issues.loading) return;
     this.issues = { ...this.issues, loading: true };
@@ -209,7 +220,7 @@ export class GitHub {
     this.pulls = { ...this.pulls, loading: true };
     this.onPulls(this.pulls);
     try {
-      const fields = 'number,title,state,isDraft,url,author,labels,reviewDecision,headRefName,baseRefName,createdAt,updatedAt,additions,deletions,statusCheckRollup,body';
+      const fields = 'number,title,state,isDraft,url,author,labels,reviewDecision,headRefName,baseRefName,createdAt,updatedAt,additions,deletions,statusCheckRollup,body,closingIssuesReferences';
       const [open, merged, closed] = await Promise.all([
         gh(['pr', 'list', '--state', 'open', '--limit', '150', '--json', fields], this.dir),
         gh(['pr', 'list', '--state', 'merged', '--limit', '30', '--json', fields], this.dir),
@@ -235,6 +246,7 @@ export class GitHub {
         deletions: p.deletions ?? 0,
         checks: checksOf(p.statusCheckRollup),
         body: String(p.body ?? '').slice(0, 4000),
+        closes: (p.closingIssuesReferences ?? []).map((r: any) => Number(r.number)).filter((n: number) => Number.isInteger(n) && n > 0),
       }));
       this.pulls = { items, fetchedAt: Date.now(), loading: false };
     } catch (err) {

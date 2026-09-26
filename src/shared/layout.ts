@@ -59,6 +59,8 @@ export const BOARDS = {
   pulls: { x: -1.5, y: 2.1, z: FLOOR.minZ + 0.08, rotY: 0, width: 6, height: 3, label: 'Pull Requests' },
   // East wall, north of the lounge TV.
   services: { x: FLOOR.maxX - 0.08, y: 2.1, z: -8.2, rotY: -Math.PI / 2, width: 6, height: 3, label: '🌐 Services' },
+  // The task queue whiteboard, north wall, in the corner by the services board.
+  queue: { x: 14.5, y: 2.1, z: FLOOR.minZ + 0.08, rotY: 0, width: 6, height: 3, label: '📋 Task queue' },
 } as const;
 
 /** The big TV on the east wall that shows whoever is screen sharing. */

@@ -1,9 +1,11 @@
-import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, ServerMsg, ServicesState, TeamState, UpgradeState, WorkerInfo } from '../shared/protocol';
+import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, QueueState, QueueTask, ServerMsg, ServicesState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
 
-type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor';
+type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'queue';
+
+const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
 export interface Profile {
   name: string;
@@ -67,6 +69,12 @@ export function saveSettings(s: Settings) {
   }
 }
 
+/** The worker whose worktree branch a pull request came from, if it is still at a desk. */
+export function workerForPull(workers: Iterable<WorkerInfo>, pr: { number: number; headRefName: string }): WorkerInfo | undefined {
+  for (const w of workers) if (w.pr?.number === pr.number || (w.worktree && w.worktree.branch === pr.headRefName)) return w;
+  return undefined;
+}
+
 class Store {
   you = '';
   profile: Profile = { name: 'Guest', color: AVATAR_COLORS[1], look: randomLook() };
@@ -85,6 +93,8 @@ class Store {
   services: ServicesState = { items: [], port: 4600 };
   /** Pictures on the walls. */
   decor: Decoration[] = [];
+  usage: UsageState = { total: zeroUsage(), today: zeroUsage(), day: '', pauseHiring: false };
+  queue: QueueState = { tasks: [], maxWorkers: 0 };
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -103,6 +113,12 @@ class Store {
     return undefined;
   }
 
+  /** The queue task for an issue: the one on the queue if there is one, else the latest finished one. */
+  taskForIssue(issue: number): QueueTask | undefined {
+    const tasks = this.queue.tasks.filter((t) => t.issue === issue);
+    return tasks.find((t) => t.status !== 'done') ?? tasks[tasks.length - 1];
+  }
+
   apply(msg: ServerMsg) {
     switch (msg.t) {
       case 'welcome':
@@ -119,7 +135,9 @@ class Store {
         this.upgrade = msg.upgrade;
         this.services = msg.services;
         this.decor = msg.decor;
-        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade', 'services', 'decor'] as Topic[]) this.emit(t);
+        this.usage = msg.usage;
+        this.queue = msg.queue;
+        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade', 'services', 'decor', 'usage', 'queue'] as Topic[]) this.emit(t);
         break;
       case 'peer.join':
       case 'peer.update':
@@ -179,6 +197,14 @@ class Store {
       case 'decor':
         this.decor = msg.items;
         this.emit('decor');
+        break;
+      case 'usage':
+        this.usage = msg.state;
+        this.emit('usage');
+        break;
+      case 'queue':
+        this.queue = msg.state;
+        this.emit('queue');
         break;
       case 'chat':
         this.chat.push(msg);

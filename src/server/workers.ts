@@ -1,15 +1,18 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, accessSync, constants } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import path from 'node:path';
 import * as pty from '@lydell/node-pty';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
 import type { Run, WorkerInfo, WorkerKind, WorkerStatus, WorkerTask } from '../shared/protocol.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG } from '../shared/protocol.js';
+import { Worktrees, describeWork, type WorktreeCleanup, type WorktreeState } from './worktrees.js';
 import { DESK_BY_ID } from '../shared/layout.js';
+import { gh } from './github.js';
 import type { ServiceOwner } from './services.js';
 import { TaskNamer, fallbackTask } from './tasks.js';
+import { addUsage, newTracker, restoreTracker, scanTracker, trackerUsage, zeroUsage, type Ledger, type UsageTracker } from './usage.js';
 
 type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
 
@@ -40,6 +43,10 @@ const TASK_TOOLS = 10;
 /** While a worker works, refresh its task summary after this many tool calls, at most this often. */
 const TASK_REFRESH_TOOLS = 8;
 const TASK_REFRESH_MS = 90_000;
+const PR_TITLE_MAX = 72;
+const PR_TASK_MAX = 2500;
+/** How often every worker's transcript is checked for new spend, on top of the hook-driven checks. */
+const USAGE_SCAN_MS = 10_000;
 
 export interface HookEnv {
   url: string;
@@ -66,6 +73,9 @@ interface Worker {
   namedAt: number;
   /** Bumped by /clear: a new conversation, so a new task. */
   taskEpoch: number;
+  /** Where the session's tokens and cost are read from (see usage.ts). */
+  tracker: UsageTracker;
+  scanTimer?: NodeJS.Timeout;
 }
 
 export interface WorkerEvents {
@@ -80,11 +90,13 @@ export class WorkerManager {
   private workers = new Map<string, Worker>();
   private statePath: string;
   private settingsPath: string;
+  private trees: Worktrees;
   private agentPath: string | null = null;
   private screenTimer: NodeJS.Timeout;
   /** The office is shutting down: workers exiting now are being stopped, not failing to resume. */
   private closing = false;
   private namer: TaskNamer;
+  private usageTimer: NodeJS.Timeout;
 
   constructor(
     private dir: string,
@@ -93,7 +105,9 @@ export class WorkerManager {
     private agentArgs: string[],
     private hook: HookEnv,
     private events: WorkerEvents,
+    private ledger: Ledger,
   ) {
+    this.trees = new Worktrees(dir);
     this.statePath = path.join(dataDir, 'workers.json');
     this.settingsPath = path.join(dataDir, 'claude-hooks.json');
     this.writeHookSettings();
@@ -107,7 +121,12 @@ export class WorkerManager {
       this.persist();
     });
     this.restore();
+    // A session may have ended (and written its final tally) while the office was down.
+    for (const w of this.workers.values()) this.scanUsage(w);
     this.screenTimer = setInterval(() => this.flushScreens(), SCREEN_INTERVAL_MS);
+    this.usageTimer = setInterval(() => {
+      for (const w of this.workers.values()) this.scanUsage(w);
+    }, USAGE_SCAN_MS);
     // Whoever was at a desk when the office stopped (a restart, a crash, a dev-server reload) gets
     // straight back to work.
     this.wakeAll();
@@ -143,12 +162,16 @@ export class WorkerManager {
   spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent'): WorkerInfo | string {
     if (!DESK_BY_ID.has(deskId)) return 'Unknown desk';
     if (this.deskOccupied(deskId)) return 'That desk is taken';
+    if (kind === 'agent') {
+      const paused = this.ledger.hiringPaused;
+      if (paused) return paused;
+    }
     const used = new Set([...this.workers.values()].map((w) => w.info.name.replace(/ 🐚$/, '')));
     const name = NAMES.find((n) => !used.has(n)) ?? `Worker ${this.workers.size + 1}`;
     const id = randomBytes(6).toString('hex');
     let wt: WorkerInfo['worktree'];
     if (worktree) {
-      const made = this.createWorktree(`${name.toLowerCase()}-${id.slice(0, 4)}`);
+      const made = this.trees.create(`${name.toLowerCase()}-${id.slice(0, 4)}`);
       if (typeof made === 'string') return made;
       wt = made;
     }
@@ -169,7 +192,7 @@ export class WorkerManager {
       viewers: [],
       activity: prompt ? truncate(prompt, 80) : undefined,
     };
-    const w = newWorker(info);
+    const w = newWorker(info, newTracker());
     this.workers.set(id, w);
     if (info.prompt) this.notePrompt(w, info.prompt);
     this.launch(w, info.prompt, undefined);
@@ -192,11 +215,17 @@ export class WorkerManager {
     for (const w of this.workers.values()) if (!w.pty) this.resume(w.info.id);
   }
 
-  kill(id: string) {
+  /**
+   * Sends a worker home. For one with its own worktree, `cleanup` says what becomes of it; with no
+   * choice given, the worktree and branch go only when they hold no work. Resolves once that's done,
+   * with a line for the team about the worktree.
+   */
+  async kill(id: string, cleanup?: WorktreeCleanup): Promise<{ note?: string; error?: string }> {
     const w = this.workers.get(id);
-    if (!w) return;
+    if (!w) return {};
     this.workers.delete(id);
     this.namer.forget(id);
+    clearTimeout(w.scanTimer);
     const proc = w.pty;
     w.pty = undefined; // so the exit handler knows this worker is gone and stays quiet
     try {
@@ -207,42 +236,24 @@ export class WorkerManager {
     w.term?.dispose();
     this.events.remove(id);
     this.persist();
-    if (w.info.worktree) this.cleanupWorktree(w.info);
-  }
-
-  private git(args: string[], cwd = this.dir): string {
-    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20_000 }).trim();
-  }
-
-  private createWorktree(slug: string): WorkerInfo['worktree'] | string {
-    try {
-      const base = this.git(['rev-parse', 'HEAD']);
-      const rel = path.join('.agent-office', 'worktrees', slug);
-      const branch = `office/${slug}`;
-      this.git(['worktree', 'add', '-b', branch, rel, base]);
-      return { path: rel, branch, base };
-    } catch (err) {
-      const msg = String((err as { stderr?: string }).stderr || (err as Error).message).trim().split('\n').pop();
-      return `Could not create a git worktree: ${msg}`;
+    const wt = w.info.worktree;
+    if (!wt) return {};
+    const name = w.info.name;
+    if (!cleanup) {
+      const work = describeWork(await this.trees.inspect(wt));
+      if (work) return { note: `Kept ${name}'s worktree and branch ${wt.branch} — it has ${work}` };
+      cleanup = 'all';
     }
+    if (cleanup === 'keep') return { note: `Kept ${name}'s worktree and branch ${wt.branch}` };
+    const error = await this.trees.remove(wt, cleanup);
+    if (error) return { error: `Couldn't delete ${name}'s worktree: ${error}` };
+    return { note: cleanup === 'all' ? `Deleted ${name}'s worktree and branch ${wt.branch}` : `Deleted ${name}'s worktree and kept branch ${wt.branch}` };
   }
 
-  /** Removes a worker's worktree only when it holds no work: clean tree and no new commits. */
-  private cleanupWorktree(info: WorkerInfo) {
-    const wt = info.worktree!;
-    const abs = path.join(this.dir, wt.path);
-    try {
-      const dirty = existsSync(abs) && this.git(['status', '--porcelain'], abs) !== '';
-      const ahead = Number(this.git(['rev-list', '--count', `${wt.base}..${wt.branch}`]));
-      if (dirty || ahead > 0) {
-        this.events.toast(`Kept ${info.name}'s worktree (${wt.branch}) — it has ${ahead > 0 ? `${ahead} commit${ahead > 1 ? 's' : ''}` : 'uncommitted changes'}`, 'info');
-        return;
-      }
-      this.git(['worktree', 'remove', '--force', wt.path]);
-      this.git(['branch', '-D', wt.branch]);
-    } catch {
-      // leave it for the humans
-    }
+  /** What a worker's worktree holds, so whoever sends it home knows what deleting it would lose. */
+  inspectWorktree(id: string): Promise<WorktreeState | undefined> {
+    const wt = this.workers.get(id)?.info.worktree;
+    return wt ? this.trees.inspect(wt) : Promise.resolve(undefined);
   }
 
   attach(id: string, clientId: string, name: string): { data: string; cols: number; rows: number } | undefined {
@@ -297,6 +308,68 @@ export class WorkerManager {
     return undefined;
   }
 
+  /**
+   * Pushes a worktree worker's branch and opens a pull request for it, with a title and body
+   * drafted from its task. Resolves to the PR, or to a message saying why there is none. The
+   * branch may already have an open PR (a second press, or one opened by hand): that one is used.
+   */
+  async openPr(id: string, by: string): Promise<{ number: number; url: string; existed: boolean; dirty: boolean } | string> {
+    const w = this.workers.get(id);
+    if (!w) return 'No such worker';
+    const { info } = w;
+    const wt = info.worktree;
+    if (!wt) return `${info.name} works in the main checkout — only workers with their own worktree can open a PR`;
+    if (info.prOpening) return `${info.name}'s pull request is already being opened`;
+    if (info.status === 'starting' || info.status === 'working' || info.status === 'needs_input') {
+      return `${info.name} is still ${info.status === 'needs_input' ? 'waiting on input' : info.status} — wait until it's done`;
+    }
+    const cwd = path.join(this.dir, wt.path);
+    if (!existsSync(cwd)) return `${info.name}'s worktree is gone (${wt.path})`;
+    info.prOpening = true;
+    this.emitUpdate(w);
+    try {
+      const commits = (await run('git', ['log', '--reverse', '--format=%h %s', `${wt.base}..${wt.branch}`], cwd)).split('\n').filter(Boolean);
+      const dirty = (await run('git', ['status', '--porcelain'], cwd)) !== '';
+      if (!commits.length) return dirty ? `${info.name} hasn't committed anything yet — ask it to commit first` : `${info.name} has no commits on ${wt.branch} yet`;
+      const open = await findOpenPr(wt.branch, cwd);
+      if (open) {
+        info.pr = open;
+        this.persist();
+        return { ...open, existed: true, dirty };
+      }
+      await run('git', ['push', '-u', 'origin', wt.branch], cwd, 90_000);
+      const base = await this.pushedBranch([wt.from, this.trees.currentBranch()], wt.branch);
+      const { title, body } = draftPr(info, commits, by);
+      const out = await gh(['pr', 'create', '--head', wt.branch, ...(base ? ['--base', base] : []), '--title', title, '--body', body], cwd, 60_000);
+      const url = out.trim().split('\n').pop() ?? '';
+      const number = Number(/\/pull\/(\d+)/.exec(url)?.[1]);
+      if (!number) throw new Error(`gh did not return a pull request URL (${truncate(out, 120)})`);
+      info.pr = { number, url };
+      this.persist();
+      return { number, url, existed: false, dirty };
+    } catch (err) {
+      return `Couldn't open a PR for ${info.name}: ${(err as Error).message}`;
+    } finally {
+      info.prOpening = false;
+      // The worker may have been sent home meanwhile; an update would bring it back as a ghost.
+      if (this.workers.get(id) === w) this.emitUpdate(w);
+    }
+  }
+
+  /** The first of these branches that exists on origin, for a PR base. None: gh picks the default branch. */
+  private async pushedBranch(candidates: (string | undefined)[], not: string): Promise<string | undefined> {
+    for (const c of candidates) {
+      if (!c || c === not) continue;
+      try {
+        await run('git', ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${c}`], this.dir);
+        return c;
+      } catch {
+        // not on the remote (or never fetched)
+      }
+    }
+    return undefined;
+  }
+
   resize(id: string, cols: number, rows: number) {
     const w = this.workers.get(id);
     if (!w?.pty || !w.term) return;
@@ -325,6 +398,11 @@ export class WorkerManager {
       w.info.sessionId = payload.session_id;
       this.persist();
     }
+    if (typeof payload?.transcript_path === 'string' && payload.transcript_path !== w.tracker.transcript) {
+      w.tracker.transcript = payload.transcript_path;
+      this.persist();
+    }
+    this.scheduleScan(w);
     switch (event) {
       case 'SessionStart':
         if (payload?.source === 'clear') this.clearTask(w);
@@ -417,6 +495,7 @@ export class WorkerManager {
   shutdown() {
     this.closing = true;
     clearInterval(this.screenTimer);
+    clearInterval(this.usageTimer);
     for (const w of this.workers.values()) {
       try {
         w.pty?.kill();
@@ -534,6 +613,31 @@ export class WorkerManager {
       } else this.setStatus(w, 'idle');
     }, 12000);
     this.emitUpdate(w);
+  }
+
+  /** Hooks fire in bursts (every tool call); one read a moment later covers the whole burst. */
+  private scheduleScan(w: Worker) {
+    if (w.scanTimer) return;
+    w.scanTimer = setTimeout(() => {
+      w.scanTimer = undefined;
+      this.scanUsage(w);
+    }, 300);
+  }
+
+  /** Picks up what the session logged since last time and books the difference. */
+  private scanUsage(w: Worker) {
+    if (w.info.kind !== 'agent' || !w.tracker.transcript || this.workers.get(w.info.id) !== w) return;
+    try {
+      if (!scanTracker(w.tracker)) return;
+    } catch {
+      return; // an unreadable transcript is retried on the next scan
+    }
+    const before = w.info.usage ?? zeroUsage();
+    const after = trackerUsage(w.tracker);
+    w.info.usage = after;
+    this.ledger.add(addUsage(after, before, -1));
+    this.emitUpdate(w);
+    this.persist();
   }
 
   private onProgress(w: Worker, busy: boolean) {
@@ -664,7 +768,7 @@ process.stdin.on('end', () => {
   }
 
   private persist() {
-    const saved = [...this.workers.values()].map(({ info }) => ({
+    const saved = [...this.workers.values()].map(({ info, tracker }) => ({
       id: info.id,
       kind: info.kind,
       deskId: info.deskId,
@@ -678,6 +782,8 @@ process.stdin.on('end', () => {
       sessionId: info.sessionId,
       activity: info.activity,
       task: info.task,
+      pr: info.pr,
+      tracker: info.kind === 'agent' ? tracker : undefined,
     }));
     try {
       writeFileSync(this.statePath, JSON.stringify(saved, null, 2), { mode: 0o600 });
@@ -689,9 +795,10 @@ process.stdin.on('end', () => {
   private restore() {
     if (!existsSync(this.statePath)) return;
     try {
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as Partial<WorkerInfo>[];
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { tracker?: unknown })[];
       for (const s of saved) {
         if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || this.deskOccupied(s.deskId)) continue;
+        const tracker = restoreTracker(s.tracker);
         const info: WorkerInfo = {
           id: s.id,
           kind: s.kind === 'shell' ? 'shell' : 'agent',
@@ -708,11 +815,13 @@ process.stdin.on('end', () => {
           sessionId: s.sessionId,
           activity: s.activity,
           task: validTask(s.task),
+          pr: s.pr && typeof s.pr.number === 'number' && typeof s.pr.url === 'string' ? { number: s.pr.number, url: s.pr.url } : undefined,
+          usage: tracker.transcript ? trackerUsage(tracker) : undefined,
           cols: 100,
           rows: 30,
           viewers: [],
         };
-        const w = newWorker(info);
+        const w = newWorker(info, tracker);
         w.screenDirty = false;
         if (info.prompt) w.prompts = [info.prompt.replace(/\s+/g, ' ').trim()];
         this.workers.set(info.id, w);
@@ -725,7 +834,7 @@ process.stdin.on('end', () => {
 
 // ---------------------------------------------------------------------------
 
-function newWorker(info: WorkerInfo): Worker {
+function newWorker(info: WorkerInfo, tracker: UsageTracker): Worker {
   return {
     info,
     viewers: new Map(),
@@ -739,6 +848,7 @@ function newWorker(info: WorkerInfo): Worker {
     toolsSinceNamed: 0,
     namedAt: 0,
     taskEpoch: 0,
+    tracker,
   };
 }
 
@@ -858,6 +968,42 @@ function describeTool(payload: any): string {
 function offlineBanner(info: WorkerInfo): string {
   const hint = info.kind === 'shell' ? ' Press R to restart it.' : info.sessionId ? ' Press R to resume the session.' : '';
   return `\x1b[2m${info.name} is not running.${hint}\x1b[0m\r\n`;
+}
+
+/** Runs a command without blocking the office; rejects with the last lines of its stderr. */
+function run(cmd: string, args: string[], cwd: string, timeout = 30_000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { cwd, encoding: 'utf8', timeout, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (err) reject(new Error((stderr || err.message).trim().split('\n').filter(Boolean).slice(-2).join(' ') || `${cmd} failed`));
+      else resolve(stdout.trim());
+    });
+  });
+}
+
+async function findOpenPr(branch: string, cwd: string): Promise<{ number: number; url: string } | undefined> {
+  const out = await gh(['pr', 'list', '--head', branch, '--state', 'open', '--limit', '1', '--json', 'number,url'], cwd);
+  const found = (JSON.parse(out || '[]') as { number: number; url: string }[])[0];
+  return found ? { number: found.number, url: found.url } : undefined;
+}
+
+/**
+ * A pull request title and body from what the worker was asked to do. The title is the issue's
+ * title when the task came off the issues board, else the task's first line; the body carries the
+ * task, the commits, a "Closes #n" when the task asked for one, and which desk it came from.
+ */
+function draftPr(info: WorkerInfo, commits: string[], by: string): { title: string; body: string } {
+  const task = (info.prompt ?? '').replace(/\r\n?/g, '\n').trim();
+  const firstLine = task.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
+  // The issues board hands work over as: Work on GitHub issue #12: "Title".
+  const issue = /\bissue #(\d+):\s*["“](.+?)["”]\.?\s*$/i.exec(firstLine);
+  const title = truncate(issue?.[2] || firstLine.replace(/[.:;,]+$/, '') || commits[0]?.replace(/^\S+\s+/, '') || info.worktree?.branch || info.name, PR_TITLE_MAX);
+  const closes = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b[^\n]{0,40}?#(\d+)/i.exec(task)?.[1] ?? issue?.[1];
+  const parts: string[] = [];
+  if (task) parts.push(`## Task\n\n${task.length > PR_TASK_MAX ? `${task.slice(0, PR_TASK_MAX)}…` : task}`);
+  parts.push(`## Commits\n\n${commits.map((c) => `- \`${c.slice(0, c.indexOf(' '))}\` ${c.slice(c.indexOf(' ') + 1)}`).join('\n')}`);
+  if (closes) parts.push(`Closes #${closes}`);
+  parts.push(`_Opened from Agent Office by ${by} · ${info.name} at ${DESK_BY_ID.get(info.deskId)?.label ?? info.deskId}_`);
+  return { title, body: parts.join('\n\n') };
 }
 
 function truncate(s: string, n: number) {
