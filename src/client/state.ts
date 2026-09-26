@@ -1,7 +1,7 @@
-import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, ServerMsg, TeamState, UpgradeState, WorkerInfo } from '../shared/protocol';
+import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, ServerMsg, ServicesState, TeamState, UpgradeState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 
-type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade';
+type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services';
 
 export interface Profile {
   name: string;
@@ -71,6 +71,7 @@ class Store {
   invites = false;
   team: TeamState | null = null;
   upgrade: UpgradeState = { available: false, phase: 'idle' };
+  services: ServicesState = { items: [], port: 4600 };
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -103,7 +104,8 @@ class Store {
         this.chat = msg.chat;
         this.invites = msg.invites;
         this.upgrade = msg.upgrade;
-        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade'] as Topic[]) this.emit(t);
+        this.services = msg.services;
+        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade', 'services'] as Topic[]) this.emit(t);
         break;
       case 'peer.join':
       case 'peer.update':
@@ -155,6 +157,10 @@ class Store {
       case 'upgrade':
         this.upgrade = msg.state;
         this.emit('upgrade');
+        break;
+      case 'services':
+        this.services = msg.state;
+        this.emit('services');
         break;
       case 'chat':
         this.chat.push(msg);

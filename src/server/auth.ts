@@ -77,6 +77,17 @@ export class Auth {
     return this.verify(parseCookies(req.headers.cookie)[cookieName(req)]);
   }
 
+  /**
+   * Signed in to this office on any port of this host. A service tunnel (localhost:5173) carries
+   * the cookie you got on the office's own tunnel (localhost:4600), since cookies ignore ports.
+   */
+  fromAnyCookie(req: IncomingMessage): boolean {
+    for (const [name, value] of Object.entries(parseCookies(req.headers.cookie))) {
+      if (OFFICE_COOKIE.test(name) && this.verify(value)) return true;
+    }
+    return false;
+  }
+
   cookie(req: IncomingMessage, token: string, secure: boolean): string {
     return `${cookieName(req)}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure ? '; Secure' : ''}`;
   }
@@ -94,6 +105,19 @@ export class Auth {
 function cookieName(req: IncomingMessage): string {
   const port = /:(\d+)$/.exec(req.headers.host ?? '')?.[1];
   return port ? `${COOKIE_NAME}_${port}` : COOKIE_NAME;
+}
+
+const OFFICE_COOKIE = new RegExp(`^${COOKIE_NAME}(?:_\\d+)?$`);
+
+/** The Cookie header without the office's session cookies, for passing on to someone else's server. */
+export function withoutOfficeCookies(header: string | undefined): string | undefined {
+  if (!header) return header;
+  const kept = header
+    .split(';')
+    .filter((part) => !OFFICE_COOKIE.test(part.split('=', 1)[0].trim()))
+    .join(';')
+    .trim();
+  return kept || undefined;
 }
 
 export function parseCookies(header: string | undefined): Record<string, string> {

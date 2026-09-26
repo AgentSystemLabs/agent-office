@@ -53,7 +53,8 @@ button { font-family: inherit; }
 .project { padding: 8px 14px; min-width: 0; max-width: 40vw; }
 .project-name { font-weight: 900; font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .project-meta { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.controls { display: flex; gap: 8px; padding: 8px; flex-wrap: wrap; justify-content: flex-end; }
+/* The project name gives way (ellipsis) before the buttons wrap under the side panel. */
+.controls { display: flex; gap: 8px; padding: 8px; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; max-width: 100%; }
 
 .side { position: absolute; top: 90px; right: 12px; width: 250px; display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 110px); pointer-events: none; }
 .side > * { pointer-events: auto; }
@@ -206,6 +207,24 @@ button { font-family: inherit; }
 .team-list .name { flex: 1; }
 .team-list .keys { font-size: 12px; color: var(--muted); font-weight: 700; }
 .team-list .btn { padding: 3px 10px; font-size: 13px; }
+
+/* Services board */
+.svc-count { margin-left: 6px; background: var(--accent); color: #fff; border-radius: 999px; padding: 0 7px; font-size: 12px; }
+.svc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.svc-list li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 3px solid var(--ink); border-radius: 14px; background: #fff; cursor: pointer; box-shadow: 0 3px 0 var(--ink); }
+.svc-list li:hover { background: var(--paper-2); }
+.svc-list li.on { background: #fff1de; border-color: var(--accent); }
+.svc-list li:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.svc-list .dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--ink); flex: none; }
+.svc-main { flex: 1; min-width: 0; }
+.svc-title { font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svc-meta { font-size: 12px; font-weight: 700; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svc-port { font: 800 14px ui-monospace, Menlo, monospace; }
+.svc-list .btn { padding: 3px 10px; font-size: 13px; text-decoration: none; color: inherit; }
+.svc-empty { text-align: center; padding: 18px 8px; border: 3px dashed var(--muted); border-radius: 14px; }
+.svc-empty p { margin: 0; font-weight: 800; }
+.services .team-status { margin-top: 12px; }
+.modal header .os-tabs { margin-right: 4px; }
 
 /* Upgrading the office */
 .conn.upgrading { background: var(--warn); color: var(--ink); }

@@ -20,6 +20,7 @@ agent-office
 - **Survives restarts.** Workers are saved to disk. After a server restart they come back asleep, and **R** resumes the exact Claude session.
 - **Issues board.** A tack board shows GitHub issues in *Open*, *In progress* and *Closed*. Click an issue and choose **Hand to a worker** to seat a worker with a ready-made prompt.
 - **PR board.** A second tack board shows pull requests in *Draft*, *In review*, *Approved*, *Merged* and *Closed*, with CI status and diff size. **Review with a worker** does what it says.
+- **Services board.** When a worker starts a web server (`npm run dev`, a preview build, `python -m http.server`), it appears on the **🌐 Services** board within a few seconds, with the worker, its branch and the page's title. Click a row to copy one command that opens that server on your own computer. Hire a worker with its own worktree, ask it to run the dev server, and your designer can review the branch in their own browser.
 - **Voice.** Browser-to-browser WebRTC voice. Volume depends on how close you stand, but people are never fully silent.
 - **Screen sharing.** Your screen appears on the lounge TV for everyone, and there's a full-screen viewer.
 - **Password protected.** The session cookie is signed, and login attempts are rate limited.
@@ -120,10 +121,19 @@ deploy/aws.sh allow 203.0.113.7     # their IP (SSH answers only allowed IPs)
 
 They leave that command running and sign in with the office password. Their keys log in as a separate `office` user that can **only** forward to the office port. It has no shell, no other ports, no `-R`, and no agent forwarding. So a leaked teammate key still doesn't get past the office password.
 
+**Reviewing what workers build.** Every web server a worker runs is listed on the **🌐 Services** board. Clicking a row copies a command like this one:
+
+```
+ssh -N -o ExitOnForwardFailure=yes -o PermitLocalCommand=yes -o LocalCommand="open http://localhost:5173" -L 5173:localhost:4600 office@<your-office-ip>
+```
+
+It opens http://localhost:5173 on their computer. The tunnel ends at the office's own port, and the office relays it to the worker's server on 5173. So the same invited keys work, nothing new is opened on the machine, and every page still asks for the office password (anyone signed in to the office already is). Keep one terminal per service open while you look. You set the office up yourself? Run `deploy/aws.sh service 5173` instead.
+
 If chasing teammates' IPs gets old, `deploy/aws.sh allow anywhere` opens SSH to every IP. That's a reasonable trade: SSH only accepts your key and invited keys, and the office stays behind the tunnel.
 
 ```bash
 deploy/aws.sh open                 # tunnel + open the office in your browser
+deploy/aws.sh service 5173         # open a worker's web server from the 🌐 Services board
 deploy/aws.sh invite <gh-user>     # let a teammate tunnel in (or: invite <name> <key.pub>)
 deploy/aws.sh uninvite <name>      # remove their keys and drop open tunnels
 deploy/aws.sh team                 # who's invited
@@ -222,6 +232,7 @@ browser ──HTTPS/WSS──▶ agent-office (Node)
                          │    └─ headless xterm mirror ─▶ laptop screen frames + late-join snapshots
                          ├─ loopback-only hook server ◀── curl from Claude Code hooks (per-worker token)
                          ├─ gh issue/pr list (cached, refreshed every 90s)
+                         ├─ port scan every 4s ─▶ 🌐 Services board; relay for service tunnels
                          └─ WebRTC signaling relay (voice + screen share are peer-to-peer)
 ```
 
@@ -229,6 +240,7 @@ browser ──HTTPS/WSS──▶ agent-office (Node)
 - **Shared shells.** Press **B** at an empty desk to open a plain login shell for dev servers, git or tests. It's shared the same way as a Claude terminal.
 - **Isolated branches.** When you hire with a task, you can tick *own git worktree*. The worker then gets its own `office/<name>` branch under `.agent-office/worktrees/`, so parallel workers never share a checkout.
 - **Shared terminals.** The server keeps one PTY per worker and mirrors it in a headless xterm. People who open the terminal get a serialized snapshot, then the live stream. Laptops get compact per-row diffs a few times a second. The PTY takes the size of whoever is typing.
+- **Services.** Every 4 seconds the office lists the TCP ports its user's processes listen on (`ss`, or `lsof` on macOS). It credits each port to the worker whose terminal started it. It goes by the process tree first. For a server that detached from it, it uses the `AGENT_OFFICE_WORKER_ID` the process inherited (Linux), then whether it runs inside that worker's worktree. Ports that answer HTTP are shown. A request for `localhost:<port>` that reaches the office's own port (that's what a service tunnel does) is relayed to that server, WebSockets included, so hot reload works.
 - **State.** `.agent-office/` in the project holds the password, the signing secret, the hook settings and the saved workers. It is added to `.git/info/exclude` automatically, so it never shows up in `git status`.
 
 ## Security notes
@@ -240,6 +252,7 @@ Anyone with the password can drive Claude Code in that directory, and through it
 - Only enable `--trust-proxy` behind a proxy that appends `X-Forwarded-For` (Caddy and nginx both do). The office uses the rightmost hop.
 - Run the office as a dedicated, unprivileged user, in the project you mean to share.
 - The WebSocket checks the session cookie and the `Origin` header. The hook endpoint only listens on loopback and needs a random per-worker token.
+- Service tunnels are relayed only to web servers a worker started, and only with an office session. The office's own cookies are stripped before a request reaches that server. A server you started yourself outside the office is never listed or relayed.
 - Workers don't inherit the office password or any parent agent-session variables.
 
 ## Development

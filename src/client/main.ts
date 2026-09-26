@@ -18,6 +18,7 @@ import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/termin
 import { openPrompt, confirmDialog } from './ui/prompt';
 import { openBoard } from './ui/boards';
 import { openTeam, routeTeamMessage } from './ui/team';
+import { mountServicesButton } from './ui/services';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
 import { openHelp, openProfile, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
 import { openSettings } from './ui/settings';
@@ -779,6 +780,7 @@ $('btn-mute').addEventListener('click', () => voice.toggleMute());
 $('btn-share').addEventListener('click', () => void toggleShare());
 $('btn-issues').addEventListener('click', () => openBoard('issues', net, boardActions()));
 $('btn-pulls').addEventListener('click', () => openBoard('pulls', net, boardActions()));
+mountServicesButton($('btn-services'));
 $('btn-team').addEventListener('click', () => openTeam(net));
 $('btn-upgrade').addEventListener('click', () => openUpgrade(net));
 $('btn-help').addEventListener('click', () => openHelp());

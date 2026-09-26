@@ -4,19 +4,23 @@ import { store } from '../state';
 import { h, openModal } from './dom';
 import { confirmDialog } from './prompt';
 
-type Os = 'mac' | 'linux' | 'windows';
-const OS_LABEL: Record<Os, string> = { mac: 'macOS', linux: 'Linux', windows: 'Windows' };
+export type Os = 'mac' | 'linux' | 'windows';
+export const OS_LABEL: Record<Os, string> = { mac: 'macOS', linux: 'Linux', windows: 'Windows' };
 
-function guessOs(): Os {
+export function guessOs(): Os {
   const p = navigator.userAgent;
   return /Windows/i.test(p) ? 'windows' : /Mac/i.test(p) ? 'mac' : 'linux';
 }
 
+/** Opens a URL in the browser, for ssh's LocalCommand. */
+export function openCommand(url: string, os: Os): string {
+  return os === 'mac' ? `open ${url}` : os === 'windows' ? `start ${url}` : `xdg-open ${url} >/dev/null 2>&1 &`;
+}
+
 /** One command that opens the tunnel and, once it's up, the office in their browser. */
 export function tunnelCommand(t: TeamState, os: Os): string {
-  const url = `http://localhost:${t.port}`;
   // LocalCommand runs after the forward is listening, so the page loads on the first try.
-  const open = os === 'mac' ? `open ${url}` : os === 'windows' ? `start ${url}` : `xdg-open ${url} >/dev/null 2>&1 &`;
+  const open = openCommand(`http://localhost:${t.port}`, os);
   return `ssh -o ExitOnForwardFailure=yes -o PermitLocalCommand=yes -o LocalCommand="${open}" -L ${t.port}:localhost:${t.port} ${t.ssh}`;
 }
 
@@ -35,7 +39,7 @@ function inviteMessage(t: TeamState, os: Os): string {
     .trim();
 }
 
-async function copy(text: string): Promise<boolean> {
+export async function copy(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
     return true;
@@ -51,7 +55,7 @@ async function copy(text: string): Promise<boolean> {
   }
 }
 
-function copyButton(label: string, text: () => string, cls = '') {
+export function copyButton(label: string, text: () => string, cls = '') {
   const btn = h('button.btn', { type: 'button', class: cls }, label);
   btn.addEventListener('click', async () => {
     btn.textContent = (await copy(text())) ? '✓ Copied' : 'Copy failed';

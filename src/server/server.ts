@@ -12,7 +12,9 @@ import { WorkerManager } from './workers.js';
 import { GitHub } from './github.js';
 import { Team } from './team.js';
 import { Upgrader } from './upgrade.js';
-import type { ChatLine, ClientMsg, PeerInfo, ProjectInfo, ServerMsg } from '../shared/protocol.js';
+import { Services } from './services.js';
+import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
+import type { ChatLine, ClientMsg, PeerInfo, ProjectInfo, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { SPAWN } from '../shared/layout.js';
 
 const MIME: Record<string, string> = {
@@ -184,6 +186,14 @@ export async function startServer(cfg: Config) {
 
   const team = new Team(cfg.publicHost, cfg.port);
 
+  // Web servers the workers start, for the Services board and service tunnels (see relay.ts).
+  const servicesState = (items = services.list()): ServicesState => ({ items, port: cfg.port, ssh: team.ssh });
+  const services = new Services(
+    cfg.dir,
+    () => workers.owners(),
+    (items) => broadcast({ t: 'services', state: servicesState(items) }),
+  );
+
   const upgrader = new Upgrader(
     (state) => broadcast({ t: 'upgrade', state }),
     () => {
@@ -206,28 +216,39 @@ export async function startServer(cfg: Config) {
     createReadStream(file).pipe(res);
   };
 
+  const login = async (req: http.IncomingMessage, res: http.ServerResponse) => {
+    const ip = clientIp(req, cfg.trustProxy);
+    // Counted before the body is read, so parallel guesses can't all slip under the limit.
+    if (!auth.allowAttempt(ip)) return send(res, 429, { error: 'Too many attempts. Try again in a few minutes.' });
+    let pw = '';
+    try {
+      pw = str(JSON.parse(await readBody(req, 4096)).password, 512);
+    } catch {
+      return send(res, 400, { error: 'Bad request' });
+    }
+    if (!(await auth.checkPassword(pw))) return send(res, 401, { error: 'Wrong password' });
+    auth.recordSuccess(ip);
+    return send(res, 200, { ok: true }, { 'set-cookie': auth.cookie(req, auth.issue(), isSecure(req, cfg)) });
+  };
+
   const handler = async (req: http.IncomingMessage, res: http.ServerResponse) => {
     try {
+      // A service tunnel (localhost:5173 -> the office): relay to that worker's server.
+      const tunneled = tunneledPort(req, cfg.port);
+      const svc = tunneled ? services.lookup(tunneled) : undefined;
+      if (tunneled && svc) {
+        if (req.method === 'POST' && req.url === RELAY_LOGIN) return await login(req, res);
+        if (!auth.fromAnyCookie(req)) return signInPage(res, tunneled);
+        if (svc === 'gone') return stoppedPage(res, tunneled);
+        return relayRequest(req, res, svc);
+      }
       let p: string;
       try {
         p = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
       } catch {
         return send(res, 400, { error: 'Bad request' });
       }
-      if (p === '/api/login' && req.method === 'POST') {
-        const ip = clientIp(req, cfg.trustProxy);
-        // Counted before the body is read, so parallel guesses can't all slip under the limit.
-        if (!auth.allowAttempt(ip)) return send(res, 429, { error: 'Too many attempts. Try again in a few minutes.' });
-        let pw = '';
-        try {
-          pw = str(JSON.parse(await readBody(req, 4096)).password, 512);
-        } catch {
-          return send(res, 400, { error: 'Bad request' });
-        }
-        if (!(await auth.checkPassword(pw))) return send(res, 401, { error: 'Wrong password' });
-        auth.recordSuccess(ip);
-        return send(res, 200, { ok: true }, { 'set-cookie': auth.cookie(req, auth.issue(), isSecure(req, cfg)) });
-      }
+      if (p === '/api/login' && req.method === 'POST') return await login(req, res);
       // One-time reveal of the generated password. After this the plaintext is gone for good.
       const claimable = !!cfg.claimToken && !cfg.claimed && !!cfg.password;
       if (p === '/api/claim' && req.method === 'GET') return send(res, 200, { claimable });
@@ -285,6 +306,14 @@ export async function startServer(cfg: Config) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
   server.on('upgrade', (req, socket, head) => {
     socket.on('error', () => socket.destroy());
+    const tunneled = tunneledPort(req, cfg.port);
+    const svc = tunneled ? services.lookup(tunneled) : undefined;
+    if (tunneled && svc) {
+      if (svc !== 'gone' && auth.fromAnyCookie(req)) return relayUpgrade(req, socket, head, svc);
+      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     let url: URL;
     try {
       url = new URL(req.url ?? '/', 'http://x');
@@ -350,6 +379,7 @@ export async function startServer(cfg: Config) {
       invites: team.available,
       version: upgrader.version,
       upgrade: upgrader.state,
+      services: servicesState(),
     });
     for (const { workerId, frame } of workers.fullScreens()) sendTo(client, { t: 'screen', workerId, ...frame, full: true });
     broadcast({ t: 'peer.join', peer: client.peer }, id);
@@ -532,12 +562,14 @@ export async function startServer(cfg: Config) {
     server.once('error', reject);
     server.listen(cfg.port, cfg.host, () => resolve());
   });
+  services.start();
 
   const shutdown = () => {
     clearInterval(heartbeat);
     clearInterval(resync);
     github.stop();
     upgrader.stop();
+    services.stop();
     workers.shutdown();
     for (const c of clients.values()) c.ws.close();
     server.close();

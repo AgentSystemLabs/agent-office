@@ -41,18 +41,23 @@ export class Team {
     return !!this.publicHost && existsSync(HELPER);
   }
 
+  /** user@host teammates tunnel to, when invites work. */
+  get ssh(): string | undefined {
+    return this.available ? `${TEAM_USER}@${this.publicHost}` : undefined;
+  }
+
   async state(): Promise<TeamState> {
     const base = { port: this.port, members: [] };
     if (!this.available) return { ...base, unavailable: 'Invites work on offices deployed with deploy/aws.sh (re-run `deploy/aws.sh up` on one made before invites).' };
     this.fingerprint ??= (await helper(['fingerprint'])).out.trim() || undefined;
     const list = await helper(['list']);
-    if (list.code) return { ...base, ssh: `${TEAM_USER}@${this.publicHost}`, fingerprint: this.fingerprint, error: `Couldn't list the team: ${list.err}` };
+    if (list.code) return { ...base, ssh: this.ssh, fingerprint: this.fingerprint, error: `Couldn't list the team: ${list.err}` };
     const members = list.out
       .split('\n')
       .map((l) => l.trim().split(/\s+/))
       .filter((p) => p.length === 2 && p[0])
       .map(([name, keys]) => ({ name, keys: Number(keys) || 0 }));
-    return { ...base, ssh: `${TEAM_USER}@${this.publicHost}`, fingerprint: this.fingerprint, members };
+    return { ...base, ssh: this.ssh, fingerprint: this.fingerprint, members };
   }
 
   /** Installs the SSH keys on github.com/<user>.keys, each limited to opening the tunnel. */

@@ -127,6 +127,31 @@ export interface TeamState {
   members: TeamMember[];
 }
 
+/** A web server a worker started (a dev server, a preview), found by the ports it listens on. */
+export interface ServiceInfo {
+  port: number;
+  /** The address the office reaches it on, on its own machine. */
+  host: string;
+  pid: number;
+  /** Its command line, shortened, e.g. "vite --port 5173". */
+  command: string;
+  /** The worker whose terminal started it. */
+  workerId: string;
+  /** Its working directory relative to the office dir ('' is the project root). */
+  cwd?: string;
+  /** The <title> of its front page. */
+  title?: string;
+  since: number;
+}
+
+export interface ServicesState {
+  items: ServiceInfo[];
+  /** The office's port on its machine. Service tunnels end there and the office relays them. */
+  port: number;
+  /** user@host teammates tunnel to (offices deployed with deploy/aws.sh), e.g. office@203.0.113.7 */
+  ssh?: string;
+}
+
 export interface VersionInfo {
   sha: string;
   subject: string;
@@ -201,6 +226,7 @@ export type ServerMsg =
       /** The running server's version; a change after a reconnect means the office was upgraded. */
       version: string;
       upgrade: UpgradeState;
+      services: ServicesState;
     }
   | { t: 'peer.join'; peer: PeerInfo }
   | { t: 'peer.update'; peer: PeerInfo }
@@ -219,6 +245,7 @@ export type ServerMsg =
   | { t: 'toast'; text: string; level: 'info' | 'warn' | 'error' }
   | { t: 'team'; state: TeamState }
   | { t: 'upgrade'; state: UpgradeState }
+  | { t: 'services'; state: ServicesState }
   /** Sent to whoever asked for the invite. */
   | { t: 'team.invited'; github: string; name?: string; keys?: number; error?: string }
   | { t: 'pong'; at: number };

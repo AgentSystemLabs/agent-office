@@ -8,6 +8,7 @@ import serialize from '@xterm/addon-serialize';
 import type { Run, WorkerInfo, WorkerKind, WorkerStatus } from '../shared/protocol.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG } from '../shared/protocol.js';
 import { DESK_BY_ID } from '../shared/layout.js';
+import type { ServiceOwner } from './services.js';
 
 type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
 
@@ -99,6 +100,16 @@ export class WorkerManager {
     return this.workers.get(id)?.info;
   }
 
+  /** Each worker's terminal process and directory, to tell whose servers are whose. */
+  owners(): ServiceOwner[] {
+    return [...this.workers.values()].map((w) => ({
+      workerId: w.info.id,
+      pid: w.pty?.pid,
+      agent: w.info.kind === 'agent',
+      cwd: w.info.worktree ? path.join(this.dir, w.info.worktree.path) : this.dir,
+    }));
+  }
+
   deskOccupied(deskId: string): boolean {
     for (const w of this.workers.values()) if (w.info.deskId === deskId) return true;
     return false;
@@ -107,7 +118,7 @@ export class WorkerManager {
   spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent'): WorkerInfo | string {
     if (!DESK_BY_ID.has(deskId)) return 'Unknown desk';
     if (this.deskOccupied(deskId)) return 'That desk is taken';
-    const used = new Set([...this.workers.values()].map((w) => w.info.name));
+    const used = new Set([...this.workers.values()].map((w) => w.info.name.replace(/ 🐚$/, '')));
     const name = NAMES.find((n) => !used.has(n)) ?? `Worker ${this.workers.size + 1}`;
     const id = randomBytes(6).toString('hex');
     let wt: WorkerInfo['worktree'];
