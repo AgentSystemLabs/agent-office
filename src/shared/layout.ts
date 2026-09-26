@@ -53,9 +53,12 @@ export function deskSeat(desk: DeskDef, offset = 0.85): { x: number; z: number }
   };
 }
 
+/** Wall boards. `rotY` is the way the board faces (0 = +z, like the north-wall boards). */
 export const BOARDS = {
-  issues: { x: -10.5, y: 2.1, z: FLOOR.minZ + 0.08, width: 6, height: 3, label: 'Issues' },
-  pulls: { x: -1.5, y: 2.1, z: FLOOR.minZ + 0.08, width: 6, height: 3, label: 'Pull Requests' },
+  issues: { x: -10.5, y: 2.1, z: FLOOR.minZ + 0.08, rotY: 0, width: 6, height: 3, label: 'Issues' },
+  pulls: { x: -1.5, y: 2.1, z: FLOOR.minZ + 0.08, rotY: 0, width: 6, height: 3, label: 'Pull Requests' },
+  // East wall, north of the lounge TV.
+  services: { x: FLOOR.maxX - 0.08, y: 2.1, z: -8.2, rotY: -Math.PI / 2, width: 6, height: 3, label: '🌐 Services' },
 } as const;
 
 /** The big TV on the east wall that shows whoever is screen sharing. */

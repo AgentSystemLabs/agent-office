@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BOARDS, DESKS, DESK_SIZE, FLOOR, TV, WALL_HEIGHT, deskSeat, type DeskDef } from '../../shared/layout';
-import { mesh, roundedBox, textSprite, toon } from './toon';
+import { mesh, roundedBox, textPlane, toon } from './toon';
 
 export interface Collider {
   minX: number;
@@ -10,8 +10,9 @@ export interface Collider {
   top: number;
 }
 
-export type InteractKind = 'desk' | 'issues' | 'pulls' | 'tv' | 'coffee';
+export type InteractKind = 'desk' | 'issues' | 'pulls' | 'services' | 'tv' | 'coffee';
 
+/** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
   kind: InteractKind;
   x: number;
@@ -36,7 +37,7 @@ export interface Office {
   colliders: Collider[];
   interactables: Interactable[];
   desks: Map<string, DeskView>;
-  boardMeshes: { issues: THREE.Mesh; pulls: THREE.Mesh };
+  boardMeshes: Record<keyof typeof BOARDS, THREE.Mesh>;
   tvScreen: THREE.Mesh;
   setProjectName(name: string): void;
   update(t: number): void;
@@ -265,22 +266,31 @@ export function buildOffice(): Office {
     const hd = DESK_SIZE.depth / 2 - 0.02;
     colliders.push({ minX: def.x - hw, maxX: def.x + hw, minZ: def.z - hd, maxZ: def.z + hd, top: DESK_SIZE.height });
     const seat = deskSeat(def, 1.25);
-    interactables.push({ kind: 'desk', deskId: def.id, x: seat.x, z: seat.z, radius: 1.3 });
+    const it: Interactable = { kind: 'desk', deskId: def.id, x: seat.x, z: seat.z, radius: 1.3 };
+    interactables.push(it);
+    view.group.userData.interact = it;
   });
 
-  // Cork boards on the north wall
+  // Cork boards on the walls
   const boardMeshes = {} as Office['boardMeshes'];
-  for (const key of ['issues', 'pulls'] as const) {
+  for (const key of Object.keys(BOARDS) as (keyof typeof BOARDS)[]) {
     const b = BOARDS[key];
+    // Out from the wall, the way the board faces.
+    const nx = Math.sin(b.rotY);
+    const nz = Math.cos(b.rotY);
     const { group: bg, face } = corkBoard(b.width, b.height);
-    bg.position.set(b.x, b.y, b.z + 0.08);
+    bg.position.set(b.x + nx * 0.08, b.y, b.z + nz * 0.08);
+    bg.rotation.y = b.rotY;
     group.add(bg);
     boardMeshes[key] = face;
-    const label = textSprite(b.label, { bg: '#fffaf3', size: 64 });
+    const label = textPlane(b.label, { bg: '#fffaf3', size: 64 });
     label.scale.multiplyScalar(1.3);
-    label.position.set(b.x, b.y + b.height / 2 + 0.5, b.z + 0.3);
+    label.position.set(b.x + nx * 0.04, b.y + b.height / 2 + 0.5, b.z + nz * 0.04);
+    label.rotation.y = b.rotY;
     group.add(label);
-    interactables.push({ kind: key, x: b.x, z: b.z + 1.6, radius: 2.4 });
+    const it: Interactable = { kind: key, x: b.x + nx * 1.6, z: b.z + nz * 1.6, radius: 2.4 };
+    interactables.push(it);
+    bg.userData.interact = it;
   }
 
   // Lounge: TV, couch, coffee table, beanbags
@@ -293,7 +303,9 @@ export function buildOffice(): Office {
   tvGroup.position.set(TV.x - 0.1, TV.y, TV.z);
   tvGroup.rotation.y = -Math.PI / 2;
   group.add(tvGroup);
-  interactables.push({ kind: 'tv', x: TV.x - 4.5, z: TV.z, radius: 3.2 });
+  const tv: Interactable = { kind: 'tv', x: TV.x - 4.5, z: TV.z, radius: 3.2 };
+  interactables.push(tv);
+  tvGroup.userData.interact = tv;
 
   const couch = new THREE.Group();
   const couchMat = toon('#5b8def');
@@ -341,7 +353,9 @@ export function buildOffice(): Office {
   group.add(kitchen);
   colliders.push({ minX: -17, maxX: -12, minZ: 11.7, maxZ: 12.7, top: 1.03 });
   colliders.push({ minX: -11.85, maxX: -10.75, minZ: 11.7, maxZ: 12.7, top: 2.2 });
-  interactables.push({ kind: 'coffee', x: -15.7, z: 10.9, radius: 1.4 });
+  const cup: Interactable = { kind: 'coffee', x: -15.7, z: 10.9, radius: 1.4 };
+  interactables.push(cup);
+  coffee.userData.interact = cup;
 
   // Plants around the room
   const plants: [number, number, number][] = [
@@ -379,13 +393,18 @@ export function buildOffice(): Office {
     group.add(lamp);
   }
 
-  let nameSprite: THREE.Sprite | null = null;
+  let nameSign: ReturnType<typeof textPlane> | null = null;
   const setProjectName = (name: string) => {
-    if (nameSprite) group.remove(nameSprite);
-    nameSprite = textSprite(`📁 ${name}`, { bg: '#2b2d42', color: '#fffaf3', size: 64, border: '#fffaf3' });
-    nameSprite.position.set(8, 2.6, FLOOR.minZ + 0.4);
-    nameSprite.scale.multiplyScalar(2.2);
-    group.add(nameSprite);
+    if (nameSign) {
+      group.remove(nameSign);
+      nameSign.material.map?.dispose();
+      nameSign.material.dispose();
+      nameSign.geometry.dispose();
+    }
+    nameSign = textPlane(`📁 ${name}`, { bg: '#2b2d42', color: '#fffaf3', size: 64, border: '#fffaf3' });
+    nameSign.position.set(8, 2.6, FLOOR.minZ + 0.06);
+    nameSign.scale.multiplyScalar(2.2);
+    group.add(nameSign);
   };
 
   const update = (t: number) => {
