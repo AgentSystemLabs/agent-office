@@ -67,6 +67,8 @@ export class WorkerManager {
   private settingsPath: string;
   private agentPath: string | null = null;
   private screenTimer: NodeJS.Timeout;
+  /** Workers to start again on the next boot, because the office restarted to upgrade. */
+  private wakeOnBoot = new Set<string>();
 
   constructor(
     private dir: string,
@@ -80,8 +82,9 @@ export class WorkerManager {
     this.settingsPath = path.join(dataDir, 'claude-hooks.json');
     this.writeHookSettings();
     this.agentPath = resolveCommand(agentCmd);
-    this.restore();
+    const wake = this.restore();
     this.screenTimer = setInterval(() => this.flushScreens(), SCREEN_INTERVAL_MS);
+    for (const id of wake) this.resume(id);
   }
 
   get resolvedAgent(): string | null {
@@ -320,6 +323,12 @@ export class WorkerManager {
         break;
     }
     return true;
+  }
+
+  /** The office is about to restart into a new version: bring whoever is awake back afterwards. */
+  wakeAfterRestart() {
+    for (const w of this.workers.values()) if (w.pty) this.wakeOnBoot.add(w.info.id);
+    this.persist();
   }
 
   shutdown() {
@@ -578,6 +587,7 @@ process.stdin.on('end', () => {
       title: info.title,
       sessionId: info.sessionId,
       activity: info.activity,
+      wake: this.wakeOnBoot.has(info.id) || undefined,
     }));
     try {
       writeFileSync(this.statePath, JSON.stringify(saved, null, 2), { mode: 0o600 });
@@ -586,10 +596,12 @@ process.stdin.on('end', () => {
     }
   }
 
-  private restore() {
-    if (!existsSync(this.statePath)) return;
+  /** Returns the workers to wake right away. */
+  private restore(): string[] {
+    const wake: string[] = [];
+    if (!existsSync(this.statePath)) return wake;
     try {
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as Partial<WorkerInfo>[];
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { wake?: boolean })[];
       for (const s of saved) {
         if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || this.deskOccupied(s.deskId)) continue;
         const info: WorkerInfo = {
@@ -612,10 +624,12 @@ process.stdin.on('end', () => {
           viewers: [],
         };
         this.workers.set(info.id, { info, viewers: new Map(), screenDirty: false, lastLines: [], leftNeedsInputAt: 0, keyframeAt: 0, hookToken: randomBytes(16).toString('hex') });
+        if (s.wake) wake.push(info.id);
       }
     } catch {
       // corrupt state file: start fresh
     }
+    return wake;
   }
 }
 

@@ -17,6 +17,7 @@ import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/termin
 import { openPrompt, confirmDialog } from './ui/prompt';
 import { openBoard } from './ui/boards';
 import { openTeam, routeTeamMessage } from './ui/team';
+import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
 import { openHelp, openProfile, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
@@ -136,6 +137,9 @@ interface WorkerView {
 }
 const workerViews = new Map<string, WorkerView>();
 let firstWelcome = true;
+/** The server version this page was loaded with. */
+let bootVersion = '';
+let upgradePhase = '';
 
 net.onStatus((up) => $('conn').classList.toggle('hidden', up));
 net.onMessage((msg) => {
@@ -156,6 +160,10 @@ net.onMessage((msg) => {
       if (openId && store.workers.has(openId)) net.send({ t: 'worker.attach', workerId: openId });
       renderProject();
       $('btn-team').classList.toggle('hidden', !store.invites);
+      // Back from a restart on another version: this page's code is stale, so load the new one.
+      if (!bootVersion) bootVersion = msg.version;
+      else if (msg.version !== bootVersion || restarting()) showUpgraded(msg.upgrade);
+      upgradePhase = msg.upgrade.phase;
       voice.syncPeers();
       break;
     }
@@ -169,11 +177,29 @@ net.onMessage((msg) => {
     case 'toast':
       toast(msg.text, msg.level);
       break;
+    case 'upgrade':
+      if (msg.state.phase === 'restarting') showRestarting(msg.state, net);
+      if (msg.state.phase === 'failed' && upgradePhase === 'building') toast(`The upgrade failed, so the office stays on ${msg.state.current?.sha ?? 'this version'}`, 'error');
+      upgradePhase = msg.state.phase;
+      break;
     case 'chat':
       sayBubble(msg.from, msg.text);
       break;
   }
 });
+
+function renderUpgrade() {
+  const u = store.upgrade;
+  const btn = $('btn-upgrade');
+  btn.classList.toggle('hidden', !u.available);
+  btn.classList.toggle('primary', !!u.latest && u.phase !== 'building');
+  btn.textContent = u.phase === 'building' ? '🛠️ Upgrading…' : u.latest ? '⬆️ Update' : '⬆️';
+  btn.title = u.latest ? `New version: ${u.latest.subject}` : 'Upgrade the office';
+  const banner = $('upgrade-banner');
+  banner.classList.toggle('hidden', u.phase !== 'building');
+  banner.textContent = `🛠️ ${u.by ?? 'Someone'} is upgrading the office. It restarts on the new version in a minute or two.`;
+}
+store.on('upgrade', renderUpgrade);
 
 function renderProject() {
   const p = store.project;
@@ -688,6 +714,7 @@ $('btn-share').addEventListener('click', () => void toggleShare());
 $('btn-issues').addEventListener('click', () => openBoard('issues', net, boardActions()));
 $('btn-pulls').addEventListener('click', () => openBoard('pulls', net, boardActions()));
 $('btn-team').addEventListener('click', () => openTeam(net));
+$('btn-upgrade').addEventListener('click', () => openUpgrade(net));
 $('btn-help').addEventListener('click', () => openHelp());
 
 function editProfile() {

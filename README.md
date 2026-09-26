@@ -137,7 +137,9 @@ deploy/aws.sh ssh | logs           # get on the box / follow the office logs
 deploy/aws.sh down                 # delete the instance, disk, IP, security group and key pair
 ```
 
-An office created before the SSH tunnel served HTTPS on port 443 with a self-signed certificate. Run `deploy/aws.sh up` once to move it over: 443 closes and the office moves behind the tunnel. Offices created before the **👥 Invite** button also need one `deploy/aws.sh up` before it shows up. `update` alone isn't enough, because `up` installs the helper that manages teammates' keys.
+**Upgrading from the office.** The **⬆️** button in the top bar checks GitHub for new commits on the branch the office was installed from. It lights up as **⬆️ Update** when there are any, and lists them. **Upgrade now** builds the new version next to the running one. Meanwhile the office keeps working and everyone sees a banner. A failed build changes nothing. Once the build succeeds, the office swaps it in and restarts, and everyone gets a *"🛠️ Upgrading the office"* dialog. A few seconds later their page reloads on the new version. Workers that were awake wake back up at their desks by themselves. Anything they were in the middle of gets interrupted, and the panel names those workers before you click.
+
+An office created before the SSH tunnel served HTTPS on port 443 with a self-signed certificate. Run `deploy/aws.sh up` once to move it over: 443 closes and the office moves behind the tunnel. Offices created before the **👥 Invite** and **⬆️** buttons also need one `deploy/aws.sh up` before those buttons appear. `update` alone isn't enough, because `up` installs the key helper and turns on self-upgrade in the systemd unit.
 
 Useful options for `up`:
 

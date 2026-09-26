@@ -1,7 +1,7 @@
-import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, ServerMsg, TeamState, WorkerInfo } from '../shared/protocol';
+import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, ServerMsg, TeamState, UpgradeState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 
-type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team';
+type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade';
 
 export interface Profile {
   name: string;
@@ -43,6 +43,7 @@ class Store {
   /** Whether this office can invite teammates (deployed with deploy/aws.sh). */
   invites = false;
   team: TeamState | null = null;
+  upgrade: UpgradeState = { available: false, phase: 'idle' };
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -74,7 +75,8 @@ class Store {
         this.ice = msg.ice as RTCIceServer[];
         this.chat = msg.chat;
         this.invites = msg.invites;
-        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project'] as Topic[]) this.emit(t);
+        this.upgrade = msg.upgrade;
+        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade'] as Topic[]) this.emit(t);
         break;
       case 'peer.join':
       case 'peer.update':
@@ -122,6 +124,10 @@ class Store {
       case 'team':
         this.team = msg.state;
         this.emit('team');
+        break;
+      case 'upgrade':
+        this.upgrade = msg.state;
+        this.emit('upgrade');
         break;
       case 'chat':
         this.chat.push(msg);

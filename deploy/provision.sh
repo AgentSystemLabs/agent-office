@@ -208,6 +208,9 @@ EnvironmentFile=/etc/agent-office/env
 Environment=HOME=$HOME
 Environment=SHELL=/bin/bash
 Environment=PATH=$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Lets the office upgrade itself from its UI: it builds the new version, then exits, and
+# Restart=always brings it back up on that version.
+Environment=AGENT_OFFICE_SELF_UPDATE=1
 # Loopback only: the office is reached through an SSH tunnel, never from the internet.
 ExecStart=/usr/bin/node /opt/agent-office/bin/agent-office.js $WORKDIR --host 127.0.0.1 --port 4600
 Restart=always

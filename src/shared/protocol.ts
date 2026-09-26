@@ -127,6 +127,32 @@ export interface TeamState {
   members: TeamMember[];
 }
 
+export interface VersionInfo {
+  sha: string;
+  subject: string;
+  /** ISO commit date */
+  date: string;
+}
+
+/** Self-upgrade of an office installed from git by deploy/aws.sh (see server/upgrade.ts). */
+export interface UpgradeState {
+  /** False when the office can't upgrade itself (not installed by deploy/aws.sh). */
+  available: boolean;
+  current?: VersionInfo;
+  /** Newest commit upstream, when it differs from current. */
+  latest?: VersionInfo;
+  /** New commits since current, newest first (at most 15). */
+  changes?: { sha: string; subject: string }[];
+  /** How many new commits there are in all ("50" means 50 or more). */
+  behind?: number;
+  checking?: boolean;
+  checkedAt?: number;
+  phase: 'idle' | 'building' | 'restarting' | 'failed';
+  /** Who started the upgrade. */
+  by?: string;
+  error?: string;
+}
+
 export interface ChatLine {
   from: string;
   name: string;
@@ -153,6 +179,8 @@ export type ClientMsg =
   | { t: 'team.get' }
   | { t: 'team.invite'; github: string }
   | { t: 'team.remove'; name: string }
+  | { t: 'upgrade.check' }
+  | { t: 'upgrade.start' }
   | { t: 'ping'; at: number };
 
 export type ServerMsg =
@@ -168,6 +196,9 @@ export type ServerMsg =
       chat: ChatLine[];
       /** Whether teammates can be invited from the office (see TeamState). */
       invites: boolean;
+      /** The running server's version; a change after a reconnect means the office was upgraded. */
+      version: string;
+      upgrade: UpgradeState;
     }
   | { t: 'peer.join'; peer: PeerInfo }
   | { t: 'peer.update'; peer: PeerInfo }
@@ -184,6 +215,7 @@ export type ServerMsg =
   | ({ t: 'chat' } & ChatLine)
   | { t: 'toast'; text: string; level: 'info' | 'warn' | 'error' }
   | { t: 'team'; state: TeamState }
+  | { t: 'upgrade'; state: UpgradeState }
   /** Sent to whoever asked for the invite. */
   | { t: 'team.invited'; github: string; name?: string; keys?: number; error?: string }
   | { t: 'pong'; at: number };

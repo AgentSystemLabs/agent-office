@@ -11,6 +11,7 @@ import { Auth } from './auth.js';
 import { WorkerManager } from './workers.js';
 import { GitHub } from './github.js';
 import { Team } from './team.js';
+import { Upgrader } from './upgrade.js';
 import type { ChatLine, ClientMsg, PeerInfo, ProjectInfo, ServerMsg } from '../shared/protocol.js';
 import { SPAWN } from '../shared/layout.js';
 
@@ -182,6 +183,15 @@ export async function startServer(cfg: Config) {
 
   const team = new Team(cfg.publicHost, cfg.port);
 
+  const upgrader = new Upgrader(
+    (state) => broadcast({ t: 'upgrade', state }),
+    () => {
+      // cli.ts shuts down gracefully; systemd (Restart=always) then starts the new version.
+      workers.wakeAfterRestart();
+      process.kill(process.pid, 'SIGTERM');
+    },
+  );
+
   // --- HTTP ------------------------------------------------------------------------------------
   const serveFile = (res: http.ServerResponse, file: string, cache: boolean) => {
     const ext = path.extname(file);
@@ -336,6 +346,8 @@ export async function startServer(cfg: Config) {
       ice: cfg.iceServers,
       chat: chat.slice(-50),
       invites: team.available,
+      version: upgrader.version,
+      upgrade: upgrader.state,
     });
     for (const { workerId, frame } of workers.fullScreens()) sendTo(client, { t: 'screen', workerId, ...frame, full: true });
     broadcast({ t: 'peer.join', peer: client.peer }, id);
@@ -447,6 +459,15 @@ export async function startServer(cfg: Config) {
       case 'gh.refresh':
         void github.refresh();
         break;
+      case 'upgrade.check':
+        void upgrader.check();
+        break;
+      case 'upgrade.start':
+        void upgrader.start(who).then((err) => {
+          if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+          else broadcast({ t: 'toast', text: `${who} is upgrading the office — it restarts when the new version is built`, level: 'info' });
+        });
+        break;
       case 'team.get':
         void team.state().then((state) => sendTo(c, { t: 'team', state }));
         break;
@@ -507,6 +528,7 @@ export async function startServer(cfg: Config) {
     clearInterval(heartbeat);
     clearInterval(resync);
     github.stop();
+    upgrader.stop();
     workers.shutdown();
     for (const c of clients.values()) c.ws.close();
     server.close();
