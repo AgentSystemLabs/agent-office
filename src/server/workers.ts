@@ -7,6 +7,7 @@ import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
 import type { Run, WorkerInfo, WorkerKind, WorkerStatus } from '../shared/protocol.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG } from '../shared/protocol.js';
+import { Worktrees, describeWork, type WorktreeCleanup, type WorktreeState } from './worktrees.js';
 import { DESK_BY_ID } from '../shared/layout.js';
 import { gh } from './github.js';
 import type { ServiceOwner } from './services.js';
@@ -75,6 +76,7 @@ export class WorkerManager {
   private workers = new Map<string, Worker>();
   private statePath: string;
   private settingsPath: string;
+  private trees: Worktrees;
   private agentPath: string | null = null;
   private screenTimer: NodeJS.Timeout;
   private usageTimer: NodeJS.Timeout;
@@ -90,6 +92,7 @@ export class WorkerManager {
     private events: WorkerEvents,
     private ledger: Ledger,
   ) {
+    this.trees = new Worktrees(dir);
     this.statePath = path.join(dataDir, 'workers.json');
     this.settingsPath = path.join(dataDir, 'claude-hooks.json');
     this.writeHookSettings();
@@ -143,7 +146,7 @@ export class WorkerManager {
     const id = randomBytes(6).toString('hex');
     let wt: WorkerInfo['worktree'];
     if (worktree) {
-      const made = this.createWorktree(`${name.toLowerCase()}-${id.slice(0, 4)}`);
+      const made = this.trees.create(`${name.toLowerCase()}-${id.slice(0, 4)}`);
       if (typeof made === 'string') return made;
       wt = made;
     }
@@ -181,9 +184,14 @@ export class WorkerManager {
     return undefined;
   }
 
-  kill(id: string) {
+  /**
+   * Sends a worker home. For one with its own worktree, `cleanup` says what becomes of it; with no
+   * choice given, the worktree and branch go only when they hold no work. Resolves once that's done,
+   * with a line for the team about the worktree.
+   */
+  async kill(id: string, cleanup?: WorktreeCleanup): Promise<{ note?: string; error?: string }> {
     const w = this.workers.get(id);
-    if (!w) return;
+    if (!w) return {};
     this.workers.delete(id);
     clearTimeout(w.scanTimer);
     const proc = w.pty;
@@ -196,43 +204,24 @@ export class WorkerManager {
     w.term?.dispose();
     this.events.remove(id);
     this.persist();
-    if (w.info.worktree) this.cleanupWorktree(w.info);
-  }
-
-  private git(args: string[], cwd = this.dir): string {
-    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20_000 }).trim();
-  }
-
-  private createWorktree(slug: string): WorkerInfo['worktree'] | string {
-    try {
-      const base = this.git(['rev-parse', 'HEAD']);
-      const from = this.git(['rev-parse', '--abbrev-ref', 'HEAD']);
-      const rel = path.join('.agent-office', 'worktrees', slug);
-      const branch = `office/${slug}`;
-      this.git(['worktree', 'add', '-b', branch, rel, base]);
-      return { path: rel, branch, base, from: from === 'HEAD' ? undefined : from };
-    } catch (err) {
-      const msg = String((err as { stderr?: string }).stderr || (err as Error).message).trim().split('\n').pop();
-      return `Could not create a git worktree: ${msg}`;
+    const wt = w.info.worktree;
+    if (!wt) return {};
+    const name = w.info.name;
+    if (!cleanup) {
+      const work = describeWork(await this.trees.inspect(wt));
+      if (work) return { note: `Kept ${name}'s worktree and branch ${wt.branch} — it has ${work}` };
+      cleanup = 'all';
     }
+    if (cleanup === 'keep') return { note: `Kept ${name}'s worktree and branch ${wt.branch}` };
+    const error = await this.trees.remove(wt, cleanup);
+    if (error) return { error: `Couldn't delete ${name}'s worktree: ${error}` };
+    return { note: cleanup === 'all' ? `Deleted ${name}'s worktree and branch ${wt.branch}` : `Deleted ${name}'s worktree and kept branch ${wt.branch}` };
   }
 
-  /** Removes a worker's worktree only when it holds no work: clean tree and no new commits. */
-  private cleanupWorktree(info: WorkerInfo) {
-    const wt = info.worktree!;
-    const abs = path.join(this.dir, wt.path);
-    try {
-      const dirty = existsSync(abs) && this.git(['status', '--porcelain'], abs) !== '';
-      const ahead = Number(this.git(['rev-list', '--count', `${wt.base}..${wt.branch}`]));
-      if (dirty || ahead > 0) {
-        this.events.toast(`Kept ${info.name}'s worktree (${wt.branch}) — it has ${ahead > 0 ? `${ahead} commit${ahead > 1 ? 's' : ''}` : 'uncommitted changes'}`, 'info');
-        return;
-      }
-      this.git(['worktree', 'remove', '--force', wt.path]);
-      this.git(['branch', '-D', wt.branch]);
-    } catch {
-      // leave it for the humans
-    }
+  /** What a worker's worktree holds, so whoever sends it home knows what deleting it would lose. */
+  inspectWorktree(id: string): Promise<WorktreeState | undefined> {
+    const wt = this.workers.get(id)?.info.worktree;
+    return wt ? this.trees.inspect(wt) : Promise.resolve(undefined);
   }
 
   attach(id: string, clientId: string, name: string): { data: string; cols: number; rows: number } | undefined {
@@ -316,7 +305,7 @@ export class WorkerManager {
         return { ...open, existed: true, dirty };
       }
       await run('git', ['push', '-u', 'origin', wt.branch], cwd, 90_000);
-      const base = await this.pushedBranch([wt.from, this.currentBranch()], wt.branch);
+      const base = await this.pushedBranch([wt.from, this.trees.currentBranch()], wt.branch);
       const { title, body } = draftPr(info, commits, by);
       const out = await gh(['pr', 'create', '--head', wt.branch, ...(base ? ['--base', base] : []), '--title', title, '--body', body], cwd, 60_000);
       const url = out.trim().split('\n').pop() ?? '';
@@ -331,15 +320,6 @@ export class WorkerManager {
       info.prOpening = false;
       // The worker may have been sent home meanwhile; an update would bring it back as a ghost.
       if (this.workers.get(id) === w) this.emitUpdate(w);
-    }
-  }
-
-  private currentBranch(): string | undefined {
-    try {
-      const b = this.git(['rev-parse', '--abbrev-ref', 'HEAD']);
-      return b === 'HEAD' ? undefined : b;
-    } catch {
-      return undefined;
     }
   }
 

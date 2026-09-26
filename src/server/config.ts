@@ -43,9 +43,15 @@ const HELP = `agent-office — a 3D office for your team and its Claude Code wor
 
 Usage:
   agent-office [dir] [options]
+  agent-office prune [dir] [--dry-run] [--force]
 
 Runs the office for the project in [dir] (default: current directory).
 Every worker, terminal and GitHub board is scoped to that directory.
+
+Commands:
+  prune                   Remove leftover worker worktrees (.agent-office/worktrees/)
+                          and their office/* branches. Anything with uncommitted
+                          changes or unpushed commits is kept unless --force is given.
 
 Options:
   -p, --port <n>          Port to listen on (default 4600, env PORT)
