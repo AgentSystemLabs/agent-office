@@ -64,8 +64,11 @@ export function roundedBox(w: number, h: number, d: number, r = 0.06): THREE.Buf
   return geo;
 }
 
-/** A camera-facing text label. */
-export function textSprite(text: string, opts: { color?: string; bg?: string; size?: number; border?: string } = {}): THREE.Sprite {
+type TextOpts = { color?: string; bg?: string; size?: number; border?: string };
+const TEXT_SCALE = 0.0055;
+
+/** A pill-shaped text label drawn to a texture; `w`/`h` are the canvas size in pixels. */
+function textTexture(text: string, opts: TextOpts) {
   const size = opts.size ?? 48;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
@@ -93,12 +96,24 @@ export function textSprite(text: string, opts: { color?: string; bg?: string; si
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
+  return { tex, w, h };
+}
+
+/** A camera-facing text label. */
+export function textSprite(text: string, opts: TextOpts = {}): THREE.Sprite {
+  const { tex, w, h } = textTexture(text, opts);
   const mat = new THREE.SpriteMaterial({ map: tex, depthWrite: false, transparent: true });
   const sprite = new THREE.Sprite(mat);
-  const scale = 0.0055;
-  sprite.scale.set(w * scale, h * scale, 1);
+  sprite.scale.set(w * TEXT_SCALE, h * TEXT_SCALE, 1);
   sprite.renderOrder = 10;
   return sprite;
+}
+
+/** A flat text sign facing +Z, for mounting on a wall (a sprite would swing into the wall). */
+export function textPlane(text: string, opts: TextOpts = {}): THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
+  const { tex, w, h } = textTexture(text, opts);
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.05 });
+  return new THREE.Mesh(new THREE.PlaneGeometry(w * TEXT_SCALE, h * TEXT_SCALE), mat);
 }
 
 export function disposeSprite(s: THREE.Sprite) {

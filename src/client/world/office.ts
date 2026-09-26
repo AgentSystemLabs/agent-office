@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BOARDS, DESKS, DESK_SIZE, FLOOR, TV, WALL_HEIGHT, deskSeat, type DeskDef } from '../../shared/layout';
-import { mesh, roundedBox, textSprite, toon } from './toon';
+import { mesh, roundedBox, textPlane, toon } from './toon';
 
 export interface Collider {
   minX: number;
@@ -276,9 +276,9 @@ export function buildOffice(): Office {
     bg.position.set(b.x, b.y, b.z + 0.08);
     group.add(bg);
     boardMeshes[key] = face;
-    const label = textSprite(b.label, { bg: '#fffaf3', size: 64 });
+    const label = textPlane(b.label, { bg: '#fffaf3', size: 64 });
     label.scale.multiplyScalar(1.3);
-    label.position.set(b.x, b.y + b.height / 2 + 0.5, b.z + 0.3);
+    label.position.set(b.x, b.y + b.height / 2 + 0.5, b.z + 0.04);
     group.add(label);
     interactables.push({ kind: key, x: b.x, z: b.z + 1.6, radius: 2.4 });
   }
@@ -379,13 +379,18 @@ export function buildOffice(): Office {
     group.add(lamp);
   }
 
-  let nameSprite: THREE.Sprite | null = null;
+  let nameSign: ReturnType<typeof textPlane> | null = null;
   const setProjectName = (name: string) => {
-    if (nameSprite) group.remove(nameSprite);
-    nameSprite = textSprite(`📁 ${name}`, { bg: '#2b2d42', color: '#fffaf3', size: 64, border: '#fffaf3' });
-    nameSprite.position.set(8, 2.6, FLOOR.minZ + 0.4);
-    nameSprite.scale.multiplyScalar(2.2);
-    group.add(nameSprite);
+    if (nameSign) {
+      group.remove(nameSign);
+      nameSign.material.map?.dispose();
+      nameSign.material.dispose();
+      nameSign.geometry.dispose();
+    }
+    nameSign = textPlane(`📁 ${name}`, { bg: '#2b2d42', color: '#fffaf3', size: 64, border: '#fffaf3' });
+    nameSign.position.set(8, 2.6, FLOOR.minZ + 0.06);
+    nameSign.scale.multiplyScalar(2.2);
+    group.add(nameSign);
   };
 
   const update = (t: number) => {
