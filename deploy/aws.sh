@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Deploy your own Agent Office to AWS with one command, using only the AWS CLI.
 #
-#   deploy/aws.sh up        create everything, install, open the office in your browser
-#   deploy/aws.sh down      delete everything it created
+#   deploy/aws.sh up        create the machine, install and start the office, open it
+#   deploy/aws.sh open      tunnel to the office and open it in your browser
+#   deploy/aws.sh pause     stop the machine to save money (asks first)
+#   deploy/aws.sh resume    start it again
+#   deploy/aws.sh destroy   delete everything it created (asks first)
 #
 # The office is never exposed to the internet: it listens on the box's loopback and everyone
 # reaches it through an SSH tunnel. Run `deploy/aws.sh help` for all commands and options.
@@ -39,9 +42,15 @@ The office is never on the internet. It listens on the machine's loopback, the f
 opens SSH, and everyone reaches the office through an SSH tunnel on http://localhost:4600.
 
 Commands
-  up                 Create (or reuse) your office on EC2, install everything, and open it in
+  up                 Create (or reuse) your office on EC2, install and start it, and open it in
                      your browser. The first page shows the office password ONCE — write it down.
   open               Tunnel to your office and open it in the browser (Ctrl-C closes the tunnel)
+  pause              Stop the machine to save money (asks first). The disk, the address and
+                     everything on it stay; only the disk and the address are billed while paused
+  resume             Start a paused office again and open it in the browser
+  destroy            Terminate the machine and delete everything this script created (asks you
+                     to type the office name first). `down` does the same.
+
   service <port>     Open a worker's web server from the office's 🌐 Services board on
                      http://localhost:<port> (through the office; Ctrl-C closes the tunnel)
   invite <gh-user>   Let a teammate tunnel in with the SSH keys on their GitHub account, and
@@ -56,12 +65,8 @@ Commands
   logs               Follow the office's logs
   resize <type>      Change the machine size, e.g. t3.2xlarge (stops it for ~1-2 minutes;
                      the address stays the same). `up --instance-type <type>` does this too.
-  pause              Stop the machine to save money. The disk, the address and everything on
-                     it stay; only the disk and the address are billed while it's paused
-  resume             Start a paused office again and open it in the browser
   update             Install the latest agent-office on the machine and restart it
   reset-password     Forget the password and show a new one once in your browser
-  down               Terminate the machine and delete everything this script created
 
 Options
   --name <name>             Deployment name, lets you run several offices (default: agent-office)
@@ -223,7 +228,7 @@ resize_instance() {
   want_arch=$(type_arch "$want" || true)
   [[ -n "$want_arch" ]] || die "unknown instance type $want"
   have_arch=$(type_arch "$have" || true)
-  [[ "$want_arch" == "$have_arch" ]] || die "can't switch CPU architecture ($have is $have_arch, $want is $want_arch) — use down + up instead"
+  [[ "$want_arch" == "$have_arch" ]] || die "can't switch CPU architecture ($have is $have_arch, $want is $want_arch) — use destroy + up instead"
   say "Resizing $inst from $have to $want. The office goes offline for a minute or two;"
   echo "   running workers stop and come back asleep (press R at their desk to resume)."
   if [[ $YES -ne 1 ]]; then
@@ -534,7 +539,8 @@ cmd_up() {
   echo
   echo "   Open it later:     deploy/aws.sh open$NAME_FLAG"
   echo "   Add a teammate:    the 👥 Invite button in the office, or deploy/aws.sh invite <their-github-username>$NAME_FLAG"
-  echo "   Tear it down:      deploy/aws.sh down$NAME_FLAG"
+  echo "   Pause / resume:    deploy/aws.sh pause$NAME_FLAG   /   deploy/aws.sh resume$NAME_FLAG"
+  echo "   Tear it down:      deploy/aws.sh destroy$NAME_FLAG"
   echo
   [[ $NO_OPEN -eq 1 ]] && return
   open_office
@@ -804,7 +810,7 @@ cmd_down() {
       aws ec2 delete-security-group --group-id "$sg" >/dev/null 2>&1 && break
       sleep 5
     done
-    aws ec2 describe-security-groups --group-ids "$sg" >/dev/null 2>&1 && die "couldn't delete $sg yet — run down again in a minute"
+    aws ec2 describe-security-groups --group-ids "$sg" >/dev/null 2>&1 && die "couldn't delete $sg yet — run destroy again in a minute"
     ok "Security group deleted"
   fi
   local alloc assoc eip
@@ -836,7 +842,7 @@ case "$CMD" in
   resume) cmd_resume ;;
   update) cmd_update ;;
   reset-password) cmd_reset_password ;;
-  down) cmd_down ;;
+  destroy | down) cmd_down ;;
   help | -h | --help) usage ;;
   *) die "unknown command \"$CMD\" (see: deploy/aws.sh help)" ;;
 esac

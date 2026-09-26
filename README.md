@@ -95,6 +95,15 @@ git clone https://github.com/AgentSystemLabs/agent-office && cd agent-office
 deploy/aws.sh up
 ```
 
+After that, the whole lifecycle is four more commands:
+
+```bash
+deploy/aws.sh open      # tunnel to the office and open it in your browser
+deploy/aws.sh pause     # stop the machine to save money (asks first); only the disk and IP are billed
+deploy/aws.sh resume    # start it again: same address, same files, then open it
+deploy/aws.sh destroy   # delete the machine, disk, IP, security group and key pair (asks first)
+```
+
 What `up` does, in about 2 minutes:
 
 1. Creates an SSH key pair (kept in `~/.config/agent-office/aws/<name>/`).
@@ -141,12 +150,9 @@ deploy/aws.sh allow 203.0.113.7    # let an IP reach SSH (CIDR ok; "me", "anywhe
 deploy/aws.sh revoke 203.0.113.7   # …and take it back
 deploy/aws.sh status               # instance, address, office up?, team, allowed IPs
 deploy/aws.sh resize t3.2xlarge    # bigger or smaller machine; same address, ~1-2 min of downtime
-deploy/aws.sh pause                # stop the machine to save money; only the disk and IP are billed
-deploy/aws.sh resume               # start it again and open the office (same address, same files)
 deploy/aws.sh update               # install the latest agent-office and restart
 deploy/aws.sh reset-password       # new password, shown once; signs everyone out
 deploy/aws.sh ssh | logs           # get on the box / follow the office logs
-deploy/aws.sh down                 # delete the instance, disk, IP, security group and key pair
 ```
 
 **Upgrading from the office.** The **⬆️** button in the top bar checks GitHub for new commits on the branch the office was installed from. It lights up as **⬆️ Update** when there are any, and lists them. **Upgrade now** builds the new version next to the running one. Meanwhile the office keeps working and everyone sees a banner. A failed build changes nothing. Once the build succeeds, the office swaps it in and restarts, and everyone gets a *"🛠️ Upgrading the office"* dialog. A few seconds later their page reloads on the new version. Workers that were awake wake back up at their desks by themselves. Anything they were in the middle of gets interrupted, and the panel names those workers before you click.
