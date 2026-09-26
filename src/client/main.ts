@@ -4,6 +4,7 @@ import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
 import { DESK_BY_ID, DESKS, SPAWN, deskSeat } from '../shared/layout';
 import type { PeerInfo, WorkerInfo } from '../shared/protocol';
+import { isAsleep, isBusy } from '../shared/status';
 import { Net } from './net';
 import { store, loadProfile, loadSettings, saveSettings, type Profile } from './state';
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
@@ -438,7 +439,7 @@ function promptAtDesk(deskId: string) {
       worktreeOption: !!store.project?.branch,
       onSubmit: (text, o) => hire(deskId, text, o.worktree),
     });
-  } else if (w.status === 'exited' || w.status === 'offline') {
+  } else if (isAsleep(w.status)) {
     toast(`${w.name} is asleep — press R to resume first`, 'warn');
   } else if (w.kind === 'shell') {
     openPrompt({
@@ -484,7 +485,7 @@ function resumeWorker(w: WorkerInfo) {
 
 /** Whether a worker's branch can become a PR: it has its own worktree and isn't mid-turn. */
 function prReady(w: WorkerInfo) {
-  return !!w.worktree && w.status !== 'starting' && w.status !== 'working' && w.status !== 'needs_input';
+  return !!w.worktree && !isBusy(w.status);
 }
 
 /** O at a desk: see the worker's pull request, or push its branch and open one. */
@@ -521,7 +522,7 @@ function goToDesk(deskId: string) {
 function openWorkerTerminal(id: string) {
   const w = store.workers.get(id);
   if (!w) return;
-  if (w.status === 'exited' || w.status === 'offline') resumeWorker(w);
+  if (isAsleep(w.status)) resumeWorker(w);
   openTerminal(net, id, () => openWorkerChanges(id));
 }
 
@@ -538,7 +539,7 @@ function showQueue() {
 /** A prompt from the boards goes to a new worker at a free desk, or to one already at a desk. */
 function sendToWorker(title: string, text: { context?: string; initial?: string }) {
   const desk = freeDesk();
-  const awake = [...store.workers.values()].filter((w) => w.kind === 'agent' && w.status !== 'exited' && w.status !== 'offline');
+  const awake = [...store.workers.values()].filter((w) => w.kind === 'agent' && !isAsleep(w.status));
   if (!desk && !awake.length) {
     toast('Every desk is taken — send a worker home first', 'warn');
     return;
@@ -588,7 +589,7 @@ function interact(target: Interactable | null, key: DeskKey) {
     if (key === 'P') return promptAtDesk(target.deskId);
     if (key === 'E') return w ? openWorkerTerminal(w.id) : hire(target.deskId);
     if (key === 'C' && w) return openWorkerChanges(w.id);
-    if (key === 'R' && w && (w.status === 'exited' || w.status === 'offline')) return resumeWorker(w);
+    if (key === 'R' && w && isAsleep(w.status)) return resumeWorker(w);
     if (key === 'X' && w) return killWorker(w.id);
     if (key === 'O' && w) return pullRequestFor(w);
     return;
@@ -653,7 +654,7 @@ function renderHint() {
       ];
     } else {
       k += w.status + w.id + (w.pr?.number ?? '') + (w.prOpening ? '!' : '');
-      const asleep = w.status === 'exited' || w.status === 'offline';
+      const asleep = isAsleep(w.status);
       const doing = w.activity ? (w.activity.length > 48 ? `${w.activity.slice(0, 47)}…` : w.activity) : '';
       const spent = w.usage?.calls ? usageLabel(w.usage) : '';
       k += doing + spent;
