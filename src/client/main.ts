@@ -435,14 +435,17 @@ function killWorker(id: string) {
   );
 }
 
+function resumeWorker(w: WorkerInfo) {
+  if (!w.sessionId && w.kind !== 'shell') toast(`${w.name} has no saved Claude session — starting a fresh one`, 'warn');
+  net.send({ t: 'worker.resume', workerId: w.id });
+}
+
+/** Opening a sleeping worker's terminal wakes it, so there's nothing to press first. */
 function openWorkerTerminal(id: string) {
   const w = store.workers.get(id);
   if (!w) return;
-  openTerminal(net, id, {
-    prompt: () => promptAtDesk(w.deskId),
-    kill: () => killWorker(id),
-    resume: () => net.send({ t: 'worker.resume', workerId: id }),
-  });
+  if (w.status === 'exited' || w.status === 'offline') resumeWorker(w);
+  openTerminal(net, id);
 }
 
 function boardActions() {
@@ -487,11 +490,7 @@ function interact(target: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B')
     if (key === 'B' && !w) return openShell(target.deskId);
     if (key === 'P') return promptAtDesk(target.deskId);
     if (key === 'E') return w ? openWorkerTerminal(w.id) : hire(target.deskId);
-    if (key === 'R' && w && (w.status === 'exited' || w.status === 'offline')) {
-      if (!w.sessionId && w.kind !== 'shell') toast(`${w.name} has no saved Claude session — starting a fresh one`, 'warn');
-      net.send({ t: 'worker.resume', workerId: w.id });
-      return;
-    }
+    if (key === 'R' && w && (w.status === 'exited' || w.status === 'offline')) return resumeWorker(w);
     if (key === 'X' && w) return killWorker(w.id);
     return;
   }
