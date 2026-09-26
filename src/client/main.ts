@@ -15,7 +15,8 @@ import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
 import { $, h, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
-import { openPrompt, confirmDialog } from './ui/prompt';
+import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
+import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage } from './ui/prompt';
 import { openBoard } from './ui/boards';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { mountServicesButton, openServices } from './ui/services';
@@ -23,6 +24,7 @@ import { mountQueueButton, openQueue } from './ui/queue';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
 import { openHelp, openProfile, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
 import { openSettings } from './ui/settings';
+import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -174,6 +176,7 @@ net.onMessage((msg) => {
   if (msg.t === 'welcome') voice.reset();
   store.apply(msg);
   routeTerminalMessage(msg);
+  routeChangesMessage(msg);
   routeTeamMessage(msg);
   switch (msg.t) {
     case 'welcome': {
@@ -186,6 +189,8 @@ net.onMessage((msg) => {
       // After a reconnect the server has forgotten which terminal we had open.
       const openId = openTerminalFor();
       if (openId && store.workers.has(openId)) net.send({ t: 'worker.attach', workerId: openId });
+      const watching = openChangesFor();
+      if (watching && store.workers.has(watching)) net.send({ t: 'changes.watch', workerId: watching });
       renderProject();
       $('btn-team').classList.toggle('hidden', !store.invites);
       // Back from a restart on another version: this page's code is stale, so load the new one.
@@ -201,6 +206,9 @@ net.onMessage((msg) => {
       break;
     case 'rtc':
       void voice.handleSignal(msg.from, msg.data as never);
+      break;
+    case 'worker.worktree':
+      routeWorktreeMessage(msg);
       break;
     case 'toast':
       toast(msg.text, msg.level);
@@ -382,6 +390,8 @@ function syncWorkers() {
   renderWorkers((id) => openWorkerTerminal(id));
 }
 store.on('workers', syncWorkers);
+store.on('workers', renderUsage);
+store.on('usage', renderUsage);
 
 // ---- Actions ------------------------------------------------------------------------------------
 function freeDesk(): string | null {
@@ -439,7 +449,20 @@ function promptAtDesk(deskId: string) {
 function killWorker(id: string) {
   const w = store.workers.get(id);
   if (!w) return;
-  confirmDialog(`Send ${w.name} home?`, `This stops the Claude Code session at ${DESK_BY_ID.get(w.deskId)?.label ?? 'the desk'} for everyone and frees the desk.`, 'Send home', () =>
+  const where = DESK_BY_ID.get(w.deskId)?.label ?? 'the desk';
+  if (w.worktree) {
+    // A worker with its own worktree: choose what becomes of the worktree and its branch.
+    sendHomeDialog({
+      workerId: id,
+      name: w.name,
+      where,
+      worktree: w.worktree,
+      ask: () => net.send({ t: 'worker.worktree', workerId: id }),
+      onConfirm: (cleanup) => net.send({ t: 'worker.kill', workerId: id, cleanup }),
+    });
+    return;
+  }
+  confirmDialog(`Send ${w.name} home?`, `This stops the Claude Code session at ${where} for everyone and frees the desk.`, 'Send home', () =>
     net.send({ t: 'worker.kill', workerId: id }),
   );
 }
@@ -454,7 +477,13 @@ function openWorkerTerminal(id: string) {
   const w = store.workers.get(id);
   if (!w) return;
   if (w.status === 'exited' || w.status === 'offline') resumeWorker(w);
-  openTerminal(net, id);
+  openTerminal(net, id, () => openWorkerChanges(id));
+}
+
+/** What the worker changed: changed files, diff, commit / discard / open a PR. */
+function openWorkerChanges(id: string) {
+  if (!store.workers.has(id)) return;
+  openChanges(net, id, () => openWorkerTerminal(id));
 }
 
 function showQueue() {
@@ -497,13 +526,14 @@ function watchShare() {
   close.addEventListener('click', () => modal.close());
 }
 
-function interact(target: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B') {
+function interact(target: Interactable | null, key: DeskKey) {
   if (!target) return;
   if (target.kind === 'desk' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
     if (key === 'B' && !w) return openShell(target.deskId);
     if (key === 'P') return promptAtDesk(target.deskId);
     if (key === 'E') return w ? openWorkerTerminal(w.id) : hire(target.deskId);
+    if (key === 'C' && w) return openWorkerChanges(w.id);
     if (key === 'R' && w && (w.status === 'exited' || w.status === 'offline')) return resumeWorker(w);
     if (key === 'X' && w) return killWorker(w.id);
     return;
@@ -555,16 +585,26 @@ function renderHint() {
   if (target.kind === 'desk' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
     const desk = DESK_BY_ID.get(target.deskId)!;
-    if (!w) parts = [h('span.title', {}, `${desk.label} · empty`), key('E', 'Hire a worker'), key('P', 'Hire with a task'), key('B', 'Shell')];
-    else {
+    if (!w) {
+      const paused = hiringPaused();
+      k += String(paused);
+      parts = [
+        h('span.title', {}, `${desk.label} · empty`),
+        ...(paused ? [h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow')] : [key('E', 'Hire a worker'), key('P', 'Hire with a task')]),
+        key('B', 'Shell'),
+      ];
+    } else {
       k += w.status + w.id;
       const asleep = w.status === 'exited' || w.status === 'offline';
       const doing = w.activity ? (w.activity.length > 48 ? `${w.activity.slice(0, 47)}…` : w.activity) : '';
-      k += doing;
+      const spent = w.usage?.calls ? usageLabel(w.usage) : '';
+      k += doing + spent;
       parts = [
         h('span.title', {}, `${w.name} · ${STATUS_LABEL[w.status]}`),
         doing ? h('span', { style: 'opacity:.75;font-weight:600' }, doing) : '',
+        spent ? h('span.cost', { title: usageTitle(w.usage!) }, spent) : '',
         key('E', 'Open terminal'),
+        key('C', 'Changes'),
         asleep ? key('R', w.kind === 'shell' ? 'Restart' : 'Resume') : key('P', w.kind === 'shell' ? 'Run command' : 'Prompt'),
         key('X', 'Send home'),
       ];
@@ -615,7 +655,9 @@ function reach() {
   }
 }
 
-function use(it: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B') {
+type DeskKey = 'E' | 'P' | 'R' | 'X' | 'B' | 'C';
+
+function use(it: Interactable | null, key: DeskKey) {
   if (!it) return;
   reach();
   interact(it, key);
@@ -640,6 +682,9 @@ window.addEventListener('keydown', (e) => {
       break;
     case 'KeyB':
       use(target, 'B');
+      break;
+    case 'KeyC':
+      use(target, 'C');
       break;
     case 'KeyT':
     case 'Enter':

@@ -1,7 +1,9 @@
-import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, QueueState, QueueTask, ServerMsg, ServicesState, TeamState, UpgradeState, WorkerInfo } from '../shared/protocol';
+import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, QueueState, QueueTask, ServerMsg, ServicesState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 
-type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'queue';
+type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'usage' | 'queue';
+
+const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
 export interface Profile {
   name: string;
@@ -72,6 +74,7 @@ class Store {
   team: TeamState | null = null;
   upgrade: UpgradeState = { available: false, phase: 'idle' };
   services: ServicesState = { items: [], port: 4600 };
+  usage: UsageState = { total: zeroUsage(), today: zeroUsage(), day: '', pauseHiring: false };
   queue: QueueState = { tasks: [], maxWorkers: 0 };
   private subs = new Map<Topic, Set<() => void>>();
 
@@ -112,8 +115,9 @@ class Store {
         this.invites = msg.invites;
         this.upgrade = msg.upgrade;
         this.services = msg.services;
+        this.usage = msg.usage;
         this.queue = msg.queue;
-        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade', 'services', 'queue'] as Topic[]) this.emit(t);
+        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade', 'services', 'usage', 'queue'] as Topic[]) this.emit(t);
         break;
       case 'peer.join':
       case 'peer.update':
@@ -169,6 +173,10 @@ class Store {
       case 'services':
         this.services = msg.state;
         this.emit('services');
+        break;
+      case 'usage':
+        this.usage = msg.state;
+        this.emit('usage');
         break;
       case 'queue':
         this.queue = msg.state;
