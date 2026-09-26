@@ -104,7 +104,7 @@ export const WINDOWS: Opening[] = [
 ];
 
 /** The way out: a door in the west wall onto a landing, with stairs down to the street. */
-export const EXIT_DOOR: Opening = { wall: 'west', u: 6.5, width: 1.2, y0: 0, y1: 2.4 };
+export const EXIT_DOOR: Opening = { wall: 'west', u: 6.5, width: 1.4, y0: 0, y1: 2.4 };
 export const EXIT_STAIRS = {
   maxX: FLOOR.minX - WALL_T,
   minX: FLOOR.minX - WALL_T - 1.6,

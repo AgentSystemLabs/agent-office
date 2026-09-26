@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BOARDS, DESKS, DESK_SIZE, FLOOR, LOFT, STAIRS, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, type DeskDef, type Opening, type Side } from '../../shared/layout';
+import { BOARDS, DESKS, DESK_SIZE, EXIT_DOOR, EXIT_STAIRS, FLOOR, LOFT, STAIRS, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, type DeskDef, type Opening, type Side } from '../../shared/layout';
 import { wallFacing, type WallId, type WallRect } from '../../shared/decor';
 import { buildGarage, buildStreet } from './outside';
 import { mesh, roundedBox, textPlane, toon } from './toon';
@@ -47,7 +47,18 @@ export interface Office {
   /** What's already on the walls (boards, the TV, windows…), so pictures don't hang over it. */
   fixtures(): WallRect[];
   setProjectName(name: string): void;
-  update(t: number): void;
+  /** Animates the office; doors open for anyone in `people` who comes up to them. */
+  update(t: number, dt: number, people: Iterable<{ x: number; y: number; z: number }>): void;
+}
+
+/** A door that opens by itself when someone comes up to it, and closes behind them. */
+interface Door {
+  x: number;
+  y: number;
+  z: number;
+  /** 0 shut, 1 wide open. */
+  open: number;
+  show(open: number): void;
 }
 
 const PALETTE = {
@@ -173,6 +184,137 @@ function windowIn(o: Opening): THREE.Group {
   g.position.set(at.x, 0, at.z);
   g.rotation.y = at.rotY;
   return g;
+}
+
+/** A door's frame and threshold, lining its hole in the wall (built like windowIn: along x, outdoors toward +z). */
+function doorFrame(o: Opening): THREE.Group {
+  const g = new THREE.Group();
+  const frame = toon('#ffffff');
+  const F = 0.08;
+  const D = WALL_T + 0.04;
+  g.add(mesh(box(o.width, F, D), frame, 0, o.y1 - F / 2, 0, false));
+  for (const sx of [-1, 1]) g.add(mesh(box(F, o.y1, D), frame, sx * (o.width / 2 - F / 2), o.y1 / 2, 0, false));
+  g.add(mesh(box(o.width, 0.03, D), toon('#8d99ae'), 0, 0.015, 0, false));
+  return g;
+}
+
+/** Stands a wall-built group (along x, outdoors toward +z) in its wall. */
+function mount(g: THREE.Group, o: Opening): THREE.Group {
+  const at = onWall(o.wall, o.u);
+  g.position.set(at.x, 0, at.z);
+  g.rotation.y = at.rotY;
+  return g;
+}
+
+/** The way out: a teal door with a porthole in the west wall. It swings outward, onto the landing. */
+function exitDoor(): { group: THREE.Group; door: Door } {
+  const o = EXIT_DOOR;
+  const g = doorFrame(o);
+  const F = 0.08;
+  const leafW = o.width - 2 * F - 0.02;
+  const leafH = o.y1 - F - 0.02;
+  const shape = new THREE.Shape();
+  shape.moveTo(0, 0);
+  shape.lineTo(leafW, 0);
+  shape.lineTo(leafW, leafH);
+  shape.lineTo(0, leafH);
+  shape.closePath();
+  const port = { x: leafW / 2, y: leafH - 0.55, r: 0.2 };
+  const hole = new THREE.Path();
+  hole.absarc(port.x, port.y, port.r, 0, Math.PI * 2, true);
+  shape.holes.push(hole);
+  const leafGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.06, bevelEnabled: false, curveSegments: 16 });
+  leafGeo.translate(0, 0, -0.03);
+  const leaf = new THREE.Group();
+  leaf.add(mesh(leafGeo, toon('#2a9d8f'), 0, 0.01, 0));
+  leaf.add(mesh(new THREE.CircleGeometry(port.r, 20), GLASS, port.x, port.y + 0.01, 0, false));
+  leaf.add(mesh(new THREE.TorusGeometry(port.r, 0.035, 8, 24), toon('#ffffff'), port.x, port.y + 0.01, 0, false));
+  // A push bar inside, a pull handle outside.
+  leaf.add(mesh(box(leafW * 0.7, 0.05, 0.05), toon('#adb5bd'), leafW * 0.5, 1.0, -0.07));
+  leaf.add(mesh(box(0.05, 0.3, 0.05), toon('#adb5bd'), leafW - 0.15, 1.0, 0.07));
+  // Hinged on the outer face, so it opens out of the building.
+  const hinge = new THREE.Group();
+  hinge.position.set(-o.width / 2 + F + 0.01, 0, WALL_T / 2 - 0.05);
+  hinge.add(leaf);
+  g.add(hinge);
+
+  const exit = textPlane('EXIT', { bg: '#2a9d4b', color: '#ffffff', size: 64, border: '#ffffff' });
+  exit.scale.multiplyScalar(0.7);
+  exit.position.set(0, o.y1 + 0.35, -(WALL_T / 2 + 0.03));
+  exit.rotation.y = Math.PI;
+  g.add(exit);
+  // A lamp over it outside.
+  g.add(mesh(box(0.32, 0.1, 0.18), toon(PALETTE.ink), 0, o.y1 + 0.42, WALL_T / 2 + 0.09));
+  g.add(mesh(new THREE.SphereGeometry(0.08, 10, 8), toon('#fff7d6', { emissive: '#ffe08a' }), 0, o.y1 + 0.33, WALL_T / 2 + 0.12, false));
+
+  const at = onWall(o.wall, o.u);
+  const door: Door = {
+    x: at.x,
+    y: 0,
+    z: at.z,
+    open: 0,
+    show: (k) => (hinge.rotation.y = -1.8 * k * k * (3 - 2 * k)),
+  };
+  return { group: mount(g, o), door };
+}
+
+/**
+ * Outside the exit: a concrete landing level with the office floor, and steps running south
+ * along the west wall down to the street, with a railing on the open side.
+ */
+function buildExitStairs(group: THREE.Group, colliders: Collider[]) {
+  const { minX, maxX, landingZ0, landingZ1, steps, run } = EXIT_STAIRS;
+  const width = maxX - minX;
+  const rise = -STREET_Y / steps;
+  const treads = steps - 1;
+  const L = landingZ1 - landingZ0;
+  // Side profile: x runs south from the landing's north end, y is height.
+  const profile = new THREE.Shape();
+  profile.moveTo(0, STREET_Y);
+  profile.lineTo(0, 0);
+  profile.lineTo(L, 0);
+  for (let i = 1; i <= treads; i++) {
+    profile.lineTo(L + (i - 1) * run, -i * rise);
+    profile.lineTo(L + i * run, -i * rise);
+  }
+  profile.lineTo(L + treads * run, STREET_Y);
+  profile.closePath();
+  const block = mesh(new THREE.ExtrudeGeometry(profile, { depth: width, bevelEnabled: false }), toon('#d3d6dd'), maxX, 0, landingZ0);
+  block.rotation.y = -Math.PI / 2;
+  group.add(block);
+  const tread = toon('#b9bdc6');
+  const cx = (minX + maxX) / 2;
+  group.add(mesh(box(width, 0.04, L), tread, cx, -0.015, landingZ0 + L / 2, false));
+  colliders.push({ minX, maxX, minZ: landingZ0, maxZ: landingZ1, bottom: STREET_Y, top: 0 });
+  for (let i = 1; i <= treads; i++) {
+    const z0 = landingZ1 + (i - 1) * run;
+    group.add(mesh(box(width, 0.04, run + 0.02), tread, cx, -i * rise - 0.015, z0 + run / 2, false));
+    colliders.push({ minX, maxX, minZ: z0, maxZ: z0 + run, bottom: STREET_Y, top: -i * rise });
+  }
+
+  // The railing: round the landing's open sides, then down the stairs.
+  const ink = toon(PALETTE.deskLeg);
+  const railX = minX + 0.06;
+  const railH = 1.0;
+  const post = (x: number, y: number, z: number) => group.add(mesh(new THREE.CylinderGeometry(0.03, 0.03, railH, 6), ink, x, y + railH / 2, z, false));
+  const rail = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) => {
+    const len = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
+    const r = mesh(new THREE.CylinderGeometry(0.035, 0.035, len, 6), ink, (x0 + x1) / 2, (y0 + y1) / 2 + railH, (z0 + z1) / 2, false);
+    r.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(x1 - x0, y1 - y0, z1 - z0).normalize());
+    group.add(r);
+  };
+  const nz = landingZ0 + 0.06;
+  post(maxX - 0.05, 0, nz);
+  post(railX, 0, nz);
+  post(railX, 0, landingZ1);
+  rail(maxX - 0.05, 0, nz, railX, 0, nz);
+  rail(railX, 0, nz, railX, 0, landingZ1);
+  const bottomZ = landingZ1 + (treads - 0.5) * run;
+  for (let i = 2; i <= treads; i += 3) post(railX, -i * rise, landingZ1 + (i - 0.5) * run);
+  post(railX, -treads * rise, bottomZ);
+  rail(railX, 0, landingZ1, railX, -treads * rise, bottomZ);
+  colliders.push({ minX: minX - 0.05, maxX: minX + 0.1, minZ: landingZ0, maxZ: bottomZ, bottom: STREET_Y, top: 99 });
+  colliders.push({ minX, maxX, minZ: landingZ0 - 0.05, maxZ: landingZ0 + 0.1, bottom: STREET_Y, top: 99 });
 }
 
 /**
@@ -372,13 +514,20 @@ export function buildOffice(): Office {
     group.add(rug);
   });
 
-  // Outside walls, with real windows you see out of.
-  const openings = [...WINDOWS];
+  // Outside walls, with real windows you see out of and a door out.
+  const openings = [...WINDOWS, EXIT_DOOR];
   buildWalls(group, colliders, openings);
   for (const o of WINDOWS) {
     group.add(windowIn(o));
     fixture(o.wall, o.u, (o.y0 + o.y1) / 2 - 0.03, o.width + 0.2, o.y1 - o.y0 + 0.12);
   }
+  const doors: Door[] = [];
+  const exit = exitDoor();
+  group.add(exit.group);
+  doors.push(exit.door);
+  buildExitStairs(group, colliders);
+  // The door, its frame and the EXIT sign over it.
+  fixture(EXIT_DOOR.wall, EXIT_DOOR.u, (EXIT_DOOR.y1 + 0.7) / 2, EXIT_DOOR.width + 0.3, EXIT_DOOR.y1 + 0.7);
 
   // Downstairs: the garage under the office, and the street outside.
   buildGarage(group, colliders);
@@ -554,7 +703,15 @@ export function buildOffice(): Office {
     signRect = { wall: 'north', u0: 8 - (sw * 2.2) / 2, u1: 8 + (sw * 2.2) / 2, y0: 2.6 - (sh * 2.2) / 2, y1: 2.6 + (sh * 2.2) / 2 };
   };
 
-  const update = (t: number) => {
+  const update = (t: number, dt: number, people: Iterable<{ x: number; y: number; z: number }>) => {
+    const near = new Set<Door>();
+    for (const p of people) for (const d of doors) if (Math.abs(p.y - d.y) < 1.6 && Math.hypot(p.x - d.x, p.z - d.z) < 2.4) near.add(d);
+    for (const d of doors) {
+      const want = near.has(d) ? 1 : 0;
+      if (d.open === want) continue;
+      d.open = want > d.open ? Math.min(1, d.open + dt * 2.5) : Math.max(0, d.open - dt * 1.6);
+      d.show(d.open);
+    }
     for (const d of desks.values()) {
       if (!d.vacancy.visible) continue;
       d.vacancy.position.y = DESK_SIZE.height + 0.55 + Math.sin(t * 2 + d.def.x) * 0.06;

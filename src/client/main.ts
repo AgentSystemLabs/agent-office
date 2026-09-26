@@ -1105,7 +1105,7 @@ function frame(ts?: number) {
     const desk = DESK_BY_ID.get(v.deskId)!;
     v.laptop.update(dt, store.screens.get(id), Math.hypot(desk.x - camPos.x, desk.z - camPos.z));
   }
-  office.update(t);
+  office.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position)]);
   hanger.update();
 
   if (modalOpen() || hanger.active) target = null;
