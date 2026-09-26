@@ -1,10 +1,11 @@
 import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
+import { sameLook } from '../shared/avatar';
 import { DESK_BY_ID, DESKS, SPAWN } from '../shared/layout';
-import type { WorkerInfo } from '../shared/protocol';
+import type { PeerInfo, WorkerInfo } from '../shared/protocol';
 import { Net } from './net';
-import { store, loadProfile, loadSettings, saveSettings } from './state';
+import { store, loadProfile, loadSettings, saveSettings, type Profile } from './state';
 import { EYE_HEIGHT, PlayerController, isTyping } from './player';
 import { buildOffice, type InteractKind, type Interactable } from './world/office';
 import { Person, Worker } from './world/character';
@@ -20,7 +21,8 @@ import { openBoard } from './ui/boards';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { mountServicesButton, openServices } from './ui/services';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
-import { openHelp, openProfile, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
+import { openHelp, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
+import { openCharacter } from './ui/character';
 import { openSettings } from './ui/settings';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
@@ -122,7 +124,7 @@ tvMat.toneMapped = false;
 const net = new Net(() => store.profile);
 const voice = new Voice(net);
 
-const me = new Person(store.profile.name, store.profile.color, 'me');
+const me = new Person(store.profile.name, store.profile.color, store.profile.look);
 me.showLabel(false);
 scene.add(me.root);
 noOutline(me.root);
@@ -132,9 +134,11 @@ player.pos.set(SPAWN.x, 0, SPAWN.z);
 player.view = settings.view;
 const hands = new Hands(store.profile.color, me.skinColor);
 
-function setMyColor(color: string) {
-  me.setColor(color);
-  hands.setColor(color);
+function showMyProfile(p: Profile) {
+  me.setColor(p.color);
+  me.setLook(p.look);
+  hands.setColor(p.color);
+  hands.setSkin(me.skinColor);
 }
 
 interface RemotePeer {
@@ -143,6 +147,7 @@ interface RemotePeer {
   rotY: number;
   moving: boolean;
   label: string;
+  look: PeerInfo['look'];
   bubble?: { sprite: THREE.Sprite; until: number };
 }
 const remotes = new Map<string, RemotePeer>();
@@ -238,11 +243,11 @@ function syncPeers() {
     if (id === store.you) continue;
     let r = remotes.get(id);
     if (!r) {
-      const person = new Person(peer.name, peer.color, id);
+      const person = new Person(peer.name, peer.color, peer.look);
       person.root.position.set(peer.x, peer.y, peer.z);
       scene.add(person.root);
       noOutline(person.root);
-      r = { person, target: new THREE.Vector3(peer.x, peer.y, peer.z), rotY: peer.rotY, moving: false, label: '' };
+      r = { person, target: new THREE.Vector3(peer.x, peer.y, peer.z), rotY: peer.rotY, moving: false, label: '', look: { ...peer.look } };
       remotes.set(id, r);
     }
     const label = `${peer.name}|${peer.voice ? (peer.muted ? 'm' : 'v') : '-'}|${peer.color}`;
@@ -250,6 +255,11 @@ function syncPeers() {
       r.label = label;
       r.person.setLabel(peer.name, peer.voice ? peer.muted : null);
       r.person.setColor(peer.color);
+      noOutline(r.person.root);
+    }
+    if (!sameLook(peer.look, r.look)) {
+      r.look = { ...peer.look };
+      r.person.setLook(peer.look);
       noOutline(r.person.root);
     }
   }
@@ -801,17 +811,21 @@ $('btn-team').addEventListener('click', () => openTeam(net));
 $('btn-upgrade').addEventListener('click', () => openUpgrade(net));
 $('btn-help').addEventListener('click', () => openHelp());
 $('btn-settings').addEventListener('click', () =>
-  openSettings(settings, (s) => {
-    Object.assign(settings, s);
-    saveSettings(settings);
-    player.setView(settings.view);
-  }),
+  openSettings(
+    settings,
+    (s) => {
+      Object.assign(settings, s);
+      saveSettings(settings);
+      player.setView(settings.view);
+    },
+    editProfile,
+  ),
 );
 
 function editProfile() {
-  openProfile(false, (name, color) => {
-    setMyColor(color);
-    net.send({ t: 'profile', name, color });
+  openCharacter(false, (p) => {
+    showMyProfile(p);
+    net.send({ t: 'profile', name: p.name, color: p.color, look: p.look });
   });
 }
 
@@ -913,15 +927,17 @@ function boot() {
 }
 
 const saved = loadProfile();
-if (saved) {
-  store.profile = saved;
-  setMyColor(saved.color);
+if (saved?.look) {
+  store.profile = { ...saved, look: saved.look };
+  showMyProfile(store.profile);
   boot();
 } else {
-  // Render the office behind the welcome dialog.
+  // Pick a character first (people from before there was a choice keep their name and color).
+  if (saved) Object.assign(store.profile, { name: saved.name, color: saved.color });
+  // Render the office behind the character select screen.
   requestAnimationFrame(frame);
-  openProfile(true, (_name, color) => {
-    setMyColor(color);
+  openCharacter(true, (p) => {
+    showMyProfile(p);
     net.connect();
   });
 }

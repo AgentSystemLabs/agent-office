@@ -1,14 +1,6 @@
 import * as THREE from 'three';
+import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES, type Look } from '../../shared/avatar';
 import { disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
-
-const SKIN = ['#ffd7b5', '#f1c27d', '#e0ac69', '#c68642', '#8d5524'];
-const HAIR = ['#2b2d42', '#6f4e37', '#e9c46a', '#d62828', '#9d4edd', '#264653'];
-
-function hash(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
-  return h >>> 0;
-}
 
 export type Pose = 'stand' | 'walk' | 'sit' | 'type';
 
@@ -36,6 +28,10 @@ export class Person {
   private armL: THREE.Object3D;
   private armR: THREE.Object3D;
   private shirt: THREE.MeshToonMaterial;
+  private skin: THREE.MeshToonMaterial;
+  private hairMat: THREE.MeshToonMaterial;
+  private hair = new THREE.Group();
+  private look: Look;
   private label: THREE.Sprite | null = null;
   private speaking = false;
   private mic: THREE.Mesh;
@@ -49,19 +45,18 @@ export class Person {
   private talkUntil = 0;
   private walkPhase = 0;
   private reachT = -1;
-  readonly skinColor: string;
   pose: Pose = 'stand';
 
   constructor(
     private name: string,
     color: string,
-    seed = name,
+    look: Look,
   ) {
-    const h = hash(seed);
+    this.look = { ...look };
     this.shirt = toonUnique(color);
-    this.skinColor = SKIN[h % SKIN.length];
-    const skin = toon(this.skinColor);
-    const hair = toon(HAIR[(h >> 3) % HAIR.length]);
+    const skin = (this.skin = toonUnique(SKIN_TONES[look.skin]));
+    this.hairMat = toonUnique(HAIR_COLORS[look.hair]);
+    this.hairMat.side = THREE.DoubleSide;
     const pants = toon('#3d405b');
     const ink = toon('#1d1d1d');
 
@@ -72,9 +67,8 @@ export class Person {
     const head = (this.head = new THREE.Group());
     head.position.y = 1.32;
     head.add(mesh(new THREE.SphereGeometry(0.34, 20, 16), skin));
-    const cap = mesh(new THREE.SphereGeometry(0.355, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.45), hair, 0, 0.02, -0.02);
-    cap.rotation.x = -0.25;
-    head.add(cap);
+    head.add(this.hair);
+    this.buildHair();
     for (const sx of [-1, 1]) {
       head.add(mesh(new THREE.SphereGeometry(0.055, 10, 8), ink, sx * 0.12, 0.02, 0.3, false));
       head.add(mesh(new THREE.SphereGeometry(0.05, 10, 8), toon('#ff9f9f'), sx * 0.2, -0.08, 0.27, false));
@@ -114,6 +108,87 @@ export class Person {
 
   setColor(color: string) {
     this.shirt.color.set(color);
+  }
+
+  get skinColor(): string {
+    return SKIN_TONES[this.look.skin];
+  }
+
+  setLook(look: Look) {
+    const restyle = look.style !== this.look.style;
+    this.look = { ...look };
+    this.skin.color.set(SKIN_TONES[look.skin]);
+    this.hairMat.color.set(HAIR_COLORS[look.hair]);
+    if (restyle) this.buildHair();
+  }
+
+  /** Hair is a set of shapes on the head (whose center is 0,0,0; the face looks down +z). */
+  private buildHair() {
+    for (const o of this.hair.children) (o as THREE.Mesh).geometry.dispose();
+    this.hair.clear();
+    const m = this.hairMat;
+    const add = (geo: THREE.BufferGeometry, x: number, y: number, z: number, rx = 0, rz = 0) => {
+      const part = mesh(geo, m, x, y, z);
+      part.rotation.set(rx, 0, rz);
+      this.hair.add(part);
+      return part;
+    };
+    const cap = () => add(new THREE.SphereGeometry(0.355, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.45), 0, 0.02, -0.02, -0.25);
+    switch (HAIR_STYLES[this.look.style]) {
+      case 'Short':
+        cap();
+        break;
+      case 'Long': {
+        cap();
+        // A curtain down the back, open at the front so the face shows.
+        // Around the head from ear to ear the back way, leaving the face open (phi = π/2 is the face).
+        const back = add(new THREE.SphereGeometry(0.37, 20, 14, Math.PI * 0.93, Math.PI * 1.14, Math.PI * 0.3, Math.PI * 0.5), 0, -0.06, -0.03);
+        back.scale.set(1.02, 1.35, 1);
+        break;
+      }
+      case 'Bun':
+        cap();
+        add(new THREE.SphereGeometry(0.14, 14, 12), 0, 0.3, -0.2);
+        break;
+      case 'Spiky':
+        cap();
+        // Two rows of spikes fanned out over the crown.
+        for (const [row, n, z, tilt] of [
+          [0, 5, 0.08, 0.35],
+          [1, 4, -0.12, -0.3],
+        ] as const) {
+          for (let i = 0; i < n; i++) {
+            const a = -0.85 + (i / (n - 1)) * 1.7;
+            const spike = add(new THREE.ConeGeometry(0.1, 0.3, 8), Math.sin(a) * 0.24, 0.33 - Math.abs(a) * 0.08 - row * 0.02, z);
+            spike.rotation.set(tilt, 0, -a * 0.9);
+          }
+        }
+        break;
+      case 'Curly': {
+        // Little puffs spread over the top and back of the head, leaving the face clear.
+        const n = 70;
+        for (let i = 0; i < n; i++) {
+          const y = 1 - (i / (n - 1)) * 2;
+          const r = Math.sqrt(1 - y * y);
+          const th = i * 2.39996;
+          const px = Math.cos(th) * r;
+          const pz = Math.sin(th) * r;
+          if (y < -0.15 || (pz > 0.35 && y < 0.55)) continue;
+          add(new THREE.SphereGeometry(0.1, 8, 6), px * 0.36, y * 0.36 + 0.04, pz * 0.36 - 0.02);
+        }
+        break;
+      }
+      case 'Ponytail': {
+        cap();
+        add(new THREE.SphereGeometry(0.075, 10, 8), 0, 0.12, -0.34);
+        const tail = add(new THREE.CapsuleGeometry(0.085, 0.3, 6, 10), 0, -0.1, -0.42, 0.35);
+        tail.scale.set(1, 1, 0.8);
+        break;
+      }
+      case 'Bald':
+        break;
+    }
+    this.hair.traverse((o) => ((o as THREE.Mesh).castShadow = true));
   }
 
   setLabel(name: string, muted: boolean | null) {

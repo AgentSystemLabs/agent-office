@@ -12,6 +12,7 @@ agent-office
 ## What's inside
 
 - **Walk around.** Use WASD, Space to jump, and drag the mouse to orbit the camera. Everyone in the office sees everyone else move in real time.
+- **Pick your character.** The first time you join, a character select screen lets you choose your skin tone, hair style, hair color and shirt, with a spinning preview. Change it any time from **⚙️** or by clicking your name under *In the office*.
 - **Hire workers.** Walk up to an empty desk and press **E** to seat a fresh Claude Code session, or press **P** to write a task first. A little worker sits down, a laptop opens, and Claude's live screen appears on it.
 - **Shared shells.** Press **B** at an empty desk to open a plain login shell for dev servers, git or tests. It's shared the same way as a Claude terminal.
 - **Isolated branches.** When you hire with a task, you can tick *own git worktree*. The worker then gets its own `office/<name>` branch under `.agent-office/worktrees/`, so parallel workers never share a checkout.

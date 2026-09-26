@@ -1,5 +1,7 @@
 // Wire protocol between browser and server. Every WebSocket frame is one JSON object.
 
+import type { Look } from './avatar.js';
+
 export type WorkerStatus =
   | 'starting' // PTY launched, agent booting
   | 'idle' // waiting for a first prompt
@@ -41,6 +43,8 @@ export interface PeerInfo {
   id: string;
   name: string;
   color: string;
+  /** Skin tone and hair, picked on the character select screen. */
+  look: Look;
   x: number;
   y: number;
   z: number;
@@ -190,7 +194,7 @@ export type ClientMsg =
   | { t: 'move'; x: number; y: number; z: number; rotY: number; moving: boolean }
   /** You reached out to use something; everyone else sees your character's arm do it. */
   | { t: 'act' }
-  | { t: 'profile'; name: string; color: string }
+  | { t: 'profile'; name: string; color: string; look: Look }
   | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string }

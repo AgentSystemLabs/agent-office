@@ -16,6 +16,7 @@ import { Services } from './services.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import type { ChatLine, ClientMsg, PeerInfo, ProjectInfo, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { SPAWN } from '../shared/layout.js';
+import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -341,6 +342,7 @@ export async function startServer(cfg: Config) {
     const id = randomBytes(5).toString('hex');
     const name = str(url.searchParams.get('name'), 24).trim() || `Guest ${id.slice(0, 3)}`;
     const colorParam = url.searchParams.get('color') ?? '';
+    const intParam = (k: string) => (url.searchParams.get(k) ? Number(url.searchParams.get(k)) : undefined);
     const client: Client = {
       id,
       ws,
@@ -352,6 +354,7 @@ export async function startServer(cfg: Config) {
         id,
         name,
         color: COLOR_RE.test(colorParam) ? colorParam : '#4f86f7',
+        look: sanitizeLook({ skin: intParam('skin'), hair: intParam('hair'), style: intParam('style') }, lookFromSeed(id)),
         x: SPAWN.x + (Math.random() - 0.5) * 3,
         y: 0,
         z: SPAWN.z + (Math.random() - 0.5) * 2,
@@ -426,6 +429,7 @@ export async function startServer(cfg: Config) {
         const name = str(msg.name, 24).trim();
         if (name) c.peer.name = name;
         if (COLOR_RE.test(msg.color)) c.peer.color = msg.color;
+        c.peer.look = sanitizeLook(msg.look, c.peer.look);
         broadcast({ t: 'peer.update', peer: c.peer });
         break;
       }
