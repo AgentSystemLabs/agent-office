@@ -51,15 +51,18 @@ export class BoardTexture {
     }
     const open = (state.items as (GhIssue | GhPull)[]).filter((i) => i.state === 'OPEN');
     if (!open.length) {
-      const note = state.error ? '⚠️ gh unavailable' : state.loading && !state.fetchedAt ? 'Loading…' : this.kind === 'issues' ? 'No open issues 🎉' : 'No open PRs';
+      const note = state.error ? `⚠️ ${state.error}` : state.loading && !state.fetchedAt ? 'Loading…' : this.kind === 'issues' ? 'No open issues 🎉' : 'No open PRs';
+      g.font = '800 40px Nunito, ui-rounded, system-ui, sans-serif';
+      const lines = wrap(g, note.replace(/`/g, ''), 760, 4);
+      const boxH = 60 + lines.length * 50;
       g.fillStyle = '#fffaf3';
-      g.fillRect(W / 2 - 280, H / 2 - 70, 560, 140);
+      g.fillRect(W / 2 - 420, H / 2 - boxH / 2, 840, boxH);
       g.fillStyle = '#2b2d42';
-      g.font = '800 44px Nunito, ui-rounded, system-ui, sans-serif';
       g.textAlign = 'center';
       g.textBaseline = 'middle';
-      g.fillText(note, W / 2, H / 2);
+      lines.forEach((line, i) => g.fillText(line, W / 2, H / 2 - ((lines.length - 1) * 50) / 2 + i * 50));
       g.textAlign = 'left';
+      g.textBaseline = 'alphabetic';
       this.texture.needsUpdate = true;
       return;
     }

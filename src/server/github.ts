@@ -3,12 +3,21 @@ import type { GhIssue, GhPull, GhState } from '../shared/protocol.js';
 
 const REFRESH_MS = 90_000;
 
+/** Turns gh's stderr into something a person standing at the board can act on. */
+function friendly(raw: string): string {
+  if (/no git remotes found|none of the git remotes/i.test(raw)) return 'This project has no GitHub remote yet. Push it to GitHub (git remote add origin <url>) to fill the boards.';
+  if (/not a git repository/i.test(raw)) return "This folder isn't a git repository";
+  if (/auth login|not logged in|authentication/i.test(raw)) return "gh isn't logged in on the server — run `gh auth login`";
+  if (/could not resolve to a repository|not found/i.test(raw)) return "gh can't find this repository on GitHub (check the remote and access)";
+  return raw;
+}
+
 function gh(args: string[], cwd: string): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile('gh', args, { cwd, maxBuffer: 32 * 1024 * 1024, timeout: 30_000 }, (err, stdout, stderr) => {
       if (err) {
         const msg = (stderr || err.message || '').trim().split('\n').slice(-2).join(' ');
-        reject(new Error((err as NodeJS.ErrnoException).code === 'ENOENT' ? 'GitHub CLI (gh) is not installed on the server' : msg));
+        reject(new Error((err as NodeJS.ErrnoException).code === 'ENOENT' ? 'GitHub CLI (gh) is not installed on the server' : friendly(msg)));
       } else resolve(stdout);
     });
   });
