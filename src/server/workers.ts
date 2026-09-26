@@ -47,6 +47,8 @@ interface Worker {
   lastLines: string[];
   leftNeedsInputAt: number;
   hookToken: string;
+  /** Claude never reported SessionStart: it's stuck on a trust/login/onboarding screen. */
+  bootBlocked?: boolean;
 }
 
 export interface WorkerEvents {
@@ -275,9 +277,13 @@ export class WorkerManager {
     }
     switch (event) {
       case 'SessionStart':
-        if (w.info.status === 'starting') this.setStatus(w, 'idle');
+        if (w.info.status === 'starting' || (w.bootBlocked && w.info.status === 'needs_input')) {
+          w.bootBlocked = false;
+          this.setStatus(w, 'idle');
+        }
         break;
       case 'UserPromptSubmit':
+        w.bootBlocked = false;
         if (typeof payload?.prompt === 'string') w.info.activity = truncate(payload.prompt, 80);
         this.setStatus(w, 'working');
         break;
@@ -410,10 +416,16 @@ export class WorkerManager {
       this.emitUpdate(w);
       this.persist();
     });
-    // If hooks never fire (non-claude agent or old version), don't sit in "starting" forever.
+    // SessionStart fires as soon as Claude can take input. Still silent after a while means it is
+    // blocked on a human: folder trust dialog, login, first-run onboarding. Flag it so it jumps.
     setTimeout(() => {
-      if (info.status === 'starting' && w.pty === proc) this.setStatus(w, 'idle');
-    }, 8000);
+      if (info.status !== 'starting' || w.pty !== proc) return;
+      if (isClaude) {
+        w.bootBlocked = true;
+        info.activity = 'Waiting on a setup prompt (trust / login) — open the terminal';
+        this.setStatus(w, 'needs_input');
+      } else this.setStatus(w, 'idle');
+    }, 12000);
     this.emitUpdate(w);
   }
 
@@ -449,6 +461,11 @@ export class WorkerManager {
     for (const w of this.workers.values()) {
       if (!w.screenDirty || !w.term) continue;
       w.screenDirty = false;
+      if (w.info.status === 'starting' && SETUP_PROMPT.test(screenText(w.term))) {
+        w.bootBlocked = true;
+        w.info.activity = 'Waiting on a setup prompt (trust / login) — open the terminal';
+        this.setStatus(w, 'needs_input');
+      }
       const frame = snapshotScreen(w.term, w.lastLines);
       if (frame) this.events.screen(w.info.id, frame);
     }
@@ -579,6 +596,16 @@ function snapshotScreen(term: HeadlessTerminal, last: string[]) {
   last.length = rows;
   if (!changed) return null;
   return { cols, rows, lines, full, cursor: [buf.cursorX, buf.cursorY] as [number, number] };
+}
+
+/** First-run screens Claude shows before it can take a prompt. */
+const SETUP_PROMPT = /trust this folder|Do you trust the files|Select login method|Choose the text style|Press Enter to continue|Bypass Permissions mode/i;
+
+function screenText(term: HeadlessTerminal): string {
+  const buf = term.buffer.active;
+  const out: string[] = [];
+  for (let y = 0; y < term.rows; y++) out.push(buf.getLine(buf.viewportY + y)?.translateToString(true) ?? '');
+  return out.join('\n');
 }
 
 function resolveCommand(cmd: string): string | null {
