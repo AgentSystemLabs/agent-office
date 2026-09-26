@@ -135,13 +135,18 @@ interface MergeStatus {
   auto: boolean;
 }
 
+/** An open PR whose branch can't merge until someone resolves conflicts with the base. */
+function conflicted(d: GhPullDetail) {
+  return d.state === 'OPEN' && !d.isDraft && (d.mergeable === 'CONFLICTING' || d.mergeStateStatus === 'DIRTY');
+}
+
 function mergeStatus(d: GhPullDetail): MergeStatus {
   const failing = d.checks.filter((c) => c.state === 'fail').length;
   const pending = d.checks.filter((c) => c.state === 'pending').length;
   if (d.state === 'MERGED') return { icon: '🎉', text: 'Merged.', cls: 'ok', can: false, auto: false };
   if (d.state === 'CLOSED') return { icon: '🗑️', text: 'Closed without merging.', cls: 'muted', can: false, auto: false };
   if (d.isDraft) return { icon: '📝', text: 'This is still a draft. Mark it ready for review on GitHub before merging.', cls: 'muted', can: false, auto: false };
-  if (d.mergeable === 'CONFLICTING' || d.mergeStateStatus === 'DIRTY')
+  if (conflicted(d))
     return { icon: '⚠️', text: `This branch has conflicts with ${d.baseRefName} that must be resolved first.`, cls: 'bad', can: false, auto: false };
   if (d.mergeStateStatus === 'BEHIND') return { icon: '⤵️', text: `The branch is behind ${d.baseRefName}, and this repo wants it up to date before merging.`, cls: 'warn', can: true, auto: true };
   if (d.mergeStateStatus === 'BLOCKED') {
@@ -170,18 +175,41 @@ function reviewPrompt(it: GhPull) {
   return `Review pull request #${it.number}: "${it.title}".\n\nUse \`gh pr view ${it.number} --comments\` and \`gh pr diff ${it.number}\`. Look for bugs, risky changes and missing tests, then give me a short summary with concrete suggestions. Don't push any commits.`;
 }
 
+function checkoutStep(it: GhPull) {
+  return `Get onto its branch: \`gh pr checkout ${it.number}\`. If git says \`${it.headRefName}\` is already checked out in another worktree, use \`git fetch origin ${it.headRefName} && git checkout --detach FETCH_HEAD\` instead and push with \`git push origin HEAD:${it.headRefName}\`.`;
+}
+
+function mergeCommand(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
+  return `gh pr merge ${it.number} --${method}${deleteBranch ? ' --delete-branch' : ''} --repo ${nameWithOwner(it.url)}`;
+}
+
 function fixAndMergePrompt(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
   const n = it.number;
   const repo = nameWithOwner(it.url);
   return [
     `Get pull request #${n} "${it.title}" (${it.url}) ready and merge it.`,
     '',
-    `1. Get onto its branch: \`gh pr checkout ${n}\`. If git says \`${it.headRefName}\` is already checked out in another worktree, use \`git fetch origin ${it.headRefName} && git checkout --detach FETCH_HEAD\` instead and push with \`git push origin HEAD:${it.headRefName}\`.`,
+    `1. ${checkoutStep(it)}`,
     `2. Read all the feedback: \`gh pr view ${n} --comments\`, and the comments on lines of code with \`gh api repos/${repo}/pulls/${n}/comments\`.`,
     `3. Address every review comment that is still open: fix it, or if you disagree, reply on the PR saying why. If the branch conflicts with \`${it.baseRefName}\`, merge \`${it.baseRefName}\` in and resolve the conflicts.`,
     '4. Verify your changes the way this project does (build, typecheck, tests), then commit and push.',
     `5. Wait for the checks with \`gh pr checks ${n} --watch\` and fix anything that fails.`,
-    `6. When the checks pass and no feedback is left, merge it: \`gh pr merge ${n} --${method}${deleteBranch ? ' --delete-branch' : ''} --repo ${repo}\`. If something only a person can decide is in the way, stop and tell me instead of merging.`,
+    `6. When the checks pass and no feedback is left, merge it: \`${mergeCommand(it, method, deleteBranch)}\`. If something only a person can decide is in the way, stop and tell me instead of merging.`,
+  ].join('\n');
+}
+
+function fixConflictsPrompt(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
+  const n = it.number;
+  const base = it.baseRefName;
+  return [
+    `Pull request #${n} "${it.title}" (${it.url}) has merge conflicts with \`${base}\`. Resolve them and merge it.`,
+    '',
+    `1. ${checkoutStep(it)}`,
+    `2. Bring in the latest \`${base}\`: \`git fetch origin ${base} && git merge origin/${base}\`.`,
+    `3. Resolve every conflict so both sides' changes survive. Read the PR (\`gh pr view ${n}\`) and the \`${base}\` commits that touched the same code to see what each side meant; don't just take one side.`,
+    '4. Verify the result the way this project does (build, typecheck, tests), then commit the merge and push.',
+    `5. Wait for the checks with \`gh pr checks ${n} --watch\` and fix anything that fails.`,
+    `6. When the checks pass, merge it: \`${mergeCommand(it, method, deleteBranch)}\`. If a conflict needs a decision only a person can make, stop and tell me instead of merging.`,
   ].join('\n');
 }
 
@@ -222,7 +250,10 @@ function openMerge(it: GhPull, d: GhPullDetail, net: Net, handToWorker: () => vo
   });
   const result = h('div.gh-merge-result.hidden');
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
-  const worker = h('button.btn', { type: 'button', title: 'A worker fixes whatever is in the way, then merges' }, '🤖 Hand to a worker');
+  // Conflicts can't be merged from here, so fixing them is the main button.
+  const worker = conflicted(d)
+    ? h('button.btn.primary', { type: 'button', title: 'A new worker merges the base in, resolves the conflicts, then merges it the way picked above' }, '✨ New worker: fix conflicts & merge')
+    : h('button.btn', { type: 'button', title: 'A worker fixes whatever is in the way, then merges' }, '🤖 Hand to a worker');
 
   const el = h(
     'div.modal.gh-merge',
@@ -240,7 +271,7 @@ function openMerge(it: GhPull, d: GhPullDetail, net: Net, handToWorker: () => vo
       st.auto ? h('label.gh-check', { for: 'merge-auto', title: 'gh pr merge --auto (the repo must allow auto-merge)' }, auto, 'Merge automatically once the requirements pass') : null,
       result,
     ),
-    h('footer', {}, st.can ? null : worker, h('span.grow'), cancel, go),
+    h('footer', {}, st.can || conflicted(d) ? null : worker, h('span.grow'), cancel, conflicted(d) ? worker : go),
   );
   renderMethods();
   if (!st.can) go.disabled = true;
@@ -316,7 +347,8 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
 
   const handToWorker = () => {
     const p = mergePref(detail?.repo.methods ?? ['squash', 'merge', 'rebase']);
-    actions.assign(fixAndMergePrompt(it, p.method, p.deleteBranch), `Fix up & merge PR #${it.number}`);
+    if (detail && conflicted(detail)) actions.assign(fixConflictsPrompt(it, p.method, p.deleteBranch), `Fix conflicts & merge PR #${it.number}`);
+    else actions.assign(fixAndMergePrompt(it, p.method, p.deleteBranch), `Fix up & merge PR #${it.number}`);
   };
 
   const renderFrame = () => {
@@ -350,13 +382,18 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
     filesPane.classList.toggle('hidden', tab !== 'files');
 
     const isOpen = it.state === 'OPEN';
-    const merge = h('button.btn.primary', { type: 'button', disabled: !detail, title: detail ? 'Merge this pull request' : 'Loading…' }, '🔀 Merge…');
+    const conflicts = !!detail && conflicted(detail);
+    const merge = h(conflicts ? 'button.btn' : 'button.btn.primary', { type: 'button', disabled: !detail, title: detail ? 'Merge this pull request' : 'Loading…' }, '🔀 Merge…');
     merge.addEventListener('click', () => detail && openMerge(it, detail, net, handToWorker, loadAll));
     footBtns.replaceChildren(
       ...nodes(
       h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this PR', onclick: () => actions.ask(pullContext(it), `Ask about PR #${it.number}`) }, '✍️ Ask a worker…'),
       isOpen ? h('button.btn', { type: 'button', onclick: () => actions.assign(reviewPrompt(it), `Review PR #${it.number}`) }, '🔍 Review') : null,
-      isOpen ? h('button.btn', { type: 'button', title: 'A worker addresses the review comments, gets the checks green, then merges', onclick: handToWorker }, '🤖 Fix comments & merge') : null,
+      conflicts
+        ? h('button.btn.primary', { type: 'button', title: 'A new worker merges the base in, resolves the conflicts, gets the checks green, then merges', onclick: handToWorker }, '✨ Fix conflicts & merge')
+        : isOpen
+          ? h('button.btn', { type: 'button', title: 'A worker addresses the review comments, gets the checks green, then merges', onclick: handToWorker }, '🤖 Fix comments & merge')
+          : null,
       isOpen ? merge : null,
       ),
     );
@@ -406,7 +443,8 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
     const st = mergeStatus(d);
     const box = h('section.gh-mergebox', { class: st.cls }, h('div.gh-status', { class: st.cls }, h('span', {}, st.icon), st.text), d.checks.length ? checksList(d.checks) : null);
     if (it.state === 'OPEN' && st.can) box.append(h('div.gh-mergebox-go', {}, h('button.btn.primary', { type: 'button', onclick: () => openMerge(it, d, net, handToWorker, loadAll) }, '🔀 Merge…')));
-    if (it.state === 'OPEN' && !st.can && !d.isDraft) box.append(h('div.gh-mergebox-go', {}, h('button.btn', { type: 'button', onclick: handToWorker }, '🤖 Have a worker fix it & merge')));
+    if (conflicted(d)) box.append(h('div.gh-mergebox-go', {}, h('button.btn.primary', { type: 'button', onclick: handToWorker }, '✨ New worker: fix conflicts & merge')));
+    else if (it.state === 'OPEN' && !st.can && !d.isDraft) box.append(h('div.gh-mergebox-go', {}, h('button.btn', { type: 'button', onclick: handToWorker }, '🤖 Have a worker fix it & merge')));
     col.append(box);
   };
 
