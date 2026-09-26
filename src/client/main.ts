@@ -13,7 +13,7 @@ import { BoardTexture } from './world/boards';
 import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
 import { $, h, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
-import { openTerminal, routeTerminalMessage } from './ui/terminal';
+import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
 import { openPrompt, confirmDialog } from './ui/prompt';
 import { openBoard } from './ui/boards';
 import { openHelp, openProfile, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
@@ -149,6 +149,9 @@ net.onMessage((msg) => {
         firstWelcome = false;
       }
       if (voice.inVoice || voice.sharing) net.send({ t: 'voice', voice: voice.inVoice, muted: voice.muted, sharing: voice.sharing });
+      // After a reconnect the server has forgotten which terminal we had open.
+      const openId = openTerminalFor();
+      if (openId && store.workers.has(openId)) net.send({ t: 'worker.attach', workerId: openId });
       renderProject();
       voice.syncPeers();
       break;

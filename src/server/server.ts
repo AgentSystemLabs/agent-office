@@ -33,8 +33,12 @@ interface Client {
   ws: WebSocket;
   peer: PeerInfo;
   attached: Set<string>;
+  /** Terminals whose output was skipped because this client fell behind; re-snapshotted later. */
+  stale: Set<string>;
   lastMoveAt: number;
 }
+
+const SLOW_CLIENT_BYTES = 8 * 1024 * 1024;
 
 function findPublicDir(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -63,7 +67,8 @@ function projectInfo(cfg: Config): ProjectInfo {
 function clientIp(req: http.IncomingMessage, trustProxy: boolean): string {
   if (trustProxy) {
     const fwd = req.headers['x-forwarded-for'];
-    if (typeof fwd === 'string' && fwd) return fwd.split(',')[0].trim();
+    // The rightmost hop is the one our proxy appended; anything left of it is client-controlled.
+    if (typeof fwd === 'string' && fwd) return fwd.split(',').pop()!.trim();
   }
   return req.socket.remoteAddress ?? '?';
 }
@@ -121,7 +126,12 @@ export async function startServer(cfg: Config) {
   // --- Loopback-only endpoint that Claude Code hooks POST to --------------------------------
   let workers!: WorkerManager;
   const hookServer = http.createServer(async (req, res) => {
-    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    let url: URL;
+    try {
+      url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    } catch {
+      return send(res, 400, {});
+    }
     if (req.method !== 'POST' || url.pathname !== '/hooks/claude') return send(res, 404, { ok: false });
     let payload: unknown = {};
     try {
@@ -150,7 +160,11 @@ export async function startServer(cfg: Config) {
         const json = JSON.stringify({ t: 'term.data', workerId, data } satisfies ServerMsg);
         for (const id of viewers) {
           const c = clients.get(id);
-          if (c && c.ws.readyState === WebSocket.OPEN) c.ws.send(json);
+          if (!c || c.ws.readyState !== WebSocket.OPEN) continue;
+          // A viewer on a slow link skips output and gets a fresh snapshot once it catches up,
+          // instead of queueing unbounded data in server memory.
+          if (c.stale.has(workerId) || c.ws.bufferedAmount > SLOW_CLIENT_BYTES) c.stale.add(workerId);
+          else c.ws.send(json);
         }
       },
       screen: (workerId, frame) => broadcast({ t: 'screen', workerId, ...frame }, undefined, true),
@@ -179,11 +193,16 @@ export async function startServer(cfg: Config) {
   };
 
   const handler = async (req: http.IncomingMessage, res: http.ServerResponse) => {
-    const url = new URL(req.url ?? '/', 'http://x');
-    const p = decodeURIComponent(url.pathname);
     try {
+      let p: string;
+      try {
+        p = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
+      } catch {
+        return send(res, 400, { error: 'Bad request' });
+      }
       if (p === '/api/login' && req.method === 'POST') {
         const ip = clientIp(req, cfg.trustProxy);
+        // Counted before the body is read, so parallel guesses can't all slip under the limit.
         if (!auth.allowAttempt(ip)) return send(res, 429, { error: 'Too many attempts. Try again in a few minutes.' });
         let pw = '';
         try {
@@ -191,10 +210,8 @@ export async function startServer(cfg: Config) {
         } catch {
           return send(res, 400, { error: 'Bad request' });
         }
-        if (!auth.checkPassword(pw)) {
-          auth.recordFailure(ip);
-          return send(res, 401, { error: 'Wrong password' });
-        }
+        if (!auth.checkPassword(pw)) return send(res, 401, { error: 'Wrong password' });
+        auth.recordSuccess(ip);
         return send(res, 200, { ok: true }, { 'set-cookie': auth.cookie(auth.issue(), isSecure(req, cfg)) });
       }
       if (p === '/api/logout' && req.method === 'POST') {
@@ -232,7 +249,14 @@ export async function startServer(cfg: Config) {
   // --- WebSocket -------------------------------------------------------------------------------
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
   server.on('upgrade', (req, socket, head) => {
-    const url = new URL(req.url ?? '/', 'http://x');
+    socket.on('error', () => socket.destroy());
+    let url: URL;
+    try {
+      url = new URL(req.url ?? '/', 'http://x');
+    } catch {
+      socket.destroy();
+      return;
+    }
     const origin = req.headers.origin;
     const host = (cfg.trustProxy && (req.headers['x-forwarded-host'] as string)) || req.headers.host;
     let sameOrigin = false;
@@ -257,6 +281,7 @@ export async function startServer(cfg: Config) {
       id,
       ws,
       attached: new Set(),
+      stale: new Set(),
       lastMoveAt: 0,
       peer: {
         id,
@@ -403,6 +428,17 @@ export async function startServer(cfg: Config) {
     }
   };
 
+  const resync = setInterval(() => {
+    for (const c of clients.values()) {
+      if (!c.stale.size || c.ws.bufferedAmount > SLOW_CLIENT_BYTES / 8) continue;
+      for (const wid of c.stale) {
+        const snap = c.attached.has(wid) ? workers.attach(wid, c.id, c.peer.name) : undefined;
+        if (snap) sendTo(c, { t: 'term.snapshot', workerId: wid, ...snap });
+      }
+      c.stale.clear();
+    }
+  }, 1000);
+
   // Drop dead connections so ghosts don't linger in the office.
   const heartbeat = setInterval(() => {
     for (const c of clients.values()) {
@@ -422,6 +458,7 @@ export async function startServer(cfg: Config) {
 
   const shutdown = () => {
     clearInterval(heartbeat);
+    clearInterval(resync);
     github.stop();
     workers.shutdown();
     for (const c of clients.values()) c.ws.close();

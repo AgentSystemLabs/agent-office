@@ -64,6 +64,7 @@ class Store {
         this.you = msg.you;
         this.peers = new Map(msg.peers.map((p) => [p.id, p]));
         this.workers = new Map(msg.workers.map((w) => [w.id, w]));
+        this.screens.clear(); // fresh full frames follow the welcome
         this.project = msg.project;
         this.issues = msg.issues;
         this.pulls = msg.pulls;

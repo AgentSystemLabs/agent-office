@@ -41,5 +41,7 @@ const stop = () => {
   office.shutdown();
   setTimeout(() => process.exit(0), 300);
 };
+// Last line of defense: one bad request must never take down every running worker.
+process.on('unhandledRejection', (err) => console.error('agent-office: unhandled rejection', err));
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

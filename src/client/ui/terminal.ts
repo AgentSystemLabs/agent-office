@@ -53,8 +53,18 @@ export function openTerminal(net: Net, workerId: string, actions: { prompt(): vo
 
   let ready = false;
   let lastSentSize = '';
-  const sendSize = () => {
+  /**
+   * Sizes the shared PTY to this window. Typing always claims it (latest typist wins); merely
+   * opening or resizing the window only does when nobody else is watching, so a phone that is just
+   * looking doesn't reflow the terminal under whoever is working.
+   */
+  const sendSize = (typing = false) => {
     if (!ready) return;
+    if (!typing && (store.workers.get(workerId)?.viewers.length ?? 0) > 1) {
+      const w = store.workers.get(workerId);
+      if (w && (w.cols !== term.cols || w.rows !== term.rows)) term.resize(w.cols, w.rows);
+      return;
+    }
     try {
       fit.fit();
     } catch {
@@ -131,10 +141,10 @@ export function openTerminal(net: Net, workerId: string, actions: { prompt(): vo
     return true;
   });
   term.onData((data) => {
-    sendSize();
+    sendSize(true);
     net.send({ t: 'term.input', workerId, data });
   });
-  term.textarea?.addEventListener('focus', () => sendSize());
+
   ro.observe(host);
   refresh();
   net.send({ t: 'worker.attach', workerId });

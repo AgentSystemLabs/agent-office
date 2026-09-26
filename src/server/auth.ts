@@ -4,13 +4,20 @@ import type { IncomingMessage } from 'node:http';
 export const COOKIE_NAME = 'ao_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14;
 
+const MAX_ATTEMPTS = 10;
+const WINDOW_MS = 5 * 60_000;
+
 export class Auth {
   private attempts = new Map<string, { count: number; resetAt: number }>();
+  /** Session signing key. Derived from the password too, so changing the password logs everyone out. */
+  private key: Buffer;
 
   constructor(
     private password: string,
     private secret: string,
-  ) {}
+  ) {
+    this.key = createHmac('sha256', secret).update(`session:${password}`).digest();
+  }
 
   checkPassword(candidate: string): boolean {
     const a = createHmac('sha256', this.secret).update(candidate).digest();
@@ -18,19 +25,23 @@ export class Auth {
     return timingSafeEqual(a, b);
   }
 
-  /** Returns false when this client has made too many failed attempts recently. */
+  /** Counts a login attempt; returns false once this client has used up its window. */
   allowAttempt(ip: string): boolean {
     const now = Date.now();
+    if (this.attempts.size > 10_000) {
+      for (const [k, v] of this.attempts) if (v.resetAt < now) this.attempts.delete(k);
+    }
     const rec = this.attempts.get(ip);
-    if (!rec || rec.resetAt < now) return true;
-    return rec.count < 8;
+    if (!rec || rec.resetAt < now) {
+      this.attempts.set(ip, { count: 1, resetAt: now + WINDOW_MS });
+      return true;
+    }
+    rec.count++;
+    return rec.count <= MAX_ATTEMPTS;
   }
 
-  recordFailure(ip: string) {
-    const now = Date.now();
-    const rec = this.attempts.get(ip);
-    if (!rec || rec.resetAt < now) this.attempts.set(ip, { count: 1, resetAt: now + 5 * 60_000 });
-    else rec.count++;
+  recordSuccess(ip: string) {
+    this.attempts.delete(ip);
   }
 
   issue(): string {
@@ -67,7 +78,7 @@ export class Auth {
   }
 
   private sign(payload: string): string {
-    return createHmac('sha256', this.secret).update(payload).digest('base64url');
+    return createHmac('sha256', this.key).update(payload).digest('base64url');
   }
 }
 
@@ -77,7 +88,12 @@ export function parseCookies(header: string | undefined): Record<string, string>
   for (const part of header.split(';')) {
     const i = part.indexOf('=');
     if (i < 0) continue;
-    out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+    const raw = part.slice(i + 1).trim();
+    try {
+      out[part.slice(0, i).trim()] = decodeURIComponent(raw);
+    } catch {
+      out[part.slice(0, i).trim()] = raw; // someone else's malformed cookie must not take us down
+    }
   }
   return out;
 }

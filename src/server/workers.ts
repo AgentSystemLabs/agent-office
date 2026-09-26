@@ -368,7 +368,8 @@ export class WorkerManager {
     if (isClaude) {
       args.unshift('--settings', this.settingsPath);
       if (resumeSessionId) args.push('--resume', resumeSessionId);
-      if (prompt) args.push(prompt);
+      // `--` so a prompt like "- fix login" is never parsed as a CLI option.
+      if (prompt) args.push('--', prompt);
     }
     const env: Record<string, string> = {};
     for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !scrubbed(k)) env[k] = v;
@@ -439,7 +440,9 @@ export class WorkerManager {
   private onProgress(w: Worker, busy: boolean) {
     const s = w.info.status;
     if (busy && (s === 'idle' || s === 'done' || s === 'starting')) this.setStatus(w, 'working');
-    else if (!busy && s === 'working') this.setStatus(w, 'done');
+    // Progress stays busy while a permission prompt is open, so going idle from needs_input means the
+    // turn ended without a Stop hook (the prompt was rejected or Esc'd).
+    else if (!busy && (s === 'working' || (s === 'needs_input' && !w.bootBlocked))) this.setStatus(w, 'done');
   }
 
   private setStatus(w: Worker, status: WorkerStatus) {
