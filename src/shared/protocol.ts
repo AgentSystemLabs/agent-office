@@ -1,6 +1,7 @@
 // Wire protocol between browser and server. Every WebSocket frame is one JSON object.
 
 import type { Look } from './avatar.js';
+import type { DecorPlacement, Decoration } from './decor.js';
 
 export type WorkerStatus =
   | 'starting' // PTY launched, agent booting
@@ -220,6 +221,11 @@ export type ClientMsg =
   | { t: 'team.remove'; name: string }
   | { t: 'upgrade.check' }
   | { t: 'upgrade.start' }
+  /** Hang a picture on a wall. */
+  | { t: 'decor.add'; decor: DecorPlacement }
+  /** Move, resize, re-frame or swap the image of a picture. */
+  | { t: 'decor.update'; id: string; decor: Partial<DecorPlacement> }
+  | { t: 'decor.remove'; id: string }
   | { t: 'ping'; at: number };
 
 export type ServerMsg =
@@ -239,6 +245,8 @@ export type ServerMsg =
       version: string;
       upgrade: UpgradeState;
       services: ServicesState;
+      /** Pictures on the walls. */
+      decor: Decoration[];
     }
   | { t: 'peer.join'; peer: PeerInfo }
   | { t: 'peer.update'; peer: PeerInfo }
@@ -258,6 +266,7 @@ export type ServerMsg =
   | { t: 'team'; state: TeamState }
   | { t: 'upgrade'; state: UpgradeState }
   | { t: 'services'; state: ServicesState }
+  | { t: 'decor'; items: Decoration[] }
   /** Sent to whoever asked for the invite. */
   | { t: 'team.invited'; github: string; name?: string; keys?: number; error?: string }
   | { t: 'pong'; at: number };

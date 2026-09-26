@@ -13,6 +13,7 @@ import { GitHub } from './github.js';
 import { Team } from './team.js';
 import { Upgrader } from './upgrade.js';
 import { Services } from './services.js';
+import { Decor, ImageProxy } from './decor.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import type { ChatLine, ClientMsg, PeerInfo, ProjectInfo, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { SPAWN } from '../shared/layout.js';
@@ -195,6 +196,9 @@ export async function startServer(cfg: Config) {
     (items) => broadcast({ t: 'services', state: servicesState(items) }),
   );
 
+  const decor = new Decor(cfg.dataDir);
+  const images = new ImageProxy();
+
   const upgrader = new Upgrader(
     (state) => broadcast({ t: 'upgrade', state }),
     () => {
@@ -291,6 +295,22 @@ export async function startServer(cfg: Config) {
         return;
       }
       if (p === '/api/whoami') return send(res, 200, { ok: true });
+      if (p === '/api/image' && req.method === 'GET') {
+        // A picture on the wall, fetched by the office so the 3D view can draw it (see decor.ts).
+        const r = await images.get(new URL(req.url ?? '/', 'http://x').searchParams.get('url') ?? '');
+        if ('error' in r) return send(res, r.status, { error: r.error });
+        res.writeHead(200, {
+          'content-type': r.type,
+          'content-length': String(r.body.length),
+          'cache-control': 'private, max-age=3600',
+          'x-content-type-options': 'nosniff',
+          // Opened on its own (an SVG, say), it still can't run anything on the office's origin.
+          'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+          'cross-origin-resource-policy': 'same-origin',
+        });
+        res.end(r.body);
+        return;
+      }
       if (p === '/' || p === '/index.html') return serveFile(res, path.join(publicDir, 'index.html'), false);
       const file = path.join(publicDir, path.normalize(p).replace(/^(\.\.[/\\])+/, ''));
       if (file.startsWith(publicDir + path.sep) && existsSync(file) && statSync(file).isFile()) return serveFile(res, file, false);
@@ -383,6 +403,7 @@ export async function startServer(cfg: Config) {
       version: upgrader.version,
       upgrade: upgrader.state,
       services: servicesState(),
+      decor: decor.list(),
     });
     for (const { workerId, frame } of workers.fullScreens()) sendTo(client, { t: 'screen', workerId, ...frame, full: true });
     broadcast({ t: 'peer.join', peer: client.peer }, id);
@@ -531,6 +552,26 @@ export async function startServer(cfg: Config) {
           broadcast({ t: 'toast', text: `${who} removed ${name}'s access`, level: 'info' });
           broadcast({ t: 'team', state: await team.state() });
         });
+        break;
+      }
+      case 'decor.add': {
+        const d = decor.add(msg.decor, who);
+        if (typeof d === 'string') return sendTo(c, { t: 'toast', text: d, level: 'warn' });
+        broadcast({ t: 'decor', items: decor.list() });
+        broadcast({ t: 'toast', text: `🖼️ ${who} hung ${d.title ? `“${d.title}”` : 'a picture'}`, level: 'info' });
+        break;
+      }
+      case 'decor.update': {
+        const d = decor.update(str(msg.id, 32), msg.decor);
+        if (typeof d === 'string') return sendTo(c, { t: 'toast', text: d, level: 'warn' });
+        broadcast({ t: 'decor', items: decor.list() });
+        break;
+      }
+      case 'decor.remove': {
+        const d = decor.remove(str(msg.id, 32));
+        if (!d) break;
+        broadcast({ t: 'decor', items: decor.list() });
+        broadcast({ t: 'toast', text: `${who} took down ${d.title ? `“${d.title}”` : 'a picture'}`, level: 'info' });
         break;
       }
       case 'ping':

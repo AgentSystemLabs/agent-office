@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BOARDS, DESKS, DESK_SIZE, FLOOR, LOFT, STAIRS, TV, WALL_HEIGHT, deskSeat, type DeskDef } from '../../shared/layout';
+import { wallFacing, type WallId, type WallRect } from '../../shared/decor';
 import { mesh, roundedBox, textPlane, toon } from './toon';
 
 export interface Collider {
@@ -12,7 +13,7 @@ export interface Collider {
   bottom?: number;
 }
 
-export type InteractKind = 'desk' | 'issues' | 'pulls' | 'services' | 'tv' | 'coffee';
+export type InteractKind = 'desk' | 'issues' | 'pulls' | 'services' | 'tv' | 'coffee' | 'decor';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -21,6 +22,7 @@ export interface Interactable {
   z: number;
   radius: number;
   deskId?: string;
+  decorId?: string;
 }
 
 export interface DeskView {
@@ -41,6 +43,8 @@ export interface Office {
   desks: Map<string, DeskView>;
   boardMeshes: Record<keyof typeof BOARDS, THREE.Mesh>;
   tvScreen: THREE.Mesh;
+  /** What's already on the walls (boards, the TV, windows…), so pictures don't hang over it. */
+  fixtures(): WallRect[];
   setProjectName(name: string): void;
   update(t: number): void;
 }
@@ -213,6 +217,8 @@ export function buildOffice(): Office {
   const group = new THREE.Group();
   const colliders: Collider[] = [];
   const interactables: Interactable[] = [];
+  const fixtures: WallRect[] = [];
+  const fixture = (wall: WallId, u: number, y: number, w: number, h: number) => fixtures.push({ wall, u0: u - w / 2, u1: u + w / 2, y0: y - h / 2, y1: y + h / 2 });
   const width = FLOOR.maxX - FLOOR.minX;
   const depth = FLOOR.maxZ - FLOOR.minZ;
   const cx = (FLOOR.maxX + FLOOR.minX) / 2;
@@ -263,8 +269,12 @@ export function buildOffice(): Office {
   for (let x = -14; x <= 14; x += 5) {
     if (x + 1.6 > STAIRS.fromX) continue;
     group.add(outsideWindow(x, 2.2, FLOOR.maxZ - 0.02));
+    fixture('south', x, 2.2, 3.2, 2);
   }
-  for (let z = -9; z <= 6; z += 6) group.add(outsideWindow(FLOOR.minX + 0.02, 2.2, z, true));
+  for (let z = -9; z <= 6; z += 6) {
+    group.add(outsideWindow(FLOOR.minX + 0.02, 2.2, z, true));
+    fixture('west', z, 2.2, 3.2, 2);
+  }
 
   // Desks
   const desks = new Map<string, DeskView>();
@@ -301,6 +311,10 @@ export function buildOffice(): Office {
     const it: Interactable = { kind: key, x: b.x + nx * 1.6, z: b.z + nz * 1.6, radius: 2.4 };
     interactables.push(it);
     bg.userData.interact = it;
+    // The board and its label above it, up to the ceiling.
+    const wall = wallFacing(b.rotY);
+    const bottom = b.y - (b.height + 0.3) / 2;
+    fixture(wall, wall === 'north' || wall === 'south' ? b.x : b.z, (bottom + WALL_HEIGHT) / 2, b.width + 0.3, WALL_HEIGHT - bottom);
   }
 
   // Lounge: TV, couch, coffee table, beanbags
@@ -316,6 +330,7 @@ export function buildOffice(): Office {
   const tv: Interactable = { kind: 'tv', x: TV.x - 4.5, z: TV.z, radius: 3.2 };
   interactables.push(tv);
   tvGroup.userData.interact = tv;
+  fixture('east', TV.z, TV.y, TV.width + 0.3, TV.height + 0.3);
 
   const couch = new THREE.Group();
   const couchMat = toon('#5b8def');
@@ -366,6 +381,10 @@ export function buildOffice(): Office {
   const cup: Interactable = { kind: 'coffee', x: -15.7, z: 10.9, radius: 1.4 };
   interactables.push(cup);
   coffee.userData.interact = cup;
+  // Counter, coffee machine and fridge, in front of the south wall.
+  fixture('south', -14.5, 0.55, 5.1, 1.1);
+  fixture('south', -15.7, 0.9, 0.6, 1.8);
+  fixture('south', -11.3, 1.1, 1.1, 2.2);
 
   // Plants around the room
   const plants: [number, number, number][] = [
@@ -400,8 +419,19 @@ export function buildOffice(): Office {
   }
 
   buildLoft(group, colliders);
+  // Pictures stay clear of the stairs (step by step, so they can hang above them) and of what's on
+  // the loft's walls upstairs, as buildLoft places it: a window on each wall, the couch, the sign.
+  const run = (STAIRS.toX - STAIRS.fromX) / STAIRS.steps;
+  const rise = LOFT.y / STAIRS.steps;
+  for (let i = 1; i <= STAIRS.steps; i++) fixture('south', STAIRS.fromX + (i - 0.5) * run, (i * rise) / 2, run, i * rise);
+  const loftZ = (LOFT.minZ + LOFT.maxZ) / 2;
+  fixture('south', LOFT.minX + 2, LOFT.y + 1.5, 3.2, 2);
+  fixture('east', loftZ, LOFT.y + 1.5, 3.2, 2);
+  fixture('east', loftZ, LOFT.y + 0.5, 2.4, 1);
+  fixture('south', LOFT.maxX - 3, LOFT.y + 1.9, 2.6, 0.6);
 
   let nameSign: ReturnType<typeof textPlane> | null = null;
+  let signRect: WallRect | null = null;
   const setProjectName = (name: string) => {
     if (nameSign) {
       group.remove(nameSign);
@@ -413,6 +443,8 @@ export function buildOffice(): Office {
     nameSign.position.set(8, 2.6, FLOOR.minZ + 0.06);
     nameSign.scale.multiplyScalar(2.2);
     group.add(nameSign);
+    const { width: sw, height: sh } = nameSign.geometry.parameters;
+    signRect = { wall: 'north', u0: 8 - (sw * 2.2) / 2, u1: 8 + (sw * 2.2) / 2, y0: 2.6 - (sh * 2.2) / 2, y1: 2.6 + (sh * 2.2) / 2 };
   };
 
   const update = (t: number) => {
@@ -423,7 +455,7 @@ export function buildOffice(): Office {
     }
   };
 
-  return { group, colliders, interactables, desks, boardMeshes, tvScreen, setProjectName, update };
+  return { group, colliders, interactables, desks, boardMeshes, tvScreen, fixtures: () => (signRect ? [...fixtures, signRect] : fixtures), setProjectName, update };
 }
 
 /**

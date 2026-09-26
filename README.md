@@ -24,6 +24,7 @@ agent-office
 - **Issues board.** A tack board shows GitHub issues in *Open*, *In progress* and *Closed*. Click an issue and choose **Hand to a worker** to seat a worker with a ready-made prompt.
 - **PR board.** A second tack board shows pull requests in *Draft*, *In review*, *Approved*, *Merged* and *Closed*, with CI status and diff size. **Review with a worker** does what it says.
 - **Services board.** When a worker starts a web server (`npm run dev`, a preview build, `python -m http.server`), it appears within a few seconds on the **🌐 Services** board, which hangs on the wall by the lounge and is also a button in the top bar. Each entry shows the worker, its branch and the page's title. Click a row to copy one command that opens that server on your own computer. Hire a worker with its own worktree, ask it to run the dev server, and your designer can review the branch in their own browser.
+- **Pictures on the walls.** Press **F** (or **🖼️** in the top bar) and paste a link to any image online: a team photo, a diagram, a meme. Pick one of six frames, then aim at a wall and click to hang it. Scroll to size it first. Where it can't go, over a window or a board, the preview turns red. Everyone sees it right away, and it stays up across restarts. Look at a picture and press **E** for a closer look, or to move, edit or take it down.
 - **Voice.** Browser-to-browser WebRTC voice. Volume depends on how close you stand, but people are never fully silent.
 - **Office sounds.** Busy workers clatter away at their keyboards, footsteps pad past, the fridge hums, birds chirp outside the windows and the coffee machine grinds and gurgles. It's all synthesized in the browser and placed where it happens, so it gets louder as you walk closer. Turn it down or mute it under **⚙️**, which also covers the worker dings but not voice chat.
 - **Screen sharing.** Your screen appears on the lounge TV for everyone, and there's a full-screen viewer.
@@ -84,6 +85,7 @@ agent-office [dir] [options]
 | B | Open a shared shell at an empty desk |
 | R | Resume a sleeping worker (or restart a shell) |
 | X | Send a worker home (frees the desk) |
+| F | Hang a picture from the web on a wall (scroll to size it, click to hang it) |
 | T / Enter | Chat |
 | V / M | Join voice / mute |
 | Esc | Close any window (a terminal too) and get back to looking around |
@@ -244,6 +246,7 @@ browser ──HTTPS/WSS──▶ agent-office (Node)
                          ├─ loopback-only hook server ◀── curl from Claude Code hooks (per-worker token)
                          ├─ gh issue/pr list (cached, refreshed every 90s)
                          ├─ port scan every 4s ─▶ 🌐 Services board; relay for service tunnels
+                         ├─ /api/image ─▶ fetches pictures for the walls (cached)
                          └─ WebRTC signaling relay (voice + screen share are peer-to-peer)
 ```
 
@@ -252,7 +255,8 @@ browser ──HTTPS/WSS──▶ agent-office (Node)
 - **Isolated branches.** When you hire with a task, you can tick *own git worktree*. The worker then gets its own `office/<name>` branch under `.agent-office/worktrees/`, so parallel workers never share a checkout.
 - **Shared terminals.** The server keeps one PTY per worker and mirrors it in a headless xterm. People who open the terminal get a serialized snapshot, then the live stream. Laptops get compact per-row diffs a few times a second. The PTY takes the size of whoever is typing.
 - **Services.** Every 4 seconds the office lists the TCP ports its user's processes listen on (`ss`, or `lsof` on macOS). It credits each port to the worker whose terminal started it. It goes by the process tree first. For a server that detached from it, it uses the `AGENT_OFFICE_WORKER_ID` the process inherited (Linux), then whether it runs inside that worker's worktree. Ports that answer HTTP are shown. A request for `localhost:<port>` that reaches the office's own port (that's what a service tunnel does) is relayed to that server, WebSockets included, so hot reload works.
-- **State.** `.agent-office/` in the project holds the password, the signing secret, the hook settings and the saved workers. It is added to `.git/info/exclude` automatically, so it never shows up in `git status`.
+- **Pictures.** WebGL can only draw an image from another site if that site sends CORS headers, and most don't. So the office fetches each picture itself (`/api/image`, images up to 15 MB) and serves it from its own origin. Any image link works, and a picture on a worker's dev server does too. Browsers shrink each one to 1024 px before it goes on the wall.
+- **State.** `.agent-office/` in the project holds the password, the signing secret, the hook settings, the saved workers and the pictures on the walls (`decor.json`). It is added to `.git/info/exclude` automatically, so it never shows up in `git status`.
 
 ## Security notes
 
@@ -265,6 +269,7 @@ Anyone with the password can drive Claude Code in that directory, and through it
 - The WebSocket checks the session cookie and the `Origin` header. The hook endpoint only listens on loopback and needs a random per-worker token.
 - Service tunnels are relayed only to web servers a worker started, and only with an office session. The office's own cookies are stripped before a request reaches that server. A server you started yourself outside the office is never listed or relayed.
 - Workers don't inherit the office password or any parent agent-session variables.
+- The picture fetcher (`/api/image`) needs an office session. It fetches any http(s) link it's given, from the office's machine. That gives nobody new reach: anyone signed in can already run `curl` from a shell worker. Pictures are served with a sandboxing `Content-Security-Policy`, so an SVG can't run script on the office's origin.
 
 ## Development
 

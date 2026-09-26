@@ -12,6 +12,8 @@ import { Person, Worker } from './world/character';
 import { Hands } from './world/hands';
 import { Laptop } from './world/laptop';
 import { BoardTexture, ServicesBoardTexture } from './world/boards';
+import { Gallery } from './world/gallery';
+import { Hanger } from './hanging';
 import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
 import { OfficeSound } from './sound';
@@ -89,6 +91,11 @@ store.on('services', renderServicesBoard);
 store.on('workers', renderServicesBoard);
 renderServicesBoard();
 
+// Pictures people hung on the walls
+const gallery = new Gallery();
+office.group.add(gallery.group);
+store.on('decor', () => gallery.sync(store.decor));
+
 // TV
 const tvVideo = document.createElement('video');
 tvVideo.muted = true;
@@ -136,6 +143,15 @@ player.view = settings.view;
 const hands = new Hands(store.profile.color, me.skinColor);
 const sound = new OfficeSound();
 sound.setVolume(settings.volume, settings.muted);
+const hanger = new Hanger(net, camera, canvas, player, office, gallery);
+scene.add(hanger.ghost.group);
+hanger.onChange = () => {
+  const b = $('btn-decor');
+  b.classList.toggle('on', hanger.active);
+  b.title = hanger.active ? 'Stop hanging the picture (Esc)' : 'Hang a picture on a wall (F)';
+  // Not '': that reads as "no hint shown", and the hanging hint would stay up.
+  hintKey = 'stale';
+};
 
 function showMyProfile(p: Profile) {
   me.setColor(p.color);
@@ -481,6 +497,7 @@ function interact(target: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B')
   if (target.kind === 'issues' || target.kind === 'pulls') openBoard(target.kind, net, boardActions());
   else if (target.kind === 'services') openServices();
   else if (target.kind === 'tv') watchShare();
+  else if (target.kind === 'decor' && target.decorId) hanger.view(target.decorId);
   else if (target.kind === 'coffee') {
     toast('☕ Mmm, fresh coffee. +10 focus');
     sound.coffee();
@@ -494,11 +511,13 @@ let hintKey = '';
 function pickTarget(): Interactable | null {
   let best: Interactable | null = null;
   let bestD = Infinity;
-  for (const it of office.interactables) {
-    const d = Math.hypot(it.x - player.pos.x, it.z - player.pos.z);
-    if (d < it.radius && d < bestD) {
-      best = it;
-      bestD = d;
+  for (const list of [office.interactables, gallery.interactables]) {
+    for (const it of list) {
+      const d = Math.hypot(it.x - player.pos.x, it.z - player.pos.z);
+      if (d < it.radius && d < bestD) {
+        best = it;
+        bestD = d;
+      }
     }
   }
   return best;
@@ -510,6 +529,7 @@ function key(k: string, label: string) {
 
 function renderHint() {
   const el = $('hint');
+  if (hanger.active && !modalOpen()) return renderHangHint(el);
   if (!target || modalOpen()) {
     if (hintKey) {
       el.classList.add('hidden');
@@ -544,9 +564,25 @@ function renderHint() {
     k += any;
     parts = [h('span.title', {}, '📺 Office TV'), key('E', any ? 'Watch full screen' : 'Share your screen')];
   } else if (target.kind === 'coffee') parts = [h('span.title', {}, '☕ Coffee machine'), key('E', 'Grab a cup')];
+  else if (target.kind === 'decor') {
+    const id = target.decorId;
+    const d = store.decor.find((x) => x.id === id);
+    k += `${d?.title}|${d?.by}`;
+    parts = [h('span.title', {}, `🖼️ ${d?.title || 'A picture'}`), d ? h('span', { style: 'opacity:.75;font-weight:600' }, `hung by ${d.by}`) : '', key('E', 'Look closer')];
+  }
   if (k === hintKey) return;
   hintKey = k;
   el.replaceChildren(...parts);
+  el.classList.remove('hidden');
+}
+
+function renderHangHint(el: HTMLElement) {
+  const spot = hanger.spot;
+  const k = `hang|${hanger.moving}|${spot ? spot.ok : '-'}`;
+  if (k === hintKey) return;
+  hintKey = k;
+  const title = !spot ? '🖼️ Aim at a wall' : !spot.ok ? "🚫 Something's in the way" : hanger.moving ? '🖼️ Moving a picture' : '🖼️ Hanging a picture';
+  el.replaceChildren(h('span.title', {}, title), key('Click', 'Hang'), key('Scroll', 'Size'), key('Esc', 'Cancel'));
   el.classList.remove('hidden');
 }
 
@@ -586,6 +622,10 @@ function use(it: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B') {
 // ---- Input ----------------------------------------------------------------------------------------
 window.addEventListener('keydown', (e) => {
   if (modalOpen() || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (hanger.active && hangingKey(e.code)) {
+    e.preventDefault();
+    return;
+  }
   switch (e.code) {
     case 'KeyE':
       use(target, 'E');
@@ -617,11 +657,38 @@ window.addEventListener('keydown', (e) => {
     case 'KeyH':
       openHelp();
       break;
+    case 'KeyF':
+      hanger.start();
+      break;
     default:
       return;
   }
   player.clearKeys();
 });
+
+/** Keys while hanging a picture. Walking, chat and voice work as usual. */
+function hangingKey(code: string): boolean {
+  switch (code) {
+    case 'Escape':
+    case 'KeyF':
+      hanger.cancel();
+      return true;
+    case 'KeyE':
+    case 'Enter':
+      reach();
+      hanger.place();
+      return true;
+    case 'BracketLeft':
+    case 'Minus':
+      hanger.resize(-1);
+      return true;
+    case 'BracketRight':
+    case 'Equal':
+      hanger.resize(1);
+      return true;
+  }
+  return false;
+}
 
 /** Whether the mouse was captured when the modals opened, so closing them gives it back. */
 let relookAfterModal = false;
@@ -653,7 +720,7 @@ function backToGame() {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, tv: 10 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, tv: 10, decor: 9 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
@@ -676,6 +743,11 @@ function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boole
 
 player.onClick = (ndc) => {
   if (modalOpen()) return;
+  if (hanger.active) {
+    reach();
+    hanger.place(ndc);
+    return;
+  }
   if (player.view === 'first') {
     // Reach out even at nothing, like poking the air.
     reach();
@@ -791,6 +863,7 @@ mountServicesButton($('btn-services'));
 $('btn-team').addEventListener('click', () => openTeam(net));
 $('btn-upgrade').addEventListener('click', () => openUpgrade(net));
 $('btn-help').addEventListener('click', () => openHelp());
+$('btn-decor').addEventListener('click', () => (hanger.active ? hanger.cancel() : hanger.start()));
 $('btn-settings').addEventListener('click', () =>
   openSettings(
     settings,
@@ -906,8 +979,9 @@ function frame(ts?: number) {
     v.laptop.update(dt, store.screens.get(id), Math.hypot(desk.x - camPos.x, desk.z - camPos.z));
   }
   office.update(t);
+  hanger.update();
 
-  if (modalOpen()) target = null;
+  if (modalOpen() || hanger.active) target = null;
   else if (firstPerson) {
     const aim = aimedAt(CROSSHAIR);
     target = aim?.near ? aim.it : null;
@@ -955,6 +1029,6 @@ if (saved?.look) {
 }
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, camera, workerViews, scene, net, renderer, hands, me, remotes, settings };
+(window as any).__office = { store, player, camera, workerViews, scene, net, renderer, hands, me, remotes, settings, gallery, hanger };
 (window as any).__voice = voice;
 (window as any).__sound = sound;

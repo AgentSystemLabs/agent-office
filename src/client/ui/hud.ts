@@ -71,6 +71,7 @@ export function openHelp() {
     ['B', 'Open a shared shell (dev servers, git, tests) at an empty desk'],
     ['R', 'Resume a sleeping worker'],
     ['X', 'Send a worker home (frees the desk)'],
+    ['F', 'Hang a picture from the web on a wall. Look at a picture and press E to move, edit or take it down'],
     ['T', 'Chat'],
     ['V / M', 'Join voice / mute'],
     ['Esc', 'Close any window and get back to looking around'],

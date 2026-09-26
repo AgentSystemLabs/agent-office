@@ -1,8 +1,9 @@
 import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, ServerMsg, ServicesState, TeamState, UpgradeState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
+import type { Decoration } from '../shared/decor';
 
-type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services';
+type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor';
 
 export interface Profile {
   name: string;
@@ -82,6 +83,8 @@ class Store {
   team: TeamState | null = null;
   upgrade: UpgradeState = { available: false, phase: 'idle' };
   services: ServicesState = { items: [], port: 4600 };
+  /** Pictures on the walls. */
+  decor: Decoration[] = [];
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -115,7 +118,8 @@ class Store {
         this.invites = msg.invites;
         this.upgrade = msg.upgrade;
         this.services = msg.services;
-        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade', 'services'] as Topic[]) this.emit(t);
+        this.decor = msg.decor;
+        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade', 'services', 'decor'] as Topic[]) this.emit(t);
         break;
       case 'peer.join':
       case 'peer.update':
@@ -171,6 +175,10 @@ class Store {
       case 'services':
         this.services = msg.state;
         this.emit('services');
+        break;
+      case 'decor':
+        this.decor = msg.items;
+        this.emit('decor');
         break;
       case 'chat':
         this.chat.push(msg);
