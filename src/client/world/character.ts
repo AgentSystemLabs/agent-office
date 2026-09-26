@@ -380,7 +380,7 @@ export class Worker {
   private drawBubble() {
     const { status, bouncing: bounce, task } = this;
     const hot = status === 'needs_input' || (status === 'done' && bounce);
-    const hotBg = status === 'done' ? '#caffbf' : '#ffd6e0';
+    const bg = hot ? (status === 'done' ? '#caffbf' : '#ffd6e0') : status === 'working' ? '#ffec99' : '#fffaf3';
     const bubble =
       status === 'needs_input' ? '❗ needs you' : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : status === 'offline' || status === 'exited' ? '💤' : '';
     const key = task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble;
@@ -393,10 +393,10 @@ export class Worker {
     }
     this.bubbleIsCard = !!task;
     if (task) {
-      const [text, bg, color] = TASK_CHIP[status] ?? TASK_CHIP.idle;
+      const [text, chipBg, color] = TASK_CHIP[status] ?? TASK_CHIP.idle;
       const asleep = status === 'offline' || status === 'exited';
-      this.bubble = cardSprite({ chip: { text, bg, color }, title: task.name, body: task.summary, bg: hot ? hotBg : asleep ? '#e9ecef' : '#fffaf3' });
-    } else if (bubble) this.bubble = textSprite(bubble, { bg: hot ? hotBg : '#fffaf3', size: 38 });
+      this.bubble = cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: task.summary, bg: asleep ? '#e9ecef' : bg });
+    } else if (bubble) this.bubble = textSprite(bubble, { bg, size: 38 });
     if (this.bubble) this.root.add(this.bubble);
   }
 
