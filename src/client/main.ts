@@ -14,7 +14,7 @@ import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
 import { $, h, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
-import { openPrompt, confirmDialog } from './ui/prompt';
+import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage } from './ui/prompt';
 import { openBoard } from './ui/boards';
 import { openHelp, openProfile, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
 
@@ -162,6 +162,9 @@ net.onMessage((msg) => {
       break;
     case 'rtc':
       void voice.handleSignal(msg.from, msg.data as never);
+      break;
+    case 'worker.worktree':
+      routeWorktreeMessage(msg);
       break;
     case 'toast':
       toast(msg.text, msg.level);
@@ -379,7 +382,20 @@ function promptAtDesk(deskId: string) {
 function killWorker(id: string) {
   const w = store.workers.get(id);
   if (!w) return;
-  confirmDialog(`Send ${w.name} home?`, `This stops the Claude Code session at ${DESK_BY_ID.get(w.deskId)?.label ?? 'the desk'} for everyone and frees the desk.`, 'Send home', () =>
+  const where = DESK_BY_ID.get(w.deskId)?.label ?? 'the desk';
+  if (w.worktree) {
+    // A worker with its own worktree: choose what becomes of the worktree and its branch.
+    sendHomeDialog({
+      workerId: id,
+      name: w.name,
+      where,
+      worktree: w.worktree,
+      ask: () => net.send({ t: 'worker.worktree', workerId: id }),
+      onConfirm: (cleanup) => net.send({ t: 'worker.kill', workerId: id, cleanup }),
+    });
+    return;
+  }
+  confirmDialog(`Send ${w.name} home?`, `This stops the Claude Code session at ${where} for everyone and frees the desk.`, 'Send home', () =>
     net.send({ t: 'worker.kill', workerId: id }),
   );
 }

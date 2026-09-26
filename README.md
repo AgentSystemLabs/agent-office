@@ -14,7 +14,7 @@ agent-office
 - **Walk around.** Use WASD, Space to jump, and drag the mouse to orbit the camera. Everyone in the office sees everyone else move in real time.
 - **Hire workers.** Walk up to an empty desk and press **E** to seat a fresh Claude Code session, or press **P** to write a task first. A little worker sits down, a laptop opens, and Claude's live screen appears on it.
 - **Shared shells.** Press **B** at an empty desk to open a plain login shell for dev servers, git or tests. It's shared the same way as a Claude terminal.
-- **Isolated branches.** When you hire with a task, you can tick *own git worktree*. The worker then gets its own `office/<name>` branch under `.agent-office/worktrees/`, so parallel workers never share a checkout.
+- **Isolated branches.** When you hire with a task, you can tick *own git worktree*. The worker then gets its own `office/<name>` branch under `.agent-office/worktrees/`, so parallel workers never share a checkout. When you send that worker home you choose whether to keep the worktree and branch, delete the worktree, or delete both, and the office warns you first about uncommitted changes or commits no remote has. `agent-office prune` clears out whatever was kept, once it is safe.
 - **Shared terminals.** Press **E** at an occupied desk to open the real terminal (a PTY, over WebSockets). Several people can type into the same session at once, and anyone who joins late gets the full scrollback.
 - **Live status.** Claude Code hooks drive each worker's status: *working*, *needs input* or *done*. When a worker needs a human or has finished, it jumps up and down and you hear a ding. Its antenna bulb shows the status from across the room.
 - **Survives restarts.** Workers are saved to disk. After a server restart they come back asleep, and **R** resumes the exact Claude session.
@@ -65,6 +65,12 @@ agent-office [dir] [options]
       --self-signed       Serve HTTPS with a generated self-signed cert
       --trust-proxy       Trust X-Forwarded-* (behind Caddy/nginx)
       --turn <url>        Add a TURN server for voice, e.g. turn:user:pass@host:3478
+
+agent-office prune [dir] [-n|--dry-run] [-f|--force]
+
+  Removes leftover worker worktrees under .agent-office/worktrees/ and their
+  office/* branches. Anything with uncommitted changes or unpushed commits is
+  kept unless --force is given.
 ```
 
 ## Controls
@@ -78,7 +84,7 @@ agent-office [dir] [options]
 | P | Prompt: give a task to a new worker, or to the one at this desk |
 | B | Open a shared shell at an empty desk |
 | R | Resume a sleeping worker (or restart a shell) |
-| X | Send a worker home (frees the desk) |
+| X | Send a worker home (frees the desk; a worker with its own worktree asks what to do with it) |
 | T / Enter | Chat |
 | V / M | Join voice / mute |
 | Ctrl + ] | Leave a terminal (Esc goes to Claude) |
@@ -199,7 +205,7 @@ browser ──HTTPS/WSS──▶ agent-office (Node)
 
 - **Status.** Each worker starts as `claude --settings .agent-office/claude-hooks.json`. That file adds hooks (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PermissionRequest`, `Notification`, `Stop`, `SessionStart`) which `curl` a server bound to `127.0.0.1`. The hooks merge with your own Claude settings; they don't replace them. OSC 9;4 progress sequences in the terminal also count, which catches an Esc-cancel.
 - **Shared shells.** Press **B** at an empty desk to open a plain login shell for dev servers, git or tests. It's shared the same way as a Claude terminal.
-- **Isolated branches.** When you hire with a task, you can tick *own git worktree*. The worker then gets its own `office/<name>` branch under `.agent-office/worktrees/`, so parallel workers never share a checkout.
+- **Isolated branches.** When you hire with a task, you can tick *own git worktree*. The worker then gets its own `office/<name>` branch under `.agent-office/worktrees/`, so parallel workers never share a checkout. When you send that worker home you choose whether to keep the worktree and branch, delete the worktree, or delete both, and the office warns you first about uncommitted changes or commits no remote has. `agent-office prune` clears out whatever was kept, once it is safe.
 - **Shared terminals.** The server keeps one PTY per worker and mirrors it in a headless xterm. People who open the terminal get a serialized snapshot, then the live stream. Laptops get compact per-row diffs a few times a second. The PTY takes the size of whoever is typing.
 - **State.** `.agent-office/` in the project holds the password, the signing secret, the hook settings and the saved workers. It is added to `.git/info/exclude` automatically, so it never shows up in `git status`.
 

@@ -162,6 +162,15 @@ button { font-family: inherit; }
 .modal.viewer { width: min(1400px, 100%); background: #111; }
 .modal.viewer video { width: 100%; max-height: calc(100vh - 120px); background: #111; display: block; }
 
+/* Send-home dialog: what becomes of a worker's worktree */
+.choices { display: flex; flex-direction: column; gap: 8px; }
+.modal label.choice { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 10px 12px; border: 3px solid var(--ink); border-radius: 12px; background: #fff; cursor: pointer; }
+.modal label.choice:has(input:checked) { border-color: var(--accent); background: var(--paper-2); }
+.choice input { margin: 3px 0 0; accent-color: var(--accent); flex: none; }
+.choice small { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+.wt-status { margin: 12px 0 0; font-size: 13px; font-weight: 700; color: var(--muted); line-height: 1.45; }
+.wt-status.warn { color: var(--ink); background: #fff3c4; border: 2px solid var(--ink); border-radius: 10px; padding: 8px 10px; }
+
 @media (max-width: 800px) {
   .side { display: none; }
   .controls .btn span { display: none; }
