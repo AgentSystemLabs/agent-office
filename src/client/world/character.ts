@@ -12,6 +12,9 @@ function hash(s: string): number {
 
 export type Pose = 'stand' | 'walk' | 'sit' | 'type';
 
+/** Voice loudness (RMS) above which someone counts as speaking. */
+const SPEAKING = 0.04;
+
 /** A chibi cartoon person — used for every human in the office. Forward is +z. */
 export class Person {
   readonly root = new THREE.Group();
@@ -24,6 +27,14 @@ export class Person {
   private label: THREE.Sprite | null = null;
   private speaking = false;
   private mic: THREE.Mesh;
+  private head: THREE.Group;
+  private smile: THREE.Mesh;
+  private mouth: THREE.Mesh;
+  private voiceLevel = 0;
+  /** 0 = lips together, 1 = wide open. Follows the voice's loudness. */
+  private mouthOpen = 0;
+  /** Keep the talking mouth up through the short gaps between words. */
+  private talkUntil = 0;
   private walkPhase = 0;
   pose: Pose = 'stand';
 
@@ -43,7 +54,7 @@ export class Person {
     // Torso
     this.body.add(mesh(new THREE.CapsuleGeometry(0.26, 0.28, 6, 12), this.shirt, 0, 0.72, 0));
     // Head
-    const head = new THREE.Group();
+    const head = (this.head = new THREE.Group());
     head.position.y = 1.32;
     head.add(mesh(new THREE.SphereGeometry(0.34, 20, 16), skin));
     const cap = mesh(new THREE.SphereGeometry(0.355, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.45), hair, 0, 0.02, -0.02);
@@ -53,9 +64,16 @@ export class Person {
       head.add(mesh(new THREE.SphereGeometry(0.055, 10, 8), ink, sx * 0.12, 0.02, 0.3, false));
       head.add(mesh(new THREE.SphereGeometry(0.05, 10, 8), toon('#ff9f9f'), sx * 0.2, -0.08, 0.27, false));
     }
-    const smile = mesh(new THREE.TorusGeometry(0.06, 0.015, 6, 12, Math.PI), ink, 0, -0.08, 0.32, false);
+    const smile = (this.smile = mesh(new THREE.TorusGeometry(0.06, 0.015, 6, 12, Math.PI), ink, 0, -0.08, 0.32, false));
     smile.rotation.z = Math.PI;
     head.add(smile);
+    // Talking mouth: a flattened ball pressed into the face, scaled open and shut with the voice.
+    this.mouth = mesh(new THREE.SphereGeometry(1, 16, 12), toon('#7a2635'), 0, -0.1, 0.295, false);
+    const tongue = mesh(new THREE.SphereGeometry(1, 12, 10), toon('#ff8fa3'), 0, -0.5, 0, false);
+    tongue.scale.set(0.6, 0.45, 1.15);
+    this.mouth.add(tongue);
+    this.mouth.visible = false;
+    head.add(this.mouth);
     this.body.add(head);
 
     const limb = (len: number, r: number, mat: THREE.Material, x: number, y: number) => {
@@ -94,9 +112,11 @@ export class Person {
     this.root.add(this.label);
   }
 
-  setSpeaking(on: boolean) {
-    this.speaking = on;
-    this.mic.visible = on;
+  /** How loud this person is talking right now (0 when silent); drives the mic badge and the mouth. */
+  setVoiceLevel(level: number) {
+    this.voiceLevel = level;
+    this.speaking = level > SPEAKING;
+    this.mic.visible = this.speaking;
   }
 
   showLabel(v: boolean) {
@@ -123,6 +143,16 @@ export class Person {
     }
     this.body.position.y = moving && !airborne ? Math.abs(Math.sin(this.walkPhase)) * 0.06 : 0;
     if (this.speaking) this.mic.scale.setScalar(1 + Math.sin(t * 14) * 0.2);
+
+    // Lip flap: pop open fast on each syllable, close a little slower.
+    const want = THREE.MathUtils.clamp((this.voiceLevel - 0.02) / 0.12, 0, 1);
+    this.mouthOpen += (want - this.mouthOpen) * Math.min(1, dt * (want > this.mouthOpen ? 35 : 15));
+    if (this.voiceLevel > SPEAKING * 0.75) this.talkUntil = t + 0.4;
+    const talking = t < this.talkUntil;
+    this.smile.visible = !talking;
+    this.mouth.visible = talking;
+    if (talking) this.mouth.scale.set(0.07 * (1 - this.mouthOpen * 0.2), 0.01 + this.mouthOpen * 0.045, 0.05);
+    this.head.rotation.x = -this.mouthOpen * 0.08;
   }
 }
 

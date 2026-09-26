@@ -748,7 +748,7 @@ function frame(ts?: number) {
   me.root.position.copy(player.pos);
   me.root.rotation.y = player.facing;
   me.update(dt, t, player.moving && player.grounded, !player.grounded);
-  me.setSpeaking(voice.inVoice && voice.localLevel > 0.04);
+  me.setVoiceLevel(voice.inVoice ? voice.localLevel : 0);
   // Hide yourself when the camera is zoomed in right behind your head.
   me.root.visible = camera.position.distanceTo(new THREE.Vector3(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5;
 
@@ -769,7 +769,7 @@ function frame(ts?: number) {
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     r.person.root.rotation.y += diff * Math.min(1, dt * 12);
     r.person.update(dt, t, p.moving && p.y < 0.05 + 0.8, p.y > 0.05 && Math.abs(pos.y - r.target.y) > 0.01);
-    r.person.setSpeaking(p.voice && !p.muted && voice.levelOf(id) > 0.04);
+    r.person.setVoiceLevel(p.voice && !p.muted ? voice.levelOf(id) : 0);
     if (r.bubble && now > r.bubble.until) {
       r.person.root.remove(r.bubble.sprite);
       disposeSprite(r.bubble.sprite);
