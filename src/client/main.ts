@@ -508,11 +508,7 @@ function interact(target: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B')
   if (target.kind === 'issues' || target.kind === 'pulls') openBoard(target.kind, net, boardActions());
   else if (target.kind === 'services') openServices();
   else if (target.kind === 'tv') watchShare();
-  else if (target.kind === 'coffee') {
-    toast('☕ Mmm, fresh coffee. +10 focus');
-    player.vy = 7;
-    player.grounded = false;
-  }
+  else if (target.kind === 'coffee') toast('☕ Mmm, fresh coffee. +10 focus');
 }
 
 // ---- Interaction targeting & hint -----------------------------------------------------------------
