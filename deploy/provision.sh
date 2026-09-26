@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs ON the EC2 instance (piped over ssh by deploy/aws.sh). Idempotent: safe to re-run.
 # Expects these to be exported by the caller: APP_REPO APP_REF PROJECT_REPO PROJECT_NAME
-# CLAIM_TOKEN GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY GIT_NAME GIT_EMAIL
+# CLAIM_TOKEN PUBLIC_HOST GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY GIT_NAME GIT_EMAIL
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 APT=(sudo -E apt-get -y -q -o DPkg::Lock::Timeout=600)
@@ -44,6 +44,8 @@ sudo install -d -m 755 /etc/agent-office
 env_file=$(mktemp)
 {
   printf 'AGENT_OFFICE_CLAIM_TOKEN="%s"\n' "$CLAIM_TOKEN"
+  # The address teammates SSH to, so the office can show them the tunnel command.
+  [[ -n "${PUBLIC_HOST:-}" ]] && printf 'AGENT_OFFICE_PUBLIC_HOST="%s"\n' "$PUBLIC_HOST"
   [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]] && printf 'CLAUDE_CODE_OAUTH_TOKEN="%s"\n' "$CLAUDE_CODE_OAUTH_TOKEN"
   [[ -n "${ANTHROPIC_API_KEY:-}" ]] && printf 'ANTHROPIC_API_KEY="%s"\n' "$ANTHROPIC_API_KEY"
   true
@@ -124,6 +126,54 @@ exec cat >/dev/null
 SH
 sudo install -m 755 "$tunnel_sh" /usr/local/bin/agent-office-tunnel
 rm -f "$tunnel_sh"
+# Adds and removes teammates' keys. deploy/aws.sh (invite/uninvite/team) and the office's own
+# invite panel both go through it, and it's the only root thing the office user may run.
+team_sh=$(mktemp)
+cat >"$team_sh" <<'SH'
+#!/bin/bash
+# agent-office-team list | add <name> (public keys on stdin) | remove <name> | fingerprint
+set -euo pipefail
+[[ $EUID -eq 0 ]] || exec sudo -n "$0" "$@"
+KEYS=/home/office/.ssh/authorized_keys
+PORT=4600
+cmd="${1:-}" who="${2:-}"
+valid() { [[ "$who" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$ ]] || { echo "not a valid name: $who" >&2; exit 64; }; }
+write() { install -m 644 -o root -g root "$1" "$KEYS"; rm -f "$1"; }
+exec 9>/run/agent-office-team.lock
+flock 9
+case "$cmd" in
+  list) awk '{print $NF}' "$KEYS" | sed -n 's/^agent-office://p' | sort | uniq -c | awk '{print $2, $1}' ;;
+  add)
+    valid
+    # Each key may only open a tunnel to the office port: no shell, no other forwarding.
+    keys=$(awk -v who="$who" -v port="$PORT" '
+      $1 ~ /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)$/ &&
+      $2 ~ /^[A-Za-z0-9+\/]+=*$/ {
+        printf "restrict,pty,port-forwarding,permitopen=\"localhost:%s\",permitopen=\"127.0.0.1:%s\",command=\"/usr/local/bin/agent-office-tunnel\" %s %s agent-office:%s\n", port, port, $1, $2, who
+      }')
+    [[ -n "$keys" ]] || { echo "no SSH public keys given" >&2; exit 65; }
+    tmp=$(mktemp)
+    { awk -v tag="agent-office:$who" '$NF != tag' "$KEYS"; printf '%s\n' "$keys"; } >"$tmp"
+    write "$tmp"
+    printf '%s\n' "$keys" | wc -l ;;
+  remove)
+    valid
+    tmp=$(mktemp)
+    awk -v tag="agent-office:$who" '$NF != tag' "$KEYS" >"$tmp"
+    if cmp -s "$tmp" "$KEYS"; then rm -f "$tmp"; echo "$who isn't invited" >&2; exit 66; fi
+    write "$tmp"
+    pkill -u office || true ;;
+  fingerprint) ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub | awk '{print $2}' ;;
+  *) echo "usage: agent-office-team list | add <name> | remove <name> | fingerprint" >&2; exit 64 ;;
+esac
+SH
+sudo install -m 755 -o root -g root "$team_sh" /usr/local/bin/agent-office-team
+rm -f "$team_sh"
+sudoers=$(mktemp)
+echo "$USER ALL=(root) NOPASSWD: /usr/local/bin/agent-office-team" >"$sudoers"
+sudo visudo -cqf "$sudoers"
+sudo install -m 440 -o root -g root "$sudoers" /etc/sudoers.d/agent-office
+rm -f "$sudoers"
 # The same limits server-side, so they hold even for a key added by hand: local forwards to the
 # office port and nothing else (no shell, no -R listeners, no agent or X11 forwarding).
 sshd_conf=$(mktemp)

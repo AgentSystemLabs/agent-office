@@ -16,6 +16,7 @@ import { $, h, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from '
 import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
 import { openPrompt, confirmDialog } from './ui/prompt';
 import { openBoard } from './ui/boards';
+import { openTeam, routeTeamMessage } from './ui/team';
 import { openHelp, openProfile, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
@@ -141,6 +142,7 @@ net.onMessage((msg) => {
   if (msg.t === 'welcome') voice.reset();
   store.apply(msg);
   routeTerminalMessage(msg);
+  routeTeamMessage(msg);
   switch (msg.t) {
     case 'welcome': {
       const mine = store.peers.get(store.you);
@@ -153,6 +155,7 @@ net.onMessage((msg) => {
       const openId = openTerminalFor();
       if (openId && store.workers.has(openId)) net.send({ t: 'worker.attach', workerId: openId });
       renderProject();
+      $('btn-team').classList.toggle('hidden', !store.invites);
       voice.syncPeers();
       break;
     }
@@ -684,6 +687,7 @@ $('btn-mute').addEventListener('click', () => voice.toggleMute());
 $('btn-share').addEventListener('click', () => void toggleShare());
 $('btn-issues').addEventListener('click', () => openBoard('issues', net, boardActions()));
 $('btn-pulls').addEventListener('click', () => openBoard('pulls', net, boardActions()));
+$('btn-team').addEventListener('click', () => openTeam(net));
 $('btn-help').addEventListener('click', () => openHelp());
 
 function editProfile() {

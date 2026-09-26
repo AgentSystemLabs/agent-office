@@ -107,6 +107,26 @@ export interface ProjectInfo {
   agentCmd: string;
 }
 
+export interface TeamMember {
+  /** GitHub username (or the name deploy/aws.sh invited a key file under). */
+  name: string;
+  keys: number;
+}
+
+/** Who may SSH-tunnel into the office. Only offices deployed with deploy/aws.sh manage this. */
+export interface TeamState {
+  /** Why invites can't be managed from the office, when they can't. */
+  unavailable?: string;
+  error?: string;
+  /** user@host teammates tunnel to, e.g. office@203.0.113.7 */
+  ssh?: string;
+  /** The office's port on the box (tunnel destination). */
+  port: number;
+  /** SHA256 fingerprint of the box's ED25519 host key, to check on first connect. */
+  fingerprint?: string;
+  members: TeamMember[];
+}
+
 export interface ChatLine {
   from: string;
   name: string;
@@ -130,6 +150,9 @@ export type ClientMsg =
   | { t: 'voice'; voice: boolean; muted: boolean; sharing: boolean }
   | { t: 'rtc'; to: string; data: unknown }
   | { t: 'chat'; text: string }
+  | { t: 'team.get' }
+  | { t: 'team.invite'; github: string }
+  | { t: 'team.remove'; name: string }
   | { t: 'ping'; at: number };
 
 export type ServerMsg =
@@ -143,6 +166,8 @@ export type ServerMsg =
       pulls: GhState<GhPull>;
       ice: { urls: string | string[]; username?: string; credential?: string }[];
       chat: ChatLine[];
+      /** Whether teammates can be invited from the office (see TeamState). */
+      invites: boolean;
     }
   | { t: 'peer.join'; peer: PeerInfo }
   | { t: 'peer.update'; peer: PeerInfo }
@@ -158,4 +183,7 @@ export type ServerMsg =
   | { t: 'rtc'; from: string; data: unknown }
   | ({ t: 'chat' } & ChatLine)
   | { t: 'toast'; text: string; level: 'info' | 'warn' | 'error' }
+  | { t: 'team'; state: TeamState }
+  /** Sent to whoever asked for the invite. */
+  | { t: 'team.invited'; github: string; name?: string; keys?: number; error?: string }
   | { t: 'pong'; at: number };

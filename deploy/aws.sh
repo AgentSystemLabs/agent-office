@@ -339,7 +339,12 @@ open_office() {
 
 valid_member() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$ ]] || die "names are letters, numbers, dots, dashes and underscores: $1"; }
 
-team_members() { remote "sudo awk '{print \$NF}' /home/$TEAM_USER/.ssh/authorized_keys" | sed -n 's/^agent-office://p' | sort | uniq -c; }
+# Teammates' keys are managed on the box by agent-office-team (installed by provision.sh).
+require_team() {
+  remote "test -x /usr/local/bin/agent-office-team" 2>/dev/null || die "this office predates team access — run: deploy/aws.sh up$NAME_FLAG"
+}
+
+team_members() { remote "agent-office-team list"; } # "<name> <number of keys>" per line
 
 # --- commands --------------------------------------------------------------------------------------
 
@@ -481,7 +486,7 @@ cmd_up() {
   git_email=$(git config user.email 2>/dev/null || true)
   {
     printf 'export APP_REPO=%q APP_REF=%q PROJECT_REPO=%q PROJECT_NAME=%q\n' "$APP_REPO" "$APP_REF" "$project_repo" "$project_name"
-    printf 'export CLAIM_TOKEN=%q GH_TOKEN=%q CLAUDE_CODE_OAUTH_TOKEN=%q ANTHROPIC_API_KEY=%q\n' "$(cat "$CLAIM_FILE")" "$gh_token" "$CLAUDE_TOKEN" "$ANTHROPIC_KEY"
+    printf 'export CLAIM_TOKEN=%q PUBLIC_HOST=%q GH_TOKEN=%q CLAUDE_CODE_OAUTH_TOKEN=%q ANTHROPIC_API_KEY=%q\n' "$(cat "$CLAIM_FILE")" "$IP" "$gh_token" "$CLAUDE_TOKEN" "$ANTHROPIC_KEY"
     printf 'export GIT_NAME=%q GIT_EMAIL=%q\n' "$git_name" "$git_email"
     cat "$SCRIPT_DIR/provision.sh"
   } | remote 'bash -s' || die "provisioning failed (re-run \"deploy/aws.sh up\" to retry; it picks up where it left off)"
@@ -491,7 +496,7 @@ cmd_up() {
   ok "Your office is running on $IP (reachable only through SSH)"
   echo
   echo "   Open it later:     deploy/aws.sh open$NAME_FLAG"
-  echo "   Add a teammate:    deploy/aws.sh invite <their-github-username>$NAME_FLAG"
+  echo "   Add a teammate:    the 👥 Invite button in the office, or deploy/aws.sh invite <their-github-username>$NAME_FLAG"
   echo "   Tear it down:      deploy/aws.sh down$NAME_FLAG"
   echo
   [[ $NO_OPEN -eq 1 ]] && return
@@ -521,7 +526,7 @@ cmd_status() {
   if [[ -n "$IP" && -f "$KEY_FILE" ]] && office_get /api/health >/dev/null 2>&1; then
     echo "office:    up"
     local team
-    team=$(team_members 2>/dev/null | awk '{printf "%s%s", sep, $2; sep=", "}')
+    team=$(team_members 2>/dev/null | awk '{printf "%s%s", sep, $1; sep=", "}')
     echo "team:      ${team:-nobody invited yet}"
   else
     echo "office:    not answering"
@@ -569,20 +574,13 @@ cmd_invite() {
     src="github.com/$who.keys"
     raw=$(curl -fsS --max-time 10 "https://github.com/$who.keys") || die "couldn't fetch https://$src"
   fi
-  # Each key may only open a tunnel to the office port: no shell, no other forwarding.
-  keys=$(printf '%s\n' "$raw" | awk -v who="$who" -v port="$OFFICE_PORT" '
-    $1 ~ /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)$/ &&
-    $2 ~ /^[A-Za-z0-9+\/]+=*$/ {
-      printf "restrict,pty,port-forwarding,permitopen=\"localhost:%s\",permitopen=\"127.0.0.1:%s\",command=\"/usr/local/bin/agent-office-tunnel\" %s %s agent-office:%s\n", port, port, $1, $2, who
-    }')
-  [[ -n "$keys" ]] || die "no SSH public keys found in $src"
+  [[ -n "$raw" ]] || die "no SSH public keys found in $src"
   require_instance
-  remote "id $TEAM_USER" >/dev/null 2>&1 || die "this office predates team access — run: deploy/aws.sh up$NAME_FLAG"
-  printf '%s\n' "$keys" | remote "set -e
-    f=/home/$TEAM_USER/.ssh/authorized_keys; tmp=\$(mktemp)
-    { sudo awk '\$NF != \"agent-office:$who\"' \$f; cat; } >\$tmp
-    sudo install -m 644 -o root -g root \$tmp \$f; rm -f \$tmp" || die "couldn't add the keys"
-  ok "$who is invited ($(printf '%s\n' "$keys" | wc -l | tr -d ' ') key(s) from $src)"
+  require_team
+  local n
+  # The box keeps only valid keys and restricts each one to opening the tunnel.
+  n=$(printf '%s\n' "$raw" | remote "agent-office-team add $who") || die "couldn't add $who's keys from $src"
+  ok "$who is invited ($n key(s) from $src)"
 
   local sg a fp
   sg=$(find_sg)
@@ -610,16 +608,13 @@ cmd_invite() {
 cmd_uninvite() {
   preflight
   [[ ${#POSITIONAL[@]} -eq 1 ]] || die "usage: deploy/aws.sh uninvite <name>"
-  local who="${POSITIONAL[0]}" out
+  local who="${POSITIONAL[0]}" out rc=0
   valid_member "$who"
   require_instance
-  out=$(remote "set -e
-    f=/home/$TEAM_USER/.ssh/authorized_keys; tmp=\$(mktemp)
-    sudo awk '\$NF != \"agent-office:$who\"' \$f >\$tmp
-    if sudo cmp -s \$tmp \$f; then rm -f \$tmp; echo none; exit 0; fi
-    sudo install -m 644 -o root -g root \$tmp \$f; rm -f \$tmp
-    sudo pkill -u $TEAM_USER || true") || die "couldn't remove the keys"
-  [[ "$out" == none ]] && die "$who isn't invited (see: deploy/aws.sh team$NAME_FLAG)"
+  require_team
+  out=$(remote "agent-office-team remove $who" 2>&1) || rc=$?
+  [[ $rc -eq 66 ]] && die "$who isn't invited (see: deploy/aws.sh team$NAME_FLAG)"
+  [[ $rc -eq 0 ]] || die "couldn't remove the keys: $out"
   ok "$who's keys are removed and open tunnels were dropped (other teammates just reconnect)"
   echo "   They still know the office password. To change it: deploy/aws.sh reset-password$NAME_FLAG"
 }
@@ -627,13 +622,14 @@ cmd_uninvite() {
 cmd_team() {
   preflight
   require_instance
+  require_team
   local list
   list=$(team_members)
   if [[ -z "$list" ]]; then
     echo "Nobody is invited yet. Add someone: deploy/aws.sh invite <github-username>$NAME_FLAG"
     return
   fi
-  echo "$list" | awk '{printf "%s  (%d key%s)\n", $2, $1, ($1 == 1 ? "" : "s")}'
+  echo "$list" | awk '{printf "%s  (%d key%s)\n", $1, $2, ($2 == 1 ? "" : "s")}'
 }
 
 cmd_ssh() {

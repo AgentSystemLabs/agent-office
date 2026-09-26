@@ -105,20 +105,20 @@ What `up` does, in about 2 minutes:
 
 Everything goes through SSH, so there are no certificate warnings, and `localhost` counts as a secure origin: voice and screen sharing just work. Keep the terminal open while you use the office; Ctrl-C closes the tunnel. Next time, run `deploy/aws.sh open`. If port 4600 is taken on your machine, it picks the next free one.
 
-**Inviting your team.** Teammates don't need AWS access or this repo, just `ssh`:
+**Inviting your team.** Teammates don't need AWS access or this repo, just `ssh`. In the office, click **👥 Invite** and type their GitHub username. That installs the SSH keys from `github.com/<username>.keys`. The panel then gives you one command to send them, for macOS, Linux or Windows. It opens the tunnel and, once it's up, the office in their browser:
+
+```
+ssh -o ExitOnForwardFailure=yes -o PermitLocalCommand=yes -o LocalCommand="open http://localhost:4600" -L 4600:localhost:4600 office@<your-office-ip>
+```
+
+**Copy invite message** copies the command, plus the server fingerprint to check on first connect. The panel also lists who's invited and can remove them. The same works from your terminal:
 
 ```bash
 deploy/aws.sh invite octocat        # uses the SSH keys on github.com/octocat
 deploy/aws.sh allow 203.0.113.7     # their IP (SSH answers only allowed IPs)
 ```
 
-`invite` prints what to send them:
-
-```
-ssh -L 4600:localhost:4600 office@<your-office-ip>
-```
-
-They leave that running, open http://localhost:4600 and sign in with the office password. Their keys log in as a separate `office` user that can **only** forward to the office port. It has no shell, no other ports, no `-R`, and no agent forwarding. So a leaked teammate key still doesn't get past the office password.
+They leave that command running and sign in with the office password. Their keys log in as a separate `office` user that can **only** forward to the office port. It has no shell, no other ports, no `-R`, and no agent forwarding. So a leaked teammate key still doesn't get past the office password.
 
 If chasing teammates' IPs gets old, `deploy/aws.sh allow anywhere` opens SSH to every IP. That's a reasonable trade: SSH only accepts your key and invited keys, and the office stays behind the tunnel.
 
@@ -137,7 +137,7 @@ deploy/aws.sh ssh | logs           # get on the box / follow the office logs
 deploy/aws.sh down                 # delete the instance, disk, IP, security group and key pair
 ```
 
-An office created before the SSH tunnel served HTTPS on port 443 with a self-signed certificate. Run `deploy/aws.sh up` once to move it over: 443 closes and the office moves behind the tunnel.
+An office created before the SSH tunnel served HTTPS on port 443 with a self-signed certificate. Run `deploy/aws.sh up` once to move it over: 443 closes and the office moves behind the tunnel. Offices created before the **👥 Invite** button also need one `deploy/aws.sh up` before it shows up. `update` alone isn't enough, because `up` installs the helper that manages teammates' keys.
 
 Useful options for `up`:
 

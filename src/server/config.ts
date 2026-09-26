@@ -25,6 +25,8 @@ export interface Config {
   tls?: { cert: string; key: string };
   trustProxy: boolean;
   iceServers: RTCIceServerLike[];
+  /** Address teammates SSH-tunnel to (set by deploy/aws.sh); enables invites from the office. */
+  publicHost?: string;
 }
 
 export interface RTCIceServerLike {
@@ -265,6 +267,7 @@ export function loadConfig(argv: string[]): Config {
     tls,
     trustProxy,
     iceServers,
+    publicHost: process.env.AGENT_OFFICE_PUBLIC_HOST || undefined,
   };
 }
 

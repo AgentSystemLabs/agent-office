@@ -10,6 +10,7 @@ import type { Config } from './config.js';
 import { Auth } from './auth.js';
 import { WorkerManager } from './workers.js';
 import { GitHub } from './github.js';
+import { Team } from './team.js';
 import type { ChatLine, ClientMsg, PeerInfo, ProjectInfo, ServerMsg } from '../shared/protocol.js';
 import { SPAWN } from '../shared/layout.js';
 
@@ -179,6 +180,8 @@ export async function startServer(cfg: Config) {
   );
   github.start();
 
+  const team = new Team(cfg.publicHost, cfg.port);
+
   // --- HTTP ------------------------------------------------------------------------------------
   const serveFile = (res: http.ServerResponse, file: string, cache: boolean) => {
     const ext = path.extname(file);
@@ -332,6 +335,7 @@ export async function startServer(cfg: Config) {
       pulls: github.pulls,
       ice: cfg.iceServers,
       chat: chat.slice(-50),
+      invites: team.available,
     });
     for (const { workerId, frame } of workers.fullScreens()) sendTo(client, { t: 'screen', workerId, ...frame, full: true });
     broadcast({ t: 'peer.join', peer: client.peer }, id);
@@ -443,6 +447,28 @@ export async function startServer(cfg: Config) {
       case 'gh.refresh':
         void github.refresh();
         break;
+      case 'team.get':
+        void team.state().then((state) => sendTo(c, { t: 'team', state }));
+        break;
+      case 'team.invite': {
+        const github = str(msg.github, 64);
+        void team.invite(github).then(async (r) => {
+          sendTo(c, { t: 'team.invited', github, ...r });
+          if ('error' in r) return;
+          broadcast({ t: 'toast', text: `${who} invited ${r.name} to the office`, level: 'info' });
+          broadcast({ t: 'team', state: await team.state() });
+        });
+        break;
+      }
+      case 'team.remove': {
+        const name = str(msg.name, 64);
+        void team.remove(name).then(async (err) => {
+          if (err) return sendTo(c, { t: 'toast', text: err, level: 'warn' });
+          broadcast({ t: 'toast', text: `${who} removed ${name}'s access`, level: 'info' });
+          broadcast({ t: 'team', state: await team.state() });
+        });
+        break;
+      }
       case 'ping':
         sendTo(c, { t: 'pong', at: num(msg.at) });
         break;

@@ -1,7 +1,7 @@
-import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, ServerMsg, WorkerInfo } from '../shared/protocol';
+import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, ServerMsg, TeamState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 
-type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens';
+type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team';
 
 export interface Profile {
   name: string;
@@ -40,6 +40,9 @@ class Store {
   pulls: GhState<GhPull> = { items: [], fetchedAt: 0, loading: true };
   ice: RTCIceServer[] = [];
   chat: ChatLine[] = [];
+  /** Whether this office can invite teammates (deployed with deploy/aws.sh). */
+  invites = false;
+  team: TeamState | null = null;
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -70,6 +73,7 @@ class Store {
         this.pulls = msg.pulls;
         this.ice = msg.ice as RTCIceServer[];
         this.chat = msg.chat;
+        this.invites = msg.invites;
         for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project'] as Topic[]) this.emit(t);
         break;
       case 'peer.join':
@@ -114,6 +118,10 @@ class Store {
       case 'gh.pulls':
         this.pulls = msg.state;
         this.emit('pulls');
+        break;
+      case 'team':
+        this.team = msg.state;
+        this.emit('team');
         break;
       case 'chat':
         this.chat.push(msg);
