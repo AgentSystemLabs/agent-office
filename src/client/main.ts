@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
 import { DESK_BY_ID, DESKS, SPAWN, deskSeat } from '../shared/layout';
-import type { PeerInfo, WorkerInfo } from '../shared/protocol';
+import type { AgentProvider, PeerInfo, WorkerInfo } from '../shared/protocol';
 import { Net } from './net';
 import { store, loadProfile, loadSettings, saveSettings, type Profile } from './state';
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
@@ -32,6 +32,7 @@ import { openHelp, renderChat, renderPeople, renderWorkers, updateSpeaking } fro
 import { openCharacter } from './ui/character';
 import { openSettings } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
+import { providerLabel, providerUsageTracked } from './ui/provider';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -281,7 +282,7 @@ function renderProject() {
   const p = store.project;
   if (!p) return;
   $('project-name').textContent = `🏢 ${p.name}`;
-  $('project-meta').textContent = [p.branch && `⎇ ${p.branch}`, p.dir, `runs: ${p.agentCmd}`].filter(Boolean).join(' · ');
+  $('project-meta').textContent = [p.branch && `⎇ ${p.branch}`, p.dir, `default: ${providerLabel(p.defaultProvider, p)}`].filter(Boolean).join(' · ');
   document.title = `${p.name} · Agent Office`;
   office.setProjectName(p.name);
 }
@@ -380,7 +381,7 @@ function syncWorkers() {
       v.model.setStatus(w.status, shouldBounce(w));
       noOutline(v.model.root);
     }
-    v.model.setTask(w.task);
+    v.model.setTask(w.task && w.kind === 'agent' ? { ...w.task, name: `${providerLabel(w.provider, store.project)} · ${w.task.name}` } : w.task);
     const deskDef = DESK_BY_ID.get(w.deskId);
     if (deskDef) sound.setTyping(w.id, deskDef.x, deskDef.z, w.status === 'working');
     const again = w.kind === 'shell' ? 'restart' : 'resume';
@@ -419,8 +420,8 @@ function freeDesk(): string | null {
   return best;
 }
 
-function hire(deskId: string, prompt?: string, worktree = false) {
-  net.send({ t: 'worker.spawn', deskId, prompt, worktree });
+function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider) {
+  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider });
 }
 
 function openShell(deskId: string) {
@@ -433,10 +434,11 @@ function promptAtDesk(deskId: string) {
   if (!w) {
     openPrompt({
       title: `✨ New task at ${desk.label}`,
-      subtitle: 'A fresh Claude Code worker will sit down and start on this right away.',
+      subtitle: 'A fresh worker will sit down and start on this right away. Choose the worker engine below.',
       submitLabel: 'Hire & start',
+      providerOption: true,
       worktreeOption: !!store.project?.branch,
-      onSubmit: (text, o) => hire(deskId, text, o.worktree),
+      onSubmit: (text, o) => hire(deskId, text, o.worktree, o.provider),
     });
   } else if (w.status === 'exited' || w.status === 'offline') {
     toast(`${w.name} is asleep — press R to resume first`, 'warn');
@@ -456,10 +458,26 @@ function promptAtDesk(deskId: string) {
   }
 }
 
+/** Direct hire from an empty desk, with an optional first prompt and provider choice. */
+function hireAtDesk(deskId: string) {
+  const desk = DESK_BY_ID.get(deskId)!;
+  openPrompt({
+    title: `✨ Hire a worker at ${desk.label}`,
+    subtitle: 'Choose the worker engine. You can start with an empty prompt and send work later.',
+    placeholder: 'Optional first task…',
+    submitLabel: 'Hire & start',
+    allowEmpty: true,
+    providerOption: true,
+    worktreeOption: !!store.project?.branch,
+    onSubmit: (text, o) => hire(deskId, text || undefined, o.worktree, o.provider),
+  });
+}
+
 function killWorker(id: string) {
   const w = store.workers.get(id);
   if (!w) return;
   const where = DESK_BY_ID.get(w.deskId)?.label ?? 'the desk';
+  const session = w.kind === 'shell' ? 'shared shell' : `${providerLabel(w.provider, store.project)} session`;
   if (w.worktree) {
     // A worker with its own worktree: choose what becomes of the worktree and its branch.
     sendHomeDialog({
@@ -472,7 +490,7 @@ function killWorker(id: string) {
     });
     return;
   }
-  confirmDialog(`Send ${w.name} home?`, `This stops the Claude Code session at ${where} for everyone and frees the desk.`, 'Send home', () =>
+  confirmDialog(`Send ${w.name} home?`, `This stops the ${session} at ${where} for everyone and frees the desk.`, 'Send home', () =>
     net.send({ t: 'worker.kill', workerId: id }),
   );
 }
@@ -549,16 +567,17 @@ function sendToWorker(title: string, text: { context?: string; initial?: string 
     newDesk: desk ? DESK_BY_ID.get(desk)!.label : undefined,
     workers: awake.map((w) => ({ id: w.id, name: w.name, color: w.color, status: w.status })),
     worktreeOption: !!store.project?.branch,
-    onSubmit: (prompt, to, worktree) => {
+    providerOption: true,
+    onSubmit: (prompt, to, worktree, provider) => {
       if (to) net.send({ t: 'worker.prompt', workerId: to, prompt });
-      else if (desk) hire(desk, prompt, worktree);
+      else if (desk) hire(desk, prompt, worktree, provider);
     },
   });
 }
 
 function boardActions() {
   return {
-    queue: (prompt: string, title: string, issue: number) => net.send({ t: 'queue.add', prompt, title, issue }),
+    queue: (prompt: string, title: string, issue: number, provider?: AgentProvider) => net.send({ t: 'queue.add', prompt, title, issue, provider }),
     assign: (prompt: string, title: string) => sendToWorker(`🤖 ${title}`, { initial: prompt }),
     ask: (context: string, title: string) => sendToWorker(`✍️ ${title}`, { context }),
     goToDesk,
@@ -586,7 +605,7 @@ function interact(target: Interactable | null, key: DeskKey) {
     const w = store.workerAtDesk(target.deskId);
     if (key === 'B' && !w) return openShell(target.deskId);
     if (key === 'P') return promptAtDesk(target.deskId);
-    if (key === 'E') return w ? openWorkerTerminal(w.id) : hire(target.deskId);
+    if (key === 'E') return w ? openWorkerTerminal(w.id) : hireAtDesk(target.deskId);
     if (key === 'C' && w) return openWorkerChanges(w.id);
     if (key === 'R' && w && (w.status === 'exited' || w.status === 'offline')) return resumeWorker(w);
     if (key === 'X' && w) return killWorker(w.id);
@@ -655,7 +674,7 @@ function renderHint() {
       k += w.status + w.id + (w.pr?.number ?? '') + (w.prOpening ? '!' : '');
       const asleep = w.status === 'exited' || w.status === 'offline';
       const doing = w.activity ? (w.activity.length > 48 ? `${w.activity.slice(0, 47)}…` : w.activity) : '';
-      const spent = w.usage?.calls ? usageLabel(w.usage) : '';
+      const spent = w.kind === 'agent' && providerUsageTracked(w.provider, store.project, w.usage) && w.usage?.calls ? usageLabel(w.usage) : '';
       k += doing + spent;
       parts = [
         h('span.title', {}, `${w.name} · ${STATUS_LABEL[w.status]}`),

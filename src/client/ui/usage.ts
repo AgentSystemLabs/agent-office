@@ -1,6 +1,7 @@
 import type { Usage } from '../../shared/protocol';
 import { store } from '../state';
 import { $, h } from './dom';
+import { providerUsageTracked } from './provider';
 
 export const tokensOf = (u: Usage) => u.input + u.output + u.cacheWrite + u.cacheRead;
 
@@ -39,31 +40,38 @@ export const hiringPaused = () => store.usage.pauseHiring && overBudget();
 export function renderUsage() {
   const s = store.usage;
   let now = 0;
-  for (const w of store.workers.values()) now += w.usage?.cost ?? 0;
+  for (const w of store.workers.values()) if (w.kind === 'agent' && providerUsageTracked(w.provider, store.project, w.usage)) now += w.usage?.cost ?? 0;
+  const untracked = [...store.workers.values()].some((w) => w.kind === 'agent' && !providerUsageTracked(w.provider, store.project, w.usage));
   const head = $('workers-cost');
   head.textContent = now > 0 ? fmtCost(now) : '';
-  head.title = 'Spent by the workers at their desks';
+  head.title = 'Tracked Claude Code spend at occupied desks';
 
   const el = $('usage');
-  const any = s.total.calls > 0 || s.budget !== undefined;
+  const any = s.total.calls > 0 || s.budget !== undefined || untracked;
   el.classList.toggle('hidden', !any);
   if (!any) return;
   const over = overBudget();
   el.classList.toggle('over', over);
-  const rows: HTMLElement[] = [
-    h(
-      'div.row',
-      {},
-      h('span', {}, '💸 Today'),
-      h('b', { title: usageTitle(s.today) }, fmtCost(s.today.cost)),
-      s.budget !== undefined ? h('span.muted', {}, `of ${fmtCost(s.budget)}`) : h('span.muted', {}, `· ${fmtTokens(tokensOf(s.today))} tokens`),
-    ),
-  ];
+  const rows: HTMLElement[] = [];
+  if (s.total.calls > 0 || s.budget !== undefined) {
+    rows.push(
+      h(
+        'div.row',
+        {},
+        h('span', {}, '💸 Claude Code today'),
+        h('b', { title: usageTitle(s.today) }, fmtCost(s.today.cost)),
+        s.budget !== undefined ? h('span.muted', {}, `of ${fmtCost(s.budget)}`) : h('span.muted', {}, `· ${fmtTokens(tokensOf(s.today))} tokens`),
+      ),
+    );
+  }
   if (s.budget !== undefined) {
     const pct = Math.min(100, (s.today.cost / s.budget) * 100);
     const state = over ? (s.pauseHiring ? 'Budget spent — no new hires until tomorrow' : 'Budget spent') : `${Math.round(pct)}% of today's budget`;
     rows.push(h('div.budget', { class: over ? 'over' : pct >= 80 ? 'near' : '', title: state, role: 'progressbar', 'aria-valuenow': Math.round(pct) }, h('div.fill', { style: `width:${pct}%` })));
   }
-  rows.push(h('div.row.muted', { title: usageTitle(s.total) }, `All time ${fmtCost(s.total.cost)} · ${fmtTokens(tokensOf(s.total))} tokens`));
+  if (s.total.calls > 0 || s.budget !== undefined) rows.push(h('div.row.muted', { title: usageTitle(s.total) }, `Claude Code all time ${fmtCost(s.total.cost)} · ${fmtTokens(tokensOf(s.total))} tokens`));
+  if (untracked) {
+    rows.push(h('div.row.muted', { title: 'OpenCode and custom provider usage is not reported by the office.' }, 'OpenCode/custom usage untracked · budget and totals cover Claude Code only'));
+  }
   el.replaceChildren(...rows);
 }

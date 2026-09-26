@@ -14,6 +14,12 @@ export type WorkerStatus =
 
 export type WorkerKind = 'agent' | 'shell';
 
+export type AgentProvider = 'claude' | 'opencode' | 'custom';
+
+export function isAgentProvider(value: unknown): value is AgentProvider {
+  return value === 'claude' || value === 'opencode' || value === 'custom';
+}
+
 /** What a worker is on, for the card above its head: "Fix Login Redirect" + what it's doing now. */
 export interface WorkerTask {
   name: string;
@@ -22,8 +28,9 @@ export interface WorkerTask {
 
 export interface WorkerInfo {
   id: string;
-  /** 'agent' runs Claude Code (or --agent); 'shell' is a plain shared login shell. */
+  /** 'agent' runs the selected provider; 'shell' is a plain shared login shell. */
   kind: WorkerKind;
+  provider?: AgentProvider;
   deskId: string;
   name: string;
   color: string;
@@ -167,6 +174,7 @@ export type TaskStatus = 'queued' | 'running' | 'done';
 /** A task on the 📋 queue whiteboard: a GitHub issue or free text, seated to a worker by itself. */
 export interface QueueTask {
   id: string;
+  provider?: AgentProvider;
   /** The GitHub issue it came from, when it did. */
   issue?: number;
   title: string;
@@ -276,6 +284,8 @@ export interface ProjectInfo {
   branch?: string;
   remote?: string;
   agentCmd: string;
+  defaultProvider: AgentProvider;
+  agentProviders: AgentProvider[];
 }
 
 export interface TeamMember {
@@ -406,7 +416,7 @@ export type ClientMsg =
   /** You reached out to use something; everyone else sees your character's arm do it. */
   | { t: 'act' }
   | { t: 'profile'; name: string; color: string; look: Look }
-  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind }
+  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
@@ -421,7 +431,7 @@ export type ClientMsg =
   | { t: 'gh.refresh' }
   /** Merge a pull request; the answer comes back as gh.merged. */
   | { t: 'gh.merge'; number: number; method: GhMergeMethod; deleteBranch: boolean; auto?: boolean }
-  | { t: 'queue.add'; prompt: string; title?: string; issue?: number }
+  | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider }
   | { t: 'queue.remove'; taskId: string }
   /** Move a queued task up (-1) or down (+1) the queue. */
   | { t: 'queue.move'; taskId: string; delta: number }

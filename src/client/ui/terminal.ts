@@ -7,6 +7,7 @@ import { TERM_THEME } from '../world/laptop';
 import { h, openModal, STATUS_LABEL, type Modal } from './dom';
 import { usageLabel, usageTitle } from './usage';
 import type { ServerMsg } from '../../shared/protocol';
+import { providerLabel, providerUsageNote, providerUsageTracked, resolvedProvider } from './provider';
 
 let current: { workerId: string; modal: Modal } | null = null;
 const listeners = new Set<(msg: ServerMsg) => void>();
@@ -27,7 +28,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void)
   if (!info) return;
 
   const dot = h('span.dot', { style: `background:${info.color}` });
-  const title = h('h2', {}, info.name);
+  const title = h('h2', {}, info.kind === 'agent' ? `${providerLabel(info.provider, store.project)} · ${info.name}` : info.name);
   const pill = h('span.pill', {}, '');
   const cost = h('span.cost', {});
   const viewers = h('div.viewers', {});
@@ -83,11 +84,12 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void)
       modal.close();
       return;
     }
-    title.textContent = [w.name, w.title, w.worktree && `🌿 ${w.worktree.branch}`].filter(Boolean).join(' · ');
+    title.textContent = [w.kind === 'agent' ? providerLabel(w.provider, store.project) : null, w.name, w.title, w.worktree && `🌿 ${w.worktree.branch}`].filter(Boolean).join(' · ');
     pill.className = `pill ${w.status}`;
     pill.textContent = STATUS_LABEL[w.status] ?? w.status;
-    cost.textContent = w.usage?.calls ? usageLabel(w.usage) : '';
-    cost.title = w.usage ? usageTitle(w.usage) : '';
+    const tracked = w.kind === 'agent' && providerUsageTracked(w.provider, store.project, w.usage);
+    cost.textContent = !tracked ? (w.kind === 'agent' ? 'usage untracked' : '') : w.usage?.calls ? usageLabel(w.usage) : '';
+    cost.title = tracked && w.usage ? usageTitle(w.usage) : w.kind === 'agent' ? providerUsageNote(resolvedProvider(w.provider, store.project)) : '';
     viewers.textContent = w.viewers.length ? `👀 ${w.viewers.join(', ')}` : '';
     // Someone else resized the shared PTY (the latest typist wins): follow it so this view renders
     // correctly. Typing here fits the terminal back to this window and reclaims the size.

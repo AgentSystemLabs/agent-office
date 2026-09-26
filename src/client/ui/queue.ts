@@ -3,6 +3,7 @@ import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, timeAgo, STATUS_LABEL } from './dom';
 import { confirmDialog } from './prompt';
+import { providerPicker, providerLabel, providerUsageTracked } from './provider';
 
 export interface QueueActions {
   openTerminal(workerId: string): void;
@@ -63,15 +64,16 @@ export function openQueue(net: Net, actions: QueueActions) {
   );
 
   const ta = h('textarea', { rows: 2, placeholder: 'Describe a task for the next free worker…', 'aria-label': 'New task' }) as HTMLTextAreaElement;
+  const provider = providerPicker(store.project, 'queue-provider', 'Queue provider');
   const addBtn = h('button.btn.primary', { type: 'submit' }, 'Add to queue');
-  const form = h('form.queue-add', {}, ta, addBtn) as HTMLFormElement;
+  const form = h('form.queue-add', {}, ta, provider.element, addBtn) as HTMLFormElement;
   const submit = () => {
     const text = ta.value.trim();
     if (!text) {
       ta.focus();
       return;
     }
-    net.send({ t: 'queue.add', prompt: text });
+    net.send({ t: 'queue.add', prompt: text, provider: provider.value() });
     ta.value = '';
   };
   form.addEventListener('submit', (e) => {
@@ -91,11 +93,13 @@ export function openQueue(net: Net, actions: QueueActions) {
   };
 
   const row = (t: QueueTask): HTMLElement => {
+    const w = t.workerId ? store.workers.get(t.workerId) : undefined;
     const meta: string[] = [];
     const buttons: HTMLElement[] = [];
     let pos: string | null = null;
     if (t.status === 'running') {
-      const w = t.workerId ? store.workers.get(t.workerId) : undefined;
+      const selectedProvider = providerLabel(t.provider ?? w?.provider, store.project);
+      meta.push(`⚙️ ${selectedProvider}${providerUsageTracked(t.provider ?? w?.provider, store.project, w?.usage) ? '' : ' · usage untracked'}`);
       meta.push(`${t.workerName ?? 'a worker'} · ${w ? STATUS_LABEL[w.status] ?? w.status : 'gone'}`);
       if (t.branch) meta.push(`🌿 ${t.branch}`);
       if (t.startedAt) meta.push(`started ${timeAgo(t.startedAt)}`);
@@ -114,17 +118,18 @@ export function openQueue(net: Net, actions: QueueActions) {
       const queued = store.queue.tasks.filter((x) => x.status === 'queued');
       const i = queued.indexOf(t);
       pos = String(i + 1);
+      meta.push(`⚙️ ${providerLabel(t.provider, store.project)}${providerUsageTracked(t.provider, store.project, w?.usage) ? '' : ' · usage untracked'}`);
       meta.push(`added by ${t.addedBy} ${timeAgo(t.addedAt)}`);
       buttons.push(h('button.btn', { type: 'button', title: 'Move up', 'aria-label': 'Move up', disabled: i === 0, onclick: () => net.send({ t: 'queue.move', taskId: t.id, delta: -1 }) }, '↑'));
       buttons.push(h('button.btn', { type: 'button', title: 'Move down', 'aria-label': 'Move down', disabled: i === queued.length - 1, onclick: () => net.send({ t: 'queue.move', taskId: t.id, delta: 1 }) }, '↓'));
       buttons.push(h('button.btn', { type: 'button', title: 'Remove from the queue', 'aria-label': 'Remove', onclick: () => net.send({ t: 'queue.remove', taskId: t.id }) }, '✕'));
     } else {
+      meta.push(`⚙️ ${providerLabel(t.provider, store.project)}${providerUsageTracked(t.provider, store.project, w?.usage) ? '' : ' · usage untracked'}`);
       meta.push(outcome(t));
       if (t.workerName) meta.push(t.workerName);
       if (t.branch) meta.push(`🌿 ${t.branch}`);
       if (t.finishedAt) meta.push(timeAgo(t.finishedAt));
       if (t.pr) buttons.push(h('a.btn', { href: t.pr.url, target: '_blank', rel: 'noopener', title: t.pr.title }, `🔀 PR #${t.pr.number}${t.pr.state === 'MERGED' ? ' ✓' : t.pr.state === 'DRAFT' ? ' (draft)' : ''}`));
-      const w = t.workerId ? store.workers.get(t.workerId) : undefined;
       if (w) buttons.push(h('button.btn', { type: 'button', onclick: () => actions.openTerminal(w.id) }, '🖥️ Terminal'));
       buttons.push(h('button.btn', { type: 'button', title: 'Put it back on the queue', onclick: () => net.send({ t: 'queue.retry', taskId: t.id }) }, '↻ Requeue'));
       buttons.push(h('button.btn', { type: 'button', title: 'Forget it', 'aria-label': 'Remove', onclick: () => net.send({ t: 'queue.remove', taskId: t.id }) }, '✕'));
