@@ -22,6 +22,7 @@ import { mountServicesButton, openServices } from './ui/services';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
 import { openHelp, openProfile, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
 import { openSettings } from './ui/settings';
+import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -373,6 +374,8 @@ function syncWorkers() {
   renderWorkers((id) => openWorkerTerminal(id));
 }
 store.on('workers', syncWorkers);
+store.on('workers', renderUsage);
+store.on('usage', renderUsage);
 
 // ---- Actions ------------------------------------------------------------------------------------
 function freeDesk(): string | null {
@@ -540,15 +543,24 @@ function renderHint() {
   if (target.kind === 'desk' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
     const desk = DESK_BY_ID.get(target.deskId)!;
-    if (!w) parts = [h('span.title', {}, `${desk.label} · empty`), key('E', 'Hire a worker'), key('P', 'Hire with a task'), key('B', 'Shell')];
-    else {
+    if (!w) {
+      const paused = hiringPaused();
+      k += String(paused);
+      parts = [
+        h('span.title', {}, `${desk.label} · empty`),
+        ...(paused ? [h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow')] : [key('E', 'Hire a worker'), key('P', 'Hire with a task')]),
+        key('B', 'Shell'),
+      ];
+    } else {
       k += w.status + w.id;
       const asleep = w.status === 'exited' || w.status === 'offline';
       const doing = w.activity ? (w.activity.length > 48 ? `${w.activity.slice(0, 47)}…` : w.activity) : '';
-      k += doing;
+      const spent = w.usage?.calls ? usageLabel(w.usage) : '';
+      k += doing + spent;
       parts = [
         h('span.title', {}, `${w.name} · ${STATUS_LABEL[w.status]}`),
         doing ? h('span', { style: 'opacity:.75;font-weight:600' }, doing) : '',
+        spent ? h('span.cost', { title: usageTitle(w.usage!) }, spent) : '',
         key('E', 'Open terminal'),
         asleep ? key('R', w.kind === 'shell' ? 'Restart' : 'Resume') : key('P', w.kind === 'shell' ? 'Run command' : 'Prompt'),
         key('X', 'Send home'),

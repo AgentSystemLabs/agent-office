@@ -13,6 +13,7 @@ import { GitHub } from './github.js';
 import { Team } from './team.js';
 import { Upgrader } from './upgrade.js';
 import { Services } from './services.js';
+import { Ledger } from './usage.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import type { ChatLine, ClientMsg, PeerInfo, ProjectInfo, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { SPAWN } from '../shared/layout.js';
@@ -152,6 +153,14 @@ export async function startServer(cfg: Config) {
   await new Promise<void>((resolve) => hookServer.listen(0, '127.0.0.1', resolve));
   const hookPort = (hookServer.address() as { port: number }).port;
 
+  // What the workers spend, all time and today, with the optional daily budget.
+  const ledger = new Ledger(
+    cfg.dataDir,
+    { budget: cfg.budget, pauseHiring: cfg.budgetPause },
+    (state) => broadcast({ t: 'usage', state }),
+    (text, level) => broadcast({ t: 'toast', text, level }),
+  );
+
   workers = new WorkerManager(
     cfg.dir,
     cfg.dataDir,
@@ -175,6 +184,7 @@ export async function startServer(cfg: Config) {
       screen: (workerId, frame) => broadcast({ t: 'screen', workerId, ...frame }, undefined, true),
       toast: (text, level) => broadcast({ t: 'toast', text, level }),
     },
+    ledger,
   );
 
   const github = new GitHub(
@@ -380,6 +390,7 @@ export async function startServer(cfg: Config) {
       version: upgrader.version,
       upgrade: upgrader.state,
       services: servicesState(),
+      usage: ledger.state(),
     });
     for (const { workerId, frame } of workers.fullScreens()) sendTo(client, { t: 'screen', workerId, ...frame, full: true });
     broadcast({ t: 'peer.join', peer: client.peer }, id);
@@ -571,6 +582,7 @@ export async function startServer(cfg: Config) {
     upgrader.stop();
     services.stop();
     workers.shutdown();
+    ledger.flush();
     for (const c of clients.values()) c.ws.close();
     server.close();
     hookServer.close();
