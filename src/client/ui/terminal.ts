@@ -82,8 +82,10 @@ export function openTerminal(net: Net, workerId: string, actions: { prompt(): vo
     resumeBtn.classList.toggle('hidden', running || (!w.sessionId && w.kind !== 'shell'));
     resumeBtn.textContent = w.kind === 'shell' ? '▶ Restart' : '▶ Resume';
     promptBtn.disabled = !running;
-    // Someone else resized the shared PTY: follow it so the screen renders correctly.
-    if (ready && `${w.cols}x${w.rows}` !== `${term.cols}x${term.rows}` && document.activeElement !== term.textarea) {
+    // Someone else resized the shared PTY (the latest typist wins): follow it so this view renders
+    // correctly. Typing here fits the terminal back to this window and reclaims the size.
+    const ptySize = `${w.cols}x${w.rows}`;
+    if (ready && ptySize !== `${term.cols}x${term.rows}` && ptySize !== lastSentSize) {
       term.resize(w.cols, w.rows);
       lastSentSize = '';
     }
