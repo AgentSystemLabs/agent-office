@@ -106,7 +106,7 @@ const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
 export async function startServer(cfg: Config) {
   const publicDir = findPublicDir();
-  const auth = new Auth(cfg.password, cfg.secret);
+  const auth = new Auth(cfg.verifier, cfg.salt, cfg.secret);
   const clients = new Map<string, Client>();
   const chat: ChatLine[] = [];
   const project = projectInfo(cfg);
@@ -210,9 +210,29 @@ export async function startServer(cfg: Config) {
         } catch {
           return send(res, 400, { error: 'Bad request' });
         }
-        if (!auth.checkPassword(pw)) return send(res, 401, { error: 'Wrong password' });
+        if (!(await auth.checkPassword(pw))) return send(res, 401, { error: 'Wrong password' });
         auth.recordSuccess(ip);
         return send(res, 200, { ok: true }, { 'set-cookie': auth.cookie(auth.issue(), isSecure(req, cfg)) });
+      }
+      // One-time reveal of the generated password. After this the plaintext is gone for good.
+      const claimable = !!cfg.claimToken && !cfg.claimed && !!cfg.password;
+      if (p === '/api/claim' && req.method === 'GET') return send(res, 200, { claimable });
+      if (p === '/api/claim' && req.method === 'POST') {
+        const ip = clientIp(req, cfg.trustProxy);
+        if (!auth.allowAttempt(ip)) return send(res, 429, { error: 'Too many attempts. Try again in a few minutes.' });
+        let token = '';
+        try {
+          token = str(JSON.parse(await readBody(req, 4096)).token, 256);
+        } catch {
+          return send(res, 400, { error: 'Bad request' });
+        }
+        if (!claimable) return send(res, 410, { error: 'This office has already been claimed. Sign in with the password you saved.' });
+        if (!auth.checkToken(token, cfg.claimToken!)) return send(res, 403, { error: 'That claim link is not valid.' });
+        const password = cfg.password!;
+        cfg.markClaimed();
+        auth.recordSuccess(ip);
+        console.log('  the office password was claimed — it will not be shown again');
+        return send(res, 200, { password }, { 'set-cookie': auth.cookie(auth.issue(), isSecure(req, cfg)) });
       }
       if (p === '/api/logout' && req.method === 'POST') {
         return send(res, 200, { ok: true }, { 'set-cookie': auth.clearCookie() });
@@ -226,6 +246,7 @@ export async function startServer(cfg: Config) {
         return;
       }
       if (p === '/login' || p === '/login.html') return serveFile(res, path.join(publicDir, 'login.html'), false);
+      if (p === '/claim' || p === '/claim.html') return serveFile(res, path.join(publicDir, 'claim.html'), false);
       if (p === '/favicon.svg') return serveFile(res, path.join(publicDir, 'favicon.svg'), false);
 
       if (!auth.fromRequest(req)) {

@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, scryptSync } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -8,9 +8,18 @@ export interface Config {
   dataDir: string;
   host: string;
   port: number;
-  password: string;
+  /** Plaintext password, only when known: from --password, or generated and not yet claimed. */
+  password?: string;
   passwordGenerated: boolean;
+  /** scrypt(password, salt): what logins are checked against and sessions are keyed on. */
+  verifier: Buffer;
+  salt: Buffer;
   secret: string;
+  /** One-time token that lets the first visitor see the generated password (then never again). */
+  claimToken?: string;
+  claimed: boolean;
+  /** Forget the plaintext password for good once it has been shown. */
+  markClaimed(): void;
   agentCmd: string;
   agentArgs: string[];
   tls?: { cert: string; key: string };
@@ -38,6 +47,11 @@ Options:
       --password <pw>     Office password (env AGENT_OFFICE_PASSWORD).
                           Without one, a random password is generated once and
                           saved in <dir>/.agent-office/config.json
+      --claim-token <t>   Show the generated password exactly once, at /claim?t=<t>
+                          (env AGENT_OFFICE_CLAIM_TOKEN). After that only a hash
+                          is kept and the password is never displayed again.
+      --reset-password    Forget the generated password (a new one is made on the
+                          next start) and exit
       --agent <cmd>       Command a worker runs (default "claude", env AGENT_OFFICE_AGENT)
       --agent-args <str>  Extra args for every worker, e.g. "--model opus"
       --tls-cert <file>   Serve HTTPS with this certificate (PEM)
@@ -102,6 +116,8 @@ export function loadConfig(argv: string[]): Config {
   let tlsKey = '';
   let selfSigned = false;
   let trustProxy = false;
+  let claimToken = process.env.AGENT_OFFICE_CLAIM_TOKEN || '';
+  let resetPassword = false;
   const iceServers: RTCIceServerLike[] = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 
   for (let i = 0; i < argv.length; i++) {
@@ -140,6 +156,12 @@ export function loadConfig(argv: string[]): Config {
       case '--trust-proxy':
         trustProxy = true;
         break;
+      case '--claim-token':
+        claimToken = takeValue(argv, i++, a);
+        break;
+      case '--reset-password':
+        resetPassword = true;
+        break;
       case '--turn':
         iceServers.push(parseTurn(takeValue(argv, i++, a)));
         break;
@@ -167,23 +189,46 @@ export function loadConfig(argv: string[]): Config {
   excludeFromGit(dir);
 
   const cfgPath = path.join(dataDir, 'config.json');
-  let stored: { password?: string; secret?: string } = {};
+  let stored: { password?: string; verifier?: string; salt?: string; secret?: string; claimedAt?: number } = {};
   try {
     stored = JSON.parse(readFileSync(cfgPath, 'utf8'));
   } catch {
     // first run
   }
-  let passwordGenerated = false;
-  if (!password) {
-    if (!stored.password) {
-      stored.password = randomBytes(9).toString('base64url');
-      passwordGenerated = true;
-    }
-    password = stored.password;
-    passwordGenerated = true;
-  }
+  const save = () => writeFileSync(cfgPath, JSON.stringify(stored, null, 2), { mode: 0o600 });
   if (!stored.secret) stored.secret = randomBytes(32).toString('hex');
-  writeFileSync(cfgPath, JSON.stringify(stored, null, 2), { mode: 0o600 });
+  if (!stored.salt) stored.salt = randomBytes(16).toString('hex');
+  const salt = Buffer.from(stored.salt, 'hex');
+  const hash = (pw: string) => scryptSync(pw, salt, 32);
+
+  if (resetPassword) {
+    delete stored.password;
+    delete stored.verifier;
+    delete stored.claimedAt;
+    save();
+    console.log('agent-office: password forgotten — a new one is generated on the next start');
+    process.exit(0);
+  }
+
+  let verifier: Buffer;
+  let passwordGenerated = false;
+  if (password) {
+    verifier = hash(password);
+  } else {
+    passwordGenerated = true;
+    if (stored.verifier) {
+      verifier = Buffer.from(stored.verifier, 'hex');
+      password = stored.password ?? '';
+    } else {
+      // New password (or a legacy plaintext one): keep the plaintext only until it's been shown.
+      password = stored.password ?? randomBytes(9).toString('base64url');
+      stored.password = password;
+      verifier = hash(password);
+      stored.verifier = verifier.toString('hex');
+      delete stored.claimedAt;
+    }
+  }
+  save();
 
   let tls: Config['tls'];
   if (tlsCert || tlsKey) {
@@ -201,9 +246,20 @@ export function loadConfig(argv: string[]): Config {
     dataDir,
     host,
     port,
-    password,
+    password: password || undefined,
     passwordGenerated,
+    verifier,
+    salt,
     secret: stored.secret,
+    claimToken: claimToken || undefined,
+    claimed: !!stored.claimedAt,
+    markClaimed() {
+      stored.claimedAt = Date.now();
+      delete stored.password;
+      save();
+      this.claimed = true;
+      this.password = undefined;
+    },
     agentCmd,
     agentArgs,
     tls,

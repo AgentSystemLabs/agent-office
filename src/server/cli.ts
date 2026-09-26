@@ -24,12 +24,18 @@ if (cfg.host === '0.0.0.0' || cfg.host === '::') {
 } else urls.add(`${scheme}://${cfg.host}:${cfg.port}`);
 
 const agent = office.workers.resolvedAgent;
+function passwordLine() {
+  if (!cfg.passwordGenerated) return '(from --password / AGENT_OFFICE_PASSWORD)';
+  if (cfg.claimToken && !cfg.claimed) return 'shown exactly once to whoever opens the claim link (/claim?t=…)';
+  if (cfg.claimed || !cfg.password) return '(already claimed — never shown again; reset with --reset-password)';
+  return cfg.password;
+}
 console.log(`
   🏢  agent-office is open for ${cfg.dir}
 
   ${[...urls].join('\n  ')}
 
-  password: ${cfg.passwordGenerated ? cfg.password : '(from --password / AGENT_OFFICE_PASSWORD)'}
+  password: ${passwordLine()}
   workers run: ${[agent ?? `${cfg.agentCmd} (via login shell)`, ...cfg.agentArgs].join(' ')}
 ${cfg.tls ? '' : '\n  tip: voice & screen share need https off localhost — use a reverse proxy or --self-signed\n'}`);
 

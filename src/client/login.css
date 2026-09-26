@@ -17,3 +17,10 @@ button { margin-top: 16px; width: 100%; padding: 12px; font-size: 16px; font-wei
 button:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--border); }
 button:disabled { opacity: .6; cursor: default; }
 .error { min-height: 1.2em; color: #c3423f; font-weight: 700; margin: 12px 0 0; }
+.warn { text-align: left; background: #fff3c4; border: 3px solid var(--border); border-radius: 12px; padding: 10px 12px; margin: 0 0 14px; font-size: 14px; }
+.secret { display: flex; gap: 8px; align-items: center; justify-content: center; background: #fff; border: 3px dashed var(--border); border-radius: 12px; padding: 14px; }
+.secret code { font: 800 26px ui-monospace, Menlo, Consolas, monospace; letter-spacing: .04em; word-break: break-all; }
+button.mini { width: auto; margin: 0; padding: 6px 10px; font-size: 13px; box-shadow: 0 2px 0 var(--border); }
+.check { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 14px; font-weight: 800; }
+.check input { width: auto; margin: 0; }
+a { color: var(--ink); font-weight: 800; }

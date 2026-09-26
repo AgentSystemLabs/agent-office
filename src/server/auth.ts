@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual, randomBytes } from 'node:crypto';
+import { createHmac, timingSafeEqual, randomBytes, scrypt } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 
 export const COOKIE_NAME = 'ao_session';
@@ -13,15 +13,23 @@ export class Auth {
   private key: Buffer;
 
   constructor(
-    private password: string,
-    private secret: string,
+    private verifier: Buffer,
+    private salt: Buffer,
+    secret: string,
   ) {
-    this.key = createHmac('sha256', secret).update(`session:${password}`).digest();
+    this.key = createHmac('sha256', secret).update('session:').update(verifier).digest();
   }
 
-  checkPassword(candidate: string): boolean {
-    const a = createHmac('sha256', this.secret).update(candidate).digest();
-    const b = createHmac('sha256', this.secret).update(this.password).digest();
+  /** scrypt runs on the libuv pool, so guessing can't stall the event loop. */
+  checkPassword(candidate: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      scrypt(candidate, this.salt, 32, (err, derived) => resolve(!err && timingSafeEqual(derived, this.verifier)));
+    });
+  }
+
+  checkToken(candidate: string, expected: string): boolean {
+    const a = createHmac('sha256', this.key).update(candidate).digest();
+    const b = createHmac('sha256', this.key).update(expected).digest();
     return timingSafeEqual(a, b);
   }
 
