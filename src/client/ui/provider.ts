@@ -53,6 +53,39 @@ function preferredProvider(options: AgentProvider[], fallback: AgentProvider): A
 export interface ProviderPicker {
   element: HTMLElement;
   value(): AgentProvider;
+  /** The optional initial OpenCode model override. Empty or invalid input is omitted. */
+  model(): string | undefined;
+  /** Reports a visible field error for an invalid nonempty OpenCode model. */
+  valid(): boolean;
+}
+
+const MODEL_MAX = 256;
+let modelList: string[] | null = null;
+let modelListAt = 0;
+let modelRequest: Promise<string[]> | null = null;
+
+function validModel(value: string): boolean {
+  if (value.length === 0 || value.length > MODEL_MAX || /[\s\p{Cc}\p{Cf}]/u.test(value)) return false;
+  const parts = value.split('/');
+  return parts.length >= 2 && /^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/.test(parts[0]) && parts.slice(1).every((part) => part.length > 0);
+}
+
+function fetchOpenCodeModels(): Promise<string[]> {
+  if (modelList && Date.now() - modelListAt < 60_000) return Promise.resolve(modelList);
+  if (modelRequest) return modelRequest;
+  modelRequest = fetch('/api/agents/opencode/models', { credentials: 'same-origin', cache: 'no-store' })
+    .then(async (res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = (await res.json()) as { models?: unknown };
+      const models = Array.isArray(body.models) ? body.models.filter((m): m is string => typeof m === 'string' && validModel(m)) : [];
+      modelList = [...new Set(models)];
+      modelListAt = Date.now();
+      return modelList;
+    })
+    .finally(() => {
+      modelRequest = null;
+    });
+  return modelRequest;
 }
 
 /** A provider selector that never offers a provider outside the server's metadata. */
@@ -63,9 +96,38 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
   for (const provider of options) select.append(h('option', { value: provider }, PROVIDER_LABEL[provider]));
   select.value = preferredProvider(options, fallback);
   const note = h('small.provider-note', {}, providerUsageNote(select.value as AgentProvider));
+  const modelInput = h('input', {
+    type: 'text',
+    id: `${id}-model`,
+    list: `${id}-models`,
+    placeholder: 'Default (OpenCode settings)',
+    'aria-label': 'OpenCode model',
+    autocomplete: 'off',
+    maxlength: MODEL_MAX,
+  }) as HTMLInputElement;
+  const modelHint = h('small.provider-model-hint', {}, 'Optional provider/model override; suggestions load when OpenCode is selected.');
+  const modelListEl = h('datalist', { id: `${id}-models` });
+  const modelChoice = h('div.provider-model', {}, h('label', { for: `${id}-model` }, 'OpenCode model'), modelInput, modelListEl, modelHint);
+  const setModelVisibility = (provider: AgentProvider) => {
+    const openCode = provider === 'opencode';
+    modelChoice.classList.toggle('hidden', !openCode);
+    modelInput.disabled = !openCode;
+    if (!openCode) return;
+    modelHint.textContent = modelList ? 'Optional provider/model override; choose a suggestion or enter one manually.' : 'Loading OpenCode models… You can enter a provider/model manually.';
+    void fetchOpenCodeModels()
+      .then((models) => {
+        modelListEl.replaceChildren(...models.map((model) => h('option', { value: model })));
+        modelHint.textContent = 'Optional provider/model override; choose a suggestion or enter one manually.';
+      })
+      .catch(() => {
+        modelHint.textContent = 'Model suggestions unavailable; enter a provider/model manually if needed.';
+      });
+  };
+  setModelVisibility(select.value as AgentProvider);
   select.addEventListener('change', () => {
     const provider = select.value as AgentProvider;
     note.textContent = providerUsageNote(provider);
+    setModelVisibility(provider);
     if (options.includes(provider)) {
       try {
         localStorage.setItem(PROVIDER_KEY, provider);
@@ -74,8 +136,24 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
       }
     }
   });
+  modelInput.addEventListener('input', () => modelInput.setCustomValidity(''));
   return {
-    element: h('div.provider-choice', {}, h('label', { for: id }, label), select, note),
+    element: h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice),
     value: () => (options.includes(select.value as AgentProvider) ? (select.value as AgentProvider) : fallback),
+    model: () => {
+      if (select.value !== 'opencode') return undefined;
+      const value = modelInput.value;
+      return validModel(value) ? value : undefined;
+    },
+    valid: () => {
+      if (select.value !== 'opencode' || !modelInput.value) {
+        modelInput.setCustomValidity('');
+        return true;
+      }
+      const okay = validModel(modelInput.value);
+      modelInput.setCustomValidity(okay ? '' : 'Use provider/model format without whitespace or control characters (up to 256 characters).');
+      if (!okay) modelInput.reportValidity();
+      return okay;
+    },
   };
 }

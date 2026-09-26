@@ -420,8 +420,8 @@ function freeDesk(): string | null {
   return best;
 }
 
-function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider) {
-  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider });
+function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string) {
+  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model });
 }
 
 function openShell(deskId: string) {
@@ -438,7 +438,7 @@ function promptAtDesk(deskId: string) {
       submitLabel: 'Hire & start',
       providerOption: true,
       worktreeOption: !!store.project?.branch,
-      onSubmit: (text, o) => hire(deskId, text, o.worktree, o.provider),
+      onSubmit: (text, o) => hire(deskId, text, o.worktree, o.provider, o.model),
     });
   } else if (w.status === 'exited' || w.status === 'offline') {
     toast(`${w.name} is asleep — press R to resume first`, 'warn');
@@ -469,7 +469,7 @@ function hireAtDesk(deskId: string) {
     allowEmpty: true,
     providerOption: true,
     worktreeOption: !!store.project?.branch,
-    onSubmit: (text, o) => hire(deskId, text || undefined, o.worktree, o.provider),
+    onSubmit: (text, o) => hire(deskId, text || undefined, o.worktree, o.provider, o.model),
   });
 }
 
@@ -568,16 +568,16 @@ function sendToWorker(title: string, text: { context?: string; initial?: string 
     workers: awake.map((w) => ({ id: w.id, name: w.name, color: w.color, status: w.status })),
     worktreeOption: !!store.project?.branch,
     providerOption: true,
-    onSubmit: (prompt, to, worktree, provider) => {
+    onSubmit: (prompt, to, worktree, provider, model) => {
       if (to) net.send({ t: 'worker.prompt', workerId: to, prompt });
-      else if (desk) hire(desk, prompt, worktree, provider);
+      else if (desk) hire(desk, prompt, worktree, provider, model);
     },
   });
 }
 
 function boardActions() {
   return {
-    queue: (prompt: string, title: string, issue: number, provider?: AgentProvider) => net.send({ t: 'queue.add', prompt, title, issue, provider }),
+    queue: (prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string) => net.send({ t: 'queue.add', prompt, title, issue, provider, model }),
     assign: (prompt: string, title: string) => sendToWorker(`🤖 ${title}`, { initial: prompt }),
     ask: (context: string, title: string) => sendToWorker(`✍️ ${title}`, { context }),
     goToDesk,

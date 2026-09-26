@@ -32,10 +32,15 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void)
   const pill = h('span.pill', {}, '');
   const cost = h('span.cost', {});
   const viewers = h('div.viewers', {});
+  const modelsBtn = h('button.btn', {
+    type: 'button',
+    title: 'OpenCode models: Ctrl+X then M (use /models if custom bindings override it)',
+    'aria-label': 'OpenCode models',
+  }, '🧠 Models');
   const changesBtn = h('button.btn', { type: 'button', title: 'What this worker changed: files, diff, commit, open a PR (C at the desk)' }, '🌿 Changes');
   const closeBtn = h('button.btn.close', { title: 'Leave terminal (Esc) · Ctrl+[ sends Esc to the terminal', 'aria-label': 'Close' }, '✕');
   const host = h('div.term-host');
-  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, onChanges ? changesBtn : null, closeBtn), host);
+  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, modelsBtn, onChanges ? changesBtn : null, closeBtn), host);
 
   const term = new Terminal({
     fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
@@ -91,6 +96,9 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void)
     cost.textContent = !tracked ? (w.kind === 'agent' ? 'usage untracked' : '') : w.usage?.calls ? usageLabel(w.usage) : '';
     cost.title = tracked && w.usage ? usageTitle(w.usage) : w.kind === 'agent' ? providerUsageNote(resolvedProvider(w.provider, store.project)) : '';
     viewers.textContent = w.viewers.length ? `👀 ${w.viewers.join(', ')}` : '';
+    const openCode = w.kind === 'agent' && resolvedProvider(w.provider, store.project) === 'opencode';
+    modelsBtn.classList.toggle('hidden', !openCode);
+    modelsBtn.toggleAttribute('disabled', !openCode || !ready || w.status === 'exited' || w.status === 'offline');
     // Someone else resized the shared PTY (the latest typist wins): follow it so this view renders
     // correctly. Typing here fits the terminal back to this window and reclaims the size.
     const ptySize = `${w.cols}x${w.rows}`;
@@ -109,6 +117,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void)
         ready = true;
         sendSize();
         term.scrollToBottom();
+        refresh();
       });
     }
   };
@@ -145,6 +154,14 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void)
   term.onData((data) => {
     sendSize(true);
     net.send({ t: 'term.input', workerId, data });
+  });
+  modelsBtn.addEventListener('click', () => {
+    if (modelsBtn.hasAttribute('disabled')) return;
+    sendSize(true);
+    // OpenCode's native model picker is Ctrl+X, then M. Injecting the
+    // control sequence preserves any draft already in the TUI input box.
+    term.input('\x18m');
+    term.focus();
   });
 
   ro.observe(host);

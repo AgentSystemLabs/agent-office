@@ -154,8 +154,8 @@ function ledger(data: string): Ledger {
   return new Ledger(data, { pauseHiring: false }, () => {}, () => {});
 }
 
-function manager(f: Fixture, cmd: string, updates: WorkerInfo[]) {
-  return new WorkerManager(f.root, f.data, cmd, ['--from-test'], { url: 'http://127.0.0.1:1', token: '' }, events(updates), ledger(f.data));
+function manager(f: Fixture, cmd: string, updates: WorkerInfo[], args = ['--from-test']) {
+  return new WorkerManager(f.root, f.data, cmd, args, { url: 'http://127.0.0.1:1', token: '' }, events(updates), ledger(f.data));
 }
 
 async function waitFor<T>(read: () => T, predicate: (value: T) => boolean, timeout = 4000): Promise<T> {
@@ -312,6 +312,90 @@ test('OpenCode workers use OpenCode-only hooks/config, never invoke Claude namin
   assert.ok(restoredInvocation.args.includes('oc-child'));
   assert.ok(restored.get(worker.id)?.status === 'idle' || restored.get(worker.id)?.status === 'exited' || restored.get(worker.id)?.status === 'done');
   assert.equal(f.read().filter((r) => r.kind === 'claude').length, 0, 'OpenCode must never invoke Claude task naming');
+});
+
+test('OpenCode model overrides configured model flags on first launch and is omitted on resume', async (t) => {
+  const f = fixture();
+  const updates: WorkerInfo[] = [];
+  isolateProviderEnvironment(f, t);
+  const previousExit = process.env.FAKE_AGENT_EXIT_MS;
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_EXIT_MS = '180';
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousExit === undefined) delete process.env.FAKE_AGENT_EXIT_MS;
+    else process.env.FAKE_AGENT_EXIT_MS = previousExit;
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+
+  const workers = manager(f, f.opencode, updates, ['--model', 'old/model', '--keep', 'yes', '-m', 'older/model']);
+  t.after(() => workers.shutdown());
+  const worker = workers.spawn('desk-1', 'test', 'modelled prompt', false, 'agent', 'opencode', 'openai/gpt-5/nested');
+  assert.equal(typeof worker, 'object');
+  if (typeof worker === 'string') return;
+  const first = await waitFor(() => f.read(), (records) => records.some((r) => r.kind === 'opencode'));
+  const firstInvocation = first.find((r) => r.kind === 'opencode')!;
+  assert.deepEqual(firstInvocation.args, ['--keep', 'yes', '--model', 'openai/gpt-5/nested', '--prompt', 'modelled prompt']);
+  assert.equal(workers.get(worker.id)?.model, 'openai/gpt-5/nested');
+
+  assert.equal(workers.handleOpenCodeHook(worker.id, firstInvocation.env.hookToken!, { type: 'session', sessionId: 'oc-model', status: 'starting' }), true);
+  await waitFor(() => workers.get(worker.id)?.status, (status) => status === 'exited');
+  assert.equal(workers.resume(worker.id), undefined);
+  const all = await waitFor(() => f.read(), (records) => records.filter((r) => r.kind === 'opencode').length >= 2);
+  const resumed = all.filter((r) => r.kind === 'opencode')[1];
+  assert.ok(resumed.args.includes('--session'));
+  assert.ok(resumed.args.includes('oc-model'));
+  assert.equal(resumed.args.includes('--model'), false);
+  assert.equal(resumed.args.includes('openai/gpt-5/nested'), false);
+});
+
+test('OpenCode keeps configured model flags when no explicit model is selected, then strips them on resume', async (t) => {
+  const f = fixture();
+  const updates: WorkerInfo[] = [];
+  isolateProviderEnvironment(f, t);
+  const previousExit = process.env.FAKE_AGENT_EXIT_MS;
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_EXIT_MS = '180';
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousExit === undefined) delete process.env.FAKE_AGENT_EXIT_MS;
+    else process.env.FAKE_AGENT_EXIT_MS = previousExit;
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+
+  const workers = manager(f, f.opencode, updates, ['--model', 'configured/model', '--keep', 'yes']);
+  t.after(() => workers.shutdown());
+  const worker = workers.spawn('desk-1', 'test', 'configured prompt');
+  assert.equal(typeof worker, 'object');
+  if (typeof worker === 'string') return;
+  const first = await waitFor(() => f.read(), (records) => records.some((r) => r.kind === 'opencode'));
+  const firstInvocation = first.find((r) => r.kind === 'opencode')!;
+  assert.ok(firstInvocation.args.includes('--model'));
+  assert.ok(firstInvocation.args.includes('configured/model'));
+  assert.equal(workers.handleOpenCodeHook(worker.id, firstInvocation.env.hookToken!, { type: 'session', sessionId: 'oc-configured', status: 'starting' }), true);
+  await waitFor(() => workers.get(worker.id)?.status, (status) => status === 'exited');
+  assert.equal(workers.resume(worker.id), undefined);
+  const all = await waitFor(() => f.read(), (records) => records.filter((r) => r.kind === 'opencode').length >= 2);
+  const resumed = all.filter((r) => r.kind === 'opencode')[1];
+  assert.ok(resumed.args.includes('--session'));
+  assert.equal(resumed.args.includes('--model'), false);
+  assert.equal(resumed.args.includes('configured/model'), false);
+  assert.ok(resumed.args.includes('--keep'));
+});
+
+test('workers reject models for non-OpenCode providers and malformed model ids', (t) => {
+  const f = fixture();
+  t.after(() => f.close());
+  const workers = manager(f, f.claude, []);
+  t.after(() => workers.shutdown());
+  assert.match(workers.spawn('desk-1', 'test', 'bad', false, 'agent', 'claude', 'openai/gpt-5') as string, /model|OpenCode/i);
+  assert.match(workers.spawn('desk-2', 'test', 'bad', false, 'agent', 'opencode', 'gpt-5') as string, /model|format|provider/i);
+  assert.match(workers.spawn('desk-3', 'test', 'bad', false, 'agent', 'opencode', 'openai/gpt 5') as string, /model|format|whitespace/i);
+  assert.match(workers.spawn('desk-4', 'test', 'bad', false, 'shell', undefined, 'openai/gpt-5') as string, /shell|model/i);
 });
 
 test('provider and hook boundaries reject invalid combinations', async (t) => {

@@ -13,7 +13,7 @@ import { gh } from './github.js';
 import type { ServiceOwner } from './services.js';
 import { TaskNamer, fallbackTask } from './tasks.js';
 import { addUsage, newTracker, restoreTracker, scanTracker, trackerUsage, zeroUsage, type Ledger, type UsageTracker } from './usage.js';
-import { configuredProvider } from './agents.js';
+import { configuredProvider, isValidOpenCodeModel, validateWorkerModel } from './agents.js';
 import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeHookEvent } from './opencode.js';
 
 type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
@@ -167,11 +167,13 @@ export class WorkerManager {
     return false;
   }
 
-  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider): WorkerInfo | string {
+  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string): WorkerInfo | string {
+    const selectedProvider = kind === 'agent' ? provider ?? this.defaultProvider : undefined;
+    const modelError = validateWorkerModel(kind, selectedProvider, model);
+    if (modelError) return modelError;
     if (!DESK_BY_ID.has(deskId)) return 'Unknown desk';
     if (this.deskOccupied(deskId)) return 'That desk is taken';
     if (kind === 'shell' && provider !== undefined) return 'Shell workers do not have an agent provider';
-    const selectedProvider = kind === 'agent' ? provider ?? this.defaultProvider : undefined;
     if (kind === 'agent' && selectedProvider === 'custom' && this.defaultProvider !== 'custom') return 'Custom is not the configured agent provider';
     if (kind === 'agent') {
       const paused = this.ledger.hiringPaused;
@@ -190,6 +192,7 @@ export class WorkerManager {
       id,
       kind,
       provider: selectedProvider,
+      model: selectedProvider === 'opencode' ? model : undefined,
       deskId,
       name: kind === 'shell' ? `${name} 🐚` : name,
       color: kind === 'shell' ? '#8d99ae' : COLORS[Math.floor(Math.random() * COLORS.length)],
@@ -593,13 +596,15 @@ export class WorkerManager {
     const configured = !isShell && provider === this.defaultProvider;
     const command = isShell ? shell : configured ? this.agentCmd : provider ?? this.agentCmd;
     const commandPath = isShell ? undefined : configured ? this.agentPath : resolveCommand(command);
-    const args = isShell ? ['-l'] : configured ? [...this.agentArgs] : [];
+    let args = isShell ? ['-l'] : configured ? [...this.agentArgs] : [];
     if (isClaude) {
       args.unshift('--settings', this.settingsPath);
       if (resumeSessionId) args.push('--resume', resumeSessionId);
       // `--` so a prompt like "- fix login" is never parsed as a CLI option.
       if (prompt) args.push('--', prompt);
     } else if (isOpenCode) {
+      if (resumeSessionId || info.model) args = withoutOpenCodeModel(args);
+      if (!resumeSessionId && info.model) args.push('--model', info.model);
       if (resumeSessionId) args.push('--session', resumeSessionId);
       if (prompt) args.push('--prompt', prompt);
     }
@@ -840,6 +845,7 @@ process.stdin.on('end', () => {
       id: info.id,
       kind: info.kind,
       provider: info.provider,
+      model: info.model,
       deskId: info.deskId,
       name: info.name,
       color: info.color,
@@ -879,6 +885,7 @@ process.stdin.on('end', () => {
           id: s.id,
           kind: s.kind === 'shell' ? 'shell' : 'agent',
           provider,
+          model: provider === 'opencode' && isValidOpenCodeModel(s.model) ? s.model : undefined,
           deskId: s.deskId,
           name: s.name ?? 'Worker',
           color: s.color ?? COLORS[0],
@@ -927,6 +934,20 @@ function newWorker(info: WorkerInfo, tracker: UsageTracker): Worker {
     taskEpoch: 0,
     tracker,
   };
+}
+
+function withoutOpenCodeModel(args: string[]): string[] {
+  const clean: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--model' || arg === '-m') {
+      if (args[i + 1] !== undefined && !args[i + 1].startsWith('-')) i++;
+      continue;
+    }
+    if (arg.startsWith('--model=') || (arg.startsWith('-m') && arg.length > 2)) continue;
+    clean.push(arg);
+  }
+  return clean;
 }
 
 /** The office's environment, minus anything that would make a child think it's a nested session. */

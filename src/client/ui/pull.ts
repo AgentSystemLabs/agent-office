@@ -805,11 +805,16 @@ export function openIssue(it: GhIssue, actions: BoardActions) {
   const onQueue = !!task && task.status !== 'done';
   const queueProvider = it.state === 'OPEN' ? providerPicker(store.project, `issue-provider-${it.number}`, 'Queue provider') : null;
   queueProvider?.element.classList.toggle('hidden', onQueue);
+  const addIssueToQueue = () => {
+    if (queueProvider && !queueProvider.valid()) return;
+    modal.close();
+    actions.queue(issuePrompt(it), `#${it.number} ${it.title}`, it.number, queueProvider?.value(), queueProvider?.model());
+  };
   const queue =
     it.state === 'OPEN'
       ? h(
           'button.btn',
-          { type: 'button', disabled: onQueue, title: onQueue ? undefined : 'A worker picks it up by itself when a desk is free and there is room under the worker limit', onclick: () => (modal.close(), actions.queue(issuePrompt(it), `#${it.number} ${it.title}`, it.number, queueProvider?.value())) },
+          { type: 'button', disabled: onQueue, title: onQueue ? undefined : 'A worker picks it up by itself when a desk is free and there is room under the worker limit', onclick: addIssueToQueue },
           onQueue ? (task!.status === 'running' ? `🤖 ${task!.workerName ?? 'A worker'} is on it` : '📋 On the queue') : '📋 Add to queue',
         )
       : null;

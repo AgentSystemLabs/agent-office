@@ -9,7 +9,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Config } from './config.js';
 import { Auth } from './auth.js';
 import { WorkerManager } from './workers.js';
-import { configuredProvider } from './agents.js';
+import { configuredProvider, OPEN_CODE_MODEL_MAX } from './agents.js';
+import { createOpenCodeModelCatalogue } from './models.js';
 import { GitHub } from './github.js';
 import { Team } from './team.js';
 import { Upgrader } from './upgrade.js';
@@ -126,6 +127,11 @@ export async function startServer(cfg: Config) {
   const clients = new Map<string, Client>();
   const chat: ChatLine[] = [];
   const project = projectInfo(cfg);
+  const modelCommand = configuredProvider(cfg.agentCmd) === 'opencode' ? cfg.agentCmd : 'opencode';
+  const openCodeModels = createOpenCodeModelCatalogue(
+    modelCommand.includes('/') ? path.resolve(modelCommand) : modelCommand,
+    cfg.dir,
+  );
 
   const sendTo = (c: Client, msg: ServerMsg) => {
     if (c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify(msg));
@@ -362,6 +368,13 @@ export async function startServer(cfg: Config) {
         return;
       }
       if (p === '/api/whoami') return send(res, 200, { ok: true });
+      if (p === '/api/agents/opencode/models' && req.method === 'GET') {
+        try {
+          return send(res, 200, { models: await openCodeModels.get() });
+        } catch {
+          return send(res, 502, { error: 'Could not load OpenCode models' });
+        }
+      }
       if (p === '/api/image' && req.method === 'GET') {
         // A picture on the wall, fetched by the office so the 3D view can draw it (see decor.ts).
         const r = await images.get(new URL(req.url ?? '/', 'http://x').searchParams.get('url') ?? '');
@@ -570,7 +583,8 @@ export async function startServer(cfg: Config) {
           sendTo(c, { t: 'toast', text: 'Unknown agent provider', level: 'warn' });
           break;
         }
-        const r = workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider);
+        const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
+        const r = workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model);
         if (typeof r === 'string') sendTo(c, { t: 'toast', text: r, level: 'warn' });
         else broadcast({ t: 'toast', text: kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${r.prompt ? ' with a task' : ''}`, level: 'info' });
         break;
@@ -659,7 +673,8 @@ export async function startServer(cfg: Config) {
           break;
         }
         const issue = Number.isInteger(msg.issue) && (msg.issue as number) > 0 ? (msg.issue as number) : undefined;
-        const err = queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider);
+        const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
+        const err = queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model);
         if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
         else broadcast({ t: 'toast', text: `📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`, level: 'info' });
         break;

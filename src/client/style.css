@@ -154,16 +154,23 @@ button { font-family: inherit; }
 .close { width: 34px; height: 34px; padding: 0; justify-content: center; }
 
 .seg { display: flex; gap: 8px; flex-wrap: wrap; }
-.provider-choice { display: flex; align-items: center; gap: 8px; margin-top: 10px; min-width: 190px; }
+.provider-choice { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; min-width: 190px; }
 .provider-choice label { margin: 0; white-space: nowrap; }
 .provider-select { min-width: 132px; padding: 6px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; font-weight: 800; }
-.provider-note { display: block; color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1.25; }
+.provider-note { display: block; flex: 1 1 160px; min-width: 0; color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1.25; }
+.provider-model { display: flex; flex: 1 1 220px; flex-direction: column; gap: 3px; min-width: 180px; margin-top: 4px; }
+.provider-model label { margin: 0; font-size: 12px; }
+.provider-model input { width: 100%; padding: 6px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; }
+.provider-model input:invalid { border-color: var(--bad); }
+.provider-model-hint { color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1.25; }
 .queue-add .provider-choice { flex-direction: column; align-items: flex-start; gap: 2px; margin: 0; flex: none; }
 .queue-add .provider-choice label { font-size: 12px; }
-.queue-add .provider-note { max-width: 155px; }
+.queue-add .provider-note { flex: 0 1 auto; max-width: 155px; }
+.queue-add .provider-model { flex: 0 1 auto; min-width: 190px; }
 .modal.gh-window.issue footer .provider-choice { margin: 0; flex-direction: column; align-items: flex-start; gap: 2px; }
 .modal.gh-window.issue footer .provider-choice label { font-size: 12px; }
-.modal.gh-window.issue footer .provider-note { max-width: 150px; }
+.modal.gh-window.issue footer .provider-note { flex: 0 1 auto; max-width: 150px; }
+.modal.gh-window.issue footer .provider-model { flex: 0 1 auto; min-width: 190px; }
 .setting-note { margin: 10px 0 0; font-size: 13px; font-weight: 600; color: var(--muted); line-height: 1.4; }
 
 .swatches { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }

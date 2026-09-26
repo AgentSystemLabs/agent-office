@@ -15,7 +15,7 @@ export interface PromptOptions {
   worktreeOption?: boolean;
   /** Offer the configured agent provider choice (only when hiring a new worker). */
   providerOption?: boolean;
-  onSubmit(text: string, opts: { worktree: boolean; provider?: AgentProvider }): void;
+  onSubmit(text: string, opts: { worktree: boolean; provider?: AgentProvider; model?: string }): void;
 }
 
 const WT_KEY = 'agent-office.worktree';
@@ -50,6 +50,7 @@ export function openPrompt(opts: PromptOptions) {
     h('div.body', {}, opts.subtitle ? h('p', { style: 'margin:0 0 10px;font-weight:700;color:var(--muted)' }, opts.subtitle) : null, ta, provider?.element ?? null, wtRow),
     h('footer', {}, h('span.grow', {}, 'Enter to send · Shift+Enter for a new line'), cancel, submit),
   ) as HTMLFormElement;
+  form.noValidate = true;
 
   const modal = openModal(form);
   cancel.addEventListener('click', () => modal.close());
@@ -59,6 +60,7 @@ export function openPrompt(opts: PromptOptions) {
       ta.focus();
       return;
     }
+    if (provider && !provider.valid()) return;
     modal.close();
     if (opts.worktreeOption) {
       try {
@@ -67,7 +69,7 @@ export function openPrompt(opts: PromptOptions) {
         // storage blocked
       }
     }
-    opts.onSubmit(text, { worktree: !!opts.worktreeOption && wtBox.checked, provider: provider?.value() });
+    opts.onSubmit(text, { worktree: !!opts.worktreeOption && wtBox.checked, provider: provider?.value(), model: provider?.model() });
   };
   form.addEventListener('submit', (e) => {
     e.preventDefault();

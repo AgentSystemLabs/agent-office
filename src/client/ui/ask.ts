@@ -28,7 +28,7 @@ export interface AskOptions {
   /** Offer the configured provider choice for a new worker. */
   providerOption?: boolean;
   /** `to` is a worker id, or null for a new worker. */
-  onSubmit(prompt: string, to: string | null, worktree: boolean, provider?: AgentProvider): void;
+  onSubmit(prompt: string, to: string | null, worktree: boolean, provider?: AgentProvider, model?: string): void;
 }
 
 // Shared with the hire prompt, so the choice sticks either way.
@@ -79,6 +79,7 @@ export function openAsk(opts: AskOptions) {
     ),
     h('footer', {}, h('span.grow', {}, 'Enter to send · Shift+Enter for a new line'), cancel, submit),
   ) as HTMLFormElement;
+  form.noValidate = true;
   pick(to);
 
   const modal = openModal(form);
@@ -89,6 +90,7 @@ export function openAsk(opts: AskOptions) {
       ta.focus();
       return;
     }
+    if (!to && provider && !provider.valid()) return;
     modal.close();
     if (!to && opts.worktreeOption) {
       try {
@@ -97,7 +99,7 @@ export function openAsk(opts: AskOptions) {
         // storage blocked
       }
     }
-    opts.onSubmit(opts.context ? `${opts.context}\n\n${text}` : text, to, !to && opts.worktreeOption && wtBox.checked, !to ? provider?.value() : undefined);
+    opts.onSubmit(opts.context ? `${opts.context}\n\n${text}` : text, to, !to && opts.worktreeOption && wtBox.checked, !to ? provider?.value() : undefined, !to ? provider?.model() : undefined);
   };
   form.addEventListener('submit', (e) => {
     e.preventDefault();
