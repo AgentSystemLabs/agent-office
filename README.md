@@ -29,7 +29,7 @@ On the machine that runs the office (your laptop or a VPS):
 - **Node.js 20+**. Prebuilt PTY binaries ship for Linux and macOS, x64 and arm64, so no compiler is needed.
 - **Claude Code** (`claude`), installed and logged in as the user that runs the office.
 - **git**, plus the **GitHub CLI** (`gh`) logged in (`gh auth login`) if you want the issue and PR boards.
-- `curl`, which the Claude Code hooks use to report status.
+- `curl` is optional. The status hooks use it when it's there and fall back to Node when it isn't.
 
 ## Install & run
 
@@ -98,7 +98,22 @@ cd /srv/my-project
 agent-office --host 127.0.0.1 --trust-proxy --password "$(openssl rand -base64 18)"
 ```
 
-Caddy proxies WebSockets out of the box. To keep the office running, use a systemd unit:
+Caddy proxies WebSockets out of the box. With nginx, forward the Host and Upgrade headers:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:4600;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 1d;
+}
+```
+
+To keep the office running, use a systemd unit:
 
 ```ini
 # /etc/systemd/system/agent-office.service

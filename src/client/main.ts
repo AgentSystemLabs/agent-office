@@ -465,8 +465,11 @@ function renderHint() {
     else {
       k += w.status + w.id;
       const asleep = w.status === 'exited' || w.status === 'offline';
+      const doing = w.activity ? (w.activity.length > 48 ? `${w.activity.slice(0, 47)}…` : w.activity) : '';
+      k += doing;
       parts = [
         h('span.title', {}, `${w.name} · ${STATUS_LABEL[w.status]}`),
+        doing ? h('span', { style: 'opacity:.75;font-weight:600' }, doing) : '',
         key('E', 'Open terminal'),
         asleep ? key('R', 'Resume') : key('P', 'Prompt'),
         key('X', 'Send home'),

@@ -481,12 +481,35 @@ export class WorkerManager {
       ['PreToolUse', undefined],
       ['PostToolUse', undefined],
     ];
+    // Minimal VPS images sometimes lack curl; the office's own node binary is always there.
+    const nodeHook = path.join(this.dataDir, 'hook.cjs');
+    writeFileSync(
+      nodeHook,
+      `const http = require('http');
+const [event] = process.argv.slice(2);
+let body = '';
+process.stdin.on('data', (c) => (body += c));
+process.stdin.on('end', () => {
+  const url = new URL(process.env.AGENT_OFFICE_HOOK_URL + '/hooks/claude');
+  url.searchParams.set('worker', process.env.AGENT_OFFICE_WORKER_ID);
+  url.searchParams.set('event', event);
+  const req = http.request(url, { method: 'POST', timeout: 3000, headers: { authorization: 'Bearer ' + process.env.AGENT_OFFICE_HOOK_TOKEN, 'content-type': 'application/json' } }, (res) => res.resume());
+  req.on('error', () => {});
+  req.on('timeout', () => req.destroy());
+  req.end(body);
+});
+`,
+      { mode: 0o600 },
+    );
     const hooks: Record<string, unknown[]> = {};
     for (const [event, matcher] of events) {
+      const curl =
+        `curl -sS -m 3 -X POST -H "Authorization: Bearer $AGENT_OFFICE_HOOK_TOKEN" -H "Content-Type: application/json" ` +
+        `--data-binary @- "$AGENT_OFFICE_HOOK_URL/hooks/claude?worker=$AGENT_OFFICE_WORKER_ID&event=${event}"`;
       const command =
         `if [ -z "$AGENT_OFFICE_WORKER_ID" ] || [ -z "$AGENT_OFFICE_HOOK_URL" ]; then exit 0; fi; ` +
-        `curl -sS -m 3 -X POST -H "Authorization: Bearer $AGENT_OFFICE_HOOK_TOKEN" -H "Content-Type: application/json" ` +
-        `--data-binary @- "$AGENT_OFFICE_HOOK_URL/hooks/claude?worker=$AGENT_OFFICE_WORKER_ID&event=${event}" >/dev/null 2>&1 || true`;
+        `if command -v curl >/dev/null 2>&1; then ${curl} >/dev/null 2>&1; ` +
+        `else ${shq(process.execPath)} ${shq(nodeHook)} ${event} >/dev/null 2>&1; fi; true`;
       hooks[event] = [{ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command }] }];
     }
     writeFileSync(this.settingsPath, JSON.stringify({ hooks }, null, 2), { mode: 0o600 });
