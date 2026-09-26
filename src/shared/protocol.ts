@@ -35,6 +35,54 @@ export interface WorkerInfo {
   viewers: string[];
   /** Latest line of meaningful activity (e.g. last prompt or tool). */
   activity?: string;
+  /** Tokens and cost of its Claude session so far, subagents included (agents only). */
+  usage?: Usage;
+}
+
+/** Tokens and what they cost, summed over a Claude Code session or the whole office. */
+export interface Usage {
+  /** Input tokens that missed the prompt cache. */
+  input: number;
+  output: number;
+  /** Tokens written to the prompt cache. */
+  cacheWrite: number;
+  /** Tokens read from the prompt cache. */
+  cacheRead: number;
+  /** USD: estimated from the office's price list while a session runs, Claude Code's own figure once it has ended. */
+  cost: number;
+  /** API calls (assistant messages) counted. */
+  calls: number;
+}
+
+/** Spend across the whole office, kept on disk (see server/usage.ts). */
+export interface UsageState {
+  /** Every worker the office ever ran, including ones sent home. */
+  total: Usage;
+  /** Since midnight on the office's machine. */
+  today: Usage;
+  /** The day `today` covers, YYYY-MM-DD on the office's machine. */
+  day: string;
+  /** Daily budget in USD (--budget), when one is set. */
+  budget?: number;
+  /** New hires are refused for the rest of the day once the budget is spent (--budget-pause). */
+  pauseHiring: boolean;
+}
+
+/** What becomes of a worker's git worktree when it is sent home. */
+export type WorktreeCleanup = 'keep' | 'worktree' | 'all';
+
+/** What a worker's worktree holds, so whoever sends it home knows what deleting it would lose. */
+export interface WorktreeState {
+  /** The worktree folder is still there. */
+  exists: boolean;
+  /** Files with uncommitted changes, new ones included. */
+  dirty: number;
+  /** Commits on its branch since it was made. */
+  ahead: number;
+  /** Commits only its branch has: on no remote, and not in the office's own checkout. */
+  unpushed: number;
+  /** Set when git couldn't tell, e.g. the branch is gone. */
+  error?: string;
 }
 
 export interface PeerInfo {
@@ -237,7 +285,9 @@ export type ClientMsg =
   | { t: 'profile'; name: string; color: string }
   | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind }
   | { t: 'worker.resume'; workerId: string }
-  | { t: 'worker.kill'; workerId: string }
+  | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
+  /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
+  | { t: 'worker.worktree'; workerId: string }
   | { t: 'worker.attach'; workerId: string }
   | { t: 'worker.detach'; workerId: string }
   | { t: 'worker.prompt'; workerId: string; prompt: string }
@@ -279,6 +329,7 @@ export type ServerMsg =
       version: string;
       upgrade: UpgradeState;
       services: ServicesState;
+      usage: UsageState;
     }
   | { t: 'peer.join'; peer: PeerInfo }
   | { t: 'peer.update'; peer: PeerInfo }
@@ -287,6 +338,7 @@ export type ServerMsg =
   | { t: 'peer.act'; id: string }
   | { t: 'worker.update'; worker: WorkerInfo }
   | { t: 'worker.remove'; workerId: string }
+  | { t: 'worker.worktree'; workerId: string; state: WorktreeState }
   | { t: 'screen'; workerId: string; cols: number; rows: number; lines: Record<number, Run[]>; full: boolean; cursor: [number, number] }
   | { t: 'term.snapshot'; workerId: string; data: string; cols: number; rows: number }
   | { t: 'term.data'; workerId: string; data: string }
@@ -298,6 +350,7 @@ export type ServerMsg =
   | { t: 'team'; state: TeamState }
   | { t: 'upgrade'; state: UpgradeState }
   | { t: 'services'; state: ServicesState }
+  | { t: 'usage'; state: UsageState }
   /** Sent to whoever watches that worker's changes, whenever they change. */
   | { t: 'changes'; state: ChangesState }
   | { t: 'changes.diff'; workerId: string; path: string; diff: string; truncated: boolean; error?: string }

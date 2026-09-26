@@ -16,13 +16,14 @@ import { Voice } from './voice';
 import { $, h, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
-import { openPrompt, confirmDialog } from './ui/prompt';
+import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage } from './ui/prompt';
 import { openBoard } from './ui/boards';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { mountServicesButton, openServices } from './ui/services';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
 import { openHelp, openProfile, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
 import { openSettings } from './ui/settings';
+import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -196,6 +197,9 @@ net.onMessage((msg) => {
       break;
     case 'rtc':
       void voice.handleSignal(msg.from, msg.data as never);
+      break;
+    case 'worker.worktree':
+      routeWorktreeMessage(msg);
       break;
     case 'toast':
       toast(msg.text, msg.level);
@@ -377,6 +381,8 @@ function syncWorkers() {
   renderWorkers((id) => openWorkerTerminal(id));
 }
 store.on('workers', syncWorkers);
+store.on('workers', renderUsage);
+store.on('usage', renderUsage);
 
 // ---- Actions ------------------------------------------------------------------------------------
 function freeDesk(): string | null {
@@ -434,7 +440,20 @@ function promptAtDesk(deskId: string) {
 function killWorker(id: string) {
   const w = store.workers.get(id);
   if (!w) return;
-  confirmDialog(`Send ${w.name} home?`, `This stops the Claude Code session at ${DESK_BY_ID.get(w.deskId)?.label ?? 'the desk'} for everyone and frees the desk.`, 'Send home', () =>
+  const where = DESK_BY_ID.get(w.deskId)?.label ?? 'the desk';
+  if (w.worktree) {
+    // A worker with its own worktree: choose what becomes of the worktree and its branch.
+    sendHomeDialog({
+      workerId: id,
+      name: w.name,
+      where,
+      worktree: w.worktree,
+      ask: () => net.send({ t: 'worker.worktree', workerId: id }),
+      onConfirm: (cleanup) => net.send({ t: 'worker.kill', workerId: id, cleanup }),
+    });
+    return;
+  }
+  confirmDialog(`Send ${w.name} home?`, `This stops the Claude Code session at ${where} for everyone and frees the desk.`, 'Send home', () =>
     net.send({ t: 'worker.kill', workerId: id }),
   );
 }
@@ -551,15 +570,24 @@ function renderHint() {
   if (target.kind === 'desk' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
     const desk = DESK_BY_ID.get(target.deskId)!;
-    if (!w) parts = [h('span.title', {}, `${desk.label} · empty`), key('E', 'Hire a worker'), key('P', 'Hire with a task'), key('B', 'Shell')];
-    else {
+    if (!w) {
+      const paused = hiringPaused();
+      k += String(paused);
+      parts = [
+        h('span.title', {}, `${desk.label} · empty`),
+        ...(paused ? [h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow')] : [key('E', 'Hire a worker'), key('P', 'Hire with a task')]),
+        key('B', 'Shell'),
+      ];
+    } else {
       k += w.status + w.id;
       const asleep = w.status === 'exited' || w.status === 'offline';
       const doing = w.activity ? (w.activity.length > 48 ? `${w.activity.slice(0, 47)}…` : w.activity) : '';
-      k += doing;
+      const spent = w.usage?.calls ? usageLabel(w.usage) : '';
+      k += doing + spent;
       parts = [
         h('span.title', {}, `${w.name} · ${STATUS_LABEL[w.status]}`),
         doing ? h('span', { style: 'opacity:.75;font-weight:600' }, doing) : '',
+        spent ? h('span.cost', { title: usageTitle(w.usage!) }, spent) : '',
         key('E', 'Open terminal'),
         key('C', 'Changes'),
         asleep ? key('R', w.kind === 'shell' ? 'Restart' : 'Resume') : key('P', w.kind === 'shell' ? 'Run command' : 'Prompt'),

@@ -7,8 +7,10 @@ import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
 import type { Run, WorkerInfo, WorkerKind, WorkerStatus } from '../shared/protocol.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG } from '../shared/protocol.js';
+import { Worktrees, describeWork, type WorktreeCleanup, type WorktreeState } from './worktrees.js';
 import { DESK_BY_ID } from '../shared/layout.js';
 import type { ServiceOwner } from './services.js';
+import { addUsage, newTracker, restoreTracker, scanTracker, trackerUsage, zeroUsage, type Ledger, type UsageTracker } from './usage.js';
 
 type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
 
@@ -33,6 +35,8 @@ const SCROLLBACK = 3000;
 const SCREEN_INTERVAL_MS = 250;
 const LATE_PROMPT_GRACE_MS = 5000;
 const KEYFRAME_MS = 8000;
+/** How often every worker's transcript is checked for new spend, on top of the hook-driven checks. */
+const USAGE_SCAN_MS = 10_000;
 
 export interface HookEnv {
   url: string;
@@ -52,6 +56,9 @@ interface Worker {
   hookToken: string;
   /** Claude never reported SessionStart: it's stuck on a trust/login/onboarding screen. */
   bootBlocked?: boolean;
+  /** Where the session's tokens and cost are read from (see usage.ts). */
+  tracker: UsageTracker;
+  scanTimer?: NodeJS.Timeout;
 }
 
 export interface WorkerEvents {
@@ -66,8 +73,10 @@ export class WorkerManager {
   private workers = new Map<string, Worker>();
   private statePath: string;
   private settingsPath: string;
+  private trees: Worktrees;
   private agentPath: string | null = null;
   private screenTimer: NodeJS.Timeout;
+  private usageTimer: NodeJS.Timeout;
   /** Workers to start again on the next boot, because the office restarted to upgrade. */
   private wakeOnBoot = new Set<string>();
 
@@ -78,13 +87,20 @@ export class WorkerManager {
     private agentArgs: string[],
     private hook: HookEnv,
     private events: WorkerEvents,
+    private ledger: Ledger,
   ) {
+    this.trees = new Worktrees(dir);
     this.statePath = path.join(dataDir, 'workers.json');
     this.settingsPath = path.join(dataDir, 'claude-hooks.json');
     this.writeHookSettings();
     this.agentPath = resolveCommand(agentCmd);
     const wake = this.restore();
+    // A session may have ended (and written its final tally) while the office was down.
+    for (const w of this.workers.values()) this.scanUsage(w);
     this.screenTimer = setInterval(() => this.flushScreens(), SCREEN_INTERVAL_MS);
+    this.usageTimer = setInterval(() => {
+      for (const w of this.workers.values()) this.scanUsage(w);
+    }, USAGE_SCAN_MS);
     for (const id of wake) this.resume(id);
   }
 
@@ -118,12 +134,16 @@ export class WorkerManager {
   spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent'): WorkerInfo | string {
     if (!DESK_BY_ID.has(deskId)) return 'Unknown desk';
     if (this.deskOccupied(deskId)) return 'That desk is taken';
+    if (kind === 'agent') {
+      const paused = this.ledger.hiringPaused;
+      if (paused) return paused;
+    }
     const used = new Set([...this.workers.values()].map((w) => w.info.name.replace(/ 🐚$/, '')));
     const name = NAMES.find((n) => !used.has(n)) ?? `Worker ${this.workers.size + 1}`;
     const id = randomBytes(6).toString('hex');
     let wt: WorkerInfo['worktree'];
     if (worktree) {
-      const made = this.createWorktree(`${name.toLowerCase()}-${id.slice(0, 4)}`);
+      const made = this.trees.create(`${name.toLowerCase()}-${id.slice(0, 4)}`);
       if (typeof made === 'string') return made;
       wt = made;
     }
@@ -144,7 +164,7 @@ export class WorkerManager {
       viewers: [],
       activity: prompt ? truncate(prompt, 80) : undefined,
     };
-    const w: Worker = { info, viewers: new Map(), screenDirty: true, lastLines: [], leftNeedsInputAt: 0, keyframeAt: 0, hookToken: randomBytes(16).toString('hex') };
+    const w: Worker = { info, viewers: new Map(), screenDirty: true, lastLines: [], leftNeedsInputAt: 0, keyframeAt: 0, hookToken: randomBytes(16).toString('hex'), tracker: newTracker() };
     this.workers.set(id, w);
     this.launch(w, info.prompt, undefined);
     this.persist();
@@ -161,10 +181,16 @@ export class WorkerManager {
     return undefined;
   }
 
-  kill(id: string) {
+  /**
+   * Sends a worker home. For one with its own worktree, `cleanup` says what becomes of it; with no
+   * choice given, the worktree and branch go only when they hold no work. Resolves once that's done,
+   * with a line for the team about the worktree.
+   */
+  async kill(id: string, cleanup?: WorktreeCleanup): Promise<{ note?: string; error?: string }> {
     const w = this.workers.get(id);
-    if (!w) return;
+    if (!w) return {};
     this.workers.delete(id);
+    clearTimeout(w.scanTimer);
     const proc = w.pty;
     w.pty = undefined; // so the exit handler knows this worker is gone and stays quiet
     try {
@@ -175,42 +201,24 @@ export class WorkerManager {
     w.term?.dispose();
     this.events.remove(id);
     this.persist();
-    if (w.info.worktree) this.cleanupWorktree(w.info);
-  }
-
-  private git(args: string[], cwd = this.dir): string {
-    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20_000 }).trim();
-  }
-
-  private createWorktree(slug: string): WorkerInfo['worktree'] | string {
-    try {
-      const base = this.git(['rev-parse', 'HEAD']);
-      const rel = path.join('.agent-office', 'worktrees', slug);
-      const branch = `office/${slug}`;
-      this.git(['worktree', 'add', '-b', branch, rel, base]);
-      return { path: rel, branch, base };
-    } catch (err) {
-      const msg = String((err as { stderr?: string }).stderr || (err as Error).message).trim().split('\n').pop();
-      return `Could not create a git worktree: ${msg}`;
+    const wt = w.info.worktree;
+    if (!wt) return {};
+    const name = w.info.name;
+    if (!cleanup) {
+      const work = describeWork(await this.trees.inspect(wt));
+      if (work) return { note: `Kept ${name}'s worktree and branch ${wt.branch} — it has ${work}` };
+      cleanup = 'all';
     }
+    if (cleanup === 'keep') return { note: `Kept ${name}'s worktree and branch ${wt.branch}` };
+    const error = await this.trees.remove(wt, cleanup);
+    if (error) return { error: `Couldn't delete ${name}'s worktree: ${error}` };
+    return { note: cleanup === 'all' ? `Deleted ${name}'s worktree and branch ${wt.branch}` : `Deleted ${name}'s worktree and kept branch ${wt.branch}` };
   }
 
-  /** Removes a worker's worktree only when it holds no work: clean tree and no new commits. */
-  private cleanupWorktree(info: WorkerInfo) {
-    const wt = info.worktree!;
-    const abs = path.join(this.dir, wt.path);
-    try {
-      const dirty = existsSync(abs) && this.git(['status', '--porcelain'], abs) !== '';
-      const ahead = Number(this.git(['rev-list', '--count', `${wt.base}..${wt.branch}`]));
-      if (dirty || ahead > 0) {
-        this.events.toast(`Kept ${info.name}'s worktree (${wt.branch}) — it has ${ahead > 0 ? `${ahead} commit${ahead > 1 ? 's' : ''}` : 'uncommitted changes'}`, 'info');
-        return;
-      }
-      this.git(['worktree', 'remove', '--force', wt.path]);
-      this.git(['branch', '-D', wt.branch]);
-    } catch {
-      // leave it for the humans
-    }
+  /** What a worker's worktree holds, so whoever sends it home knows what deleting it would lose. */
+  inspectWorktree(id: string): Promise<WorktreeState | undefined> {
+    const wt = this.workers.get(id)?.info.worktree;
+    return wt ? this.trees.inspect(wt) : Promise.resolve(undefined);
   }
 
   attach(id: string, clientId: string, name: string): { data: string; cols: number; rows: number } | undefined {
@@ -292,6 +300,11 @@ export class WorkerManager {
       w.info.sessionId = payload.session_id;
       this.persist();
     }
+    if (typeof payload?.transcript_path === 'string' && payload.transcript_path !== w.tracker.transcript) {
+      w.tracker.transcript = payload.transcript_path;
+      this.persist();
+    }
+    this.scheduleScan(w);
     switch (event) {
       case 'SessionStart':
         if (w.info.status === 'starting' || (w.bootBlocked && w.info.status === 'needs_input')) {
@@ -344,6 +357,7 @@ export class WorkerManager {
 
   shutdown() {
     clearInterval(this.screenTimer);
+    clearInterval(this.usageTimer);
     for (const w of this.workers.values()) {
       try {
         w.pty?.kill();
@@ -455,6 +469,31 @@ export class WorkerManager {
       } else this.setStatus(w, 'idle');
     }, 12000);
     this.emitUpdate(w);
+  }
+
+  /** Hooks fire in bursts (every tool call); one read a moment later covers the whole burst. */
+  private scheduleScan(w: Worker) {
+    if (w.scanTimer) return;
+    w.scanTimer = setTimeout(() => {
+      w.scanTimer = undefined;
+      this.scanUsage(w);
+    }, 300);
+  }
+
+  /** Picks up what the session logged since last time and books the difference. */
+  private scanUsage(w: Worker) {
+    if (w.info.kind !== 'agent' || !w.tracker.transcript || this.workers.get(w.info.id) !== w) return;
+    try {
+      if (!scanTracker(w.tracker)) return;
+    } catch {
+      return; // an unreadable transcript is retried on the next scan
+    }
+    const before = w.info.usage ?? zeroUsage();
+    const after = trackerUsage(w.tracker);
+    w.info.usage = after;
+    this.ledger.add(addUsage(after, before, -1));
+    this.emitUpdate(w);
+    this.persist();
   }
 
   private onProgress(w: Worker, busy: boolean) {
@@ -585,7 +624,7 @@ process.stdin.on('end', () => {
   }
 
   private persist() {
-    const saved = [...this.workers.values()].map(({ info }) => ({
+    const saved = [...this.workers.values()].map(({ info, tracker }) => ({
       id: info.id,
       kind: info.kind,
       deskId: info.deskId,
@@ -599,6 +638,7 @@ process.stdin.on('end', () => {
       sessionId: info.sessionId,
       activity: info.activity,
       wake: this.wakeOnBoot.has(info.id) || undefined,
+      tracker: info.kind === 'agent' ? tracker : undefined,
     }));
     try {
       writeFileSync(this.statePath, JSON.stringify(saved, null, 2), { mode: 0o600 });
@@ -612,9 +652,10 @@ process.stdin.on('end', () => {
     const wake: string[] = [];
     if (!existsSync(this.statePath)) return wake;
     try {
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { wake?: boolean })[];
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { wake?: boolean; tracker?: unknown })[];
       for (const s of saved) {
         if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || this.deskOccupied(s.deskId)) continue;
+        const tracker = restoreTracker(s.tracker);
         const info: WorkerInfo = {
           id: s.id,
           kind: s.kind === 'shell' ? 'shell' : 'agent',
@@ -630,11 +671,12 @@ process.stdin.on('end', () => {
           title: s.title,
           sessionId: s.sessionId,
           activity: s.activity,
+          usage: tracker.transcript ? trackerUsage(tracker) : undefined,
           cols: 100,
           rows: 30,
           viewers: [],
         };
-        this.workers.set(info.id, { info, viewers: new Map(), screenDirty: false, lastLines: [], leftNeedsInputAt: 0, keyframeAt: 0, hookToken: randomBytes(16).toString('hex') });
+        this.workers.set(info.id, { info, viewers: new Map(), screenDirty: false, lastLines: [], leftNeedsInputAt: 0, keyframeAt: 0, hookToken: randomBytes(16).toString('hex'), tracker });
         if (s.wake) wake.push(info.id);
       }
     } catch {

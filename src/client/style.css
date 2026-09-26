@@ -71,6 +71,19 @@ button { font-family: inherit; }
 .people .speaking { color: var(--good); }
 .workers .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workers .sub { display: block; font-size: 11px; font-weight: 600; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workers h3 { display: flex; align-items: baseline; gap: 5px; }
+.workers h3 .cost { margin-left: auto; font-size: 12px; text-transform: none; letter-spacing: 0; }
+.workers .cost { font-size: 11px; font-weight: 800; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* Spend: today, the budget and all time */
+.usage { margin-top: 8px; padding-top: 8px; border-top: 2px dashed rgba(43, 45, 66, .25); font-size: 12px; font-weight: 700; display: flex; flex-direction: column; gap: 5px; }
+.usage .row { display: flex; align-items: baseline; gap: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.usage .row b { font-weight: 900; font-variant-numeric: tabular-nums; }
+.usage .muted { color: var(--muted); font-weight: 600; }
+.usage.over .row b { color: var(--bad); }
+.budget { height: 10px; border: 2px solid var(--ink); border-radius: 999px; background: #fff; overflow: hidden; }
+.budget .fill { height: 100%; background: var(--good); transition: width .3s; }
+.budget.near .fill { background: var(--warn); }
+.budget.over .fill { background: var(--bad); }
 .pill { font-size: 11px; font-weight: 900; padding: 2px 7px; border-radius: 999px; border: 2px solid var(--ink); white-space: nowrap; }
 .pill.starting, .pill.idle { background: #e0f2fe; }
 .pill.working { background: var(--warn); }
@@ -96,6 +109,7 @@ button { font-family: inherit; }
   pointer-events: none !important;
 }
 .hint .title { color: #ffd166; }
+.hint .cost { color: #a5ecfb; font-weight: 700; }
 
 .crosshair {
   position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px;
@@ -152,6 +166,7 @@ button { font-family: inherit; }
 .modal.term .term-host { flex: 1; min-height: 0; padding: 8px 4px 4px 10px; background: #1e1f2e; }
 .modal.term .term-host .xterm { height: 100%; }
 .viewers { display: flex; gap: 4px; font-size: 12px; font-weight: 800; color: var(--muted); align-items: center; }
+.modal.term header .cost { font-size: 12px; font-weight: 800; color: var(--muted); white-space: nowrap; }
 
 /* Changes window: changed files + diff at a desk */
 .modal.desk-changes { width: min(1300px, 100%); height: min(860px, calc(100vh - 32px)); outline: none; }
@@ -234,6 +249,15 @@ button { font-family: inherit; }
 /* Screen share viewer */
 .modal.viewer { width: min(1400px, 100%); background: #111; }
 .modal.viewer video { width: 100%; max-height: calc(100vh - 120px); background: #111; display: block; }
+
+/* Send-home dialog: what becomes of a worker's worktree */
+.choices { display: flex; flex-direction: column; gap: 8px; }
+.modal label.choice { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 10px 12px; border: 3px solid var(--ink); border-radius: 12px; background: #fff; cursor: pointer; }
+.modal label.choice:has(input:checked) { border-color: var(--accent); background: var(--paper-2); }
+.choice input { margin: 3px 0 0; accent-color: var(--accent); flex: none; }
+.choice small { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+.wt-status { margin: 12px 0 0; font-size: 13px; font-weight: 700; color: var(--muted); line-height: 1.45; }
+.wt-status.warn { color: var(--ink); background: #fff3c4; border: 2px solid var(--ink); border-radius: 10px; padding: 8px 10px; }
 
 @media (max-width: 800px) {
   .side { display: none; }

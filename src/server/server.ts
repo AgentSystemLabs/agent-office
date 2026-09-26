@@ -13,6 +13,7 @@ import { GitHub } from './github.js';
 import { Team } from './team.js';
 import { Upgrader } from './upgrade.js';
 import { Services } from './services.js';
+import { Ledger } from './usage.js';
 import { Changes } from './changes.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import type { ChatLine, ClientMsg, PeerInfo, ProjectInfo, ServerMsg, ServicesState } from '../shared/protocol.js';
@@ -32,6 +33,8 @@ const MIME: Record<string, string> = {
   '.mp3': 'audio/mpeg',
   '.ogg': 'audio/ogg',
 };
+
+const CLEANUPS = new Set(['keep', 'worktree', 'all']);
 
 interface Client {
   id: string;
@@ -154,6 +157,14 @@ export async function startServer(cfg: Config) {
   await new Promise<void>((resolve) => hookServer.listen(0, '127.0.0.1', resolve));
   const hookPort = (hookServer.address() as { port: number }).port;
 
+  // What the workers spend, all time and today, with the optional daily budget.
+  const ledger = new Ledger(
+    cfg.dataDir,
+    { budget: cfg.budget, pauseHiring: cfg.budgetPause },
+    (state) => broadcast({ t: 'usage', state }),
+    (text, level) => broadcast({ t: 'toast', text, level }),
+  );
+
   workers = new WorkerManager(
     cfg.dir,
     cfg.dataDir,
@@ -180,6 +191,7 @@ export async function startServer(cfg: Config) {
       screen: (workerId, frame) => broadcast({ t: 'screen', workerId, ...frame }, undefined, true),
       toast: (text, level) => broadcast({ t: 'toast', text, level }),
     },
+    ledger,
   );
 
   const github = new GitHub(
@@ -410,6 +422,7 @@ export async function startServer(cfg: Config) {
       version: upgrader.version,
       upgrade: upgrader.state,
       services: servicesState(),
+      usage: ledger.state(),
     });
     for (const { workerId, frame } of workers.fullScreens()) sendTo(client, { t: 'screen', workerId, ...frame, full: true });
     broadcast({ t: 'peer.join', peer: client.peer }, id);
@@ -494,10 +507,21 @@ export async function startServer(cfg: Config) {
       }
       case 'worker.kill': {
         const w = workers.get(str(msg.workerId, 32));
-        if (w) {
-          workers.kill(w.id);
-          broadcast({ t: 'toast', text: `${who} sent ${w.name} home`, level: 'info' });
-        }
+        if (!w) break;
+        // The worker leaves right away; its worktree is dealt with after that, and the outcome follows.
+        const done = workers.kill(w.id, CLEANUPS.has(String(msg.cleanup)) ? msg.cleanup : undefined);
+        broadcast({ t: 'toast', text: `${who} sent ${w.name} home`, level: 'info' });
+        void done.then(({ note, error }) => {
+          if (note) broadcast({ t: 'toast', text: note, level: 'info' });
+          if (error) broadcast({ t: 'toast', text: error, level: 'warn' });
+        });
+        break;
+      }
+      case 'worker.worktree': {
+        const wid = str(msg.workerId, 32);
+        void workers.inspectWorktree(wid).then((state) => {
+          if (state) sendTo(c, { t: 'worker.worktree', workerId: wid, state });
+        });
         break;
       }
       case 'worker.attach': {
@@ -633,6 +657,7 @@ export async function startServer(cfg: Config) {
     services.stop();
     changes.stop();
     workers.shutdown();
+    ledger.flush();
     for (const c of clients.values()) c.ws.close();
     server.close();
     hookServer.close();
