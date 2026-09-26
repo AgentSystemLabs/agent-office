@@ -296,7 +296,7 @@ export class WorkerManager {
     });
     term.onTitleChange((title: string) => {
       const clean = title.replace(/^[^\p{L}\p{N}]+/u, '').trim();
-      if (clean && clean !== info.title && !/^claude$/i.test(clean)) {
+      if (clean && clean !== info.title && !/^claude( code)?$/i.test(clean)) {
         info.title = clean;
         this.emitUpdate(w);
       }

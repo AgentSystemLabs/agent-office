@@ -693,9 +693,11 @@ function frame(ts?: number) {
     voice.setVolume(id, d < 4 ? 1 : Math.max(0.2, 1 - (d - 4) / 16));
   }
 
+  const camPos = camera.position;
   for (const [id, v] of workerViews) {
     v.model.update(dt, t);
-    v.laptop.update(dt, store.screens.get(id));
+    const desk = DESK_BY_ID.get(v.deskId)!;
+    v.laptop.update(dt, store.screens.get(id), Math.hypot(desk.x - camPos.x, desk.z - camPos.z));
   }
   office.update(t);
 

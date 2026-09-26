@@ -116,6 +116,7 @@ export class Laptop {
   private texture: THREE.CanvasTexture;
   private lid = new THREE.Group();
   private drawnVersion = -1;
+  private paintedAt = 0;
   private openT = 0;
   private placeholder = 'booting…';
 
@@ -158,14 +159,18 @@ export class Laptop {
     this.drawnVersion = -2;
   }
 
-  update(dt: number, screen: ScreenState | undefined) {
+  /** `distance` to the camera throttles repaints: far-away laptops refresh rarely. */
+  update(dt: number, screen: ScreenState | undefined, distance = 0) {
     if (this.openT < 1) {
       this.openT = Math.min(1, this.openT + dt * 1.6);
       const e = 1 - Math.pow(1 - this.openT, 3);
       this.lid.rotation.x = Math.PI / 2 - e * (Math.PI / 2 + 0.22);
     }
     const version = screen ? screen.version : -1;
-    if (version !== this.drawnVersion) {
+    const now = performance.now();
+    const every = distance < 6 ? 150 : distance < 14 ? 600 : 2000;
+    if (version !== this.drawnVersion && (now - this.paintedAt > every || this.drawnVersion < 0)) {
+      this.paintedAt = now;
       this.drawnVersion = version;
       paintScreen(this.ctx, this.canvas.width, this.canvas.height, screen, this.placeholder);
       this.texture.needsUpdate = true;
