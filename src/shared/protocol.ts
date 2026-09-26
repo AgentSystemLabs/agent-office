@@ -152,6 +152,50 @@ export interface ServicesState {
   ssh?: string;
 }
 
+export type ChangeStatus = 'M' | 'A' | 'D' | 'R' | 'T' | '?';
+
+/** One file a worker changed, against the base of its branch. */
+export interface ChangedFile {
+  path: string;
+  /** The old path, when the file was renamed. */
+  from?: string;
+  /** M modified, A added, D deleted, R renamed, T type changed, ? untracked (new, never committed). */
+  status: ChangeStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  /** Not committed yet: staged, unstaged or untracked. */
+  uncommitted: boolean;
+  /** Fingerprint of the working copy (size and mtime); a new value means the diff changed. */
+  sig: string;
+}
+
+/** What a worker changed in its checkout, against the branch the office was opened on. */
+export interface ChangesState {
+  workerId: string;
+  /** The checkout, relative to the office dir ('' is the project folder itself, shared by everyone). */
+  dir: string;
+  /** Current branch of that checkout ('HEAD' when detached). */
+  branch?: string;
+  /** What the diff is against: the base branch, an upstream, or 'HEAD' (uncommitted changes only). */
+  base: string;
+  /** Commits on the branch since the base. */
+  ahead: number;
+  /** Subject of the newest commit, when ahead > 0. */
+  subject?: string;
+  files: ChangedFile[];
+  /** Files left out because there were more than the office lists. */
+  more: number;
+  /** The branch a pull request would target, when this checkout is on a branch of its own. */
+  prBase?: string;
+  /** An open pull request for the branch. */
+  pr?: { number: number; url: string };
+  /** A commit, discard or pull request in progress. */
+  busy?: string;
+  error?: string;
+  at: number;
+}
+
 export interface VersionInfo {
   sha: string;
   subject: string;
@@ -206,6 +250,14 @@ export type ClientMsg =
   | { t: 'team.get' }
   | { t: 'team.invite'; github: string }
   | { t: 'team.remove'; name: string }
+  /** Follow what a worker changed (the office polls its checkout while anyone watches). */
+  | { t: 'changes.watch'; workerId: string }
+  | { t: 'changes.unwatch'; workerId: string }
+  | { t: 'changes.diff'; workerId: string; path: string }
+  | { t: 'changes.commit'; workerId: string; message: string }
+  /** Without a path, throws away every uncommitted change in that checkout. */
+  | { t: 'changes.discard'; workerId: string; path?: string }
+  | { t: 'changes.pr'; workerId: string; title: string; body: string }
   | { t: 'upgrade.check' }
   | { t: 'upgrade.start' }
   | { t: 'ping'; at: number };
@@ -246,6 +298,9 @@ export type ServerMsg =
   | { t: 'team'; state: TeamState }
   | { t: 'upgrade'; state: UpgradeState }
   | { t: 'services'; state: ServicesState }
+  /** Sent to whoever watches that worker's changes, whenever they change. */
+  | { t: 'changes'; state: ChangesState }
+  | { t: 'changes.diff'; workerId: string; path: string; diff: string; truncated: boolean; error?: string }
   /** Sent to whoever asked for the invite. */
   | { t: 'team.invited'; github: string; name?: string; keys?: number; error?: string }
   | { t: 'pong'; at: number };

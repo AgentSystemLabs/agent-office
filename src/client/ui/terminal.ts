@@ -19,7 +19,7 @@ export function openTerminalFor(): string | null {
   return current?.workerId ?? null;
 }
 
-export function openTerminal(net: Net, workerId: string) {
+export function openTerminal(net: Net, workerId: string, onChanges?: () => void) {
   if (current?.workerId === workerId) return;
   current?.modal.close();
   const info = store.workers.get(workerId);
@@ -29,9 +29,10 @@ export function openTerminal(net: Net, workerId: string) {
   const title = h('h2', {}, info.name);
   const pill = h('span.pill', {}, '');
   const viewers = h('div.viewers', {});
+  const changesBtn = h('button.btn', { type: 'button', title: 'What this worker changed: files, diff, commit, open a PR (C at the desk)' }, '🌿 Changes');
   const closeBtn = h('button.btn.close', { title: 'Leave terminal (Esc) · Ctrl+[ sends Esc to the terminal', 'aria-label': 'Close' }, '✕');
   const host = h('div.term-host');
-  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, viewers, closeBtn), host);
+  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, viewers, onChanges ? changesBtn : null, closeBtn), host);
 
   const term = new Terminal({
     fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
@@ -122,6 +123,10 @@ export function openTerminal(net: Net, workerId: string) {
   });
   current = { workerId, modal };
   closeBtn.addEventListener('click', () => modal.close());
+  changesBtn.addEventListener('click', () => {
+    onChanges?.();
+    modal.close();
+  });
 
   term.open(host);
   term.attachCustomKeyEventHandler((e) => {
