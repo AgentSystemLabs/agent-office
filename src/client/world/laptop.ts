@@ -58,8 +58,29 @@ export interface ScreenState {
   version: number;
 }
 
+const runLen = (runs: Run[] | undefined) => (runs ? runs.reduce((n, r) => n + [...r[0]].length, 0) : 0);
+
+/**
+ * The part of the screen worth showing on a small laptop: the last ~20 non-empty rows, trimmed to
+ * the widest line (at least 56 columns) so text stays legible from a few steps away.
+ */
+function activeWindow(s: ScreenState, maxRows: number): { top: number; rows: number; cols: number } {
+  let last = -1;
+  for (let y = s.rows - 1; y >= 0; y--) {
+    if (s.lines[y]?.some((r) => r[0].trim() || r[2] !== -1)) {
+      last = y;
+      break;
+    }
+  }
+  if (last < 0) return { top: 0, rows: Math.min(s.rows, maxRows), cols: Math.min(s.cols, 56) };
+  const top = Math.max(0, last + 1 - maxRows);
+  let cols = 56;
+  for (let y = top; y <= last; y++) cols = Math.max(cols, runLen(s.lines[y]));
+  return { top, rows: Math.max(12, last + 1 - top), cols: Math.min(s.cols, cols) };
+}
+
 /** Paints a terminal screen onto a canvas. Shared by the 3D laptops and the HUD previews. */
-export function paintScreen(ctx: CanvasRenderingContext2D, w: number, h: number, s: ScreenState | undefined, placeholder?: string) {
+export function paintScreen(ctx: CanvasRenderingContext2D, w: number, h: number, s: ScreenState | undefined, placeholder?: string, zoomRows = 0) {
   ctx.fillStyle = TERM_THEME.background;
   ctx.fillRect(0, 0, w, h);
   if (!s) {
@@ -72,14 +93,15 @@ export function paintScreen(ctx: CanvasRenderingContext2D, w: number, h: number,
     return;
   }
   const pad = w * 0.02;
-  const cellW = (w - pad * 2) / s.cols;
-  const cellH = (h - pad * 2) / s.rows;
+  const win = zoomRows ? activeWindow(s, zoomRows) : { top: 0, rows: s.rows, cols: s.cols };
+  const cellW = (w - pad * 2) / win.cols;
+  const cellH = (h - pad * 2) / win.rows;
   const fontSize = Math.max(4, Math.min(cellW / 0.6, cellH / 1.15));
   const charW = fontSize * 0.6;
   const lineH = Math.min(cellH, fontSize * 1.25);
   ctx.textBaseline = 'top';
-  for (let y = 0; y < s.rows; y++) {
-    const runs = s.lines[y];
+  for (let y = 0; y < win.rows; y++) {
+    const runs = s.lines[win.top + y];
     if (!runs) continue;
     let x = 0;
     const py = pad + y * lineH;
@@ -172,7 +194,7 @@ export class Laptop {
     if (version !== this.drawnVersion && (now - this.paintedAt > every || this.drawnVersion < 0)) {
       this.paintedAt = now;
       this.drawnVersion = version;
-      paintScreen(this.ctx, this.canvas.width, this.canvas.height, screen, this.placeholder);
+      paintScreen(this.ctx, this.canvas.width, this.canvas.height, screen, this.placeholder, 22);
       this.texture.needsUpdate = true;
     }
   }

@@ -262,11 +262,15 @@ function syncWorkers() {
     if (!v) {
       const model = new Worker(w.name, w.color);
       model.root.position.copy(desk.seatAnchor.position);
-      model.root.position.y = 0.42;
+      model.root.position.y = 0.4;
+      model.root.position.z += 0.08;
       model.root.rotation.y = Math.PI;
+      model.root.scale.setScalar(0.82);
       desk.group.add(model.root);
       const laptop = new Laptop();
       laptop.root.position.copy(desk.laptopAnchor.position);
+      laptop.root.position.z -= 0.08;
+      laptop.root.scale.setScalar(1.3);
       desk.group.add(laptop.root);
       noOutline(desk.group);
       desk.vacancy.visible = false;
@@ -673,6 +677,8 @@ function frame(ts?: number) {
   me.root.rotation.y = player.facing;
   me.update(dt, t, player.moving && player.grounded, !player.grounded);
   me.setSpeaking(voice.inVoice && voice.localLevel > 0.04);
+  // Hide yourself when the camera is zoomed in right behind your head.
+  me.root.visible = camera.position.distanceTo(new THREE.Vector3(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5;
 
   const now = performance.now();
   const moved = Math.abs(player.pos.x - lastSent.x) + Math.abs(player.pos.y - lastSent.y) + Math.abs(player.pos.z - lastSent.z) > 0.01 || Math.abs(player.facing - lastSent.rotY) > 0.02;
