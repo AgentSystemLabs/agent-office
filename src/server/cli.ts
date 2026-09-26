@@ -2,7 +2,13 @@ import os from 'node:os';
 import { loadConfig, ensureSelfSigned } from './config.js';
 import { startServer } from './server.js';
 
-const cfg = loadConfig(process.argv.slice(2));
+const argv = process.argv.slice(2);
+if (argv[0] === 'prune') {
+  const { prune } = await import('./prune.js');
+  process.exit(await prune(argv.slice(1)));
+}
+
+const cfg = loadConfig(argv);
 await ensureSelfSigned(cfg);
 
 let office: Awaited<ReturnType<typeof startServer>>;

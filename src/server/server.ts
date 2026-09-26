@@ -33,6 +33,8 @@ const MIME: Record<string, string> = {
   '.ogg': 'audio/ogg',
 };
 
+const CLEANUPS = new Set(['keep', 'worktree', 'all']);
+
 interface Client {
   id: string;
   ws: WebSocket;
@@ -474,10 +476,21 @@ export async function startServer(cfg: Config) {
       }
       case 'worker.kill': {
         const w = workers.get(str(msg.workerId, 32));
-        if (w) {
-          workers.kill(w.id);
-          broadcast({ t: 'toast', text: `${who} sent ${w.name} home`, level: 'info' });
-        }
+        if (!w) break;
+        // The worker leaves right away; its worktree is dealt with after that, and the outcome follows.
+        const done = workers.kill(w.id, CLEANUPS.has(String(msg.cleanup)) ? msg.cleanup : undefined);
+        broadcast({ t: 'toast', text: `${who} sent ${w.name} home`, level: 'info' });
+        void done.then(({ note, error }) => {
+          if (note) broadcast({ t: 'toast', text: note, level: 'info' });
+          if (error) broadcast({ t: 'toast', text: error, level: 'warn' });
+        });
+        break;
+      }
+      case 'worker.worktree': {
+        const wid = str(msg.workerId, 32);
+        void workers.inspectWorktree(wid).then((state) => {
+          if (state) sendTo(c, { t: 'worker.worktree', workerId: wid, state });
+        });
         break;
       }
       case 'worker.attach': {
