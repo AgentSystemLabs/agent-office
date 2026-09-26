@@ -116,6 +116,141 @@ export function textPlane(text: string, opts: TextOpts = {}): THREE.Mesh<THREE.P
   return new THREE.Mesh(new THREE.PlaneGeometry(w * TEXT_SCALE, h * TEXT_SCALE), mat);
 }
 
+export interface CardOpts {
+  /** A small pill across the top edge, e.g. "⌨️ WORKING". */
+  chip?: { text: string; bg: string; color: string };
+  title: string;
+  body?: string;
+  bg: string;
+  /** Widest a line of text may get, in textSprite `size` pixels. */
+  maxWidth?: number;
+}
+
+/** Cards are drawn at twice the pixels of other labels so their smaller text stays crisp up close. */
+const CARD_RES = 2;
+const INK = '#2b2d42';
+const FONT = 'Nunito, ui-rounded, system-ui, sans-serif';
+
+/**
+ * A speech-bubble card: status pill, bold title (up to 2 lines) and a smaller body (up to 3), with a
+ * tail pointing down. Its position is the tip of the tail, so it sits right on top of what it's about.
+ */
+export function cardSprite(o: CardOpts): THREE.Sprite {
+  const R = CARD_RES;
+  const maxW = (o.maxWidth ?? 400) * R;
+  const pad = 16 * R;
+  const lw = 5 * R;
+  const tail = 14 * R;
+  const chipFont = `800 ${19 * R}px ${FONT}`;
+  const chipH = 30 * R;
+  const titleFont = `800 ${30 * R}px ${FONT}`;
+  const titleLH = 36 * R;
+  const bodyFont = `700 ${23 * R}px ${FONT}`;
+  const bodyLH = 29 * R;
+
+  const ctx = document.createElement('canvas').getContext('2d')!;
+  ctx.font = titleFont;
+  const title = wrap(ctx, o.title, maxW, 2);
+  const titleW = Math.max(...title.map((l) => ctx.measureText(l).width));
+  ctx.font = bodyFont;
+  const body = o.body ? wrap(ctx, o.body, maxW, 3) : [];
+  const bodyW = body.length ? Math.max(...body.map((l) => ctx.measureText(l).width)) : 0;
+  ctx.font = chipFont;
+  const chipW = o.chip ? ctx.measureText(o.chip.text).width + 24 * R : 0;
+
+  const w = Math.ceil(Math.max(titleW, bodyW, chipW + 2 * pad) + 2 * pad);
+  const top = o.chip ? chipH / 2 : lw;
+  const titleY = top + (o.chip ? chipH / 2 + 6 * R : pad);
+  const bodyY = titleY + title.length * titleLH + 4 * R;
+  const bottom = bodyY + body.length * bodyLH + pad * 0.7;
+  const h = Math.ceil(bottom + tail + lw);
+
+  const canvas = ctx.canvas;
+  canvas.width = w;
+  canvas.height = h;
+  // One outline for the card and its tail, so the border runs unbroken down the tail.
+  const x0 = lw / 2;
+  const x1 = w - lw / 2;
+  const cx = w / 2;
+  const r = 18 * R;
+  ctx.beginPath();
+  ctx.moveTo(x0 + r, top);
+  ctx.arcTo(x1, top, x1, bottom, r);
+  ctx.arcTo(x1, bottom, x0, bottom, r);
+  ctx.lineTo(cx + tail, bottom);
+  ctx.lineTo(cx, bottom + tail);
+  ctx.lineTo(cx - tail, bottom);
+  ctx.arcTo(x0, bottom, x0, top, r);
+  ctx.arcTo(x0, top, x1, top, r);
+  ctx.closePath();
+  ctx.fillStyle = o.bg;
+  ctx.fill();
+  ctx.lineWidth = lw;
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = INK;
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  if (o.chip) {
+    ctx.beginPath();
+    ctx.roundRect(cx - chipW / 2, lw / 2, chipW, chipH, chipH / 2);
+    ctx.fillStyle = o.chip.bg;
+    ctx.fill();
+    ctx.lineWidth = 4 * R;
+    ctx.stroke();
+    ctx.font = chipFont;
+    ctx.fillStyle = o.chip.color;
+    ctx.fillText(o.chip.text, cx, lw / 2 + chipH / 2 + R);
+  }
+  ctx.font = titleFont;
+  ctx.fillStyle = INK;
+  title.forEach((l, i) => ctx.fillText(l, cx, titleY + (i + 0.5) * titleLH));
+  ctx.font = bodyFont;
+  ctx.fillStyle = '#5c5f77';
+  body.forEach((l, i) => ctx.fillText(l, cx, bodyY + (i + 0.5) * bodyLH));
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false, transparent: true }));
+  sprite.scale.set((w / R) * TEXT_SCALE, (h / R) * TEXT_SCALE, 1);
+  sprite.center.set(0.5, 0);
+  sprite.renderOrder = 10;
+  return sprite;
+}
+
+/** Greedy word wrap to at most `maxLines`, ending in "…" when the text doesn't fit. */
+function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number, maxLines: number): string[] {
+  const fits = (s: string) => ctx.measureText(s).width <= maxW;
+  const lines: string[] = [];
+  let line = '';
+  for (let word of text.split(/\s+/).filter(Boolean)) {
+    // A word wider than a whole line gets cut where it has to be.
+    while (!fits(word)) {
+      let n = word.length - 1;
+      while (n > 1 && !fits(word.slice(0, n))) n--;
+      if (line) lines.push(line);
+      lines.push(word.slice(0, n));
+      line = '';
+      word = word.slice(n);
+    }
+    const next = line ? `${line} ${word}` : word;
+    if (fits(next)) line = next;
+    else {
+      lines.push(line);
+      line = word;
+    }
+  }
+  if (line) lines.push(line);
+  if (lines.length <= maxLines) return lines;
+  const kept = lines.slice(0, maxLines);
+  let last = kept[maxLines - 1];
+  while (last && !fits(`${last}…`)) last = last.slice(0, -1).trimEnd();
+  kept[maxLines - 1] = `${last.replace(/[\s,.;:—-]+$/, '')}…`;
+  return kept;
+}
+
 export function disposeSprite(s: THREE.Sprite) {
   s.material.map?.dispose();
   s.material.dispose();

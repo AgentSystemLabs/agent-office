@@ -18,6 +18,7 @@ agent-office
 - **Isolated branches.** When you hire with a task, you can tick *own git worktree*. The worker then gets its own `office/<name>` branch under `.agent-office/worktrees/`, so parallel workers never share a checkout.
 - **Shared terminals.** Press **E** at an occupied desk to open the real terminal (a PTY, over WebSockets). Several people can type into the same session at once, and anyone who joins late gets the full scrollback.
 - **Live status.** Claude Code hooks drive each worker's status: *working*, *needs input* or *done*. When a worker needs a human or has finished, it jumps up and down and you hear a ding. Its antenna bulb shows the status from across the room.
+- **Task cards.** A card over each worker's head names what it's on ("Fix Login Redirect") and says in one line what it's doing right now. Claude Haiku writes it from the worker's prompts and latest tool calls through the `claude` CLI, a fraction of a cent each time. Without that, the card shows the prompt itself.
 - **Survives restarts.** Workers are saved to disk. After a server restart they come back asleep, and **R** resumes the exact Claude session.
 - **Issues board.** A tack board shows GitHub issues in *Open*, *In progress* and *Closed*. Click an issue and choose **Hand to a worker** to seat a worker with a ready-made prompt.
 - **PR board.** A second tack board shows pull requests in *Draft*, *In review*, *Approved*, *Merged* and *Closed*, with CI status and diff size. **Review with a worker** does what it says.

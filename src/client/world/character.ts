@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES, type Look } from '../../shared/avatar';
-import { disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
+import type { WorkerTask } from '../../shared/protocol';
+import { cardSprite, disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
 
 export type Pose = 'stand' | 'walk' | 'sit' | 'type';
 
@@ -275,6 +276,17 @@ const STATUS_BULB: Record<string, string> = {
   offline: '#6c757d',
 };
 
+/** Status pill on a worker's task card: [text, background, text color]. */
+const TASK_CHIP: Record<string, [string, string, string]> = {
+  starting: ['⏳ STARTING', STATUS_BULB.starting, '#2b2d42'],
+  idle: ['💬 READY', STATUS_BULB.idle, '#2b2d42'],
+  working: ['⌨️ WORKING', STATUS_BULB.working, '#2b2d42'],
+  needs_input: ['❗ NEEDS YOU', STATUS_BULB.needs_input, '#ffffff'],
+  done: ['✅ DONE', STATUS_BULB.done, '#2b2d42'],
+  exited: ['💤 ASLEEP', STATUS_BULB.exited, '#ffffff'],
+  offline: ['💤 ASLEEP', STATUS_BULB.offline, '#ffffff'],
+};
+
 /** The little Claude worker that sits at a desk. Forward is +z. */
 export class Worker {
   readonly root = new THREE.Group();
@@ -285,6 +297,9 @@ export class Worker {
   private armR: THREE.Object3D;
   private bubble: THREE.Sprite | null = null;
   private bubbleKey = '';
+  /** The bubble is a task card: it hangs from its tail instead of floating. */
+  private bubbleIsCard = false;
+  private task: WorkerTask | undefined;
   private nameTag: THREE.Sprite | null = null;
   private eyes: THREE.Mesh[] = [];
   private blinkAt = Math.random() * 4;
@@ -353,22 +368,36 @@ export class Worker {
     const c = STATUS_BULB[status] ?? '#adb5bd';
     this.bulb.color.set(c);
     this.bulb.emissive.set(c).multiplyScalar(0.7);
+    this.drawBubble();
+  }
+
+  /** What it's working on, shown on a card over its head in place of the status bubble. */
+  setTask(task: WorkerTask | undefined) {
+    this.task = task;
+    this.drawBubble();
+  }
+
+  private drawBubble() {
+    const { status, bouncing: bounce, task } = this;
+    const hot = status === 'needs_input' || (status === 'done' && bounce);
+    const hotBg = status === 'done' ? '#caffbf' : '#ffd6e0';
     const bubble =
       status === 'needs_input' ? '❗ needs you' : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : status === 'offline' || status === 'exited' ? '💤' : '';
-    if (bubble !== this.bubbleKey) {
-      this.bubbleKey = bubble;
-      if (this.bubble) {
-        this.root.remove(this.bubble);
-        disposeSprite(this.bubble);
-        this.bubble = null;
-      }
-      if (bubble) {
-        const hot = status === 'needs_input' || (status === 'done' && bounce);
-        this.bubble = textSprite(bubble, { bg: hot ? (status === 'done' ? '#caffbf' : '#ffd6e0') : '#fffaf3', size: 38 });
-        this.bubble.position.y = 1.95;
-        this.root.add(this.bubble);
-      }
+    const key = task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble;
+    if (key === this.bubbleKey) return;
+    this.bubbleKey = key;
+    if (this.bubble) {
+      this.root.remove(this.bubble);
+      disposeSprite(this.bubble);
+      this.bubble = null;
     }
+    this.bubbleIsCard = !!task;
+    if (task) {
+      const [text, bg, color] = TASK_CHIP[status] ?? TASK_CHIP.idle;
+      const asleep = status === 'offline' || status === 'exited';
+      this.bubble = cardSprite({ chip: { text, bg, color }, title: task.name, body: task.summary, bg: hot ? hotBg : asleep ? '#e9ecef' : '#fffaf3' });
+    } else if (bubble) this.bubble = textSprite(bubble, { bg: hot ? hotBg : '#fffaf3', size: 38 });
+    if (this.bubble) this.root.add(this.bubble);
   }
 
   update(dt: number, t: number) {
@@ -406,7 +435,7 @@ export class Worker {
     const sleepy = this.status === 'offline' || this.status === 'exited';
     this.bulbMesh.scale.setScalar(this.status === 'needs_input' ? 1 + Math.abs(Math.sin(t * 8)) * 0.5 : 1);
     if (sleepy) this.body.rotation.z = Math.sin(t * 1.5) * 0.08;
-    if (this.bubble) this.bubble.position.y = 1.95 + (this.bouncing ? this.body.position.y : 0) + Math.sin(t * 3) * 0.03;
+    if (this.bubble) this.bubble.position.y = (this.bubbleIsCard ? 1.74 : 1.95) + (this.bouncing ? this.body.position.y : 0) + Math.sin(t * 3) * 0.03;
     if (this.nameTag) this.nameTag.position.y = 1.55 + (this.bouncing ? this.body.position.y : 0);
   }
 

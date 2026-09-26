@@ -336,6 +336,7 @@ function syncWorkers() {
       v.model.setStatus(w.status, shouldBounce(w));
       noOutline(v.model.root);
     }
+    v.model.setTask(w.task);
     const deskDef = DESK_BY_ID.get(w.deskId);
     if (deskDef) sound.setTyping(w.id, deskDef.x, deskDef.z, w.status === 'working');
     const again = w.kind === 'shell' ? 'restart' : 'resume';

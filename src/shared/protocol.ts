@@ -13,6 +13,12 @@ export type WorkerStatus =
 
 export type WorkerKind = 'agent' | 'shell';
 
+/** What a worker is on, for the card above its head: "Fix Login Redirect" + what it's doing now. */
+export interface WorkerTask {
+  name: string;
+  summary: string;
+}
+
 export interface WorkerInfo {
   id: string;
   /** 'agent' runs Claude Code (or --agent); 'shell' is a plain shared login shell. */
@@ -37,6 +43,8 @@ export interface WorkerInfo {
   viewers: string[];
   /** Latest line of meaningful activity (e.g. last prompt or tool). */
   activity?: string;
+  /** Written by a small model from its prompts and recent tool calls (see server/tasks.ts). */
+  task?: WorkerTask;
 }
 
 export interface PeerInfo {

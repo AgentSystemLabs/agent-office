@@ -5,10 +5,11 @@ import path from 'node:path';
 import * as pty from '@lydell/node-pty';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
-import type { Run, WorkerInfo, WorkerKind, WorkerStatus } from '../shared/protocol.js';
+import type { Run, WorkerInfo, WorkerKind, WorkerStatus, WorkerTask } from '../shared/protocol.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG } from '../shared/protocol.js';
 import { DESK_BY_ID } from '../shared/layout.js';
 import type { ServiceOwner } from './services.js';
+import { TaskNamer, fallbackTask } from './tasks.js';
 
 type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
 
@@ -33,6 +34,12 @@ const SCROLLBACK = 3000;
 const SCREEN_INTERVAL_MS = 250;
 const LATE_PROMPT_GRACE_MS = 5000;
 const KEYFRAME_MS = 8000;
+/** How many of a worker's latest prompts and tool calls the task namer sees. */
+const TASK_PROMPTS = 5;
+const TASK_TOOLS = 10;
+/** While a worker works, refresh its task summary after this many tool calls, at most this often. */
+const TASK_REFRESH_TOOLS = 8;
+const TASK_REFRESH_MS = 90_000;
 
 export interface HookEnv {
   url: string;
@@ -52,6 +59,13 @@ interface Worker {
   hookToken: string;
   /** Claude never reported SessionStart: it's stuck on a trust/login/onboarding screen. */
   bootBlocked?: boolean;
+  /** Its latest prompts and tool calls, for naming its task. */
+  prompts: string[];
+  tools: string[];
+  toolsSinceNamed: number;
+  namedAt: number;
+  /** Bumped by /clear: a new conversation, so a new task. */
+  taskEpoch: number;
 }
 
 export interface WorkerEvents {
@@ -70,6 +84,7 @@ export class WorkerManager {
   private screenTimer: NodeJS.Timeout;
   /** Workers to start again on the next boot, because the office restarted to upgrade. */
   private wakeOnBoot = new Set<string>();
+  private namer: TaskNamer;
 
   constructor(
     private dir: string,
@@ -83,6 +98,14 @@ export class WorkerManager {
     this.settingsPath = path.join(dataDir, 'claude-hooks.json');
     this.writeHookSettings();
     this.agentPath = resolveCommand(agentCmd);
+    const claude = /(^|\/)claude$/.test(agentCmd) ? this.agentPath : resolveCommand('claude');
+    this.namer = new TaskNamer(claude, childEnv(), (id, task, ctx) => {
+      const w = this.workers.get(id);
+      if (!w || w.taskEpoch !== ctx.epoch) return;
+      w.info.task = task;
+      this.emitUpdate(w);
+      this.persist();
+    });
     const wake = this.restore();
     this.screenTimer = setInterval(() => this.flushScreens(), SCREEN_INTERVAL_MS);
     for (const id of wake) this.resume(id);
@@ -144,8 +167,9 @@ export class WorkerManager {
       viewers: [],
       activity: prompt ? truncate(prompt, 80) : undefined,
     };
-    const w: Worker = { info, viewers: new Map(), screenDirty: true, lastLines: [], leftNeedsInputAt: 0, keyframeAt: 0, hookToken: randomBytes(16).toString('hex') };
+    const w = newWorker(info);
     this.workers.set(id, w);
+    if (info.prompt) this.notePrompt(w, info.prompt);
     this.launch(w, info.prompt, undefined);
     this.persist();
     return info;
@@ -165,6 +189,7 @@ export class WorkerManager {
     const w = this.workers.get(id);
     if (!w) return;
     this.workers.delete(id);
+    this.namer.forget(id);
     const proc = w.pty;
     w.pty = undefined; // so the exit handler knows this worker is gone and stays quiet
     try {
@@ -260,6 +285,7 @@ export class WorkerManager {
     w.pty.write(`\x1b[200~${clean}\x1b[201~`);
     setTimeout(() => w.pty?.write('\r'), 120);
     w.info.activity = truncate(clean, 80);
+    this.notePrompt(w, clean);
     this.emitUpdate(w);
     return undefined;
   }
@@ -294,6 +320,7 @@ export class WorkerManager {
     }
     switch (event) {
       case 'SessionStart':
+        if (payload?.source === 'clear') this.clearTask(w);
         if (w.info.status === 'starting' || (w.bootBlocked && w.info.status === 'needs_input')) {
           w.bootBlocked = false;
           this.setStatus(w, 'idle');
@@ -301,13 +328,18 @@ export class WorkerManager {
         break;
       case 'UserPromptSubmit':
         w.bootBlocked = false;
-        if (typeof payload?.prompt === 'string') w.info.activity = truncate(payload.prompt, 80);
-        this.setStatus(w, 'working');
+        if (typeof payload?.prompt === 'string') {
+          w.info.activity = truncate(payload.prompt, 80);
+          this.notePrompt(w, payload.prompt);
+        }
+        if (w.info.status !== 'working') this.setStatus(w, 'working');
+        else this.emitUpdate(w);
         break;
       case 'PreToolUse':
         if (payload?.tool_name === 'AskUserQuestion') this.setStatus(w, 'needs_input');
         else {
           w.info.activity = describeTool(payload);
+          this.noteTool(w, w.info.activity);
           if (w.info.status !== 'working') this.setStatus(w, 'working');
           else this.emitUpdate(w);
         }
@@ -334,6 +366,45 @@ export class WorkerManager {
         break;
     }
     return true;
+  }
+
+  /** A new message for the worker: show it right away, and have its task (re)named. */
+  private notePrompt(w: Worker, prompt: string) {
+    if (w.info.kind !== 'agent') return;
+    const clean = prompt.replace(/\s+/g, ' ').trim();
+    // Bare slash commands (/model, /compact) and repeats aren't new work.
+    if (!clean || /^\/\S+$/.test(clean) || w.prompts.at(-1) === clean) return;
+    w.prompts = [...w.prompts, clean].slice(-TASK_PROMPTS);
+    const hadTask = !!w.info.task;
+    if (!hadTask) w.info.task = fallbackTask(clean);
+    // "yes", "go ahead", "2": a reply within the same task, not worth a new name.
+    if (hadTask && clean.length < 16) return;
+    this.nameTask(w);
+  }
+
+  private noteTool(w: Worker, tool: string) {
+    w.tools = [...w.tools, tool].slice(-TASK_TOOLS);
+    w.toolsSinceNamed++;
+    if (w.info.task && w.toolsSinceNamed >= TASK_REFRESH_TOOLS && Date.now() - w.namedAt > TASK_REFRESH_MS) this.nameTask(w);
+  }
+
+  private nameTask(w: Worker) {
+    w.toolsSinceNamed = 0;
+    w.namedAt = Date.now();
+    const previous = w.info.task && w.prompts.length > 1 ? w.info.task : undefined;
+    this.namer.request(w.info.id, { prompts: w.prompts, tools: w.tools, previous, epoch: w.taskEpoch });
+  }
+
+  private clearTask(w: Worker) {
+    w.taskEpoch++;
+    w.prompts = [];
+    w.tools = [];
+    w.toolsSinceNamed = 0;
+    this.namer.forget(w.info.id);
+    if (!w.info.task) return;
+    w.info.task = undefined;
+    this.emitUpdate(w);
+    this.persist();
   }
 
   /** The office is about to restart into a new version: bring whoever is awake back afterwards. */
@@ -391,8 +462,7 @@ export class WorkerManager {
       // `--` so a prompt like "- fix login" is never parsed as a CLI option.
       if (prompt) args.push('--', prompt);
     }
-    const env: Record<string, string> = {};
-    for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !scrubbed(k)) env[k] = v;
+    const env = childEnv();
     Object.assign(env, {
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
@@ -598,6 +668,7 @@ process.stdin.on('end', () => {
       title: info.title,
       sessionId: info.sessionId,
       activity: info.activity,
+      task: info.task,
       wake: this.wakeOnBoot.has(info.id) || undefined,
     }));
     try {
@@ -630,11 +701,15 @@ process.stdin.on('end', () => {
           title: s.title,
           sessionId: s.sessionId,
           activity: s.activity,
+          task: validTask(s.task),
           cols: 100,
           rows: 30,
           viewers: [],
         };
-        this.workers.set(info.id, { info, viewers: new Map(), screenDirty: false, lastLines: [], leftNeedsInputAt: 0, keyframeAt: 0, hookToken: randomBytes(16).toString('hex') });
+        const w = newWorker(info);
+        w.screenDirty = false;
+        if (info.prompt) w.prompts = [info.prompt.replace(/\s+/g, ' ').trim()];
+        this.workers.set(info.id, w);
         if (s.wake) wake.push(info.id);
       }
     } catch {
@@ -645,6 +720,35 @@ process.stdin.on('end', () => {
 }
 
 // ---------------------------------------------------------------------------
+
+function newWorker(info: WorkerInfo): Worker {
+  return {
+    info,
+    viewers: new Map(),
+    screenDirty: true,
+    lastLines: [],
+    leftNeedsInputAt: 0,
+    keyframeAt: 0,
+    hookToken: randomBytes(16).toString('hex'),
+    prompts: [],
+    tools: [],
+    toolsSinceNamed: 0,
+    namedAt: 0,
+    taskEpoch: 0,
+  };
+}
+
+/** The office's environment, minus anything that would make a child think it's a nested session. */
+function childEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !scrubbed(k)) env[k] = v;
+  return env;
+}
+
+function validTask(t: unknown): WorkerTask | undefined {
+  const v = t as Partial<WorkerTask> | undefined;
+  return typeof v?.name === 'string' && typeof v.summary === 'string' ? { name: v.name, summary: v.summary } : undefined;
+}
 
 function snapshotScreen(term: HeadlessTerminal, last: string[]) {
   const buf = term.buffer.active;
