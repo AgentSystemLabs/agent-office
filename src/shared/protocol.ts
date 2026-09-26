@@ -138,6 +138,40 @@ export interface GhPull {
   deletions: number;
   checks: 'pass' | 'fail' | 'pending' | 'none';
   body: string;
+  /** Issues it closes ("closes #12" in its description), as GitHub links them. */
+  closes: number[];
+}
+
+export type TaskStatus = 'queued' | 'running' | 'done';
+
+/** A task on the 📋 queue whiteboard: a GitHub issue or free text, seated to a worker by itself. */
+export interface QueueTask {
+  id: string;
+  /** The GitHub issue it came from, when it did. */
+  issue?: number;
+  title: string;
+  prompt: string;
+  addedBy: string;
+  addedAt: number;
+  status: TaskStatus;
+  /** The worker seated for it (it may have gone home since). */
+  workerId?: string;
+  workerName?: string;
+  /** The worker's own branch, when it got a worktree. */
+  branch?: string;
+  startedAt?: number;
+  finishedAt?: number;
+  /** How it ended: the worker finished its turn, stopped or fell asleep, was sent home, or never started. */
+  outcome?: 'done' | 'exited' | 'killed' | 'failed';
+  error?: string;
+  /** The pull request that closes the issue, or was opened from the worker's branch. */
+  pr?: { number: number; url: string; state: string; title: string };
+}
+
+export interface QueueState {
+  tasks: QueueTask[];
+  /** How many workers the queue may keep busy at once; 0 pauses it. */
+  maxWorkers: number;
 }
 
 export interface GhState<T> {
@@ -294,6 +328,15 @@ export type ClientMsg =
   | { t: 'term.input'; workerId: string; data: string }
   | { t: 'term.resize'; workerId: string; cols: number; rows: number }
   | { t: 'gh.refresh' }
+  | { t: 'queue.add'; prompt: string; title?: string; issue?: number }
+  | { t: 'queue.remove'; taskId: string }
+  /** Move a queued task up (-1) or down (+1) the queue. */
+  | { t: 'queue.move'; taskId: string; delta: number }
+  /** Put a finished task back on the queue. */
+  | { t: 'queue.retry'; taskId: string }
+  /** Forget the finished tasks. */
+  | { t: 'queue.clear' }
+  | { t: 'queue.limit'; maxWorkers: number }
   | { t: 'voice'; voice: boolean; muted: boolean; sharing: boolean }
   | { t: 'rtc'; to: string; data: unknown }
   | { t: 'chat'; text: string }
@@ -330,6 +373,7 @@ export type ServerMsg =
       upgrade: UpgradeState;
       services: ServicesState;
       usage: UsageState;
+      queue: QueueState;
     }
   | { t: 'peer.join'; peer: PeerInfo }
   | { t: 'peer.update'; peer: PeerInfo }
@@ -351,6 +395,7 @@ export type ServerMsg =
   | { t: 'upgrade'; state: UpgradeState }
   | { t: 'services'; state: ServicesState }
   | { t: 'usage'; state: UsageState }
+  | { t: 'queue'; state: QueueState }
   /** Sent to whoever watches that worker's changes, whenever they change. */
   | { t: 'changes'; state: ChangesState }
   | { t: 'changes.diff'; workerId: string; path: string; diff: string; truncated: boolean; error?: string }
