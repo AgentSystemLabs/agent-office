@@ -3,3 +3,4 @@ dist
 .agent-office
 *.log
 .DS_Store
+pw.txt
