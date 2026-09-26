@@ -104,6 +104,11 @@ export function timeAgo(iso: string | number): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
+/** `text` cut to at most `max` characters, with an ellipsis when it was longer. */
+export function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
 export const STATUS_LABEL: Record<string, string> = {
   starting: 'starting',
   idle: 'ready',
