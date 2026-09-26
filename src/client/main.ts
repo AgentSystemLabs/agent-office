@@ -669,6 +669,13 @@ $('hud').addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest('button');
   if (btn) setTimeout(() => btn.blur(), 0);
 });
+if (!window.isSecureContext) {
+  for (const id of ['btn-voice', 'btn-share']) {
+    const b = $(id);
+    b.style.opacity = '0.55';
+    b.title = 'Voice and screen sharing need HTTPS — run the office behind a TLS proxy or with --self-signed';
+  }
+}
 $('btn-voice').addEventListener('click', () => void toggleVoice());
 $('btn-mute').addEventListener('click', () => voice.toggleMute());
 $('btn-share').addEventListener('click', () => void toggleShare());
