@@ -1,8 +1,8 @@
-import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, ServerMsg, ServicesState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
+import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, QueueState, QueueTask, ServerMsg, ServicesState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 
-type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'usage';
+type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'usage' | 'queue';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -86,6 +86,7 @@ class Store {
   upgrade: UpgradeState = { available: false, phase: 'idle' };
   services: ServicesState = { items: [], port: 4600 };
   usage: UsageState = { total: zeroUsage(), today: zeroUsage(), day: '', pauseHiring: false };
+  queue: QueueState = { tasks: [], maxWorkers: 0 };
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -104,6 +105,12 @@ class Store {
     return undefined;
   }
 
+  /** The queue task for an issue: the one on the queue if there is one, else the latest finished one. */
+  taskForIssue(issue: number): QueueTask | undefined {
+    const tasks = this.queue.tasks.filter((t) => t.issue === issue);
+    return tasks.find((t) => t.status !== 'done') ?? tasks[tasks.length - 1];
+  }
+
   apply(msg: ServerMsg) {
     switch (msg.t) {
       case 'welcome':
@@ -120,7 +127,8 @@ class Store {
         this.upgrade = msg.upgrade;
         this.services = msg.services;
         this.usage = msg.usage;
-        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade', 'services', 'usage'] as Topic[]) this.emit(t);
+        this.queue = msg.queue;
+        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade', 'services', 'usage', 'queue'] as Topic[]) this.emit(t);
         break;
       case 'peer.join':
       case 'peer.update':
@@ -180,6 +188,10 @@ class Store {
       case 'usage':
         this.usage = msg.state;
         this.emit('usage');
+        break;
+      case 'queue':
+        this.queue = msg.state;
+        this.emit('queue');
         break;
       case 'chat':
         this.chat.push(msg);

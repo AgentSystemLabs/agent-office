@@ -11,7 +11,7 @@ import { buildOffice, type InteractKind, type Interactable } from './world/offic
 import { Person, Worker } from './world/character';
 import { Hands } from './world/hands';
 import { Laptop } from './world/laptop';
-import { BoardTexture, ServicesBoardTexture } from './world/boards';
+import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
 import { $, h, closeAllModals, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
@@ -21,6 +21,7 @@ import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage } from 
 import { openBoard, pullDetail } from './ui/boards';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { mountServicesButton, openServices } from './ui/services';
+import { mountQueueButton, openQueue } from './ui/queue';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
 import { openHelp, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
 import { openCharacter } from './ui/character';
@@ -97,6 +98,14 @@ const renderServicesBoard = () => servicesTex.render(store.services.items, store
 store.on('services', renderServicesBoard);
 store.on('workers', renderServicesBoard);
 renderServicesBoard();
+const queueTex = new QueueBoardTexture();
+const queueMat = office.boardMeshes.queue.material as THREE.MeshBasicMaterial;
+queueMat.map = queueTex.texture;
+queueMat.needsUpdate = true;
+const renderQueueBoard = () => queueTex.render(store.queue, store.workers);
+store.on('queue', renderQueueBoard);
+store.on('workers', renderQueueBoard);
+renderQueueBoard();
 
 // TV
 const tvVideo = document.createElement('video');
@@ -530,8 +539,13 @@ function openWorkerChanges(id: string) {
   openChanges(net, id, () => openWorkerTerminal(id));
 }
 
+function showQueue() {
+  openQueue(net, { openTerminal: openWorkerTerminal });
+}
+
 function boardActions() {
   return {
+    queue: (prompt: string, title: string, issue: number) => net.send({ t: 'queue.add', prompt, title, issue }),
     assign: (prompt: string, title: string) => {
       const desk = freeDesk();
       if (!desk) {
@@ -582,6 +596,7 @@ function interact(target: Interactable | null, key: DeskKey) {
   if (key !== 'E') return;
   if (target.kind === 'issues' || target.kind === 'pulls') openBoard(target.kind, net, boardActions());
   else if (target.kind === 'services') openServices();
+  else if (target.kind === 'queue') showQueue();
   else if (target.kind === 'tv') watchShare();
   else if (target.kind === 'coffee') toast('☕ Mmm, fresh coffee. +10 focus');
 }
@@ -649,6 +664,11 @@ function renderHint() {
   } else if (target.kind === 'issues') parts = [h('span.title', {}, '📌 Issues board'), key('E', 'Open')];
   else if (target.kind === 'pulls') parts = [h('span.title', {}, '🔀 Pull request board'), key('E', 'Open')];
   else if (target.kind === 'services') parts = [h('span.title', {}, '🌐 Services board'), key('E', 'Open')];
+  else if (target.kind === 'queue') {
+    const n = store.queue.tasks.filter((t) => t.status !== 'done').length;
+    k += n;
+    parts = [h('span.title', {}, `📋 Task queue${n ? ` · ${n}` : ''}`), key('E', 'Open')];
+  }
   else if (target.kind === 'tv') {
     const any = currentShares().length > 0;
     k += any;
@@ -771,7 +791,7 @@ function backToGame() {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, tv: 10 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
@@ -906,6 +926,7 @@ $('btn-share').addEventListener('click', () => void toggleShare());
 $('btn-issues').addEventListener('click', () => openBoard('issues', net, boardActions()));
 $('btn-pulls').addEventListener('click', () => openBoard('pulls', net, boardActions()));
 mountServicesButton($('btn-services'));
+mountQueueButton($('btn-queue'), showQueue);
 $('btn-team').addEventListener('click', () => openTeam(net));
 $('btn-upgrade').addEventListener('click', () => openUpgrade(net));
 $('btn-help').addEventListener('click', () => openHelp());

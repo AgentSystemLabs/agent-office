@@ -348,3 +348,33 @@ button { font-family: inherit; }
 .modal.restart .note { font-size: 13px; color: var(--muted); }
 .restart-art { font-size: 64px; line-height: 1; animation: bob 1.6s ease-in-out infinite; }
 @keyframes bob { 50% { transform: translateY(-6px); } }
+
+/* Task queue */
+.queue-add { display: flex; gap: 8px; align-items: flex-end; }
+.queue-add textarea { flex: 1; min-height: 46px; }
+.queue h4 { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px; font-size: 14px; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; }
+.queue h4 .count { color: var(--muted); }
+.queue h4 .btn { margin-left: auto; padding: 3px 10px; font-size: 13px; text-transform: none; letter-spacing: 0; }
+.queue .note { margin: 8px 0 0; font-size: 13px; font-weight: 600; color: var(--muted); line-height: 1.45; }
+.queue-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.queue-list li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 3px solid var(--ink); border-radius: 14px; background: #fff; box-shadow: 0 3px 0 var(--ink); }
+.queue-list li.running { background: #e7f8ee; }
+.queue-list li.done { background: var(--paper-2); }
+.queue-list .pos { min-width: 24px; text-align: center; font-weight: 900; color: var(--muted); }
+.queue-main { flex: 1; min-width: 0; }
+.queue-title { font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-title a { color: inherit; text-decoration: none; }
+.queue-title a:hover { text-decoration: underline; }
+.queue-meta { font-size: 12px; font-weight: 700; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-actions { display: flex; gap: 4px; flex: none; }
+.queue-actions .btn { padding: 3px 9px; font-size: 13px; text-decoration: none; color: inherit; }
+.queue-limit { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 800; color: var(--muted); white-space: nowrap; }
+.queue-limit .btn { padding: 1px 9px; font-size: 15px; }
+.queue-limit b { min-width: 58px; text-align: center; color: var(--ink); font-size: 15px; }
+.queue-empty { margin-top: 16px; text-align: center; padding: 18px 8px; border: 3px dashed var(--muted); border-radius: 14px; font-weight: 800; }
+.qchip { padding: 1px 6px; border-radius: 999px; border: 1.5px solid var(--ink); background: #e0f2fe; color: var(--ink); font-size: 10px; font-weight: 900; }
+.qchip.running { background: #d8f5e3; }
+.qchip.done { background: #fff1de; }
+@media (max-width: 640px) {
+  .queue-limit span { display: none; }
+}

@@ -10,7 +10,7 @@ export interface Collider {
   top: number;
 }
 
-export type InteractKind = 'desk' | 'issues' | 'pulls' | 'services' | 'tv' | 'coffee';
+export type InteractKind = 'desk' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -173,9 +173,10 @@ function buildDesk(def: DeskDef, index: number): DeskView {
   return { def, group, laptopAnchor, seatAnchor, chair: ch, vacancy };
 }
 
-function corkBoard(width: number, height: number): { group: THREE.Group; face: THREE.Mesh } {
+/** A framed board on a wall; the face gets a canvas texture (cork, chalk or whiteboard). */
+function wallBoard(width: number, height: number, frameColor: string): { group: THREE.Group; face: THREE.Mesh } {
   const group = new THREE.Group();
-  const frame = mesh(roundedBox(width + 0.3, 0.12, height + 0.3, 0.1), toon(PALETTE.wood), 0, 0, 0);
+  const frame = mesh(roundedBox(width + 0.3, 0.12, height + 0.3, 0.1), toon(frameColor), 0, 0, 0);
   frame.rotation.x = Math.PI / 2;
   group.add(frame);
   const faceMat = new THREE.MeshBasicMaterial({ color: '#ffffff' });
@@ -278,7 +279,8 @@ export function buildOffice(): Office {
     // Out from the wall, the way the board faces.
     const nx = Math.sin(b.rotY);
     const nz = Math.cos(b.rotY);
-    const { group: bg, face } = corkBoard(b.width, b.height);
+    // The queue is a whiteboard in an aluminium frame; the others hang in wood.
+    const { group: bg, face } = wallBoard(b.width, b.height, key === 'queue' ? '#aab4be' : PALETTE.wood);
     bg.position.set(b.x + nx * 0.08, b.y, b.z + nz * 0.08);
     bg.rotation.y = b.rotY;
     group.add(bg);

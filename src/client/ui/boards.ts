@@ -8,6 +8,13 @@ export interface BoardActions {
   assign(prompt: string, title: string): void;
   /** Walks you to the desk a pull request came from. */
   goToDesk(deskId: string): void;
+  /** Put an issue on the 📋 task queue; a worker is seated for it when there's room. */
+  queue(prompt: string, title: string, issue: number): void;
+}
+
+/** The task a worker gets for an issue, from the board or the queue. */
+export function issuePrompt(it: GhIssue): string {
+  return `Work on GitHub issue #${it.number}: "${it.title}".\n\nRead it first with \`gh issue view ${it.number} --comments\`. Create a new branch, implement the change, verify it, then open a pull request that closes #${it.number}.`;
 }
 
 const TILTS = ['-1.2deg', '0.8deg', '-0.4deg', '1.4deg', '0deg', '-0.9deg'];
@@ -20,7 +27,7 @@ interface Column<T> {
 
 function issueColumns(items: GhIssue[]): Column<GhIssue>[] {
   const open = items.filter((i) => i.state === 'OPEN');
-  const inProgress = open.filter((i) => i.assignees.length > 0 || i.labels.some((l) => /progress|doing|wip|started/i.test(l.name)));
+  const inProgress = open.filter((i) => i.assignees.length > 0 || i.labels.some((l) => /progress|doing|wip|started/i.test(l.name)) || store.taskForIssue(i.number)?.status === 'running');
   const todo = open.filter((i) => !inProgress.includes(i));
   const closed = items.filter((i) => i.state !== 'OPEN').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 40);
   return [
@@ -50,6 +57,15 @@ const CHECK_ICON: Record<GhPull['checks'], string> = { pass: '🟢', fail: '🔴
 /** A chip naming the worker and desk a pull request came from. */
 function deskChip(w: WorkerInfo) {
   return h('span.desk-link', { style: `--dot:${w.color}`, title: `Opened from ${w.name}'s desk (${w.worktree?.branch ?? 'its branch'})` }, `🪑 ${w.name} · ${DESK_BY_ID.get(w.deskId)?.label ?? 'a desk'}`);
+}
+
+/** Where an issue stands on the 📋 queue, for its card. */
+function queueChip(issue: number): Node | '' {
+  const t = store.taskForIssue(issue);
+  if (!t) return '';
+  if (t.status === 'queued') return h('span.qchip', {}, store.queue.tasks.find((x) => x.status === 'queued') === t ? '📋 up next' : '📋 queued');
+  if (t.status === 'running') return h('span.qchip.running', {}, `🤖 ${t.workerName ?? 'a worker'}`);
+  return t.pr ? h('span.qchip.done', {}, `🔀 PR #${t.pr.number}`) : '';
 }
 
 function card(n: number, title: string, meta: (Node | string)[], i: number, onclick: () => void) {
@@ -82,7 +98,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
         const ul = h('ul');
         col.items.forEach((it, i) =>
           ul.append(
-            card(it.number, it.title, [...labelChips(it.labels), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => issueDetail(it, actions)),
+            card(it.number, it.title, [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => issueDetail(it, actions)),
           ),
         );
         if (!col.items.length) ul.append(h('li.empty', {}, 'Nothing here'));
@@ -118,17 +134,16 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
     }
   };
 
-  const unsub = store.on(kind, render);
+  const unsubs = [store.on(kind, render), store.on('queue', render)];
   // Which desk a PR came from can change (a worker sent home, a PR opened from a desk).
-  const unsubWorkers = kind === 'pulls' ? store.on('workers', render) : () => {};
+  if (kind === 'pulls') unsubs.push(store.on('workers', render));
   const timer = setInterval(() => {
     const st = kind === 'issues' ? store.issues : store.pulls;
     status.textContent = st.loading ? 'Refreshing…' : st.fetchedAt ? `Updated ${timeAgo(st.fetchedAt)}` : '';
   }, 15000);
   const modal = openModal(el, {
     onClose: () => {
-      unsub();
-      unsubWorkers();
+      unsubs.forEach((u) => u());
       clearInterval(timer);
     },
   });
@@ -152,19 +167,27 @@ function detailModal(title: string, rows: (Node | string)[], bodyText: string, u
 
 function issueDetail(it: GhIssue, actions: BoardActions) {
   const assign = h('button.btn.primary', {}, '🤖 Hand to a worker');
+  const task = store.taskForIssue(it.number);
+  const onQueue = !!task && task.status !== 'done';
+  const queue = h(
+    'button.btn',
+    { disabled: onQueue, title: onQueue ? undefined : 'A worker picks it up by itself when a desk is free and there is room under the worker limit' },
+    onQueue ? (task!.status === 'running' ? `🤖 ${task!.workerName ?? 'A worker'} is on it` : '📋 On the queue') : '📋 Add to queue',
+  );
   const modal = detailModal(
     `#${it.number} ${it.title}`,
     [h('span.pill', { class: it.state === 'OPEN' ? 'done' : 'offline' }, it.state.toLowerCase()), ...labelChips(it.labels), `opened by ${it.author} ${timeAgo(it.createdAt)}`, it.assignees.length ? `· 👤 ${it.assignees.join(', ')}` : ''],
     it.body,
     it.url,
-    [assign],
+    it.state === 'OPEN' ? [queue, assign] : [assign],
   );
+  queue.addEventListener('click', () => {
+    modal.close();
+    actions.queue(issuePrompt(it), `#${it.number} ${it.title}`, it.number);
+  });
   assign.addEventListener('click', () => {
     modal.close();
-    actions.assign(
-      `Work on GitHub issue #${it.number}: "${it.title}".\n\nRead it first with \`gh issue view ${it.number} --comments\`. Create a new branch, implement the change, verify it, then open a pull request that closes #${it.number}.`,
-      `Hand issue #${it.number} to a worker`,
-    );
+    actions.assign(issuePrompt(it), `Hand issue #${it.number} to a worker`);
   });
 }
 

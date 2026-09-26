@@ -14,6 +14,7 @@ import { Team } from './team.js';
 import { Upgrader } from './upgrade.js';
 import { Services } from './services.js';
 import { Ledger } from './usage.js';
+import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import type { ChatLine, ClientMsg, PeerInfo, ProjectInfo, ServerMsg, ServicesState } from '../shared/protocol.js';
@@ -135,6 +136,7 @@ export async function startServer(cfg: Config) {
 
   // --- Loopback-only endpoint that Claude Code hooks POST to --------------------------------
   let workers!: WorkerManager;
+  let queue!: TaskQueue;
   let changes!: Changes;
   const hookServer = http.createServer(async (req, res) => {
     let url: URL;
@@ -173,10 +175,14 @@ export async function startServer(cfg: Config) {
     cfg.agentArgs,
     { url: `http://127.0.0.1:${hookPort}`, token: '' },
     {
-      update: (worker) => broadcast({ t: 'worker.update', worker }),
+      update: (worker) => {
+        broadcast({ t: 'worker.update', worker });
+        queue?.onWorker(worker);
+      },
       remove: (workerId) => {
         changes.forget(workerId);
         broadcast({ t: 'worker.remove', workerId });
+        queue?.onWorkerGone(workerId);
       },
       data: (workerId, data, viewers) => {
         const json = JSON.stringify({ t: 'term.data', workerId, data } satisfies ServerMsg);
@@ -198,8 +204,19 @@ export async function startServer(cfg: Config) {
   const github = new GitHub(
     cfg.dir,
     (state) => broadcast({ t: 'gh.issues', state }),
-    (state) => broadcast({ t: 'gh.pulls', state }),
+    (state) => {
+      broadcast({ t: 'gh.pulls', state });
+      queue?.onPulls(state.items);
+    },
   );
+  // The 📋 task queue seats workers by itself: it watches the workers and links PRs from GitHub.
+  queue = new TaskQueue(cfg.dataDir, workers, !!project.branch, {
+    update: (state) => broadcast({ t: 'queue', state }),
+    toast: (text, level) => broadcast({ t: 'toast', text, level }),
+    claimIssue: (issue) => github.claim(issue),
+    refreshGitHub: () => void github.refresh(),
+    hiringPaused: () => ledger.hiringPaused,
+  });
   github.start();
 
   // What each worker changed, for the Changes window at its desk (see changes.ts).
@@ -426,6 +443,7 @@ export async function startServer(cfg: Config) {
       upgrade: upgrader.state,
       services: servicesState(),
       usage: ledger.state(),
+      queue: queue.state(),
     });
     for (const { workerId, frame } of workers.fullScreens()) sendTo(client, { t: 'screen', workerId, ...frame, full: true });
     broadcast({ t: 'peer.join', peer: client.peer }, id);
@@ -572,6 +590,32 @@ export async function startServer(cfg: Config) {
       case 'gh.refresh':
         void github.refresh();
         break;
+      case 'queue.add': {
+        const issue = Number.isInteger(msg.issue) && (msg.issue as number) > 0 ? (msg.issue as number) : undefined;
+        const err = queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue);
+        if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+        else broadcast({ t: 'toast', text: `📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`, level: 'info' });
+        break;
+      }
+      case 'queue.remove': {
+        const err = queue.remove(str(msg.taskId, 32));
+        if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+        break;
+      }
+      case 'queue.move':
+        queue.move(str(msg.taskId, 32), num(msg.delta) < 0 ? -1 : 1);
+        break;
+      case 'queue.retry': {
+        const err = queue.retry(str(msg.taskId, 32));
+        if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+        break;
+      }
+      case 'queue.clear':
+        queue.clear();
+        break;
+      case 'queue.limit':
+        queue.setLimit(num(msg.maxWorkers));
+        break;
       case 'changes.watch':
         if (workers.get(str(msg.workerId, 32))) changes.watch(str(msg.workerId, 32), c.id);
         break;
@@ -674,6 +718,7 @@ export async function startServer(cfg: Config) {
     github.stop();
     upgrader.stop();
     services.stop();
+    queue.shutdown();
     changes.stop();
     workers.shutdown();
     ledger.flush();
