@@ -27,6 +27,10 @@ export interface Config {
   iceServers: RTCIceServerLike[];
   /** Address teammates SSH-tunnel to (set by deploy/aws.sh); enables invites from the office. */
   publicHost?: string;
+  /** Daily spend budget for all workers, USD. */
+  budget?: number;
+  /** Refuse new hires for the rest of the day once the budget is spent. */
+  budgetPause: boolean;
 }
 
 export interface RTCIceServerLike {
@@ -62,6 +66,11 @@ Options:
       --trust-proxy       Trust X-Forwarded-* headers (behind Caddy/nginx)
       --turn <url>        Add a TURN server for voice (repeatable), e.g.
                           turn:user:pass@turn.example.com:3478
+      --budget <usd>      Daily budget for all workers together (env
+                          AGENT_OFFICE_BUDGET). Everyone is warned when the
+                          day's spend passes it
+      --budget-pause      ...and no new workers can be hired until the next
+                          day (env AGENT_OFFICE_BUDGET_PAUSE=1)
   -h, --help              Show this help
 
 Voice and screen sharing need a secure context: use https (a reverse proxy,
@@ -120,6 +129,8 @@ export function loadConfig(argv: string[]): Config {
   let trustProxy = false;
   let claimToken = process.env.AGENT_OFFICE_CLAIM_TOKEN || '';
   let resetPassword = false;
+  let budget = process.env.AGENT_OFFICE_BUDGET || '';
+  let budgetPause = !!process.env.AGENT_OFFICE_BUDGET_PAUSE && process.env.AGENT_OFFICE_BUDGET_PAUSE !== '0';
   const iceServers: RTCIceServerLike[] = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 
   for (let i = 0; i < argv.length; i++) {
@@ -167,6 +178,12 @@ export function loadConfig(argv: string[]): Config {
       case '--turn':
         iceServers.push(parseTurn(takeValue(argv, i++, a)));
         break;
+      case '--budget':
+        budget = takeValue(argv, i++, a);
+        break;
+      case '--budget-pause':
+        budgetPause = true;
+        break;
       default:
         if (a.startsWith('-')) {
           console.error(`agent-office: unknown option ${a}\n`);
@@ -183,6 +200,11 @@ export function loadConfig(argv: string[]): Config {
   }
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
     console.error('agent-office: invalid --port');
+    process.exit(2);
+  }
+  const budgetUsd = budget ? Number(budget.replace(/^\$/, '')) : undefined;
+  if (budgetUsd !== undefined && !(budgetUsd > 0)) {
+    console.error('agent-office: --budget needs an amount in dollars, e.g. --budget 20');
     process.exit(2);
   }
 
@@ -268,6 +290,8 @@ export function loadConfig(argv: string[]): Config {
     trustProxy,
     iceServers,
     publicHost: process.env.AGENT_OFFICE_PUBLIC_HOST || undefined,
+    budget: budgetUsd,
+    budgetPause,
   };
 }
 

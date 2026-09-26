@@ -1,8 +1,10 @@
-import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, ServerMsg, ServicesState, TeamState, UpgradeState, WorkerInfo } from '../shared/protocol';
+import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, ServerMsg, ServicesState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 
-type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services';
+type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'usage';
+
+const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
 export interface Profile {
   name: string;
@@ -83,6 +85,7 @@ class Store {
   team: TeamState | null = null;
   upgrade: UpgradeState = { available: false, phase: 'idle' };
   services: ServicesState = { items: [], port: 4600 };
+  usage: UsageState = { total: zeroUsage(), today: zeroUsage(), day: '', pauseHiring: false };
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -116,7 +119,8 @@ class Store {
         this.invites = msg.invites;
         this.upgrade = msg.upgrade;
         this.services = msg.services;
-        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade', 'services'] as Topic[]) this.emit(t);
+        this.usage = msg.usage;
+        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade', 'services', 'usage'] as Topic[]) this.emit(t);
         break;
       case 'peer.join':
       case 'peer.update':
@@ -172,6 +176,10 @@ class Store {
       case 'services':
         this.services = msg.state;
         this.emit('services');
+        break;
+      case 'usage':
+        this.usage = msg.state;
+        this.emit('usage');
         break;
       case 'chat':
         this.chat.push(msg);

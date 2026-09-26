@@ -44,6 +44,37 @@ export interface WorkerInfo {
   viewers: string[];
   /** Latest line of meaningful activity (e.g. last prompt or tool). */
   activity?: string;
+  /** Tokens and cost of its Claude session so far, subagents included (agents only). */
+  usage?: Usage;
+}
+
+/** Tokens and what they cost, summed over a Claude Code session or the whole office. */
+export interface Usage {
+  /** Input tokens that missed the prompt cache. */
+  input: number;
+  output: number;
+  /** Tokens written to the prompt cache. */
+  cacheWrite: number;
+  /** Tokens read from the prompt cache. */
+  cacheRead: number;
+  /** USD: estimated from the office's price list while a session runs, Claude Code's own figure once it has ended. */
+  cost: number;
+  /** API calls (assistant messages) counted. */
+  calls: number;
+}
+
+/** Spend across the whole office, kept on disk (see server/usage.ts). */
+export interface UsageState {
+  /** Every worker the office ever ran, including ones sent home. */
+  total: Usage;
+  /** Since midnight on the office's machine. */
+  today: Usage;
+  /** The day `today` covers, YYYY-MM-DD on the office's machine. */
+  day: string;
+  /** Daily budget in USD (--budget), when one is set. */
+  budget?: number;
+  /** New hires are refused for the rest of the day once the budget is spent (--budget-pause). */
+  pauseHiring: boolean;
 }
 
 export interface PeerInfo {
@@ -240,6 +271,7 @@ export type ServerMsg =
       version: string;
       upgrade: UpgradeState;
       services: ServicesState;
+      usage: UsageState;
     }
   | { t: 'peer.join'; peer: PeerInfo }
   | { t: 'peer.update'; peer: PeerInfo }
@@ -259,6 +291,7 @@ export type ServerMsg =
   | { t: 'team'; state: TeamState }
   | { t: 'upgrade'; state: UpgradeState }
   | { t: 'services'; state: ServicesState }
+  | { t: 'usage'; state: UsageState }
   /** Sent to whoever asked for the invite. */
   | { t: 'team.invited'; github: string; name?: string; keys?: number; error?: string }
   | { t: 'pong'; at: number };

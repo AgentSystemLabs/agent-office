@@ -10,6 +10,7 @@ import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG } from '../shared/protocol.
 import { DESK_BY_ID } from '../shared/layout.js';
 import { gh } from './github.js';
 import type { ServiceOwner } from './services.js';
+import { addUsage, newTracker, restoreTracker, scanTracker, trackerUsage, zeroUsage, type Ledger, type UsageTracker } from './usage.js';
 
 type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
 
@@ -36,6 +37,8 @@ const LATE_PROMPT_GRACE_MS = 5000;
 const KEYFRAME_MS = 8000;
 const PR_TITLE_MAX = 72;
 const PR_TASK_MAX = 2500;
+/** How often every worker's transcript is checked for new spend, on top of the hook-driven checks. */
+const USAGE_SCAN_MS = 10_000;
 
 export interface HookEnv {
   url: string;
@@ -55,6 +58,9 @@ interface Worker {
   hookToken: string;
   /** Claude never reported SessionStart: it's stuck on a trust/login/onboarding screen. */
   bootBlocked?: boolean;
+  /** Where the session's tokens and cost are read from (see usage.ts). */
+  tracker: UsageTracker;
+  scanTimer?: NodeJS.Timeout;
 }
 
 export interface WorkerEvents {
@@ -71,6 +77,7 @@ export class WorkerManager {
   private settingsPath: string;
   private agentPath: string | null = null;
   private screenTimer: NodeJS.Timeout;
+  private usageTimer: NodeJS.Timeout;
   /** Workers to start again on the next boot, because the office restarted to upgrade. */
   private wakeOnBoot = new Set<string>();
 
@@ -81,13 +88,19 @@ export class WorkerManager {
     private agentArgs: string[],
     private hook: HookEnv,
     private events: WorkerEvents,
+    private ledger: Ledger,
   ) {
     this.statePath = path.join(dataDir, 'workers.json');
     this.settingsPath = path.join(dataDir, 'claude-hooks.json');
     this.writeHookSettings();
     this.agentPath = resolveCommand(agentCmd);
     const wake = this.restore();
+    // A session may have ended (and written its final tally) while the office was down.
+    for (const w of this.workers.values()) this.scanUsage(w);
     this.screenTimer = setInterval(() => this.flushScreens(), SCREEN_INTERVAL_MS);
+    this.usageTimer = setInterval(() => {
+      for (const w of this.workers.values()) this.scanUsage(w);
+    }, USAGE_SCAN_MS);
     for (const id of wake) this.resume(id);
   }
 
@@ -121,6 +134,10 @@ export class WorkerManager {
   spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent'): WorkerInfo | string {
     if (!DESK_BY_ID.has(deskId)) return 'Unknown desk';
     if (this.deskOccupied(deskId)) return 'That desk is taken';
+    if (kind === 'agent') {
+      const paused = this.ledger.hiringPaused;
+      if (paused) return paused;
+    }
     const used = new Set([...this.workers.values()].map((w) => w.info.name.replace(/ 🐚$/, '')));
     const name = NAMES.find((n) => !used.has(n)) ?? `Worker ${this.workers.size + 1}`;
     const id = randomBytes(6).toString('hex');
@@ -147,7 +164,7 @@ export class WorkerManager {
       viewers: [],
       activity: prompt ? truncate(prompt, 80) : undefined,
     };
-    const w: Worker = { info, viewers: new Map(), screenDirty: true, lastLines: [], leftNeedsInputAt: 0, keyframeAt: 0, hookToken: randomBytes(16).toString('hex') };
+    const w: Worker = { info, viewers: new Map(), screenDirty: true, lastLines: [], leftNeedsInputAt: 0, keyframeAt: 0, hookToken: randomBytes(16).toString('hex'), tracker: newTracker() };
     this.workers.set(id, w);
     this.launch(w, info.prompt, undefined);
     this.persist();
@@ -168,6 +185,7 @@ export class WorkerManager {
     const w = this.workers.get(id);
     if (!w) return;
     this.workers.delete(id);
+    clearTimeout(w.scanTimer);
     const proc = w.pty;
     w.pty = undefined; // so the exit handler knows this worker is gone and stays quiet
     try {
@@ -367,6 +385,11 @@ export class WorkerManager {
       w.info.sessionId = payload.session_id;
       this.persist();
     }
+    if (typeof payload?.transcript_path === 'string' && payload.transcript_path !== w.tracker.transcript) {
+      w.tracker.transcript = payload.transcript_path;
+      this.persist();
+    }
+    this.scheduleScan(w);
     switch (event) {
       case 'SessionStart':
         if (w.info.status === 'starting' || (w.bootBlocked && w.info.status === 'needs_input')) {
@@ -419,6 +442,7 @@ export class WorkerManager {
 
   shutdown() {
     clearInterval(this.screenTimer);
+    clearInterval(this.usageTimer);
     for (const w of this.workers.values()) {
       try {
         w.pty?.kill();
@@ -530,6 +554,31 @@ export class WorkerManager {
       } else this.setStatus(w, 'idle');
     }, 12000);
     this.emitUpdate(w);
+  }
+
+  /** Hooks fire in bursts (every tool call); one read a moment later covers the whole burst. */
+  private scheduleScan(w: Worker) {
+    if (w.scanTimer) return;
+    w.scanTimer = setTimeout(() => {
+      w.scanTimer = undefined;
+      this.scanUsage(w);
+    }, 300);
+  }
+
+  /** Picks up what the session logged since last time and books the difference. */
+  private scanUsage(w: Worker) {
+    if (w.info.kind !== 'agent' || !w.tracker.transcript || this.workers.get(w.info.id) !== w) return;
+    try {
+      if (!scanTracker(w.tracker)) return;
+    } catch {
+      return; // an unreadable transcript is retried on the next scan
+    }
+    const before = w.info.usage ?? zeroUsage();
+    const after = trackerUsage(w.tracker);
+    w.info.usage = after;
+    this.ledger.add(addUsage(after, before, -1));
+    this.emitUpdate(w);
+    this.persist();
   }
 
   private onProgress(w: Worker, busy: boolean) {
@@ -660,7 +709,7 @@ process.stdin.on('end', () => {
   }
 
   private persist() {
-    const saved = [...this.workers.values()].map(({ info }) => ({
+    const saved = [...this.workers.values()].map(({ info, tracker }) => ({
       id: info.id,
       kind: info.kind,
       deskId: info.deskId,
@@ -675,6 +724,7 @@ process.stdin.on('end', () => {
       activity: info.activity,
       pr: info.pr,
       wake: this.wakeOnBoot.has(info.id) || undefined,
+      tracker: info.kind === 'agent' ? tracker : undefined,
     }));
     try {
       writeFileSync(this.statePath, JSON.stringify(saved, null, 2), { mode: 0o600 });
@@ -688,9 +738,10 @@ process.stdin.on('end', () => {
     const wake: string[] = [];
     if (!existsSync(this.statePath)) return wake;
     try {
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { wake?: boolean })[];
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { wake?: boolean; tracker?: unknown })[];
       for (const s of saved) {
         if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || this.deskOccupied(s.deskId)) continue;
+        const tracker = restoreTracker(s.tracker);
         const info: WorkerInfo = {
           id: s.id,
           kind: s.kind === 'shell' ? 'shell' : 'agent',
@@ -707,11 +758,12 @@ process.stdin.on('end', () => {
           sessionId: s.sessionId,
           activity: s.activity,
           pr: s.pr && typeof s.pr.number === 'number' && typeof s.pr.url === 'string' ? { number: s.pr.number, url: s.pr.url } : undefined,
+          usage: tracker.transcript ? trackerUsage(tracker) : undefined,
           cols: 100,
           rows: 30,
           viewers: [],
         };
-        this.workers.set(info.id, { info, viewers: new Map(), screenDirty: false, lastLines: [], leftNeedsInputAt: 0, keyframeAt: 0, hookToken: randomBytes(16).toString('hex') });
+        this.workers.set(info.id, { info, viewers: new Map(), screenDirty: false, lastLines: [], leftNeedsInputAt: 0, keyframeAt: 0, hookToken: randomBytes(16).toString('hex'), tracker });
         if (s.wake) wake.push(info.id);
       }
     } catch {
