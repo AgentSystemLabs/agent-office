@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import type { GhIssue, GhPull, GhState } from '../shared/protocol.js';
+import type { GhCheck, GhComment, GhIssue, GhIssueDetail, GhMergeMethod, GhPull, GhPullDetail, GhRepoInfo, GhReviewComment, GhState } from '../shared/protocol.js';
 
 const REFRESH_MS = 90_000;
 
@@ -12,9 +12,9 @@ function friendly(raw: string): string {
   return raw;
 }
 
-function gh(args: string[], cwd: string): Promise<string> {
+function gh(args: string[], cwd: string, timeout = 30_000): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('gh', args, { cwd, maxBuffer: 32 * 1024 * 1024, timeout: 30_000 }, (err, stdout, stderr) => {
+    execFile('gh', args, { cwd, maxBuffer: 32 * 1024 * 1024, timeout }, (err, stdout, stderr) => {
       if (err) {
         const msg = (stderr || err.message || '').trim().split('\n').slice(-2).join(' ');
         reject(new Error((err as NodeJS.ErrnoException).code === 'ENOENT' ? 'GitHub CLI (gh) is not installed on the server' : friendly(msg)));
@@ -40,10 +40,36 @@ function checksOf(rollup: any[]): GhPull['checks'] {
   return pending ? 'pending' : 'pass';
 }
 
+const FAILED = ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE'];
+
+/** One entry of statusCheckRollup: a CheckRun (Actions) or a StatusContext (other CI). */
+function checkOf(c: any): GhCheck {
+  const concl = String(c.conclusion ?? c.state ?? '').toUpperCase();
+  const status = String(c.status ?? '').toUpperCase();
+  let state: GhCheck['state'] = 'pass';
+  if (FAILED.includes(concl)) state = 'fail';
+  else if ((status && status !== 'COMPLETED') || !concl || concl === 'PENDING' || concl === 'EXPECTED') state = 'pending';
+  else if (['SKIPPED', 'NEUTRAL', 'STALE'].includes(concl)) state = 'skip';
+  const name = String(c.name ?? c.context ?? 'check');
+  return { name: c.workflowName ? `${c.workflowName} / ${name}` : name, state, url: c.detailsUrl ?? c.targetUrl ?? undefined };
+}
+
+function commentsOf(raw: any[]): GhComment[] {
+  return (raw ?? []).map((c: any) => ({
+    id: String(c.id),
+    author: c.author?.login ?? 'ghost',
+    body: String(c.body ?? ''),
+    createdAt: c.createdAt ?? c.submittedAt ?? '',
+    url: c.url,
+    state: c.state,
+  }));
+}
+
 export class GitHub {
   issues: GhState<GhIssue> = { items: [], fetchedAt: 0, loading: false };
   pulls: GhState<GhPull> = { items: [], fetchedAt: 0, loading: false };
   private timer?: NodeJS.Timeout;
+  private repo?: Promise<GhRepoInfo>;
 
   constructor(
     private dir: string,
@@ -62,6 +88,89 @@ export class GitHub {
 
   async refresh() {
     await Promise.all([this.refreshIssues(), this.refreshPulls()]);
+  }
+
+  /** The repository's full name and how it lets PRs merge. Asked once (again after a failure). */
+  repoInfo(): Promise<GhRepoInfo> {
+    this.repo ??= gh(['repo', 'view', '--json', 'nameWithOwner,squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed'], this.dir).then((out) => {
+      const r = JSON.parse(out);
+      const methods = (['squash', 'merge', 'rebase'] as const).filter((m) => r[{ squash: 'squashMergeAllowed', merge: 'mergeCommitAllowed', rebase: 'rebaseMergeAllowed' }[m]]);
+      return { nameWithOwner: String(r.nameWithOwner), methods: methods.length ? methods : ['squash', 'merge', 'rebase'] };
+    });
+    this.repo.catch(() => (this.repo = undefined));
+    return this.repo;
+  }
+
+  /** A PR's description, conversation, line comments, checks and whether it can merge. */
+  async pullDetail(n: number): Promise<GhPullDetail> {
+    const fields = 'number,body,state,isDraft,reviewDecision,headRefName,baseRefName,mergeable,mergeStateStatus,commits,comments,reviews,statusCheckRollup';
+    const jq = '.[] | {id, in_reply_to_id, path, line, side, body, user: .user.login, created_at, html_url}';
+    const [view, lines, repo] = await Promise.all([
+      gh(['pr', 'view', String(n), '--json', fields], this.dir),
+      gh(['api', `repos/{owner}/{repo}/pulls/${n}/comments?per_page=100`, '--paginate', '--jq', jq], this.dir),
+      this.repoInfo(),
+    ]);
+    const p = JSON.parse(view);
+    const reviewComments: GhReviewComment[] = lines
+      .split('\n')
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l))
+      .map((c: any) => ({
+        id: c.id,
+        replyTo: c.in_reply_to_id ?? undefined,
+        author: c.user ?? 'ghost',
+        body: String(c.body ?? ''),
+        createdAt: c.created_at,
+        url: c.html_url,
+        path: c.path,
+        line: c.line ?? null,
+        side: c.side === 'LEFT' ? 'LEFT' : 'RIGHT',
+      }));
+    return {
+      number: p.number,
+      body: String(p.body ?? ''),
+      state: p.state,
+      isDraft: !!p.isDraft,
+      reviewDecision: p.reviewDecision ?? '',
+      headRefName: p.headRefName,
+      baseRefName: p.baseRefName,
+      mergeable: p.mergeable ?? 'UNKNOWN',
+      mergeStateStatus: p.mergeStateStatus ?? 'UNKNOWN',
+      commits: (p.commits ?? []).length,
+      comments: commentsOf(p.comments),
+      // A line comment also makes an empty COMMENTED review; the comment itself is shown instead.
+      reviews: commentsOf(p.reviews).filter((r) => r.body.trim() || r.state !== 'COMMENTED'),
+      reviewComments,
+      checks: (p.statusCheckRollup ?? []).map(checkOf),
+      repo,
+    };
+  }
+
+  /** The PR's unified diff, as `git diff` prints it. */
+  pullDiff(n: number): Promise<string> {
+    return gh(['pr', 'diff', String(n), '--color', 'never'], this.dir, 60_000);
+  }
+
+  async issueDetail(n: number): Promise<GhIssueDetail> {
+    const i = JSON.parse(await gh(['issue', 'view', String(n), '--json', 'number,body,comments'], this.dir));
+    return { number: i.number, body: String(i.body ?? ''), comments: commentsOf(i.comments) };
+  }
+
+  /** Merges a PR, or with `auto` has GitHub merge it once its requirements pass. Returns an error. */
+  async merge(n: number, method: GhMergeMethod, deleteBranch: boolean, auto: boolean): Promise<string | undefined> {
+    try {
+      const repo = await this.repoInfo();
+      // --repo keeps gh out of the office's own checkout: without it, --delete-branch also deletes
+      // the local branch and switches the project folder over to the base branch.
+      const args = ['pr', 'merge', String(n), `--${method}`, '--repo', repo.nameWithOwner];
+      if (deleteBranch) args.push('--delete-branch');
+      if (auto) args.push('--auto');
+      await gh(args, this.dir, 90_000);
+    } catch (err) {
+      return (err as Error).message;
+    }
+    void this.refreshPulls();
+    return undefined;
   }
 
   private async refreshIssues() {

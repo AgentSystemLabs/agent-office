@@ -112,6 +112,75 @@ export interface GhState<T> {
   loading: boolean;
 }
 
+export type GhMergeMethod = 'squash' | 'merge' | 'rebase';
+
+/** How the repository lets pull requests be merged. */
+export interface GhRepoInfo {
+  nameWithOwner: string;
+  methods: GhMergeMethod[];
+}
+
+/** A comment on an issue or on a PR's conversation, or a submitted review. */
+export interface GhComment {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  url?: string;
+  /** Reviews only: APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED. */
+  state?: string;
+}
+
+/** A comment on a line of a PR's diff. */
+export interface GhReviewComment {
+  id: number;
+  /** The first comment of the thread this one answers. */
+  replyTo?: number;
+  author: string;
+  body: string;
+  createdAt: string;
+  url: string;
+  path: string;
+  /** The line it's on now, or null when the code under it changed since (outdated). */
+  line: number | null;
+  /** LEFT is the old file's line numbers, RIGHT the new file's. */
+  side: 'LEFT' | 'RIGHT';
+}
+
+export interface GhCheck {
+  name: string;
+  state: 'pass' | 'fail' | 'pending' | 'skip';
+  url?: string;
+}
+
+/** Everything the PR window shows beyond the board card: GET /api/gh/pull?number=N */
+export interface GhPullDetail {
+  number: number;
+  body: string;
+  state: string;
+  isDraft: boolean;
+  reviewDecision: string;
+  headRefName: string;
+  baseRefName: string;
+  /** MERGEABLE, CONFLICTING or UNKNOWN (GitHub still working it out). */
+  mergeable: string;
+  /** CLEAN, BLOCKED, BEHIND, DIRTY, UNSTABLE, DRAFT, HAS_HOOKS or UNKNOWN. */
+  mergeStateStatus: string;
+  commits: number;
+  comments: GhComment[];
+  reviews: GhComment[];
+  reviewComments: GhReviewComment[];
+  checks: GhCheck[];
+  repo: GhRepoInfo;
+}
+
+/** GET /api/gh/issue?number=N */
+export interface GhIssueDetail {
+  number: number;
+  body: string;
+  comments: GhComment[];
+}
+
 export interface ProjectInfo {
   name: string;
   dir: string;
@@ -213,6 +282,8 @@ export type ClientMsg =
   | { t: 'term.input'; workerId: string; data: string }
   | { t: 'term.resize'; workerId: string; cols: number; rows: number }
   | { t: 'gh.refresh' }
+  /** Merge a pull request; the answer comes back as gh.merged. */
+  | { t: 'gh.merge'; number: number; method: GhMergeMethod; deleteBranch: boolean; auto?: boolean }
   | { t: 'voice'; voice: boolean; muted: boolean; sharing: boolean }
   | { t: 'rtc'; to: string; data: unknown }
   | { t: 'chat'; text: string }
@@ -260,6 +331,8 @@ export type ServerMsg =
   | { t: 'term.data'; workerId: string; data: string }
   | { t: 'gh.issues'; state: GhState<GhIssue> }
   | { t: 'gh.pulls'; state: GhState<GhPull> }
+  /** Sent to whoever asked for the merge. */
+  | { t: 'gh.merged'; number: number; error?: string }
   | { t: 'rtc'; from: string; data: unknown }
   | ({ t: 'chat' } & ChatLine)
   | { t: 'toast'; text: string; level: 'info' | 'warn' | 'error' }

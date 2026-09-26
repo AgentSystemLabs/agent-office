@@ -2,9 +2,13 @@ import type { GhIssue, GhPull } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, timeAgo } from './dom';
+import { labelChip, openIssue, openPull } from './pull';
 
 export interface BoardActions {
+  /** Start a worker on a ready-made prompt (shown for editing first). */
   assign(prompt: string, title: string): void;
+  /** Your own prompt about an issue or PR; `context` goes first so the worker knows which. */
+  ask(context: string, title: string): void;
 }
 
 const TILTS = ['-1.2deg', '0.8deg', '-0.4deg', '1.4deg', '0deg', '-0.9deg'];
@@ -39,7 +43,7 @@ function pullColumns(items: GhPull[]): Column<GhPull>[] {
 }
 
 function labelChips(labels: { name: string; color: string }[]) {
-  return labels.slice(0, 4).map((l) => h('span.label', { style: `background:${l.color}` }, l.name));
+  return labels.slice(0, 4).map(labelChip);
 }
 
 const CHECK_ICON: Record<GhPull['checks'], string> = { pass: '🟢', fail: '🔴', pending: '🟡', none: '' };
@@ -74,7 +78,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
         const ul = h('ul');
         col.items.forEach((it, i) =>
           ul.append(
-            card(it.number, it.title, [...labelChips(it.labels), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => issueDetail(it, actions)),
+            card(it.number, it.title, [...labelChips(it.labels), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, actions)),
           ),
         );
         if (!col.items.length) ul.append(h('li.empty', {}, 'Nothing here'));
@@ -98,7 +102,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
                 timeAgo(it.updatedAt),
               ],
               i,
-              () => pullDetail(it, actions),
+              () => openPull(it, net, actions),
             ),
           ),
         );
@@ -121,62 +125,4 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
   });
   close.addEventListener('click', () => modal.close());
   render();
-}
-
-function detailModal(title: string, rows: (Node | string)[], bodyText: string, url: string, buttons: HTMLElement[]) {
-  const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
-  const el = h(
-    'div.modal.detail',
-    { role: 'dialog', 'aria-label': title, style: 'width:min(720px,100%)' },
-    h('header', {}, h('h2', {}, title), close),
-    h('div.body', {}, h('div.row', {}, ...rows.filter((r) => r !== '').map((r) => (typeof r === 'string' ? h('span', {}, r) : r))), bodyText.trim() ? h('pre', {}, bodyText) : h('p.empty', {}, 'No description.')),
-    h('footer', {}, h('a', { href: url, target: '_blank', rel: 'noopener', class: 'grow' }, 'Open on GitHub ↗'), ...buttons),
-  );
-  const modal = openModal(el);
-  close.addEventListener('click', () => modal.close());
-  return modal;
-}
-
-function issueDetail(it: GhIssue, actions: BoardActions) {
-  const assign = h('button.btn.primary', {}, '🤖 Hand to a worker');
-  const modal = detailModal(
-    `#${it.number} ${it.title}`,
-    [h('span.pill', { class: it.state === 'OPEN' ? 'done' : 'offline' }, it.state.toLowerCase()), ...labelChips(it.labels), `opened by ${it.author} ${timeAgo(it.createdAt)}`, it.assignees.length ? `· 👤 ${it.assignees.join(', ')}` : ''],
-    it.body,
-    it.url,
-    [assign],
-  );
-  assign.addEventListener('click', () => {
-    modal.close();
-    actions.assign(
-      `Work on GitHub issue #${it.number}: "${it.title}".\n\nRead it first with \`gh issue view ${it.number} --comments\`. Create a new branch, implement the change, verify it, then open a pull request that closes #${it.number}.`,
-      `Hand issue #${it.number} to a worker`,
-    );
-  });
-}
-
-function pullDetail(it: GhPull, actions: BoardActions) {
-  const review = h('button.btn.primary', {}, '🔍 Review with a worker');
-  const modal = detailModal(
-    `#${it.number} ${it.title}`,
-    [
-      h('span.pill', { class: it.state === 'OPEN' ? (it.isDraft ? 'idle' : 'working') : it.state === 'MERGED' ? 'done' : 'offline' }, it.isDraft ? 'draft' : it.state.toLowerCase()),
-      ...labelChips(it.labels),
-      `${it.headRefName} → ${it.baseRefName}`,
-      `by ${it.author}`,
-      `+${it.additions} −${it.deletions}`,
-      it.checks !== 'none' ? `checks ${CHECK_ICON[it.checks]}` : '',
-      it.reviewDecision ? it.reviewDecision.toLowerCase().replace('_', ' ') : '',
-    ],
-    it.body,
-    it.url,
-    it.state === 'OPEN' ? [review] : [],
-  );
-  review.addEventListener('click', () => {
-    modal.close();
-    actions.assign(
-      `Review pull request #${it.number}: "${it.title}".\n\nUse \`gh pr view ${it.number} --comments\` and \`gh pr diff ${it.number}\`. Look for bugs, risky changes and missing tests, then give me a short summary with concrete suggestions. Don't push any commits.`,
-      `Review PR #${it.number} with a worker`,
-    );
-  });
 }

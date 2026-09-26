@@ -311,6 +311,24 @@ export async function startServer(cfg: Config) {
         res.end(r.body);
         return;
       }
+      if (p.startsWith('/api/gh/') && req.method === 'GET') {
+        // What the issue and PR windows show beyond the board cards (see github.ts).
+        const n = Number(new URL(req.url ?? '/', 'http://x').searchParams.get('number'));
+        if (!Number.isSafeInteger(n) || n <= 0) return send(res, 400, { error: 'Bad number' });
+        try {
+          if (p === '/api/gh/pull') return send(res, 200, await github.pullDetail(n));
+          if (p === '/api/gh/issue') return send(res, 200, await github.issueDetail(n));
+          if (p === '/api/gh/pull/diff') {
+            const diff = await github.pullDiff(n);
+            res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+            res.end(diff);
+            return;
+          }
+        } catch (err) {
+          return send(res, 502, { error: (err as Error).message });
+        }
+        return send(res, 404, { error: 'Not found' });
+      }
       if (p === '/' || p === '/index.html') return serveFile(res, path.join(publicDir, 'index.html'), false);
       const file = path.join(publicDir, path.normalize(p).replace(/^(\.\.[/\\])+/, ''));
       if (file.startsWith(publicDir + path.sep) && existsSync(file) && statSync(file).isFile()) return serveFile(res, file, false);
@@ -523,6 +541,16 @@ export async function startServer(cfg: Config) {
       case 'gh.refresh':
         void github.refresh();
         break;
+      case 'gh.merge': {
+        const n = num(msg.number);
+        const method = (['squash', 'merge', 'rebase'] as const).find((m) => m === msg.method);
+        if (!Number.isSafeInteger(n) || n <= 0 || !method) break;
+        void github.merge(n, method, msg.deleteBranch === true, msg.auto === true).then((error) => {
+          sendTo(c, { t: 'gh.merged', number: n, error });
+          if (!error) broadcast({ t: 'toast', text: msg.auto ? `${who} set PR #${n} to merge once its checks pass` : `🎉 ${who} merged PR #${n}`, level: 'info' });
+        });
+        break;
+      }
       case 'upgrade.check':
         void upgrader.check();
         break;

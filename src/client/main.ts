@@ -21,6 +21,8 @@ import { $, h, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from '
 import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
 import { openPrompt, confirmDialog } from './ui/prompt';
 import { openBoard } from './ui/boards';
+import { routePullMessage } from './ui/pull';
+import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { mountServicesButton, openServices } from './ui/services';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
@@ -192,6 +194,7 @@ net.onMessage((msg) => {
   store.apply(msg);
   routeTerminalMessage(msg);
   routeTeamMessage(msg);
+  routePullMessage(msg);
   switch (msg.t) {
     case 'welcome': {
       const mine = store.peers.get(store.you);
@@ -447,23 +450,31 @@ function openWorkerTerminal(id: string) {
   openTerminal(net, id);
 }
 
+/** A prompt from the boards goes to a new worker at a free desk, or to one already at a desk. */
+function sendToWorker(title: string, text: { context?: string; initial?: string }) {
+  const desk = freeDesk();
+  const awake = [...store.workers.values()].filter((w) => w.kind === 'agent' && w.status !== 'exited' && w.status !== 'offline');
+  if (!desk && !awake.length) {
+    toast('Every desk is taken — send a worker home first', 'warn');
+    return;
+  }
+  openAsk({
+    title,
+    ...text,
+    newDesk: desk ? DESK_BY_ID.get(desk)!.label : undefined,
+    workers: awake.map((w) => ({ id: w.id, name: w.name, color: w.color, status: w.status })),
+    worktreeOption: !!store.project?.branch,
+    onSubmit: (prompt, to, worktree) => {
+      if (to) net.send({ t: 'worker.prompt', workerId: to, prompt });
+      else if (desk) hire(desk, prompt, worktree);
+    },
+  });
+}
+
 function boardActions() {
   return {
-    assign: (prompt: string, title: string) => {
-      const desk = freeDesk();
-      if (!desk) {
-        toast('Every desk is taken — send a worker home first', 'warn');
-        return;
-      }
-      openPrompt({
-        title: `🤖 ${title}`,
-        subtitle: `A new worker will take ${DESK_BY_ID.get(desk)!.label}.`,
-        initial: prompt,
-        submitLabel: 'Hire & start',
-        worktreeOption: !!store.project?.branch,
-        onSubmit: (text, o) => hire(desk, text, o.worktree),
-      });
-    },
+    assign: (prompt: string, title: string) => sendToWorker(`🤖 ${title}`, { initial: prompt }),
+    ask: (context: string, title: string) => sendToWorker(`✍️ ${title}`, { context }),
   };
 }
 
