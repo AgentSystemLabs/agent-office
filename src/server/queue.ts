@@ -9,7 +9,8 @@ export interface QueueWorkers {
   list(): WorkerInfo[];
   deskOccupied(deskId: string): boolean;
   spawn(deskId: string, by: string, prompt: string, worktree: boolean): WorkerInfo | string;
-  kill(id: string): void;
+  /** Resolves with a line about what became of the worker's worktree. */
+  kill(id: string): Promise<{ note?: string; error?: string }>;
 }
 
 export interface QueueEvents {
@@ -19,6 +20,8 @@ export interface QueueEvents {
   claimIssue(issue: number): Promise<string | undefined>;
   /** Ask GitHub for fresh pull requests, to pick up the one a worker just opened. */
   refreshGitHub(): void;
+  /** Why no workers may be hired right now (today's budget is spent), if that's so. */
+  hiringPaused(): string | undefined;
 }
 
 export const DEFAULT_MAX_WORKERS = 3;
@@ -243,8 +246,12 @@ export class TaskQueue {
       .sort((a, b) => Number(!!b.t.pr) - Number(!!a.t.pr) || (a.t.finishedAt ?? 0) - (b.t.finishedAt ?? 0));
     const pick = candidates[0];
     if (!pick) return undefined;
-    this.workers.kill(pick.w.id);
+    const done = this.workers.kill(pick.w.id);
     this.events.toast(`📋 ${pick.w.name} went home after ${label(pick.t)} to make room for the next task`, 'info');
+    void done.then(({ note, error }) => {
+      if (note) this.events.toast(note, 'info');
+      if (error) this.events.toast(error, 'warn');
+    });
     return pick.w.deskId;
   }
 
@@ -253,6 +260,8 @@ export class TaskQueue {
     for (const t of this.tasks) {
       if (t.status !== 'queued') continue;
       if (this.busy() >= this.maxWorkers) break;
+      // A spent budget holds the queue instead of failing every task; the pump seats them once hiring resumes.
+      if (this.events.hiringPaused()) break;
       const desk = this.freeDesk() ?? this.recycleDesk();
       if (!desk) break;
       const r = this.workers.spawn(desk, `${t.addedBy} (queue)`, t.prompt + (this.useWorktree ? WORKTREE_NOTE : ''), this.useWorktree);

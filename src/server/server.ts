@@ -214,6 +214,7 @@ export async function startServer(cfg: Config) {
     toast: (text, level) => broadcast({ t: 'toast', text, level }),
     claimIssue: (issue) => github.claim(issue),
     refreshGitHub: () => void github.refresh(),
+    hiringPaused: () => ledger.hiringPaused,
   });
   github.start();
 
