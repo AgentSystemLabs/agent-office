@@ -70,6 +70,7 @@ export function openHelp() {
     ['Click / E', 'Use what you look at: hire a worker, open its terminal, read a board, watch the TV'],
     ['Drag / wheel', 'Orbit and zoom the camera in third person'],
     ['P', 'Prompt: give a task to a new or existing worker at the desk you face'],
+    ['C', 'Changes: what the worker at the desk you face changed — files and diff, commit, discard, open a PR'],
     ['B', 'Open a shared shell (dev servers, git, tests) at an empty desk'],
     ['R', 'Resume a sleeping worker'],
     ['X', 'Send a worker home (frees the desk)'],
