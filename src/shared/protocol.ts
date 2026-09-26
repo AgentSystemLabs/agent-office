@@ -1,5 +1,7 @@
 // Wire protocol between browser and server. Every WebSocket frame is one JSON object.
 
+import type { Look } from './avatar.js';
+
 export type WorkerStatus =
   | 'starting' // PTY launched, agent booting
   | 'idle' // waiting for a first prompt
@@ -24,8 +26,15 @@ export interface WorkerInfo {
   createdBy: string;
   createdAt: number;
   prompt?: string;
-  /** Set when the worker runs in its own git worktree (path relative to the office dir). */
-  worktree?: { path: string; branch: string; base: string };
+  /**
+   * Set when the worker runs in its own git worktree (path relative to the office dir). `from` is
+   * the branch the office was on when the worktree was cut, which its pull request targets.
+   */
+  worktree?: { path: string; branch: string; base: string; from?: string };
+  /** The pull request opened from this desk for the worktree branch (see 'worker.pr'). */
+  pr?: { number: number; url: string };
+  /** True while the branch is being pushed and its pull request opened. */
+  prOpening?: boolean;
   title?: string;
   sessionId?: string;
   exitCode?: number;
@@ -89,6 +98,8 @@ export interface PeerInfo {
   id: string;
   name: string;
   color: string;
+  /** Skin tone and hair, picked on the character select screen. */
+  look: Look;
   x: number;
   y: number;
   z: number;
@@ -316,7 +327,7 @@ export type ClientMsg =
   | { t: 'move'; x: number; y: number; z: number; rotY: number; moving: boolean }
   /** You reached out to use something; everyone else sees your character's arm do it. */
   | { t: 'act' }
-  | { t: 'profile'; name: string; color: string }
+  | { t: 'profile'; name: string; color: string; look: Look }
   | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
@@ -325,6 +336,8 @@ export type ClientMsg =
   | { t: 'worker.attach'; workerId: string }
   | { t: 'worker.detach'; workerId: string }
   | { t: 'worker.prompt'; workerId: string; prompt: string }
+  /** Push a worktree worker's branch and open a pull request for it, drafted from its task. */
+  | { t: 'worker.pr'; workerId: string }
   | { t: 'term.input'; workerId: string; data: string }
   | { t: 'term.resize'; workerId: string; cols: number; rows: number }
   | { t: 'gh.refresh' }

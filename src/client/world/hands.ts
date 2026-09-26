@@ -49,6 +49,10 @@ export class Hands {
     this.sleeve.color.set(shirt);
   }
 
+  setSkin(skin: string) {
+    this.skin.color.set(skin);
+  }
+
   setAspect(aspect: number) {
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();

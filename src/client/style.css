@@ -160,6 +160,26 @@ button { font-family: inherit; }
 .swatch { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--ink); cursor: pointer; }
 .swatch.sel { outline: 3px solid var(--accent); outline-offset: 2px; }
 
+/* Character select */
+.modal.charsel { width: min(780px, 100%); }
+.charsel .body { display: grid; grid-template-columns: 250px 1fr; gap: 18px; }
+.charsel-stage {
+  position: relative; min-height: 360px; overflow: hidden; border: 3px solid var(--ink); border-radius: 16px;
+  background: radial-gradient(circle at 50% 30%, #ffffff 0, #e3f3ff 55%, #bfe3ff 100%);
+}
+.charsel-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+.charsel-stage canvas:active { cursor: grabbing; }
+.charsel-stage .tip { position: absolute; left: 0; right: 0; bottom: 8px; text-align: center; font-size: 12px; font-weight: 800; color: var(--muted); pointer-events: none; }
+.charsel-opts label { margin: 14px 0 8px; }
+.charsel-opts label:first-child { margin-top: 0; }
+.charsel .swatches { margin-top: 0; }
+.charsel .seg { gap: 6px; }
+.charsel .seg .btn { padding: 4px 10px; font-size: 13px; }
+@media (max-width: 640px) {
+  .charsel .body { grid-template-columns: 1fr; }
+  .charsel-stage { min-height: 230px; }
+}
+
 /* Terminal modal */
 .modal.term { width: min(1200px, 100%); height: min(820px, calc(100vh - 32px)); background: #1e1f2e; }
 .modal.term header { background: var(--paper); }
@@ -236,6 +256,9 @@ button { font-family: inherit; }
 .card .num { font-size: 12px; font-weight: 900; color: var(--muted); }
 .card .ttl { font-weight: 800; font-size: 14px; line-height: 1.25; margin: 2px 0 6px; word-break: break-word; }
 .card .meta { display: flex; flex-wrap: wrap; gap: 4px; font-size: 11px; font-weight: 700; color: var(--muted); align-items: center; }
+/* The desk a PR came from, with a dot in the worker's color. */
+.desk-link { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border: 2px solid var(--ink); border-radius: 999px; background: #fff; color: var(--ink); font-weight: 800; white-space: nowrap; }
+.desk-link::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--dot, var(--accent)); border: 1px solid var(--ink); }
 .label { padding: 1px 6px; border-radius: 999px; border: 1.5px solid var(--ink); color: var(--ink); font-size: 10px; font-weight: 800; }
 .board-status { font-size: 12px; font-weight: 700; color: var(--muted); }
 .board-error { margin: auto; background: var(--paper); border: 3px solid var(--ink); border-radius: 14px; padding: 18px 22px; font-weight: 800; max-width: 520px; text-align: center; }

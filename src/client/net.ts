@@ -1,4 +1,5 @@
 import type { ClientMsg, ServerMsg } from '../shared/protocol';
+import type { Profile } from './state';
 
 type Handler = (msg: ServerMsg) => void;
 
@@ -12,7 +13,7 @@ export class Net {
   private restartExpected = false;
   up = false;
 
-  constructor(private profile: () => { name: string; color: string }) {}
+  constructor(private profile: () => Profile) {}
 
   onMessage(h: Handler) {
     this.handlers.push(h);
@@ -23,9 +24,10 @@ export class Net {
   }
 
   connect() {
-    const { name, color } = this.profile();
+    const { name, color, look } = this.profile();
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/ws?name=${encodeURIComponent(name)}&color=${encodeURIComponent(color)}`);
+    const q = new URLSearchParams({ name, color, skin: String(look.skin), hair: String(look.hair), style: String(look.style) });
+    const ws = new WebSocket(`${proto}://${location.host}/ws?${q}`);
     this.ws = ws;
     ws.onopen = () => {
       this.retry = 0;

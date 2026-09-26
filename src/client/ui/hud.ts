@@ -1,4 +1,4 @@
-import { store, AVATAR_COLORS, saveProfile } from '../state';
+import { store } from '../state';
 import type { Voice } from '../voice';
 import { $, h, openModal, STATUS_LABEL } from './dom';
 import { fmtCost, usageTitle } from './usage';
@@ -12,7 +12,7 @@ export function renderPeople(voice: Voice, onEditProfile: () => void) {
     const mic = !p.voice ? '' : p.muted ? '🔇' : '🎙️';
     const li = h(
       'li',
-      { 'data-peer': p.id, title: you ? 'Edit your name & color' : p.name, style: you ? 'cursor:pointer' : '' },
+      { 'data-peer': p.id, title: you ? 'Change your character' : p.name, style: you ? 'cursor:pointer' : '' },
       h('span.dot', { style: `background:${p.color}` }),
       h('span', {}, p.name),
       you ? h('span.you', {}, '(you)') : null,
@@ -38,7 +38,7 @@ export function renderWorkers(onOpen: (id: string) => void) {
   ul.replaceChildren();
   const workers = [...store.workers.values()].sort((a, b) => a.createdAt - b.createdAt);
   for (const w of workers) {
-    const sub = `${w.worktree ? `🌿 ${w.worktree.branch} · ` : ''}${w.activity || w.title || w.prompt || ''}`;
+    const sub = [w.worktree && `🌿 ${w.worktree.branch}`, w.pr && `🔀 PR #${w.pr.number}`, w.activity || w.title || w.prompt].filter(Boolean).join(' · ');
     ul.append(
       h(
         'li',
@@ -62,51 +62,6 @@ export function renderChat() {
   log.scrollTop = log.scrollHeight;
 }
 
-export function openProfile(first: boolean, onSave: (name: string, color: string) => void) {
-  let color = store.profile.color;
-  const input = h('input', { type: 'text', maxlength: 24, value: first ? '' : store.profile.name, placeholder: 'e.g. Ada', 'aria-label': 'Your name' }) as HTMLInputElement;
-  const swatches = h('div.swatches');
-  const paint = () => {
-    swatches.replaceChildren(
-      ...AVATAR_COLORS.map((c) =>
-        h('button.swatch', {
-          type: 'button',
-          style: `background:${c}`,
-          class: c === color ? 'sel' : '',
-          'aria-label': `Color ${c}`,
-          onclick: () => {
-            color = c;
-            paint();
-          },
-        }),
-      ),
-    );
-  };
-  paint();
-  const save = h('button.btn.primary', { type: 'submit' }, first ? 'Enter the office 🚪' : 'Save');
-  const form = h(
-    'form.modal',
-    { role: 'dialog', 'aria-label': 'Your profile' },
-    h('header', {}, h('h2', {}, first ? '👋 Welcome to the office' : 'Your profile')),
-    h('div.body', {}, h('label', {}, 'Your name'), input, h('label', { style: 'margin-top:14px' }, 'Your color'), swatches),
-    h('footer', {}, save),
-  ) as HTMLFormElement;
-  const modal = openModal(form, { escCloses: !first, backdropCloses: !first });
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const name = input.value.trim().slice(0, 24);
-    if (!name) {
-      input.focus();
-      return;
-    }
-    store.profile = { name, color };
-    saveProfile(store.profile);
-    modal.close();
-    onSave(name, color);
-  });
-  setTimeout(() => input.focus(), 30);
-}
-
 export function openHelp() {
   const rows: [string, string][] = [
     ['W A S D', 'Walk (hold Shift to run)'],
@@ -119,6 +74,7 @@ export function openHelp() {
     ['B', 'Open a shared shell (dev servers, git, tests) at an empty desk'],
     ['R', 'Resume a sleeping worker'],
     ['X', 'Send a worker home (frees the desk)'],
+    ['O', 'Open a pull request for a worker on its own branch, or see the one it has'],
     ['T', 'Chat'],
     ['V / M', 'Join voice / mute'],
     ['Esc', 'Close any window and get back to looking around'],

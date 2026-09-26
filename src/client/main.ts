@@ -1,10 +1,11 @@
 import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
-import { DESK_BY_ID, DESKS, SPAWN } from '../shared/layout';
-import type { WorkerInfo } from '../shared/protocol';
+import { sameLook } from '../shared/avatar';
+import { DESK_BY_ID, DESKS, SPAWN, deskSeat } from '../shared/layout';
+import type { PeerInfo, WorkerInfo } from '../shared/protocol';
 import { Net } from './net';
-import { store, loadProfile, loadSettings, saveSettings } from './state';
+import { store, loadProfile, loadSettings, saveSettings, type Profile } from './state';
 import { EYE_HEIGHT, PlayerController, isTyping } from './player';
 import { buildOffice, type InteractKind, type Interactable } from './world/office';
 import { Person, Worker } from './world/character';
@@ -13,16 +14,17 @@ import { Laptop } from './world/laptop';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
-import { $, h, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
+import { $, h, closeAllModals, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage } from './ui/prompt';
-import { openBoard } from './ui/boards';
+import { openBoard, pullDetail } from './ui/boards';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { mountServicesButton, openServices } from './ui/services';
 import { mountQueueButton, openQueue } from './ui/queue';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
-import { openHelp, openProfile, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
+import { openHelp, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
+import { openCharacter } from './ui/character';
 import { openSettings } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 
@@ -77,9 +79,17 @@ for (const [meshKey, tex] of [
   mat.needsUpdate = true;
 }
 store.on('issues', () => issuesTex.render(store.issues));
-store.on('pulls', () => pullsTex.render(store.pulls));
+store.on('pulls', () => pullsTex.render(store.pulls, store.workers));
 issuesTex.render(store.issues);
-pullsTex.render(store.pulls);
+pullsTex.render(store.pulls, store.workers);
+// PR notes name the desk they came from. Redraw when that changes, not on every worker update.
+let deskLinks = '';
+store.on('workers', () => {
+  const k = JSON.stringify([...store.workers.values()].filter((w) => w.worktree).map((w) => [w.worktree!.branch, w.pr?.number, w.name, w.color, w.deskId]));
+  if (k === deskLinks) return;
+  deskLinks = k;
+  pullsTex.render(store.pulls, store.workers);
+});
 const servicesTex = new ServicesBoardTexture();
 const servicesMat = office.boardMeshes.services.material as THREE.MeshBasicMaterial;
 servicesMat.map = servicesTex.texture;
@@ -133,7 +143,7 @@ tvMat.toneMapped = false;
 const net = new Net(() => store.profile);
 const voice = new Voice(net);
 
-const me = new Person(store.profile.name, store.profile.color, 'me');
+const me = new Person(store.profile.name, store.profile.color, store.profile.look);
 me.showLabel(false);
 scene.add(me.root);
 noOutline(me.root);
@@ -143,9 +153,11 @@ player.pos.set(SPAWN.x, 0, SPAWN.z);
 player.view = settings.view;
 const hands = new Hands(store.profile.color, me.skinColor);
 
-function setMyColor(color: string) {
-  me.setColor(color);
-  hands.setColor(color);
+function showMyProfile(p: Profile) {
+  me.setColor(p.color);
+  me.setLook(p.look);
+  hands.setColor(p.color);
+  hands.setSkin(me.skinColor);
 }
 
 interface RemotePeer {
@@ -154,6 +166,7 @@ interface RemotePeer {
   rotY: number;
   moving: boolean;
   label: string;
+  look: PeerInfo['look'];
   bubble?: { sprite: THREE.Sprite; until: number };
 }
 const remotes = new Map<string, RemotePeer>();
@@ -255,11 +268,11 @@ function syncPeers() {
     if (id === store.you) continue;
     let r = remotes.get(id);
     if (!r) {
-      const person = new Person(peer.name, peer.color, id);
+      const person = new Person(peer.name, peer.color, peer.look);
       person.root.position.set(peer.x, peer.y, peer.z);
       scene.add(person.root);
       noOutline(person.root);
-      r = { person, target: new THREE.Vector3(peer.x, peer.y, peer.z), rotY: peer.rotY, moving: false, label: '' };
+      r = { person, target: new THREE.Vector3(peer.x, peer.y, peer.z), rotY: peer.rotY, moving: false, label: '', look: { ...peer.look } };
       remotes.set(id, r);
     }
     const label = `${peer.name}|${peer.voice ? (peer.muted ? 'm' : 'v') : '-'}|${peer.color}`;
@@ -267,6 +280,11 @@ function syncPeers() {
       r.label = label;
       r.person.setLabel(peer.name, peer.voice ? peer.muted : null);
       r.person.setColor(peer.color);
+      noOutline(r.person.root);
+    }
+    if (!sameLook(peer.look, r.look)) {
+      r.look = { ...peer.look };
+      r.person.setLook(peer.look);
       noOutline(r.person.root);
     }
   }
@@ -472,6 +490,41 @@ function resumeWorker(w: WorkerInfo) {
   net.send({ t: 'worker.resume', workerId: w.id });
 }
 
+/** Whether a worker's branch can become a PR: it has its own worktree and isn't mid-turn. */
+function prReady(w: WorkerInfo) {
+  return !!w.worktree && w.status !== 'starting' && w.status !== 'working' && w.status !== 'needs_input';
+}
+
+/** O at a desk: see the worker's pull request, or push its branch and open one. */
+function pullRequestFor(w: WorkerInfo) {
+  if (w.pr) {
+    const it = store.pulls.items.find((p) => p.number === w.pr!.number);
+    if (it) pullDetail(it, boardActions());
+    else window.open(w.pr.url, '_blank', 'noopener');
+    return;
+  }
+  if (!w.worktree) return toast(`${w.name} works in the main checkout — only workers with their own worktree can open a PR`, 'warn');
+  if (w.prOpening) return;
+  if (!prReady(w)) return toast(`${w.name} is still ${STATUS_LABEL[w.status]} — wait until it's done`, 'warn');
+  toast(`Pushing ${w.worktree.branch} and opening a pull request…`);
+  net.send({ t: 'worker.pr', workerId: w.id });
+}
+
+/** Puts you in front of a desk, looking at it: the PR board's "Go to desk". */
+function goToDesk(deskId: string) {
+  const desk = DESK_BY_ID.get(deskId);
+  if (!desk) return;
+  closeAllModals();
+  const spot = deskSeat(desk, 2.4);
+  player.pos.set(spot.x, 0, spot.z);
+  player.vy = 0;
+  player.facing = Math.atan2(desk.x - spot.x, desk.z - spot.z);
+  player.camYaw = player.facing - Math.PI;
+  player.lookPitch = -0.2;
+  const w = store.workerAtDesk(deskId);
+  toast(w ? `You're at ${desk.label}, ${w.name}'s desk` : `You're at ${desk.label}`);
+}
+
 /** Opening a sleeping worker's terminal wakes it, so there's nothing to press first. */
 function openWorkerTerminal(id: string) {
   const w = store.workers.get(id);
@@ -508,6 +561,7 @@ function boardActions() {
         onSubmit: (text, o) => hire(desk, text, o.worktree),
       });
     },
+    goToDesk,
   };
 }
 
@@ -536,6 +590,7 @@ function interact(target: Interactable | null, key: DeskKey) {
     if (key === 'C' && w) return openWorkerChanges(w.id);
     if (key === 'R' && w && (w.status === 'exited' || w.status === 'offline')) return resumeWorker(w);
     if (key === 'X' && w) return killWorker(w.id);
+    if (key === 'O' && w) return pullRequestFor(w);
     return;
   }
   if (key !== 'E') return;
@@ -543,11 +598,7 @@ function interact(target: Interactable | null, key: DeskKey) {
   else if (target.kind === 'services') openServices();
   else if (target.kind === 'queue') showQueue();
   else if (target.kind === 'tv') watchShare();
-  else if (target.kind === 'coffee') {
-    toast('☕ Mmm, fresh coffee. +10 focus');
-    player.vy = 7;
-    player.grounded = false;
-  }
+  else if (target.kind === 'coffee') toast('☕ Mmm, fresh coffee. +10 focus');
 }
 
 // ---- Interaction targeting & hint -----------------------------------------------------------------
@@ -594,7 +645,7 @@ function renderHint() {
         key('B', 'Shell'),
       ];
     } else {
-      k += w.status + w.id;
+      k += w.status + w.id + (w.pr?.number ?? '') + (w.prOpening ? '!' : '');
       const asleep = w.status === 'exited' || w.status === 'offline';
       const doing = w.activity ? (w.activity.length > 48 ? `${w.activity.slice(0, 47)}…` : w.activity) : '';
       const spent = w.usage?.calls ? usageLabel(w.usage) : '';
@@ -606,6 +657,7 @@ function renderHint() {
         key('E', 'Open terminal'),
         key('C', 'Changes'),
         asleep ? key('R', w.kind === 'shell' ? 'Restart' : 'Resume') : key('P', w.kind === 'shell' ? 'Run command' : 'Prompt'),
+        w.pr ? key('O', `PR #${w.pr.number}`) : w.prOpening ? h('span', { style: 'opacity:.75;font-weight:600' }, '⏳ Opening PR…') : prReady(w) ? key('O', 'Open PR') : '',
         key('X', 'Send home'),
       ];
     }
@@ -655,7 +707,7 @@ function reach() {
   }
 }
 
-type DeskKey = 'E' | 'P' | 'R' | 'X' | 'B' | 'C';
+type DeskKey = 'E' | 'P' | 'R' | 'X' | 'B' | 'C' | 'O';
 
 function use(it: Interactable | null, key: DeskKey) {
   if (!it) return;
@@ -685,6 +737,9 @@ window.addEventListener('keydown', (e) => {
       break;
     case 'KeyC':
       use(target, 'C');
+      break;
+    case 'KeyO':
+      use(target, 'O');
       break;
     case 'KeyT':
     case 'Enter':
@@ -716,12 +771,21 @@ onModalChange((open) => {
     player.unlock();
     $('hint').classList.add('hidden');
   } else {
-    // The browser lets a page re-capture the mouse it let go of itself, even from Esc.
-    if (relookAfterModal && player.canLock) player.lock();
-    relookAfterModal = false;
+    // A tick later, so closing one window to open the next (Settings → character) doesn't grab the mouse in between.
+    setTimeout(backToGame, 0);
   }
   hintKey = '';
 });
+
+/** Once the last window is closed, the game has the keyboard again and, in first person, the mouse. */
+function backToGame() {
+  if (modalOpen()) return;
+  if (!isTyping()) canvas.focus({ preventScroll: true });
+  // The browser lets a page re-capture the mouse it let go of itself, even from Esc. Otherwise it
+  // needs a recent click or key, like the one that closed the window; without one, "Click to look around".
+  if (player.canLock && (relookAfterModal || navigator.userActivation?.isActive)) player.lock();
+  relookAfterModal = false;
+}
 
 // ---- Clicking the world: use what's under the crosshair (first person) or the mouse (third) ----------
 const raycaster = new THREE.Raycaster();
@@ -867,17 +931,21 @@ $('btn-team').addEventListener('click', () => openTeam(net));
 $('btn-upgrade').addEventListener('click', () => openUpgrade(net));
 $('btn-help').addEventListener('click', () => openHelp());
 $('btn-settings').addEventListener('click', () =>
-  openSettings(settings, (s) => {
-    Object.assign(settings, s);
-    saveSettings(settings);
-    player.setView(settings.view);
-  }),
+  openSettings(
+    settings,
+    (s) => {
+      Object.assign(settings, s);
+      saveSettings(settings);
+      player.setView(settings.view);
+    },
+    editProfile,
+  ),
 );
 
 function editProfile() {
-  openProfile(false, (name, color) => {
-    setMyColor(color);
-    net.send({ t: 'profile', name, color });
+  openCharacter(false, (p) => {
+    showMyProfile(p);
+    net.send({ t: 'profile', name: p.name, color: p.color, look: p.look });
   });
 }
 
@@ -979,15 +1047,17 @@ function boot() {
 }
 
 const saved = loadProfile();
-if (saved) {
-  store.profile = saved;
-  setMyColor(saved.color);
+if (saved?.look) {
+  store.profile = { ...saved, look: saved.look };
+  showMyProfile(store.profile);
   boot();
 } else {
-  // Render the office behind the welcome dialog.
+  // Pick a character first (people from before there was a choice keep their name and color).
+  if (saved) Object.assign(store.profile, { name: saved.name, color: saved.color });
+  // Render the office behind the character select screen.
   requestAnimationFrame(frame);
-  openProfile(true, (_name, color) => {
-    setMyColor(color);
+  openCharacter(true, (p) => {
+    showMyProfile(p);
     net.connect();
   });
 }

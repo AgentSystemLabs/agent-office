@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, accessSync, constants } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import path from 'node:path';
 import * as pty from '@lydell/node-pty';
 import headless from '@xterm/headless';
@@ -9,6 +9,7 @@ import type { Run, WorkerInfo, WorkerKind, WorkerStatus } from '../shared/protoc
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG } from '../shared/protocol.js';
 import { Worktrees, describeWork, type WorktreeCleanup, type WorktreeState } from './worktrees.js';
 import { DESK_BY_ID } from '../shared/layout.js';
+import { gh } from './github.js';
 import type { ServiceOwner } from './services.js';
 import { addUsage, newTracker, restoreTracker, scanTracker, trackerUsage, zeroUsage, type Ledger, type UsageTracker } from './usage.js';
 
@@ -35,6 +36,8 @@ const SCROLLBACK = 3000;
 const SCREEN_INTERVAL_MS = 250;
 const LATE_PROMPT_GRACE_MS = 5000;
 const KEYFRAME_MS = 8000;
+const PR_TITLE_MAX = 72;
+const PR_TASK_MAX = 2500;
 /** How often every worker's transcript is checked for new spend, on top of the hook-driven checks. */
 const USAGE_SCAN_MS = 10_000;
 
@@ -269,6 +272,68 @@ export class WorkerManager {
     setTimeout(() => w.pty?.write('\r'), 120);
     w.info.activity = truncate(clean, 80);
     this.emitUpdate(w);
+    return undefined;
+  }
+
+  /**
+   * Pushes a worktree worker's branch and opens a pull request for it, with a title and body
+   * drafted from its task. Resolves to the PR, or to a message saying why there is none. The
+   * branch may already have an open PR (a second press, or one opened by hand): that one is used.
+   */
+  async openPr(id: string, by: string): Promise<{ number: number; url: string; existed: boolean; dirty: boolean } | string> {
+    const w = this.workers.get(id);
+    if (!w) return 'No such worker';
+    const { info } = w;
+    const wt = info.worktree;
+    if (!wt) return `${info.name} works in the main checkout — only workers with their own worktree can open a PR`;
+    if (info.prOpening) return `${info.name}'s pull request is already being opened`;
+    if (info.status === 'starting' || info.status === 'working' || info.status === 'needs_input') {
+      return `${info.name} is still ${info.status === 'needs_input' ? 'waiting on input' : info.status} — wait until it's done`;
+    }
+    const cwd = path.join(this.dir, wt.path);
+    if (!existsSync(cwd)) return `${info.name}'s worktree is gone (${wt.path})`;
+    info.prOpening = true;
+    this.emitUpdate(w);
+    try {
+      const commits = (await run('git', ['log', '--reverse', '--format=%h %s', `${wt.base}..${wt.branch}`], cwd)).split('\n').filter(Boolean);
+      const dirty = (await run('git', ['status', '--porcelain'], cwd)) !== '';
+      if (!commits.length) return dirty ? `${info.name} hasn't committed anything yet — ask it to commit first` : `${info.name} has no commits on ${wt.branch} yet`;
+      const open = await findOpenPr(wt.branch, cwd);
+      if (open) {
+        info.pr = open;
+        this.persist();
+        return { ...open, existed: true, dirty };
+      }
+      await run('git', ['push', '-u', 'origin', wt.branch], cwd, 90_000);
+      const base = await this.pushedBranch([wt.from, this.trees.currentBranch()], wt.branch);
+      const { title, body } = draftPr(info, commits, by);
+      const out = await gh(['pr', 'create', '--head', wt.branch, ...(base ? ['--base', base] : []), '--title', title, '--body', body], cwd, 60_000);
+      const url = out.trim().split('\n').pop() ?? '';
+      const number = Number(/\/pull\/(\d+)/.exec(url)?.[1]);
+      if (!number) throw new Error(`gh did not return a pull request URL (${truncate(out, 120)})`);
+      info.pr = { number, url };
+      this.persist();
+      return { number, url, existed: false, dirty };
+    } catch (err) {
+      return `Couldn't open a PR for ${info.name}: ${(err as Error).message}`;
+    } finally {
+      info.prOpening = false;
+      // The worker may have been sent home meanwhile; an update would bring it back as a ghost.
+      if (this.workers.get(id) === w) this.emitUpdate(w);
+    }
+  }
+
+  /** The first of these branches that exists on origin, for a PR base. None: gh picks the default branch. */
+  private async pushedBranch(candidates: (string | undefined)[], not: string): Promise<string | undefined> {
+    for (const c of candidates) {
+      if (!c || c === not) continue;
+      try {
+        await run('git', ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${c}`], this.dir);
+        return c;
+      } catch {
+        // not on the remote (or never fetched)
+      }
+    }
     return undefined;
   }
 
@@ -637,6 +702,7 @@ process.stdin.on('end', () => {
       title: info.title,
       sessionId: info.sessionId,
       activity: info.activity,
+      pr: info.pr,
       wake: this.wakeOnBoot.has(info.id) || undefined,
       tracker: info.kind === 'agent' ? tracker : undefined,
     }));
@@ -671,6 +737,7 @@ process.stdin.on('end', () => {
           title: s.title,
           sessionId: s.sessionId,
           activity: s.activity,
+          pr: s.pr && typeof s.pr.number === 'number' && typeof s.pr.url === 'string' ? { number: s.pr.number, url: s.pr.url } : undefined,
           usage: tracker.transcript ? trackerUsage(tracker) : undefined,
           cols: 100,
           rows: 30,
@@ -792,6 +859,42 @@ function describeTool(payload: any): string {
 function offlineBanner(info: WorkerInfo): string {
   const hint = info.kind === 'shell' ? ' Press R to restart it.' : info.sessionId ? ' Press R to resume the session.' : '';
   return `\x1b[2m${info.name} is not running.${hint}\x1b[0m\r\n`;
+}
+
+/** Runs a command without blocking the office; rejects with the last lines of its stderr. */
+function run(cmd: string, args: string[], cwd: string, timeout = 30_000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { cwd, encoding: 'utf8', timeout, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (err) reject(new Error((stderr || err.message).trim().split('\n').filter(Boolean).slice(-2).join(' ') || `${cmd} failed`));
+      else resolve(stdout.trim());
+    });
+  });
+}
+
+async function findOpenPr(branch: string, cwd: string): Promise<{ number: number; url: string } | undefined> {
+  const out = await gh(['pr', 'list', '--head', branch, '--state', 'open', '--limit', '1', '--json', 'number,url'], cwd);
+  const found = (JSON.parse(out || '[]') as { number: number; url: string }[])[0];
+  return found ? { number: found.number, url: found.url } : undefined;
+}
+
+/**
+ * A pull request title and body from what the worker was asked to do. The title is the issue's
+ * title when the task came off the issues board, else the task's first line; the body carries the
+ * task, the commits, a "Closes #n" when the task asked for one, and which desk it came from.
+ */
+function draftPr(info: WorkerInfo, commits: string[], by: string): { title: string; body: string } {
+  const task = (info.prompt ?? '').replace(/\r\n?/g, '\n').trim();
+  const firstLine = task.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
+  // The issues board hands work over as: Work on GitHub issue #12: "Title".
+  const issue = /\bissue #(\d+):\s*["“](.+?)["”]\.?\s*$/i.exec(firstLine);
+  const title = truncate(issue?.[2] || firstLine.replace(/[.:;,]+$/, '') || commits[0]?.replace(/^\S+\s+/, '') || info.worktree?.branch || info.name, PR_TITLE_MAX);
+  const closes = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b[^\n]{0,40}?#(\d+)/i.exec(task)?.[1] ?? issue?.[1];
+  const parts: string[] = [];
+  if (task) parts.push(`## Task\n\n${task.length > PR_TASK_MAX ? `${task.slice(0, PR_TASK_MAX)}…` : task}`);
+  parts.push(`## Commits\n\n${commits.map((c) => `- \`${c.slice(0, c.indexOf(' '))}\` ${c.slice(c.indexOf(' ') + 1)}`).join('\n')}`);
+  if (closes) parts.push(`Closes #${closes}`);
+  parts.push(`_Opened from Agent Office by ${by} · ${info.name} at ${DESK_BY_ID.get(info.deskId)?.label ?? info.deskId}_`);
+  return { title, body: parts.join('\n\n') };
 }
 
 function truncate(s: string, n: number) {

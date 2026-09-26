@@ -1,5 +1,6 @@
 import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, QueueState, QueueTask, ServerMsg, ServicesState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
+import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 
 type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'usage' | 'queue';
 
@@ -8,15 +9,19 @@ const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead:
 export interface Profile {
   name: string;
   color: string;
+  look: Look;
 }
 
 const PROFILE_KEY = 'agent-office.profile';
 export const AVATAR_COLORS = ['#ff8a5b', '#4f86f7', '#06d6a0', '#ef476f', '#ffd166', '#9d4edd', '#00b4d8', '#f77f00'];
 
-export function loadProfile(): Profile | null {
+/** Your saved profile. `look` is missing if you joined before there was a character select screen. */
+export function loadProfile(): (Omit<Profile, 'look'> & { look?: Look }) | null {
   try {
     const p = JSON.parse(localStorage.getItem(PROFILE_KEY) ?? 'null');
-    if (p && typeof p.name === 'string' && typeof p.color === 'string') return p;
+    if (p && typeof p.name === 'string' && typeof p.color === 'string') {
+      return { name: p.name, color: p.color, look: p.look ? sanitizeLook(p.look, randomLook()) : undefined };
+    }
   } catch {
     // storage blocked
   }
@@ -58,9 +63,15 @@ export function saveSettings(s: Settings) {
   }
 }
 
+/** The worker whose worktree branch a pull request came from, if it is still at a desk. */
+export function workerForPull(workers: Iterable<WorkerInfo>, pr: { number: number; headRefName: string }): WorkerInfo | undefined {
+  for (const w of workers) if (w.pr?.number === pr.number || (w.worktree && w.worktree.branch === pr.headRefName)) return w;
+  return undefined;
+}
+
 class Store {
   you = '';
-  profile: Profile = { name: 'Guest', color: AVATAR_COLORS[1] };
+  profile: Profile = { name: 'Guest', color: AVATAR_COLORS[1], look: randomLook() };
   peers = new Map<string, PeerInfo>();
   workers = new Map<string, WorkerInfo>();
   screens = new Map<string, ScreenState>();

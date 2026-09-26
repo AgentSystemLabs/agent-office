@@ -19,6 +19,7 @@ import { Changes } from './changes.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import type { ChatLine, ClientMsg, PeerInfo, ProjectInfo, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { SPAWN } from '../shared/layout.js';
+import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -400,6 +401,7 @@ export async function startServer(cfg: Config) {
     const id = randomBytes(5).toString('hex');
     const name = str(url.searchParams.get('name'), 24).trim() || `Guest ${id.slice(0, 3)}`;
     const colorParam = url.searchParams.get('color') ?? '';
+    const intParam = (k: string) => (url.searchParams.get(k) ? Number(url.searchParams.get(k)) : undefined);
     const client: Client = {
       id,
       ws,
@@ -411,6 +413,7 @@ export async function startServer(cfg: Config) {
         id,
         name,
         color: COLOR_RE.test(colorParam) ? colorParam : '#4f86f7',
+        look: sanitizeLook({ skin: intParam('skin'), hair: intParam('hair'), style: intParam('style') }, lookFromSeed(id)),
         x: SPAWN.x + (Math.random() - 0.5) * 3,
         y: 0,
         z: SPAWN.z + (Math.random() - 0.5) * 2,
@@ -488,6 +491,7 @@ export async function startServer(cfg: Config) {
         const name = str(msg.name, 24).trim();
         if (name) c.peer.name = name;
         if (COLOR_RE.test(msg.color)) c.peer.color = msg.color;
+        c.peer.look = sanitizeLook(msg.look, c.peer.look);
         broadcast({ t: 'peer.update', peer: c.peer });
         break;
       }
@@ -560,6 +564,21 @@ export async function startServer(cfg: Config) {
       case 'worker.prompt': {
         const err = workers.prompt(str(msg.workerId, 32), str(msg.prompt, 20000));
         if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+        break;
+      }
+      case 'worker.pr': {
+        const wid = str(msg.workerId, 32);
+        void workers.openPr(wid, who).then((r) => {
+          if (typeof r === 'string') return sendTo(c, { t: 'toast', text: r, level: 'warn' });
+          const name = workers.get(wid)?.name ?? 'the worker';
+          broadcast({ t: 'toast', text: r.existed ? `${name}'s branch already has PR #${r.number}` : `${who} opened PR #${r.number} for ${name}`, level: 'info' });
+          if (r.dirty) sendTo(c, { t: 'toast', text: `${name} still has uncommitted changes in its worktree — they are not in the PR`, level: 'warn' });
+          // Put it on the board now rather than at the next poll. A refresh already in flight
+          // returns at once and can miss it, so look again shortly after.
+          void github.refresh().then(() => {
+            if (!github.pulls.items.some((p) => p.number === r.number)) setTimeout(() => void github.refresh(), 3000);
+          });
+        });
         break;
       }
       case 'term.input':

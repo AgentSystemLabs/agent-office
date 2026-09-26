@@ -1,10 +1,13 @@
-import type { GhIssue, GhPull } from '../../shared/protocol';
+import { DESK_BY_ID } from '../../shared/layout';
+import type { GhIssue, GhPull, WorkerInfo } from '../../shared/protocol';
 import type { Net } from '../net';
-import { store } from '../state';
+import { store, workerForPull } from '../state';
 import { h, openModal, timeAgo } from './dom';
 
 export interface BoardActions {
   assign(prompt: string, title: string): void;
+  /** Walks you to the desk a pull request came from. */
+  goToDesk(deskId: string): void;
   /** Put an issue on the 📋 task queue; a worker is seated for it when there's room. */
   queue(prompt: string, title: string, issue: number): void;
 }
@@ -50,6 +53,11 @@ function labelChips(labels: { name: string; color: string }[]) {
 }
 
 const CHECK_ICON: Record<GhPull['checks'], string> = { pass: '🟢', fail: '🔴', pending: '🟡', none: '' };
+
+/** A chip naming the worker and desk a pull request came from. */
+function deskChip(w: WorkerInfo) {
+  return h('span.desk-link', { style: `--dot:${w.color}`, title: `Opened from ${w.name}'s desk (${w.worktree?.branch ?? 'its branch'})` }, `🪑 ${w.name} · ${DESK_BY_ID.get(w.deskId)?.label ?? 'a desk'}`);
+}
 
 /** Where an issue stands on the 📋 queue, for its card. */
 function queueChip(issue: number): Node | '' {
@@ -99,12 +107,14 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
     } else {
       for (const col of pullColumns(store.pulls.items)) {
         const ul = h('ul');
-        col.items.forEach((it, i) =>
+        col.items.forEach((it, i) => {
+          const w = workerForPull(store.workers.values(), it);
           ul.append(
             card(
               it.number,
               it.title,
               [
+                w ? deskChip(w) : '',
                 ...labelChips(it.labels),
                 `by ${it.author}`,
                 it.reviewDecision === 'CHANGES_REQUESTED' ? '🛠 changes requested' : '',
@@ -116,8 +126,8 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
               i,
               () => pullDetail(it, actions),
             ),
-          ),
-        );
+          );
+        });
         if (!col.items.length) ul.append(h('li.empty', {}, 'Nothing here'));
         body.append(h('section.column', {}, h('h4', {}, col.title, h('span', {}, String(col.items.length))), ul));
       }
@@ -125,6 +135,8 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
   };
 
   const unsubs = [store.on(kind, render), store.on('queue', render)];
+  // Which desk a PR came from can change (a worker sent home, a PR opened from a desk).
+  if (kind === 'pulls') unsubs.push(store.on('workers', render));
   const timer = setInterval(() => {
     const st = kind === 'issues' ? store.issues : store.pulls;
     status.textContent = st.loading ? 'Refreshing…' : st.fetchedAt ? `Updated ${timeAgo(st.fetchedAt)}` : '';
@@ -179,12 +191,15 @@ function issueDetail(it: GhIssue, actions: BoardActions) {
   });
 }
 
-function pullDetail(it: GhPull, actions: BoardActions) {
+export function pullDetail(it: GhPull, actions: BoardActions) {
+  const w = workerForPull(store.workers.values(), it);
   const review = h('button.btn.primary', {}, '🔍 Review with a worker');
+  const desk = w ? h('button.btn', {}, `🪑 Go to ${w.name}'s desk`) : null;
   const modal = detailModal(
     `#${it.number} ${it.title}`,
     [
       h('span.pill', { class: it.state === 'OPEN' ? (it.isDraft ? 'idle' : 'working') : it.state === 'MERGED' ? 'done' : 'offline' }, it.isDraft ? 'draft' : it.state.toLowerCase()),
+      w ? deskChip(w) : '',
       ...labelChips(it.labels),
       `${it.headRefName} → ${it.baseRefName}`,
       `by ${it.author}`,
@@ -194,8 +209,12 @@ function pullDetail(it: GhPull, actions: BoardActions) {
     ],
     it.body,
     it.url,
-    it.state === 'OPEN' ? [review] : [],
+    [...(desk ? [desk] : []), ...(it.state === 'OPEN' ? [review] : [])],
   );
+  desk?.addEventListener('click', () => {
+    modal.close();
+    actions.goToDesk(w!.deskId);
+  });
   review.addEventListener('click', () => {
     modal.close();
     actions.assign(

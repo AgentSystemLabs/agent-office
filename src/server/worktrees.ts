@@ -38,16 +38,30 @@ export class Worktrees {
     this.root = real(dir);
   }
 
-  /** A new branch and worktree at the project's current HEAD. Returns what went wrong as a string. */
-  create(slug: string): Required<WorktreeRef> | string {
+  /**
+   * A new branch and worktree at the project's current HEAD. `from` is the branch the project was
+   * on, which the worker's pull request targets. Returns what went wrong as a string.
+   */
+  create(slug: string): (Required<WorktreeRef> & { from?: string }) | string {
     try {
       const base = this.gitSync(['rev-parse', 'HEAD']);
+      const from = this.currentBranch();
       const rel = path.join(WORKTREES_DIR, slug);
       const branch = `${BRANCH_PREFIX}${slug}`;
       this.gitSync(['worktree', 'add', '-b', branch, rel, base]);
-      return { path: rel, branch, base };
+      return { path: rel, branch, base, from };
     } catch (err) {
       return `Could not create a git worktree: ${gitError(err)}`;
+    }
+  }
+
+  /** The branch the project is on, or undefined when HEAD is detached. */
+  currentBranch(): string | undefined {
+    try {
+      const b = this.gitSync(['rev-parse', '--abbrev-ref', 'HEAD']);
+      return b === 'HEAD' ? undefined : b;
+    } catch {
+      return undefined;
     }
   }
 
