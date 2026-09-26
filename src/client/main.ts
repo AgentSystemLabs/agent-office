@@ -14,6 +14,7 @@ import { Laptop } from './world/laptop';
 import { BoardTexture, ServicesBoardTexture } from './world/boards';
 import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
+import { OfficeSound } from './sound';
 import { $, h, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
 import { openPrompt, confirmDialog } from './ui/prompt';
@@ -133,6 +134,8 @@ const player = new PlayerController(camera, canvas, office.colliders);
 player.pos.set(SPAWN.x, 0, SPAWN.z);
 player.view = settings.view;
 const hands = new Hands(store.profile.color, me.skinColor);
+const sound = new OfficeSound();
+sound.setVolume(settings.volume, settings.muted);
 
 function showMyProfile(p: Profile) {
   me.setColor(p.color);
@@ -149,6 +152,8 @@ interface RemotePeer {
   label: string;
   look: PeerInfo['look'];
   bubble?: { sprite: THREE.Sprite; until: number };
+  /** Seconds walked since their last footstep. */
+  stepT: number;
 }
 const remotes = new Map<string, RemotePeer>();
 
@@ -247,7 +252,7 @@ function syncPeers() {
       person.root.position.set(peer.x, peer.y, peer.z);
       scene.add(person.root);
       noOutline(person.root);
-      r = { person, target: new THREE.Vector3(peer.x, peer.y, peer.z), rotY: peer.rotY, moving: false, label: '', look: { ...peer.look } };
+      r = { person, target: new THREE.Vector3(peer.x, peer.y, peer.z), rotY: peer.rotY, moving: false, label: '', look: { ...peer.look }, stepT: 0 };
       remotes.set(id, r);
     }
     const label = `${peer.name}|${peer.voice ? (peer.muted ? 'm' : 'v') : '-'}|${peer.color}`;
@@ -290,42 +295,6 @@ function sayBubble(from: string, text: string) {
 }
 
 // ---- Workers ------------------------------------------------------------------------------------
-let dingCtx: AudioContext | null = null;
-// Browsers only allow audio after a gesture: unlock the ding on the first click or key.
-const unlockAudio = () => {
-  try {
-    dingCtx ??= new AudioContext();
-    void dingCtx.resume();
-  } catch {
-    // no audio
-  }
-};
-window.addEventListener('pointerdown', unlockAudio, { once: true });
-window.addEventListener('keydown', unlockAudio, { once: true });
-function ding(kind: 'done' | 'needs_input') {
-  try {
-    dingCtx ??= new AudioContext();
-    const ctx = dingCtx;
-    if (ctx.state === 'suspended') void ctx.resume();
-    const notes = kind === 'done' ? [660, 880] : [880, 660, 880];
-    notes.forEach((f, i) => {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = 'triangle';
-      o.frequency.value = f;
-      const t0 = ctx.currentTime + i * 0.12;
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(0.15, t0 + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.25);
-      o.connect(g).connect(ctx.destination);
-      o.start(t0);
-      o.stop(t0 + 0.3);
-    });
-  } catch {
-    // audio unavailable
-  }
-}
-
 function shouldBounce(w: WorkerInfo) {
   return w.status === 'needs_input' || (w.status === 'done' && !w.acked);
 }
@@ -357,7 +326,7 @@ function syncWorkers() {
     if (v.status !== w.status || v.acked !== w.acked) {
       const becameHot = shouldBounce(w) && !(v.status === w.status && v.acked === w.acked) && v.status !== '' && (w.status !== v.status);
       if (becameHot && (w.status === 'needs_input' || w.status === 'done')) {
-        ding(w.status);
+        sound.ding(w.status);
         if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
           new Notification(`${w.name} ${w.status === 'done' ? 'is done' : 'needs input'}`, { body: w.activity ?? w.prompt ?? '', icon: '/favicon.svg' });
         }
@@ -367,6 +336,8 @@ function syncWorkers() {
       v.model.setStatus(w.status, shouldBounce(w));
       noOutline(v.model.root);
     }
+    const deskDef = DESK_BY_ID.get(w.deskId);
+    if (deskDef) sound.setTyping(w.id, deskDef.x, deskDef.z, w.status === 'working');
     const again = w.kind === 'shell' ? 'restart' : 'resume';
     v.laptop.setPlaceholder(w.status === 'offline' ? `💤 ${w.name} is asleep — press R to ${again}` : w.status === 'exited' ? `${w.name} exited` : 'booting…');
   }
@@ -378,6 +349,7 @@ function syncWorkers() {
     v.model.dispose();
     v.laptop.dispose();
     if (desk) desk.vacancy.visible = true;
+    sound.removeTypist(id);
     workerViews.delete(id);
   }
   renderWorkers((id) => openWorkerTerminal(id));
@@ -508,7 +480,10 @@ function interact(target: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B')
   if (target.kind === 'issues' || target.kind === 'pulls') openBoard(target.kind, net, boardActions());
   else if (target.kind === 'services') openServices();
   else if (target.kind === 'tv') watchShare();
-  else if (target.kind === 'coffee') toast('☕ Mmm, fresh coffee. +10 focus');
+  else if (target.kind === 'coffee') {
+    toast('☕ Mmm, fresh coffee. +10 focus');
+    sound.coffee();
+  }
 }
 
 // ---- Interaction targeting & hint -----------------------------------------------------------------
@@ -822,8 +797,10 @@ $('btn-settings').addEventListener('click', () =>
       Object.assign(settings, s);
       saveSettings(settings);
       player.setView(settings.view);
+      sound.setVolume(settings.volume, settings.muted);
     },
     editProfile,
+    () => sound.ding('done'),
   ),
 );
 
@@ -849,6 +826,11 @@ resize();
 const timer = new THREE.Timer();
 let lastSent = { x: 0, y: 0, z: 0, rotY: 0, moving: false, at: 0 };
 let speakTick = 0;
+/** Which half-stride your walk is on, so each one plays a footstep. */
+let stride = 0;
+/** How fast you were falling, so landing a jump thumps but stepping down a stair doesn't. */
+let fallV = 0;
+const lookDir = new THREE.Vector3();
 
 function frame(ts?: number) {
   timer.update(ts);
@@ -864,6 +846,20 @@ function frame(ts?: number) {
   // In first person you are the camera; in third, hide yourself when it's zoomed in right behind your head.
   me.root.visible = !firstPerson && camera.position.distanceTo(new THREE.Vector3(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5;
   if (firstPerson) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded });
+
+  // Your ears are in your head, facing wherever the camera looks.
+  camera.getWorldDirection(lookDir);
+  sound.update({ x: player.pos.x, y: player.pos.y + EYE_HEIGHT, z: player.pos.z, fx: lookDir.x, fz: lookDir.z });
+  const s = Math.floor(player.walkPhase / Math.PI);
+  if (s !== stride) {
+    stride = s;
+    if (player.moving && player.grounded) sound.step();
+  }
+  if (!player.grounded) fallV = Math.min(fallV, player.vy);
+  else {
+    if (fallV < -4) sound.step('land');
+    fallV = 0;
+  }
 
   const now = performance.now();
   const moved = Math.abs(player.pos.x - lastSent.x) + Math.abs(player.pos.y - lastSent.y) + Math.abs(player.pos.z - lastSent.z) > 0.01 || Math.abs(player.facing - lastSent.rotY) > 0.02;
@@ -881,7 +877,14 @@ function frame(ts?: number) {
     let diff = p.rotY - r.person.root.rotation.y;
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     r.person.root.rotation.y += diff * Math.min(1, dt * 12);
-    r.person.update(dt, t, p.moving && p.y < 0.05 + 0.8, p.y > 0.05 && Math.abs(pos.y - r.target.y) > 0.01);
+    const walking = p.moving && p.y < 0.05 + 0.8;
+    r.person.update(dt, t, walking, p.y > 0.05 && Math.abs(pos.y - r.target.y) > 0.01);
+    // Their walk cycle takes a step every π/11 seconds.
+    r.stepT = walking ? r.stepT + dt : 0.2;
+    if (r.stepT >= Math.PI / 11) {
+      r.stepT -= Math.PI / 11;
+      sound.stepAt(pos.x, pos.z);
+    }
     r.person.setVoiceLevel(p.voice && !p.muted ? voice.levelOf(id) : 0);
     if (r.bubble && now > r.bubble.until) {
       r.person.root.remove(r.bubble.sprite);
@@ -950,3 +953,4 @@ if (saved?.look) {
 // Debug handle for quick checks from the console / headless screenshots.
 (window as any).__office = { store, player, camera, workerViews, scene, net, renderer, hands, me, remotes, settings };
 (window as any).__voice = voice;
+(window as any).__sound = sound;

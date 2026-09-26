@@ -6,7 +6,7 @@ const VIEWS: [ViewMode, string, string][] = [
   ['third', '🎥 Third person', 'Follow your character from behind. Drag to orbit the camera, scroll to zoom, and click things to use them.'],
 ];
 
-export function openSettings(settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void) {
+export function openSettings(settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void) {
   const seg = h('div.seg', { role: 'radiogroup', 'aria-label': 'Camera view' });
   const note = h('p.setting-note');
   const paint = () => {
@@ -33,13 +33,54 @@ export function openSettings(settings: Settings, onChange: (s: Settings) => void
     note.textContent = VIEWS.find(([v]) => v === settings.view)![2];
   };
   paint();
+
+  const volume = h('input', { type: 'range', min: 0, max: 100, step: 1, 'aria-label': 'Office sounds volume' });
+  const pct = h('span.vol-pct');
+  const mute = h('button.btn', { type: 'button' });
+  const soundRow = h('div.volume', {}, mute, volume, pct);
+  const paintSound = () => {
+    const level = Math.round(settings.volume * 100);
+    volume.value = String(level);
+    volume.style.setProperty('--fill', `${level}%`);
+    pct.textContent = settings.muted ? 'Muted' : `${level}%`;
+    mute.textContent = settings.muted ? '🔊 Unmute' : '🔇 Mute';
+    mute.setAttribute('aria-pressed', String(settings.muted));
+    mute.classList.toggle('danger', settings.muted);
+    soundRow.classList.toggle('muted', settings.muted);
+  };
+  paintSound();
+  // Dragging the slider turns sound back on; letting go plays a sample at the new level.
+  volume.addEventListener('input', () => {
+    settings = { ...settings, volume: Number(volume.value) / 100, muted: false };
+    onChange(settings);
+    paintSound();
+  });
+  volume.addEventListener('change', previewSound);
+  mute.addEventListener('click', () => {
+    settings = { ...settings, muted: !settings.muted };
+    onChange(settings);
+    paintSound();
+    if (!settings.muted) previewSound();
+  });
+
   const character = h('button.btn', { type: 'button' }, '🧍 Change your look & name');
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const el = h(
     'div.modal',
     { role: 'dialog', 'aria-label': 'Settings' },
     h('header', {}, h('h2', {}, '⚙️ Settings'), close),
-    h('div.body', {}, h('label', {}, 'Camera view'), seg, note, h('label', { style: 'margin-top:18px' }, 'Your character'), character),
+    h(
+      'div.body',
+      {},
+      h('label', {}, 'Camera view'),
+      seg,
+      note,
+      h('label', { style: 'margin-top:18px' }, 'Office sounds'),
+      soundRow,
+      h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds outside, and the ding when a worker is done. Voice chat isn’t affected.'),
+      h('label', { style: 'margin-top:18px' }, 'Your character'),
+      character,
+    ),
   );
   const modal = openModal(el);
   close.addEventListener('click', () => modal.close());

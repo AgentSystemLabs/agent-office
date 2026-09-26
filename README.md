@@ -23,6 +23,7 @@ agent-office
 - **PR board.** A second tack board shows pull requests in *Draft*, *In review*, *Approved*, *Merged* and *Closed*, with CI status and diff size. **Review with a worker** does what it says.
 - **Services board.** When a worker starts a web server (`npm run dev`, a preview build, `python -m http.server`), it appears within a few seconds on the **🌐 Services** board, which hangs on the wall by the lounge and is also a button in the top bar. Each entry shows the worker, its branch and the page's title. Click a row to copy one command that opens that server on your own computer. Hire a worker with its own worktree, ask it to run the dev server, and your designer can review the branch in their own browser.
 - **Voice.** Browser-to-browser WebRTC voice. Volume depends on how close you stand, but people are never fully silent.
+- **Office sounds.** Busy workers clatter away at their keyboards, footsteps pad past, the fridge hums, birds chirp outside the windows and the coffee machine grinds and gurgles. It's all synthesized in the browser and placed where it happens, so it gets louder as you walk closer. Turn it down or mute it under **⚙️**, which also covers the worker dings but not voice chat.
 - **Screen sharing.** Your screen appears on the lounge TV for everyone, and there's a full-screen viewer.
 - **Password protected.** The session cookie is signed, and login attempts are rate limited.
 
