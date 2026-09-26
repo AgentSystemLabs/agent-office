@@ -85,6 +85,52 @@ agent-office [dir] [options]
 
 You can also click a nearby desk to interact with it, or click a worker in the sidebar to open its terminal.
 
+## One command on AWS
+
+If you have the AWS CLI logged in, one command gives you your own office on EC2. No Terraform needed:
+
+```bash
+git clone https://github.com/AgentSystemLabs/agent-office && cd agent-office
+deploy/aws.sh up
+```
+
+What `up` does, in about 2 minutes:
+
+1. Creates an SSH key pair (kept in `~/.config/agent-office/aws/<name>/`).
+2. Creates a security group that lets **only your current IP** reach ports 443 (the office) and 22 (ssh).
+3. Gives the office a fixed Elastic IP and launches a **t3.xlarge** (4 vCPU, 16 GiB) Ubuntu 24.04 instance with a 50 GiB disk.
+4. Installs Node 22, git, the GitHub CLI and **Claude Code**. It clones the latest agent-office from GitHub, runs `npm i`, and clones your project.
+5. Runs the office under systemd with `Restart=always`, so it comes back after a crash or a reboot. It serves HTTPS with a self-signed certificate, so voice and screen sharing work.
+6. Opens your browser once the office answers. **The first page shows the office password once. Write it down.** The server then keeps only a hash, so nobody can display the password again.
+
+Your browser will warn about the self-signed certificate; choose *Advanced → Proceed*.
+
+```bash
+deploy/aws.sh allow 203.0.113.7    # let a teammate in (IP or CIDR; "me" = your current IP)
+deploy/aws.sh revoke 203.0.113.7   # …and take it back
+deploy/aws.sh status               # instance, URL, allowed IPs
+deploy/aws.sh open                 # open the office in your browser
+deploy/aws.sh resize t3.2xlarge    # bigger or smaller machine; same address, ~1-2 min of downtime
+deploy/aws.sh update               # install the latest agent-office and restart
+deploy/aws.sh reset-password       # new password, shown once; signs everyone out
+deploy/aws.sh ssh | logs           # get on the box / follow the office logs
+deploy/aws.sh down                 # delete the instance, disk, IP, security group and key pair
+```
+
+Useful options for `up`:
+
+- `--project owner/repo` chooses which GitHub repo the office works on. The default is the GitHub origin of the directory you run it from.
+- `--instance-type`, `--disk` and `--region` set the machine size, disk size and region.
+- `--allow <ip>` lets more people in from the start.
+- `--name <name>` runs several offices side by side.
+
+**Claude sign-in.** Workers run Claude Code on the machine, so it has to be signed in there. You can do this either way:
+
+- Pass `--claude-token "$(claude setup-token)"`, which uses your Claude subscription, or `--anthropic-api-key <key>`.
+- Do nothing, and the first worker jumps with *"Claude isn't signed in — type /login"*. Open its terminal and run `/login`.
+
+**GitHub.** By default, your local `gh auth token` is used to sign in the GitHub CLI on the machine. It's needed for private repos, the issue and PR boards, and for workers to push branches and open PRs. Anyone who can use the office can use that token, so pass `--github-token <fine-grained token>` or `--no-github-token` if that's too much.
+
 ## Running it on a VPS for your team
 
 Voice and screen sharing need a secure context, so put the office behind HTTPS. The simplest setup is Caddy, which gets certificates automatically:

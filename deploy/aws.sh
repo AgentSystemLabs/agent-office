@@ -10,6 +10,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NAME="agent-office"
 INSTANCE_TYPE="t3.xlarge"
+INSTANCE_TYPE_SET=0
 DISK_GB=50
 APP_REF="main"
 APP_REPO=""
@@ -38,6 +39,8 @@ Commands
   revoke <ip|me>     Take that access away again
   ssh                SSH into the machine
   logs               Follow the office's logs
+  resize <type>      Change the machine size, e.g. t3.2xlarge (stops it for ~1-2 minutes;
+                     the address stays the same). `up --instance-type <type>` does this too.
   update             Install the latest agent-office on the machine and restart it
   reset-password     Forget the password and show a new one once in your browser
   down               Terminate the machine and delete everything this script created
@@ -81,7 +84,7 @@ while [[ $# -gt 0 ]]; do
     --name) NAME="$2"; shift 2 ;;
     --region) export AWS_REGION="$2" AWS_DEFAULT_REGION="$2"; shift 2 ;;
     --profile) export AWS_PROFILE="$2"; shift 2 ;;
-    --instance-type) INSTANCE_TYPE="$2"; shift 2 ;;
+    --instance-type) INSTANCE_TYPE="$2"; INSTANCE_TYPE_SET=1; shift 2 ;;
     --disk) DISK_GB="$2"; shift 2 ;;
     --allow) EXTRA_ALLOW+=("$2"); shift 2 ;;
     --project) PROJECT="$2"; shift 2 ;;
@@ -159,6 +162,61 @@ instance_field() { aws_ ec2 describe-instances --instance-ids "$1" --query "Rese
 find_sg() {
   aws_ ec2 describe-security-groups --filters "Name=group-name,Values=$RESOURCE" "Name=tag:agent-office,Values=$NAME" \
     --query 'SecurityGroups[0].GroupId' 2>/dev/null | sed 's/^None$//'
+}
+
+find_eip() {
+  # prints: <allocation-id> <association-id|None> <public-ip>
+  aws_ ec2 describe-addresses --filters "Name=tag:agent-office,Values=$NAME" \
+    --query 'Addresses[0].[AllocationId,AssociationId,PublicIp]' 2>/dev/null | sed 's/^None$//'
+}
+
+# A fixed address, so the office URL survives stops, starts and resizes.
+ensure_eip() {
+  local inst="$1" alloc assoc ip current
+  read -r alloc assoc ip <<<"$(find_eip)"
+  if [[ -z "$alloc" || "$alloc" == "None" ]]; then
+    read -r alloc ip <<<"$(aws_ ec2 allocate-address --domain vpc \
+      --tag-specifications "ResourceType=elastic-ip,Tags=[{Key=agent-office,Value=$NAME},{Key=Name,Value=$RESOURCE}]" \
+      --query '[AllocationId,PublicIp]')"
+    ok "Elastic IP $ip"
+  fi
+  current=$(aws_ ec2 describe-addresses --allocation-ids "$alloc" --query 'Addresses[0].InstanceId' | sed 's/^None$//')
+  if [[ "$current" != "$inst" ]]; then
+    aws ec2 associate-address --allocation-id "$alloc" --instance-id "$inst" --allow-reassociation >/dev/null
+  fi
+  IP="$ip"
+}
+
+type_arch() {
+  aws_ ec2 describe-instance-types --instance-types "$1" --query 'InstanceTypes[0].ProcessorInfo.SupportedArchitectures[0]' 2>/dev/null |
+    sed 's/^None$//'
+}
+
+# Stop -> change type -> start. The disk, the address and everything on the machine stay.
+resize_instance() {
+  local inst="$1" want="$2" have want_arch have_arch
+  have=$(instance_field "$inst" InstanceType)
+  [[ "$have" == "$want" ]] && { ok "Already a $want"; return; }
+  want_arch=$(type_arch "$want" || true)
+  [[ -n "$want_arch" ]] || die "unknown instance type $want"
+  have_arch=$(type_arch "$have" || true)
+  [[ "$want_arch" == "$have_arch" ]] || die "can't switch CPU architecture ($have is $have_arch, $want is $want_arch) — use down + up instead"
+  say "Resizing $inst from $have to $want. The office goes offline for a minute or two;"
+  echo "   running workers stop and come back asleep (press R at their desk to resume)."
+  if [[ $YES -ne 1 ]]; then
+    read -r -p "   Continue? [y/N] " answer
+    [[ "$answer" =~ ^[Yy] ]] || die "cancelled"
+  fi
+  if [[ "$(instance_field "$inst" State.Name)" != "stopped" ]]; then
+    aws ec2 stop-instances --instance-ids "$inst" >/dev/null
+    say "Stopping"
+    aws ec2 wait instance-stopped --instance-ids "$inst"
+  fi
+  aws ec2 modify-instance-attribute --instance-id "$inst" --instance-type "Value=$want"
+  aws ec2 start-instances --instance-ids "$inst" >/dev/null
+  say "Starting as $want"
+  aws ec2 wait instance-running --instance-ids "$inst"
+  ok "Now a $want"
 }
 
 require_instance() {
@@ -330,15 +388,17 @@ cmd_up() {
       --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$RESOURCE},{Key=agent-office,Value=$NAME}]" \
       "ResourceType=volume,Tags=[{Key=Name,Value=$RESOURCE},{Key=agent-office,Value=$NAME}]" \
       --query 'Instances[0].InstanceId')
+  elif [[ $INSTANCE_TYPE_SET -eq 1 && "$(instance_field "$INSTANCE_ID" InstanceType)" != "$INSTANCE_TYPE" ]]; then
+    resize_instance "$INSTANCE_ID" "$INSTANCE_TYPE"
   elif [[ "$(instance_field "$INSTANCE_ID" State.Name)" =~ ^(stopped|stopping)$ ]]; then
     say "Starting $INSTANCE_ID"
     aws ec2 wait instance-stopped --instance-ids "$INSTANCE_ID"
     aws ec2 start-instances --instance-ids "$INSTANCE_ID" >/dev/null
   else
-    say "Reusing $INSTANCE_ID"
+    say "Reusing $INSTANCE_ID ($(instance_field "$INSTANCE_ID" InstanceType))"
   fi
   aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"
-  IP=$(instance_field "$INSTANCE_ID" PublicIpAddress)
+  ensure_eip "$INSTANCE_ID"
   ok "Instance $INSTANCE_ID is running at $IP"
 
   say "Waiting for SSH"
@@ -441,6 +501,18 @@ cmd_logs() {
   exec ssh $(ssh_opts) -t "$SSH_USER@$IP" 'sudo journalctl -u agent-office -n 100 -f'
 }
 
+cmd_resize() {
+  preflight
+  [[ ${#POSITIONAL[@]} -eq 1 ]] || die "usage: deploy/aws.sh resize <instance-type>   (e.g. t3.2xlarge, m7i.xlarge)"
+  INSTANCE_ID=$(find_instance)
+  [[ -n "$INSTANCE_ID" ]] || die "no office named \"$NAME\" in $AWS_REGION — run: deploy/aws.sh up"
+  resize_instance "$INSTANCE_ID" "${POSITIONAL[0]}"
+  ensure_eip "$INSTANCE_ID"
+  say "Waiting for the office to answer"
+  wait_healthy || die "the office didn't come back — check: deploy/aws.sh logs"
+  ok "Your office is back at https://$IP/"
+}
+
 cmd_update() {
   preflight
   require_instance
@@ -477,12 +549,14 @@ cmd_down() {
   local inst sg
   inst=$(find_instance)
   sg=$(find_sg)
-  if [[ -z "$inst" && -z "$sg" ]] && ! aws ec2 describe-key-pairs --key-names "$RESOURCE" >/dev/null 2>&1; then
+  local eip_alloc
+  eip_alloc=$(find_eip | awk '{print $1}')
+  if [[ -z "$inst" && -z "$sg" && ( -z "$eip_alloc" || "$eip_alloc" == "None" ) ]] && ! aws ec2 describe-key-pairs --key-names "$RESOURCE" >/dev/null 2>&1; then
     echo "Nothing to delete for \"$NAME\" in $AWS_REGION."
     rm -rf "$STATE_DIR"
     return
   fi
-  say "This permanently deletes office \"$NAME\" in $AWS_REGION: ${inst:-no instance} ${sg:+, $sg}, key pair $RESOURCE."
+  say "This permanently deletes office \"$NAME\" in $AWS_REGION: ${inst:-no instance}${sg:+, $sg}, its Elastic IP and key pair $RESOURCE."
   echo "   Anything on the machine that isn't pushed to GitHub is lost."
   if [[ $YES -ne 1 ]]; then
     read -r -p "   Type the office name ($NAME) to confirm: " answer
@@ -503,6 +577,12 @@ cmd_down() {
     aws ec2 describe-security-groups --group-ids "$sg" >/dev/null 2>&1 && die "couldn't delete $sg yet — run down again in a minute"
     ok "Security group deleted"
   fi
+  local alloc assoc eip
+  read -r alloc assoc eip <<<"$(find_eip)"
+  if [[ -n "$alloc" && "$alloc" != "None" ]]; then
+    aws ec2 release-address --allocation-id "$alloc" >/dev/null
+    ok "Elastic IP $eip released"
+  fi
   aws ec2 delete-key-pair --key-name "$RESOURCE" >/dev/null 2>&1 || true
   ok "Key pair deleted"
   rm -rf "$STATE_DIR"
@@ -517,6 +597,7 @@ case "$CMD" in
   revoke) cmd_revoke ;;
   ssh) cmd_ssh ;;
   logs) cmd_logs ;;
+  resize) cmd_resize ;;
   update) cmd_update ;;
   reset-password) cmd_reset_password ;;
   down) cmd_down ;;

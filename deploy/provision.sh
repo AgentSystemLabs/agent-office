@@ -44,7 +44,6 @@ sudo install -d -m 755 /etc/agent-office
 env_file=$(mktemp)
 {
   printf 'AGENT_OFFICE_CLAIM_TOKEN="%s"\n' "$CLAIM_TOKEN"
-  [[ -n "${GH_TOKEN:-}" ]] && printf 'GH_TOKEN="%s"\n' "$GH_TOKEN"
   [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]] && printf 'CLAUDE_CODE_OAUTH_TOKEN="%s"\n' "$CLAUDE_CODE_OAUTH_TOKEN"
   [[ -n "${ANTHROPIC_API_KEY:-}" ]] && printf 'ANTHROPIC_API_KEY="%s"\n' "$ANTHROPIC_API_KEY"
   true
@@ -53,9 +52,12 @@ sudo install -m 600 -o root -g root "$env_file" /etc/agent-office/env
 rm -f "$env_file"
 
 if [[ -n "${GH_TOKEN:-}" ]]; then
-  step "Connecting git to GitHub"
-  # Git asks gh for credentials, and gh reads GH_TOKEN — the token never lands in a .git/config.
-  quiet gh auth setup-git --hostname github.com
+  step "Signing the GitHub CLI in"
+  # Stored in gh's own config, so gh, git (via gh's credential helper), the office's boards, the
+  # workers and your ssh sessions all use it — and the token never lands in a .git/config.
+  printf '%s' "$GH_TOKEN" | quiet env -u GH_TOKEN gh auth login --hostname github.com --git-protocol https --with-token
+  quiet env -u GH_TOKEN gh auth setup-git --hostname github.com
+  echo "    $(env -u GH_TOKEN gh api user --jq '"as " + .login' 2>/dev/null || echo 'signed in')"
 fi
 [[ -n "${GIT_NAME:-}" ]] && git config --global user.name "$GIT_NAME"
 [[ -n "${GIT_EMAIL:-}" ]] && git config --global user.email "$GIT_EMAIL"
