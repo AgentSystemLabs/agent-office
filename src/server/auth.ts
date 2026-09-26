@@ -74,20 +74,26 @@ export class Auth {
   }
 
   fromRequest(req: IncomingMessage): boolean {
-    return this.verify(parseCookies(req.headers.cookie)[COOKIE_NAME]);
+    return this.verify(parseCookies(req.headers.cookie)[cookieName(req)]);
   }
 
-  cookie(token: string, secure: boolean): string {
-    return `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure ? '; Secure' : ''}`;
+  cookie(req: IncomingMessage, token: string, secure: boolean): string {
+    return `${cookieName(req)}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure ? '; Secure' : ''}`;
   }
 
-  clearCookie(): string {
-    return `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+  clearCookie(req: IncomingMessage): string {
+    return `${cookieName(req)}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
   }
 
   private sign(payload: string): string {
     return createHmac('sha256', this.key).update(payload).digest('base64url');
   }
+}
+
+/** Cookies ignore ports, so offices sharing a host (e.g. SSH tunnels on localhost:4600 and :4601) each get their own. */
+function cookieName(req: IncomingMessage): string {
+  const port = /:(\d+)$/.exec(req.headers.host ?? '')?.[1];
+  return port ? `${COOKIE_NAME}_${port}` : COOKIE_NAME;
 }
 
 export function parseCookies(header: string | undefined): Record<string, string> {

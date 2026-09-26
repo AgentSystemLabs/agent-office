@@ -676,7 +676,7 @@ if (!window.isSecureContext) {
   for (const id of ['btn-voice', 'btn-share']) {
     const b = $(id);
     b.style.opacity = '0.55';
-    b.title = 'Voice and screen sharing need HTTPS — run the office behind a TLS proxy or with --self-signed';
+    b.title = 'Voice and screen sharing need HTTPS or localhost — use a TLS proxy, --self-signed, or an SSH tunnel';
   }
 }
 $('btn-voice').addEventListener('click', () => void toggleVoice());

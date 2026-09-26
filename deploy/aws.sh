@@ -4,7 +4,8 @@
 #   deploy/aws.sh up        create everything, install, open the office in your browser
 #   deploy/aws.sh down      delete everything it created
 #
-# Run `deploy/aws.sh help` for all commands and options.
+# The office is never exposed to the internet: it listens on the box's loopback and everyone
+# reaches it through an SSH tunnel. Run `deploy/aws.sh help` for all commands and options.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,6 +24,10 @@ YES=0
 NO_OPEN=0
 EXTRA_ALLOW=()
 SSH_USER="ubuntu"
+TEAM_USER="office"   # teammates' keys log in as this user, which can only tunnel to the office
+OFFICE_PORT=4600     # where the office listens on the box (127.0.0.1 only)
+LOCAL_PORT=4600
+LOCAL_PORT_SET=0
 
 usage() {
   cat <<'EOF'
@@ -30,12 +35,20 @@ Agent Office on AWS — one command up, one command down.
 
 Usage: deploy/aws.sh <command> [options]
 
+The office is never on the internet. It listens on the machine's loopback, the firewall only
+opens SSH, and everyone reaches the office through an SSH tunnel on http://localhost:4600.
+
 Commands
   up                 Create (or reuse) your office on EC2, install everything, and open it in
                      your browser. The first page shows the office password ONCE — write it down.
-  open               Open your office in the browser
-  status             Show the instance, its URL and which IPs may reach it
-  allow <ip|me>      Let an IP (or CIDR) reach the office and SSH. "me" = your current IP
+  open               Tunnel to your office and open it in the browser (Ctrl-C closes the tunnel)
+  invite <gh-user>   Let a teammate tunnel in with the SSH keys on their GitHub account, and
+                     print the one command to send them. Or: invite <name> <public-key-file>
+  uninvite <name>    Remove a teammate's keys and drop open tunnels
+  team               List who is invited
+  status             Show the instance, whether the office is up and which IPs may SSH in
+  allow <ip|me>      Let an IP (or CIDR) reach SSH. "me" = your current IP. "anywhere" opens SSH
+                     to every IP — reasonable, since it only accepts your key and invited keys
   revoke <ip|me>     Take that access away again
   ssh                SSH into the machine
   logs               Follow the office's logs
@@ -51,7 +64,9 @@ Options
   --profile <profile>       AWS CLI profile
   --instance-type <type>    EC2 instance type (default: t3.xlarge — 4 vCPU, 16 GiB)
   --disk <GiB>              Root disk size (default: 50)
-  --allow <ip|cidr>         Also allow this IP at creation (repeatable). Your IP is always allowed.
+  --allow <ip|cidr>         With up or invite: also allow this IP to SSH in (repeatable).
+                            Your own IP is always allowed.
+  --port <n>                Local port for the tunnel (default: 4600, or the next free one)
   --project <owner/repo>    GitHub repo the office works on (default: this directory's GitHub
                             origin; otherwise an empty project)
   --app-repo <url>          agent-office repo to install (default: this checkout's GitHub origin)
@@ -63,7 +78,7 @@ Options
                             (default: $CLAUDE_CODE_OAUTH_TOKEN). Without one, log in from the
                             first worker's terminal in the office.
   --anthropic-api-key <key> Use an Anthropic API key instead
-  --no-open                 Don't open the browser
+  --no-open                 Don't open the browser (up: don't open the tunnel either)
   -y, --yes                 Don't ask for confirmation
 EOF
 }
@@ -87,6 +102,7 @@ while [[ $# -gt 0 ]]; do
     --instance-type) INSTANCE_TYPE="$2"; INSTANCE_TYPE_SET=1; shift 2 ;;
     --disk) DISK_GB="$2"; shift 2 ;;
     --allow) EXTRA_ALLOW+=("$2"); shift 2 ;;
+    --port) LOCAL_PORT="$2"; LOCAL_PORT_SET=1; shift 2 ;;
     --project) PROJECT="$2"; shift 2 ;;
     --app-repo) APP_REPO="$2"; shift 2 ;;
     --app-ref) APP_REF="$2"; shift 2 ;;
@@ -103,6 +119,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ "$NAME" =~ ^[a-zA-Z0-9-]+$ ]] || die "--name may only contain letters, numbers and dashes"
+[[ "$LOCAL_PORT" =~ ^[0-9]+$ && $LOCAL_PORT -gt 0 && $LOCAL_PORT -lt 65536 ]] || die "--port must be a port number"
 RESOURCE="agent-office-$NAME"
 [[ "$NAME" == "agent-office" ]] && RESOURCE="agent-office"
 STATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/agent-office/aws/$NAME"
@@ -132,6 +149,7 @@ my_ip() { curl -fsS --max-time 10 https://checkip.amazonaws.com | tr -d '[:space
 to_cidr() {
   local v="$1"
   [[ "$v" == "me" ]] && v=$(my_ip)
+  [[ "$v" == "anywhere" ]] && v="0.0.0.0/0"
   [[ "$v" == */* ]] || v="$v/32"
   [[ "$v" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] || die "not an IPv4 address or CIDR: $1"
   echo "$v"
@@ -237,49 +255,91 @@ remote() {
   ssh $(ssh_opts) "$SSH_USER@$IP" "$@"
 }
 
+# Only SSH is ever opened; the office itself is reached through the tunnel.
 allow_cidr() {
-  local sg="$1" cidr="$2" port out
-  for port in 443 22; do
-    if ! out=$(aws ec2 authorize-security-group-ingress --group-id "$sg" \
-      --ip-permissions "IpProtocol=tcp,FromPort=$port,ToPort=$port,IpRanges=[{CidrIp=$cidr,Description=agent-office}]" 2>&1); then
-      [[ "$out" == *InvalidPermission.Duplicate* ]] || die "could not allow $cidr: $out"
-    fi
-  done
+  local sg="$1" cidr="$2" out
+  if ! out=$(aws ec2 authorize-security-group-ingress --group-id "$sg" \
+    --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=$cidr,Description=agent-office}]" 2>&1); then
+    [[ "$out" == *InvalidPermission.Duplicate* ]] || die "could not allow $cidr: $out"
+  fi
 }
 
 revoke_cidr() {
-  local sg="$1" cidr="$2" port
-  for port in 443 22; do
-    aws ec2 revoke-security-group-ingress --group-id "$sg" --protocol tcp --port "$port" --cidr "$cidr" >/dev/null 2>&1 || true
-  done
+  aws ec2 revoke-security-group-ingress --group-id "$1" --protocol tcp --port 22 --cidr "$2" >/dev/null 2>&1 || true
 }
 
 allowed_cidrs() {
   aws_ ec2 describe-security-groups --group-ids "$1" \
-    --query 'SecurityGroups[0].IpPermissions[?FromPort==`443`].IpRanges[].CidrIp' | tr '\t' '\n' | sed '/^$/d'
+    --query "SecurityGroups[0].IpPermissions[?FromPort==\`${2:-22}\`].IpRanges[].CidrIp" | tr '\t' '\n' | sed '/^$/d;/^None$/d'
 }
 
+office_get() { remote "curl -fs --max-time 4 http://127.0.0.1:$OFFICE_PORT$1"; }
+
 wait_healthy() {
-  local i
-  for ((i = 0; i < 90; i++)); do
-    curl -fsk --max-time 4 "https://$IP/api/health" >/dev/null 2>&1 && return 0
-    sleep 2
+  local i rc
+  for ((i = 0; i < 30; i++)); do
+    rc=0
+    remote "for i in \$(seq 90); do curl -fs --max-time 4 http://127.0.0.1:$OFFICE_PORT/api/health >/dev/null && exit 0; sleep 2; done; exit 1" \
+      2>/dev/null || rc=$?
+    [[ $rc -eq 255 ]] || return "$rc" # 255: ssh itself failed, the machine is still booting
+    sleep 5
   done
   return 1
 }
 
-open_office() {
-  local claimable url
-  claimable=$(curl -fsk --max-time 6 "https://$IP/api/claim" 2>/dev/null || true)
-  if [[ "$claimable" == *'"claimable":true'* && -f "$CLAIM_FILE" ]]; then
-    url="https://$IP/claim?t=$(cat "$CLAIM_FILE")"
-    say "Opening the one-time password page — write the password down, it is never shown again"
-  else
-    url="https://$IP/"
+port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null || (exec 3<>"/dev/tcp/::1/$1") 2>/dev/null; }
+
+pick_port() {
+  local p
+  if [[ $LOCAL_PORT_SET -eq 1 ]]; then
+    port_busy "$LOCAL_PORT" && die "localhost:$LOCAL_PORT is already in use"
+    echo "$LOCAL_PORT"
+    return
   fi
-  echo "   $url"
-  open_url "$url"
+  for ((p = LOCAL_PORT; p < LOCAL_PORT + 50; p++)); do
+    port_busy "$p" || { echo "$p"; return; }
+  done
+  die "no free local port from $LOCAL_PORT up (pick one with --port)"
 }
+
+# Forward localhost:<port> to the office on the box, open the browser, and hold until Ctrl-C.
+tunnel() {
+  local path="$1" port pid i up=0
+  port=$(pick_port) || exit 1
+  # shellcheck disable=SC2046
+  ssh $(ssh_opts) -N -o ExitOnForwardFailure=yes -L "$port:127.0.0.1:$OFFICE_PORT" "$SSH_USER@$IP" &
+  pid=$!
+  trap 'kill "$pid" 2>/dev/null; echo; ok "Tunnel closed"; exit 0' INT TERM
+  for ((i = 0; i < 40; i++)); do
+    kill -0 "$pid" 2>/dev/null || die "couldn't open the SSH tunnel to $IP"
+    curl -fs --max-time 2 "http://localhost:$port/api/health" >/dev/null 2>&1 && { up=1; break; }
+    sleep 0.5
+  done
+  if [[ $up -ne 1 ]]; then
+    kill "$pid" 2>/dev/null
+    die "the tunnel opened but the office didn't answer through it — check: deploy/aws.sh logs$NAME_FLAG"
+  fi
+  ok "Your office: http://localhost:$port$path"
+  echo "   (tunneled over SSH to $IP — keep this running while you use it; Ctrl-C closes it)"
+  open_url "http://localhost:$port$path"
+  wait "$pid" || true
+  trap - INT TERM
+  warn "The tunnel dropped — reopen it with: deploy/aws.sh open$NAME_FLAG"
+}
+
+open_office() {
+  local claimable path="/"
+  claimable=$(office_get /api/claim 2>/dev/null || true)
+  if [[ "$claimable" == *'"claimable":true'* && -f "$CLAIM_FILE" ]]; then
+    path="/claim?t=$(cat "$CLAIM_FILE")"
+    say "Opening the one-time password page — write the password down, it is never shown again"
+  fi
+  tunnel "$path"
+}
+
+valid_member() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$ ]] || die "names are letters, numbers, dots, dashes and underscores: $1"; }
+
+team_members() { remote "sudo awk '{print \$NF}' /home/$TEAM_USER/.ssh/authorized_keys" | sed -n 's/^agent-office://p' | sort | uniq -c; }
 
 # --- commands --------------------------------------------------------------------------------------
 
@@ -327,7 +387,7 @@ cmd_up() {
   echo "   machine:  $INSTANCE_TYPE, ${DISK_GB} GiB disk, Ubuntu 24.04"
   echo "   app:      $APP_REPO @ $APP_REF"
   echo "   project:  ${project_repo:-(empty project)}"
-  echo "   allowed:  ${cidrs[*]}"
+  echo "   access:   SSH tunnel only (the office is never exposed); SSH from ${cidrs[*]}"
   if [[ -n "$gh_token" ]]; then
     echo "   github:   your GitHub token goes on the machine (private clones, issue/PR boards, pushes)"
   else
@@ -356,21 +416,25 @@ cmd_up() {
     ok "SSH key pair $RESOURCE"
   fi
 
-  # Security group: only the allowed IPs can reach 443 (office) and 22 (ssh).
+  # Security group: only the allowed IPs can reach 22 (ssh). Nothing else is open.
   local vpc sg
   vpc=$(aws_ ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' | sed 's/^None$//')
   [[ -n "$vpc" ]] || die "no default VPC in $AWS_REGION (create one with: aws ec2 create-default-vpc)"
   sg=$(find_sg)
   if [[ -z "$sg" ]]; then
     sg=$(aws_ ec2 create-security-group --group-name "$RESOURCE" --vpc-id "$vpc" \
-      --description "Agent Office $NAME - only allowed IPs" \
+      --description "Agent Office $NAME - SSH from allowed IPs only" \
       --tag-specifications "ResourceType=security-group,Tags=[{Key=agent-office,Value=$NAME},{Key=Name,Value=$RESOURCE}]" \
       --query GroupId)
     ok "Security group $sg"
   fi
   local c
   for c in "${cidrs[@]}"; do allow_cidr "$sg" "$c"; done
-  ok "Allowed ${cidrs[*]}"
+  # Offices from before the SSH tunnel served https on 443 to the allowed IPs; close that.
+  for c in $(allowed_cidrs "$sg" 443); do
+    aws ec2 revoke-security-group-ingress --group-id "$sg" --protocol tcp --port 443 --cidr "$c" >/dev/null 2>&1 || true
+  done
+  ok "SSH allowed from ${cidrs[*]}"
 
   # The machine.
   INSTANCE_ID=$(find_instance)
@@ -424,19 +488,20 @@ cmd_up() {
 
   say "Waiting for the office to answer"
   wait_healthy || die "the office didn't come up — check: deploy/aws.sh logs"
-  ok "Your office is live at https://$IP/"
+  ok "Your office is running on $IP (reachable only through SSH)"
   echo
-  echo "   Your browser will warn about the self-signed certificate: choose Advanced → Proceed."
-  echo "   Add a teammate:  deploy/aws.sh allow <their-ip>$NAME_FLAG"
-  echo "   Tear it down:    deploy/aws.sh down$NAME_FLAG"
+  echo "   Open it later:     deploy/aws.sh open$NAME_FLAG"
+  echo "   Add a teammate:    deploy/aws.sh invite <their-github-username>$NAME_FLAG"
+  echo "   Tear it down:      deploy/aws.sh down$NAME_FLAG"
   echo
+  [[ $NO_OPEN -eq 1 ]] && return
   open_office
 }
 
 cmd_open() {
   preflight
   require_instance
-  wait_healthy || die "https://$IP/ isn't answering — check: deploy/aws.sh logs"
+  wait_healthy || die "the office isn't answering — check: deploy/aws.sh logs$NAME_FLAG"
   open_office
 }
 
@@ -452,13 +517,16 @@ cmd_status() {
   IP=$(instance_field "$INSTANCE_ID" PublicIpAddress)
   echo "office:    $NAME ($AWS_REGION)"
   echo "instance:  $INSTANCE_ID $(instance_field "$INSTANCE_ID" InstanceType) $(instance_field "$INSTANCE_ID" State.Name)"
-  echo "url:       ${IP:+https://$IP/}"
-  if [[ -n "$IP" ]] && curl -fsk --max-time 4 "https://$IP/api/health" >/dev/null 2>&1; then
+  echo "address:   ${IP:-none}  (open the office with: deploy/aws.sh open$NAME_FLAG)"
+  if [[ -n "$IP" && -f "$KEY_FILE" ]] && office_get /api/health >/dev/null 2>&1; then
     echo "office:    up"
+    local team
+    team=$(team_members 2>/dev/null | awk '{printf "%s%s", sep, $2; sep=", "}')
+    echo "team:      ${team:-nobody invited yet}"
   else
     echo "office:    not answering"
   fi
-  echo "allowed:   $(allowed_cidrs "$sg" | tr '\n' ' ')"
+  echo "ssh from:  $(allowed_cidrs "$sg" | tr '\n' ' ')"
 }
 
 cmd_allow() {
@@ -487,6 +555,87 @@ cmd_revoke() {
   done
 }
 
+cmd_invite() {
+  preflight
+  [[ ${#POSITIONAL[@]} -ge 1 && ${#POSITIONAL[@]} -le 2 ]] ||
+    die "usage: deploy/aws.sh invite <github-username>   or   deploy/aws.sh invite <name> <public-key-file>"
+  local who="${POSITIONAL[0]}" src raw keys
+  valid_member "$who"
+  if [[ ${#POSITIONAL[@]} -eq 2 ]]; then
+    src="${POSITIONAL[1]}"
+    [[ -f "$src" ]] || die "no such file: $src"
+    raw=$(cat "$src")
+  else
+    src="github.com/$who.keys"
+    raw=$(curl -fsS --max-time 10 "https://github.com/$who.keys") || die "couldn't fetch https://$src"
+  fi
+  # Each key may only open a tunnel to the office port: no shell, no other forwarding.
+  keys=$(printf '%s\n' "$raw" | awk -v who="$who" -v port="$OFFICE_PORT" '
+    $1 ~ /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)$/ &&
+    $2 ~ /^[A-Za-z0-9+\/]+=*$/ {
+      printf "restrict,pty,port-forwarding,permitopen=\"localhost:%s\",permitopen=\"127.0.0.1:%s\",command=\"/usr/local/bin/agent-office-tunnel\" %s %s agent-office:%s\n", port, port, $1, $2, who
+    }')
+  [[ -n "$keys" ]] || die "no SSH public keys found in $src"
+  require_instance
+  remote "id $TEAM_USER" >/dev/null 2>&1 || die "this office predates team access — run: deploy/aws.sh up$NAME_FLAG"
+  printf '%s\n' "$keys" | remote "set -e
+    f=/home/$TEAM_USER/.ssh/authorized_keys; tmp=\$(mktemp)
+    { sudo awk '\$NF != \"agent-office:$who\"' \$f; cat; } >\$tmp
+    sudo install -m 644 -o root -g root \$tmp \$f; rm -f \$tmp" || die "couldn't add the keys"
+  ok "$who is invited ($(printf '%s\n' "$keys" | wc -l | tr -d ' ') key(s) from $src)"
+
+  local sg a fp
+  sg=$(find_sg)
+  for a in "${EXTRA_ALLOW[@]+"${EXTRA_ALLOW[@]}"}"; do
+    a=$(to_cidr "$a")
+    allow_cidr "$sg" "$a"
+    ok "SSH allowed from $a"
+  done
+  fp=$(remote "ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub" | awk '{print $2}')
+  echo
+  echo "   Send $who this:"
+  echo
+  echo "     ssh -L 4600:localhost:$OFFICE_PORT $TEAM_USER@$IP"
+  echo
+  echo "     Leave it running, open http://localhost:4600 and sign in with the office password."
+  echo "     The first time, ssh asks you to trust the server. Only say yes if it shows"
+  echo "     ED25519 key fingerprint $fp"
+  echo
+  if ! allowed_cidrs "$sg" | grep -qx '0.0.0.0/0'; then
+    echo "   SSH only answers allowed IPs, so also run: deploy/aws.sh allow <their-ip>$NAME_FLAG"
+    echo "   (or \"allow anywhere\" — SSH only accepts your key and invited keys)"
+  fi
+}
+
+cmd_uninvite() {
+  preflight
+  [[ ${#POSITIONAL[@]} -eq 1 ]] || die "usage: deploy/aws.sh uninvite <name>"
+  local who="${POSITIONAL[0]}" out
+  valid_member "$who"
+  require_instance
+  out=$(remote "set -e
+    f=/home/$TEAM_USER/.ssh/authorized_keys; tmp=\$(mktemp)
+    sudo awk '\$NF != \"agent-office:$who\"' \$f >\$tmp
+    if sudo cmp -s \$tmp \$f; then rm -f \$tmp; echo none; exit 0; fi
+    sudo install -m 644 -o root -g root \$tmp \$f; rm -f \$tmp
+    sudo pkill -u $TEAM_USER || true") || die "couldn't remove the keys"
+  [[ "$out" == none ]] && die "$who isn't invited (see: deploy/aws.sh team$NAME_FLAG)"
+  ok "$who's keys are removed and open tunnels were dropped (other teammates just reconnect)"
+  echo "   They still know the office password. To change it: deploy/aws.sh reset-password$NAME_FLAG"
+}
+
+cmd_team() {
+  preflight
+  require_instance
+  local list
+  list=$(team_members)
+  if [[ -z "$list" ]]; then
+    echo "Nobody is invited yet. Add someone: deploy/aws.sh invite <github-username>$NAME_FLAG"
+    return
+  fi
+  echo "$list" | awk '{printf "%s  (%d key%s)\n", $2, $1, ($1 == 1 ? "" : "s")}'
+}
+
 cmd_ssh() {
   preflight
   require_instance
@@ -510,7 +659,7 @@ cmd_resize() {
   ensure_eip "$INSTANCE_ID"
   say "Waiting for the office to answer"
   wait_healthy || die "the office didn't come back — check: deploy/aws.sh logs"
-  ok "Your office is back at https://$IP/"
+  ok "Your office is back — open it with: deploy/aws.sh open$NAME_FLAG"
 }
 
 cmd_update() {
@@ -593,6 +742,9 @@ case "$CMD" in
   up) cmd_up ;;
   open) cmd_open ;;
   status) cmd_status ;;
+  invite) cmd_invite ;;
+  uninvite) cmd_uninvite ;;
+  team) cmd_team ;;
   allow) cmd_allow ;;
   revoke) cmd_revoke ;;
   ssh) cmd_ssh ;;

@@ -97,19 +97,39 @@ deploy/aws.sh up
 What `up` does, in about 2 minutes:
 
 1. Creates an SSH key pair (kept in `~/.config/agent-office/aws/<name>/`).
-2. Creates a security group that lets **only your current IP** reach ports 443 (the office) and 22 (ssh).
-3. Gives the office a fixed Elastic IP and launches a **t3.xlarge** (4 vCPU, 16 GiB) Ubuntu 24.04 instance with a 50 GiB disk.
+2. Creates a security group that opens **only SSH (port 22), and only to your current IP**. The office itself is never on the internet.
+3. Gives the machine a fixed Elastic IP and launches a **t3.xlarge** (4 vCPU, 16 GiB) Ubuntu 24.04 instance with a 50 GiB disk.
 4. Installs Node 22, git, the GitHub CLI and **Claude Code**. It clones the latest agent-office from GitHub, runs `npm i`, and clones your project.
-5. Runs the office under systemd with `Restart=always`, so it comes back after a crash or a reboot. It serves HTTPS with a self-signed certificate, so voice and screen sharing work.
-6. Opens your browser once the office answers. **The first page shows the office password once. Write it down.** The server then keeps only a hash, so nobody can display the password again.
+5. Runs the office under systemd with `Restart=always`, so it comes back after a crash or a reboot. It listens on `127.0.0.1:4600` on the machine, so the only way in is an SSH tunnel.
+6. Opens an SSH tunnel and your browser at `http://localhost:4600`. **The first page shows the office password once. Write it down.** The server then keeps only a hash, so nobody can display the password again.
 
-Your browser will warn about the self-signed certificate; choose *Advanced → Proceed*.
+Everything goes through SSH, so there are no certificate warnings, and `localhost` counts as a secure origin: voice and screen sharing just work. Keep the terminal open while you use the office; Ctrl-C closes the tunnel. Next time, run `deploy/aws.sh open`. If port 4600 is taken on your machine, it picks the next free one.
+
+**Inviting your team.** Teammates don't need AWS access or this repo, just `ssh`:
 
 ```bash
-deploy/aws.sh allow 203.0.113.7    # let a teammate in (IP or CIDR; "me" = your current IP)
+deploy/aws.sh invite octocat        # uses the SSH keys on github.com/octocat
+deploy/aws.sh allow 203.0.113.7     # their IP (SSH answers only allowed IPs)
+```
+
+`invite` prints what to send them:
+
+```
+ssh -L 4600:localhost:4600 office@<your-office-ip>
+```
+
+They leave that running, open http://localhost:4600 and sign in with the office password. Their keys log in as a separate `office` user that can **only** forward to the office port. It has no shell, no other ports, no `-R`, and no agent forwarding. So a leaked teammate key still doesn't get past the office password.
+
+If chasing teammates' IPs gets old, `deploy/aws.sh allow anywhere` opens SSH to every IP. That's a reasonable trade: SSH only accepts your key and invited keys, and the office stays behind the tunnel.
+
+```bash
+deploy/aws.sh open                 # tunnel + open the office in your browser
+deploy/aws.sh invite <gh-user>     # let a teammate tunnel in (or: invite <name> <key.pub>)
+deploy/aws.sh uninvite <name>      # remove their keys and drop open tunnels
+deploy/aws.sh team                 # who's invited
+deploy/aws.sh allow 203.0.113.7    # let an IP reach SSH (CIDR ok; "me", "anywhere")
 deploy/aws.sh revoke 203.0.113.7   # …and take it back
-deploy/aws.sh status               # instance, URL, allowed IPs
-deploy/aws.sh open                 # open the office in your browser
+deploy/aws.sh status               # instance, address, office up?, team, allowed IPs
 deploy/aws.sh resize t3.2xlarge    # bigger or smaller machine; same address, ~1-2 min of downtime
 deploy/aws.sh update               # install the latest agent-office and restart
 deploy/aws.sh reset-password       # new password, shown once; signs everyone out
@@ -117,11 +137,13 @@ deploy/aws.sh ssh | logs           # get on the box / follow the office logs
 deploy/aws.sh down                 # delete the instance, disk, IP, security group and key pair
 ```
 
+An office created before the SSH tunnel served HTTPS on port 443 with a self-signed certificate. Run `deploy/aws.sh up` once to move it over: 443 closes and the office moves behind the tunnel.
+
 Useful options for `up`:
 
 - `--project owner/repo` chooses which GitHub repo the office works on. The default is the GitHub origin of the directory you run it from.
 - `--instance-type`, `--disk` and `--region` set the machine size, disk size and region.
-- `--allow <ip>` lets more people in from the start.
+- `--allow <ip>` lets more IPs reach SSH from the start.
 - `--name <name>` runs several offices side by side.
 
 **Claude sign-in.** Workers run Claude Code on the machine, so it has to be signed in there. You can do this either way:
@@ -133,7 +155,9 @@ Useful options for `up`:
 
 ## Running it on a VPS for your team
 
-Voice and screen sharing need a secure context, so put the office behind HTTPS. The simplest setup is Caddy, which gets certificates automatically:
+The simplest private setup needs no certificates at all. Run `agent-office --host 127.0.0.1` and have everyone connect with `ssh -L 4600:localhost:4600 you@server`, then open http://localhost:4600. Browsers treat `localhost` as secure, so voice and screen sharing work.
+
+To serve it on a real domain instead, put the office behind HTTPS. Voice and screen sharing need a secure context. The simplest setup is Caddy, which gets certificates automatically:
 
 ```caddy
 # /etc/caddy/Caddyfile

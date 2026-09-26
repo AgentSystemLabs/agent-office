@@ -107,6 +107,39 @@ if (key) {
 fs.writeFileSync(file, JSON.stringify(c, null, 2), { mode: 0o600 });
 NODE
 
+step "Creating the office user (teammates' SSH keys can only open the tunnel)"
+if ! id office >/dev/null 2>&1; then
+  sudo useradd --create-home --shell /bin/sh --password '*' office
+fi
+# Keys are managed by deploy/aws.sh (invite/uninvite). Root owns them so the office user can't add its own.
+sudo install -d -m 755 -o root -g root /home/office/.ssh
+sudo test -f /home/office/.ssh/authorized_keys || sudo install -m 644 -o root -g root /dev/null /home/office/.ssh/authorized_keys
+# What a teammate's key runs instead of a shell: hold the connection (and so their tunnel) open.
+tunnel_sh=$(mktemp)
+cat >"$tunnel_sh" <<'SH'
+#!/bin/sh
+echo "Agent Office tunnel is up: open http://localhost:4600 in your browser."
+echo "Keep this window open; Ctrl-C closes it."
+exec cat >/dev/null
+SH
+sudo install -m 755 "$tunnel_sh" /usr/local/bin/agent-office-tunnel
+rm -f "$tunnel_sh"
+# The same limits server-side, so they hold even for a key added by hand: local forwards to the
+# office port and nothing else (no shell, no -R listeners, no agent or X11 forwarding).
+sshd_conf=$(mktemp)
+cat >"$sshd_conf" <<'CONF'
+Match User office
+    AllowTcpForwarding local
+    PermitOpen localhost:4600 127.0.0.1:4600
+    AllowAgentForwarding no
+    X11Forwarding no
+    ForceCommand /usr/local/bin/agent-office-tunnel
+CONF
+sudo install -m 644 "$sshd_conf" /etc/ssh/sshd_config.d/agent-office.conf
+rm -f "$sshd_conf"
+sudo sshd -t
+sudo systemctl reload ssh 2>/dev/null || sudo systemctl restart ssh
+
 step "Installing the agent-office service (restarts itself if it ever crashes)"
 unit=$(mktemp)
 cat >"$unit" <<UNIT
@@ -125,10 +158,10 @@ EnvironmentFile=/etc/agent-office/env
 Environment=HOME=$HOME
 Environment=SHELL=/bin/bash
 Environment=PATH=$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=/usr/bin/node /opt/agent-office/bin/agent-office.js $WORKDIR --port 443 --self-signed
+# Loopback only: the office is reached through an SSH tunnel, never from the internet.
+ExecStart=/usr/bin/node /opt/agent-office/bin/agent-office.js $WORKDIR --host 127.0.0.1 --port 4600
 Restart=always
 RestartSec=3
-AmbientCapabilities=CAP_NET_BIND_SERVICE
 LimitNOFILE=65536
 
 [Install]

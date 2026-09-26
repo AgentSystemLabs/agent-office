@@ -212,7 +212,7 @@ export async function startServer(cfg: Config) {
         }
         if (!(await auth.checkPassword(pw))) return send(res, 401, { error: 'Wrong password' });
         auth.recordSuccess(ip);
-        return send(res, 200, { ok: true }, { 'set-cookie': auth.cookie(auth.issue(), isSecure(req, cfg)) });
+        return send(res, 200, { ok: true }, { 'set-cookie': auth.cookie(req, auth.issue(), isSecure(req, cfg)) });
       }
       // One-time reveal of the generated password. After this the plaintext is gone for good.
       const claimable = !!cfg.claimToken && !cfg.claimed && !!cfg.password;
@@ -232,10 +232,10 @@ export async function startServer(cfg: Config) {
         cfg.markClaimed();
         auth.recordSuccess(ip);
         console.log('  the office password was claimed — it will not be shown again');
-        return send(res, 200, { password }, { 'set-cookie': auth.cookie(auth.issue(), isSecure(req, cfg)) });
+        return send(res, 200, { password }, { 'set-cookie': auth.cookie(req, auth.issue(), isSecure(req, cfg)) });
       }
       if (p === '/api/logout' && req.method === 'POST') {
-        return send(res, 200, { ok: true }, { 'set-cookie': auth.clearCookie() });
+        return send(res, 200, { ok: true }, { 'set-cookie': auth.clearCookie(req) });
       }
       if (p === '/api/health') return send(res, 200, { ok: true });
 
