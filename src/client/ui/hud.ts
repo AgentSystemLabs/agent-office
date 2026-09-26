@@ -109,8 +109,9 @@ export function openHelp() {
   const rows: [string, string][] = [
     ['W A S D', 'Walk (hold Shift to run)'],
     ['Space', 'Jump'],
-    ['Drag / wheel', 'Orbit and zoom the camera'],
-    ['E', 'Interact: hire a worker, open its terminal, read a board, watch the TV'],
+    ['Mouse', 'Look around in first person (click to capture the mouse, Esc to free it)'],
+    ['Click / E', 'Use what you look at: hire a worker, open its terminal, read a board, watch the TV'],
+    ['Drag / wheel', 'Orbit and zoom the camera in third person'],
     ['P', 'Prompt: give a task to a new or existing worker at the desk you face'],
     ['B', 'Open a shared shell (dev servers, git, tests) at an empty desk'],
     ['R', 'Resume a sleeping worker'],
@@ -118,6 +119,7 @@ export function openHelp() {
     ['T', 'Chat'],
     ['V / M', 'Join voice / mute'],
     ['Ctrl + ]', 'Leave a terminal'],
+    ['⚙️', 'Settings: switch between first and third person'],
   ];
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const el = h(

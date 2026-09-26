@@ -95,6 +95,19 @@ button { font-family: inherit; }
   pointer-events: none !important;
 }
 .hint .title { color: #ffd166; }
+
+.crosshair {
+  position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px;
+  border-radius: 50%; background: var(--paper); border: 2px solid var(--ink); opacity: .85;
+  transition: transform .1s, background .1s; pointer-events: none !important;
+}
+.crosshair.on { transform: scale(1.6); background: var(--accent); opacity: 1; }
+.crosshair .look-hint {
+  display: none; position: absolute; top: 18px; left: 50%; transform: translateX(-50%); white-space: nowrap;
+  background: var(--ink); color: var(--paper); border-radius: 10px; padding: 4px 10px; font-size: 13px; font-weight: 800;
+}
+.crosshair.free .look-hint { display: block; }
+.crosshair.on .look-hint { transform: translateX(-50%) scale(.625); transform-origin: top center; }
 .key { display: inline-block; min-width: 26px; padding: 1px 7px; margin-right: 5px; border-radius: 7px; background: var(--paper); color: var(--ink); text-align: center; font-weight: 900; box-shadow: 0 2px 0 #999; }
 
 #toasts { position: absolute; top: 90px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none !important; }
@@ -124,6 +137,9 @@ button { font-family: inherit; }
 .modal textarea:focus, .modal input[type=text]:focus { border-color: var(--accent); }
 .modal label { font-weight: 800; font-size: 14px; display: block; margin-bottom: 6px; }
 .close { width: 34px; height: 34px; padding: 0; justify-content: center; }
+
+.seg { display: flex; gap: 8px; flex-wrap: wrap; }
+.setting-note { margin: 10px 0 0; font-size: 13px; font-weight: 600; color: var(--muted); line-height: 1.4; }
 
 .swatches { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .swatch { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--ink); cursor: pointer; }

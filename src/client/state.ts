@@ -29,6 +29,33 @@ export function saveProfile(p: Profile) {
   }
 }
 
+export type ViewMode = 'first' | 'third';
+
+export interface Settings {
+  view: ViewMode;
+}
+
+const SETTINGS_KEY = 'agent-office.settings';
+
+export function loadSettings(): Settings {
+  const s: Settings = { view: 'first' };
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
+    if (saved?.view === 'first' || saved?.view === 'third') s.view = saved.view;
+  } catch {
+    // storage blocked
+  }
+  return s;
+}
+
+export function saveSettings(s: Settings) {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  } catch {
+    // storage blocked
+  }
+}
+
 class Store {
   you = '';
   profile: Profile = { name: 'Guest', color: AVATAR_COLORS[1] };

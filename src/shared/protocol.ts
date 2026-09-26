@@ -163,6 +163,8 @@ export interface ChatLine {
 
 export type ClientMsg =
   | { t: 'move'; x: number; y: number; z: number; rotY: number; moving: boolean }
+  /** You reached out to use something; everyone else sees your character's arm do it. */
+  | { t: 'act' }
   | { t: 'profile'; name: string; color: string }
   | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind }
   | { t: 'worker.resume'; workerId: string }
@@ -204,6 +206,7 @@ export type ServerMsg =
   | { t: 'peer.update'; peer: PeerInfo }
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }
   | { t: 'peer.leave'; id: string }
+  | { t: 'peer.act'; id: string }
   | { t: 'worker.update'; worker: WorkerInfo }
   | { t: 'worker.remove'; workerId: string }
   | { t: 'screen'; workerId: string; cols: number; rows: number; lines: Record<number, Run[]>; full: boolean; cursor: [number, number] }

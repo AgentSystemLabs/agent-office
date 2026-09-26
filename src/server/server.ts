@@ -38,6 +38,7 @@ interface Client {
   /** Terminals whose output was skipped because this client fell behind; re-snapshotted later. */
   stale: Set<string>;
   lastMoveAt: number;
+  lastActAt: number;
 }
 
 const SLOW_CLIENT_BYTES = 8 * 1024 * 1024;
@@ -317,6 +318,7 @@ export async function startServer(cfg: Config) {
       attached: new Set(),
       stale: new Set(),
       lastMoveAt: 0,
+      lastActAt: 0,
       peer: {
         id,
         name,
@@ -381,6 +383,13 @@ export async function startServer(cfg: Config) {
         p.rotY = num(msg.rotY);
         p.moving = !!msg.moving;
         broadcast({ t: 'peer.move', id: c.id, x: p.x, y: p.y, z: p.z, rotY: p.rotY, moving: p.moving }, c.id, true);
+        break;
+      }
+      case 'act': {
+        const now = Date.now();
+        if (now - c.lastActAt < 100) break;
+        c.lastActAt = now;
+        broadcast({ t: 'peer.act', id: c.id }, c.id, true);
         break;
       }
       case 'profile': {

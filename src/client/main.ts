@@ -4,10 +4,11 @@ import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { DESK_BY_ID, DESKS, SPAWN } from '../shared/layout';
 import type { WorkerInfo } from '../shared/protocol';
 import { Net } from './net';
-import { store, loadProfile } from './state';
-import { PlayerController, isTyping } from './player';
-import { buildOffice, type Interactable } from './world/office';
+import { store, loadProfile, loadSettings, saveSettings } from './state';
+import { EYE_HEIGHT, PlayerController, isTyping } from './player';
+import { buildOffice, type InteractKind, type Interactable } from './world/office';
 import { Person, Worker } from './world/character';
+import { Hands } from './world/hands';
 import { Laptop } from './world/laptop';
 import { BoardTexture } from './world/boards';
 import { disposeSprite, textSprite } from './world/toon';
@@ -19,6 +20,7 @@ import { openBoard } from './ui/boards';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
 import { openHelp, openProfile, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
+import { openSettings } from './ui/settings';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -115,8 +117,16 @@ const me = new Person(store.profile.name, store.profile.color, 'me');
 me.showLabel(false);
 scene.add(me.root);
 noOutline(me.root);
+const settings = loadSettings();
 const player = new PlayerController(camera, canvas, office.colliders);
 player.pos.set(SPAWN.x, 0, SPAWN.z);
+player.view = settings.view;
+const hands = new Hands(store.profile.color, me.skinColor);
+
+function setMyColor(color: string) {
+  me.setColor(color);
+  hands.setColor(color);
+}
 
 interface RemotePeer {
   person: Person;
@@ -184,6 +194,9 @@ net.onMessage((msg) => {
       break;
     case 'chat':
       sayBubble(msg.from, msg.text);
+      break;
+    case 'peer.act':
+      remotes.get(msg.id)?.person.reach();
       break;
   }
 });
@@ -545,25 +558,58 @@ function renderHint() {
   el.classList.remove('hidden');
 }
 
+let crossKey = '';
+const finePointer = window.matchMedia('(pointer: fine)').matches;
+function renderCrosshair() {
+  const show = player.view === 'first' && !modalOpen();
+  const free = show && finePointer && player.canLock && !player.locked;
+  const k = `${show}|${!!target}|${free}`;
+  if (k === crossKey) return;
+  crossKey = k;
+  const el = $('crosshair');
+  el.classList.toggle('hidden', !show);
+  el.classList.toggle('on', !!target);
+  el.classList.toggle('free', free);
+}
+
+// ---- Reaching out ---------------------------------------------------------------------------------
+let lastActSent = 0;
+/** Plays the reach on your hands and your character, and shows it to everyone else. */
+function reach() {
+  if (player.view === 'first') hands.reach();
+  me.reach();
+  const now = performance.now();
+  if (now - lastActSent > 120) {
+    lastActSent = now;
+    net.send({ t: 'act' });
+  }
+}
+
+function use(it: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B') {
+  if (!it) return;
+  reach();
+  interact(it, key);
+}
+
 // ---- Input ----------------------------------------------------------------------------------------
 window.addEventListener('keydown', (e) => {
   if (modalOpen() || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
   switch (e.code) {
     case 'KeyE':
-      interact(target, 'E');
+      use(target, 'E');
       break;
     case 'KeyP':
       e.preventDefault();
-      interact(target, 'P');
+      use(target, 'P');
       break;
     case 'KeyR':
-      interact(target, 'R');
+      use(target, 'R');
       break;
     case 'KeyX':
-      interact(target, 'X');
+      use(target, 'X');
       break;
     case 'KeyB':
-      interact(target, 'B');
+      use(target, 'B');
       break;
     case 'KeyT':
     case 'Enter':
@@ -588,34 +634,54 @@ window.addEventListener('keydown', (e) => {
 onModalChange((open) => {
   player.enabled = !open;
   player.clearKeys();
-  if (open) $('hint').classList.add('hidden');
+  if (open) {
+    player.unlock();
+    $('hint').classList.add('hidden');
+  }
   hintKey = '';
 });
 
-// Click a desk to interact with it (when close enough).
+// ---- Clicking the world: use what's under the crosshair (first person) or the mouse (third) ----------
 const raycaster = new THREE.Raycaster();
-let downAt: [number, number] | null = null;
-canvas.addEventListener('pointerdown', (e) => (downAt = [e.clientX, e.clientY]));
-canvas.addEventListener('pointerup', (e) => {
-  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 5) return;
-  const rect = canvas.getBoundingClientRect();
-  raycaster.setFromCamera(new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1), camera);
-  const hits = raycaster.intersectObjects([...office.desks.values()].map((d) => d.group), true);
-  for (const hit of hits) {
-    let o: THREE.Object3D | null = hit.object;
-    while (o && !o.userData.deskId) o = o.parent;
-    const deskId = o?.userData.deskId as string | undefined;
-    if (!deskId) continue;
-    const def = DESK_BY_ID.get(deskId)!;
-    if (Math.hypot(def.x - player.pos.x, def.z - player.pos.z) > 7) {
-      toast('Walk closer to that desk first');
-      return;
+const CROSSHAIR = new THREE.Vector2(0, 0);
+/** How close (meters from your eyes) you must be to use each kind of thing. */
+const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, tv: 10 };
+const eye = new THREE.Vector3();
+
+/** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
+function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boolean } | null {
+  raycaster.setFromCamera(ndc, camera);
+  eye.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
+  for (const hit of raycaster.intersectObject(office.group, true)) {
+    let it: Interactable | undefined;
+    let shown = true;
+    for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) {
+      if (!o.visible) shown = false;
+      it ??= o.userData.interact as Interactable | undefined;
     }
-    interact({ kind: 'desk', deskId, x: def.x, z: def.z, radius: 0 }, 'E');
+    if (!shown) continue;
+    if (!it) return null; // a wall, the floor, a plant… is in the way
+    return { it, near: hit.point.distanceTo(eye) <= REACH[it.kind] + slack };
+  }
+  return null;
+}
+
+player.onClick = (ndc) => {
+  if (modalOpen()) return;
+  if (player.view === 'first') {
+    // Reach out even at nothing, like poking the air.
+    reach();
+    if (target) interact(target, 'E');
     return;
   }
-});
-for (const d of office.desks.values()) d.group.userData.deskId = d.def.id;
+  const aim = aimedAt(ndc, 2.5);
+  if (!aim) return;
+  if (!aim.near) {
+    toast('Walk closer to that first');
+    return;
+  }
+  use(aim.it, 'E');
+};
 
 // Chat
 const chatInput = $('chat-input') as HTMLInputElement;
@@ -716,10 +782,17 @@ $('btn-pulls').addEventListener('click', () => openBoard('pulls', net, boardActi
 $('btn-team').addEventListener('click', () => openTeam(net));
 $('btn-upgrade').addEventListener('click', () => openUpgrade(net));
 $('btn-help').addEventListener('click', () => openHelp());
+$('btn-settings').addEventListener('click', () =>
+  openSettings(settings, (s) => {
+    Object.assign(settings, s);
+    saveSettings(settings);
+    player.setView(settings.view);
+  }),
+);
 
 function editProfile() {
   openProfile(false, (name, color) => {
-    me.setColor(color);
+    setMyColor(color);
     net.send({ t: 'profile', name, color });
   });
 }
@@ -731,6 +804,7 @@ function resize() {
   renderer.setSize(w, hgt, false);
   camera.aspect = w / hgt;
   camera.updateProjectionMatrix();
+  hands.setAspect(w / hgt);
 }
 window.addEventListener('resize', resize);
 resize();
@@ -749,8 +823,10 @@ function frame(ts?: number) {
   me.root.rotation.y = player.facing;
   me.update(dt, t, player.moving && player.grounded, !player.grounded);
   me.setVoiceLevel(voice.inVoice ? voice.localLevel : 0);
-  // Hide yourself when the camera is zoomed in right behind your head.
-  me.root.visible = camera.position.distanceTo(new THREE.Vector3(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5;
+  const firstPerson = player.view === 'first';
+  // In first person you are the camera; in third, hide yourself when it's zoomed in right behind your head.
+  me.root.visible = !firstPerson && camera.position.distanceTo(new THREE.Vector3(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5;
+  if (firstPerson) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded });
 
   const now = performance.now();
   const moved = Math.abs(player.pos.x - lastSent.x) + Math.abs(player.pos.y - lastSent.y) + Math.abs(player.pos.z - lastSent.z) > 0.01 || Math.abs(player.facing - lastSent.rotY) > 0.02;
@@ -787,8 +863,13 @@ function frame(ts?: number) {
   }
   office.update(t);
 
-  target = modalOpen() ? null : pickTarget();
+  if (modalOpen()) target = null;
+  else if (firstPerson) {
+    const aim = aimedAt(CROSSHAIR);
+    target = aim?.near ? aim.it : null;
+  } else target = pickTarget();
   renderHint();
+  renderCrosshair();
 
   if (now - speakTick > 200) {
     speakTick = now;
@@ -796,6 +877,11 @@ function frame(ts?: number) {
   }
 
   effect.render(scene, camera);
+  if (firstPerson) {
+    // Hands go on top of everything, so they never clip into a desk you walk up to.
+    renderer.clearDepth();
+    effect.render(hands.scene, hands.camera);
+  }
   requestAnimationFrame(frame);
 }
 
@@ -811,17 +897,17 @@ function boot() {
 const saved = loadProfile();
 if (saved) {
   store.profile = saved;
-  me.setColor(saved.color);
+  setMyColor(saved.color);
   boot();
 } else {
   // Render the office behind the welcome dialog.
   requestAnimationFrame(frame);
   openProfile(true, (_name, color) => {
-    me.setColor(color);
+    setMyColor(color);
     net.connect();
   });
 }
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, camera, workerViews, scene, net, renderer };
+(window as any).__office = { store, player, camera, workerViews, scene, net, renderer, hands, me, remotes, settings };
 (window as any).__voice = voice;

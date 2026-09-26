@@ -12,6 +12,7 @@ export interface Collider {
 
 export type InteractKind = 'desk' | 'issues' | 'pulls' | 'tv' | 'coffee';
 
+/** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
   kind: InteractKind;
   x: number;
@@ -265,7 +266,9 @@ export function buildOffice(): Office {
     const hd = DESK_SIZE.depth / 2 - 0.02;
     colliders.push({ minX: def.x - hw, maxX: def.x + hw, minZ: def.z - hd, maxZ: def.z + hd, top: DESK_SIZE.height });
     const seat = deskSeat(def, 1.25);
-    interactables.push({ kind: 'desk', deskId: def.id, x: seat.x, z: seat.z, radius: 1.3 });
+    const it: Interactable = { kind: 'desk', deskId: def.id, x: seat.x, z: seat.z, radius: 1.3 };
+    interactables.push(it);
+    view.group.userData.interact = it;
   });
 
   // Cork boards on the north wall
@@ -280,7 +283,9 @@ export function buildOffice(): Office {
     label.scale.multiplyScalar(1.3);
     label.position.set(b.x, b.y + b.height / 2 + 0.5, b.z + 0.04);
     group.add(label);
-    interactables.push({ kind: key, x: b.x, z: b.z + 1.6, radius: 2.4 });
+    const it: Interactable = { kind: key, x: b.x, z: b.z + 1.6, radius: 2.4 };
+    interactables.push(it);
+    bg.userData.interact = it;
   }
 
   // Lounge: TV, couch, coffee table, beanbags
@@ -293,7 +298,9 @@ export function buildOffice(): Office {
   tvGroup.position.set(TV.x - 0.1, TV.y, TV.z);
   tvGroup.rotation.y = -Math.PI / 2;
   group.add(tvGroup);
-  interactables.push({ kind: 'tv', x: TV.x - 4.5, z: TV.z, radius: 3.2 });
+  const tv: Interactable = { kind: 'tv', x: TV.x - 4.5, z: TV.z, radius: 3.2 };
+  interactables.push(tv);
+  tvGroup.userData.interact = tv;
 
   const couch = new THREE.Group();
   const couchMat = toon('#5b8def');
@@ -341,7 +348,9 @@ export function buildOffice(): Office {
   group.add(kitchen);
   colliders.push({ minX: -17, maxX: -12, minZ: 11.7, maxZ: 12.7, top: 1.03 });
   colliders.push({ minX: -11.85, maxX: -10.75, minZ: 11.7, maxZ: 12.7, top: 2.2 });
-  interactables.push({ kind: 'coffee', x: -15.7, z: 10.9, radius: 1.4 });
+  const cup: Interactable = { kind: 'coffee', x: -15.7, z: 10.9, radius: 1.4 };
+  interactables.push(cup);
+  coffee.userData.interact = cup;
 
   // Plants around the room
   const plants: [number, number, number][] = [

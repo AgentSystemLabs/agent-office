@@ -15,6 +15,18 @@ export type Pose = 'stand' | 'walk' | 'sit' | 'type';
 /** Voice loudness (RMS) above which someone counts as speaking. */
 const SPEAKING = 0.04;
 
+/** How long reaching out to use something takes, in seconds. */
+export const REACH_TIME = 0.42;
+
+/** 0 → 1 → 0 over a reach (p = 0..1): a quick jab out, a beat at full stretch, an easy return. */
+export function reachCurve(p: number): number {
+  if (p <= 0 || p >= 1) return 0;
+  if (p < 0.28) return 1 - (1 - p / 0.28) ** 3;
+  if (p < 0.5) return 1;
+  const u = (p - 0.5) / 0.5;
+  return 1 - u * u * (3 - 2 * u);
+}
+
 /** A chibi cartoon person — used for every human in the office. Forward is +z. */
 export class Person {
   readonly root = new THREE.Group();
@@ -36,6 +48,8 @@ export class Person {
   /** Keep the talking mouth up through the short gaps between words. */
   private talkUntil = 0;
   private walkPhase = 0;
+  private reachT = -1;
+  readonly skinColor: string;
   pose: Pose = 'stand';
 
   constructor(
@@ -45,7 +59,8 @@ export class Person {
   ) {
     const h = hash(seed);
     this.shirt = toonUnique(color);
-    const skin = toon(SKIN[h % SKIN.length]);
+    this.skinColor = SKIN[h % SKIN.length];
+    const skin = toon(this.skinColor);
     const hair = toon(HAIR[(h >> 3) % HAIR.length]);
     const pants = toon('#3d405b');
     const ink = toon('#1d1d1d');
@@ -87,6 +102,7 @@ export class Person {
     this.legR = limb(0.22, 0.1, pants, 0.12, 0.42);
     this.armL = limb(0.24, 0.08, this.shirt, -0.33, 0.9);
     this.armR = limb(0.24, 0.08, this.shirt, 0.33, 0.9);
+    for (const arm of [this.armL, this.armR]) arm.add(mesh(new THREE.SphereGeometry(0.085, 12, 10), skin, 0, -0.38, 0));
 
     // Little mic icon that pops up while speaking
     this.mic = mesh(new THREE.SphereGeometry(0.09, 10, 8), toon('#7cf29a', { emissive: '#2a9d4b' }), 0, 2.25, 0, false);
@@ -123,6 +139,11 @@ export class Person {
     if (this.label) this.label.visible = v;
   }
 
+  /** Reach out with the right hand, as if pressing or grabbing something in front of you. */
+  reach() {
+    this.reachT = 0;
+  }
+
   update(dt: number, t: number, moving: boolean, airborne: boolean) {
     const target = moving ? 1 : 0;
     this.walkPhase += dt * 11 * target;
@@ -141,6 +162,17 @@ export class Person {
       this.armL.rotation.z = THREE.MathUtils.lerp(this.armL.rotation.z, -0.1, 0.3);
       this.armR.rotation.z = THREE.MathUtils.lerp(this.armR.rotation.z, 0.1, 0.3);
     }
+    let reach = 0;
+    if (this.reachT >= 0) {
+      this.reachT += dt;
+      reach = reachCurve(this.reachT / REACH_TIME);
+      // Forward is +z, so the character's right arm is the one on -x.
+      this.armL.rotation.x = THREE.MathUtils.lerp(this.armL.rotation.x, -1.65, reach);
+      this.armL.rotation.z = THREE.MathUtils.lerp(this.armL.rotation.z, 0.22, reach);
+      if (this.reachT >= REACH_TIME) this.reachT = -1;
+    }
+    // Lean into the reach a little.
+    this.body.rotation.x = reach * 0.12;
     this.body.position.y = moving && !airborne ? Math.abs(Math.sin(this.walkPhase)) * 0.06 : 0;
     if (this.speaking) this.mic.scale.setScalar(1 + Math.sin(t * 14) * 0.2);
 
