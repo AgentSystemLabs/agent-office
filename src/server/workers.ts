@@ -82,8 +82,8 @@ export class WorkerManager {
   private settingsPath: string;
   private agentPath: string | null = null;
   private screenTimer: NodeJS.Timeout;
-  /** Workers to start again on the next boot, because the office restarted to upgrade. */
-  private wakeOnBoot = new Set<string>();
+  /** The office is shutting down: workers exiting now are being stopped, not failing to resume. */
+  private closing = false;
   private namer: TaskNamer;
 
   constructor(
@@ -106,9 +106,11 @@ export class WorkerManager {
       this.emitUpdate(w);
       this.persist();
     });
-    const wake = this.restore();
+    this.restore();
     this.screenTimer = setInterval(() => this.flushScreens(), SCREEN_INTERVAL_MS);
-    for (const id of wake) this.resume(id);
+    // Whoever was at a desk when the office stopped (a restart, a crash, a dev-server reload) gets
+    // straight back to work.
+    this.wakeAll();
   }
 
   get resolvedAgent(): string | null {
@@ -183,6 +185,11 @@ export class WorkerManager {
     w.info.exitCode = undefined;
     this.launch(w, undefined, w.info.sessionId);
     return undefined;
+  }
+
+  /** Starts every worker that isn't running: nobody should be found asleep at their desk. */
+  wakeAll() {
+    for (const w of this.workers.values()) if (!w.pty) this.resume(w.info.id);
   }
 
   kill(id: string) {
@@ -407,13 +414,8 @@ export class WorkerManager {
     this.persist();
   }
 
-  /** The office is about to restart into a new version: bring whoever is awake back afterwards. */
-  wakeAfterRestart() {
-    for (const w of this.workers.values()) if (w.pty) this.wakeOnBoot.add(w.info.id);
-    this.persist();
-  }
-
   shutdown() {
+    this.closing = true;
     clearInterval(this.screenTimer);
     for (const w of this.workers.values()) {
       try {
@@ -504,6 +506,13 @@ export class WorkerManager {
     proc.onExit(({ exitCode }) => {
       if (w.pty !== proc || this.workers.get(info.id) !== w) return;
       w.pty = undefined;
+      // Resuming a conversation Claude no longer has ("No conversation found") exits before Claude
+      // ever starts. Start a fresh one rather than leave the worker asleep.
+      if (isClaude && resumeSessionId && info.status === 'starting' && !this.closing) {
+        this.events.toast(`${info.name}'s last conversation couldn't be resumed — starting a fresh one`, 'warn');
+        this.launch(w, undefined, undefined);
+        return;
+      }
       info.exitCode = exitCode;
       info.status = 'exited';
       const hint = info.kind === 'shell' ? ' — press R to restart' : info.sessionId ? ' — press R to resume' : '';
@@ -669,7 +678,6 @@ process.stdin.on('end', () => {
       sessionId: info.sessionId,
       activity: info.activity,
       task: info.task,
-      wake: this.wakeOnBoot.has(info.id) || undefined,
     }));
     try {
       writeFileSync(this.statePath, JSON.stringify(saved, null, 2), { mode: 0o600 });
@@ -678,12 +686,10 @@ process.stdin.on('end', () => {
     }
   }
 
-  /** Returns the workers to wake right away. */
-  private restore(): string[] {
-    const wake: string[] = [];
-    if (!existsSync(this.statePath)) return wake;
+  private restore() {
+    if (!existsSync(this.statePath)) return;
     try {
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { wake?: boolean })[];
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as Partial<WorkerInfo>[];
       for (const s of saved) {
         if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || this.deskOccupied(s.deskId)) continue;
         const info: WorkerInfo = {
@@ -710,12 +716,10 @@ process.stdin.on('end', () => {
         w.screenDirty = false;
         if (info.prompt) w.prompts = [info.prompt.replace(/\s+/g, ' ').trim()];
         this.workers.set(info.id, w);
-        if (s.wake) wake.push(info.id);
       }
     } catch {
       // corrupt state file: start fresh
     }
-    return wake;
   }
 }
 

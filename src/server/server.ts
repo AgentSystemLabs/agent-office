@@ -202,8 +202,8 @@ export async function startServer(cfg: Config) {
   const upgrader = new Upgrader(
     (state) => broadcast({ t: 'upgrade', state }),
     () => {
-      // cli.ts shuts down gracefully; systemd (Restart=always) then starts the new version.
-      workers.wakeAfterRestart();
+      // cli.ts shuts down gracefully; systemd (Restart=always) then starts the new version, which
+      // wakes every worker.
       process.kill(process.pid, 'SIGTERM');
     },
   );
@@ -425,6 +425,8 @@ export async function startServer(cfg: Config) {
     });
     for (const { workerId, frame } of workers.fullScreens()) sendTo(client, { t: 'screen', workerId, ...frame, full: true });
     broadcast({ t: 'peer.join', peer: client.peer }, id);
+    // Anyone whose process ended since (exited, or failed to resume) gets up as you walk in.
+    workers.wakeAll();
 
     ws.on('message', (raw) => {
       let msg: ClientMsg;
