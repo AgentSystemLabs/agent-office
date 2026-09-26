@@ -1,7 +1,7 @@
-import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, ServerMsg, ServicesState, TeamState, UpgradeState, WorkerInfo } from '../shared/protocol';
+import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, QueueState, QueueTask, ServerMsg, ServicesState, TeamState, UpgradeState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 
-type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services';
+type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'queue';
 
 export interface Profile {
   name: string;
@@ -72,6 +72,7 @@ class Store {
   team: TeamState | null = null;
   upgrade: UpgradeState = { available: false, phase: 'idle' };
   services: ServicesState = { items: [], port: 4600 };
+  queue: QueueState = { tasks: [], maxWorkers: 0 };
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -90,6 +91,12 @@ class Store {
     return undefined;
   }
 
+  /** The queue task for an issue: the one on the queue if there is one, else the latest finished one. */
+  taskForIssue(issue: number): QueueTask | undefined {
+    const tasks = this.queue.tasks.filter((t) => t.issue === issue);
+    return tasks.find((t) => t.status !== 'done') ?? tasks[tasks.length - 1];
+  }
+
   apply(msg: ServerMsg) {
     switch (msg.t) {
       case 'welcome':
@@ -105,7 +112,8 @@ class Store {
         this.invites = msg.invites;
         this.upgrade = msg.upgrade;
         this.services = msg.services;
-        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade', 'services'] as Topic[]) this.emit(t);
+        this.queue = msg.queue;
+        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade', 'services', 'queue'] as Topic[]) this.emit(t);
         break;
       case 'peer.join':
       case 'peer.update':
@@ -161,6 +169,10 @@ class Store {
       case 'services':
         this.services = msg.state;
         this.emit('services');
+        break;
+      case 'queue':
+        this.queue = msg.state;
+        this.emit('queue');
         break;
       case 'chat':
         this.chat.push(msg);
