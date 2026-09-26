@@ -42,6 +42,8 @@ Commands
   up                 Create (or reuse) your office on EC2, install everything, and open it in
                      your browser. The first page shows the office password ONCE — write it down.
   open               Tunnel to your office and open it in the browser (Ctrl-C closes the tunnel)
+  service <port>     Open a worker's web server from the office's 🌐 Services board on
+                     http://localhost:<port> (through the office; Ctrl-C closes the tunnel)
   invite <gh-user>   Let a teammate tunnel in with the SSH keys on their GitHub account, and
                      print the one command to send them. Or: invite <name> <public-key-file>
   uninvite <name>    Remove a teammate's keys and drop open tunnels
@@ -54,6 +56,9 @@ Commands
   logs               Follow the office's logs
   resize <type>      Change the machine size, e.g. t3.2xlarge (stops it for ~1-2 minutes;
                      the address stays the same). `up --instance-type <type>` does this too.
+  pause              Stop the machine to save money. The disk, the address and everything on
+                     it stay; only the disk and the address are billed while it's paused
+  resume             Start a paused office again and open it in the browser
   update             Install the latest agent-office on the machine and restart it
   reset-password     Forget the password and show a new one once in your browser
   down               Terminate the machine and delete everything this script created
@@ -78,7 +83,7 @@ Options
                             (default: $CLAUDE_CODE_OAUTH_TOKEN). Without one, log in from the
                             first worker's terminal in the office.
   --anthropic-api-key <key> Use an Anthropic API key instead
-  --no-open                 Don't open the browser (up: don't open the tunnel either)
+  --no-open                 Don't open the browser (up, resume: don't open the tunnel either)
   -y, --yes                 Don't ask for confirmation
 EOF
 }
@@ -237,9 +242,20 @@ resize_instance() {
   ok "Now a $want"
 }
 
+# Start a stopped (or stopping) instance; a running one is left alone.
+start_instance() {
+  local inst="$1"
+  [[ "$(instance_field "$inst" State.Name)" =~ ^(stopped|stopping)$ ]] || return 0
+  say "Starting $inst"
+  aws ec2 wait instance-stopped --instance-ids "$inst"
+  aws ec2 start-instances --instance-ids "$inst" >/dev/null
+}
+
 require_instance() {
   INSTANCE_ID=$(find_instance)
   [[ -n "$INSTANCE_ID" ]] || die "no office named \"$NAME\" in $AWS_REGION — run: deploy/aws.sh up"
+  [[ "$(instance_field "$INSTANCE_ID" State.Name)" =~ ^(stopped|stopping)$ ]] &&
+    die "the office is paused — start it with: deploy/aws.sh resume$NAME_FLAG"
   IP=$(instance_field "$INSTANCE_ID" PublicIpAddress)
   [[ -n "$IP" ]] || die "the instance $INSTANCE_ID has no public IP (is it stopped?)"
 }
@@ -325,6 +341,29 @@ tunnel() {
   wait "$pid" || true
   trap - INT TERM
   warn "The tunnel dropped — reopen it with: deploy/aws.sh open$NAME_FLAG"
+}
+
+# A worker's server from the 🌐 Services board: localhost:<port> tunnels to the office, which
+# relays it by that port (see src/server/relay.ts), so the local port must match the service's.
+service_tunnel() {
+  local port="$1" pid i up=0
+  port_busy "$port" && die "localhost:$port is already in use on this computer — stop whatever runs there first"
+  # shellcheck disable=SC2046
+  ssh $(ssh_opts) -N -o ExitOnForwardFailure=yes -L "$port:127.0.0.1:$OFFICE_PORT" "$SSH_USER@$IP" &
+  pid=$!
+  trap 'kill "$pid" 2>/dev/null; echo; ok "Tunnel closed"; exit 0' INT TERM
+  for ((i = 0; i < 40; i++)); do
+    kill -0 "$pid" 2>/dev/null || die "couldn't open the SSH tunnel to $IP"
+    port_busy "$port" && { up=1; break; }
+    sleep 0.5
+  done
+  [[ $up -eq 1 ]] || { kill "$pid" 2>/dev/null; die "the tunnel didn't come up"; }
+  ok "The worker's server: http://localhost:$port"
+  echo "   (through the office on $IP — sign in with the office password if it asks; Ctrl-C closes it)"
+  open_url "http://localhost:$port"
+  wait "$pid" || true
+  trap - INT TERM
+  warn "The tunnel dropped — reopen it with: deploy/aws.sh service $port$NAME_FLAG"
 }
 
 open_office() {
@@ -460,9 +499,7 @@ cmd_up() {
   elif [[ $INSTANCE_TYPE_SET -eq 1 && "$(instance_field "$INSTANCE_ID" InstanceType)" != "$INSTANCE_TYPE" ]]; then
     resize_instance "$INSTANCE_ID" "$INSTANCE_TYPE"
   elif [[ "$(instance_field "$INSTANCE_ID" State.Name)" =~ ^(stopped|stopping)$ ]]; then
-    say "Starting $INSTANCE_ID"
-    aws ec2 wait instance-stopped --instance-ids "$INSTANCE_ID"
-    aws ec2 start-instances --instance-ids "$INSTANCE_ID" >/dev/null
+    start_instance "$INSTANCE_ID"
   else
     say "Reusing $INSTANCE_ID ($(instance_field "$INSTANCE_ID" InstanceType))"
   fi
@@ -510,6 +547,15 @@ cmd_open() {
   open_office
 }
 
+cmd_service() {
+  preflight
+  [[ ${#POSITIONAL[@]} -eq 1 && "${POSITIONAL[0]}" =~ ^[0-9]+$ && ${POSITIONAL[0]} -gt 0 && ${POSITIONAL[0]} -lt 65536 ]] ||
+    die "usage: deploy/aws.sh service <port>   (a port from the office's 🌐 Services board)"
+  [[ "${POSITIONAL[0]}" -ne $OFFICE_PORT ]] || die "$OFFICE_PORT is the office itself — use: deploy/aws.sh open"
+  require_instance
+  service_tunnel "${POSITIONAL[0]}"
+}
+
 cmd_status() {
   preflight
   INSTANCE_ID=$(find_instance)
@@ -517,13 +563,16 @@ cmd_status() {
     echo "No office named \"$NAME\" in $AWS_REGION."
     return
   fi
-  local sg
+  local sg state
   sg=$(find_sg)
+  state=$(instance_field "$INSTANCE_ID" State.Name)
   IP=$(instance_field "$INSTANCE_ID" PublicIpAddress)
   echo "office:    $NAME ($AWS_REGION)"
-  echo "instance:  $INSTANCE_ID $(instance_field "$INSTANCE_ID" InstanceType) $(instance_field "$INSTANCE_ID" State.Name)"
+  echo "instance:  $INSTANCE_ID $(instance_field "$INSTANCE_ID" InstanceType) $state"
   echo "address:   ${IP:-none}  (open the office with: deploy/aws.sh open$NAME_FLAG)"
-  if [[ -n "$IP" && -f "$KEY_FILE" ]] && office_get /api/health >/dev/null 2>&1; then
+  if [[ "$state" =~ ^(stopped|stopping)$ ]]; then
+    echo "office:    paused (start it with: deploy/aws.sh resume$NAME_FLAG)"
+  elif [[ -n "$IP" && -f "$KEY_FILE" ]] && office_get /api/health >/dev/null 2>&1; then
     echo "office:    up"
     local team
     team=$(team_members 2>/dev/null | awk '{printf "%s%s", sep, $1; sep=", "}')
@@ -658,6 +707,42 @@ cmd_resize() {
   ok "Your office is back — open it with: deploy/aws.sh open$NAME_FLAG"
 }
 
+cmd_pause() {
+  preflight
+  INSTANCE_ID=$(find_instance)
+  [[ -n "$INSTANCE_ID" ]] || die "no office named \"$NAME\" in $AWS_REGION"
+  local state
+  state=$(instance_field "$INSTANCE_ID" State.Name)
+  if [[ "$state" != "stopped" ]]; then
+    say "Pausing office \"$NAME\" ($INSTANCE_ID). Running workers stop and come back asleep"
+    echo "   when you resume (press R at their desk). Open tunnels, teammates' too, are dropped."
+    if [[ $YES -ne 1 ]]; then
+      read -r -p "   Continue? [y/N] " answer
+      [[ "$answer" =~ ^[Yy] ]] || die "cancelled"
+    fi
+    [[ "$state" == "pending" ]] && aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"
+    [[ "$state" != "stopping" ]] && aws ec2 stop-instances --instance-ids "$INSTANCE_ID" >/dev/null
+    say "Stopping"
+    aws ec2 wait instance-stopped --instance-ids "$INSTANCE_ID"
+  fi
+  ok "Paused. The disk and the address stay (and are all that's billed until you resume)"
+  echo "   Start it again with: deploy/aws.sh resume$NAME_FLAG"
+}
+
+cmd_resume() {
+  preflight
+  INSTANCE_ID=$(find_instance)
+  [[ -n "$INSTANCE_ID" ]] || die "no office named \"$NAME\" in $AWS_REGION — run: deploy/aws.sh up"
+  start_instance "$INSTANCE_ID"
+  aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"
+  ensure_eip "$INSTANCE_ID"
+  say "Waiting for the office to answer"
+  wait_healthy || die "the office didn't come back — check: deploy/aws.sh logs$NAME_FLAG"
+  ok "Your office is back (workers wake up asleep; press R at a desk to resume them)"
+  [[ $NO_OPEN -eq 1 ]] && return
+  open_office
+}
+
 cmd_update() {
   preflight
   require_instance
@@ -737,6 +822,7 @@ cmd_down() {
 case "$CMD" in
   up) cmd_up ;;
   open) cmd_open ;;
+  service) cmd_service ;;
   status) cmd_status ;;
   invite) cmd_invite ;;
   uninvite) cmd_uninvite ;;
@@ -746,6 +832,8 @@ case "$CMD" in
   ssh) cmd_ssh ;;
   logs) cmd_logs ;;
   resize) cmd_resize ;;
+  pause) cmd_pause ;;
+  resume) cmd_resume ;;
   update) cmd_update ;;
   reset-password) cmd_reset_password ;;
   down) cmd_down ;;

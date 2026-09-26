@@ -131,6 +131,8 @@ deploy/aws.sh allow 203.0.113.7    # let an IP reach SSH (CIDR ok; "me", "anywhe
 deploy/aws.sh revoke 203.0.113.7   # …and take it back
 deploy/aws.sh status               # instance, address, office up?, team, allowed IPs
 deploy/aws.sh resize t3.2xlarge    # bigger or smaller machine; same address, ~1-2 min of downtime
+deploy/aws.sh pause                # stop the machine to save money; only the disk and IP are billed
+deploy/aws.sh resume               # start it again and open the office (same address, same files)
 deploy/aws.sh update               # install the latest agent-office and restart
 deploy/aws.sh reset-password       # new password, shown once; signs everyone out
 deploy/aws.sh ssh | logs           # get on the box / follow the office logs
