@@ -1,6 +1,7 @@
 import { store, AVATAR_COLORS, saveProfile } from '../state';
 import type { Voice } from '../voice';
 import { $, h, openModal, STATUS_LABEL } from './dom';
+import { fmtCost, usageTitle } from './usage';
 
 export function renderPeople(voice: Voice, onEditProfile: () => void) {
   const ul = $('people');
@@ -44,6 +45,7 @@ export function renderWorkers(onOpen: (id: string) => void) {
         { onclick: () => onOpen(w.id), title: `Open ${w.name}'s terminal` },
         h('span.dot', { style: `background:${w.color}` }),
         h('span.name', {}, w.name, sub ? h('span.sub', {}, sub) : null),
+        w.usage?.calls ? h('span.cost', { title: usageTitle(w.usage) }, fmtCost(w.usage.cost)) : null,
         h('span.pill', { class: w.status }, STATUS_LABEL[w.status] ?? w.status),
       ),
     );
@@ -109,15 +111,18 @@ export function openHelp() {
   const rows: [string, string][] = [
     ['W A S D', 'Walk (hold Shift to run)'],
     ['Space', 'Jump'],
-    ['Drag / wheel', 'Orbit and zoom the camera'],
-    ['E', 'Interact: hire a worker, open its terminal, read a board, watch the TV'],
+    ['Mouse', 'Look around in first person (click to capture the mouse, Esc to free it)'],
+    ['Click / E', 'Use what you look at: hire a worker, open its terminal, read a board, watch the TV'],
+    ['Drag / wheel', 'Orbit and zoom the camera in third person'],
     ['P', 'Prompt: give a task to a new or existing worker at the desk you face'],
     ['B', 'Open a shared shell (dev servers, git, tests) at an empty desk'],
     ['R', 'Resume a sleeping worker'],
     ['X', 'Send a worker home (frees the desk)'],
     ['T', 'Chat'],
     ['V / M', 'Join voice / mute'],
-    ['Ctrl + ]', 'Leave a terminal'],
+    ['Esc', 'Close any window and get back to looking around'],
+    ['Ctrl + [', 'Send Esc to a terminal (e.g. to interrupt Claude)'],
+    ['⚙️', 'Settings: switch between first and third person'],
   ];
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const el = h(

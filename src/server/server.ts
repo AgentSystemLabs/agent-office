@@ -10,7 +10,12 @@ import type { Config } from './config.js';
 import { Auth } from './auth.js';
 import { WorkerManager } from './workers.js';
 import { GitHub } from './github.js';
-import type { ChatLine, ClientMsg, PeerInfo, ProjectInfo, ServerMsg } from '../shared/protocol.js';
+import { Team } from './team.js';
+import { Upgrader } from './upgrade.js';
+import { Services } from './services.js';
+import { Ledger } from './usage.js';
+import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
+import type { ChatLine, ClientMsg, PeerInfo, ProjectInfo, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { SPAWN } from '../shared/layout.js';
 
 const MIME: Record<string, string> = {
@@ -36,6 +41,7 @@ interface Client {
   /** Terminals whose output was skipped because this client fell behind; re-snapshotted later. */
   stale: Set<string>;
   lastMoveAt: number;
+  lastActAt: number;
 }
 
 const SLOW_CLIENT_BYTES = 8 * 1024 * 1024;
@@ -147,6 +153,14 @@ export async function startServer(cfg: Config) {
   await new Promise<void>((resolve) => hookServer.listen(0, '127.0.0.1', resolve));
   const hookPort = (hookServer.address() as { port: number }).port;
 
+  // What the workers spend, all time and today, with the optional daily budget.
+  const ledger = new Ledger(
+    cfg.dataDir,
+    { budget: cfg.budget, pauseHiring: cfg.budgetPause },
+    (state) => broadcast({ t: 'usage', state }),
+    (text, level) => broadcast({ t: 'toast', text, level }),
+  );
+
   workers = new WorkerManager(
     cfg.dir,
     cfg.dataDir,
@@ -170,6 +184,7 @@ export async function startServer(cfg: Config) {
       screen: (workerId, frame) => broadcast({ t: 'screen', workerId, ...frame }, undefined, true),
       toast: (text, level) => broadcast({ t: 'toast', text, level }),
     },
+    ledger,
   );
 
   const github = new GitHub(
@@ -178,6 +193,25 @@ export async function startServer(cfg: Config) {
     (state) => broadcast({ t: 'gh.pulls', state }),
   );
   github.start();
+
+  const team = new Team(cfg.publicHost, cfg.port);
+
+  // Web servers the workers start, for the Services board and service tunnels (see relay.ts).
+  const servicesState = (items = services.list()): ServicesState => ({ items, port: cfg.port, ssh: team.ssh });
+  const services = new Services(
+    cfg.dir,
+    () => workers.owners(),
+    (items) => broadcast({ t: 'services', state: servicesState(items) }),
+  );
+
+  const upgrader = new Upgrader(
+    (state) => broadcast({ t: 'upgrade', state }),
+    () => {
+      // cli.ts shuts down gracefully; systemd (Restart=always) then starts the new version.
+      workers.wakeAfterRestart();
+      process.kill(process.pid, 'SIGTERM');
+    },
+  );
 
   // --- HTTP ------------------------------------------------------------------------------------
   const serveFile = (res: http.ServerResponse, file: string, cache: boolean) => {
@@ -192,28 +226,39 @@ export async function startServer(cfg: Config) {
     createReadStream(file).pipe(res);
   };
 
+  const login = async (req: http.IncomingMessage, res: http.ServerResponse) => {
+    const ip = clientIp(req, cfg.trustProxy);
+    // Counted before the body is read, so parallel guesses can't all slip under the limit.
+    if (!auth.allowAttempt(ip)) return send(res, 429, { error: 'Too many attempts. Try again in a few minutes.' });
+    let pw = '';
+    try {
+      pw = str(JSON.parse(await readBody(req, 4096)).password, 512);
+    } catch {
+      return send(res, 400, { error: 'Bad request' });
+    }
+    if (!(await auth.checkPassword(pw))) return send(res, 401, { error: 'Wrong password' });
+    auth.recordSuccess(ip);
+    return send(res, 200, { ok: true }, { 'set-cookie': auth.cookie(req, auth.issue(), isSecure(req, cfg)) });
+  };
+
   const handler = async (req: http.IncomingMessage, res: http.ServerResponse) => {
     try {
+      // A service tunnel (localhost:5173 -> the office): relay to that worker's server.
+      const tunneled = tunneledPort(req, cfg.port);
+      const svc = tunneled ? services.lookup(tunneled) : undefined;
+      if (tunneled && svc) {
+        if (req.method === 'POST' && req.url === RELAY_LOGIN) return await login(req, res);
+        if (!auth.fromAnyCookie(req)) return signInPage(res, tunneled);
+        if (svc === 'gone') return stoppedPage(res, tunneled);
+        return relayRequest(req, res, svc);
+      }
       let p: string;
       try {
         p = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
       } catch {
         return send(res, 400, { error: 'Bad request' });
       }
-      if (p === '/api/login' && req.method === 'POST') {
-        const ip = clientIp(req, cfg.trustProxy);
-        // Counted before the body is read, so parallel guesses can't all slip under the limit.
-        if (!auth.allowAttempt(ip)) return send(res, 429, { error: 'Too many attempts. Try again in a few minutes.' });
-        let pw = '';
-        try {
-          pw = str(JSON.parse(await readBody(req, 4096)).password, 512);
-        } catch {
-          return send(res, 400, { error: 'Bad request' });
-        }
-        if (!(await auth.checkPassword(pw))) return send(res, 401, { error: 'Wrong password' });
-        auth.recordSuccess(ip);
-        return send(res, 200, { ok: true }, { 'set-cookie': auth.cookie(auth.issue(), isSecure(req, cfg)) });
-      }
+      if (p === '/api/login' && req.method === 'POST') return await login(req, res);
       // One-time reveal of the generated password. After this the plaintext is gone for good.
       const claimable = !!cfg.claimToken && !cfg.claimed && !!cfg.password;
       if (p === '/api/claim' && req.method === 'GET') return send(res, 200, { claimable });
@@ -232,10 +277,10 @@ export async function startServer(cfg: Config) {
         cfg.markClaimed();
         auth.recordSuccess(ip);
         console.log('  the office password was claimed — it will not be shown again');
-        return send(res, 200, { password }, { 'set-cookie': auth.cookie(auth.issue(), isSecure(req, cfg)) });
+        return send(res, 200, { password }, { 'set-cookie': auth.cookie(req, auth.issue(), isSecure(req, cfg)) });
       }
       if (p === '/api/logout' && req.method === 'POST') {
-        return send(res, 200, { ok: true }, { 'set-cookie': auth.clearCookie() });
+        return send(res, 200, { ok: true }, { 'set-cookie': auth.clearCookie(req) });
       }
       if (p === '/api/health') return send(res, 200, { ok: true });
 
@@ -271,6 +316,14 @@ export async function startServer(cfg: Config) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
   server.on('upgrade', (req, socket, head) => {
     socket.on('error', () => socket.destroy());
+    const tunneled = tunneledPort(req, cfg.port);
+    const svc = tunneled ? services.lookup(tunneled) : undefined;
+    if (tunneled && svc) {
+      if (svc !== 'gone' && auth.fromAnyCookie(req)) return relayUpgrade(req, socket, head, svc);
+      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     let url: URL;
     try {
       url = new URL(req.url ?? '/', 'http://x');
@@ -304,6 +357,7 @@ export async function startServer(cfg: Config) {
       attached: new Set(),
       stale: new Set(),
       lastMoveAt: 0,
+      lastActAt: 0,
       peer: {
         id,
         name,
@@ -332,6 +386,11 @@ export async function startServer(cfg: Config) {
       pulls: github.pulls,
       ice: cfg.iceServers,
       chat: chat.slice(-50),
+      invites: team.available,
+      version: upgrader.version,
+      upgrade: upgrader.state,
+      services: servicesState(),
+      usage: ledger.state(),
     });
     for (const { workerId, frame } of workers.fullScreens()) sendTo(client, { t: 'screen', workerId, ...frame, full: true });
     broadcast({ t: 'peer.join', peer: client.peer }, id);
@@ -365,6 +424,13 @@ export async function startServer(cfg: Config) {
         p.rotY = num(msg.rotY);
         p.moving = !!msg.moving;
         broadcast({ t: 'peer.move', id: c.id, x: p.x, y: p.y, z: p.z, rotY: p.rotY, moving: p.moving }, c.id, true);
+        break;
+      }
+      case 'act': {
+        const now = Date.now();
+        if (now - c.lastActAt < 100) break;
+        c.lastActAt = now;
+        broadcast({ t: 'peer.act', id: c.id }, c.id, true);
         break;
       }
       case 'profile': {
@@ -443,6 +509,37 @@ export async function startServer(cfg: Config) {
       case 'gh.refresh':
         void github.refresh();
         break;
+      case 'upgrade.check':
+        void upgrader.check();
+        break;
+      case 'upgrade.start':
+        void upgrader.start(who).then((err) => {
+          if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+          else broadcast({ t: 'toast', text: `${who} is upgrading the office — it restarts when the new version is built`, level: 'info' });
+        });
+        break;
+      case 'team.get':
+        void team.state().then((state) => sendTo(c, { t: 'team', state }));
+        break;
+      case 'team.invite': {
+        const github = str(msg.github, 64);
+        void team.invite(github).then(async (r) => {
+          sendTo(c, { t: 'team.invited', github, ...r });
+          if ('error' in r) return;
+          broadcast({ t: 'toast', text: `${who} invited ${r.name} to the office`, level: 'info' });
+          broadcast({ t: 'team', state: await team.state() });
+        });
+        break;
+      }
+      case 'team.remove': {
+        const name = str(msg.name, 64);
+        void team.remove(name).then(async (err) => {
+          if (err) return sendTo(c, { t: 'toast', text: err, level: 'warn' });
+          broadcast({ t: 'toast', text: `${who} removed ${name}'s access`, level: 'info' });
+          broadcast({ t: 'team', state: await team.state() });
+        });
+        break;
+      }
       case 'ping':
         sendTo(c, { t: 'pong', at: num(msg.at) });
         break;
@@ -476,12 +573,16 @@ export async function startServer(cfg: Config) {
     server.once('error', reject);
     server.listen(cfg.port, cfg.host, () => resolve());
   });
+  services.start();
 
   const shutdown = () => {
     clearInterval(heartbeat);
     clearInterval(resync);
     github.stop();
+    upgrader.stop();
+    services.stop();
     workers.shutdown();
+    ledger.flush();
     for (const c of clients.values()) c.ws.close();
     server.close();
     hookServer.close();

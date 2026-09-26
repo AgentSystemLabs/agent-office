@@ -4,19 +4,25 @@ import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { DESK_BY_ID, DESKS, SPAWN } from '../shared/layout';
 import type { WorkerInfo } from '../shared/protocol';
 import { Net } from './net';
-import { store, loadProfile } from './state';
-import { PlayerController, isTyping } from './player';
-import { buildOffice, type Interactable } from './world/office';
+import { store, loadProfile, loadSettings, saveSettings } from './state';
+import { EYE_HEIGHT, PlayerController, isTyping } from './player';
+import { buildOffice, type InteractKind, type Interactable } from './world/office';
 import { Person, Worker } from './world/character';
+import { Hands } from './world/hands';
 import { Laptop } from './world/laptop';
-import { BoardTexture } from './world/boards';
+import { BoardTexture, ServicesBoardTexture } from './world/boards';
 import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
 import { $, h, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
 import { openPrompt, confirmDialog } from './ui/prompt';
 import { openBoard } from './ui/boards';
+import { openTeam, routeTeamMessage } from './ui/team';
+import { mountServicesButton, openServices } from './ui/services';
+import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
 import { openHelp, openProfile, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
+import { openSettings } from './ui/settings';
+import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -72,6 +78,14 @@ store.on('issues', () => issuesTex.render(store.issues));
 store.on('pulls', () => pullsTex.render(store.pulls));
 issuesTex.render(store.issues);
 pullsTex.render(store.pulls);
+const servicesTex = new ServicesBoardTexture();
+const servicesMat = office.boardMeshes.services.material as THREE.MeshBasicMaterial;
+servicesMat.map = servicesTex.texture;
+servicesMat.needsUpdate = true;
+const renderServicesBoard = () => servicesTex.render(store.services.items, store.workers);
+store.on('services', renderServicesBoard);
+store.on('workers', renderServicesBoard);
+renderServicesBoard();
 
 // TV
 const tvVideo = document.createElement('video');
@@ -113,8 +127,16 @@ const me = new Person(store.profile.name, store.profile.color, 'me');
 me.showLabel(false);
 scene.add(me.root);
 noOutline(me.root);
+const settings = loadSettings();
 const player = new PlayerController(camera, canvas, office.colliders);
 player.pos.set(SPAWN.x, 0, SPAWN.z);
+player.view = settings.view;
+const hands = new Hands(store.profile.color, me.skinColor);
+
+function setMyColor(color: string) {
+  me.setColor(color);
+  hands.setColor(color);
+}
 
 interface RemotePeer {
   person: Person;
@@ -135,12 +157,16 @@ interface WorkerView {
 }
 const workerViews = new Map<string, WorkerView>();
 let firstWelcome = true;
+/** The server version this page was loaded with. */
+let bootVersion = '';
+let upgradePhase = '';
 
 net.onStatus((up) => $('conn').classList.toggle('hidden', up));
 net.onMessage((msg) => {
   if (msg.t === 'welcome') voice.reset();
   store.apply(msg);
   routeTerminalMessage(msg);
+  routeTeamMessage(msg);
   switch (msg.t) {
     case 'welcome': {
       const mine = store.peers.get(store.you);
@@ -153,6 +179,11 @@ net.onMessage((msg) => {
       const openId = openTerminalFor();
       if (openId && store.workers.has(openId)) net.send({ t: 'worker.attach', workerId: openId });
       renderProject();
+      $('btn-team').classList.toggle('hidden', !store.invites);
+      // Back from a restart on another version: this page's code is stale, so load the new one.
+      if (!bootVersion) bootVersion = msg.version;
+      else if (msg.version !== bootVersion || restarting()) showUpgraded(msg.upgrade);
+      upgradePhase = msg.upgrade.phase;
       voice.syncPeers();
       break;
     }
@@ -166,11 +197,32 @@ net.onMessage((msg) => {
     case 'toast':
       toast(msg.text, msg.level);
       break;
+    case 'upgrade':
+      if (msg.state.phase === 'restarting') showRestarting(msg.state, net);
+      if (msg.state.phase === 'failed' && upgradePhase === 'building') toast(`The upgrade failed, so the office stays on ${msg.state.current?.sha ?? 'this version'}`, 'error');
+      upgradePhase = msg.state.phase;
+      break;
     case 'chat':
       sayBubble(msg.from, msg.text);
       break;
+    case 'peer.act':
+      remotes.get(msg.id)?.person.reach();
+      break;
   }
 });
+
+function renderUpgrade() {
+  const u = store.upgrade;
+  const btn = $('btn-upgrade');
+  btn.classList.toggle('hidden', !u.available);
+  btn.classList.toggle('primary', !!u.latest && u.phase !== 'building');
+  btn.textContent = u.phase === 'building' ? '🛠️ Upgrading…' : u.latest ? '⬆️ Update' : '⬆️';
+  btn.title = u.latest ? `New version: ${u.latest.subject}` : 'Upgrade the office';
+  const banner = $('upgrade-banner');
+  banner.classList.toggle('hidden', u.phase !== 'building');
+  banner.textContent = `🛠️ ${u.by ?? 'Someone'} is upgrading the office. It restarts on the new version in a minute or two.`;
+}
+store.on('upgrade', renderUpgrade);
 
 function renderProject() {
   const p = store.project;
@@ -322,6 +374,8 @@ function syncWorkers() {
   renderWorkers((id) => openWorkerTerminal(id));
 }
 store.on('workers', syncWorkers);
+store.on('workers', renderUsage);
+store.on('usage', renderUsage);
 
 // ---- Actions ------------------------------------------------------------------------------------
 function freeDesk(): string | null {
@@ -384,14 +438,17 @@ function killWorker(id: string) {
   );
 }
 
+function resumeWorker(w: WorkerInfo) {
+  if (!w.sessionId && w.kind !== 'shell') toast(`${w.name} has no saved Claude session — starting a fresh one`, 'warn');
+  net.send({ t: 'worker.resume', workerId: w.id });
+}
+
+/** Opening a sleeping worker's terminal wakes it, so there's nothing to press first. */
 function openWorkerTerminal(id: string) {
   const w = store.workers.get(id);
   if (!w) return;
-  openTerminal(net, id, {
-    prompt: () => promptAtDesk(w.deskId),
-    kill: () => killWorker(id),
-    resume: () => net.send({ t: 'worker.resume', workerId: id }),
-  });
+  if (w.status === 'exited' || w.status === 'offline') resumeWorker(w);
+  openTerminal(net, id);
 }
 
 function boardActions() {
@@ -436,16 +493,13 @@ function interact(target: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B')
     if (key === 'B' && !w) return openShell(target.deskId);
     if (key === 'P') return promptAtDesk(target.deskId);
     if (key === 'E') return w ? openWorkerTerminal(w.id) : hire(target.deskId);
-    if (key === 'R' && w && (w.status === 'exited' || w.status === 'offline')) {
-      if (!w.sessionId && w.kind !== 'shell') toast(`${w.name} has no saved Claude session — starting a fresh one`, 'warn');
-      net.send({ t: 'worker.resume', workerId: w.id });
-      return;
-    }
+    if (key === 'R' && w && (w.status === 'exited' || w.status === 'offline')) return resumeWorker(w);
     if (key === 'X' && w) return killWorker(w.id);
     return;
   }
   if (key !== 'E') return;
   if (target.kind === 'issues' || target.kind === 'pulls') openBoard(target.kind, net, boardActions());
+  else if (target.kind === 'services') openServices();
   else if (target.kind === 'tv') watchShare();
   else if (target.kind === 'coffee') {
     toast('☕ Mmm, fresh coffee. +10 focus');
@@ -489,15 +543,24 @@ function renderHint() {
   if (target.kind === 'desk' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
     const desk = DESK_BY_ID.get(target.deskId)!;
-    if (!w) parts = [h('span.title', {}, `${desk.label} · empty`), key('E', 'Hire a worker'), key('P', 'Hire with a task'), key('B', 'Shell')];
-    else {
+    if (!w) {
+      const paused = hiringPaused();
+      k += String(paused);
+      parts = [
+        h('span.title', {}, `${desk.label} · empty`),
+        ...(paused ? [h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow')] : [key('E', 'Hire a worker'), key('P', 'Hire with a task')]),
+        key('B', 'Shell'),
+      ];
+    } else {
       k += w.status + w.id;
       const asleep = w.status === 'exited' || w.status === 'offline';
       const doing = w.activity ? (w.activity.length > 48 ? `${w.activity.slice(0, 47)}…` : w.activity) : '';
-      k += doing;
+      const spent = w.usage?.calls ? usageLabel(w.usage) : '';
+      k += doing + spent;
       parts = [
         h('span.title', {}, `${w.name} · ${STATUS_LABEL[w.status]}`),
         doing ? h('span', { style: 'opacity:.75;font-weight:600' }, doing) : '',
+        spent ? h('span.cost', { title: usageTitle(w.usage!) }, spent) : '',
         key('E', 'Open terminal'),
         asleep ? key('R', w.kind === 'shell' ? 'Restart' : 'Resume') : key('P', w.kind === 'shell' ? 'Run command' : 'Prompt'),
         key('X', 'Send home'),
@@ -505,6 +568,7 @@ function renderHint() {
     }
   } else if (target.kind === 'issues') parts = [h('span.title', {}, '📌 Issues board'), key('E', 'Open')];
   else if (target.kind === 'pulls') parts = [h('span.title', {}, '🔀 Pull request board'), key('E', 'Open')];
+  else if (target.kind === 'services') parts = [h('span.title', {}, '🌐 Services board'), key('E', 'Open')];
   else if (target.kind === 'tv') {
     const any = currentShares().length > 0;
     k += any;
@@ -516,25 +580,58 @@ function renderHint() {
   el.classList.remove('hidden');
 }
 
+let crossKey = '';
+const finePointer = window.matchMedia('(pointer: fine)').matches;
+function renderCrosshair() {
+  const show = player.view === 'first' && !modalOpen();
+  const free = show && finePointer && player.canLock && !player.locked;
+  const k = `${show}|${!!target}|${free}`;
+  if (k === crossKey) return;
+  crossKey = k;
+  const el = $('crosshair');
+  el.classList.toggle('hidden', !show);
+  el.classList.toggle('on', !!target);
+  el.classList.toggle('free', free);
+}
+
+// ---- Reaching out ---------------------------------------------------------------------------------
+let lastActSent = 0;
+/** Plays the reach on your hands and your character, and shows it to everyone else. */
+function reach() {
+  if (player.view === 'first') hands.reach();
+  me.reach();
+  const now = performance.now();
+  if (now - lastActSent > 120) {
+    lastActSent = now;
+    net.send({ t: 'act' });
+  }
+}
+
+function use(it: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B') {
+  if (!it) return;
+  reach();
+  interact(it, key);
+}
+
 // ---- Input ----------------------------------------------------------------------------------------
 window.addEventListener('keydown', (e) => {
   if (modalOpen() || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
   switch (e.code) {
     case 'KeyE':
-      interact(target, 'E');
+      use(target, 'E');
       break;
     case 'KeyP':
       e.preventDefault();
-      interact(target, 'P');
+      use(target, 'P');
       break;
     case 'KeyR':
-      interact(target, 'R');
+      use(target, 'R');
       break;
     case 'KeyX':
-      interact(target, 'X');
+      use(target, 'X');
       break;
     case 'KeyB':
-      interact(target, 'B');
+      use(target, 'B');
       break;
     case 'KeyT':
     case 'Enter':
@@ -556,37 +653,64 @@ window.addEventListener('keydown', (e) => {
   player.clearKeys();
 });
 
+/** Whether the mouse was captured when the modals opened, so closing them gives it back. */
+let relookAfterModal = false;
 onModalChange((open) => {
   player.enabled = !open;
   player.clearKeys();
-  if (open) $('hint').classList.add('hidden');
+  if (open) {
+    if (player.locked) relookAfterModal = true;
+    player.unlock();
+    $('hint').classList.add('hidden');
+  } else {
+    // The browser lets a page re-capture the mouse it let go of itself, even from Esc.
+    if (relookAfterModal && player.canLock) player.lock();
+    relookAfterModal = false;
+  }
   hintKey = '';
 });
 
-// Click a desk to interact with it (when close enough).
+// ---- Clicking the world: use what's under the crosshair (first person) or the mouse (third) ----------
 const raycaster = new THREE.Raycaster();
-let downAt: [number, number] | null = null;
-canvas.addEventListener('pointerdown', (e) => (downAt = [e.clientX, e.clientY]));
-canvas.addEventListener('pointerup', (e) => {
-  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 5) return;
-  const rect = canvas.getBoundingClientRect();
-  raycaster.setFromCamera(new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1), camera);
-  const hits = raycaster.intersectObjects([...office.desks.values()].map((d) => d.group), true);
-  for (const hit of hits) {
-    let o: THREE.Object3D | null = hit.object;
-    while (o && !o.userData.deskId) o = o.parent;
-    const deskId = o?.userData.deskId as string | undefined;
-    if (!deskId) continue;
-    const def = DESK_BY_ID.get(deskId)!;
-    if (Math.hypot(def.x - player.pos.x, def.z - player.pos.z) > 7) {
-      toast('Walk closer to that desk first');
-      return;
+const CROSSHAIR = new THREE.Vector2(0, 0);
+/** How close (meters from your eyes) you must be to use each kind of thing. */
+const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, tv: 10 };
+const eye = new THREE.Vector3();
+
+/** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
+function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boolean } | null {
+  raycaster.setFromCamera(ndc, camera);
+  eye.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
+  for (const hit of raycaster.intersectObject(office.group, true)) {
+    let it: Interactable | undefined;
+    let shown = true;
+    for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) {
+      if (!o.visible) shown = false;
+      it ??= o.userData.interact as Interactable | undefined;
     }
-    interact({ kind: 'desk', deskId, x: def.x, z: def.z, radius: 0 }, 'E');
+    if (!shown) continue;
+    if (!it) return null; // a wall, the floor, a plant… is in the way
+    return { it, near: hit.point.distanceTo(eye) <= REACH[it.kind] + slack };
+  }
+  return null;
+}
+
+player.onClick = (ndc) => {
+  if (modalOpen()) return;
+  if (player.view === 'first') {
+    // Reach out even at nothing, like poking the air.
+    reach();
+    if (target) interact(target, 'E');
     return;
   }
-});
-for (const d of office.desks.values()) d.group.userData.deskId = d.def.id;
+  const aim = aimedAt(ndc, 2.5);
+  if (!aim) return;
+  if (!aim.near) {
+    toast('Walk closer to that first');
+    return;
+  }
+  use(aim.it, 'E');
+};
 
 // Chat
 const chatInput = $('chat-input') as HTMLInputElement;
@@ -676,7 +800,7 @@ if (!window.isSecureContext) {
   for (const id of ['btn-voice', 'btn-share']) {
     const b = $(id);
     b.style.opacity = '0.55';
-    b.title = 'Voice and screen sharing need HTTPS — run the office behind a TLS proxy or with --self-signed';
+    b.title = 'Voice and screen sharing need HTTPS or localhost — use a TLS proxy, --self-signed, or an SSH tunnel';
   }
 }
 $('btn-voice').addEventListener('click', () => void toggleVoice());
@@ -684,11 +808,21 @@ $('btn-mute').addEventListener('click', () => voice.toggleMute());
 $('btn-share').addEventListener('click', () => void toggleShare());
 $('btn-issues').addEventListener('click', () => openBoard('issues', net, boardActions()));
 $('btn-pulls').addEventListener('click', () => openBoard('pulls', net, boardActions()));
+mountServicesButton($('btn-services'));
+$('btn-team').addEventListener('click', () => openTeam(net));
+$('btn-upgrade').addEventListener('click', () => openUpgrade(net));
 $('btn-help').addEventListener('click', () => openHelp());
+$('btn-settings').addEventListener('click', () =>
+  openSettings(settings, (s) => {
+    Object.assign(settings, s);
+    saveSettings(settings);
+    player.setView(settings.view);
+  }),
+);
 
 function editProfile() {
   openProfile(false, (name, color) => {
-    me.setColor(color);
+    setMyColor(color);
     net.send({ t: 'profile', name, color });
   });
 }
@@ -700,6 +834,7 @@ function resize() {
   renderer.setSize(w, hgt, false);
   camera.aspect = w / hgt;
   camera.updateProjectionMatrix();
+  hands.setAspect(w / hgt);
 }
 window.addEventListener('resize', resize);
 resize();
@@ -717,9 +852,11 @@ function frame(ts?: number) {
   me.root.position.copy(player.pos);
   me.root.rotation.y = player.facing;
   me.update(dt, t, player.moving && player.grounded, !player.grounded);
-  me.setSpeaking(voice.inVoice && voice.localLevel > 0.04);
-  // Hide yourself when the camera is zoomed in right behind your head.
-  me.root.visible = camera.position.distanceTo(new THREE.Vector3(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5;
+  me.setVoiceLevel(voice.inVoice ? voice.localLevel : 0);
+  const firstPerson = player.view === 'first';
+  // In first person you are the camera; in third, hide yourself when it's zoomed in right behind your head.
+  me.root.visible = !firstPerson && camera.position.distanceTo(new THREE.Vector3(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5;
+  if (firstPerson) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded });
 
   const now = performance.now();
   const moved = Math.abs(player.pos.x - lastSent.x) + Math.abs(player.pos.y - lastSent.y) + Math.abs(player.pos.z - lastSent.z) > 0.01 || Math.abs(player.facing - lastSent.rotY) > 0.02;
@@ -738,7 +875,7 @@ function frame(ts?: number) {
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     r.person.root.rotation.y += diff * Math.min(1, dt * 12);
     r.person.update(dt, t, p.moving && p.y < 0.05 + 0.8, p.y > 0.05 && Math.abs(pos.y - r.target.y) > 0.01);
-    r.person.setSpeaking(p.voice && !p.muted && voice.levelOf(id) > 0.04);
+    r.person.setVoiceLevel(p.voice && !p.muted ? voice.levelOf(id) : 0);
     if (r.bubble && now > r.bubble.until) {
       r.person.root.remove(r.bubble.sprite);
       disposeSprite(r.bubble.sprite);
@@ -756,8 +893,13 @@ function frame(ts?: number) {
   }
   office.update(t);
 
-  target = modalOpen() ? null : pickTarget();
+  if (modalOpen()) target = null;
+  else if (firstPerson) {
+    const aim = aimedAt(CROSSHAIR);
+    target = aim?.near ? aim.it : null;
+  } else target = pickTarget();
   renderHint();
+  renderCrosshair();
 
   if (now - speakTick > 200) {
     speakTick = now;
@@ -765,6 +907,11 @@ function frame(ts?: number) {
   }
 
   effect.render(scene, camera);
+  if (firstPerson) {
+    // Hands go on top of everything, so they never clip into a desk you walk up to.
+    renderer.clearDepth();
+    effect.render(hands.scene, hands.camera);
+  }
   requestAnimationFrame(frame);
 }
 
@@ -780,17 +927,17 @@ function boot() {
 const saved = loadProfile();
 if (saved) {
   store.profile = saved;
-  me.setColor(saved.color);
+  setMyColor(saved.color);
   boot();
 } else {
   // Render the office behind the welcome dialog.
   requestAnimationFrame(frame);
   openProfile(true, (_name, color) => {
-    me.setColor(color);
+    setMyColor(color);
     net.connect();
   });
 }
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, camera, workerViews, scene, net, renderer };
+(window as any).__office = { store, player, camera, workerViews, scene, net, renderer, hands, me, remotes, settings };
 (window as any).__voice = voice;

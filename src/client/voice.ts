@@ -32,7 +32,8 @@ export class Voice {
   localLevel = 0;
 
   constructor(private net: Net) {
-    setInterval(() => this.sampleLevels(), 120);
+    // Often enough for mouths to keep up with syllables.
+    setInterval(() => this.sampleLevels(), 40);
   }
 
   get inVoice() {
@@ -83,7 +84,7 @@ export class Voice {
     if (this.audioCtx) {
       const src = this.audioCtx.createMediaStreamSource(this.mic);
       this.localAnalyser = this.audioCtx.createAnalyser();
-      this.localAnalyser.fftSize = 512;
+      this.localAnalyser.fftSize = 1024;
       src.connect(this.localAnalyser);
     }
     const track = this.mic.getAudioTracks()[0];
@@ -243,7 +244,7 @@ export class Voice {
           try {
             const src = this.audioCtx.createMediaStreamSource(stream);
             c.analyser = this.audioCtx.createAnalyser();
-            c.analyser.fftSize = 512;
+            c.analyser.fftSize = 1024;
             src.connect(c.analyser);
           } catch {
             // analyser is optional
@@ -272,8 +273,10 @@ export class Voice {
     this.listeners.forEach((fn) => fn());
   }
 
+  private readonly levelBuf = new Uint8Array(1024);
+
   private sampleLevels() {
-    const buf = new Uint8Array(256);
+    const buf = this.levelBuf;
     const rms = (a: AnalyserNode) => {
       a.getByteTimeDomainData(buf);
       let s = 0;

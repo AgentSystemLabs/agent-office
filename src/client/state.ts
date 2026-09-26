@@ -1,7 +1,9 @@
-import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, ServerMsg, WorkerInfo } from '../shared/protocol';
+import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, ServerMsg, ServicesState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 
-type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens';
+type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'usage';
+
+const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
 export interface Profile {
   name: string;
@@ -29,6 +31,33 @@ export function saveProfile(p: Profile) {
   }
 }
 
+export type ViewMode = 'first' | 'third';
+
+export interface Settings {
+  view: ViewMode;
+}
+
+const SETTINGS_KEY = 'agent-office.settings';
+
+export function loadSettings(): Settings {
+  const s: Settings = { view: 'first' };
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
+    if (saved?.view === 'first' || saved?.view === 'third') s.view = saved.view;
+  } catch {
+    // storage blocked
+  }
+  return s;
+}
+
+export function saveSettings(s: Settings) {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  } catch {
+    // storage blocked
+  }
+}
+
 class Store {
   you = '';
   profile: Profile = { name: 'Guest', color: AVATAR_COLORS[1] };
@@ -40,6 +69,12 @@ class Store {
   pulls: GhState<GhPull> = { items: [], fetchedAt: 0, loading: true };
   ice: RTCIceServer[] = [];
   chat: ChatLine[] = [];
+  /** Whether this office can invite teammates (deployed with deploy/aws.sh). */
+  invites = false;
+  team: TeamState | null = null;
+  upgrade: UpgradeState = { available: false, phase: 'idle' };
+  services: ServicesState = { items: [], port: 4600 };
+  usage: UsageState = { total: zeroUsage(), today: zeroUsage(), day: '', pauseHiring: false };
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -70,7 +105,11 @@ class Store {
         this.pulls = msg.pulls;
         this.ice = msg.ice as RTCIceServer[];
         this.chat = msg.chat;
-        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project'] as Topic[]) this.emit(t);
+        this.invites = msg.invites;
+        this.upgrade = msg.upgrade;
+        this.services = msg.services;
+        this.usage = msg.usage;
+        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade', 'services', 'usage'] as Topic[]) this.emit(t);
         break;
       case 'peer.join':
       case 'peer.update':
@@ -114,6 +153,22 @@ class Store {
       case 'gh.pulls':
         this.pulls = msg.state;
         this.emit('pulls');
+        break;
+      case 'team':
+        this.team = msg.state;
+        this.emit('team');
+        break;
+      case 'upgrade':
+        this.upgrade = msg.state;
+        this.emit('upgrade');
+        break;
+      case 'services':
+        this.services = msg.state;
+        this.emit('services');
+        break;
+      case 'usage':
+        this.usage = msg.state;
+        this.emit('usage');
         break;
       case 'chat':
         this.chat.push(msg);

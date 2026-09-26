@@ -43,7 +43,7 @@ export function modalOpen(): boolean {
   return stack.length > 0;
 }
 
-/** Opens a modal. Esc closes it unless `escCloses` is false (terminals need Esc). */
+/** Opens a modal. Esc closes it unless `escCloses` is false (for dialogs you mustn't skip). */
 export function openModal(content: HTMLElement, opts: { escCloses?: boolean; onClose?: () => void; backdropCloses?: boolean } = {}): Modal {
   const backdrop = h('div.backdrop', {}, content);
   const root = document.getElementById('modal-root')!;
@@ -52,7 +52,9 @@ export function openModal(content: HTMLElement, opts: { escCloses?: boolean; onC
   const onKey = (e: KeyboardEvent) => {
     if (stack[stack.length - 1] !== modal) return;
     if (e.key === 'Escape' && opts.escCloses !== false) {
+      // Stop it here so the Esc that closes a terminal isn't also typed into it.
       e.preventDefault();
+      e.stopPropagation();
       modal.close();
     }
   };

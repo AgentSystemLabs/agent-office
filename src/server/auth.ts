@@ -74,20 +74,50 @@ export class Auth {
   }
 
   fromRequest(req: IncomingMessage): boolean {
-    return this.verify(parseCookies(req.headers.cookie)[COOKIE_NAME]);
+    return this.verify(parseCookies(req.headers.cookie)[cookieName(req)]);
   }
 
-  cookie(token: string, secure: boolean): string {
-    return `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure ? '; Secure' : ''}`;
+  /**
+   * Signed in to this office on any port of this host. A service tunnel (localhost:5173) carries
+   * the cookie you got on the office's own tunnel (localhost:4600), since cookies ignore ports.
+   */
+  fromAnyCookie(req: IncomingMessage): boolean {
+    for (const [name, value] of Object.entries(parseCookies(req.headers.cookie))) {
+      if (OFFICE_COOKIE.test(name) && this.verify(value)) return true;
+    }
+    return false;
   }
 
-  clearCookie(): string {
-    return `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+  cookie(req: IncomingMessage, token: string, secure: boolean): string {
+    return `${cookieName(req)}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure ? '; Secure' : ''}`;
+  }
+
+  clearCookie(req: IncomingMessage): string {
+    return `${cookieName(req)}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
   }
 
   private sign(payload: string): string {
     return createHmac('sha256', this.key).update(payload).digest('base64url');
   }
+}
+
+/** Cookies ignore ports, so offices sharing a host (e.g. SSH tunnels on localhost:4600 and :4601) each get their own. */
+function cookieName(req: IncomingMessage): string {
+  const port = /:(\d+)$/.exec(req.headers.host ?? '')?.[1];
+  return port ? `${COOKIE_NAME}_${port}` : COOKIE_NAME;
+}
+
+const OFFICE_COOKIE = new RegExp(`^${COOKIE_NAME}(?:_\\d+)?$`);
+
+/** The Cookie header without the office's session cookies, for passing on to someone else's server. */
+export function withoutOfficeCookies(header: string | undefined): string | undefined {
+  if (!header) return header;
+  const kept = header
+    .split(';')
+    .filter((part) => !OFFICE_COOKIE.test(part.split('=', 1)[0].trim()))
+    .join(';')
+    .trim();
+  return kept || undefined;
 }
 
 export function parseCookies(header: string | undefined): Record<string, string> {
