@@ -6,7 +6,7 @@ import { DESK_BY_ID, DESKS, SPAWN } from '../shared/layout';
 import type { PeerInfo, WorkerInfo } from '../shared/protocol';
 import { Net } from './net';
 import { store, loadProfile, loadSettings, saveSettings, type Profile } from './state';
-import { EYE_HEIGHT, PlayerController, isTyping } from './player';
+import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { buildOffice, type InteractKind, type Interactable } from './world/office';
 import { Person, Worker } from './world/character';
 import { Hands } from './world/hands';
@@ -840,6 +840,7 @@ function frame(ts?: number) {
 
   player.update(dt);
   me.root.position.copy(player.pos);
+  me.root.position.y += player.stepOffset;
   me.root.rotation.y = player.facing;
   me.update(dt, t, player.moving && player.grounded, !player.grounded);
   me.setVoiceLevel(voice.inVoice ? voice.localLevel : 0);
@@ -878,8 +879,10 @@ function frame(ts?: number) {
     let diff = p.rotY - r.person.root.rotation.y;
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     r.person.root.rotation.y += diff * Math.min(1, dt * 12);
-    const walking = p.moving && p.y < 0.05 + 0.8;
-    r.person.update(dt, t, walking, p.y > 0.05 && Math.abs(pos.y - r.target.y) > 0.01);
+    // On their feet if they're standing on something: the floor, a desk, a stair, the loft.
+    const airborne = p.y > groundAt(office.colliders, p.x, p.z, p.y) + 0.05;
+    const walking = p.moving && !airborne;
+    r.person.update(dt, t, walking, airborne && Math.abs(pos.y - r.target.y) > 0.01);
     // Their walk cycle takes a step every π/11 seconds.
     r.stepT = walking ? r.stepT + dt : 0.2;
     if (r.stepT >= Math.PI / 11) {

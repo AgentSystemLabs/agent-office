@@ -4,6 +4,10 @@ import type { ViewMode } from './state';
 import type { Collider } from './world/office';
 
 const RADIUS = 0.32;
+/** Top of your head above your feet, for walking under the loft. */
+const HEIGHT = 1.7;
+/** The tallest ledge you walk up (or down) without jumping, like a stair. */
+const STEP = 0.3;
 const WALK = 4.6;
 const RUN = 7.5;
 const JUMP_V = 6.4;
@@ -30,6 +34,8 @@ export class PlayerController {
   /** Walk cycle phase, shared by the camera bob and the first-person hands. */
   walkPhase = 0;
   private bob = 0;
+  /** Eased out after a step up or down, so the camera glides up stairs instead of popping. */
+  stepOffset = 0;
   /**
    * A click (not a drag) on the scene, in normalized device coordinates.
    * In first person it is always the crosshair, (0, 0).
@@ -216,10 +222,15 @@ export class PlayerController {
       }
     }
 
-    const ground = this.groundHeight();
-    if (this.enabled && k.has('Space') && this.grounded) {
+    const ground = groundAt(this.colliders, this.pos.x, this.pos.z, this.pos.y);
+    const jump = this.enabled && k.has('Space') && this.grounded;
+    if (jump) {
       this.vy = JUMP_V;
       this.grounded = false;
+    } else if (this.grounded && this.pos.y > ground && this.pos.y - ground <= STEP + 0.02) {
+      // Walking down a stair: stay on your feet rather than falling a step.
+      this.stepOffset += this.pos.y - ground;
+      this.pos.y = ground;
     }
     this.vy -= GRAVITY * dt;
     this.pos.y += this.vy * dt;
@@ -230,6 +241,12 @@ export class PlayerController {
     } else if (this.pos.y > ground + 0.02) {
       this.grounded = false;
     }
+    const ceiling = ceilingAt(this.colliders, this.pos.x, this.pos.z, this.pos.y);
+    if (this.pos.y + HEIGHT > ceiling) {
+      this.pos.y = Math.max(ground, ceiling - HEIGHT);
+      this.vy = Math.min(this.vy, 0);
+    }
+    this.stepOffset *= Math.exp(-dt * 16);
     const walking = this.moving && this.grounded;
     this.walkPhase += dt * (walking ? (k.has('ShiftLeft') || k.has('ShiftRight') ? 14 : 11) : 0);
     const bob = walking ? Math.abs(Math.sin(this.walkPhase)) * 0.035 : 0;
@@ -239,22 +256,24 @@ export class PlayerController {
 
   updateCamera(snap = false) {
     if (this.view === 'first') {
-      this.camera.position.set(this.pos.x, this.pos.y + EYE_HEIGHT + this.bob, this.pos.z);
+      this.camera.position.set(this.pos.x, this.pos.y + EYE_HEIGHT + this.bob + this.stepOffset, this.pos.z);
       this.camera.rotation.set(this.lookPitch, this.camYaw, 0);
       return;
     }
-    const target = new THREE.Vector3(this.pos.x, this.pos.y + 1.3, this.pos.z);
+    const target = new THREE.Vector3(this.pos.x, this.pos.y + this.stepOffset + 1.3, this.pos.z);
     const off = new THREE.Vector3(
       Math.sin(this.camYaw) * Math.cos(this.camPitch),
       Math.sin(this.camPitch),
       Math.cos(this.camYaw) * Math.cos(this.camPitch),
     ).multiplyScalar(this.camDist);
     const cam = target.clone().add(off);
-    // Keep the camera inside the room so walls never block the view.
+    // Keep the camera inside the room so walls never block the view, and under the loft or its roof.
     const m = 0.4;
     cam.x = THREE.MathUtils.clamp(cam.x, FLOOR.minX + m, FLOOR.maxX - m);
     cam.z = THREE.MathUtils.clamp(cam.z, FLOOR.minZ + m, FLOOR.maxZ - m);
-    cam.y = THREE.MathUtils.clamp(cam.y, 0.6, 3.5);
+    const floorY = groundAt(this.colliders, this.pos.x, this.pos.z, this.pos.y);
+    const roof = ceilingAt(this.colliders, cam.x, cam.z, floorY) - 0.3;
+    cam.y = THREE.MathUtils.clamp(cam.y, floorY + 0.6, Math.max(floorY + 0.6, Math.min(floorY + 3.5, roof)));
     if (snap) this.camera.position.copy(cam);
     else this.camera.position.lerp(cam, 0.25);
     this.camera.lookAt(target);
@@ -265,33 +284,59 @@ export class PlayerController {
     return new THREE.Vector2(Math.sin(this.facing), Math.cos(this.facing));
   }
 
-  private blocked(x: number, z: number): boolean {
+  /** What stands in your way at (x, z) with your feet at `y`, or null. */
+  private blocker(x: number, z: number, y: number): Collider | null {
+    let hit: Collider | null = null;
     for (const c of this.colliders) {
-      if (this.pos.y >= c.top - 0.05) continue;
-      const nx = THREE.MathUtils.clamp(x, c.minX, c.maxX);
-      const nz = THREE.MathUtils.clamp(z, c.minZ, c.maxZ);
-      if ((x - nx) ** 2 + (z - nz) ** 2 < RADIUS * RADIUS) return true;
+      // Stood on top of it, or passing beneath it.
+      if (y >= c.top - 0.05 || y + HEIGHT <= (c.bottom ?? 0)) continue;
+      if (!touches(c, x, z, RADIUS)) continue;
+      if (!hit || c.top > hit.top) hit = c;
     }
-    return false;
+    return hit;
   }
 
   private tryMove(x: number, z: number) {
-    if (!this.blocked(x, z)) {
+    const hit = this.blocker(x, z, this.pos.y);
+    if (!hit) {
       this.pos.x = x;
       this.pos.z = z;
+      return;
     }
+    // A stair: step up onto it if there's room there.
+    const up = hit.top - this.pos.y;
+    if (!this.grounded || up > STEP || this.blocker(x, z, hit.top) || this.pos.y + HEIGHT + up > ceilingAt(this.colliders, x, z, this.pos.y)) return;
+    this.pos.set(x, hit.top, z);
+    this.stepOffset -= up;
   }
+}
 
-  private groundHeight(): number {
-    let g = 0;
-    const r = RADIUS * 0.6;
-    for (const c of this.colliders) {
-      if (c.top > 50) continue;
-      if (this.pos.x < c.minX - r || this.pos.x > c.maxX + r || this.pos.z < c.minZ - r || this.pos.z > c.maxZ + r) continue;
-      if (this.pos.y >= c.top - 0.1 && c.top > g) g = c.top;
-    }
-    return g;
+/** Whether a body of radius `r` at (x, z) overlaps the collider's footprint. */
+function touches(c: Collider, x: number, z: number, r: number): boolean {
+  const nx = THREE.MathUtils.clamp(x, c.minX, c.maxX);
+  const nz = THREE.MathUtils.clamp(z, c.minZ, c.maxZ);
+  return (x - nx) ** 2 + (z - nz) ** 2 < r * r;
+}
+
+/** The floor under someone standing at (x, z) with their feet at `y`: the highest top they're on or above. */
+export function groundAt(colliders: Collider[], x: number, z: number, y: number): number {
+  let g = 0;
+  for (const c of colliders) {
+    if (c.top > 50 || y < c.top - 0.1 || c.top <= g) continue;
+    if (touches(c, x, z, RADIUS)) g = c.top;
   }
+  return g;
+}
+
+/** The underside of whatever is overhead at (x, z) for feet at `y` (the loft, its roof), or Infinity. */
+function ceilingAt(colliders: Collider[], x: number, z: number, y: number): number {
+  let top = Infinity;
+  for (const c of colliders) {
+    const b = c.bottom ?? 0;
+    if (b <= y + 0.1 || b >= top) continue;
+    if (touches(c, x, z, RADIUS)) top = b;
+  }
+  return top;
 }
 
 export function isTyping(e?: Event): boolean {

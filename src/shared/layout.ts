@@ -64,4 +64,9 @@ export const BOARDS = {
 /** The big TV on the east wall that shows whoever is screen sharing. */
 export const TV = { x: FLOOR.maxX - 0.1, y: 2.2, z: 0, width: 6.4, height: 3.6 } as const;
 
+/** The upstairs office: a glass-walled loft on posts in the south-east corner, looking down on the desks. */
+export const LOFT = { minX: 9, maxX: FLOOR.maxX, minZ: 8, maxZ: FLOOR.maxZ, y: 3, height: 2.8 } as const;
+/** Its stairs climb east along the south wall and arrive at the loft's west door. */
+export const STAIRS = { fromX: 3, toX: LOFT.minX, minZ: 11.2, maxZ: FLOOR.maxZ, steps: 15 } as const;
+
 export const SPAWN = { x: 8, z: 7 } as const;
