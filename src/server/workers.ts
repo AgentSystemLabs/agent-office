@@ -490,13 +490,33 @@ export class WorkerManager {
       }
       if (!w.screenDirty) continue;
       w.screenDirty = false;
-      if (w.info.status === 'starting' && SETUP_PROMPT.test(screenText(w.term))) {
-        w.bootBlocked = true;
-        w.info.activity = 'Waiting on a setup prompt (trust / login) — open the terminal';
-        this.setStatus(w, 'needs_input');
-      }
+      this.checkBlocked(w);
       const frame = snapshotScreen(w.term, w.lastLines);
       if (frame) this.events.screen(w.info.id, frame);
+    }
+  }
+
+  /**
+   * Claude can sit at its prompt without being usable: stuck on a first-run screen, or not signed
+   * in on this machine. Flag that as needing a human, and clear it once the screen moves on.
+   */
+  private checkBlocked(w: Worker) {
+    if (w.info.kind !== 'agent' || !w.term) return;
+    const s = w.info.status;
+    if (s !== 'starting' && s !== 'idle' && !(w.bootBlocked && s === 'needs_input')) return;
+    const text = screenText(w.term);
+    const loggedOut = NOT_LOGGED_IN.test(text);
+    const blocked = loggedOut || (SETUP_PROMPT.test(text) && (s === 'starting' || w.bootBlocked));
+    if (blocked && s !== 'needs_input') {
+      w.bootBlocked = true;
+      w.info.activity = loggedOut
+        ? "Claude isn't signed in on this machine — open the terminal and type /login"
+        : 'Waiting on a setup prompt (trust / login) — open the terminal';
+      this.setStatus(w, 'needs_input');
+    } else if (!blocked && w.bootBlocked && s === 'needs_input') {
+      w.bootBlocked = false;
+      w.info.activity = undefined;
+      this.setStatus(w, 'idle');
     }
   }
 
@@ -654,6 +674,7 @@ function snapshotScreen(term: HeadlessTerminal, last: string[]) {
 
 /** First-run screens Claude shows before it can take a prompt. */
 const SETUP_PROMPT = /trust this folder|Do you trust the files|Select login method|Choose the text style|Press Enter to continue|Bypass Permissions mode/i;
+const NOT_LOGGED_IN = /Not logged in\s*·\s*Run \/login|Invalid API key|Please run \/login/i;
 
 function screenText(term: HeadlessTerminal): string {
   const buf = term.buffer.active;
