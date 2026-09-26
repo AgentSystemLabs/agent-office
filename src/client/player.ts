@@ -101,6 +101,11 @@ export class PlayerController {
     });
     document.addEventListener('pointerlockchange', () => {
       this.lockPending = false;
+      // A lock that lands after a modal opened (e.g. a relock racing the next modal) is let go.
+      if (this.locked && !this.enabled) {
+        document.exitPointerLock();
+        return;
+      }
       if (this.locked) {
         this.everLocked = true;
         this.drag = null;
@@ -152,7 +157,9 @@ export class PlayerController {
     this.keys.clear();
   }
 
-  private lock() {
+  /** Captures the mouse for looking around, as the first click on the scene does. */
+  lock() {
+    if (this.locked || this.lockPending) return;
     if (typeof this.dom.requestPointerLock !== 'function') {
       this.lockFailed = true;
       return;

@@ -642,12 +642,19 @@ window.addEventListener('keydown', (e) => {
   player.clearKeys();
 });
 
+/** Whether the mouse was captured when the modals opened, so closing them gives it back. */
+let relookAfterModal = false;
 onModalChange((open) => {
   player.enabled = !open;
   player.clearKeys();
   if (open) {
+    if (player.locked) relookAfterModal = true;
     player.unlock();
     $('hint').classList.add('hidden');
+  } else {
+    // The browser lets a page re-capture the mouse it let go of itself, even from Esc.
+    if (relookAfterModal && player.canLock) player.lock();
+    relookAfterModal = false;
   }
   hintKey = '';
 });
