@@ -97,12 +97,18 @@ export class WorkerManager {
     return false;
   }
 
-  spawn(deskId: string, by: string, prompt?: string): WorkerInfo | string {
+  spawn(deskId: string, by: string, prompt?: string, worktree = false): WorkerInfo | string {
     if (!DESK_BY_ID.has(deskId)) return 'Unknown desk';
     if (this.deskOccupied(deskId)) return 'That desk is taken';
     const used = new Set([...this.workers.values()].map((w) => w.info.name));
     const name = NAMES.find((n) => !used.has(n)) ?? `Worker ${this.workers.size + 1}`;
     const id = randomBytes(6).toString('hex');
+    let wt: WorkerInfo['worktree'];
+    if (worktree) {
+      const made = this.createWorktree(`${name.toLowerCase()}-${id.slice(0, 4)}`);
+      if (typeof made === 'string') return made;
+      wt = made;
+    }
     const info: WorkerInfo = {
       id,
       deskId,
@@ -113,6 +119,7 @@ export class WorkerManager {
       createdBy: by,
       createdAt: Date.now(),
       prompt: prompt?.trim() || undefined,
+      worktree: wt,
       cols: 100,
       rows: 30,
       viewers: [],
@@ -139,14 +146,52 @@ export class WorkerManager {
     const w = this.workers.get(id);
     if (!w) return;
     this.workers.delete(id);
+    const proc = w.pty;
+    w.pty = undefined; // so the exit handler knows this worker is gone and stays quiet
     try {
-      w.pty?.kill();
+      proc?.kill();
     } catch {
       // already gone
     }
     w.term?.dispose();
     this.events.remove(id);
     this.persist();
+    if (w.info.worktree) this.cleanupWorktree(w.info);
+  }
+
+  private git(args: string[], cwd = this.dir): string {
+    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20_000 }).trim();
+  }
+
+  private createWorktree(slug: string): WorkerInfo['worktree'] | string {
+    try {
+      const base = this.git(['rev-parse', 'HEAD']);
+      const rel = path.join('.agent-office', 'worktrees', slug);
+      const branch = `office/${slug}`;
+      this.git(['worktree', 'add', '-b', branch, rel, base]);
+      return { path: rel, branch, base };
+    } catch (err) {
+      const msg = String((err as { stderr?: string }).stderr || (err as Error).message).trim().split('\n').pop();
+      return `Could not create a git worktree: ${msg}`;
+    }
+  }
+
+  /** Removes a worker's worktree only when it holds no work: clean tree and no new commits. */
+  private cleanupWorktree(info: WorkerInfo) {
+    const wt = info.worktree!;
+    const abs = path.join(this.dir, wt.path);
+    try {
+      const dirty = existsSync(abs) && this.git(['status', '--porcelain'], abs) !== '';
+      const ahead = Number(this.git(['rev-list', '--count', `${wt.base}..${wt.branch}`]));
+      if (dirty || ahead > 0) {
+        this.events.toast(`Kept ${info.name}'s worktree (${wt.branch}) — it has ${ahead > 0 ? `${ahead} commit${ahead > 1 ? 's' : ''}` : 'uncommitted changes'}`, 'info');
+        return;
+      }
+      this.git(['worktree', 'remove', '--force', wt.path]);
+      this.git(['branch', '-D', wt.branch]);
+    } catch {
+      // leave it for the humans
+    }
   }
 
   attach(id: string, clientId: string, name: string): { data: string; cols: number; rows: number } | undefined {
@@ -324,16 +369,18 @@ export class WorkerManager {
       AGENT_OFFICE_HOOK_TOKEN: w.hookToken,
     });
 
+    const cwd = info.worktree ? path.join(this.dir, info.worktree.path) : this.dir;
     let proc: pty.IPty;
     try {
+      if (!existsSync(cwd)) throw new Error(`working directory is gone: ${cwd}`);
       const bin = this.agentPath ?? this.agentCmd;
       if (this.agentPath) {
-        proc = pty.spawn(bin, args, { name: 'xterm-256color', cols: info.cols, rows: info.rows, cwd: this.dir, env });
+        proc = pty.spawn(bin, args, { name: 'xterm-256color', cols: info.cols, rows: info.rows, cwd, env });
       } else {
         // Not found on PATH: let a login shell find it (nvm, asdf, ~/.local/bin ...).
         const shell = process.env.SHELL || '/bin/bash';
         const line = ['exec', this.agentCmd, ...args].map((a, i) => (i < 2 ? a : shq(a))).join(' ');
-        proc = pty.spawn(shell, ['-l', '-i', '-c', line], { name: 'xterm-256color', cols: info.cols, rows: info.rows, cwd: this.dir, env });
+        proc = pty.spawn(shell, ['-l', '-i', '-c', line], { name: 'xterm-256color', cols: info.cols, rows: info.rows, cwd, env });
       }
     } catch (err) {
       info.status = 'exited';
@@ -352,7 +399,7 @@ export class WorkerManager {
       if (w.viewers.size) this.events.data(info.id, data, [...w.viewers.keys()]);
     });
     proc.onExit(({ exitCode }) => {
-      if (w.pty !== proc) return;
+      if (w.pty !== proc || this.workers.get(info.id) !== w) return;
       w.pty = undefined;
       info.exitCode = exitCode;
       info.status = 'exited';
@@ -437,6 +484,7 @@ export class WorkerManager {
       createdBy: info.createdBy,
       createdAt: info.createdAt,
       prompt: info.prompt,
+      worktree: info.worktree,
       title: info.title,
       sessionId: info.sessionId,
       activity: info.activity,
@@ -464,6 +512,7 @@ export class WorkerManager {
           createdBy: s.createdBy ?? '?',
           createdAt: s.createdAt ?? Date.now(),
           prompt: s.prompt,
+          worktree: s.worktree,
           title: s.title,
           sessionId: s.sessionId,
           activity: s.activity,

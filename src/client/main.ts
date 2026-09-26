@@ -319,8 +319,8 @@ function freeDesk(): string | null {
   return best;
 }
 
-function hire(deskId: string, prompt?: string) {
-  net.send({ t: 'worker.spawn', deskId, prompt });
+function hire(deskId: string, prompt?: string, worktree = false) {
+  net.send({ t: 'worker.spawn', deskId, prompt, worktree });
 }
 
 function promptAtDesk(deskId: string) {
@@ -331,7 +331,8 @@ function promptAtDesk(deskId: string) {
       title: `✨ New task at ${desk.label}`,
       subtitle: 'A fresh Claude Code worker will sit down and start on this right away.',
       submitLabel: 'Hire & start',
-      onSubmit: (text) => hire(deskId, text),
+      worktreeOption: !!store.project?.branch,
+      onSubmit: (text, o) => hire(deskId, text, o.worktree),
     });
   } else if (w.status === 'exited' || w.status === 'offline') {
     toast(`${w.name} is asleep — press R to resume first`, 'warn');
@@ -370,7 +371,14 @@ function boardActions() {
         toast('Every desk is taken — send a worker home first', 'warn');
         return;
       }
-      openPrompt({ title: `🤖 ${title}`, subtitle: `A new worker will take ${DESK_BY_ID.get(desk)!.label}.`, initial: prompt, submitLabel: 'Hire & start', onSubmit: (text) => hire(desk, text) });
+      openPrompt({
+        title: `🤖 ${title}`,
+        subtitle: `A new worker will take ${DESK_BY_ID.get(desk)!.label}.`,
+        initial: prompt,
+        submitLabel: 'Hire & start',
+        worktreeOption: !!store.project?.branch,
+        onSubmit: (text, o) => hire(desk, text, o.worktree),
+      });
     },
   };
 }

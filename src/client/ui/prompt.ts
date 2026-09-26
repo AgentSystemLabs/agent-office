@@ -6,19 +6,40 @@ export interface PromptOptions {
   placeholder?: string;
   initial?: string;
   submitLabel?: string;
-  onSubmit(text: string): void;
+  /** Offer the "own git worktree" option (only when hiring a new worker). */
+  worktreeOption?: boolean;
+  onSubmit(text: string, opts: { worktree: boolean }): void;
+}
+
+const WT_KEY = 'agent-office.worktree';
+function worktreePref(): boolean {
+  try {
+    return localStorage.getItem(WT_KEY) === '1';
+  } catch {
+    return false;
+  }
 }
 
 export function openPrompt(opts: PromptOptions) {
   const ta = h('textarea', { rows: 7, placeholder: opts.placeholder ?? 'What should Claude work on?', 'aria-label': 'Prompt' }) as HTMLTextAreaElement;
   ta.value = opts.initial ?? '';
+  const wtBox = h('input', { type: 'checkbox', id: 'wt-toggle' }) as HTMLInputElement;
+  wtBox.checked = worktreePref();
+  const wtRow = opts.worktreeOption
+    ? h(
+        'label',
+        { for: 'wt-toggle', style: 'display:flex;gap:8px;align-items:center;margin:10px 0 0;font-weight:700;cursor:pointer', title: 'Isolate this worker on its own branch so parallel workers never collide' },
+        wtBox,
+        '🌿 Work in its own git worktree & branch',
+      )
+    : null;
   const submit = h('button.btn.primary', { type: 'submit' }, opts.submitLabel ?? 'Send ✨');
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
   const form = h(
     'form.modal',
     { role: 'dialog', 'aria-label': opts.title },
     h('header', {}, h('h2', {}, opts.title)),
-    h('div.body', {}, opts.subtitle ? h('p', { style: 'margin:0 0 10px;font-weight:700;color:var(--muted)' }, opts.subtitle) : null, ta),
+    h('div.body', {}, opts.subtitle ? h('p', { style: 'margin:0 0 10px;font-weight:700;color:var(--muted)' }, opts.subtitle) : null, ta, wtRow),
     h('footer', {}, h('span.grow', {}, 'Enter to send · Shift+Enter for a new line'), cancel, submit),
   ) as HTMLFormElement;
 
@@ -31,7 +52,14 @@ export function openPrompt(opts: PromptOptions) {
       return;
     }
     modal.close();
-    opts.onSubmit(text);
+    if (opts.worktreeOption) {
+      try {
+        localStorage.setItem(WT_KEY, wtBox.checked ? '1' : '0');
+      } catch {
+        // storage blocked
+      }
+    }
+    opts.onSubmit(text, { worktree: !!opts.worktreeOption && wtBox.checked });
   };
   form.addEventListener('submit', (e) => {
     e.preventDefault();

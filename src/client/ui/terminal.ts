@@ -74,7 +74,7 @@ export function openTerminal(net: Net, workerId: string, actions: { prompt(): vo
       modal.close();
       return;
     }
-    title.textContent = w.title ? `${w.name} · ${w.title}` : w.name;
+    title.textContent = [w.name, w.title, w.worktree && `🌿 ${w.worktree.branch}`].filter(Boolean).join(' · ');
     pill.className = `pill ${w.status}`;
     pill.textContent = STATUS_LABEL[w.status] ?? w.status;
     viewers.textContent = w.viewers.length ? `👀 ${w.viewers.join(', ')}` : '';

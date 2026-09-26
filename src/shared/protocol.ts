@@ -20,6 +20,8 @@ export interface WorkerInfo {
   createdBy: string;
   createdAt: number;
   prompt?: string;
+  /** Set when the worker runs in its own git worktree (path relative to the office dir). */
+  worktree?: { path: string; branch: string; base: string };
   title?: string;
   sessionId?: string;
   exitCode?: number;
@@ -112,7 +114,7 @@ export interface ChatLine {
 export type ClientMsg =
   | { t: 'move'; x: number; y: number; z: number; rotY: number; moving: boolean }
   | { t: 'profile'; name: string; color: string }
-  | { t: 'worker.spawn'; deskId: string; prompt?: string }
+  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string }
   | { t: 'worker.attach'; workerId: string }

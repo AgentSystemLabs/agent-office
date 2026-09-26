@@ -37,7 +37,7 @@ export function renderWorkers(onOpen: (id: string) => void) {
   ul.replaceChildren();
   const workers = [...store.workers.values()].sort((a, b) => a.createdAt - b.createdAt);
   for (const w of workers) {
-    const sub = w.activity || w.title || w.prompt || '';
+    const sub = `${w.worktree ? `🌿 ${w.worktree.branch} · ` : ''}${w.activity || w.title || w.prompt || ''}`;
     ul.append(
       h(
         'li',
