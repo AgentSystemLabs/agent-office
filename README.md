@@ -82,7 +82,8 @@ agent-office [dir] [options]
 | X | Send a worker home (frees the desk) |
 | T / Enter | Chat |
 | V / M | Join voice / mute |
-| Ctrl + ] | Leave a terminal (Esc goes to Claude) |
+| Esc | Close any window (a terminal too) and get back to looking around |
+| Ctrl + [ | Send Esc to a terminal (e.g. to interrupt Claude) |
 
 You can also click a nearby desk to interact with it, or click a worker in the sidebar to open its terminal.
 

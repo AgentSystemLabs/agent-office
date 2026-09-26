@@ -29,7 +29,7 @@ export function openTerminal(net: Net, workerId: string) {
   const title = h('h2', {}, info.name);
   const pill = h('span.pill', {}, '');
   const viewers = h('div.viewers', {});
-  const closeBtn = h('button.btn.close', { title: 'Leave terminal (Ctrl+])', 'aria-label': 'Close' }, '✕');
+  const closeBtn = h('button.btn.close', { title: 'Leave terminal (Esc) · Ctrl+[ sends Esc to the terminal', 'aria-label': 'Close' }, '✕');
   const host = h('div.term-host');
   const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, viewers, closeBtn), host);
 
@@ -110,7 +110,6 @@ export function openTerminal(net: Net, workerId: string) {
   const ro = new ResizeObserver(() => sendSize());
 
   const modal = openModal(el, {
-    escCloses: false,
     backdropCloses: true,
     onClose: () => {
       listeners.delete(onMsg);

@@ -118,7 +118,8 @@ export function openHelp() {
     ['X', 'Send a worker home (frees the desk)'],
     ['T', 'Chat'],
     ['V / M', 'Join voice / mute'],
-    ['Ctrl + ]', 'Leave a terminal'],
+    ['Esc', 'Close any window and get back to looking around'],
+    ['Ctrl + [', 'Send Esc to a terminal (e.g. to interrupt Claude)'],
     ['⚙️', 'Settings: switch between first and third person'],
   ];
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
