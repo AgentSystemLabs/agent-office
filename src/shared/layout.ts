@@ -116,8 +116,8 @@ export const EXIT_STAIRS = {
   run: 0.34,
 } as const;
 
-/** Sliding glass doors out to the balcony, on the south wall. */
-export const BALCONY_DOOR: Opening = { wall: 'south', u: -4, width: 2.4, y0: 0, y1: 2.5 };
+/** Glass doors out to the balcony, on the south wall. They slide apart into the wall on either side. */
+export const BALCONY_DOOR: Opening = { wall: 'south', u: -4, width: 3, y0: 0, y1: 2.5 };
 /** The smoking balcony, hanging over the garage entrance. */
 export const BALCONY = { minX: -10.5, maxX: 2.5, minZ: FLOOR.maxZ + WALL_T, maxZ: FLOOR.maxZ + WALL_T + 3.4 } as const;
 /** The ashtray on the balcony, where a smoke break starts. */

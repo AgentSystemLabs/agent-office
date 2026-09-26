@@ -522,6 +522,12 @@ export async function startServer(cfg: Config) {
         break;
       }
       case 'act': {
+        if (typeof msg.smoke === 'boolean') {
+          if (msg.smoke === !!c.peer.smoking) break;
+          c.peer.smoking = msg.smoke;
+          broadcast({ t: 'peer.act', id: c.id, smoke: msg.smoke }, c.id, true);
+          break;
+        }
         const now = Date.now();
         if (now - c.lastActAt < 100) break;
         c.lastActAt = now;

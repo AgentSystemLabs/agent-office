@@ -1,6 +1,5 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { mesh, toon } from './toon';
+import { mergeByMaterial, mesh, toon } from './toon';
 
 export type CarKind = 'lambo' | 'ferrari';
 
@@ -130,26 +129,5 @@ export function supercar(kind: CarKind, color: string): THREE.Group {
     g.add(mesh(new THREE.BoxGeometry(0.1, 0.12, 0.03), toon('#ffd400'), 0, 0.46, L - 0.04));
     g.add(mesh(new THREE.BoxGeometry(0.9, 0.1, 0.05), dark, 0, 0.3, L - 0.06));
   }
-  return bake(g);
-}
-
-/** Merges a group's meshes into one per material, so a car is a few draw calls instead of twenty-odd. */
-function bake(g: THREE.Group): THREE.Group {
-  g.updateMatrixWorld(true);
-  const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
-  for (const m of g.children as THREE.Mesh[]) {
-    const geo = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
-    for (const k of Object.keys(geo.attributes)) if (k !== 'position' && k !== 'normal') geo.deleteAttribute(k);
-    geo.applyMatrix4(m.matrix);
-    const mat = m.material as THREE.Material;
-    if (!byMat.has(mat)) byMat.set(mat, []);
-    byMat.get(mat)!.push(geo);
-    m.geometry.dispose();
-  }
-  const out = new THREE.Group();
-  for (const [mat, geos] of byMat) {
-    out.add(mesh(mergeGeometries(geos)!, mat));
-    for (const geo of geos) geo.dispose();
-  }
-  return out;
+  return mergeByMaterial(g);
 }

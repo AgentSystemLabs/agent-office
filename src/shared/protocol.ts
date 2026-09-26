@@ -117,6 +117,8 @@ export interface PeerInfo {
   voice: boolean;
   muted: boolean;
   sharing: boolean;
+  /** On a smoke break, cigarette in hand. */
+  smoking?: boolean;
 }
 
 /** A styled run of text on a terminal row: [text, fg, bg, flags]. */
@@ -403,8 +405,11 @@ export interface ChatLine {
 
 export type ClientMsg =
   | { t: 'move'; x: number; y: number; z: number; rotY: number; moving: boolean }
-  /** You reached out to use something; everyone else sees your character's arm do it. */
-  | { t: 'act' }
+  /**
+   * You reached out to use something; everyone else sees your character's arm do it. With `smoke`,
+   * you lit a cigarette (or put it out) on the balcony instead.
+   */
+  | { t: 'act'; smoke?: boolean }
   | { t: 'profile'; name: string; color: string; look: Look }
   | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind }
   | { t: 'worker.resume'; workerId: string }
@@ -479,7 +484,7 @@ export type ServerMsg =
   | { t: 'peer.update'; peer: PeerInfo }
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }
   | { t: 'peer.leave'; id: string }
-  | { t: 'peer.act'; id: string }
+  | { t: 'peer.act'; id: string; smoke?: boolean }
   | { t: 'worker.update'; worker: WorkerInfo }
   | { t: 'worker.remove'; workerId: string }
   | { t: 'worker.worktree'; workerId: string; state: WorktreeState }
