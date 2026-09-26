@@ -10,7 +10,7 @@ import { buildOffice, type InteractKind, type Interactable } from './world/offic
 import { Person, Worker } from './world/character';
 import { Hands } from './world/hands';
 import { Laptop } from './world/laptop';
-import { BoardTexture } from './world/boards';
+import { BoardTexture, ServicesBoardTexture } from './world/boards';
 import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
 import { $, h, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
@@ -18,7 +18,7 @@ import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/termin
 import { openPrompt, confirmDialog } from './ui/prompt';
 import { openBoard } from './ui/boards';
 import { openTeam, routeTeamMessage } from './ui/team';
-import { mountServicesButton } from './ui/services';
+import { mountServicesButton, openServices } from './ui/services';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
 import { openHelp, openProfile, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
 import { openSettings } from './ui/settings';
@@ -77,6 +77,14 @@ store.on('issues', () => issuesTex.render(store.issues));
 store.on('pulls', () => pullsTex.render(store.pulls));
 issuesTex.render(store.issues);
 pullsTex.render(store.pulls);
+const servicesTex = new ServicesBoardTexture();
+const servicesMat = office.boardMeshes.services.material as THREE.MeshBasicMaterial;
+servicesMat.map = servicesTex.texture;
+servicesMat.needsUpdate = true;
+const renderServicesBoard = () => servicesTex.render(store.services.items, store.workers);
+store.on('services', renderServicesBoard);
+store.on('workers', renderServicesBoard);
+renderServicesBoard();
 
 // TV
 const tvVideo = document.createElement('video');
@@ -489,6 +497,7 @@ function interact(target: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B')
   }
   if (key !== 'E') return;
   if (target.kind === 'issues' || target.kind === 'pulls') openBoard(target.kind, net, boardActions());
+  else if (target.kind === 'services') openServices();
   else if (target.kind === 'tv') watchShare();
   else if (target.kind === 'coffee') {
     toast('☕ Mmm, fresh coffee. +10 focus');
@@ -548,6 +557,7 @@ function renderHint() {
     }
   } else if (target.kind === 'issues') parts = [h('span.title', {}, '📌 Issues board'), key('E', 'Open')];
   else if (target.kind === 'pulls') parts = [h('span.title', {}, '🔀 Pull request board'), key('E', 'Open')];
+  else if (target.kind === 'services') parts = [h('span.title', {}, '🌐 Services board'), key('E', 'Open')];
   else if (target.kind === 'tv') {
     const any = currentShares().length > 0;
     k += any;
@@ -646,7 +656,7 @@ onModalChange((open) => {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, tv: 10 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, tv: 10 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */

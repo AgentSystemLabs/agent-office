@@ -10,7 +10,7 @@ export interface Collider {
   top: number;
 }
 
-export type InteractKind = 'desk' | 'issues' | 'pulls' | 'tv' | 'coffee';
+export type InteractKind = 'desk' | 'issues' | 'pulls' | 'services' | 'tv' | 'coffee';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -37,7 +37,7 @@ export interface Office {
   colliders: Collider[];
   interactables: Interactable[];
   desks: Map<string, DeskView>;
-  boardMeshes: { issues: THREE.Mesh; pulls: THREE.Mesh };
+  boardMeshes: Record<keyof typeof BOARDS, THREE.Mesh>;
   tvScreen: THREE.Mesh;
   setProjectName(name: string): void;
   update(t: number): void;
@@ -271,19 +271,24 @@ export function buildOffice(): Office {
     view.group.userData.interact = it;
   });
 
-  // Cork boards on the north wall
+  // Cork boards on the walls
   const boardMeshes = {} as Office['boardMeshes'];
-  for (const key of ['issues', 'pulls'] as const) {
+  for (const key of Object.keys(BOARDS) as (keyof typeof BOARDS)[]) {
     const b = BOARDS[key];
+    // Out from the wall, the way the board faces.
+    const nx = Math.sin(b.rotY);
+    const nz = Math.cos(b.rotY);
     const { group: bg, face } = corkBoard(b.width, b.height);
-    bg.position.set(b.x, b.y, b.z + 0.08);
+    bg.position.set(b.x + nx * 0.08, b.y, b.z + nz * 0.08);
+    bg.rotation.y = b.rotY;
     group.add(bg);
     boardMeshes[key] = face;
     const label = textPlane(b.label, { bg: '#fffaf3', size: 64 });
     label.scale.multiplyScalar(1.3);
-    label.position.set(b.x, b.y + b.height / 2 + 0.5, b.z + 0.04);
+    label.position.set(b.x + nx * 0.04, b.y + b.height / 2 + 0.5, b.z + nz * 0.04);
+    label.rotation.y = b.rotY;
     group.add(label);
-    const it: Interactable = { kind: key, x: b.x, z: b.z + 1.6, radius: 2.4 };
+    const it: Interactable = { kind: key, x: b.x + nx * 1.6, z: b.z + nz * 1.6, radius: 2.4 };
     interactables.push(it);
     bg.userData.interact = it;
   }

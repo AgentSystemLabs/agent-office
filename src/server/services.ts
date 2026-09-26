@@ -187,9 +187,12 @@ export class Services {
     clearInterval(this.timer);
   }
 
-  /** The web servers: listeners that answered HTTP. */
+  /** The web servers (listeners that answered HTTP), by port. */
   list(): ServiceInfo[] {
-    return [...this.tracked.values()].filter((t) => t.http).map((t) => t.info);
+    return [...this.tracked.values()]
+      .filter((t) => t.http)
+      .map((t) => t.info)
+      .sort((a, b) => a.port - b.port);
   }
 
   /** The service on this port, or 'gone' if one was there recently. */
@@ -310,7 +313,7 @@ export class Services {
   }
 
   private publish() {
-    const items = this.list().sort((a, b) => a.port - b.port);
+    const items = this.list();
     const json = JSON.stringify(items);
     if (json === this.published) return;
     this.published = json;
