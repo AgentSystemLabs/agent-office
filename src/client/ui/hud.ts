@@ -37,7 +37,7 @@ export function renderWorkers(onOpen: (id: string) => void) {
   ul.replaceChildren();
   const workers = [...store.workers.values()].sort((a, b) => a.createdAt - b.createdAt);
   for (const w of workers) {
-    const sub = `${w.worktree ? `🌿 ${w.worktree.branch} · ` : ''}${w.activity || w.title || w.prompt || ''}`;
+    const sub = [w.worktree && `🌿 ${w.worktree.branch}`, w.pr && `🔀 PR #${w.pr.number}`, w.activity || w.title || w.prompt].filter(Boolean).join(' · ');
     ul.append(
       h(
         'li',
@@ -71,6 +71,7 @@ export function openHelp() {
     ['B', 'Open a shared shell (dev servers, git, tests) at an empty desk'],
     ['R', 'Resume a sleeping worker'],
     ['X', 'Send a worker home (frees the desk)'],
+    ['O', 'Open a pull request for a worker on its own branch, or see the one it has'],
     ['T', 'Chat'],
     ['V / M', 'Join voice / mute'],
     ['Esc', 'Close any window and get back to looking around'],

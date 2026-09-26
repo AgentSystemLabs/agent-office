@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { DESK_BY_ID, DESKS, SPAWN } from '../shared/layout';
+import { DESK_BY_ID, DESKS, SPAWN, deskSeat } from '../shared/layout';
 import type { PeerInfo, WorkerInfo } from '../shared/protocol';
 import { Net } from './net';
 import { store, loadProfile, loadSettings, saveSettings, type Profile } from './state';
@@ -14,10 +14,10 @@ import { Laptop } from './world/laptop';
 import { BoardTexture, ServicesBoardTexture } from './world/boards';
 import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
-import { $, h, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
+import { $, h, closeAllModals, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
 import { openPrompt, confirmDialog } from './ui/prompt';
-import { openBoard } from './ui/boards';
+import { openBoard, pullDetail } from './ui/boards';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { mountServicesButton, openServices } from './ui/services';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
@@ -76,9 +76,17 @@ for (const [meshKey, tex] of [
   mat.needsUpdate = true;
 }
 store.on('issues', () => issuesTex.render(store.issues));
-store.on('pulls', () => pullsTex.render(store.pulls));
+store.on('pulls', () => pullsTex.render(store.pulls, store.workers));
 issuesTex.render(store.issues);
-pullsTex.render(store.pulls);
+pullsTex.render(store.pulls, store.workers);
+// PR notes name the desk they came from. Redraw when that changes, not on every worker update.
+let deskLinks = '';
+store.on('workers', () => {
+  const k = JSON.stringify([...store.workers.values()].filter((w) => w.worktree).map((w) => [w.worktree!.branch, w.pr?.number, w.name, w.color, w.deskId]));
+  if (k === deskLinks) return;
+  deskLinks = k;
+  pullsTex.render(store.pulls, store.workers);
+});
 const servicesTex = new ServicesBoardTexture();
 const servicesMat = office.boardMeshes.services.material as THREE.MeshBasicMaterial;
 servicesMat.map = servicesTex.texture;
@@ -450,6 +458,41 @@ function resumeWorker(w: WorkerInfo) {
   net.send({ t: 'worker.resume', workerId: w.id });
 }
 
+/** Whether a worker's branch can become a PR: it has its own worktree and isn't mid-turn. */
+function prReady(w: WorkerInfo) {
+  return !!w.worktree && w.status !== 'starting' && w.status !== 'working' && w.status !== 'needs_input';
+}
+
+/** O at a desk: see the worker's pull request, or push its branch and open one. */
+function pullRequestFor(w: WorkerInfo) {
+  if (w.pr) {
+    const it = store.pulls.items.find((p) => p.number === w.pr!.number);
+    if (it) pullDetail(it, boardActions());
+    else window.open(w.pr.url, '_blank', 'noopener');
+    return;
+  }
+  if (!w.worktree) return toast(`${w.name} works in the main checkout — only workers with their own worktree can open a PR`, 'warn');
+  if (w.prOpening) return;
+  if (!prReady(w)) return toast(`${w.name} is still ${STATUS_LABEL[w.status]} — wait until it's done`, 'warn');
+  toast(`Pushing ${w.worktree.branch} and opening a pull request…`);
+  net.send({ t: 'worker.pr', workerId: w.id });
+}
+
+/** Puts you in front of a desk, looking at it: the PR board's "Go to desk". */
+function goToDesk(deskId: string) {
+  const desk = DESK_BY_ID.get(deskId);
+  if (!desk) return;
+  closeAllModals();
+  const spot = deskSeat(desk, 2.4);
+  player.pos.set(spot.x, 0, spot.z);
+  player.vy = 0;
+  player.facing = Math.atan2(desk.x - spot.x, desk.z - spot.z);
+  player.camYaw = player.facing - Math.PI;
+  player.lookPitch = -0.2;
+  const w = store.workerAtDesk(deskId);
+  toast(w ? `You're at ${desk.label}, ${w.name}'s desk` : `You're at ${desk.label}`);
+}
+
 /** Opening a sleeping worker's terminal wakes it, so there's nothing to press first. */
 function openWorkerTerminal(id: string) {
   const w = store.workers.get(id);
@@ -475,6 +518,7 @@ function boardActions() {
         onSubmit: (text, o) => hire(desk, text, o.worktree),
       });
     },
+    goToDesk,
   };
 }
 
@@ -493,7 +537,9 @@ function watchShare() {
   close.addEventListener('click', () => modal.close());
 }
 
-function interact(target: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B') {
+type UseKey = 'E' | 'P' | 'R' | 'X' | 'B' | 'O';
+
+function interact(target: Interactable | null, key: UseKey) {
   if (!target) return;
   if (target.kind === 'desk' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
@@ -502,6 +548,7 @@ function interact(target: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B')
     if (key === 'E') return w ? openWorkerTerminal(w.id) : hire(target.deskId);
     if (key === 'R' && w && (w.status === 'exited' || w.status === 'offline')) return resumeWorker(w);
     if (key === 'X' && w) return killWorker(w.id);
+    if (key === 'O' && w) return pullRequestFor(w);
     return;
   }
   if (key !== 'E') return;
@@ -548,7 +595,7 @@ function renderHint() {
     const desk = DESK_BY_ID.get(target.deskId)!;
     if (!w) parts = [h('span.title', {}, `${desk.label} · empty`), key('E', 'Hire a worker'), key('P', 'Hire with a task'), key('B', 'Shell')];
     else {
-      k += w.status + w.id;
+      k += w.status + w.id + (w.pr?.number ?? '') + (w.prOpening ? '!' : '');
       const asleep = w.status === 'exited' || w.status === 'offline';
       const doing = w.activity ? (w.activity.length > 48 ? `${w.activity.slice(0, 47)}…` : w.activity) : '';
       k += doing;
@@ -557,6 +604,7 @@ function renderHint() {
         doing ? h('span', { style: 'opacity:.75;font-weight:600' }, doing) : '',
         key('E', 'Open terminal'),
         asleep ? key('R', w.kind === 'shell' ? 'Restart' : 'Resume') : key('P', w.kind === 'shell' ? 'Run command' : 'Prompt'),
+        w.pr ? key('O', `PR #${w.pr.number}`) : w.prOpening ? h('span', { style: 'opacity:.75;font-weight:600' }, '⏳ Opening PR…') : prReady(w) ? key('O', 'Open PR') : '',
         key('X', 'Send home'),
       ];
     }
@@ -601,7 +649,7 @@ function reach() {
   }
 }
 
-function use(it: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B') {
+function use(it: Interactable | null, key: UseKey) {
   if (!it) return;
   reach();
   interact(it, key);
@@ -626,6 +674,9 @@ window.addEventListener('keydown', (e) => {
       break;
     case 'KeyB':
       use(target, 'B');
+      break;
+    case 'KeyO':
+      use(target, 'O');
       break;
     case 'KeyT':
     case 'Enter':

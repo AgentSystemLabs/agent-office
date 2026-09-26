@@ -61,6 +61,12 @@ export function saveSettings(s: Settings) {
   }
 }
 
+/** The worker whose worktree branch a pull request came from, if it is still at a desk. */
+export function workerForPull(workers: Iterable<WorkerInfo>, pr: { number: number; headRefName: string }): WorkerInfo | undefined {
+  for (const w of workers) if (w.pr?.number === pr.number || (w.worktree && w.worktree.branch === pr.headRefName)) return w;
+  return undefined;
+}
+
 class Store {
   you = '';
   profile: Profile = { name: 'Guest', color: AVATAR_COLORS[1], look: randomLook() };

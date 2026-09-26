@@ -493,6 +493,21 @@ export async function startServer(cfg: Config) {
         if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
         break;
       }
+      case 'worker.pr': {
+        const wid = str(msg.workerId, 32);
+        void workers.openPr(wid, who).then((r) => {
+          if (typeof r === 'string') return sendTo(c, { t: 'toast', text: r, level: 'warn' });
+          const name = workers.get(wid)?.name ?? 'the worker';
+          broadcast({ t: 'toast', text: r.existed ? `${name}'s branch already has PR #${r.number}` : `${who} opened PR #${r.number} for ${name}`, level: 'info' });
+          if (r.dirty) sendTo(c, { t: 'toast', text: `${name} still has uncommitted changes in its worktree — they are not in the PR`, level: 'warn' });
+          // Put it on the board now rather than at the next poll. A refresh already in flight
+          // returns at once and can miss it, so look again shortly after.
+          void github.refresh().then(() => {
+            if (!github.pulls.items.some((p) => p.number === r.number)) setTimeout(() => void github.refresh(), 3000);
+          });
+        });
+        break;
+      }
       case 'term.input':
         if (c.attached.has(msg.workerId)) workers.write(msg.workerId, str(msg.data, 64 * 1024));
         break;

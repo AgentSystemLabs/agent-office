@@ -12,9 +12,9 @@ function friendly(raw: string): string {
   return raw;
 }
 
-function gh(args: string[], cwd: string): Promise<string> {
+export function gh(args: string[], cwd: string, timeout = 30_000): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('gh', args, { cwd, maxBuffer: 32 * 1024 * 1024, timeout: 30_000 }, (err, stdout, stderr) => {
+    execFile('gh', args, { cwd, maxBuffer: 32 * 1024 * 1024, timeout }, (err, stdout, stderr) => {
       if (err) {
         const msg = (stderr || err.message || '').trim().split('\n').slice(-2).join(' ');
         reject(new Error((err as NodeJS.ErrnoException).code === 'ENOENT' ? 'GitHub CLI (gh) is not installed on the server' : friendly(msg)));

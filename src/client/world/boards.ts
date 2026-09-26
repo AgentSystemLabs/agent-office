@@ -1,5 +1,7 @@
 import * as THREE from 'three';
+import { DESK_BY_ID } from '../../shared/layout';
 import type { GhIssue, GhPull, GhState, ServiceInfo, WorkerInfo } from '../../shared/protocol';
+import { workerForPull } from '../state';
 
 const NOTE_COLORS = ['#fff7b0', '#ffd6e0', '#caffbf', '#bde0fe', '#ffe5b4'];
 const PINS = ['#ef476f', '#118ab2', '#06d6a0', '#ffd166'];
@@ -36,7 +38,8 @@ export class BoardTexture {
     this.texture.anisotropy = 8;
   }
 
-  render(state: GhState<GhIssue> | GhState<GhPull>) {
+  /** `workers` lets PR notes name the desk they came from. */
+  render(state: GhState<GhIssue> | GhState<GhPull>, workers?: Map<string, WorkerInfo>) {
     const g = this.ctx;
     const W = this.canvas.width;
     const H = this.canvas.height;
@@ -90,10 +93,27 @@ export class BoardTexture {
       g.fillRect(-nw / 2, -nh / 2, nw, nh);
       g.fillStyle = '#2b2d42';
       const fs = Math.round(22 * Math.min(scale, nh / 164));
+      const w = this.kind === 'pulls' && workers ? workerForPull(workers.values(), it as GhPull) : undefined;
+      const footer = w ? fs * 1.3 : 0;
       g.font = `900 ${Math.round(fs * 1.35)}px Nunito, ui-rounded, system-ui, sans-serif`;
       g.fillText(`#${it.number}`, -nw / 2 + 14, -nh / 2 + fs * 2);
       g.font = `700 ${fs}px Nunito, ui-rounded, system-ui, sans-serif`;
-      wrap(g, it.title, nw - 28, Math.max(2, Math.floor((nh - fs * 3) / (fs * 1.1)))).forEach((line, li) => g.fillText(line, -nw / 2 + 14, -nh / 2 + fs * 3.4 + li * fs * 1.1));
+      wrap(g, it.title, nw - 28, Math.max(2, Math.floor((nh - fs * 3 - footer) / (fs * 1.1)))).forEach((line, li) => g.fillText(line, -nw / 2 + 14, -nh / 2 + fs * 3.4 + li * fs * 1.1));
+      if (w) {
+        // A dot in the worker's color and its desk, so you can tell whose PR it is from across the room.
+        const r = fs * 0.3;
+        const y = nh / 2 - fs * 0.75;
+        g.beginPath();
+        g.arc(-nw / 2 + 14 + r, y, r, 0, Math.PI * 2);
+        g.fillStyle = w.color;
+        g.fill();
+        g.lineWidth = 2;
+        g.strokeStyle = '#2b2d42';
+        g.stroke();
+        g.fillStyle = '#5c5f73';
+        g.font = `800 ${Math.round(fs * 0.78)}px Nunito, ui-rounded, system-ui, sans-serif`;
+        g.fillText(clip(g, `${w.name} · ${DESK_BY_ID.get(w.deskId)?.label ?? 'desk'}`, nw - 28 - r * 2 - 8), -nw / 2 + 14 + r * 2 + 8, y + fs * 0.28);
+      }
       g.beginPath();
       g.arc(0, -nh / 2 + 10, 11, 0, Math.PI * 2);
       g.fillStyle = PINS[i % PINS.length];

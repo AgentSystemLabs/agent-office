@@ -26,8 +26,15 @@ export interface WorkerInfo {
   createdBy: string;
   createdAt: number;
   prompt?: string;
-  /** Set when the worker runs in its own git worktree (path relative to the office dir). */
-  worktree?: { path: string; branch: string; base: string };
+  /**
+   * Set when the worker runs in its own git worktree (path relative to the office dir). `from` is
+   * the branch the office was on when the worktree was cut, which its pull request targets.
+   */
+  worktree?: { path: string; branch: string; base: string; from?: string };
+  /** The pull request opened from this desk for the worktree branch (see 'worker.pr'). */
+  pr?: { number: number; url: string };
+  /** True while the branch is being pushed and its pull request opened. */
+  prOpening?: boolean;
   title?: string;
   sessionId?: string;
   exitCode?: number;
@@ -201,6 +208,8 @@ export type ClientMsg =
   | { t: 'worker.attach'; workerId: string }
   | { t: 'worker.detach'; workerId: string }
   | { t: 'worker.prompt'; workerId: string; prompt: string }
+  /** Push a worktree worker's branch and open a pull request for it, drafted from its task. */
+  | { t: 'worker.pr'; workerId: string }
   | { t: 'term.input'; workerId: string; data: string }
   | { t: 'term.resize'; workerId: string; cols: number; rows: number }
   | { t: 'gh.refresh' }
