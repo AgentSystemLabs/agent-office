@@ -257,22 +257,28 @@ export function disposeSprite(s: THREE.Sprite) {
   s.material.dispose();
 }
 
-/** Merges a group's (direct child) meshes into one per material: a few draw calls instead of dozens. */
-export function mergeByMaterial(g: THREE.Group): THREE.Group {
-  g.updateMatrixWorld(true);
-  const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
-  for (const m of g.children as THREE.Mesh[]) {
+/**
+ * Merges every (untextured) mesh under `root` into one per material, keeping which ones cast
+ * shadows: a few draw calls instead of dozens, for things that never move on their own.
+ */
+export function mergeByMaterial(root: THREE.Object3D): THREE.Group {
+  root.updateMatrixWorld(true);
+  const inv = root.matrixWorld.clone().invert();
+  const byKey = new Map<string, { mat: THREE.Material; cast: boolean; geos: THREE.BufferGeometry[] }>();
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
     const geo = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
     for (const k of Object.keys(geo.attributes)) if (k !== 'position' && k !== 'normal') geo.deleteAttribute(k);
-    geo.applyMatrix4(m.matrix);
+    geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld));
     const mat = m.material as THREE.Material;
-    if (!byMat.has(mat)) byMat.set(mat, []);
-    byMat.get(mat)!.push(geo);
-    m.geometry.dispose();
-  }
+    const key = `${mat.uuid}${m.castShadow ? '+' : '-'}`;
+    if (!byKey.has(key)) byKey.set(key, { mat, cast: m.castShadow, geos: [] });
+    byKey.get(key)!.geos.push(geo);
+  });
   const out = new THREE.Group();
-  for (const [mat, geos] of byMat) {
-    out.add(mesh(mergeGeometries(geos)!, mat));
+  for (const { mat, cast, geos } of byKey.values()) {
+    out.add(mesh(mergeGeometries(geos)!, mat, 0, 0, 0, cast));
     for (const geo of geos) geo.dispose();
   }
   return out;

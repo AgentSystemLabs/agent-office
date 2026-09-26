@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { FLOOR, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
 import { CAR, supercar, type CarKind } from './cars';
 import type { Collider } from './office';
-import { mesh, textPlane, toon, toonUnique } from './toon';
+import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
 
 const G = STREET_Y;
 /** The building's footprint, walls included. */
@@ -99,7 +99,8 @@ export function buildGarage(group: THREE.Group, colliders: Collider[]) {
 
   group.add(groundPlane(w, d, cx, G + 0.004, cz, garageFloorTexture()));
 
-  // The back and west walls, with a yellow band along them.
+  // The back and west walls, with a yellow band along them, and the columns and lights: all merged at the end.
+  const parts = new THREE.Group();
   const wallH = ceiling - G;
   const yellow = toon('#ffd166');
   const walls: [number, number, number, number][] = [
@@ -107,8 +108,8 @@ export function buildGarage(group: THREE.Group, colliders: Collider[]) {
     [B.minX, B.minX + WALL_T, B.minZ, B.maxZ],
   ];
   for (const [x0, x1, z0, z1] of walls) {
-    group.add(mesh(box(x1 - x0, wallH, z1 - z0), concrete, (x0 + x1) / 2, G + wallH / 2, (z0 + z1) / 2));
-    group.add(mesh(box(x1 - x0 + 0.02, 0.35, z1 - z0 + 0.02), yellow, (x0 + x1) / 2, G + 1.1, (z0 + z1) / 2, false));
+    parts.add(mesh(box(x1 - x0, wallH, z1 - z0), concrete, (x0 + x1) / 2, G + wallH / 2, (z0 + z1) / 2));
+    parts.add(mesh(box(x1 - x0 + 0.02, 0.35, z1 - z0 + 0.02), yellow, (x0 + x1) / 2, G + 1.1, (z0 + z1) / 2, false));
     colliders.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, bottom: G, top: ceiling });
   }
   const sign = textPlane('🏎️  GARAGE', { bg: '#2b2d42', color: '#ffd166', size: 64, border: '#ffd166' });
@@ -122,14 +123,15 @@ export function buildGarage(group: THREE.Group, colliders: Collider[]) {
   cols.push([B.maxX - 0.25, -6.5], [B.maxX - 0.25, 6.5], [B.maxX - 0.25, B.minZ + 0.25]);
   const colMat = toon('#e6e8ee');
   for (const [x, z] of cols) {
-    group.add(mesh(box(0.5, wallH, 0.5), colMat, x, G + wallH / 2, z));
-    group.add(mesh(box(0.52, 0.5, 0.52), yellow, x, G + 0.25, z, false));
+    parts.add(mesh(box(0.5, wallH, 0.5), colMat, x, G + wallH / 2, z));
+    parts.add(mesh(box(0.52, 0.5, 0.52), yellow, x, G + 0.25, z, false));
     colliders.push({ minX: x - 0.25, maxX: x + 0.25, minZ: z - 0.25, maxZ: z + 0.25, bottom: G, top: ceiling });
   }
 
   // Strip lights on the ceiling.
   const light = toon('#ffffff', { emissive: '#fff4d6' });
-  for (const x of [-13, -4.8, 4.8, 13]) for (const z of [-4.5, 4.5]) group.add(mesh(box(2.6, 0.07, 0.22), light, x, ceiling - 0.04, z, false));
+  for (const x of [-13, -4.8, 4.8, 13]) for (const z of [-4.5, 4.5]) parts.add(mesh(box(2.6, 0.07, 0.22), light, x, ceiling - 0.04, z, false));
+  group.add(mergeByMaterial(parts));
 
   // The cars: Lambos nose-in along the back wall, Ferraris backed in facing the street.
   const cars: [CarKind, string, number, number][] = [
@@ -142,12 +144,14 @@ export function buildGarage(group: THREE.Group, colliders: Collider[]) {
     ['ferrari', '#ffc300', 4.8, 1],
     ['ferrari', '#e5383b', 14.4, 1],
   ];
+  const lot = new THREE.Group();
   for (const [kind, color, x, face] of cars) {
     const z = face < 0 ? B.minZ + WALL_T + 0.4 + CAR.length / 2 : B.maxZ - 0.5 - CAR.length / 2;
-    park(group, colliders, kind, color, x, z, face < 0 ? Math.PI : 0);
+    park(lot, colliders, kind, color, x, z, face < 0 ? Math.PI : 0);
   }
   // One left out front, for everyone upstairs to look at.
-  park(group, colliders, 'lambo', '#00b4d8', 9, 18.2, Math.PI / 2);
+  park(lot, colliders, 'lambo', '#00b4d8', 9, 18.2, Math.PI / 2);
+  group.add(mergeByMaterial(lot));
 }
 
 /** Parks a car at (x, z) turned by `rotY` (a multiple of 90°), with colliders you can hop up on. */
@@ -244,6 +248,7 @@ export function buildStreet(group: THREE.Group) {
   ]) {
     group.add(mesh(box(400, 0.08, z1 - z0), toon('#e3ddd0'), 0, G, (z0 + z1) / 2));
   }
+  const forest = new THREE.Group();
 
   // Trees along the sidewalks and around the building.
   const trees: [number, number, number][] = [
@@ -267,8 +272,9 @@ export function buildStreet(group: THREE.Group) {
   for (const [x, z, s] of trees) {
     const t = tree(s);
     t.position.set(x, G, z);
-    group.add(t);
+    forest.add(t);
   }
+  group.add(mergeByMaterial(forest));
 
   // The neighbours: across the street, and further out behind and beside the office.
   const blocks: [number, number, number, number, number, string][] = [
@@ -293,6 +299,7 @@ export function buildStreet(group: THREE.Group) {
   // Puffy clouds, too far off for the fog to hide.
   const cloud = toonUnique('#ffffff');
   cloud.fog = false;
+  const sky = new THREE.Group();
   for (const [x, y, z, s] of [
     [-70, 34, -60, 1.3],
     [-10, 40, -90, 1.6],
@@ -316,6 +323,7 @@ export function buildStreet(group: THREE.Group) {
     c.position.set(x, y, z);
     c.scale.setScalar(s);
     c.lookAt(0, y, 0);
-    group.add(c);
+    sky.add(c);
   }
+  group.add(mergeByMaterial(sky));
 }

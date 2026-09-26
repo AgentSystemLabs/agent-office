@@ -322,7 +322,9 @@ function buildBalcony(group: THREE.Group, colliders: Collider[], interactables: 
   const d = maxZ - minZ;
   const cx = (minX + maxX) / 2;
   const cz = (minZ + maxZ) / 2;
-  group.add(mesh(box(w, SLAB - 0.01, d), toon(PALETTE.wallTrim), cx, -SLAB / 2 - 0.005, cz));
+  // Everything that doesn't move and isn't textured goes in here, merged at the end.
+  const parts = new THREE.Group();
+  parts.add(mesh(box(w, SLAB - 0.01, d), toon(PALETTE.wallTrim), cx, -SLAB / 2 - 0.005, cz));
   const deck = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshToonMaterial({ map: floorTexture(w, d), color: '#d6a574', gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap }));
   deck.rotation.x = -Math.PI / 2;
   deck.position.set(cx, 0.002, cz);
@@ -333,7 +335,7 @@ function buildBalcony(group: THREE.Group, colliders: Collider[], interactables: 
   // Posts down to the street at the outer corners.
   const postH = -SLAB - STREET_Y;
   for (const x of [minX + 0.25, maxX - 0.25]) {
-    group.add(mesh(new THREE.CylinderGeometry(0.12, 0.12, postH, 12), toon('#e6e8ee'), x, STREET_Y + postH / 2, maxZ - 0.25));
+    parts.add(mesh(new THREE.CylinderGeometry(0.12, 0.12, postH, 12), toon('#e6e8ee'), x, STREET_Y + postH / 2, maxZ - 0.25));
     colliders.push({ minX: x - 0.14, maxX: x + 0.14, minZ: maxZ - 0.39, maxZ: maxZ - 0.11, bottom: STREET_Y, top: -SLAB });
   }
 
@@ -353,16 +355,16 @@ function buildBalcony(group: THREE.Group, colliders: Collider[], interactables: 
     const n = Math.ceil(len / 1.6);
     for (let i = 0; i <= n; i++) {
       const t = i / n;
-      group.add(mesh(box(0.06, railH, 0.06), ink, x0 + (x1 - x0) * t, railH / 2, z0 + (z1 - z0) * t, false));
+      parts.add(mesh(box(0.06, railH, 0.06), ink, x0 + (x1 - x0) * t, railH / 2, z0 + (z1 - z0) * t, false));
     }
     const rail = mesh(alongX ? box(len + 0.1, 0.07, 0.12) : box(0.12, 0.07, len + 0.1), wood, (x0 + x1) / 2, railH + 0.02, (z0 + z1) / 2);
-    group.add(rail);
+    parts.add(rail);
     for (let i = 0; i < n; i++) {
       const t = (i + 0.5) / n;
       const pane = glassPane(len / n - 0.1, railH - 0.2);
       pane.position.set(x0 + (x1 - x0) * t, (railH - 0.2) / 2 + 0.08, z0 + (z1 - z0) * t);
       pane.rotation.y = alongX ? 0 : Math.PI / 2;
-      group.add(pane);
+      parts.add(pane);
     }
     colliders.push({ minX: Math.min(x0, x1) - 0.05, maxX: Math.max(x0, x1) + 0.05, minZ: Math.min(z0, z1) - 0.05, maxZ: Math.max(z0, z1) + 0.05, bottom: -SLAB, top: 99 });
   }
@@ -371,10 +373,10 @@ function buildBalcony(group: THREE.Group, colliders: Collider[], interactables: 
   const poleH = 2.7;
   const sw = new THREE.Vector3(minX + inset, poleH, maxZ - inset);
   const se = new THREE.Vector3(maxX - inset, poleH, maxZ - inset);
-  for (const p of [sw, se]) group.add(mesh(new THREE.CylinderGeometry(0.035, 0.035, poleH - railH, 6), ink, p.x, (poleH + railH) / 2, p.z, false));
-  group.add(stringLights(sw, se, 0.35));
-  group.add(stringLights(sw, new THREE.Vector3(-6.5, 3.5, minZ + 0.02), 0.3));
-  group.add(stringLights(new THREE.Vector3(-6.5, 3.5, minZ + 0.02), se, 0.35));
+  for (const p of [sw, se]) parts.add(mesh(new THREE.CylinderGeometry(0.035, 0.035, poleH - railH, 6), ink, p.x, (poleH + railH) / 2, p.z, false));
+  parts.add(stringLights(sw, se, 0.35));
+  parts.add(stringLights(sw, new THREE.Vector3(-6.5, 3.5, minZ + 0.02), 0.3));
+  parts.add(stringLights(new THREE.Vector3(-6.5, 3.5, minZ + 0.02), se, 0.35));
 
   // A bench under the window, a bistro table with two stools, and plants.
   const bench = new THREE.Group();
@@ -382,7 +384,7 @@ function buildBalcony(group: THREE.Group, colliders: Collider[], interactables: 
   bench.add(mesh(box(2, 0.32, 0.06), wood, 0, 0.78, -0.2));
   for (const sx of [-0.85, 0.85]) bench.add(mesh(box(0.06, 0.45, 0.4), ink, sx, 0.22, 0));
   bench.position.set(-9, 0, minZ + 0.3);
-  group.add(bench);
+  parts.add(bench);
   colliders.push({ minX: -10, maxX: -8, minZ, maxZ: minZ + 0.55, top: 0.49 });
   const tx = 0.2;
   const tz = cz + 0.2;
@@ -392,7 +394,7 @@ function buildBalcony(group: THREE.Group, colliders: Collider[], interactables: 
   table.add(mesh(new THREE.CylinderGeometry(0.25, 0.28, 0.04, 16), ink, 0, 0.02, 0));
   table.add(mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.12, 10), toon('#ef476f'), 0.15, 0.82, 0.05));
   table.position.set(tx, 0, tz);
-  group.add(table);
+  parts.add(table);
   colliders.push({ minX: tx - 0.4, maxX: tx + 0.4, minZ: tz - 0.4, maxZ: tz + 0.4, top: 0.77 });
   for (const sx of [-1, 1]) {
     const x = tx + sx * 0.8;
@@ -401,7 +403,7 @@ function buildBalcony(group: THREE.Group, colliders: Collider[], interactables: 
     stool.add(mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.44, 6), ink, 0, 0.22, 0));
     stool.add(mesh(new THREE.CylinderGeometry(0.16, 0.18, 0.03, 12), ink, 0, 0.015, 0));
     stool.position.set(x, 0, tz);
-    group.add(stool);
+    parts.add(stool);
     colliders.push({ minX: x - 0.2, maxX: x + 0.2, minZ: tz - 0.2, maxZ: tz + 0.2, top: 0.49 });
   }
   for (const [px, pz, sc] of [
@@ -410,10 +412,12 @@ function buildBalcony(group: THREE.Group, colliders: Collider[], interactables: 
   ]) {
     const p = plant(sc);
     p.position.set(px, 0, pz);
-    group.add(p);
+    parts.add(p);
     const r = 0.3 * sc;
     colliders.push({ minX: px - r, maxX: px + r, minZ: pz - r, maxZ: pz + r, top: 0.5 * sc });
   }
+
+  group.add(mergeByMaterial(parts));
 
   // The ashtray: a standing bin with a sand-filled bowl and a couple of butts in it.
   const tray = new THREE.Group();
@@ -703,15 +707,19 @@ export function buildOffice(): Office {
   // Outside walls, with real windows you see out of and a door out.
   const openings = [...WINDOWS, EXIT_DOOR, BALCONY_DOOR];
   buildWalls(group, colliders, openings);
+  const glazing = new THREE.Group();
   for (const o of WINDOWS) {
-    group.add(windowIn(o));
+    glazing.add(windowIn(o));
     fixture(o.wall, o.u, (o.y0 + o.y1) / 2 - 0.03, o.width + 0.2, o.y1 - o.y0 + 0.12);
   }
+  group.add(mergeByMaterial(glazing));
   const doors: Door[] = [];
   const exit = exitDoor();
   group.add(exit.group);
   doors.push(exit.door);
-  buildExitStairs(group, colliders);
+  const stairs = new THREE.Group();
+  buildExitStairs(stairs, colliders);
+  group.add(mergeByMaterial(stairs));
   // The door, its frame and the EXIT sign over it.
   fixture(EXIT_DOOR.wall, EXIT_DOOR.u, (EXIT_DOOR.y1 + 0.7) / 2, EXIT_DOOR.width + 0.3, EXIT_DOOR.y1 + 0.7);
   // Out the glass doors on the south wall: the balcony.
