@@ -287,6 +287,7 @@ export async function startServer(cfg: Config) {
       ice: cfg.iceServers,
       chat: chat.slice(-50),
     });
+    for (const { workerId, frame } of workers.fullScreens()) sendTo(client, { t: 'screen', workerId, ...frame, full: true });
     broadcast({ t: 'peer.join', peer: client.peer }, id);
 
     ws.on('message', (raw) => {

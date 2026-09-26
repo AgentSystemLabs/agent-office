@@ -60,11 +60,13 @@ export class GitHub {
     this.issues = { ...this.issues, loading: true };
     this.onIssues(this.issues);
     try {
-      const out = await gh(
-        ['issue', 'list', '--state', 'all', '--limit', '150', '--json', 'number,title,state,url,author,labels,assignees,createdAt,updatedAt,body,comments'],
-        this.dir,
-      );
-      const items: GhIssue[] = JSON.parse(out).map((i: any) => ({
+      // Open and closed separately, so old open issues are never crowded out by recent closed ones.
+      const fields = 'number,title,state,url,author,labels,assignees,createdAt,updatedAt,body,comments';
+      const [open, closed] = await Promise.all([
+        gh(['issue', 'list', '--state', 'open', '--limit', '300', '--json', fields], this.dir),
+        gh(['issue', 'list', '--state', 'closed', '--limit', '40', '--json', fields], this.dir),
+      ]);
+      const items: GhIssue[] = [...JSON.parse(open), ...JSON.parse(closed)].map((i: any) => ({
         number: i.number,
         title: i.title,
         state: i.state,
@@ -89,14 +91,12 @@ export class GitHub {
     this.pulls = { ...this.pulls, loading: true };
     this.onPulls(this.pulls);
     try {
-      const out = await gh(
-        [
-          'pr', 'list', '--state', 'all', '--limit', '80', '--json',
-          'number,title,state,isDraft,url,author,labels,reviewDecision,headRefName,baseRefName,createdAt,updatedAt,additions,deletions,statusCheckRollup,body',
-        ],
-        this.dir,
-      );
-      const items: GhPull[] = JSON.parse(out).map((p: any) => ({
+      const fields = 'number,title,state,isDraft,url,author,labels,reviewDecision,headRefName,baseRefName,createdAt,updatedAt,additions,deletions,statusCheckRollup,body';
+      const [open, merged] = await Promise.all([
+        gh(['pr', 'list', '--state', 'open', '--limit', '150', '--json', fields], this.dir),
+        gh(['pr', 'list', '--state', 'merged', '--limit', '30', '--json', fields], this.dir),
+      ]);
+      const items: GhPull[] = [...JSON.parse(open), ...JSON.parse(merged)].map((p: any) => ({
         number: p.number,
         title: p.title,
         state: p.state,

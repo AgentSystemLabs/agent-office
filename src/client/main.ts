@@ -227,10 +227,22 @@ function sayBubble(from: string, text: string) {
 
 // ---- Workers ------------------------------------------------------------------------------------
 let dingCtx: AudioContext | null = null;
+// Browsers only allow audio after a gesture: unlock the ding on the first click or key.
+const unlockAudio = () => {
+  try {
+    dingCtx ??= new AudioContext();
+    void dingCtx.resume();
+  } catch {
+    // no audio
+  }
+};
+window.addEventListener('pointerdown', unlockAudio, { once: true });
+window.addEventListener('keydown', unlockAudio, { once: true });
 function ding(kind: 'done' | 'needs_input') {
   try {
     dingCtx ??= new AudioContext();
     const ctx = dingCtx;
+    if (ctx.state === 'suspended') void ctx.resume();
     const notes = kind === 'done' ? [660, 880] : [880, 660, 880];
     notes.forEach((f, i) => {
       const o = ctx.createOscillator();

@@ -31,6 +31,7 @@ const scrubbed = (k: string) => SCRUB_ENV.has(k) || SCRUB_PREFIXES.some((p) => k
 const SCROLLBACK = 3000;
 const SCREEN_INTERVAL_MS = 250;
 const LATE_PROMPT_GRACE_MS = 5000;
+const KEYFRAME_MS = 8000;
 
 export interface HookEnv {
   url: string;
@@ -46,6 +47,7 @@ interface Worker {
   screenDirty: boolean;
   lastLines: string[];
   leftNeedsInputAt: number;
+  keyframeAt: number;
   hookToken: string;
   /** Claude never reported SessionStart: it's stuck on a trust/login/onboarding screen. */
   bootBlocked?: boolean;
@@ -127,7 +129,7 @@ export class WorkerManager {
       viewers: [],
       activity: prompt ? truncate(prompt, 80) : undefined,
     };
-    const w: Worker = { info, viewers: new Map(), screenDirty: true, lastLines: [], leftNeedsInputAt: 0, hookToken: randomBytes(16).toString('hex') };
+    const w: Worker = { info, viewers: new Map(), screenDirty: true, lastLines: [], leftNeedsInputAt: 0, keyframeAt: 0, hookToken: randomBytes(16).toString('hex') };
     this.workers.set(id, w);
     this.launch(w, info.prompt, undefined);
     this.persist();
@@ -457,9 +459,28 @@ export class WorkerManager {
     this.events.update({ ...w.info });
   }
 
-  private flushScreens() {
+  /** Full screens for every running worker — sent to people as they walk in. */
+  fullScreens() {
+    const out: { workerId: string; frame: NonNullable<ReturnType<typeof snapshotScreen>> }[] = [];
     for (const w of this.workers.values()) {
-      if (!w.screenDirty || !w.term) continue;
+      if (!w.term) continue;
+      const frame = snapshotScreen(w.term, []);
+      if (frame) out.push({ workerId: w.info.id, frame });
+    }
+    return out;
+  }
+
+  private flushScreens() {
+    const now = Date.now();
+    for (const w of this.workers.values()) {
+      if (!w.term) continue;
+      // Diffs can be dropped for slow clients, so resend the whole screen now and then.
+      if (now - w.keyframeAt > KEYFRAME_MS) {
+        w.keyframeAt = now;
+        w.lastLines = [];
+        w.screenDirty = true;
+      }
+      if (!w.screenDirty) continue;
       w.screenDirty = false;
       if (w.info.status === 'starting' && SETUP_PROMPT.test(screenText(w.term))) {
         w.bootBlocked = true;
@@ -560,7 +581,7 @@ process.stdin.on('end', () => {
           rows: 30,
           viewers: [],
         };
-        this.workers.set(info.id, { info, viewers: new Map(), screenDirty: false, lastLines: [], leftNeedsInputAt: 0, hookToken: randomBytes(16).toString('hex') });
+        this.workers.set(info.id, { info, viewers: new Map(), screenDirty: false, lastLines: [], leftNeedsInputAt: 0, keyframeAt: 0, hookToken: randomBytes(16).toString('hex') });
       }
     } catch {
       // corrupt state file: start fresh
