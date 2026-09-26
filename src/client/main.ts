@@ -53,9 +53,10 @@ const sun = new THREE.DirectionalLight('#fff1d6', 2.2);
 sun.position.set(-8, 18, 10);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 16, bottom: -16, near: 1, far: 50 });
+// Wide enough for the office, the garage under it and the balcony and lot out front.
+Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 26, bottom: -26, near: 1, far: 80 });
 sun.shadow.bias = -0.0008;
-sun.shadow.normalBias = 0.02;
+sun.shadow.normalBias = 0.03;
 scene.add(sun);
 
 const office = buildOffice();
