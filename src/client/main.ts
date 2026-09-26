@@ -661,12 +661,21 @@ onModalChange((open) => {
     player.unlock();
     $('hint').classList.add('hidden');
   } else {
-    // The browser lets a page re-capture the mouse it let go of itself, even from Esc.
-    if (relookAfterModal && player.canLock) player.lock();
-    relookAfterModal = false;
+    // A tick later, so closing one window to open the next (Settings → character) doesn't grab the mouse in between.
+    setTimeout(backToGame, 0);
   }
   hintKey = '';
 });
+
+/** Once the last window is closed, the game has the keyboard again and, in first person, the mouse. */
+function backToGame() {
+  if (modalOpen()) return;
+  if (!isTyping()) canvas.focus({ preventScroll: true });
+  // The browser lets a page re-capture the mouse it let go of itself, even from Esc. Otherwise it
+  // needs a recent click or key, like the one that closed the window; without one, "Click to look around".
+  if (player.canLock && (relookAfterModal || navigator.userActivation?.isActive)) player.lock();
+  relookAfterModal = false;
+}
 
 // ---- Clicking the world: use what's under the crosshair (first person) or the mouse (third) ----------
 const raycaster = new THREE.Raycaster();
