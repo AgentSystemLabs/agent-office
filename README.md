@@ -127,7 +127,8 @@ After=network.target
 [Service]
 User=dev
 WorkingDirectory=/srv/my-project
-Environment=AGENT_OFFICE_PASSWORD=change-me
+# generate with: openssl rand -base64 24
+Environment=AGENT_OFFICE_PASSWORD=<a long random password>
 ExecStart=/usr/bin/env agent-office --host 127.0.0.1 --trust-proxy
 Restart=on-failure
 
@@ -161,6 +162,8 @@ browser ──HTTPS/WSS──▶ agent-office (Node)
 Anyone with the password can drive Claude Code in that directory, and through it run commands as the user that runs the office. Treat the password like SSH access:
 
 - Use a strong password and HTTPS. With `--trust-proxy`, cookies are `Secure` once the proxy says the request came over https.
+- Changing the password signs everyone out, because sessions are signed with a key derived from it. Login attempts are limited to 10 per 5 minutes per client.
+- Only enable `--trust-proxy` behind a proxy that appends `X-Forwarded-For` (Caddy and nginx both do). The office uses the rightmost hop.
 - Run the office as a dedicated, unprivileged user, in the project you mean to share.
 - The WebSocket checks the session cookie and the `Origin` header. The hook endpoint only listens on loopback and needs a random per-worker token.
 - Workers don't inherit the office password or any parent agent-session variables.
