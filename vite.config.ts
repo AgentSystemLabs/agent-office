@@ -19,7 +19,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:4600',
+      // Not the string shorthand: that sets changeOrigin, so /api would see Host :4600 while /ws sees
+      // Vite's port, and the session cookie (named per port, see auth.ts) would never reach the socket.
+      '/api': { target: 'http://localhost:4600', changeOrigin: false },
       '/ws': { target: 'ws://localhost:4600', ws: true },
     },
   },
