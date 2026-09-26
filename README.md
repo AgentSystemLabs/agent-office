@@ -13,11 +13,13 @@ agent-office
 
 - **Walk around.** Use WASD, Space to jump, and drag the mouse to orbit the camera. Everyone in the office sees everyone else move in real time.
 - **Hire workers.** Walk up to an empty desk and press **E** to seat a fresh Claude Code session, or press **P** to write a task first. A little worker sits down, a laptop opens, and Claude's live screen appears on it.
+- **Shared shells.** Press **B** at an empty desk to open a plain login shell for dev servers, git or tests. It's shared the same way as a Claude terminal.
+- **Isolated branches.** When you hire with a task, you can tick *own git worktree*. The worker then gets its own `office/<name>` branch under `.agent-office/worktrees/`, so parallel workers never share a checkout.
 - **Shared terminals.** Press **E** at an occupied desk to open the real terminal (a PTY, over WebSockets). Several people can type into the same session at once, and anyone who joins late gets the full scrollback.
 - **Live status.** Claude Code hooks drive each worker's status: *working*, *needs input* or *done*. When a worker needs a human or has finished, it jumps up and down and you hear a ding. Its antenna bulb shows the status from across the room.
 - **Survives restarts.** Workers are saved to disk. After a server restart they come back asleep, and **R** resumes the exact Claude session.
 - **Issues board.** A tack board shows GitHub issues in *Open*, *In progress* and *Closed*. Click an issue and choose **Hand to a worker** to seat a worker with a ready-made prompt.
-- **PR board.** A second tack board shows pull requests in *Draft*, *In review*, *Approved* and *Merged*, with CI status and diff size. **Review with a worker** does what it says.
+- **PR board.** A second tack board shows pull requests in *Draft*, *In review*, *Approved*, *Merged* and *Closed*, with CI status and diff size. **Review with a worker** does what it says.
 - **Voice.** Browser-to-browser WebRTC voice. Volume depends on how close you stand, but people are never fully silent.
 - **Screen sharing.** Your screen appears on the lounge TV for everyone, and there's a full-screen viewer.
 - **Password protected.** The session cookie is signed, and login attempts are rate limited.
@@ -74,7 +76,8 @@ agent-office [dir] [options]
 | Mouse drag / wheel | Orbit / zoom the camera |
 | E | Interact: hire a worker, open its terminal, read a board, watch the TV |
 | P | Prompt: give a task to a new worker, or to the one at this desk |
-| R | Resume a sleeping worker |
+| B | Open a shared shell at an empty desk |
+| R | Resume a sleeping worker (or restart a shell) |
 | X | Send a worker home (frees the desk) |
 | T / Enter | Chat |
 | V / M | Join voice / mute |
@@ -148,6 +151,8 @@ browser ──HTTPS/WSS──▶ agent-office (Node)
 ```
 
 - **Status.** Each worker starts as `claude --settings .agent-office/claude-hooks.json`. That file adds hooks (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PermissionRequest`, `Notification`, `Stop`, `SessionStart`) which `curl` a server bound to `127.0.0.1`. The hooks merge with your own Claude settings; they don't replace them. OSC 9;4 progress sequences in the terminal also count, which catches an Esc-cancel.
+- **Shared shells.** Press **B** at an empty desk to open a plain login shell for dev servers, git or tests. It's shared the same way as a Claude terminal.
+- **Isolated branches.** When you hire with a task, you can tick *own git worktree*. The worker then gets its own `office/<name>` branch under `.agent-office/worktrees/`, so parallel workers never share a checkout.
 - **Shared terminals.** The server keeps one PTY per worker and mirrors it in a headless xterm. People who open the terminal get a serialized snapshot, then the live stream. Laptops get compact per-row diffs a few times a second. The PTY takes the size of whoever is typing.
 - **State.** `.agent-office/` in the project holds the password, the signing secret, the hook settings and the saved workers. It is added to `.git/info/exclude` automatically, so it never shows up in `git status`.
 

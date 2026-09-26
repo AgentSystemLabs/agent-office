@@ -349,9 +349,10 @@ export async function startServer(cfg: Config) {
         break;
       }
       case 'worker.spawn': {
-        const r = workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true);
+        const kind = msg.kind === 'shell' ? 'shell' : 'agent';
+        const r = workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind);
         if (typeof r === 'string') sendTo(c, { t: 'toast', text: r, level: 'warn' });
-        else broadcast({ t: 'toast', text: `${who} hired ${r.name}${r.prompt ? ' with a task' : ''}`, level: 'info' });
+        else broadcast({ t: 'toast', text: kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${r.prompt ? ' with a task' : ''}`, level: 'info' });
         break;
       }
       case 'worker.resume': {

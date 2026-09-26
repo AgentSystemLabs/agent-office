@@ -303,7 +303,8 @@ function syncWorkers() {
       v.model.setStatus(w.status, shouldBounce(w));
       noOutline(v.model.root);
     }
-    v.laptop.setPlaceholder(w.status === 'offline' ? `💤 ${w.name} is asleep — press R to resume` : w.status === 'exited' ? `${w.name} exited` : 'booting…');
+    const again = w.kind === 'shell' ? 'restart' : 'resume';
+    v.laptop.setPlaceholder(w.status === 'offline' ? `💤 ${w.name} is asleep — press R to ${again}` : w.status === 'exited' ? `${w.name} exited` : 'booting…');
   }
   for (const [id, v] of workerViews) {
     if (store.workers.has(id)) continue;
@@ -339,6 +340,10 @@ function hire(deskId: string, prompt?: string, worktree = false) {
   net.send({ t: 'worker.spawn', deskId, prompt, worktree });
 }
 
+function openShell(deskId: string) {
+  net.send({ t: 'worker.spawn', deskId, kind: 'shell' });
+}
+
 function promptAtDesk(deskId: string) {
   const w = store.workerAtDesk(deskId);
   const desk = DESK_BY_ID.get(deskId)!;
@@ -352,6 +357,13 @@ function promptAtDesk(deskId: string) {
     });
   } else if (w.status === 'exited' || w.status === 'offline') {
     toast(`${w.name} is asleep — press R to resume first`, 'warn');
+  } else if (w.kind === 'shell') {
+    openPrompt({
+      title: `🐚 Run in ${w.name}`,
+      placeholder: 'npm run dev',
+      submitLabel: 'Run ▶',
+      onSubmit: (text) => net.send({ t: 'worker.prompt', workerId: w.id, prompt: text }),
+    });
   } else {
     openPrompt({
       title: `💬 Prompt ${w.name}`,
@@ -414,14 +426,15 @@ function watchShare() {
   close.addEventListener('click', () => modal.close());
 }
 
-function interact(target: Interactable | null, key: 'E' | 'P' | 'R' | 'X') {
+function interact(target: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B') {
   if (!target) return;
   if (target.kind === 'desk' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
+    if (key === 'B' && !w) return openShell(target.deskId);
     if (key === 'P') return promptAtDesk(target.deskId);
     if (key === 'E') return w ? openWorkerTerminal(w.id) : hire(target.deskId);
     if (key === 'R' && w && (w.status === 'exited' || w.status === 'offline')) {
-      if (!w.sessionId) toast(`${w.name} has no saved session to resume`, 'warn');
+      if (!w.sessionId && w.kind !== 'shell') toast(`${w.name} has no saved Claude session — starting a fresh one`, 'warn');
       net.send({ t: 'worker.resume', workerId: w.id });
       return;
     }
@@ -473,7 +486,7 @@ function renderHint() {
   if (target.kind === 'desk' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
     const desk = DESK_BY_ID.get(target.deskId)!;
-    if (!w) parts = [h('span.title', {}, `${desk.label} · empty`), key('E', 'Hire a worker'), key('P', 'Hire with a task')];
+    if (!w) parts = [h('span.title', {}, `${desk.label} · empty`), key('E', 'Hire a worker'), key('P', 'Hire with a task'), key('B', 'Shell')];
     else {
       k += w.status + w.id;
       const asleep = w.status === 'exited' || w.status === 'offline';
@@ -483,7 +496,7 @@ function renderHint() {
         h('span.title', {}, `${w.name} · ${STATUS_LABEL[w.status]}`),
         doing ? h('span', { style: 'opacity:.75;font-weight:600' }, doing) : '',
         key('E', 'Open terminal'),
-        asleep ? key('R', 'Resume') : key('P', 'Prompt'),
+        asleep ? key('R', w.kind === 'shell' ? 'Restart' : 'Resume') : key('P', w.kind === 'shell' ? 'Run command' : 'Prompt'),
         key('X', 'Send home'),
       ];
     }
@@ -516,6 +529,9 @@ window.addEventListener('keydown', (e) => {
       break;
     case 'KeyX':
       interact(target, 'X');
+      break;
+    case 'KeyB':
+      interact(target, 'B');
       break;
     case 'KeyT':
     case 'Enter':

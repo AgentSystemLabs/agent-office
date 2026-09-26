@@ -9,8 +9,12 @@ export type WorkerStatus =
   | 'exited' // process ended (can be resumed if it had a session)
   | 'offline'; // restored from disk after a server restart; resumable
 
+export type WorkerKind = 'agent' | 'shell';
+
 export interface WorkerInfo {
   id: string;
+  /** 'agent' runs Claude Code (or --agent); 'shell' is a plain shared login shell. */
+  kind: WorkerKind;
   deskId: string;
   name: string;
   color: string;
@@ -114,7 +118,7 @@ export interface ChatLine {
 export type ClientMsg =
   | { t: 'move'; x: number; y: number; z: number; rotY: number; moving: boolean }
   | { t: 'profile'; name: string; color: string }
-  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean }
+  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string }
   | { t: 'worker.attach'; workerId: string }

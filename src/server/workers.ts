@@ -5,7 +5,7 @@ import path from 'node:path';
 import * as pty from '@lydell/node-pty';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
-import type { Run, WorkerInfo, WorkerStatus } from '../shared/protocol.js';
+import type { Run, WorkerInfo, WorkerKind, WorkerStatus } from '../shared/protocol.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG } from '../shared/protocol.js';
 import { DESK_BY_ID } from '../shared/layout.js';
 
@@ -101,7 +101,7 @@ export class WorkerManager {
     return false;
   }
 
-  spawn(deskId: string, by: string, prompt?: string, worktree = false): WorkerInfo | string {
+  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent'): WorkerInfo | string {
     if (!DESK_BY_ID.has(deskId)) return 'Unknown desk';
     if (this.deskOccupied(deskId)) return 'That desk is taken';
     const used = new Set([...this.workers.values()].map((w) => w.info.name));
@@ -115,14 +115,15 @@ export class WorkerManager {
     }
     const info: WorkerInfo = {
       id,
+      kind,
       deskId,
-      name,
-      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      name: kind === 'shell' ? `${name} 🐚` : name,
+      color: kind === 'shell' ? '#8d99ae' : COLORS[Math.floor(Math.random() * COLORS.length)],
       status: 'starting',
       acked: true,
       createdBy: by,
       createdAt: Date.now(),
-      prompt: prompt?.trim() || undefined,
+      prompt: kind === 'shell' ? undefined : prompt?.trim() || undefined,
       worktree: wt,
       cols: 100,
       rows: 30,
@@ -360,8 +361,10 @@ export class WorkerManager {
     w.lastLines = [];
     w.screenDirty = true;
 
-    const isClaude = /(^|\/)claude$/.test(this.agentCmd);
-    const args = [...this.agentArgs];
+    const shell = process.env.SHELL || '/bin/bash';
+    const isShell = info.kind === 'shell';
+    const isClaude = !isShell && /(^|\/)claude$/.test(this.agentCmd);
+    const args = isShell ? ['-l'] : [...this.agentArgs];
     if (isClaude) {
       args.unshift('--settings', this.settingsPath);
       if (resumeSessionId) args.push('--resume', resumeSessionId);
@@ -381,20 +384,21 @@ export class WorkerManager {
     let proc: pty.IPty;
     try {
       if (!existsSync(cwd)) throw new Error(`working directory is gone: ${cwd}`);
-      const bin = this.agentPath ?? this.agentCmd;
-      if (this.agentPath) {
-        proc = pty.spawn(bin, args, { name: 'xterm-256color', cols: info.cols, rows: info.rows, cwd, env });
+      if (isShell) {
+        proc = pty.spawn(shell, args, { name: 'xterm-256color', cols: info.cols, rows: info.rows, cwd, env });
+      } else if (this.agentPath) {
+        proc = pty.spawn(this.agentPath, args, { name: 'xterm-256color', cols: info.cols, rows: info.rows, cwd, env });
       } else {
         // Not found on PATH: let a login shell find it (nvm, asdf, ~/.local/bin ...).
-        const shell = process.env.SHELL || '/bin/bash';
         const line = ['exec', this.agentCmd, ...args].map((a, i) => (i < 2 ? a : shq(a))).join(' ');
         proc = pty.spawn(shell, ['-l', '-i', '-c', line], { name: 'xterm-256color', cols: info.cols, rows: info.rows, cwd, env });
       }
     } catch (err) {
       info.status = 'exited';
       info.exitCode = -1;
-      term.write(`\r\n\x1b[31mFailed to start ${this.agentCmd}: ${(err as Error).message}\x1b[0m\r\n`);
-      this.events.toast(`Could not start ${this.agentCmd}: ${(err as Error).message}`, 'error');
+      const what = isShell ? shell : this.agentCmd;
+      term.write(`\r\n\x1b[31mFailed to start ${what}: ${(err as Error).message}\x1b[0m\r\n`);
+      this.events.toast(`Could not start ${what}: ${(err as Error).message}`, 'error');
       this.emitUpdate(w);
       return;
     }
@@ -411,7 +415,8 @@ export class WorkerManager {
       w.pty = undefined;
       info.exitCode = exitCode;
       info.status = 'exited';
-      const msg = `\r\n\x1b[2m[${info.name} exited with code ${exitCode}${info.sessionId ? ' — press R to resume' : ''}]\x1b[0m\r\n`;
+      const hint = info.kind === 'shell' ? ' — press R to restart' : info.sessionId ? ' — press R to resume' : '';
+      const msg = `\r\n\x1b[2m[${info.name} exited with code ${exitCode}${hint}]\x1b[0m\r\n`;
       term.write(msg);
       if (w.viewers.size) this.events.data(info.id, msg, [...w.viewers.keys()]);
       w.screenDirty = true;
@@ -539,6 +544,7 @@ process.stdin.on('end', () => {
   private persist() {
     const saved = [...this.workers.values()].map(({ info }) => ({
       id: info.id,
+      kind: info.kind,
       deskId: info.deskId,
       name: info.name,
       color: info.color,
@@ -565,6 +571,7 @@ process.stdin.on('end', () => {
         if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || this.deskOccupied(s.deskId)) continue;
         const info: WorkerInfo = {
           id: s.id,
+          kind: s.kind === 'shell' ? 'shell' : 'agent',
           deskId: s.deskId,
           name: s.name ?? 'Worker',
           color: s.color ?? COLORS[0],
@@ -692,7 +699,8 @@ function describeTool(payload: any): string {
 }
 
 function offlineBanner(info: WorkerInfo): string {
-  return `\x1b[2m${info.name} is not running.${info.sessionId ? ' Press R to resume the session.' : ''}\x1b[0m\r\n`;
+  const hint = info.kind === 'shell' ? ' Press R to restart it.' : info.sessionId ? ' Press R to resume the session.' : '';
+  return `\x1b[2m${info.name} is not running.${hint}\x1b[0m\r\n`;
 }
 
 function truncate(s: string, n: number) {

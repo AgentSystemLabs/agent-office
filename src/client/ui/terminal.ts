@@ -79,7 +79,8 @@ export function openTerminal(net: Net, workerId: string, actions: { prompt(): vo
     pill.textContent = STATUS_LABEL[w.status] ?? w.status;
     viewers.textContent = w.viewers.length ? `👀 ${w.viewers.join(', ')}` : '';
     const running = !(w.status === 'exited' || w.status === 'offline');
-    resumeBtn.classList.toggle('hidden', running || !w.sessionId);
+    resumeBtn.classList.toggle('hidden', running || (!w.sessionId && w.kind !== 'shell'));
+    resumeBtn.textContent = w.kind === 'shell' ? '▶ Restart' : '▶ Resume';
     promptBtn.disabled = !running;
     // Someone else resized the shared PTY: follow it so the screen renders correctly.
     if (ready && `${w.cols}x${w.rows}` !== `${term.cols}x${term.rows}` && document.activeElement !== term.textarea) {

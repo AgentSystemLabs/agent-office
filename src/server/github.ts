@@ -92,11 +92,15 @@ export class GitHub {
     this.onPulls(this.pulls);
     try {
       const fields = 'number,title,state,isDraft,url,author,labels,reviewDecision,headRefName,baseRefName,createdAt,updatedAt,additions,deletions,statusCheckRollup,body';
-      const [open, merged] = await Promise.all([
+      const [open, merged, closed] = await Promise.all([
         gh(['pr', 'list', '--state', 'open', '--limit', '150', '--json', fields], this.dir),
         gh(['pr', 'list', '--state', 'merged', '--limit', '30', '--json', fields], this.dir),
+        gh(['pr', 'list', '--state', 'closed', '--limit', '40', '--json', fields], this.dir),
       ]);
-      const items: GhPull[] = [...JSON.parse(open), ...JSON.parse(merged)].map((p: any) => ({
+      // `--state closed` includes merged PRs; keep only the ones closed without merging.
+      const seen = new Set<number>();
+      const all = [...JSON.parse(open), ...JSON.parse(merged), ...JSON.parse(closed)].filter((p: any) => !seen.has(p.number) && seen.add(p.number));
+      const items: GhPull[] = all.map((p: any) => ({
         number: p.number,
         title: p.title,
         state: p.state,

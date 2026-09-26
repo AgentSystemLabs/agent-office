@@ -112,6 +112,7 @@ export function openHelp() {
     ['Drag / wheel', 'Orbit and zoom the camera'],
     ['E', 'Interact: hire a worker, open its terminal, read a board, watch the TV'],
     ['P', 'Prompt: give a task to a new or existing worker at the desk you face'],
+    ['B', 'Open a shared shell (dev servers, git, tests) at an empty desk'],
     ['R', 'Resume a sleeping worker'],
     ['X', 'Send a worker home (frees the desk)'],
     ['T', 'Chat'],
