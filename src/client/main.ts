@@ -15,6 +15,7 @@ import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
 import { $, h, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
+import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage } from './ui/prompt';
 import { openBoard } from './ui/boards';
 import { openTeam, routeTeamMessage } from './ui/team';
@@ -166,6 +167,7 @@ net.onMessage((msg) => {
   if (msg.t === 'welcome') voice.reset();
   store.apply(msg);
   routeTerminalMessage(msg);
+  routeChangesMessage(msg);
   routeTeamMessage(msg);
   switch (msg.t) {
     case 'welcome': {
@@ -178,6 +180,8 @@ net.onMessage((msg) => {
       // After a reconnect the server has forgotten which terminal we had open.
       const openId = openTerminalFor();
       if (openId && store.workers.has(openId)) net.send({ t: 'worker.attach', workerId: openId });
+      const watching = openChangesFor();
+      if (watching && store.workers.has(watching)) net.send({ t: 'changes.watch', workerId: watching });
       renderProject();
       $('btn-team').classList.toggle('hidden', !store.invites);
       // Back from a restart on another version: this page's code is stale, so load the new one.
@@ -464,7 +468,13 @@ function openWorkerTerminal(id: string) {
   const w = store.workers.get(id);
   if (!w) return;
   if (w.status === 'exited' || w.status === 'offline') resumeWorker(w);
-  openTerminal(net, id);
+  openTerminal(net, id, () => openWorkerChanges(id));
+}
+
+/** What the worker changed: changed files, diff, commit / discard / open a PR. */
+function openWorkerChanges(id: string) {
+  if (!store.workers.has(id)) return;
+  openChanges(net, id, () => openWorkerTerminal(id));
 }
 
 function boardActions() {
@@ -502,13 +512,14 @@ function watchShare() {
   close.addEventListener('click', () => modal.close());
 }
 
-function interact(target: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B') {
+function interact(target: Interactable | null, key: DeskKey) {
   if (!target) return;
   if (target.kind === 'desk' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
     if (key === 'B' && !w) return openShell(target.deskId);
     if (key === 'P') return promptAtDesk(target.deskId);
     if (key === 'E') return w ? openWorkerTerminal(w.id) : hire(target.deskId);
+    if (key === 'C' && w) return openWorkerChanges(w.id);
     if (key === 'R' && w && (w.status === 'exited' || w.status === 'offline')) return resumeWorker(w);
     if (key === 'X' && w) return killWorker(w.id);
     return;
@@ -578,6 +589,7 @@ function renderHint() {
         doing ? h('span', { style: 'opacity:.75;font-weight:600' }, doing) : '',
         spent ? h('span.cost', { title: usageTitle(w.usage!) }, spent) : '',
         key('E', 'Open terminal'),
+        key('C', 'Changes'),
         asleep ? key('R', w.kind === 'shell' ? 'Restart' : 'Resume') : key('P', w.kind === 'shell' ? 'Run command' : 'Prompt'),
         key('X', 'Send home'),
       ];
@@ -623,7 +635,9 @@ function reach() {
   }
 }
 
-function use(it: Interactable | null, key: 'E' | 'P' | 'R' | 'X' | 'B') {
+type DeskKey = 'E' | 'P' | 'R' | 'X' | 'B' | 'C';
+
+function use(it: Interactable | null, key: DeskKey) {
   if (!it) return;
   reach();
   interact(it, key);
@@ -648,6 +662,9 @@ window.addEventListener('keydown', (e) => {
       break;
     case 'KeyB':
       use(target, 'B');
+      break;
+    case 'KeyC':
+      use(target, 'C');
       break;
     case 'KeyT':
     case 'Enter':
