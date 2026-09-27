@@ -27,7 +27,7 @@ export function isValidOpenCodeModel(value: unknown): value is string {
 export function validateWorkerModel(kind: 'agent' | 'shell', provider: AgentProvider | undefined, model: unknown): string | undefined {
   if (model === undefined) return undefined;
   if (kind === 'shell') return 'Shell workers do not have an agent model';
-  if (provider === 'claude') return isClaudeModel(model) ? undefined : 'Invalid Claude model (expected opus, sonnet or haiku)';
+  if (provider === 'claude') return isClaudeModel(model) ? undefined : 'Invalid Claude model (expected fable, opus, sonnet or haiku)';
   if (provider !== 'opencode') return 'Models can only be selected for Claude Code or OpenCode workers';
   if (!isValidOpenCodeModel(model)) return 'Invalid OpenCode model (expected provider/model without whitespace)';
   return undefined;

@@ -467,6 +467,33 @@ test('an explicit Claude model/effort overrides --agent-args and persists across
   assert.equal(restored.get(worker.id)?.effort, 'high');
 });
 
+test('a worker hired on Fable launches with --model fable and keeps it across a restart', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+
+  const workers = manager(f, f.claude, [], ['--model', 'opus']);
+  t.after(() => workers.shutdown());
+  const worker = workers.spawn('desk-1', 'test', 'fable task', false, 'agent', 'claude', 'fable');
+  assert.equal(typeof worker, 'object');
+  if (typeof worker === 'string') return;
+  const records = await waitFor(() => f.read(), (rs) => rs.some((r) => r.kind === 'claude'));
+  const launch = records.find((r) => r.kind === 'claude')!;
+  assert.deepEqual(launch.args.slice(launch.args.indexOf('--model')), ['--model', 'opus', '--model', 'fable', '--', 'fable task']);
+
+  workers.shutdown();
+  const restored = manager(f, f.claude, [], ['--model', 'opus']);
+  t.after(() => restored.shutdown());
+  await restored.start();
+  assert.equal(restored.get(worker.id)?.model, 'fable');
+});
+
 test('provider and hook boundaries reject invalid combinations', async (t) => {
   const f = fixture();
   t.after(() => f.close());

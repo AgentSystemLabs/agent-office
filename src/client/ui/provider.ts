@@ -12,6 +12,7 @@ export const PROVIDER_LABEL: Record<AgentProvider, string> = {
 };
 
 export const CLAUDE_MODEL_LABEL: Record<ClaudeModel, string> = {
+  fable: 'Fable',
   opus: 'Opus',
   sonnet: 'Sonnet',
   haiku: 'Haiku',
