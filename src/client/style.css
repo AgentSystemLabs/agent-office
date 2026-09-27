@@ -389,6 +389,14 @@ button { font-family: inherit; }
 .dl.del .ln { background: #ffcbd7; }
 .dl.hunk { background: #e0f2fe; color: #1d6fd6; font-weight: 700; margin-top: 6px; }
 .dl.meta { color: var(--muted); font-style: italic; }
+.img-preview { display: flex; gap: 12px; padding: 12px; flex: none; }
+.img-preview figure { flex: 1; min-width: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.img-preview figcaption { display: flex; align-items: baseline; gap: 8px; font-size: 12px; font-weight: 800; color: var(--muted); }
+.img-preview figcaption b { text-transform: uppercase; letter-spacing: .04em; font-weight: 900; }
+/* A checkerboard behind the picture, so its transparent parts show. */
+.img-frame { display: flex; align-items: center; justify-content: center; min-height: 120px; padding: 8px; border: 2px solid rgba(43,45,66,.15); border-radius: 10px; background: repeating-conic-gradient(#eeeae4 0 25%, #fff 0 50%) 0 0 / 16px 16px; }
+.img-frame img { display: block; max-width: 100%; max-height: 60vh; object-fit: contain; }
+.img-frame p { margin: 0; color: var(--muted); font-weight: 700; font-size: 13px; background: #fff; padding: 4px 8px; border-radius: 8px; }
 .changes-empty { margin: auto; text-align: center; padding: 24px; color: var(--muted); font-weight: 700; max-width: 460px; }
 .changes-empty .big { font-size: 48px; line-height: 1; margin-bottom: 8px; }
 .changes-empty p { margin: 6px 0 0; }
@@ -401,6 +409,7 @@ button { font-family: inherit; }
 @media (max-width: 800px) {
   .changes-body { flex-direction: column; }
   .changes-files { width: auto; max-height: 38%; border-right: 0; border-bottom: 3px solid var(--ink); }
+  .img-preview { flex-direction: column; }
 }
 
 /* Boards */
