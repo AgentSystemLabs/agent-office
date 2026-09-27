@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { BARK_EVERY_S, BARK_FOR_S, DOG_COATS, dogAt, legSeconds, type DogAct, type DogState } from '../../shared/dog';
+import type { Theme } from '../../shared/protocol';
+import { dogAntlers, dogBatWings, dogRedNose, dogScarf, dogWitchHat } from './costumes';
 import type { Interactable } from './office';
 import { disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
 
@@ -79,6 +81,12 @@ export class Dog {
   private woofT = 9;
   private t = 0;
   private placed = false;
+  private nose!: THREE.Mesh;
+  /** Dressed up for a holiday (see setCostume): what it's wearing, its bat wings, and Rudolph's nose. */
+  private costume: Theme | null = null;
+  private outfit: THREE.Object3D[] = [];
+  private wings: THREE.Object3D[] = [];
+  private rudolph: THREE.MeshToonMaterial | null = null;
 
   constructor(
     private sounds: DogSounds,
@@ -89,6 +97,43 @@ export class Dog {
     this.build();
     this.root.visible = false;
     this.root.userData.interact = this.interactable;
+  }
+
+  /**
+   * Dresses it up for a holiday: bat wings and a little witch's hat for Halloween, reindeer antlers, a
+   * glowing red nose and a scarf for Christmas. Null takes it all off.
+   */
+  setCostume(theme: Theme | null) {
+    if (theme === this.costume) return;
+    this.costume = theme;
+    for (const o of this.outfit) {
+      o.removeFromParent();
+      o.traverse((m) => (m as THREE.Mesh).geometry?.dispose());
+    }
+    // The wings' and the red nose's materials are the costume's own; the rest are shared toon ones.
+    for (const w of this.wings) w.traverse((m) => ((m as THREE.Mesh).material as THREE.Material | undefined)?.dispose());
+    this.rudolph?.dispose();
+    this.outfit = [];
+    this.wings = [];
+    this.rudolph = null;
+    const wear = (parent: THREE.Object3D, o: THREE.Object3D) => {
+      o.traverse((m) => ((m as THREE.Mesh).castShadow = true));
+      parent.add(o);
+      this.outfit.push(o);
+    };
+    if (theme === 'halloween') {
+      const bat = dogBatWings();
+      wear(this.torso, bat.group);
+      this.wings = bat.wings;
+      wear(this.head, dogWitchHat());
+    } else if (theme === 'christmas') {
+      wear(this.head, dogAntlers());
+      wear(this.head, dogScarf());
+      const red = dogRedNose();
+      wear(this.head, red.nose);
+      this.rudolph = red.glow;
+    }
+    this.nose.visible = theme !== 'christmas';
   }
 
   /** Nothing to pet in a building without floors. */
@@ -212,7 +257,8 @@ export class Dog {
     const muzzle = mesh(new THREE.SphereGeometry(0.075, 14, 10), light, 0, -0.035, 0.12);
     muzzle.scale.set(1, 0.85, 1.35);
     this.head.add(muzzle);
-    this.head.add(mesh(new THREE.SphereGeometry(0.032, 10, 8), ink, 0, -0.005, 0.22, false));
+    this.nose = mesh(new THREE.SphereGeometry(0.032, 10, 8), ink, 0, -0.005, 0.22, false);
+    this.head.add(this.nose);
     for (const sx of [-1, 1]) {
       const eye = mesh(new THREE.SphereGeometry(0.026, 10, 8), ink, sx * 0.062, 0.035, 0.115, false);
       this.eyes.push(eye);
@@ -349,6 +395,14 @@ export class Dog {
     this.hips.rotation.y = act === 'wag' ? Math.sin(t * 11) * 0.1 : 0;
     // Breathing, asleep.
     this.torso.scale.setScalar(act === 'nap' ? 1 + Math.sin(t * 2.2) * 0.02 : 1);
+    // Bat wings flap (fast when it runs or is happy, folded while it naps); Rudolph's nose glows.
+    const flap = act === 'nap' ? 0 : walking || act === 'wag' || act === 'bark' ? 1 : 0.35;
+    this.wings.forEach((w, i) => {
+      const sx = i ? 1 : -1;
+      w.rotation.z = sx * (0.75 + (act === 'nap' ? -0.6 : Math.sin(t * (6 + 10 * flap)) * 0.45 * flap));
+      w.rotation.y = sx * 0.25;
+    });
+    if (this.rudolph) this.rudolph.emissiveIntensity = 0.7 + Math.sin(t * 3) * 0.3;
 
     // Bubbles: 💤 while it naps, gone when it's up.
     if (act === 'nap' && !this.bubble) this.say('nap', '💤', 1e9);

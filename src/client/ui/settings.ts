@@ -1,7 +1,8 @@
 import type { Net } from '../net';
 import { store, type Settings, type ViewMode } from '../state';
 import { askNotifyPermission, notifyPermission, type DesktopNotifier } from '../notify';
-import type { WebhookKind } from '../../shared/protocol';
+import type { ThemePick, WebhookKind } from '../../shared/protocol';
+import { THEME_PICKS } from '../../shared/theme';
 import { DOG_NAME_MAX, cleanDogName } from '../../shared/dog';
 import { h, openModal, timeAgo } from './dom';
 
@@ -9,6 +10,8 @@ const VIEWS: [ViewMode, string, string][] = [
   ['first', '👀 First person', 'See through your own eyes. Click the office to look around with the mouse and click things to use them. Esc frees the mouse.'],
   ['third', '🎥 Third person', 'Follow your character from behind. Drag to orbit the camera, scroll to zoom, and click things to use them.'],
 ];
+
+const THEME_LABEL: Record<ThemePick, string> = { auto: '📅 By the calendar', halloween: '🎃 Halloween', christmas: '🎄 Christmas', off: 'Off' };
 
 const WEBHOOK_NAME: Record<WebhookKind, string> = { slack: 'Slack', discord: 'Discord', other: 'a webhook' };
 
@@ -74,6 +77,39 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   };
   const soundRow = volumeRow('Office sounds volume', 'volume', 'muted', previewSound);
   const musicRow = volumeRow('Jukebox volume', 'music', 'musicMuted');
+
+  // The building's holiday theme, for everyone.
+  const themeRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Holiday theme' });
+  const themeNote = h('p.setting-note');
+  const paintTheme = () => {
+    const { pick, active, by, at } = store.theme;
+    themeRow.replaceChildren(
+      ...THEME_PICKS.map((p) =>
+        h(
+          'button.btn',
+          {
+            type: 'button',
+            role: 'radio',
+            'aria-checked': String(pick === p),
+            class: pick === p ? 'on' : '',
+            onclick: () => {
+              if (store.theme.pick !== p) net.send({ t: 'theme.set', pick: p });
+            },
+          },
+          THEME_LABEL[p],
+        ),
+      ),
+    );
+    const now =
+      active === 'halloween'
+        ? 'Halloween: the workers are zombies, your hands are an undead warlock’s, the dog’s in costume, the sky’s gone creepy and there are jack-o’-lanterns everywhere.'
+        : active === 'christmas'
+          ? 'Christmas: the workers are elves, your hands are in mittens, the dog’s Rudolph, and it’s snowing outside.'
+          : 'No decorations up right now.';
+    const how = pick === 'auto' ? ' By the calendar it’s Halloween through October and Christmas through December.' : '';
+    themeNote.textContent = `${now}${how} It’s the same for everyone in the building${by ? `, set by ${by}${at ? ` ${timeAgo(at)}` : ''}` : ''}.`;
+  };
+  paintTheme();
 
   // Desktop notifications: this browser's permission, then your own on/off.
   const notifyRow = h('div.seg');
@@ -282,6 +318,9 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
             h('p.setting-note', {}, outside.live ? 'Everyone sees the same sky: the office’s clock and the live weather where it is.' : 'Everyone sees the same sky: the office’s clock, and weather that comes and goes. Start the office with --city to use a real city’s forecast.'),
           ]
         : []),
+      h('label', { style: 'margin-top:18px' }, 'Holiday theme'),
+      themeRow,
+      themeNote,
       h('label', { style: 'margin-top:18px' }, 'Desktop notifications'),
       notifyRow,
       notifyNote,
@@ -306,6 +345,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   );
   const offNotify = store.on('notify', paintHook);
   const offDog = store.on('dog', paintDog);
+  const offTheme = store.on('theme', paintTheme);
   const offLimit = [store.on('machine', paintLimit), store.on('me', paintLimit)];
   const offDir = [store.on('projectsDir', paintDir), store.on('me', paintDir)];
   const modal = openModal(el, {
@@ -313,6 +353,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     onClose: () => {
       offNotify();
       offDog();
+      offTheme();
       offLimit.forEach((off) => off());
       offDir.forEach((off) => off());
     },

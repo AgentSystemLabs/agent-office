@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES, type Look } from '../../shared/avatar';
 import { EMOTE_BY_ID, type Emote, type EmoteId } from '../../shared/emotes';
-import type { CarriedIssue, WorkerAction, WorkerStatus, WorkerTask } from '../../shared/protocol';
+import type { CarriedIssue, Theme, WorkerAction, WorkerStatus, WorkerTask } from '../../shared/protocol';
 import { isAsleep } from '../../shared/status';
 import { HIPS } from '../player';
 import { HeldCard } from './card';
+import { UNDEAD_SKIN, elfBoot, elfHat, elfWorker, santaHat, warlockHat, zombieWorker } from './costumes';
 import { cardSprite, disposeSprite, mesh, roundedBox, textSprite, toon, toonUnique } from './toon';
 
 export type Pose = 'stand' | 'walk' | 'sit' | 'type';
@@ -155,6 +156,18 @@ const v2 = new THREE.Vector3();
 const DOING_Y = 1.95;
 const DOING_LIFT = 0.25;
 
+/** What a zombie worker's skin is mixed toward. */
+const ZOMBIE = new THREE.Color('#7fa36b');
+
+/** Takes a costume off whatever wore it, and frees what it was made of (its materials are shared). */
+function undress(parts: THREE.Object3D[]) {
+  for (const o of parts) {
+    o.removeFromParent();
+    o.traverse((m) => (m as THREE.Mesh).geometry?.dispose());
+  }
+  parts.length = 0;
+}
+
 /** A chibi cartoon person — used for every human in the office. Forward is +z. */
 export class Person {
   readonly root = new THREE.Group();
@@ -212,6 +225,9 @@ export class Person {
   private sitK = 0;
   /** Holding on to the ladder or a fire pole (see setGrip). */
   private grip: 'ladder' | 'pole' | null = null;
+  /** Dressed up for a holiday (see setCostume): a warlock's hat and undead skin, or a Santa hat. */
+  private costume: Theme | null = null;
+  private hat: THREE.Object3D[] = [];
 
   constructor(
     private name: string,
@@ -315,9 +331,31 @@ export class Person {
   setLook(look: Look) {
     const restyle = look.style !== this.look.style;
     this.look = { ...look };
-    this.skin.color.set(SKIN_TONES[look.skin]);
     this.hairMat.color.set(HAIR_COLORS[look.hair]);
     if (restyle) this.buildHair();
+    this.dress();
+  }
+
+  /** Dresses up for a holiday: a crooked warlock's hat and undead skin for Halloween, a Santa hat for Christmas. Null takes it off. */
+  setCostume(theme: Theme | null) {
+    if (theme === this.costume) return;
+    this.costume = theme;
+    undress(this.hat);
+    const hat = theme === 'halloween' ? warlockHat() : theme === 'christmas' ? santaHat() : null;
+    if (hat) {
+      hat.traverse((o) => ((o as THREE.Mesh).castShadow = true));
+      this.head.add(hat);
+      this.hat.push(hat);
+    }
+    this.dress();
+  }
+
+  /** The skin and hair under the costume: hair that would poke through a hat's crown hides under it. */
+  private dress() {
+    this.skin.color.set(SKIN_TONES[this.look.skin]);
+    if (this.costume === 'halloween') this.skin.color.lerp(UNDEAD_SKIN, 0.7);
+    const style = HAIR_STYLES[this.look.style];
+    this.hair.visible = !this.costume || !(style === 'Spiky' || style === 'Bun' || style === 'Curly');
   }
 
   /** Hair is a set of shapes on the head (whose center is 0,0,0; the face looks down +z). */
@@ -971,11 +1009,20 @@ export class Worker {
   private globe: ReturnType<typeof globe>;
   /** Beside its laptop, where the bar and the globe float (see setPropSpot). */
   private spot = new THREE.Vector3(-1, 1.1, 1.3);
+  private skin: THREE.MeshToonMaterial;
+  /** Dressed up for a holiday (see setCostume), and what it's wearing. */
+  private costume: Theme | null = null;
+  private outfit: THREE.Object3D[] = [];
+  /** Where it is in its own shamble, so a room full of zombies doesn't sway in step. */
+  private phase = Math.random() * Math.PI * 2;
   /** How far through its stride it is, walking in. */
   private stride = 0;
 
-  constructor(name: string, color: string) {
-    const skin = toonUnique(color);
+  constructor(
+    name: string,
+    private color: string,
+  ) {
+    const skin = (this.skin = toonUnique(color));
     const white = toon('#ffffff');
     const ink = toon('#1d1d1d');
 
@@ -1047,6 +1094,27 @@ export class Worker {
   celebrate() {
     this.twirlT = 0;
     this.cheer(1.2);
+  }
+
+  /** Dresses it up for a holiday (a zombie for Halloween, an elf for Christmas), or back in its own skin (null). */
+  setCostume(theme: Theme | null) {
+    if (theme === this.costume) return;
+    this.costume = theme;
+    undress(this.outfit);
+    const wear = (parent: THREE.Object3D, o: THREE.Object3D) => {
+      o.traverse((m) => ((m as THREE.Mesh).castShadow = true));
+      parent.add(o);
+      this.outfit.push(o);
+    };
+    this.skin.color.set(this.color);
+    if (theme === 'halloween') {
+      this.skin.color.lerp(ZOMBIE, 0.6).multiplyScalar(0.85);
+      wear(this.body, zombieWorker(this.skin));
+    } else if (theme === 'christmas') {
+      wear(this.body, elfHat());
+      wear(this.body, elfWorker(this.skin));
+      for (const f of this.feet) wear(f, elfBoot());
+    }
   }
 
   setName(name: string) {
@@ -1197,6 +1265,13 @@ export class Worker {
       : this.status === 'working' ? (this.action ?? 'type')
       : 'rest';
     const s = this.pose(act, dt, t);
+    // A zombie at rest stands with its arms out in front of it, groping, listing to one side and swaying.
+    const shamble = this.costume === 'halloween' ? Math.min(1, this.acts.get('rest') ?? 0) : 0;
+    if (shamble > 0) {
+      s.armLx += (-1.4 + Math.sin(t * 1.6 + this.phase) * 0.12 - s.armLx) * shamble;
+      s.armRx += (-1.4 + Math.sin(t * 1.6 + this.phase + 1.3) * 0.12 - s.armRx) * shamble;
+      s.roll += (0.09 + Math.sin(t * 1.1 + this.phase) * 0.05) * shamble;
+    }
 
     this.armL.rotation.set(s.armLx, 0, s.armLz);
     this.armR.rotation.set(s.armRx, 0, s.armRz);
@@ -1430,5 +1505,6 @@ export class Worker {
   dispose() {
     if (this.bubble) disposeSprite(this.bubble);
     if (this.nameTag) disposeSprite(this.nameTag);
+    undress(this.outfit);
   }
 }

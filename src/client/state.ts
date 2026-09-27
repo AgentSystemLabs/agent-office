@@ -1,4 +1,4 @@
-import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, MachineState, MeetingState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
+import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, MachineState, MeetingState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, ThemeState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
@@ -7,7 +7,7 @@ import type { DogState } from '../shared/dog';
 import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -172,6 +172,8 @@ class Store {
   dogStart = 0;
   /** Outside the windows; null until the server says. */
   sky: SkyState | null = null;
+  /** The building's holiday decorations: the same on every floor. */
+  theme: ThemeState = { pick: 'auto', active: null };
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -267,8 +269,9 @@ class Store {
         this.machine = msg.machine;
         this.clock = undefined; // compared again, in case it's another office (or the same one, restarted)
         this.sky = msg.sky;
+        this.theme = msg.theme;
         this.enter(msg);
-        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'floors', 'projectsDir', 'sky'] as Topic[]) this.emit(t);
+        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'floors', 'projectsDir', 'sky', 'theme'] as Topic[]) this.emit(t);
         break;
       case 'floor.enter':
         this.peers = new Map(msg.peers.map((p) => [p.id, p]));
@@ -416,6 +419,10 @@ class Store {
       case 'sky':
         this.sky = msg.state;
         this.emit('sky');
+        break;
+      case 'theme':
+        this.theme = msg.state;
+        this.emit('theme');
         break;
       case 'chat':
         this.chat.push(msg);
