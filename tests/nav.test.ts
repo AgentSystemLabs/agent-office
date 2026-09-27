@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, MEETING_ROOM, MEETING_SEATS, ROAD, SEATS, STATIONS } from '../src/shared/layout.js';
-import { walkable, wayHome, wayIn, type Pt } from '../src/shared/nav.js';
+import { BALCONY, BALCONY_DOOR, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, MEETING_ROOM, MEETING_SEATS, PARACHUTE, ROAD, SEATS, STATIONS } from '../src/shared/layout.js';
+import { walkable, wayHome, wayIn, wayToBalcony, type Pt } from '../src/shared/nav.js';
 
 test('a worker sent home walks round the furniture, out the exit door and off along the sidewalk', () => {
   for (const seat of [...SEATS, ...STATIONS, ...MEETING_SEATS]) {
@@ -55,5 +55,29 @@ test('a worker called to a meeting walks from the elevator, in through the meeti
     const [[ax, az], [bx, bz]] = [way[crossing - 1], way[crossing]];
     const x = ax + ((bx - ax) * (MEETING_ROOM.minZ - az)) / (bz - az);
     assert.ok(x > MEETING_ROOM.door.x0 && x < MEETING_ROOM.door.x1, `${seat.id} goes in by the door (x ${x.toFixed(2)})`);
+  }
+});
+
+test('upstairs, with no exit door, a worker sent home walks out onto the balcony to the railing', () => {
+  for (const seat of [...SEATS, ...STATIONS, ...MEETING_SEATS]) {
+    const way = wayToBalcony(seat);
+    assert.ok(Math.hypot(way[0][0] - seat.x, way[0][1] - seat.z) < 1.2, `${seat.id} hops down beside its seat`);
+    const out = way.findIndex(([, z]) => z > FLOOR.maxZ);
+    assert.ok(out > 1, `${seat.id} goes out onto the balcony`);
+    for (let i = 2; i < out; i++) {
+      const [x0, z0] = way[i - 1];
+      const [x1, z1] = way[i];
+      const n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.2);
+      for (let k = 0; k <= n; k++) {
+        const x = x0 + ((x1 - x0) * k) / n;
+        const z = z0 + ((z1 - z0) * k) / n;
+        assert.ok(walkable(x, z), `${seat.id} walks into something at (${x.toFixed(2)}, ${z.toFixed(2)})`);
+      }
+    }
+    // Through the balcony doors, then straight across to the railing.
+    for (const [x] of way.slice(out - 1)) assert.ok(Math.abs(x - BALCONY_DOOR.u) < BALCONY_DOOR.width / 2 - 0.3, `${seat.id} goes through the balcony doors`);
+    const [jx, jz] = way[way.length - 1];
+    assert.deepEqual([jx, jz], [PARACHUTE.jump.x, PARACHUTE.jump.z]);
+    assert.ok(jz < BALCONY.maxZ && jz > BALCONY.maxZ - 0.6, `${seat.id} ends up at the railing`);
   }
 });
