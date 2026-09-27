@@ -1,10 +1,10 @@
-import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
+import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
 import type { DogState } from '../shared/dog';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'floors' | 'floor' | 'repos' | 'dog';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'floors' | 'floor' | 'repos' | 'dog' | 'sky';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -135,6 +135,8 @@ class Store {
   /** The dog on your floor, and when (performance.now()) the leg it's on began. */
   dog: DogState | null = null;
   dogStart = 0;
+  /** Outside the windows; null until the server says. */
+  sky: SkyState | null = null;
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -205,8 +207,9 @@ class Store {
         this.limits = msg.limits;
         this.me = msg.me;
         this.notify = msg.notify;
+        this.sky = msg.sky;
         this.enter(msg);
-        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'floors'] as Topic[]) this.emit(t);
+        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'floors', 'sky'] as Topic[]) this.emit(t);
         break;
       case 'floor.enter':
         this.peers = new Map(msg.peers.map((p) => [p.id, p]));
@@ -307,6 +310,10 @@ class Store {
       case 'dog':
         this.setDog(msg.dog);
         this.emit('dog');
+        break;
+      case 'sky':
+        this.sky = msg.state;
+        this.emit('sky');
         break;
       case 'chat':
         this.chat.push(msg);

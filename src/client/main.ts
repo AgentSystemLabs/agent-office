@@ -14,6 +14,7 @@ import { buildOffice, type InteractKind, type Interactable } from './world/offic
 import { Person, Worker } from './world/character';
 import { Hands } from './world/hands';
 import { Smoke } from './world/smoke';
+import { Sky, describeSky } from './world/sky';
 import { Laptop } from './world/laptop';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import { Gallery } from './world/gallery';
@@ -55,24 +56,29 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 const effect = new OutlineEffect(renderer, { defaultThickness: 0.0032, defaultColor: [0.17, 0.18, 0.26] });
 
 const scene = new THREE.Scene();
+// The sky's color and the fog change with the time of day and the weather (world/sky.ts).
 scene.background = new THREE.Color('#bfe3ff');
 scene.fog = new THREE.Fog('#bfe3ff', 40, 90);
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 200);
 
-scene.add(new THREE.HemisphereLight('#fff5e6', '#c9a27a', 1.5));
-scene.add(new THREE.AmbientLight('#ffffff', 0.5));
+const hemi = new THREE.HemisphereLight('#fff5e6', '#c9a27a', 1.5);
+const ambient = new THREE.AmbientLight('#ffffff', 0.5);
+scene.add(hemi, ambient);
+// The sun by day and the moon by night; the sky moves it (world/sky.ts).
 const sun = new THREE.DirectionalLight('#fff1d6', 2.2);
 sun.position.set(-8, 18, 10);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-// Wide enough for the office, the garage under it and the balcony and lot out front.
-Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 26, bottom: -26, near: 1, far: 80 });
+// Wide enough for the office, the garage under it and the balcony and lot out front, from wherever the sun is.
+Object.assign(sun.shadow.camera, { left: -32, right: 32, top: 30, bottom: -30, near: 1, far: 100 });
 sun.shadow.bias = -0.0008;
 sun.shadow.normalBias = 0.03;
 scene.add(sun);
 
 const office = buildOffice();
 scene.add(office.group);
+const sky = new Sky(scene, { sun, hemi, ambient }, office.night);
+store.on('sky', () => store.sky && sky.set(store.sky));
 
 const noOutline = (obj: THREE.Object3D) =>
   obj.traverse((o) => {
@@ -188,6 +194,7 @@ scene.add(dog.root);
 noOutline(dog.root);
 store.on('dog', () => dog.sync(store.dog, store.dogStart));
 const notifier = new DesktopNotifier(() => settings.notify, (id) => openWorkerTerminal(id));
+sky.onThunder = (delay, loud) => sound.thunder(delay, loud);
 const hanger = new Hanger(net, camera, canvas, player, office, gallery);
 scene.add(hanger.ghost.group);
 hanger.onChange = () => {
@@ -1358,6 +1365,7 @@ $('btn-settings').addEventListener('click', () =>
     () => sound.ding('done'),
     notifier,
     signOut,
+    store.sky ? { now: describeSky(store.sky), live: !!store.sky.city } : undefined,
   ),
 );
 
@@ -1483,6 +1491,8 @@ function frame(ts?: number) {
   smoke.update(dt, camera);
   confetti.update(dt);
   hanger.update();
+  sky.update(dt, t, camera);
+  sound.setWeather(sky.rain, 1 - sky.daylight);
 
   if (modalOpen() || hanger.active) target = null;
   else if (firstPerson) {
@@ -1501,9 +1511,13 @@ function frame(ts?: number) {
 
   effect.render(scene, camera);
   if (firstPerson) {
-    // Hands go on top of everything, so they never clip into a desk you walk up to.
+    // Hands go on top of everything, so they never clip into a desk you walk up to. They have
+    // lights of their own, turned down to match wherever you're standing.
     renderer.clearDepth();
+    hands.setLight(sky.lightAt(camera.position));
+    sky.shading(false);
     effect.render(hands.scene, hands.camera);
+    sky.shading(true);
   }
   requestAnimationFrame(frame);
 }
@@ -1548,7 +1562,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, caffeine, camera, workerViews, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen, confetti, dog };
+(window as any).__office = { store, player, caffeine, camera, workerViews, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen, confetti, dog, sky };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;
