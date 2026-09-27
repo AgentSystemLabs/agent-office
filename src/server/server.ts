@@ -24,6 +24,7 @@ import { MAX_WORKER_LIMIT, Machine, parseWorkerLimit } from './machine.js';
 import { Building, type FloorDef } from './building.js';
 import { Floor, type FloorContext } from './floor.js';
 import { Sky } from './sky.js';
+import { Themes } from './theme.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import { ChatLog } from './history.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
@@ -34,6 +35,7 @@ import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
+import { isThemePick } from '../shared/theme.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -329,6 +331,10 @@ export async function startServer(cfg: Config) {
   // Day, night and the weather outside the windows, the same for everyone.
   const sky = new Sky({ city: cfg.city, weather: cfg.weather }, (state) => broadcast({ t: 'sky', state }));
   sky.start();
+  // Halloween or Christmas all over the building, the same for everyone (⚙️ Settings). On 'auto' it
+  // goes by the calendar at the office, the sky's clock.
+  const themes = new Themes(cfg.dataDir, () => sky.state.utcOffset, (state) => broadcast({ t: 'theme', state }));
+  themes.start();
 
   // What the workers spend, all time and today, with the optional daily budget.
   const ledger = new Ledger(
@@ -832,6 +838,7 @@ export async function startServer(cfg: Config) {
       notify: webhook.state(),
       machine: machine.state(),
       sky: sky.state,
+      theme: themes.state(),
       ...floorView(floor),
     });
     screensOf(client, floor);
@@ -1275,6 +1282,22 @@ export async function startServer(cfg: Config) {
       case 'notify.test':
         void webhook.test(who).then((err) => sendTo(c, { t: 'toast', text: err ?? '📣 Sent a test message', level: err ? 'warn' : 'info' }));
         break;
+      case 'theme.set': {
+        if (!isThemePick(msg.pick)) return;
+        if (msg.pick === themes.state().pick) break;
+        themes.set(msg.pick, who);
+        const now = themes.state().active;
+        toastAll(
+          msg.pick === 'halloween'
+            ? `🎃 ${who} dressed the office up for Halloween`
+            : msg.pick === 'christmas'
+              ? `🎄 ${who} dressed the office up for Christmas`
+              : msg.pick === 'off'
+                ? `${who} took the holiday decorations down`
+                : `📅 ${who} set the decorations to follow the calendar${now ? ` (it's ${now === 'halloween' ? 'Halloween 🎃' : 'Christmas 🎄'} season)` : ''}`,
+        );
+        break;
+      }
       case 'machine.limit': {
         if (!meOf(c.accountId).admin) return warn(c, 'Only admins can change the worker limit');
         const limit = msg.limit === null ? undefined : parseWorkerLimit(msg.limit);
@@ -1548,6 +1571,7 @@ export async function startServer(cfg: Config) {
     webhook.stop();
     machine.stop();
     sky.stop();
+    themes.stop();
     for (const f of floors.values()) f.shutdown(keep);
     ledger.flush();
     limits.close();

@@ -88,6 +88,8 @@ export interface Office {
   setLook(p: FloorPalette): void;
   /** Lights, windows and glass for the sky to change with the time of day and the weather. */
   night: NightParts;
+  /** The potted plants round the room, in PLANTS' order: pot first, then the leaves (world/holiday.ts trims them for Christmas). */
+  plants: THREE.Group[];
   /** Animates the office; doors open for anyone in `people` who comes up to them. */
   update(t: number, dt: number, people: Iterable<{ x: number; y: number; z: number }>): void;
 }
@@ -1101,10 +1103,12 @@ export function buildOffice(): Office {
   fixture('south', -11.3, 1.1, 1.1, 2.2);
 
   // Plants around the room
+  const plants: THREE.Group[] = [];
   for (const [x, z, s] of PLANTS) {
     const p = plant(s);
     p.position.set(x, 0, z);
     group.add(p);
+    plants.push(p);
     const r = 0.3 * s;
     colliders.push({ minX: x - r, maxX: x + r, minZ: z - r, maxZ: z + r, top: 0.5 * s });
   }
@@ -1183,7 +1187,7 @@ export function buildOffice(): Office {
     gong.update(dt);
   };
 
-  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, fixtures: () => fixtures, elevator, gong, jukebox, whiteboard, stack, setProjectName, setLook, night, update };
+  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, fixtures: () => fixtures, elevator, gong, jukebox, whiteboard, stack, setProjectName, setLook, night, plants, update };
 }
 
 /** The materials and textures a floor paints in its own colors. */

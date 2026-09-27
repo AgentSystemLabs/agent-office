@@ -659,6 +659,21 @@ export interface SkyState {
   temp?: number;
 }
 
+/** A holiday the whole building dresses up for (see shared/theme.ts). */
+export type Theme = 'halloween' | 'christmas';
+/** What someone picked in ⚙️ Settings: a holiday, none, or whichever the calendar says. */
+export type ThemePick = Theme | 'auto' | 'off';
+
+/** The building's holiday theme: the same on every floor, for everyone. */
+export interface ThemeState {
+  pick: ThemePick;
+  /** What's up right now: the pick, or for 'auto' the holiday it is at the office. Null for none. */
+  active: Theme | null;
+  /** Who picked it, and when. Unset for the default (auto). */
+  by?: string;
+  at?: number;
+}
+
 export interface ChatLine {
   from: string;
   name: string;
@@ -805,6 +820,8 @@ export type ClientMsg =
   | { t: 'floor.repos'; refresh?: boolean }
   /** Clone a repository and make it a new floor; answered with `floor.added` once it's there. */
   | { t: 'floor.add'; repo: string }
+  /** Dress the building up for a holiday, take the decorations down ('off'), or follow the calendar ('auto'). */
+  | { t: 'theme.set'; pick: ThemePick }
   /** Give the dog on your floor a pat; it has to be within reach. */
   | { t: 'dog.pet' }
   /** Name the dog on your floor ('' gives it back its first name). */
@@ -834,6 +851,8 @@ export type ServerMsg =
       machine: MachineState;
       /** Outside the windows: the same on every floor. */
       sky: SkyState;
+      /** Halloween or Christmas decorations, all over the building, or none. */
+      theme: ThemeState;
     } & FloorView)
   /** You arrived on another floor: everything on it, replacing the last one's, and where everyone is now. */
   | ({ t: 'floor.enter'; peers: PeerInfo[] } & FloorView)
@@ -891,6 +910,7 @@ export type ServerMsg =
   | { t: 'notify'; state: NotifyState }
   | { t: 'machine'; state: MachineState }
   | { t: 'sky'; state: SkyState }
+  | { t: 'theme'; state: ThemeState }
   /** Sent to whoever watches that worker's changes, whenever they change. */
   | { t: 'changes'; state: ChangesState }
   | { t: 'changes.diff'; workerId: string; path: string; diff: string; truncated: boolean; error?: string }

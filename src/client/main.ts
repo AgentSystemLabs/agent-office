@@ -20,6 +20,7 @@ import { Laptop } from './world/laptop';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import { Gallery } from './world/gallery';
 import { Dog } from './world/dog';
+import { Holiday } from './world/holiday';
 import { Departures } from './world/leaving';
 import { Confetti } from './world/confetti';
 import { Hanger } from './hanging';
@@ -94,6 +95,9 @@ const office = buildOffice();
 scene.add(office.group);
 const sky = new Sky(scene, { sun, hemi, ambient }, office.night);
 store.on('sky', () => store.sky && sky.set(store.sky));
+// Halloween or Christmas decorations, up while the building's dressed up for one (see dressUp).
+const holiday = new Holiday(office);
+scene.add(holiday.group);
 
 const noOutline = (obj: THREE.Object3D) =>
   obj.traverse((o) => {
@@ -105,6 +109,7 @@ const noOutline = (obj: THREE.Object3D) =>
     for (const mat of mats) if (flat || mat instanceof THREE.MeshBasicMaterial) mat.userData.outlineParameters = { visible: false };
   });
 noOutline(office.group);
+noOutline(holiday.group);
 
 // ---- Board agents -------------------------------------------------------------------------------
 /** What each board agent is for: its board's icon, what it offers on the card over its head, and an example ask. */
@@ -711,6 +716,7 @@ function syncPeers() {
     let r = remotes.get(id);
     if (!r) {
       const person = new Person(peer.name, peer.color, peer.look);
+      person.setCostume(store.theme.active);
       person.onSmoke = puff;
       person.root.position.set(peer.x, peer.y, peer.z);
       scene.add(person.root);
@@ -843,6 +849,7 @@ function syncWorkers() {
     if (!v) {
       departures.vacate(w.deskId);
       const model = new Worker(w.name, w.color);
+      model.setCostume(store.theme.active);
       desk.seatAnchor.add(model.root);
       // Its progress bar and globe float beside the laptop (or the kiosk's counter), out from behind
       // the card over its head and the back of its chair, so they show from across the room.
@@ -916,6 +923,23 @@ function arrangeSeats() {
 }
 store.on('workers', syncWorkers);
 store.on('workers', renderUsage);
+
+/**
+ * Dresses the building up for the holiday it's set to (⚙️ Settings), or takes it all down: the sky and
+ * the decorations, the dog, your hands and your character, everyone else, and every worker.
+ */
+function dressUp() {
+  const theme = store.theme.active;
+  holiday.set(theme);
+  sky.setTheme(theme);
+  dog.setCostume(theme);
+  hands.setCostume(theme);
+  me.setCostume(theme);
+  for (const r of remotes.values()) r.person.setCostume(theme);
+  for (const v of workerViews.values()) v.model.setCostume(theme);
+  for (const a of idleAgents) a.model.setCostume(theme);
+}
+store.on('theme', dressUp);
 store.on('usage', renderUsage);
 store.on('limits', renderLimits);
 // The reset countdowns tick down between reads.
@@ -2407,6 +2431,7 @@ function frame(ts?: number) {
   confetti.update(dt);
   hanger.update();
   sky.update(dt, t, camera);
+  holiday.update(t, sky.lampsOn, camera);
   sound.setWeather(sky.rain, 1 - sky.daylight);
 
   if (modalOpen() || hanger.active || climber.active) target = null;
@@ -2485,7 +2510,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, caffeine, camera, arcade, workerViews, departures, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, elevatorPanelOpen, confetti, dog, sky, carried: () => carrying, emoteWheel, emote };
+(window as any).__office = { store, player, caffeine, camera, arcade, workerViews, departures, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;
