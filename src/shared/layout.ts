@@ -17,6 +17,8 @@ export interface DeskDef {
   beanbag?: boolean;
   /** A board agent's kiosk instead of a desk (see STATIONS): the worker stands behind it. */
   station?: StationKind;
+  /** A chair at the meeting room's table (see MEETING_SEATS): only a meeting seats a worker here. */
+  room?: boolean;
 }
 
 const DESK_WIDTH = 2.2;
@@ -102,8 +104,38 @@ export const STATION_AGENT: Record<StationKind, { name: string; color: string }>
   queue: { name: 'Queue agent', color: '#06d6a0' },
 };
 
-/** Any place a worker can be by id: the seats, and the board agents' kiosks. */
-export const DESK_BY_ID = new Map([...SEATS, ...STATIONS].map((d) => [d.id, d]));
+/** The upstairs office: a glass-walled loft on posts in the south-east corner, looking down on the desks. */
+export const LOFT = { minX: 9, maxX: FLOOR.maxX, minZ: 8, maxZ: FLOOR.maxZ, y: 3, height: 2.8 } as const;
+/** Its stairs climb east along the south wall and arrive at the loft's west door. */
+export const STAIRS = { fromX: 3, toX: LOFT.minX, minZ: 11.2, maxZ: FLOOR.maxZ, steps: 15 } as const;
+
+/**
+ * The meeting room: glass walls round the space under the boss office, from the loft's posts to the
+ * outside walls, with a long table in the middle. Workers called to a meeting sit round it (see
+ * MEETING_SEATS and server/meetings.ts). The glass stops under the loft's floor; the door is in the
+ * north wall, facing the lounge.
+ */
+export const MEETING_ROOM = { minX: LOFT.minX + 0.15, maxX: FLOOR.maxX, minZ: LOFT.minZ + 0.15, maxZ: FLOOR.maxZ, height: LOFT.y - 0.25, door: { x0: 10, x1: 11.4 } } as const;
+export const MEETING_TABLE = { x: 13.7, z: 10.55, width: 3.6, depth: 1.2, height: 0.76 } as const;
+/**
+ * The chairs round the meeting table, in the order a meeting fills them: the head of the table at its
+ * west end (whoever leads or writes the meeting up), then two down each side. (x, z) is where the
+ * laptop sits on the table; the chair is out from it the way a desk's is (deskSeat).
+ */
+export const MEETING_SEATS: DeskDef[] = (
+  [
+    [MEETING_TABLE.x - MEETING_TABLE.width / 2 + 0.35, MEETING_TABLE.z, -Math.PI / 2],
+    [MEETING_TABLE.x - 0.6, MEETING_TABLE.z - MEETING_TABLE.depth / 2 + 0.35, Math.PI],
+    [MEETING_TABLE.x - 0.6, MEETING_TABLE.z + MEETING_TABLE.depth / 2 - 0.35, 0],
+    [MEETING_TABLE.x + 1.1, MEETING_TABLE.z - MEETING_TABLE.depth / 2 + 0.35, Math.PI],
+    [MEETING_TABLE.x + 1.1, MEETING_TABLE.z + MEETING_TABLE.depth / 2 - 0.35, 0],
+  ] as const
+).map(([x, z, rotY], i) => ({ id: `meeting-${i + 1}`, x, z, rotY, label: i === 0 ? 'Head of the table' : `Meeting chair ${i + 1}`, room: true }));
+/** The board on the meeting room's back (south) wall that shows the meeting's output file as it's written. */
+export const MEETING_BOARD = { x: MEETING_TABLE.x, y: 1.95, z: FLOOR.maxZ - 0.08, width: 3.6, height: 1.2 } as const;
+
+/** Any place a worker can be by id: the seats, the board agents' kiosks and the meeting room's chairs. */
+export const DESK_BY_ID = new Map([...SEATS, ...STATIONS, ...MEETING_SEATS].map((d) => [d.id, d]));
 
 /** The seat a new worker takes when nobody picks one: the first free desk, else the first free bean bag. */
 export function nextFreeSeat(taken: (id: string) => boolean): DeskDef | undefined {
@@ -168,11 +200,6 @@ export const MACHINE_MONITOR = { x: FLOOR.minX, y: 2.2, z: -6, width: 2.3, heigh
 export const JUKEBOX = { x: FLOOR.maxX - 0.42, y: 0.75, z: 5.4, width: 1.3, depth: 0.72, height: 1.85 } as const;
 /** The arcade cabinet, against the east wall between the jukebox and the loft, facing into the room. `width` runs along the wall. */
 export const CABINET = { x: FLOOR.maxX - 0.42, z: 7.05, width: 0.8, depth: 0.8, height: 1.9 } as const;
-
-/** The upstairs office: a glass-walled loft on posts in the south-east corner, looking down on the desks. */
-export const LOFT = { minX: 9, maxX: FLOOR.maxX, minZ: 8, maxZ: FLOOR.maxZ, y: 3, height: 2.8 } as const;
-/** Its stairs climb east along the south wall and arrive at the loft's west door. */
-export const STAIRS = { fromX: 3, toX: LOFT.minX, minZ: 11.2, maxZ: FLOOR.maxZ, steps: 15 } as const;
 
 export const SPAWN = { x: 8, z: 7 } as const;
 

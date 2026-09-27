@@ -950,7 +950,7 @@ export class Worker {
   private feet: THREE.Mesh[] = [];
   /** Sent home: the box of its things in its arms, and how far into its waddle it is. */
   private leaving: { box: THREE.Group; boxT: number; stride: number } | null = null;
-  /** Sent home and on its way out: it waddles along instead of standing. */
+  /** On its way out (sent home) or in (called to a meeting): it waddles along instead of standing. */
   walking = false;
   /** What its latest tool call was (see setAction), and what it's acting out right now. */
   private nextAction: WorkerAction | undefined;
@@ -971,6 +971,8 @@ export class Worker {
   private globe: ReturnType<typeof globe>;
   /** Beside its laptop, where the bar and the globe float (see setPropSpot). */
   private spot = new THREE.Vector3(-1, 1.1, 1.3);
+  /** How far through its stride it is, walking in. */
+  private stride = 0;
 
   constructor(name: string, color: string) {
     const skin = toonUnique(color);
@@ -1227,6 +1229,18 @@ export class Worker {
     this.bulbMesh.scale.setScalar(this.status === 'needs_input' ? 1 + Math.abs(Math.sin(t * 8)) * 0.5 : 1);
     if (this.bubble) this.bubble.position.y = (this.bubbleIsCard ? 1.74 : 1.95) + (hopping ? this.body.position.y : 0) + Math.sin(t * 3) * 0.03;
     if (this.nameTag) this.nameTag.position.y = 1.55 + (hopping ? this.body.position.y : 0);
+    // Walking in to a meeting: the same waddle as on the way out, without the box.
+    if (this.walking || this.stride) {
+      this.stride = this.walking ? this.stride + dt * 9 : 0;
+      const s = Math.sin(this.stride);
+      this.feet.forEach((f, i) => {
+        const step = i ? -s : s;
+        f.position.z = 0.05 + step * 0.08;
+        f.position.y = 0.2 + Math.max(0, step) * 0.05;
+      });
+      this.body.position.y += Math.abs(s) * 0.05;
+      this.body.rotation.z = s * 0.1;
+    }
   }
 
   /** Eases toward `act`'s stance, out of whatever it was doing before. */

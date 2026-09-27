@@ -582,6 +582,8 @@ button { font-family: inherit; }
 .gh-col { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
 .gh-foot { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .modal.gh-window footer a.grow { font-size: 14px; color: #1d6fd6; font-weight: 800; text-decoration: none; }
+/* Many actions on a narrow window: they wrap onto a second row rather than run off the edge. */
+.modal.gh-window footer { flex-wrap: wrap; row-gap: 8px; }
 .gh-avatar { width: 24px; height: 24px; flex: none; border-radius: 50%; border: 2px solid var(--ink); color: #fff; font-size: 12px; font-weight: 900; display: inline-grid; place-items: center; }
 .gh-card { background: #fff; border: 2px solid var(--ink); border-radius: 14px; box-shadow: 0 3px 0 var(--ink); overflow: clip; }
 .gh-card > header { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: var(--paper-2); border-bottom: 2px solid rgba(43, 45, 66, .15); font-size: 13px; font-weight: 700; color: var(--muted); }
@@ -921,3 +923,47 @@ a.when:hover { text-decoration: underline; }
 .menu-toggle[aria-checked=true] .switch::after { transform: translateX(14px); }
 .menu-foot { grid-column: 1 / -1; margin: 8px 0 0; padding: 8px 8px 2px; border-top: 2px dashed rgba(43, 45, 66, .18); font-size: 12px; font-weight: 700; color: var(--muted); }
 @media (max-width: 600px) { .hud-menu { grid-template-columns: 1fr; } }
+
+/* The meeting room's window: calling a meeting, and watching one */
+.modal.meeting-window { width: min(780px, 100%); }
+.meeting-window .muted { color: var(--muted); font-weight: 700; font-size: 12px; }
+.meeting-window .bad { color: var(--bad); }
+.meeting-window .btn.small { padding: 3px 8px; font-size: 12px; border-width: 2px; border-radius: 9px; }
+.meeting-form { display: flex; flex-direction: column; gap: 12px; }
+.meeting-patterns { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.meeting-pattern { text-align: left; font: inherit; color: var(--ink); background: #fff; border: 3px solid var(--ink); border-radius: 12px; padding: 8px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; }
+.meeting-pattern b { font-size: 14px; }
+.meeting-pattern small { font-size: 12px; color: var(--muted); font-weight: 700; line-height: 1.3; }
+.meeting-pattern.on { background: var(--warn); box-shadow: 0 3px 0 var(--ink); }
+.meeting-pattern.on small { color: var(--ink); }
+.meeting-field { display: flex; flex-direction: column; gap: 4px; }
+.meeting-field label { margin: 0; }
+.meeting-field input[type=number] { width: 150px; font: inherit; font-size: 15px; border: 3px solid var(--ink); border-radius: 12px; padding: 8px 10px; background: #fff; }
+.meeting-field input:disabled { opacity: .55; }
+.meeting-count { display: flex !important; align-items: center; gap: 8px; }
+.meeting-roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; }
+.meeting-role { display: flex; align-items: center; gap: 6px; }
+.meeting-role span { width: 18px; text-align: center; }
+.meeting-window .meeting-role input[type=text] { padding: 6px 9px; font-size: 14px; }
+.meeting-bounds { display: flex; gap: 16px; flex-wrap: wrap; }
+.meeting-bounds .meeting-field { flex: 1; min-width: 220px; }
+.meeting-busy { margin: 0; font-weight: 800; color: var(--muted); }
+.meeting-busy:empty { display: none; }
+.meeting-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 16px; }
+.meeting-title { font-weight: 800; }
+.meeting-line { margin: 8px 0; font-weight: 700; }
+.meeting-budget { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 13px; }
+.meeting-bar { flex: 1; height: 12px; border: 2px solid var(--ink); border-radius: 999px; overflow: hidden; background: #fff; }
+.meeting-bar i { display: block; height: 100%; }
+.meeting-seats { list-style: none; padding: 0; margin: 12px 0; display: flex; flex-direction: column; gap: 6px; }
+.meeting-seats li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: #fff; border: 2px solid var(--ink); border-radius: 12px; padding: 6px 10px; }
+.meeting-seats .dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--ink); flex: none; }
+.meeting-seats .btn { margin-left: auto; }
+.meeting-part { font-weight: 800; font-size: 13px; }
+.meeting-out { border: 2px solid var(--ink); border-radius: 12px; overflow: hidden; background: #fff; }
+.meeting-out-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 6px 10px; background: var(--paper-2); border-bottom: 2px solid var(--ink); font-size: 13px; font-weight: 700; }
+.meeting-preview { margin: 0; padding: 10px; max-height: 240px; overflow: auto; white-space: pre-wrap; font-size: 12.5px; }
+.meeting-past { margin-top: 12px; }
+.meeting-past summary { font-weight: 800; cursor: pointer; }
+.meeting-past ul { padding-left: 18px; margin: 6px 0 0; }
+.meeting-past li { margin: 6px 0; }

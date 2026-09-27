@@ -26,7 +26,7 @@ import { Sky } from './sky.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
-import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
+import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import { DESK_BY_ID, STREET_Y, elevatorSpot, seatAt } from '../shared/layout.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
@@ -501,6 +501,7 @@ export async function startServer(cfg: Config) {
     dog: floor?.dog.view() ?? null,
     jukebox: floor?.jukebox.state() ?? { on: false, track: JUKEBOX_TUNES[0].id, startedAt: Date.now(), elapsed: 0 },
     whiteboard: { elements: floor?.whiteboard.scene() ?? [], people: floor ? drawing(floor) : [] },
+    meeting: floor?.meetings.state() ?? { current: null, past: [] },
     cabinet: { ...cabinetState(floor), frame: (floor && cabinetPlayer(floor)?.frame) ?? null },
   });
   const screensOf = (c: Client, floor: Floor | undefined) => {
@@ -1310,6 +1311,42 @@ export async function startServer(cfg: Config) {
       case 'queue.limit':
         floorOf(c)?.queue.setLimit(num(msg.maxWorkers));
         break;
+      case 'meeting.start': {
+        const floor = here();
+        if (!floor) break;
+        if (msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider))) {
+          warn(c, 'Unknown agent provider');
+          break;
+        }
+        const count = (v: unknown) => (Number.isInteger(v) && (v as number) > 0 ? (v as number) : undefined);
+        const request: MeetingRequest = {
+          pattern: msg.pattern,
+          prompt: str(msg.prompt, 20000),
+          title: str(msg.title, 200) || undefined,
+          output: str(msg.output, 300) || undefined,
+          roles: Array.isArray(msg.roles) ? msg.roles.slice(0, 8).map((r) => str(r, 80)) : [],
+          parts: Array.isArray(msg.parts) ? msg.parts.slice(0, 200).map((p) => str(p, 500)) : undefined,
+          pr: count(msg.pr),
+          issue: count(msg.issue),
+          rounds: count(msg.rounds),
+          budget: count(msg.budget),
+          provider: msg.provider,
+          model: msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1),
+          effort: isAgentEffort(msg.effort) ? msg.effort : undefined,
+        };
+        warn(c, floor.meetings.start(request, who));
+        break;
+      }
+      case 'meeting.stop': {
+        const floor = here();
+        if (floor) warn(c, floor.meetings.stop(who));
+        break;
+      }
+      case 'meeting.clear': {
+        const floor = here();
+        if (floor) warn(c, floor.meetings.clear(who));
+        break;
+      }
       case 'notify.webhook': {
         const url = str(msg.url, 4096).trim();
         const err = webhook.set(url, who);

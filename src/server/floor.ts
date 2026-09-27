@@ -14,6 +14,8 @@ import { Decor } from './decor.js';
 import { Dog } from './dog.js';
 import { Jukebox } from './jukebox.js';
 import { Whiteboard } from './whiteboard.js';
+import { MeetingRoom } from './meetings.js';
+import { Worktrees } from './worktrees.js';
 import type { Ledger } from './usage.js';
 import type { Capacity } from './machine.js';
 
@@ -83,6 +85,8 @@ export class Floor {
   readonly jukebox: Jukebox;
   /** The whiteboard everyone on the floor draws on together. */
   readonly whiteboard: Whiteboard;
+  /** The meeting room, where workers work through a question together (see meetings.ts). */
+  readonly meetings: MeetingRoom;
   /** Settles once the workers whose terminals outlived the last office are picked back up, and the rest woken. */
   readonly ready: Promise<void>;
   readonly dog: Dog;
@@ -119,6 +123,7 @@ export class Floor {
           ctx.emit(this, { t: 'worker.update', worker });
           // Still being built: the first updates come from waking the workers already at their desks.
           this.queue?.onWorker(worker);
+          this.meetings?.onWorker(worker);
           this.dog.onWorker(worker);
           ctx.workerChanged(this, worker);
         },
@@ -126,6 +131,7 @@ export class Floor {
           this.changes?.forget(workerId);
           ctx.emit(this, { t: 'worker.remove', workerId });
           this.queue?.onWorkerGone(workerId);
+          this.meetings?.onWorkerGone(workerId);
           this.dog.onWorkerGone(workerId);
           ctx.workerChanged(this, workerId);
         },
@@ -163,6 +169,27 @@ export class Floor {
         ctx.emit(this, { t: 'gong', why: 'queue' });
       },
     });
+
+    // Meetings seat their own workers round the meeting room's table and run them round by round.
+    this.meetings = new MeetingRoom(
+      def.dir,
+      dataDir,
+      {
+        defaultProvider: this.workers.defaultProvider,
+        list: () => this.workers.list(),
+        seat: (deskId, by, prompt, provider, model, effort, meeting) => this.workers.spawn(deskId, by, prompt, false, 'agent', provider, model, effort, meeting),
+        prompt: (id, text, by) => this.workers.prompt(id, text, by),
+        write: (id, data, by) => this.workers.write(id, data, by),
+        kill: (id) => this.workers.kill(id),
+      },
+      this.project.branch ? new Worktrees(def.dir) : undefined,
+      {
+        update: (state) => ctx.emit(this, { t: 'meeting', state }),
+        toast: (text, level) => ctx.toast(this, text, level),
+        hiringPaused: () => ctx.ledger.hiringPaused,
+        postReview: (pr, file) => this.github.review(pr, file),
+      },
+    );
 
     // What each worker changed, for the Changes window at its desk (see changes.ts).
     this.changes = new Changes(
@@ -207,7 +234,7 @@ export class Floor {
   }
 
   private active(): boolean {
-    return this.ctx.people(this) > 0 || this.workers.list().some((w) => isBusy(w.status)) || this.queue.state().tasks.some((t) => t.status !== 'done');
+    return this.ctx.people(this) > 0 || this.workers.list().some((w) => isBusy(w.status)) || this.queue.state().tasks.some((t) => t.status !== 'done') || this.meetings.state().current?.status === 'running';
   }
 
   info(): FloorInfo {
@@ -233,6 +260,7 @@ export class Floor {
     this.dog.stop();
     this.github.stop();
     this.queue.shutdown();
+    this.meetings.shutdown();
     this.changes.stop();
     this.whiteboard.flush();
     this.workers.shutdown(keep);

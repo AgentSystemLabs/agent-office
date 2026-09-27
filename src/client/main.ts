@@ -4,7 +4,8 @@ import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
 import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, LADDER, LOFT, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, seatAt, seatPlace, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
-import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo } from '../shared/protocol';
+import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
+import { MEETING_PATTERNS } from '../shared/meetings';
 import { isAsleep, isBusy } from '../shared/status';
 import { Net } from './net';
 import { store, loadProfile, loadSettings, saveSettings, workerForPull, type Profile, type Topic } from './state';
@@ -20,7 +21,7 @@ import { Laptop } from './world/laptop';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import { Gallery } from './world/gallery';
 import { Dog } from './world/dog';
-import { Departures } from './world/leaving';
+import { Arrivals, Departures } from './world/leaving';
 import { Confetti, type Area } from './world/confetti';
 import { Hanger } from './hanging';
 import { disposeSprite, textSprite } from './world/toon';
@@ -62,6 +63,8 @@ import { EMOTES, EMOTE_BY_ID, EmoteBucket, type EmoteId } from '../shared/emotes
 import { EmoteWheel } from './ui/emotes';
 import { whereabouts } from './ui/whereabouts';
 import { wayTo } from './walkto';
+import { MeetingBoardTexture, MeetingSignTexture, meetingStage } from './world/meeting';
+import { issueMeeting, openMeeting, type MeetingPreset } from './ui/meeting';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -176,6 +179,11 @@ mountBoard(office.boardMeshes.queue, queueTex.texture, () => queueTex.render(sto
 // The machine monitor on the west wall.
 const machineTex = new MachineTexture();
 mountBoard(office.machineScreen, machineTex.texture, () => machineTex.render(store.machine), ['machine']);
+// The meeting room: its output as it's written on the back wall, and how it's going on the door.
+const meetingBoardTex = new MeetingBoardTexture();
+mountBoard(office.meetingBoard, meetingBoardTex.texture, () => meetingBoardTex.render(store.meeting), ['meeting']);
+const meetingSignTex = new MeetingSignTexture();
+mountBoard(office.meetingSign, meetingSignTex.texture, () => meetingSignTex.render(store.meeting), ['meeting']);
 
 // Pictures people hung on the walls
 const gallery = new Gallery();
@@ -407,6 +415,14 @@ const departures = new Departures(
   (x, y, z) => sound.stepAt(x, z, y),
   () => arrangeSeats(),
 );
+// Workers called to a meeting, walking in from the elevator to the meeting table.
+const arrivals = new Arrivals(
+  scene,
+  (x, z, y) => groundAt(office.colliders, x, z, y),
+  (x, y, z) => sound.stepAt(x, z, y),
+);
+/** Set while a floor's workers arrive with it (a welcome, an elevator ride): they're in their seats already. */
+let seatedAlready = false;
 let firstWelcome = true;
 /** The server version this page was loaded with. */
 let bootVersion = '';
@@ -415,9 +431,14 @@ let upgradePhase = '';
 net.onStatus((up) => $('conn').classList.toggle('hidden', up));
 net.onMessage((msg) => {
   if (msg.t === 'welcome') voice.reset();
-  if (msg.t === 'welcome' || msg.t === 'floor.enter') departures.clear();
+  if (msg.t === 'welcome' || msg.t === 'floor.enter') {
+    departures.clear();
+    arrivals.clear();
+    seatedAlready = true;
+  }
   if (msg.t === 'worker.remove') sentHome.add(msg.workerId);
   store.apply(msg);
+  seatedAlready = false;
   sentHome.clear();
   routeTerminalMessage(msg);
   routeChangesMessage(msg);
@@ -853,6 +874,8 @@ function syncWorkers() {
       // the card over its head and the back of its chair, so they show from across the room.
       const beside = desk.def.station ? new THREE.Vector3(0.62, 0.9, 0) : new THREE.Vector3(0.64, 0.5, -0.1);
       model.setPropSpot(model.root.worldToLocal(desk.laptopAnchor.localToWorld(beside)));
+      // Called to a meeting just now: out of the elevator and over to the table, one after another.
+      if (desk.def.room && !seatedAlready) arrivals.add(model, desk);
       const laptop = new Laptop();
       desk.laptopAnchor.add(laptop.root);
       noOutline(desk.group);
@@ -880,7 +903,7 @@ function syncWorkers() {
     }
     v.model.setAction(w.action);
     const engineBadge = w.kind === 'agent' ? modelBadge(w.provider, w.model, w.effort) : undefined;
-    v.model.setTask(w.task && w.kind === 'agent' ? { ...w.task, name: `${providerLabel(w.provider, store.project)}${engineBadge ? ` · ${engineBadge}` : ''} · ${w.task.name}` } : w.task);
+    v.model.setTask(meetingCard(w) ?? (w.task && w.kind === 'agent' ? { ...w.task, name: `${providerLabel(w.provider, store.project)}${engineBadge ? ` · ${engineBadge}` : ''} · ${w.task.name}` } : w.task));
     const deskDef = DESK_BY_ID.get(w.deskId);
     // Keys clack while it types, not while it reads, watches its tests or browses.
     if (deskDef) sound.setTyping(w.id, deskDef.x, deskDef.z, w.status === 'working' && (!w.action || w.action === 'edit'));
@@ -889,6 +912,7 @@ function syncWorkers() {
   }
   for (const [id, v] of workerViews) {
     if (store.workers.has(id)) continue;
+    arrivals.forget(v.model);
     const desk = office.desks.get(v.deskId);
     // Sent home: it packs up and walks out, and the seat shows as free once it's up (see departures).
     if (desk && sentHome.has(id)) departures.add(v.model, v.laptop, desk);
@@ -915,6 +939,23 @@ function yours(w: WorkerInfo): boolean {
 }
 
 /**
+ * The card over a worker at the meeting table: its role, the round, and whether it has the floor
+ * (working on its part) or is listening while the others work on theirs.
+ */
+function meetingCard(w: WorkerInfo): WorkerTask | undefined {
+  const m = store.meeting.current;
+  if (!w.meeting || !m || m.id !== w.meeting) return undefined;
+  const i = m.seats.findIndex((s) => s.workerId === w.id);
+  if (i < 0) return undefined;
+  const role = m.seats[i].role;
+  const p = MEETING_PATTERNS[m.pattern];
+  if (m.status !== 'running') return { name: `${role} · ${p.icon} ${p.label}`, summary: m.status === 'done' ? `✅ The meeting wrote ${m.output}` : `⛔ Stopped: ${m.reason ?? 'stopped'}` };
+  const t = m.turns.find((x) => x.seat === i);
+  if (!t || t.state === 'done') return { name: `👂 ${role} · round ${m.round} of ${m.rounds}`, summary: t ? 'Part written: listening' : 'Listening' };
+  return { name: `💬 ${role} · round ${m.round} of ${m.rounds}`, summary: t.state === 'working' ? t.doing : `${t.doing} (up next)` };
+}
+
+/**
  * A seat or kiosk shows it's free (its '+', or the board agent waiting there) only while nobody's at
  * it, and once every desk is taken, bean bags come out for the workers who don't fit.
  */
@@ -928,6 +969,8 @@ function arrangeSeats() {
   for (const c of appeared) if (p.y > -0.1 && p.y < c.top && p.x > c.minX - 0.3 && p.x < c.maxX + 0.3 && p.z > c.minZ - 0.3 && p.z < c.maxZ + 0.3) p.y = c.top;
 }
 store.on('workers', syncWorkers);
+// A worker at the meeting table shows its role and round over its head (see meetingCard).
+store.on('meeting', syncWorkers);
 store.on('workers', renderUsage);
 store.on('usage', renderUsage);
 store.on('limits', renderLimits);
@@ -1031,6 +1074,13 @@ function killWorker(id: string) {
   if (!w) return;
   const where = DESK_BY_ID.get(w.deskId)?.label ?? 'the desk';
   const session = w.kind === 'shell' ? 'shared shell' : `${providerLabel(w.provider, store.project)} session`;
+  if (w.meeting) {
+    // The meeting's worktree is the whole table's: it's tidied away once they've all gone.
+    const m = store.meeting.current;
+    const on = m?.id === w.meeting && m.status === 'running';
+    confirmDialog(`Send ${w.name} home?`, on ? `${w.name} is in the meeting on “${m.title}”, which stops without it.` : `${w.name} leaves the meeting room.`, 'Send home', () => net.send({ t: 'worker.kill', workerId: id }));
+    return;
+  }
   if (w.worktree) {
     // A worker with its own worktree: choose what becomes of the worktree and its branch.
     sendHomeDialog({
@@ -1218,6 +1268,21 @@ function showQueue() {
   openQueue(net, { openTerminal: openWorkerTerminal });
 }
 
+/** The meeting room's window: how the meeting's going, or the form to call one (prefilled from an issue or a PR). */
+function showMeeting(preset?: MeetingPreset) {
+  openMeeting(
+    net,
+    {
+      openTerminal: openWorkerTerminal,
+      openPr: (id) => {
+        const w = store.workers.get(id);
+        if (w) pullRequestFor(w);
+      },
+    },
+    preset,
+  );
+}
+
 function showJukebox() {
   openJukebox(net, showSettings);
 }
@@ -1249,6 +1314,7 @@ function boardActions() {
     queue: (prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string, effort?: AgentEffort) => net.send({ t: 'queue.add', prompt, title, issue, provider, model, effort }),
     assign: (prompt: string, title: string) => sendToWorker(`🤖 ${title}`, { initial: prompt }),
     ask: (context: string, title: string) => sendToWorker(`✍️ ${title}`, { context }),
+    meeting: (preset: MeetingPreset) => showMeeting(preset),
     goToDesk,
     pickUp,
   };
@@ -1275,6 +1341,8 @@ function interact(target: Interactable | null, key: DeskKey) {
   if (key === 'E' && carrying && dropCard(target, carrying)) return;
   if (target.kind === 'desk' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
+    // Nobody is hired at the meeting table: a meeting seats its own workers there.
+    if (!w && DESK_BY_ID.get(target.deskId)?.room) return key === 'E' ? showMeeting() : undefined;
     if (key === 'B' && !w) return openShell(target.deskId);
     if (key === 'P') return promptAtDesk(target.deskId);
     if (key === 'E') return w ? openWorkerTerminal(w.id) : hireAtDesk(target.deskId);
@@ -1315,6 +1383,7 @@ function interact(target: Interactable | null, key: DeskKey) {
   else if (target.kind === 'cabinet') cabinet.play();
   else if (target.kind === 'ladder') grabLadder();
   else if (target.kind === 'pole' && target.pole !== undefined) usePole(target.pole);
+  else if (target.kind === 'meeting') showMeeting();
 }
 
 /** A cup from the kitchen machine: a minute of quicker feet and higher jumps, and a mug in your hand. */
@@ -1406,6 +1475,12 @@ function dropCard(it: Interactable, card: CarriedIssue): boolean {
       net.send({ t: 'queue.add', prompt, title: `#${card.issue} ${card.title}`, issue: card.issue, provider, model, effort });
       putDown();
     }
+    return true;
+  }
+  // At the meeting room: a meeting about it, and the card goes back up on the board.
+  if (it.kind === 'meeting' || (it.kind === 'desk' && it.deskId && DESK_BY_ID.get(it.deskId)?.room && !store.workerAtDesk(it.deskId))) {
+    putBack();
+    showMeeting(issueMeeting(card.issue, card.title));
     return true;
   }
   if (it.kind !== 'desk' || !it.deskId) return false;
@@ -1694,6 +1769,12 @@ function hintFor(it: Interactable): Hint {
       const names = store.drawing.flatMap((id) => (id === store.you ? [] : (store.peers.get(id)?.name ?? []))).join(', ');
       return { k: names, parts: [title('📝 Whiteboard'), aside(names ? `✏️ ${clip(names, 40)} drawing` : 'draw together, live'), key('E', names ? 'Join in' : 'Draw')] };
     }
+    case 'meeting': {
+      const m = store.meeting.current;
+      const p = m && MEETING_PATTERNS[m.pattern];
+      const what = !m || !p ? 'free' : m.status === 'running' ? `${p.icon} ${p.label} · ${meetingStage(m)}` : `${p.icon} ${p.label} ${m.status === 'done' ? 'done ✅' : 'stopped ⛔'}`;
+      return { k: what, parts: [title('🤝 Meeting room'), aside(clip(what, 50)), key('E', m?.status === 'running' ? 'See how it’s going' : m ? 'See it / call a meeting' : 'Call a meeting')] };
+    }
     case 'elevator': {
       const f = store.currentFloor();
       const n = store.floors.length;
@@ -1746,6 +1827,9 @@ function carryHint(card: CarriedIssue, it: Interactable | null): Hint {
     const on = onQueue(card.issue);
     return { k: String(on), parts: parts(on ? aside('already on the queue') : key('E', 'Put it on the queue')) };
   }
+  if (it?.kind === 'meeting' || (it?.kind === 'desk' && it.deskId && DESK_BY_ID.get(it.deskId)?.room && !store.workerAtDesk(it.deskId))) {
+    return { k: 'meeting', parts: parts(key('E', 'Call a meeting about it')) };
+  }
   if (it?.kind === 'desk' && it.deskId) {
     const w = store.workerAtDesk(it.deskId);
     if (!w) {
@@ -1765,6 +1849,7 @@ function carryHint(card: CarriedIssue, it: Interactable | null): Hint {
 
 function deskHint(deskId: string): Hint {
   const w = store.workerAtDesk(deskId);
+  if (!w && DESK_BY_ID.get(deskId)?.room) return { k: 'room', parts: [h('span.title', {}, `🤝 ${DESK_BY_ID.get(deskId)!.label} · free`), key('E', 'Call a meeting')] };
   if (!w) {
     const paused = hiringPaused();
     const m = store.machine;
@@ -2104,7 +2189,7 @@ function backToGame() {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
@@ -2245,6 +2330,17 @@ const hud = mountHud(
     { id: 'queue', icon: '📋', label: 'Task queue', section: 'Open', count: () => store.queue.tasks.filter((t) => t.status !== 'done').length, title: () => 'Issues and tasks waiting for a worker', run: showQueue },
     { id: 'services', icon: '🌐', label: 'Services', section: 'Open', count: () => store.services.items.length, title: () => 'Web servers the workers are running', run: () => openServices() },
     { id: 'whiteboard', icon: '📝', label: 'Whiteboard', section: 'Open', title: () => 'Draw together, live', run: () => openWhiteboard(net) },
+    // Up on the top bar while a meeting is on: what's being worked through in the meeting room.
+    {
+      id: 'meeting',
+      icon: '🤝',
+      label: 'Meeting room',
+      section: 'Open',
+      status: () => store.meeting.current?.status === 'running',
+      chip: () => 'In a meeting',
+      title: () => 'Call a meeting: workers work through a question or a task together',
+      run: () => showMeeting(),
+    },
     { id: 'search', icon: '🔎', label: 'Search', section: 'Open', key: '/', title: () => 'Search the chat and every terminal', run: showSearch },
     { id: 'elevator', icon: '🛗', label: 'Elevator', section: 'Open', count: () => store.floors.reduce((n, f) => n + (f.id === store.floor ? 0 : f.waiting), 0), title: () => 'Ride to another project', run: showElevator },
     { id: 'voice', icon: '🎙️', label: () => (voice.inVoice ? 'Leave voice' : 'Join voice'), section: 'Together', key: 'V', on: () => voice.inVoice, blocked: noMedia, run: () => void toggleVoice() },
@@ -2457,8 +2553,9 @@ function frame(ts?: number) {
   }
   for (const a of idleAgents) if (a.view.vacancy.visible) a.model.update(dt, t);
   departures.update(dt, t);
+  arrivals.update(dt);
   dog.update(dt);
-  office.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions()]);
+  office.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions(), ...arrivals.positions()]);
   office.stack.update(dt, [{ x: player.pos.x, y: player.pos.y, z: player.pos.z, grip }, ...[...remotes.values()].map((r) => ({ x: r.person.root.position.x, y: r.person.root.position.y, z: r.person.root.position.z, grip: r.grip }))], camera.position);
   office.jukebox.update(t, dt, sound.beat());
   checkSmokeBreak(now);
@@ -2544,7 +2641,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, caffeine, camera, arcade, cabinet, workerViews, departures, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, elevatorPanelOpen, confetti, dog, sky, carried: () => carrying, emoteWheel, emote };
+(window as any).__office = { store, player, caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, elevatorPanelOpen, confetti, dog, sky, carried: () => carrying, emoteWheel, emote };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

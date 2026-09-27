@@ -1,4 +1,4 @@
-import { BALCONY, FLOOR, LOFT, SEATING_BY_ID, seatAt } from '../../shared/layout';
+import { BALCONY, FLOOR, LOFT, MEETING_ROOM, SEATING_BY_ID, seatAt } from '../../shared/layout';
 import type { PeerInfo } from '../../shared/protocol';
 
 /**
@@ -20,5 +20,6 @@ export function whereabouts(p: PeerInfo): string | undefined {
   if (p.y < -1 || p.x < FLOOR.minX || p.x > FLOOR.maxX || p.z < FLOOR.minZ) return '🚶 outside';
   if (p.z > FLOOR.maxZ) return p.x >= BALCONY.minX && p.x <= BALCONY.maxX ? '🌇 on the balcony' : '🚶 outside';
   if (p.y > LOFT.y - 0.5 && p.x > LOFT.minX && p.z > LOFT.minZ) return "👔 in the boss's office";
+  if (p.x > MEETING_ROOM.minX && p.z > MEETING_ROOM.minZ) return '🤝 in the meeting room';
   return undefined;
 }
