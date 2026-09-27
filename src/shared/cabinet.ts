@@ -30,7 +30,7 @@ export interface CabinetFrame {
 
 /** A game on the high-score table. */
 export interface HighScore {
-  /** Which game: saved when you step away from it and again when it ends, it only ever goes up. */
+  /** Which game: the office names each one as it starts (see Arcade in server/cabinet.ts), and its score only ever goes up. */
   game: string;
   name: string;
   color: string;
@@ -40,9 +40,9 @@ export interface HighScore {
   at: number;
 }
 
-/** Who's at the cabinet on your floor, and the building's high scores. */
+/** Who's at the cabinet on your floor (and which game they're on), and the building's high scores. */
 export interface CabinetState {
-  player: { id: string; name: string } | null;
+  player: { id: string; name: string; game: string } | null;
   scores: HighScore[];
 }
 
@@ -77,7 +77,7 @@ export function checkFrame(raw: unknown): CabinetFrame | null {
   return { cells, next, hold, score, lines, level, pieces, state };
 }
 
-/** A score a browser sent, or one read back from disk, if it is one. */
+/** A score read back from disk, if it is one. */
 export function checkScore(raw: { game?: unknown; score?: unknown; lines?: unknown; level?: unknown }): Pick<HighScore, 'game' | 'score' | 'lines' | 'level'> | null {
   const game = typeof raw.game === 'string' && GAME_RE.test(raw.game) ? raw.game : null;
   const score = int(raw.score, 0, SCORE_MAX);

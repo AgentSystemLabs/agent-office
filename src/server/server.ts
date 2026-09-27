@@ -26,12 +26,12 @@ import { Floor, type FloorContext } from './floor.js';
 import { Sky } from './sky.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import { ChatLog } from './history.js';
-import { HighScores } from './cabinet.js';
+import { Arcade, HighScores } from './cabinet.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import { DESK_BY_ID, STREET_Y, elevatorSpot, seatAt } from '../shared/layout.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
-import { checkFrame, checkScore, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
+import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
@@ -76,8 +76,9 @@ interface Client {
   /** Has the floor's whiteboard open. */
   whiteboard: boolean;
   lastWbPointerAt: number;
-  /** At the arcade cabinet on their floor, playing; `frame` is their game as it looks now. */
+  /** At the arcade cabinet on their floor, playing `game` (see Arcade); `frame` is it as it looks now. */
   playing: boolean;
+  game?: string;
   frame?: CabinetFrame;
   lastFrameAt: number;
   /** When this client last said it was typing, per terminal (see 'term.typing'). */
@@ -180,8 +181,13 @@ export async function startServer(cfg: Config) {
   const clients = new Map<string, Client>();
   // Kept on disk, so a restart doesn't wipe it.
   const chat = new ChatLog(cfg.dataDir);
-  // The arcade's high scores: one table for the whole building, on every floor's cabinet.
+  // The arcade's high scores: one table for the whole building, on every floor's cabinet. The office
+  // follows every game and puts the scores up itself (see Arcade).
   const highScores = new HighScores(cfg.dataDir);
+  const arcade = new Arcade(highScores, (first) => {
+    for (const f of floors.values()) cabinetChanged(f);
+    if (first) toastFloor(floors.get(first.floor), `🏆 ${first.score.name} set a new arcade high score: ${scoreText(first.score.score)}`);
+  });
   /** What the office is called where it has no project of its own to go by (webhooks, invites). */
   const officeName = cfg.project ? path.basename(cfg.project) : 'the office';
   const modelCommand = configuredProvider(cfg.agentCmd) === 'opencode' ? cfg.agentCmd : 'opencode';
@@ -470,15 +476,17 @@ export async function startServer(cfg: Config) {
   const cabinetPlayer = (floor: Floor): Client | undefined => [...clients.values()].find((c) => c.playing && c.peer.floor === floor.id);
   const cabinetState = (floor: Floor | undefined): CabinetState => {
     const p = floor && cabinetPlayer(floor);
-    return { player: p ? { id: p.id, name: p.peer.name } : null, scores: highScores.top() };
+    return { player: p ? { id: p.id, name: p.peer.name, game: p.game ?? '' } : null, scores: highScores.top() };
   };
   const cabinetChanged = (floor: Floor | undefined) => {
     if (floor) toFloor(floor, { t: 'cabinet', state: cabinetState(floor) });
   };
-  /** `c` stepped away from the cabinet (or left the floor, or the office). */
+  /** `c` stepped away from the cabinet (or left the floor, or the office): their game waits, with its score so far on the table. */
   const stopPlaying = (c: Client, floor = floorOf(c)) => {
     if (!c.playing) return;
+    if (floor) arcade.leave(c.game, floor.id);
     c.playing = false;
+    c.game = undefined;
     c.frame = undefined;
     cabinetChanged(floor);
   };
@@ -1474,13 +1482,16 @@ export async function startServer(cfg: Config) {
       }
       case 'cabinet.play': {
         const floor = here();
-        if (!floor || c.playing) break;
+        if (!floor || (c.playing && msg.game === c.game)) break;
         const at = cabinetPlayer(floor);
-        if (at) {
+        if (at && at !== c) {
           warn(c, `${at.peer.name} is on the arcade — press E there to watch`);
           sendTo(c, { t: 'cabinet', state: cabinetState(floor) });
           break;
         }
+        // Already at it: that game's over, and this is the next one.
+        if (c.playing) arcade.leave(c.game, floor.id);
+        c.game = arcade.start({ owner: c.accountId ? `account:${c.accountId}` : `name:${who}`, name: who, color: c.peer.color }, msg.game);
         c.playing = true;
         c.frame = undefined;
         cabinetChanged(floor);
@@ -1490,23 +1501,16 @@ export async function startServer(cfg: Config) {
         stopPlaying(c);
         break;
       case 'cabinet.frame': {
-        const now = Date.now();
-        if (!c.playing || now - c.lastFrameAt < 40) break;
-        const frame = checkFrame(msg.frame);
-        if (!frame) break;
-        c.lastFrameAt = now;
-        c.frame = frame;
-        toNeighbors(c, { t: 'cabinet.frame', frame }, true);
-        break;
-      }
-      case 'cabinet.score': {
         const floor = floorOf(c);
-        const s = checkScore(msg);
-        if (!c.playing || !floor || !s) break;
-        const { changed, first } = highScores.record({ ...s, name: who, color: c.peer.color });
-        if (!changed) break;
-        for (const f of floors.values()) cabinetChanged(f);
-        if (first) toastFloor(floor, `🏆 ${who} set a new arcade high score: ${scoreText(s.score)}`);
+        const frame = checkFrame(msg.frame);
+        if (!c.playing || !floor || !frame) break;
+        // Every frame counts towards the score, even one that comes too soon after the last to pass on.
+        if (arcade.frame(c.game, frame, floor.id) === 'void') warn(c, "🕹️ The office couldn't follow this game, so its score won't go on the high-score table");
+        c.frame = frame;
+        const now = Date.now();
+        if (now - c.lastFrameAt < 40) break;
+        c.lastFrameAt = now;
+        toNeighbors(c, { t: 'cabinet.frame', frame }, true);
         break;
       }
       case 'jukebox.stop': {
@@ -1610,6 +1614,7 @@ export async function startServer(cfg: Config) {
     clearInterval(heartbeat);
     clearInterval(resync);
     clearTimeout(floorsTimer);
+    arcade.flush();
     upgrader.stop();
     services.stop();
     webhook.stop();

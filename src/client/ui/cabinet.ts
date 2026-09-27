@@ -47,8 +47,8 @@ export class Cabinet {
   private readonly view: ScreenZoom;
   /** Your game: the one you're playing, or the one you left paused. */
   private game: Blocks | null = null;
-  /** The finished game's score has gone to the table. */
-  private recorded = false;
+  /** Its game-over sound has played. */
+  private ended = false;
   private sent = { version: -1, at: 0 };
   /** The worker whose question paused your game. */
   private waiting: WorkerInfo | null = null;
@@ -89,9 +89,9 @@ export class Cabinet {
     window.addEventListener('blur', () => {
       if (this.mode === 'play') this.game?.pause(true);
     });
-    // Closing the tab mid-game: what you scored still counts.
+    // Closing the tab mid-game: the office sees the game as it stands, so what you scored still counts.
     window.addEventListener('pagehide', () => {
-      if (this.mode === 'play' && !this.game?.over) this.record();
+      if (this.mode === 'play') this.sendFrame();
     });
   }
 
@@ -111,7 +111,7 @@ export class Cabinet {
     const p = store.cabinet.player;
     if (p && p.id !== store.you) return this.open('watch');
     if (!this.game || this.game.over) this.newGame();
-    this.net.send({ t: 'cabinet.play' });
+    this.net.send({ t: 'cabinet.play', game: this.game!.id || undefined });
     this.open('play');
   }
 
@@ -130,15 +130,11 @@ export class Cabinet {
     const now = performance.now();
     if (this.mode === 'play' && g) {
       g.update(dt);
-      if (g.over && !this.recorded) {
-        this.recorded = true;
-        this.record();
+      if (g.over && !this.ended) {
+        this.ended = true;
         this.opts.sound('over');
       }
-      if (g.version !== this.sent.version && now - this.sent.at >= FRAME_MS) {
-        this.sent = { version: g.version, at: now };
-        this.net.send({ t: 'cabinet.frame', frame: g.frame() });
-      }
+      if (g.version !== this.sent.version && now - this.sent.at >= FRAME_MS) this.sendFrame();
       if (g.version !== this.painted) this.dirty = true;
     }
     // The blinking "press E" with nobody playing.
@@ -155,14 +151,19 @@ export class Cabinet {
     const g = new Blocks();
     g.onLand = (lines) => this.opts.sound(lines ? 'clear' : 'land', lines);
     this.game = g;
-    this.recorded = false;
+    this.ended = false;
     this.sent.version = -1;
   }
 
-  /** The game's score as it stands, for the high-score table. */
-  private record() {
+  /**
+   * Your game as it looks now, to everyone watching, unless they've seen it already. The office goes
+   * by these for your score too, so the last one goes out before you step away.
+   */
+  private sendFrame() {
     const g = this.game;
-    if (g && g.score > 0) this.net.send({ t: 'cabinet.score', game: g.id, score: g.score, lines: g.lines, level: g.level });
+    if (!g || g.version === this.sent.version) return;
+    this.sent = { version: g.version, at: performance.now() };
+    this.net.send({ t: 'cabinet.frame', frame: g.frame() });
   }
 
   private resume() {
@@ -229,11 +230,9 @@ export class Cabinet {
     const g = this.game;
     // A game you never got going isn't worth coming back to.
     if (g && !g.pieces && !g.score) this.game = null;
-    else if (g && !g.over) {
-      g.pause(true);
-      this.record();
-    }
+    else this.sendFrame();
     this.net.send({ t: 'cabinet.leave' });
+    g?.pause(true);
   }
 
   private key(e: KeyboardEvent, down: boolean) {
@@ -253,6 +252,8 @@ export class Cabinet {
     if (g.over) {
       if (k === 'go' || k === 'drop') {
         this.newGame();
+        // A new game for the office to follow, and name.
+        this.net.send({ t: 'cabinet.play' });
         this.dirty = true;
       }
       return;
@@ -282,8 +283,8 @@ export class Cabinet {
         this.open('watch');
       } else if (!p) {
         // The office forgot (a dropped connection): still here.
-        this.net.send({ t: 'cabinet.play' });
-      }
+        this.net.send({ t: 'cabinet.play', game: this.game?.id || undefined });
+      } else if (this.game) this.game.id = p.game;
     } else if (this.mode === 'watch' && (!p || p.id === store.you || p.name !== this.watching)) {
       if (!p) toast(`${this.watching} stepped away from the arcade`);
       this.modal?.close();
@@ -350,7 +351,7 @@ export class Cabinet {
       };
     }
     if (c.player && c.player.id !== store.you) {
-      return { frame: store.cabinetFrame, player: c.player.name, scores: c.scores, note: 'Back in a moment', prompt: store.cabinetFrame ? undefined : `▶ ${c.player.name.toUpperCase()}`, t };
+      return { frame: store.cabinetFrame, player: c.player.name, scores: c.scores, mine: c.player.game, note: 'Back in a moment', prompt: store.cabinetFrame ? undefined : `▶ ${c.player.name.toUpperCase()}`, t };
     }
     const left = this.leftAt !== null;
     return { frame: null, scores: c.scores, mine: g?.id, prompt: left ? 'PRESS E TO CARRY ON' : 'PRESS E TO PLAY', t };

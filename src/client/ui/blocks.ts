@@ -97,7 +97,8 @@ export class Blocks {
   version = 0;
   /** What just happened, for the sounds: cleared lines, or the piece landing. */
   onLand?: (cleared: number) => void;
-  readonly id = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
+  /** Which game this is on the high-score table: the office names it when you start playing. */
+  id = '';
   private fall = 0;
   private lockT = 0;
   private resets = 0;

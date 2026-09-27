@@ -791,13 +791,18 @@ export type ClientMsg =
   /** On to the next tune. */
   | { t: 'jukebox.skip' }
   | { t: 'jukebox.stop' }
-  /** Step up to the arcade cabinet on your floor to play; the office answers with `cabinet`, naming who got it. */
-  | { t: 'cabinet.play' }
+  /**
+   * Step up to the arcade cabinet on your floor to carry on with `game` (one the office started for
+   * you), or to start a new game, even while you're at it; the office answers with `cabinet`, naming
+   * who got it and their game.
+   */
+  | { t: 'cabinet.play'; game?: string }
   | { t: 'cabinet.leave' }
-  /** Your game as it looks now, for everyone else on the floor to watch over your shoulder. */
+  /**
+   * Your game as it looks now, for everyone else on the floor to watch over your shoulder. It's also
+   * how your score gets on the high-score table: the office follows the game frame by frame.
+   */
   | { t: 'cabinet.frame'; frame: CabinetFrame }
-  /** Your game's score so far, when you step away from it and when it ends, for the high-score table. */
-  | { t: 'cabinet.score'; game: string; score: number; lines: number; level: number }
   /** You opened the whiteboard (or closed it): everyone on the floor sees who's drawing. */
   | { t: 'wb.open' }
   | { t: 'wb.close' }
