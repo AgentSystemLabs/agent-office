@@ -42,17 +42,21 @@ export class Hands {
   private walk = 0;
   private cig: THREE.Group;
   private ember: THREE.MeshToonMaterial;
+  /** Each light, and how bright it is where it's brightest. */
+  private lights: [THREE.Light, number][] = [];
+  private lightLevel = 1;
   /** Seconds into a smoke break, or -1. Runs in step with your character's (see Person.setSmoking). */
   private smokeT = -1;
 
   constructor(shirt: string, skin: string) {
     this.sleeve = toonUnique(shirt);
     this.skin = toonUnique(skin);
-    this.scene.add(new THREE.HemisphereLight('#fff5e6', '#c9a27a', 1.5));
-    this.scene.add(new THREE.AmbientLight('#ffffff', 0.5));
     const sun = new THREE.DirectionalLight('#fff1d6', 2);
     sun.position.set(-0.6, 1.4, 0.9);
-    this.scene.add(sun);
+    for (const l of [new THREE.HemisphereLight('#fff5e6', '#c9a27a', 1.5), new THREE.AmbientLight('#ffffff', 0.5), sun]) {
+      this.scene.add(l);
+      this.lights.push([l, l.intensity]);
+    }
     this.right = this.arm(1);
     this.left = this.arm(-1);
     // In the left hand, handle in the palm, standing upright however the arm is turned.
@@ -91,6 +95,14 @@ export class Hands {
 
   setSkin(skin: string) {
     this.skin.color.set(skin);
+  }
+
+  /** How lit it is where you stand, 0–1 (see Sky.lightAt): your hands go dark out on a night street. */
+  setLight(level: number) {
+    const k = 0.25 + 0.75 * level;
+    if (Math.abs(k - this.lightLevel) < 0.01) return;
+    this.lightLevel = k;
+    for (const [l, full] of this.lights) l.intensity = full * k;
   }
 
   setAspect(aspect: number) {

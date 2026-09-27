@@ -199,6 +199,7 @@ button { font-family: inherit; }
 .setting-note.bad { color: var(--bad); }
 .webhook { display: flex; gap: 8px; }
 .webhook input[type=text] { flex: 1; min-width: 0; }
+.outside-now { margin: 0; font-size: 15px; font-weight: 800; }
 
 .swatches { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .swatch { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--ink); cursor: pointer; }

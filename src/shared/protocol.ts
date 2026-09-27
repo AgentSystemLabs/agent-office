@@ -569,6 +569,25 @@ export interface UpgradeState {
   error?: string;
 }
 
+export type Weather = 'clear' | 'cloudy' | 'rain' | 'storm' | 'snow' | 'fog';
+export const WEATHERS: readonly Weather[] = ['clear', 'cloudy', 'rain', 'storm', 'snow', 'fog'];
+
+/** What it's like outside the windows. The server decides it, so everyone sees the same sky. */
+export interface SkyState {
+  /** Where the office is, for the sun: a configured city, or a guess from the host's time zone. */
+  lat: number;
+  lon: number;
+  /** The office's clock, in minutes east of UTC. */
+  utcOffset: number;
+  weather: Weather;
+  /** 0–1: a drizzle to a downpour, a few flakes to a blizzard, haze to pea soup. */
+  intensity: number;
+  /** The city whose live forecast this is. Unset when the weather is made up or pinned. */
+  city?: string;
+  /** °C, from the forecast. */
+  temp?: number;
+}
+
 export interface ChatLine {
   from: string;
   name: string;
@@ -711,6 +730,8 @@ export type ServerMsg =
       limits: PlanLimits;
       me: Me;
       notify: NotifyState;
+      /** Outside the windows: the same on every floor. */
+      sky: SkyState;
     } & FloorView)
   /** You arrived on another floor: everything on it, replacing the last one's, and where everyone is now. */
   | ({ t: 'floor.enter'; peers: PeerInfo[] } & FloorView)
@@ -757,6 +778,7 @@ export type ServerMsg =
   | { t: 'limits'; state: PlanLimits }
   | { t: 'queue'; state: QueueState }
   | { t: 'notify'; state: NotifyState }
+  | { t: 'sky'; state: SkyState }
   /** Sent to whoever watches that worker's changes, whenever they change. */
   | { t: 'changes'; state: ChangesState }
   | { t: 'changes.diff'; workerId: string; path: string; diff: string; truncated: boolean; error?: string }
