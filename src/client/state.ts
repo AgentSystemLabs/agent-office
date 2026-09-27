@@ -1,9 +1,9 @@
-import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, NotifyState, PeerInfo, Me, ProjectInfo, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
+import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'queue' | 'me' | 'accounts' | 'notify' | 'floors' | 'floor' | 'repos';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'floors' | 'floor' | 'repos';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -122,6 +122,8 @@ class Store {
   /** Pictures on the walls. */
   decor: Decoration[] = [];
   usage: UsageState = { total: zeroUsage(), today: zeroUsage(), day: '', pauseHiring: false };
+  /** The Claude plan's 5-hour and weekly limits. */
+  limits: PlanLimits = { windows: [], at: 0 };
   queue: QueueState = { tasks: [], maxWorkers: 0 };
   /** Who you're signed in as (see /api/whoami). */
   me: Me = { admin: false };
@@ -190,10 +192,11 @@ class Store {
         this.invites = msg.invites;
         this.upgrade = msg.upgrade;
         this.usage = msg.usage;
+        this.limits = msg.limits;
         this.me = msg.me;
         this.notify = msg.notify;
         this.enter(msg);
-        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'me', 'notify', 'floors'] as Topic[]) this.emit(t);
+        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'floors'] as Topic[]) this.emit(t);
         break;
       case 'floor.enter':
         this.peers = new Map(msg.peers.map((p) => [p.id, p]));
@@ -278,6 +281,10 @@ class Store {
       case 'usage':
         this.usage = msg.state;
         this.emit('usage');
+        break;
+      case 'limits':
+        this.limits = msg.state;
+        this.emit('limits');
         break;
       case 'queue':
         this.queue = msg.state;
