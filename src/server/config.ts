@@ -210,7 +210,9 @@ export function loadConfig(argv: string[]): Config {
         agentCmd = takeValue(argv, i++, a);
         break;
       case '--agent-args':
-        agentArgs = splitArgs(takeValue(argv, i++, a));
+        // Its value is flags itself ("--model opus"), so a leading -- doesn't mean the value is missing.
+        if (argv[i + 1] === undefined) takeValue(argv, i, a);
+        agentArgs = splitArgs(argv[++i]);
         break;
       case '--tls-cert':
         tlsCert = takeValue(argv, i++, a);

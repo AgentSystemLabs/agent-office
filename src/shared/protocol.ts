@@ -24,10 +24,10 @@ export function isAgentProvider(value: unknown): value is AgentProvider {
 }
 
 /** A Claude model alias the hire dialog and queue can request explicitly (see server/agents.ts). */
-export type ClaudeModel = 'opus' | 'sonnet' | 'haiku';
-export const CLAUDE_MODELS: readonly ClaudeModel[] = ['opus', 'sonnet', 'haiku'];
+export type ClaudeModel = 'fable' | 'opus' | 'sonnet' | 'haiku';
+export const CLAUDE_MODELS: readonly ClaudeModel[] = ['fable', 'opus', 'sonnet', 'haiku'];
 export function isClaudeModel(value: unknown): value is ClaudeModel {
-  return value === 'opus' || value === 'sonnet' || value === 'haiku';
+  return value === 'fable' || value === 'opus' || value === 'sonnet' || value === 'haiku';
 }
 
 /** Claude Code's `--effort` levels, from fastest/cheapest to most thorough. */

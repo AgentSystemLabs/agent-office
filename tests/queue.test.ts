@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { TaskQueue, type QueueWorkers } from '../src/server/queue.js';
@@ -131,6 +131,21 @@ test('queue preserves a Claude model and effort through seating, retry, and rest
   restored.setLimit(2);
   assert.equal(f.workers[2].model, 'opus');
   assert.equal(f.workers[2].effort, 'max');
+});
+
+test('queue takes Fable and restores it from queue.json', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open();
+  q.setLimit(0);
+  assert.equal(q.add('Big task', 'Tester', undefined, undefined, 'claude', 'fable', 'xhigh'), undefined);
+  q.shutdown();
+  const saved = JSON.parse(readFileSync(path.join(f.dir, 'queue.json'), 'utf8'));
+  assert.equal(saved.tasks[0].model, 'fable');
+  const restored = f.open();
+  assert.equal(restored.state().tasks[0].model, 'fable');
+  restored.setLimit(1);
+  assert.equal(f.workers[0].model, 'fable');
+  assert.equal(f.workers[0].effort, 'xhigh');
 });
 
 test('the queue says it emptied once, when its last task gets done', (t) => {
