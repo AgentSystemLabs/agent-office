@@ -420,6 +420,8 @@ export class Worker {
   private blinkAt = Math.random() * 4;
   status: WorkerStatus = 'starting';
   bouncing = false;
+  /** You're close enough to read its card: it lands the hop it's in and stands still until you walk away. */
+  held = false;
   private bounceT = 0;
   private spawnT = 0;
   /** Seconds left jumping for joy (its pull request just merged). */
@@ -523,7 +525,13 @@ export class Worker {
 
   update(dt: number, t: number) {
     this.cheerT = Math.max(0, this.cheerT - dt);
-    const hopping = this.bouncing || this.cheerT > 0;
+    // Jump up and down when done / waiting on a human (except while held), or cheering.
+    if (this.bouncing || this.cheerT > 0) {
+      const landAt = Math.ceil(this.bounceT / Math.PI) * Math.PI;
+      this.bounceT += dt * 7;
+      if (this.held && !this.cheerT && this.bounceT >= landAt) this.bounceT = 0;
+    } else this.bounceT = 0;
+    const hopping = this.bounceT > 0;
     const working = this.status === 'working' && !hopping;
     // Pop-in when hired
     this.spawnT = Math.min(1, this.spawnT + dt * 2.5);
@@ -533,19 +541,16 @@ export class Worker {
       this.armL.rotation.x = -1.2 + Math.sin(t * 22) * 0.25;
       this.armR.rotation.x = -1.2 + Math.sin(t * 22 + 1.7) * 0.25;
     } else {
-      this.armL.rotation.x = THREE.MathUtils.lerp(this.armL.rotation.x, hopping ? -2.6 : -0.3, 0.2);
-      this.armR.rotation.x = THREE.MathUtils.lerp(this.armR.rotation.x, hopping ? -2.6 : -0.3, 0.2);
+      this.armL.rotation.x = THREE.MathUtils.lerp(this.armL.rotation.x, hopping || this.bouncing ? -2.6 : -0.3, 0.2);
+      this.armR.rotation.x = THREE.MathUtils.lerp(this.armR.rotation.x, hopping || this.bouncing ? -2.6 : -0.3, 0.2);
     }
-    // Jump up and down when done / waiting on a human, or cheering
     if (hopping) {
-      this.bounceT += dt * 7;
       const s = Math.abs(Math.sin(this.bounceT));
       this.body.position.y = s * 0.55;
       const squash = s < 0.15 ? 1 - (0.15 - s) * 1.6 : 1;
       this.body.scale.set(pop * (2 - squash), pop * squash, pop * (2 - squash));
       this.body.rotation.y = Math.sin(this.bounceT * 0.5) * 0.3;
     } else {
-      this.bounceT = 0;
       this.body.position.y = working ? Math.abs(Math.sin(t * 11)) * 0.02 : Math.sin(t * 2) * 0.015;
       this.body.scale.setScalar(pop);
       this.body.rotation.y = THREE.MathUtils.lerp(this.body.rotation.y, 0, 0.1);
