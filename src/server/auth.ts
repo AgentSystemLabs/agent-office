@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual, randomBytes, scrypt } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
+import type { Account, Accounts } from './accounts.js';
 
 export const COOKIE_NAME = 'ao_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14;
@@ -7,17 +8,26 @@ const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14;
 const MAX_ATTEMPTS = 10;
 const WINDOW_MS = 5 * 60_000;
 
+/** A signed-in browser: with its own account, or (no account) with the shared office password. */
+export interface Session {
+  account?: Account;
+}
+
 export class Auth {
   private attempts = new Map<string, { count: number; resetAt: number }>();
-  /** Session signing key. Derived from the password too, so changing the password logs everyone out. */
+  /** Signs shared-password sessions. Derived from the password too, so changing it logs those out. */
   private key: Buffer;
+  /** Signs account sessions, which outlive a change of the shared password. */
+  private accountKey: Buffer;
 
   constructor(
     private verifier: Buffer,
     private salt: Buffer,
     secret: string,
+    private accounts: Accounts,
   ) {
     this.key = createHmac('sha256', secret).update('session:').update(verifier).digest();
+    this.accountKey = createHmac('sha256', secret).update('account-session:').digest();
   }
 
   /** scrypt runs on the libuv pool, so guessing can't stall the event loop. */
@@ -52,28 +62,39 @@ export class Auth {
     this.attempts.delete(ip);
   }
 
-  issue(): string {
-    const payload = Buffer.from(JSON.stringify({ exp: Date.now() + SESSION_TTL_MS, n: randomBytes(8).toString('hex') })).toString('base64url');
-    return `${payload}.${this.sign(payload)}`;
+  /** A session cookie's value: for that account, or for the shared password when there's none. */
+  issue(accountId?: string): string {
+    const body = { exp: Date.now() + SESSION_TTL_MS, n: randomBytes(8).toString('hex'), ...(accountId ? { u: accountId } : {}) };
+    const payload = Buffer.from(JSON.stringify(body)).toString('base64url');
+    return `${payload}.${this.sign(payload, !!accountId)}`;
   }
 
-  verify(token: string | undefined): boolean {
-    if (!token) return false;
+  /**
+   * Who a cookie signs in, if anyone. A revoked account, or the shared password once it's switched
+   * off, stops working at once, whatever the cookie's expiry says.
+   */
+  verify(token: string | undefined): Session | undefined {
+    if (!token) return undefined;
     const dot = token.indexOf('.');
-    if (dot < 1) return false;
+    if (dot < 1) return undefined;
     const payload = token.slice(0, dot);
-    const sig = Buffer.from(token.slice(dot + 1));
-    const expected = Buffer.from(this.sign(payload));
-    if (sig.length !== expected.length || !timingSafeEqual(sig, expected)) return false;
+    let body: { exp?: unknown; u?: unknown };
     try {
-      const { exp } = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-      return typeof exp === 'number' && exp > Date.now();
+      body = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
     } catch {
-      return false;
+      return undefined;
     }
+    const accountId = typeof body?.u === 'string' ? body.u : undefined;
+    const sig = Buffer.from(token.slice(dot + 1));
+    const expected = Buffer.from(this.sign(payload, !!accountId));
+    if (sig.length !== expected.length || !timingSafeEqual(sig, expected)) return undefined;
+    if (typeof body.exp !== 'number' || body.exp <= Date.now()) return undefined;
+    if (!accountId) return this.accounts.sharedPassword ? {} : undefined;
+    const account = this.accounts.get(accountId);
+    return account ? { account } : undefined;
   }
 
-  fromRequest(req: IncomingMessage): boolean {
+  fromRequest(req: IncomingMessage): Session | undefined {
     return this.verify(parseCookies(req.headers.cookie)[cookieName(req)]);
   }
 
@@ -96,8 +117,8 @@ export class Auth {
     return `${cookieName(req)}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
   }
 
-  private sign(payload: string): string {
-    return createHmac('sha256', this.key).update(payload).digest('base64url');
+  private sign(payload: string, account: boolean): string {
+    return createHmac('sha256', account ? this.accountKey : this.key).update(payload).digest('base64url');
   }
 }
 
