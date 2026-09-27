@@ -13,6 +13,7 @@ export function configuredProvider(command: string): AgentProvider {
   if (base === 'claude') return 'claude';
   if (base === 'opencode') return 'opencode';
   if (base === 'codex') return 'codex';
+  if (base === 'droid') return 'droid';
   return 'custom';
 }
 
