@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES, type Look } from '../../shared/avatar';
 import type { WorkerStatus, WorkerTask } from '../../shared/protocol';
 import { isAsleep } from '../../shared/status';
+import { HIPS } from '../player';
 import { cardSprite, disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
 
 export type Pose = 'stand' | 'walk' | 'sit' | 'type';
@@ -98,6 +99,12 @@ export class Person {
   private wispIn = 0;
   /** Where smoke comes off: the lit end (a wisp) or the mouth, blowing it out along `dir`. */
   onSmoke: ((kind: 'wisp' | 'exhale', at: THREE.Vector3, dir: THREE.Vector3) => void) | null = null;
+  /** Hips this high above the feet while sitting (on the seat), or null on their feet. */
+  private hips: number | null = null;
+  /** The last seat's, so getting up eases back down from it. */
+  private seatHips = HIPS;
+  /** 0 standing … 1 sitting, eased between so sitting down and getting up take a moment. */
+  private sitK = 0;
 
   constructor(
     private name: string,
@@ -144,8 +151,8 @@ export class Person {
       this.body.add(pivot);
       return pivot;
     };
-    this.legL = limb(0.22, 0.1, pants, -0.12, 0.42);
-    this.legR = limb(0.22, 0.1, pants, 0.12, 0.42);
+    this.legL = limb(0.22, 0.1, pants, -0.12, HIPS);
+    this.legR = limb(0.22, 0.1, pants, 0.12, HIPS);
     this.armL = limb(0.24, 0.08, this.shirt, -0.33, 0.9);
     this.armR = limb(0.24, 0.08, this.shirt, 0.33, 0.9);
     for (const arm of [this.armL, this.armR]) arm.add(mesh(new THREE.SphereGeometry(0.085, 12, 10), skin, 0, -0.38, 0));
@@ -332,6 +339,13 @@ export class Person {
     }
   }
 
+  /** Sits down with the hips `hips` above the feet, on a couch or a chair, or gets up (null). */
+  sit(hips: number | null) {
+    this.hips = hips;
+    if (hips !== null) this.seatHips = hips;
+    this.pose = hips === null ? 'stand' : 'sit';
+  }
+
   /** `pace` speeds up the walk cycle for someone walking faster than usual. */
   update(dt: number, t: number, moving: boolean, airborne: boolean, pace = 1) {
     const target = moving ? 1 : 0;
@@ -351,6 +365,13 @@ export class Person {
       this.armL.rotation.z = THREE.MathUtils.lerp(this.armL.rotation.z, -0.1, 0.3);
       this.armR.rotation.z = THREE.MathUtils.lerp(this.armR.rotation.z, 0.1, 0.3);
     }
+    this.sitK += ((this.hips === null ? 0 : 1) - this.sitK) * Math.min(1, dt * 10);
+    const sit = this.sitK > 0.001 ? this.sitK : 0;
+    if (sit) {
+      // Legs out over the edge of the seat, hands in the lap (a cigarette still comes up for a drag).
+      for (const leg of [this.legL, this.legR]) leg.rotation.x = THREE.MathUtils.lerp(leg.rotation.x, -1.35, sit);
+      for (const arm of [this.armL, this.armR]) arm.rotation.x = THREE.MathUtils.lerp(arm.rotation.x, -0.55, sit);
+    }
     if (this.smokeT >= 0) this.smokeStep(dt, moving, airborne);
     let reach = 0;
     if (this.reachT >= 0) {
@@ -365,6 +386,8 @@ export class Person {
     this.body.rotation.x = reach * 0.12;
     if (this.mug.visible) this.mug.quaternion.copy(this.armR.quaternion).invert();
     this.body.position.y = moving && !airborne ? Math.abs(Math.sin(this.walkPhase)) * 0.06 : 0;
+    // Down onto (or up onto) the seat: the hips go where it puts them.
+    if (sit) this.body.position.y = THREE.MathUtils.lerp(this.body.position.y, this.seatHips - HIPS, sit);
     if (this.speaking) this.mic.scale.setScalar(1 + Math.sin(t * 14) * 0.2);
 
     // Lip flap: pop open fast on each syllable, close a little slower.

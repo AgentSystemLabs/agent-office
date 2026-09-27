@@ -25,7 +25,7 @@ import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunne
 import { ChatLog } from './history.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, isAgentProvider } from '../shared/protocol.js';
-import { elevatorSpot } from '../shared/layout.js';
+import { elevatorSpot, seatAt } from '../shared/layout.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 
@@ -754,6 +754,7 @@ export async function startServer(cfg: Config) {
     c.stale.clear();
     const spot = elevatorSpot();
     Object.assign(c.peer, { floor: floor.id, x: spot.x, y: 0, z: spot.z, rotY: 0, moving: false });
+    delete c.peer.seat;
     sendTo(c, { t: 'floor.enter', peers: [...clients.values()].map((o) => o.peer), ...floorView(floor) });
     screensOf(c, floor);
     broadcast({ t: 'peer.update', peer: c.peer }, c.id);
@@ -798,6 +799,16 @@ export async function startServer(cfg: Config) {
         if (now - c.lastActAt < 100) break;
         c.lastActAt = now;
         toNeighbors(c, { t: 'peer.act', id: c.id }, true);
+        break;
+      }
+      case 'sit': {
+        // Everyone sees them sit down (or get up), and anyone who comes in later finds them sitting.
+        const key = str(msg.seat, 40);
+        const seat = seatAt(key) ? key : undefined;
+        if (seat === c.peer.seat) break;
+        if (seat) c.peer.seat = seat;
+        else delete c.peer.seat;
+        broadcast({ t: 'peer.update', peer: c.peer }, c.id);
         break;
       }
       case 'profile': {

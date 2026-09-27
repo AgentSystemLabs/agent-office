@@ -16,6 +16,7 @@ agent-office
 - **Boss office.** Stairs along the back wall climb to a glass-walled office on the loft in the corner. From up there you can look down over every desk and watch your workers go.
 - **Upstairs, over the garage.** The office is the second floor. Its windows are real glass, so you can look out over the street, the trees and the neighbours. Walk out the EXIT door in the west wall and down the stairs to the street. Underneath is an open garage full of Lambos and Ferraris, and you can jump up onto them.
 - **Smoke breaks.** Glass doors on the south wall slide open onto a balcony with string lights, a bench and a bistro table. Press **E** at the ashtray to light up. Everyone sees you puffing away until you stub it out or step back inside.
+- **Take a seat.** Press **E** at the lounge couch, a beanbag, the balcony bench or a stool at its bistro table, or the couch or the boss's chair up in the boss office to sit down. Walk off, jump or press **E** again to get up. Everyone on your floor sees you sitting. Sit on the couch facing the TV while someone's sharing their screen and it opens full screen for you.
 - **Pick your character.** The first time you join, a character select screen lets you choose your skin tone, hair style, hair color and shirt, with a spinning preview. Change it any time from **⚙️** or by clicking your name under *In the office*.
 - **Hire workers.** Walk up to an empty desk and press **E** to choose Claude Code, OpenCode or Codex, or press **P** to write a task first. A little worker sits down, a laptop opens, and the agent's live screen appears on it. Choose the agent for each queue task too.
 - **Shared shells.** Press **B** at an empty desk to open a plain login shell for dev servers, git or tests. It's shared the same way as a Claude terminal.
@@ -147,7 +148,7 @@ OpenCode metrics come from assistant-message token/cost records exposed by its p
 | W A S D / arrows | Walk (hold Shift to run) |
 | Space | Jump (you can land on desks, couches and the cars in the garage) |
 | Mouse drag / wheel | Orbit / zoom the camera |
-| E | Interact: hire a worker, open its terminal, read a board, watch the TV, ride the elevator, grab a coffee, take a smoke break |
+| E | Interact: hire a worker, open its terminal, read a board, watch the TV, sit down (or get up), ride the elevator, grab a coffee, take a smoke break |
 | P | Prompt: give a task to a new worker, or to the one at this desk |
 | C | Changes: the files the worker at this desk changed and their diff; commit, discard or open a PR |
 | B | Open a shared shell at an empty desk |

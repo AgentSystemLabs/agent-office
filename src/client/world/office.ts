@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ASHTRAY, BALCONY, BALCONY_DOOR, BOARDS, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, LOFT, SLAB, STAIRS, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, type DeskDef, type Opening, type Side } from '../../shared/layout';
+import { ASHTRAY, BALCONY, BALCONY_DOOR, BOARDS, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, LOFT, SEAT_BY_ID, SLAB, STAIRS, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, type DeskDef, type Opening, type Side } from '../../shared/layout';
 import { wallFacing, type WallId, type WallRect } from '../../shared/decor';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
 import { buildGarage, buildStreet } from './outside';
@@ -16,16 +16,19 @@ export interface Collider {
   bottom?: number;
 }
 
-export type InteractKind = 'desk' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator';
+export type InteractKind = 'desk' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'seat';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
   kind: InteractKind;
   x: number;
   z: number;
+  /** The floor it's on, when that's not the office floor (the loft's). */
+  y?: number;
   radius: number;
   deskId?: string;
   decorId?: string;
+  seatId?: string;
 }
 
 export interface DeskView {
@@ -394,8 +397,10 @@ function buildBalcony(group: THREE.Group, colliders: Collider[], interactables: 
   bench.add(mesh(box(2, 0.32, 0.06), wood, 0, 0.78, -0.2));
   for (const sx of [-0.85, 0.85]) bench.add(mesh(box(0.06, 0.45, 0.4), ink, sx, 0.22, 0));
   bench.position.set(-9, 0, minZ + 0.3);
-  parts.add(bench);
+  // Somewhere to sit, so not merged with the rest: its own meshes carry what E is about when you look at it.
+  group.add(bench);
   colliders.push({ minX: -10, maxX: -8, minZ, maxZ: minZ + 0.55, top: 0.49 });
+  seatable(bench, 'bench', 1.6, interactables);
   const tx = 0.2;
   const tz = cz + 0.2;
   const table = new THREE.Group();
@@ -413,8 +418,9 @@ function buildBalcony(group: THREE.Group, colliders: Collider[], interactables: 
     stool.add(mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.44, 6), ink, 0, 0.22, 0));
     stool.add(mesh(new THREE.CylinderGeometry(0.16, 0.18, 0.03, 12), ink, 0, 0.015, 0));
     stool.position.set(x, 0, tz);
-    parts.add(stool);
+    group.add(stool);
     colliders.push({ minX: x - 0.2, maxX: x + 0.2, minZ: tz - 0.2, maxZ: tz + 0.2, top: 0.49 });
+    seatable(stool, sx < 0 ? 'stool-1' : 'stool-2', 0.9, interactables);
   }
   for (const [px, pz, sc] of [
     [maxX - 0.55, minZ + 0.5, 1.1],
@@ -599,6 +605,14 @@ function buildWalls(group: THREE.Group, colliders: Collider[], openings: Opening
       run(floorU, b);
     }
   }
+}
+
+/** Makes `obj` somewhere to sit (see SEATS): walk up to it, or look at it, and press E. */
+function seatable(obj: THREE.Object3D, seatId: string, radius: number, interactables: Interactable[]) {
+  const seat = SEAT_BY_ID.get(seatId)!;
+  const it: Interactable = { kind: 'seat', seatId, x: seat.x, y: seat.y, z: seat.z, radius };
+  interactables.push(it);
+  obj.userData.interact = it;
 }
 
 function chair(color: string): THREE.Group {
@@ -817,6 +831,7 @@ export function buildOffice(): Office {
   couch.position.set(10.5, 0, 0);
   group.add(couch);
   colliders.push({ minX: 10, maxX: 11, minZ: -2.2, maxZ: 2.2, top: 0.55 });
+  seatable(couch, 'couch', 2.6, interactables);
 
   const table = new THREE.Group();
   table.add(mesh(new THREE.CylinderGeometry(0.9, 0.9, 0.08, 24), toon(PALETTE.wood), 0, 0.42, 0));
@@ -830,11 +845,12 @@ export function buildOffice(): Office {
   [
     ['#06d6a0', 12.5, 3.5],
     ['#ffd166', 14.5, -3.4],
-  ].forEach(([c, x, z]) => {
+  ].forEach(([c, x, z], i) => {
     const bean = mesh(new THREE.SphereGeometry(0.6, 16, 12), toon(c as string), x as number, 0.35, z as number);
     bean.scale.y = 0.6;
     group.add(bean);
     colliders.push({ minX: (x as number) - 0.5, maxX: (x as number) + 0.5, minZ: (z as number) - 0.5, maxZ: (z as number) + 0.5, top: 0.6 });
+    seatable(bean, `beanbag-${i + 1}`, 1.4, interactables);
   });
 
   // Kitchen corner: counter + coffee machine + fridge
@@ -893,7 +909,7 @@ export function buildOffice(): Office {
     group.add(lamp);
   }
 
-  buildLoft(group, colliders, looks);
+  buildLoft(group, colliders, interactables, looks);
 
   // The elevator to the other floors, against the north wall between the PR board and the queue.
   const elevator = buildElevator();
@@ -951,7 +967,7 @@ interface Looks {
  * The upstairs office: a loft on posts in the south-east corner, with glass on the two sides that
  * face the desks, reached by stairs along the south wall.
  */
-function buildLoft(group: THREE.Group, colliders: Collider[], looks: Looks) {
+function buildLoft(group: THREE.Group, colliders: Collider[], interactables: Interactable[], looks: Looks) {
   const { minX, maxX, minZ, maxZ, y: floorY, height } = LOFT;
   const w = maxX - minX;
   const d = maxZ - minZ;
@@ -1071,6 +1087,7 @@ function buildLoft(group: THREE.Group, colliders: Collider[], looks: Looks) {
   bossChair.scale.setScalar(1.2);
   bossChair.position.set(0, 0, 1.0);
   desk.add(bossChair);
+  seatable(bossChair, 'boss-chair', 1.2, interactables);
   desk.position.set(deskX, floorY, deskZ);
   group.add(desk);
   colliders.push({ minX: deskX - 1.3, maxX: deskX + 1.3, minZ: deskZ - 0.6, maxZ: deskZ + 0.6, bottom: floorY, top: floorY + 0.8 });
@@ -1084,6 +1101,7 @@ function buildLoft(group: THREE.Group, colliders: Collider[], looks: Looks) {
   couch.position.set(maxX - 0.65, floorY, cz);
   group.add(couch);
   colliders.push({ minX: maxX - 1.15, maxX, minZ: cz - 1.2, maxZ: cz + 1.2, bottom: floorY, top: floorY + 0.55 });
+  seatable(couch, 'loft-couch', 1.8, interactables);
 
   const rug = mesh(roundedBox(4.6, 0.02, 3.2, 0.6), toon('#caffbf'), deskX - 0.3, floorY + 0.015, cz + 0.1, false);
   group.add(rug);
