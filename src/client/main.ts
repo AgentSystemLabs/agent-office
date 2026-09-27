@@ -17,6 +17,7 @@ import { Smoke } from './world/smoke';
 import { Laptop } from './world/laptop';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import { Gallery } from './world/gallery';
+import { Dog } from './world/dog';
 import { Hanger } from './hanging';
 import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
@@ -176,6 +177,11 @@ me.onSmoke = (kind, at, dir) => {
 };
 const sound = new OfficeSound();
 sound.setVolume(settings.volume, settings.muted);
+// The floor's dog. It goes quiet once someone has the terminal of the worker it's barking at open.
+const dog = new Dog(sound, (id) => (store.workers.get(id)?.viewers.length ?? 0) > 0);
+scene.add(dog.root);
+noOutline(dog.root);
+store.on('dog', () => dog.sync(store.dog, store.dogStart));
 const notifier = new DesktopNotifier(() => settings.notify, (id) => openWorkerTerminal(id));
 const hanger = new Hanger(net, camera, canvas, player, office, gallery);
 scene.add(hanger.ghost.group);
@@ -790,6 +796,7 @@ function interact(target: Interactable | null, key: DeskKey) {
   else if (target.kind === 'queue') showQueue();
   else if (target.kind === 'tv') watchShare();
   else if (target.kind === 'decor' && target.decorId) hanger.view(target.decorId);
+  else if (target.kind === 'dog') net.send({ t: 'dog.pet' });
   else if (target.kind === 'coffee') drinkCoffee();
   else if (target.kind === 'smoke') {
     if (smokeBreakUntil) {
@@ -852,7 +859,7 @@ function pickTarget(): Interactable | null {
   if (player.pos.y < -SLAB - 1) return null;
   let best: Interactable | null = null;
   let bestD = Infinity;
-  for (const list of [office.interactables, gallery.interactables]) {
+  for (const list of [office.interactables, gallery.interactables, dog.interactables]) {
     for (const it of list) {
       const d = Math.hypot(it.x - player.pos.x, it.z - player.pos.z);
       if (d < it.radius && d < bestD) {
@@ -932,6 +939,13 @@ function hintFor(it: Interactable): Hint {
     case 'decor': {
       const d = store.decor.find((x) => x.id === it.decorId);
       return { k: `${d?.title}|${d?.by}`, parts: [title(`🖼️ ${d?.title || 'A picture'}`), d ? aside(`hung by ${d.by}`) : '', key('E', 'Look closer')] };
+    }
+    case 'dog': {
+      const doing = dog.doing(
+        (id) => store.workers.get(id)?.name,
+        (id) => (id === store.you ? 'you' : store.peers.get(id)?.name),
+      );
+      return { k: `${dog.name}|${doing}`, parts: [title(`🐶 ${dog.name}`), doing ? aside(doing) : '', key('E', 'Pet')] };
     }
   }
 }
@@ -1116,14 +1130,14 @@ function backToGame() {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, dog: 3.2 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
 function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boolean } | null {
   raycaster.setFromCamera(ndc, camera);
   eye.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
-  for (const hit of raycaster.intersectObject(office.group, true)) {
+  for (const hit of raycaster.intersectObjects([office.group, dog.root], true)) {
     let it: Interactable | undefined;
     let shown = true;
     for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) {
@@ -1404,6 +1418,7 @@ function frame(ts?: number) {
     const desk = DESK_BY_ID.get(v.deskId)!;
     v.laptop.update(dt, store.screens.get(id), Math.hypot(desk.x - camPos.x, desk.z - camPos.z));
   }
+  dog.update(dt);
   office.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position)]);
   checkSmokeBreak(now);
   smoke.update(dt, camera);
@@ -1473,7 +1488,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, caffeine, camera, workerViews, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen };
+(window as any).__office = { store, player, caffeine, camera, workerViews, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen, dog };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

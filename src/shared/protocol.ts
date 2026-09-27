@@ -2,6 +2,7 @@
 
 import type { Look } from './avatar.js';
 import type { DecorPlacement, Decoration } from './decor.js';
+import type { DogState } from './dog.js';
 
 export type WorkerStatus =
   | 'starting' // PTY launched, agent booting
@@ -405,6 +406,8 @@ export interface FloorView {
   /** Pictures on this floor's walls. */
   decor: Decoration[];
   services: ServicesState;
+  /** The floor's dog; null in a building with no floors yet. */
+  dog: DogState | null;
 }
 
 export type AccountRole = 'admin' | 'member';
@@ -669,6 +672,10 @@ export type ClientMsg =
   | { t: 'floor.repos'; refresh?: boolean }
   /** Clone a repository and make it a new floor; answered with `floor.added` once it's there. */
   | { t: 'floor.add'; repo: string }
+  /** Give the dog on your floor a pat; it has to be within reach. */
+  | { t: 'dog.pet' }
+  /** Name the dog on your floor ('' gives it back its first name). */
+  | { t: 'dog.name'; name: string }
   | { t: 'ping'; at: number };
 
 export type ServerMsg =
@@ -725,6 +732,8 @@ export type ServerMsg =
   | { t: 'upgrade'; state: UpgradeState }
   | { t: 'services'; state: ServicesState }
   | { t: 'decor'; items: Decoration[] }
+  /** What the dog on your floor is up to now: sent at the start of each leg of its day. */
+  | { t: 'dog'; dog: DogState }
   | { t: 'usage'; state: UsageState }
   | { t: 'limits'; state: PlanLimits }
   | { t: 'queue'; state: QueueState }
