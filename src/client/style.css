@@ -262,6 +262,8 @@ button { font-family: inherit; }
 .modal textarea:focus, .modal input[type=text]:focus { border-color: var(--accent); }
 .modal label { font-weight: 800; font-size: 14px; display: block; margin-bottom: 6px; }
 .close { width: 34px; height: 34px; padding: 0; justify-content: center; }
+/* The ✕ openModal gives a window without a header of its own. */
+.close.corner { position: absolute; top: 10px; right: 10px; z-index: 1; }
 
 .seg { display: flex; gap: 8px; flex-wrap: wrap; }
 .provider-choice { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; min-width: 190px; }
@@ -878,6 +880,8 @@ a.when:hover { text-decoration: underline; }
 .arcade canvas { display: block; width: 100%; height: 100%; cursor: pointer; touch-action: none; }
 .arcade-bar { position: absolute; top: calc(100% + 10px); left: 50%; translate: -50% 0; display: flex; align-items: center; gap: 12px; white-space: nowrap; padding: 6px 6px 6px 14px; background: var(--paper); border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 4px 0 var(--ink); font-weight: 800; font-size: 14px; }
 .arcade-bar .tip { color: var(--muted); font-size: 12px; }
+/* Its ✕ hangs off the screen's top right corner rather than over the game. */
+.arcade > .close.corner { top: 0; right: auto; left: calc(100% + 10px); }
 /* The arcade cabinet in the lounge (ui/cabinet.ts) plays on the keyboard, and says so over the game when a worker of yours needs input. */
 .arcade.cabinet canvas { cursor: default; }
 .cabinet-call { position: absolute; bottom: calc(100% + 10px); left: 50%; translate: -50% 0; display: flex; align-items: center; gap: 10px; white-space: nowrap; padding: 6px 6px 6px 14px; background: var(--warn); border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 4px 0 var(--ink); font-weight: 900; font-size: 15px; animation: pop .18s ease-out; }
