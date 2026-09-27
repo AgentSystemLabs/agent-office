@@ -49,7 +49,9 @@ import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/w
 import { renderLimits } from './ui/limits';
 import { openJukebox } from './ui/jukebox';
 import { Arcade } from './ui/arcade';
+import { Cabinet } from './ui/cabinet';
 import { trackTitle } from '../shared/jukebox';
+import { GAME, scoreText } from '../shared/cabinet';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -231,6 +233,8 @@ store.on('jukebox', () => {
   sound.setJukebox(j.on ? { track: j.track, url: j.url, startedAt: j.startedAt, since: j.since } : null);
   office.jukebox.show(j.on, trackTitle(j));
 });
+// The arcade cabinet next to it: BLOCKFALL up close, and on its screen for everyone else on the floor.
+const cabinet = new Cabinet(office.cabinet.screen, net, { openTerminal: (id) => openWorkerTerminal(id), sound: (kind, lines) => sound.arcade(kind, lines) });
 const notifier = new DesktopNotifier(() => settings.notify, (id) => openWorkerTerminal(id));
 sky.onThunder = (delay, loud) => sound.thunder(delay, loud);
 const hanger = new Hanger(net, camera, canvas, player, office, gallery);
@@ -602,6 +606,8 @@ function syncWorkers() {
       if (waitingOnSomeone(w) && v.status !== '' && w.status !== v.status) {
         sound.ding(w.status);
         notifier.alert(w);
+        // Playing at the arcade: one of yours stops the game.
+        if (w.status === 'needs_input' && yours(w)) cabinet.needsYou(w);
       }
       v.status = w.status;
       v.acked = w.acked;
@@ -633,6 +639,12 @@ function syncWorkers() {
   renderWorkers((id) => openWorkerTerminal(id));
   notifier.sync(store.workers);
   renderTitle();
+}
+
+/** Hired by you (at a desk, or through the queue), or last given something to do by you. */
+function yours(w: WorkerInfo): boolean {
+  const name = store.peers.get(store.you)?.name ?? store.profile.name;
+  return w.createdBy === name || w.createdBy === `${name} (queue)` || w.lastInput?.by === name;
 }
 
 /**
@@ -941,6 +953,7 @@ function interact(target: Interactable | null, key: DeskKey) {
     }
   } else if (target.kind === 'gong') hitGong();
   else if (target.kind === 'whiteboard') openWhiteboard(net);
+  else if (target.kind === 'cabinet') cabinet.play();
 }
 
 /** A cup from the kitchen machine: a minute of quicker feet and higher jumps, and a mug in your hand. */
@@ -1186,6 +1199,18 @@ function hintFor(it: Interactable): Hint {
       const what = j.on ? trackTitle(j) : '';
       return { k: `${j.on}|${what}`, parts: [title('🎵 Jukebox'), aside(j.on ? `♪ ${clip(what, 40)}` : 'off'), key('E', j.on ? 'Change the song' : 'Put on a song')] };
     }
+    case 'cabinet': {
+      const c = store.cabinet;
+      const f = store.cabinetFrame;
+      if (c.player && c.player.id !== store.you) {
+        const who = c.player.name;
+        return { k: `${who}|${f?.score}`, parts: [title('🕹️ Arcade'), aside(`▶ ${clip(who, 24)} is playing${f ? ` · ${scoreText(f.score)}` : ''}`), key('E', 'Watch')] };
+      }
+      const left = cabinet.leftAt;
+      const best = c.scores[0];
+      const about = left !== null ? `your game's paused at ${scoreText(left)}` : best ? `🏆 ${clip(best.name, 24)} · ${scoreText(best.score)}` : 'no high score yet';
+      return { k: `${left}|${best?.name}|${best?.score}`, parts: [title(`🕹️ ${GAME}`), aside(about), key('E', left !== null ? 'Carry on' : 'Play')] };
+    }
     case 'whiteboard': {
       const names = store.drawing.flatMap((id) => (id === store.you ? [] : (store.peers.get(id)?.name ?? []))).join(', ');
       return { k: names, parts: [title('📝 Whiteboard'), aside(names ? `✏️ ${clip(names, 40)} drawing` : 'draw together, live'), key('E', names ? 'Join in' : 'Draw')] };
@@ -1422,7 +1447,7 @@ function backToGame() {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
@@ -1651,6 +1676,7 @@ function frame(ts?: number) {
 
   player.update(dt);
   arcade.update(camera, dt);
+  cabinet.update(camera, dt);
   me.root.position.copy(player.pos);
   me.root.position.y += player.stepOffset;
   me.root.rotation.y = player.facing;
@@ -1751,8 +1777,8 @@ function frame(ts?: number) {
   }
 
   effect.render(scene, camera);
-  // Not while the camera's up at the boss's monitor, where they'd cover the screen.
-  if (firstPerson && !arcade.zoomed) {
+  // Not while the camera's up at the boss's monitor or the arcade, where they'd cover the screen.
+  if (firstPerson && !arcade.zoomed && !cabinet.zoomed) {
     // Hands go on top of everything, so they never clip into a desk you walk up to. They have
     // lights of their own, turned down to match wherever you're standing.
     renderer.clearDepth();
@@ -1804,7 +1830,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, caffeine, camera, arcade, workerViews, departures, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen, confetti, dog, sky };
+(window as any).__office = { store, player, caffeine, camera, arcade, cabinet, workerViews, departures, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen, confetti, dog, sky };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

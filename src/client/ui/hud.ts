@@ -102,6 +102,7 @@ export function openHelp() {
     ['🛗', 'Every project is a floor: step into the elevator on the north wall and press E (or click the project name, top left) to go to another one or add a project'],
     ['🤖', 'An agent stands by the issues board, the PR board and the task queue. Press E at one and type what you want: it runs as an agent that knows that board. O there opens its terminal, X sends it home'],
     ['📝', 'The whiteboard on wheels between the desks and the lounge: press E to draw on it with everyone on your floor, live. What you draw stays up on the board'],
+    ['🕹️', 'The arcade cabinet in the lounge plays BLOCKFALL: arrows (or WASD) move and turn, Space drops, C holds, P pauses. Everyone on the floor sees your game on it, and E there watches whoever is playing. One of your workers needing input pauses it'],
     ['🎉', 'The gong next to the PR board rings, and confetti flies over the desk, whenever a pull request merges. Walk up and press E to bang it yourself'],
     ['Drag / wheel', 'Orbit and zoom the camera in third person'],
     ['P', 'Prompt: give a task to a new or existing worker at the desk you face'],

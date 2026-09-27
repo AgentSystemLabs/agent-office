@@ -1,6 +1,7 @@
 // Wire protocol between browser and server. Every WebSocket frame is one JSON object.
 
 import type { Look } from './avatar.js';
+import type { CabinetFrame, CabinetState, CabinetView } from './cabinet.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
 import type { JukeboxState } from './jukebox.js';
@@ -432,6 +433,8 @@ export interface FloorView {
   dog: DogState | null;
   /** What the lounge jukebox is playing. */
   jukebox: JukeboxState;
+  /** Who's at the arcade cabinet, what's on its screen, and the building's high scores. */
+  cabinet: CabinetView;
   /** What's drawn on this floor's whiteboard, and who's drawing. */
   whiteboard: WhiteboardView;
 }
@@ -728,6 +731,13 @@ export type ClientMsg =
   /** On to the next tune. */
   | { t: 'jukebox.skip' }
   | { t: 'jukebox.stop' }
+  /** Step up to the arcade cabinet on your floor to play; the office answers with `cabinet`, naming who got it. */
+  | { t: 'cabinet.play' }
+  | { t: 'cabinet.leave' }
+  /** Your game as it looks now, for everyone else on the floor to watch over your shoulder. */
+  | { t: 'cabinet.frame'; frame: CabinetFrame }
+  /** Your game's score so far, when you step away from it and when it ends, for the high-score table. */
+  | { t: 'cabinet.score'; game: string; score: number; lines: number; level: number }
   /** You opened the whiteboard (or closed it): everyone on the floor sees who's drawing. */
   | { t: 'wb.open' }
   | { t: 'wb.close' }
@@ -811,6 +821,10 @@ export type ServerMsg =
   /** What the dog on your floor is up to now: sent at the start of each leg of its day. */
   | { t: 'dog'; dog: DogState }
   | { t: 'jukebox'; state: JukeboxState }
+  /** Who's at the arcade cabinet on your floor now, and the building's high scores. */
+  | { t: 'cabinet'; state: CabinetState }
+  /** The game on your floor's cabinet, as its player sees it (sent to everyone else on the floor). */
+  | { t: 'cabinet.frame'; frame: CabinetFrame }
   /** Someone changed these elements on the floor's whiteboard (sent to everyone else on the floor). */
   | { t: 'wb.update'; elements: WbElement[] }
   /** Who has the floor's whiteboard open now. */

@@ -7,7 +7,7 @@
  * Everything goes through one master gain that Settings turns down or mutes. Voice chat doesn't, and
  * the jukebox has a volume of its own.
  */
-import { DESKS, FLOOR, GONG, JUKEBOX, WINDOWS as OPENINGS } from '../shared/layout';
+import { CABINET, DESKS, FLOOR, GONG, JUKEBOX, WINDOWS as OPENINGS } from '../shared/layout';
 import type { GongWhy } from '../shared/protocol';
 import { STREAM } from '../shared/jukebox';
 import { TunePlayer } from './music';
@@ -44,6 +44,8 @@ const WINDOWS: Pos[] = OPENINGS.filter((o) => o.y0 < 2).map((o) =>
 );
 /** The middle of the gong's disc. */
 const GONG_AT: Pos = { x: GONG.x, y: GONG.height - 1.36, z: GONG.z };
+/** The arcade cabinet's speaker, under its screen. */
+const CABINET_AT: Pos = { x: CABINET.x - 0.2, y: 1.2, z: CABINET.z };
 /** A gong's overtones don't line up like a string's: [ratio to the lowest, loudness, seconds to die away]. */
 const GONG_PARTIALS: [number, number, number][] = [
   [1, 0.8, 7],
@@ -483,9 +485,10 @@ export class OfficeSound {
   }
 
   /** A short pitched blip: a bubble when `ratio` > 1, a drip when < 1. */
-  private blip(dest: AudioNode, when: number, freq: number, ratio: number, len: number, gain: number) {
+  private blip(dest: AudioNode, when: number, freq: number, ratio: number, len: number, gain: number, type: OscillatorType = 'sine') {
     const ctx = this.ctx!;
     const o = ctx.createOscillator();
+    o.type = type;
     o.frequency.setValueAtTime(freq, when);
     o.frequency.exponentialRampToValueAtTime(freq * ratio, when + len);
     const g = ctx.createGain();
@@ -803,6 +806,21 @@ export class OfficeSound {
     wash.connect(biquad(ctx, 'bandpass', 3200, 1.2)).connect(washG).connect(out);
     wash.start(t0);
     wash.stop(t0 + 3.5 * long + 0.05);
+  }
+
+  // ---- The arcade -------------------------------------------------------------------------------
+
+  /** The arcade cabinet's chip bleeps: a piece landing, lines clearing (a longer run up for more at once), the game ending. */
+  arcade(kind: 'land' | 'clear' | 'over', lines = 1) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count(`arcade.${kind}`);
+    const out = this.panner(CABINET_AT, 1.5, 1.2);
+    out.connect(this.ambience);
+    const t0 = ctx.currentTime + 0.02;
+    if (kind === 'land') this.blip(out, t0, 160, 0.55, 0.07, 0.1, 'square');
+    else if (kind === 'clear') [523, 659, 784, 1047, 1319].slice(0, lines + 1).forEach((f, i) => this.blip(out, t0 + i * 0.07, f, 1.02, 0.1, 0.09, 'square'));
+    else [392, 330, 262, 196].forEach((f, i) => this.blip(out, t0 + i * 0.18, f, 0.97, 0.17, 0.14, 'triangle'));
   }
 
   // ---- Alerts ----------------------------------------------------------------------------------

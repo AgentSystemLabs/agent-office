@@ -1,7 +1,7 @@
 // Getting around the office floor downstairs (no stairs, no loft, no elevator), round the furniture
 // on a coarse grid: the dog's walks (server/dog.ts), and a worker's way out when it's sent home.
 
-import { BEANBAGS, DESK_SIZE, DESKS, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LOFT, PLANTS, ROAD, STAIRS, STATIONS, WHITEBOARD, type DeskDef } from './layout.js';
+import { BEANBAGS, CABINET, DESK_SIZE, DESKS, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LOFT, PLANTS, ROAD, STAIRS, STATIONS, WHITEBOARD, type DeskDef } from './layout.js';
 
 
 export type Pt = [number, number];
@@ -47,6 +47,8 @@ function obstacles(): { rects: Rect[]; circles: Circle[] } {
   rects.push([WHITEBOARD.x - WHITEBOARD.width / 2 - 0.2, WHITEBOARD.x + WHITEBOARD.width / 2 + 0.2, WHITEBOARD.z - 0.48, WHITEBOARD.z + 0.48]);
   // The jukebox, against the east wall.
   rects.push([JUKEBOX.x - JUKEBOX.depth / 2 - 0.05, FLOOR.maxX, JUKEBOX.z - JUKEBOX.width / 2 - 0.05, JUKEBOX.z + JUKEBOX.width / 2 + 0.05]);
+  // The arcade cabinet next to it, as world/cabinet.ts puts it (its control panel sticks out a little).
+  rects.push([CABINET.x - 0.45, FLOOR.maxX, CABINET.z - CABINET.width / 2 - 0.02, CABINET.z + CABINET.width / 2 + 0.02]);
   // The overflow bean bags and their lap desks. They're only out while every desk is taken, but they
   // always come out in the same spots, so the dog keeps off those.
   for (const b of BEANBAGS) {
