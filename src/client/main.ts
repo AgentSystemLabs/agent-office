@@ -48,6 +48,7 @@ import { providerLabel, resolvedProvider } from './ui/provider';
 import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
 import { renderLimits } from './ui/limits';
 import { openJukebox } from './ui/jukebox';
+import { Arcade } from './ui/arcade';
 import { trackTitle } from '../shared/jukebox';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
@@ -164,6 +165,8 @@ const tvMat = office.tvScreen.material as THREE.MeshBasicMaterial;
 tvMat.color.set('#ffffff');
 tvMat.map = tvIdle;
 tvMat.toneMapped = false;
+// The boss's monitor upstairs: DEADFALL, from the boss's chair.
+const arcade = new Arcade(office.bossScreen);
 
 // ---- Networking & state -------------------------------------------------------------------------
 const net = new Net(() => store.profile);
@@ -952,6 +955,7 @@ function useSeat(seatId: string) {
   if (!seat) return;
   if (player.seat?.seatId === seatId) {
     if (seat.tv && tvShowing()) watchShare();
+    else if (seat.game) arcade.play();
     else standUp();
     return;
   }
@@ -1140,10 +1144,11 @@ function hintFor(it: Interactable): Hint {
       if (!seat) return { k: '', parts: [] };
       if (player.seat?.seatId === seat.id) {
         const tv = !!seat.tv && tvShowing();
-        return { k: `${seat.id}|sitting|${tv}`, parts: [title(seat.label), aside('sitting'), ...(tv ? [key('E', 'Watch the TV'), key('W A S D', 'Get up')] : [key('E', 'Get up')])] };
+        const use = tv ? 'Watch the TV' : seat.game ? 'Play DEADFALL' : '';
+        return { k: `${seat.id}|sitting|${tv}`, parts: [title(seat.label), aside('sitting'), ...(use ? [key('E', use), key('W A S D', 'Get up')] : [key('E', 'Get up')])] };
       }
       const full = !freePlace(seat);
-      return { k: `${seat.id}|${full}`, parts: [title(seat.label), full ? aside('no room') : key('E', 'Sit down')] };
+      return { k: `${seat.id}|${full}`, parts: [title(seat.label), seat.game ? aside('🌲 DEADFALL on the monitor') : '', full ? aside('no room') : key('E', 'Sit down')] };
     }
     case 'dog': {
       const doing = dog.doing(
@@ -1538,6 +1543,8 @@ resize();
 const timer = new THREE.Timer();
 let lastSent = { x: 0, y: 0, z: 0, rotY: 0, moving: false, at: 0 };
 let speakTick = 0;
+/** Frames since the camera settled on the boss's monitor, to draw the office on only some of them. */
+let arcadeFrames = 0;
 /** Which half-stride your walk is on, so each one plays a footstep. */
 let stride = 0;
 /** How fast you were falling, so landing a jump thumps but stepping down a stair doesn't. */
@@ -1563,6 +1570,7 @@ function frame(ts?: number) {
   renderCaffeine(caffeine, secs);
 
   player.update(dt);
+  arcade.update(camera, dt);
   me.root.position.copy(player.pos);
   me.root.position.y += player.stepOffset;
   me.root.rotation.y = player.facing;
@@ -1660,15 +1668,20 @@ function frame(ts?: number) {
     for (const p of store.peers.values()) if (p.id !== store.you && !store.onMyFloor(p)) voice.setVolume(p.id, 0);
   }
 
-  effect.render(scene, camera);
-  if (firstPerson) {
-    // Hands go on top of everything, so they never clip into a desk you walk up to. They have
-    // lights of their own, turned down to match wherever you're standing.
-    renderer.clearDepth();
-    hands.setLight(sky.lightAt(camera.position));
-    sky.shading(false);
-    effect.render(hands.scene, hands.camera);
-    sky.shading(true);
+  // Playing DEADFALL, the camera holds still on the monitor and the game covers most of the view,
+  // so the office around it only needs every third frame. That leaves the GPU to the game.
+  arcadeFrames = arcade.settled ? arcadeFrames + 1 : 0;
+  if (arcadeFrames % 3 === 0) {
+    effect.render(scene, camera);
+    if (firstPerson && !arcade.zoomed) {
+      // Hands go on top of everything, so they never clip into a desk you walk up to. They have
+      // lights of their own, turned down to match wherever you're standing.
+      renderer.clearDepth();
+      hands.setLight(sky.lightAt(camera.position));
+      sky.shading(false);
+      effect.render(hands.scene, hands.camera);
+      sky.shading(true);
+    }
   }
   requestAnimationFrame(frame);
 }
@@ -1713,7 +1726,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, caffeine, camera, workerViews, departures, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen, confetti, dog, sky };
+(window as any).__office = { store, player, caffeine, camera, arcade, workerViews, departures, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen, confetti, dog, sky };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

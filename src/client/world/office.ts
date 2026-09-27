@@ -63,6 +63,8 @@ export interface Office {
   setBeanbags(out: Set<string>): Collider[];
   boardMeshes: Record<keyof typeof BOARDS, THREE.Mesh>;
   tvScreen: THREE.Mesh;
+  /** The monitor on the boss's desk upstairs, where DEADFALL plays (ui/arcade.ts). */
+  bossScreen: THREE.Mesh;
   /** What's already on the walls (boards, the TV, windows…), so pictures don't hang over it. */
   fixtures(): WallRect[];
   elevator: Elevator;
@@ -1060,7 +1062,7 @@ export function buildOffice(): Office {
     night.halos.push({ at: new THREE.Vector3(x, WALL_HEIGHT - 0.27, z), size: 1.3, color: '#ffe08a' });
   }
 
-  buildLoft(group, colliders, interactables, looks);
+  const bossScreen = buildLoft(group, colliders, interactables, looks);
 
   // The elevator to the other floors, against the north wall between the PR board and the queue.
   const elevator = buildElevator();
@@ -1118,7 +1120,7 @@ export function buildOffice(): Office {
     gong.update(dt);
   };
 
-  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, fixtures: () => fixtures, elevator, gong, jukebox, whiteboard, setProjectName, setLook, night, update };
+  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, fixtures: () => fixtures, elevator, gong, jukebox, whiteboard, setProjectName, setLook, night, update };
 }
 
 /** The materials and textures a floor paints in its own colors. */
@@ -1132,7 +1134,7 @@ interface Looks {
  * The upstairs office: a loft on posts in the south-east corner, with glass on the two sides that
  * face the desks, reached by stairs along the south wall.
  */
-function buildLoft(group: THREE.Group, colliders: Collider[], interactables: Interactable[], looks: Looks) {
+function buildLoft(group: THREE.Group, colliders: Collider[], interactables: Interactable[], looks: Looks): THREE.Mesh {
   const { minX, maxX, minZ, maxZ, y: floorY, height } = LOFT;
   const w = maxX - minX;
   const d = maxZ - minZ;
@@ -1241,7 +1243,9 @@ function buildLoft(group: THREE.Group, colliders: Collider[], interactables: Int
   for (const sx of [-1, 1]) desk.add(mesh(box(0.1, 0.72, 1.0), toon('#8a5a3b'), sx * 1.15, 0.37, 0));
   desk.add(mesh(roundedBox(0.9, 0.55, 0.06, 0.03), toon(PALETTE.ink), 0, 1.18, -0.2));
   desk.add(mesh(box(0.08, 0.2, 0.08), toon(PALETTE.ink), 0, 0.93, -0.2));
-  desk.add(mesh(new THREE.PlaneGeometry(0.8, 0.45), new THREE.MeshBasicMaterial({ color: '#4cc9f0' }), 0, 1.18, -0.165, false));
+  // DEADFALL plays on it (ui/arcade.ts).
+  const screen = mesh(new THREE.PlaneGeometry(0.8, 0.45), new THREE.MeshBasicMaterial({ color: '#4cc9f0' }), 0, 1.18, -0.165, false);
+  desk.add(screen);
   desk.add(mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.12, 10), toon('#ffd166'), 0.9, 0.89, 0.15));
   const plate = textPlane('👑 BOSS', { bg: '#ffd166', size: 48 });
   plate.scale.multiplyScalar(0.55);
@@ -1253,6 +1257,8 @@ function buildLoft(group: THREE.Group, colliders: Collider[], interactables: Int
   bossChair.position.set(0, 0, 1.0);
   desk.add(bossChair);
   seatable(bossChair, 'boss-chair', 1.2, interactables);
+  // Clicking the screen is using the chair: sit down, then play.
+  screen.userData.interact = bossChair.userData.interact;
   desk.position.set(deskX, floorY, deskZ);
   group.add(desk);
   colliders.push({ minX: deskX - 1.3, maxX: deskX + 1.3, minZ: deskZ - 0.6, maxZ: deskZ + 0.6, bottom: floorY, top: floorY + 0.8 });
@@ -1316,4 +1322,5 @@ function buildLoft(group: THREE.Group, colliders: Collider[], interactables: Int
   outside.position.set(cx, roofY + 0.2, minZ - 0.02);
   outside.rotation.y = Math.PI;
   group.add(outside);
+  return screen;
 }
