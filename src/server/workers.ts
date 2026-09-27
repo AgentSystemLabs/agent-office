@@ -7,7 +7,7 @@ import { CodexUsageReader } from './codex-usage.js';
 import * as pty from '@lydell/node-pty';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
-import type { AgentProvider, Run, WorkerInfo, WorkerKind, WorkerStatus, WorkerTask } from '../shared/protocol.js';
+import type { AgentProvider, Run, TerminalHit, WorkerInfo, WorkerKind, WorkerStatus, WorkerTask } from '../shared/protocol.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG } from '../shared/protocol.js';
 import { Worktrees, describeWork, type WorktreeCleanup, type WorktreeState } from './worktrees.js';
 import { DESK_BY_ID } from '../shared/layout.js';
@@ -20,6 +20,7 @@ import { codexHookArgs, normalizeCodexHook, writeCodexHook } from './codex.js';
 import { reportedUsage } from './reported-usage.js';
 import { configuredProvider, isValidOpenCodeModel, validateWorkerModel } from './agents.js';
 import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeStatusEvent } from './opencode.js';
+import { ScrollbackStore, searchTerminal, terminalTail } from './history.js';
 
 type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
 
@@ -57,6 +58,10 @@ const PR_TITLE_MAX = 72;
 const PR_TASK_MAX = 2500;
 /** How often every worker's transcript is checked for new spend, on top of the hook-driven checks. */
 const USAGE_SCAN_MS = 10_000;
+/** How often a terminal with new output is saved to disk, so even a crash loses at most this much. */
+const SAVE_SCROLLBACK_MS = 15_000;
+/** Between a worker's saved scrollback and what it prints after the office restarted. */
+const RESTORED_NOTE = '\x1b[2m──── the office restarted · earlier output above ────\x1b[0m\r\n';
 
 export interface HookEnv {
   url: string;
@@ -94,6 +99,10 @@ interface Worker {
   /** Where the session's tokens and cost are read from (see usage.ts). */
   tracker: UsageTracker;
   scanTimer?: NodeJS.Timeout;
+  /** Output since its scrollback was last saved to disk. */
+  unsaved?: boolean;
+  /** Where this run's own output starts, below the scrollback carried over from before. */
+  fresh?: { readonly line: number };
 }
 
 export interface WorkerEvents {
@@ -118,6 +127,9 @@ export class WorkerManager {
   private closing = false;
   private namer: TaskNamer;
   private usageTimer: NodeJS.Timeout;
+  /** Each worker's terminal on disk, so a restart doesn't wipe it (see history.ts). */
+  private scrollback: ScrollbackStore;
+  private saveTimer: NodeJS.Timeout;
 
   constructor(
     private dir: string,
@@ -144,13 +156,18 @@ export class WorkerManager {
       this.emitUpdate(w);
       this.persist();
     });
+    this.scrollback = new ScrollbackStore(dataDir);
     this.restore();
+    this.scrollback.prune(new Set(this.workers.keys()));
     // A session may have ended (and written its final tally) while the office was down.
     for (const w of this.workers.values()) this.scanUsage(w);
     this.screenTimer = setInterval(() => this.flushScreens(), SCREEN_INTERVAL_MS);
     this.usageTimer = setInterval(() => {
       for (const w of this.workers.values()) this.scanUsage(w);
     }, USAGE_SCAN_MS);
+    this.saveTimer = setInterval(() => {
+      for (const w of this.workers.values()) if (w.unsaved) this.saveScrollback(w);
+    }, SAVE_SCROLLBACK_MS);
     // Whoever was at a desk when the office stopped (a restart, a crash, a dev-server reload) gets
     // straight back to work.
     this.wakeAll();
@@ -265,6 +282,7 @@ export class WorkerManager {
       // already gone
     }
     w.term?.dispose();
+    this.scrollback.remove(id);
     this.events.remove(id);
     this.persist();
     const wt = w.info.worktree;
@@ -299,6 +317,19 @@ export class WorkerManager {
     if (changed) this.emitUpdate(w);
     const data = w.ser ? w.ser.serialize({ scrollback: SCROLLBACK }) : offlineBanner(w.info);
     return { data, cols: w.info.cols, rows: w.info.rows };
+  }
+
+  /** Lines of every worker's terminal holding `needle` (a searchKey), newest first, at most `perWorker` each. */
+  search(needle: string, perWorker: number): { hits: TerminalHit[]; more: boolean } {
+    const hits: TerminalHit[] = [];
+    let more = false;
+    for (const w of this.workers.values()) {
+      if (!w.term) continue;
+      const found = searchTerminal(w.term, needle, perWorker);
+      more ||= found.more;
+      for (const hit of found.hits) hits.push({ workerId: w.info.id, ...hit });
+    }
+    return { hits, more };
   }
 
   detach(id: string, clientId: string) {
@@ -669,9 +700,12 @@ export class WorkerManager {
     this.closing = true;
     clearInterval(this.screenTimer);
     clearInterval(this.usageTimer);
+    clearInterval(this.saveTimer);
     for (const w of this.workers.values()) {
       clearTimeout(w.scanTimer);
       this.scanUsage(w);
+      // Before the process goes, so the next office shows what it was doing, not how it was stopped.
+      if (w.unsaved) this.saveScrollback(w);
       try {
         w.pty?.kill();
       } catch {
@@ -685,6 +719,10 @@ export class WorkerManager {
 
   private launch(w: Worker, prompt: string | undefined, resumeSessionId: string | undefined) {
     const { info } = w;
+    // The new terminal starts with what the last one showed (on a resume), or with what was saved
+    // when the office last stopped, so earlier output is still there to scroll back to and search.
+    const restarted = !w.term;
+    const before = w.term && w.ser ? terminalTail(w.term, w.ser, SCROLLBACK) : this.scrollback.load(info.id);
     const term = new headless.Terminal({ cols: info.cols, rows: info.rows, scrollback: SCROLLBACK, allowProposedApi: true });
     const ser = new serialize.SerializeAddon();
     term.loadAddon(ser as any);
@@ -709,6 +747,13 @@ export class WorkerManager {
     w.ser = ser;
     w.lastLines = [];
     w.screenDirty = true;
+    w.fresh = undefined;
+    if (before) {
+      // Writes are parsed in order, so this lands before anything the new process prints.
+      term.write(`${before}\r\n${restarted ? RESTORED_NOTE : ''}`, () => {
+        if (w.term === term) w.fresh = term.registerMarker(0);
+      });
+    }
 
     const shell = process.env.SHELL || '/bin/bash';
     const isShell = info.kind === 'shell';
@@ -786,6 +831,7 @@ export class WorkerManager {
     proc.onData((data) => {
       term.write(data);
       w.screenDirty = true;
+      w.unsaved = true;
       if (w.viewers.size) this.events.data(info.id, data, [...w.viewers.keys()]);
     });
     proc.onExit(({ exitCode }) => {
@@ -806,6 +852,7 @@ export class WorkerManager {
       term.write(msg);
       if (w.viewers.size) this.events.data(info.id, msg, [...w.viewers.keys()]);
       w.screenDirty = true;
+      w.unsaved = true;
       this.emitUpdate(w);
       this.persist();
     });
@@ -926,7 +973,8 @@ export class WorkerManager {
     if (w.info.kind !== 'agent' || !w.term || (w.info.provider !== 'claude' && w.info.provider !== 'custom')) return;
     const s = w.info.status;
     if (s !== 'starting' && s !== 'idle' && !(w.bootBlocked && s === 'needs_input')) return;
-    const text = screenText(w.term);
+    // Only this run's output counts: a "Not logged in" in the scrollback from before is old news.
+    const text = screenText(w.term, w.term.buffer.active.type === 'normal' ? Math.max(0, w.fresh?.line ?? 0) : 0);
     const loggedOut = NOT_LOGGED_IN.test(text);
     const blocked = loggedOut || (SETUP_PROMPT.test(text) && (s === 'starting' || w.bootBlocked));
     if (blocked && s !== 'needs_input') {
@@ -984,6 +1032,12 @@ process.stdin.on('end', () => {
       hooks[event] = [{ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command }] }];
     }
     writeFileSync(this.settingsPath, JSON.stringify({ hooks }, null, 2), { mode: 0o600 });
+  }
+
+  private saveScrollback(w: Worker) {
+    if (!w.term || !w.ser) return;
+    w.unsaved = false;
+    this.scrollback.save(w.info.id, terminalTail(w.term, w.ser, SCROLLBACK));
   }
 
   private persist() {
@@ -1180,10 +1234,11 @@ function snapshotScreen(term: HeadlessTerminal, last: string[]) {
 const SETUP_PROMPT = /trust this folder|Do you trust the files|Select login method|Choose the text style|Press Enter to continue|Bypass Permissions mode/i;
 const NOT_LOGGED_IN = /Not logged in\s*·\s*Run \/login|Invalid API key|Please run \/login/i;
 
-function screenText(term: HeadlessTerminal): string {
+/** The text on screen, leaving out rows above buffer row `from`. */
+function screenText(term: HeadlessTerminal, from = 0): string {
   const buf = term.buffer.active;
   const out: string[] = [];
-  for (let y = 0; y < term.rows; y++) out.push(buf.getLine(buf.viewportY + y)?.translateToString(true) ?? '');
+  for (let y = Math.max(0, from - buf.viewportY); y < term.rows; y++) out.push(buf.getLine(buf.viewportY + y)?.translateToString(true) ?? '');
   return out.join('\n');
 }
 

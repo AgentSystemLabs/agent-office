@@ -4,13 +4,22 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { Net } from '../net';
 import { store } from '../state';
 import { TERM_THEME } from '../world/laptop';
-import { h, openModal, STATUS_LABEL, timeAgo, type Modal } from './dom';
+import { h, openModal, STATUS_LABEL, timeAgo, toast, type Modal } from './dom';
 import { usageLabel, usageTitle } from './usage';
 import type { ServerMsg } from '../../shared/protocol';
 import { isAsleep } from '../../shared/status';
+import { findLine } from '../../shared/search';
 import { providerLabel, providerUsageNote, providerUsageState, resolvedProvider } from './provider';
 
-let current: { workerId: string; modal: Modal } | null = null;
+/** A line to scroll to once the terminal has loaded: a search hit (see search.ts). */
+export interface TerminalFind {
+  /** What was searched for, as a searchKey. */
+  needle: string;
+  /** How many rows from the bottom of the worker's terminal the line was. */
+  fromEnd: number;
+}
+
+let current: { workerId: string; modal: Modal; find(f: TerminalFind): void } | null = null;
 const listeners = new Set<(msg: ServerMsg) => void>();
 
 /** Main feeds every server message through here so open terminals can pick theirs. */
@@ -22,8 +31,11 @@ export function openTerminalFor(): string | null {
   return current?.workerId ?? null;
 }
 
-export function openTerminal(net: Net, workerId: string, onChanges?: () => void) {
-  if (current?.workerId === workerId) return;
+export function openTerminal(net: Net, workerId: string, onChanges?: () => void, find?: TerminalFind) {
+  if (current?.workerId === workerId) {
+    if (find) current.find(find);
+    return;
+  }
   current?.modal.close();
   const info = store.workers.get(workerId);
   if (!info) return;
@@ -113,6 +125,34 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void)
     }
   };
 
+  /** Scrolls a search hit into view and lights it up for a few seconds. */
+  const jumpTo = (f: TerminalFind) => {
+    const buf = term.buffer.active;
+    const row = findLine(buf, f.needle, f.fromEnd);
+    if (row === undefined) return toast('That line has scrolled out of the terminal since', 'warn');
+    let end = row;
+    while (buf.getLine(end + 1)?.isWrapped) end++;
+    // A marker follows the line when the terminal reflows, which it does as the window settles.
+    const marker = term.registerMarker(row - (buf.baseY + buf.cursorY));
+    if (!marker) return;
+    const mark = term.registerDecoration({ marker, width: term.cols, height: end - row + 1, backgroundColor: TERM_THEME.yellow, foregroundColor: TERM_THEME.background });
+    const scroll = () => {
+      if (marker.line < 0) return;
+      // xterm scrolls from where its scrollbar is, which lags behind a resize; from the top is exact.
+      term.scrollLines(-term.buffer.active.length);
+      term.scrollLines(Math.max(0, marker.line - Math.floor(term.rows / 3)));
+    };
+    scroll();
+    // The window settles its size just after it opens; stay on the line through that.
+    const follow = term.onResize(() => setTimeout(scroll, 50));
+    setTimeout(() => follow.dispose(), 1500);
+    setTimeout(() => {
+      mark?.dispose();
+      marker.dispose();
+    }, 8000);
+  };
+  let pendingFind = find;
+
   const onMsg = (msg: ServerMsg) => {
     if (msg.t === 'term.data' && msg.workerId === workerId) term.write(msg.data);
     else if (msg.t === 'term.snapshot' && msg.workerId === workerId) {
@@ -123,6 +163,8 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void)
         sendSize();
         term.scrollToBottom();
         refresh();
+        if (pendingFind) jumpTo(pendingFind);
+        pendingFind = undefined;
       });
     }
   };
@@ -141,7 +183,14 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void)
       if (current?.modal === modal) current = null;
     },
   });
-  current = { workerId, modal };
+  current = {
+    workerId,
+    modal,
+    find: (f) => {
+      if (ready) jumpTo(f);
+      else pendingFind = f;
+    },
+  };
   closeBtn.addEventListener('click', () => modal.close());
   changesBtn.addEventListener('click', () => {
     onChanges?.();

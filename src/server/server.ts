@@ -23,9 +23,11 @@ import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { Webhook } from './webhook.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
-import type { ChatLine, ClientMsg, Me, PeerInfo, ProjectInfo, ServerMsg, ServicesState } from '../shared/protocol.js';
+import { ChatLog } from './history.js';
+import type { ChatLine, ClientMsg, Me, PeerInfo, ProjectInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { isAgentProvider } from '../shared/protocol.js';
 import { SPAWN } from '../shared/layout.js';
+import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 
 const MIME: Record<string, string> = {
@@ -152,13 +154,17 @@ const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const TOO_MANY_ATTEMPTS = 'Too many attempts. Try again in a few minutes.';
 /** WebSocket close code for a session that stopped counting: the account was revoked, or the shared password switched off. */
 const SIGNED_OUT = 4001;
+/** The most chat lines, and lines per worker's terminal, a search answers with. */
+const SEARCH_CHAT_HITS = 50;
+const SEARCH_TERMINAL_HITS = 25;
 
 export async function startServer(cfg: Config) {
   const publicDir = findPublicDir();
   const accounts = new Accounts(cfg.dataDir);
   const auth = new Auth(cfg.verifier, cfg.salt, cfg.secret, accounts);
   const clients = new Map<string, Client>();
-  const chat: ChatLine[] = [];
+  // Kept on disk, so a restart doesn't wipe it.
+  const chat = new ChatLog(cfg.dataDir);
   const project = projectInfo(cfg);
   const modelCommand = configuredProvider(cfg.agentCmd) === 'opencode' ? cfg.agentCmd : 'opencode';
   const openCodeModels = createOpenCodeModelCatalogue(
@@ -410,6 +416,16 @@ export async function startServer(cfg: Config) {
     return send(res, 200, { ok: true, name: r.name }, signedIn(req, r.id));
   };
 
+  /** The 🔎 search: chat lines and lines of every worker's terminal with the words in them. */
+  const search = (q: string): SearchResults => {
+    q = q.slice(0, SEARCH_MAX);
+    const needle = searchKey(q);
+    if (needle.length < SEARCH_MIN) return { q, chat: [], terminals: [], more: false };
+    const said = chat.search(needle, SEARCH_CHAT_HITS);
+    const shown = workers.search(needle, SEARCH_TERMINAL_HITS);
+    return { q, chat: said.hits, terminals: shown.hits, more: said.more || shown.more };
+  };
+
   const handler = async (req: http.IncomingMessage, res: http.ServerResponse) => {
     try {
       // A service tunnel (localhost:5173 -> the office): relay to that worker's server.
@@ -492,6 +508,7 @@ export async function startServer(cfg: Config) {
         res.end(r.body);
         return;
       }
+      if (p === '/api/search' && req.method === 'GET') return send(res, 200, search(url.searchParams.get('q') ?? ''));
       if (p.startsWith('/api/gh/') && req.method === 'GET') {
         // What the issue and PR windows show beyond the board cards (see github.ts).
         const n = Number(url.searchParams.get('number'));
@@ -621,7 +638,7 @@ export async function startServer(cfg: Config) {
       issues: github.issues,
       pulls: github.pulls,
       ice: cfg.iceServers,
-      chat: chat.slice(-50),
+      chat: chat.recent(50),
       invites: team.available,
       version: upgrader.version,
       upgrade: upgrader.state,
@@ -704,8 +721,7 @@ export async function startServer(cfg: Config) {
         const text = str(msg.text, 500).trim();
         if (!text) break;
         const line: ChatLine = { from: c.id, name: who, color: c.peer.color, text, at: Date.now(), ...(c.accountId ? { account: true } : {}) };
-        chat.push(line);
-        if (chat.length > 200) chat.splice(0, chat.length - 200);
+        chat.add(line);
         broadcast({ t: 'chat', ...line });
         break;
       }
