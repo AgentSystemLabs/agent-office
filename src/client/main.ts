@@ -45,6 +45,7 @@ import { openSettings } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 import { elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
 import { providerLabel, resolvedProvider } from './ui/provider';
+import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
 import { renderLimits } from './ui/limits';
 import { openJukebox } from './ui/jukebox';
 import { trackTitle } from '../shared/jukebox';
@@ -124,6 +125,9 @@ mountBoard(office.boardMeshes.queue, queueTex.texture, () => queueTex.render(sto
 const gallery = new Gallery();
 office.group.add(gallery.group);
 store.on('decor', () => gallery.sync(store.decor));
+
+// The whiteboard shows what everyone's drawn on it.
+mirrorWhiteboard(office.whiteboard.show, office.whiteboard.fit.width, office.whiteboard.fit.height);
 
 // Confetti for merges, landing on whatever it falls on
 const confetti = new Confetti((x, z, y) => groundAt(office.colliders, x, z, y));
@@ -275,6 +279,7 @@ net.onMessage((msg) => {
   routeAccountsMessage(msg);
   routePullMessage(msg);
   routeElevatorMessage(msg);
+  routeWhiteboardMessage(msg, net);
   switch (msg.t) {
     case 'welcome': {
       // A few pings, to line this page's clock up with the office's for the jukebox.
@@ -874,6 +879,7 @@ function interact(target: Interactable | null, key: DeskKey) {
       toast('🚬 Smoke break');
     }
   } else if (target.kind === 'gong') hitGong();
+  else if (target.kind === 'whiteboard') openWhiteboard(net);
 }
 
 /** A cup from the kitchen machine: a minute of quicker feet and higher jumps, and a mug in your hand. */
@@ -1116,6 +1122,10 @@ function hintFor(it: Interactable): Hint {
       const what = j.on ? trackTitle(j) : '';
       return { k: `${j.on}|${what}`, parts: [title('🎵 Jukebox'), aside(j.on ? `♪ ${clip(what, 40)}` : 'off'), key('E', j.on ? 'Change the song' : 'Put on a song')] };
     }
+    case 'whiteboard': {
+      const names = store.drawing.flatMap((id) => (id === store.you ? [] : (store.peers.get(id)?.name ?? []))).join(', ');
+      return { k: names, parts: [title('📝 Whiteboard'), aside(names ? `✏️ ${clip(names, 40)} drawing` : 'draw together, live'), key('E', names ? 'Join in' : 'Draw')] };
+    }
     case 'elevator': {
       const f = store.currentFloor();
       const n = store.floors.length;
@@ -1325,7 +1335,7 @@ function backToGame() {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
@@ -1479,6 +1489,7 @@ store.on('me', () => $('btn-accounts').classList.toggle('hidden', !store.me.admi
 $('btn-upgrade').addEventListener('click', () => openUpgrade(net));
 $('btn-search').addEventListener('click', () => showSearch());
 $('btn-help').addEventListener('click', () => openHelp());
+$('btn-whiteboard').addEventListener('click', () => openWhiteboard(net));
 $('btn-decor').addEventListener('click', () => (hanger.active ? hanger.cancel() : hanger.start()));
 $('btn-settings').addEventListener('click', () => showSettings());
 function showSettings() {

@@ -30,6 +30,7 @@ import { GH_COMMENT_MAX, isAgentProvider } from '../shared/protocol.js';
 import { elevatorSpot, seatAt } from '../shared/layout.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
+import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 
 const MIME: Record<string, string> = {
@@ -67,6 +68,9 @@ interface Client {
   lastMoveAt: number;
   lastActAt: number;
   lastGongAt: number;
+  /** Has the floor's whiteboard open. */
+  whiteboard: boolean;
+  lastWbPointerAt: number;
   /** Cleared at each heartbeat ping and set again by the pong; still clear at the next one means gone. */
   isAlive: boolean;
 }
@@ -369,6 +373,12 @@ export async function startServer(cfg: Config) {
     },
   );
 
+  /** Who has a floor's whiteboard open. */
+  const drawing = (floor: Floor): string[] => [...clients.values()].filter((c) => c.whiteboard && c.peer.floor === floor.id).map((c) => c.id);
+  const drawingChanged = (floor: Floor | undefined) => {
+    if (floor) toFloor(floor, { t: 'wb.people', people: drawing(floor) });
+  };
+
   /** Everything on a floor, for whoever just arrived there. */
   const floorView = (floor: Floor | undefined): FloorView => ({
     floor: floor?.id ?? null,
@@ -381,6 +391,7 @@ export async function startServer(cfg: Config) {
     services: servicesState(floor),
     dog: floor?.dog.view() ?? null,
     jukebox: floor?.jukebox.state() ?? { on: false, track: JUKEBOX_TUNES[0].id, startedAt: Date.now(), elapsed: 0 },
+    whiteboard: { elements: floor?.whiteboard.scene() ?? [], people: floor ? drawing(floor) : [] },
   });
   const screensOf = (c: Client, floor: Floor | undefined) => {
     for (const { workerId, frame } of floor?.workers.fullScreens() ?? []) sendTo(c, { t: 'screen', workerId, ...frame, full: true });
@@ -571,6 +582,26 @@ export async function startServer(cfg: Config) {
       }
       // Which floor a request is about: its boards and its workers.
       const floor = floors.get(url.searchParams.get('floor') ?? '');
+      if (p === '/api/whiteboard/file') {
+        // Pictures on the whiteboard. Their ids are hashes of what's in them, so they never change.
+        if (!floor) return send(res, 404, { error: 'No such floor' });
+        if (req.method === 'GET') {
+          const f = floor.whiteboard.file(url.searchParams.get('id') ?? '');
+          if (!f) return send(res, 404, { error: 'No such picture' });
+          return send(res, 200, f, { 'cache-control': 'private, max-age=31536000, immutable' });
+        }
+        if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
+        if (!sameOrigin(req, cfg)) return send(res, 403, { error: 'Forbidden' });
+        let body: unknown;
+        try {
+          body = JSON.parse(await readBody(req, WB_MAX_FILE_BYTES + 4096));
+        } catch (err) {
+          if ((err as Error).message === 'too large') return send(res, 413, { error: 'That picture is too big for the whiteboard' });
+          return send(res, 400, { error: 'Bad request' });
+        }
+        const error = floor.whiteboard.addFile(body);
+        return error ? send(res, 400, { error }) : send(res, 200, { ok: true });
+      }
       if (p === '/api/search' && req.method === 'GET') return send(res, 200, search(url.searchParams.get('q') ?? '', floor));
       if (p.startsWith('/api/gh/') && req.method === 'GET') {
         // What the issue and PR windows show beyond the board cards (see github.ts).
@@ -677,6 +708,8 @@ export async function startServer(cfg: Config) {
       lastMoveAt: 0,
       lastActAt: 0,
       lastGongAt: 0,
+      whiteboard: false,
+      lastWbPointerAt: 0,
       isAlive: true,
       peer: {
         id,
@@ -741,6 +774,7 @@ export async function startServer(cfg: Config) {
     });
     ws.on('close', () => {
       clients.delete(id);
+      if (client.whiteboard) drawingChanged(floorOf(client));
       for (const f of floors.values()) {
         f.workers.detachAll(id);
         f.changes.unwatchAll(id);
@@ -777,12 +811,16 @@ export async function startServer(cfg: Config) {
     }
     c.attached.clear();
     c.stale.clear();
+    // The whiteboard downstairs stays downstairs.
+    const wasDrawing = c.whiteboard;
+    c.whiteboard = false;
     const spot = elevatorSpot();
     Object.assign(c.peer, { floor: floor.id, x: spot.x, y: 0, z: spot.z, rotY: 0, moving: false });
     delete c.peer.seat;
     sendTo(c, { t: 'floor.enter', peers: [...clients.values()].map((o) => o.peer), ...floorView(floor) });
     screensOf(c, floor);
     broadcast({ t: 'peer.update', peer: c.peer }, c.id);
+    if (wasDrawing) drawingChanged(was);
     floor.arrived();
     floor.workers.wakeAll();
     floorsChanged();
@@ -1194,6 +1232,36 @@ export async function startServer(cfg: Config) {
         if (!d) break;
         decorChanged(floor);
         toastFloor(floor, `${who} took down ${d.title ? `“${d.title}”` : 'a picture'}`);
+        break;
+      }
+      case 'wb.open':
+      case 'wb.close': {
+        const floor = floorOf(c);
+        const open = msg.t === 'wb.open' && !!floor;
+        if (open === c.whiteboard) break;
+        c.whiteboard = open;
+        drawingChanged(floor);
+        break;
+      }
+      case 'wb.update': {
+        const floor = here();
+        if (!floor) break;
+        const { accepted, error } = floor.whiteboard.apply(msg.elements);
+        if (accepted.length) toNeighbors(c, { t: 'wb.update', elements: accepted });
+        warn(c, error);
+        break;
+      }
+      case 'wb.pointer': {
+        const now = Date.now();
+        if (!c.whiteboard || now - c.lastWbPointerAt < 25) break;
+        c.lastWbPointerAt = now;
+        const selected = Array.isArray(msg.selected) ? msg.selected.filter((s): s is string => typeof s === 'string').slice(0, 200).map((s) => s.slice(0, 100)) : undefined;
+        const pointer: ServerMsg = { t: 'wb.pointer', id: c.id, x: num(msg.x), y: num(msg.y), tool: msg.tool === 'laser' ? 'laser' : 'pointer', button: msg.button === 'down' ? 'down' : 'up', selected };
+        const json = JSON.stringify(pointer);
+        for (const o of clients.values()) {
+          if (o.id === c.id || !o.whiteboard || o.peer.floor !== c.peer.floor || o.ws.readyState !== WebSocket.OPEN || o.ws.bufferedAmount > 1024 * 1024) continue;
+          o.ws.send(json);
+        }
         break;
       }
       case 'jukebox.play': {

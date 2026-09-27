@@ -7,6 +7,7 @@ import { mergeByMaterial, mesh, roundedBox, textPlane, toon, toonUnique } from '
 import { buildElevator, type Elevator } from './elevator';
 import { buildGong, type Gong } from './gong';
 import { buildJukebox, type JukeboxView } from './jukebox';
+import { buildWhiteboard, type WhiteboardStand } from './whiteboard';
 
 export interface Collider {
   minX: number;
@@ -18,7 +19,7 @@ export interface Collider {
   bottom?: number;
 }
 
-export type InteractKind = 'desk' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat';
+export type InteractKind = 'desk' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -68,6 +69,8 @@ export interface Office {
   /** The merge gong by the PR board. */
   gong: Gong;
   jukebox: JukeboxView;
+  /** The rolling whiteboard everyone draws on together. */
+  whiteboard: WhiteboardStand;
   /** The sign over the elevator doors: which floor you're on. */
   setProjectName(name: string): void;
   /** Paints the walls, their trim and the floor in a floor's colors, so each project looks like itself. */
@@ -1072,6 +1075,12 @@ export function buildOffice(): Office {
   colliders.push(...gong.colliders);
   interactables.push(gong.interactable);
   fixture('north', GONG.x, (GONG.height + 0.3) / 2, GONG.width + 1.2, GONG.height + 0.3);
+
+  // The whiteboard, out on the floor between the desks and the lounge.
+  const whiteboard = buildWhiteboard();
+  group.add(whiteboard.group);
+  colliders.push(...whiteboard.colliders);
+  interactables.push(whiteboard.interactable);
   // Pictures stay clear of the stairs (step by step, so they can hang above them) and of what's on
   // the loft's walls upstairs, as buildLoft places it: the couch and the sign.
   const run = (STAIRS.toX - STAIRS.fromX) / STAIRS.steps;
@@ -1109,7 +1118,7 @@ export function buildOffice(): Office {
     gong.update(dt);
   };
 
-  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, fixtures: () => fixtures, elevator, gong, jukebox, setProjectName, setLook, night, update };
+  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, fixtures: () => fixtures, elevator, gong, jukebox, whiteboard, setProjectName, setLook, night, update };
 }
 
 /** The materials and textures a floor paints in its own colors. */

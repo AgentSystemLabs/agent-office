@@ -1,7 +1,7 @@
 // Getting around the office floor downstairs (no stairs, no loft, no elevator), round the furniture
 // on a coarse grid: the dog's walks (server/dog.ts), and a worker's way out when it's sent home.
 
-import { BEANBAGS, DESK_SIZE, DESKS, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, LOFT, ROAD, STAIRS, type DeskDef } from './layout.js';
+import { BEANBAGS, DESK_SIZE, DESKS, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, LOFT, ROAD, STAIRS, WHITEBOARD, type DeskDef } from './layout.js';
 
 
 export type Pt = [number, number];
@@ -53,6 +53,8 @@ function obstacles(): { rects: Rect[]; circles: Circle[] } {
   rects.push([ELEVATOR.x - ELEVATOR.width / 2, ELEVATOR.x + ELEVATOR.width / 2, FLOOR.minZ, ELEVATOR_FRONT]);
   // The gong's frame, as office.ts puts it.
   rects.push([GONG.x - GONG.width / 2 - 0.12, GONG.x + GONG.width / 2 + 0.3, GONG.z - 0.3, GONG.z + 0.3]);
+  // The whiteboard on its wheels, as world/whiteboard.ts puts it.
+  rects.push([WHITEBOARD.x - WHITEBOARD.width / 2 - 0.2, WHITEBOARD.x + WHITEBOARD.width / 2 + 0.2, WHITEBOARD.z - 0.48, WHITEBOARD.z + 0.48]);
   // The jukebox, against the east wall.
   rects.push([JUKEBOX.x - JUKEBOX.depth / 2 - 0.05, FLOOR.maxX, JUKEBOX.z - JUKEBOX.width / 2 - 0.05, JUKEBOX.z + JUKEBOX.width / 2 + 0.05]);
   // The overflow bean bags and their lap desks. They're only out while every desk is taken, but they

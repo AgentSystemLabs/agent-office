@@ -2,10 +2,11 @@ import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, Gh
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
+import { newer, type WbElement } from '../shared/whiteboard';
 import type { DogState } from '../shared/dog';
 import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'floors' | 'floor' | 'repos' | 'dog' | 'jukebox' | 'sky';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'floors' | 'floor' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'whiteboard' | 'drawing';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -132,6 +133,10 @@ class Store {
   jukebox: JukeboxState & { since: number } = { on: false, track: JUKEBOX_TUNES[0].id, startedAt: 0, elapsed: 0, since: 0 };
   /** The office's clock minus performance.now(), from the quickest ping (see 'pong'); for the jukebox. */
   private clock?: { offset: number; rtt: number };
+  /** The floor's whiteboard: the newest copy of every element anyone drew, deleted ones too. */
+  whiteboard = new Map<string, WbElement>();
+  /** Who has the whiteboard open (client ids). */
+  drawing: string[] = [];
   usage: UsageState = { total: zeroUsage(), today: zeroUsage(), day: '', pauseHiring: false };
   /** The Claude plan's 5-hour and weekly limits. */
   limits: PlanLimits = { windows: [], at: 0 };
@@ -175,6 +180,17 @@ class Store {
     return undefined;
   }
 
+  /** Takes in whiteboard elements, yours or someone else's: each one newer than the copy here replaces it. */
+  drew(elements: readonly WbElement[]) {
+    let changed = false;
+    for (const e of elements) {
+      if (!newer(e, this.whiteboard.get(e.id))) continue;
+      this.whiteboard.set(e.id, e);
+      changed = true;
+    }
+    if (changed) this.emit('whiteboard');
+  }
+
   /** The queue task for an issue: the one on the queue if there is one, else the latest finished one. */
   taskForIssue(issue: number): QueueTask | undefined {
     const tasks = this.queue.tasks.filter((t) => t.issue === issue);
@@ -193,9 +209,11 @@ class Store {
     this.queue = v.queue;
     this.decor = v.decor;
     this.services = v.services;
+    this.whiteboard = new Map(v.whiteboard.elements.map((e) => [e.id, e]));
+    this.drawing = v.whiteboard.people;
     this.setDog(v.dog);
     this.setJukebox(v.jukebox);
-    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'decor', 'services', 'dog', 'jukebox'] as Topic[]) this.emit(t);
+    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'decor', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing'] as Topic[]) this.emit(t);
   }
 
   private setDog(dog: DogState | null) {
@@ -322,6 +340,13 @@ class Store {
         if (Math.abs(this.jukebox.since - was) > 20) this.emit('jukebox');
         break;
       }
+      case 'wb.update':
+        this.drew(msg.elements);
+        break;
+      case 'wb.people':
+        this.drawing = msg.people;
+        this.emit('drawing');
+        break;
       case 'usage':
         this.usage = msg.state;
         this.emit('usage');

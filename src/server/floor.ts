@@ -13,6 +13,7 @@ import { Changes } from './changes.js';
 import { Decor } from './decor.js';
 import { Dog } from './dog.js';
 import { Jukebox } from './jukebox.js';
+import { Whiteboard } from './whiteboard.js';
 import type { Ledger } from './usage.js';
 
 type ToastLevel = 'info' | 'warn' | 'error';
@@ -77,6 +78,8 @@ export class Floor {
   readonly changes: Changes;
   readonly decor: Decor;
   readonly jukebox: Jukebox;
+  /** The whiteboard everyone on the floor draws on together. */
+  readonly whiteboard: Whiteboard;
   /** Settles once the workers whose terminals outlived the last office are picked back up, and the rest woken. */
   readonly ready: Promise<void>;
   readonly dog: Dog;
@@ -178,6 +181,7 @@ export class Floor {
 
     this.decor = new Decor(dataDir);
     this.jukebox = new Jukebox(dataDir);
+    this.whiteboard = new Whiteboard(dataDir);
     this.ready = this.workers.start();
 
     void this.github.refresh();
@@ -225,6 +229,7 @@ export class Floor {
     this.github.stop();
     this.queue.shutdown();
     this.changes.stop();
+    this.whiteboard.flush();
     this.workers.shutdown(keep);
   }
 }

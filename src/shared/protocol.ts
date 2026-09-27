@@ -4,6 +4,7 @@ import type { Look } from './avatar.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
 import type { JukeboxState } from './jukebox.js';
+import type { WbElement, WbPointer, WhiteboardView } from './whiteboard.js';
 
 export type WorkerStatus =
   | 'starting' // PTY launched, agent booting
@@ -413,6 +414,8 @@ export interface FloorView {
   dog: DogState | null;
   /** What the lounge jukebox is playing. */
   jukebox: JukeboxState;
+  /** What's drawn on this floor's whiteboard, and who's drawing. */
+  whiteboard: WhiteboardView;
 }
 
 export type AccountRole = 'admin' | 'member';
@@ -702,6 +705,13 @@ export type ClientMsg =
   /** On to the next tune. */
   | { t: 'jukebox.skip' }
   | { t: 'jukebox.stop' }
+  /** You opened the whiteboard (or closed it): everyone on the floor sees who's drawing. */
+  | { t: 'wb.open' }
+  | { t: 'wb.close' }
+  /** Elements you added or changed on the whiteboard; pictures go first, by POST /api/whiteboard/file. */
+  | { t: 'wb.update'; elements: WbElement[] }
+  /** Where your mouse is on the whiteboard, and what you have selected there. */
+  | ({ t: 'wb.pointer'; selected?: string[] } & WbPointer)
   /** Ride the elevator to another floor; the server answers with `floor.enter`. */
   | { t: 'floor.go'; floor: string }
   /** The repositories that could become a floor; answered with `floor.repos`. */
@@ -778,6 +788,12 @@ export type ServerMsg =
   /** What the dog on your floor is up to now: sent at the start of each leg of its day. */
   | { t: 'dog'; dog: DogState }
   | { t: 'jukebox'; state: JukeboxState }
+  /** Someone changed these elements on the floor's whiteboard (sent to everyone else on the floor). */
+  | { t: 'wb.update'; elements: WbElement[] }
+  /** Who has the floor's whiteboard open now. */
+  | { t: 'wb.people'; people: string[] }
+  /** Someone's mouse on the whiteboard; only people who have it open get these. */
+  | ({ t: 'wb.pointer'; id: string; selected?: string[] } & WbPointer)
   | { t: 'usage'; state: UsageState }
   | { t: 'limits'; state: PlanLimits }
   | { t: 'queue'; state: QueueState }
