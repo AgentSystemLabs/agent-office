@@ -1,4 +1,4 @@
-import { GAME, WELL_COLS, WELL_ROWS, scoreText, type CabinetFrame, type HighScore, type PlayState } from '../../shared/cabinet';
+import { CLEAR_POINTS, GAME, WELL_COLS, WELL_ROWS, levelFor, scoreText, type CabinetFrame, type HighScore, type PlayState } from '../../shared/cabinet';
 
 /**
  * BLOCKFALL, the game on the arcade cabinet (ui/cabinet.ts): falling blocks with the usual rotation
@@ -47,8 +47,6 @@ const I_KICKS: readonly (readonly [number, number][])[] = [
   [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]],
 ];
 
-/** Points for clearing 1–4 lines at once, times the level. */
-const CLEAR_POINTS = [0, 100, 300, 500, 800];
 /** How long a piece sits on something before it sticks, and how many moves can put that off. */
 const LOCK_DELAY = 0.5;
 const LOCK_RESETS = 15;
@@ -291,7 +289,7 @@ export class Blocks {
     if (cleared) {
       this.score += CLEAR_POINTS[cleared] * this.level;
       this.lines += cleared;
-      this.level = Math.min(99, 1 + Math.floor(this.lines / 10));
+      this.level = levelFor(this.lines);
     }
     this.onLand?.(cleared);
     // Stuck entirely above the top of the well: that's the end too.

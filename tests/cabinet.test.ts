@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { Arcade, DROP_POINTS, HighScores, PIECE_BURST, PIECES_PER_SECOND, RECORD_EVERY, type Player } from '../src/server/cabinet.js';
-import { SCORES_KEPT, WELL_COLS, WELL_ROWS, checkFrame, type CabinetFrame } from '../src/shared/cabinet.js';
+import { Arcade, DROP_POINTS, GAME_BURST, GAME_EVERY, HighScores, PIECE_BURST, PIECES_PER_SECOND, RECORD_EVERY, clearPoints, type Player } from '../src/server/cabinet.js';
+import { SCORES_KEPT, WELL_COLS, WELL_ROWS, checkFrame, levelFor, type CabinetFrame } from '../src/shared/cabinet.js';
 import { Blocks } from '../src/client/ui/blocks.js';
+import { lostGame } from '../src/client/ui/cabinet.js';
 
 const game = (n: number) => `game${String(n).padStart(8, '0')}`;
 const entry = (n: number, score: number, name = 'Ada') => ({ game: game(n), name, color: '#ef476f', score, lines: 1, level: 1 });
@@ -298,16 +299,33 @@ test('a forged score never makes the table', (t) => {
   assert.equal(arcade.frame(nudged, frame({ pieces: 10, score: DROP_POINTS * 11 }), 'f1'), 'ok');
   assert.equal(arcade.frame(nudged, frame({ pieces: 10, score: DROP_POINTS * 11 + 1 }), 'f1'), 'void');
   // Lines its pieces couldn't have filled, a level its lines don't make, a score going down.
+  tick(10_000);
   const lines = arcade.start(ada);
   assert.equal(arcade.frame(lines, frame({ pieces: 2, lines: 1, score: 200 }), 'f1'), 'void');
   const level = arcade.start(ada);
   assert.equal(arcade.frame(level, frame({ pieces: 2, level: 9, score: 20 }), 'f1'), 'void');
-  const down = arcade.start(ada);
+  const down = arcade.start(grace);
   assert.equal(arcade.frame(down, frame({ pieces: 2, score: 60 }), 'f1'), 'ok');
   assert.equal(arcade.frame(down, frame({ pieces: 3, score: 40 }), 'f1'), 'void');
+  // Lines cleared one at a time, scored as if they'd all gone at once.
+  const linus: Player = { owner: 'name:Linus', name: 'Linus', color: '#ffd166' };
+  const singles = arcade.start(linus);
+  for (const [pieces, lines] of [[3, 1], [6, 2], [9, 3]]) {
+    assert.equal(arcade.frame(singles, frame({ pieces, lines, score: DROP_POINTS * (pieces + 1) + 100 * lines }), 'f1'), 'ok');
+  }
+  assert.equal(arcade.frame(singles, frame({ pieces: 10, lines: 4, score: DROP_POINTS * 11 + 800 }), 'f1'), 'void');
+  // Four lines at once, scored at the level they took the game up to rather than the one it was on.
+  tick(10_000);
+  const up = arcade.start(linus);
+  for (const n of [1, 2]) {
+    tick(4000);
+    assert.equal(arcade.frame(up, frame({ pieces: 10 * n, lines: 4 * n, score: DROP_POINTS * (10 * n + 1) + 800 * n }), 'f1'), 'ok');
+  }
+  tick(1000);
+  assert.equal(arcade.frame(up, frame({ pieces: 21, lines: 12, level: 2, score: DROP_POINTS * 22 + 800 * 2 + 1600 }), 'f1'), 'void');
   // Once caught, a game stays off the table, however it carries on.
   assert.equal(arcade.frame(id, frame({ pieces: 2, score: 30 }), 'f1'), 'none');
-  for (const g of [id, nudged, lines, level, down]) arcade.leave(g, 'f1');
+  for (const g of [id, nudged, lines, level, down, singles, up]) arcade.leave(g, 'f1');
   tick(RECORD_EVERY);
   assert.deepEqual(table.top(), []);
 });
@@ -347,21 +365,21 @@ test('a game going faster than anyone plays is off the table', (t) => {
   // More pieces at once than a burst of hard drops.
   const jump = arcade.start(ada);
   assert.equal(arcade.frame(jump, frame({ pieces: PIECE_BURST + 1, score: 40 }), 'f1'), 'void');
-  // Quick but human: 5 pieces a second for a minute.
+  // Quick but human: two pieces a second for a minute, three a second for a stretch in the middle of it.
   const quick = arcade.start(ada);
-  for (let i = 1; i <= 300; i++) {
-    tick(200);
+  for (let i = 1; i <= 125; i++) {
+    tick(i > 50 && i <= 80 ? 333 : 500);
     assert.equal(arcade.frame(quick, frame({ pieces: i, score: i * 20 }), 'f1'), 'ok', `piece ${i}`);
   }
   arcade.leave(quick, 'f1');
-  // A piece every 80 ms: through the burst in a few seconds, and out.
+  // A piece every 80 ms: through the burst in a second or two, and out.
   const fast = arcade.start(grace);
   let caught = 0;
   for (let i = 1; i <= 100 && !caught; i++) {
     tick(80);
     if (arcade.frame(fast, frame({ pieces: i, score: i * 20 }), 'f1') === 'void') caught = i;
   }
-  assert.ok(caught > PIECE_BURST && caught < 60, `caught at piece ${caught}`);
+  assert.ok(caught > PIECE_BURST && caught < 20, `caught at piece ${caught}`);
   // Walking away doesn't save up time to spend in one go.
   const banked = arcade.start({ ...grace, owner: 'account:grace2' });
   tick(1000);
@@ -374,20 +392,153 @@ test('a game going faster than anyone plays is off the table', (t) => {
   assert.deepEqual(
     table.top().map((s) => [s.game, s.score]),
     [
-      [quick, 6000],
+      [quick, 2500],
       [banked, 80],
     ],
   );
+});
+
+test("a burst of pieces is the player's, not each new game's", (t) => {
+  const { arcade, table, tick } = arcadeFor(t);
+  /** From the console: a new game, and one frame that lands a whole burst of pieces for all they could score, and ends it. */
+  const burst = (p: Player) => arcade.frame(arcade.start(p), frame({ pieces: PIECE_BURST, lines: 4, score: DROP_POINTS * (PIECE_BURST + 1) + 800, state: 'over' }), 'f1');
+  // Ten times over in a millisecond: the first is a (very) good game, and the rest come too soon after it.
+  assert.deepEqual(
+    Array.from({ length: 10 }, () => burst(ada)),
+    ['ok', ...new Array(9).fill('void')],
+  );
+  // Nor does another connection signed in as the same person get a burst of its own, or a new name on the same connection.
+  assert.equal(burst({ ...grace, connection: 'c1' }), 'ok');
+  assert.equal(burst({ ...grace, connection: 'c2' }), 'void');
+  assert.equal(burst({ owner: 'name:Eve', name: 'Eve', color: '#4f86f7', connection: 'c3' }), 'ok');
+  assert.equal(burst({ owner: 'name:Mallory', name: 'Mallory', color: '#4f86f7', connection: 'c3' }), 'void');
+  // Once it has come back, another burst: that's playing fast, not replaying.
+  tick((PIECE_BURST / PIECES_PER_SECOND) * 1000);
+  assert.equal(burst({ ...grace, connection: 'c2' }), 'ok');
+  tick(RECORD_EVERY);
+  assert.deepEqual(
+    table.top().map((s) => s.name),
+    ['Ada', 'Grace', 'Eve', 'Grace'],
+  );
+});
+
+test('new games started one after another stop going on the table, until they slow down', (t) => {
+  const { arcade, table, tick } = arcadeFor(t);
+  /** A new game for Ada, over after a piece: says whether it goes on the table. */
+  const quickGame = () => {
+    const id = arcade.start(ada);
+    const counts = arcade.counts(id);
+    tick(500);
+    assert.equal(arcade.frame(id, frame({ pieces: 1, score: 30, state: 'over' }), 'f1'), 'ok');
+    return counts;
+  };
+  assert.deepEqual(
+    Array.from({ length: GAME_BURST + 2 }, quickGame),
+    [...new Array(GAME_BURST).fill(true), false, false],
+  );
+  tick(GAME_EVERY);
+  assert.equal(quickGame(), true);
+  // Coming back to a game that's waiting for you isn't starting a new one.
+  const waiting = arcade.start(grace);
+  for (let i = 0; i < 20; i++) {
+    arcade.leave(waiting, 'f1');
+    assert.equal(arcade.start(grace, waiting), waiting);
+  }
+  assert.equal(arcade.counts(waiting), true);
+  tick(RECORD_EVERY);
+  assert.equal(table.top().length, GAME_BURST + 1);
+});
+
+test('made-up frames at the fastest pace allowed score what flawless play at that pace could, and no more', (t) => {
+  const { arcade, tick } = arcadeFor(t);
+  // What lines score: each landing's clear at the level it was on, the best way they could have gone.
+  assert.equal(clearPoints(0, 4, 1), 800);
+  assert.equal(clearPoints(0, 4, 4), 800);
+  assert.equal(clearPoints(9, 5, 2), 100 + 2 * 800, 'a single that takes it to level 2, then four lines there');
+  assert.equal(clearPoints(0, 5, 1), -Infinity);
+  // Every piece as soon as it's allowed, every line those pieces could fill (four at once), and
+  // every point they could score doing it: flawless, at PIECES_PER_SECOND.
+  const id = arcade.start(ada);
+  let f = frame();
+  let cleared = 0;
+  const land = (pieces: number) => {
+    const lines = 4 * Math.floor(pieces / 10);
+    cleared += clearPoints(f.lines, lines - f.lines, pieces - f.pieces);
+    f = frame({ pieces, lines, level: levelFor(lines), score: DROP_POINTS * (pieces + 1) + cleared });
+    assert.equal(arcade.frame(id, f, 'f1'), 'ok', `${pieces} pieces`);
+  };
+  land(PIECE_BURST);
+  const byMinute: number[] = [];
+  for (let n = 1; n <= 10 * 60 * PIECES_PER_SECOND; n++) {
+    tick(1000 / PIECES_PER_SECOND);
+    land(f.pieces + 1);
+    if (n % (60 * PIECES_PER_SECOND) === 0) byMinute.push(f.score);
+  }
+  // A point more is more than those pieces could have scored.
+  assert.equal(arcade.frame(id, { ...f, score: f.score + 1 }, 'f1'), 'void');
+  // It used to be 264,000 after a minute and 19 million after ten.
+  assert.ok(byMinute[0] < 60_000, `${byMinute[0]} after a minute`);
+  assert.ok(byMinute[9] < 4_000_000, `${byMinute[9]} after ten minutes`);
+});
+
+test('back at a game the office lost in a restart, the browser starts a fresh one, and that one counts', (t) => {
+  const { arcade, dir, tick } = arcadeFor(t);
+  t.mock.method(Math, 'random', seeded(7));
+  // Ada plays a while and steps away: her game waits for her, in her browser and at the office.
+  const old = new Blocks();
+  old.id = arcade.start(ada);
+  for (let n = 0; n < 12; n++) {
+    aim(old);
+    old.hardDrop();
+    tick(500);
+    assert.equal(arcade.frame(old.id, old.frame(), 'f1'), 'ok');
+  }
+  arcade.leave(old.id, 'f1');
+  // Back at it before a restart, she carries on with it.
+  assert.equal(lostGame(old.id, arcade.start(ada, old.id)), false);
+  arcade.leave(old.id, 'f1');
+  tick(RECORD_EVERY);
+  // The office restarts: its high scores are still there, the games it was following aren't.
+  const table = new HighScores(dir);
+  const after = new Arcade(table, () => {});
+  const id = after.start(ada, old.id);
+  assert.notEqual(id, old.id);
+  // Her browser sees the office started her a new game instead: it can't follow the old one on from
+  // where it was, so a fresh game goes with it.
+  assert.equal(lostGame(old.id, id), true);
+  assert.equal(after.frame(after.start(ada, old.id), old.frame(), 'f1'), 'void', 'the old game, carried on under the new id');
+  const fresh = new Blocks();
+  fresh.id = id;
+  for (let n = 0; n < 12; n++) {
+    aim(fresh);
+    fresh.hardDrop();
+    tick(500);
+    assert.equal(after.frame(id, fresh.frame(), 'f1'), 'ok');
+  }
+  after.leave(id, 'f1');
+  tick(RECORD_EVERY);
+  assert.deepEqual(
+    table
+      .top()
+      .map((s) => [s.game, s.score])
+      .sort(),
+    [
+      [old.id, old.score],
+      [id, fresh.score],
+    ].sort(),
+  );
+  // Asking for a new game, whichever the office names is it: even an old one's, still on its way.
+  assert.equal(lostGame('', old.id), false);
 });
 
 test('a flood of scores changes the table at most every RECORD_EVERY ms, and the last one still lands', (t) => {
   const { arcade, table, news, record, tick } = arcadeFor(t);
   const id = arcade.start(ada);
   tick(3000);
-  assert.equal(arcade.frame(id, frame({ pieces: 15 }), 'f1'), 'ok');
+  assert.equal(arcade.frame(id, frame({ pieces: PIECE_BURST }), 'f1'), 'ok');
   // Walking away and back 200 times in a second, a point better each time.
   for (let i = 1; i <= 200; i++) {
-    assert.equal(arcade.frame(id, frame({ pieces: 15, score: i }), 'f1'), 'ok');
+    assert.equal(arcade.frame(id, frame({ pieces: PIECE_BURST, score: i }), 'f1'), 'ok');
     arcade.leave(id, 'f1');
     assert.equal(arcade.start(ada, id), id);
     tick(5);
