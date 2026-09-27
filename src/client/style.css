@@ -83,10 +83,21 @@ button { font-family: inherit; }
 .usage .row b { font-weight: 900; font-variant-numeric: tabular-nums; }
 .usage .muted { color: var(--muted); font-weight: 600; }
 .usage.over .row b { color: var(--bad); }
-.budget { height: 10px; border: 2px solid var(--ink); border-radius: 999px; background: #fff; overflow: hidden; }
-.budget .fill { height: 100%; background: var(--good); transition: width .3s; }
-.budget.near .fill { background: var(--warn); }
-.budget.over .fill { background: var(--bad); }
+.budget, .meter { height: 10px; border: 2px solid var(--ink); border-radius: 999px; background: #fff; overflow: hidden; }
+.budget .fill, .meter .fill { height: 100%; background: var(--good); transition: width .3s; }
+.budget.near .fill, .meter.near .fill { background: var(--warn); }
+.budget.over .fill, .meter.over .fill { background: var(--bad); }
+/* Claude plan limits: the 5-hour session and the week */
+.side .limits { flex: none; cursor: pointer; font-size: 12px; font-weight: 700; display: flex; flex-direction: column; gap: 4px; }
+.limits h3 { display: flex; align-items: baseline; gap: 5px; margin-bottom: 2px; }
+.limits .plan { margin-left: auto; font-size: 12px; text-transform: none; letter-spacing: 0; color: var(--muted); font-weight: 800; }
+.limits .row { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; }
+.limits .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.limits .row b { font-weight: 900; font-variant-numeric: tabular-nums; }
+.limits .row b.over { color: var(--bad); }
+.limits .reset { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.limits .meter + .row { margin-top: 3px; }
+.limits .muted { color: var(--muted); font-weight: 600; }
 .pill { font-size: 11px; font-weight: 900; padding: 2px 7px; border-radius: 999px; border: 2px solid var(--ink); white-space: nowrap; }
 .pill.starting, .pill.idle { background: #e0f2fe; }
 .pill.working { background: var(--warn); }

@@ -1283,7 +1283,7 @@ function withoutOpenCodeModel(args: string[]): string[] {
 }
 
 /** The office's environment, minus anything that would make a child think it's a nested session. */
-function childEnv(): Record<string, string> {
+export function childEnv(): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !scrubbed(k)) env[k] = v;
   return env;

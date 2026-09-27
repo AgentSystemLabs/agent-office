@@ -40,6 +40,7 @@ import { openSettings } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 import { elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
 import { providerLabel, resolvedProvider } from './ui/provider';
+import { renderLimits } from './ui/limits';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -553,6 +554,10 @@ function syncWorkers() {
 store.on('workers', syncWorkers);
 store.on('workers', renderUsage);
 store.on('usage', renderUsage);
+store.on('limits', renderLimits);
+// The reset countdowns tick down between reads.
+setInterval(renderLimits, 30_000);
+$('limits').addEventListener('click', () => net.send({ t: 'limits.refresh' }));
 
 // ---- Actions ------------------------------------------------------------------------------------
 function freeDesk(): string | null {

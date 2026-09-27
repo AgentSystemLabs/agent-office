@@ -10,7 +10,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Config } from './config.js';
 import { Auth, type Session } from './auth.js';
 import { Accounts } from './accounts.js';
-import { resolveCommand } from './workers.js';
+import { childEnv, resolveCommand } from './workers.js';
 import { configuredProvider, OPEN_CODE_MODEL_MAX } from './agents.js';
 import { createOpenCodeModelCatalogue } from './models.js';
 import { Team } from './team.js';
@@ -18,6 +18,7 @@ import { Upgrader } from './upgrade.js';
 import { Services } from './services.js';
 import { ImageProxy } from './decor.js';
 import { Ledger } from './usage.js';
+import { PlanLimitsReader } from './limits.js';
 import { Webhook } from './webhook.js';
 import { Building, type FloorDef } from './building.js';
 import { Floor, type FloorContext } from './floor.js';
@@ -271,6 +272,15 @@ export async function startServer(cfg: Config) {
     { budget: cfg.budget, pauseHiring: cfg.budgetPause },
     (state) => broadcast({ t: 'usage', state }),
     toastAll,
+  );
+
+  // The Claude plan's 5-hour and weekly limits, for the meter under the workers: one account for
+  // every floor.
+  const limits = new PlanLimitsReader(
+    configuredProvider(cfg.agentCmd) === 'claude' ? resolveCommand(cfg.agentCmd) : resolveCommand('claude'),
+    childEnv(),
+    () => clients.size > 0,
+    (state) => broadcast({ t: 'limits', state }),
   );
 
   // Slack / Discord pings for workers that need input or finish (set from ⚙️ Settings or --webhook).
@@ -691,6 +701,7 @@ export async function startServer(cfg: Config) {
       version: upgrader.version,
       upgrade: upgrader.state,
       usage: ledger.state(),
+      limits: limits.state,
       me,
       notify: webhook.state(),
       ...floorView(floor),
@@ -704,6 +715,7 @@ export async function startServer(cfg: Config) {
       // Anyone whose process ended since (exited, or failed to resume) gets up as you walk in.
       floor.workers.wakeAll();
     }
+    limits.refresh();
 
     ws.on('message', (raw) => {
       let msg: ClientMsg;
@@ -1046,6 +1058,9 @@ export async function startServer(cfg: Config) {
           else toastAll(`${who} is upgrading the office — it restarts when the new version is built`);
         });
         break;
+      case 'limits.refresh':
+        limits.refresh();
+        break;
       case 'team.get':
         void team.state().then((state) => sendTo(c, { t: 'team', state }));
         break;
@@ -1201,6 +1216,7 @@ export async function startServer(cfg: Config) {
     webhook.stop();
     for (const f of floors.values()) f.shutdown(keep);
     ledger.flush();
+    limits.close();
     for (const c of clients.values()) c.ws.close();
     server.close();
     hookServer.close();

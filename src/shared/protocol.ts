@@ -107,6 +107,29 @@ export interface UsageState {
   pauseHiring: boolean;
 }
 
+/** One of the Claude plan's usage windows: the 5-hour session, the week, or a model's week. */
+export interface PlanWindow {
+  /** e.g. "5h session", "Week", "Fable week". */
+  label: string;
+  /** Percent of the window used, 0-100. */
+  pct: number;
+  /** When it starts over (ms since epoch), when known. */
+  resetsAt?: number;
+}
+
+/**
+ * The Claude plan limits of the account the office's Claude workers run on, as Claude Code's
+ * /usage shows them (see server/limits.ts). One account for the whole building.
+ */
+export interface PlanLimits {
+  /** 'pro', 'max', 'team', 'enterprise'…, when known. */
+  plan?: string;
+  /** The 5-hour session first, then the week, then per-model weeks. Empty until first read, or when there is no plan. */
+  windows: PlanWindow[];
+  /** When the numbers were read (ms since epoch); 0 before the first read. */
+  at: number;
+}
+
 /** What becomes of a worker's git worktree when it is sent home. */
 export type WorktreeCleanup = 'keep' | 'worktree' | 'all';
 
@@ -617,6 +640,8 @@ export type ClientMsg =
   | { t: 'changes.pr'; workerId: string; title: string; body: string }
   | { t: 'upgrade.check' }
   | { t: 'upgrade.start' }
+  /** Read the Claude plan limits again now, instead of at the next poll. */
+  | { t: 'limits.refresh' }
   /** Hang a picture on a wall. */
   | { t: 'decor.add'; decor: DecorPlacement }
   /** Move, resize, re-frame or swap the image of a picture. */
@@ -647,6 +672,7 @@ export type ServerMsg =
       version: string;
       upgrade: UpgradeState;
       usage: UsageState;
+      limits: PlanLimits;
       me: Me;
       notify: NotifyState;
     } & FloorView)
@@ -680,6 +706,7 @@ export type ServerMsg =
   | { t: 'services'; state: ServicesState }
   | { t: 'decor'; items: Decoration[] }
   | { t: 'usage'; state: UsageState }
+  | { t: 'limits'; state: PlanLimits }
   | { t: 'queue'; state: QueueState }
   | { t: 'notify'; state: NotifyState }
   /** Sent to whoever watches that worker's changes, whenever they change. */
