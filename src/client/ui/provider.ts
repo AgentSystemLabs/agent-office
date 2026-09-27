@@ -32,7 +32,7 @@ export function providerLabel(provider: AgentProvider | undefined, project: Proj
 
 export function providerUsageTracked(provider: AgentProvider | undefined, project: ProjectInfo | null, usage?: Usage): boolean {
   const selected = resolvedProvider(provider, project);
-  return selected === 'claude' || ((selected === 'opencode' || selected === 'custom') && usage !== undefined);
+  return selected === 'claude' || ((selected === 'opencode' || selected === 'codex' || selected === 'custom') && usage !== undefined);
 }
 
 export type ProviderUsageState = 'tracked' | 'waiting' | 'untracked';
@@ -42,13 +42,14 @@ export function providerUsageState(provider: AgentProvider | undefined, project:
   const selected = resolvedProvider(provider, project);
   if (selected === 'claude') return usage ? 'tracked' : 'waiting';
   if (selected === 'opencode') return usage ? 'tracked' : 'waiting';
+  if (selected === 'codex') return usage ? 'tracked' : 'waiting';
   if (selected === 'custom') return usage ? 'tracked' : 'untracked';
   return 'untracked';
 }
 
 export function providerUsageNote(provider: AgentProvider): string {
   if (provider === 'claude') return 'Office usage and budget track Claude Code.';
-  if (provider === 'codex') return 'Install and sign in to Codex CLI; review its native /hooks behavior before enabling it. This office does not bypass or auto-approve hooks, and usage is not tracked.';
+  if (provider === 'codex') return 'Review Office hooks in /hooks to enable tracking. Codex reports root-session tokens; subagents are excluded and cost is unavailable.';
   if (provider === 'custom') return 'Usage is untracked unless compatible Claude Code hooks report it.';
   return 'OpenCode reports model/provider estimates; they are not billing, and arrive after the first report.';
 }

@@ -85,6 +85,10 @@ export interface Usage {
   cost: number;
   /** API calls (assistant messages) counted. */
   calls: number;
+  /** False when the provider reports cumulative tokens without a reliable call count. */
+  callsKnown?: boolean;
+  /** Authoritative provider total when it cannot be reconstructed from the displayed buckets. */
+  totalTokens?: number;
 }
 
 /** Spend across the whole office, kept on disk (see server/usage.ts). */

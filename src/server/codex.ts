@@ -22,6 +22,8 @@ export interface CodexHookEvent {
   tool?: string;
   toolUseId?: string;
   turnId?: string;
+  /** Only the server-side metric reader uses this path; never sent to browsers. */
+  transcriptPath?: string;
 }
 
 const MAX_ID = 160;
@@ -43,8 +45,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Validate and compact a native Codex hook payload. Transcript paths and all other fields are
- * deliberately discarded. Events carrying an agent id/type are subagent-scoped and are ignored;
+ * Validate and compact a native Codex hook payload. Transcript paths are passed only to the
+ * server-side metric reader; message bodies and other unknown fields are discarded. Events carrying an agent id/type are subagent-scoped and are ignored;
  * Codex reports those hooks with the root session id, so adopting them would corrupt root state.
  */
 export function normalizeCodexHook(event: string, payload: unknown): CodexHookEvent | undefined {
@@ -55,6 +57,8 @@ export function normalizeCodexHook(event: string, payload: unknown): CodexHookEv
   if (!sessionId) return undefined;
   const result: CodexHookEvent = { sessionId, event: event as CodexHookEventName };
 
+  const transcriptPath = bounded(payload.transcript_path, 4096);
+  if (transcriptPath) result.transcriptPath = transcriptPath;
   const turnId = bounded(payload.turn_id, MAX_ID);
   if (turnId) result.turnId = turnId;
   if (event === 'SessionStart') {
@@ -137,12 +141,14 @@ process.stdin.on('end', async () => {
   const prompt = event === 'UserPromptSubmit' ? allowed(input.prompt, MAX_TEXT) : undefined;
   const tool = event === 'PreToolUse' || event === 'PostToolUse' || event === 'PermissionRequest' ? allowed(input.tool_name, MAX_ID) : undefined;
   const toolUseId = event === 'PreToolUse' || event === 'PostToolUse' || event === 'PermissionRequest' ? allowed(input.tool_use_id, MAX_ID) : undefined;
+  const transcript = allowed(input.transcript_path, 4096);
   const turn = allowed(input.turn_id, MAX_ID);
   if (source) body.source = source;
   if (prompt) body.prompt = prompt;
   if (tool) body.tool_name = tool;
   if (toolUseId) body.tool_use_id = toolUseId;
   if (turn) body.turn_id = turn;
+  if (transcript) body.transcript_path = transcript;
   const base = process.env.AGENT_OFFICE_HOOK_URL;
   const token = process.env.AGENT_OFFICE_HOOK_TOKEN;
   const worker = process.env.AGENT_OFFICE_WORKER_ID;

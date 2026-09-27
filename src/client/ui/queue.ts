@@ -101,7 +101,7 @@ export function openQueue(net: Net, actions: QueueActions) {
     const model = t.model ? ` · initial: ${t.model}` : '';
     const usageSuffix = (provider: AgentProvider | undefined, usage?: Usage) => {
       const state = providerUsageState(provider, store.project, usage);
-      return state === 'untracked' ? ' · usage untracked' : state === 'waiting' && resolvedProvider(provider, store.project) === 'opencode' ? ' · waiting for metrics' : '';
+      return state === 'untracked' ? ' · usage untracked' : state === 'waiting' && resolvedProvider(provider, store.project) === 'opencode' ? ' · waiting for metrics' : state === 'waiting' && resolvedProvider(provider, store.project) === 'codex' ? ' · waiting for first report' : '';
     };
     let pos: string | null = null;
     if (t.status === 'running') {

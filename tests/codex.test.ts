@@ -13,10 +13,10 @@ import {
   writeCodexHook,
 } from '../src/server/codex.js';
 
-test('normalizes bounded root Codex hook payloads and drops transcript fields', () => {
+test('normalizes bounded root Codex hook payloads and passes only the metric reader path', () => {
   assert.deepEqual(normalizeCodexHook('SessionStart', {
     session_id: 'thread-1', source: 'startup', transcript_path: '/private/transcript.jsonl', turn_id: 'turn-1',
-  }), { sessionId: 'thread-1', event: 'SessionStart', source: 'startup', turnId: 'turn-1' });
+  }), { sessionId: 'thread-1', event: 'SessionStart', source: 'startup', turnId: 'turn-1', transcriptPath: '/private/transcript.jsonl' });
   assert.deepEqual(normalizeCodexHook('UserPromptSubmit', {
     session_id: 'thread-1', prompt: '  fix the login  ', turn_id: 'turn-2', model: 'secret-model',
   }), { sessionId: 'thread-1', event: 'UserPromptSubmit', prompt: 'fix the login', turnId: 'turn-2' });
@@ -47,7 +47,7 @@ test('generates one stable CLI hook override per supported event', () => {
   }
 });
 
-test('writes a mode-restricted helper without transcript access', () => {
+test('writes a mode-restricted helper that forwards paths without reading transcripts', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'agent-office-codex-'));
   try {
     const file = writeCodexHook(dir);
@@ -55,7 +55,7 @@ test('writes a mode-restricted helper without transcript access', () => {
     const source = readFileSync(file, 'utf8');
     assert.match(source, /MAX = 64 \* 1024/);
     assert.match(source, /AGENT_OFFICE_HOOK_TOKEN/);
-    assert.doesNotMatch(source, /transcript_path/);
+    assert.doesNotMatch(source, /readFile|readSync|createReadStream/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -104,6 +104,7 @@ test('helper forwards only the bounded root event fields to the authenticated br
     assert.equal(received.url, '/hooks/codex?worker=worker-1&event=UserPromptSubmit');
     assert.deepEqual(received.body, {
       session_id: 'thread-1', hook_event_name: 'UserPromptSubmit', prompt: 'fix it', turn_id: 'turn-1',
+      transcript_path: '/private/transcript.jsonl',
     });
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));

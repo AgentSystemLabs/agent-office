@@ -2,6 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, accessSync, constants } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import path from 'node:path';
+import { homedir } from 'node:os';
+import { CodexUsageReader } from './codex-usage.js';
 import * as pty from '@lydell/node-pty';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
@@ -73,6 +75,9 @@ interface Worker {
   bootBlocked?: boolean;
   /** OpenCode errors keep the desk visibly actionable until a new turn starts. */
   openCodeError?: boolean;
+  codexUsage: CodexUsageReader;
+  codexHome?: string;
+  codexTranscript?: string;
   codexTools: Map<string, string>;
   codexPending: Set<string>;
   codexPermissionUnknown?: boolean;
@@ -476,7 +481,7 @@ export class WorkerManager {
     return true;
   }
 
-  /** Native Codex lifecycle hooks; usage and transcripts are not read by this adapter. */
+  /** Native Codex lifecycle hooks register the root rollout for bounded metric reads. */
   handleCodexHook(workerId: string, token: string, event: string, payload: unknown): boolean {
     const w = this.workers.get(workerId);
     if (!w || !w.pty || w.info.kind !== 'agent' || w.info.provider !== 'codex' || !safeEq(token, w.hookToken)) return false;
@@ -484,10 +489,17 @@ export class WorkerManager {
     if (!report) return false;
     if (w.info.sessionId && w.info.sessionId !== report.sessionId && event !== 'SessionStart') return false;
     if (!w.info.sessionId || w.info.sessionId !== report.sessionId) {
-      if (w.info.sessionId) this.clearTask(w);
+      if (w.info.sessionId) {
+        this.clearTask(w);
+        w.info.usage = undefined;
+        w.codexTranscript = undefined;
+        w.codexUsage = new CodexUsageReader();
+      }
       w.info.sessionId = report.sessionId;
       this.persist();
     }
+    if (report.transcriptPath) w.codexTranscript = report.transcriptPath;
+    this.scheduleScan(w);
     w.bootBlocked = false;
     const clearPending = () => {
       w.codexTools.clear();
@@ -639,6 +651,8 @@ export class WorkerManager {
     clearInterval(this.screenTimer);
     clearInterval(this.usageTimer);
     for (const w of this.workers.values()) {
+      clearTimeout(w.scanTimer);
+      this.scanUsage(w);
       try {
         w.pty?.kill();
       } catch {
@@ -721,6 +735,7 @@ export class WorkerManager {
     });
 
     const cwd = info.worktree ? path.join(this.dir, info.worktree.path) : this.dir;
+    if (isCodex) w.codexHome = path.resolve(cwd, env.CODEX_HOME || path.join(env.HOME || homedir(), '.codex'));
     let proc: pty.IPty;
     try {
       if (!existsSync(cwd)) throw new Error(`working directory is gone: ${cwd}`);
@@ -757,6 +772,7 @@ export class WorkerManager {
     proc.onExit(({ exitCode }) => {
       if (w.pty !== proc || this.workers.get(info.id) !== w) return;
       w.pty = undefined;
+      if (isCodex && !this.closing) this.scheduleScan(w);
       // Resuming a conversation Claude no longer has ("No conversation found") exits before Claude
       // ever starts. Start a fresh one rather than leave the worker asleep.
       if (isClaude && resumeSessionId && info.status === 'starting' && !this.closing) {
@@ -800,6 +816,16 @@ export class WorkerManager {
 
   /** Picks up what the session logged since last time and books the difference. */
   private scanUsage(w: Worker) {
+    if (w.info.kind === 'agent' && w.info.provider === 'codex') {
+      if (this.workers.get(w.info.id) !== w || !w.codexTranscript || !w.codexHome || !w.info.sessionId) return;
+      const usage = w.codexUsage.read(w.codexTranscript, w.info.sessionId, w.codexHome);
+      if (usage && JSON.stringify(usage) !== JSON.stringify(w.info.usage)) {
+        w.info.usage = usage;
+        this.emitUpdate(w);
+        this.persist();
+      }
+      return;
+    }
     if (w.info.kind !== 'agent' || (w.info.provider !== 'claude' && w.info.provider !== 'custom') || !w.tracker.transcript || this.workers.get(w.info.id) !== w) return;
     try {
       if (!scanTracker(w.tracker)) return;
@@ -942,7 +968,7 @@ process.stdin.on('end', () => {
   }
 
   private persist() {
-    const saved = [...this.workers.values()].map(({ info, tracker }) => ({
+    const saved = [...this.workers.values()].map(({ info, tracker, codexTranscript }) => ({
       id: info.id,
       kind: info.kind,
       provider: info.provider,
@@ -960,7 +986,8 @@ process.stdin.on('end', () => {
       task: info.task,
       pr: info.pr,
       tracker: info.kind === 'agent' ? tracker : undefined,
-      usage: info.provider === 'opencode' ? info.usage : undefined,
+      usage: info.provider === 'opencode' || info.provider === 'codex' ? info.usage : undefined,
+      codexTranscript: info.provider === 'codex' ? codexTranscript : undefined,
     }));
     try {
       writeFileSync(this.statePath, JSON.stringify(saved, null, 2), { mode: 0o600 });
@@ -972,7 +999,7 @@ process.stdin.on('end', () => {
   private restore() {
     if (!existsSync(this.statePath)) return;
     try {
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { tracker?: unknown })[];
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { tracker?: unknown; codexTranscript?: unknown })[];
       for (const s of saved) {
         if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || this.deskOccupied(s.deskId)) continue;
         const tracker = restoreTracker(s.tracker);
@@ -1002,12 +1029,13 @@ process.stdin.on('end', () => {
           activity: s.activity,
           task: validTask(s.task),
           pr: s.pr && typeof s.pr.number === 'number' && typeof s.pr.url === 'string' ? { number: s.pr.number, url: s.pr.url } : undefined,
-          usage: provider === 'opencode' ? reportedUsage(s.usage) : (provider === 'claude' || provider === 'custom') && tracker.transcript ? trackerUsage(tracker) : undefined,
+          usage: provider === 'opencode' || provider === 'codex' ? reportedUsage(s.usage) : (provider === 'claude' || provider === 'custom') && tracker.transcript ? trackerUsage(tracker) : undefined,
           cols: 100,
           rows: 30,
           viewers: [],
         };
         const w = newWorker(info, tracker);
+        if (provider === 'codex' && typeof s.codexTranscript === 'string') w.codexTranscript = s.codexTranscript;
         w.screenDirty = false;
         if (info.prompt) w.prompts = [info.prompt.replace(/\s+/g, ' ').trim()];
         this.workers.set(info.id, w);
@@ -1029,6 +1057,7 @@ function newWorker(info: WorkerInfo, tracker: UsageTracker): Worker {
     leftNeedsInputAt: 0,
     keyframeAt: 0,
     hookToken: randomBytes(16).toString('hex'),
+    codexUsage: new CodexUsageReader(),
     codexTools: new Map(),
     codexPending: new Set(),
     prompts: [],

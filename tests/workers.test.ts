@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Ledger } from '../src/server/usage.js';
@@ -541,4 +541,56 @@ test('Codex workers preserve native approvals, follow authenticated root hooks, 
   assert.equal(restored.handleCodexHook(worker.id, token, 'Stop', { session_id: 'codex-root' }), false);
   assert.equal(restored.handleCodexHook(worker.id, next.env.hookToken!, 'SessionStart', { session_id: 'codex-root', source: 'resume' }), true);
   assert.equal(restored.get(worker.id)?.status, 'idle');
+});
+
+
+test('Codex token snapshots survive restart, preserve permissions, and stay outside Claude spend', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  process.env.CODEX_HOME = 'relative-codex-home';
+  const oldLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => { if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG; else process.env.FAKE_AGENT_LOG = oldLog; f.close(); });
+  const book = ledger(f.data);
+  const workers = new WorkerManager(f.root, f.data, f.codex, [], { url: 'http://127.0.0.1:1', token: '' }, events([]), book);
+  t.after(() => workers.shutdown());
+  const worker = workers.spawn('desk-1', 'test');
+  assert.notEqual(typeof worker, 'string'); if (typeof worker === 'string') return;
+  const calls = await waitFor(f.read, x => x.some(r => r.kind === 'codex'));
+  const token = calls.find(r => r.kind === 'codex')!.env.hookToken!;
+  const dir = path.join(f.root, process.env.CODEX_HOME!, 'sessions', '2026', '09', '26');
+  mkdirSync(dir, { recursive: true });
+  const transcript = path.join(dir, 'rollout-fixture-metrics-root.jsonl');
+  const metric = (input: number) => JSON.stringify({ type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: {
+    input_tokens: input, cached_input_tokens: 20, output_tokens: 30, reasoning_output_tokens: 10, total_tokens: input + 30,
+  } } } }) + '\n';
+  writeFileSync(transcript, JSON.stringify({ type: 'session_meta', payload: { id: 'metrics-root' } }) + '\n' + metric(120));
+  assert.equal(workers.handleCodexHook(worker.id, 'wrong', 'SessionStart', { session_id: 'metrics-root', transcript_path: transcript }), false);
+  assert.equal(worker.usage, undefined);
+  workers.handleCodexHook(worker.id, token, 'SessionStart', { session_id: 'metrics-root', transcript_path: transcript });
+  workers.handleCodexHook(worker.id, token, 'PermissionRequest', { session_id: 'metrics-root', tool_name: 'Bash' });
+  await waitFor(() => worker.usage, u => u?.input === 100);
+  assert.equal(worker.status, 'needs_input');
+  assert.equal(worker.usage?.output, 20);
+  assert.equal(worker.usage?.reasoning, 10);
+  assert.equal(worker.usage?.cacheRead, 20);
+  assert.equal(worker.usage?.costKnown, false);
+  assert.equal(worker.usage?.callsKnown, false);
+  assert.equal('codexTranscript' in worker, false);
+  appendFileSync(transcript, metric(120) + metric(240));
+  workers.handleCodexHook(worker.id, token, 'Stop', { session_id: 'metrics-root' });
+  await waitFor(() => worker.usage, u => u?.input === 220);
+  assert.equal(book.state().total.calls, 0);
+  assert.equal(book.state().total.cost, 0);
+  workers.shutdown();
+  const restored = manager(f, f.codex, [], []);
+  t.after(() => restored.shutdown());
+  assert.deepEqual(restored.get(worker.id)?.usage, worker.usage);
+  const nextCalls = await waitFor(f.read, x => x.filter(r => r.kind === 'codex' && !r.stdin).length >= 2);
+  const next = nextCalls.filter(r => r.kind === 'codex' && !r.stdin).at(-1)!;
+  appendFileSync(transcript, metric(300));
+  restored.handleCodexHook(worker.id, next.env.hookToken!, 'SessionStart', { session_id: 'metrics-root', transcript_path: transcript });
+  await waitFor(() => restored.get(worker.id)?.usage, u => u?.input === 280);
+  restored.handleCodexHook(worker.id, next.env.hookToken!, 'SessionStart', { session_id: 'new-root', source: 'clear' });
+  assert.equal(restored.get(worker.id)?.usage, undefined);
 });
