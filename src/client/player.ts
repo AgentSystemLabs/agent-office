@@ -77,6 +77,17 @@ export class PlayerController {
   private lockFailed = false;
   private lockPending = false;
   private everLocked = false;
+  /** Whether a click or key was behind the lock last asked for. Without one, a refusal is just the browser's rule. */
+  private lockOnGesture = false;
+  /** The page is letting go of the mouse itself, which isn't you pressing Esc or another tab taking it. */
+  private letting = false;
+  /**
+   * Whether the page was the one to let go of the mouse last. Only then does the browser hand it
+   * back without a click or key behind the asking, and the Esc that closes a window isn't one.
+   */
+  private letGo = false;
+  /** Asked for while the page was still letting go of it: taken back as soon as it's free. */
+  private lockAfter = false;
   enabled = true;
   /** False while the mouse picks something else (an emote on the wheel), so it doesn't turn the camera. */
   mouseLook = true;
@@ -122,6 +133,8 @@ export class PlayerController {
     window.addEventListener('pointermove', (e) => {
       if (!this.mouseLook) return;
       if (this.locked) {
+        // Held for a moment under a window (see yieldMouse), the mouse doesn't turn your head.
+        if (!this.enabled) return;
         // Some platforms report a bogus huge jump right after locking.
         const clamp = (v: number) => THREE.MathUtils.clamp(v, -250, 250);
         this.look(clamp(e.movementX) * LOOK_SPEED, clamp(e.movementY) * LOOK_SPEED);
@@ -141,21 +154,20 @@ export class PlayerController {
     });
     document.addEventListener('pointerlockchange', () => {
       this.lockPending = false;
-      // A lock that lands after a modal opened (e.g. a relock racing the next modal) is let go.
-      if (this.locked && !this.enabled) {
-        document.exitPointerLock();
+      if (!this.locked) {
+        this.letGo = this.letting;
+        this.letting = false;
+        const again = this.lockAfter && this.enabled && this.canLock;
+        this.lockAfter = false;
+        if (again) this.lock();
         return;
       }
-      if (this.locked) {
-        this.everLocked = true;
-        this.drag = null;
-      }
+      this.everLocked = true;
+      this.drag = null;
+      // A lock that lands with a window open (the one yieldMouse takes, or a relock racing the next window) is let go.
+      if (!this.enabled) this.unlock();
     });
-    document.addEventListener('pointerlockerror', () => {
-      this.lockPending = false;
-      // Locking right after Esc is refused for a moment; only give up if it never worked.
-      if (!this.everLocked) this.lockFailed = true;
-    });
+    document.addEventListener('pointerlockerror', () => this.refused());
     dom.addEventListener(
       'wheel',
       (e) => {
@@ -168,6 +180,11 @@ export class PlayerController {
 
   get locked(): boolean {
     return document.pointerLockElement === this.dom;
+  }
+
+  /** Whether the mouse is captured and staying so: not while it's being let go of for a window. */
+  get hasMouse(): boolean {
+    return this.locked && !this.letting;
   }
 
   /** Whether clicking the scene will capture the mouse for looking around. */
@@ -190,7 +207,22 @@ export class PlayerController {
   }
 
   unlock() {
-    if (this.locked) document.exitPointerLock();
+    this.lockAfter = false;
+    if (!this.locked) return;
+    this.letting = true;
+    document.exitPointerLock();
+  }
+
+  /**
+   * Frees the mouse for a window over the game, so that `lock` gets it back when the window closes.
+   * The browser only hands the mouse back without a click or key to a page that let go of it itself.
+   * So when the mouse is free already (you pressed Esc to click something on screen), the click or
+   * key that opens the window takes it for a moment, and it's let go as soon as it lands.
+   */
+  yieldMouse() {
+    if (this.locked) return this.unlock();
+    if (this.letGo || !this.canLock || !navigator.userActivation?.isActive) return;
+    this.lock();
   }
 
   clearKeys() {
@@ -204,23 +236,32 @@ export class PlayerController {
 
   /** Captures the mouse for looking around, as the first click on the scene does. */
   lock() {
+    // Still being let go of, for a window that closed again at once: taken back once it's free.
+    if (this.locked && this.letting) this.lockAfter = true;
     if (this.locked || this.lockPending) return;
     if (typeof this.dom.requestPointerLock !== 'function') {
       this.lockFailed = true;
       return;
     }
     this.lockPending = true;
+    this.lockOnGesture = navigator.userActivation?.isActive ?? true;
+    // Asking uses up the browser's leave to hand the mouse back, whatever it answers.
+    this.letGo = false;
     try {
       // Newer browsers return a promise; older ones report through pointerlockerror.
       const p = this.dom.requestPointerLock() as unknown as Promise<void> | undefined;
-      p?.catch?.(() => {
-        this.lockPending = false;
-        if (!this.everLocked) this.lockFailed = true;
-      });
+      p?.catch?.(() => this.refused());
     } catch {
       this.lockPending = false;
       this.lockFailed = true;
     }
+  }
+
+  private refused() {
+    this.lockPending = false;
+    // Locking right after Esc is refused for a moment, and so is asking with no click or key behind
+    // it; only give up if it never worked when a click or key asked.
+    if (!this.everLocked && this.lockOnGesture) this.lockFailed = true;
   }
 
   private look(dx: number, dy: number) {

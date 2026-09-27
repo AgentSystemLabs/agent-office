@@ -2413,7 +2413,9 @@ onModalChange((open) => {
   if (open && walkingTo && !trip) stopWalking();
   if (open) {
     emoteWheel.close();
-    player.unlock();
+    // A phone has no mouse to take back afterwards.
+    if (finePointer) player.yieldMouse();
+    else player.unlock();
     $('hint').classList.add('hidden');
   } else {
     // A tick later, so closing one window to open the next (Settings → character) doesn't grab the mouse in between.
@@ -2426,10 +2428,10 @@ onModalChange((open) => {
 function backToGame() {
   if (modalOpen()) return;
   if (!isTyping()) canvas.focus({ preventScroll: true });
-  if (!player.canLock || player.locked) return;
-  // The browser lets a page re-capture the mouse it let go of itself, even on Esc (which it doesn't
-  // count as a click or key), and any time after a click, like one on ✕. When it won't (the mouse
-  // was already free when the window opened, or a stricter browser), the next key you press does.
+  if (!player.canLock || player.hasMouse) return;
+  // The browser lets a page re-capture the mouse it let go of itself (see yieldMouse), even on Esc
+  // (which it doesn't count as a click or key), and any time after a click, like one on ✕. When it
+  // won't (nothing of yours opened the window, or a stricter browser), the next key you press does.
   player.lock();
   relookOnKey = true;
 }
