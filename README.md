@@ -56,10 +56,24 @@ On the machine that runs the office (your laptop or a VPS):
 
 ## Install & run
 
-Install once from a clone:
+One line installs the latest release and starts the office. You don't need to clone anything:
 
 ```bash
-git clone <this repo> agent-office && cd agent-office
+curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.sh | bash
+```
+
+Anything after `bash -s --` goes to the office, such as a project directory or a port:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.sh | bash -s -- ~/code/my-project --port 4700
+```
+
+The script checks for Node.js 20+ and npm, downloads the newest [release](https://github.com/AgentSystemLabs/agent-office/releases) into `~/.local/share/agent-office` and installs its dependencies there. It also puts an `agent-office` command in `~/.local/bin`, so after the first run `agent-office` on its own starts the office. Run the curl line again to update. Set `AGENT_OFFICE_VERSION=v0.1.68` to install a particular release, or `AGENT_OFFICE_INSTALL_ONLY=1` to install without starting. The other settings are listed at the top of [`install.sh`](install.sh). It runs on macOS and Linux. On Windows, run it inside WSL.
+
+Or install from a clone, to work on the office itself:
+
+```bash
+git clone https://github.com/AgentSystemLabs/agent-office && cd agent-office
 npm install          # also builds the client and server
 npm install -g .     # puts `agent-office` on your PATH
 ```
@@ -365,6 +379,8 @@ node bin/agent-office.js /path/to/project --password dev
 ```
 
 `npm run dev` runs Vite with hot reload on :5173 and proxies to the server on :4600. Server edits restart the server, not the workers. The PTY host keeps running its old code, though: after changing `ptyhost.ts`, bump `PTY_PROTOCOL` in `ptys.ts` and the next server replaces the host (its workers resume their sessions).
+
+**Releases.** Every change to the app that lands on `main` is published as a GitHub release by [`.github/workflows/release.yml`](.github/workflows/release.yml), and `install.sh` installs the newest one. The workflow builds and typechecks the office, runs the tests, packs the release with an `npm-shrinkwrap.json` so every install gets the tested dependency versions, then installs the pack through `install.sh` and starts it before publishing. Pull requests run the same steps but publish nothing. A release is named after `package.json`'s major.minor and the number of commits on `main` (`v0.1.68`), so bump `package.json` to start a new minor version.
 
 ## License
 

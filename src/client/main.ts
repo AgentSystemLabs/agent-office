@@ -517,6 +517,10 @@ function sayBubble(from: string, text: string) {
 }
 
 // ---- Workers ------------------------------------------------------------------------------------
+/** How close (meters) you stop a worker jumping, and how far you go before it starts again. */
+const HOLD_NEAR = 4;
+const HOLD_LEAVE = 5;
+
 function syncWorkers() {
   for (const w of store.workers.values()) {
     let v = workerViews.get(w.id);
@@ -1473,6 +1477,7 @@ let stride = 0;
 /** How fast you were falling, so landing a jump thumps but stepping down a stair doesn't. */
 let fallV = 0;
 const lookDir = new THREE.Vector3();
+const workerPos = new THREE.Vector3();
 const headPos = new THREE.Vector3();
 
 function frame(ts?: number) {
@@ -1556,8 +1561,11 @@ function frame(ts?: number) {
 
   const camPos = camera.position;
   for (const [id, v] of workerViews) {
-    v.model.update(dt, t);
     const desk = DESK_BY_ID.get(v.deskId)!;
+    // A jumping worker holds still while you're near enough to read its card, and jumps again once you walk away.
+    const d = v.model.root.getWorldPosition(workerPos).distanceTo(player.pos);
+    v.model.held = d < (v.model.held ? HOLD_LEAVE : HOLD_NEAR);
+    v.model.update(dt, t);
     v.laptop.update(dt, store.screens.get(id), Math.hypot(desk.x - camPos.x, desk.z - camPos.z));
   }
   dog.update(dt);
