@@ -24,6 +24,7 @@ import { configuredProvider, isValidOpenCodeModel, validateWorkerEffort, validat
 import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeStatusEvent } from './opencode.js';
 import { ScrollbackStore, searchTerminal, terminalTail } from './history.js';
 import { screenSnapshot } from './screen.js';
+import type { Capacity } from './machine.js';
 
 type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
 
@@ -156,6 +157,8 @@ export class WorkerManager {
     private hook: HookEnv,
     private events: WorkerEvents,
     private ledger: Ledger,
+    /** The office's worker limit, across every floor (see machine.ts). */
+    private capacity?: Capacity,
   ) {
     this.defaultProvider = configuredProvider(agentCmd);
     this.trees = new Worktrees(dir);
@@ -254,6 +257,8 @@ export class WorkerManager {
       const paused = this.ledger.hiringPaused;
       if (paused) return paused;
     }
+    const full = this.capacity?.full();
+    if (full) return full;
     const used = new Set([...this.workers.values()].map((w) => w.info.name.replace(/ 🐚$/, '')));
     const agent = seat.station && STATION_AGENT[seat.station];
     const name = agent ? agent.name : (NAMES.find((n) => !used.has(n)) ?? `Worker ${this.workers.size + 1}`);

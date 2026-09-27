@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES, type Look } from '../../shared/avatar';
-import type { WorkerStatus, WorkerTask } from '../../shared/protocol';
+import { EMOTE_BY_ID, type Emote, type EmoteId } from '../../shared/emotes';
+import type { CarriedIssue, WorkerStatus, WorkerTask } from '../../shared/protocol';
 import { isAsleep } from '../../shared/status';
 import { HIPS } from '../player';
+import { HeldCard } from './card';
 import { cardSprite, disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
 
 export type Pose = 'stand' | 'walk' | 'sit' | 'type';
@@ -20,6 +22,18 @@ export function reachCurve(p: number): number {
   if (p < 0.5) return 1;
   const u = (p - 0.5) / 0.5;
   return 1 - u * u * (3 - 2 * u);
+}
+
+/** 0 → 1 → 0 over an emote `t` seconds into it: eased in quickly, out a little slower at the end. */
+export function emoteEnvelope(t: number, seconds: number): number {
+  const k = THREE.MathUtils.clamp(Math.min(t / 0.18, (seconds - t) / 0.3), 0, 1);
+  return k * k * (3 - 2 * k);
+}
+
+/** Overshoots 1 a little on the way there (p = 0..1), for things that pop in. */
+export function popCurve(p: number): number {
+  const u = Math.min(1, p) - 1;
+  return 1 + 2.7 * u * u * u + 1.7 * u * u;
 }
 
 /** A full mug of coffee standing on y = 0, with its handle on the -x side. */
@@ -165,6 +179,9 @@ export class Person {
   private reachT = -1;
   /** Held in the left hand, kept upright however the arm swings. */
   private mug = new THREE.Group();
+  private wantsMug = false;
+  /** An issue card off the board, held out in front in both hands. */
+  private card: HeldCard;
   pose: Pose = 'stand';
   private cig: THREE.Group;
   private ember: THREE.MeshToonMaterial;
@@ -173,6 +190,13 @@ export class Person {
   private wispIn = 0;
   /** Where smoke comes off: the lit end (a wisp) or the mouth, blowing it out along `dir`. */
   onSmoke: ((kind: 'wisp' | 'exhale', at: THREE.Vector3, dir: THREE.Vector3) => void) | null = null;
+  /** The emote being played, how far into it (seconds), and its emoji over their head. */
+  private emoting: { emote: Emote; t: number; pop: THREE.Sprite; size: THREE.Vector2 } | null = null;
+  /** A thumb up and a pointing finger on the right hand, out only for those emotes. */
+  private thumb: THREE.Mesh;
+  private finger: THREE.Mesh;
+  /** How much higher (meters) an emote's emoji pops up, to clear a chat bubble over their head. */
+  emojiLift = 0;
   /** Hips this high above the feet while sitting (on the seat), or null on their feet. */
   private hips: number | null = null;
   /** The last seat's, so getting up eases back down from it. */
@@ -250,6 +274,20 @@ export class Person {
     this.cig.position.set(0, -0.38, 0).addScaledVector(along, 0.07);
     this.cig.visible = false;
     this.armL.add(this.cig);
+    // Between the hands when both arms are out in front (see update), its front to whoever they walk up to.
+    const holder = new THREE.Group();
+    holder.position.set(0, 0.8, 0.36);
+    holder.rotation.x = -0.1;
+    this.body.add(holder);
+    this.card = new HeldCard(holder, 0.46);
+    // Along the arm (the fist's -y) the finger points; the thumb sticks out of the front of the fist,
+    // which is up once the arm is out in front.
+    this.thumb = mesh(new THREE.CapsuleGeometry(0.035, 0.07, 4, 8).rotateX(Math.PI / 2), skin, 0, -0.38, 0.1, false);
+    this.finger = mesh(new THREE.CapsuleGeometry(0.03, 0.09, 4, 8), skin, 0, -0.5, 0.02, false);
+    for (const m of [this.thumb, this.finger]) {
+      m.visible = false;
+      this.armL.add(m);
+    }
 
     // Little mic icon that pops up while speaking
     this.mic = mesh(new THREE.SphereGeometry(0.09, 10, 8), toon('#7cf29a', { emissive: '#2a9d4b' }), 0, 2.25, 0, false);
@@ -374,7 +412,111 @@ export class Person {
 
   /** A mug of coffee in the left hand, or not. */
   holdMug(on: boolean) {
-    this.mug.visible = on;
+    this.wantsMug = on;
+    this.mug.visible = on && !this.card.held;
+  }
+
+  /** Carries an issue card in both hands, or puts it down (null). The mug waits while the hands are full. */
+  carry(card: CarriedIssue | null | undefined) {
+    this.card.set(card);
+    this.holdMug(this.wantsMug);
+  }
+
+  /** Waves, gives a thumbs up, claps…: the gesture, with its emoji popping up over their head. */
+  emote(id: EmoteId) {
+    const emote = EMOTE_BY_ID.get(id);
+    if (!emote) return;
+    this.endEmote();
+    const pop = textSprite(emote.emoji, { size: 72 });
+    const size = new THREE.Vector2(pop.scale.x, pop.scale.y);
+    pop.scale.set(0.001, 0.001, 1);
+    this.root.add(pop);
+    this.emoting = { emote, t: 0, pop, size };
+    this.thumb.visible = id === 'thumbs';
+    this.finger.visible = id === 'point';
+  }
+
+  /** The emote playing now, if any. */
+  get emoteId(): EmoteId | null {
+    return this.emoting?.emote.id ?? null;
+  }
+
+  private endEmote() {
+    const e = this.emoting;
+    if (!e) return;
+    this.root.remove(e.pop);
+    disposeSprite(e.pop);
+    this.emoting = null;
+    this.thumb.visible = this.finger.visible = false;
+  }
+
+  /**
+   * Poses the emote over whatever the arms were doing (walking, sitting, a drag on a cigarette),
+   * `k` of the way. The dance's bounce and steps only happen with both feet on the floor (`still`).
+   */
+  private emoteStep(dt: number, still: number) {
+    const e = this.emoting!;
+    e.t += dt;
+    const { seconds, id } = e.emote;
+    if (e.t >= seconds) return this.endEmote();
+    const k = emoteEnvelope(e.t, seconds);
+    const u = e.t;
+    const pose = (arm: THREE.Object3D, x: number, z: number) => {
+      arm.rotation.x = THREE.MathUtils.lerp(arm.rotation.x, x, k);
+      arm.rotation.z = THREE.MathUtils.lerp(arm.rotation.z, z, k);
+    };
+    // Forward is +z, so the character's right arm is the one on -x (armL), as in reach.
+    switch (id) {
+      case 'wave':
+        pose(this.armL, -0.35, -2.55 + Math.sin(u * 12) * 0.35);
+        this.head.rotation.z = -0.1 * k;
+        break;
+      case 'thumbs':
+        // Out in front, with a little pump that settles.
+        pose(this.armL, -1.75 - Math.exp(-u * 3) * Math.sin(u * 14) * 0.25, 0.2);
+        this.head.rotation.z = -0.08 * k;
+        break;
+      case 'clap': {
+        // Both hands out in front, meeting in the middle about three times a second.
+        const c = 0.5 - 0.5 * Math.cos(u * 19);
+        pose(this.armL, -1.25, 0.3 + 0.42 * c);
+        pose(this.armR, -1.25, -0.3 - 0.42 * c);
+        this.body.position.y += Math.abs(Math.sin(u * 9.5)) * 0.02 * k * still;
+        break;
+      }
+      case 'dance': {
+        // Two beats a second: arms up by turns, a hop on every beat, hips swaying, a knee up.
+        const b = u * Math.PI * 2;
+        const s = Math.sin(b);
+        pose(this.armL, -0.3, THREE.MathUtils.lerp(-0.35, -2.7, (s + 1) / 2));
+        pose(this.armR, -0.3, THREE.MathUtils.lerp(0.35, 2.7, (1 - s) / 2));
+        const m = k * still;
+        this.body.position.y += Math.abs(Math.sin(b)) * 0.08 * m;
+        this.body.rotation.z = s * 0.12 * m;
+        this.body.rotation.y = Math.sin(b / 2) * 0.45 * m;
+        this.legL.rotation.x = THREE.MathUtils.lerp(this.legL.rotation.x, -Math.max(0, s) * 0.7, m);
+        this.legR.rotation.x = THREE.MathUtils.lerp(this.legR.rotation.x, -Math.max(0, -s) * 0.7, m);
+        this.head.rotation.z = -s * 0.1 * k;
+        break;
+      }
+      case 'point':
+        // Arm straight out at whatever you face, with a jab to start.
+        pose(this.armL, -1.6 - Math.exp(-u * 4) * Math.sin(u * 16) * 0.15, 0.05);
+        break;
+      case 'facepalm':
+        // Hand to the face, head down and shaking slowly.
+        pose(this.armL, -2.4, 0.62);
+        this.body.rotation.x += 0.1 * k;
+        this.head.rotation.x += 0.3 * k;
+        this.head.rotation.y = Math.sin(u * 5) * 0.15 * k;
+        break;
+    }
+    // The emoji pops in over their head, rises a little, wobbles, and fades at the end.
+    const pop = popCurve(u / 0.3);
+    e.pop.scale.set(e.size.x * pop, e.size.y * pop, 1);
+    e.pop.position.y = 2.42 + this.emojiLift + Math.min(u, 1.5) * 0.12;
+    e.pop.material.rotation = Math.sin(u * 7) * 0.12;
+    e.pop.material.opacity = THREE.MathUtils.clamp((seconds - u) / 0.4, 0, 1);
   }
 
   get smoking(): boolean {
@@ -457,6 +599,11 @@ export class Person {
       for (const arm of [this.armL, this.armR]) arm.rotation.x = THREE.MathUtils.lerp(arm.rotation.x, -0.55, sit);
     }
     if (this.smokeT >= 0) this.smokeStep(dt, moving, airborne);
+    if (this.card.held) {
+      // Both arms out in front, hands on the card's edges: it doesn't swing while they walk.
+      this.armL.rotation.set(-1.25, 0, 0.3);
+      this.armR.rotation.set(-1.25, 0, -0.3);
+    }
     let reach = 0;
     if (this.reachT >= 0) {
       this.reachT += dt;
@@ -498,6 +645,9 @@ export class Person {
     this.mouth.visible = talking;
     if (talking) this.mouth.scale.set(0.07 * (1 - this.mouthOpen * 0.2), 0.01 + this.mouthOpen * 0.045, 0.05);
     this.head.rotation.x = -this.mouthOpen * 0.08;
+    this.head.rotation.y = this.head.rotation.z = 0;
+    this.body.rotation.y = this.body.rotation.z = 0;
+    if (this.emoting) this.emoteStep(dt, moving || airborne ? 0 : 1 - sit);
   }
 }
 

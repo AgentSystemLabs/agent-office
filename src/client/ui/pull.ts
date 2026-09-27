@@ -1026,6 +1026,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
     actions.queue(issuePrompt(it), `#${it.number} ${it.title}`, it.number, queueProvider.value(), queueProvider.model(), queueProvider.effort());
   };
   const queue = h('button.btn', { type: 'button', onclick: addIssueToQueue }) as HTMLButtonElement;
+  const pickUp = h('button.btn', { type: 'button', title: 'Carry its card to an empty desk, a worker or the queue board, and press E there', onclick: () => actions.pickUp(it) }, '✋ Pick it up');
   const el = h(
     'div.modal.gh-window.issue',
     { role: 'dialog', 'aria-label': `Issue #${it.number}` },
@@ -1048,6 +1049,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
       closeIssue,
       queueProvider.element,
       queue,
+      pickUp,
       h('button.btn.primary', { type: 'button', onclick: () => actions.assign(issuePrompt(it), `Hand issue #${it.number} to a worker`) }, '🤖 Hand to a worker'),
     ),
   );
@@ -1058,6 +1060,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
     const task = store.taskForIssue(it.number);
     const onQueue = !!task && task.status !== 'done';
     closeIssue.classList.toggle('hidden', !isOpen);
+    pickUp.classList.toggle('hidden', !isOpen);
     queueProvider.element.classList.toggle('hidden', !isOpen || onQueue);
     queue.classList.toggle('hidden', !isOpen);
     queue.disabled = onQueue;

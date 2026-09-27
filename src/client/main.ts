@@ -4,7 +4,7 @@ import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
 import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, LADDER, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, seatAt, seatPlace, vacantSeats, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
-import type { AgentEffort, AgentProvider, FloorInfo, GongWhy, PeerInfo, WorkerInfo } from '../shared/protocol';
+import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo } from '../shared/protocol';
 import { isAsleep, isBusy } from '../shared/status';
 import { Net } from './net';
 import { store, loadProfile, loadSettings, saveSettings, workerForPull, type Profile, type Topic } from './state';
@@ -31,8 +31,8 @@ import { $, h, clip, closeAllModals, modalOpen, onModalChange, openModal, toast,
 import { openTerminal, openTerminalFor, routeTerminalMessage, type TerminalFind } from './ui/terminal';
 import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
-import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage } from './ui/prompt';
-import { openBoard } from './ui/boards';
+import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage, worktreePref } from './ui/prompt';
+import { issuePrompt, openBoard } from './ui/boards';
 import { openPull, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
@@ -46,12 +46,15 @@ import { openSettings } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 import { elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
 import { toggleFloorMenu } from './ui/floormenu';
-import { providerLabel, resolvedProvider, modelBadge } from './ui/provider';
+import { providerLabel, rememberedChoice, resolvedProvider, modelBadge } from './ui/provider';
 import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
 import { renderLimits } from './ui/limits';
+import { MachineTexture, officeFull, pressureNote } from './world/machine';
 import { openJukebox } from './ui/jukebox';
 import { Arcade } from './ui/arcade';
 import { trackTitle } from '../shared/jukebox';
+import { EMOTES, EMOTE_BY_ID, EmoteBucket, type EmoteId } from '../shared/emotes';
+import { EmoteWheel } from './ui/emotes';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -126,8 +129,28 @@ function mountBoard(mesh: THREE.Mesh, texture: THREE.Texture, render: () => void
   for (const topic of topics) store.on(topic, render);
   render();
 }
+/** The issue card in your hands, taken off this floor's issues board (see Carrying an issue card), or null. */
+let carrying: CarriedIssue | null = null;
+/** Issues whose cards someone on this floor is carrying around, so they're missing from the board. */
+function offBoard(): Set<number> {
+  const off = new Set<number>();
+  if (carrying) off.add(carrying.issue);
+  for (const p of store.peers.values()) if (p.carrying && p.id !== store.you && store.onMyFloor(p)) off.add(p.carrying.issue);
+  return off;
+}
 const issuesTex = new BoardTexture('issues');
-mountBoard(office.boardMeshes.issues, issuesTex.texture, () => issuesTex.render(store.issues), ['issues']);
+const renderIssuesBoard = () => {
+  const off = offBoard();
+  issuesTex.render(off.size ? { ...store.issues, items: store.issues.items.filter((i) => !off.has(i.number)) } : store.issues);
+};
+mountBoard(office.boardMeshes.issues, issuesTex.texture, renderIssuesBoard, ['issues']);
+let carriedOff = '';
+store.on('peers', () => {
+  const k = [...offBoard()].join(',');
+  if (k === carriedOff) return;
+  carriedOff = k;
+  renderIssuesBoard();
+});
 const pullsTex = new BoardTexture('pulls');
 const renderPullsBoard = () => pullsTex.render(store.pulls, store.workers);
 mountBoard(office.boardMeshes.pulls, pullsTex.texture, renderPullsBoard, ['pulls']);
@@ -143,6 +166,9 @@ const servicesTex = new ServicesBoardTexture();
 mountBoard(office.boardMeshes.services, servicesTex.texture, () => servicesTex.render(store.services.items, store.workers), ['services', 'workers']);
 const queueTex = new QueueBoardTexture();
 mountBoard(office.boardMeshes.queue, queueTex.texture, () => queueTex.render(store.queue, store.workers), ['queue', 'workers']);
+// The machine monitor on the west wall.
+const machineTex = new MachineTexture();
+mountBoard(office.machineScreen, machineTex.texture, () => machineTex.render(store.machine), ['machine']);
 
 // Pictures people hung on the walls
 const gallery = new Gallery();
@@ -403,6 +429,7 @@ net.onMessage((msg) => {
       } else if (!store.floor) arrive();
       if (voice.inVoice || voice.sharing) net.send({ t: 'voice', voice: voice.inVoice, muted: voice.muted, sharing: voice.sharing });
       if (player.seat) net.send({ t: 'sit', seat: player.seat.key });
+      if (carrying) net.send({ t: 'carry', issue: carrying.issue, title: carrying.title });
       // After a reconnect the server has forgotten which terminal we had open.
       const openId = openTerminalFor();
       if (openId && store.workers.has(openId)) net.send({ t: 'worker.attach', workerId: openId });
@@ -418,6 +445,11 @@ net.onMessage((msg) => {
       break;
     }
     case 'floor.enter':
+      // The card belongs to the board downstairs (or up): the office already put it back there.
+      if (carrying) {
+        toast(`📌 #${carrying.issue} stayed behind on the other floor's board`);
+        setCarrying(null);
+      }
       arrive();
       break;
     case 'floors':
@@ -455,6 +487,9 @@ net.onMessage((msg) => {
       r?.person.setSmoking(msg.smoke);
       break;
     }
+    case 'peer.emote':
+      remotes.get(msg.id)?.person.emote(msg.emote);
+      break;
     case 'gong':
       gongRang(msg.why, msg.pr);
       break;
@@ -690,6 +725,7 @@ function syncPeers() {
       noOutline(r.person.root);
     }
     r.person.setSmoking(!!peer.smoking);
+    r.person.carry(peer.carrying);
     r.person.sit(peer.seat ? (seatAt(peer.seat)?.hips ?? null) : null);
   }
   for (const [id, r] of remotes) {
@@ -816,8 +852,16 @@ function freeDesk(): string | null {
 
 let askedToNotify = false;
 
-function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string, effort?: AgentEffort) {
-  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort });
+/** The office is at its worker limit: says so, and says yes (the office would refuse the hire anyway). */
+function officeIsFull(): boolean {
+  const m = store.machine;
+  if (!officeFull(m)) return false;
+  toast(`🚫 The office is at its limit of ${m.limit} worker${m.limit === 1 ? '' : 's'} — send one home before hiring another`, 'warn');
+  return true;
+}
+
+function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string, effort?: AgentEffort, issue?: number) {
+  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort, issue });
   // The moment notifications start to matter: ask once (it has to come from a key press or click).
   if (settings.notify && notifyPermission() === 'default' && !askedToNotify) {
     askedToNotify = true;
@@ -826,6 +870,7 @@ function hire(deskId: string, prompt?: string, worktree = false, provider?: Agen
 }
 
 function openShell(deskId: string) {
+  if (officeIsFull()) return;
   net.send({ t: 'worker.spawn', deskId, kind: 'shell' });
 }
 
@@ -833,9 +878,11 @@ function promptAtDesk(deskId: string) {
   const w = store.workerAtDesk(deskId);
   const desk = DESK_BY_ID.get(deskId)!;
   if (!w) {
+    if (officeIsFull()) return;
     openPrompt({
       title: `✨ New task at ${desk.label}`,
       subtitle: 'A fresh worker will sit down and start on this right away. Choose the worker engine below.',
+      warning: pressureNote(store.machine),
       submitLabel: 'Hire & start',
       providerOption: true,
       worktreeOption: !!store.project?.branch,
@@ -863,9 +910,11 @@ function promptAtDesk(deskId: string) {
 /** Direct hire from an empty desk, with an optional first prompt and provider choice. */
 function hireAtDesk(deskId: string) {
   const desk = DESK_BY_ID.get(deskId)!;
+  if (officeIsFull()) return;
   openPrompt({
     title: `✨ Hire a worker at ${desk.label}`,
     subtitle: 'Choose the worker engine. You can start with an empty prompt and send work later.',
+    warning: pressureNote(store.machine),
     placeholder: 'Optional first task…',
     submitLabel: 'Hire & start',
     allowEmpty: true,
@@ -911,6 +960,8 @@ function askStation(deskId: string) {
     toast(`The ${name} is waiting on an answer — here's its terminal`, 'warn');
     return openWorkerTerminal(w.id);
   }
+  // Nobody there yet: asking hires the agent.
+  if (!w && officeIsFull()) return;
   const subtitle = !w
     ? `${info.does}, in a terminal of my own: press O at the kiosk to watch.`
     : isAsleep(w.status)
@@ -923,6 +974,7 @@ function askStation(deskId: string) {
     subtitle,
     placeholder: `e.g. ${info.example}`,
     submitLabel: 'Send ✨',
+    warning: w ? undefined : pressureNote(store.machine),
     onSubmit: (text) => net.send({ t: 'station.prompt', deskId, prompt: text }),
   });
 }
@@ -1024,6 +1076,7 @@ function boardActions() {
     assign: (prompt: string, title: string) => sendToWorker(`🤖 ${title}`, { initial: prompt }),
     ask: (context: string, title: string) => sendToWorker(`✍️ ${title}`, { context }),
     goToDesk,
+    pickUp,
   };
 }
 
@@ -1045,6 +1098,7 @@ function watchShare() {
 
 function interact(target: Interactable | null, key: DeskKey) {
   if (!target) return;
+  if (key === 'E' && carrying && dropCard(target, carrying)) return;
   if (target.kind === 'desk' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
     if (key === 'B' && !w) return openShell(target.deskId);
@@ -1127,6 +1181,90 @@ function checkSmokeBreak(now: number) {
     setSmoking(false);
     toast("That one's done. Back to work!");
   }
+}
+
+// ---- Carrying an issue card ------------------------------------------------------------------------
+function setCarrying(card: CarriedIssue | null) {
+  if ((card?.issue ?? 0) === (carrying?.issue ?? 0)) return;
+  carrying = card;
+  me.carry(card);
+  hands.carry(card);
+  net.send({ t: 'carry', issue: card?.issue, title: card?.title });
+  carriedOff = [...offBoard()].join(',');
+  renderIssuesBoard();
+  hintKey = '';
+}
+
+/** ✋ in an issue's window: its card comes off the board and into your hands. */
+function pickUp(it: GhIssue) {
+  closeAllModals();
+  if (carrying?.issue === it.number) return;
+  if (carrying) toast(`📌 #${carrying.issue} went back on the board`);
+  setCarrying({ issue: it.number, title: it.title });
+  sound.paper();
+  toast(`✋ You took #${it.number} off the board: take it to an empty desk, a worker or the 📋 queue and press E`);
+}
+
+/** Q, or E at the issues board: the card goes back where it came from. */
+function putBack() {
+  if (!carrying) return;
+  toast(`📌 #${carrying.issue} is back on the board`);
+  setCarrying(null);
+  sound.paper();
+}
+
+/**
+ * E with a card in your hands: an empty desk hires a worker for the issue (with the prompt 🤖 Hand
+ * to a worker uses), an agent at a desk gets it as its next prompt, the queue board queues it, and
+ * the issues board takes it back. False when it's none of those, so E does what it always does there.
+ */
+function dropCard(it: Interactable, card: CarriedIssue): boolean {
+  if (it.kind === 'issues') {
+    putBack();
+    return true;
+  }
+  const prompt = issuePrompt({ number: card.issue, title: card.title });
+  if (it.kind === 'queue') {
+    if (onQueue(card.issue)) toast(`#${card.issue} is already on the queue`, 'warn');
+    else {
+      const { provider, model, effort } = rememberedChoice(store.project, 'queue');
+      net.send({ t: 'queue.add', prompt, title: `#${card.issue} ${card.title}`, issue: card.issue, provider, model, effort });
+      putDown();
+    }
+    return true;
+  }
+  if (it.kind !== 'desk' || !it.deskId) return false;
+  const w = store.workerAtDesk(it.deskId);
+  const why = w ? cantTakeCard(w) : hiringPaused() ? '💸 Budget spent — hiring resumes tomorrow' : '';
+  if (why) toast(why, 'warn');
+  else if (w) {
+    net.send({ t: 'worker.prompt', workerId: w.id, prompt, issue: card.issue });
+    putDown();
+  } else if (!officeIsFull()) {
+    const { provider, model, effort } = rememberedChoice(store.project, `desk:${it.deskId}`);
+    hire(it.deskId, prompt, !!store.project?.branch && worktreePref(), provider, model, effort, card.issue);
+    putDown();
+  }
+  return true;
+}
+
+/** The card left your hands for a desk or the queue (the office says who took it). */
+function putDown() {
+  setCarrying(null);
+  sound.paper();
+}
+
+function onQueue(issue: number): boolean {
+  const t = store.taskForIssue(issue);
+  return !!t && t.status !== 'done';
+}
+
+/** Why the worker at a desk can't be handed an issue card right now, or '' when it can. */
+function cantTakeCard(w: WorkerInfo): string {
+  if (w.kind === 'shell') return `${w.name} is a shell, not an agent`;
+  if (isAsleep(w.status)) return `${w.name} is asleep — press R to resume first`;
+  if (w.status === 'needs_input') return `${w.name} is waiting on an answer — open the terminal first`;
+  return '';
 }
 
 // ---- Sitting ----------------------------------------------------------------------------------------
@@ -1281,15 +1419,15 @@ function renderHint() {
   const el = $('hint');
   if (hanger.active && !modalOpen()) return renderHangHint(el);
   if (climber.active && !modalOpen()) return renderClimbHint(el);
-  if (!target || modalOpen()) {
+  if ((!target && !carrying) || modalOpen()) {
     if (hintKey) {
       el.classList.add('hidden');
       hintKey = '';
     }
     return;
   }
-  const hint = hintFor(target);
-  const k = `${target.kind}${target.deskId ?? ''}|${hint.k}`;
+  const hint = carrying ? carryHint(carrying, target) : hintFor(target!);
+  const k = `${target?.kind}${target?.deskId ?? ''}|${carrying?.issue ?? ''}|${hint.k}`;
   if (k === hintKey) return;
   hintKey = k;
   el.replaceChildren(...hint.parts);
@@ -1381,16 +1519,48 @@ function hintFor(it: Interactable): Hint {
   }
 }
 
+/** With an issue card in your hands: what E does with it here, and how to put it back. */
+function carryHint(card: CarriedIssue, it: Interactable | null): Hint {
+  const parts = (...mid: (HTMLElement | string)[]) => [h('span.title', {}, `🗂️ #${card.issue} in hand`), ...mid, key('Q', 'Put it back')];
+  if (it?.kind === 'issues') return { k: '', parts: parts(key('E', 'Pin it back up')) };
+  if (it?.kind === 'queue') {
+    const on = onQueue(card.issue);
+    return { k: String(on), parts: parts(on ? aside('already on the queue') : key('E', 'Put it on the queue')) };
+  }
+  if (it?.kind === 'desk' && it.deskId) {
+    const w = store.workerAtDesk(it.deskId);
+    if (!w) {
+      const paused = hiringPaused();
+      return { k: String(paused), parts: parts(paused ? h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow') : key('E', 'Hire a worker for it')) };
+    }
+    const why = cantTakeCard(w);
+    return { k: w.id + w.status + why, parts: parts(why ? aside(why) : key('E', `Hand it to ${w.name}`)) };
+  }
+  // Anything else works as usual, card in hand.
+  if (it) {
+    const rest = hintFor(it);
+    return { k: rest.k, parts: parts(...rest.parts) };
+  }
+  return { k: '', parts: parts(aside('take it to an empty desk, a worker or the 📋 queue')) };
+}
+
 function deskHint(deskId: string): Hint {
   const w = store.workerAtDesk(deskId);
   if (!w) {
     const paused = hiringPaused();
+    const m = store.machine;
+    const full = officeFull(m);
     return {
-      k: String(paused),
+      k: `${paused}|${full}|${m.workers}|${m.limit}|${!!m.pressure}`,
       parts: [
         h('span.title', {}, `${DESK_BY_ID.get(deskId)!.label} · empty`),
-        ...(paused ? [h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow')] : [key('E', 'Hire a worker'), key('P', 'Hire with a task')]),
-        key('B', 'Shell'),
+        ...(full
+          ? [h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`)]
+          : [
+              m.pressure ? h('span.cost', { title: `This machine is under pressure: ${m.pressure}` }, '⚠️ Machine under pressure') : '',
+              ...(paused ? [h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow')] : [key('E', 'Hire a worker'), key('P', 'Hire with a task')]),
+              key('B', 'Shell'),
+            ]),
       ],
     };
   }
@@ -1418,7 +1588,18 @@ function stationHint(deskId: string): Hint {
   if (!kind) return { k: '', parts: [] };
   const w = store.workerAtDesk(deskId);
   const info = STATION_INFO[kind];
-  if (!w) return { k: '', parts: [h('span.title', {}, `${info.icon} ${STATION_AGENT[kind].name}`), aside(info.offer.replace(/^Ask me /, '')), key('E', 'Prompt')] };
+  if (!w) {
+    const m = store.machine;
+    const full = officeFull(m);
+    return {
+      k: `${full}|${m.workers}|${m.limit}`,
+      parts: [
+        h('span.title', {}, `${info.icon} ${STATION_AGENT[kind].name}`),
+        aside(info.offer.replace(/^Ask me /, '')),
+        full ? h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`) : key('E', 'Prompt'),
+      ],
+    };
+  }
   const doing = w.activity ? clip(w.activity, 48) : '';
   const provider = resolvedProvider(w.provider, store.project);
   const spent = w.usage ? usageLabel(w.usage, provider) : '';
@@ -1498,6 +1679,54 @@ function reach() {
   }
 }
 
+// ---- Emotes ---------------------------------------------------------------------------------------
+/** The same limit the server keeps, so an emote you see yourself do is one everyone else sees too. */
+const emoteLimit = new EmoteBucket();
+let emoteWarnedAt = 0;
+/** Plays an emote on your character and your hands, and shows it to everyone else on the floor. */
+function emote(id: EmoteId) {
+  const now = performance.now();
+  if (!emoteLimit.take(now)) {
+    if (now - emoteWarnedAt > 3000) {
+      emoteWarnedAt = now;
+      toast('Easy there, one emote at a time', 'warn');
+    }
+    return;
+  }
+  me.emote(id);
+  hands.emote(id);
+  if (player.view === 'first') popEmoji(id);
+  net.send({ t: 'emote', emote: id });
+}
+const emoteWheel = new EmoteWheel(emote, (open) => (player.mouseLook = !open));
+$('hud').append(emoteWheel.el);
+
+/** In first person you can't see the emoji over your head, so it pops up on the screen instead. */
+function popEmoji(id: EmoteId) {
+  const e = EMOTE_BY_ID.get(id)!;
+  document.querySelector('.emote-pop')?.remove();
+  const el = h('div.emote-pop', { style: `--secs:${e.seconds}s`, 'aria-hidden': 'true' }, e.emoji);
+  el.addEventListener('animationend', () => el.remove());
+  $('hud').append(el);
+}
+
+/** G opens the emote wheel (hold it and point, or tap it and click); 1–6 play one straight away. */
+function emoteKey(e: KeyboardEvent): boolean {
+  if (e.code === 'KeyG') {
+    if (!e.repeat) emoteWheel.press();
+    return true;
+  }
+  if (e.code === 'Escape' && emoteWheel.isOpen) {
+    emoteWheel.close();
+    return true;
+  }
+  const n = /^(?:Digit|Numpad)([1-6])$/.exec(e.code);
+  if (!n) return false;
+  emoteWheel.close();
+  emote(EMOTES[Number(n[1]) - 1].id);
+  return true;
+}
+
 /** Keys that use what you're facing: at a desk, each does something else (see interact). */
 const DESK_KEYS = { KeyE: 'E', KeyP: 'P', KeyR: 'R', KeyX: 'X', KeyB: 'B', KeyC: 'C', KeyO: 'O' } as const;
 type DeskKey = (typeof DESK_KEYS)[keyof typeof DESK_KEYS];
@@ -1520,7 +1749,11 @@ window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyE') climber.letGo();
     return;
   }
+  if (emoteKey(e)) return;
   if (officeKey(e)) player.clearKeys();
+});
+window.addEventListener('keyup', (e) => {
+  if (e.code === 'KeyG') emoteWheel.release();
 });
 
 /** The office's own keys; false for any other key, which is left to walking and the browser. */
@@ -1549,6 +1782,11 @@ function officeKey(e: KeyboardEvent): boolean {
       return true;
     case 'KeyF':
       hanger.start();
+      return true;
+    case 'KeyQ':
+      if (!carrying) return false;
+      reach();
+      putBack();
       return true;
   }
   // By the character, so it's / on any keyboard layout. The search box opens without it.
@@ -1590,6 +1828,7 @@ onModalChange((open) => {
   player.enabled = !open;
   player.clearKeys();
   if (open) {
+    emoteWheel.close();
     if (player.locked) relookAfterModal = true;
     player.unlock();
     $('hint').classList.add('hidden');
@@ -1637,6 +1876,7 @@ function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boole
 
 player.onClick = (ndc) => {
   if (modalOpen()) return;
+  if (emoteWheel.isOpen) return emoteWheel.click();
   if (hanger.active) {
     reach();
     hanger.place(ndc);
@@ -1919,6 +2159,7 @@ function frame(ts?: number) {
       sound.stepAt(pos.x, pos.z);
     }
     r.person.setVoiceLevel(p.voice && !p.muted ? voice.levelOf(id) : 0);
+    r.person.emojiLift = r.bubble ? 0.45 : 0;
     if (r.bubble && now > r.bubble.until) {
       r.person.root.remove(r.bubble.sprite);
       disposeSprite(r.bubble.sprite);
@@ -2020,7 +2261,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, caffeine, camera, arcade, workerViews, departures, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, elevatorPanelOpen, confetti, dog, sky };
+(window as any).__office = { store, player, caffeine, camera, arcade, workerViews, departures, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, elevatorPanelOpen, confetti, dog, sky, carried: () => carrying, emoteWheel, emote };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;
