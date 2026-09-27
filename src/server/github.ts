@@ -91,6 +91,7 @@ export class GitHub {
   pulls: GhState<GhPull> = { items: [], fetchedAt: 0, loading: false };
   private timer?: NodeJS.Timeout;
   private repo?: Promise<GhRepoInfo>;
+  private login?: Promise<string>;
 
   constructor(
     private dir: string,
@@ -122,14 +123,22 @@ export class GitHub {
     return this.repo;
   }
 
+  /** Who gh is signed in as, which is who the office comments as. Asked once; '' when gh can't say. */
+  viewer(): Promise<string> {
+    this.login ??= gh(['api', 'user', '--jq', '.login'], this.dir).then((out) => out.trim());
+    this.login.catch(() => (this.login = undefined));
+    return this.login.catch(() => '');
+  }
+
   /** A PR's description, conversation, line comments, checks and whether it can merge. */
   async pullDetail(n: number): Promise<GhPullDetail> {
     const fields = 'number,body,state,isDraft,reviewDecision,headRefName,baseRefName,mergeable,mergeStateStatus,commits,comments,reviews,statusCheckRollup';
     const jq = '.[] | {id, in_reply_to_id, path, line, side, body, user: .user.login, created_at, html_url}';
-    const [view, lines, repo] = await Promise.all([
+    const [view, lines, repo, viewer] = await Promise.all([
       gh(['pr', 'view', String(n), '--json', fields], this.dir),
       gh(['api', `repos/{owner}/{repo}/pulls/${n}/comments?per_page=100`, '--paginate', '--jq', jq], this.dir),
       this.repoInfo(),
+      this.viewer(),
     ]);
     const p = JSON.parse(view);
     const reviewComments: GhReviewComment[] = lines
@@ -164,6 +173,7 @@ export class GitHub {
       reviewComments,
       checks: (p.statusCheckRollup ?? []).map(checkOf),
       repo,
+      viewer,
     };
   }
 
@@ -173,8 +183,28 @@ export class GitHub {
   }
 
   async issueDetail(n: number): Promise<GhIssueDetail> {
-    const i = JSON.parse(await gh(['issue', 'view', String(n), '--json', 'number,body,comments'], this.dir));
-    return { number: i.number, body: String(i.body ?? ''), comments: commentsOf(i.comments) };
+    const [view, viewer] = await Promise.all([gh(['issue', 'view', String(n), '--json', 'number,body,comments'], this.dir), this.viewer()]);
+    const i = JSON.parse(view);
+    return { number: i.number, body: String(i.body ?? ''), comments: commentsOf(i.comments), viewer };
+  }
+
+  /**
+   * Comments on an issue, or on a PR's conversation (to GitHub a PR is an issue too), as whoever gh
+   * is signed in as. Returns the comment as GitHub saved it, or why it couldn't.
+   */
+  async comment(kind: 'issue' | 'pull', n: number, body: string): Promise<{ comment?: GhComment; error?: string }> {
+    let comment: GhComment;
+    try {
+      // -f sends the body as a plain string: no @file reading, no {owner} filling in.
+      const jq = '{id: .node_id, author: {login: .user.login}, body, createdAt: .created_at, url: .html_url}';
+      const out = await gh(['api', '--method', 'POST', `repos/{owner}/{repo}/issues/${n}/comments`, '-f', `body=${body}`, '--jq', jq], this.dir);
+      [comment] = commentsOf([JSON.parse(out)]);
+    } catch (err) {
+      return { error: (err as Error).message };
+    }
+    // The issue board counts comments; a PR's card shows when it was last updated.
+    void (kind === 'issue' ? this.refreshIssues() : this.refreshPulls());
+    return { comment };
   }
 
   /** Merges a PR, or with `auto` has GitHub merge it once its requirements pass. Returns an error. */
