@@ -748,6 +748,8 @@ function setPlace() {
   upTop = up;
   const r = up ? theRoof() : roof;
   office.group.visible = !up;
+  // The holiday decorations are dressed round the office and the street below it, not up here.
+  holiday.group.visible = !up;
   if (r) r.group.visible = up;
   player.colliders = up ? r!.colliders : office.colliders;
   sky.setRoof(up);
@@ -2784,7 +2786,7 @@ function frame(ts?: number) {
   confetti.update(dt);
   hanger.update();
   sky.update(dt, t, camera);
-  holiday.update(t, sky.lampsOn, camera);
+  if (!upTop) holiday.update(t, sky.lampsOn, camera);
   sound.setWeather(sky.rain, 1 - sky.daylight);
   if (upTop && roof) {
     // Everything up there moves to the DJ's set; strobes flash the whole roof as a drop lands.

@@ -771,7 +771,8 @@ export function buildRooftop(night: NightParts): Rooftop {
   // ---- Moving it all to the music ---------------------------------------------------------------
   const tmp = new THREE.Color();
   const tmp2 = new THREE.Color();
-  const drawLed = (f: DjFrame, t: number) => {
+  /** `calm`: the slow washes whatever the set is doing, for anyone who'd rather nothing flashed. */
+  const drawLed = (f: DjFrame, t: number, calm: boolean) => {
     const g = ledCtx;
     const W = 512;
     const H = 256;
@@ -779,7 +780,7 @@ export function buildRooftop(night: NightParts): Rooftop {
     g.fillStyle = '#07060d';
     g.fillRect(0, 0, W, H);
     const base = f.hue * 360;
-    if (f.part === 'drop') {
+    if (!calm && f.part === 'drop') {
       // An equalizer, jumping with the kick.
       const n = 24;
       for (let i = 0; i < n; i++) {
@@ -788,7 +789,7 @@ export function buildRooftop(night: NightParts): Rooftop {
         g.fillRect(i * (W / n) + 3, H - v * H, W / n - 6, v * H);
       }
       g.globalAlpha = 0.35 + 0.65 * f.snare;
-    } else if (f.part === 'build') {
+    } else if (!calm && f.part === 'build') {
       // Stripes racing up, faster and faster, and a bar filling up to the drop.
       const speed = 60 + 420 * f.rise;
       for (let y = -40; y < H; y += 40) {
@@ -915,12 +916,13 @@ export function buildRooftop(night: NightParts): Rooftop {
       // The dance floor: a checkerboard, ripples, stripes or sparkles, changing every four bars.
       const beat = Math.floor(f.beats);
       const pattern = Math.floor(f.beats / 16) % 4;
-      const pulse = drop ? 0.45 + 0.55 * f.beat : f.part === 'build' ? 0.35 + 0.5 * f.beat * f.rise : 0.3;
+      // With reduced motion it keeps to the slow wash, whatever the set is doing.
+      const pulse = !motion ? 0.3 : drop ? 0.45 + 0.55 * f.beat : f.part === 'build' ? 0.35 + 0.5 * f.beat * f.rise : 0.3;
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           let on: number;
           let h = f.hue;
-          if (!drop && f.part !== 'build') {
+          if (!motion || (!drop && f.part !== 'build')) {
             // Slow color washing across it.
             on = 0.5 + 0.5 * Math.sin(c * 0.6 + r * 0.4 - t * 1.2);
             h += c * 0.02 + r * 0.03;
@@ -959,7 +961,7 @@ export function buildRooftop(night: NightParts): Rooftop {
       // The LED wall redraws twenty times a second.
       if (t - ledAt > 0.05) {
         ledAt = t;
-        drawLed(f, t);
+        drawLed(f, t, !motion);
       }
       // Strobes: on each snare as the drop lands and through the build's last bar, a couple a second at most.
       if (!motion) return 0;
