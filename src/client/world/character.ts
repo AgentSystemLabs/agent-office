@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES, type Look } from '../../shared/avatar';
-import type { WorkerTask } from '../../shared/protocol';
+import type { WorkerStatus, WorkerTask } from '../../shared/protocol';
+import { isAsleep } from '../../shared/status';
 import { cardSprite, disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
 
 export type Pose = 'stand' | 'walk' | 'sit' | 'type';
@@ -18,6 +19,18 @@ export function reachCurve(p: number): number {
   if (p < 0.5) return 1;
   const u = (p - 0.5) / 0.5;
   return 1 - u * u * (3 - 2 * u);
+}
+
+/** A full mug of coffee standing on y = 0, with its handle on the -x side. */
+export function coffeeMug(scale = 1): THREE.Group {
+  const mug = new THREE.Group();
+  const r = 0.05 * scale;
+  const height = 0.1 * scale;
+  const china = toon('#fffaf3');
+  mug.add(mesh(new THREE.CylinderGeometry(r, r * 0.88, height, 16), china, 0, height / 2, 0, false));
+  mug.add(mesh(new THREE.CylinderGeometry(r * 0.8, r * 0.8, height * 0.04, 16), toon('#6f4518'), 0, height, 0, false));
+  mug.add(mesh(new THREE.TorusGeometry(height * 0.28, r * 0.2, 6, 12), china, -r, height / 2, 0, false));
+  return mug;
 }
 
 /** On a smoke break, one drag every this many seconds. */
@@ -75,6 +88,8 @@ export class Person {
   private talkUntil = 0;
   private walkPhase = 0;
   private reachT = -1;
+  /** Held in the left hand, kept upright however the arm swings. */
+  private mug = new THREE.Group();
   pose: Pose = 'stand';
   private cig: THREE.Group;
   private ember: THREE.MeshToonMaterial;
@@ -134,6 +149,14 @@ export class Person {
     this.armL = limb(0.24, 0.08, this.shirt, -0.33, 0.9);
     this.armR = limb(0.24, 0.08, this.shirt, 0.33, 0.9);
     for (const arm of [this.armL, this.armR]) arm.add(mesh(new THREE.SphereGeometry(0.085, 12, 10), skin, 0, -0.38, 0));
+    // Forward is +z, so the character's left arm is the one on +x. The handle faces the hand.
+    const cup = coffeeMug(1.4);
+    cup.position.set(0.02, -0.08, 0.1);
+    cup.rotation.y = -Math.PI / 2;
+    this.mug.add(cup);
+    this.mug.position.set(0, -0.38, 0);
+    this.mug.visible = false;
+    this.armR.add(this.mug);
     // For smoke breaks: a cigarette sticking out of the right fist (the arm on -x, see reach), lit end
     // pointing down at your side and up and away when it's at your mouth.
     const cig = cigarette();
@@ -266,6 +289,11 @@ export class Person {
     this.reachT = 0;
   }
 
+  /** A mug of coffee in the left hand, or not. */
+  holdMug(on: boolean) {
+    this.mug.visible = on;
+  }
+
   get smoking(): boolean {
     return this.smokeT >= 0;
   }
@@ -304,9 +332,10 @@ export class Person {
     }
   }
 
-  update(dt: number, t: number, moving: boolean, airborne: boolean) {
+  /** `pace` speeds up the walk cycle for someone walking faster than usual. */
+  update(dt: number, t: number, moving: boolean, airborne: boolean, pace = 1) {
     const target = moving ? 1 : 0;
-    this.walkPhase += dt * 11 * target;
+    this.walkPhase += dt * 11 * target * pace;
     const swing = Math.sin(this.walkPhase) * 0.7 * target;
     if (airborne) {
       this.legL.rotation.x = -0.5;
@@ -334,6 +363,7 @@ export class Person {
     }
     // Lean into the reach a little.
     this.body.rotation.x = reach * 0.12;
+    if (this.mug.visible) this.mug.quaternion.copy(this.armR.quaternion).invert();
     this.body.position.y = moving && !airborne ? Math.abs(Math.sin(this.walkPhase)) * 0.06 : 0;
     if (this.speaking) this.mic.scale.setScalar(1 + Math.sin(t * 14) * 0.2);
 
@@ -388,7 +418,7 @@ export class Worker {
   private nameTag: THREE.Sprite | null = null;
   private eyes: THREE.Mesh[] = [];
   private blinkAt = Math.random() * 4;
-  status = 'starting';
+  status: WorkerStatus = 'starting';
   bouncing = false;
   private bounceT = 0;
   private spawnT = 0;
@@ -447,7 +477,7 @@ export class Worker {
     this.root.add(this.nameTag);
   }
 
-  setStatus(status: string, bounce: boolean) {
+  setStatus(status: WorkerStatus, bounce: boolean) {
     this.status = status;
     this.bouncing = bounce;
     const c = STATUS_BULB[status] ?? '#adb5bd';
@@ -467,7 +497,7 @@ export class Worker {
     const hot = status === 'needs_input' || (status === 'done' && bounce);
     const bg = hot ? (status === 'done' ? '#caffbf' : '#ffd6e0') : status === 'working' ? '#ffec99' : '#fffaf3';
     const bubble =
-      status === 'needs_input' ? '❗ needs you' : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : status === 'offline' || status === 'exited' ? '💤' : '';
+      status === 'needs_input' ? '❗ needs you' : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤' : '';
     const key = task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble;
     if (key === this.bubbleKey) return;
     this.bubbleKey = key;
@@ -479,8 +509,7 @@ export class Worker {
     this.bubbleIsCard = !!task;
     if (task) {
       const [text, chipBg, color] = TASK_CHIP[status] ?? TASK_CHIP.idle;
-      const asleep = status === 'offline' || status === 'exited';
-      this.bubble = cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: task.summary, bg: asleep ? '#e9ecef' : bg });
+      this.bubble = cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: task.summary, bg: isAsleep(status) ? '#e9ecef' : bg });
     } else if (bubble) this.bubble = textSprite(bubble, { bg, size: 38 });
     if (this.bubble) this.root.add(this.bubble);
   }
@@ -517,9 +546,8 @@ export class Worker {
     const blinking = this.blinkAt < 0.12 && this.blinkAt > 0;
     if (this.blinkAt < 0) this.blinkAt = 2 + Math.random() * 4;
     for (const e of this.eyes) e.scale.y = blinking ? 0.1 : 1;
-    const sleepy = this.status === 'offline' || this.status === 'exited';
     this.bulbMesh.scale.setScalar(this.status === 'needs_input' ? 1 + Math.abs(Math.sin(t * 8)) * 0.5 : 1);
-    if (sleepy) this.body.rotation.z = Math.sin(t * 1.5) * 0.08;
+    if (isAsleep(this.status)) this.body.rotation.z = Math.sin(t * 1.5) * 0.08;
     if (this.bubble) this.bubble.position.y = (this.bubbleIsCard ? 1.74 : 1.95) + (this.bouncing ? this.body.position.y : 0) + Math.sin(t * 3) * 0.03;
     if (this.nameTag) this.nameTag.position.y = 1.55 + (this.bouncing ? this.body.position.y : 0);
   }

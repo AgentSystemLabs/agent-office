@@ -5,30 +5,38 @@ import { issuePrompt, type BoardActions } from './boards';
 import { h, openModal, timeAgo, type Modal } from './dom';
 import { markdown, repoUrlOf } from './markdown';
 import { buildTree, looksGenerated, parseDiff, renderFileDiff, renderThread, repliesOf, Reviewed, STATUS_WORD, treeOrder, type DiffFile, type TreeDir } from './pulldiff';
+import { providerPicker } from './provider';
 
 // The windows behind the board cards. A PR opens on its conversation (description, comments,
 // reviews, line comments, checks) with a Files tab for the diff, where you tick files off as
-// reviewed; from here you merge or close it, or hand it to a worker to review, fix up and merge.
+// reviewed; from here you comment, merge or close it, or hand it to a worker to review, fix up and merge.
+
+/** The board windows ask about the floor you're on. */
+function onFloor(url: string): string {
+  return store.floor ? `${url}&floor=${encodeURIComponent(store.floor)}` : url;
+}
 
 async function getJson<T>(url: string): Promise<T> {
-  const r = await fetch(url, { credentials: 'same-origin' });
+  const r = await fetch(onFloor(url), { credentials: 'same-origin' });
   if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? `HTTP ${r.status}`);
   return r.json() as Promise<T>;
 }
 
 async function getText(url: string): Promise<string> {
-  const r = await fetch(url, { credentials: 'same-origin' });
+  const r = await fetch(onFloor(url), { credentials: 'same-origin' });
   if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? `HTTP ${r.status}`);
   return r.text();
 }
 
 const mergeWaiters = new Map<number, (msg: Extract<ServerMsg, { t: 'gh.merged' }>) => void>();
+const commentWaiters = new Map<string, (msg: Extract<ServerMsg, { t: 'gh.commented' }>) => void>();
 /** Open close dialogs, by "issue:N" or "pull:N". */
 const closeWaiters = new Map<string, (msg: Extract<ServerMsg, { t: 'gh.closed' }>) => void>();
 
-/** Main feeds server messages through here so an open merge or close dialog hears back. */
+/** Main feeds server messages through here so an open merge or close dialog or comment box hears back. */
 export function routePullMessage(msg: ServerMsg) {
   if (msg.t === 'gh.merged') mergeWaiters.get(msg.number)?.(msg);
+  if (msg.t === 'gh.commented') commentWaiters.get(`${msg.kind}#${msg.number}`)?.(msg);
   if (msg.t === 'gh.closed') closeWaiters.get(`${msg.kind}:${msg.number}`)?.(msg);
 }
 
@@ -51,6 +59,8 @@ function savePref(key: string, v: unknown) {
 const MERGE_KEY = 'agent-office.merge';
 const FILES_KEY = 'agent-office.pr-files';
 const TAB_KEY = 'agent-office.pr-tab';
+/** Followed by the issue or PR's URL: the comment you were writing there. */
+const DRAFT_KEY = 'agent-office.comment:';
 
 interface MergePref {
   method?: GhMergeMethod;
@@ -170,6 +180,119 @@ function checksList(checks: GhCheck[]) {
     {},
     ...sorted.map((c) => h('li', {}, h('span', { 'aria-label': c.state }, CHECK_ICON[c.state]), c.url ? h('a', { href: c.url, target: '_blank', rel: 'noopener noreferrer' }, c.name) : h('span', {}, c.name))),
   );
+}
+
+// ---- Comment box --------------------------------------------------------------------------------
+
+interface CommentBox {
+  el: HTMLElement;
+  /** Names the GitHub account the comment goes out as, once the window knows it. */
+  setViewer(login: string): void;
+  /** Stops waiting for an answer; the window closed. */
+  dispose(): void;
+}
+
+/**
+ * Where you comment on an issue or a PR's conversation. It goes out through the server's gh, so
+ * as that account rather than as you. The draft is kept per item until it is posted, so Esc or a
+ * closed window doesn't lose it.
+ */
+function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: string, net: Net, onPosted: (c: GhComment) => void): CommentBox {
+  const draftKey = `${DRAFT_KEY}${itemUrl}`;
+  const waitKey = `${kind}#${number}`;
+  let busy = false;
+  let timer = 0;
+  const ta = h('textarea', { rows: 4, placeholder: 'Leave a comment. Markdown works; ⌘/Ctrl+Enter posts it.', 'aria-label': 'Comment' }) as HTMLTextAreaElement;
+  ta.value = pref<string>(draftKey, '');
+  const shown = h('div.gh-compose-preview.hidden');
+  const write = h('button.btn.on', { type: 'button' }, 'Write');
+  const preview = h('button.btn', { type: 'button' }, 'Preview');
+  const who = h('span.grow', {}, "Posts to GitHub as the office's gh account");
+  const post = h('button.btn.primary', { type: 'button' }, '💬 Comment');
+  const result = h('div.gh-merge-result.error.hidden');
+  const el = h(
+    'article.gh-card.gh-compose',
+    {},
+    h('header', {}, h('b', {}, 'Add a comment'), h('span.grow'), h('div.seg', {}, write, preview)),
+    h('div.gh-compose-body', {}, ta, shown),
+    result,
+    h('div.gh-compose-foot', {}, who, post),
+  );
+
+  const sync = () => {
+    post.disabled = busy || !ta.value.trim();
+    ta.readOnly = busy;
+    post.textContent = busy ? 'Posting…' : '💬 Comment';
+  };
+  const saveDraft = () => {
+    if (ta.value) savePref(draftKey, ta.value);
+    else
+      try {
+        localStorage.removeItem(draftKey);
+      } catch {
+        // storage blocked
+      }
+  };
+  const setPreview = (on: boolean) => {
+    write.classList.toggle('on', !on);
+    preview.classList.toggle('on', on);
+    ta.classList.toggle('hidden', on);
+    shown.classList.toggle('hidden', !on);
+    if (on) shown.replaceChildren(ta.value.trim() ? markdown(ta.value, itemUrl) : h('p.gh-quiet', {}, 'Nothing to preview.'));
+    else ta.focus();
+  };
+  const fail = (text: string) => {
+    result.textContent = text;
+    result.classList.remove('hidden');
+  };
+  const settle = () => {
+    commentWaiters.delete(waitKey);
+    clearTimeout(timer);
+    busy = false;
+  };
+  const submit = () => {
+    const body = ta.value;
+    if (busy || !body.trim()) return;
+    busy = true;
+    result.classList.add('hidden');
+    sync();
+    commentWaiters.set(waitKey, (msg) => {
+      settle();
+      if (msg.comment) {
+        ta.value = '';
+        saveDraft();
+        setPreview(false);
+        onPosted(msg.comment);
+      } else fail(msg.error ?? 'GitHub did not take the comment');
+      sync();
+    });
+    // The office drops messages while it's disconnected, and then no answer comes.
+    timer = window.setTimeout(() => {
+      settle();
+      fail('No answer from the office. Reload the conversation to see whether the comment went through before posting it again.');
+      sync();
+    }, 45_000);
+    net.send({ t: 'gh.comment', kind, number, body });
+  };
+
+  ta.addEventListener('input', () => (saveDraft(), sync()));
+  ta.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      submit();
+    }
+  });
+  write.addEventListener('click', () => setPreview(false));
+  preview.addEventListener('click', () => setPreview(true));
+  post.addEventListener('click', submit);
+  sync();
+  return {
+    el,
+    setViewer(login) {
+      if (login) who.textContent = `Posts to GitHub as @${login}`;
+    },
+    dispose: settle,
+  };
 }
 
 // ---- Prompts for workers ------------------------------------------------------------------------
@@ -404,6 +527,16 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
   const tabConv = h('button.gh-tab', { type: 'button', role: 'tab' });
   const tabFiles = h('button.gh-tab', { type: 'button', role: 'tab' });
   const conv = h('div.gh-conv');
+  // The comment box stays put while the conversation above it is redrawn, so a load finishing
+  // doesn't take the focus (or the text) away from someone typing.
+  const thread = h('div.gh-items');
+  const comment = commentBox('pull', it.number, itemUrl, net, (c) => {
+    if (!detail) return loadAll();
+    detail.comments.push(c);
+    renderConv();
+    renderFrame();
+  });
+  conv.append(h('div.gh-col', {}, thread, comment.el));
   const filesPane = h('div.pd');
   const footBtns = h('span.gh-foot');
   const el = h(
@@ -480,12 +613,9 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
   };
 
   const renderConv = () => {
-    conv.replaceChildren();
-    const col = h('div.gh-col');
-    conv.append(col);
-    col.append(commentCard({ id: 'body', author: it.author, body: detail?.body ?? it.body, createdAt: it.createdAt, url: it.url }, itemUrl, 'opened this'));
-    if (detailError) return col.append(errorBox(detailError, loadAll));
-    if (!detail) return col.append(spinnerRow('Loading the conversation…'));
+    thread.replaceChildren(commentCard({ id: 'body', author: it.author, body: detail?.body ?? it.body, createdAt: it.createdAt, url: it.url }, itemUrl, 'opened this'));
+    if (detailError) return thread.append(errorBox(detailError, loadAll));
+    if (!detail) return thread.append(spinnerRow('Loading the conversation…'));
     const d = detail;
     const replies = repliesOf(d.reviewComments);
     const items: { at: string; node: HTMLElement }[] = [
@@ -511,15 +641,15 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
           ),
         })),
     ].sort((a, b) => a.at.localeCompare(b.at));
-    col.append(...items.map((x) => x.node));
-    if (!items.length) col.append(h('p.gh-quiet', {}, 'No comments or reviews yet.'));
+    thread.append(...items.map((x) => x.node));
+    if (!items.length) thread.append(h('p.gh-quiet', {}, 'No comments or reviews yet.'));
 
     const st = mergeStatus(d);
     const box = h('section.gh-mergebox', { class: st.cls }, h('div.gh-status', { class: st.cls }, h('span', {}, st.icon), st.text), d.checks.length ? checksList(d.checks) : null);
     if (it.state === 'OPEN' && st.can) box.append(h('div.gh-mergebox-go', {}, h('button.btn.primary', { type: 'button', onclick: () => openMerge(it, d, net, handToWorker, loadAll) }, '🔀 Merge…')));
     if (conflicted(d)) box.append(h('div.gh-mergebox-go', {}, h('button.btn.primary', { type: 'button', onclick: handToWorker }, '✨ New worker: fix conflicts & merge')));
     else if (it.state === 'OPEN' && !st.can && !d.isDraft) box.append(h('div.gh-mergebox-go', {}, h('button.btn', { type: 'button', onclick: handToWorker }, '🤖 Have a worker fix it & merge')));
-    col.append(box);
+    thread.append(box);
   };
 
   // --- Files
@@ -829,6 +959,7 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
       .then((d) => {
         if (g !== generation) return;
         detail = d;
+        comment.setViewer(d.viewer);
         it = { ...it, state: d.state, isDraft: d.isDraft, reviewDecision: d.reviewDecision };
         // Line comments go into the diff, so draw it again with them.
         if (files) setupFiles();
@@ -855,7 +986,12 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
     it = detail ? { ...fresh, state: fresh.state === 'OPEN' ? detail.state : fresh.state } : fresh;
     renderFrame();
   });
-  const modal: Modal = openModal(el, { onClose: unsub });
+  const modal: Modal = openModal(el, {
+    onClose: () => {
+      unsub();
+      comment.dispose();
+    },
+  });
   close.addEventListener('click', () => modal.close());
   renderFrame();
   setupFiles();
@@ -873,7 +1009,23 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const pill = h('span.pill');
   const conv = h('div.gh-conv');
-  const footBtns = h('span.gh-foot');
+  const thread = h('div.gh-items');
+  const comment = commentBox('issue', it.number, itemUrl, net, (c) => {
+    if (!detail) return load();
+    detail.comments.push(c);
+    render();
+  });
+  conv.append(h('div.gh-col', {}, thread, comment.el));
+  // The footer stays put and renderFrame only shows, hides and relabels, so a board refresh never
+  // pulls focus out of the provider picker.
+  const closeIssue = h('button.btn', { type: 'button', title: 'Close this issue on GitHub', onclick: () => openClose('issue', it, net, load) }, '✔️ Close issue…');
+  const queueProvider = providerPicker(store.project, `issue-provider-${it.number}`, 'Queue provider');
+  const addIssueToQueue = () => {
+    if (!queueProvider.valid()) return;
+    modal.close();
+    actions.queue(issuePrompt(it), `#${it.number} ${it.title}`, it.number, queueProvider.value(), queueProvider.model());
+  };
+  const queue = h('button.btn', { type: 'button', onclick: addIssueToQueue }) as HTMLButtonElement;
   const el = h(
     'div.modal.gh-window.issue',
     { role: 'dialog', 'aria-label': `Issue #${it.number}` },
@@ -888,7 +1040,16 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
       ...it.labels.slice(0, 6).map(labelChip),
     ),
     h('div.gh-body', {}, conv),
-    h('footer', {}, h('a.grow', { href: it.url, target: '_blank', rel: 'noopener noreferrer' }, 'Open on GitHub ↗'), footBtns),
+    h(
+      'footer',
+      {},
+      h('a.grow', { href: it.url, target: '_blank', rel: 'noopener noreferrer' }, 'Open on GitHub ↗'),
+      h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this issue', onclick: () => actions.ask(issueContext(it), `Ask about issue #${it.number}`) }, '✍️ Ask a worker…'),
+      closeIssue,
+      queueProvider.element,
+      queue,
+      h('button.btn.primary', { type: 'button', onclick: () => actions.assign(issuePrompt(it), `Hand issue #${it.number} to a worker`) }, '🤖 Hand to a worker'),
+    ),
   );
   const renderFrame = () => {
     const isOpen = it.state === 'OPEN';
@@ -896,28 +1057,19 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
     pill.textContent = isOpen ? 'open' : 'closed';
     const task = store.taskForIssue(it.number);
     const onQueue = !!task && task.status !== 'done';
-    footBtns.replaceChildren(
-      ...nodes(
-        h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this issue', onclick: () => actions.ask(issueContext(it), `Ask about issue #${it.number}`) }, '✍️ Ask a worker…'),
-        isOpen ? h('button.btn', { type: 'button', title: 'Close this issue on GitHub', onclick: () => openClose('issue', it, net, load) }, '✔️ Close issue…') : null,
-        isOpen
-          ? h(
-              'button.btn',
-              { type: 'button', disabled: onQueue, title: onQueue ? undefined : 'A worker picks it up by itself when a desk is free and there is room under the worker limit', onclick: () => (modal.close(), actions.queue(issuePrompt(it), `#${it.number} ${it.title}`, it.number)) },
-              onQueue ? (task!.status === 'running' ? `🤖 ${task!.workerName ?? 'A worker'} is on it` : '📋 On the queue') : '📋 Add to queue',
-            )
-          : null,
-        h('button.btn.primary', { type: 'button', onclick: () => actions.assign(issuePrompt(it), `Hand issue #${it.number} to a worker`) }, '🤖 Hand to a worker'),
-      ),
-    );
+    closeIssue.classList.toggle('hidden', !isOpen);
+    queueProvider.element.classList.toggle('hidden', !isOpen || onQueue);
+    queue.classList.toggle('hidden', !isOpen);
+    queue.disabled = onQueue;
+    queue.title = onQueue ? '' : 'A worker picks it up by itself when a desk is free and there is room under the worker limit';
+    queue.textContent = onQueue ? (task!.status === 'running' ? `🤖 ${task!.workerName ?? 'A worker'} is on it` : '📋 On the queue') : '📋 Add to queue';
   };
   const render = () => {
-    const col = h('div.gh-col', {}, commentCard({ id: 'body', author: it.author, body: detail?.body ?? it.body, createdAt: it.createdAt, url: it.url }, itemUrl, 'opened this'));
-    if (error) col.append(errorBox(error, load));
-    else if (!detail) col.append(spinnerRow('Loading comments…'));
-    else if (!detail.comments.length) col.append(h('p.gh-quiet', {}, 'No comments yet.'));
-    else col.append(...detail.comments.map((c) => commentCard(c, itemUrl, 'commented')));
-    conv.replaceChildren(col);
+    thread.replaceChildren(commentCard({ id: 'body', author: it.author, body: detail?.body ?? it.body, createdAt: it.createdAt, url: it.url }, itemUrl, 'opened this'));
+    if (error) thread.append(errorBox(error, load));
+    else if (!detail) thread.append(spinnerRow('Loading comments…'));
+    else if (!detail.comments.length) thread.append(h('p.gh-quiet', {}, 'No comments yet.'));
+    else thread.append(...detail.comments.map((c) => commentCard(c, itemUrl, 'commented')));
   };
   let generation = 0;
   function load() {
@@ -929,6 +1081,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
         if (g !== generation) return;
         detail = d;
         it = { ...it, state: d.state };
+        comment.setViewer(d.viewer);
       })
       .catch((err) => g === generation && (error = (err as Error).message))
       .finally(() => g === generation && (renderFrame(), render()));
@@ -943,7 +1096,12 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
     }),
     store.on('queue', renderFrame),
   ];
-  const modal = openModal(el, { onClose: () => unsubs.forEach((u) => u()) });
+  const modal = openModal(el, {
+    onClose: () => {
+      comment.dispose();
+      unsubs.forEach((u) => u());
+    },
+  });
   close.addEventListener('click', () => modal.close());
   renderFrame();
   load();

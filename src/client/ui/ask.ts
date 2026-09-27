@@ -1,5 +1,7 @@
-import type { WorkerStatus } from '../../shared/protocol';
+import type { AgentProvider, WorkerStatus } from '../../shared/protocol';
 import { h, openModal, STATUS_LABEL } from './dom';
+import { store } from '../state';
+import { providerPicker, type ProviderPicker } from './provider';
 
 // Send a prompt about an issue or PR to a worker: a new one at a free desk, or one already sitting
 // at a desk (it lands in their input box, queued if they're busy).
@@ -23,8 +25,10 @@ export interface AskOptions {
   workers: AskWorker[];
   /** Offer the "own git worktree" option for a new worker. */
   worktreeOption: boolean;
+  /** Offer the configured provider choice for a new worker. */
+  providerOption?: boolean;
   /** `to` is a worker id, or null for a new worker. */
-  onSubmit(prompt: string, to: string | null, worktree: boolean): void;
+  onSubmit(prompt: string, to: string | null, worktree: boolean, provider?: AgentProvider, model?: string): void;
 }
 
 // Shared with the hire prompt, so the choice sticks either way.
@@ -41,6 +45,7 @@ export function openAsk(opts: AskOptions) {
     // storage blocked
   }
   const wtRow = h('label.ask-wt', { for: 'ask-wt', title: 'Isolate the new worker on its own branch so parallel workers never collide' }, wtBox, '🌿 Work in its own git worktree & branch');
+  const provider: ProviderPicker | null = opts.providerOption ? providerPicker(store.project, 'ask-provider') : null;
   const submit = h('button.btn.primary', { type: 'submit' });
 
   const choices = h('div.seg.ask-to');
@@ -48,6 +53,7 @@ export function openAsk(opts: AskOptions) {
     to = id;
     for (const b of choices.children) b.classList.toggle('on', (b as HTMLElement).dataset.to === (id ?? ''));
     wtRow.classList.toggle('hidden', !!id || !opts.worktreeOption);
+    provider?.element.classList.toggle('hidden', !!id);
     submit.textContent = id ? 'Send ✨' : 'Hire & start';
   };
   if (opts.newDesk) choices.append(h('button.btn', { type: 'button', 'data-to': '', onclick: () => pick(null) }, `✨ New worker · ${opts.newDesk}`));
@@ -68,10 +74,12 @@ export function openAsk(opts: AskOptions) {
       opts.context ? h('details.ask-context', {}, h('summary', {}, 'The worker is told first…'), h('pre', {}, opts.context)) : null,
       h('label', { style: 'margin-top:14px' }, 'Prompt'),
       ta,
+      provider?.element ?? null,
       wtRow,
     ),
     h('footer', {}, h('span.grow', {}, 'Enter to send · Shift+Enter for a new line'), cancel, submit),
   ) as HTMLFormElement;
+  form.noValidate = true;
   pick(to);
 
   const modal = openModal(form);
@@ -82,6 +90,7 @@ export function openAsk(opts: AskOptions) {
       ta.focus();
       return;
     }
+    if (!to && provider && !provider.valid()) return;
     modal.close();
     if (!to && opts.worktreeOption) {
       try {
@@ -90,7 +99,7 @@ export function openAsk(opts: AskOptions) {
         // storage blocked
       }
     }
-    opts.onSubmit(opts.context ? `${opts.context}\n\n${text}` : text, to, !to && opts.worktreeOption && wtBox.checked);
+    opts.onSubmit(opts.context ? `${opts.context}\n\n${text}` : text, to, !to && opts.worktreeOption && wtBox.checked, !to ? provider?.value() : undefined, !to ? provider?.model() : undefined);
   };
   form.addEventListener('submit', (e) => {
     e.preventDefault();
