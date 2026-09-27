@@ -301,6 +301,8 @@ export interface GhPullDetail {
   reviewComments: GhReviewComment[];
   checks: GhCheck[];
   repo: GhRepoInfo;
+  /** Who gh is signed in as on the server, and so who comments from the office appear from ('' if unknown). */
+  viewer: string;
 }
 
 /** GET /api/gh/issue?number=N */
@@ -308,7 +310,12 @@ export interface GhIssueDetail {
   number: number;
   body: string;
   comments: GhComment[];
+  /** See GhPullDetail.viewer. */
+  viewer: string;
 }
+
+/** GitHub turns away comments longer than this. */
+export const GH_COMMENT_MAX = 65536;
 
 export interface ProjectInfo {
   name: string;
@@ -575,6 +582,8 @@ export type ClientMsg =
   | { t: 'gh.refresh' }
   /** Merge a pull request; the answer comes back as gh.merged. */
   | { t: 'gh.merge'; number: number; method: GhMergeMethod; deleteBranch: boolean; auto?: boolean }
+  /** Comment on an issue or a PR's conversation, as the server's gh account; answered with gh.commented. */
+  | { t: 'gh.comment'; kind: 'issue' | 'pull'; number: number; body: string }
   | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string }
   | { t: 'queue.remove'; taskId: string }
   /** Move a queued task up (-1) or down (+1) the queue. */
@@ -667,6 +676,8 @@ export type ServerMsg =
   | { t: 'gh.pulls'; state: GhState<GhPull> }
   /** Sent to whoever asked for the merge. */
   | { t: 'gh.merged'; number: number; error?: string }
+  /** Sent to whoever commented: the comment as GitHub saved it, or why it wasn't. */
+  | { t: 'gh.commented'; kind: 'issue' | 'pull'; number: number; comment?: GhComment; error?: string }
   | { t: 'rtc'; from: string; data: unknown }
   | ({ t: 'chat' } & ChatLine)
   | { t: 'toast'; text: string; level: 'info' | 'warn' | 'error' }

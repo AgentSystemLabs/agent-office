@@ -475,6 +475,16 @@ a.when:hover { text-decoration: underline; }
 .gh-quiet { text-align: center; color: var(--muted); font-weight: 700; margin: 4px 0; }
 .gh-mergebox { background: #fff; border: 2px solid var(--ink); border-radius: 14px; box-shadow: 0 3px 0 var(--ink); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 .gh-mergebox-go { display: flex; justify-content: flex-end; }
+/* The redrawn part of a conversation; its cards still space out in .gh-col's gap. */
+.gh-items { display: contents; }
+.gh-compose .seg { gap: 4px; }
+.gh-compose-body { padding: 10px 12px 0; }
+.gh-compose textarea { display: block; min-height: 96px; }
+.gh-compose-preview { min-height: 96px; background: #fff; border: 3px dashed rgba(43, 45, 66, .25); border-radius: 12px; }
+.gh-compose-preview .gh-quiet { padding: 12px; }
+.gh-compose .gh-merge-result { margin: 10px 12px 0; }
+.gh-compose-foot { display: flex; align-items: center; gap: 10px; padding: 10px 12px 12px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.gh-compose-foot .grow { flex: 1; min-width: 0; }
 .gh-status { display: flex; align-items: flex-start; gap: 8px; padding: 9px 12px; border: 2px solid var(--ink); border-radius: 10px; font-weight: 800; font-size: 14px; line-height: 1.4; background: #eef0f2; }
 .gh-status.ok { background: #d8f5e3; }
 .gh-status.warn { background: #fff3c4; }
