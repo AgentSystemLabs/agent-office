@@ -25,15 +25,16 @@ function fixture(defaultProvider: AgentProvider = 'claude') {
     kill: async () => ({}),
   };
   const queues: TaskQueue[] = [];
+  let emptied = 0;
   const open = () => {
     const queue = new TaskQueue(dir, manager, false, {
       update() {}, toast() {}, claimIssue: async () => undefined,
-      refreshGitHub() {}, hiringPaused: () => undefined,
+      refreshGitHub() {}, hiringPaused: () => undefined, emptied: () => emptied++,
     });
     queues.push(queue);
     return queue;
   };
-  return { dir, workers, open, close() { queues.forEach((q) => q.shutdown()); rmSync(dir, { recursive: true, force: true }); } };
+  return { dir, workers, open, emptied: () => emptied, close() { queues.forEach((q) => q.shutdown()); rmSync(dir, { recursive: true, force: true }); } };
 }
 
 test('queue seats the selected provider and preserves it through completion and retry', (t) => {
@@ -100,4 +101,28 @@ test('queue rejects models unless they are valid OpenCode model ids', (t) => {
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', 'gpt-5') ?? '', /model|format|provider/i);
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', 'openai/gpt 5') ?? '', /model|format|whitespace/i);
   assert.equal(q.state().tasks.length, 0);
+});
+
+test('the queue says it emptied once, when its last task gets done', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open();
+  q.add('First', 'Tester'); q.add('Second', 'Tester');
+  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  assert.equal(f.emptied(), 0, 'the second task is still running');
+  f.workers[1].status = 'done'; q.onWorker(f.workers[1]);
+  assert.equal(f.emptied(), 1);
+  q.onWorker({ ...f.workers[1], status: 'idle' }); q.onWorker(f.workers[1]);
+  assert.equal(f.emptied(), 1, 'finished tasks never empty it again');
+});
+
+test('the queue does not celebrate a task that stopped short, or one taken off it', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open();
+  q.add('Crashes', 'Tester');
+  f.workers[0].status = 'exited'; q.onWorker(f.workers[0]);
+  assert.equal(q.state().tasks[0].outcome, 'exited');
+  q.setLimit(0);
+  q.add('Never starts', 'Tester');
+  q.remove(q.state().tasks[1].id);
+  assert.equal(f.emptied(), 0);
 });

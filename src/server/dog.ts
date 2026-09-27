@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { DESK_BY_ID, DESK_SIZE, DESKS, ELEVATOR, ELEVATOR_FRONT, FLOOR, LOFT, STAIRS, type DeskDef } from '../shared/layout.js';
+import { BEANBAGS, DESK_BY_ID, DESK_SIZE, DESKS, ELEVATOR, ELEVATOR_FRONT, FLOOR, GONG, LOFT, STAIRS, type DeskDef } from '../shared/layout.js';
 import { cleanDogName, dogAt, dogDefaults, legSeconds, type DogAct, type DogState } from '../shared/dog.js';
 import type { PeerInfo, WorkerInfo } from '../shared/protocol.js';
 
@@ -55,6 +55,16 @@ function obstacles(): { rects: Rect[]; circles: Circle[] } {
   for (const x of [LOFT.minX + 0.15, (LOFT.minX + LOFT.maxX) / 2]) circles.push([x, LOFT.minZ + 0.15, 0.14]);
   rects.push([STAIRS.fromX, STAIRS.toX, STAIRS.minZ - 0.1, STAIRS.maxZ]);
   rects.push([ELEVATOR.x - ELEVATOR.width / 2, ELEVATOR.x + ELEVATOR.width / 2, FLOOR.minZ, ELEVATOR_FRONT]);
+  // The gong's frame, as office.ts puts it.
+  rects.push([GONG.x - GONG.width / 2 - 0.12, GONG.x + GONG.width / 2 + 0.3, GONG.z - 0.3, GONG.z + 0.3]);
+  // The overflow bean bags and their lap desks. They're only out while every desk is taken, but they
+  // always come out in the same spots, so the dog keeps off those.
+  for (const b of BEANBAGS) {
+    const corners = [deskPoint(b, -0.62, -1.1), deskPoint(b, 0.62, -1.1), deskPoint(b, -0.62, 0.64), deskPoint(b, 0.62, 0.64)];
+    const xs = corners.map(([x]) => x);
+    const zs = corners.map(([, z]) => z);
+    rects.push([Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)]);
+  }
   return { rects, circles };
 }
 
@@ -504,9 +514,11 @@ export class Dog {
   private nap(w: WorkerInfo) {
     const desk = DESK_BY_ID.get(w.deskId)!;
     this.mode = 'nap';
-    const side = this.sideOf(desk);
-    const approach = deskPoint(desk, side * 0.8, 1.3);
-    const under = deskPoint(desk, side * 0.45, 0.15);
+    let side = this.sideOf(desk);
+    // A bean bag has no desk to get under, so it curls up beside it, on whichever side has room.
+    if (desk.beanbag && !walkable(...deskPoint(desk, side * 1.05, 0.1))) side = -side;
+    const approach = desk.beanbag ? deskPoint(desk, side * 1.3, 1.2) : deskPoint(desk, side * 0.8, 1.3);
+    const under = desk.beanbag ? deskPoint(desk, side * 1.05, 0.1) : deskPoint(desk, side * 0.45, 0.15);
     // Head out toward the chair.
     const ms = this.walkTo(approach, TROT, 'nap', { workerId: w.id, face: desk.rotY }, under);
     this.exit = approach;
