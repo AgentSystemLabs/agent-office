@@ -19,7 +19,7 @@ const JOB: Record<StationKind, string> = {
 /** How a board agent reaches the queue: through the office's hook address, with its own token, both in its environment. */
 const QUEUE_API = `The task queue gives each task a fresh worker in its own git worktree, a few at a time; a task usually ends with a pull request. Use it over HTTP:
 - See it: curl -s "$AGENT_OFFICE_HOOK_URL/office/queue?worker=$AGENT_OFFICE_WORKER_ID" -H "Authorization: Bearer $AGENT_OFFICE_HOOK_TOKEN"
-- Add a task: POST JSON {"title": "…", "prompt": "…", "issue": 12} to the same URL with -H "Content-Type: application/json" -d @- and the JSON on stdin (a quoted heredoc keeps it intact). "issue" is optional; with it, the issue is assigned on GitHub when the task starts.
+- Add a task: POST JSON {"title": "…", "prompt": "…", "issue": 12} to the same URL with -H "Content-Type: application/json" -d @- and the JSON on stdin (a quoted heredoc keeps it intact). "issue" is optional; with it, the issue is assigned on GitHub when the task starts. "model" ("fable", "opus", "sonnet" or "haiku") and "effort" ("low", "medium", "high", "xhigh" or "max") are optional too: leave them out and the task runs on the queue's default, unless the person asks for a model or an effort.
 - Take a waiting task off: curl -s -X DELETE with &task=<id> added to the URL.`;
 
 export function stationBrief(kind: StationKind): string {

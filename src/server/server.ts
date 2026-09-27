@@ -269,7 +269,9 @@ export async function startServer(cfg: Config) {
       const q = floor.queue.state();
       return {
         maxWorkers: q.maxWorkers,
-        tasks: q.tasks.map((t) => ({ id: t.id, title: t.title, status: t.status, outcome: t.outcome, issue: t.issue, addedBy: t.addedBy, worker: t.workerName, branch: t.branch, pr: t.pr, error: t.error })),
+        model: q.model,
+        effort: q.effort,
+        tasks: q.tasks.map((t) => ({ id: t.id, title: t.title, status: t.status, outcome: t.outcome, issue: t.issue, model: t.model, effort: t.effort, addedBy: t.addedBy, worker: t.workerName, branch: t.branch, pr: t.pr, error: t.error })),
       };
     };
     if (req.method === 'GET') return send(res, 200, view());
@@ -278,14 +280,17 @@ export async function startServer(cfg: Config) {
       return err ? send(res, 400, { error: err }) : send(res, 200, view());
     }
     if (req.method !== 'POST') return send(res, 405, { error: 'GET, POST or DELETE' });
-    let body: { prompt?: unknown; title?: unknown; issue?: unknown };
+    let body: { prompt?: unknown; title?: unknown; issue?: unknown; model?: unknown; effort?: unknown };
     try {
       body = JSON.parse(await readBody(req));
     } catch {
       return send(res, 400, { error: 'Send JSON: {"title": "…", "prompt": "…", "issue": 12}' });
     }
     const issue = Number.isInteger(body?.issue) && (body.issue as number) > 0 ? (body.issue as number) : undefined;
-    const err = floor.queue.add(str(body?.prompt, 20000), agent.name, str(body?.title, 200) || undefined, issue);
+    // Checked against what the provider takes by add.
+    const model = body?.model === undefined ? undefined : str(body.model, OPEN_CODE_MODEL_MAX + 1);
+    const effort = body?.effort === undefined ? undefined : (str(body.effort, 16) as Effort);
+    const err = floor.queue.add(str(body?.prompt, 20000), agent.name, str(body?.title, 200) || undefined, issue, undefined, model, effort);
     if (err) return send(res, 400, { error: err });
     const task = floor.queue.state().tasks.at(-1)!;
     toastFloor(floor, `📋 The ${agent.name} queued ${issue !== undefined ? `issue #${issue}` : `“${task.title}”`}`);
