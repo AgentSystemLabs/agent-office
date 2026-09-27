@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, SLAB, beanbagsOut, deskSeat, inElevator, nextFreeSeat } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, SEATING_BY_ID, SLAB, beanbagsOut, deskSeat, inElevator, nextFreeSeat, seatAt, seatPlace, type SeatDef, type SeatPlace } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
 import type { AgentProvider, GongWhy, PeerInfo, WorkerInfo } from '../shared/protocol';
 import { isAsleep, isBusy } from '../shared/status';
@@ -269,6 +269,7 @@ net.onMessage((msg) => {
         arrive();
       } else if (!store.floor) arrive();
       if (voice.inVoice || voice.sharing) net.send({ t: 'voice', voice: voice.inVoice, muted: voice.muted, sharing: voice.sharing });
+      if (player.seat) net.send({ t: 'sit', seat: player.seat.key });
       // After a reconnect the server has forgotten which terminal we had open.
       const openId = openTerminalFor();
       if (openId && store.workers.has(openId)) net.send({ t: 'worker.attach', workerId: openId });
@@ -368,6 +369,8 @@ function renderTitle() {
 // ---- Floors & the elevator ----------------------------------------------------------------------
 /** In the car, facing out through the doors: where you are when you arrive on a floor. */
 function placeInCar(at?: { x: number; z: number }) {
+  // You arrive on your feet.
+  if (player.seat) standUp();
   const spot = at && inElevator(at.x, at.z) ? at : { x: ELEVATOR.x, z: (ELEVATOR_CAR.minZ + ELEVATOR_CAR.maxZ) / 2 };
   player.pos.set(spot.x, 0, spot.z);
   player.vy = 0;
@@ -504,6 +507,7 @@ function syncPeers() {
       noOutline(r.person.root);
     }
     r.person.setSmoking(!!peer.smoking);
+    r.person.sit(peer.seat ? (seatAt(peer.seat)?.hips ?? null) : null);
   }
   for (const [id, r] of remotes) {
     const peer = store.peers.get(id);
@@ -805,7 +809,8 @@ function watchShare() {
     return;
   }
   const video = h('video', { autoplay: true, playsinline: true, muted: true }) as HTMLVideoElement;
-  const [who, stream] = streams[0];
+  // What's on the TV: someone else's screen before your own.
+  const [who, stream] = streams.find(([name]) => name !== 'You') ?? streams[0];
   video.srcObject = stream;
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const el = h('div.modal.viewer', { role: 'dialog', 'aria-label': 'Screen share' }, h('header', {}, h('h2', {}, `🖥️ ${who}'s screen`), close), video);
@@ -834,6 +839,7 @@ function interact(target: Interactable | null, key: DeskKey) {
   else if (target.kind === 'tv') watchShare();
   else if (target.kind === 'jukebox') showJukebox();
   else if (target.kind === 'decor' && target.decorId) hanger.view(target.decorId);
+  else if (target.kind === 'seat' && target.seatId) useSeat(target.seatId);
   else if (target.kind === 'dog') net.send({ t: 'dog.pet' });
   else if (target.kind === 'coffee') drinkCoffee();
   else if (target.kind === 'smoke') {
@@ -886,6 +892,68 @@ function checkSmokeBreak(now: number) {
     setSmoking(false);
     toast("That one's done. Back to work!");
   }
+}
+
+// ---- Sitting ----------------------------------------------------------------------------------------
+/** The free place on a seat nearest you, or null when everyone else on your floor has taken them all. */
+function freePlace(seat: SeatDef): SeatPlace | null {
+  const taken = new Set<string>();
+  for (const p of store.peers.values()) if (p.seat && p.id !== store.you && store.onMyFloor(p)) taken.add(p.seat);
+  let best: SeatPlace | null = null;
+  let bestD = Infinity;
+  for (let i = 0; i < seat.places.length; i++) {
+    const place = seatPlace(seat, i);
+    const d = Math.hypot(place.x - player.pos.x, place.z - player.pos.z);
+    if (!taken.has(place.key) && d < bestD) {
+      best = place;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+/** Someone else's screen is up on the TV. */
+function tvShowing(): boolean {
+  return currentShares().some(([who]) => who !== 'You');
+}
+
+/** E at a seat: sit down on it. Sitting there already, get up, or on the couch facing the TV, watch it. */
+function useSeat(seatId: string) {
+  const seat = SEATING_BY_ID.get(seatId);
+  if (!seat) return;
+  if (player.seat?.seatId === seatId) {
+    if (seat.tv && tvShowing()) watchShare();
+    else standUp();
+    return;
+  }
+  const place = freePlace(seat);
+  if (!place) {
+    toast(`No room on that ${seat.label.replace(/^\S+ /, '').toLowerCase()} right now`, 'warn');
+    return;
+  }
+  player.sit(place);
+  me.sit(place.hips);
+  net.send({ t: 'sit', seat: place.key });
+  // The couch in front of the TV is where you watch whoever's sharing.
+  if (seat.tv && tvShowing()) watchShare();
+}
+
+function standUp() {
+  player.stand();
+  gotUp();
+}
+
+/** On your feet again, by E or by walking off. */
+function gotUp() {
+  me.sit(null);
+  net.send({ t: 'sit' });
+}
+player.onStand = gotUp;
+
+/** What you're sitting on, so it's what E is about unless you're looking at something else. */
+function mySeat(): Interactable | null {
+  const id = player.seat?.seatId;
+  return (id && office.interactables.find((it) => it.kind === 'seat' && it.seatId === id)) || null;
 }
 
 // ---- The gong -------------------------------------------------------------------------------------
@@ -946,6 +1014,8 @@ function pickTarget(): Interactable | null {
   for (const list of [office.interactables, gallery.interactables, dog.interactables]) {
     for (const it of list) {
       if (it.off) continue;
+      // Up on the loft, or down underneath it.
+      if (Math.abs((it.y ?? 0) - player.pos.y) > 1.5) continue;
       const d = Math.hypot(it.x - player.pos.x, it.z - player.pos.z);
       if (d < it.radius && d < bestD) {
         best = it;
@@ -1031,6 +1101,16 @@ function hintFor(it: Interactable): Hint {
     case 'decor': {
       const d = store.decor.find((x) => x.id === it.decorId);
       return { k: `${d?.title}|${d?.by}`, parts: [title(`🖼️ ${d?.title || 'A picture'}`), d ? aside(`hung by ${d.by}`) : '', key('E', 'Look closer')] };
+    }
+    case 'seat': {
+      const seat = SEATING_BY_ID.get(it.seatId ?? '');
+      if (!seat) return { k: '', parts: [] };
+      if (player.seat?.seatId === seat.id) {
+        const tv = !!seat.tv && tvShowing();
+        return { k: `${seat.id}|sitting|${tv}`, parts: [title(seat.label), aside('sitting'), ...(tv ? [key('E', 'Watch the TV'), key('W A S D', 'Get up')] : [key('E', 'Get up')])] };
+      }
+      const full = !freePlace(seat);
+      return { k: `${seat.id}|${full}`, parts: [title(seat.label), full ? aside('no room') : key('E', 'Sit down')] };
     }
     case 'dog': {
       const doing = dog.doing(
@@ -1222,7 +1302,7 @@ function backToGame() {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
@@ -1482,15 +1562,18 @@ function frame(ts?: number) {
   for (const [id, r] of remotes) {
     const p = store.peers.get(id);
     if (!p) continue;
-    r.target.set(p.x, p.y, p.z);
+    // Sitting, they're wherever their seat puts them.
+    const sat = p.seat ? seatAt(p.seat) : undefined;
+    const at = sat ?? p;
+    r.target.set(at.x, at.y, at.z);
     const pos = r.person.root.position;
     pos.lerp(r.target, Math.min(1, dt * 12));
-    let diff = p.rotY - r.person.root.rotation.y;
+    let diff = at.rotY - r.person.root.rotation.y;
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     r.person.root.rotation.y += diff * Math.min(1, dt * 12);
     // On their feet if they're standing on something: the floor, a desk, a stair, the loft.
-    const airborne = p.y > groundAt(office.colliders, p.x, p.z, p.y) + 0.05;
-    const walking = p.moving && !airborne;
+    const airborne = !sat && p.y > groundAt(office.colliders, p.x, p.z, p.y) + 0.05;
+    const walking = !sat && p.moving && !airborne;
     r.person.update(dt, t, walking, airborne && Math.abs(pos.y - r.target.y) > 0.01);
     // Their walk cycle takes a step every π/11 seconds.
     r.stepT = walking ? r.stepT + dt : 0.2;
@@ -1530,8 +1613,8 @@ function frame(ts?: number) {
   if (modalOpen() || hanger.active) target = null;
   else if (firstPerson) {
     const aim = aimedAt(CROSSHAIR);
-    target = aim?.near ? aim.it : null;
-  } else target = pickTarget();
+    target = aim?.near ? aim.it : mySeat();
+  } else target = mySeat() ?? pickTarget();
   renderHint();
   renderCrosshair();
 

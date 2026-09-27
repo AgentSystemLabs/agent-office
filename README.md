@@ -17,6 +17,7 @@ agent-office
 - **Upstairs, over the garage.** The office is the second floor. Its windows are real glass, so you can look out over the street, the trees and the neighbours. Walk out the EXIT door in the west wall and down the stairs to the street. Underneath is an open garage full of Lambos and Ferraris, and you can jump up onto them.
 - **Day and night, and weather.** Outside the windows it's the office's own time of day: the sun comes up and goes down with the clock of the machine running it, and at night the street lamps, the balcony's string lights and the windows across the street come on while the office lights warm up. The weather comes and goes by itself (sun, clouds, rain, thunderstorms, fog, and snow in winter), with raindrops on the glass, wet streets and snow settling outside. Start the office with `--city Berlin` and the sky follows that city's sunrise, sunset and live forecast instead. Everyone sees the same sky, and **⚙️** shows what it's doing.
 - **Smoke breaks.** Glass doors on the south wall slide open onto a balcony with string lights, a bench and a bistro table. Press **E** at the ashtray to light up. Everyone sees you puffing away until you stub it out or step back inside.
+- **Take a seat.** Press **E** at the lounge couch, a beanbag, the balcony bench or a stool at its bistro table, or the couch or the boss's chair up in the boss office to sit down. Walk off, jump or press **E** again to get up. Everyone on your floor sees you sitting. Sit on the couch facing the TV while someone's sharing their screen and it opens full screen for you.
 - **Pick your character.** The first time you join, a character select screen lets you choose your skin tone, hair style, hair color and shirt, with a spinning preview. Change it any time from **⚙️** or by clicking your name under *In the office*.
 - **Hire workers.** Walk up to an empty desk and press **E** to choose Claude Code, OpenCode or Codex, or press **P** to write a task first. A little worker sits down, a laptop opens, and the agent's live screen appears on it. Choose the agent for each queue task too.
 - **Bean bags for the overflow.** There are 16 desks. Once they're all taken, a bean bag comes out on the floor with a low lap desk in front of it. Hire a worker there the same way as at a desk, and the next bean bag comes out, up to 12 around the room. The task queue seats workers on them too. A bean bag stays out while a worker sits on it, and the empty one goes away again as soon as a desk frees up.
@@ -169,7 +170,7 @@ OpenCode metrics come from assistant-message token/cost records exposed by its p
 | W A S D / arrows | Walk (hold Shift to run) |
 | Space | Jump (you can land on desks, couches and the cars in the garage) |
 | Mouse drag / wheel | Orbit / zoom the camera |
-| E | Interact: hire a worker, open its terminal, read a board, watch the TV, ride the elevator, grab a coffee, take a smoke break, pet the dog |
+| E | Interact: hire a worker, open its terminal, read a board, watch the TV, sit down (or get up), ride the elevator, grab a coffee, take a smoke break, pet the dog |
 | P | Prompt: give a task to a new worker, or to the one at this desk |
 | C | Changes: the files the worker at this desk changed and their diff; commit, discard or open a PR |
 | B | Open a shared shell at an empty desk |

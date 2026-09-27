@@ -175,6 +175,87 @@ export const BALCONY = { minX: -10.5, maxX: 2.5, minZ: FLOOR.maxZ + WALL_T, maxZ
 export const ASHTRAY = { x: -8.2, z: BALCONY.maxZ - 0.55 } as const;
 
 /**
+ * Something to sit on, standing at x, z on the floor at `y` (the loft's, for what's up there). You
+ * sit facing `rotY` (0 = +z). A couch or a bench has a few places side by side; a chair, a stool or a beanbag has one.
+ */
+export interface SeatDef {
+  id: string;
+  /** What the hint calls it. */
+  label: string;
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
+  /** Where each place is along it, sideways from its middle. */
+  places: readonly number[];
+  /** How high above its floor your hips go: on the cushion, sunk in a little. */
+  hips: number;
+  /** How far in front of its middle you sit (negative: further back, against the backrest). */
+  depth: number;
+  /** Getting up, you step off this far in front of where you sat (negative: behind, away from a desk or a table). */
+  out: number;
+  /** It faces the lounge TV: sitting down there puts whatever's being shared up on your screen. */
+  tv?: boolean;
+}
+
+/**
+ * Where people can sit: the office's couches, beanbags, chairs and the balcony bench (buildOffice puts
+ * them there). Workers have their own seats, the desks and bean bags in SEATS.
+ */
+export const SEATING: SeatDef[] = [
+  // The lounge couch, its back to the room, facing the TV.
+  { id: 'couch', label: '🛋️ Couch', x: 10.5, y: 0, z: 0, rotY: Math.PI / 2, places: [-1.2, 0, 1.2], hips: 0.5, depth: -0.05, out: 0.9, tv: true },
+  // Beanbags either side of the lounge, turned to the TV.
+  { id: 'lounge-beanbag-1', label: '🫘 Beanbag', x: 12.5, y: 0, z: 3.5, rotY: Math.atan2(TV.x - 12.5, TV.z - 3.5), places: [0], hips: 0.42, depth: -0.1, out: 1.2 },
+  { id: 'lounge-beanbag-2', label: '🫘 Beanbag', x: 14.5, y: 0, z: -3.4, rotY: Math.atan2(TV.x - 14.5, TV.z + 3.4), places: [0], hips: 0.42, depth: -0.1, out: 1.2 },
+  // Up in the boss office: the couch against the east wall, and the chair at the big desk, facing the glass.
+  { id: 'loft-couch', label: '🛋️ Couch', x: LOFT.maxX - 0.65, y: LOFT.y, z: (LOFT.minZ + LOFT.maxZ) / 2, rotY: -Math.PI / 2, places: [-0.5, 0.5], hips: 0.5, depth: -0.05, out: 0.9 },
+  { id: 'boss-chair', label: "🪑 Boss's chair", x: (LOFT.minX + LOFT.maxX) / 2 + 0.5, y: LOFT.y, z: (LOFT.minZ + LOFT.maxZ) / 2 + 0.7, rotY: Math.PI, places: [0], hips: 0.62, depth: -0.05, out: -0.8 },
+  // Out on the balcony: the bench under the window, looking out over the street, and a stool either side of the bistro table.
+  { id: 'bench', label: '🪑 Bench', x: -9, y: 0, z: BALCONY.minZ + 0.3, rotY: 0, places: [-0.5, 0.5], hips: 0.47, depth: 0, out: 0.8 },
+  { id: 'stool-1', label: '🪑 Stool', x: -0.6, y: 0, z: (BALCONY.minZ + BALCONY.maxZ) / 2 + 0.2, rotY: Math.PI / 2, places: [0], hips: 0.5, depth: 0, out: -0.7 },
+  { id: 'stool-2', label: '🪑 Stool', x: 1, y: 0, z: (BALCONY.minZ + BALCONY.maxZ) / 2 + 0.2, rotY: -Math.PI / 2, places: [0], hips: 0.5, depth: 0, out: -0.7 },
+];
+export const SEATING_BY_ID = new Map(SEATING.map((s) => [s.id, s]));
+
+/** One place on a seat: where your feet go on its floor, the way you face, and the rest of what sitting there takes. */
+export interface SeatPlace {
+  /** What a peer's `seat` says while they sit here: the seat's id and which place, like "couch:1". */
+  key: string;
+  seatId: string;
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
+  hips: number;
+  out: number;
+}
+
+export function seatPlace(seat: SeatDef, i: number): SeatPlace {
+  const fx = Math.sin(seat.rotY);
+  const fz = Math.cos(seat.rotY);
+  const along = seat.places[i] ?? 0;
+  return {
+    key: `${seat.id}:${i}`,
+    seatId: seat.id,
+    x: seat.x + fx * seat.depth + fz * along,
+    y: seat.y,
+    z: seat.z + fz * seat.depth - fx * along,
+    rotY: seat.rotY,
+    hips: seat.hips,
+    out: seat.out,
+  };
+}
+
+/** The place a peer's `seat` names, or undefined if there's no such place. */
+export function seatAt(key: string): SeatPlace | undefined {
+  const m = /^([\w-]+):(\d+)$/.exec(key);
+  const seat = m ? SEATING_BY_ID.get(m[1]) : undefined;
+  const i = Number(m?.[2]);
+  return seat && i < seat.places.length ? seatPlace(seat, i) : undefined;
+}
+
+/**
  * The elevator: a shaft against the north wall, between the PR board and the task queue, with its
  * doors facing into the room. Every floor has it in the same spot, so you step out where you got in.
  */
