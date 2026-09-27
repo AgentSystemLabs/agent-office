@@ -302,8 +302,13 @@ export const PARACHUTE = { jump: { x: BALCONY_DOOR.u, z: BALCONY.maxZ - 0.45 }, 
 // The roof of the building, level with the office floor's y = 0 and the same size, so the elevator
 // comes up in its usual spot. A glass railing runs round the edge, and the city is far below.
 
-/** How far below the roof the street is: the building is this tall. */
-export const ROOF_DROP = 46;
+/**
+ * How far below the roof the street is, with `floors` floors under it: the building is this tall.
+ * The roof stands a STOREY over the top floor, where a floor above it would be.
+ */
+export function roofDrop(floors: number): number {
+  return -streetBelow(Math.max(1, floors));
+}
 /** The DJ's stage, against the north edge west of the elevator, with the dance floor in front of it. */
 export const STAGE = { minX: -8, maxX: 2, minZ: FLOOR.minZ, maxZ: -9.2, height: 0.6 } as const;
 /** Where the DJ stands behind the decks, facing the dance floor (+z). */

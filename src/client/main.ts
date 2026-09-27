@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, LADDER, LOFT, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, STOREY, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, seatAt, seatPlace, streetBelow, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, LADDER, LOFT, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, STOREY, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, roofDrop, seatAt, seatPlace, streetBelow, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
 import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
 import { MEETING_PATTERNS } from '../shared/meetings';
@@ -22,7 +22,7 @@ import { DRINK_BY_ID, ROOF, ROOF_NAME, type Drink, type DrinkId } from '../share
 import { Person, Worker, type Stage } from './world/character';
 import { Hands } from './world/hands';
 import { Smoke } from './world/smoke';
-import { Sky, describeSky } from './world/sky';
+import { HAZE_MAX, Sky, describeSky } from './world/sky';
 import { Laptop } from './world/laptop';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import { Gallery } from './world/gallery';
@@ -86,7 +86,9 @@ const scene = new THREE.Scene();
 // The sky's color and the fog change with the time of day and the weather (world/sky.ts).
 scene.background = new THREE.Color('#bfe3ff');
 scene.fog = new THREE.Fog('#bfe3ff', 40, 90);
-const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 200);
+/** How far the camera sees in the office: as far as the haze ever is, from the top floor. */
+const FAR = HAZE_MAX + 20;
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, FAR);
 
 const hemi = new THREE.HemisphereLight('#fff5e6', '#c9a27a', 1.5);
 const ambient = new THREE.AmbientLight('#ffffff', 0.5);
@@ -247,13 +249,25 @@ const arcade = new Arcade(office.bossScreen);
 let roof: Rooftop | null = null;
 function theRoof(): Rooftop {
   if (!roof) {
-    roof = buildRooftop(office.night);
+    roof = buildRooftop(office.night, roofFloors());
     roof.group.visible = false;
     scene.add(roof.group);
     noOutline(roof.group);
   }
   return roof;
 }
+/** How many floors the roof stands on: every one that's built. */
+function roofFloors(): number {
+  return Math.max(1, builtFloors().length);
+}
+/** Floors come and go: the roof goes up or down with them, and the street's that much further down from it. */
+function syncRoof() {
+  if (!roof) return;
+  const floors = roofFloors();
+  roof.setFloors(floors);
+  if (upTop) sky.setRoof(true, roofDrop(floors));
+}
+store.on('floors', syncRoof);
 /** Where you are now: up on the roof (true), or on a floor of the office. */
 let upTop = false;
 /** How far into the DJ's set it is, on the office's clock, so everyone up there hears the same bar. */
@@ -762,11 +776,11 @@ function setPlace() {
   holiday.group.visible = !up;
   if (r) r.group.visible = up;
   player.colliders = up ? r!.colliders : office.colliders;
-  sky.setRoof(up);
+  sky.setRoof(up, roofDrop(roofFloors()));
   sound.setOutdoors(up);
   sound.setDj(up ? djAt : null);
-  // You can see the whole city from up there.
-  camera.far = up ? 700 : 200;
+  // You can see the whole city from up there (and its clouds); from the top floors, as far as the haze.
+  camera.far = up ? 700 : FAR;
   camera.updateProjectionMatrix();
   // Drinks stay at the bar (what you've had comes down with you).
   if (!up) booze.putDown();

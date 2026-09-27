@@ -1,12 +1,13 @@
 import * as THREE from 'three';
-import { BALCONY, BALCONY_DOOR, EXIT_DOOR, FLOOR, SLAB, STOREY, WALL_HEIGHT, WALL_T, WINDOWS, type Opening, type Side } from '../../shared/layout';
+import { BALCONY, BALCONY_DOOR, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, FLOOR, ROOF_BAR, SLAB, STAGE, STOREY, WALL_HEIGHT, WALL_T, WINDOWS, type Opening, type Side } from '../../shared/layout';
 import type { Collider } from './office';
-import type { NightParts } from './outside';
+import { bulb, type NightParts } from './outside';
 import { mergeByMaterial, mesh, toon, toonUnique } from './toon';
 
 // The rest of the building, from outside: a floor per project, stacked into a tower. Only the floor
-// you're on is really there; the others are its outside (walls, windows, a balcony off each and a
-// cornice round the top), rebuilt whenever floors come and go or you change floors.
+// you're on is really there; the others are its outside (walls, windows, a balcony off each, a
+// cornice round the top and the rooftop bar over it, roughly), rebuilt whenever floors come and go or
+// you change floors. Up on the roof it's every floor, under your feet.
 
 /** The building, walls included. */
 const B = { minX: FLOOR.minX - WALL_T, maxX: FLOOR.maxX + WALL_T, minZ: FLOOR.minZ - WALL_T, maxZ: FLOOR.maxZ + WALL_T } as const;
@@ -15,7 +16,10 @@ const OFF = 0.01;
 
 export interface Tower {
   group: THREE.Group;
-  /** Builds the outside of every floor but `index`, of `count` stacked from the bottom one (0). */
+  /**
+   * Builds the outside of every floor but `index`, of `count` stacked from the bottom one (0). An
+   * `index` of `count` is the roof: every floor, below it, and no top (the roof is its own).
+   */
   set(index: number, count: number): void;
 }
 
@@ -156,6 +160,88 @@ export function buildTower(colliders: Collider[], night: NightParts): Tower {
     }
   };
 
+  // The rooftop bar, as it looks from down below (world/rooftop.ts has the real one).
+  const curb = toon('#d8d3ca');
+  const steel = toon('#b8c1cc');
+  const steelDark = toon('#8d99ae');
+  const beacon = bulb(night, '#ff5d5d', 0.6);
+  const stage = toon('#2b2d42');
+  const black = toon('#1d1d1d');
+  const led = bulb(night, '#7b2ff7', 0.35);
+  const truss = toon('#c9d1d9');
+  const barWood = toon('#6b3f2a');
+  const counter = toon('#f4f1ea');
+  const shelf = toon('#4a2c1d');
+  const pergola = toon('#8a5a3b');
+  const parasol = toon('#ef476f');
+
+  /**
+   * The rooftop bar on the roof, `y` up, roughly: a curb round the edge with glass on it and a steel
+   * rail along the top, the elevator's housing, the DJ's stage with the LED wall behind it and the
+   * rig over it, the bar and its back bar under a pergola, and the parasols along the south edge.
+   */
+  const roofTop = (parts: THREE.Group, y: number) => {
+    const box = (w: number, h: number, d: number, mat: THREE.Material, x: number, y0: number, z: number) => parts.add(mesh(new THREE.BoxGeometry(w, h, d), mat, x, y0 + h / 2, z, false));
+    const edges: [number, number, number, number][] = [
+      [B.minX, B.maxX, B.minZ, FLOOR.minZ],
+      [B.minX, B.maxX, FLOOR.maxZ, B.maxZ],
+      [B.minX, FLOOR.minX, B.minZ, B.maxZ],
+      [FLOOR.maxX, B.maxX, B.minZ, B.maxZ],
+    ];
+    for (const [x0, x1, z0, z1] of edges) {
+      const ex = (x0 + x1) / 2;
+      const ez = (z0 + z1) / 2;
+      const alongX = x1 - x0 > z1 - z0;
+      const len = alongX ? x1 - x0 : z1 - z0;
+      box(x1 - x0, 0.45, z1 - z0, curb, ex, y, ez);
+      const pane = mesh(new THREE.PlaneGeometry(len, 0.72), railGlass, ex, y + 0.81, ez, false);
+      if (!alongX) pane.rotation.y = Math.PI / 2;
+      parts.add(pane);
+      box(alongX ? len : 0.07, 0.07, alongX ? 0.07 : len, steel, ex, y + 1.155, ez);
+      for (let a = 0; a <= len + 0.01; a += 2.4) box(0.06, 0.75, 0.06, steel, alongX ? x0 + a : ex, y + 0.425, alongX ? ez : z0 + a);
+    }
+
+    // The elevator's housing, as tall as a floor, with a light on top.
+    const hz = (B.minZ + ELEVATOR_FRONT) / 2;
+    box(ELEVATOR.width, WALL_HEIGHT, ELEVATOR_FRONT - B.minZ, steel, ELEVATOR.x, y, hz);
+    box(ELEVATOR.width + 0.3, 0.3, ELEVATOR_FRONT - B.minZ + 0.2, steelDark, ELEVATOR.x, y + WALL_HEIGHT, hz + 0.05);
+    parts.add(mesh(new THREE.SphereGeometry(0.12, 10, 8), beacon, ELEVATOR.x, y + WALL_HEIGHT + 0.4, hz, false));
+
+    // The stage, the LED wall behind the DJ, and the rig: a truss tower either side and a beam across.
+    const sw = STAGE.maxX - STAGE.minX;
+    const scx = (STAGE.minX + STAGE.maxX) / 2;
+    box(sw, STAGE.height, STAGE.maxZ - STAGE.minZ, stage, scx, y, (STAGE.minZ + STAGE.maxZ) / 2);
+    box(8.3, 4.3, 0.25, black, scx, y + STAGE.height + 0.2, STAGE.minZ + 0.06);
+    parts.add(mesh(new THREE.PlaneGeometry(8, 4), led, scx, y + STAGE.height + 2.35, STAGE.minZ + 0.2, false));
+    const rigZ = STAGE.maxZ - 0.15;
+    const rigTop = 5.6;
+    for (const x of [STAGE.minX + 0.2, STAGE.maxX - 0.2]) box(0.34, rigTop - STAGE.height, 0.34, truss, x, y + STAGE.height, rigZ);
+    box(sw - 0.4, 0.34, 0.34, truss, scx, y + rigTop - 0.34, rigZ);
+
+    // The bar along the east side, the shelves of bottles behind it, and the pergola over both.
+    const blen = ROOF_BAR.maxZ - ROOF_BAR.minZ;
+    const bz = (ROOF_BAR.minZ + ROOF_BAR.maxZ) / 2;
+    const front = ROOF_BAR.x - ROOF_BAR.depth / 2;
+    box(ROOF_BAR.depth, ROOF_BAR.height - 0.06, blen, barWood, ROOF_BAR.x, y, bz);
+    box(ROOF_BAR.depth + 0.2, 0.06, blen + 0.2, counter, ROOF_BAR.x - 0.05, y + ROOF_BAR.height - 0.06, bz);
+    box(0.6, 2.4, blen - 0.6, shelf, FLOOR.maxX - 0.35, y, bz);
+    const p0 = { x: front - 0.9, z: ROOF_BAR.minZ - 0.8 };
+    const p1 = { x: FLOOR.maxX - 0.1, z: ROOF_BAR.maxZ + 0.8 };
+    const roofY = 3.3;
+    for (const x of [p0.x, p1.x]) {
+      for (const z of [p0.z, p1.z]) box(0.16, roofY, 0.16, pergola, x, y, z);
+      box(0.16, 0.22, p1.z - p0.z + 0.3, pergola, x, y + roofY - 0.11, (p0.z + p1.z) / 2);
+    }
+    for (let z = p0.z; z <= p1.z + 0.01; z += 0.55) box(p1.x - p0.x + 0.4, 0.08, 0.1, pergola, (p0.x + p1.x) / 2, y + roofY + 0.11, z);
+
+    // Parasols along the south edge, over the sun loungers.
+    for (const x of [-0.8, 2]) {
+      const z = FLOOR.maxZ - 1.1;
+      box(0.08, 2.6, 0.08, counter, x, y, z);
+      parts.add(mesh(new THREE.ConeGeometry(1.5, 0.5, 12), parasol, x, y + 2.6, z, false));
+    }
+  };
+
   const set = (index: number, count: number) => {
     for (const o of built) {
       o.removeFromParent();
@@ -193,7 +279,12 @@ export function buildTower(colliders: Collider[], night: NightParts): Tower {
         parts.add(back);
       }
     }
-    crown(parts, (count - 1 - index) * STOREY + WALL_HEIGHT);
+    // On top, a cornice, and the rooftop bar over it; but up on the roof, it's the roof's own.
+    if (index < count) {
+      const top = (count - 1 - index) * STOREY + WALL_HEIGHT;
+      crown(parts, top);
+      roofTop(parts, top + SLAB);
+    }
     // None of it casts a shadow (the sun lights the office through where its roof would be), and none
     // takes one from the floor you're on, which would fall on it as though nothing were in between.
     const merged = mergeByMaterial(parts);
@@ -203,7 +294,7 @@ export function buildTower(colliders: Collider[], night: NightParts): Tower {
 
     // Below you, the outside walls down to the garage, which you can't walk into from the steps
     // outside the bottom floor's door, and the bottom floor's slab, which is the garage's ceiling.
-    if (index > 0) {
+    if (index > 0 && index < count) {
       const bottom = -index * STOREY - SLAB;
       const T = WALL_T;
       mine.push(

@@ -272,11 +272,17 @@ function streetLamp(parts: THREE.Group, night: NightParts, glass: THREE.MeshToon
 }
 
 /**
+ * How far the grass and the road go, end to end: from the top floor the haze is up to HAZE_MAX off
+ * (see world/sky.ts), and their ends must be further than that even at the edge of the view.
+ */
+const REACH = 1200;
+
+/**
  * Everything outside, down on the street: grass, the lot in front of the garage, a road with
  * sidewalks and street lamps, trees and neighbours' buildings, and in `sky` some clouds.
  */
 export function buildStreet(group: THREE.Group, colliders: Collider[], night: NightParts, sky: THREE.Group) {
-  const lawn = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), toon('#a7d98b'));
+  const lawn = new THREE.Mesh(new THREE.PlaneGeometry(REACH, REACH), toon('#a7d98b'));
   lawn.rotation.x = -Math.PI / 2;
   lawn.position.y = G - 0.03;
   lawn.receiveShadow = true;
@@ -301,13 +307,13 @@ export function buildStreet(group: THREE.Group, colliders: Collider[], night: Ni
     g.fillRect(0, 61, 150, 6);
   });
   road.wrapS = THREE.RepeatWrapping;
-  road.repeat.set(400 / 8, 1);
-  group.add(groundPlane(400, ROAD.maxZ - ROAD.minZ, 0, G - 0.008, (ROAD.minZ + ROAD.maxZ) / 2, road));
+  road.repeat.set(REACH / 8, 1);
+  group.add(groundPlane(REACH, ROAD.maxZ - ROAD.minZ, 0, G - 0.008, (ROAD.minZ + ROAD.maxZ) / 2, road));
   for (const [z0, z1] of [
     [21, ROAD.minZ],
     [ROAD.maxZ, ROAD.maxZ + 2],
   ]) {
-    group.add(mesh(box(400, 0.08, z1 - z0), toon('#e3ddd0'), 0, G, (z0 + z1) / 2));
+    group.add(mesh(box(REACH, 0.08, z1 - z0), toon('#e3ddd0'), 0, G, (z0 + z1) / 2));
   }
   const forest = new THREE.Group();
 
