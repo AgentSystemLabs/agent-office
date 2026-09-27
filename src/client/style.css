@@ -199,6 +199,7 @@ button { font-family: inherit; }
 .setting-note.bad { color: var(--bad); }
 .webhook { display: flex; gap: 8px; }
 .webhook input[type=text] { flex: 1; min-width: 0; }
+.outside-now { margin: 0; font-size: 15px; font-weight: 800; }
 
 .swatches { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .swatch { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--ink); cursor: pointer; }
@@ -397,6 +398,16 @@ button { font-family: inherit; }
 .svc-empty p { margin: 0; font-weight: 800; }
 .services .team-status { margin-top: 12px; }
 .modal header .os-tabs { margin-right: 4px; }
+
+/* The jukebox */
+.modal.jukebox { width: min(520px, 100%); }
+.jb-now { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 3px solid var(--ink); border-radius: 14px; background: var(--paper-2); }
+.jb-now .btn { flex: none; padding: 4px 10px; font-size: 13px; }
+.jb-disc { flex: none; font-size: 30px; line-height: 1; }
+.jb-disc.spin { animation: jb-spin 2.4s linear infinite; }
+@keyframes jb-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .jb-disc.spin { animation: none; } }
+.jb-icon { flex: none; font-size: 18px; }
 
 /* Pictures on the walls */
 .modal.hang { width: min(560px, 100%); }

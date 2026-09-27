@@ -2,6 +2,7 @@ import type { Net } from '../net';
 import { store, type Settings, type ViewMode } from '../state';
 import { askNotifyPermission, notifyPermission, type DesktopNotifier } from '../notify';
 import type { WebhookKind } from '../../shared/protocol';
+import { DOG_NAME_MAX, cleanDogName } from '../../shared/dog';
 import { h, openModal, timeAgo } from './dom';
 
 const VIEWS: [ViewMode, string, string][] = [
@@ -11,7 +12,8 @@ const VIEWS: [ViewMode, string, string][] = [
 
 const WEBHOOK_NAME: Record<WebhookKind, string> = { slack: 'Slack', discord: 'Discord', other: 'a webhook' };
 
-export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void, notifier: DesktopNotifier, onSignOut: () => void) {
+/** `outside` describes the sky over the office (see describeSky), once the server has said. */
+export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void, notifier: DesktopNotifier, onSignOut: () => void, outside?: { now: string; live: boolean }) {
   const seg = h('div.seg', { role: 'radiogroup', 'aria-label': 'Camera view' });
   const note = h('p.setting-note');
   const paint = () => {
@@ -39,34 +41,39 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   };
   paint();
 
-  const volume = h('input', { type: 'range', min: 0, max: 100, step: 1, 'aria-label': 'Office sounds volume' });
-  const pct = h('span.vol-pct');
-  const mute = h('button.btn', { type: 'button' });
-  const soundRow = h('div.volume', {}, mute, volume, pct);
-  const paintSound = () => {
-    const level = Math.round(settings.volume * 100);
-    volume.value = String(level);
-    volume.style.setProperty('--fill', `${level}%`);
-    pct.textContent = settings.muted ? 'Muted' : `${level}%`;
-    mute.textContent = settings.muted ? '🔊 Unmute' : '🔇 Mute';
-    mute.setAttribute('aria-pressed', String(settings.muted));
-    mute.classList.toggle('danger', settings.muted);
-    soundRow.classList.toggle('muted', settings.muted);
+  /** A volume slider with its mute button. Dragging it turns the sound back on; letting go plays `preview`. */
+  const volumeRow = (label: string, level: 'volume' | 'music', muted: 'muted' | 'musicMuted', preview?: () => void) => {
+    const slider = h('input', { type: 'range', min: 0, max: 100, step: 1, 'aria-label': label });
+    const pct = h('span.vol-pct');
+    const mute = h('button.btn', { type: 'button' });
+    const row = h('div.volume', {}, mute, slider, pct);
+    const paint = () => {
+      const v = Math.round(settings[level] * 100);
+      slider.value = String(v);
+      slider.style.setProperty('--fill', `${v}%`);
+      pct.textContent = settings[muted] ? 'Muted' : `${v}%`;
+      mute.textContent = settings[muted] ? '🔊 Unmute' : '🔇 Mute';
+      mute.setAttribute('aria-pressed', String(settings[muted]));
+      mute.classList.toggle('danger', settings[muted]);
+      row.classList.toggle('muted', settings[muted]);
+    };
+    paint();
+    slider.addEventListener('input', () => {
+      settings = { ...settings, [level]: Number(slider.value) / 100, [muted]: false };
+      onChange(settings);
+      paint();
+    });
+    if (preview) slider.addEventListener('change', preview);
+    mute.addEventListener('click', () => {
+      settings = { ...settings, [muted]: !settings[muted] };
+      onChange(settings);
+      paint();
+      if (!settings[muted]) preview?.();
+    });
+    return row;
   };
-  paintSound();
-  // Dragging the slider turns sound back on; letting go plays a sample at the new level.
-  volume.addEventListener('input', () => {
-    settings = { ...settings, volume: Number(volume.value) / 100, muted: false };
-    onChange(settings);
-    paintSound();
-  });
-  volume.addEventListener('change', previewSound);
-  mute.addEventListener('click', () => {
-    settings = { ...settings, muted: !settings.muted };
-    onChange(settings);
-    paintSound();
-    if (!settings.muted) previewSound();
-  });
+  const soundRow = volumeRow('Office sounds volume', 'volume', 'muted', previewSound);
+  const musicRow = volumeRow('Jukebox volume', 'music', 'musicMuted');
 
   // Desktop notifications: this browser's permission, then your own on/off.
   const notifyRow = h('div.seg');
@@ -159,6 +166,30 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   hookTest.addEventListener('click', () => net.send({ t: 'notify.test' }));
   hookRemove.addEventListener('click', () => net.send({ t: 'notify.webhook', url: '' }));
 
+  // The dog on this floor, named for everyone here.
+  const dogInput = h('input', { type: 'text', maxlength: DOG_NAME_MAX, 'aria-label': 'The dog’s name', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
+  const dogSave = h('button.btn.primary', { type: 'button' }, 'Rename');
+  const dogNote = h('p.setting-note');
+  const dogSection = h('div', {}, h('label', { style: 'margin-top:18px' }, 'Office dog'), h('div.webhook', {}, dogInput, dogSave), dogNote);
+  const paintDog = () => {
+    const dog = store.dog;
+    dogSection.classList.toggle('hidden', !dog);
+    if (!dog) return;
+    dogInput.placeholder = dog.name;
+    dogNote.textContent = `${dog.name} lives on this floor. When a worker needs input, ${dog.name} runs to its desk and barks. Walk up and press E to pet it. A new name is for everyone on this floor.`;
+  };
+  paintDog();
+  const renameDog = () => {
+    const name = cleanDogName(dogInput.value);
+    if (!name) return dogInput.focus();
+    net.send({ t: 'dog.name', name });
+    dogInput.value = '';
+  };
+  dogSave.addEventListener('click', renameDog);
+  dogInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') renameDog();
+  });
+
   const account = store.me.account;
   const signOut = h('button.btn', { type: 'button' }, '🚪 Sign out');
   signOut.addEventListener('click', onSignOut);
@@ -176,7 +207,17 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       note,
       h('label', { style: 'margin-top:18px' }, 'Office sounds'),
       soundRow,
-      h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds outside, and the ding when a worker is done. Voice chat isn’t affected.'),
+      h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds and rain outside, the dog, and the ding when a worker is done. Voice chat isn’t affected.'),
+      h('label', { style: 'margin-top:18px' }, '🎵 Jukebox'),
+      musicRow,
+      h('p.setting-note', {}, 'The jukebox in the lounge. Everyone on the floor hears the same song, louder the closer they are to it; this is how loud it is for you alone.'),
+      ...(outside
+        ? [
+            h('label', { style: 'margin-top:18px' }, 'Outside'),
+            h('p.outside-now', {}, outside.now),
+            h('p.setting-note', {}, outside.live ? 'Everyone sees the same sky: the office’s clock and the live weather where it is.' : 'Everyone sees the same sky: the office’s clock, and weather that comes and goes. Start the office with --city to use a real city’s forecast.'),
+          ]
+        : []),
       h('label', { style: 'margin-top:18px' }, 'Desktop notifications'),
       notifyRow,
       notifyNote,
@@ -184,6 +225,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       h('div.webhook', {}, hookInput, hookSave),
       hookActions,
       hookStatus,
+      dogSection,
       h('label', { style: 'margin-top:18px' }, 'Your character'),
       character,
       h('label', { style: 'margin-top:18px' }, 'Signed in'),
@@ -191,7 +233,14 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       h('p.setting-note', {}, account ? `As ${account.name}, with your own account (${account.role}).` : 'With the shared office password.'),
     ),
   );
-  const modal = openModal(el, { onClose: store.on('notify', paintHook) });
+  const offNotify = store.on('notify', paintHook);
+  const offDog = store.on('dog', paintDog);
+  const modal = openModal(el, {
+    onClose: () => {
+      offNotify();
+      offDog();
+    },
+  });
   close.addEventListener('click', () => modal.close());
   character.addEventListener('click', () => {
     modal.close();

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FLOOR, SLAB, STREET_Y, WALL_T } from '../shared/layout';
+import { FLOOR, SLAB, STREET_Y, WALL_T, type SeatPlace } from '../shared/layout';
 import type { ViewMode } from './state';
 import type { Collider } from './world/office';
 
@@ -14,6 +14,10 @@ const JUMP_V = 6.4;
 const GRAVITY = 18;
 /** Camera height above your feet in first person (the Person's eyes). */
 export const EYE_HEIGHT = 1.4;
+/** The Person's hips above their feet, standing. Sitting puts them on the seat, and your eyes move with them. */
+export const HIPS = 0.42;
+/** Keys that get you up off a seat: walking away, or jumping up. */
+const GET_UP = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
 const LOOK_SPEED = 0.0022; // radians per pixel of mouse movement while the pointer is locked
 const DRAG_LOOK_SPEED = 0.005;
 const CENTER = new THREE.Vector2(0, 0);
@@ -43,6 +47,10 @@ export class PlayerController {
   /** 0 (steady) to 1: how hard the view trembles after one coffee too many. */
   jitter = 0;
   private jitterT = 0;
+  /** Where you're sitting, or null on your feet. You stay put there until you walk off or jump up. */
+  seat: SeatPlace | null = null;
+  /** You got up by walking off or jumping (not by stand()). */
+  onStand: (() => void) | null = null;
   /**
    * A click (not a drag) on the scene, in normalized device coordinates.
    * In first person it is always the crosshair, (0, 0).
@@ -196,9 +204,57 @@ export class PlayerController {
     this.lookPitch = THREE.MathUtils.clamp(this.lookPitch - dy, -1.45, 1.45);
   }
 
+  /** Sits you down in `place`, facing the way it does. In first person you look out from it; in third the camera stays put. */
+  sit(place: SeatPlace) {
+    this.seat = place;
+    this.pos.set(place.x, place.y, place.z);
+    this.vy = 0;
+    this.grounded = true;
+    this.moving = false;
+    this.stepOffset = 0;
+    this.bob = 0;
+    this.facing = place.rotY;
+    if (this.view === 'first') {
+      this.camYaw = place.rotY - Math.PI;
+      this.lookPitch = -0.08;
+    }
+  }
+
+  /** Gets you up off your seat onto the floor beside it: out in front (or behind), else wherever there's room. */
+  stand() {
+    const s = this.seat;
+    if (!s) return;
+    this.seat = null;
+    const ahead = s.rotY + (s.out < 0 ? Math.PI : 0);
+    const d = Math.abs(s.out);
+    for (const turn of [0, 0.6, -0.6, 1.2, -1.2, Math.PI / 2, -Math.PI / 2, Math.PI]) {
+      const x = s.x + Math.sin(ahead + turn) * d;
+      const z = s.z + Math.cos(ahead + turn) * d;
+      if (this.blocker(x, z, s.y)) continue;
+      this.pos.set(x, s.y, z);
+      return;
+    }
+  }
+
+  /** How far sitting moves your hips (and eyes) from where they are standing. */
+  private get lift(): number {
+    return this.seat ? this.seat.hips - HIPS : 0;
+  }
+
   update(dt: number) {
     dt = Math.min(dt, 0.05);
     const k = this.keys;
+    if (this.seat) {
+      if (!this.enabled || !GET_UP.some((c) => k.has(c))) {
+        this.moving = false;
+        this.facing = this.seat.rotY;
+        this.jitterT += dt;
+        this.updateCamera();
+        return;
+      }
+      this.stand();
+      this.onStand?.();
+    }
     let ix = 0;
     let iz = 0;
     if (this.enabled) {
@@ -264,12 +320,12 @@ export class PlayerController {
 
   updateCamera(snap = false) {
     if (this.view === 'first') {
-      this.camera.position.set(this.pos.x, this.pos.y + EYE_HEIGHT + this.bob + this.stepOffset, this.pos.z);
+      this.camera.position.set(this.pos.x, this.pos.y + EYE_HEIGHT + this.bob + this.stepOffset + this.lift, this.pos.z);
       this.camera.rotation.set(this.lookPitch, this.camYaw, 0);
       this.shake();
       return;
     }
-    const target = new THREE.Vector3(this.pos.x, this.pos.y + this.stepOffset + 1.3, this.pos.z);
+    const target = new THREE.Vector3(this.pos.x, this.pos.y + this.stepOffset + this.lift + 1.3, this.pos.z);
     const off = new THREE.Vector3(
       Math.sin(this.camYaw) * Math.cos(this.camPitch),
       Math.sin(this.camPitch),

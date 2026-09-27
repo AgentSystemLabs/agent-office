@@ -2,6 +2,8 @@
 
 import type { Look } from './avatar.js';
 import type { DecorPlacement, Decoration } from './decor.js';
+import type { DogState } from './dog.js';
+import type { JukeboxState } from './jukebox.js';
 import type { WbElement, WbPointer, WhiteboardView } from './whiteboard.js';
 
 export type WorkerStatus =
@@ -164,6 +166,8 @@ export interface PeerInfo {
   sharing: boolean;
   /** On a smoke break, cigarette in hand. */
   smoking?: boolean;
+  /** Sitting down: the place they're in (see seatAt in layout), like "couch:1". */
+  seat?: string;
   /** Signed in with their own account, so `name` is theirs and nobody else can take it. */
   account?: boolean;
   /** The floor they're on (see FloorInfo); none while the building has no floors yet. */
@@ -406,6 +410,10 @@ export interface FloorView {
   /** Pictures on this floor's walls. */
   decor: Decoration[];
   services: ServicesState;
+  /** The floor's dog; null in a building with no floors yet. */
+  dog: DogState | null;
+  /** What the lounge jukebox is playing. */
+  jukebox: JukeboxState;
   /** What's drawn on this floor's whiteboard, and who's drawing. */
   whiteboard: WhiteboardView;
 }
@@ -566,6 +574,25 @@ export interface UpgradeState {
   error?: string;
 }
 
+export type Weather = 'clear' | 'cloudy' | 'rain' | 'storm' | 'snow' | 'fog';
+export const WEATHERS: readonly Weather[] = ['clear', 'cloudy', 'rain', 'storm', 'snow', 'fog'];
+
+/** What it's like outside the windows. The server decides it, so everyone sees the same sky. */
+export interface SkyState {
+  /** Where the office is, for the sun: a configured city, or a guess from the host's time zone. */
+  lat: number;
+  lon: number;
+  /** The office's clock, in minutes east of UTC. */
+  utcOffset: number;
+  weather: Weather;
+  /** 0–1: a drizzle to a downpour, a few flakes to a blizzard, haze to pea soup. */
+  intensity: number;
+  /** The city whose live forecast this is. Unset when the weather is made up or pinned. */
+  city?: string;
+  /** °C, from the forecast. */
+  temp?: number;
+}
+
 export interface ChatLine {
   from: string;
   name: string;
@@ -605,6 +632,8 @@ export type ClientMsg =
    * you lit a cigarette (or put it out) on the balcony instead.
    */
   | { t: 'act'; smoke?: boolean }
+  /** You sat down in a place on a couch, a beanbag, a chair or the bench (see seatAt in layout), or got up again (no seat). */
+  | { t: 'sit'; seat?: string }
   | { t: 'profile'; name: string; color: string; look: Look }
   | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string }
   | { t: 'worker.resume'; workerId: string }
@@ -671,6 +700,11 @@ export type ClientMsg =
   /** Move, resize, re-frame or swap the image of a picture. */
   | { t: 'decor.update'; id: string; decor: Partial<DecorPlacement> }
   | { t: 'decor.remove'; id: string }
+  /** Put a tune on the jukebox (a JUKEBOX_TUNES id), or a stream; with neither, turn it back on. */
+  | { t: 'jukebox.play'; track?: string; url?: string }
+  /** On to the next tune. */
+  | { t: 'jukebox.skip' }
+  | { t: 'jukebox.stop' }
   /** You opened the whiteboard (or closed it): everyone on the floor sees who's drawing. */
   | { t: 'wb.open' }
   | { t: 'wb.close' }
@@ -684,6 +718,10 @@ export type ClientMsg =
   | { t: 'floor.repos'; refresh?: boolean }
   /** Clone a repository and make it a new floor; answered with `floor.added` once it's there. */
   | { t: 'floor.add'; repo: string }
+  /** Give the dog on your floor a pat; it has to be within reach. */
+  | { t: 'dog.pet' }
+  /** Name the dog on your floor ('' gives it back its first name). */
+  | { t: 'dog.name'; name: string }
   | { t: 'ping'; at: number };
 
 export type ServerMsg =
@@ -706,6 +744,8 @@ export type ServerMsg =
       limits: PlanLimits;
       me: Me;
       notify: NotifyState;
+      /** Outside the windows: the same on every floor. */
+      sky: SkyState;
     } & FloorView)
   /** You arrived on another floor: everything on it, replacing the last one's, and where everyone is now. */
   | ({ t: 'floor.enter'; peers: PeerInfo[] } & FloorView)
@@ -745,6 +785,9 @@ export type ServerMsg =
   | { t: 'upgrade'; state: UpgradeState }
   | { t: 'services'; state: ServicesState }
   | { t: 'decor'; items: Decoration[] }
+  /** What the dog on your floor is up to now: sent at the start of each leg of its day. */
+  | { t: 'dog'; dog: DogState }
+  | { t: 'jukebox'; state: JukeboxState }
   /** Someone changed these elements on the floor's whiteboard (sent to everyone else on the floor). */
   | { t: 'wb.update'; elements: WbElement[] }
   /** Who has the floor's whiteboard open now. */
@@ -755,6 +798,7 @@ export type ServerMsg =
   | { t: 'limits'; state: PlanLimits }
   | { t: 'queue'; state: QueueState }
   | { t: 'notify'; state: NotifyState }
+  | { t: 'sky'; state: SkyState }
   /** Sent to whoever watches that worker's changes, whenever they change. */
   | { t: 'changes'; state: ChangesState }
   | { t: 'changes.diff'; workerId: string; path: string; diff: string; truncated: boolean; error?: string }
@@ -766,4 +810,5 @@ export type ServerMsg =
   | { t: 'accounts.invited'; invite?: AccountInvite; error?: string }
   /** Your role changed. */
   | { t: 'me'; me: Me }
-  | { t: 'pong'; at: number };
+  /** `now` is the office's clock as it answered, which the jukebox keeps time by. */
+  | { t: 'pong'; at: number; now: number };

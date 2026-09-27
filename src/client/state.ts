@@ -1,10 +1,12 @@
-import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
+import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
 import { newer, type WbElement } from '../shared/whiteboard';
+import type { DogState } from '../shared/dog';
+import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'floors' | 'floor' | 'repos' | 'whiteboard' | 'drawing';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'floors' | 'floor' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'whiteboard' | 'drawing';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -45,6 +47,9 @@ export interface Settings {
   /** Office sounds, 0–1. */
   volume: number;
   muted: boolean;
+  /** The lounge jukebox, 0–1, apart from the office sounds. */
+  music: number;
+  musicMuted: boolean;
   /** Desktop notifications when a worker needs input or finishes while you're in another tab (once the browser allows them). */
   notify: boolean;
 }
@@ -70,12 +75,14 @@ function rememberFloor(id: string | null) {
 }
 
 export function loadSettings(): Settings {
-  const s: Settings = { view: 'first', volume: 0.7, muted: false, notify: true };
+  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, notify: true };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
     if (saved?.view === 'first' || saved?.view === 'third') s.view = saved.view;
     if (typeof saved?.volume === 'number' && Number.isFinite(saved.volume)) s.volume = Math.max(0, Math.min(1, saved.volume));
     if (typeof saved?.muted === 'boolean') s.muted = saved.muted;
+    if (typeof saved?.music === 'number' && Number.isFinite(saved.music)) s.music = Math.max(0, Math.min(1, saved.music));
+    if (typeof saved?.musicMuted === 'boolean') s.musicMuted = saved.musicMuted;
     if (typeof saved?.notify === 'boolean') s.notify = saved.notify;
   } catch {
     // storage blocked
@@ -122,6 +129,10 @@ class Store {
   services: ServicesState = { items: [], port: 4600 };
   /** Pictures on the walls. */
   decor: Decoration[] = [];
+  /** What the lounge jukebox is playing; `since` is when the track started, on performance.now()'s clock. */
+  jukebox: JukeboxState & { since: number } = { on: false, track: JUKEBOX_TUNES[0].id, startedAt: 0, elapsed: 0, since: 0 };
+  /** The office's clock minus performance.now(), from the quickest ping (see 'pong'); for the jukebox. */
+  private clock?: { offset: number; rtt: number };
   /** The floor's whiteboard: the newest copy of every element anyone drew, deleted ones too. */
   whiteboard = new Map<string, WbElement>();
   /** Who has the whiteboard open (client ids). */
@@ -136,6 +147,11 @@ class Store {
   accounts: AccountsState | null = null;
   /** The office's Slack / Discord webhook. */
   notify: NotifyState = {};
+  /** The dog on your floor, and when (performance.now()) the leg it's on began. */
+  dog: DogState | null = null;
+  dogStart = 0;
+  /** Outside the windows; null until the server says. */
+  sky: SkyState | null = null;
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -195,7 +211,19 @@ class Store {
     this.services = v.services;
     this.whiteboard = new Map(v.whiteboard.elements.map((e) => [e.id, e]));
     this.drawing = v.whiteboard.people;
-    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'decor', 'services', 'whiteboard', 'drawing'] as Topic[]) this.emit(t);
+    this.setDog(v.dog);
+    this.setJukebox(v.jukebox);
+    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'decor', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing'] as Topic[]) this.emit(t);
+  }
+
+  private setDog(dog: DogState | null) {
+    this.dog = dog;
+    this.dogStart = performance.now() - (dog?.elapsed ?? 0);
+  }
+
+  /** When the track started on this page's clock: from the office's clock once it's known, else from `elapsed`. */
+  private setJukebox(j: JukeboxState) {
+    this.jukebox = { ...j, since: this.clock ? j.startedAt - this.clock.offset : performance.now() - j.elapsed };
   }
 
   apply(msg: ServerMsg) {
@@ -213,8 +241,10 @@ class Store {
         this.limits = msg.limits;
         this.me = msg.me;
         this.notify = msg.notify;
+        this.clock = undefined; // compared again, in case it's another office (or the same one, restarted)
+        this.sky = msg.sky;
         this.enter(msg);
-        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'floors'] as Topic[]) this.emit(t);
+        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'floors', 'sky'] as Topic[]) this.emit(t);
         break;
       case 'floor.enter':
         this.peers = new Map(msg.peers.map((p) => [p.id, p]));
@@ -296,6 +326,20 @@ class Store {
         this.decor = msg.items;
         this.emit('decor');
         break;
+      case 'jukebox':
+        this.setJukebox(msg.state);
+        this.emit('jukebox');
+        break;
+      case 'pong': {
+        // The answer that came back quickest says best how the two clocks line up.
+        const rtt = performance.now() - msg.at;
+        if (this.clock && rtt >= this.clock.rtt) break;
+        this.clock = { offset: msg.now - (msg.at + rtt / 2), rtt };
+        const was = this.jukebox.since;
+        this.setJukebox(this.jukebox);
+        if (Math.abs(this.jukebox.since - was) > 20) this.emit('jukebox');
+        break;
+      }
       case 'wb.update':
         this.drew(msg.elements);
         break;
@@ -318,6 +362,14 @@ class Store {
       case 'notify':
         this.notify = msg.state;
         this.emit('notify');
+        break;
+      case 'dog':
+        this.setDog(msg.dog);
+        this.emit('dog');
+        break;
+      case 'sky':
+        this.sky = msg.state;
+        this.emit('sky');
         break;
       case 'chat':
         this.chat.push(msg);
