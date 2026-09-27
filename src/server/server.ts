@@ -144,6 +144,7 @@ function send(res: http.ServerResponse, status: number, body: unknown, headers: 
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+const issueNumber = (v: unknown) => (Number.isInteger(v) && (v as number) > 0 ? (v as number) : undefined);
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const TOO_MANY_ATTEMPTS = 'Too many attempts. Try again in a few minutes.';
 /** WebSocket close code for a session that stopped counting: the account was revoked, or the shared password switched off. */
@@ -855,6 +856,8 @@ export async function startServer(cfg: Config) {
     const spot = elevatorSpot();
     Object.assign(c.peer, { floor: floor.id, x: spot.x, y: 0, z: spot.z, rotY: 0, moving: false });
     delete c.peer.seat;
+    // An issue card belongs to the board it came off, which is on the floor they left.
+    delete c.peer.carrying;
     sendTo(c, { t: 'floor.enter', peers: [...clients.values()].map((o) => o.peer), ...floorView(floor) });
     screensOf(c, floor);
     broadcast({ t: 'peer.update', peer: c.peer }, c.id);
@@ -862,6 +865,15 @@ export async function startServer(cfg: Config) {
     floor.arrived();
     floor.workers.wakeAll();
     floorsChanged();
+  };
+
+  /**
+   * A worker took on GitHub issue `n` (an issue card dropped on its desk): assign it on GitHub, which
+   * moves it to In progress on the board, and take it off the queue so nobody else is seated for it.
+   */
+  const takeIssue = (c: Client, floor: Floor, n: number) => {
+    floor.queue.dropIssue(n);
+    void floor.github.claim(n).then((err) => warn(c, err && `Couldn't assign issue #${n} on GitHub: ${err}`));
   };
 
   const handleMessage = (c: Client, msg: ClientMsg) => {
@@ -909,6 +921,15 @@ export async function startServer(cfg: Config) {
         if (seat === c.peer.seat) break;
         if (seat) c.peer.seat = seat;
         else delete c.peer.seat;
+        broadcast({ t: 'peer.update', peer: c.peer }, c.id);
+        break;
+      }
+      case 'carry': {
+        // Everyone on the floor sees the issue card in their hands, and whoever comes in later too.
+        const issue = issueNumber(msg.issue);
+        if (issue === c.peer.carrying?.issue) break;
+        if (issue !== undefined) c.peer.carrying = { issue, title: str(msg.title, 200) };
+        else delete c.peer.carrying;
         broadcast({ t: 'peer.update', peer: c.peer }, c.id);
         break;
       }
@@ -990,8 +1011,10 @@ export async function startServer(cfg: Config) {
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
         const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
         const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort);
+        const issue = kind === 'agent' ? issueNumber(msg.issue) : undefined;
         if (typeof r === 'string') warn(c, r);
-        else toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${r.prompt ? ' with a task' : ''}`);
+        else toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${issue ? ` for issue #${issue}` : r.prompt ? ' with a task' : ''}`);
+        if (typeof r !== 'string' && issue) takeIssue(c, floor, issue);
         break;
       }
       case 'worker.resume': {
@@ -1037,7 +1060,13 @@ export async function startServer(cfg: Config) {
       }
       case 'worker.prompt': {
         const w = worker(msg.workerId);
-        warn(c, w ? w.floor.workers.prompt(w.wid, str(msg.prompt, 20000), who) : 'No such worker');
+        const err = w ? w.floor.workers.prompt(w.wid, str(msg.prompt, 20000), who) : 'No such worker';
+        warn(c, err);
+        const issue = w?.info.kind === 'agent' ? issueNumber(msg.issue) : undefined;
+        if (w && !err && issue) {
+          toastFloor(w.floor, `${who} handed issue #${issue} to ${w.info.name}`);
+          takeIssue(c, w.floor, issue);
+        }
         break;
       }
       case 'station.prompt': {

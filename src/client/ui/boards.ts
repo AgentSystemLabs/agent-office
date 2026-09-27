@@ -15,10 +15,12 @@ export interface BoardActions {
   goToDesk(deskId: string): void;
   /** Put an issue on the 📋 task queue; a worker is seated for it when there's room. */
   queue(prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string, effort?: AgentEffort): void;
+  /** Take the issue's card off the board, to carry to a desk or the queue. */
+  pickUp(issue: GhIssue): void;
 }
 
-/** The task a worker gets for an issue, from the board or the queue. */
-export function issuePrompt(it: GhIssue): string {
+/** The task a worker gets for an issue, from the board, a carried card or the queue. */
+export function issuePrompt(it: Pick<GhIssue, 'number' | 'title'>): string {
   return `Work on GitHub issue #${it.number}: "${it.title}".\n\nRead it first with \`gh issue view ${it.number} --comments\`. Create a new branch, implement the change, verify it, then open a pull request that closes #${it.number}.`;
 }
 

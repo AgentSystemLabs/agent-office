@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES, type Look } from '../../shared/avatar';
-import type { WorkerStatus, WorkerTask } from '../../shared/protocol';
+import type { CarriedIssue, WorkerStatus, WorkerTask } from '../../shared/protocol';
 import { isAsleep } from '../../shared/status';
 import { HIPS } from '../player';
+import { HeldCard } from './card';
 import { cardSprite, disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
 
 export type Pose = 'stand' | 'walk' | 'sit' | 'type';
@@ -165,6 +166,9 @@ export class Person {
   private reachT = -1;
   /** Held in the left hand, kept upright however the arm swings. */
   private mug = new THREE.Group();
+  private wantsMug = false;
+  /** An issue card off the board, held out in front in both hands. */
+  private card: HeldCard;
   pose: Pose = 'stand';
   private cig: THREE.Group;
   private ember: THREE.MeshToonMaterial;
@@ -248,6 +252,12 @@ export class Person {
     this.cig.position.set(0, -0.38, 0).addScaledVector(along, 0.07);
     this.cig.visible = false;
     this.armL.add(this.cig);
+    // Between the hands when both arms are out in front (see update), its front to whoever they walk up to.
+    const holder = new THREE.Group();
+    holder.position.set(0, 0.8, 0.36);
+    holder.rotation.x = -0.1;
+    this.body.add(holder);
+    this.card = new HeldCard(holder, 0.46);
 
     // Little mic icon that pops up while speaking
     this.mic = mesh(new THREE.SphereGeometry(0.09, 10, 8), toon('#7cf29a', { emissive: '#2a9d4b' }), 0, 2.25, 0, false);
@@ -372,7 +382,14 @@ export class Person {
 
   /** A mug of coffee in the left hand, or not. */
   holdMug(on: boolean) {
-    this.mug.visible = on;
+    this.wantsMug = on;
+    this.mug.visible = on && !this.card.held;
+  }
+
+  /** Carries an issue card in both hands, or puts it down (null). The mug waits while the hands are full. */
+  carry(card: CarriedIssue | null | undefined) {
+    this.card.set(card);
+    this.holdMug(this.wantsMug);
   }
 
   get smoking(): boolean {
@@ -447,6 +464,11 @@ export class Person {
       for (const arm of [this.armL, this.armR]) arm.rotation.x = THREE.MathUtils.lerp(arm.rotation.x, -0.55, sit);
     }
     if (this.smokeT >= 0) this.smokeStep(dt, moving, airborne);
+    if (this.card.held) {
+      // Both arms out in front, hands on the card's edges: it doesn't swing while they walk.
+      this.armL.rotation.set(-1.25, 0, 0.3);
+      this.armR.rotation.set(-1.25, 0, -0.3);
+    }
     let reach = 0;
     if (this.reachT >= 0) {
       this.reachT += dt;

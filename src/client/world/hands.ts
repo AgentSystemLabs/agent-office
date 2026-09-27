@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import type { CarriedIssue } from '../../shared/protocol';
+import { HeldCard } from './card';
 import { REACH_TIME, SMOKE_CYCLE, cigarette, coffeeMug, dragCurve, reachCurve } from './character';
 import { mesh, toon, toonUnique } from './toon';
 
@@ -34,6 +36,12 @@ export class Hands {
   private left: Arm;
   private reachT = -1;
   private mug: THREE.Group;
+  private wantsMug = false;
+  /** An issue card off the board, held low in front of you in both hands. */
+  private holder = new THREE.Group();
+  private card: HeldCard;
+  /** 0 → 1 as the card comes up into view and the hands close in on it. */
+  private carryK = 0;
   /** Seconds into a sip (negative while it waits for the reach to finish), or null. */
   private sipT: number | null = null;
   private sway = new THREE.Vector2();
@@ -74,6 +82,10 @@ export class Hands {
     this.cig.position.set(-0.035, 0.03, -0.075);
     this.cig.visible = false;
     this.right.group.add(this.cig);
+    // Tipped back, so you look down onto its front.
+    this.holder.rotation.x = -0.35;
+    this.scene.add(this.holder);
+    this.card = new HeldCard(this.holder, 0.24);
   }
 
   /** Puts a lit cigarette in your right hand, or takes it away. */
@@ -117,7 +129,16 @@ export class Hands {
 
   /** A mug of coffee in the left hand, or not. */
   holdMug(on: boolean) {
-    this.mug.visible = on;
+    this.wantsMug = on;
+    this.mug.visible = on && !this.card.held;
+  }
+
+  /** An issue card in both hands, or none (null). The mug waits while the hands are full. */
+  carry(card: CarriedIssue | null) {
+    const was = this.card.held;
+    this.card.set(card);
+    if (!was) this.carryK = 0;
+    this.holdMug(this.wantsMug);
   }
 
   /** Raise the mug for a sip, once the right hand is back from the coffee machine. */
@@ -175,6 +196,8 @@ export class Hands {
       if (this.sipT >= SIP_TIME) this.sipT = null;
     }
     const shake = s.jitter * 0.004;
+    this.carryK += ((this.card.held ? 1 : 0) - this.carryK) * Math.min(1, dt * 7);
+    const carry = this.carryK;
 
     for (const [arm, side] of [
       [this.right, 1],
@@ -189,7 +212,13 @@ export class Hands {
       p.y += shake * Math.sin(t * 131 + side * 2);
       arm.group.rotation.copy(arm.baseRot);
       arm.group.rotation.x += this.air * 0.2;
+      // Holding the card: both hands in on its bottom corners, palms turned toward it, so the title shows.
+      p.x -= side * 0.08 * carry;
+      p.z -= 0.03 * carry;
+      arm.group.rotation.z += side * 0.35 * carry;
     }
+    // The card rides along with the hands, coming up from below as you take it.
+    this.holder.position.set(this.sway.x + step * 0.008, this.sway.y + breathe + bounce + this.air * 0.05 - 0.115 - 0.3 * (1 - carry), -0.5);
     // The reach: the right hand jabs out toward the crosshair, the left pulls back a little.
     const r = this.right.group;
     r.position.x -= 0.16 * k;
