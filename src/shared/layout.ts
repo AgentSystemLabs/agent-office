@@ -278,6 +278,25 @@ export const BALCONY = { minX: -10.5, maxX: 2.5, minZ: FLOOR.maxZ + WALL_T, maxZ
 /** The ashtray on the balcony, where a smoke break starts. */
 export const ASHTRAY = { x: -8.2, z: BALCONY.maxZ - 0.55 } as const;
 
+// ---- The rooftop bar (see shared/rooftop.ts) ------------------------------------------------------
+// The roof of the building, level with the office floor's y = 0 and the same size, so the elevator
+// comes up in its usual spot. A glass railing runs round the edge, and the city is far below.
+
+/** How far below the roof the street is: the building is this tall. */
+export const ROOF_DROP = 46;
+/** The DJ's stage, against the north edge west of the elevator, with the dance floor in front of it. */
+export const STAGE = { minX: -8, maxX: 2, minZ: FLOOR.minZ, maxZ: -9.2, height: 0.6 } as const;
+/** Where the DJ stands behind the decks, facing the dance floor (+z). */
+export const DJ_BOOTH = { x: -3, z: -11.3 } as const;
+/** LED tiles, a meter each, lighting up with the music. */
+export const DANCE_FLOOR = { minX: -8, maxX: 2, minZ: -9.2, maxZ: -2.2 } as const;
+/** The bar along the east side: its counter (x is its middle), with the bartender and the bottles behind it. */
+export const ROOF_BAR = { x: 12.95, minZ: -6, maxZ: 4, depth: 0.7, height: 1.1 } as const;
+/** The fire pit in the lounge, in the south-west corner, with sofas round three sides of it. */
+export const FIRE_PIT = { x: -12, z: 8.2, r: 0.9 } as const;
+/** Sun loungers along the south edge, looking out over the street. */
+const LOUNGERS = [-2.2, 0.6, 3.4];
+
 /**
  * Something to sit on, standing at x, z on the floor at `y` (the loft's, for what's up there). You
  * sit facing `rotY` (0 = +z). A couch or a bench has a few places side by side; a chair, a stool or a beanbag has one.
@@ -302,6 +321,10 @@ export interface SeatDef {
   tv?: boolean;
   /** It faces the boss's monitor: E there, sitting down, plays Minesweeper on it. */
   game?: boolean;
+  /** Up on the rooftop bar, not in the office. */
+  roof?: boolean;
+  /** At the bar: E there, sitting down, orders a drink. */
+  bar?: boolean;
 }
 
 /**
@@ -321,6 +344,14 @@ export const SEATING: SeatDef[] = [
   { id: 'bench', label: '🪑 Bench', x: -9, y: 0, z: BALCONY.minZ + 0.3, rotY: 0, places: [-0.5, 0.5], hips: 0.47, depth: 0, out: 0.8 },
   { id: 'stool-1', label: '🪑 Stool', x: -0.6, y: 0, z: (BALCONY.minZ + BALCONY.maxZ) / 2 + 0.2, rotY: Math.PI / 2, places: [0], hips: 0.5, depth: 0, out: -0.7 },
   { id: 'stool-2', label: '🪑 Stool', x: 1, y: 0, z: (BALCONY.minZ + BALCONY.maxZ) / 2 + 0.2, rotY: -Math.PI / 2, places: [0], hips: 0.5, depth: 0, out: -0.7 },
+  // On the roof: bar stools along the counter, facing the bar…
+  ...[0, 1, 2, 3, 4, 5].map((i) => ({ id: `roof-stool-${i + 1}`, label: '🪑 Bar stool', x: ROOF_BAR.x - ROOF_BAR.depth / 2 - 0.45, y: 0, z: ROOF_BAR.minZ + 0.9 + i * 1.64, rotY: Math.PI / 2, places: [0], hips: 0.78, depth: 0, out: -0.75, roof: true, bar: true })),
+  // …sofas round the fire pit, open to the view on the south…
+  { id: 'roof-sofa-1', label: '🛋️ Sofa', x: FIRE_PIT.x, y: 0, z: FIRE_PIT.z - 2.3, rotY: 0, places: [-1.1, 0, 1.1], hips: 0.5, depth: -0.05, out: 0.8, roof: true },
+  { id: 'roof-sofa-2', label: '🛋️ Sofa', x: FIRE_PIT.x - 2.9, y: 0, z: FIRE_PIT.z + 0.4, rotY: Math.PI / 2, places: [-0.6, 0.6], hips: 0.5, depth: -0.05, out: 0.8, roof: true },
+  { id: 'roof-sofa-3', label: '🛋️ Sofa', x: FIRE_PIT.x + 2.9, y: 0, z: FIRE_PIT.z + 0.4, rotY: -Math.PI / 2, places: [-0.6, 0.6], hips: 0.5, depth: -0.05, out: 0.8, roof: true },
+  // …and sun loungers facing out over the city.
+  ...LOUNGERS.map((x, i) => ({ id: `roof-lounger-${i + 1}`, label: '🏖️ Lounger', x, y: 0, z: FLOOR.maxZ - 1.5, rotY: 0, places: [0], hips: 0.42, depth: -0.2, out: -1, roof: true })),
 ];
 export const SEATING_BY_ID = new Map(SEATING.map((s) => [s.id, s]));
 

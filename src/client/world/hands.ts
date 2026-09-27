@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { EMOTE_BY_ID, type Emote, type EmoteId } from '../../shared/emotes';
 import type { CarriedIssue, Theme } from '../../shared/protocol';
+import type { Drink } from '../../shared/rooftop';
 import { HeldCard } from './card';
-import { REACH_TIME, SMOKE_CYCLE, cigarette, coffeeMug, dragCurve, emoteEnvelope, reachCurve } from './character';
+import { REACH_TIME, SMOKE_CYCLE, cigarette, coffeeMug, dragCurve, drinkGlass, emoteEnvelope, reachCurve } from './character';
 import { UNDEAD_SKIN, raggedCuff, warlockHand, witchFire } from './costumes';
 import { mesh, toon, toonUnique } from './toon';
 
@@ -50,6 +51,8 @@ export class Hands {
   private reachT = -1;
   private mug: THREE.Group;
   private wantsMug = false;
+  /** A drink from the rooftop bar, held where the mug goes (and in its place). */
+  private glass: { id: string; group: THREE.Group } | null = null;
   /** An issue card off the board, held low in front of you in both hands. */
   private holder = new THREE.Group();
   private card: HeldCard;
@@ -203,7 +206,25 @@ export class Hands {
   /** A mug of coffee in the left hand, or not. */
   holdMug(on: boolean) {
     this.wantsMug = on;
-    this.mug.visible = on && !this.card.held;
+    this.mug.visible = on && !this.card.held && !this.glass;
+    if (this.glass) this.glass.group.visible = !this.card.held;
+  }
+
+  /** A drink from the rooftop bar in the left hand, or none (null). */
+  holdDrink(d: Drink | null) {
+    if ((d?.id ?? null) === (this.glass?.id ?? null)) return;
+    if (this.glass) {
+      this.left.group.remove(this.glass.group);
+      this.glass = null;
+    }
+    if (d) {
+      const group = drinkGlass(d);
+      group.position.set(0.09, -0.035, -0.03);
+      group.quaternion.setFromEuler(this.left.baseRot).invert();
+      this.left.group.add(group);
+      this.glass = { id: d.id, group };
+    }
+    this.holdMug(this.wantsMug);
   }
 
   /** An issue card in both hands, or none (null). The mug waits while the hands are full. */

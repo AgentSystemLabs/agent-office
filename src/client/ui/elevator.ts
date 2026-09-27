@@ -1,5 +1,6 @@
 import type { FloorInfo, RepoChoice, ServerMsg } from '../../shared/protocol';
 import { floorPalette, normalizeRepo, sameRepo } from '../../shared/floors';
+import { ROOF, ROOF_NAME } from '../../shared/rooftop';
 import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, timeAgo, type Modal } from './dom';
@@ -89,9 +90,29 @@ export function openElevator(opts: ElevatorOptions): void {
     return btn;
   };
 
+  /** The roof, over every floor: the rooftop bar. */
+  const roofButton = () => {
+    const here = store.floor === ROOF;
+    const people = [...store.peers.values()].filter((p) => p.floor === ROOF).length;
+    const btn = h(
+      'button.floor-btn',
+      { type: 'button', class: here ? 'here' : '', disabled: here, title: here ? "You're up on the roof" : `Ride up to the ${ROOF_NAME.toLowerCase()}` },
+      h('span.floor-no', { style: 'background:#2b2d42' }, '🍸'),
+      h('span.floor-text', {}, h('span.floor-name', {}, ROOF_NAME, here ? h('span.here-tag', {}, 'you are here') : null), h('span.floor-sub', {}, 'The roof: a DJ playing drum and bass, a bar, and the city all around')),
+      h('span.floor-stats', {}, people ? h('span', { title: 'People up there' }, `🧑 ${people}`) : ''),
+    );
+    btn.addEventListener('click', () => {
+      if (here) return;
+      modal.close();
+      opts.ride(ROOF);
+    });
+    return btn;
+  };
+
   const renderFloors = () => {
     const floors = store.floors;
     floorsEl.replaceChildren(
+      ...(floors.some((f) => !f.cloning) ? [roofButton()] : []),
       ...(floors.length ? floors.map(floorButton) : [h('p.empty', {}, 'No floors yet.')]),
     );
   };
@@ -233,7 +254,7 @@ export function openElevator(opts: ElevatorOptions): void {
     h('div.body', {}, intro, floorsEl, addEl),
     h('footer', {}, h('span.grow', {}, setup ? 'Your office, one floor per project' : 'Pick a floor · Esc to stay here'), addBtn),
   );
-  const unsubs = [store.on('floors', () => (renderFloors(), renderAdd())), store.on('repos', renderAdd), store.on('projectsDir', renderAdd), store.on('floor', renderFloors)];
+  const unsubs = [store.on('floors', () => (renderFloors(), renderAdd())), store.on('repos', renderAdd), store.on('projectsDir', renderAdd), store.on('floor', renderFloors), store.on('peers', renderFloors)];
   const modal = openModal(el, {
     doing: '🛗 at the elevator',
     escCloses: !setup,

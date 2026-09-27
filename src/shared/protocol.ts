@@ -6,6 +6,7 @@ import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
 import type { EmoteId } from './emotes.js';
 import type { JukeboxState } from './jukebox.js';
+import type { DrinkId } from './rooftop.js';
 import type { WbElement, WbPointer, WhiteboardView } from './whiteboard.js';
 
 export type WorkerStatus =
@@ -225,6 +226,8 @@ export interface PeerInfo {
   seat?: string;
   /** An issue card they took off the issues board, on its way to a desk or the queue. */
   carrying?: CarriedIssue;
+  /** A drink from the rooftop bar in their hand. */
+  drink?: DrinkId;
   /** Signed in with their own account, so `name` is theirs and nobody else can take it. */
   account?: boolean;
   /** The floor they're on (see FloorInfo); none while the building has no floors yet. */
@@ -876,9 +879,10 @@ export type ClientMsg =
   | { t: 'move'; x: number; y: number; z: number; rotY: number; moving: boolean }
   /**
    * You reached out to use something; everyone else sees your character's arm do it. With `smoke`,
-   * you lit a cigarette (or put it out) on the balcony instead.
+   * you lit a cigarette (or put it out) on the balcony instead; with `drink`, you took a drink from
+   * the rooftop bar (or finished it, null).
    */
-  | { t: 'act'; smoke?: boolean }
+  | { t: 'act'; smoke?: boolean; drink?: DrinkId | null }
   /** You sat down in a place on a couch, a beanbag, a chair or the bench (see seatAt in layout), or got up again (no seat). */
   | { t: 'sit'; seat?: string }
   /** You picked an issue card up off the board (or put it down again, no issue): everyone sees it in your hands. */
@@ -916,6 +920,8 @@ export type ClientMsg =
   | { t: 'gh.comment'; kind: 'issue' | 'pull'; number: number; body: string }
   /** Hit the office gong (E at the gong); everyone on the floor hears it. */
   | { t: 'gong' }
+  /** Blow the DJ's air horn on the roof; everyone up there hears it. */
+  | { t: 'horn' }
   /** Close an issue, or a pull request without merging it; the answer comes back as gh.closed. */
   | { t: 'gh.close'; kind: 'issue' | 'pull'; number: number; comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }
   | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string; effort?: AgentEffort }
@@ -1053,7 +1059,7 @@ export type ServerMsg =
   | { t: 'peer.update'; peer: PeerInfo }
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }
   | { t: 'peer.leave'; id: string }
-  | { t: 'peer.act'; id: string; smoke?: boolean }
+  | { t: 'peer.act'; id: string; smoke?: boolean; drink?: DrinkId | null }
   | { t: 'peer.emote'; id: string; emote: EmoteId }
   | { t: 'worker.update'; worker: WorkerInfo }
   | { t: 'worker.remove'; workerId: string }
@@ -1074,6 +1080,8 @@ export type ServerMsg =
    * over the desk it came from), or the last task on the queue just finished (a bigger party).
    */
   | { t: 'gong'; why: GongWhy; by?: string; pr?: number }
+  /** Someone on the roof blew the DJ's air horn (sent to everyone up there, them too). */
+  | { t: 'horn'; by: string }
   /** Sent to whoever asked to close it. */
   | { t: 'gh.closed'; kind: 'issue' | 'pull'; number: number; error?: string }
   | { t: 'rtc'; from: string; data: unknown }
