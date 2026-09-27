@@ -1,6 +1,7 @@
 // Wire protocol between browser and server. Every WebSocket frame is one JSON object.
 
 import type { Look } from './avatar.js';
+import type { CabinetFrame, CabinetState, CabinetView } from './cabinet.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
 import type { EmoteId } from './emotes.js';
@@ -490,6 +491,8 @@ export interface FloorView {
   dog: DogState | null;
   /** What the lounge jukebox is playing. */
   jukebox: JukeboxState;
+  /** Who's at the arcade cabinet, what's on its screen, and the building's high scores. */
+  cabinet: CabinetView;
   /** What's drawn on this floor's whiteboard, and who's drawing. */
   whiteboard: WhiteboardView;
 }
@@ -798,6 +801,18 @@ export type ClientMsg =
   /** On to the next tune. */
   | { t: 'jukebox.skip' }
   | { t: 'jukebox.stop' }
+  /**
+   * Step up to the arcade cabinet on your floor to carry on with `game` (one the office started for
+   * you), or to start a new game, even while you're at it; the office answers with `cabinet`, naming
+   * who got it and their game.
+   */
+  | { t: 'cabinet.play'; game?: string }
+  | { t: 'cabinet.leave' }
+  /**
+   * Your game as it looks now, for everyone else on the floor to watch over your shoulder. It's also
+   * how your score gets on the high-score table: the office follows the game frame by frame.
+   */
+  | { t: 'cabinet.frame'; frame: CabinetFrame }
   /** You opened the whiteboard (or closed it): everyone on the floor sees who's drawing. */
   | { t: 'wb.open' }
   | { t: 'wb.close' }
@@ -893,6 +908,10 @@ export type ServerMsg =
   /** What the dog on your floor is up to now: sent at the start of each leg of its day. */
   | { t: 'dog'; dog: DogState }
   | { t: 'jukebox'; state: JukeboxState }
+  /** Who's at the arcade cabinet on your floor now, and the building's high scores. */
+  | { t: 'cabinet'; state: CabinetState }
+  /** The game on your floor's cabinet, as its player sees it (sent to everyone else on the floor). */
+  | { t: 'cabinet.frame'; frame: CabinetFrame }
   /** Someone changed these elements on the floor's whiteboard (sent to everyone else on the floor). */
   | { t: 'wb.update'; elements: WbElement[] }
   /** Who has the floor's whiteboard open now. */
