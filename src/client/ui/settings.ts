@@ -41,6 +41,24 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   };
   paint();
 
+  const graphics = h('div.seg', { role: 'radiogroup', 'aria-label': 'Graphics quality' });
+  const graphicsNote = h('p.setting-note');
+  const paintGraphics = () => {
+    graphics.replaceChildren(...([true, false] as const).map((lowPower) => h('button.btn', {
+      type: 'button', role: 'radio', 'aria-checked': String(settings.lowPower === lowPower),
+      class: settings.lowPower === lowPower ? 'on' : '',
+      onclick: () => {
+        settings = { ...settings, lowPower };
+        onChange(settings);
+        paintGraphics();
+      },
+    }, lowPower ? 'Battery saver' : 'High quality')));
+    graphicsNote.textContent = settings.lowPower
+      ? '30 FPS, lower resolution and simpler lighting to reduce heat and battery use. Hidden tabs pause the 3D scene; agents keep working.'
+      : 'Up to 60 FPS, sharper detail, shadows and outlines. Uses more power. Hidden tabs still pause the 3D scene.';
+  };
+  paintGraphics();
+
   /** A volume slider with its mute button. Dragging it turns the sound back on; letting go plays `preview`. */
   const volumeRow = (label: string, level: 'volume' | 'music', muted: 'muted' | 'musicMuted', preview?: () => void) => {
     const slider = h('input', { type: 'range', min: 0, max: 100, step: 1, 'aria-label': label });
@@ -205,6 +223,9 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       h('label', {}, 'Camera view'),
       seg,
       note,
+      h('label', { style: 'margin-top:18px' }, 'Graphics'),
+      graphics,
+      graphicsNote,
       h('label', { style: 'margin-top:18px' }, 'Office sounds'),
       soundRow,
       h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds and rain outside, the dog, and the ding when a worker is done. Voice chat isn’t affected.'),

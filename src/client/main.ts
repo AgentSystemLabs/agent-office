@@ -53,9 +53,8 @@ import { trackTitle } from '../shared/jukebox';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.shadowMap.enabled = true;
+const settings = loadSettings();
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'low-power' });
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 const effect = new OutlineEffect(renderer, { defaultThickness: 0.0032, defaultColor: [0.17, 0.18, 0.26] });
@@ -176,7 +175,6 @@ const me = new Person(store.profile.name, store.profile.color, store.profile.loo
 me.showLabel(false);
 scene.add(me.root);
 noOutline(me.root);
-const settings = loadSettings();
 const player = new PlayerController(camera, canvas, office.colliders);
 // Everyone arrives by elevator (the welcome says exactly where).
 placeInCar();
@@ -1502,8 +1500,10 @@ function showSettings() {
     net,
     settings,
     (s) => {
+      const graphicsChanged = settings.lowPower !== s.lowPower;
       Object.assign(settings, s);
       saveSettings(settings);
+      if (graphicsChanged) applyGraphics();
       player.setView(settings.view);
       sound.setVolume(settings.volume, settings.muted);
       sound.setMusicVolume(settings.music, settings.musicMuted);
@@ -1529,6 +1529,12 @@ function editProfile() {
 }
 
 // ---- Main loop ---------------------------------------------------------------------------------------
+function applyGraphics() {
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, settings.lowPower ? 1 : 2));
+  renderer.shadowMap.enabled = !settings.lowPower;
+  effect.enabled = !settings.lowPower;
+}
+
 function resize() {
   const w = window.innerWidth;
   const hgt = window.innerHeight;
@@ -1539,8 +1545,29 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 resize();
+applyGraphics();
 
 const timer = new THREE.Timer();
+let frameRequest: number | undefined;
+let framesStarted = false;
+let lastFrameAt = 0;
+function scheduleFrame() {
+  if (frameRequest === undefined && !document.hidden) frameRequest = requestAnimationFrame(frame);
+}
+function startFrames() {
+  framesStarted = true;
+  scheduleFrame();
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (frameRequest !== undefined) cancelAnimationFrame(frameRequest);
+    frameRequest = undefined;
+  } else if (framesStarted) {
+    timer.reset();
+    lastFrameAt = 0;
+    scheduleFrame();
+  }
+});
 let lastSent = { x: 0, y: 0, z: 0, rotY: 0, moving: false, at: 0 };
 let speakTick = 0;
 /** Frames since the camera settled on the boss's monitor, to draw the office on only some of them. */
@@ -1553,7 +1580,14 @@ const lookDir = new THREE.Vector3();
 const workerPos = new THREE.Vector3();
 const headPos = new THREE.Vector3();
 
-function frame(ts?: number) {
+function frame(ts: number) {
+  frameRequest = undefined;
+  if (document.hidden) return;
+  scheduleFrame();
+  const interval = 1000 / (modalOpen() ? 10 : settings.lowPower ? 30 : 60);
+  const elapsed = ts - lastFrameAt;
+  if (elapsed < interval - 0.5) return;
+  lastFrameAt = ts - (Math.max(0, elapsed - interval) % interval);
   timer.update(ts);
   const dt = Math.min(timer.getDelta(), 0.1);
   const t = timer.getElapsed();
@@ -1683,13 +1717,12 @@ function frame(ts?: number) {
       sky.shading(true);
     }
   }
-  requestAnimationFrame(frame);
 }
 
 // ---- Boot ------------------------------------------------------------------------------------------
 function boot() {
   net.connect();
-  requestAnimationFrame(frame);
+  startFrames();
 }
 
 /** Who you're signed in as. With an account of your own, your name is that account's. */
@@ -1717,7 +1750,7 @@ void whoami().then(() => {
     // Pick a character first (people from before there was a choice keep their name and color).
     if (saved) Object.assign(store.profile, { name: saved.name, color: saved.color });
     // Render the office behind the character select screen.
-    requestAnimationFrame(frame);
+    startFrames();
     openCharacter(true, (p) => {
       showMyProfile(p);
       net.connect();

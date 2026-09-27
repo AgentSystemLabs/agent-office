@@ -44,6 +44,8 @@ export type ViewMode = 'first' | 'third';
 
 export interface Settings {
   view: ViewMode;
+  /** Limit rendering work for cooler, quieter laptops. */
+  lowPower: boolean;
   /** Office sounds, 0–1. */
   volume: number;
   muted: boolean;
@@ -75,10 +77,11 @@ function rememberFloor(id: string | null) {
 }
 
 export function loadSettings(): Settings {
-  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, notify: true };
+  const s: Settings = { view: 'first', lowPower: true, volume: 0.7, muted: false, music: 0.5, musicMuted: false, notify: true };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
     if (saved?.view === 'first' || saved?.view === 'third') s.view = saved.view;
+    if (typeof saved?.lowPower === 'boolean') s.lowPower = saved.lowPower;
     if (typeof saved?.volume === 'number' && Number.isFinite(saved.volume)) s.volume = Math.max(0, Math.min(1, saved.volume));
     if (typeof saved?.muted === 'boolean') s.muted = saved.muted;
     if (typeof saved?.music === 'number' && Number.isFinite(saved.music)) s.music = Math.max(0, Math.min(1, saved.music));
