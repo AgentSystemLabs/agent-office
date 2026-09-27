@@ -381,9 +381,9 @@ export interface PoleSpot {
 }
 
 /**
- * The fire poles, slid down to the floor below. Each floor's pole goes down through a hole in its
- * floor, and lands on the one below beside that floor's own hole, as in a real firehouse: the two
- * spots take turns, floor by floor, so nobody drops more than one floor. See poleDown.
+ * The fire poles, slid down to the floor below. Each one goes the whole way down the building, through
+ * a hole in every floor but the bottom one (where there's a mat to land on): whichever you walk up to
+ * takes you down one floor, and on a floor with another below you swing off it through the railing.
  */
 export const POLES: readonly PoleSpot[] = [
   // South of the desks, by the way in from the balcony.
@@ -393,8 +393,3 @@ export const POLES: readonly PoleSpot[] = [
 ];
 /** A pole's hole in the floor, the railing round it, and how far from the pole you hang on. */
 export const POLE = { hole: 0.68, rail: 0.9, grip: 0.4, radius: 0.055 } as const;
-
-/** Where the pole down from floor `i` (0 is the bottom one) goes through its floor, and lands on the floor below. */
-export function poleDown(i: number): PoleSpot {
-  return POLES[((i % 2) + 2) % 2];
-}

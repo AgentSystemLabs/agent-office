@@ -340,15 +340,15 @@ function grabLadder() {
   climber.grabLadder();
 }
 
-/** E at a fire pole: down it, if it goes down from here; else a spin round it. */
+/** E at a fire pole: down it, if there's a floor below; else (on the bottom floor) a spin round it. */
 function usePole(i: number) {
   const spot = POLES[i];
   if (trip || climber.active || !spot) return;
   if (player.seat) standUp();
   if (hanger.active) hanger.cancel();
   if (walkingTo) stopWalking();
-  if (spot === office.stack.poleDown()) climber.slide(spot);
-  else if (spot === office.stack.poleLanding()) climber.twirl(spot);
+  if (office.stack.polesGoDown()) climber.slide(spot);
+  else climber.twirl(spot);
 }
 
 /** The ladder and the poles go where there are floors to go to from this one. */
@@ -631,9 +631,10 @@ function tripFailed() {
 
 /** Arrived in a spot that's a pole's hole on this floor: step out of it, the way in. */
 function unstick() {
-  const spot = office.stack.poleDown();
+  if (!office.stack.polesGoDown()) return;
   const p = player.pos;
-  if (!spot || Math.max(Math.abs(p.x - spot.x), Math.abs(p.z - spot.z)) > POLE.rail + 0.35) return;
+  const spot = office.stack.poles().find((s) => Math.max(Math.abs(p.x - s.x), Math.abs(p.z - s.z)) <= POLE.rail + 0.35);
+  if (!spot) return;
   const out = POLE.rail + 0.7;
   p.set(spot.x + Math.sin(spot.open) * out, Math.max(0, p.y), spot.z + Math.cos(spot.open) * out);
 }
@@ -1662,8 +1663,7 @@ function hintFor(it: Interactable): Hint {
       return { k: where, parts: [title('🪜 Ladder'), aside(where || 'no other floors yet'), key('E', 'Climb on')] };
     }
     case 'pole': {
-      const spot = POLES[it.pole ?? 0];
-      if (spot === office.stack.poleDown()) {
+      if (office.stack.polesGoDown()) {
         const down = floorThere(-1)?.name ?? 'the floor below';
         return { k: `down|${down}`, parts: [title('🚒 Fire pole'), aside(`down to ${down}`), key('E', 'Slide down!')] };
       }
@@ -2304,8 +2304,8 @@ function frame(ts?: number) {
   walkTick(now);
   player.update(dt);
   // Walked into a pole's hole: you grab the pole on your way down it.
-  const hole = office.stack.poleDown();
-  if (hole && !climber.active && !trip && !player.seat && player.enabled && Math.hypot(player.pos.x - hole.x, player.pos.z - hole.z) < POLE.hole - 0.15 && player.pos.y > -1.35 && player.pos.y < 0.6) climber.slide(hole);
+  const hole = office.stack.polesGoDown() ? office.stack.poles().find((s) => Math.hypot(player.pos.x - s.x, player.pos.z - s.z) < POLE.hole - 0.15) : undefined;
+  if (hole && !climber.active && !trip && !player.seat && player.enabled && player.pos.y > -1.35 && player.pos.y < 0.6) climber.slide(hole);
   arcade.update(camera, dt);
   me.root.position.copy(player.pos);
   me.root.position.y += player.stepOffset;
@@ -2363,7 +2363,7 @@ function frame(ts?: number) {
     const ground = groundAt(office.colliders, p.x, p.z, p.y);
     const airborne = !sat && p.y > ground + 0.05;
     // Or holding on to the ladder or a pole; off a pole onto the mat, the firehouse bell rings.
-    const holding = sat ? null : gripOf(p, [office.stack.poleDown(), office.stack.poleLanding()], ground);
+    const holding = sat ? null : gripOf(p, office.stack.poles(), ground);
     if (r.grip === 'pole' && !holding && Math.abs(p.y) < 0.2) sound.poleLanding(6, { x: pos.x, y: 0.5, z: pos.z });
     r.grip = holding;
     r.person.setGrip(holding);
