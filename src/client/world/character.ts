@@ -151,6 +151,10 @@ export function boxOfStuff(): THREE.Group {
 const v1 = new THREE.Vector3();
 const v2 = new THREE.Vector3();
 
+/** Where the line under a person's name tag sits, just over their hair, and how far it lifts the name tag. */
+const DOING_Y = 1.95;
+const DOING_LIFT = 0.25;
+
 /** A chibi cartoon person — used for every human in the office. Forward is +z. */
 export class Person {
   readonly root = new THREE.Group();
@@ -165,6 +169,9 @@ export class Person {
   private hair = new THREE.Group();
   private look: Look;
   private label: THREE.Sprite | null = null;
+  /** The smaller line under the name tag: what they have open, or where they are (see whereabouts). */
+  private doing: THREE.Sprite | null = null;
+  private doingText = '';
   private speaking = false;
   private mic: THREE.Mesh;
   private head: THREE.Group;
@@ -390,8 +397,39 @@ export class Person {
     }
     const suffix = muted === null ? '' : muted ? ' 🔇' : ' 🎙️';
     this.label = textSprite(`${name}${suffix}`, { bg: '#fffaf3', size: 40 });
-    this.label.position.y = 2.0;
     this.root.add(this.label);
+    this.placeLabels();
+  }
+
+  /** Puts a smaller line under the name tag, like "💻 in Pixel's terminal"; none (or '') takes it away. */
+  setDoing(text: string | undefined) {
+    text ??= '';
+    if (text === this.doingText) return;
+    this.doingText = text;
+    if (this.doing) {
+      this.root.remove(this.doing);
+      disposeSprite(this.doing);
+      this.doing = null;
+    }
+    if (text) {
+      this.doing = textSprite(text, { bg: '#e9ecef', size: 26 });
+      this.doing.position.y = DOING_Y;
+      this.doing.visible = this.label?.visible ?? true;
+      this.root.add(this.doing);
+    }
+    this.placeLabels();
+  }
+
+  /** Where a chat bubble goes: over the name tag, however high it sits. */
+  get bubbleY(): number {
+    return 2.45 + (this.doing ? DOING_LIFT : 0);
+  }
+
+  /** The name tag and the mic badge move up out of the way of the line under them. */
+  private placeLabels() {
+    const lift = this.doing ? DOING_LIFT : 0;
+    if (this.label) this.label.position.y = 2.0 + lift;
+    this.mic.position.y = 2.25 + lift;
   }
 
   /** How loud this person is talking right now (0 when silent); drives the mic badge and the mouth. */
@@ -403,6 +441,7 @@ export class Person {
 
   showLabel(v: boolean) {
     if (this.label) this.label.visible = v;
+    if (this.doing) this.doing.visible = v;
   }
 
   /** Reach out with the right hand, as if pressing or grabbing something in front of you. */

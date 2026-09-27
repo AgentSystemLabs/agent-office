@@ -987,6 +987,7 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
     renderFrame();
   });
   const modal: Modal = openModal(el, {
+    doing: `🔀 reading PR #${it.number}`,
     onClose: () => {
       unsub();
       comment.dispose();
@@ -1100,6 +1101,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
     store.on('queue', renderFrame),
   ];
   const modal = openModal(el, {
+    doing: `📋 reading issue #${it.number}`,
     onClose: () => {
       comment.dispose();
       unsubs.forEach((u) => u());

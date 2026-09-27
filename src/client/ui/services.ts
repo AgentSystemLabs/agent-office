@@ -131,6 +131,7 @@ export function openServices() {
   // Keeps "up 5m" fresh.
   const tick = setInterval(render, 30_000);
   const modal = openModal(el, {
+    doing: '🌐 at the services board',
     onClose: () => {
       unsubs.forEach((u) => u());
       clearInterval(tick);

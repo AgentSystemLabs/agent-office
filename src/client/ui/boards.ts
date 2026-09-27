@@ -165,6 +165,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
     status.textContent = st.loading ? 'Refreshing…' : st.fetchedAt ? `Updated ${timeAgo(st.fetchedAt)}` : '';
   }, 15000);
   const modal = openModal(el, {
+    doing: kind === 'issues' ? '📋 at the issues board' : '🔀 at the PR board',
     onClose: () => {
       unsubs.forEach((u) => u());
       clearInterval(timer);

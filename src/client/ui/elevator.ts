@@ -235,6 +235,7 @@ export function openElevator(opts: ElevatorOptions): void {
   );
   const unsubs = [store.on('floors', () => (renderFloors(), renderAdd())), store.on('repos', renderAdd), store.on('floor', renderFloors)];
   const modal = openModal(el, {
+    doing: '🛗 at the elevator',
     escCloses: !setup,
     backdropCloses: !setup,
     onClose: () => {

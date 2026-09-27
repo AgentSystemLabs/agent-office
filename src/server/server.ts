@@ -74,11 +74,15 @@ interface Client {
   /** Has the floor's whiteboard open. */
   whiteboard: boolean;
   lastWbPointerAt: number;
+  /** When this client last said it was typing, per terminal (see 'term.typing'). */
+  typingAt: Map<string, number>;
   /** Cleared at each heartbeat ping and set again by the pong; still clear at the next one means gone. */
   isAlive: boolean;
 }
 
 const SLOW_CLIENT_BYTES = 8 * 1024 * 1024;
+/** The least time between two 'term.typing' notes from one person in one terminal. */
+const TYPING_GAP_MS = 500;
 
 function findPublicDir(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -787,6 +791,7 @@ export async function startServer(cfg: Config) {
       emotes: new EmoteBucket(EMOTE_EVERY * 0.8),
       whiteboard: false,
       lastWbPointerAt: 0,
+      typingAt: new Map(),
       isAlive: true,
       peer: {
         id,
@@ -891,6 +896,7 @@ export async function startServer(cfg: Config) {
       was.changes.unwatchAll(c.id);
     }
     c.attached.clear();
+    c.typingAt.clear();
     c.stale.clear();
     // The whiteboard downstairs stays downstairs.
     const wasDrawing = c.whiteboard;
@@ -1100,6 +1106,7 @@ export async function startServer(cfg: Config) {
       case 'worker.detach': {
         const wid = str(msg.workerId, 32);
         c.attached.delete(wid);
+        c.typingAt.delete(wid);
         workerFloor(wid)?.workers.detach(wid, c.id);
         break;
       }
@@ -1142,6 +1149,26 @@ export async function startServer(cfg: Config) {
       case 'term.input':
         if (c.attached.has(msg.workerId)) workerFloor(msg.workerId)?.workers.write(msg.workerId, str(msg.data, 64 * 1024), who);
         break;
+      case 'term.typing': {
+        // Everyone else in that terminal sees who's typing. A typist says so about once a second.
+        const w = worker(msg.workerId);
+        const now = Date.now();
+        if (!w || !c.attached.has(w.wid) || now - (c.typingAt.get(w.wid) ?? 0) < TYPING_GAP_MS) break;
+        c.typingAt.set(w.wid, now);
+        for (const id of w.info.viewerIds) {
+          const o = clients.get(id);
+          if (o && o.id !== c.id) sendTo(o, { t: 'term.typing', workerId: w.wid, id: c.id });
+        }
+        break;
+      }
+      case 'doing': {
+        const what = str(msg.what, 60).trim() || undefined;
+        if (what === c.peer.doing) break;
+        if (what) c.peer.doing = what;
+        else delete c.peer.doing;
+        broadcast({ t: 'peer.update', peer: c.peer });
+        break;
+      }
       case 'term.resize':
         if (c.attached.has(msg.workerId)) workerFloor(msg.workerId)?.workers.resize(msg.workerId, num(msg.cols), num(msg.rows));
         break;

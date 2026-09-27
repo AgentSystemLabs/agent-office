@@ -122,6 +122,7 @@ export class Arcade {
     window.addEventListener('resize', fit);
     this.modal = openModal(box, {
       backdropCloses: false,
+      doing: '💣 playing Minesweeper',
       onClose: () => {
         window.removeEventListener('resize', fit);
         clearInterval(clock);

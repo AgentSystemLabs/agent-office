@@ -315,6 +315,7 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void)
     else renderHeader();
   });
   const modal = openModal(el, {
+    doing: `🌿 looking over ${info.name}'s changes`,
     onClose: () => {
       listeners.delete(onMsg);
       unsub();

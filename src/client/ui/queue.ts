@@ -196,6 +196,7 @@ export function openQueue(net: Net, actions: QueueActions) {
   const unsubs = [store.on('queue', render), store.on('workers', render), store.on('issues', render), store.on('machine', machineChanged)];
   const tick = setInterval(render, 30_000);
   const modal = openModal(el, {
+    doing: '📥 at the queue',
     onClose: () => {
       unsubs.forEach((u) => u());
       clearInterval(tick);

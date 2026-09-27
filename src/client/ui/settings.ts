@@ -274,6 +274,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const offDog = store.on('dog', paintDog);
   const offLimit = [store.on('machine', paintLimit), store.on('me', paintLimit)];
   const modal = openModal(el, {
+    doing: '⚙️ in settings',
     onClose: () => {
       offNotify();
       offDog();
