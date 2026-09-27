@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, seatAt, seatPlace, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, seatAt, seatPlace, vacantSeats, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
 import type { AgentEffort, AgentProvider, GongWhy, PeerInfo, WorkerInfo } from '../shared/protocol';
 import { isAsleep, isBusy } from '../shared/status';
@@ -278,11 +278,7 @@ const departures = new Departures(
   scene,
   (x, z, y) => groundAt(office.colliders, x, z, y),
   (x, y, z) => sound.stepAt(x, z, y),
-  (deskId) => {
-    const desk = office.desks.get(deskId);
-    if (desk && !store.workerAtDesk(deskId)) desk.vacancy.visible = true;
-    arrangeBeanbags();
-  },
+  () => arrangeSeats(),
 );
 let firstWelcome = true;
 /** The server version this page was loaded with. */
@@ -597,7 +593,6 @@ function syncWorkers() {
       const laptop = new Laptop();
       desk.laptopAnchor.add(laptop.root);
       noOutline(desk.group);
-      desk.vacancy.visible = false;
       desk.chair.rotation.y = 0;
       v = { model, laptop, deskId: w.deskId, status: '', acked: true };
       workerViews.set(w.id, v);
@@ -630,21 +625,25 @@ function syncWorkers() {
       v.laptop.root.removeFromParent();
       v.model.dispose();
       v.laptop.dispose();
-      if (desk) desk.vacancy.visible = true;
     }
     sound.removeTypist(id);
     workerViews.delete(id);
   }
-  arrangeBeanbags();
+  arrangeSeats();
   renderWorkers((id) => openWorkerTerminal(id));
   notifier.sync(store.workers);
   renderTitle();
 }
 
-/** Once every desk is taken, bean bags come out for the workers who don't fit. */
-function arrangeBeanbags() {
-  // One stays out under a worker who's been sent home until it gets up.
-  const appeared = office.setBeanbags(beanbagsOut((id) => !!store.workerAtDesk(id) || departures.seated(id)));
+/**
+ * A seat or kiosk shows it's free (its '+', or the board agent waiting there) only while nobody's at
+ * it, and once every desk is taken, bean bags come out for the workers who don't fit.
+ */
+function arrangeSeats() {
+  // Someone sent home still counts until they get up, so a bean bag stays out under them.
+  const free = vacantSeats(store.workers.values(), (id) => departures.seated(id));
+  for (const [id, desk] of office.desks) desk.vacancy.visible = free.has(id);
+  const appeared = office.setBeanbags(beanbagsOut((id) => !free.has(id)));
   // One came out right where you're standing (on the office floor, not down in the garage): you end up on top of it.
   const p = player.pos;
   for (const c of appeared) if (p.y > -0.1 && p.y < c.top && p.x > c.minX - 0.3 && p.x < c.maxX + 0.3 && p.z > c.minZ - 0.3 && p.z < c.maxZ + 0.3) p.y = c.top;
