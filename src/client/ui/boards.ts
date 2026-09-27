@@ -59,19 +59,28 @@ function labelChips(labels: { name: string; color: string }[]) {
 
 const CHECK_ICON: Record<GhPull['checks'], string> = { pass: '🟢', fail: '🔴', pending: '🟡', none: '' };
 
+/** A chip naming a worker and desk, color-coded to match the worker back on the floor. */
+function workerChip(w: WorkerInfo, title: string) {
+  return h('span.desk-link', { style: `--dot:${w.color}`, title }, `🪑 ${w.name} · ${DESK_BY_ID.get(w.deskId)?.label ?? 'a desk'}`);
+}
+
 /** A chip naming the worker and desk a pull request came from. */
 function deskChip(w: WorkerInfo) {
-  return h('span.desk-link', { style: `--dot:${w.color}`, title: `Opened from ${w.name}'s desk (${w.worktree?.branch ?? 'its branch'})` }, `🪑 ${w.name} · ${DESK_BY_ID.get(w.deskId)?.label ?? 'a desk'}`);
+  return workerChip(w, `Opened from ${w.name}'s desk (${w.worktree?.branch ?? 'its branch'})`);
 }
 
 /** Where an issue stands on the 📋 queue, for its card. */
 function queueChip(issue: number): Node | '' {
   const t = store.taskForIssue(issue);
   if (!t) return '';
-  const provider = ` · ${providerLabel(t.provider, store.project)}`;
-  if (t.status === 'queued') return h('span.qchip', {}, `${store.queue.tasks.find((x) => x.status === 'queued') === t ? '📋 up next' : '📋 queued'}${provider}`);
-  if (t.status === 'running') return h('span.qchip.running', {}, `🤖 ${t.workerName ?? 'a worker'}${provider}`);
-  return t.pr ? h('span.qchip.done', {}, `🔀 PR #${t.pr.number}${provider}`) : '';
+  const provider = providerLabel(t.provider, store.project);
+  if (t.status === 'queued') return h('span.qchip', {}, `${store.queue.tasks.find((x) => x.status === 'queued') === t ? '📋 up next' : '📋 queued'} · ${provider}`);
+  if (t.status === 'running') {
+    const w = t.workerId ? store.workers.get(t.workerId) : undefined;
+    if (w) return workerChip(w, `${w.name} is working on this at ${DESK_BY_ID.get(w.deskId)?.label ?? 'a desk'} · ${provider}`);
+    return h('span.qchip.running', {}, `🤖 ${t.workerName ?? 'a worker'} · ${provider}`);
+  }
+  return t.pr ? h('span.qchip.done', {}, `🔀 PR #${t.pr.number} · ${provider}`) : '';
 }
 
 function card(n: number, title: string, meta: (Node | string)[], i: number, onclick: () => void) {
