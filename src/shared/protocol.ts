@@ -437,6 +437,25 @@ export interface ChatLine {
   at: number;
 }
 
+/** A line of a worker's terminal that matched a search. */
+export interface TerminalHit {
+  workerId: string;
+  /** The line, cut down around the match. */
+  text: string;
+  /** Where it is: its row in the worker's terminal, and how many rows that terminal had. */
+  row: number;
+  rows: number;
+}
+
+/** What GET /api/search answers: matching chat and terminal lines, newest first. */
+export interface SearchResults {
+  q: string;
+  chat: ChatLine[];
+  terminals: TerminalHit[];
+  /** More lines matched than these. */
+  more: boolean;
+}
+
 export type ClientMsg =
   | { t: 'move'; x: number; y: number; z: number; rotY: number; moving: boolean }
   /** You reached out to use something; everyone else sees your character's arm do it. */
