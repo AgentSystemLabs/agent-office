@@ -36,7 +36,7 @@ import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage, worktreePref } from './ui/prompt';
 import { issuePrompt, openBoard } from './ui/boards';
-import { openPull, routePullMessage } from './ui/pull';
+import { openIssue, openPull, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { openAccounts, routeAccountsMessage } from './ui/accounts';
@@ -1360,9 +1360,11 @@ function watchShare() {
   close.addEventListener('click', () => modal.close());
 }
 
-function interact(target: Interactable | null, key: DeskKey) {
+/** `note` is the issue note you're pointing at on the issues board, if any (see aimedNote). */
+function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   if (!target) return;
-  if (key === 'E' && carrying && dropCard(target, carrying)) return;
+  if (target.kind !== 'issues') note = null;
+  if (key === 'E' && carrying && dropCard(target, carrying, note)) return;
   if (target.kind === 'desk' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
     // Nobody is hired at the meeting table: a meeting seats its own workers there.
@@ -1383,6 +1385,9 @@ function interact(target: Interactable | null, key: DeskKey) {
     if (key === 'X' && w) return killWorker(w.id);
     return;
   }
+  // A note on the issues board: E takes it straight off the cork, O opens it to read first.
+  if (note && key === 'E') return pickUp(note);
+  if (note && key === 'O') return openIssue(note, net, boardActions());
   if (key !== 'E') return;
   if (target.kind === 'elevator') showElevator();
   else if (target.kind === 'issues' || target.kind === 'pulls') openBoard(target.kind, net, boardActions());
@@ -1463,7 +1468,7 @@ function setCarrying(card: CarriedIssue | null) {
   hintKey = '';
 }
 
-/** ✋ in an issue's window: its card comes off the board and into your hands. */
+/** ✋ in an issue's window, or E at its note on the board: its card comes off the board and into your hands. */
 function pickUp(it: GhIssue) {
   closeAllModals();
   if (carrying?.issue === it.number) return;
@@ -1484,11 +1489,13 @@ function putBack() {
 /**
  * E with a card in your hands: an empty desk hires a worker for the issue (with the prompt 🤖 Hand
  * to a worker uses), an agent at a desk gets it as its next prompt, the queue board queues it, and
- * the issues board takes it back. False when it's none of those, so E does what it always does there.
+ * the issues board takes it back (or swaps it for the `note` you point at there). False when it's none
+ * of those, so E does what it always does there.
  */
-function dropCard(it: Interactable, card: CarriedIssue): boolean {
+function dropCard(it: Interactable, card: CarriedIssue, note: GhIssue | null): boolean {
   if (it.kind === 'issues') {
-    putBack();
+    if (note) pickUp(note);
+    else putBack();
     return true;
   }
   const prompt = issuePrompt({ number: card.issue, title: card.title });
@@ -1751,7 +1758,8 @@ function hintFor(it: Interactable): Hint {
     case 'station':
       return it.deskId ? stationHint(it.deskId) : { k: '', parts: [] };
     case 'issues':
-      return board('📌 Issues board');
+      if (aimedNote) return { k: String(aimedNote.number), parts: [title(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', 'Take it'), key('O', 'Read it')] };
+      return issuesTex.hasNotes ? { k: 'notes', parts: [title('📌 Issues board'), key('E', 'Open'), aside('or point at a note to take it')] } : board('📌 Issues board');
     case 'pulls':
       return board('🔀 Pull request board');
     case 'services':
@@ -1846,7 +1854,7 @@ function hintFor(it: Interactable): Hint {
 /** With an issue card in your hands: what E does with it here, and how to put it back. */
 function carryHint(card: CarriedIssue, it: Interactable | null): Hint {
   const parts = (...mid: (HTMLElement | string)[]) => [h('span.title', {}, `🗂️ #${card.issue} in hand`), ...mid, key('Q', 'Put it back')];
-  if (it?.kind === 'issues') return { k: '', parts: parts(key('E', 'Pin it back up')) };
+  if (it?.kind === 'issues') return aimedNote ? { k: String(aimedNote.number), parts: parts(key('E', `Swap it for #${aimedNote.number}`)) } : { k: '', parts: parts(key('E', 'Pin it back up')) };
   if (it?.kind === 'queue') {
     const on = onQueue(card.issue);
     return { k: String(on), parts: parts(on ? aside('already on the queue') : key('E', 'Put it on the queue')) };
@@ -2059,10 +2067,10 @@ function emoteKey(e: KeyboardEvent): boolean {
 const DESK_KEYS = { KeyE: 'E', KeyP: 'P', KeyR: 'R', KeyX: 'X', KeyB: 'B', KeyC: 'C', KeyO: 'O' } as const;
 type DeskKey = (typeof DESK_KEYS)[keyof typeof DESK_KEYS];
 
-function use(it: Interactable | null, key: DeskKey) {
+function use(it: Interactable | null, key: DeskKey, note = aimedNote) {
   if (!it) return;
   reach();
-  interact(it, key);
+  interact(it, key, note);
 }
 
 // ---- Input ----------------------------------------------------------------------------------------
@@ -2216,8 +2224,8 @@ const CROSSHAIR = new THREE.Vector2(0, 0);
 const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7 };
 const eye = new THREE.Vector3();
 
-/** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
-function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boolean } | null {
+/** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */
+function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boolean; hit: THREE.Intersection } | null {
   raycaster.setFromCamera(ndc, camera);
   eye.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
   for (const hit of raycaster.intersectObjects([office.group, dog.root], true)) {
@@ -2229,10 +2237,27 @@ function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boole
     }
     if (!shown) continue;
     if (!it) return null; // a wall, the floor, a plant… is in the way
-    return { it, near: hit.point.distanceTo(eye) <= REACH[it.kind] + slack };
+    return { it, near: hit.point.distanceTo(eye) <= REACH[it.kind] + slack, hit };
   }
   return null;
 }
+
+/** The issue whose note on the issues board an aim lands on, or null (bare cork, the frame, anything else). */
+function noteUnder(aim: { it: Interactable; hit: THREE.Intersection } | null): GhIssue | null {
+  if (aim?.it.kind !== 'issues' || aim.hit.object !== office.boardMeshes.issues || !aim.hit.uv) return null;
+  const n = issuesTex.noteAt(aim.hit.uv);
+  return n === undefined ? null : (store.issues.items.find((i) => i.number === n) ?? null);
+}
+
+/** The note on the issues board under the crosshair (or, in third person, the mouse), which E takes. */
+let aimedNote: GhIssue | null = null;
+/** Where the mouse is over the scene, for pointing at notes in third person; null when it's off it. */
+let pointer: THREE.Vector2 | null = null;
+canvas.addEventListener('pointermove', (e) => {
+  const r = canvas.getBoundingClientRect();
+  (pointer ??= new THREE.Vector2()).set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+});
+canvas.addEventListener('pointerleave', () => (pointer = null));
 
 player.onClick = (ndc) => {
   if (modalOpen()) return;
@@ -2254,7 +2279,7 @@ player.onClick = (ndc) => {
     toast('Walk closer to that first');
     return;
   }
-  use(aim.it, 'E');
+  use(aim.it, 'E', noteUnder(aim));
 };
 
 // Chat
@@ -2590,11 +2615,21 @@ function frame(ts?: number) {
   holiday.update(t, sky.lampsOn, camera);
   sound.setWeather(sky.rain, 1 - sky.daylight);
 
+  aimedNote = null;
   if (modalOpen() || hanger.active || climber.active) target = null;
   else if (firstPerson) {
     const aim = aimedAt(CROSSHAIR);
     target = aim?.near ? aim.it : mySeat();
-  } else target = mySeat() ?? pickTarget();
+    if (aim?.near) aimedNote = noteUnder(aim);
+  } else {
+    target = mySeat() ?? pickTarget();
+    // By the issues board, the mouse points at the note you'd take.
+    if (target?.kind === 'issues' && pointer) {
+      const aim = aimedAt(pointer, 2.5);
+      if (aim?.near) aimedNote = noteUnder(aim);
+    }
+  }
+  issuesTex.lift(aimedNote?.number ?? null);
   renderHint();
   renderCrosshair();
 
