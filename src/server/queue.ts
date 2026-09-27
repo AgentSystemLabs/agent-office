@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { isAgentProvider, type AgentProvider, type GhPull, type QueueState, type QueueTask, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
-import { DESKS, DESK_BY_ID } from '../shared/layout.js';
+import { DESK_BY_ID, SEATS, nextFreeSeat } from '../shared/layout.js';
 import { isValidOpenCodeModel, validateWorkerModel } from './agents.js';
 
 /** What the queue needs from the worker manager. Narrow on purpose, so a smoke test can fake it. */
@@ -152,7 +152,7 @@ export class TaskQueue {
   }
 
   setLimit(n: number) {
-    const v = Math.max(0, Math.min(DESKS.length, Math.floor(n)));
+    const v = Math.max(0, Math.min(SEATS.length, Math.floor(n)));
     if (!Number.isFinite(v) || v === this.maxWorkers) return;
     this.maxWorkers = v;
     this.changed();
@@ -245,13 +245,15 @@ export class TaskQueue {
     return this.workers.list().filter((w) => w.kind === 'agent' && BUSY.has(w.status)).length;
   }
 
+  /** A free desk, else a free bean bag. */
   private freeDesk(): string | undefined {
-    return DESKS.find((d) => !this.workers.deskOccupied(d.id))?.id;
+    return nextFreeSeat((id) => this.workers.deskOccupied(id))?.id;
   }
 
   /**
-   * No desk is free: send home a worker the queue hired whose task is finished (nobody is looking at
-   * its terminal), and return its desk. Workers with a linked PR go first — their work is delivered.
+   * No desk or bean bag is free: send home a worker the queue hired whose task is finished (nobody
+   * is looking at its terminal), and return its seat. Workers with a linked PR go first — their work
+   * is delivered.
    */
   private recycleDesk(): string | undefined {
     const byId = new Map(this.workers.list().map((w) => [w.id, w]));
@@ -325,7 +327,7 @@ export class TaskQueue {
     if (!existsSync(this.statePath)) return;
     try {
       const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { maxWorkers?: number; tasks?: Partial<QueueTask>[] };
-      if (typeof saved.maxWorkers === 'number' && Number.isFinite(saved.maxWorkers)) this.maxWorkers = Math.max(0, Math.min(DESKS.length, Math.floor(saved.maxWorkers)));
+      if (typeof saved.maxWorkers === 'number' && Number.isFinite(saved.maxWorkers)) this.maxWorkers = Math.max(0, Math.min(SEATS.length, Math.floor(saved.maxWorkers)));
       for (const s of saved.tasks ?? []) {
         if (typeof s.id !== 'string' || typeof s.prompt !== 'string' || typeof s.title !== 'string') continue;
         const provider = isAgentProvider(s.provider) ? s.provider : this.workers.defaultProvider;
