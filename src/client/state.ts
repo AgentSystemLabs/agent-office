@@ -1,7 +1,8 @@
-import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, QueueState, QueueTask, ServerMsg, ServicesState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
+import type { ChatLine, GhIssue, GhIssuesState, GhPull, GhState, PeerInfo, ProjectInfo, QueueState, QueueTask, ServerMsg, ServicesState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
+import { normalizeIssueRepository, sameRepository } from '../shared/issue-repositories';
 
 export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'queue';
 
@@ -75,6 +76,32 @@ export function workerForPull(workers: Iterable<WorkerInfo>, pr: { number: numbe
   return undefined;
 }
 
+export function projectRepository(project: ProjectInfo | null): string | undefined {
+  const remote = project?.remote?.trim();
+  if (!remote) return undefined;
+  const name = remote.replace(/^https?:\/\/[^/]+\//i, '').replace(/^git@[^:]+:/i, '').replace(/\.git$/i, '');
+  return normalizeIssueRepository(name);
+}
+
+export function issueIdentityKey(issue: Pick<GhIssue, 'number' | 'repository'>): string {
+  return `${issue.repository?.toLowerCase() ?? ''}#${issue.number}`;
+}
+
+export function taskForIssueMatches(task: Pick<QueueTask, 'issue'>, issue: number, repository?: string, currentRepository?: string): boolean {
+  if (task.issue !== issue) return false;
+  return !repository || (!!currentRepository && sameRepository(repository, currentRepository));
+}
+
+export type IssueRepositoryFilter = 'all' | string;
+
+export function issueRepositoryLabel(issue: Pick<GhIssue, 'repository'>): string {
+  return issue.repository ?? 'current project';
+}
+
+export function visibleIssues(items: GhIssue[], filter: IssueRepositoryFilter): GhIssue[] {
+  return filter === 'all' ? items : items.filter((it) => sameRepository(it.repository, filter));
+}
+
 class Store {
   you = '';
   profile: Profile = { name: 'Guest', color: AVATAR_COLORS[1], look: randomLook() };
@@ -82,7 +109,7 @@ class Store {
   workers = new Map<string, WorkerInfo>();
   screens = new Map<string, ScreenState>();
   project: ProjectInfo | null = null;
-  issues: GhState<GhIssue> = { items: [], fetchedAt: 0, loading: true };
+  issues: GhIssuesState = { items: [], fetchedAt: 0, loading: true };
   pulls: GhState<GhPull> = { items: [], fetchedAt: 0, loading: true };
   ice: RTCIceServer[] = [];
   chat: ChatLine[] = [];
@@ -114,8 +141,10 @@ class Store {
   }
 
   /** The queue task for an issue: the one on the queue if there is one, else the latest finished one. */
-  taskForIssue(issue: number): QueueTask | undefined {
-    const tasks = this.queue.tasks.filter((t) => t.issue === issue);
+  taskForIssue(issue: number, repository?: string): QueueTask | undefined {
+    const currentRepository = this.issues.currentRepository ?? projectRepository(this.project);
+    if (repository && (!currentRepository || !sameRepository(repository, currentRepository))) return undefined;
+    const tasks = this.queue.tasks.filter((t) => taskForIssueMatches(t, issue, repository, currentRepository));
     return tasks.find((t) => t.status !== 'done') ?? tasks[tasks.length - 1];
   }
 

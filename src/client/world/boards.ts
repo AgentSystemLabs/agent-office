@@ -6,6 +6,27 @@ import { workerForPull } from '../state';
 const NOTE_COLORS = ['#fff7b0', '#ffd6e0', '#caffbf', '#bde0fe', '#ffe5b4'];
 const PINS = ['#ef476f', '#118ab2', '#06d6a0', '#ffd166'];
 
+/** Select issue notes round-robin by repository so one busy repository cannot hide all others. */
+export function fairIssueSelection(items: GhIssue[], limit: number): GhIssue[] {
+  const groups = new Map<string, GhIssue[]>();
+  for (const item of items) {
+    const key = item.repository?.toLowerCase() ?? '';
+    const group = groups.get(key) ?? [];
+    group.push(item);
+    groups.set(key, group);
+  }
+  const out: GhIssue[] = [];
+  while (out.length < limit && groups.size) {
+    for (const [key, group] of groups) {
+      const item = group.shift();
+      if (item) out.push(item);
+      if (!group.length) groups.delete(key);
+      if (out.length >= limit) break;
+    }
+  }
+  return out;
+}
+
 function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number, maxLines: number): string[] {
   const words = text.split(/\s+/);
   const lines: string[] = [];
@@ -70,7 +91,8 @@ export class BoardTexture {
       return;
     }
     // Fewer notes -> bigger notes, so a quiet board is still readable from across the room.
-    const n = Math.min(open.length, 15);
+    const shownItems = this.kind === 'issues' ? fairIssueSelection(open as GhIssue[], 15) : open.slice(0, 15) as GhPull[];
+    const n = shownItems.length;
     const cols = n <= 2 ? n : n <= 4 ? 2 : n <= 6 ? 3 : n <= 8 ? 4 : 5;
     const rows = Math.min(3, Math.ceil(n / cols));
     const scale = Math.min(2, Math.max(1, 3 / Math.max(cols, rows * 1.3)));
@@ -78,7 +100,7 @@ export class BoardTexture {
     const nh = Math.min(164 * scale, (H - 40) / rows - 30);
     const gx = (W - cols * nw) / (cols + 1);
     const gy = (H - rows * nh) / (rows + 1);
-    open.slice(0, cols * rows).forEach((it, i) => {
+    shownItems.slice(0, cols * rows).forEach((it, i) => {
       const c = i % cols;
       const r = Math.floor(i / cols);
       const x = gx + c * (nw + gx);
@@ -94,11 +116,17 @@ export class BoardTexture {
       g.fillStyle = '#2b2d42';
       const fs = Math.round(22 * Math.min(scale, nh / 164));
       const w = this.kind === 'pulls' && workers ? workerForPull(workers.values(), it as GhPull) : undefined;
-      const footer = w ? fs * 1.3 : 0;
+      const repository = this.kind === 'issues' ? (it as GhIssue).repository ?? 'current project' : '';
+      const footer = (w ? fs * 1.3 : 0) + (repository ? fs : 0);
       g.font = `900 ${Math.round(fs * 1.35)}px Nunito, ui-rounded, system-ui, sans-serif`;
       g.fillText(`#${it.number}`, -nw / 2 + 14, -nh / 2 + fs * 2);
       g.font = `700 ${fs}px Nunito, ui-rounded, system-ui, sans-serif`;
       wrap(g, it.title, nw - 28, Math.max(2, Math.floor((nh - fs * 3 - footer) / (fs * 1.1)))).forEach((line, li) => g.fillText(line, -nw / 2 + 14, -nh / 2 + fs * 3.4 + li * fs * 1.1));
+      if (repository) {
+        g.fillStyle = '#5c5f73';
+        g.font = `800 ${Math.round(fs * 0.7)}px ui-monospace, Menlo, monospace`;
+        g.fillText(clip(g, repository, nw - 28), -nw / 2 + 14, nh / 2 - fs * (w ? 1.6 : 0.65));
+      }
       if (w) {
         // A dot in the worker's color and its desk, so you can tell whose PR it is from across the room.
         const r = fs * 0.3;

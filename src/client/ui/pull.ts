@@ -1,4 +1,5 @@
 import type { GhCheck, GhComment, GhIssue, GhIssueDetail, GhMergeMethod, GhPull, GhPullDetail, GhReviewComment, ServerMsg } from '../../shared/protocol';
+import { isCurrentIssue } from '../../shared/issue-repositories';
 import type { Net } from '../net';
 import { AVATAR_COLORS, store, workerForPull } from '../state';
 import { issuePrompt, type BoardActions } from './boards';
@@ -219,7 +220,9 @@ function pullContext(it: GhPull) {
 }
 
 function issueContext(it: GhIssue) {
-  return `This is about GitHub issue #${it.number} "${it.title}" (${it.url}). Read it with \`gh issue view ${it.number} --comments\`.`;
+  const repo = it.repository ? ` in ${it.repository}` : '';
+  const flag = it.repository ? ` --repo ${it.repository}` : '';
+  return `This is about GitHub issue #${it.number}${repo} "${it.title}" (${it.url}). Read it with \`gh issue view ${it.number} --comments${flag}\`.`;
 }
 
 // ---- Merge dialog -------------------------------------------------------------------------------
@@ -801,17 +804,19 @@ export function openIssue(it: GhIssue, actions: BoardActions) {
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const conv = h('div.gh-conv');
   const [word, cls] = it.state === 'OPEN' ? ['open', 'done'] : ['closed', 'offline'];
-  const task = store.taskForIssue(it.number);
+  const current = isCurrentIssue(it, store.issues);
+  const task = current ? store.taskForIssue(it.number, it.repository) : undefined;
   const onQueue = !!task && task.status !== 'done';
-  const queueProvider = it.state === 'OPEN' ? providerPicker(store.project, `issue-provider-${it.number}`, 'Queue provider') : null;
+  const queueProvider = current && it.state === 'OPEN' ? providerPicker(store.project, `issue-provider-${it.repository ?? 'current'}-${it.number}`, 'Queue provider') : null;
   queueProvider?.element.classList.toggle('hidden', onQueue);
   const addIssueToQueue = () => {
+    if (!current) return;
     if (queueProvider && !queueProvider.valid()) return;
     modal.close();
-    actions.queue(issuePrompt(it), `#${it.number} ${it.title}`, it.number, queueProvider?.value(), queueProvider?.model());
+    actions.queue(issuePrompt(it), `#${it.number} ${it.title}`, it.number, queueProvider?.value(), queueProvider?.model(), it.repository);
   };
   const queue =
-    it.state === 'OPEN'
+    current && it.state === 'OPEN'
       ? h(
           'button.btn',
           { type: 'button', disabled: onQueue, title: onQueue ? undefined : 'A worker picks it up by itself when a desk is free and there is room under the worker limit', onclick: addIssueToQueue },
@@ -820,12 +825,13 @@ export function openIssue(it: GhIssue, actions: BoardActions) {
       : null;
   const el = h(
     'div.modal.gh-window.issue',
-    { role: 'dialog', 'aria-label': `Issue #${it.number}` },
-    h('header', {}, h('span.pill', { class: cls }, word), h('h2', { title: it.title }, `#${it.number} ${it.title}`), close),
+    { role: 'dialog', 'aria-label': `Issue ${it.repository ?? 'current project'} #${it.number}` },
+    h('header', {}, h('span.pill', { class: cls }, word), h('h2', { title: it.title }, `${it.repository ?? 'Current project'} · #${it.number} ${it.title}`), close),
     h(
       'div.gh-meta',
       {},
       avatar(it.author),
+      current ? null : h('span.readonly-badge', {}, '👀 tracking only'),
       h('b', {}, it.author),
       h('span', {}, `opened this ${timeAgo(it.createdAt)}`),
       it.assignees.length ? h('span', {}, `· 👤 ${it.assignees.join(', ')}`) : null,
@@ -836,10 +842,10 @@ export function openIssue(it: GhIssue, actions: BoardActions) {
       'footer',
       {},
       h('a.grow', { href: it.url, target: '_blank', rel: 'noopener noreferrer' }, 'Open on GitHub ↗'),
-      h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this issue', onclick: () => actions.ask(issueContext(it), `Ask about issue #${it.number}`) }, '✍️ Ask a worker…'),
+      current ? h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this issue', onclick: () => actions.ask(issueContext(it), `Ask about issue #${it.number}`) }, '✍️ Ask a worker…') : h('span.readonly-explanation', {}, 'Tracked for visibility only. Open an office in this repository to work on it.'),
       queueProvider?.element ?? null,
       queue,
-      h('button.btn.primary', { type: 'button', onclick: () => actions.assign(issuePrompt(it), `Hand issue #${it.number} to a worker`) }, '🤖 Hand to a worker'),
+      current ? h('button.btn.primary', { type: 'button', onclick: () => actions.assign(issuePrompt(it), `Hand issue #${it.number} to a worker`) }, '🤖 Hand to a worker') : null,
     ),
   );
   const render = () => {
@@ -853,7 +859,7 @@ export function openIssue(it: GhIssue, actions: BoardActions) {
   function load() {
     error = '';
     render();
-    getJson<GhIssueDetail>(`/api/gh/issue?number=${it.number}`)
+    getJson<GhIssueDetail>(`/api/gh/issue?number=${it.number}${it.repository ? `&repository=${encodeURIComponent(it.repository)}` : ''}`)
       .then((d) => (detail = d))
       .catch((err) => (error = (err as Error).message))
       .finally(render);

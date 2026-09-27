@@ -13,6 +13,7 @@ import { WorkerManager } from './workers.js';
 import { configuredProvider, OPEN_CODE_MODEL_MAX } from './agents.js';
 import { createOpenCodeModelCatalogue } from './models.js';
 import { GitHub } from './github.js';
+import { normalizeIssueRepository, sameRepository } from '../shared/issue-repositories.js';
 import { Team } from './team.js';
 import { Upgrader } from './upgrade.js';
 import { Services } from './services.js';
@@ -252,6 +253,7 @@ export async function startServer(cfg: Config) {
       broadcast({ t: 'gh.pulls', state });
       queue?.onPulls(state.items);
     },
+    cfg.dataDir,
   );
   // The 📋 task queue seats workers by itself: it watches the workers and links PRs from GitHub.
   queue = new TaskQueue(cfg.dataDir, workers, !!project.branch, {
@@ -437,7 +439,11 @@ export async function startServer(cfg: Config) {
         if (!Number.isSafeInteger(n) || n <= 0) return send(res, 400, { error: 'Bad number' });
         try {
           if (p === '/api/gh/pull') return send(res, 200, await github.pullDetail(n));
-          if (p === '/api/gh/issue') return send(res, 200, await github.issueDetail(n));
+          if (p === '/api/gh/issue') {
+            const repository = url.searchParams.get('repository') ?? undefined;
+            if (repository !== undefined && !normalizeIssueRepository(repository)) return send(res, 400, { error: 'Use owner/repository format' });
+            return send(res, 200, await github.issueDetail(n, repository));
+          }
           if (p === '/api/gh/pull/diff') {
             const diff = await github.pullDiff(n);
             res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -679,6 +685,14 @@ export async function startServer(cfg: Config) {
       case 'term.resize':
         if (c.attached.has(msg.workerId)) workers.resize(msg.workerId, num(msg.cols), num(msg.rows));
         break;
+      case 'gh.issues.repo.add':
+      case 'gh.issues.repo.remove': {
+        const error = msg.t === 'gh.issues.repo.add'
+          ? github.addIssueRepository(msg.repository)
+          : github.removeIssueRepository(msg.repository);
+        if (error) warn(c, error);
+        break;
+      }
       case 'gh.refresh':
         void github.refresh();
         break;
@@ -698,6 +712,11 @@ export async function startServer(cfg: Config) {
           break;
         }
         const issue = Number.isInteger(msg.issue) && (msg.issue as number) > 0 ? (msg.issue as number) : undefined;
+        // Extra repositories are tracked only: a worker still runs in this project's checkout.
+        if (msg.issueRepository !== undefined && (issue === undefined || !normalizeIssueRepository(msg.issueRepository) || !sameRepository(msg.issueRepository, github.issues.currentRepository))) {
+          warn(c, 'Issues from another repository can be tracked here. Run its workers from that repository’s office.');
+          break;
+        }
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
         const err = queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model);
         if (err) warn(c, err);

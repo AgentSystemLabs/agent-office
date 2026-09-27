@@ -147,6 +147,8 @@ export const FLAG_INVERSE = 2;
 export const FLAG_DIM = 4;
 
 export interface GhIssue {
+  /** Repository identity; issue numbers are only unique within a repository. */
+  repository?: string;
   number: number;
   title: string;
   state: string;
@@ -158,6 +160,20 @@ export interface GhIssue {
   updatedAt: string;
   body: string;
   comments: number;
+}
+
+/** Per-repository refresh results keep one inaccessible repository from hiding the others. */
+export interface IssueRepositoryState {
+  name: string;
+  current: boolean;
+  fetchedAt: number;
+  error?: string;
+}
+
+export interface GhIssuesState extends GhState<GhIssue> {
+  currentRepository?: string;
+  repositories?: IssueRepositoryState[];
+  configurationError?: string;
 }
 
 export interface GhPull {
@@ -443,9 +459,11 @@ export type ClientMsg =
   | { t: 'term.input'; workerId: string; data: string }
   | { t: 'term.resize'; workerId: string; cols: number; rows: number }
   | { t: 'gh.refresh' }
+  | { t: 'gh.issues.repo.add'; repository: string }
+  | { t: 'gh.issues.repo.remove'; repository: string }
   /** Merge a pull request; the answer comes back as gh.merged. */
   | { t: 'gh.merge'; number: number; method: GhMergeMethod; deleteBranch: boolean; auto?: boolean }
-  | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string }
+  | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string; issueRepository?: string }
   | { t: 'queue.remove'; taskId: string }
   /** Move a queued task up (-1) or down (+1) the queue. */
   | { t: 'queue.move'; taskId: string; delta: number }
@@ -484,7 +502,7 @@ export type ServerMsg =
       peers: PeerInfo[];
       workers: WorkerInfo[];
       project: ProjectInfo;
-      issues: GhState<GhIssue>;
+      issues: GhIssuesState;
       pulls: GhState<GhPull>;
       ice: { urls: string | string[]; username?: string; credential?: string }[];
       chat: ChatLine[];
@@ -510,7 +528,7 @@ export type ServerMsg =
   | { t: 'screen'; workerId: string; cols: number; rows: number; lines: Record<number, Run[]>; full: boolean; cursor: [number, number] }
   | { t: 'term.snapshot'; workerId: string; data: string; cols: number; rows: number }
   | { t: 'term.data'; workerId: string; data: string }
-  | { t: 'gh.issues'; state: GhState<GhIssue> }
+  | { t: 'gh.issues'; state: GhIssuesState }
   | { t: 'gh.pulls'; state: GhState<GhPull> }
   /** Sent to whoever asked for the merge. */
   | { t: 'gh.merged'; number: number; error?: string }

@@ -1,8 +1,9 @@
 import { DESK_BY_ID } from '../../shared/layout';
-import type { AgentProvider, GhIssue, GhPull, WorkerInfo } from '../../shared/protocol';
+import type { AgentProvider, GhIssue, GhIssuesState, GhPull, WorkerInfo } from '../../shared/protocol';
+import { isCurrentIssue, MAX_ISSUE_REPOSITORIES, normalizeIssueRepository, sameRepository } from '../../shared/issue-repositories';
 import type { Net } from '../net';
-import { store, workerForPull } from '../state';
-import { h, openModal, timeAgo } from './dom';
+import { issueRepositoryLabel, projectRepository, store, visibleIssues, type IssueRepositoryFilter, workerForPull } from '../state';
+import { h, openModal, timeAgo, toast } from './dom';
 import { labelChip, openIssue, openPull } from './pull';
 import { providerLabel } from './provider';
 
@@ -14,12 +15,14 @@ export interface BoardActions {
   /** Walks you to the desk a pull request came from. */
   goToDesk(deskId: string): void;
   /** Put an issue on the 📋 task queue; a worker is seated for it when there's room. */
-  queue(prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string): void;
+  queue(prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string, issueRepository?: string): void;
 }
 
 /** The task a worker gets for an issue, from the board or the queue. */
 export function issuePrompt(it: GhIssue): string {
-  return `Work on GitHub issue #${it.number}: "${it.title}".\n\nRead it first with \`gh issue view ${it.number} --comments\`. Create a new branch, implement the change, verify it, then open a pull request that closes #${it.number}.`;
+  const repo = it.repository ? ` in ${it.repository}` : '';
+  const flag = it.repository ? ` --repo ${it.repository}` : '';
+  return `Work on GitHub issue #${it.number}${repo}: "${it.title}".\n\nRead it first with \`gh issue view ${it.number} --comments${flag}\`. Create a new branch, implement the change, verify it, then open a pull request that closes #${it.number}.`;
 }
 
 const TILTS = ['-1.2deg', '0.8deg', '-0.4deg', '1.4deg', '0deg', '-0.9deg'];
@@ -32,7 +35,7 @@ interface Column<T> {
 
 function issueColumns(items: GhIssue[]): Column<GhIssue>[] {
   const open = items.filter((i) => i.state === 'OPEN');
-  const inProgress = open.filter((i) => i.assignees.length > 0 || i.labels.some((l) => /progress|doing|wip|started/i.test(l.name)) || store.taskForIssue(i.number)?.status === 'running');
+  const inProgress = open.filter((i) => i.assignees.length > 0 || i.labels.some((l) => /progress|doing|wip|started/i.test(l.name)) || store.taskForIssue(i.number, i.repository)?.status === 'running');
   const todo = open.filter((i) => !inProgress.includes(i));
   const closed = items.filter((i) => i.state !== 'OPEN').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 40);
   return [
@@ -65,8 +68,8 @@ function deskChip(w: WorkerInfo) {
 }
 
 /** Where an issue stands on the 📋 queue, for its card. */
-function queueChip(issue: number): Node | '' {
-  const t = store.taskForIssue(issue);
+function queueChip(issue: number, repository?: string): Node | '' {
+  const t = store.taskForIssue(issue, repository);
   if (!t) return '';
   const provider = ` · ${providerLabel(t.provider, store.project)}`;
   if (t.status === 'queued') return h('span.qchip', {}, `${store.queue.tasks.find((x) => x.status === 'queued') === t ? '📋 up next' : '📋 queued'}${provider}`);
@@ -87,29 +90,125 @@ function card(n: number, title: string, meta: (Node | string)[], i: number, oncl
 export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActions) {
   const body = h('div.body');
   const status = h('span.board-status');
+  const repoError = h('span.board-status-error');
   const refresh = h('button.btn', { title: 'Refresh from GitHub', onclick: () => net.send({ t: 'gh.refresh' }) }, '🔄 Refresh');
+  let repoFilter: IssueRepositoryFilter = 'all';
+  let repoPanelOpen = false;
+  let pendingRepository = '';
+  let lastConfigurationError = '';
+  const repoToggle = h('button.btn', { type: 'button', title: 'Configure tracked issue repositories' }, '🗂 Repositories');
+  const repoPanel = h('div.board-repos');
+  repoPanel.classList.toggle('hidden', kind !== 'issues');
+  const issueBanner = h('p.board-readonly-note');
+  const columns = h('div.board-columns');
+  const repoInput = h('input', { type: 'text', placeholder: 'owner/repo', 'aria-label': 'Repository to track' }) as HTMLInputElement;
+  const repoAdd = h('button.btn', { type: 'button' }, 'Add');
+  const repoFilterSelect = h('select', { 'aria-label': 'Issue repository filter' }) as HTMLSelectElement;
+  body.append(repoPanel, issueBanner, columns);
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
-  const el = h('div.modal.board', { role: 'dialog', 'aria-label': kind === 'issues' ? 'Issues board' : 'Pull requests board' }, h('header', {}, h('h2', {}, kind === 'issues' ? '📌 Issues' : '🔀 Pull Requests'), status, refresh, close), body);
+  const el = h('div.modal.board', { role: 'dialog', 'aria-label': kind === 'issues' ? 'Issues board' : 'Pull requests board' }, h('header', {}, h('h2', {}, kind === 'issues' ? '📌 Issues' : '🔀 Pull Requests'), status, repoError, kind === 'issues' ? repoToggle : null, refresh, close), body);
+
+  repoToggle.addEventListener('click', () => {
+    repoPanelOpen = !repoPanelOpen;
+    repoPanel.classList.toggle('hidden', !repoPanelOpen);
+  });
+
+  const issueState = () => store.issues as GhIssuesState;
+  const submitRepository = () => {
+    const value = normalizeIssueRepository(repoInput.value);
+    if (!value) {
+      repoInput.setCustomValidity('Use a GitHub repository in owner/repo form.');
+      repoInput.reportValidity();
+      return;
+    }
+    const configured = stRepositories(issueState());
+    const current = issueState().currentRepository ?? projectRepository(store.project);
+    const additional = configured.filter((name) => !sameRepository(name, current));
+    if (additional.length >= MAX_ISSUE_REPOSITORIES && !sameRepository(value, current) && !additional.some((name) => sameRepository(name, value))) {
+      repoInput.setCustomValidity(`Track up to ${MAX_ISSUE_REPOSITORIES} repositories.`);
+      repoInput.reportValidity();
+      return;
+    }
+    repoInput.setCustomValidity('');
+    pendingRepository = value;
+    net.send({ t: 'gh.issues.repo.add', repository: value });
+  };
+  repoAdd.addEventListener('click', submitRepository);
+  repoInput.addEventListener('keydown', (e) => e.key === 'Enter' && submitRepository());
+  repoFilterSelect.addEventListener('change', () => {
+    repoFilter = repoFilterSelect.value as IssueRepositoryFilter;
+    render();
+  });
+  const stRepositories = (st: GhIssuesState): string[] => [...new Set([st.currentRepository ?? projectRepository(store.project), ...(st.repositories ?? []).map((r) => r.name)].filter((x): x is string => !!x))];
+  const renderRepositories = (st: GhIssuesState) => {
+    if (kind !== 'issues') return;
+    const current = st.currentRepository ?? projectRepository(store.project);
+    const names = [...new Set([current, ...(st.repositories ?? []).map((r) => r.name), ...st.items.map((i) => i.repository)].filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b));
+    if (pendingRepository && names.some((name) => sameRepository(name, pendingRepository))) {
+      pendingRepository = '';
+      repoInput.value = '';
+    }
+    const oldValue = repoFilterSelect.value;
+    repoFilterSelect.replaceChildren(h('option', { value: 'all' }, 'All repositories'));
+    names.forEach((name) => repoFilterSelect.append(h('option', { value: name }, name === current ? `${name} · current` : name)));
+    repoFilterSelect.value = names.some((name) => sameRepository(name, repoFilter)) ? repoFilter : oldValue && names.some((name) => sameRepository(name, oldValue)) ? oldValue : 'all';
+    repoFilter = repoFilterSelect.value as IssueRepositoryFilter;
+    const list = h('div.board-repo-list', {}, ...names.map((name) => {
+      const info = (st.repositories ?? []).find((r) => sameRepository(r.name, name));
+      const isCurrent = sameRepository(name, current);
+      const remove = h('button.btn', { type: 'button', disabled: isCurrent, title: isCurrent ? 'The office repository is always tracked' : `Stop tracking ${name}` }, 'Remove');
+      if (!isCurrent) remove.addEventListener('click', () => net.send({ t: 'gh.issues.repo.remove', repository: name }));
+      return h('div.board-repo-row', {}, h('span', {}, isCurrent ? `📁 ${name} · current` : `📦 ${name}`, info?.error ? h('small', {}, `⚠️ ${info.error}`) : ''), remove);
+    }));
+    const wasFocused = document.activeElement === repoInput;
+    const selection = wasFocused ? [repoInput.selectionStart, repoInput.selectionEnd] : [null, null];
+    repoPanel.replaceChildren(h('div.board-repo-controls', {}, repoFilterSelect, h('span.grow'), repoInput, repoAdd), ...(st.configurationError ? [h('p.board-repo-error', {}, st.configurationError)] : []), h('p.board-repo-note', {}, 'Tracked repositories are read-only here. Open an office in a repository to run work on its issues.'), list);
+    if (wasFocused) {
+      repoInput.focus();
+      if (selection[0] !== null && selection[1] !== null) repoInput.setSelectionRange(selection[0], selection[1]);
+    }
+    repoPanel.classList.toggle('hidden', !repoPanelOpen);
+    if (st.configurationError && st.configurationError !== lastConfigurationError) {
+      lastConfigurationError = st.configurationError;
+      toast(st.configurationError, 'warn');
+    }
+  };
 
   const render = () => {
     const st = kind === 'issues' ? store.issues : store.pulls;
     status.textContent = st.loading ? 'Refreshing…' : st.fetchedAt ? `Updated ${timeAgo(st.fetchedAt)}` : '';
-    body.replaceChildren();
+    const issueSt = issueState();
+    const repoErrors = (issueSt.repositories ?? []).filter((r) => r.error).map((r) => `${r.name}: ${r.error}`);
+    repoError.textContent = kind === 'issues' && (issueSt.configurationError || repoErrors.length) ? `⚠️ ${issueSt.configurationError ?? repoErrors[0]}` : '';
+    repoError.title = [issueSt.configurationError, ...repoErrors].filter(Boolean).join('\n');
+    columns.replaceChildren();
+    renderRepositories(issueSt);
     if (st.error && !st.items.length) {
-      body.append(h('div.board-error', {}, `Couldn't load from GitHub: ${st.error}`, h('br'), h('small', {}, 'The server runs `gh` in the project directory — make sure it is installed and authenticated (gh auth login).')));
+      issueBanner.textContent = '';
+      columns.replaceChildren(h('div.board-error', {}, `Couldn't load from GitHub: ${st.error}`, h('br'), h('small', {}, 'The server runs `gh` in the project directory — make sure it is installed and authenticated (gh auth login).')));
       return;
     }
     if (kind === 'issues') {
-      for (const col of issueColumns(store.issues.items)) {
+      const currentRepo = issueState().currentRepository ?? projectRepository(store.project);
+      if (repoFilter !== 'all' && ![currentRepo, ...(issueState().repositories ?? []).map((r) => r.name)].some((name) => name && sameRepository(name, repoFilter))) {
+        repoFilter = 'all';
+        repoFilterSelect.value = 'all';
+      }
+      const filtered = visibleIssues(store.issues.items, repoFilter);
+      const external = filtered.filter((it) => !isCurrentIssue(it, issueState())).length;
+      issueBanner.textContent = external ? `👀 ${external} issue${external === 1 ? ' from' : 's from'} tracked repositories ${external === 1 ? 'is' : 'are'} read-only in this office.` : '';
+      const sections: HTMLElement[] = [];
+      for (const col of issueColumns(filtered)) {
         const ul = h('ul');
         col.items.forEach((it, i) =>
           ul.append(
-            card(it.number, it.title, [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, actions)),
+            card(it.number, it.title, [h('span.repo-chip', {}, issueRepositoryLabel(it)), ...labelChips(it.labels), queueChip(it.number, it.repository), !isCurrentIssue(it, issueState()) ? '👀 tracking only' : '', it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, actions)),
           ),
         );
         if (!col.items.length) ul.append(h('li.empty', {}, 'Nothing here'));
-        body.append(h('section.column', {}, h('h4', {}, col.title, h('span', {}, String(col.items.length))), ul));
+        sections.push(h('section.column', {}, h('h4', {}, col.title, h('span', {}, String(col.items.length))), ul));
       }
+      columns.replaceChildren(...sections);
     } else {
       for (const col of pullColumns(store.pulls.items)) {
         const ul = h('ul');
@@ -135,7 +234,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
           );
         });
         if (!col.items.length) ul.append(h('li.empty', {}, 'Nothing here'));
-        body.append(h('section.column', {}, h('h4', {}, col.title, h('span', {}, String(col.items.length))), ul));
+        columns.append(h('section.column', {}, h('h4', {}, col.title, h('span', {}, String(col.items.length))), ul));
       }
     }
   };
