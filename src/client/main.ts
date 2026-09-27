@@ -337,6 +337,7 @@ function grabLadder() {
   if (!floorThere(1) && !floorThere(-1)) return toast('No other floors yet — add a project in the elevator', 'warn');
   if (player.seat) standUp();
   if (hanger.active) hanger.cancel();
+  if (walkingTo) stopWalking();
   climber.grabLadder();
 }
 
@@ -346,6 +347,7 @@ function usePole(i: number) {
   if (trip || climber.active || !spot) return;
   if (player.seat) standUp();
   if (hanger.active) hanger.cancel();
+  if (walkingTo) stopWalking();
   if (spot === office.stack.poleDown()) climber.slide(spot);
   else if (spot === office.stack.poleLanding()) climber.twirl(spot);
 }
@@ -602,6 +604,8 @@ function switchFloor(floorId: string) {
   if (hanger.active) hanger.cancel();
   if (climber.active) climber.abort();
   if (player.seat) standUp();
+  // The floor list isn't a window, so nothing else stops a walk over to someone on this floor.
+  if (walkingTo) stopWalking();
   trip = { floor: floorId, how: 'switch', timer: window.setTimeout(tripFailed, 10_000) };
   player.enabled = false;
   player.clearKeys();
@@ -1095,6 +1099,7 @@ function standAt(desk: DeskDef) {
   if (player.seat) standUp();
   if (hanger.active) hanger.cancel();
   if (climber.active) climber.abort();
+  if (walkingTo) stopWalking();
   const spot = deskSeat(desk, desk.station ? -1.6 : desk.beanbag ? 1.6 : 2.4);
   player.pos.set(spot.x, 0, spot.z);
   player.vy = 0;
