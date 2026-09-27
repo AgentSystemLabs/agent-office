@@ -245,6 +245,9 @@ export interface GhState<T> {
 
 export type GhMergeMethod = 'squash' | 'merge' | 'rebase';
 
+/** Why an issue was closed, as GitHub records it. */
+export type GhCloseReason = 'completed' | 'not planned';
+
 /** How the repository lets pull requests be merged. */
 export interface GhRepoInfo {
   nameWithOwner: string;
@@ -310,6 +313,8 @@ export interface GhPullDetail {
 /** GET /api/gh/issue?number=N */
 export interface GhIssueDetail {
   number: number;
+  /** OPEN or CLOSED. */
+  state: string;
   body: string;
   comments: GhComment[];
   /** See GhPullDetail.viewer. */
@@ -589,6 +594,8 @@ export type ClientMsg =
   | { t: 'gh.merge'; number: number; method: GhMergeMethod; deleteBranch: boolean; auto?: boolean }
   /** Comment on an issue or a PR's conversation, as the server's gh account; answered with gh.commented. */
   | { t: 'gh.comment'; kind: 'issue' | 'pull'; number: number; body: string }
+  /** Close an issue, or a pull request without merging it; the answer comes back as gh.closed. */
+  | { t: 'gh.close'; kind: 'issue' | 'pull'; number: number; comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }
   | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string }
   | { t: 'queue.remove'; taskId: string }
   /** Move a queued task up (-1) or down (+1) the queue. */
@@ -683,6 +690,8 @@ export type ServerMsg =
   | { t: 'gh.merged'; number: number; error?: string }
   /** Sent to whoever commented: the comment as GitHub saved it, or why it wasn't. */
   | { t: 'gh.commented'; kind: 'issue' | 'pull'; number: number; comment?: GhComment; error?: string }
+  /** Sent to whoever asked to close it. */
+  | { t: 'gh.closed'; kind: 'issue' | 'pull'; number: number; error?: string }
   | { t: 'rtc'; from: string; data: unknown }
   | ({ t: 'chat' } & ChatLine)
   | { t: 'toast'; text: string; level: 'info' | 'warn' | 'error' }

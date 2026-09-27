@@ -972,6 +972,22 @@ export async function startServer(cfg: Config) {
         });
         break;
       }
+      case 'gh.close': {
+        const floor = here();
+        const n = num(msg.number);
+        const kind = msg.kind === 'issue' || msg.kind === 'pull' ? msg.kind : undefined;
+        if (!floor || !Number.isSafeInteger(n) || n <= 0 || !kind) break;
+        const reason = msg.reason === 'not planned' ? 'not planned' : 'completed';
+        void floor.github.close(kind, n, { comment: str(msg.comment, 20000).trim() || undefined, reason, deleteBranch: msg.deleteBranch === true }).then((error) => {
+          sendTo(c, { t: 'gh.closed', kind, number: n, error });
+          if (error) return;
+          if (kind === 'pull') return toastFloor(floor, `${who} closed PR #${n} without merging`);
+          // Nobody should be seated for an issue that's closed.
+          const dropped = floor.queue.dropIssue(n);
+          toastFloor(floor, `${who} closed issue #${n}${reason === 'not planned' ? ' as not planned' : ''}${dropped ? ' and took it off the queue' : ''}`);
+        });
+        break;
+      }
       case 'queue.add': {
         const floor = here();
         if (!floor) break;
