@@ -2,8 +2,9 @@ import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, Gh
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
+import type { DogState } from '../shared/dog';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'floors' | 'floor' | 'repos';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'floors' | 'floor' | 'repos' | 'dog';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -131,6 +132,9 @@ class Store {
   accounts: AccountsState | null = null;
   /** The office's Slack / Discord webhook. */
   notify: NotifyState = {};
+  /** The dog on your floor, and when (performance.now()) the leg it's on began. */
+  dog: DogState | null = null;
+  dogStart = 0;
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -177,7 +181,13 @@ class Store {
     this.queue = v.queue;
     this.decor = v.decor;
     this.services = v.services;
-    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'decor', 'services'] as Topic[]) this.emit(t);
+    this.setDog(v.dog);
+    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'decor', 'services', 'dog'] as Topic[]) this.emit(t);
+  }
+
+  private setDog(dog: DogState | null) {
+    this.dog = dog;
+    this.dogStart = performance.now() - (dog?.elapsed ?? 0);
   }
 
   apply(msg: ServerMsg) {
@@ -293,6 +303,10 @@ class Store {
       case 'notify':
         this.notify = msg.state;
         this.emit('notify');
+        break;
+      case 'dog':
+        this.setDog(msg.dog);
+        this.emit('dog');
         break;
       case 'chat':
         this.chat.push(msg);

@@ -325,6 +325,7 @@ export async function startServer(cfg: Config) {
       for (const c of clients.values()) if (c.peer.floor === floor.id) n++;
       return n;
     },
+    peers: (floor) => [...clients.values()].filter((c) => c.peer.floor === floor.id).map((c) => c.peer),
   };
   const openFloor = (def: FloorDef): Floor | undefined => {
     if (!existsSync(def.dir)) {
@@ -372,6 +373,7 @@ export async function startServer(cfg: Config) {
     queue: floor?.queue.state() ?? { tasks: [], maxWorkers: 0 },
     decor: floor?.decor.list() ?? [],
     services: servicesState(floor),
+    dog: floor?.dog.view() ?? null,
   });
   const screensOf = (c: Client, floor: Floor | undefined) => {
     for (const { workerId, frame } of floor?.workers.fullScreens() ?? []) sendTo(c, { t: 'screen', workerId, ...frame, full: true });
@@ -869,6 +871,16 @@ export async function startServer(cfg: Config) {
             toastAll(`🛗 New floor: ${r.name}, added by ${who}`);
             sendTo(c, { t: 'floor.added', repo, floor: floor.id });
           });
+        break;
+      }
+      case 'dog.pet':
+        floorOf(c)?.dog.pet(c.peer);
+        break;
+      case 'dog.name': {
+        const floor = here();
+        if (!floor) break;
+        const name = floor.dog.rename(str(msg.name, 200));
+        toastFloor(floor, `🐶 ${who} named the dog ${name}`);
         break;
       }
       case 'worker.spawn': {

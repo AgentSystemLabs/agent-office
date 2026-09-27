@@ -107,6 +107,7 @@ export function openHelp() {
     ['R', 'Resume a sleeping worker'],
     ['X', 'Send a worker home (frees the desk)'],
     ['F', 'Hang a picture from the web on a wall. Look at a picture and press E to move, edit or take it down'],
+    ['🐶', 'Walk up to the office dog and press E to pet it. When a worker needs input, it runs to that desk and barks. Name it in ⚙️ Settings'],
     ['O', 'Open a pull request for a worker on its own branch, or see the one it has'],
     ['T', 'Chat'],
     ['/', 'Search the chat and every terminal on your floor, back to before the office last restarted'],
