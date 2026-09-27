@@ -7,7 +7,7 @@ import { isAsleep } from '../../shared/status';
 import { HIPS } from '../player';
 import { HeldCard } from './card';
 import { UNDEAD_SKIN, elfBoot, elfHat, elfWorker, santaHat, warlockHat, zombieWorker } from './costumes';
-import { cardSprite, disposeSprite, mesh, roundedBox, textSprite, toon, toonUnique } from './toon';
+import { cardSprite, disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
 
 export type Pose = 'stand' | 'walk' | 'sit' | 'type';
 
@@ -926,7 +926,7 @@ function stanceOf(act: Act, t: number, s: Stance): Stance {
       s.look = -0.01 - ((t * 0.9) % 1) * 0.03;
       break;
     case 'test':
-      // Leaning back, hands behind its head, feet out: watching the bar fill.
+      // Leaning back, hands behind its head, feet out: waiting on the run.
       s.armLx = s.armRx = -3.3;
       s.armLz = 0.55;
       s.armRz = -0.55;
@@ -1014,17 +1014,6 @@ function papers(): { group: THREE.Group; page: THREE.Group } {
   group.add(page);
   group.add(mesh(new THREE.BoxGeometry(W * 0.5, 0.05, 0.05), toon('#adb5bd'), 0, 0, 0, false));
   return { group, page };
-}
-
-/** A progress bar that fills from left to right, its own +z toward whoever's watching. */
-function progressBar(): { group: THREE.Group; fill: THREE.Mesh } {
-  const group = new THREE.Group();
-  group.add(mesh(roundedBox(0.92, 0.2, 0.06, 0.07), toon('#2b2d42'), 0, 0, 0, false));
-  const geo = new THREE.BoxGeometry(0.8, 0.1, 0.04);
-  geo.translate(0.4, 0, 0);
-  const fill = mesh(geo, toon('#7cf29a', { emissive: '#1f7a3a' }), -0.4, 0, 0.02, false);
-  group.add(fill);
-  return { group, fill };
 }
 
 /** A little globe: blue sea, green blobs of land and a gold ring round its middle. */
@@ -1116,9 +1105,8 @@ export class Worker {
   private twirlT = -1;
   private flipT = 0;
   private papers: ReturnType<typeof papers>;
-  private bar: ReturnType<typeof progressBar>;
   private globe: ReturnType<typeof globe>;
-  /** Beside its laptop, where the bar and the globe float (see setPropSpot). */
+  /** Beside its laptop, where the globe floats (see setPropSpot). */
   private spot = new THREE.Vector3(-1, 1.1, 1.3);
   private skin: THREE.MeshToonMaterial;
   /** Dressed up for a holiday (see setCostume), and what it's wearing. */
@@ -1178,20 +1166,19 @@ export class Worker {
       this.feet.push(foot);
     }
 
-    // What it acts out with: papers in its hands, and beside its laptop a progress bar or a globe.
+    // What it acts out with: papers in its hands, and a globe beside its laptop.
     this.papers = papers();
     this.papers.group.position.set(0, 0.86, 0.4);
     this.papers.group.rotation.x = 0.35;
     this.body.add(this.papers.group);
-    this.bar = progressBar();
     this.globe = globe();
-    for (const prop of [this.papers.group, this.bar.group, this.globe.group]) prop.visible = false;
-    this.root.add(this.bar.group, this.globe.group);
+    for (const prop of [this.papers.group, this.globe.group]) prop.visible = false;
+    this.root.add(this.globe.group);
 
     this.setName(name);
   }
 
-  /** Where the progress bar and the globe float, in its own space: beside its laptop, where the card over its head doesn't hide them. */
+  /** Where the globe floats, in its own space: beside its laptop, where the card over its head doesn't hide it. */
   setPropSpot(at: THREE.Vector3) {
     this.spot.copy(at);
   }
@@ -1293,7 +1280,7 @@ export class Worker {
     this.cheerT = 0;
     this.bounceT = 0;
     this.twirlT = -1;
-    for (const prop of [this.papers.group, this.bar.group, this.globe.group]) prop.visible = false;
+    for (const prop of [this.papers.group, this.globe.group]) prop.visible = false;
     this.armL.position.set(-0.3, 0.55, 0.05);
     this.armR.position.set(0.3, 0.55, 0.05);
     this.feet.forEach((f, i) => f.position.set(i ? 0.12 : -0.12, 0.2, 0.05));
@@ -1357,10 +1344,9 @@ export class Worker {
     if (this.bubble) this.root.add(this.bubble);
   }
 
-  /** `eye` is the camera, for the progress bar to face. */
-  update(dt: number, t: number, eye?: THREE.Vector3) {
+  update(dt: number, t: number) {
     if (this.leaving) return this.carry(this.leaving, dt, t);
-    if (this.dancing) return this.boogie(this.dancing, dt, t, eye);
+    if (this.dancing) return this.boogie(this.dancing, dt, t);
     this.cheerT = Math.max(0, this.cheerT - dt);
     // Waiting on you: a couple of seconds of jumping, then arms crossed and a tapping foot, and round again.
     this.waitT = this.status === 'needs_input' ? this.waitT + dt : 0;
@@ -1421,7 +1407,7 @@ export class Worker {
     }
     this.body.rotation.y = this.turnY + twirl;
     this.body.rotation.z = isAsleep(this.status) ? Math.sin(t * 1.5) * 0.08 : s.roll;
-    this.props(dt, t, eye);
+    this.props(dt, t);
     this.blink(dt, s.lid);
     this.bulbMesh.scale.setScalar(this.status === 'needs_input' ? 1 + Math.abs(Math.sin(t * 8)) * 0.5 : 1);
     if (this.bubble) this.bubble.position.y = (this.bubbleIsCard ? 1.74 : 1.95) + (hopping ? this.body.position.y : 0) + Math.sin(t * 3) * 0.03;
@@ -1462,8 +1448,8 @@ export class Worker {
     return out;
   }
 
-  /** The papers, the progress bar and the globe come and go with the act they belong to. */
-  private props(dt: number, t: number, eye?: THREE.Vector3) {
+  /** The papers and the globe come and go with the act they belong to. */
+  private props(dt: number, t: number) {
     const show = (prop: THREE.Object3D, act: Act) => {
       const w = this.acts.get(act) ?? 0;
       prop.visible = w > 0.02;
@@ -1476,16 +1462,6 @@ export class Worker {
       const f = Math.min(1, this.flipT / 0.45);
       this.papers.page.rotation.x = -ease(f) * Math.PI * 1.1;
       this.papers.page.visible = f < 1;
-    }
-    if (show(this.bar.group, 'test')) {
-      // Fills over a couple of seconds, holds full for a beat, starts over.
-      const c = t % 3;
-      this.bar.fill.scale.x = Math.max(0.02, ease(Math.min(1, c / 2.4)));
-      this.bar.group.position.copy(this.spot).y += Math.sin(t * 2) * 0.02;
-      if (eye) {
-        this.root.worldToLocal(v1.copy(eye));
-        this.bar.group.rotation.y = Math.atan2(v1.x - this.bar.group.position.x, v1.z - this.bar.group.position.z);
-      }
     }
     if (show(this.globe.group, 'web')) {
       this.globe.group.position.copy(this.spot).y += Math.sin(t * 2) * 0.03;
@@ -1524,13 +1500,13 @@ export class Worker {
   }
 
   /** Up on the desk dancing: hop up, groove side to side, twirl, jump twice, hop back down. */
-  private boogie(d: NonNullable<Worker['dancing']>, dt: number, t: number, eye?: THREE.Vector3): void {
+  private boogie(d: NonNullable<Worker['dancing']>, dt: number, t: number): void {
     d.t += dt;
     const { up, moves, down } = DANCE;
     if (d.t >= up + moves + down) {
       this.dancing = null;
       this.settle();
-      return this.update(0, t, eye);
+      return this.update(0, t);
     }
     // Between the seat (0) and the stage (1), with a hop's arc over the line between them.
     let on = 1;
@@ -1575,11 +1551,11 @@ export class Worker {
       lift = Math.abs(Math.sin((beat - 6) * Math.PI)) * 0.45;
       armZ = [-0.3, 0.3];
     }
-    // Whatever it was acting out waits: shoulders back in place, eyes ahead, the papers, bar and globe put away.
+    // Whatever it was acting out waits: shoulders back in place, eyes ahead, the papers and globe put away.
     this.armL.position.set(-0.3, 0.55, 0.05);
     this.armR.position.set(0.3, 0.55, 0.05);
     for (const p of this.pupils) p.position.y = 0.7;
-    for (const prop of [this.papers.group, this.bar.group, this.globe.group]) prop.visible = false;
+    for (const prop of [this.papers.group, this.globe.group]) prop.visible = false;
     const k = 1 - Math.exp(-dt * 18);
     [this.armL, this.armR].forEach((a, i) => {
       a.rotation.x += (armX[i] - a.rotation.x) * k;
