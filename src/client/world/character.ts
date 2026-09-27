@@ -1323,6 +1323,17 @@ export class Worker {
     this.leaving = { box, boxT: 0, stride: 0 };
   }
 
+  /** On its way out: says something else over its head in place of its farewell. */
+  say(text: string) {
+    if (!this.leaving) return;
+    if (this.bubble) {
+      this.root.remove(this.bubble);
+      disposeSprite(this.bubble);
+    }
+    this.bubble = textSprite(text, { bg: '#e9ecef', size: 34 });
+    this.root.add(this.bubble);
+  }
+
   private drawBubble() {
     if (this.leaving) return;
     const { status, bouncing: bounce, task } = this;

@@ -1,7 +1,7 @@
 // Getting around the office floor downstairs (no stairs, no loft, no elevator), round the furniture
 // on a coarse grid: the dog's walks (server/dog.ts), and a worker's way out when it's sent home.
 
-import { BEANBAGS, CABINET, DESK_SIZE, DESKS, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LADDER, LOFT, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PLANTS, POLE, POLES, ROAD, STAIRS, STATIONS, WHITEBOARD, type DeskDef } from './layout.js';
+import { BALCONY, BALCONY_DOOR, BEANBAGS, CABINET, DESK_SIZE, DESKS, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LADDER, LOFT, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PARACHUTE, PLANTS, POLE, POLES, ROAD, STAIRS, STATIONS, WHITEBOARD, type DeskDef } from './layout.js';
 
 
 export type Pt = [number, number];
@@ -269,6 +269,8 @@ class Heap {
 
 /** Just inside the exit door, in the west wall. */
 const EXIT: Pt = [FLOOR.minX + 0.45, EXIT_DOOR.u];
+/** Just inside the balcony doors, in the south wall. */
+const BALCONY_IN: Pt = [BALCONY_DOOR.u, FLOOR.maxZ - 0.45];
 /** Down the middle of the steps outside it. */
 const STEPS_X = (EXIT_STAIRS.minX + EXIT_STAIRS.maxX) / 2;
 /** Along the near sidewalk, between the lot and the trees planted in it. */
@@ -300,6 +302,27 @@ export function wayIn(seat: DeskDef): Pt[] {
  * street and off along the sidewalk.
  */
 export function wayHome(seat: DeskDef): Pt[] {
+  const inside = wayTo(seat, EXIT);
+  const { landingZ1, steps, run } = EXIT_STAIRS;
+  return [...inside, [STEPS_X, EXIT_DOOR.u], ...walkOff([STEPS_X, landingZ1 + (steps - 1) * run + 0.6])];
+}
+
+/**
+ * The same walk on a floor above the bottom one, which has no exit door: round the furniture to the
+ * balcony doors, out across the balcony and up to its railing (PARACHUTE.jump), where it goes over.
+ */
+export function wayToBalcony(seat: DeskDef): Pt[] {
+  const inside = wayTo(seat, BALCONY_IN);
+  return [...inside, [BALCONY_DOOR.u, BALCONY.minZ + 0.4], [PARACHUTE.jump.x, PARACHUTE.jump.z]];
+}
+
+/** From `from`, down on the street, over to the near sidewalk and off along it to the west, where they're gone. */
+export function walkOff(from: Pt): Pt[] {
+  return [from, [from[0], SIDEWALK_Z], [WALK_OFF_X, SIDEWALK_Z]];
+}
+
+/** From beside `seat`, where it hops down, round the furniture to `door` on the office floor. */
+function wayTo(seat: DeskDef, door: Pt): Pt[] {
   const ways = [-1, 1].map((side) => {
     // Beside the chair and back from the desk into the aisle, off the bean bag and round behind it, or
     // out from behind the kiosk and round its front, into the room.
@@ -311,10 +334,8 @@ export function wayHome(seat: DeskDef): Pt[] {
           [deskPoint(seat, side * 0.7, 0.95), deskPoint(seat, side * 0.7, seat.room ? 1.4 : 1.75)];
     // A bean bag or a kiosk can stand with one side up against something (the elevator, by the queue).
     const blocked = !!(seat.beanbag || seat.station) && !walkable(down[0], down[1]);
-    const pts = [down, ...route(back, EXIT)];
+    const pts = [down, ...route(back, door)];
     return { pts, cost: (blocked ? 1000 : 0) + pathLength(pts) };
   });
-  const inside = ways[0].cost <= ways[1].cost ? ways[0].pts : ways[1].pts;
-  const { landingZ1, steps, run } = EXIT_STAIRS;
-  return [...inside, [STEPS_X, EXIT_DOOR.u], [STEPS_X, landingZ1 + (steps - 1) * run + 0.6], [STEPS_X, SIDEWALK_Z], [WALK_OFF_X, SIDEWALK_Z]];
+  return ways[0].cost <= ways[1].cost ? ways[0].pts : ways[1].pts;
 }
