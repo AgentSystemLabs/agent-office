@@ -11,14 +11,19 @@ import { providerPicker } from './provider';
 // reviews, line comments, checks) with a Files tab for the diff, where you tick files off as
 // reviewed; from here you merge it, or hand it to a worker to review, fix up and merge.
 
+/** The board windows ask about the floor you're on. */
+function onFloor(url: string): string {
+  return store.floor ? `${url}&floor=${encodeURIComponent(store.floor)}` : url;
+}
+
 async function getJson<T>(url: string): Promise<T> {
-  const r = await fetch(url, { credentials: 'same-origin' });
+  const r = await fetch(onFloor(url), { credentials: 'same-origin' });
   if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? `HTTP ${r.status}`);
   return r.json() as Promise<T>;
 }
 
 async function getText(url: string): Promise<string> {
-  const r = await fetch(url, { credentials: 'same-origin' });
+  const r = await fetch(onFloor(url), { credentials: 'same-origin' });
   if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? `HTTP ${r.status}`);
   return r.text();
 }

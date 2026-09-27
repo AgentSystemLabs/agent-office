@@ -1,0 +1,252 @@
+import type { FloorInfo, RepoChoice, ServerMsg } from '../../shared/protocol';
+import { floorPalette, normalizeRepo, sameRepo } from '../../shared/floors';
+import type { Net } from '../net';
+import { store } from '../state';
+import { h, openModal, timeAgo, type Modal } from './dom';
+
+// The elevator's panel: a button for every floor (every project), and "add a project", which clones
+// one of the repositories the office's gh login can see and makes it a new floor. The first time
+// the office runs there are no floors, and this is where you start.
+
+export interface ElevatorOptions {
+  net: Net;
+  ride(floorId: string): void;
+}
+
+/** How many repositories the list shows at once; typing narrows it down. */
+const SHOWN = 60;
+/** Ask gh for the repositories again after this long. */
+const REPOS_STALE_MS = 5 * 60_000;
+
+const addedWaiters = new Set<(msg: Extract<ServerMsg, { t: 'floor.added' }>) => void>();
+
+/** Main feeds server messages through here, so a panel waiting on its clone hears back. */
+export function routeElevatorMessage(msg: ServerMsg) {
+  if (msg.t === 'floor.added') for (const fn of addedWaiters) fn(msg);
+}
+
+let current: Modal | null = null;
+
+export function elevatorPanelOpen(): boolean {
+  return !!current;
+}
+
+export function openElevator(opts: ElevatorOptions): void {
+  if (current) return;
+  // Nowhere to go yet: the panel stays until there's a floor to ride to.
+  const setup = !store.floor;
+  const { net } = opts;
+  let filter = '';
+  let selected: string | null = null;
+  let adding: string | null = null;
+  let error = '';
+  let showAdd = setup || !store.floors.length;
+  /** The search box and list are in place (rebuilding them would lose the focus mid-typing). */
+  let built = false;
+
+  const floorsEl = h('div.floors');
+  const addEl = h('div.add');
+  const input = h('input', { type: 'text', placeholder: 'Search your repositories, or type owner/name', 'aria-label': 'Repository', autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
+  const listEl = h('div.repo-list', { role: 'listbox', 'aria-label': 'Repositories' });
+  const statusEl = h('div');
+  const addBtn = h('button.btn.primary', { type: 'button' }, '🛗 Add floor');
+  const refreshBtn = h('button.btn', { type: 'button', title: 'Ask GitHub for the list again' }, '↻');
+  const close = setup ? null : h('button.btn.close', { 'aria-label': 'Close' }, '✕');
+
+  const needRepos = () => {
+    const r = store.repos;
+    if (r.loading || (r.at && Date.now() - r.at < REPOS_STALE_MS && !r.error)) return;
+    store.repos = { ...r, loading: true };
+    net.send({ t: 'floor.repos' });
+  };
+
+  /** What "Add floor" would add: the row picked, else what's typed if it's owner/name. */
+  const choice = (): string | undefined => selected ?? normalizeRepo(filter);
+
+  const floorButton = (f: FloorInfo, i: number) => {
+    const here = f.id === store.floor;
+    const p = floorPalette(f.palette);
+    const stats: (HTMLElement | string)[] = [];
+    if (f.cloning) stats.push('⏳ Cloning…');
+    else {
+      if (f.busy) stats.push(h('span', { title: 'Working' }, `👷 ${f.busy}`));
+      if (f.waiting) stats.push(h('span.waiting', { title: 'Waiting on someone' }, `🙋 ${f.waiting}`));
+      stats.push(h('span', { title: 'Workers at desks' }, `💻 ${f.workers}`));
+      if (f.people) stats.push(h('span', { title: 'People on this floor' }, `🧑 ${f.people}`));
+    }
+    const btn = h(
+      'button.floor-btn',
+      { type: 'button', class: here ? 'here' : '', disabled: f.cloning || here, title: here ? "You're on this floor" : f.cloning ? 'Still being cloned' : `Ride to ${f.name}` },
+      h('span.floor-no', { style: `background:${p.trim}` }, String(i + 1)),
+      h('span.floor-text', {}, h('span.floor-name', {}, f.name, here ? h('span.here-tag', {}, 'you are here') : null), h('span.floor-sub', {}, f.repo ?? f.dir)),
+      h('span.floor-stats', {}, ...stats.flatMap((s, j) => (j ? [' ', s] : [s]))),
+    );
+    btn.addEventListener('click', () => {
+      if (here || f.cloning) return;
+      modal.close();
+      opts.ride(f.id);
+    });
+    return btn;
+  };
+
+  const renderFloors = () => {
+    const floors = store.floors;
+    floorsEl.replaceChildren(
+      ...(floors.length ? floors.map(floorButton) : [h('p.empty', {}, 'No floors yet.')]),
+    );
+  };
+
+  const repoRow = (r: RepoChoice) => {
+    const floor = store.floors.find((f) => sameRepo(f.repo, r.name));
+    const row = h(
+      'div.repo',
+      { role: 'option', class: selected && sameRepo(selected, r.name) ? 'sel' : '', 'aria-selected': String(!!selected && sameRepo(selected, r.name)), title: r.description ?? r.name },
+      h('span.nm', {}, r.name),
+      r.private ? h('span', { title: 'Private' }, '🔒') : null,
+      h('span.desc', {}, r.description ?? ''),
+      floor ? h('span.pill', {}, floor.id === store.floor ? 'you are here' : `floor ${store.floors.indexOf(floor) + 1}`) : r.pushedAt ? h('span.when', {}, timeAgo(r.pushedAt)) : null,
+    );
+    row.addEventListener('click', () => {
+      if (adding) return;
+      if (floor) {
+        // Already a floor: the button takes you there.
+        if (floor.id !== store.floor && !floor.cloning) {
+          modal.close();
+          opts.ride(floor.id);
+        }
+        return;
+      }
+      selected = r.name;
+      renderAdd();
+    });
+    row.addEventListener('dblclick', () => {
+      if (!floor) add(r.name);
+    });
+    return row;
+  };
+
+  const renderAdd = () => {
+    if (!showAdd) {
+      const open = h('button.btn', { type: 'button' }, '➕ Add a project');
+      open.addEventListener('click', () => {
+        showAdd = true;
+        needRepos();
+        renderAdd();
+        setTimeout(() => input.focus(), 0);
+      });
+      addEl.replaceChildren(open);
+      addBtn.classList.add('hidden');
+      return;
+    }
+    addBtn.classList.remove('hidden');
+    const r = store.repos;
+    const q = filter.trim().toLowerCase();
+    const typed = normalizeRepo(filter);
+    const matches = r.list.filter((x) => !q || x.name.toLowerCase().includes(q) || (x.description ?? '').toLowerCase().includes(q));
+    const rows: HTMLElement[] = [];
+    // owner/name that isn't in the list (someone else's public repository): offer it anyway.
+    if (typed && !r.list.some((x) => sameRepo(x.name, typed))) rows.push(repoRow({ name: typed, private: false, description: 'Not in your list — the office will try to clone it' }));
+    rows.push(...matches.slice(0, SHOWN).map(repoRow));
+    if (!rows.length) rows.push(h('p.empty', { style: 'padding:10px' }, r.loading ? 'Asking GitHub for your repositories…' : r.error ? '' : q ? 'Nothing matches. Type owner/name to clone any repository.' : 'No repositories.'));
+    if (matches.length > SHOWN) rows.push(h('p.empty', { style: 'padding:8px 10px' }, `…and ${matches.length - SHOWN} more — type to narrow it down`));
+    listEl.replaceChildren(...rows);
+    const pick = choice();
+    const dest = pick ? `${store.projectsDir}/${pick}` : `${store.projectsDir}/<owner>/<repo>`;
+    statusEl.replaceChildren(
+      adding
+        ? h('p.note.busy', {}, `⏳ Cloning ${adding} into ${store.projectsDir}/${adding}… A big repository can take a minute.`)
+        : h('p.note', {}, `Cloned into ${dest} with this machine's gh login. Everything on the new floor works in that checkout.`),
+      ...[r.error, error].filter(Boolean).map((e) => h('p.err', {}, e)),
+    );
+    addBtn.disabled = !!adding || !pick || store.floors.some((f) => sameRepo(f.repo, pick));
+    addBtn.textContent = adding ? '⏳ Cloning…' : pick ? `🛗 Add ${pick}` : '🛗 Add floor';
+    input.disabled = !!adding;
+    if (!built) {
+      built = true;
+      addEl.replaceChildren(
+        h('h3', {}, setup && !store.floors.length ? 'Pick your first project' : '➕ Add a project'),
+        h('div.repo-search', {}, input, refreshBtn),
+        listEl,
+        statusEl,
+      );
+    }
+  };
+
+  const add = (repo: string) => {
+    if (adding) return;
+    adding = repo;
+    error = '';
+    renderAdd();
+    net.send({ t: 'floor.add', repo });
+  };
+
+  const onAdded = (msg: Extract<ServerMsg, { t: 'floor.added' }>) => {
+    if (!adding || msg.repo !== adding) return;
+    adding = null;
+    if (msg.error || !msg.floor) {
+      error = msg.error ?? 'The floor could not be added';
+      renderAdd();
+      return;
+    }
+    modal.close();
+    opts.ride(msg.floor);
+  };
+  addedWaiters.add(onAdded);
+
+  input.addEventListener('input', () => {
+    filter = input.value;
+    // Typing something else drops the row that was picked, unless it's still what's typed.
+    if (selected && !sameRepo(selected, normalizeRepo(filter))) selected = null;
+    renderAdd();
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    e.preventDefault();
+    const q = filter.trim().toLowerCase();
+    const matches = store.repos.list.filter((x) => !store.floors.some((f) => sameRepo(f.repo, x.name)) && (x.name.toLowerCase().includes(q) || (x.description ?? '').toLowerCase().includes(q)));
+    const pick = choice() ?? (q && matches.length === 1 ? matches[0].name : undefined);
+    if (pick) add(pick);
+  });
+  addBtn.addEventListener('click', () => {
+    const pick = choice();
+    if (pick) add(pick);
+  });
+  refreshBtn.addEventListener('click', () => {
+    store.repos = { ...store.repos, loading: true, error: undefined };
+    renderAdd();
+    net.send({ t: 'floor.repos', refresh: true });
+  });
+
+  const intro = setup
+    ? h(
+        'p.intro',
+        {},
+        store.floors.length
+          ? 'Every project is a floor of this building. Pick a floor to ride to, or add another project.'
+          : "Every project is a floor of this building, and it doesn't have any yet. Pick one of your repositories: the office clones it and it becomes the first floor.",
+      )
+    : null;
+  const el = h(
+    'div.modal.elevator',
+    { role: 'dialog', 'aria-label': 'Elevator' },
+    h('header', {}, h('h2', {}, setup ? '🏢 Welcome to Agent Office' : '🛗 Elevator'), close),
+    h('div.body', {}, intro, floorsEl, addEl),
+    h('footer', {}, h('span.grow', {}, setup ? 'Your office, one floor per project' : 'Pick a floor · Esc to stay here'), addBtn),
+  );
+  const unsubs = [store.on('floors', () => (renderFloors(), renderAdd())), store.on('repos', renderAdd), store.on('floor', renderFloors)];
+  const modal = openModal(el, {
+    escCloses: !setup,
+    backdropCloses: !setup,
+    onClose: () => {
+      current = null;
+      addedWaiters.delete(onAdded);
+      for (const off of unsubs) off();
+    },
+  });
+  current = modal;
+  close?.addEventListener('click', () => modal.close());
+  renderFloors();
+  if (showAdd) needRepos();
+  renderAdd();
+  if (showAdd) setTimeout(() => input.focus(), 30);
+}

@@ -2,7 +2,8 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { DESK_BY_ID, DESKS, SPAWN, deskSeat } from '../shared/layout';
+import { DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, deskSeat, inElevator } from '../shared/layout';
+import { floorPalette } from '../shared/floors';
 import type { AgentProvider, PeerInfo, WorkerInfo } from '../shared/protocol';
 import { isAsleep, isBusy } from '../shared/status';
 import { Net } from './net';
@@ -36,6 +37,7 @@ import { openHelp, renderChat, renderPeople, renderWorkers, updateSpeaking } fro
 import { openCharacter } from './ui/character';
 import { openSettings } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
+import { elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
 import { providerLabel, resolvedProvider } from './ui/provider';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
@@ -150,7 +152,8 @@ scene.add(me.root);
 noOutline(me.root);
 const settings = loadSettings();
 const player = new PlayerController(camera, canvas, office.colliders);
-player.pos.set(SPAWN.x, 0, SPAWN.z);
+// Everyone arrives by elevator (the welcome says exactly where).
+placeInCar();
 player.view = settings.view;
 const hands = new Hands(store.profile.color, me.skinColor);
 const sound = new OfficeSound();
@@ -208,13 +211,15 @@ net.onMessage((msg) => {
   routeTeamMessage(msg);
   routeAccountsMessage(msg);
   routePullMessage(msg);
+  routeElevatorMessage(msg);
   switch (msg.t) {
     case 'welcome': {
       const mine = store.peers.get(store.you);
       if (firstWelcome && mine) {
-        player.pos.set(mine.x, 0, mine.z);
+        placeInCar(mine);
         firstWelcome = false;
-      }
+        arrive();
+      } else if (!store.floor) arrive();
       if (voice.inVoice || voice.sharing) net.send({ t: 'voice', voice: voice.inVoice, muted: voice.muted, sharing: voice.sharing });
       // After a reconnect the server has forgotten which terminal we had open.
       const openId = openTerminalFor();
@@ -230,6 +235,12 @@ net.onMessage((msg) => {
       voice.syncPeers();
       break;
     }
+    case 'floor.enter':
+      arrive();
+      break;
+    case 'floors':
+      noticeWaiting();
+      break;
     case 'peer.join':
     case 'peer.leave':
       voice.syncPeers();
@@ -272,24 +283,145 @@ store.on('upgrade', renderUpgrade);
 
 function renderProject() {
   const p = store.project;
-  if (!p) return;
-  $('project-name').textContent = `🏢 ${p.name}`;
-  $('project-meta').textContent = [p.branch && `⎇ ${p.branch}`, p.dir, `default: ${providerLabel(p.defaultProvider, p)}`].filter(Boolean).join(' · ');
   renderTitle();
+  if (!p) {
+    $('project-name').textContent = '🏢 Agent Office';
+    $('project-meta').textContent = store.floors.length ? '🛗 Take the elevator to a floor' : '🛗 No floors yet — add a project in the elevator';
+    office.setProjectName(store.floors.length ? 'Pick a floor' : 'Lobby');
+    return;
+  }
+  const n = store.floors.findIndex((f) => f.id === store.floor);
+  $('project-name').textContent = `🏢 ${p.name}`;
+  $('project-meta').textContent = [n >= 0 && `🛗 floor ${n + 1} of ${store.floors.length}`, p.branch && `⎇ ${p.branch}`, p.dir, `default: ${providerLabel(p.defaultProvider, p)}`].filter(Boolean).join(' · ');
   office.setProjectName(p.name);
 }
+store.on('floors', renderProject);
+store.on('project', renderProject);
 
-/** The tab title counts the workers waiting on someone, so you can see them from another tab. */
+/** The tab title counts the workers waiting on someone, on every floor, so you can see them from another tab. */
 function renderTitle() {
   const name = store.project?.name;
-  const waiting = [...store.workers.values()].filter(waitingOnSomeone).length;
+  const elsewhere = store.floors.reduce((n, f) => n + (f.id === store.floor ? 0 : f.waiting), 0);
+  const waiting = [...store.workers.values()].filter(waitingOnSomeone).length + elsewhere;
   document.title = `${waiting ? `(${waiting}) ` : ''}${name ? `${name} · ` : ''}Agent Office`;
+}
+
+// ---- Floors & the elevator ----------------------------------------------------------------------
+/** In the car, facing out through the doors: where you are when you arrive on a floor. */
+function placeInCar(at?: { x: number; z: number }) {
+  const spot = at && inElevator(at.x, at.z) ? at : { x: ELEVATOR.x, z: (ELEVATOR_CAR.minZ + ELEVATOR_CAR.maxZ) / 2 };
+  player.pos.set(spot.x, 0, spot.z);
+  player.vy = 0;
+  player.facing = 0;
+  player.camYaw = player.facing - Math.PI;
+  player.lookPitch = -0.08;
+}
+
+function fade(on: boolean) {
+  $('fade').classList.toggle('on', on);
+}
+
+/** A ride under way: the doors are shut and the lights are down until the next floor arrives. */
+let riding: { floor: string; timer: number } | null = null;
+
+function showElevator() {
+  openElevator({ net, ride });
+}
+
+/** Rides the elevator to another floor. From outside the car, you step in while the lights are down. */
+function ride(floorId: string) {
+  if (riding || floorId === store.floor) return;
+  closeAllModals();
+  if (hanger.active) hanger.cancel();
+  const inside = inElevator(player.pos.x, player.pos.z);
+  riding = { floor: floorId, timer: window.setTimeout(rideFailed, 10_000) };
+  player.enabled = false;
+  player.clearKeys();
+  office.elevator.setOpen(false);
+  // Wait for the doors to shut on you, then dim the lights and go.
+  setTimeout(
+    () => {
+      fade(true);
+      setTimeout(() => {
+        placeInCar(inside ? player.pos : undefined);
+        net.send({ t: 'floor.go', floor: floorId });
+      }, 320);
+    },
+    inside ? 650 : 0,
+  );
+}
+
+/** The floor never came (it's gone, or the office is unreachable): open up where you are. */
+function rideFailed() {
+  if (!riding) return;
+  riding = null;
+  fade(false);
+  office.elevator.setOpen(!!store.floor);
+  player.enabled = !modalOpen();
+}
+
+/** Which of the floor palettes the walls are painted in now. */
+let painted = -1;
+function paintFloor() {
+  const p = store.currentFloor()?.palette ?? 0;
+  if (p === painted) return;
+  painted = p;
+  office.setLook(floorPalette(p));
+}
+// A brand-new floor can arrive before the elevator's list says what color it is.
+store.on('floors', paintFloor);
+
+/** You're on a floor (or in the building without one): paint it, and open the doors. */
+function arrive() {
+  paintFloor();
+  renderProject();
+  noticeWaiting();
+  if (riding) {
+    clearTimeout(riding.timer);
+    riding = null;
+  }
+  if (!store.floor) {
+    // Nowhere to go yet: the doors stay shut until there's a floor, and the panel says how to add one.
+    office.elevator.setOpen(false);
+    fade(false);
+    player.enabled = !modalOpen();
+    showElevator();
+    return;
+  }
+  fade(false);
+  setTimeout(() => {
+    office.elevator.setOpen(true);
+    sound.ding('done');
+    player.enabled = !modalOpen();
+  }, 450);
+}
+
+/** Workers waiting on someone, per floor, the last time the elevator said so. */
+const waitingOn = new Map<string, number>();
+/** Someone's waiting on another floor: say so, since you can't see or hear it from here. */
+function noticeWaiting() {
+  let elsewhere = 0;
+  for (const f of store.floors) {
+    const before = waitingOn.get(f.id);
+    waitingOn.set(f.id, f.waiting);
+    if (f.id === store.floor) continue;
+    elsewhere += f.waiting;
+    if (before !== undefined && f.waiting > before) {
+      toast(`🙋 A worker on the ${f.name} floor is waiting on someone — take the elevator up`, 'warn');
+      sound.ding('needs_input');
+    }
+  }
+  const badge = $('floors-waiting');
+  badge.textContent = elsewhere ? String(elsewhere) : '';
+  badge.classList.toggle('hidden', !elsewhere);
+  $('project').title = elsewhere ? `${elsewhere} worker${elsewhere === 1 ? '' : 's'} on other floors waiting on someone — click to ride the elevator` : 'The elevator: ride to another project';
 }
 
 // ---- Peers --------------------------------------------------------------------------------------
 function syncPeers() {
   for (const [id, peer] of store.peers) {
-    if (id === store.you) continue;
+    // Only who's on your floor is in the room with you.
+    if (id === store.you || !store.onMyFloor(peer)) continue;
     let r = remotes.get(id);
     if (!r) {
       const person = new Person(peer.name, peer.color, peer.look);
@@ -313,7 +445,8 @@ function syncPeers() {
     }
   }
   for (const [id, r] of remotes) {
-    if (!store.peers.has(id)) {
+    const peer = store.peers.get(id);
+    if (!peer || !store.onMyFloor(peer)) {
       scene.remove(r.person.root);
       remotes.delete(id);
     }
@@ -619,7 +752,8 @@ function interact(target: Interactable | null, key: DeskKey) {
     return;
   }
   if (key !== 'E') return;
-  if (target.kind === 'issues' || target.kind === 'pulls') openBoard(target.kind, net, boardActions());
+  if (target.kind === 'elevator') showElevator();
+  else if (target.kind === 'issues' || target.kind === 'pulls') openBoard(target.kind, net, boardActions());
   else if (target.kind === 'services') openServices();
   else if (target.kind === 'queue') showQueue();
   else if (target.kind === 'tv') watchShare();
@@ -705,6 +839,11 @@ function hintFor(it: Interactable): Hint {
     }
     case 'coffee':
       return { k: '', parts: [title('☕ Coffee machine'), key('E', 'Grab a cup')] };
+    case 'elevator': {
+      const f = store.currentFloor();
+      const n = store.floors.length;
+      return { k: `${f?.name}|${n}`, parts: [title('🛗 Elevator'), f ? aside(`${f.name} · ${n} floor${n === 1 ? '' : 's'}`) : '', key('E', n > 1 ? 'Choose a floor' : 'Floors & projects')] };
+    }
     case 'decor': {
       const d = store.decor.find((x) => x.id === it.decorId);
       return { k: `${d?.title}|${d?.by}`, parts: [title(`🖼️ ${d?.title || 'A picture'}`), d ? aside(`hung by ${d.by}`) : '', key('E', 'Look closer')] };
@@ -892,7 +1031,7 @@ function backToGame() {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, elevator: 4.5 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
@@ -970,7 +1109,12 @@ function currentShares(): [string, MediaStream][] {
   const out: [string, MediaStream][] = [];
   const local = voice.localScreen;
   if (local) out.push(['You', local]);
-  for (const [id, s] of voice.remoteScreens()) out.push([store.peers.get(id)?.name ?? 'Someone', s]);
+  for (const [id, s] of voice.remoteScreens()) {
+    const peer = store.peers.get(id);
+    // A screen shared on another floor is on that floor's TV.
+    if (peer && !store.onMyFloor(peer)) continue;
+    out.push([peer?.name ?? 'Someone', s]);
+  }
   return out;
 }
 
@@ -1026,6 +1170,8 @@ if (!window.isSecureContext) {
     b.title = 'Voice and screen sharing need HTTPS or localhost — use a TLS proxy, --self-signed, or an SSH tunnel';
   }
 }
+// The project in the corner is the floor you're on; click it for the others.
+$('project').addEventListener('click', () => showElevator());
 $('btn-voice').addEventListener('click', () => void toggleVoice());
 $('btn-mute').addEventListener('click', () => voice.toggleMute());
 $('btn-share').addEventListener('click', () => void toggleShare());
@@ -1163,7 +1309,7 @@ function frame(ts?: number) {
     const desk = DESK_BY_ID.get(v.deskId)!;
     v.laptop.update(dt, store.screens.get(id), Math.hypot(desk.x - camPos.x, desk.z - camPos.z));
   }
-  office.update(t);
+  office.update(t, dt);
   hanger.update();
 
   if (modalOpen() || hanger.active) target = null;
@@ -1177,6 +1323,8 @@ function frame(ts?: number) {
   if (now - speakTick > 200) {
     speakTick = now;
     updateSpeaking(voice);
+    // People on other floors can't be heard here (their voice connection stays up for when you meet).
+    for (const p of store.peers.values()) if (p.id !== store.you && !store.onMyFloor(p)) voice.setVolume(p.id, 0);
   }
 
   effect.render(scene, camera);
@@ -1228,7 +1376,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, camera, workerViews, scene, net, renderer, hands, me, remotes, settings, gallery, hanger };
+(window as any).__office = { store, player, camera, workerViews, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

@@ -192,6 +192,7 @@ export class WorkerManager {
       pid: w.pty?.pid,
       agent: w.info.kind === 'agent',
       cwd: w.info.worktree ? path.join(this.dir, w.info.worktree.path) : this.dir,
+      root: this.dir,
     }));
   }
 
@@ -1242,7 +1243,7 @@ function screenText(term: HeadlessTerminal, from = 0): string {
   return out.join('\n');
 }
 
-function resolveCommand(cmd: string): string | null {
+export function resolveCommand(cmd: string): string | null {
   if (cmd.includes('/')) {
     try {
       accessSync(cmd, constants.X_OK);

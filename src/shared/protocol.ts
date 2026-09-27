@@ -140,6 +140,8 @@ export interface PeerInfo {
   sharing: boolean;
   /** Signed in with their own account, so `name` is theirs and nobody else can take it. */
   account?: boolean;
+  /** The floor they're on (see FloorInfo); none while the building has no floors yet. */
+  floor?: string;
 }
 
 /** A styled run of text on a terminal row: [text, fg, bg, flags]. */
@@ -318,6 +320,56 @@ export interface ProjectInfo {
   agentProviders: AgentProvider[];
 }
 
+/**
+ * One floor of the building: a project in its own checkout, with its own desks, workers, boards
+ * and queue. You go between them in the elevator.
+ */
+export interface FloorInfo {
+  id: string;
+  /** The repository's name, or the folder's when it isn't on GitHub. */
+  name: string;
+  /** owner/name on GitHub. */
+  repo?: string;
+  /** Its checkout on the office's machine. */
+  dir: string;
+  /** Which of FLOOR_PALETTES it's painted in. */
+  palette: number;
+  /** Being cloned: on the elevator panel, but nobody can go there yet. */
+  cloning?: boolean;
+  addedBy: string;
+  addedAt: number;
+  /** For the elevator panel: who's there and what they're up to. */
+  workers: number;
+  busy: number;
+  /** Workers waiting on someone: a question, a permission, or a finished turn nobody looked at. */
+  waiting: number;
+  people: number;
+}
+
+/** A repository the office's `gh` login can clone, for the elevator's "add a project". */
+export interface RepoChoice {
+  /** owner/name */
+  name: string;
+  description?: string;
+  private: boolean;
+  /** ISO time of the last push. */
+  pushedAt?: string;
+}
+
+/** Everything that belongs to the floor you're on: sent when you walk in, and when you change floors. */
+export interface FloorView {
+  /** The floor you're on; null while the building has none. */
+  floor: string | null;
+  project: ProjectInfo | null;
+  workers: WorkerInfo[];
+  issues: GhState<GhIssue>;
+  pulls: GhState<GhPull>;
+  queue: QueueState;
+  /** Pictures on this floor's walls. */
+  decor: Decoration[];
+  services: ServicesState;
+}
+
 export type AccountRole = 'admin' | 'member';
 
 /** Who this browser is signed in as. */
@@ -389,7 +441,7 @@ export interface ServiceInfo {
   command: string;
   /** The worker whose terminal started it. */
   workerId: string;
-  /** Its working directory relative to the office dir ('' is the project root). */
+  /** Its working directory relative to its floor's checkout ('' is the project root). */
   cwd?: string;
   /** The <title> of its front page. */
   title?: string;
@@ -565,17 +617,23 @@ export type ClientMsg =
   /** Move, resize, re-frame or swap the image of a picture. */
   | { t: 'decor.update'; id: string; decor: Partial<DecorPlacement> }
   | { t: 'decor.remove'; id: string }
+  /** Ride the elevator to another floor; the server answers with `floor.enter`. */
+  | { t: 'floor.go'; floor: string }
+  /** The repositories that could become a floor; answered with `floor.repos`. */
+  | { t: 'floor.repos'; refresh?: boolean }
+  /** Clone a repository and make it a new floor; answered with `floor.added` once it's there. */
+  | { t: 'floor.add'; repo: string }
   | { t: 'ping'; at: number };
 
 export type ServerMsg =
-  | {
+  | ({
       t: 'welcome';
       you: string;
       peers: PeerInfo[];
-      workers: WorkerInfo[];
-      project: ProjectInfo;
-      issues: GhState<GhIssue>;
-      pulls: GhState<GhPull>;
+      /** Every floor of the building, for the elevator. */
+      floors: FloorInfo[];
+      /** Where new projects are cloned to, on the office's machine. */
+      projectsDir: string;
       ice: { urls: string | string[]; username?: string; credential?: string }[];
       chat: ChatLine[];
       /** Whether teammates can be invited from the office (see TeamState). */
@@ -583,14 +641,17 @@ export type ServerMsg =
       /** The running server's version; a change after a reconnect means the office was upgraded. */
       version: string;
       upgrade: UpgradeState;
-      services: ServicesState;
-      /** Pictures on the walls. */
-      decor: Decoration[];
       usage: UsageState;
-      queue: QueueState;
       me: Me;
       notify: NotifyState;
-    }
+    } & FloorView)
+  /** You arrived on another floor: everything on it, replacing the last one's, and where everyone is now. */
+  | ({ t: 'floor.enter'; peers: PeerInfo[] } & FloorView)
+  | { t: 'floors'; floors: FloorInfo[] }
+  /** Sent to whoever asked. */
+  | { t: 'floor.repos'; repos: RepoChoice[]; error?: string }
+  /** Sent to whoever asked for the floor, once it's cloned (or couldn't be). */
+  | { t: 'floor.added'; repo: string; floor?: string; error?: string }
   | { t: 'peer.join'; peer: PeerInfo }
   | { t: 'peer.update'; peer: PeerInfo }
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }

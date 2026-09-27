@@ -1,11 +1,17 @@
 import { randomBytes, scryptSync } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 export interface Config {
+  /** The office's own folder: the building's data lives in its .agent-office. */
   dir: string;
   dataDir: string;
+  /** Where new floors are cloned, as <projectsDir>/<owner>/<repo>. */
+  projectsDir: string;
+  /** Started as `agent-office <dir>`: that checkout is a floor of its own (it's also `dir`). */
+  project?: string;
   host: string;
   port: number;
   /** Plaintext password, only when known: from --password, or generated and not yet claimed. */
@@ -44,12 +50,19 @@ export interface RTCIceServerLike {
 const HELP = `agent-office — a 3D office for your team and its Claude Code / OpenCode / Codex workers
 
 Usage:
+  agent-office [options]
   agent-office [dir] [options]
   agent-office prune [dir] [--dry-run] [--force]
   agent-office accounts [list|invite|revoke|role|password] ...
 
-Runs the office for the project in [dir] (default: current directory).
-Every worker, terminal and GitHub board is scoped to that directory.
+Runs the office. Every project is a floor of the building: ride the elevator,
+pick one of the repositories your \`gh\` login can see, and the office clones it
+into the projects folder as a new floor. Workers, terminals, boards and the
+task queue on a floor all belong to that floor's checkout.
+
+Started from anywhere, the office keeps its data in --home. Given a [dir] (or
+started in a project where an office already ran), it keeps its data in
+<dir>/.agent-office as it always has, and that project is one of the floors.
 
 Commands:
   prune                   Remove leftover worker worktrees (.agent-office/worktrees/)
@@ -59,6 +72,10 @@ Commands:
                           the shared password off or on (see accounts --help)
 
 Options:
+      --home <dir>        Where the office keeps its data when no [dir] is given
+                          (default ~/agent-office, env AGENT_OFFICE_HOME)
+      --projects <dir>    Where new floors are cloned, as <dir>/<owner>/<repo>
+                          (default ~/agent-office, env AGENT_OFFICE_PROJECTS)
   -p, --port <n>          Port to listen on (default 4600, env PORT)
   -H, --host <addr>       Address to bind (default 0.0.0.0)
       --password <pw>     Office password (env AGENT_OFFICE_PASSWORD).
@@ -116,8 +133,13 @@ function parseTurn(url: string): RTCIceServerLike {
   return { urls: url };
 }
 
+/** Where the office lives when it isn't started in a project: ~/agent-office, or $AGENT_OFFICE_HOME. */
+export function officeHome(): string {
+  return path.resolve(process.env.AGENT_OFFICE_HOME || path.join(os.homedir(), 'agent-office'));
+}
+
 /** Keep the office's own data out of git without touching the project's .gitignore. */
-function excludeFromGit(dir: string) {
+export function excludeFromGit(dir: string) {
   try {
     const gitDir = execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
     const exclude = path.resolve(dir, gitDir, 'info', 'exclude');
@@ -132,7 +154,10 @@ function excludeFromGit(dir: string) {
 }
 
 export function loadConfig(argv: string[]): Config {
-  let dir = process.cwd();
+  let project = '';
+  let home = officeHome();
+  let homeGiven = !!process.env.AGENT_OFFICE_HOME;
+  let projects = process.env.AGENT_OFFICE_PROJECTS ? path.resolve(process.env.AGENT_OFFICE_PROJECTS) : '';
   let port = Number(process.env.PORT) || 4600;
   let host = '0.0.0.0';
   let password = process.env.AGENT_OFFICE_PASSWORD || '';
@@ -203,20 +228,34 @@ export function loadConfig(argv: string[]): Config {
       case '--webhook':
         webhook = takeValue(argv, i++, a);
         break;
+      case '--home':
+        home = path.resolve(takeValue(argv, i++, a));
+        homeGiven = true;
+        break;
+      case '--projects':
+        projects = path.resolve(takeValue(argv, i++, a));
+        break;
       default:
         if (a.startsWith('-')) {
           console.error(`agent-office: unknown option ${a}\n`);
           process.stderr.write(HELP);
           process.exit(2);
         }
-        dir = path.resolve(a);
+        project = path.resolve(a);
     }
   }
 
-  if (!existsSync(dir)) {
-    console.error(`agent-office: directory not found: ${dir}`);
+  // An office already runs in this project (started here before there were floors): carry on with
+  // it, its workers and its password, rather than open an empty building somewhere else.
+  const cwd = process.cwd();
+  if (!project && !homeGiven && cwd !== home && existsSync(path.join(cwd, '.agent-office', 'config.json'))) project = cwd;
+  if (project && !existsSync(project)) {
+    console.error(`agent-office: directory not found: ${project}`);
     process.exit(2);
   }
+  const dir = project || home;
+  // New floors go next to the office's data when it has a home of its own, and never into a project.
+  const projectsDir = projects || (project ? path.join(os.homedir(), 'agent-office') : home);
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
     console.error('agent-office: invalid --port');
     process.exit(2);
@@ -229,7 +268,7 @@ export function loadConfig(argv: string[]): Config {
 
   const dataDir = path.join(dir, '.agent-office');
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-  excludeFromGit(dir);
+  if (project) excludeFromGit(dir);
 
   const cfgPath = path.join(dataDir, 'config.json');
   let stored: { password?: string; verifier?: string; salt?: string; secret?: string; claimedAt?: number } = {};
@@ -287,6 +326,8 @@ export function loadConfig(argv: string[]): Config {
   return {
     dir,
     dataDir,
+    projectsDir,
+    project: project || undefined,
     host,
     port,
     password: password || undefined,

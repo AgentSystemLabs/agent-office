@@ -2,15 +2,15 @@
 
 A cartoon 3D office your team walks around in together. Sit a Claude Code, OpenCode or Codex worker at any empty desk, watch its terminal on the laptop in front of it, and jump into that terminal with everyone else. Issues and pull requests hang on cork boards on the wall. You can talk over voice and put your screen on the lounge TV.
 
-Everything is scoped to **one directory on the machine that runs it**: every worker, terminal and board works in that project.
+Every project is **a floor of the building**. Ride the elevator, pick one of your GitHub repositories, and the office clones it and opens a new floor for it, painted its own colors. Every worker, terminal, board and queue on a floor works in that project's checkout.
 
 ```
-cd ~/code/my-project
 agent-office
 ```
 
 ## What's inside
 
+- **A floor per project.** The first time the office runs you start inside the elevator, and it asks for your first project: pick one of the repositories your `gh` login can see (or type `owner/name`) and the office clones it into `~/agent-office/<owner>/<repo>`. To add another project, or go to one, walk into the elevator on the north wall and press **E**, or click the project name in the top-left corner. Each floor has its own desks, workers, issues and PR boards, task queue, services and pictures, and its own wall and floor colors, so you always know where you are. You only see and hear the people on your floor. The elevator panel shows how many workers are busy or waiting on someone on each floor, and you get a heads-up when a worker on another floor starts waiting.
 - **Walk around.** Use WASD, Space to jump, and drag the mouse to orbit the camera. Everyone in the office sees everyone else move in real time.
 - **Boss office.** Stairs along the back wall climb to a glass-walled office on the loft in the corner. From up there you can look down over every desk and watch your workers go.
 - **Pick your character.** The first time you join, a character select screen lets you choose your skin tone, hair style, hair color and shirt, with a spinning preview. Change it any time from **⚙️** or by clicking your name under *In the office*.
@@ -56,14 +56,17 @@ npm install          # also builds the client and server
 npm install -g .     # puts `agent-office` on your PATH
 ```
 
-Then run it from any project:
+Then run it, from anywhere:
 
 ```bash
-cd ~/code/my-project
 agent-office --password 'correct horse battery staple'
 ```
 
-It prints the URLs your teammates can open. If you leave out `--password`, it generates one, saves it in `.agent-office/config.json` and prints it.
+It prints the URLs your teammates can open. If you leave out `--password`, it generates one, saves it in `~/agent-office/.agent-office/config.json` and prints it. Open the office and the elevator asks for your first project.
+
+The office keeps its data in `~/agent-office` (`--home` or `AGENT_OFFICE_HOME` to move it) and clones projects next to it (`--projects` or `AGENT_OFFICE_PROJECTS`). The list of floors is `~/agent-office/.agent-office/floors.json`. Each floor keeps its workers, queue, pictures and worktrees in its own checkout's `.agent-office/`.
+
+To start the office in a project you already have, pass its folder: `agent-office ~/code/my-project`. That project becomes a floor, and the office keeps its data in `~/code/my-project/.agent-office` as it always did. An office that already ran in a project (from before there were floors) carries on in it when you start `agent-office` there again.
 
 ### Accounts
 
@@ -84,6 +87,8 @@ agent-office accounts password on          # if every admin is ever locked out
 ```
 agent-office [dir] [options]
 
+      --home <dir>        Where the office keeps its data without a [dir] (default ~/agent-office)
+      --projects <dir>    Where new floors are cloned, as <dir>/<owner>/<repo> (default ~/agent-office)
   -p, --port <n>          Port (default 4600, env PORT)
   -H, --host <addr>       Bind address (default 0.0.0.0)
       --password <pw>     Office password (env AGENT_OFFICE_PASSWORD)
@@ -101,7 +106,7 @@ agent-office [dir] [options]
 agent-office prune [dir] [-n|--dry-run] [-f|--force]
 
   Removes leftover worker worktrees under .agent-office/worktrees/ and their
-  office/* branches. Anything with uncommitted changes or unpushed commits is
+  office/* branches, in one floor's checkout (dir). Anything with uncommitted changes or unpushed commits is
   kept unless --force is given.
 
 agent-office accounts [list | invite [name] [--admin] | revoke <name> | role <name> admin|member | password on|off] [-d <dir>]
@@ -139,7 +144,7 @@ OpenCode metrics come from assistant-message token/cost records exposed by its p
 | W A S D / arrows | Walk (hold Shift to run) |
 | Space | Jump (you can land on desks and couches) |
 | Mouse drag / wheel | Orbit / zoom the camera |
-| E | Interact: hire a worker, open its terminal, read a board, watch the TV |
+| E | Interact: hire a worker, open its terminal, read a board, watch the TV, ride the elevator |
 | P | Prompt: give a task to a new worker, or to the one at this desk |
 | C | Changes: the files the worker at this desk changed and their diff; commit, discard or open a PR |
 | B | Open a shared shell at an empty desk |
@@ -148,7 +153,7 @@ OpenCode metrics come from assistant-message token/cost records exposed by its p
 | O | Open a pull request for a worker on its own branch, or see the one it has |
 | F | Hang a picture from the web on a wall (scroll to size it, click to hang it) |
 | T / Enter | Chat |
-| / | Search the chat and every terminal |
+| / | Search the chat and every terminal on your floor |
 | V / M | Join voice / mute |
 | Esc | Close any window (a terminal too) and get back to looking around |
 | Ctrl + [ | Send Esc to a terminal (e.g. to interrupt Claude) |
@@ -323,7 +328,8 @@ browser ──HTTPS/WSS──▶ agent-office (Node)
 - **Services.** Every 4 seconds the office lists the TCP ports its user's processes listen on (`ss`, or `lsof` on macOS). It credits each port to the worker whose terminal started it. It goes by the process tree first. For a server that detached from it, it uses the `AGENT_OFFICE_WORKER_ID` the process inherited (Linux), then whether it runs inside that worker's worktree. Ports that answer HTTP are shown. A request for `localhost:<port>` that reaches the office's own port (that's what a service tunnel does) is relayed to that server, WebSockets included, so hot reload works.
 - **Pictures.** WebGL can only draw an image from another site if that site sends CORS headers, and most don't. So the office fetches each picture itself (`/api/image`, images up to 15 MB) and serves it from its own origin. Any image link works, and a picture on a worker's dev server does too. Browsers shrink each one to 1024 px before it goes on the wall.
 - **Task queue.** `queue.json` holds the tasks and their providers in order. A task is seated when a desk is free and fewer than the limit are busy (a worker that is starting, ready, working or waiting for input). It finishes when its worker ends its turn (Claude/Codex `Stop` hooks or OpenCode's idle event), stops, or is sent home. The PR is matched by GitHub's closing-issue references (`closes #12`) or by the worker's branch.
-- **State.** `.agent-office/` in the project holds the password, the signing secret, the accounts and open invites (`accounts.json`), the hook settings, the saved workers and their scrollback, the chat, the task queue and the pictures on the walls (`decor.json`). It is added to `.git/info/exclude` automatically, so it never shows up in `git status`.
+- **Floors.** `floors.json` in the office's `.agent-office/` lists the floors: each one's checkout and colors. Adding one runs `gh repo view` (does this login see it, and what's its exact name), then `gh repo clone` into the projects folder; a checkout that's already there from the same repository is used as it is. Each floor runs its own workers, GitHub boards, queue and changes watcher in its checkout. A floor nobody is on, with nothing running, asks GitHub about its boards every 10 minutes instead of every 90 seconds. People get only the moves, worker updates and terminal frames of the floor they're on; the chat, voice connections and the budget are the building's.
+- **State.** The office's `.agent-office/` (in `~/agent-office`, or in the project you started it in) holds the password, the signing secret, the accounts and open invites (`accounts.json`), the floors (`floors.json`), the chat and the spend. Each floor's checkout has its own `.agent-office/` with the hook settings, the saved workers and their scrollback, the task queue and the pictures on the walls (`decor.json`). It is added to `.git/info/exclude` automatically, so it never shows up in `git status`.
 
 ## Security notes
 

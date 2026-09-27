@@ -72,3 +72,30 @@ export const LOFT = { minX: 9, maxX: FLOOR.maxX, minZ: 8, maxZ: FLOOR.maxZ, y: 3
 export const STAIRS = { fromX: 3, toX: LOFT.minX, minZ: 11.2, maxZ: FLOOR.maxZ, steps: 15 } as const;
 
 export const SPAWN = { x: 8, z: 7 } as const;
+
+/**
+ * The elevator: a shaft against the north wall, between the PR board and the task queue, with its
+ * doors facing into the room. Every floor has it in the same spot, so you step out where you got in.
+ */
+export const ELEVATOR = { x: 8.5, width: 2.6, depth: 2.4, wall: 0.14, doorWidth: 1.4, doorHeight: 2.4 } as const;
+/** Where the doors are: the front of the shaft. */
+export const ELEVATOR_FRONT = FLOOR.minZ + ELEVATOR.depth;
+/** The inside of the car, where you stand to ride. */
+export const ELEVATOR_CAR = {
+  minX: ELEVATOR.x - ELEVATOR.width / 2 + ELEVATOR.wall,
+  maxX: ELEVATOR.x + ELEVATOR.width / 2 - ELEVATOR.wall,
+  minZ: FLOOR.minZ,
+  maxZ: ELEVATOR_FRONT - ELEVATOR.wall,
+} as const;
+
+/** Somewhere inside the car, facing the doors (+z), a little apart from anyone else arriving. */
+export function elevatorSpot(): { x: number; z: number } {
+  return {
+    x: ELEVATOR.x + (Math.random() - 0.5) * 0.7,
+    z: (ELEVATOR_CAR.minZ + ELEVATOR_CAR.maxZ) / 2 + (Math.random() - 0.5) * 0.6,
+  };
+}
+
+export function inElevator(x: number, z: number): boolean {
+  return x > ELEVATOR_CAR.minX && x < ELEVATOR_CAR.maxX && z > ELEVATOR_CAR.minZ && z < ELEVATOR_CAR.maxZ;
+}
