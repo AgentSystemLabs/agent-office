@@ -14,7 +14,7 @@ import type { BinaryFileData, Collaborator, ExcalidrawImperativeAPI, SocketId } 
 import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import type { RemoteExcalidrawElement } from '@excalidraw/excalidraw/data/reconcile';
 import type { ClientMsg, ServerMsg } from '../../shared/protocol';
-import { byIndex, newer, type WbElement, type WbPointer } from '../../shared/whiteboard';
+import { WB_MAX_ELEMENT_BYTES, byIndex, newer, type WbElement, type WbPointer } from '../../shared/whiteboard';
 import { store } from '../state';
 import { toast } from './dom';
 
@@ -157,6 +157,8 @@ function tintedId(peerId: string, color: string): string {
 export interface WhiteboardApp {
   /** Nothing under way that Esc should finish first: no text being typed, no shape being drawn, no menu open, no tool picked. */
   idle(): boolean;
+  /** Lets go of whatever is selected; false when nothing was. */
+  deselect(): boolean;
   /** Whiteboard messages from the office (the store has already taken them in). */
   receive(msg: ServerMsg): void;
   /** Back after the connection dropped: merges the board as the office has it, and sends what was drawn meanwhile. */
@@ -171,6 +173,8 @@ export function mountWhiteboard(host: HTMLElement, send: (msg: ClientMsg) => voi
   const pending = new Map<string, ExcalidrawElement>();
   let sendTimer = 0;
   const pointers = new Map<string, WbPointer & { selected?: string[] }>();
+  /** Elements too big to send, which you've been told about. */
+  const tooBig = new Set<string>();
   let lastPointer = 0;
   let collabFrame = 0;
 
@@ -204,6 +208,12 @@ export function mountWhiteboard(host: HTMLElement, send: (msg: ClientMsg) => voi
     let size = 0;
     for (const el of out) {
       const n = JSON.stringify(el).length;
+      // The office would refuse it (or drop the connection over it), so it stays on your screen only.
+      if (n > WB_MAX_ELEMENT_BYTES) {
+        if (!tooBig.has(el.id)) toast("That's too big for the whiteboard, so only you can see it. Try it in smaller pieces.", 'warn');
+        tooBig.add(el.id);
+        continue;
+      }
       if (batch.length && size + n > BATCH_BYTES) {
         send({ t: 'wb.update', elements: batch });
         batch = [];
@@ -212,7 +222,7 @@ export function mountWhiteboard(host: HTMLElement, send: (msg: ClientMsg) => voi
       batch.push(el);
       size += n;
     }
-    send({ t: 'wb.update', elements: batch });
+    if (batch.length) send({ t: 'wb.update', elements: batch });
   }
 
   /** Merges elements from the office into the drawing; whatever you're in the middle of stays yours. */
@@ -318,6 +328,11 @@ export function mountWhiteboard(host: HTMLElement, send: (msg: ClientMsg) => voi
         s.showHyperlinkPopup !== 'editor' &&
         s.activeTool.type === 'selection'
       );
+    },
+    deselect() {
+      if (!api || !Object.keys(api.getAppState().selectedElementIds).length) return false;
+      api.updateScene({ appState: { selectedElementIds: {}, selectedGroupIds: {}, editingGroupId: null, selectedLinearElement: null }, captureUpdate: CaptureUpdateAction.NEVER });
+      return true;
     },
     receive(msg) {
       switch (msg.t) {

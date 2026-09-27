@@ -31,10 +31,8 @@ interface OpenBoard {
 }
 
 let open: OpenBoard | null = null;
-
-export function whiteboardOpen(): boolean {
-  return !!open;
-}
+/** Redraws the board in the office; it waits while the window is open in front of it. */
+let redrawBoard = () => {};
 
 /** Opens the floor's whiteboard, to draw on with everyone else who has it open. */
 export function openWhiteboard(net: Net) {
@@ -45,13 +43,13 @@ export function openWhiteboard(net: Net) {
   const close = h('button.btn.close', { 'aria-label': 'Close', title: 'Close (Esc)' }, '✕');
   const host = h('div.wb-host', {}, h('div.wb-loading', {}, '✏️ Getting the markers out…'));
   const el = h('div.wb-window', { role: 'dialog', 'aria-label': 'Whiteboard' }, h('header', {}, h('h2', {}, '📝 Whiteboard'), people, close), host);
-  // Esc first gets you out of whatever you're doing in Excalidraw (typing, a selection, a menu, a
-  // tool); once there's nothing left, it closes the window.
+  // Esc first gets you out of whatever you're doing in Excalidraw (typing, drawing, a menu, a tool),
+  // then lets go of what's selected, and once there's nothing left, closes the window.
   const onKey = (e: KeyboardEvent) => {
     if (e.key !== 'Escape' || open !== board || (board.app && !board.app.idle())) return;
     e.preventDefault();
     e.stopPropagation();
-    board.modal.close();
+    if (!board.app?.deselect()) board.modal.close();
   };
   const unsubscribe = [store.on('drawing', renderPeople), store.on('peers', renderPeople)];
   const board: OpenBoard = {
@@ -65,6 +63,7 @@ export function openWhiteboard(net: Net) {
         board.app?.unmount();
         open = null;
         net.send({ t: 'wb.close' });
+        redrawBoard();
       },
     }),
   };
@@ -117,7 +116,8 @@ export function routeWhiteboardMessage(msg: ServerMsg, net: Net) {
 
 /**
  * Keeps the whiteboard in the office showing the drawing: redrawn a moment after it changes, and not
- * more than a few times a second while someone draws. `width` × `height` is the room for it, in pixels.
+ * more than a few times a second while someone draws, or once you close the window if you have it
+ * open (it hides the board anyway). `width` × `height` is the room for it, in pixels.
  */
 export function mirrorWhiteboard(show: (drawing: HTMLCanvasElement | null) => void, width: number, height: number) {
   let timer = 0;
@@ -146,8 +146,9 @@ export function mirrorWhiteboard(show: (drawing: HTMLCanvasElement | null) => vo
     }
   };
   const soon = (ms: number) => {
-    timer ||= window.setTimeout(() => void draw(), ms);
+    if (!open) timer ||= window.setTimeout(() => void draw(), ms);
   };
+  redrawBoard = () => soon(300);
   store.on('whiteboard', () => soon(300));
   // Arriving: after the office has loaded, since drawing it means loading Excalidraw.
   soon(1500);
