@@ -107,6 +107,29 @@ export interface UsageState {
   pauseHiring: boolean;
 }
 
+/** One of the Claude plan's usage windows: the 5-hour session, the week, or a model's week. */
+export interface PlanWindow {
+  /** e.g. "5h session", "Week", "Fable week". */
+  label: string;
+  /** Percent of the window used, 0-100. */
+  pct: number;
+  /** When it starts over (ms since epoch), when known. */
+  resetsAt?: number;
+}
+
+/**
+ * The Claude plan limits of the account the office's Claude workers run on, as Claude Code's
+ * /usage shows them (see server/limits.ts). One account for the whole building.
+ */
+export interface PlanLimits {
+  /** 'pro', 'max', 'team', 'enterprise'…, when known. */
+  plan?: string;
+  /** The 5-hour session first, then the week, then per-model weeks. Empty until first read, or when there is no plan. */
+  windows: PlanWindow[];
+  /** When the numbers were read (ms since epoch); 0 before the first read. */
+  at: number;
+}
+
 /** What becomes of a worker's git worktree when it is sent home. */
 export type WorktreeCleanup = 'keep' | 'worktree' | 'all';
 
@@ -245,6 +268,9 @@ export interface GhState<T> {
 
 export type GhMergeMethod = 'squash' | 'merge' | 'rebase';
 
+/** Why an issue was closed, as GitHub records it. */
+export type GhCloseReason = 'completed' | 'not planned';
+
 /** How the repository lets pull requests be merged. */
 export interface GhRepoInfo {
   nameWithOwner: string;
@@ -310,6 +336,8 @@ export interface GhPullDetail {
 /** GET /api/gh/issue?number=N */
 export interface GhIssueDetail {
   number: number;
+  /** OPEN or CLOSED. */
+  state: string;
   body: string;
   comments: GhComment[];
   /** See GhPullDetail.viewer. */
@@ -594,6 +622,8 @@ export type ClientMsg =
   | { t: 'gh.comment'; kind: 'issue' | 'pull'; number: number; body: string }
   /** Hit the office gong (E at the gong); everyone on the floor hears it. */
   | { t: 'gong' }
+  /** Close an issue, or a pull request without merging it; the answer comes back as gh.closed. */
+  | { t: 'gh.close'; kind: 'issue' | 'pull'; number: number; comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }
   | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string }
   | { t: 'queue.remove'; taskId: string }
   /** Move a queued task up (-1) or down (+1) the queue. */
@@ -631,6 +661,8 @@ export type ClientMsg =
   | { t: 'changes.pr'; workerId: string; title: string; body: string }
   | { t: 'upgrade.check' }
   | { t: 'upgrade.start' }
+  /** Read the Claude plan limits again now, instead of at the next poll. */
+  | { t: 'limits.refresh' }
   /** Hang a picture on a wall. */
   | { t: 'decor.add'; decor: DecorPlacement }
   /** Move, resize, re-frame or swap the image of a picture. */
@@ -661,6 +693,7 @@ export type ServerMsg =
       version: string;
       upgrade: UpgradeState;
       usage: UsageState;
+      limits: PlanLimits;
       me: Me;
       notify: NotifyState;
     } & FloorView)
@@ -693,6 +726,8 @@ export type ServerMsg =
    * over the desk it came from), or the last task on the queue just finished (a bigger party).
    */
   | { t: 'gong'; why: GongWhy; by?: string; pr?: number }
+  /** Sent to whoever asked to close it. */
+  | { t: 'gh.closed'; kind: 'issue' | 'pull'; number: number; error?: string }
   | { t: 'rtc'; from: string; data: unknown }
   | ({ t: 'chat' } & ChatLine)
   | { t: 'toast'; text: string; level: 'info' | 'warn' | 'error' }
@@ -701,6 +736,7 @@ export type ServerMsg =
   | { t: 'services'; state: ServicesState }
   | { t: 'decor'; items: Decoration[] }
   | { t: 'usage'; state: UsageState }
+  | { t: 'limits'; state: PlanLimits }
   | { t: 'queue'; state: QueueState }
   | { t: 'notify'; state: NotifyState }
   /** Sent to whoever watches that worker's changes, whenever they change. */

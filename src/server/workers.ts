@@ -233,8 +233,9 @@ export class WorkerManager {
     const selectedProvider = kind === 'agent' ? provider ?? this.defaultProvider : undefined;
     const modelError = validateWorkerModel(kind, selectedProvider, model);
     if (modelError) return modelError;
-    if (!DESK_BY_ID.has(deskId)) return 'Unknown desk';
-    if (this.deskOccupied(deskId)) return 'That desk is taken';
+    const seat = DESK_BY_ID.get(deskId);
+    if (!seat) return 'Unknown desk';
+    if (this.deskOccupied(deskId)) return `That ${seat.beanbag ? 'bean bag' : 'desk'} is taken`;
     if (kind === 'shell' && provider !== undefined) return 'Shell workers do not have an agent provider';
     if (kind === 'agent' && selectedProvider === 'custom' && this.defaultProvider !== 'custom') return 'Custom is not the configured agent provider';
     if (kind === 'agent') {
@@ -1283,7 +1284,7 @@ function withoutOpenCodeModel(args: string[]): string[] {
 }
 
 /** The office's environment, minus anything that would make a child think it's a nested session. */
-function childEnv(): Record<string, string> {
+export function childEnv(): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !scrubbed(k)) env[k] = v;
   return env;

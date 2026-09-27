@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ASHTRAY, BALCONY, BALCONY_DOOR, BOARDS, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, LOFT, SLAB, STAIRS, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, type DeskDef, type Opening, type Side } from '../../shared/layout';
+import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, LOFT, SLAB, STAIRS, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, type DeskDef, type Opening, type Side } from '../../shared/layout';
 import { wallFacing, type WallId, type WallRect } from '../../shared/decor';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
 import { buildGarage, buildStreet } from './outside';
@@ -27,24 +27,35 @@ export interface Interactable {
   radius: number;
   deskId?: string;
   decorId?: string;
+  /** Put away for now (a bean bag nobody needs yet): can't be used. */
+  off?: boolean;
 }
 
+/** A desk or a bean bag: somewhere a worker sits. */
 export interface DeskView {
   def: DeskDef;
   group: THREE.Group;
-  /** Local-space anchor for the laptop (on the desk top). */
+  /** The laptop goes in here: placed, turned and sized for this seat. */
   laptopAnchor: THREE.Object3D;
-  /** Local-space anchor where the worker sits. */
+  /** The worker goes in here, the same way. */
   seatAnchor: THREE.Object3D;
   chair: THREE.Group;
   vacancy: THREE.Group;
+  /** How high the vacancy marker floats. */
+  vacancyY: number;
 }
 
 export interface Office {
   group: THREE.Group;
   colliders: Collider[];
   interactables: Interactable[];
+  /** Every seat by id: the desks and the bean bags. */
   desks: Map<string, DeskView>;
+  /**
+   * Brings out the bean bags in `out` and puts the rest away. Returns the colliders of the ones that
+   * just came out, in case someone is standing there.
+   */
+  setBeanbags(out: Set<string>): Collider[];
   boardMeshes: Record<keyof typeof BOARDS, THREE.Mesh>;
   tvScreen: THREE.Mesh;
   /** What's already on the walls (boards, the TV, windows…), so pictures don't hang over it. */
@@ -652,28 +663,82 @@ function buildDesk(def: DeskDef, index: number, trimMat: THREE.Material): DeskVi
   }
 
   const laptopAnchor = new THREE.Object3D();
-  laptopAnchor.position.set(0, height, 0.02);
+  laptopAnchor.position.set(0, height, -0.06);
+  laptopAnchor.scale.setScalar(1.3);
   group.add(laptopAnchor);
 
+  // On the chair, facing the desk.
   const seatAnchor = new THREE.Object3D();
-  seatAnchor.position.set(0, 0, 0.85);
+  seatAnchor.position.set(0, 0.4, 0.93);
+  seatAnchor.rotation.y = Math.PI;
+  seatAnchor.scale.setScalar(0.82);
   group.add(seatAnchor);
 
   const ch = chair(PALETTE.chairs[index % PALETTE.chairs.length]);
   ch.position.set(0, 0, 0.9);
   group.add(ch);
 
-  // Floating "vacancy" marker shown on empty desks.
-  const vacancy = new THREE.Group();
-  const plus = new THREE.Group();
-  const plusMat = toon('#7cf29a', { emissive: '#1f7a3a' });
-  plus.add(mesh(box(0.28, 0.08, 0.08), plusMat, 0, 0, 0, false));
-  plus.add(mesh(box(0.08, 0.28, 0.08), plusMat, 0, 0, 0, false));
-  vacancy.add(plus);
-  vacancy.position.set(0, height + 0.55, 0);
+  const vacancyY = height + 0.55;
+  const vacancy = vacancyMarker(vacancyY);
   group.add(vacancy);
 
-  return { def, group, laptopAnchor, seatAnchor, chair: ch, vacancy };
+  return { def, group, laptopAnchor, seatAnchor, chair: ch, vacancy, vacancyY };
+}
+
+/** The floating green "+" over an empty seat. */
+function vacancyMarker(y: number): THREE.Group {
+  const vacancy = new THREE.Group();
+  const plusMat = toon('#7cf29a', { emissive: '#1f7a3a' });
+  vacancy.add(mesh(box(0.28, 0.08, 0.08), plusMat, 0, 0, 0, false));
+  vacancy.add(mesh(box(0.08, 0.28, 0.08), plusMat, 0, 0, 0, false));
+  vacancy.position.set(0, y, 0);
+  return vacancy;
+}
+
+const BEANBAG_COLORS = ['#ff6b6b', '#4ecdc4', '#9b5de5', '#ffd166', '#f15bb5', '#00bbf9', '#06d6a0', '#fb8500'];
+/** A bean bag's footprint, with the lap desk in front of it (-z). */
+const BEANBAG_BOX = { minX: -0.62, maxX: 0.62, minZ: -1.1, maxZ: 0.64, top: 0.62 } as const;
+
+/** An overflow seat: a squashy bean bag, and a low lap desk in front of it for the laptop. */
+function buildBeanbag(def: DeskDef, index: number): DeskView {
+  const group = new THREE.Group();
+  group.position.set(def.x, 0, def.z);
+  group.rotation.y = def.rotY;
+  const bag = new THREE.Group();
+  const cloth = toon(BEANBAG_COLORS[index % BEANBAG_COLORS.length]);
+  const seat = mesh(new THREE.SphereGeometry(0.62, 20, 14), cloth, 0, 0.3, 0);
+  seat.scale.set(1, 0.52, 1);
+  bag.add(seat);
+  // Slumped up behind the worker, like a back rest.
+  const back = mesh(new THREE.SphereGeometry(0.5, 18, 12), cloth, 0, 0.6, 0.32);
+  back.scale.set(1.05, 0.95, 0.7);
+  bag.add(back);
+  group.add(bag);
+
+  const tray = new THREE.Group();
+  const wood = toon(PALETTE.wood);
+  tray.add(mesh(roundedBox(0.95, 0.05, 0.6, 0.05), wood, 0, 0.42, 0));
+  for (const sx of [-1, 1]) tray.add(mesh(box(0.05, 0.4, 0.5), toon('#8a5a3b'), sx * 0.4, 0.2, 0));
+  tray.position.z = -0.8;
+  group.add(tray);
+
+  const laptopAnchor = new THREE.Object3D();
+  laptopAnchor.position.set(0, 0.445, -0.8);
+  laptopAnchor.scale.setScalar(1.05);
+  group.add(laptopAnchor);
+
+  // Sunk into the bag, facing the lap desk.
+  const seatAnchor = new THREE.Object3D();
+  seatAnchor.position.set(0, 0.32, 0.04);
+  seatAnchor.rotation.y = Math.PI;
+  seatAnchor.scale.setScalar(0.82);
+  group.add(seatAnchor);
+
+  const vacancyY = 1.25;
+  const vacancy = vacancyMarker(vacancyY);
+  group.add(vacancy);
+
+  return { def, group, laptopAnchor, seatAnchor, chair: bag, vacancy, vacancyY };
 }
 
 /** A framed board on a wall; the face gets a canvas texture (cork, chalk or whiteboard). */
@@ -767,6 +832,39 @@ export function buildOffice(): Office {
     interactables.push(it);
     view.group.userData.interact = it;
   });
+
+  // Bean bags, put away until every desk is taken.
+  const beanbags = new Map<string, { view: DeskView; it: Interactable; collider: Collider }>();
+  BEANBAGS.forEach((def, i) => {
+    const view = buildBeanbag(def, i);
+    view.group.visible = false;
+    group.add(view.group);
+    desks.set(def.id, view);
+    const it: Interactable = { kind: 'desk', deskId: def.id, x: def.x, z: def.z, radius: 1.8, off: true };
+    interactables.push(it);
+    view.group.userData.interact = it;
+    // Its footprint turned the way it faces (a quarter turn at a time).
+    const c = Math.round(Math.cos(def.rotY));
+    const s = Math.round(Math.sin(def.rotY));
+    const xs = [BEANBAG_BOX.minX, BEANBAG_BOX.maxX].flatMap((lx) => [BEANBAG_BOX.minZ, BEANBAG_BOX.maxZ].map((lz) => def.x + lx * c + lz * s));
+    const zs = [BEANBAG_BOX.minX, BEANBAG_BOX.maxX].flatMap((lx) => [BEANBAG_BOX.minZ, BEANBAG_BOX.maxZ].map((lz) => def.z - lx * s + lz * c));
+    const collider = { minX: Math.min(...xs), maxX: Math.max(...xs), minZ: Math.min(...zs), maxZ: Math.max(...zs), top: BEANBAG_BOX.top };
+    beanbags.set(def.id, { view, it, collider });
+  });
+  const setBeanbags = (out: Set<string>) => {
+    const appeared: Collider[] = [];
+    for (const [id, b] of beanbags) {
+      const show = out.has(id);
+      if (show === b.view.group.visible) continue;
+      b.view.group.visible = show;
+      b.it.off = !show;
+      if (show) {
+        colliders.push(b.collider);
+        appeared.push(b.collider);
+      } else colliders.splice(colliders.indexOf(b.collider), 1);
+    }
+    return appeared;
+  };
 
   // Cork boards on the walls
   const boardMeshes = {} as Office['boardMeshes'];
@@ -940,15 +1038,15 @@ export function buildOffice(): Office {
       d.show(d.open);
     }
     for (const d of desks.values()) {
-      if (!d.vacancy.visible) continue;
-      d.vacancy.position.y = DESK_SIZE.height + 0.55 + Math.sin(t * 2 + d.def.x) * 0.06;
+      if (!d.vacancy.visible || !d.group.visible) continue;
+      d.vacancy.position.y = d.vacancyY + Math.sin(t * 2 + d.def.x) * 0.06;
       d.vacancy.rotation.y = t * 1.2;
     }
     elevator.update(dt);
     gong.update(dt);
   };
 
-  return { group, colliders, interactables, desks, boardMeshes, tvScreen, fixtures: () => fixtures, elevator, gong, setProjectName, setLook, update };
+  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, fixtures: () => fixtures, elevator, gong, setProjectName, setLook, update };
 }
 
 /** The materials and textures a floor paints in its own colors. */
