@@ -235,6 +235,17 @@ export class GitHub {
     return { comment };
   }
 
+  /**
+   * Posts a review on a pull request that only comments (the meeting room's review panel), its body
+   * read from a file. Resolves to the review's URL.
+   */
+  async review(n: number, file: string): Promise<string> {
+    // -F reads @file's contents as the value; {owner}/{repo} are filled in from the checkout's remote.
+    const url = (await gh(['api', '--method', 'POST', `repos/{owner}/{repo}/pulls/${n}/reviews`, '-F', `body=@${file}`, '-f', 'event=COMMENT', '--jq', '.html_url'], this.dir, 60_000)).trim();
+    void this.refreshPulls();
+    return url;
+  }
+
   /** Merges a PR, or with `auto` has GitHub merge it once its requirements pass. Returns an error. */
   async merge(n: number, method: GhMergeMethod, deleteBranch: boolean, auto: boolean): Promise<string | undefined> {
     try {
