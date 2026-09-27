@@ -18,6 +18,12 @@ export type WorkerStatus =
 
 export type WorkerKind = 'agent' | 'shell';
 
+/**
+ * What a working agent's latest tool call looks like from across the room (see shared/actions.ts):
+ * reading files, editing them, running tests or a build, on the web, or tests failing again and again.
+ */
+export type WorkerAction = 'read' | 'edit' | 'test' | 'web' | 'failing';
+
 export type AgentProvider = 'claude' | 'opencode' | 'codex' | 'custom';
 
 export function isAgentProvider(value: unknown): value is AgentProvider {
@@ -84,6 +90,8 @@ export interface WorkerInfo {
   viewerIds: string[];
   /** Latest line of meaningful activity (e.g. last prompt or tool). */
   activity?: string;
+  /** What its latest tool call is, for the worker to act out while it works. */
+  action?: WorkerAction;
   /** Written by a small model from its prompts and recent tool calls (see server/tasks.ts). */
   task?: WorkerTask;
   /** Reported session tokens and cost, when the provider supplies them (agents only). */

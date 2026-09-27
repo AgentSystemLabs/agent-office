@@ -8,6 +8,7 @@ import { CodexUsageReader } from './codex-usage.js';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
 import type { AgentEffort, AgentProvider, Run, TerminalHit, WorkerInfo, WorkerKind, WorkerStatus, WorkerTask } from '../shared/protocol.js';
+import { FAILS_TO_DESPAIR, outputFailed, toolAction } from '../shared/actions.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, isAgentEffort, isClaudeModel } from '../shared/protocol.js';
 import { Worktrees, describeWork, type WorktreeCleanup, type WorktreeState } from './worktrees.js';
 import { DESK_BY_ID, STATION_AGENT } from '../shared/layout.js';
@@ -101,6 +102,8 @@ interface Worker {
   codexTools: Map<string, string>;
   codexPending: Set<string>;
   codexPermissionUnknown?: boolean;
+  /** Test runs and builds that have failed in a row (see FAILS_TO_DESPAIR). */
+  failStreak: number;
   /** Its latest prompts and tool calls, for naming its task. */
   prompts: string[];
   tools: string[];
@@ -569,7 +572,10 @@ export class WorkerManager {
     this.scheduleScan(w);
     switch (event) {
       case 'SessionStart':
-        if (payload?.source === 'clear') this.clearTask(w);
+        if (payload?.source === 'clear') {
+          this.clearTask(w);
+          w.failStreak = 0;
+        }
         if (w.info.status === 'starting' || (w.bootBlocked && w.info.status === 'needs_input')) {
           w.bootBlocked = false;
           this.setStatus(w, 'idle');
@@ -577,6 +583,7 @@ export class WorkerManager {
         break;
       case 'UserPromptSubmit':
         w.bootBlocked = false;
+        w.info.action = undefined;
         if (typeof payload?.prompt === 'string') {
           w.info.activity = truncate(payload.prompt, 80);
           this.notePrompt(w, payload.prompt);
@@ -588,12 +595,15 @@ export class WorkerManager {
         if (payload?.tool_name === 'AskUserQuestion') this.setStatus(w, 'needs_input');
         else {
           w.info.activity = describeTool(payload);
+          w.info.action = toolAction(payload?.tool_name, payload?.tool_input);
           this.noteTool(w, w.info.activity);
           if (w.info.status !== 'working') this.setStatus(w, 'working');
           else this.emitUpdate(w);
         }
         break;
       case 'PostToolUse':
+      case 'PostToolUseFailure':
+        this.noteOutcome(w, payload, event === 'PostToolUseFailure');
         if (w.info.status === 'needs_input') {
           w.leftNeedsInputAt = now;
           this.setStatus(w, 'working');
@@ -652,6 +662,7 @@ export class WorkerManager {
         break;
       case 'UserPromptSubmit':
         clearPending();
+        w.info.action = undefined;
         if (report.prompt) {
           w.info.activity = truncate(report.prompt, 80);
           this.notePrompt(w, report.prompt);
@@ -660,6 +671,7 @@ export class WorkerManager {
         break;
       case 'PreToolUse':
         w.info.activity = report.tool ? truncate(report.tool, 80) : 'Using a tool';
+        w.info.action = toolAction(report.tool);
         if (report.toolUseId && w.codexTools.size < 256) w.codexTools.set(report.toolUseId, report.tool ?? '');
         if (/(?:^|[.])(?:AskUserQuestion|request_user_input)$/.test(report.tool ?? '')) {
           if (report.toolUseId) w.codexPending.add(report.toolUseId);
@@ -726,9 +738,11 @@ export class WorkerManager {
     else if (payload.status === 'working' || payload.prompt) w.openCodeError = false;
     if (payload.prompt) {
       w.info.activity = truncate(payload.prompt, 80);
+      w.info.action = undefined;
       this.notePrompt(w, payload.prompt);
     } else if (payload.tool) {
       w.info.activity = truncate(payload.tool, 80);
+      w.info.action = toolAction(payload.tool);
     } else if (payload.detail) {
       w.info.activity = truncate(payload.detail, 80);
     }
@@ -760,6 +774,24 @@ export class WorkerManager {
     w.tools = [...w.tools, tool].slice(-TASK_TOOLS);
     w.toolsSinceNamed++;
     if (w.info.task && w.toolsSinceNamed >= TASK_REFRESH_TOOLS && Date.now() - w.namedAt > TASK_REFRESH_MS) this.nameTask(w);
+  }
+
+  /**
+   * A tool call finished. Tests or a build that failed again (by exit code, or by the summary it
+   * printed when the exit code was piped away) and the worker puts its head in its hands, until its
+   * next tool call; a passing run ends the streak.
+   */
+  private noteOutcome(w: Worker, payload: any, failed: boolean) {
+    if (payload?.is_interrupt || toolAction(payload?.tool_name, payload?.tool_input) !== 'test') return;
+    const res = payload?.tool_response;
+    const output = [payload?.error, res?.stdout, res?.stderr].filter((s) => typeof s === 'string').join('\n');
+    if (!failed && !outputFailed(output)) {
+      w.failStreak = 0;
+      return;
+    }
+    if (++w.failStreak < FAILS_TO_DESPAIR || w.info.action === 'failing') return;
+    w.info.action = 'failing';
+    this.emitUpdate(w);
   }
 
   private nameTask(w: Worker) {
@@ -1096,6 +1128,8 @@ export class WorkerManager {
     if (w.info.status === status) return;
     if (w.info.status === 'needs_input') w.leftNeedsInputAt = Date.now();
     w.info.status = status;
+    // Done, idle or asleep: it's not acting anything out any more.
+    if (status !== 'working' && status !== 'needs_input') w.info.action = undefined;
     // Nobody is looking at the terminal right now -> raise the flag (the worker jumps).
     if (status === 'done' || status === 'needs_input') {
       w.info.acked = w.viewers.size > 0 && status === 'done';
@@ -1183,6 +1217,7 @@ export class WorkerManager {
       ['PermissionRequest', undefined],
       ['PreToolUse', undefined],
       ['PostToolUse', undefined],
+      ['PostToolUseFailure', undefined],
     ];
     // Minimal VPS images sometimes lack curl; the office's own node binary is always there.
     const nodeHook = path.join(this.dataDir, 'hook.cjs');
@@ -1350,6 +1385,7 @@ function newWorker(info: WorkerInfo, tracker: UsageTracker, hookToken = randomBy
     codexUsage: new CodexUsageReader(),
     codexTools: new Map(),
     codexPending: new Set(),
+    failStreak: 0,
     prompts: [],
     tools: [],
     toolsSinceNamed: 0,

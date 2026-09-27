@@ -843,6 +843,10 @@ function syncWorkers() {
       departures.vacate(w.deskId);
       const model = new Worker(w.name, w.color);
       desk.seatAnchor.add(model.root);
+      // Its progress bar and globe float beside the laptop (or the kiosk's counter), out from behind
+      // the card over its head and the back of its chair, so they show from across the room.
+      const beside = desk.def.station ? new THREE.Vector3(0.62, 0.9, 0) : new THREE.Vector3(0.64, 0.5, -0.1);
+      model.setPropSpot(model.root.worldToLocal(desk.laptopAnchor.localToWorld(beside)));
       const laptop = new Laptop();
       desk.laptopAnchor.add(laptop.root);
       noOutline(desk.group);
@@ -856,15 +860,22 @@ function syncWorkers() {
         sound.ding(w.status);
         notifier.alert(w);
       }
+      // Finished what it was on: a little spin and a puff of confetti.
+      if (w.status === 'done' && (v.status === 'working' || v.status === 'needs_input')) {
+        v.model.celebrate();
+        burstOver(w.deskId, 40);
+      }
       v.status = w.status;
       v.acked = w.acked;
       v.model.setStatus(w.status, waitingOnSomeone(w));
       noOutline(v.model.root);
     }
+    v.model.setAction(w.action);
     const engineBadge = w.kind === 'agent' ? modelBadge(w.provider, w.model, w.effort) : undefined;
     v.model.setTask(w.task && w.kind === 'agent' ? { ...w.task, name: `${providerLabel(w.provider, store.project)}${engineBadge ? ` · ${engineBadge}` : ''} · ${w.task.name}` } : w.task);
     const deskDef = DESK_BY_ID.get(w.deskId);
-    if (deskDef) sound.setTyping(w.id, deskDef.x, deskDef.z, w.status === 'working');
+    // Keys clack while it types, not while it reads, watches its tests or browses.
+    if (deskDef) sound.setTyping(w.id, deskDef.x, deskDef.z, w.status === 'working' && (!w.action || w.action === 'edit'));
     const again = w.kind === 'shell' ? 'restart' : 'resume';
     v.laptop.setPlaceholder(w.status === 'offline' ? `💤 ${w.name} is asleep — press R to ${again}` : w.status === 'exited' ? `${w.name} exited` : 'booting…');
   }
@@ -2350,7 +2361,7 @@ function frame(ts?: number) {
     // A jumping worker holds still while you're near enough to read its card, and jumps again once you walk away.
     const d = v.model.root.getWorldPosition(workerPos).distanceTo(player.pos);
     v.model.held = d < (v.model.held ? HOLD_LEAVE : HOLD_NEAR);
-    v.model.update(dt, t);
+    v.model.update(dt, t, camPos);
     // A board agent's kiosk has no laptop to paint (see buildKiosk).
     if (!desk.station) v.laptop.update(dt, store.screens.get(id), Math.hypot(desk.x - camPos.x, desk.z - camPos.z));
   }
