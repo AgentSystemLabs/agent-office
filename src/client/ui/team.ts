@@ -31,7 +31,7 @@ function inviteMessage(t: TeamState, os: Os): string {
     '',
     tunnelCommand(t, os),
     '',
-    `It opens the office at http://localhost:${t.port} — sign in with the office password and keep that terminal open while you're in.`,
+    `It opens the office at http://localhost:${t.port} — sign in (with the office password, or the account link you get from me) and keep that terminal open while you're in.`,
     t.fingerprint ? `The first time, ssh asks whether to trust the server. Only say yes if it shows ${t.fingerprint}` : '',
   ]
     .filter((l, i, all) => l || all[i - 1])
@@ -76,7 +76,7 @@ export function openTeam(net: Net) {
   const body = h('div.body.team');
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const copyMsg = copyButton('✉️ Copy invite message', () => (store.team ? inviteMessage(store.team, os) : ''), 'primary');
-  const footer = h('footer', {}, h('span.grow', {}, 'Invited people still need the office password.'), copyMsg);
+  const footer = h('footer', {}, h('span.grow', {}, 'Invited people still need to sign in: the office password, or an account from 🔑 Accounts.'), copyMsg);
   const el = h('div.modal', { role: 'dialog', 'aria-label': 'Invite teammates', style: 'width:min(680px,100%)' }, h('header', {}, h('h2', {}, '👥 Invite teammates'), close), body, footer);
 
   const input = h('input', { type: 'text', maxlength: 40, placeholder: 'GitHub username', 'aria-label': 'GitHub username', autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;

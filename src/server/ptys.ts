@@ -25,6 +25,8 @@ export interface SpawnOpts {
   env: Record<string, string>;
   cols: number;
   rows: number;
+  /** Output from before this process (a restored scrollback), for the host's copy of the screen. */
+  prelude?: string;
 }
 
 export interface PtyExit {
@@ -346,7 +348,9 @@ export class PtyHost {
       const child = spawnProcess(process.execPath, [...flags, script, this.socketPath, this.infoPath], {
         detached: true,
         stdio: ['ignore', 'ignore', log],
-        cwd: this.dataDir,
+        // Where the office's own code is, so a loader flag (`--import tsx`) resolves from its
+        // node_modules and not from whichever project this floor is.
+        cwd: path.dirname(here),
       });
       child.unref();
     } finally {

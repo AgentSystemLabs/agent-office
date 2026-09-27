@@ -7,6 +7,10 @@ if (argv[0] === 'prune') {
   const { prune } = await import('./prune.js');
   process.exit(await prune(argv.slice(1)));
 }
+if (argv[0] === 'accounts') {
+  const { accountsCommand } = await import('./accounts.js');
+  process.exit(accountsCommand(argv.slice(1)));
+}
 
 const cfg = loadConfig(argv);
 await ensureSelfSigned(cfg);
@@ -29,20 +33,31 @@ if (cfg.host === '0.0.0.0' || cfg.host === '::') {
   }
 } else urls.add(`${scheme}://${cfg.host}:${cfg.port}`);
 
-const agent = office.workers.resolvedAgent;
+const agent = office.resolvedAgent;
+function floorsLine() {
+  const floors = office.floors();
+  const where = `new ones are cloned into ${cfg.projectsDir}`;
+  if (!floors.length) return `🛗 no floors yet — ride the elevator in the office to add a project (${where})`;
+  return `🛗 ${floors.length} floor${floors.length === 1 ? '' : 's'}: ${floors.map((f) => f.def.name).join(', ')} (${where})`;
+}
+
 function passwordLine() {
+  if (!office.accounts.sharedPassword) return 'off — everyone signs in with their own account (agent-office accounts)';
   if (!cfg.passwordGenerated) return '(from --password / AGENT_OFFICE_PASSWORD)';
   if (cfg.claimToken && !cfg.claimed) return 'shown exactly once to whoever opens the claim link (/claim?t=…)';
   if (cfg.claimed || !cfg.password) return '(already claimed — never shown again; reset with --reset-password)';
   return cfg.password;
 }
 console.log(`
-  🏢  agent-office is open for ${cfg.dir}
+  🏢  agent-office is open${cfg.project ? ` for ${cfg.project}` : ''}
+
+  ${floorsLine()}
 
   ${[...urls].join('\n  ')}
 
   password: ${passwordLine()}
-  workers run: ${[agent ?? `${cfg.agentCmd} (via login shell)`, ...cfg.agentArgs].join(' ')}
+  default agent: ${[agent ?? `${cfg.agentCmd} (via login shell)`, ...cfg.agentArgs].join(' ')}
+  choose Claude Code or OpenCode when hiring or queueing a task
 ${cfg.tls ? '' : '\n  tip: voice & screen share need https off localhost — use a reverse proxy or --self-signed\n'}`);
 
 let closing = false;

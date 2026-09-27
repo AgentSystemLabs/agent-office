@@ -54,7 +54,8 @@ export const DESKS: DeskDef[] = buildDesks();
 export const BEANBAGS: DeskDef[] = (
   [
     [5, -9.8, 0],
-    [8, -9.8, 0],
+    // Clear of the elevator doors at x 7.2..9.8.
+    [2, -9.8, 0],
     [-16.1, -9, Math.PI / 2],
     [-16.1, -3, Math.PI / 2],
     [-8.8, 10.2, Math.PI],
@@ -167,3 +168,30 @@ export const BALCONY_DOOR: Opening = { wall: 'south', u: -4, width: 3, y0: 0, y1
 export const BALCONY = { minX: -10.5, maxX: 2.5, minZ: FLOOR.maxZ + WALL_T, maxZ: FLOOR.maxZ + WALL_T + 3.4 } as const;
 /** The ashtray on the balcony, where a smoke break starts. */
 export const ASHTRAY = { x: -8.2, z: BALCONY.maxZ - 0.55 } as const;
+
+/**
+ * The elevator: a shaft against the north wall, between the PR board and the task queue, with its
+ * doors facing into the room. Every floor has it in the same spot, so you step out where you got in.
+ */
+export const ELEVATOR = { x: 8.5, width: 2.6, depth: 2.4, wall: 0.14, doorWidth: 1.4, doorHeight: 2.4 } as const;
+/** Where the doors are: the front of the shaft. */
+export const ELEVATOR_FRONT = FLOOR.minZ + ELEVATOR.depth;
+/** The inside of the car, where you stand to ride. */
+export const ELEVATOR_CAR = {
+  minX: ELEVATOR.x - ELEVATOR.width / 2 + ELEVATOR.wall,
+  maxX: ELEVATOR.x + ELEVATOR.width / 2 - ELEVATOR.wall,
+  minZ: FLOOR.minZ,
+  maxZ: ELEVATOR_FRONT - ELEVATOR.wall,
+} as const;
+
+/** Somewhere inside the car, facing the doors (+z), a little apart from anyone else arriving. */
+export function elevatorSpot(): { x: number; z: number } {
+  return {
+    x: ELEVATOR.x + (Math.random() - 0.5) * 0.7,
+    z: (ELEVATOR_CAR.minZ + ELEVATOR_CAR.maxZ) / 2 + (Math.random() - 0.5) * 0.6,
+  };
+}
+
+export function inElevator(x: number, z: number): boolean {
+  return x > ELEVATOR_CAR.minX && x < ELEVATOR_CAR.maxX && z > ELEVATOR_CAR.minZ && z < ELEVATOR_CAR.maxZ;
+}

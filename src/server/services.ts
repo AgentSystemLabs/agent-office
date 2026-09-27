@@ -23,6 +23,8 @@ export interface ServiceOwner {
   agent: boolean;
   /** Its working directory: the project, or its own worktree. */
   cwd: string;
+  /** Its floor's checkout, which everyone on that floor shares. */
+  root: string;
 }
 
 interface Listener {
@@ -173,7 +175,6 @@ export class Services {
   private published = '[]';
 
   constructor(
-    private dir: string,
     private owners: () => ServiceOwner[],
     private onChange: (items: ServiceInfo[]) => void,
   ) {}
@@ -261,7 +262,7 @@ export class Services {
       }
       // Only a worktree says whose it is: the project root is everyone's (and yours, from your own terminal).
       const cwd = dirs.get(l.pid);
-      const owner = cwd ? owners.filter((o) => o.cwd !== this.dir && inside(o.cwd, cwd)).sort((a, b) => b.cwd.length - a.cwd.length)[0] : undefined;
+      const owner = cwd ? owners.filter((o) => o.cwd !== o.root && inside(o.cwd, cwd)).sort((a, b) => b.cwd.length - a.cwd.length)[0] : undefined;
       if (owner) found.set(l.port, { l, workerId: owner.workerId, cwd });
     }
     // Working directories for the board, for servers that are new since the last scan.
@@ -276,7 +277,8 @@ export class Services {
     }
     for (const [port, f] of found) {
       const cwd = f.cwd ?? more.get(f.l.pid);
-      const rel = cwd && inside(this.dir, cwd) ? path.relative(this.dir, cwd) : undefined;
+      const root = byId.get(f.workerId)?.root;
+      const rel = cwd && root && inside(root, cwd) ? path.relative(root, cwd) : undefined;
       const fresh = { host: f.l.host, pid: f.l.pid, command: shortCommand(procs.get(f.l.pid)?.args ?? '?'), cwd: rel, since: now };
       let t = this.tracked.get(port);
       if (!t) {
