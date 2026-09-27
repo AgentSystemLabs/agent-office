@@ -27,7 +27,7 @@ import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunne
 import { ChatLog } from './history.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
-import { DESK_BY_ID, elevatorSpot, seatAt } from '../shared/layout.js';
+import { DESK_BY_ID, STREET_Y, elevatorSpot, seatAt } from '../shared/layout.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
@@ -144,6 +144,13 @@ function send(res: http.ServerResponse, status: number, body: unknown, headers: 
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+/** Where someone going to another floor says they arrive (see `floor.go`): on the grounds, or nowhere (the elevator). */
+function arrivalSpot(at: unknown): { x: number; y: number; z: number; rotY: number } | undefined {
+  if (!at || typeof at !== 'object') return undefined;
+  const a = at as Record<string, unknown>;
+  const clamp = (v: unknown, lo: number, hi: number) => Math.min(hi, Math.max(lo, num(v)));
+  return { x: clamp(a.x, -60, 60), y: clamp(a.y, STREET_Y, 10), z: clamp(a.z, -60, 60), rotY: num(a.rotY) };
+}
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const TOO_MANY_ATTEMPTS = 'Too many attempts. Try again in a few minutes.';
 /** WebSocket close code for a session that stopped counting: the account was revoked, or the shared password switched off. */
@@ -839,8 +846,11 @@ export async function startServer(cfg: Config) {
     }
   };
 
-  /** Rides `c` to another floor: everyone sees them leave and arrive, and they get the new floor's everything. */
-  const goToFloor = (c: Client, floor: Floor) => {
+  /**
+   * Takes `c` to another floor: everyone sees them leave and arrive, and they get the new floor's
+   * everything. They arrive in the elevator, or `at` the spot they came by.
+   */
+  const goToFloor = (c: Client, floor: Floor, at?: { x: number; y: number; z: number; rotY: number }) => {
     if (c.peer.floor === floor.id) return;
     const was = floorOf(c);
     if (was) {
@@ -852,8 +862,8 @@ export async function startServer(cfg: Config) {
     // The whiteboard downstairs stays downstairs.
     const wasDrawing = c.whiteboard;
     c.whiteboard = false;
-    const spot = elevatorSpot();
-    Object.assign(c.peer, { floor: floor.id, x: spot.x, y: 0, z: spot.z, rotY: 0, moving: false });
+    const spot = at ?? { ...elevatorSpot(), y: 0, rotY: 0 };
+    Object.assign(c.peer, { floor: floor.id, x: spot.x, y: spot.y, z: spot.z, rotY: spot.rotY, moving: false });
     delete c.peer.seat;
     sendTo(c, { t: 'floor.enter', peers: [...clients.values()].map((o) => o.peer), ...floorView(floor) });
     screensOf(c, floor);
@@ -942,7 +952,7 @@ export async function startServer(cfg: Config) {
       case 'floor.go': {
         const floor = floors.get(str(msg.floor, 64));
         if (!floor) warn(c, building.pending().some((d) => d.id === msg.floor) ? "That floor is still being cloned — it'll be ready in a moment" : 'No such floor');
-        else goToFloor(c, floor);
+        else goToFloor(c, floor, arrivalSpot(msg.at));
         break;
       }
       case 'floor.repos':

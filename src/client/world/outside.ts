@@ -108,7 +108,7 @@ function garageFloorTexture(): THREE.CanvasTexture {
 }
 
 /**
- * Downstairs: the office's floor slab (the garage ceiling), and the open garage under it: concrete
+ * Downstairs: the open garage under the office's floor slab (see world/stack.ts): concrete
  * walls at the back and on the west side, columns along the open front and east side, strip
  * lights, and a row of Lambos and a row of Ferraris.
  */
@@ -119,15 +119,7 @@ export function buildGarage(group: THREE.Group, colliders: Collider[]) {
   const cz = (B.minZ + B.maxZ) / 2;
   const ceiling = -SLAB;
   const concrete = toon('#d3d6dd');
-  const band = toon('#e8a87c');
-
-  // The slab: concrete underneath, a peach band between the floors outside. Its top sits under the office floor.
-  const slab = new THREE.Mesh(box(w, SLAB - 0.01, d), [band, band, concrete, concrete, band, band]);
-  slab.position.set(cx, -SLAB / 2 - 0.005, cz);
-  // Its underside faces away from the sun anyway; taking shadows only streaks it.
-  slab.castShadow = true;
-  group.add(slab);
-  colliders.push({ ...B, bottom: ceiling, top: 0 });
+  // The slab over it, which is the office's floor, is world/stack.ts's: holes go through it to the floor below.
 
   group.add(groundPlane(w, d, cx, G + 0.004, cz, garageFloorTexture()));
 
