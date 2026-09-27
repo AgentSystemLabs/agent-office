@@ -601,7 +601,10 @@ export interface FloorInfo {
   cloning?: boolean;
   addedBy: string;
   addedAt: number;
-  /** For the elevator panel: who's there and what they're up to. */
+  /**
+   * For the elevator panel: who's there and what they're up to. `workers` counts the ones hired onto
+   * desks, bean bags and the meeting room's table, not the board agents at their kiosks.
+   */
   workers: number;
   busy: number;
   /** Workers waiting on someone: a question, a permission, or a finished turn nobody looked at. */

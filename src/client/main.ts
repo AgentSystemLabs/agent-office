@@ -992,8 +992,8 @@ function syncWorkers() {
       const model = new Worker(w.name, w.color);
       model.setCostume(store.theme.active);
       desk.seatAnchor.add(model.root);
-      // Its progress bar and globe float beside the laptop (or the kiosk's counter), out from behind
-      // the card over its head and the back of its chair, so they show from across the room.
+      // Its globe floats beside the laptop (or the kiosk's counter), out from behind the card over
+      // its head and the back of its chair, so it shows from across the room.
       const beside = desk.def.station ? new THREE.Vector3(0.62, 0.9, 0) : new THREE.Vector3(0.64, 0.5, -0.1);
       model.setPropSpot(model.root.worldToLocal(desk.laptopAnchor.localToWorld(beside)));
       // Called to a meeting just now: out of the elevator and over to the table, one after another.
@@ -2413,7 +2413,9 @@ onModalChange((open) => {
   if (open && walkingTo && !trip) stopWalking();
   if (open) {
     emoteWheel.close();
-    player.unlock();
+    // A phone has no mouse to take back afterwards.
+    if (finePointer) player.yieldMouse();
+    else player.unlock();
     $('hint').classList.add('hidden');
   } else {
     // A tick later, so closing one window to open the next (Settings → character) doesn't grab the mouse in between.
@@ -2426,10 +2428,10 @@ onModalChange((open) => {
 function backToGame() {
   if (modalOpen()) return;
   if (!isTyping()) canvas.focus({ preventScroll: true });
-  if (!player.canLock || player.locked) return;
-  // The browser lets a page re-capture the mouse it let go of itself, even on Esc (which it doesn't
-  // count as a click or key), and any time after a click, like one on ✕. When it won't (the mouse
-  // was already free when the window opened, or a stricter browser), the next key you press does.
+  if (!player.canLock || player.hasMouse) return;
+  // The browser lets a page re-capture the mouse it let go of itself (see yieldMouse), even on Esc
+  // (which it doesn't count as a click or key), and any time after a click, like one on ✕. When it
+  // won't (nothing of yours opened the window, or a stricter browser), the next key you press does.
   player.lock();
   relookOnKey = true;
 }
@@ -2826,7 +2828,7 @@ function frame(ts?: number) {
     // A jumping worker holds still while you're near enough to read its card, and jumps again once you walk away.
     const d = v.model.root.getWorldPosition(workerPos).distanceTo(player.pos);
     v.model.held = d < (v.model.held ? HOLD_LEAVE : HOLD_NEAR);
-    v.model.update(dt, t, camPos);
+    v.model.update(dt, t);
     // A board agent's kiosk has no laptop to paint (see buildKiosk).
     if (!desk.station) v.laptop.update(dt, store.screens.get(id), Math.hypot(desk.x - camPos.x, desk.z - camPos.z));
   }
