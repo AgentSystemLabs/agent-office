@@ -906,6 +906,20 @@ function globe(): { group: THREE.Group; ball: THREE.Group; ring: THREE.Mesh } {
   return { group, ball, ring };
 }
 
+/** Where a worker climbs up to dance, in the frame of the seat it sits in (see DeskView.stage). */
+export interface Stage {
+  pos: THREE.Vector3;
+  /** Which way it faces up there, turned from the way it faces in its seat. */
+  yaw: number;
+}
+
+/** Seconds a beat: a quick 140 to the minute. */
+const BEAT = 60 / 140;
+/** A dance's parts, in seconds: the hop up on to the desk, eight beats of moves, the hop back down. */
+const DANCE = { up: 0.5, moves: 8 * BEAT, down: 0.5 } as const;
+/** How high a hop between the seat and the desk goes, over the straight line. */
+const HOP = 0.5;
+
 /** The little Claude worker that sits at a desk. Forward is +z. */
 export class Worker {
   readonly root = new THREE.Group();
@@ -930,6 +944,8 @@ export class Worker {
   private spawnT = 0;
   /** Seconds left jumping for joy (its pull request just merged). */
   private cheerT = 0;
+  /** Up on its desk dancing (a pull request merged): where, and how many seconds in. */
+  private dancing: { stage: Stage; t: number } | null = null;
   private pupils: THREE.Mesh[] = [];
   private feet: THREE.Mesh[] = [];
   /** Sent home: the box of its things in its arms, and how far into its waddle it is. */
@@ -1046,15 +1062,43 @@ export class Worker {
   setStatus(status: WorkerStatus, bounce: boolean) {
     this.status = status;
     this.bouncing = bounce;
-    const c = STATUS_BULB[status] ?? '#adb5bd';
+    if (!this.dancing) this.paintBulb();
+    this.drawBubble();
+  }
+
+  private paintBulb() {
+    const c = STATUS_BULB[this.status] ?? '#adb5bd';
     this.bulb.color.set(c);
     this.bulb.emissive.set(c).multiplyScalar(0.7);
-    this.drawBubble();
   }
 
   /** Jumps for joy, arms up, for a few seconds. */
   cheer(seconds = 3) {
     this.cheerT = seconds;
+  }
+
+  /**
+   * Hops up on to `stage` (its desk), dances for a few seconds with its light flashing like a disco
+   * ball, and hops back down into its seat. Asked again mid-dance, it stays up and dances on.
+   */
+  dance(stage: Stage) {
+    if (this.leaving) return;
+    const d = this.dancing;
+    if (!d) {
+      this.dancing = { stage, t: 0 };
+      // The dance has a twirl of its own, so a finishing spin it cut into doesn't play after it.
+      this.twirlT = -1;
+    } else if (d.t > DANCE.up + DANCE.moves) {
+      // On its way down: back up from wherever it is in the air.
+      d.t = DANCE.up * (1 - (d.t - DANCE.up - DANCE.moves) / DANCE.down);
+    } else d.t = Math.min(d.t, DANCE.up);
+  }
+
+  /** Back in its seat at once, mid-dance or not (it's being sent home). */
+  stopDancing() {
+    if (!this.dancing) return;
+    this.dancing = null;
+    this.settle();
   }
 
   /** What it's working on, shown on a card over its head in place of the status bubble. */
@@ -1126,6 +1170,7 @@ export class Worker {
   /** `eye` is the camera, for the progress bar to face. */
   update(dt: number, t: number, eye?: THREE.Vector3) {
     if (this.leaving) return this.carry(this.leaving, dt, t);
+    if (this.dancing) return this.boogie(this.dancing, dt, t, eye);
     this.cheerT = Math.max(0, this.cheerT - dt);
     // Waiting on you: a couple of seconds of jumping, then arms crossed and a tapping foot, and round again.
     this.waitT = this.status === 'needs_input' ? this.waitT + dt : 0;
@@ -1279,6 +1324,99 @@ export class Worker {
     this.blink(dt);
     if (this.bubble) this.bubble.position.y = 1.95 + Math.sin(t * 3) * 0.03;
     if (this.nameTag) this.nameTag.position.y = 1.55;
+  }
+
+  /** Up on the desk dancing: hop up, groove side to side, twirl, jump twice, hop back down. */
+  private boogie(d: NonNullable<Worker['dancing']>, dt: number, t: number, eye?: THREE.Vector3): void {
+    d.t += dt;
+    const { up, moves, down } = DANCE;
+    if (d.t >= up + moves + down) {
+      this.dancing = null;
+      this.settle();
+      return this.update(0, t, eye);
+    }
+    // Between the seat (0) and the stage (1), with a hop's arc over the line between them.
+    let on = 1;
+    let arc = 0;
+    if (d.t < up || d.t > up + moves) {
+      const u = d.t < up ? d.t / up : 1 - (d.t - up - moves) / down;
+      on = u;
+      arc = 4 * HOP * u * (1 - u);
+    }
+    const { pos, yaw } = d.stage;
+    const e = on * on * (3 - 2 * on);
+    this.root.position.set(pos.x * e, pos.y * on + arc, pos.z * e);
+    this.root.rotation.y = yaw * e;
+
+    // Arms and the body's sway head for these, so one move runs into the next.
+    let armX = [-2.6, -2.6];
+    let armZ = [0, 0];
+    let lift = 0;
+    let sway = 0;
+    let twist = 0;
+    let step = 0;
+    const beat = on < 1 ? -1 : (d.t - up) / BEAT;
+    if (beat >= 0 && beat < 4) {
+      // Groove: a bounce on every beat, swaying side to side, raising the roof one arm at a time.
+      const s = Math.sin(beat * Math.PI);
+      const c = Math.cos(beat * Math.PI);
+      lift = Math.abs(s) * 0.12;
+      sway = s * 0.22;
+      twist = s * 0.3;
+      step = s;
+      armX = [-1.6 - c * 1.2, -1.6 + c * 1.2];
+      armZ = [-0.35, 0.35];
+    } else if (beat >= 4 && beat < 6) {
+      // A twirl on the spot, arms out wide.
+      const u = (beat - 4) / 2;
+      twist = u * u * (3 - 2 * u) * Math.PI * 2;
+      lift = Math.sin(u * Math.PI) * 0.18;
+      armX = [-0.3, -0.3];
+      armZ = [-1.35, 1.35];
+    } else if (beat >= 6) {
+      // Two big jumps, arms up.
+      lift = Math.abs(Math.sin((beat - 6) * Math.PI)) * 0.45;
+      armZ = [-0.3, 0.3];
+    }
+    // Whatever it was acting out waits: shoulders back in place, eyes ahead, the papers, bar and globe put away.
+    this.armL.position.set(-0.3, 0.55, 0.05);
+    this.armR.position.set(0.3, 0.55, 0.05);
+    for (const p of this.pupils) p.position.y = 0.7;
+    for (const prop of [this.papers.group, this.bar.group, this.globe.group]) prop.visible = false;
+    const k = 1 - Math.exp(-dt * 18);
+    [this.armL, this.armR].forEach((a, i) => {
+      a.rotation.x += (armX[i] - a.rotation.x) * k;
+      a.rotation.z += (armZ[i] - a.rotation.z) * k;
+    });
+    this.body.position.set(sway * 0.3, lift, 0);
+    this.body.rotation.set(0, twist, sway);
+    // Squashed a little as it lands.
+    const squash = beat >= 0 && lift < 0.03 ? 1 - (0.03 - lift) * 3 : 1;
+    this.body.scale.set(2 - squash, squash, 2 - squash);
+    this.feet.forEach((f, i) => {
+      f.position.y = 0.2 + Math.max(0, i ? -step : step) * 0.07;
+      f.position.z = 0.05;
+    });
+    // Its light flashes through the colors like a disco ball.
+    this.bulb.color.setHSL((t * 1.3) % 1, 1, 0.5);
+    this.bulb.emissive.copy(this.bulb.color).multiplyScalar(0.5);
+    this.bulbMesh.scale.setScalar(1 + Math.abs(Math.sin(t * 12)) * 0.3);
+    this.blink(dt);
+    if (this.bubble) this.bubble.position.y = (this.bubbleIsCard ? 1.74 : 1.95) + lift + Math.sin(t * 3) * 0.03;
+    if (this.nameTag) this.nameTag.position.y = 1.55 + lift;
+  }
+
+  /** Back in its seat, standing straight, its light showing its status again. */
+  private settle() {
+    this.root.position.set(0, 0, 0);
+    this.root.rotation.set(0, 0, 0);
+    this.body.position.set(0, 0, 0);
+    this.body.rotation.set(0, 0, 0);
+    this.body.scale.setScalar(1);
+    for (const a of [this.armL, this.armR]) a.rotation.z = 0;
+    for (const f of this.feet) f.position.set(f.position.x, 0.2, 0.05);
+    this.bulbMesh.scale.setScalar(1);
+    this.paintBulb();
   }
 
   /** `lid` narrows the eyes (1 = wide open) between blinks. */

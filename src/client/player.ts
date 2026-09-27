@@ -537,11 +537,14 @@ function touches(c: Collider, x: number, z: number, r: number): boolean {
   return (x - nx) ** 2 + (z - nz) ** 2 < r * r;
 }
 
-/** The floor under someone standing at (x, z) with their feet at `y`: the highest top they're on or above, else the street. */
-export function groundAt(colliders: Collider[], x: number, z: number, y: number): number {
+/**
+ * The floor under someone standing at (x, z) with their feet at `y`: the highest top they're on or
+ * above, else the street. Without `fences`, what's there only to keep people out doesn't count.
+ */
+export function groundAt(colliders: Collider[], x: number, z: number, y: number, fences = true): number {
   let g = STREET_Y;
   for (const c of colliders) {
-    if (c.top > 50 || y < c.top - 0.1 || c.top <= g) continue;
+    if (c.top > 50 || y < c.top - 0.1 || c.top <= g || (c.fence && !fences)) continue;
     if (touches(c, x, z, RADIUS)) g = c.top;
   }
   return g;

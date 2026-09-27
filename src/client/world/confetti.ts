@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 
-// Confetti: little paper squares shot up out of a point, fluttering down and settling on whatever
-// is below. All of it is one instanced mesh, so a room full of it is still a single draw.
+// Confetti: little paper squares shot up out of a point (or let go from the ceiling), fluttering down
+// and settling on whatever is below. All of it is one instanced mesh, so a room full of it is still a
+// single draw.
 
 const COLORS = ['#ef476f', '#ffd166', '#06d6a0', '#118ab2', '#f78c6b', '#b388eb', '#5bc0eb', '#ffffff'];
-const MAX = 1600;
+const MAX = 5000;
 const GRAVITY = 9.8;
 /** Air slows the bits down after the pop... */
 const DRAG = 2.5;
@@ -22,9 +23,28 @@ interface Bit {
   /** How it sways from side to side while falling. */
   sway: number;
   swayAt: number;
-  /** What it lands on, worked out once it's low enough to land; NaN until then. */
+  /** What it lands on, worked out once it's lower than `look`; NaN until then. */
   ground: number;
+  look: number;
   landed: boolean;
+}
+
+/** Where confetti rains over: a rectangle of floor. */
+export interface Area {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+/** Confetti still to come down from the ceiling: `left` bits at `rate` a second. */
+interface Rain {
+  area: Area;
+  from: (x: number, z: number) => number;
+  left: number;
+  rate: number;
+  /** A part of a bit carried to the next frame, so a slow rain still comes down. */
+  owed: number;
 }
 
 export class Confetti {
@@ -32,6 +52,7 @@ export class Confetti {
   private bits: (Bit | null)[] = new Array(MAX).fill(null);
   private next = 0;
   private live = 0;
+  private rains: Rain[] = [];
   private m = new THREE.Matrix4();
   private q = new THREE.Quaternion();
   private s = new THREE.Vector3();
@@ -61,31 +82,69 @@ export class Confetti {
   /** Shoots `n` bits up out of (x, y, z); `power` 1 is a party popper, 2 a cannon. */
   burst(x: number, y: number, z: number, n = 180, power = 1) {
     for (let k = 0; k < n; k++) {
-      const i = this.next;
-      this.next = (this.next + 1) % MAX;
-      if (!this.bits[i]) this.live++;
       const a = Math.random() * Math.PI * 2;
       const out = (0.6 + Math.random() * 2.2) * power;
-      this.bits[i] = {
-        life: 4 + Math.random() * 3,
-        age: 0,
-        pos: new THREE.Vector3(x + (Math.random() - 0.5) * 0.3, y + Math.random() * 0.2, z + (Math.random() - 0.5) * 0.3),
-        vel: new THREE.Vector3(Math.cos(a) * out, (4 + Math.random() * 4) * power, Math.sin(a) * out),
-        axis: new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize(),
-        angle: Math.random() * Math.PI * 2,
-        spin: (Math.random() < 0.5 ? -1 : 1) * (6 + Math.random() * 10),
-        sway: 0.4 + Math.random() * 0.6,
-        swayAt: Math.random() * Math.PI * 2,
-        ground: NaN,
-        landed: false,
-      };
-      this.mesh.setColorAt(i, this.c.set(COLORS[Math.floor(Math.random() * COLORS.length)]));
+      this.add(
+        new THREE.Vector3(x + (Math.random() - 0.5) * 0.3, y + Math.random() * 0.2, z + (Math.random() - 0.5) * 0.3),
+        new THREE.Vector3(Math.cos(a) * out, (4 + Math.random() * 4) * power, Math.sin(a) * out),
+        4 + Math.random() * 3,
+        1.5,
+      );
     }
+  }
+
+  /**
+   * Lets `n` bits go all over `area` for `seconds`, from `from(x, z)` overhead (the ceiling), to
+   * flutter down on everything and everyone.
+   */
+  rain(area: Area, n: number, seconds: number, from: (x: number, z: number) => number) {
+    this.rains.push({ area, from, left: Math.round(n), rate: n / seconds, owed: 0 });
+  }
+
+  private shed(r: Rain, dt: number) {
+    const due = r.rate * dt + r.owed;
+    const n = Math.min(r.left, Math.floor(due));
+    r.owed = due - n;
+    r.left -= n;
+    const { minX, maxX, minZ, maxZ } = r.area;
+    for (let k = 0; k < n; k++) {
+      const x = minX + Math.random() * (maxX - minX);
+      const z = minZ + Math.random() * (maxZ - minZ);
+      const y = r.from(x, z) - Math.random() * 0.3;
+      // Knowing roughly what's underneath already (the loft's floor, a stair) keeps it from falling through.
+      const below = this.groundAt(x, z, y);
+      const vel = new THREE.Vector3((Math.random() - 0.5) * 0.4, -0.2 - Math.random() * 0.6, (Math.random() - 0.5) * 0.4);
+      // As long as it takes to come down, then a few seconds lying there.
+      this.add(new THREE.Vector3(x, y, z), vel, (y - below) / FALL + 3 + Math.random() * 2.5, below + 1.5);
+    }
+  }
+
+  private add(pos: THREE.Vector3, vel: THREE.Vector3, life: number, look: number) {
+    const i = this.next;
+    this.next = (this.next + 1) % MAX;
+    if (!this.bits[i]) this.live++;
+    this.bits[i] = {
+      life,
+      age: 0,
+      pos,
+      vel,
+      axis: new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize(),
+      angle: Math.random() * Math.PI * 2,
+      spin: (Math.random() < 0.5 ? -1 : 1) * (6 + Math.random() * 10),
+      sway: 0.4 + Math.random() * 0.6,
+      swayAt: Math.random() * Math.PI * 2,
+      ground: NaN,
+      look,
+      landed: false,
+    };
+    this.mesh.setColorAt(i, this.c.set(COLORS[Math.floor(Math.random() * COLORS.length)]));
     this.mesh.instanceColor!.needsUpdate = true;
     this.mesh.visible = true;
   }
 
   update(dt: number) {
+    for (const r of this.rains) this.shed(r, dt);
+    this.rains = this.rains.filter((r) => r.left > 0);
     if (!this.live) return;
     for (let i = 0; i < MAX; i++) {
       const b = this.bits[i];
@@ -111,7 +170,7 @@ export class Confetti {
         }
         b.angle += b.spin * dt;
         // Low enough to land: look once at what's underneath (a desk, the counter, the floor).
-        if (b.vel.y < 0 && Number.isNaN(b.ground) && b.pos.y < 1.5) b.ground = this.groundAt(b.pos.x, b.pos.z, b.pos.y);
+        if (b.vel.y < 0 && Number.isNaN(b.ground) && b.pos.y < b.look) b.ground = this.groundAt(b.pos.x, b.pos.z, b.pos.y);
         const floor = (Number.isNaN(b.ground) ? 0 : b.ground) + 0.01;
         if (b.pos.y <= floor) {
           b.pos.y = floor;
