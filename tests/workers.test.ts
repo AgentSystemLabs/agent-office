@@ -395,15 +395,73 @@ test('OpenCode keeps configured model flags when no explicit model is selected, 
   assert.ok(resumed.args.includes('--keep'));
 });
 
-test('workers reject models for non-OpenCode providers and malformed model ids', (t) => {
+test('workers reject models for non-OpenCode/Claude providers and malformed model ids', (t) => {
   const f = fixture();
   t.after(() => f.close());
   const workers = manager(f, f.claude, []);
   t.after(() => workers.shutdown());
-  assert.match(workers.spawn('desk-1', 'test', 'bad', false, 'agent', 'claude', 'openai/gpt-5') as string, /model|OpenCode/i);
+  assert.match(workers.spawn('desk-1', 'test', 'bad', false, 'agent', 'claude', 'openai/gpt-5') as string, /model/i);
   assert.match(workers.spawn('desk-2', 'test', 'bad', false, 'agent', 'opencode', 'gpt-5') as string, /model|format|provider/i);
   assert.match(workers.spawn('desk-3', 'test', 'bad', false, 'agent', 'opencode', 'openai/gpt 5') as string, /model|format|whitespace/i);
   assert.match(workers.spawn('desk-4', 'test', 'bad', false, 'shell', undefined, 'openai/gpt-5') as string, /shell|model/i);
+});
+
+test('workers reject reasoning effort for non-Claude providers and unknown levels', (t) => {
+  const f = fixture();
+  t.after(() => f.close());
+  const workers = manager(f, f.claude, []);
+  t.after(() => workers.shutdown());
+  assert.match(workers.spawn('desk-1', 'test', 'bad', false, 'agent', 'claude', undefined, 'overdrive' as any) as string, /effort/i);
+  assert.match(workers.spawn('desk-2', 'test', 'bad', false, 'agent', 'opencode', undefined, 'high' as any) as string, /effort|Claude/i);
+  assert.match(workers.spawn('desk-3', 'test', 'bad', false, 'shell', undefined, undefined, 'high' as any) as string, /shell|effort/i);
+});
+
+test('an explicit Claude model/effort overrides --agent-args and persists across resume', async (t) => {
+  const f = fixture();
+  const updates: WorkerInfo[] = [];
+  isolateProviderEnvironment(f, t);
+  const previousExit = process.env.FAKE_AGENT_EXIT_MS;
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_EXIT_MS = '180';
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousExit === undefined) delete process.env.FAKE_AGENT_EXIT_MS;
+    else process.env.FAKE_AGENT_EXIT_MS = previousExit;
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+
+  const workers = manager(f, f.claude, updates, ['--model', 'opus']);
+  t.after(() => workers.shutdown());
+  const worker = workers.spawn('desk-1', 'test', 'haiku task', false, 'agent', 'claude', 'haiku', 'high');
+  assert.equal(typeof worker, 'object');
+  if (typeof worker === 'string') return;
+  assert.equal(workers.get(worker.id)?.model, 'haiku');
+  assert.equal(workers.get(worker.id)?.effort, 'high');
+  const first = await waitFor(() => f.read(), (records) => records.some((r) => r.kind === 'claude'));
+  const firstInvocation = first.find((r) => r.kind === 'claude')!;
+  // The per-worker choice is appended after --agent-args, so it wins even though "opus" also appears.
+  assert.deepEqual(firstInvocation.args.slice(firstInvocation.args.indexOf('--model')), ['--model', 'opus', '--model', 'haiku', '--effort', 'high', '--', 'haiku task']);
+
+  assert.equal(workers.handleHook(worker.id, firstInvocation.env.hookToken!, 'SessionStart', { session_id: 'claude-model-1' }), true);
+  await waitFor(() => workers.get(worker.id)?.status, (status) => status === 'exited');
+  assert.equal(workers.resume(worker.id), undefined);
+  const resumed = await waitFor(() => f.read(), (records) => records.filter((r) => r.kind === 'claude').length >= 2);
+  const secondInvocation = resumed.filter((r) => r.kind === 'claude')[1];
+  assert.ok(secondInvocation.args.includes('--model'));
+  assert.ok(secondInvocation.args.includes('haiku'));
+  assert.ok(secondInvocation.args.includes('--effort'));
+  assert.ok(secondInvocation.args.includes('high'));
+  assert.ok(secondInvocation.args.includes('--resume'));
+
+  workers.shutdown();
+  const restoredUpdates: WorkerInfo[] = [];
+  const restored = manager(f, f.claude, restoredUpdates, ['--model', 'opus']);
+  t.after(() => restored.shutdown());
+  await restored.start();
+  assert.equal(restored.get(worker.id)?.model, 'haiku');
+  assert.equal(restored.get(worker.id)?.effort, 'high');
 });
 
 test('provider and hook boundaries reject invalid combinations', async (t) => {

@@ -26,7 +26,7 @@ import { Sky } from './sky.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import { ChatLog } from './history.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
-import { GH_COMMENT_MAX, isAgentProvider } from '../shared/protocol.js';
+import { GH_COMMENT_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import { elevatorSpot, seatAt } from '../shared/layout.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
@@ -950,7 +950,8 @@ export async function startServer(cfg: Config) {
           break;
         }
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
-        const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model);
+        const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
+        const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort);
         if (typeof r === 'string') warn(c, r);
         else toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${r.prompt ? ' with a task' : ''}`);
         break;
@@ -1092,7 +1093,8 @@ export async function startServer(cfg: Config) {
         }
         const issue = Number.isInteger(msg.issue) && (msg.issue as number) > 0 ? (msg.issue as number) : undefined;
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
-        const err = floor.queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model);
+        const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
+        const err = floor.queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model, effort);
         if (err) warn(c, err);
         else toastFloor(floor, `📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`);
         break;

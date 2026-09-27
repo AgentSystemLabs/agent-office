@@ -23,6 +23,20 @@ export function isAgentProvider(value: unknown): value is AgentProvider {
   return value === 'claude' || value === 'opencode' || value === 'codex' || value === 'custom';
 }
 
+/** A Claude model alias the hire dialog and queue can request explicitly (see server/agents.ts). */
+export type ClaudeModel = 'opus' | 'sonnet' | 'haiku';
+export const CLAUDE_MODELS: readonly ClaudeModel[] = ['opus', 'sonnet', 'haiku'];
+export function isClaudeModel(value: unknown): value is ClaudeModel {
+  return value === 'opus' || value === 'sonnet' || value === 'haiku';
+}
+
+/** Claude Code's `--effort` levels, from fastest/cheapest to most thorough. */
+export type AgentEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export const AGENT_EFFORTS: readonly AgentEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+export function isAgentEffort(value: unknown): value is AgentEffort {
+  return value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' || value === 'max';
+}
+
 /** What a worker is on, for the card above its head: "Fix Login Redirect" + what it's doing now. */
 export interface WorkerTask {
   name: string;
@@ -34,8 +48,10 @@ export interface WorkerInfo {
   /** 'agent' runs the selected provider; 'shell' is a plain shared login shell. */
   kind: WorkerKind;
   provider?: AgentProvider;
-  /** Initial OpenCode model selected for this worker, when one was requested. */
+  /** Model requested for this worker, instead of the office's configured default: an OpenCode provider/model id, or a Claude model alias. */
   model?: string;
+  /** Reasoning effort requested for this worker, when one was chosen (Claude only). */
+  effort?: AgentEffort;
   deskId: string;
   name: string;
   color: string;
@@ -223,8 +239,10 @@ export type TaskStatus = 'queued' | 'running' | 'done';
 export interface QueueTask {
   id: string;
   provider?: AgentProvider;
-  /** Initial OpenCode model selected for this task, when one was requested. */
+  /** Model requested for this task, instead of the office's configured default: an OpenCode provider/model id, or a Claude model alias. */
   model?: string;
+  /** Reasoning effort requested for this task, when one was chosen (Claude only). */
+  effort?: AgentEffort;
   /** The GitHub issue it came from, when it did. */
   issue?: number;
   title: string;
@@ -635,7 +653,7 @@ export type ClientMsg =
   /** You sat down in a place on a couch, a beanbag, a chair or the bench (see seatAt in layout), or got up again (no seat). */
   | { t: 'sit'; seat?: string }
   | { t: 'profile'; name: string; color: string; look: Look }
-  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string }
+  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
@@ -656,7 +674,7 @@ export type ClientMsg =
   | { t: 'gong' }
   /** Close an issue, or a pull request without merging it; the answer comes back as gh.closed. */
   | { t: 'gh.close'; kind: 'issue' | 'pull'; number: number; comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }
-  | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string }
+  | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string; effort?: AgentEffort }
   | { t: 'queue.remove'; taskId: string }
   /** Move a queued task up (-1) or down (+1) the queue. */
   | { t: 'queue.move'; taskId: string; delta: number }

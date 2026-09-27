@@ -150,6 +150,8 @@ Select **Claude Code**, **OpenCode** or **Codex** when hiring a worker, handing 
 
 For OpenCode, the optional **OpenCode model** field selects the initial model for a new worker or queue task. Suggestions come from `opencode models`; you can also enter a `provider/model` ID. Leave it empty to use your OpenCode settings (including configured CLI arguments). An explicit choice overrides configured model arguments for that launch and stays with a queued task when retried.
 
+For Claude Code, the **Model** and **Effort** fields pick `--model` (Opus, Sonnet or Haiku) and `--effort` (low, medium, high, extra high or max) for that worker or queue task, overriding whatever `--agent-args` set office-wide. Leave either on **Default** to use the office's configured value. Each field remembers the last choice made at that desk (or in the queue), so hiring again there offers the same model without retyping it. The choice stays with a worker across resumes and with a queued task when retried, and shows up next to the worker in the sidebar and on its task card so you can tell at a glance who's on what — and the per-worker cost in the sidebar reflects the actual model used.
+
 In an open OpenCode terminal, **Models** opens the native model picker using the default `Ctrl+X M` shortcut. Select a model there to change the active worker without restarting it or losing a draft. If you customized that binding, use your configured shortcut or `/models` inside the terminal. Resuming a saved session lets OpenCode restore its current model instead of forcing the initial Office selection again.
 
 Claude Code remains the default. To default to OpenCode:

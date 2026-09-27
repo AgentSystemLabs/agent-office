@@ -1,4 +1,4 @@
-import type { AgentProvider, WorkerStatus } from '../../shared/protocol';
+import type { AgentEffort, AgentProvider, WorkerStatus } from '../../shared/protocol';
 import { h, openModal, STATUS_LABEL } from './dom';
 import { store } from '../state';
 import { providerPicker, type ProviderPicker } from './provider';
@@ -28,7 +28,7 @@ export interface AskOptions {
   /** Offer the configured provider choice for a new worker. */
   providerOption?: boolean;
   /** `to` is a worker id, or null for a new worker. */
-  onSubmit(prompt: string, to: string | null, worktree: boolean, provider?: AgentProvider, model?: string): void;
+  onSubmit(prompt: string, to: string | null, worktree: boolean, provider?: AgentProvider, model?: string, effort?: AgentEffort): void;
 }
 
 // Shared with the hire prompt, so the choice sticks either way.
@@ -99,7 +99,14 @@ export function openAsk(opts: AskOptions) {
         // storage blocked
       }
     }
-    opts.onSubmit(opts.context ? `${opts.context}\n\n${text}` : text, to, !to && opts.worktreeOption && wtBox.checked, !to ? provider?.value() : undefined, !to ? provider?.model() : undefined);
+    opts.onSubmit(
+      opts.context ? `${opts.context}\n\n${text}` : text,
+      to,
+      !to && opts.worktreeOption && wtBox.checked,
+      !to ? provider?.value() : undefined,
+      !to ? provider?.model() : undefined,
+      !to ? provider?.effort() : undefined,
+    );
   };
   form.addEventListener('submit', (e) => {
     e.preventDefault();

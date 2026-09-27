@@ -1,5 +1,5 @@
 import { DESK_BY_ID } from '../../shared/layout';
-import type { AgentProvider, GhIssue, GhPull, WorkerInfo } from '../../shared/protocol';
+import type { AgentEffort, AgentProvider, GhIssue, GhPull, WorkerInfo } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store, workerForPull } from '../state';
 import { h, openModal, timeAgo } from './dom';
@@ -14,7 +14,7 @@ export interface BoardActions {
   /** Walks you to the desk a pull request came from. */
   goToDesk(deskId: string): void;
   /** Put an issue on the 📋 task queue; a worker is seated for it when there's room. */
-  queue(prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string): void;
+  queue(prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string, effort?: AgentEffort): void;
 }
 
 /** The task a worker gets for an issue, from the board or the queue. */

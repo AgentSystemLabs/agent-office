@@ -1023,7 +1023,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
   const addIssueToQueue = () => {
     if (!queueProvider.valid()) return;
     modal.close();
-    actions.queue(issuePrompt(it), `#${it.number} ${it.title}`, it.number, queueProvider.value(), queueProvider.model());
+    actions.queue(issuePrompt(it), `#${it.number} ${it.title}`, it.number, queueProvider.value(), queueProvider.model(), queueProvider.effort());
   };
   const queue = h('button.btn', { type: 'button', onclick: addIssueToQueue }) as HTMLButtonElement;
   const el = h(
