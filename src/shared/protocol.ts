@@ -3,6 +3,7 @@
 import type { Look } from './avatar.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
+import type { JukeboxState } from './jukebox.js';
 
 export type WorkerStatus =
   | 'starting' // PTY launched, agent booting
@@ -408,6 +409,8 @@ export interface FloorView {
   services: ServicesState;
   /** The floor's dog; null in a building with no floors yet. */
   dog: DogState | null;
+  /** What the lounge jukebox is playing. */
+  jukebox: JukeboxState;
 }
 
 export type AccountRole = 'admin' | 'member';
@@ -690,6 +693,11 @@ export type ClientMsg =
   /** Move, resize, re-frame or swap the image of a picture. */
   | { t: 'decor.update'; id: string; decor: Partial<DecorPlacement> }
   | { t: 'decor.remove'; id: string }
+  /** Put a tune on the jukebox (a JUKEBOX_TUNES id), or a stream; with neither, turn it back on. */
+  | { t: 'jukebox.play'; track?: string; url?: string }
+  /** On to the next tune. */
+  | { t: 'jukebox.skip' }
+  | { t: 'jukebox.stop' }
   /** Ride the elevator to another floor; the server answers with `floor.enter`. */
   | { t: 'floor.go'; floor: string }
   /** The repositories that could become a floor; answered with `floor.repos`. */
@@ -765,6 +773,7 @@ export type ServerMsg =
   | { t: 'decor'; items: Decoration[] }
   /** What the dog on your floor is up to now: sent at the start of each leg of its day. */
   | { t: 'dog'; dog: DogState }
+  | { t: 'jukebox'; state: JukeboxState }
   | { t: 'usage'; state: UsageState }
   | { t: 'limits'; state: PlanLimits }
   | { t: 'queue'; state: QueueState }
@@ -781,4 +790,5 @@ export type ServerMsg =
   | { t: 'accounts.invited'; invite?: AccountInvite; error?: string }
   /** Your role changed. */
   | { t: 'me'; me: Me }
-  | { t: 'pong'; at: number };
+  /** `now` is the office's clock as it answered, which the jukebox keeps time by. */
+  | { t: 'pong'; at: number; now: number };

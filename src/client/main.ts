@@ -45,6 +45,8 @@ import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 import { elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
 import { providerLabel, resolvedProvider } from './ui/provider';
 import { renderLimits } from './ui/limits';
+import { openJukebox } from './ui/jukebox';
+import { trackTitle } from '../shared/jukebox';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -193,6 +195,14 @@ const dog = new Dog(sound, (id) => (store.workers.get(id)?.viewers.length ?? 0) 
 scene.add(dog.root);
 noOutline(dog.root);
 store.on('dog', () => dog.sync(store.dog, store.dogStart));
+sound.setMusicVolume(settings.music, settings.musicMuted);
+sound.onMusicError = (text) => toast(text, 'warn');
+// The jukebox on your floor: everyone there hears it from the same bar, and its lights say what's on.
+store.on('jukebox', () => {
+  const j = store.jukebox;
+  sound.setJukebox(j.on ? { track: j.track, url: j.url, startedAt: j.startedAt, since: j.since } : null);
+  office.jukebox.show(j.on, trackTitle(j));
+});
 const notifier = new DesktopNotifier(() => settings.notify, (id) => openWorkerTerminal(id));
 sky.onThunder = (delay, loud) => sound.thunder(delay, loud);
 const hanger = new Hanger(net, camera, canvas, player, office, gallery);
@@ -250,6 +260,8 @@ net.onMessage((msg) => {
   routeElevatorMessage(msg);
   switch (msg.t) {
     case 'welcome': {
+      // A few pings, to line this page's clock up with the office's for the jukebox.
+      for (let i = 0; i < 5; i++) setTimeout(() => net.send({ t: 'ping', at: performance.now() }), 200 + i * 500);
       const mine = store.peers.get(store.you);
       if (firstWelcome && mine) {
         placeInCar(mine);
@@ -751,6 +763,10 @@ function showQueue() {
   openQueue(net, { openTerminal: openWorkerTerminal });
 }
 
+function showJukebox() {
+  openJukebox(net, showSettings);
+}
+
 /** A prompt from the boards goes to a new worker at a free desk, or to one already at a desk. */
 function sendToWorker(title: string, text: { context?: string; initial?: string }) {
   const desk = freeDesk();
@@ -816,6 +832,7 @@ function interact(target: Interactable | null, key: DeskKey) {
   else if (target.kind === 'services') openServices();
   else if (target.kind === 'queue') showQueue();
   else if (target.kind === 'tv') watchShare();
+  else if (target.kind === 'jukebox') showJukebox();
   else if (target.kind === 'decor' && target.decorId) hanger.view(target.decorId);
   else if (target.kind === 'dog') net.send({ t: 'dog.pet' });
   else if (target.kind === 'coffee') drinkCoffee();
@@ -1001,6 +1018,11 @@ function hintFor(it: Interactable): Hint {
       return { k: String(smokeBreakUntil > 0), parts: [title('🚬 Ashtray'), key('E', smokeBreakUntil ? 'Stub it out' : 'Take a smoke break')] };
     case 'gong':
       return { k: '', parts: [title('🎉 Merge gong'), aside('rings when a PR merges'), key('E', 'Bang it')] };
+    case 'jukebox': {
+      const j = store.jukebox;
+      const what = j.on ? trackTitle(j) : '';
+      return { k: `${j.on}|${what}`, parts: [title('🎵 Jukebox'), aside(j.on ? `♪ ${clip(what, 40)}` : 'off'), key('E', j.on ? 'Change the song' : 'Put on a song')] };
+    }
     case 'elevator': {
       const f = store.currentFloor();
       const n = store.floors.length;
@@ -1200,7 +1222,7 @@ function backToGame() {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
@@ -1355,7 +1377,8 @@ $('btn-upgrade').addEventListener('click', () => openUpgrade(net));
 $('btn-search').addEventListener('click', () => showSearch());
 $('btn-help').addEventListener('click', () => openHelp());
 $('btn-decor').addEventListener('click', () => (hanger.active ? hanger.cancel() : hanger.start()));
-$('btn-settings').addEventListener('click', () =>
+$('btn-settings').addEventListener('click', () => showSettings());
+function showSettings() {
   openSettings(
     net,
     settings,
@@ -1364,14 +1387,15 @@ $('btn-settings').addEventListener('click', () =>
       saveSettings(settings);
       player.setView(settings.view);
       sound.setVolume(settings.volume, settings.muted);
+      sound.setMusicVolume(settings.music, settings.musicMuted);
     },
     editProfile,
     () => sound.ding('done'),
     notifier,
     signOut,
     store.sky ? { now: describeSky(store.sky), live: !!store.sky.city } : undefined,
-  ),
-);
+  );
+}
 
 async function signOut() {
   await fetch('/api/logout', { method: 'POST' }).catch(() => {});
@@ -1495,6 +1519,7 @@ function frame(ts?: number) {
   }
   dog.update(dt);
   office.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position)]);
+  office.jukebox.update(t, dt, sound.beat());
   checkSmokeBreak(now);
   smoke.update(dt, camera);
   confetti.update(dt);

@@ -28,6 +28,7 @@ import { ChatLog } from './history.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, isAgentProvider } from '../shared/protocol.js';
 import { elevatorSpot } from '../shared/layout.js';
+import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 
@@ -379,6 +380,7 @@ export async function startServer(cfg: Config) {
     decor: floor?.decor.list() ?? [],
     services: servicesState(floor),
     dog: floor?.dog.view() ?? null,
+    jukebox: floor?.jukebox.state() ?? { on: false, track: JUKEBOX_TUNES[0].id, startedAt: Date.now(), elapsed: 0 },
   });
   const screensOf = (c: Client, floor: Floor | undefined) => {
     for (const { workerId, frame } of floor?.workers.fullScreens() ?? []) sendTo(c, { t: 'screen', workerId, ...frame, full: true });
@@ -751,6 +753,7 @@ export async function startServer(cfg: Config) {
   };
 
   const decorChanged = (floor: Floor) => toFloor(floor, { t: 'decor', items: floor.decor.list() });
+  const jukeboxChanged = (floor: Floor) => toFloor(floor, { t: 'jukebox', state: floor.jukebox.state() });
   const teamChanged = async () => broadcast({ t: 'team', state: await team.state() });
 
   /** To everyone else on the same floor as `c`: nobody on another floor can see them. */
@@ -1182,8 +1185,33 @@ export async function startServer(cfg: Config) {
         toastFloor(floor, `${who} took down ${d.title ? `“${d.title}”` : 'a picture'}`);
         break;
       }
+      case 'jukebox.play': {
+        const floor = here();
+        if (!floor) break;
+        const r = floor.jukebox.play({ track: msg.track, url: msg.url }, who);
+        if ('error' in r) return warn(c, r.error);
+        if (!r.changed) break;
+        jukeboxChanged(floor);
+        toastFloor(floor, floor.jukebox.state().track === STREAM ? `📻 ${who} tuned the jukebox to ${floor.jukebox.title()}` : `🎵 ${who} put on “${floor.jukebox.title()}”`);
+        break;
+      }
+      case 'jukebox.skip': {
+        const floor = here();
+        if (!floor) break;
+        floor.jukebox.skip(who);
+        jukeboxChanged(floor);
+        toastFloor(floor, `⏭️ ${who} skipped to “${floor.jukebox.title()}”`);
+        break;
+      }
+      case 'jukebox.stop': {
+        const floor = here();
+        if (!floor || !floor.jukebox.stop(who)) break;
+        jukeboxChanged(floor);
+        toastFloor(floor, `🔇 ${who} turned the jukebox off`);
+        break;
+      }
       case 'ping':
-        sendTo(c, { t: 'pong', at: num(msg.at) });
+        sendTo(c, { t: 'pong', at: num(msg.at), now: Date.now() });
         break;
     }
   };
