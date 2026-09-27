@@ -71,6 +71,8 @@ export class Departures {
 
   /** Takes over a worker's model and laptop the moment it's sent home from `desk`. */
   add(model: Worker, laptop: Laptop, desk: DeskView) {
+    // Off the desk first if it was up there dancing: it packs up in its seat.
+    model.stopDancing();
     const seat = model.root.getWorldPosition(new THREE.Vector3());
     const scale = model.root.getWorldScale(new THREE.Vector3()).x;
     this.parent.add(model.root);

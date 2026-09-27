@@ -20,6 +20,8 @@ export interface Collider {
   top: number;
   /** Underside, for things you walk beneath (the loft). Defaults to the floor. */
   bottom?: number;
+  /** Only there to keep people out: its top isn't anything to land on, so confetti falls through it. */
+  fence?: boolean;
 }
 
 export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'cabinet' | 'ladder' | 'pole';
@@ -49,6 +51,8 @@ export interface DeskView {
   laptopAnchor: THREE.Object3D;
   /** The worker goes in here, the same way. */
   seatAnchor: THREE.Object3D;
+  /** Where the worker gets up to dance when a pull request merges: its feet, and the way it faces. */
+  stage: THREE.Object3D;
   chair: THREE.Group;
   /** Shown while nobody is there: the "+" over a free seat, or the board agent waiting to be asked. */
   vacancy: THREE.Group;
@@ -725,6 +729,11 @@ function buildDesk(def: DeskDef, index: number, trimMat: THREE.Material): DeskVi
   seatAnchor.scale.setScalar(0.82);
   group.add(seatAnchor);
 
+  // Up on the desk beside the laptop, clear of the mug or books at the back, facing the chair.
+  const stage = new THREE.Object3D();
+  stage.position.set(0.72, height - 0.07, 0.18);
+  group.add(stage);
+
   const ch = chair(PALETTE.chairs[index % PALETTE.chairs.length]);
   ch.position.set(0, 0, 0.9);
   group.add(ch);
@@ -733,7 +742,7 @@ function buildDesk(def: DeskDef, index: number, trimMat: THREE.Material): DeskVi
   const vacancy = vacancyMarker(vacancyY);
   group.add(vacancy);
 
-  return { def, group, laptopAnchor, seatAnchor, chair: ch, vacancy, vacancyY };
+  return { def, group, laptopAnchor, seatAnchor, stage, chair: ch, vacancy, vacancyY };
 }
 
 /** The floating green "+" over an empty seat. */
@@ -785,11 +794,17 @@ function buildBeanbag(def: DeskDef, index: number): DeskView {
   seatAnchor.scale.setScalar(0.82);
   group.add(seatAnchor);
 
+  // Standing up on the bag, sunk in a little.
+  const stage = new THREE.Object3D();
+  stage.position.set(0, BEANBAG_BOX.top - 0.1, -0.05);
+  stage.rotation.y = Math.PI;
+  group.add(stage);
+
   const vacancyY = 1.25;
   const vacancy = vacancyMarker(vacancyY);
   group.add(vacancy);
 
-  return { def, group, laptopAnchor, seatAnchor, chair: bag, vacancy, vacancyY };
+  return { def, group, laptopAnchor, seatAnchor, stage, chair: bag, vacancy, vacancyY };
 }
 
 const KIOSK_SIGN: Record<StationKind, string> = { issues: '📌 Ask me', pulls: '🔀 Ask me', queue: '📋 Ask me' };
@@ -832,8 +847,13 @@ function buildKiosk(def: DeskDef): DeskView {
   const vacancy = new THREE.Group();
   vacancy.add(stand);
   group.add(vacancy);
+  // Up on the counter, facing the room.
+  const stage = new THREE.Object3D();
+  stage.position.set(0, height - 0.1, 0);
+  stage.rotation.y = Math.PI;
+  group.add(stage);
 
-  return { def, group, laptopAnchor, seatAnchor, chair: new THREE.Group(), vacancy, vacancyY: 0 };
+  return { def, group, laptopAnchor, seatAnchor, stage, chair: new THREE.Group(), vacancy, vacancyY: 0 };
 }
 
 /** A framed board on a wall; the face gets a canvas texture (cork, chalk or whiteboard). */
@@ -963,7 +983,7 @@ export function buildOffice(): Office {
     const corners = [-1, 1].flatMap((t) => [-KIOSK.depth / 2, KIOSK.stand + 0.35].map((sz) => deskPoint(def, (t * KIOSK.width) / 2, sz)));
     const xs = corners.map(([x]) => x);
     const zs = corners.map(([, z]) => z);
-    colliders.push({ minX: Math.min(...xs), maxX: Math.max(...xs), minZ: FLOOR.minZ, maxZ: Math.max(...zs), top: 1.5 });
+    colliders.push({ minX: Math.min(...xs), maxX: Math.max(...xs), minZ: FLOOR.minZ, maxZ: Math.max(...zs), top: 1.5, fence: true });
     // Walk up to its front.
     const [fx, fz] = deskPoint(def, 0, -1);
     const it: Interactable = { kind: 'station', deskId: def.id, x: fx, z: fz, radius: 1.3 };

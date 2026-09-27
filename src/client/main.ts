@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, LADDER, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, seatAt, seatPlace, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, LADDER, LOFT, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, seatAt, seatPlace, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
 import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo } from '../shared/protocol';
 import { isAsleep, isBusy } from '../shared/status';
@@ -11,8 +11,8 @@ import { store, loadProfile, loadSettings, saveSettings, workerForPull, type Pro
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { Climber, gripOf, type Arrival, type Grip, type Way } from './climb';
 import { Caffeine } from './caffeine';
-import { buildOffice, type InteractKind, type Interactable } from './world/office';
-import { Person, Worker } from './world/character';
+import { buildOffice, type DeskView, type InteractKind, type Interactable } from './world/office';
+import { Person, Worker, type Stage } from './world/character';
 import { Hands } from './world/hands';
 import { Smoke } from './world/smoke';
 import { Sky, describeSky } from './world/sky';
@@ -21,7 +21,7 @@ import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/b
 import { Gallery } from './world/gallery';
 import { Dog } from './world/dog';
 import { Departures } from './world/leaving';
-import { Confetti } from './world/confetti';
+import { Confetti, type Area } from './world/confetti';
 import { Hanger } from './hanging';
 import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
@@ -186,7 +186,7 @@ store.on('decor', () => gallery.sync(store.decor));
 mirrorWhiteboard(office.whiteboard.show, office.whiteboard.fit.width, office.whiteboard.fit.height);
 
 // Confetti for merges, landing on whatever it falls on
-const confetti = new Confetti((x, z, y) => groundAt(office.colliders, x, z, y));
+const confetti = new Confetti((x, z, y) => groundAt(office.colliders, x, z, y, false));
 scene.add(confetti.mesh);
 
 // TV
@@ -1521,19 +1521,52 @@ function burstOver(deskId: string, n: number) {
   if (d) confetti.burst(d.x, 2.3, d.z, n);
 }
 
-/** Someone hit the gong, a pull request merged (confetti over its desk), or the queue emptied (a party). */
+/** Where a worker at `desk` climbs up to dance, in the frame of whatever it sits or stands in. */
+function stageOf(desk: DeskView, model: Worker): Stage {
+  const seat = model.root.parent!;
+  seat.updateWorldMatrix(true, false);
+  desk.stage.updateWorldMatrix(true, false);
+  const m = seat.matrixWorld.clone().invert().multiply(desk.stage.matrixWorld);
+  const pos = new THREE.Vector3();
+  const turn = new THREE.Quaternion();
+  m.decompose(pos, turn, new THREE.Vector3());
+  const ahead = new THREE.Vector3(0, 0, 1).applyQuaternion(turn);
+  return { pos, yaw: Math.atan2(ahead.x, ahead.z) };
+}
+
+/** A pull request merged: every worker awake on the floor gets up on its desk and dances. */
+function danceParty() {
+  for (const [id, v] of workerViews) {
+    const desk = office.desks.get(v.deskId);
+    if (desk && !isAsleep(store.workers.get(id)?.status ?? 'offline')) v.model.dance(stageOf(desk, v.model));
+  }
+  // The board agents still waiting to be asked, too.
+  for (const a of idleAgents) if (a.view.vacancy.visible) a.model.dance(stageOf(a.view, a.model));
+}
+
+/** Where confetti rains from downstairs over (x, z): the ceiling, or under the loft, the underside of its floor. */
+function ceilingOver(x: number, z: number): number {
+  const loft = x > LOFT.minX && x < LOFT.maxX && z > LOFT.minZ && z < LOFT.maxZ;
+  return loft ? LOFT.y - 0.35 : WALL_HEIGHT - 0.1;
+}
+/** Confetti a square meter of floor gets when a pull request merges. */
+const CONFETTI_DENSITY = 3.5;
+const floorArea = (a: Area) => (a.maxX - a.minX) * (a.maxZ - a.minZ);
+
+/** Someone hit the gong, a pull request merged (a dance party under a confetti rain), or the queue emptied (a party). */
 function gongRang(why: GongWhy, pr?: number) {
   office.gong.strike(why === 'hit' ? 0.7 : 1);
   sound.gong(why);
   const top = office.gong.top;
   if (why === 'merged') {
-    // Over the desk it came from while its worker is still there, who jumps for joy; otherwise over the gong.
+    // Confetti rains down all over the floor, and pops over the desk the PR came from while its worker's still there.
+    confetti.rain(FLOOR, floorArea(FLOOR) * CONFETTI_DENSITY, 3, ceilingOver);
+    confetti.rain(LOFT, floorArea(LOFT) * CONFETTI_DENSITY, 3, () => LOFT.y + LOFT.height - 0.1);
     const it = store.pulls.items.find((p) => p.number === pr);
     const w = pr === undefined ? undefined : workerForPull(store.workers.values(), it ?? { number: pr, headRefName: '' });
-    if (w && workerViews.has(w.id)) {
-      burstOver(w.deskId, 220);
-      if (!isAsleep(w.status)) workerViews.get(w.id)!.model.cheer();
-    } else confetti.burst(top.x, top.y, top.z, 220);
+    if (w && workerViews.has(w.id)) burstOver(w.deskId, 220);
+    else confetti.burst(top.x, top.y, top.z, 220);
+    danceParty();
   } else if (why === 'queue') {
     // Three strokes (sound.gong plays them): a burst at the gong, then every desk, then a cannon.
     confetti.burst(top.x, top.y, top.z, 160);
