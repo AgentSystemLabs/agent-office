@@ -58,6 +58,8 @@ export interface WorkerInfo {
   status: WorkerStatus;
   /** True once someone opened the terminal after the last done / needs_input. */
   acked: boolean;
+  /** When it last went to done or needs_input (ms), so N goes to whoever has waited longest first. */
+  waitingSince?: number;
   createdBy: string;
   createdAt: number;
   prompt?: string;

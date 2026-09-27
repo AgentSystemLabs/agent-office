@@ -111,7 +111,7 @@ interface Worker {
   tracker: UsageTracker;
   scanTimer?: NodeJS.Timeout;
   /** Its terminal in the host as of the last save, and how it was doing, to pick back up after a restart. */
-  saved?: { ptyId: string; status: WorkerStatus; acked: boolean };
+  saved?: { ptyId: string; status: WorkerStatus; acked: boolean; waitingSince?: number };
   /** Output since its scrollback was last saved to disk. */
   unsaved?: boolean;
   /** Where this run's own output starts, below the scrollback carried over from before. */
@@ -920,6 +920,7 @@ export class WorkerManager {
     if (info.status === 'offline') {
       info.status = saved.status;
       info.acked = saved.acked;
+      info.waitingSince = saved.waitingSince;
     }
     if (info.provider === 'codex') w.codexHome = codexHome(this.cwd(info), childEnv());
     this.follow(w, adopted.pty, term, undefined);
@@ -1090,8 +1091,10 @@ export class WorkerManager {
     if (w.info.status === 'needs_input') w.leftNeedsInputAt = Date.now();
     w.info.status = status;
     // Nobody is looking at the terminal right now -> raise the flag (the worker jumps).
-    if (status === 'done' || status === 'needs_input') w.info.acked = w.viewers.size > 0 && status === 'done';
-    else w.info.acked = true;
+    if (status === 'done' || status === 'needs_input') {
+      w.info.acked = w.viewers.size > 0 && status === 'done';
+      w.info.waitingSince = Date.now();
+    } else w.info.acked = true;
     this.emitUpdate(w);
     // What a restarted office picks the worker back up as, should its terminal outlive this one.
     if (w.pty?.id) this.persist();
@@ -1260,7 +1263,7 @@ process.stdin.on('end', () => {
       codexTranscript: info.provider === 'codex' ? codexTranscript : undefined,
       // A terminal still running in the host, to pick back up after a restart. Its hooks keep the token.
       hookToken,
-      pty: pty?.id ? { id: pty.id, status: info.status, acked: info.acked } : undefined,
+      pty: pty?.id ? { id: pty.id, status: info.status, acked: info.acked, waitingSince: info.waitingSince } : undefined,
     }));
     try {
       writeFileSync(this.statePath, JSON.stringify(saved, null, 2), { mode: 0o600 });
@@ -1313,7 +1316,7 @@ process.stdin.on('end', () => {
         w.screenDirty = false;
         if (typeof s.pty?.id === 'string') {
           const status: WorkerStatus = RUNNING.has(s.pty.status) ? s.pty.status : 'idle';
-          w.saved = { ptyId: s.pty.id, status, acked: s.pty.acked !== false };
+          w.saved = { ptyId: s.pty.id, status, acked: s.pty.acked !== false, waitingSince: typeof s.pty.waitingSince === 'number' ? s.pty.waitingSince : undefined };
         }
         if (info.prompt) w.prompts = [info.prompt.replace(/\s+/g, ' ').trim()];
         this.workers.set(info.id, w);

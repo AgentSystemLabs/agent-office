@@ -819,3 +819,32 @@ test('the queue agent is launched without file-editing tools, and board agents g
   assert.equal(denied(deskLaunch.args), undefined);
   assert.equal((deskLaunch.env.path ?? '').split(path.delimiter).includes(bin), false);
 });
+
+test('a worker is stamped with when it started waiting on someone, afresh each time', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const oldLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => { if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG; else process.env.FAKE_AGENT_LOG = oldLog; f.close(); });
+  const workers = manager(f, f.claude, []);
+  t.after(() => workers.shutdown());
+  const worker = workers.spawn('desk-1', 'test', 'fix the login');
+  assert.notEqual(typeof worker, 'string'); if (typeof worker === 'string') return;
+  const calls = await waitFor(f.read, (x) => x.some((r) => r.kind === 'claude' && r.args.includes('--settings')));
+  const token = calls.find((r) => r.kind === 'claude' && r.args.includes('--settings'))!.env.hookToken!;
+  const hook = (event: string, extra = {}) => workers.handleHook(worker.id, token, event, { session_id: 'waiting', ...extra });
+  hook('SessionStart');
+  hook('UserPromptSubmit', { prompt: 'fix the login' });
+  assert.equal(worker.status, 'working');
+  assert.equal(worker.waitingSince, undefined);
+  const before = Date.now();
+  hook('PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'npm test' } });
+  assert.equal(worker.status, 'needs_input');
+  const asked = worker.waitingSince!;
+  assert.ok(asked >= before && asked <= Date.now());
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  hook('PostToolUse', { tool_name: 'Bash' });
+  hook('Stop');
+  assert.equal(worker.status, 'done');
+  assert.ok(worker.waitingSince! > asked, 'finishing is a new wait');
+});
