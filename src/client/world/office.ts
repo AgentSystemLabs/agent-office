@@ -1,11 +1,12 @@
 import * as THREE from 'three';
-import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, LOFT, SLAB, STAIRS, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, type DeskDef, type Opening, type Side } from '../../shared/layout';
+import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, LOFT, SLAB, STAIRS, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, type DeskDef, type Opening, type Side } from '../../shared/layout';
 import { wallFacing, type WallId, type WallRect } from '../../shared/decor';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
 import { buildGarage, buildStreet } from './outside';
 import { mergeByMaterial, mesh, roundedBox, textPlane, toon, toonUnique } from './toon';
 import { buildElevator, type Elevator } from './elevator';
 import { buildGong, type Gong } from './gong';
+import { buildJukebox, type JukeboxView } from './jukebox';
 
 export interface Collider {
   minX: number;
@@ -17,7 +18,7 @@ export interface Collider {
   bottom?: number;
 }
 
-export type InteractKind = 'desk' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog';
+export type InteractKind = 'desk' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -63,6 +64,7 @@ export interface Office {
   elevator: Elevator;
   /** The merge gong by the PR board. */
   gong: Gong;
+  jukebox: JukeboxView;
   /** The sign over the elevator doors: which floor you're on. */
   setProjectName(name: string): void;
   /** Paints the walls, their trim and the floor in a floor's colors, so each project looks like itself. */
@@ -893,7 +895,7 @@ export function buildOffice(): Office {
     fixture(wall, wall === 'north' || wall === 'south' ? b.x : b.z, (bottom + WALL_HEIGHT) / 2, b.width + 0.3, WALL_HEIGHT - bottom);
   }
 
-  // Lounge: TV, couch, coffee table, beanbags
+  // Lounge: TV, couch, coffee table, beanbags, and the jukebox in the corner
   const tvGroup = new THREE.Group();
   tvGroup.add(mesh(roundedBox(TV.width + 0.3, 0.14, TV.height + 0.3, 0.12), toon(PALETTE.ink), 0, 0, 0));
   (tvGroup.children[0] as THREE.Mesh).rotation.x = Math.PI / 2;
@@ -937,6 +939,11 @@ export function buildOffice(): Office {
     group.add(bean);
     colliders.push({ minX: (x as number) - 0.5, maxX: (x as number) + 0.5, minZ: (z as number) - 0.5, maxZ: (z as number) + 0.5, top: 0.6 });
   });
+  const jukebox = buildJukebox();
+  group.add(jukebox.group);
+  colliders.push(jukebox.collider);
+  interactables.push(jukebox.interactable);
+  fixture('east', JUKEBOX.z, JUKEBOX.height / 2, JUKEBOX.width + 0.1, JUKEBOX.height);
 
   // Kitchen corner: counter + coffee machine + fridge
   const kitchen = new THREE.Group();
@@ -1046,7 +1053,7 @@ export function buildOffice(): Office {
     gong.update(dt);
   };
 
-  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, fixtures: () => fixtures, elevator, gong, setProjectName, setLook, update };
+  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, fixtures: () => fixtures, elevator, gong, jukebox, setProjectName, setLook, update };
 }
 
 /** The materials and textures a floor paints in its own colors. */

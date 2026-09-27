@@ -12,6 +12,7 @@ import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { Decor } from './decor.js';
 import { Dog } from './dog.js';
+import { Jukebox } from './jukebox.js';
 import type { Ledger } from './usage.js';
 
 type ToastLevel = 'info' | 'warn' | 'error';
@@ -64,7 +65,7 @@ export function projectInfo(dir: string, name: string, agentCmd: string, agentAr
 
 /**
  * One floor of the building: a project's checkout with its own desks and workers, issues and PR
- * boards, task queue and pictures, all kept in that checkout's .agent-office folder.
+ * boards, task queue, pictures and jukebox, all kept in that checkout's .agent-office folder.
  */
 export class Floor {
   readonly id: string;
@@ -75,6 +76,7 @@ export class Floor {
   readonly queue: TaskQueue;
   readonly changes: Changes;
   readonly decor: Decor;
+  readonly jukebox: Jukebox;
   /** Settles once the workers whose terminals outlived the last office are picked back up, and the rest woken. */
   readonly ready: Promise<void>;
   readonly dog: Dog;
@@ -175,6 +177,7 @@ export class Floor {
     );
 
     this.decor = new Decor(dataDir);
+    this.jukebox = new Jukebox(dataDir);
     this.ready = this.workers.start();
 
     void this.github.refresh();

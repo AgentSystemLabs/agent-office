@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { BEANBAGS, DESK_BY_ID, DESK_SIZE, DESKS, ELEVATOR, ELEVATOR_FRONT, FLOOR, GONG, LOFT, STAIRS, type DeskDef } from '../shared/layout.js';
+import { BEANBAGS, DESK_BY_ID, DESK_SIZE, DESKS, ELEVATOR, ELEVATOR_FRONT, FLOOR, GONG, JUKEBOX, LOFT, STAIRS, type DeskDef } from '../shared/layout.js';
 import { cleanDogName, dogAt, dogDefaults, legSeconds, type DogAct, type DogState } from '../shared/dog.js';
 import type { PeerInfo, WorkerInfo } from '../shared/protocol.js';
 
@@ -57,6 +57,8 @@ function obstacles(): { rects: Rect[]; circles: Circle[] } {
   rects.push([ELEVATOR.x - ELEVATOR.width / 2, ELEVATOR.x + ELEVATOR.width / 2, FLOOR.minZ, ELEVATOR_FRONT]);
   // The gong's frame, as office.ts puts it.
   rects.push([GONG.x - GONG.width / 2 - 0.12, GONG.x + GONG.width / 2 + 0.3, GONG.z - 0.3, GONG.z + 0.3]);
+  // The jukebox, against the east wall.
+  rects.push([JUKEBOX.x - JUKEBOX.depth / 2 - 0.05, FLOOR.maxX, JUKEBOX.z - JUKEBOX.width / 2 - 0.05, JUKEBOX.z + JUKEBOX.width / 2 + 0.05]);
   // The overflow bean bags and their lap desks. They're only out while every desk is taken, but they
   // always come out in the same spots, so the dog keeps off those.
   for (const b of BEANBAGS) {

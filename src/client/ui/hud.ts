@@ -97,7 +97,7 @@ export function openHelp() {
     ['Space', 'Jump'],
     ['☕', 'Press E at the coffee machine in the kitchen for a minute of quicker walking and higher jumps. Three cups in a row gives you the jitters'],
     ['Mouse', 'Look around in first person (click to capture the mouse, Esc to free it)'],
-    ['Click / E', 'Use what you look at: hire a worker, open its terminal, read a board, watch the TV'],
+    ['Click / E', 'Use what you look at: hire a worker, open its terminal, read a board, watch the TV, put a song on the jukebox'],
     ['🛗', 'Every project is a floor: step into the elevator on the north wall and press E (or click the project name, top left) to go to another one or add a project'],
     ['🎉', 'The gong next to the PR board rings, and confetti flies over the desk, whenever a pull request merges. Walk up and press E to bang it yourself'],
     ['Drag / wheel', 'Orbit and zoom the camera in third person'],
