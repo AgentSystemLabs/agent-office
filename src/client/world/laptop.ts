@@ -201,11 +201,7 @@ export class Laptop {
 
   /** `distance` to the camera throttles repaints: far-away laptops refresh rarely. */
   update(dt: number, screen: ScreenState | undefined, distance = 0) {
-    if (this.openT < 1) {
-      this.openT = Math.min(1, this.openT + dt * 1.6);
-      const e = 1 - Math.pow(1 - this.openT, 3);
-      this.lid.rotation.x = Math.PI / 2 - e * (Math.PI / 2 + 0.22);
-    }
+    if (this.openT < 1) this.setLid(Math.min(1, this.openT + dt * 1.6));
     const version = screen ? screen.version : -1;
     const now = performance.now();
     const every = distance < 6 ? 150 : distance < 14 ? 600 : 2000;
@@ -215,6 +211,18 @@ export class Laptop {
       paintScreen(this.ctx, this.canvas.width, this.canvas.height, screen, this.placeholder, 22);
       this.texture.needsUpdate = true;
     }
+  }
+
+  /** Folds the lid down a little further (it snaps shut at the end); true once it's closed. */
+  shut(dt: number): boolean {
+    this.setLid(Math.max(0, this.openT - dt * 2));
+    return this.openT === 0;
+  }
+
+  private setLid(open: number) {
+    this.openT = open;
+    const e = 1 - Math.pow(1 - open, 3);
+    this.lid.rotation.x = Math.PI / 2 - e * (Math.PI / 2 + 0.22);
   }
 
   dispose() {
