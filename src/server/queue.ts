@@ -1,14 +1,16 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import type { GhPull, QueueState, QueueTask, WorkerInfo, WorkerStatus } from '../shared/protocol.js';
-import { DESKS, DESK_BY_ID } from '../shared/layout.js';
+import { isAgentProvider, type AgentProvider, type GhPull, type QueueState, type QueueTask, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
+import { DESK_BY_ID, SEATS, nextFreeSeat } from '../shared/layout.js';
+import { isValidOpenCodeModel, validateWorkerModel } from './agents.js';
 
 /** What the queue needs from the worker manager. Narrow on purpose, so a smoke test can fake it. */
 export interface QueueWorkers {
+  readonly defaultProvider: AgentProvider;
   list(): WorkerInfo[];
   deskOccupied(deskId: string): boolean;
-  spawn(deskId: string, by: string, prompt: string, worktree: boolean): WorkerInfo | string;
+  spawn(deskId: string, by: string, prompt: string, worktree: boolean, kind: 'agent', provider: AgentProvider, model?: string): WorkerInfo | string;
   /** Resolves with a line about what became of the worker's worktree. */
   kill(id: string): Promise<{ note?: string; error?: string }>;
 }
@@ -22,6 +24,8 @@ export interface QueueEvents {
   refreshGitHub(): void;
   /** Why no workers may be hired right now (today's budget is spent), if that's so. */
   hiringPaused(): string | undefined;
+  /** The last task on the queue just finished, done: nothing is left queued or running. */
+  emptied(): void;
 }
 
 export const DEFAULT_MAX_WORKERS = 3;
@@ -71,13 +75,18 @@ export class TaskQueue {
     return this.maxWorkers;
   }
 
-  add(prompt: string, by: string, title?: string, issue?: number): string | undefined {
+  add(prompt: string, by: string, title?: string, issue?: number, provider: AgentProvider = this.workers.defaultProvider, model?: string): string | undefined {
+    if (!isAgentProvider(provider) || (provider === 'custom' && this.workers.defaultProvider !== 'custom')) return 'Unknown agent provider';
+    const modelError = validateWorkerModel('agent', provider, model);
+    if (modelError) return modelError;
     const clean = prompt.replace(/\r\n?/g, '\n').trim();
     if (!clean) return 'Empty task';
     if (issue !== undefined && this.tasks.some((t) => t.issue === issue && t.status !== 'done')) return `Issue #${issue} is already on the queue`;
     if (this.tasks.filter((t) => t.status !== 'done').length >= MAX_TASKS) return `The queue is full (${MAX_TASKS} tasks)`;
     const task: QueueTask = {
       id: randomBytes(6).toString('hex'),
+      provider,
+      model: provider === 'opencode' ? model : undefined,
       issue,
       title: (title?.trim() || firstLine(clean)).slice(0, 120),
       prompt: clean,
@@ -101,6 +110,15 @@ export class TaskQueue {
     return undefined;
   }
 
+  /** Takes a closed issue's waiting task off the queue (a running one carries on). Returns whether there was one. */
+  dropIssue(issue: number): boolean {
+    const i = this.tasks.findIndex((t) => t.issue === issue && t.status === 'queued');
+    if (i < 0) return false;
+    this.tasks.splice(i, 1);
+    this.changed();
+    return true;
+  }
+
   /** Moves a queued task one place up (-1) or down (+1) among the queued tasks. */
   move(taskId: string, delta: -1 | 1) {
     const queued = this.tasks.filter((t) => t.status === 'queued');
@@ -121,7 +139,7 @@ export class TaskQueue {
     if (t.status !== 'done') return 'That task is still on the queue';
     if (t.issue !== undefined && this.tasks.some((x) => x !== t && x.issue === t.issue && x.status !== 'done')) return `Issue #${t.issue} is already on the queue`;
     this.tasks.splice(this.tasks.indexOf(t), 1);
-    const fresh: QueueTask = { id: t.id, issue: t.issue, title: t.title, prompt: t.prompt, addedBy: t.addedBy, addedAt: Date.now(), status: 'queued' };
+    const fresh: QueueTask = { id: t.id, provider: t.provider, model: t.model, issue: t.issue, title: t.title, prompt: t.prompt, addedBy: t.addedBy, addedAt: Date.now(), status: 'queued' };
     this.tasks.push(fresh);
     this.changed();
     this.pump();
@@ -136,7 +154,7 @@ export class TaskQueue {
   }
 
   setLimit(n: number) {
-    const v = Math.max(0, Math.min(DESKS.length, Math.floor(n)));
+    const v = Math.max(0, Math.min(SEATS.length, Math.floor(n)));
     if (!Number.isFinite(v) || v === this.maxWorkers) return;
     this.maxWorkers = v;
     this.changed();
@@ -202,18 +220,23 @@ export class TaskQueue {
   private reconcile() {
     const byId = new Map(this.workers.list().map((w) => [w.id, w]));
     let changed = false;
+    let done = false;
     for (const t of this.tasks) {
       if (t.status !== 'running' || !t.workerId) continue;
       const w = byId.get(t.workerId);
       if (!w) this.finish(t, 'killed');
-      else if (FINISHED.has(w.status)) this.finish(t, w.status === 'done' ? 'done' : 'exited');
+      else if (FINISHED.has(w.status)) done = this.finish(t, w.status === 'done' ? 'done' : 'exited') || done;
       else continue;
       changed = true;
     }
-    if (changed) this.changed();
+    if (!changed) return;
+    this.changed();
+    // A task finishing is what empties the queue; removing or clearing tasks doesn't count.
+    if (done && this.tasks.every((t) => t.status === 'done')) this.events.emptied();
   }
 
-  private finish(t: QueueTask, outcome: NonNullable<QueueTask['outcome']>) {
+  /** Returns whether the task got done (rather than stopping short). */
+  private finish(t: QueueTask, outcome: NonNullable<QueueTask['outcome']>): boolean {
     t.status = 'done';
     t.outcome = outcome;
     t.finishedAt = Date.now();
@@ -223,19 +246,22 @@ export class TaskQueue {
       // The worker most likely just opened the PR; go and link it.
       this.events.refreshGitHub();
     } else if (outcome === 'exited') this.events.toast(`📋 ${who} stopped before finishing ${label(t)} — requeue it from the queue board`, 'warn');
+    return outcome === 'done';
   }
 
   private busy(): number {
     return this.workers.list().filter((w) => w.kind === 'agent' && BUSY.has(w.status)).length;
   }
 
+  /** A free desk, else a free bean bag. */
   private freeDesk(): string | undefined {
-    return DESKS.find((d) => !this.workers.deskOccupied(d.id))?.id;
+    return nextFreeSeat((id) => this.workers.deskOccupied(id))?.id;
   }
 
   /**
-   * No desk is free: send home a worker the queue hired whose task is finished (nobody is looking at
-   * its terminal), and return its desk. Workers with a linked PR go first — their work is delivered.
+   * No desk or bean bag is free: send home a worker the queue hired whose task is finished (nobody
+   * is looking at its terminal), and return its seat. Workers with a linked PR go first — their work
+   * is delivered.
    */
   private recycleDesk(): string | undefined {
     const byId = new Map(this.workers.list().map((w) => [w.id, w]));
@@ -264,7 +290,7 @@ export class TaskQueue {
       if (this.events.hiringPaused()) break;
       const desk = this.freeDesk() ?? this.recycleDesk();
       if (!desk) break;
-      const r = this.workers.spawn(desk, `${t.addedBy} (queue)`, t.prompt + (this.useWorktree ? WORKTREE_NOTE : ''), this.useWorktree);
+      const r = this.workers.spawn(desk, `${t.addedBy} (queue)`, t.prompt + (this.useWorktree ? WORKTREE_NOTE : ''), this.useWorktree, 'agent', t.provider ?? this.workers.defaultProvider, t.model);
       changed = true;
       if (typeof r === 'string') {
         t.status = 'done';
@@ -309,11 +335,14 @@ export class TaskQueue {
     if (!existsSync(this.statePath)) return;
     try {
       const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { maxWorkers?: number; tasks?: Partial<QueueTask>[] };
-      if (typeof saved.maxWorkers === 'number' && Number.isFinite(saved.maxWorkers)) this.maxWorkers = Math.max(0, Math.min(DESKS.length, Math.floor(saved.maxWorkers)));
+      if (typeof saved.maxWorkers === 'number' && Number.isFinite(saved.maxWorkers)) this.maxWorkers = Math.max(0, Math.min(SEATS.length, Math.floor(saved.maxWorkers)));
       for (const s of saved.tasks ?? []) {
         if (typeof s.id !== 'string' || typeof s.prompt !== 'string' || typeof s.title !== 'string') continue;
+        const provider = isAgentProvider(s.provider) ? s.provider : this.workers.defaultProvider;
         const t: QueueTask = {
           id: s.id,
+          provider,
+          model: provider === 'opencode' && isValidOpenCodeModel(s.model) ? s.model : undefined,
           issue: typeof s.issue === 'number' ? s.issue : undefined,
           title: s.title,
           prompt: s.prompt,

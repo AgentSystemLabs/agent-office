@@ -2,24 +2,32 @@ import http from 'node:http';
 import https from 'node:https';
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
+import type { Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Config } from './config.js';
-import { Auth } from './auth.js';
-import { WorkerManager } from './workers.js';
-import { GitHub } from './github.js';
+import { Auth, type Session } from './auth.js';
+import { Accounts } from './accounts.js';
+import { childEnv, resolveCommand } from './workers.js';
+import { configuredProvider, OPEN_CODE_MODEL_MAX } from './agents.js';
+import { createOpenCodeModelCatalogue } from './models.js';
 import { Team } from './team.js';
 import { Upgrader } from './upgrade.js';
 import { Services } from './services.js';
-import { Decor, ImageProxy } from './decor.js';
+import { ImageProxy } from './decor.js';
 import { Ledger } from './usage.js';
-import { TaskQueue } from './queue.js';
-import { Changes } from './changes.js';
+import { PlanLimitsReader } from './limits.js';
+import { Webhook } from './webhook.js';
+import { Building, type FloorDef } from './building.js';
+import { Floor, type FloorContext } from './floor.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
-import type { ChatLine, ClientMsg, PeerInfo, ProjectInfo, ServerMsg, ServicesState } from '../shared/protocol.js';
-import { SPAWN } from '../shared/layout.js';
+import { ChatLog } from './history.js';
+import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
+import { GH_COMMENT_MAX, isAgentProvider } from '../shared/protocol.js';
+import { elevatorSpot } from '../shared/layout.js';
+import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 
 const MIME: Record<string, string> = {
@@ -39,15 +47,26 @@ const MIME: Record<string, string> = {
 
 const CLEANUPS = new Set(['keep', 'worktree', 'all']);
 
+type ToastLevel = Extract<ServerMsg, { t: 'toast' }>['level'];
+
 interface Client {
   id: string;
   ws: WebSocket;
   peer: PeerInfo;
+  /** Signed in with this account; none means the shared office password. */
+  accountId?: string;
+  /** Whether this person was last told they're an admin (see `me`). */
+  admin: boolean;
+  /** Signed out while connected; whatever it still sends is dropped until the socket closes. */
+  out?: boolean;
   attached: Set<string>;
   /** Terminals whose output was skipped because this client fell behind; re-snapshotted later. */
   stale: Set<string>;
   lastMoveAt: number;
   lastActAt: number;
+  lastGongAt: number;
+  /** Cleared at each heartbeat ping and set again by the pong; still clear at the next one means gone. */
+  isAlive: boolean;
 }
 
 const SLOW_CLIENT_BYTES = 8 * 1024 * 1024;
@@ -59,21 +78,10 @@ function findPublicDir(): string {
   throw new Error(`Client bundle not found (looked in ${candidates.join(', ')}). Run \`npm run build\`.`);
 }
 
-function projectInfo(cfg: Config): ProjectInfo {
-  const git = (args: string[]) => {
-    try {
-      return execFileSync('git', args, { cwd: cfg.dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    } catch {
-      return undefined;
-    }
-  };
-  return {
-    name: path.basename(cfg.dir),
-    dir: cfg.dir,
-    branch: git(['rev-parse', '--abbrev-ref', 'HEAD']),
-    remote: git(['remote', 'get-url', 'origin']),
-    agentCmd: [cfg.agentCmd, ...cfg.agentArgs].join(' '),
-  };
+/** A path under the home folder as ~/…, for showing people. */
+function tildify(p: string): string {
+  const home = os.homedir();
+  return p === home || p.startsWith(home + path.sep) ? `~${p.slice(home.length)}` : p;
 }
 
 function clientIp(req: http.IncomingMessage, trustProxy: boolean): string {
@@ -106,6 +114,22 @@ function readBody(req: http.IncomingMessage, limit = 1024 * 1024): Promise<strin
   });
 }
 
+/** Whether the page asking is the office itself, so another site can't open a socket with a visitor's cookie. */
+function sameOrigin(req: http.IncomingMessage, cfg: Config): boolean {
+  const origin = req.headers.origin;
+  const host = (cfg.trustProxy && (req.headers['x-forwarded-host'] as string)) || req.headers.host;
+  try {
+    return !!origin && new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+function refuseUpgrade(socket: Duplex) {
+  socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+  socket.destroy();
+}
+
 function send(res: http.ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
   const json = JSON.stringify(body);
   res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers });
@@ -115,13 +139,27 @@ function send(res: http.ServerResponse, status: number, body: unknown, headers: 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+const TOO_MANY_ATTEMPTS = 'Too many attempts. Try again in a few minutes.';
+/** WebSocket close code for a session that stopped counting: the account was revoked, or the shared password switched off. */
+const SIGNED_OUT = 4001;
+/** The most chat lines, and lines per worker's terminal, a search answers with. */
+const SEARCH_CHAT_HITS = 50;
+const SEARCH_TERMINAL_HITS = 25;
 
 export async function startServer(cfg: Config) {
   const publicDir = findPublicDir();
-  const auth = new Auth(cfg.verifier, cfg.salt, cfg.secret);
+  const accounts = new Accounts(cfg.dataDir);
+  const auth = new Auth(cfg.verifier, cfg.salt, cfg.secret, accounts);
   const clients = new Map<string, Client>();
-  const chat: ChatLine[] = [];
-  const project = projectInfo(cfg);
+  // Kept on disk, so a restart doesn't wipe it.
+  const chat = new ChatLog(cfg.dataDir);
+  /** What the office is called where it has no project of its own to go by (webhooks, invites). */
+  const officeName = cfg.project ? path.basename(cfg.project) : 'the office';
+  const modelCommand = configuredProvider(cfg.agentCmd) === 'opencode' ? cfg.agentCmd : 'opencode';
+  const openCodeModels = createOpenCodeModelCatalogue(
+    modelCommand.includes('/') ? path.resolve(modelCommand) : modelCommand,
+    cfg.dir,
+  );
 
   const sendTo = (c: Client, msg: ServerMsg) => {
     if (c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify(msg));
@@ -134,11 +172,53 @@ export async function startServer(cfg: Config) {
       c.ws.send(json);
     }
   };
+  const toastAll = (text: string, level: ToastLevel = 'info') => broadcast({ t: 'toast', text, level });
 
-  // --- Loopback-only endpoint that Claude Code hooks POST to --------------------------------
-  let workers!: WorkerManager;
-  let queue!: TaskQueue;
-  let changes!: Changes;
+  // --- The building: a floor per project, each with its own workers, boards and queue -----------
+  const building = new Building(cfg.dataDir, cfg.projectsDir);
+  const floors = new Map<string, Floor>();
+  const floorOf = (c: Client): Floor | undefined => (c.peer.floor ? floors.get(c.peer.floor) : undefined);
+  /** The floor a worker sits on. Worker ids are unique across the building. */
+  const workerFloor = (workerId: string): Floor | undefined => {
+    for (const f of floors.values()) if (f.workers.get(workerId)) return f;
+    return undefined;
+  };
+  /** To everyone on one floor. */
+  const toFloor = (floor: Floor, msg: ServerMsg, droppable = false) => {
+    const json = JSON.stringify(msg);
+    for (const c of clients.values()) {
+      if (c.peer.floor !== floor.id || c.ws.readyState !== WebSocket.OPEN) continue;
+      if (droppable && c.ws.bufferedAmount > 4 * 1024 * 1024) continue;
+      c.ws.send(json);
+    }
+  };
+  const toastFloor = (floor: Floor | undefined, text: string, level: ToastLevel = 'info') => {
+    if (floor) toFloor(floor, { t: 'toast', text, level });
+  };
+  const floorInfos = (): FloorInfo[] => [
+    ...[...floors.values()].map((f) => f.info()),
+    ...building.pending().map((d) => ({ id: d.id, name: d.name, repo: d.repo, dir: d.dir, palette: d.palette, addedBy: d.addedBy, addedAt: d.addedAt, cloning: true, workers: 0, busy: 0, waiting: 0, people: 0 })),
+  ];
+  // The elevator's counts change with every worker update; tell everyone at most a few times a second.
+  let floorsSent = '';
+  let floorsTimer: NodeJS.Timeout | undefined;
+  const floorsChanged = () => {
+    floorsTimer ??= setTimeout(() => {
+      floorsTimer = undefined;
+      const list = floorInfos();
+      const json = JSON.stringify(list);
+      if (json === floorsSent) return;
+      floorsSent = json;
+      broadcast({ t: 'floors', floors: list });
+    }, 250);
+  };
+  /** Tells just this person why their request didn't happen; nothing when there's no error. */
+  const warn = (c: Client, error: string | undefined) => {
+    if (error) sendTo(c, { t: 'toast', text: error, level: 'warn' });
+  };
+
+  // --- Loopback-only endpoint for authenticated agent events -------------------------------
+  let webhook!: Webhook;
   const hookServer = http.createServer(async (req, res) => {
     let url: URL;
     try {
@@ -146,16 +226,24 @@ export async function startServer(cfg: Config) {
     } catch {
       return send(res, 400, {});
     }
-    if (req.method !== 'POST' || url.pathname !== '/hooks/claude') return send(res, 404, { ok: false });
+    if (req.method !== 'POST' || !['/hooks/claude', '/hooks/opencode', '/hooks/codex'].includes(url.pathname)) return send(res, 404, { ok: false });
     let payload: unknown = {};
     try {
       const body = await readBody(req);
       payload = body ? JSON.parse(body) : {};
     } catch {
+      if (url.pathname !== '/hooks/claude') return send(res, 400, { ok: false });
       // permissive: a bad payload still counts as the event
     }
     const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
-    const ok = workers.handleHook(url.searchParams.get('worker') ?? '', token, url.searchParams.get('event') ?? '', payload);
+    const workerId = url.searchParams.get('worker') ?? '';
+    const workers = workerFloor(workerId)?.workers;
+    if (!workers) return send(res, 401, {});
+    const ok = url.pathname === '/hooks/opencode'
+      ? workers.handleOpenCodeHook(workerId, token, payload)
+      : url.pathname === '/hooks/codex'
+        ? workers.handleCodexHook(workerId, token, url.searchParams.get('event') ?? '', payload)
+        : workers.handleHook(workerId, token, url.searchParams.get('event') ?? '', payload);
     send(res, ok ? 200 : 401, {});
   });
   // Workers' terminals outlive a restart of the office (see ptys.ts) with this address in their
@@ -184,97 +272,113 @@ export async function startServer(cfg: Config) {
     cfg.dataDir,
     { budget: cfg.budget, pauseHiring: cfg.budgetPause },
     (state) => broadcast({ t: 'usage', state }),
-    (text, level) => broadcast({ t: 'toast', text, level }),
+    toastAll,
   );
 
-  workers = new WorkerManager(
-    cfg.dir,
-    cfg.dataDir,
-    cfg.agentCmd,
-    cfg.agentArgs,
-    { url: `http://127.0.0.1:${hookPort}`, token: '' },
-    {
-      update: (worker) => {
-        broadcast({ t: 'worker.update', worker });
-        queue?.onWorker(worker);
-      },
-      remove: (workerId) => {
-        changes.forget(workerId);
-        broadcast({ t: 'worker.remove', workerId });
-        queue?.onWorkerGone(workerId);
-      },
-      data: (workerId, data, viewers) => {
-        const json = JSON.stringify({ t: 'term.data', workerId, data } satisfies ServerMsg);
-        for (const id of viewers) {
-          const c = clients.get(id);
-          if (!c || c.ws.readyState !== WebSocket.OPEN) continue;
-          // A viewer on a slow link skips output and gets a fresh snapshot once it catches up,
-          // instead of queueing unbounded data in server memory.
-          if (c.stale.has(workerId) || c.ws.bufferedAmount > SLOW_CLIENT_BYTES) c.stale.add(workerId);
-          else c.ws.send(json);
-        }
-      },
-      screen: (workerId, frame) => broadcast({ t: 'screen', workerId, ...frame }, undefined, true),
-      toast: (text, level) => broadcast({ t: 'toast', text, level }),
-    },
+  // The Claude plan's 5-hour and weekly limits, for the meter under the workers: one account for
+  // every floor.
+  const limits = new PlanLimitsReader(
+    configuredProvider(cfg.agentCmd) === 'claude' ? resolveCommand(cfg.agentCmd) : resolveCommand('claude'),
+    childEnv(),
+    () => clients.size > 0,
+    (state) => broadcast({ t: 'limits', state }),
+  );
+
+  // Slack / Discord pings for workers that need input or finish (set from ⚙️ Settings or --webhook).
+  webhook = new Webhook(cfg.dataDir, (workerId) => (workerId && workerFloor(workerId)?.def.name) || officeName, (state) => broadcast({ t: 'notify', state }));
+  if (cfg.webhook !== undefined) {
+    const err = webhook.set(cfg.webhook, 'the command line');
+    if (err) console.error(`agent-office: --webhook: ${err}`);
+  }
+
+  const floorContext: FloorContext = {
+    agentCmd: cfg.agentCmd,
+    agentArgs: cfg.agentArgs,
+    hook: { url: `http://127.0.0.1:${hookPort}`, token: '' },
     ledger,
-  );
-  await workers.start();
-
-  const github = new GitHub(
-    cfg.dir,
-    (state) => broadcast({ t: 'gh.issues', state }),
-    (state) => {
-      broadcast({ t: 'gh.pulls', state });
-      queue?.onPulls(state.items);
+    emit: toFloor,
+    toast: toastFloor,
+    termData: (workerId, data, viewers) => {
+      const json = JSON.stringify({ t: 'term.data', workerId, data } satisfies ServerMsg);
+      for (const id of viewers) {
+        const c = clients.get(id);
+        if (!c || c.ws.readyState !== WebSocket.OPEN) continue;
+        // A viewer on a slow link skips output and gets a fresh snapshot once it catches up,
+        // instead of queueing unbounded data in server memory.
+        if (c.stale.has(workerId) || c.ws.bufferedAmount > SLOW_CLIENT_BYTES) c.stale.add(workerId);
+        else c.ws.send(json);
+      }
     },
-  );
-  // The 📋 task queue seats workers by itself: it watches the workers and links PRs from GitHub.
-  queue = new TaskQueue(cfg.dataDir, workers, !!project.branch, {
-    update: (state) => broadcast({ t: 'queue', state }),
-    toast: (text, level) => broadcast({ t: 'toast', text, level }),
-    claimIssue: (issue) => github.claim(issue),
-    refreshGitHub: () => void github.refresh(),
-    hiringPaused: () => ledger.hiringPaused,
-  });
-  github.start();
-
-  // What each worker changed, for the Changes window at its desk (see changes.ts).
-  changes = new Changes(
-    cfg.dir,
-    project.branch,
-    (workerId) => {
-      const w = workers.get(workerId);
-      if (!w) return undefined;
-      return { name: w.name, cwd: w.worktree ? path.join(cfg.dir, w.worktree.path) : cfg.dir, rel: w.worktree?.path ?? '', worktreeBase: w.worktree?.base };
+    changes: (state, ids) => {
+      for (const id of ids) {
+        const c = clients.get(id);
+        if (c) sendTo(c, { t: 'changes', state });
+      }
     },
-    (branch) => {
-      const pr = github.pulls.items.find((p) => p.state === 'OPEN' && p.headRefName === branch);
-      return pr ? { number: pr.number, url: pr.url } : undefined;
+    workerChanged: (_floor, w) => {
+      if (typeof w === 'string') webhook.onWorkerGone(w);
+      else webhook.onWorker(w);
+      floorsChanged();
     },
-    {
-      state: (state, ids) => {
-        for (const id of ids) {
-          const c = clients.get(id);
-          if (c) sendTo(c, { t: 'changes', state });
-        }
-      },
-      toast: (text, level) => broadcast({ t: 'toast', text, level }),
-      refreshGitHub: () => void github.refresh(),
+    people: (floor) => {
+      let n = 0;
+      for (const c of clients.values()) if (c.peer.floor === floor.id) n++;
+      return n;
     },
-  );
+  };
+  const openFloor = (def: FloorDef): Floor | undefined => {
+    if (!existsSync(def.dir)) {
+      console.error(`agent-office: the ${def.name} floor's checkout is gone (${def.dir}) — it stays closed until it's back`);
+      return undefined;
+    }
+    try {
+      const floor = new Floor(def, floorContext);
+      floors.set(def.id, floor);
+      return floor;
+    } catch (err) {
+      console.error(`agent-office: couldn't open the ${def.name} floor: ${(err as Error).message}`);
+      return undefined;
+    }
+  };
+  // Started in a project: it's a floor too (the one it has always been).
+  if (cfg.project) building.ensureLocal(cfg.project, 'the office');
+  for (const def of building.list()) openFloor(def);
+  // Workers still running from the last office are back at their desks before anyone walks in.
+  await Promise.all([...floors.values()].map((f) => f.ready));
 
   const team = new Team(cfg.publicHost, cfg.port);
 
   // Web servers the workers start, for the Services board and service tunnels (see relay.ts).
-  const servicesState = (items = services.list()): ServicesState => ({ items, port: cfg.port, ssh: team.ssh });
+  // One scan covers every floor; each floor's board lists its own workers' servers.
+  const servicesState = (floor: Floor | undefined, items = services.list()): ServicesState => ({
+    items: floor ? items.filter((s) => floor.workers.get(s.workerId)) : [],
+    port: cfg.port,
+    ssh: team.ssh,
+  });
   const services = new Services(
-    cfg.dir,
-    () => workers.owners(),
-    (items) => broadcast({ t: 'services', state: servicesState(items) }),
+    () => [...floors.values()].flatMap((f) => f.workers.owners()),
+    (items) => {
+      for (const c of clients.values()) sendTo(c, { t: 'services', state: servicesState(floorOf(c), items) });
+    },
   );
 
-  const decor = new Decor(cfg.dataDir);
+  /** Everything on a floor, for whoever just arrived there. */
+  const floorView = (floor: Floor | undefined): FloorView => ({
+    floor: floor?.id ?? null,
+    project: floor?.project ?? null,
+    workers: floor?.workers.list() ?? [],
+    issues: floor?.github.issues ?? { items: [], fetchedAt: 0, loading: false },
+    pulls: floor?.github.pulls ?? { items: [], fetchedAt: 0, loading: false },
+    queue: floor?.queue.state() ?? { tasks: [], maxWorkers: 0 },
+    decor: floor?.decor.list() ?? [],
+    services: servicesState(floor),
+  });
+  const screensOf = (c: Client, floor: Floor | undefined) => {
+    for (const { workerId, frame } of floor?.workers.fullScreens() ?? []) sendTo(c, { t: 'screen', workerId, ...frame, full: true });
+  };
+  /** Where someone arriving goes: the floor they asked for, else the first one there is. */
+  const arrivalFloor = (wanted: string | null): Floor | undefined => (wanted && floors.get(wanted)) || floors.values().next().value;
+
   const images = new ImageProxy();
 
   const upgrader = new Upgrader(
@@ -299,19 +403,79 @@ export async function startServer(cfg: Config) {
     createReadStream(file).pipe(res);
   };
 
-  const login = async (req: http.IncomingMessage, res: http.ServerResponse) => {
+  /** A file of the client bundle, or undefined when it's missing, a folder, or outside the bundle. */
+  const publicFile = (p: string): string | undefined => {
+    const file = path.join(publicDir, path.normalize(p).replace(/^(\.\.[/\\])+/, ''));
+    return file.startsWith(publicDir + path.sep) && existsSync(file) && statSync(file).isFile() ? file : undefined;
+  };
+
+  /**
+   * A password, claim-token or invite guess: counts it against the IP, then reads the small JSON
+   * body. Undefined once it has already answered (rate limited, or a bad body).
+   */
+  const readGuess = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<{ ip: string; body: Record<string, unknown> } | undefined> => {
     const ip = clientIp(req, cfg.trustProxy);
     // Counted before the body is read, so parallel guesses can't all slip under the limit.
-    if (!auth.allowAttempt(ip)) return send(res, 429, { error: 'Too many attempts. Try again in a few minutes.' });
-    let pw = '';
+    if (!auth.allowAttempt(ip)) return void send(res, 429, { error: TOO_MANY_ATTEMPTS });
     try {
-      pw = str(JSON.parse(await readBody(req, 4096)).password, 512);
+      const body = JSON.parse(await readBody(req, 4096));
+      if (body && typeof body === 'object') return { ip, body };
     } catch {
-      return send(res, 400, { error: 'Bad request' });
+      // answered below
     }
-    if (!(await auth.checkPassword(pw))) return send(res, 401, { error: 'Wrong password' });
-    auth.recordSuccess(ip);
-    return send(res, 200, { ok: true }, { 'set-cookie': auth.cookie(req, auth.issue(), isSecure(req, cfg)) });
+    send(res, 400, { error: 'Bad request' });
+  };
+  const signedIn = (req: http.IncomingMessage, accountId?: string) => ({ 'set-cookie': auth.cookie(req, auth.issue(accountId), isSecure(req, cfg)) });
+
+  /** With a name, that person's own account; without one, the shared office password (while it's on). */
+  const login = async (req: http.IncomingMessage, res: http.ServerResponse) => {
+    const guess = await readGuess(req, res);
+    if (!guess) return;
+    const name = str(guess.body.name, 64).trim();
+    const password = str(guess.body.password, 512);
+    if (name) {
+      const account = await accounts.check(name, password);
+      if (!account) return send(res, 401, { error: 'Wrong name or password' });
+      auth.recordSuccess(guess.ip);
+      return send(res, 200, { ok: true }, signedIn(req, account.id));
+    }
+    if (!accounts.sharedPassword) return send(res, 401, { error: 'Sign in with your name and your own password' });
+    if (!(await auth.checkPassword(password))) {
+      return send(res, 401, { error: accounts.any ? 'Wrong password. With an account of your own, type your name too.' : 'Wrong password' });
+    }
+    auth.recordSuccess(guess.ip);
+    return send(res, 200, { ok: true }, signedIn(req));
+  };
+  /** Which fields the sign-in forms ask for. */
+  const loginOptions = () => ({ accounts: accounts.any, shared: accounts.sharedPassword });
+
+  /**
+   * An invite link: `peek` says who it's for; otherwise it makes the account and signs it in.
+   * Counted like a password guess, since the token is one.
+   */
+  const join = async (req: http.IncomingMessage, res: http.ServerResponse) => {
+    const guess = await readGuess(req, res);
+    if (!guess) return;
+    const token = str(guess.body.token, 128);
+    const invite = accounts.findInvite(token);
+    if (!invite) return send(res, 410, { error: 'This invite link has expired or was already used. Ask whoever sent it for a new one.' });
+    auth.recordSuccess(guess.ip);
+    if (guess.body.peek === true) return send(res, 200, { name: invite.name, role: invite.role, by: invite.createdBy, project: officeName });
+    const r = await accounts.join(token, str(guess.body.name, 64), str(guess.body.password, 1024));
+    if (typeof r === 'string') return send(res, 400, { error: r });
+    console.log(`  ${r.name} joined the office with an invite from ${r.createdBy}`);
+    accountsChanged();
+    return send(res, 200, { ok: true, name: r.name }, signedIn(req, r.id));
+  };
+
+  /** The 🔎 search: chat lines, and lines of the terminals of every worker on that floor, with the words in them. */
+  const search = (q: string, floor: Floor | undefined): SearchResults => {
+    q = q.slice(0, SEARCH_MAX);
+    const needle = searchKey(q);
+    if (needle.length < SEARCH_MIN) return { q, chat: [], terminals: [], more: false };
+    const said = chat.search(needle, SEARCH_CHAT_HITS);
+    const shown = floor?.workers.search(needle, SEARCH_TERMINAL_HITS) ?? { hits: [], more: false };
+    return { q, chat: said.hits, terminals: shown.hits, more: said.more || shown.more };
   };
 
   const handler = async (req: http.IncomingMessage, res: http.ServerResponse) => {
@@ -321,36 +485,34 @@ export async function startServer(cfg: Config) {
       const svc = tunneled ? services.lookup(tunneled) : undefined;
       if (tunneled && svc) {
         if (req.method === 'POST' && req.url === RELAY_LOGIN) return await login(req, res);
-        if (!auth.fromAnyCookie(req)) return signInPage(res, tunneled);
+        if (!auth.fromAnyCookie(req)) return signInPage(res, tunneled, loginOptions());
         if (svc === 'gone') return stoppedPage(res, tunneled);
         return relayRequest(req, res, svc);
       }
+      let url: URL;
       let p: string;
       try {
-        p = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
+        url = new URL(req.url ?? '/', 'http://x');
+        p = decodeURIComponent(url.pathname);
       } catch {
         return send(res, 400, { error: 'Bad request' });
       }
       if (p === '/api/login' && req.method === 'POST') return await login(req, res);
+      if (p === '/api/login' && req.method === 'GET') return send(res, 200, loginOptions());
+      if (p === '/api/join' && req.method === 'POST') return await join(req, res);
       // One-time reveal of the generated password. After this the plaintext is gone for good.
       const claimable = !!cfg.claimToken && !cfg.claimed && !!cfg.password;
       if (p === '/api/claim' && req.method === 'GET') return send(res, 200, { claimable });
       if (p === '/api/claim' && req.method === 'POST') {
-        const ip = clientIp(req, cfg.trustProxy);
-        if (!auth.allowAttempt(ip)) return send(res, 429, { error: 'Too many attempts. Try again in a few minutes.' });
-        let token = '';
-        try {
-          token = str(JSON.parse(await readBody(req, 4096)).token, 256);
-        } catch {
-          return send(res, 400, { error: 'Bad request' });
-        }
+        const guess = await readGuess(req, res);
+        if (!guess) return;
         if (!claimable) return send(res, 410, { error: 'This office has already been claimed. Sign in with the password you saved.' });
-        if (!auth.checkToken(token, cfg.claimToken!)) return send(res, 403, { error: 'That claim link is not valid.' });
+        if (!auth.checkToken(str(guess.body.token, 256), cfg.claimToken!)) return send(res, 403, { error: 'That claim link is not valid.' });
         const password = cfg.password!;
         cfg.markClaimed();
-        auth.recordSuccess(ip);
+        auth.recordSuccess(guess.ip);
         console.log('  the office password was claimed — it will not be shown again');
-        return send(res, 200, { password }, { 'set-cookie': auth.cookie(req, auth.issue(), isSecure(req, cfg)) });
+        return send(res, 200, { password }, signedIn(req));
       }
       if (p === '/api/logout' && req.method === 'POST') {
         return send(res, 200, { ok: true }, { 'set-cookie': auth.clearCookie(req) });
@@ -358,24 +520,33 @@ export async function startServer(cfg: Config) {
       if (p === '/api/health') return send(res, 200, { ok: true });
 
       if (p.startsWith('/assets/')) {
-        const file = path.join(publicDir, path.normalize(p).replace(/^(\.\.[/\\])+/, ''));
-        if (file.startsWith(publicDir) && existsSync(file) && statSync(file).isFile()) return serveFile(res, file, true);
+        const file = publicFile(p);
+        if (file) return serveFile(res, file, true);
         res.writeHead(404).end();
         return;
       }
       if (p === '/login' || p === '/login.html') return serveFile(res, path.join(publicDir, 'login.html'), false);
       if (p === '/claim' || p === '/claim.html') return serveFile(res, path.join(publicDir, 'claim.html'), false);
+      if (p === '/join' || p === '/join.html') return serveFile(res, path.join(publicDir, 'join.html'), false);
       if (p === '/favicon.svg') return serveFile(res, path.join(publicDir, 'favicon.svg'), false);
 
-      if (!auth.fromRequest(req)) {
+      const session = auth.fromRequest(req);
+      if (!session) {
         if (p.startsWith('/api/')) return send(res, 401, { error: 'Not logged in' });
         res.writeHead(302, { location: '/login' }).end();
         return;
       }
-      if (p === '/api/whoami') return send(res, 200, { ok: true });
+      if (p === '/api/whoami') return send(res, 200, { ok: true, me: meOf(session.account?.id) });
+      if (p === '/api/agents/opencode/models' && req.method === 'GET') {
+        try {
+          return send(res, 200, { models: await openCodeModels.get() });
+        } catch {
+          return send(res, 502, { error: 'Could not load OpenCode models' });
+        }
+      }
       if (p === '/api/image' && req.method === 'GET') {
         // A picture on the wall, fetched by the office so the 3D view can draw it (see decor.ts).
-        const r = await images.get(new URL(req.url ?? '/', 'http://x').searchParams.get('url') ?? '');
+        const r = await images.get(url.searchParams.get('url') ?? '');
         if ('error' in r) return send(res, r.status, { error: r.error });
         res.writeHead(200, {
           'content-type': r.type,
@@ -389,10 +560,15 @@ export async function startServer(cfg: Config) {
         res.end(r.body);
         return;
       }
+      // Which floor a request is about: its boards and its workers.
+      const floor = floors.get(url.searchParams.get('floor') ?? '');
+      if (p === '/api/search' && req.method === 'GET') return send(res, 200, search(url.searchParams.get('q') ?? '', floor));
       if (p.startsWith('/api/gh/') && req.method === 'GET') {
         // What the issue and PR windows show beyond the board cards (see github.ts).
-        const n = Number(new URL(req.url ?? '/', 'http://x').searchParams.get('number'));
+        const n = Number(url.searchParams.get('number'));
         if (!Number.isSafeInteger(n) || n <= 0) return send(res, 400, { error: 'Bad number' });
+        if (!floor) return send(res, 404, { error: 'No such floor' });
+        const github = floor.github;
         try {
           if (p === '/api/gh/pull') return send(res, 200, await github.pullDetail(n));
           if (p === '/api/gh/issue') return send(res, 200, await github.issueDetail(n));
@@ -408,8 +584,8 @@ export async function startServer(cfg: Config) {
         return send(res, 404, { error: 'Not found' });
       }
       if (p === '/' || p === '/index.html') return serveFile(res, path.join(publicDir, 'index.html'), false);
-      const file = path.join(publicDir, path.normalize(p).replace(/^(\.\.[/\\])+/, ''));
-      if (file.startsWith(publicDir + path.sep) && existsSync(file) && statSync(file).isFile()) return serveFile(res, file, false);
+      const file = publicFile(p);
+      if (file) return serveFile(res, file, false);
       res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
     } catch (err) {
       console.error(err);
@@ -427,9 +603,7 @@ export async function startServer(cfg: Config) {
     const svc = tunneled ? services.lookup(tunneled) : undefined;
     if (tunneled && svc) {
       if (svc !== 'gone' && auth.fromAnyCookie(req)) return relayUpgrade(req, socket, head, svc);
-      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
-      socket.destroy();
-      return;
+      return refuseUpgrade(socket);
     }
     let url: URL;
     try {
@@ -438,75 +612,112 @@ export async function startServer(cfg: Config) {
       socket.destroy();
       return;
     }
-    const origin = req.headers.origin;
-    const host = (cfg.trustProxy && (req.headers['x-forwarded-host'] as string)) || req.headers.host;
-    let sameOrigin = false;
-    try {
-      sameOrigin = !!origin && new URL(origin).host === host;
-    } catch {
-      sameOrigin = false;
-    }
-    if (url.pathname !== '/ws' || !auth.fromRequest(req) || !sameOrigin) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
-      socket.destroy();
-      return;
-    }
-    wss.handleUpgrade(req, socket, head, (ws) => onConnection(ws, url));
+    const session = url.pathname === '/ws' && sameOrigin(req, cfg) ? auth.fromRequest(req) : undefined;
+    if (!session) return refuseUpgrade(socket);
+    wss.handleUpgrade(req, socket, head, (ws) => onConnection(ws, url, session));
   });
 
-  const onConnection = (ws: WebSocket, url: URL) => {
+  /** Who a connection is: its account's current name and role, or an admin guest on the shared password. */
+  const meOf = (accountId: string | undefined): Me => {
+    const a = accounts.get(accountId);
+    return a ? { account: { name: a.name, role: a.role }, admin: a.role === 'admin' } : { admin: !accountId };
+  };
+  /** Still signed in: the account wasn't revoked, and the shared password wasn't switched off. */
+  const stillIn = (c: Client) => (c.accountId ? !!accounts.get(c.accountId) : accounts.sharedPassword);
+  const signOut = (c: Client) => {
+    c.out = true;
+    c.ws.close(SIGNED_OUT, 'Signed out');
+  };
+  const onlineAccounts = () => new Set([...clients.values()].map((c) => c.accountId).filter((id): id is string => !!id));
+  /** Tells each admin what the accounts are now, and everyone whether they're (still) an admin. */
+  const accountsChanged = () => {
+    let state: ReturnType<Accounts['state']> | undefined;
+    for (const c of clients.values()) {
+      if (c.out) continue;
+      if (!stillIn(c)) {
+        signOut(c);
+        continue;
+      }
+      const me = meOf(c.accountId);
+      if (me.admin !== c.admin) {
+        c.admin = me.admin;
+        sendTo(c, { t: 'me', me });
+      }
+      if (me.admin) sendTo(c, { t: 'accounts', state: (state ??= accounts.state(onlineAccounts())) });
+    }
+  };
+
+  const onConnection = (ws: WebSocket, url: URL, session: Session) => {
     const id = randomBytes(5).toString('hex');
-    const name = str(url.searchParams.get('name'), 24).trim() || `Guest ${id.slice(0, 3)}`;
+    // Back where they were before a reload or a restart, else the first floor. Everyone arrives by elevator.
+    const floor = arrivalFloor(url.searchParams.get('floor'));
+    const spot = elevatorSpot();
+    const account = session.account;
+    // An account's name is its own; on the shared password people pick one.
+    const name = account?.name ?? (str(url.searchParams.get('name'), 24).trim() || `Guest ${id.slice(0, 3)}`);
     const colorParam = url.searchParams.get('color') ?? '';
     const intParam = (k: string) => (url.searchParams.get(k) ? Number(url.searchParams.get(k)) : undefined);
+    const me = meOf(account?.id);
     const client: Client = {
       id,
       ws,
+      accountId: account?.id,
+      admin: me.admin,
       attached: new Set(),
       stale: new Set(),
       lastMoveAt: 0,
       lastActAt: 0,
+      lastGongAt: 0,
+      isAlive: true,
       peer: {
         id,
         name,
         color: COLOR_RE.test(colorParam) ? colorParam : '#4f86f7',
         look: sanitizeLook({ skin: intParam('skin'), hair: intParam('hair'), style: intParam('style') }, lookFromSeed(id)),
-        x: SPAWN.x + (Math.random() - 0.5) * 3,
+        x: spot.x,
         y: 0,
-        z: SPAWN.z + (Math.random() - 0.5) * 2,
-        rotY: Math.PI,
+        z: spot.z,
+        // Facing out through the doors.
+        rotY: 0,
         moving: false,
         voice: false,
         muted: true,
         sharing: false,
+        ...(account ? { account: true } : {}),
+        ...(floor ? { floor: floor.id } : {}),
       },
     };
     clients.set(id, client);
-    (ws as any).isAlive = true;
-    ws.on('pong', () => ((ws as any).isAlive = true));
+    if (account) accounts.seen(account.id);
+    ws.on('pong', () => (client.isAlive = true));
 
     sendTo(client, {
       t: 'welcome',
       you: id,
       peers: [...clients.values()].map((c) => c.peer),
-      workers: workers.list(),
-      project,
-      issues: github.issues,
-      pulls: github.pulls,
+      floors: floorInfos(),
+      projectsDir: tildify(cfg.projectsDir),
       ice: cfg.iceServers,
-      chat: chat.slice(-50),
+      chat: chat.recent(50),
       invites: team.available,
       version: upgrader.version,
       upgrade: upgrader.state,
-      services: servicesState(),
-      decor: decor.list(),
       usage: ledger.state(),
-      queue: queue.state(),
+      limits: limits.state,
+      me,
+      notify: webhook.state(),
+      ...floorView(floor),
     });
-    for (const { workerId, frame } of workers.fullScreens()) sendTo(client, { t: 'screen', workerId, ...frame, full: true });
+    screensOf(client, floor);
     broadcast({ t: 'peer.join', peer: client.peer }, id);
-    // Anyone whose process ended since (exited, or failed to resume) gets up as you walk in.
-    workers.wakeAll();
+    if (account) accountsChanged(); // now online
+    floorsChanged();
+    if (floor) {
+      floor.arrived();
+      // Anyone whose process ended since (exited, or failed to resume) gets up as you walk in.
+      floor.workers.wakeAll();
+    }
+    limits.refresh();
 
     ws.on('message', (raw) => {
       let msg: ClientMsg;
@@ -515,20 +726,70 @@ export async function startServer(cfg: Config) {
       } catch {
         return;
       }
-      if (!msg || typeof msg !== 'object') return;
+      if (!msg || typeof msg !== 'object' || client.out) return;
       handleMessage(client, msg);
     });
     ws.on('close', () => {
       clients.delete(id);
-      workers.detachAll(id);
-      changes.unwatchAll(id);
+      for (const f of floors.values()) {
+        f.workers.detachAll(id);
+        f.changes.unwatchAll(id);
+      }
       broadcast({ t: 'peer.leave', id });
+      if (account) accountsChanged();
+      floorsChanged();
     });
     ws.on('error', () => ws.terminate());
   };
 
+  const decorChanged = (floor: Floor) => toFloor(floor, { t: 'decor', items: floor.decor.list() });
+  const teamChanged = async () => broadcast({ t: 'team', state: await team.state() });
+
+  /** To everyone else on the same floor as `c`: nobody on another floor can see them. */
+  const toNeighbors = (c: Client, msg: ServerMsg, droppable = false) => {
+    if (!c.peer.floor) return;
+    const json = JSON.stringify(msg);
+    for (const o of clients.values()) {
+      if (o.id === c.id || o.peer.floor !== c.peer.floor || o.ws.readyState !== WebSocket.OPEN) continue;
+      if (droppable && o.ws.bufferedAmount > 4 * 1024 * 1024) continue;
+      o.ws.send(json);
+    }
+  };
+
+  /** Rides `c` to another floor: everyone sees them leave and arrive, and they get the new floor's everything. */
+  const goToFloor = (c: Client, floor: Floor) => {
+    if (c.peer.floor === floor.id) return;
+    const was = floorOf(c);
+    if (was) {
+      was.workers.detachAll(c.id);
+      was.changes.unwatchAll(c.id);
+    }
+    c.attached.clear();
+    c.stale.clear();
+    const spot = elevatorSpot();
+    Object.assign(c.peer, { floor: floor.id, x: spot.x, y: 0, z: spot.z, rotY: 0, moving: false });
+    sendTo(c, { t: 'floor.enter', peers: [...clients.values()].map((o) => o.peer), ...floorView(floor) });
+    screensOf(c, floor);
+    broadcast({ t: 'peer.update', peer: c.peer }, c.id);
+    floor.arrived();
+    floor.workers.wakeAll();
+    floorsChanged();
+  };
+
   const handleMessage = (c: Client, msg: ClientMsg) => {
     const who = c.peer.name;
+    /** The floor `c` is on, or a note to them that they have to be on one. */
+    const here = (): Floor | undefined => {
+      const f = floorOf(c);
+      if (!f) warn(c, 'Take the elevator to a floor first');
+      return f;
+    };
+    /** A worker by id, with the floor it sits on. */
+    const worker = (id: unknown) => {
+      const wid = str(id, 32);
+      const floor = workerFloor(wid);
+      return floor ? { wid, floor, info: floor.workers.get(wid)! } : undefined;
+    };
     switch (msg.t) {
       case 'move': {
         const p = c.peer;
@@ -537,7 +798,7 @@ export async function startServer(cfg: Config) {
         p.z = num(msg.z);
         p.rotY = num(msg.rotY);
         p.moving = !!msg.moving;
-        broadcast({ t: 'peer.move', id: c.id, x: p.x, y: p.y, z: p.z, rotY: p.rotY, moving: p.moving }, c.id, true);
+        toNeighbors(c, { t: 'peer.move', id: c.id, x: p.x, y: p.y, z: p.z, rotY: p.rotY, moving: p.moving }, true);
         break;
       }
       case 'act': {
@@ -550,12 +811,12 @@ export async function startServer(cfg: Config) {
         const now = Date.now();
         if (now - c.lastActAt < 100) break;
         c.lastActAt = now;
-        broadcast({ t: 'peer.act', id: c.id }, c.id, true);
+        toNeighbors(c, { t: 'peer.act', id: c.id }, true);
         break;
       }
       case 'profile': {
         const name = str(msg.name, 24).trim();
-        if (name) c.peer.name = name;
+        if (name && !c.accountId) c.peer.name = name;
         if (COLOR_RE.test(msg.color)) c.peer.color = msg.color;
         c.peer.look = sanitizeLook(msg.look, c.peer.look);
         broadcast({ t: 'peer.update', peer: c.peer });
@@ -575,202 +836,332 @@ export async function startServer(cfg: Config) {
       case 'chat': {
         const text = str(msg.text, 500).trim();
         if (!text) break;
-        const line: ChatLine = { from: c.id, name: who, color: c.peer.color, text, at: Date.now() };
-        chat.push(line);
-        if (chat.length > 200) chat.splice(0, chat.length - 200);
+        const line: ChatLine = { from: c.id, name: who, color: c.peer.color, text, at: Date.now(), ...(c.accountId ? { account: true } : {}) };
+        chat.add(line);
         broadcast({ t: 'chat', ...line });
         break;
       }
+      case 'floor.go': {
+        const floor = floors.get(str(msg.floor, 64));
+        if (!floor) warn(c, building.pending().some((d) => d.id === msg.floor) ? "That floor is still being cloned — it'll be ready in a moment" : 'No such floor');
+        else goToFloor(c, floor);
+        break;
+      }
+      case 'floor.repos':
+        void building.repos(msg.refresh === true).then(
+          (repos) => sendTo(c, { t: 'floor.repos', repos }),
+          (err: Error) => sendTo(c, { t: 'floor.repos', repos: [], error: `Couldn't list your repositories with gh: ${err.message}` }),
+        );
+        break;
+      case 'floor.add': {
+        const repo = str(msg.repo, 200);
+        void building
+          .add(repo, who, (def) => {
+            floorsChanged();
+            toastAll(`🛗 ${who} is adding a floor for ${def.repo ?? def.name}…`);
+          })
+          .then((r) => {
+            floorsChanged();
+            if (typeof r === 'string') return sendTo(c, { t: 'floor.added', repo, error: r });
+            const floor = openFloor(r);
+            if (!floor) return sendTo(c, { t: 'floor.added', repo, error: `Cloned ${r.repo}, but couldn't open its floor — see the office's log` });
+            console.log(`  ${who} added a floor for ${r.repo} (${r.dir})`);
+            toastAll(`🛗 New floor: ${r.name}, added by ${who}`);
+            sendTo(c, { t: 'floor.added', repo, floor: floor.id });
+          });
+        break;
+      }
       case 'worker.spawn': {
+        const floor = here();
+        if (!floor) break;
         const kind = msg.kind === 'shell' ? 'shell' : 'agent';
-        const r = workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind);
-        if (typeof r === 'string') sendTo(c, { t: 'toast', text: r, level: 'warn' });
-        else broadcast({ t: 'toast', text: kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${r.prompt ? ' with a task' : ''}`, level: 'info' });
+        if (kind === 'agent' && msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider))) {
+          warn(c, 'Unknown agent provider');
+          break;
+        }
+        const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
+        const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model);
+        if (typeof r === 'string') warn(c, r);
+        else toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${r.prompt ? ' with a task' : ''}`);
         break;
       }
       case 'worker.resume': {
-        const err = workers.resume(str(msg.workerId, 32));
-        if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+        const w = worker(msg.workerId);
+        warn(c, w ? w.floor.workers.resume(w.wid) : 'No such worker');
         break;
       }
       case 'worker.kill': {
-        const w = workers.get(str(msg.workerId, 32));
+        const w = worker(msg.workerId);
         if (!w) break;
+        const { floor, info } = w;
         // The worker leaves right away; its worktree is dealt with after that, and the outcome follows.
-        const done = workers.kill(w.id, CLEANUPS.has(String(msg.cleanup)) ? msg.cleanup : undefined);
-        broadcast({ t: 'toast', text: `${who} sent ${w.name} home`, level: 'info' });
+        const done = floor.workers.kill(info.id, CLEANUPS.has(String(msg.cleanup)) ? msg.cleanup : undefined);
+        toastFloor(floor, `${who} sent ${info.name} home`);
         void done.then(({ note, error }) => {
-          if (note) broadcast({ t: 'toast', text: note, level: 'info' });
-          if (error) broadcast({ t: 'toast', text: error, level: 'warn' });
+          if (note) toastFloor(floor, note);
+          if (error) toastFloor(floor, error, 'warn');
         });
         break;
       }
       case 'worker.worktree': {
-        const wid = str(msg.workerId, 32);
-        void workers.inspectWorktree(wid).then((state) => {
-          if (state) sendTo(c, { t: 'worker.worktree', workerId: wid, state });
+        const w = worker(msg.workerId);
+        if (!w) break;
+        void w.floor.workers.inspectWorktree(w.wid).then((state) => {
+          if (state) sendTo(c, { t: 'worker.worktree', workerId: w.wid, state });
         });
         break;
       }
       case 'worker.attach': {
-        const wid = str(msg.workerId, 32);
-        const snap = workers.attach(wid, c.id, who);
-        if (snap) {
-          c.attached.add(wid);
-          sendTo(c, { t: 'term.snapshot', workerId: wid, ...snap });
+        const w = worker(msg.workerId);
+        const snap = w?.floor.workers.attach(w.wid, c.id, who);
+        if (w && snap) {
+          c.attached.add(w.wid);
+          sendTo(c, { t: 'term.snapshot', workerId: w.wid, ...snap });
         }
         break;
       }
       case 'worker.detach': {
         const wid = str(msg.workerId, 32);
         c.attached.delete(wid);
-        workers.detach(wid, c.id);
+        workerFloor(wid)?.workers.detach(wid, c.id);
         break;
       }
       case 'worker.prompt': {
-        const err = workers.prompt(str(msg.workerId, 32), str(msg.prompt, 20000));
-        if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+        const w = worker(msg.workerId);
+        warn(c, w ? w.floor.workers.prompt(w.wid, str(msg.prompt, 20000), who) : 'No such worker');
         break;
       }
       case 'worker.pr': {
-        const wid = str(msg.workerId, 32);
-        void workers.openPr(wid, who).then((r) => {
-          if (typeof r === 'string') return sendTo(c, { t: 'toast', text: r, level: 'warn' });
-          const name = workers.get(wid)?.name ?? 'the worker';
-          broadcast({ t: 'toast', text: r.existed ? `${name}'s branch already has PR #${r.number}` : `${who} opened PR #${r.number} for ${name}`, level: 'info' });
-          if (r.dirty) sendTo(c, { t: 'toast', text: `${name} still has uncommitted changes in its worktree — they are not in the PR`, level: 'warn' });
+        const w = worker(msg.workerId);
+        if (!w) break;
+        const { floor, wid } = w;
+        void floor.workers.openPr(wid, who).then((r) => {
+          if (typeof r === 'string') return warn(c, r);
+          const name = floor.workers.get(wid)?.name ?? 'the worker';
+          toastFloor(floor, r.existed ? `${name}'s branch already has PR #${r.number}` : `${who} opened PR #${r.number} for ${name}`);
+          if (r.dirty) warn(c, `${name} still has uncommitted changes in its worktree — they are not in the PR`);
           // Put it on the board now rather than at the next poll. A refresh already in flight
           // returns at once and can miss it, so look again shortly after.
-          void github.refresh().then(() => {
-            if (!github.pulls.items.some((p) => p.number === r.number)) setTimeout(() => void github.refresh(), 3000);
+          void floor.github.refresh().then(() => {
+            if (!floor.github.pulls.items.some((p) => p.number === r.number)) setTimeout(() => void floor.github.refresh(), 3000);
           });
         });
         break;
       }
       case 'term.input':
-        if (c.attached.has(msg.workerId)) workers.write(msg.workerId, str(msg.data, 64 * 1024));
+        if (c.attached.has(msg.workerId)) workerFloor(msg.workerId)?.workers.write(msg.workerId, str(msg.data, 64 * 1024), who);
         break;
       case 'term.resize':
-        if (c.attached.has(msg.workerId)) workers.resize(msg.workerId, num(msg.cols), num(msg.rows));
+        if (c.attached.has(msg.workerId)) workerFloor(msg.workerId)?.workers.resize(msg.workerId, num(msg.cols), num(msg.rows));
         break;
       case 'gh.refresh':
-        void github.refresh();
+        void floorOf(c)?.github.refresh();
         break;
       case 'gh.merge': {
+        const floor = here();
         const n = num(msg.number);
         const method = (['squash', 'merge', 'rebase'] as const).find((m) => m === msg.method);
-        if (!Number.isSafeInteger(n) || n <= 0 || !method) break;
-        void github.merge(n, method, msg.deleteBranch === true, msg.auto === true).then((error) => {
+        if (!floor || !Number.isSafeInteger(n) || n <= 0 || !method) break;
+        void floor.github.merge(n, method, msg.deleteBranch === true, msg.auto === true).then((error) => {
           sendTo(c, { t: 'gh.merged', number: n, error });
-          if (!error) broadcast({ t: 'toast', text: msg.auto ? `${who} set PR #${n} to merge once its checks pass` : `🎉 ${who} merged PR #${n}`, level: 'info' });
+          if (error) return;
+          toastFloor(floor, msg.auto ? `${who} set PR #${n} to merge once its checks pass` : `🎉 ${who} merged PR #${n}`);
+          // An auto-merge rings once GitHub gets round to it and the boards see it merged.
+          if (!msg.auto) floor.merged(n, who);
+        });
+        break;
+      }
+      case 'gh.comment': {
+        const floor = here();
+        const n = num(msg.number);
+        const kind = msg.kind === 'pull' ? 'pull' : 'issue';
+        if (!floor || !Number.isSafeInteger(n) || n <= 0) break;
+        const body = typeof msg.body === 'string' ? msg.body : '';
+        // Refused rather than cut short: a comment that silently lost its end would read as finished.
+        const invalid = !body.trim() ? 'The comment is empty' : body.length > GH_COMMENT_MAX ? `GitHub takes comments of up to ${GH_COMMENT_MAX} characters` : '';
+        if (invalid) {
+          sendTo(c, { t: 'gh.commented', kind, number: n, error: invalid });
+          break;
+        }
+        void floor.github.comment(kind, n, body).then((r) => {
+          sendTo(c, { t: 'gh.commented', kind, number: n, ...r });
+          if (r.comment) toastFloor(floor, `💬 ${who} commented on ${kind === 'pull' ? 'PR' : 'issue'} #${n}`);
+        });
+        break;
+      }
+      case 'gong': {
+        const floor = floorOf(c);
+        const now = Date.now();
+        if (!floor || now - c.lastGongAt < 500) break;
+        c.lastGongAt = now;
+        toFloor(floor, { t: 'gong', why: 'hit', by: who });
+        break;
+      }
+      case 'gh.close': {
+        const floor = here();
+        const n = num(msg.number);
+        const kind = msg.kind === 'issue' || msg.kind === 'pull' ? msg.kind : undefined;
+        if (!floor || !Number.isSafeInteger(n) || n <= 0 || !kind) break;
+        const reason = msg.reason === 'not planned' ? 'not planned' : 'completed';
+        void floor.github.close(kind, n, { comment: str(msg.comment, 20000).trim() || undefined, reason, deleteBranch: msg.deleteBranch === true }).then((error) => {
+          sendTo(c, { t: 'gh.closed', kind, number: n, error });
+          if (error) return;
+          if (kind === 'pull') return toastFloor(floor, `${who} closed PR #${n} without merging`);
+          // Nobody should be seated for an issue that's closed.
+          const dropped = floor.queue.dropIssue(n);
+          toastFloor(floor, `${who} closed issue #${n}${reason === 'not planned' ? ' as not planned' : ''}${dropped ? ' and took it off the queue' : ''}`);
         });
         break;
       }
       case 'queue.add': {
+        const floor = here();
+        if (!floor) break;
+        if (msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider))) {
+          warn(c, 'Unknown agent provider');
+          break;
+        }
         const issue = Number.isInteger(msg.issue) && (msg.issue as number) > 0 ? (msg.issue as number) : undefined;
-        const err = queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue);
-        if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
-        else broadcast({ t: 'toast', text: `📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`, level: 'info' });
+        const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
+        const err = floor.queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model);
+        if (err) warn(c, err);
+        else toastFloor(floor, `📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`);
         break;
       }
       case 'queue.remove': {
-        const err = queue.remove(str(msg.taskId, 32));
-        if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+        const floor = here();
+        if (floor) warn(c, floor.queue.remove(str(msg.taskId, 32)));
         break;
       }
       case 'queue.move':
-        queue.move(str(msg.taskId, 32), num(msg.delta) < 0 ? -1 : 1);
+        floorOf(c)?.queue.move(str(msg.taskId, 32), num(msg.delta) < 0 ? -1 : 1);
         break;
       case 'queue.retry': {
-        const err = queue.retry(str(msg.taskId, 32));
-        if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+        const floor = here();
+        if (floor) warn(c, floor.queue.retry(str(msg.taskId, 32)));
         break;
       }
       case 'queue.clear':
-        queue.clear();
+        floorOf(c)?.queue.clear();
         break;
       case 'queue.limit':
-        queue.setLimit(num(msg.maxWorkers));
+        floorOf(c)?.queue.setLimit(num(msg.maxWorkers));
         break;
-      case 'changes.watch':
-        if (workers.get(str(msg.workerId, 32))) changes.watch(str(msg.workerId, 32), c.id);
+      case 'notify.webhook': {
+        const url = str(msg.url, 4096).trim();
+        const err = webhook.set(url, who);
+        warn(c, err);
+        if (!err) toastAll(url ? `📣 ${who} set up team notifications` : `${who} turned off team notifications`);
         break;
-      case 'changes.unwatch':
-        changes.unwatch(str(msg.workerId, 32), c.id);
+      }
+      case 'notify.test':
+        void webhook.test(who).then((err) => sendTo(c, { t: 'toast', text: err ?? '📣 Sent a test message', level: err ? 'warn' : 'info' }));
         break;
+      case 'changes.watch': {
+        const w = worker(msg.workerId);
+        if (w) w.floor.changes.watch(w.wid, c.id);
+        break;
+      }
+      case 'changes.unwatch': {
+        const wid = str(msg.workerId, 32);
+        // Its worker may have gone home already; stop watching wherever it was.
+        for (const f of floors.values()) f.changes.unwatch(wid, c.id);
+        break;
+      }
       case 'changes.diff': {
         const workerId = str(msg.workerId, 32);
         const file = str(msg.path, 4096);
-        void changes.diff(workerId, file).then((r) => {
+        const floor = workerFloor(workerId);
+        if (!floor) {
+          sendTo(c, { t: 'changes.diff', workerId, path: file, diff: '', truncated: false, error: 'No such worker' });
+          break;
+        }
+        void floor.changes.diff(workerId, file).then((r) => {
           if (typeof r === 'string') sendTo(c, { t: 'changes.diff', workerId, path: file, diff: '', truncated: false, error: r });
           else sendTo(c, { t: 'changes.diff', workerId, path: file, ...r });
         });
         break;
       }
-      case 'changes.commit':
-        void changes.commit(str(msg.workerId, 32), str(msg.message, 5000), who).then((err) => {
-          if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
-        });
+      case 'changes.commit': {
+        const w = worker(msg.workerId);
+        if (w) void w.floor.changes.commit(w.wid, str(msg.message, 5000), who).then((err) => warn(c, err));
         break;
-      case 'changes.discard':
-        void changes.discard(str(msg.workerId, 32), typeof msg.path === 'string' ? str(msg.path, 4096) : undefined, who).then((err) => {
-          if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
-        });
+      }
+      case 'changes.discard': {
+        const w = worker(msg.workerId);
+        if (w) void w.floor.changes.discard(w.wid, typeof msg.path === 'string' ? str(msg.path, 4096) : undefined, who).then((err) => warn(c, err));
         break;
-      case 'changes.pr':
-        void changes.pullRequest(str(msg.workerId, 32), str(msg.title, 300), str(msg.body, 20000), who).then((err) => {
-          if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
-        });
+      }
+      case 'changes.pr': {
+        const w = worker(msg.workerId);
+        if (w) void w.floor.changes.pullRequest(w.wid, str(msg.title, 300), str(msg.body, 20000), who).then((err) => warn(c, err));
         break;
+      }
       case 'upgrade.check':
         void upgrader.check();
         break;
       case 'upgrade.start':
         void upgrader.start(who).then((err) => {
-          if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
-          else broadcast({ t: 'toast', text: `${who} is upgrading the office — it restarts when the new version is built`, level: 'info' });
+          if (err) warn(c, err);
+          else toastAll(`${who} is upgrading the office — it restarts when the new version is built`);
         });
+        break;
+      case 'limits.refresh':
+        limits.refresh();
         break;
       case 'team.get':
         void team.state().then((state) => sendTo(c, { t: 'team', state }));
         break;
       case 'team.invite': {
-        const github = str(msg.github, 64);
-        void team.invite(github).then(async (r) => {
-          sendTo(c, { t: 'team.invited', github, ...r });
+        const user = str(msg.github, 64);
+        void team.invite(user).then(async (r) => {
+          sendTo(c, { t: 'team.invited', github: user, ...r });
           if ('error' in r) return;
-          broadcast({ t: 'toast', text: `${who} invited ${r.name} to the office`, level: 'info' });
-          broadcast({ t: 'team', state: await team.state() });
+          toastAll(`${who} invited ${r.name} to the office`);
+          await teamChanged();
         });
         break;
       }
       case 'team.remove': {
         const name = str(msg.name, 64);
         void team.remove(name).then(async (err) => {
-          if (err) return sendTo(c, { t: 'toast', text: err, level: 'warn' });
-          broadcast({ t: 'toast', text: `${who} removed ${name}'s access`, level: 'info' });
-          broadcast({ t: 'team', state: await team.state() });
+          if (err) return warn(c, err);
+          toastAll(`${who} removed ${name}'s access`);
+          await teamChanged();
         });
         break;
       }
+      case 'accounts.get':
+      case 'accounts.invite':
+      case 'accounts.cancel':
+      case 'accounts.revoke':
+      case 'accounts.role':
+      case 'accounts.shared':
+        handleAccounts(c, msg);
+        break;
       case 'decor.add': {
-        const d = decor.add(msg.decor, who);
-        if (typeof d === 'string') return sendTo(c, { t: 'toast', text: d, level: 'warn' });
-        broadcast({ t: 'decor', items: decor.list() });
-        broadcast({ t: 'toast', text: `🖼️ ${who} hung ${d.title ? `“${d.title}”` : 'a picture'}`, level: 'info' });
+        const floor = here();
+        if (!floor) break;
+        const d = floor.decor.add(msg.decor, who);
+        if (typeof d === 'string') return warn(c, d);
+        decorChanged(floor);
+        toastFloor(floor, `🖼️ ${who} hung ${d.title ? `“${d.title}”` : 'a picture'}`);
         break;
       }
       case 'decor.update': {
-        const d = decor.update(str(msg.id, 32), msg.decor);
-        if (typeof d === 'string') return sendTo(c, { t: 'toast', text: d, level: 'warn' });
-        broadcast({ t: 'decor', items: decor.list() });
+        const floor = here();
+        if (!floor) break;
+        const d = floor.decor.update(str(msg.id, 32), msg.decor);
+        if (typeof d === 'string') return warn(c, d);
+        decorChanged(floor);
         break;
       }
       case 'decor.remove': {
-        const d = decor.remove(str(msg.id, 32));
+        const floor = here();
+        if (!floor) break;
+        const d = floor.decor.remove(str(msg.id, 32));
         if (!d) break;
-        broadcast({ t: 'decor', items: decor.list() });
-        broadcast({ t: 'toast', text: `${who} took down ${d.title ? `“${d.title}”` : 'a picture'}`, level: 'info' });
+        decorChanged(floor);
+        toastFloor(floor, `${who} took down ${d.title ? `“${d.title}”` : 'a picture'}`);
         break;
       }
       case 'ping':
@@ -779,11 +1170,61 @@ export async function startServer(cfg: Config) {
     }
   };
 
+  /** Inviting, listing and revoking people. Admins only: an admin account, or the shared password. */
+  const handleAccounts = (c: Client, msg: Extract<ClientMsg, { t: `accounts.${string}` }>) => {
+    const who = c.peer.name;
+    if (!meOf(c.accountId).admin) return warn(c, 'Only admins can manage accounts');
+    switch (msg.t) {
+      case 'accounts.get':
+        sendTo(c, { t: 'accounts', state: accounts.state(onlineAccounts()) });
+        break;
+      case 'accounts.invite': {
+        const r = accounts.invite(who, msg.role === 'admin' ? 'admin' : 'member', typeof msg.name === 'string' ? msg.name : undefined);
+        if (typeof r === 'string') return sendTo(c, { t: 'accounts.invited', error: r });
+        sendTo(c, { t: 'accounts.invited', invite: r });
+        accountsChanged();
+        break;
+      }
+      case 'accounts.cancel':
+        if (accounts.cancel(str(msg.inviteId, 32))) accountsChanged();
+        break;
+      case 'accounts.revoke': {
+        const id = str(msg.accountId, 32);
+        if (id === c.accountId) return warn(c, "You can't revoke your own account");
+        const a = accounts.revoke(id);
+        if (!a) break;
+        console.log(`  ${who} revoked ${a.name}'s account`);
+        toastAll(`${who} revoked ${a.name}'s account`);
+        accountsChanged(); // signs them out everywhere
+        break;
+      }
+      case 'accounts.role': {
+        const id = str(msg.accountId, 32);
+        if (id === c.accountId) return warn(c, "You can't change your own role");
+        const a = accounts.setRole(id, msg.role === 'admin' ? 'admin' : 'member');
+        if (!a) break;
+        toastAll(a.role === 'admin' ? `${who} made ${a.name} an admin` : `${a.name} is no longer an admin`);
+        accountsChanged();
+        break;
+      }
+      case 'accounts.shared': {
+        if (msg.on === accounts.sharedPassword) break;
+        // Only someone who can still get in without it may switch it off.
+        if (!msg.on && !c.accountId) return warn(c, 'Sign in with an admin account of your own first, or nobody could get back in');
+        accounts.setSharedPassword(!!msg.on);
+        console.log(`  ${who} switched the shared office password ${msg.on ? 'on' : 'off'}`);
+        toastAll(msg.on ? `${who} switched the shared office password back on` : `🔑 ${who} switched off the shared office password — everyone signs in with their own account now`);
+        accountsChanged(); // signs out whoever came in with it
+        break;
+      }
+    }
+  };
+
   const resync = setInterval(() => {
     for (const c of clients.values()) {
       if (!c.stale.size || c.ws.bufferedAmount > SLOW_CLIENT_BYTES / 8) continue;
       for (const wid of c.stale) {
-        const snap = c.attached.has(wid) ? workers.attach(wid, c.id, c.peer.name) : undefined;
+        const snap = c.attached.has(wid) ? workerFloor(wid)?.workers.attach(wid, c.id, c.peer.name) : undefined;
         if (snap) sendTo(c, { t: 'term.snapshot', workerId: wid, ...snap });
       }
       c.stale.clear();
@@ -791,15 +1232,19 @@ export async function startServer(cfg: Config) {
   }, 1000);
 
   // Drop dead connections so ghosts don't linger in the office.
+  // Also signs out anyone `agent-office accounts` revoked, and passes on role changes made there.
   const heartbeat = setInterval(() => {
+    let accountsMoved = false;
     for (const c of clients.values()) {
-      if ((c.ws as any).isAlive === false) {
+      if (!c.isAlive) {
         c.ws.terminate();
         continue;
       }
-      (c.ws as any).isAlive = false;
+      if (!c.out && (!stillIn(c) || c.admin !== meOf(c.accountId).admin)) accountsMoved = true;
+      c.isAlive = false;
       c.ws.ping();
     }
+    if (accountsMoved) accountsChanged();
   }, 20_000);
 
   await new Promise<void>((resolve, reject) => {
@@ -812,17 +1257,17 @@ export async function startServer(cfg: Config) {
   const shutdown = (keep = false) => {
     clearInterval(heartbeat);
     clearInterval(resync);
-    github.stop();
+    clearTimeout(floorsTimer);
     upgrader.stop();
     services.stop();
-    queue.shutdown();
-    changes.stop();
-    workers.shutdown(keep);
+    webhook.stop();
+    for (const f of floors.values()) f.shutdown(keep);
     ledger.flush();
+    limits.close();
     for (const c of clients.values()) c.ws.close();
     server.close();
     hookServer.close();
   };
 
-  return { server, shutdown, workers, publicDir, hookPort };
+  return { server, shutdown, accounts, publicDir, hookPort, floors: () => [...floors.values()], resolvedAgent: resolveCommand(cfg.agentCmd) };
 }

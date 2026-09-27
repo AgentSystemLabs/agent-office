@@ -1,5 +1,6 @@
 import type { UpgradeState, VersionInfo } from '../../shared/protocol';
 import type { Net } from '../net';
+import { isAsleep } from '../../shared/status';
 import { store } from '../state';
 import { closeAllModals, h, openModal, timeAgo, type Modal } from './dom';
 
@@ -45,7 +46,7 @@ export function openUpgrade(net: Net) {
       );
       if (n > shown) body.append(h('p.note', {}, `…and ${n >= 50 ? 'more' : `${n - shown} more`}`));
       if (!busy) {
-        const awake = [...store.workers.values()].filter((w) => w.status !== 'offline' && w.status !== 'exited');
+        const awake = [...store.workers.values()].filter((w) => !isAsleep(w.status));
         const working = awake.filter((w) => w.status === 'working' || w.status === 'needs_input');
         body.append(
           h(

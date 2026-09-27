@@ -36,6 +36,13 @@ export class PlayerController {
   private bob = 0;
   /** Eased out after a step up or down, so the camera glides up stairs instead of popping. */
   stepOffset = 0;
+  /** Walking and running speed, as a multiple of normal (a coffee's buzz). */
+  speedBoost = 1;
+  /** Jump speed, as a multiple of normal. */
+  jumpBoost = 1;
+  /** 0 (steady) to 1: how hard the view trembles after one coffee too many. */
+  jitter = 0;
+  private jitterT = 0;
   /**
    * A click (not a drag) on the scene, in normalized device coordinates.
    * In first person it is always the crosshair, (0, 0).
@@ -211,7 +218,7 @@ export class PlayerController {
       const cos = Math.cos(this.camYaw);
       const dx = ix * cos + iz * sin;
       const dz = -ix * sin + iz * cos;
-      const speed = k.has('ShiftLeft') || k.has('ShiftRight') ? RUN : WALK;
+      const speed = (k.has('ShiftLeft') || k.has('ShiftRight') ? RUN : WALK) * this.speedBoost;
       this.tryMove(this.pos.x + dx * speed * dt, this.pos.z);
       this.tryMove(this.pos.x, this.pos.z + dz * speed * dt);
       if (this.view === 'third') {
@@ -225,7 +232,7 @@ export class PlayerController {
     const ground = groundAt(this.colliders, this.pos.x, this.pos.z, this.pos.y);
     const jump = this.enabled && k.has('Space') && this.grounded;
     if (jump) {
-      this.vy = JUMP_V;
+      this.vy = JUMP_V * this.jumpBoost;
       this.grounded = false;
     } else if (this.grounded && this.pos.y > ground && this.pos.y - ground <= STEP + 0.02) {
       // Walking down a stair: stay on your feet rather than falling a step.
@@ -248,9 +255,10 @@ export class PlayerController {
     }
     this.stepOffset *= Math.exp(-dt * 16);
     const walking = this.moving && this.grounded;
-    this.walkPhase += dt * (walking ? (k.has('ShiftLeft') || k.has('ShiftRight') ? 14 : 11) : 0);
+    this.walkPhase += dt * (walking ? (k.has('ShiftLeft') || k.has('ShiftRight') ? 14 : 11) * this.speedBoost : 0);
     const bob = walking ? Math.abs(Math.sin(this.walkPhase)) * 0.035 : 0;
     this.bob += (bob - this.bob) * Math.min(1, dt * 18);
+    this.jitterT += dt;
     this.updateCamera();
   }
 
@@ -258,6 +266,7 @@ export class PlayerController {
     if (this.view === 'first') {
       this.camera.position.set(this.pos.x, this.pos.y + EYE_HEIGHT + this.bob + this.stepOffset, this.pos.z);
       this.camera.rotation.set(this.lookPitch, this.camYaw, 0);
+      this.shake();
       return;
     }
     const target = new THREE.Vector3(this.pos.x, this.pos.y + this.stepOffset + 1.3, this.pos.z);
@@ -297,6 +306,17 @@ export class PlayerController {
     if (snap) this.camera.position.copy(cam);
     else this.camera.position.lerp(cam, 0.25);
     this.camera.lookAt(target);
+    this.shake();
+  }
+
+  /** The jitters: the view trembles a little, on top of wherever you're looking. */
+  private shake() {
+    if (this.jitter <= 0) return;
+    const a = this.jitter * 0.01;
+    const t = this.jitterT;
+    this.camera.rotation.x += a * (Math.sin(t * 71) + 0.6 * Math.sin(t * 131 + 1));
+    this.camera.rotation.y += a * (Math.sin(t * 89 + 2) + 0.6 * Math.sin(t * 157));
+    this.camera.rotation.z += a * Math.sin(t * 113 + 3);
   }
 
   /** Unit vector the character is facing, on the XZ plane. */
@@ -305,19 +325,23 @@ export class PlayerController {
   }
 
   /** What stands in your way at (x, z) with your feet at `y`, or null. */
-  private blocker(x: number, z: number, y: number): Collider | null {
+  private blocker(x: number, z: number, y: number, allowEscape = false): Collider | null {
     let hit: Collider | null = null;
     for (const c of this.colliders) {
       // Stood on top of it, or passing beneath it.
       if (y >= c.top - 0.05 || y + HEIGHT <= (c.bottom ?? 0)) continue;
-      if (!touches(c, x, z, RADIUS)) continue;
+      // A spawn or height change can leave the body overlapping a solid. Only
+      // allow escape toward its near side, never through it to the far side.
+      if (allowEscape && touches(c, this.pos.x, this.pos.z, RADIUS)) {
+        if (escapes(c, this.pos.x, this.pos.z, x, z)) continue;
+      } else if (!touches(c, x, z, RADIUS)) continue;
       if (!hit || c.top > hit.top) hit = c;
     }
     return hit;
   }
 
   private tryMove(x: number, z: number) {
-    const hit = this.blocker(x, z, this.pos.y);
+    const hit = this.blocker(x, z, this.pos.y, true);
     if (!hit) {
       this.pos.x = x;
       this.pos.z = z;
@@ -325,10 +349,46 @@ export class PlayerController {
     }
     // A stair: step up onto it if there's room there.
     const up = hit.top - this.pos.y;
-    if (!this.grounded || up > STEP || this.blocker(x, z, hit.top) || this.pos.y + HEIGHT + up > ceilingAt(this.colliders, x, z, this.pos.y)) return;
-    this.pos.set(x, hit.top, z);
-    this.stepOffset -= up;
+    if (this.grounded && up <= STEP && !this.blocker(x, z, hit.top) && this.pos.y + HEIGHT + up <= ceilingAt(this.colliders, x, z, this.pos.y)) {
+      this.pos.set(x, hit.top, z);
+      this.stepOffset -= up;
+      return;
+    }
+    // Use the free part of this axis's step instead of throwing it all away.
+    // The other axis can then slide along the surface, even on slower frames.
+    const dx = x - this.pos.x;
+    const dz = z - this.pos.z;
+    let free = 0;
+    let blocked = 1;
+    for (let i = 0; i < 12; i++) {
+      const fraction = (free + blocked) / 2;
+      if (this.blocker(this.pos.x + dx * fraction, this.pos.z + dz * fraction, this.pos.y, true)) blocked = fraction;
+      else free = fraction;
+    }
+    this.pos.x += dx * free;
+    this.pos.z += dz * free;
   }
+}
+
+/** Whether the whole axis step moves out of an existing overlap. */
+function escapes(c: Collider, fromX: number, fromZ: number, x: number, z: number): boolean {
+  if (penetration(c, x, z) >= penetration(c, fromX, fromZ) - 1e-8) return false;
+  const nx = fromX - THREE.MathUtils.clamp(fromX, c.minX, c.maxX);
+  const nz = fromZ - THREE.MathUtils.clamp(fromZ, c.minZ, c.maxZ);
+  if (nx || nz) return nx * (x - fromX) + nz * (z - fromZ) >= 0;
+  // Inside the footprint, head toward a nearest face. An endpoint with less
+  // overlap alone is insufficient: a long step could cross a thin wall first.
+  const nearest = Math.min(fromX - c.minX, c.maxX - fromX, fromZ - c.minZ, c.maxZ - fromZ);
+  return (nearest === fromX - c.minX && x < fromX) || (nearest === c.maxX - fromX && x > fromX)
+    || (nearest === fromZ - c.minZ && z < fromZ) || (nearest === c.maxZ - fromZ && z > fromZ);
+}
+
+/** Signed overlap depth, including when the center is inside the footprint. */
+function penetration(c: Collider, x: number, z: number): number {
+  const dx = Math.max(c.minX - x, 0, x - c.maxX);
+  const dz = Math.max(c.minZ - z, 0, z - c.maxZ);
+  if (dx || dz) return RADIUS - Math.hypot(dx, dz);
+  return RADIUS + Math.min(x - c.minX, c.maxX - x, z - c.minZ, c.maxZ - z);
 }
 
 /** Whether a body of radius `r` at (x, z) overlaps the collider's footprint. */

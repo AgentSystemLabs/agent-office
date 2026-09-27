@@ -1,9 +1,10 @@
 import { DESK_BY_ID } from '../../shared/layout';
-import type { GhIssue, GhPull, WorkerInfo } from '../../shared/protocol';
+import type { AgentProvider, GhIssue, GhPull, WorkerInfo } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store, workerForPull } from '../state';
 import { h, openModal, timeAgo } from './dom';
 import { labelChip, openIssue, openPull } from './pull';
+import { providerLabel } from './provider';
 
 export interface BoardActions {
   /** Start a worker on a ready-made prompt (shown for editing first). */
@@ -13,7 +14,7 @@ export interface BoardActions {
   /** Walks you to the desk a pull request came from. */
   goToDesk(deskId: string): void;
   /** Put an issue on the 📋 task queue; a worker is seated for it when there's room. */
-  queue(prompt: string, title: string, issue: number): void;
+  queue(prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string): void;
 }
 
 /** The task a worker gets for an issue, from the board or the queue. */
@@ -67,9 +68,10 @@ function deskChip(w: WorkerInfo) {
 function queueChip(issue: number): Node | '' {
   const t = store.taskForIssue(issue);
   if (!t) return '';
-  if (t.status === 'queued') return h('span.qchip', {}, store.queue.tasks.find((x) => x.status === 'queued') === t ? '📋 up next' : '📋 queued');
-  if (t.status === 'running') return h('span.qchip.running', {}, `🤖 ${t.workerName ?? 'a worker'}`);
-  return t.pr ? h('span.qchip.done', {}, `🔀 PR #${t.pr.number}`) : '';
+  const provider = ` · ${providerLabel(t.provider, store.project)}`;
+  if (t.status === 'queued') return h('span.qchip', {}, `${store.queue.tasks.find((x) => x.status === 'queued') === t ? '📋 up next' : '📋 queued'}${provider}`);
+  if (t.status === 'running') return h('span.qchip.running', {}, `🤖 ${t.workerName ?? 'a worker'}${provider}`);
+  return t.pr ? h('span.qchip.done', {}, `🔀 PR #${t.pr.number}${provider}`) : '';
 }
 
 function card(n: number, title: string, meta: (Node | string)[], i: number, onclick: () => void) {
@@ -92,6 +94,9 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
   const render = () => {
     const st = kind === 'issues' ? store.issues : store.pulls;
     status.textContent = st.loading ? 'Refreshing…' : st.fetchedAt ? `Updated ${timeAgo(st.fetchedAt)}` : '';
+    // Every refresh rebuilds the columns, so note how far each was scrolled and put it back afterwards.
+    const scrolled = [...body.querySelectorAll('.column > ul')].map((ul) => ul.scrollTop);
+    const { scrollLeft, scrollTop } = body;
     body.replaceChildren();
     if (st.error && !st.items.length) {
       body.append(h('div.board-error', {}, `Couldn't load from GitHub: ${st.error}`, h('br'), h('small', {}, 'The server runs `gh` in the project directory — make sure it is installed and authenticated (gh auth login).')));
@@ -102,7 +107,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
         const ul = h('ul');
         col.items.forEach((it, i) =>
           ul.append(
-            card(it.number, it.title, [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, actions)),
+            card(it.number, it.title, [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, net, actions)),
           ),
         );
         if (!col.items.length) ul.append(h('li.empty', {}, 'Nothing here'));
@@ -136,6 +141,9 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
         body.append(h('section.column', {}, h('h4', {}, col.title, h('span', {}, String(col.items.length))), ul));
       }
     }
+    body.querySelectorAll('.column > ul').forEach((ul, i) => (ul.scrollTop = scrolled[i] ?? 0));
+    body.scrollLeft = scrollLeft;
+    body.scrollTop = scrollTop;
   };
 
   const unsubs = [store.on(kind, render), store.on('queue', render)];

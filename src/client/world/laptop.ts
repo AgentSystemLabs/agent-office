@@ -59,24 +59,35 @@ export interface ScreenState {
 }
 
 const runLen = (runs: Run[] | undefined) => (runs ? runs.reduce((n, r) => n + [...r[0]].length, 0) : 0);
+const CHAR_WIDTH = 0.6;
+const LINE_HEIGHT = 1.25;
+const MIN_ZOOM_ROWS = 12;
+const MIN_ZOOM_COLS = 56;
 
 /**
- * The part of the screen worth showing on a small laptop: the last ~20 non-empty rows, trimmed to
- * the widest line (at least 56 columns) so text stays legible from a few steps away.
+ * The part of a terminal worth showing on a small laptop. Keep the usual recent rows, then add
+ * surrounding rows for its natural character aspect ratio to use the available canvas.
  */
-function activeWindow(s: ScreenState, maxRows: number): { top: number; rows: number; cols: number } {
+function activeWindow(s: ScreenState, width: number, height: number, preferredRows: number): { top: number; rows: number; cols: number; first: number; last: number } {
+  let first = -1;
   let last = -1;
-  for (let y = s.rows - 1; y >= 0; y--) {
-    if (s.lines[y]?.some((r) => r[0].trim() || r[2] !== -1)) {
-      last = y;
-      break;
-    }
+  let cols = MIN_ZOOM_COLS;
+  for (let y = 0; y < s.rows; y++) {
+    const runs = s.lines[y];
+    if (!runs?.some((r) => r[0].trim() || r[2] !== -1)) continue;
+    if (first < 0) first = y;
+    last = y;
+    cols = Math.max(cols, runLen(runs));
   }
-  if (last < 0) return { top: 0, rows: Math.min(s.rows, maxRows), cols: Math.min(s.cols, 56) };
-  const top = Math.max(0, last + 1 - maxRows);
-  let cols = 56;
-  for (let y = top; y <= last; y++) cols = Math.max(cols, runLen(s.lines[y]));
-  return { top, rows: Math.max(12, last + 1 - top), cols: Math.min(s.cols, cols) };
+  cols = Math.min(s.cols, cols);
+  // A natural terminal cell is about .6 characters wide by 1.25 characters high. Add enough
+  // surrounding rows for a wide PTY to use the laptop's height without vertically stretching glyphs.
+  const aspectRows = Math.ceil((height * CHAR_WIDTH * cols) / (width * LINE_HEIGHT));
+  const rows = Math.min(s.rows, Math.max(MIN_ZOOM_ROWS, preferredRows, aspectRows));
+  const top = last < 0 ? 0 : Math.max(0, Math.min(last + 1 - rows, s.rows - rows));
+  const contentFirst = first < 0 ? top : Math.max(top, first);
+  const contentLast = last < 0 ? top : Math.min(top + rows - 1, last);
+  return { top, rows, cols, first: contentFirst, last: contentLast };
 }
 
 /** Paints a terminal screen onto a canvas. Shared by the 3D laptops and the HUD previews. */
@@ -93,18 +104,25 @@ export function paintScreen(ctx: CanvasRenderingContext2D, w: number, h: number,
     return;
   }
   const pad = w * 0.02;
-  const win = zoomRows ? activeWindow(s, zoomRows) : { top: 0, rows: s.rows, cols: s.cols };
+  const win = zoomRows
+    ? activeWindow(s, w - pad * 2, h - pad * 2, zoomRows)
+    : { top: 0, rows: s.rows, cols: s.cols, first: 0, last: s.rows - 1 };
   const cellW = (w - pad * 2) / win.cols;
   const cellH = (h - pad * 2) / win.rows;
-  const fontSize = Math.max(4, Math.min(cellW / 0.6, cellH / 1.15));
-  const charW = fontSize * 0.6;
-  const lineH = Math.min(cellH, fontSize * 1.25);
+  const fontSize = Math.max(4, Math.min(cellW / CHAR_WIDTH, cellH / LINE_HEIGHT));
+  const charW = fontSize * CHAR_WIDTH;
+  const lineH = fontSize * LINE_HEIGHT;
+  const gridW = win.cols * charW;
+  const contentRows = Math.max(1, win.last - win.first + 1);
+  const gridH = contentRows * lineH;
+  const left = pad + (w - pad * 2 - gridW) / 2;
+  const top = pad + (h - pad * 2 - gridH) / 2;
   ctx.textBaseline = 'top';
   for (let y = 0; y < win.rows; y++) {
     const runs = s.lines[win.top + y];
     if (!runs) continue;
     let x = 0;
-    const py = pad + y * lineH;
+    const py = top + (win.top + y - win.first) * lineH;
     for (const [text, fgc, bgc, flags] of runs) {
       const len = [...text].length;
       let fg = color(fgc, TERM_THEME.foreground);
@@ -114,7 +132,7 @@ export function paintScreen(ctx: CanvasRenderingContext2D, w: number, h: number,
         fg = bg ?? TERM_THEME.background;
         bg = tmp;
       }
-      const px = pad + x * charW;
+      const px = left + x * charW;
       if (bg) {
         ctx.fillStyle = bg;
         ctx.fillRect(px, py, len * charW + 0.5, lineH + 0.5);
