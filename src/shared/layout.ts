@@ -157,6 +157,12 @@ export const BOARDS = {
 
 /** The big TV on the east wall that shows whoever is screen sharing. */
 export const TV = { x: FLOOR.maxX - 0.1, y: 2.2, z: 0, width: 6.4, height: 3.6 } as const;
+/**
+ * The monitor on the west wall, between the first two windows from the north (the ladder has the
+ * span between the middle two) and facing the desks: how busy the office's machine is, and how many
+ * workers it runs of the most it takes.
+ */
+export const MACHINE_MONITOR = { x: FLOOR.minX, y: 2.2, z: -6, width: 2.3, height: 1.3 } as const;
 /** The lounge jukebox, against the east wall south of the TV, facing into the room. `y` is its speaker. */
 export const JUKEBOX = { x: FLOOR.maxX - 0.42, y: 0.75, z: 5.4, width: 1.3, depth: 0.72, height: 1.85 } as const;
 
@@ -195,6 +201,8 @@ export const STREET_Y = -3.6;
 export const ROAD = { minZ: 23, maxZ: 31 } as const;
 /** The office's floor slab, which is the garage's ceiling: it runs from -SLAB up to 0. */
 export const SLAB = 0.3;
+/** From one floor of the building up to the next: the office's ceiling, and the slab over it. */
+export const STOREY = WALL_HEIGHT + SLAB;
 /** How thick the outside walls are. They stand just outside FLOOR. */
 export const WALL_T = 0.3;
 
@@ -348,4 +356,50 @@ export function elevatorSpot(): { x: number; z: number } {
 
 export function inElevator(x: number, z: number): boolean {
   return x > ELEVATOR_CAR.minX && x < ELEVATOR_CAR.maxX && z > ELEVATOR_CAR.minZ && z < ELEVATOR_CAR.maxZ;
+}
+
+/**
+ * The ceiling is WALL_HEIGHT up, except over the loft and round it, where the room goes up higher
+ * (to `y`), so the loft still looks down on the desks. It runs from here to the east and south walls.
+ */
+export const ATRIUM = { minX: LOFT.minX - 3, minZ: LOFT.minZ - 3, y: LOFT.y + LOFT.height + 1 } as const;
+
+/**
+ * The ladder to the floors above and below: against the west wall at `z`, up through a hatch in the
+ * ceiling and down through one in the floor (every floor has it in the same spot, one long shaft).
+ * You climb it at `x`, facing the wall; `hatch` is the hole in the floor and the ceiling.
+ */
+export const LADDER = {
+  z: 0,
+  width: 0.62,
+  x: FLOOR.minX + 0.62,
+  hatch: { minX: FLOOR.minX, maxX: FLOOR.minX + 1, minZ: -0.5, maxZ: 0.5 },
+  /** How far in from the wall the trapdoor starts: the ladder goes through a slot along the wall. */
+  slot: 0.24,
+} as const;
+
+/** Where a fire pole can be. `open` is the way into its hole, where its railing has a gap (0 = +z, like rotY). */
+export interface PoleSpot {
+  x: number;
+  z: number;
+  open: number;
+}
+
+/**
+ * The fire poles, slid down to the floor below. Each floor's pole goes down through a hole in its
+ * floor, and lands on the one below beside that floor's own hole, as in a real firehouse: the two
+ * spots take turns, floor by floor, so nobody drops more than one floor. See poleDown.
+ */
+export const POLES: readonly PoleSpot[] = [
+  // South of the desks, by the way in from the balcony.
+  { x: -6.6, z: 8.4, open: Math.PI / 2 },
+  // Out in the open between the desks and the lounge, where you step out of the elevator.
+  { x: 6.8, z: 1.6, open: Math.PI },
+];
+/** A pole's hole in the floor, the railing round it, and how far from the pole you hang on. */
+export const POLE = { hole: 0.68, rail: 0.9, grip: 0.4, radius: 0.055 } as const;
+
+/** Where the pole down from floor `i` (0 is the bottom one) goes through its floor, and lands on the floor below. */
+export function poleDown(i: number): PoleSpot {
+  return POLES[((i % 2) + 2) % 2];
 }

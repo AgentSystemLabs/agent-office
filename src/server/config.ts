@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { WEATHERS, type Weather } from '../shared/protocol.js';
+import { MAX_WORKER_LIMIT, parseWorkerLimit } from './machine.js';
 
 export interface Config {
   /** The office's own folder: the building's data lives in its .agent-office. */
@@ -38,6 +39,8 @@ export interface Config {
   budget?: number;
   /** Refuse new hires for the rest of the day once the budget is spent. */
   budgetPause: boolean;
+  /** The most workers the office runs at once, across every floor; ⚙️ Settings can't go past it. */
+  maxWorkers?: number;
   /** Slack / Discord webhook to post to when a worker needs input or finishes ('' turns it off). */
   webhook?: string;
   /** Where the office is: its sun and live weather follow this city's forecast. */
@@ -105,6 +108,10 @@ Options:
                           day's spend passes it. OpenCode/Codex spend is excluded
       --budget-pause      ...and no new workers can be hired until the next
                           day (env AGENT_OFFICE_BUDGET_PAUSE=1)
+      --max-workers <n>   Run at most this many workers at once, across every
+                          floor (env AGENT_OFFICE_MAX_WORKERS). Hiring past it
+                          is refused. Admins can lower the limit from ⚙️
+                          Settings, but not raise it past this
       --webhook <url>     Post to this Slack or Discord webhook when a worker
                           needs input or finishes (env AGENT_OFFICE_WEBHOOK).
                           Also settable from ⚙️ Settings in the office; "" turns it off
@@ -183,6 +190,7 @@ export function loadConfig(argv: string[]): Config {
   let resetPassword = false;
   let budget = process.env.AGENT_OFFICE_BUDGET || '';
   let budgetPause = !!process.env.AGENT_OFFICE_BUDGET_PAUSE && process.env.AGENT_OFFICE_BUDGET_PAUSE !== '0';
+  let maxWorkers = process.env.AGENT_OFFICE_MAX_WORKERS || '';
   let webhook = process.env.AGENT_OFFICE_WEBHOOK;
   let city = process.env.AGENT_OFFICE_CITY || '';
   let weather = process.env.AGENT_OFFICE_WEATHER || '';
@@ -241,6 +249,9 @@ export function loadConfig(argv: string[]): Config {
       case '--budget-pause':
         budgetPause = true;
         break;
+      case '--max-workers':
+        maxWorkers = takeValue(argv, i++, a);
+        break;
       case '--webhook':
         webhook = takeValue(argv, i++, a);
         break;
@@ -285,6 +296,11 @@ export function loadConfig(argv: string[]): Config {
   const budgetUsd = budget ? Number(budget.replace(/^\$/, '')) : undefined;
   if (budgetUsd !== undefined && !(budgetUsd > 0)) {
     console.error('agent-office: --budget needs an amount in dollars, e.g. --budget 20');
+    process.exit(2);
+  }
+  const workerLimit = maxWorkers ? parseWorkerLimit(maxWorkers) : undefined;
+  if (maxWorkers && workerLimit === undefined) {
+    console.error(`agent-office: --max-workers needs a whole number from 1 to ${MAX_WORKER_LIMIT}, e.g. --max-workers 6`);
     process.exit(2);
   }
   weather = weather.trim().toLowerCase();
@@ -379,6 +395,7 @@ export function loadConfig(argv: string[]): Config {
     publicHost: process.env.AGENT_OFFICE_PUBLIC_HOST || undefined,
     budget: budgetUsd,
     budgetPause,
+    maxWorkers: workerLimit,
     webhook,
     city: city.trim() || undefined,
     weather: (weather as Weather) || undefined,

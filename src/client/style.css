@@ -111,6 +111,22 @@ button { font-family: inherit; }
 .empty { color: var(--muted); font-size: 13px; font-weight: 600; }
 @keyframes pulse { 50% { transform: scale(1.08); } }
 
+/* Workers waiting on you: a count in the Workers panel (click or N to go to them) and arrows at the edge of the screen. */
+#waiting { display: flex; align-items: center; gap: 6px; width: 100%; margin: 0 0 8px; padding: 5px 8px; border: 2px solid var(--ink); border-radius: 10px; background: #ffe3ea; color: var(--ink); font: inherit; font-size: 13px; font-weight: 900; text-align: left; cursor: pointer; }
+#waiting:hover { background: #ffd0dc; }
+#waiting.all-done { background: #d8f5e3; }
+#waiting.all-done:hover { background: #c3efd5; }
+#waiting .key { margin: 0 0 0 auto; background: var(--ink); color: var(--paper); box-shadow: none; }
+#compass { position: absolute; inset: 0; overflow: hidden; pointer-events: none !important; }
+.compass-mark { position: absolute; left: 0; top: 0; width: 0; height: 0; --mark: var(--bad); }
+.compass-mark.done { --mark: var(--good); }
+/* A pin whose point (its square corner) turns to face the worker, with the emoji upright on top. */
+.compass-arrow { position: absolute; left: -19px; top: -19px; width: 38px; height: 38px; border-radius: 50% 50% 50% 0; border: 3px solid var(--ink); background: var(--mark); }
+.compass-dial { position: absolute; left: -19px; top: -19px; width: 38px; height: 38px; display: grid; place-items: center; font-size: 17px; line-height: 1; }
+.compass-mark.needs_input .compass-dial { animation: pulse 1s infinite; }
+.compass-who { position: absolute; top: 24px; left: 0; transform: translateX(-50%); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 7px; border-radius: 8px; background: var(--ink); color: var(--paper); font-size: 11px; font-weight: 900; }
+@media (prefers-reduced-motion: reduce) { .compass-mark.needs_input .compass-dial { animation: none; } }
+
 .chat { position: absolute; left: 12px; bottom: 12px; width: 330px; max-width: calc(100vw - 24px); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
 #chat-log { list-style: none; margin: 0; padding: 0 4px; max-height: 160px; overflow: auto; font-size: 13px; display: flex; flex-direction: column; gap: 2px; }
 #chat-log:empty { display: none; }
@@ -141,6 +157,40 @@ button { font-family: inherit; }
 }
 .crosshair.free .look-hint { display: block; }
 .crosshair.on .look-hint { transform: translateX(-50%) scale(.625); transform-origin: top center; }
+/* The emote wheel (hold G): six emotes round a ring in the middle of the screen, over the crosshair. */
+.emote-wheel { position: absolute; inset: 0; display: grid; place-items: center; background: radial-gradient(circle, rgba(43,45,66,.28), transparent 45%); }
+.emote-wheel .ring {
+  position: relative; width: 288px; height: 288px; border-radius: 50%;
+  background: rgba(255,250,243,.88); border: 3px solid var(--ink); box-shadow: var(--shadow); animation: wheel-in .12s ease-out;
+}
+.emote-wheel .emote {
+  position: absolute; left: 50%; top: 50%; width: 64px; height: 64px; margin: -32px 0 0 -32px; padding: 0;
+  transform: translate(var(--x), var(--y)); border-radius: 50%; border: 3px solid var(--ink); background: #fff;
+  font-size: 32px; line-height: 1; cursor: pointer; box-shadow: 0 3px 0 var(--ink); transition: transform .08s, background .08s;
+}
+.emote-wheel .emote.on { background: var(--accent); transform: translate(var(--x), var(--y)) scale(1.18); }
+.emote-wheel .num {
+  position: absolute; right: -6px; bottom: -6px; min-width: 20px; height: 20px; border-radius: 999px; background: var(--ink); color: var(--paper);
+  font-size: 12px; font-weight: 900; line-height: 20px;
+}
+.emote-wheel .middle { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: none; }
+.emote-wheel .middle b { font-size: 17px; font-weight: 900; }
+.emote-wheel .middle small { font-size: 12px; font-weight: 800; color: var(--muted); white-space: nowrap; }
+@keyframes wheel-in { from { transform: scale(.85); opacity: 0; } }
+/* Your own emote's emoji in first person, where you can't see it over your head. */
+.emote-pop { position: absolute; left: 50%; bottom: 96px; font-size: 56px; line-height: 1; pointer-events: none !important; animation: emote-pop var(--secs, 2s) ease-out forwards; }
+@keyframes emote-pop {
+  0% { transform: translateX(-50%) scale(0); opacity: 1; }
+  12% { transform: translateX(-50%) scale(1.25); }
+  20% { transform: translateX(-50%) scale(1); }
+  80% { opacity: 1; }
+  100% { transform: translateX(-50%) translateY(-40px); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .emote-wheel .ring { animation: none; }
+  .emote-pop { animation: emote-fade var(--secs, 2s) linear forwards; transform: translateX(-50%); }
+}
+@keyframes emote-fade { 80% { opacity: 1; } 100% { opacity: 0; } }
 .key { display: inline-block; min-width: 26px; padding: 1px 7px; margin-right: 5px; border-radius: 7px; background: var(--paper); color: var(--ink); text-align: center; font-weight: 900; box-shadow: 0 2px 0 #999; }
 
 #toasts { position: absolute; top: 90px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none !important; }
@@ -714,6 +764,28 @@ a.when:hover { text-decoration: underline; }
 @media (max-width: 640px) {
   .queue-limit span { display: none; }
 }
+
+/* ---- The floor list under the project in the corner ------------------------------------------ */
+.project.open { background: var(--paper-2); }
+.floor-menu { position: fixed; z-index: 30; width: min(380px, calc(100vw - 24px)); max-height: calc(100vh - 110px); overflow: auto; padding: 8px; display: grid; gap: 6px; animation: floor-menu-in .12s ease-out; }
+@keyframes floor-menu-in { from { opacity: 0; transform: translateY(-6px); } }
+.floor-menu-head { font-size: 12px; font-weight: 900; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; padding: 2px 6px 0; }
+.floor-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; text-align: left; padding: 7px 10px; font: inherit; color: var(--ink); background: #fff; border: 3px solid var(--ink); border-radius: 12px; box-shadow: 0 3px 0 var(--ink); cursor: pointer; transition: transform .05s; }
+.floor-item:hover:not(:disabled) { background: var(--paper-2); }
+.floor-item:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+.floor-item:disabled { cursor: default; }
+.floor-item.here { background: var(--paper-2); box-shadow: none; transform: translateY(2px); }
+.floor-item.add { background: var(--paper); border-style: dashed; box-shadow: none; }
+.floor-item .floor-no { width: 30px; height: 30px; border-radius: 50%; border: 3px solid var(--ink); display: grid; place-items: center; font-weight: 900; font-size: 14px; color: #fff; text-shadow: 0 1px 0 rgba(0, 0, 0, .35); }
+.floor-item.add .floor-no { background: #fff; text-shadow: none; }
+.floor-item .floor-text { display: flex; flex-direction: column; min-width: 0; }
+.floor-item .floor-name { font-weight: 900; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.floor-item .floor-sub { font-size: 12px; font-weight: 700; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.floor-item .floor-stats { display: flex; gap: 6px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.floor-item .floor-stats .waiting { color: var(--bad); }
+/* Sliding down a fire pole: streaks of speed round the edge of the screen. */
+#whoosh { position: fixed; inset: 0; pointer-events: none; z-index: 5; opacity: 0; background: repeating-conic-gradient(from 0deg at 50% 50%, rgba(255, 255, 255, .55) 0deg 1.2deg, transparent 1.2deg 9deg); -webkit-mask: radial-gradient(circle at 50% 50%, transparent 38%, #000 78%); mask: radial-gradient(circle at 50% 50%, transparent 38%, #000 78%); }
+#fade.quick { transition-duration: .16s; }
 
 /* ---- The elevator: floors, one per project ---------------------------------------------------- */
 #fade { position: fixed; inset: 0; background: #1b1d2e; opacity: 0; pointer-events: none; transition: opacity .3s ease; z-index: 40; }
