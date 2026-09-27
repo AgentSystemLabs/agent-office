@@ -1985,13 +1985,14 @@ const finePointer = window.matchMedia('(pointer: fine)').matches;
 function renderCrosshair() {
   const show = player.view === 'first' && !modalOpen();
   const free = show && finePointer && player.canLock && !player.locked;
-  const k = `${show}|${!!target}|${free}`;
+  const k = `${show}|${!!target}|${free}|${relookOnKey}`;
   if (k === crossKey) return;
   crossKey = k;
   const el = $('crosshair');
   el.classList.toggle('hidden', !show);
   el.classList.toggle('on', !!target);
   el.classList.toggle('free', free);
+  el.querySelector('.look-hint')!.textContent = relookOnKey ? 'Press a key or click to look around' : 'Click to look around';
 }
 
 // ---- Reaching out ---------------------------------------------------------------------------------
@@ -2068,6 +2069,7 @@ function use(it: Interactable | null, key: DeskKey) {
 // ---- Input ----------------------------------------------------------------------------------------
 window.addEventListener('keydown', (e) => {
   if (modalOpen() || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (relookOnKey && e.key !== 'Escape' && player.canLock) player.lock();
   if (hanger.active && hangingKey(e.code)) {
     e.preventDefault();
     return;
@@ -2179,8 +2181,11 @@ function sendDoing(reconnected = false) {
   net.send({ t: 'doing', what });
 }
 
-/** Whether the mouse was captured when the modals opened, so closing them gives it back. */
-let relookAfterModal = false;
+/**
+ * Set when closing the last window may not have given you the mouse back, so the next key you press
+ * takes it instead (a key counts for the browser, where the Esc that closed the window doesn't).
+ */
+let relookOnKey = false;
 onModalChange((open) => {
   player.enabled = !open;
   player.clearKeys();
@@ -2189,7 +2194,6 @@ onModalChange((open) => {
   if (open && walkingTo && !trip) stopWalking();
   if (open) {
     emoteWheel.close();
-    if (player.locked) relookAfterModal = true;
     player.unlock();
     $('hint').classList.add('hidden');
   } else {
@@ -2203,11 +2207,16 @@ onModalChange((open) => {
 function backToGame() {
   if (modalOpen()) return;
   if (!isTyping()) canvas.focus({ preventScroll: true });
-  // The browser lets a page re-capture the mouse it let go of itself, even from Esc. Otherwise it
-  // needs a recent click or key, like the one that closed the window; without one, "Click to look around".
-  if (player.canLock && (relookAfterModal || navigator.userActivation?.isActive)) player.lock();
-  relookAfterModal = false;
+  if (!player.canLock || player.locked) return;
+  // The browser lets a page re-capture the mouse it let go of itself, even on Esc (which it doesn't
+  // count as a click or key), and any time after a click, like one on ✕. When it won't (the mouse
+  // was already free when the window opened, or a stricter browser), the next key you press does.
+  player.lock();
+  relookOnKey = true;
 }
+document.addEventListener('pointerlockchange', () => {
+  if (player.locked) relookOnKey = false;
+});
 
 // ---- Clicking the world: use what's under the crosshair (first person) or the mouse (third) ----------
 const raycaster = new THREE.Raycaster();
