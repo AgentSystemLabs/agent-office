@@ -2,7 +2,6 @@ import http from 'node:http';
 import https from 'node:https';
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import type { Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
@@ -96,12 +95,6 @@ function findPublicDir(): string {
   const candidates = [path.resolve(here, '../../public'), path.resolve(here, '../../dist/public')];
   for (const c of candidates) if (existsSync(path.join(c, 'index.html'))) return c;
   throw new Error(`Client bundle not found (looked in ${candidates.join(', ')}). Run \`npm run build\`.`);
-}
-
-/** A path under the home folder as ~/…, for showing people. */
-function tildify(p: string): string {
-  const home = os.homedir();
-  return p === home || p.startsWith(home + path.sep) ? `~${p.slice(home.length)}` : p;
 }
 
 function clientIp(req: http.IncomingMessage, trustProxy: boolean): string {
@@ -211,6 +204,10 @@ export async function startServer(cfg: Config) {
 
   // --- The building: a floor per project, each with its own workers, boards and queue -----------
   const building = new Building(cfg.dataDir, cfg.projectsDir);
+  if (cfg.projects) {
+    const err = building.setProjectsDir(cfg.projects, 'the command line');
+    if (err) console.error(`agent-office: --projects: ${err}`);
+  }
   const floors = new Map<string, Floor>();
   const floorOf = (c: Client): Floor | undefined => (c.peer.floor ? floors.get(c.peer.floor) : undefined);
   /** The floor a worker sits on. Worker ids are unique across the building. */
@@ -856,7 +853,7 @@ export async function startServer(cfg: Config) {
       you: id,
       peers: [...clients.values()].map((c) => c.peer),
       floors: floorInfos(),
-      projectsDir: tildify(cfg.projectsDir),
+      projectsDir: building.projectsDirState(),
       ice: cfg.iceServers,
       chat: chat.recent(50),
       invites: team.available,
@@ -1077,6 +1074,16 @@ export async function startServer(cfg: Config) {
             toastAll(`🛗 New floor: ${r.name}, added by ${who}`);
             sendTo(c, { t: 'floor.added', repo, floor: floor.id });
           });
+        break;
+      }
+      case 'floor.projectsDir': {
+        // It's a folder on the office's machine that `gh` writes into: admins pick it.
+        const err = meOf(c.accountId).admin ? building.setProjectsDir(str(msg.dir, 1024), who) : 'Only admins can move the workspace folder';
+        warn(c, err);
+        if (err) break;
+        const state = building.projectsDirState();
+        broadcast({ t: 'projectsDir', state });
+        toastAll(state.custom ? `📁 ${who} moved the workspace folder to ${state.dir}` : `📁 ${who} put the workspace folder back to ${state.dir}`);
         break;
       }
       case 'dog.pet':
@@ -1628,5 +1635,5 @@ export async function startServer(cfg: Config) {
     hookServer.close();
   };
 
-  return { server, shutdown, accounts, publicDir, hookPort, floors: () => [...floors.values()], resolvedAgent: resolveCommand(cfg.agentCmd) };
+  return { server, shutdown, accounts, publicDir, hookPort, floors: () => [...floors.values()], projectsDir: () => building.projectsDir, resolvedAgent: resolveCommand(cfg.agentCmd) };
 }

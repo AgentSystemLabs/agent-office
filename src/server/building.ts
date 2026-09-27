@@ -1,8 +1,9 @@
 import { execFile, execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { FLOOR_PALETTES, MAX_FLOORS, normalizeRepo, sameRepo } from '../shared/floors.js';
-import type { RepoChoice } from '../shared/protocol.js';
+import type { ProjectsDirState, RepoChoice } from '../shared/protocol.js';
 import { gh } from './github.js';
 
 /** A floor as floors.json keeps it. */
@@ -17,6 +18,13 @@ export interface FloorDef {
   addedAt: number;
 }
 
+/** A projects folder picked in ⚙️ Settings (or with --projects), as projects-folder.json keeps it. */
+interface PickedDir {
+  dir: string;
+  by: string;
+  at: number;
+}
+
 /** How long the list of repositories `gh` can see is reused before it's asked again. */
 const REPOS_TTL_MS = 5 * 60_000;
 const MAX_REPOS = 1000;
@@ -25,11 +33,14 @@ const CLONE_TIMEOUT_MS = 30 * 60_000;
 /**
  * The floors of the building, saved in <office>/.agent-office/floors.json: which projects there are,
  * where their checkouts live, and how each floor is painted. New floors are cloned with the office
- * machine's `gh` login into <projects>/<owner>/<repo>.
+ * machine's `gh` login into <projects>/<owner>/<repo>; the projects folder can be picked in ⚙️ Settings
+ * (kept in projects-folder.json).
  */
 export class Building {
   private defs: FloorDef[] = [];
   private file: string;
+  private pickedFile: string;
+  private picked?: PickedDir;
   /** Floors being cloned, by lower-cased repo. Not saved until the clone is there. */
   private cloning = new Map<string, FloorDef>();
   private repoCache?: { at: number; repos: Promise<RepoChoice[]> };
@@ -37,11 +48,47 @@ export class Building {
   constructor(
     /** The office's own data folder; `gh` runs there, since the projects folder may not exist yet. */
     private dataDir: string,
-    /** Where new floors are cloned. */
-    readonly projectsDir: string,
+    /** Where new floors are cloned unless another folder was picked. */
+    private defaultProjectsDir: string,
   ) {
     this.file = path.join(dataDir, 'floors.json');
+    this.pickedFile = path.join(dataDir, 'projects-folder.json');
     this.load();
+    this.loadPicked();
+  }
+
+  /** Where new floors are cloned. Floors already there stay where they are when it moves. */
+  get projectsDir(): string {
+    return this.picked?.dir ?? this.defaultProjectsDir;
+  }
+
+  projectsDirState(): ProjectsDirState {
+    return { dir: tildify(this.projectsDir), custom: !!this.picked, by: this.picked?.by, at: this.picked?.at };
+  }
+
+  /** Clones new floors into `raw` from now on ('~' is the home folder; '' goes back to the default). Returns why it can't, if it can't. */
+  setProjectsDir(raw: string, by: string): string | undefined {
+    const text = raw.trim();
+    let dir = this.defaultProjectsDir;
+    if (text) {
+      const typed = untildify(text);
+      if (!path.isAbsolute(typed)) return 'Use a full path, like ~/Workspace';
+      dir = path.resolve(typed);
+    }
+    if (dir !== this.defaultProjectsDir) {
+      const why = unwritable(dir);
+      if (why) return why;
+      // Cloning into a project would nest checkouts inside its git tree.
+      const inside = this.defs.find((d) => within(dir, path.resolve(d.dir)));
+      if (inside) return `${tildify(dir)} is inside ${inside.name}'s checkout — pick a folder outside every project`;
+    }
+    this.picked = dir === this.defaultProjectsDir ? undefined : { dir, by, at: Date.now() };
+    try {
+      writeFileSync(this.pickedFile, JSON.stringify(this.picked ?? {}, null, 2), { mode: 0o600 });
+    } catch (err) {
+      console.error(`agent-office: couldn't save the projects folder: ${(err as Error).message}`);
+    }
+    return undefined;
   }
 
   list(): FloorDef[] {
@@ -155,6 +202,17 @@ export class Building {
     }
   }
 
+  private loadPicked() {
+    try {
+      const saved = JSON.parse(readFileSync(this.pickedFile, 'utf8')) as Partial<PickedDir>;
+      if (typeof saved.dir === 'string' && path.isAbsolute(saved.dir)) {
+        this.picked = { dir: saved.dir, by: typeof saved.by === 'string' ? saved.by : '?', at: typeof saved.at === 'number' ? saved.at : Date.now() };
+      }
+    } catch {
+      // never picked: the default
+    }
+  }
+
   private save() {
     try {
       writeFileSync(this.file, JSON.stringify(this.defs, null, 2), { mode: 0o600 });
@@ -162,6 +220,35 @@ export class Building {
       console.error(`agent-office: couldn't save the floors: ${(err as Error).message}`);
     }
   }
+}
+
+/** A path under the home folder as ~/…, for showing people. */
+export function tildify(p: string): string {
+  const home = os.homedir();
+  return p === home || p.startsWith(home + path.sep) ? `~${p.slice(home.length)}` : p;
+}
+
+function untildify(p: string): string {
+  return p === '~' || p.startsWith('~/') ? path.join(os.homedir(), p.slice(1)) : p;
+}
+
+/** `dir` is `parent` or somewhere under it. */
+function within(dir: string, parent: string): boolean {
+  const rel = path.relative(parent, dir);
+  return !rel || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
+}
+
+/** Why the office couldn't make checkouts under `dir`, if it couldn't. It's made on the first clone, so it needn't exist yet. */
+function unwritable(dir: string): string | undefined {
+  let at = dir;
+  while (!existsSync(at) && path.dirname(at) !== at) at = path.dirname(at);
+  try {
+    if (!statSync(at).isDirectory()) return `${tildify(at)} isn't a folder`;
+    accessSync(at, constants.W_OK);
+  } catch {
+    return `The office can't write in ${tildify(at)}`;
+  }
+  return undefined;
 }
 
 /** The GitHub repository a checkout's origin points at. */
