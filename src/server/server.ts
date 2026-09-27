@@ -28,7 +28,7 @@ import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunne
 import { ChatLog } from './history.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
-import { DESK_BY_ID, elevatorSpot, seatAt } from '../shared/layout.js';
+import { DESK_BY_ID, STREET_Y, elevatorSpot, seatAt } from '../shared/layout.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
@@ -147,6 +147,14 @@ function send(res: http.ServerResponse, status: number, body: unknown, headers: 
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+/** Where someone going to another floor says they arrive (see `floor.go`): on the grounds, or nowhere (the elevator). */
+function arrivalSpot(at: unknown): { x: number; y: number; z: number; rotY: number } | undefined {
+  if (!at || typeof at !== 'object') return undefined;
+  const a = at as Record<string, unknown>;
+  const clamp = (v: unknown, lo: number, hi: number) => Math.min(hi, Math.max(lo, num(v)));
+  return { x: clamp(a.x, -60, 60), y: clamp(a.y, STREET_Y, 10), z: clamp(a.z, -60, 60), rotY: num(a.rotY) };
+}
+const issueNumber = (v: unknown) => (Number.isInteger(v) && (v as number) > 0 ? (v as number) : undefined);
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const TOO_MANY_ATTEMPTS = 'Too many attempts. Try again in a few minutes.';
 /** WebSocket close code for a session that stopped counting: the account was revoked, or the shared password switched off. */
@@ -871,8 +879,11 @@ export async function startServer(cfg: Config) {
     }
   };
 
-  /** Rides `c` to another floor: everyone sees them leave and arrive, and they get the new floor's everything. */
-  const goToFloor = (c: Client, floor: Floor) => {
+  /**
+   * Takes `c` to another floor: everyone sees them leave and arrive, and they get the new floor's
+   * everything. They arrive in the elevator, or `at` the spot they came by.
+   */
+  const goToFloor = (c: Client, floor: Floor, at?: { x: number; y: number; z: number; rotY: number }) => {
     if (c.peer.floor === floor.id) return;
     const was = floorOf(c);
     if (was) {
@@ -884,9 +895,11 @@ export async function startServer(cfg: Config) {
     // The whiteboard downstairs stays downstairs.
     const wasDrawing = c.whiteboard;
     c.whiteboard = false;
-    const spot = elevatorSpot();
-    Object.assign(c.peer, { floor: floor.id, x: spot.x, y: 0, z: spot.z, rotY: 0, moving: false });
+    const spot = at ?? { ...elevatorSpot(), y: 0, rotY: 0 };
+    Object.assign(c.peer, { floor: floor.id, x: spot.x, y: spot.y, z: spot.z, rotY: spot.rotY, moving: false });
     delete c.peer.seat;
+    // An issue card belongs to the board it came off, which is on the floor they left.
+    delete c.peer.carrying;
     sendTo(c, { t: 'floor.enter', peers: [...clients.values()].map((o) => o.peer), ...floorView(floor) });
     screensOf(c, floor);
     broadcast({ t: 'peer.update', peer: c.peer }, c.id);
@@ -894,6 +907,15 @@ export async function startServer(cfg: Config) {
     floor.arrived();
     floor.workers.wakeAll();
     floorsChanged();
+  };
+
+  /**
+   * A worker took on GitHub issue `n` (an issue card dropped on its desk): assign it on GitHub, which
+   * moves it to In progress on the board, and take it off the queue so nobody else is seated for it.
+   */
+  const takeIssue = (c: Client, floor: Floor, n: number) => {
+    floor.queue.dropIssue(n);
+    void floor.github.claim(n).then((err) => warn(c, err && `Couldn't assign issue #${n} on GitHub: ${err}`));
   };
 
   const handleMessage = (c: Client, msg: ClientMsg) => {
@@ -947,6 +969,15 @@ export async function startServer(cfg: Config) {
         broadcast({ t: 'peer.update', peer: c.peer }, c.id);
         break;
       }
+      case 'carry': {
+        // Everyone on the floor sees the issue card in their hands, and whoever comes in later too.
+        const issue = issueNumber(msg.issue);
+        if (issue === c.peer.carrying?.issue) break;
+        if (issue !== undefined) c.peer.carrying = { issue, title: str(msg.title, 200) };
+        else delete c.peer.carrying;
+        broadcast({ t: 'peer.update', peer: c.peer }, c.id);
+        break;
+      }
       case 'profile': {
         const name = str(msg.name, 24).trim();
         if (name && !c.accountId) c.peer.name = name;
@@ -977,7 +1008,7 @@ export async function startServer(cfg: Config) {
       case 'floor.go': {
         const floor = floors.get(str(msg.floor, 64));
         if (!floor) warn(c, building.pending().some((d) => d.id === msg.floor) ? "That floor is still being cloned — it'll be ready in a moment" : 'No such floor');
-        else goToFloor(c, floor);
+        else goToFloor(c, floor, arrivalSpot(msg.at));
         break;
       }
       case 'floor.repos':
@@ -1025,8 +1056,10 @@ export async function startServer(cfg: Config) {
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
         const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
         const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort);
+        const issue = kind === 'agent' ? issueNumber(msg.issue) : undefined;
         if (typeof r === 'string') warn(c, r);
-        else toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${r.prompt ? ' with a task' : ''}`);
+        else toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${issue ? ` for issue #${issue}` : r.prompt ? ' with a task' : ''}`);
+        if (typeof r !== 'string' && issue) takeIssue(c, floor, issue);
         break;
       }
       case 'worker.resume': {
@@ -1072,7 +1105,13 @@ export async function startServer(cfg: Config) {
       }
       case 'worker.prompt': {
         const w = worker(msg.workerId);
-        warn(c, w ? w.floor.workers.prompt(w.wid, str(msg.prompt, 20000), who) : 'No such worker');
+        const err = w ? w.floor.workers.prompt(w.wid, str(msg.prompt, 20000), who) : 'No such worker';
+        warn(c, err);
+        const issue = w?.info.kind === 'agent' ? issueNumber(msg.issue) : undefined;
+        if (w && !err && issue) {
+          toastFloor(w.floor, `${who} handed issue #${issue} to ${w.info.name}`);
+          takeIssue(c, w.floor, issue);
+        }
         break;
       }
       case 'station.prompt': {

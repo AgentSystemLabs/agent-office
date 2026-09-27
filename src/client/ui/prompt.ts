@@ -23,7 +23,8 @@ export interface PromptOptions {
 }
 
 const WT_KEY = 'agent-office.worktree';
-function worktreePref(): boolean {
+/** Whether the last hire asked for its own git worktree (the Ask window shares the choice). */
+export function worktreePref(): boolean {
   try {
     return localStorage.getItem(WT_KEY) === '1';
   } catch {

@@ -169,6 +169,12 @@ export interface WorktreeState {
   error?: string;
 }
 
+/** The issue on a card someone carries around the floor (see PeerInfo.carrying). */
+export interface CarriedIssue {
+  issue: number;
+  title: string;
+}
+
 export interface PeerInfo {
   id: string;
   name: string;
@@ -187,6 +193,8 @@ export interface PeerInfo {
   smoking?: boolean;
   /** Sitting down: the place they're in (see seatAt in layout), like "couch:1". */
   seat?: string;
+  /** An issue card they took off the issues board, on its way to a desk or the queue. */
+  carrying?: CarriedIssue;
   /** Signed in with their own account, so `name` is theirs and nobody else can take it. */
   account?: boolean;
   /** The floor they're on (see FloorInfo); none while the building has no floors yet. */
@@ -680,17 +688,21 @@ export type ClientMsg =
   | { t: 'act'; smoke?: boolean }
   /** You sat down in a place on a couch, a beanbag, a chair or the bench (see seatAt in layout), or got up again (no seat). */
   | { t: 'sit'; seat?: string }
+  /** You picked an issue card up off the board (or put it down again, no issue): everyone sees it in your hands. */
+  | { t: 'carry'; issue?: number; title?: string }
   /** An emote (hold G, or 1–6): everyone else on your floor sees your character do it. Rate limited, see EmoteBucket. */
   | { t: 'emote'; emote: EmoteId }
   | { t: 'profile'; name: string; color: string; look: Look }
-  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort }
+  /** With `issue`, the worker is there for that GitHub issue: it's assigned on GitHub (so it moves to In progress) and taken off the queue. */
+  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: number }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
   | { t: 'worker.worktree'; workerId: string }
   | { t: 'worker.attach'; workerId: string }
   | { t: 'worker.detach'; workerId: string }
-  | { t: 'worker.prompt'; workerId: string; prompt: string }
+  /** With `issue`, the prompt hands the worker that GitHub issue, which is taken as for worker.spawn. */
+  | { t: 'worker.prompt'; workerId: string; prompt: string; issue?: number }
   /**
    * A prompt for the agent standing by a board (`deskId` is its kiosk, see STATIONS in layout). It's
    * typed into its session, which is woken up first if it's asleep, or hired there when nobody is.
@@ -767,8 +779,12 @@ export type ClientMsg =
   | { t: 'wb.update'; elements: WbElement[] }
   /** Where your mouse is on the whiteboard, and what you have selected there. */
   | ({ t: 'wb.pointer'; selected?: string[] } & WbPointer)
-  /** Ride the elevator to another floor; the server answers with `floor.enter`. */
-  | { t: 'floor.go'; floor: string }
+  /**
+   * Go to another floor; the server answers with `floor.enter`. By elevator you arrive in the car;
+   * `at` is where you arrive instead: the same spot on the other floor (switching floors from the
+   * floor list), or the ladder or fire pole you came by.
+   */
+  | { t: 'floor.go'; floor: string; at?: { x: number; y: number; z: number; rotY: number } }
   /** The repositories that could become a floor; answered with `floor.repos`. */
   | { t: 'floor.repos'; refresh?: boolean }
   /** Clone a repository and make it a new floor; answered with `floor.added` once it's there. */
