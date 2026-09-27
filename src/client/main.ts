@@ -18,6 +18,7 @@ import { Hanger } from './hanging';
 import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
 import { OfficeSound } from './sound';
+import { DesktopNotifier, askNotifyPermission, notifyPermission, waitingOnSomeone } from './notify';
 import { $, h, clip, closeAllModals, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
@@ -152,6 +153,7 @@ player.view = settings.view;
 const hands = new Hands(store.profile.color, me.skinColor);
 const sound = new OfficeSound();
 sound.setVolume(settings.volume, settings.muted);
+const notifier = new DesktopNotifier(() => settings.notify, (id) => openWorkerTerminal(id));
 const hanger = new Hanger(net, camera, canvas, player, office, gallery);
 scene.add(hanger.ghost.group);
 hanger.onChange = () => {
@@ -270,8 +272,15 @@ function renderProject() {
   if (!p) return;
   $('project-name').textContent = `🏢 ${p.name}`;
   $('project-meta').textContent = [p.branch && `⎇ ${p.branch}`, p.dir, `default: ${providerLabel(p.defaultProvider, p)}`].filter(Boolean).join(' · ');
-  document.title = `${p.name} · Agent Office`;
+  renderTitle();
   office.setProjectName(p.name);
+}
+
+/** The tab title counts the workers waiting on someone, so you can see them from another tab. */
+function renderTitle() {
+  const name = store.project?.name;
+  const waiting = [...store.workers.values()].filter(waitingOnSomeone).length;
+  document.title = `${waiting ? `(${waiting}) ` : ''}${name ? `${name} · ` : ''}Agent Office`;
 }
 
 // ---- Peers --------------------------------------------------------------------------------------
@@ -326,10 +335,6 @@ function sayBubble(from: string, text: string) {
 }
 
 // ---- Workers ------------------------------------------------------------------------------------
-function shouldBounce(w: WorkerInfo): w is WorkerInfo & { status: 'needs_input' | 'done' } {
-  return w.status === 'needs_input' || (w.status === 'done' && !w.acked);
-}
-
 function syncWorkers() {
   for (const w of store.workers.values()) {
     let v = workerViews.get(w.id);
@@ -356,15 +361,13 @@ function syncWorkers() {
     }
     if (v.status !== w.status || v.acked !== w.acked) {
       // It just finished or started waiting on you (not already so when this page first saw it): ding, and notify if you're away.
-      if (shouldBounce(w) && v.status !== '' && w.status !== v.status) {
+      if (waitingOnSomeone(w) && v.status !== '' && w.status !== v.status) {
         sound.ding(w.status);
-        if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-          new Notification(`${w.name} ${w.status === 'done' ? 'is done' : 'needs input'}`, { body: w.activity ?? w.prompt ?? '', icon: '/favicon.svg' });
-        }
+        notifier.alert(w);
       }
       v.status = w.status;
       v.acked = w.acked;
-      v.model.setStatus(w.status, shouldBounce(w));
+      v.model.setStatus(w.status, waitingOnSomeone(w));
       noOutline(v.model.root);
     }
     v.model.setTask(w.task && w.kind === 'agent' ? { ...w.task, name: `${providerLabel(w.provider, store.project)} · ${w.task.name}` } : w.task);
@@ -385,6 +388,8 @@ function syncWorkers() {
     workerViews.delete(id);
   }
   renderWorkers((id) => openWorkerTerminal(id));
+  notifier.sync(store.workers);
+  renderTitle();
 }
 store.on('workers', syncWorkers);
 store.on('workers', renderUsage);
@@ -406,8 +411,15 @@ function freeDesk(): string | null {
   return best;
 }
 
+let askedToNotify = false;
+
 function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string) {
   net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model });
+  // The moment notifications start to matter: ask once (it has to come from a key press or click).
+  if (settings.notify && notifyPermission() === 'default' && !askedToNotify) {
+    askedToNotify = true;
+    void askNotifyPermission();
+  }
 }
 
 function openShell(deskId: string) {
@@ -1013,6 +1025,7 @@ $('btn-help').addEventListener('click', () => openHelp());
 $('btn-decor').addEventListener('click', () => (hanger.active ? hanger.cancel() : hanger.start()));
 $('btn-settings').addEventListener('click', () =>
   openSettings(
+    net,
     settings,
     (s) => {
       Object.assign(settings, s);
@@ -1022,6 +1035,7 @@ $('btn-settings').addEventListener('click', () =>
     },
     editProfile,
     () => sound.ding('done'),
+    notifier,
   ),
 );
 
@@ -1155,9 +1169,6 @@ function frame(ts?: number) {
 function boot() {
   net.connect();
   requestAnimationFrame(frame);
-  if ('Notification' in window && Notification.permission === 'default') {
-    window.addEventListener('pointerdown', () => void Notification.requestPermission().catch(() => {}), { once: true });
-  }
 }
 
 const saved = loadProfile();
@@ -1180,3 +1191,4 @@ if (saved?.look) {
 (window as any).__office = { store, player, camera, workerViews, scene, net, renderer, hands, me, remotes, settings, gallery, hanger };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
+(window as any).__notify = notifier;

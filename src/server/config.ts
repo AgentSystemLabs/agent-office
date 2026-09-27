@@ -31,6 +31,8 @@ export interface Config {
   budget?: number;
   /** Refuse new hires for the rest of the day once the budget is spent. */
   budgetPause: boolean;
+  /** Slack / Discord webhook to post to when a worker needs input or finishes ('' turns it off). */
+  webhook?: string;
 }
 
 export interface RTCIceServerLike {
@@ -78,6 +80,9 @@ Options:
                           day's spend passes it. OpenCode/Codex spend is excluded
       --budget-pause      ...and no new workers can be hired until the next
                           day (env AGENT_OFFICE_BUDGET_PAUSE=1)
+      --webhook <url>     Post to this Slack or Discord webhook when a worker
+                          needs input or finishes (env AGENT_OFFICE_WEBHOOK).
+                          Also settable from ⚙️ Settings in the office; "" turns it off
   -h, --help              Show this help
 
 Voice and screen sharing need a secure context: use https (a reverse proxy,
@@ -138,6 +143,7 @@ export function loadConfig(argv: string[]): Config {
   let resetPassword = false;
   let budget = process.env.AGENT_OFFICE_BUDGET || '';
   let budgetPause = !!process.env.AGENT_OFFICE_BUDGET_PAUSE && process.env.AGENT_OFFICE_BUDGET_PAUSE !== '0';
+  let webhook = process.env.AGENT_OFFICE_WEBHOOK;
   const iceServers: RTCIceServerLike[] = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 
   for (let i = 0; i < argv.length; i++) {
@@ -190,6 +196,9 @@ export function loadConfig(argv: string[]): Config {
         break;
       case '--budget-pause':
         budgetPause = true;
+        break;
+      case '--webhook':
+        webhook = takeValue(argv, i++, a);
         break;
       default:
         if (a.startsWith('-')) {
@@ -299,6 +308,7 @@ export function loadConfig(argv: string[]): Config {
     publicHost: process.env.AGENT_OFFICE_PUBLIC_HOST || undefined,
     budget: budgetUsd,
     budgetPause,
+    webhook,
   };
 }
 

@@ -216,6 +216,18 @@ export interface QueueState {
   maxWorkers: number;
 }
 
+/** Where a team webhook posts: Slack and Discord get their own message format, anything else plain JSON. */
+export type WebhookKind = 'slack' | 'discord' | 'other';
+
+/** The office's Slack / Discord webhook, pinged when a worker needs input or finishes (see server/webhook.ts). */
+export interface NotifyState {
+  /** Never the URL itself (it lets anyone post to the channel): just where it goes. */
+  webhook?: { kind: WebhookKind; hint: string; by: string; at: number };
+  /** Why the last post failed, until one gets through. */
+  error?: string;
+  lastSentAt?: number;
+}
+
 export interface GhState<T> {
   items: T[];
   error?: string;
@@ -454,6 +466,10 @@ export type ClientMsg =
   /** Forget the finished tasks. */
   | { t: 'queue.clear' }
   | { t: 'queue.limit'; maxWorkers: number }
+  /** Set the office's Slack / Discord webhook; '' removes it. */
+  | { t: 'notify.webhook'; url: string }
+  /** Post a test message through the webhook; the outcome comes back as a toast. */
+  | { t: 'notify.test' }
   | { t: 'voice'; voice: boolean; muted: boolean; sharing: boolean }
   | { t: 'rtc'; to: string; data: unknown }
   | { t: 'chat'; text: string }
@@ -498,6 +514,7 @@ export type ServerMsg =
       decor: Decoration[];
       usage: UsageState;
       queue: QueueState;
+      notify: NotifyState;
     }
   | { t: 'peer.join'; peer: PeerInfo }
   | { t: 'peer.update'; peer: PeerInfo }
@@ -523,6 +540,7 @@ export type ServerMsg =
   | { t: 'decor'; items: Decoration[] }
   | { t: 'usage'; state: UsageState }
   | { t: 'queue'; state: QueueState }
+  | { t: 'notify'; state: NotifyState }
   /** Sent to whoever watches that worker's changes, whenever they change. */
   | { t: 'changes'; state: ChangesState }
   | { t: 'changes.diff'; workerId: string; path: string; diff: string; truncated: boolean; error?: string }

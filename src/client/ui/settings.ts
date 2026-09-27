@@ -1,12 +1,17 @@
-import type { Settings, ViewMode } from '../state';
-import { h, openModal } from './dom';
+import type { Net } from '../net';
+import { store, type Settings, type ViewMode } from '../state';
+import { askNotifyPermission, notifyPermission, type DesktopNotifier } from '../notify';
+import type { WebhookKind } from '../../shared/protocol';
+import { h, openModal, timeAgo } from './dom';
 
 const VIEWS: [ViewMode, string, string][] = [
   ['first', '👀 First person', 'See through your own eyes. Click the office to look around with the mouse and click things to use them. Esc frees the mouse.'],
   ['third', '🎥 Third person', 'Follow your character from behind. Drag to orbit the camera, scroll to zoom, and click things to use them.'],
 ];
 
-export function openSettings(settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void) {
+const WEBHOOK_NAME: Record<WebhookKind, string> = { slack: 'Slack', discord: 'Discord', other: 'a webhook' };
+
+export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void, notifier: DesktopNotifier) {
   const seg = h('div.seg', { role: 'radiogroup', 'aria-label': 'Camera view' });
   const note = h('p.setting-note');
   const paint = () => {
@@ -63,6 +68,97 @@ export function openSettings(settings: Settings, onChange: (s: Settings) => void
     if (!settings.muted) previewSound();
   });
 
+  // Desktop notifications: this browser's permission, then your own on/off.
+  const notifyRow = h('div.seg');
+  const notifyNote = h('p.setting-note');
+  const paintNotify = () => {
+    const perm = notifyPermission();
+    const on = perm === 'granted' && settings.notify;
+    notifyRow.replaceChildren();
+    if (perm === 'default') {
+      notifyRow.append(
+        h(
+          'button.btn.primary',
+          {
+            type: 'button',
+            onclick: async () => {
+              if ((await askNotifyPermission()) === 'granted') {
+                settings = { ...settings, notify: true };
+                onChange(settings);
+                notifier.sample();
+              }
+              paintNotify();
+            },
+          },
+          '🔔 Turn on notifications',
+        ),
+      );
+    } else if (perm === 'granted') {
+      for (const [value, label] of [
+        [true, '🔔 On'],
+        [false, '🔕 Off'],
+      ] as const) {
+        notifyRow.append(
+          h(
+            'button.btn',
+            {
+              type: 'button',
+              role: 'radio',
+              'aria-checked': String(on === value),
+              class: on === value ? 'on' : '',
+              onclick: () => {
+                settings = { ...settings, notify: value };
+                onChange(settings);
+                paintNotify();
+              },
+            },
+            label,
+          ),
+        );
+      }
+      if (on) notifyRow.append(h('button.btn', { type: 'button', onclick: () => notifier.sample() }, 'Show me one'));
+    }
+    notifyNote.textContent =
+      perm === 'unsupported'
+        ? 'This browser can’t show notifications from the office here. They need https or localhost (an SSH tunnel counts).'
+        : perm === 'denied'
+          ? 'Your browser blocks notifications from the office. Allow them in the site settings (the icon left of the address), then open this again.'
+          : 'When a worker needs input or finishes while you’re in another tab or app, you get a notification. Click it to jump to that worker’s terminal. The tab title counts the workers waiting on someone either way.';
+  };
+  paintNotify();
+
+  // The office's Slack / Discord webhook, shared by everyone.
+  const hookStatus = h('p.setting-note');
+  const hookInput = h('input', { type: 'text', placeholder: 'https://hooks.slack.com/services/…', 'aria-label': 'Slack or Discord webhook URL', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
+  const hookSave = h('button.btn.primary', { type: 'button' }, 'Save');
+  const hookTest = h('button.btn', { type: 'button' }, 'Send a test');
+  const hookRemove = h('button.btn.danger', { type: 'button' }, 'Remove');
+  const hookActions = h('div.seg', { style: 'margin-top:8px' }, hookTest, hookRemove);
+  const paintHook = () => {
+    const { webhook, error, lastSentAt } = store.notify;
+    hookActions.classList.toggle('hidden', !webhook);
+    hookSave.textContent = webhook ? 'Replace' : 'Save';
+    hookStatus.classList.toggle('bad', !!error);
+    hookStatus.textContent = !webhook
+      ? 'Paste an incoming webhook from Slack or Discord, and the office posts to that channel when a worker needs input or finishes and nobody has its terminal open. It’s for everyone in the office.'
+      : error
+        ? `⚠️ Posting to ${WEBHOOK_NAME[webhook.kind]} (${webhook.hint}) failed: ${error}`
+        : `📣 Posting to ${WEBHOOK_NAME[webhook.kind]} (${webhook.hint}), set by ${webhook.by} ${timeAgo(webhook.at)}${lastSentAt ? ` · last message ${timeAgo(lastSentAt)}` : ''}.`;
+  };
+  paintHook();
+  const saveHook = () => {
+    const url = hookInput.value.trim();
+    if (!url) return hookInput.focus();
+    net.send({ t: 'notify.webhook', url });
+    hookInput.value = '';
+  };
+  hookSave.addEventListener('click', saveHook);
+  hookInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') saveHook();
+  });
+  hookTest.addEventListener('click', () => net.send({ t: 'notify.test' }));
+  hookRemove.addEventListener('click', () => net.send({ t: 'notify.webhook', url: '' }));
+
   const character = h('button.btn', { type: 'button' }, '🧍 Change your look & name');
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const el = h(
@@ -78,11 +174,18 @@ export function openSettings(settings: Settings, onChange: (s: Settings) => void
       h('label', { style: 'margin-top:18px' }, 'Office sounds'),
       soundRow,
       h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds outside, and the ding when a worker is done. Voice chat isn’t affected.'),
+      h('label', { style: 'margin-top:18px' }, 'Desktop notifications'),
+      notifyRow,
+      notifyNote,
+      h('label', { style: 'margin-top:18px' }, 'Team notifications (Slack / Discord)'),
+      h('div.webhook', {}, hookInput, hookSave),
+      hookActions,
+      hookStatus,
       h('label', { style: 'margin-top:18px' }, 'Your character'),
       character,
     ),
   );
-  const modal = openModal(el);
+  const modal = openModal(el, { onClose: store.on('notify', paintHook) });
   close.addEventListener('click', () => modal.close());
   character.addEventListener('click', () => {
     modal.close();
