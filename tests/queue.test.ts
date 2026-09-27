@@ -9,27 +9,33 @@ import type { AgentEffort, AgentProvider, WorkerInfo } from '../src/shared/proto
 function fixture(defaultProvider: AgentProvider = 'claude') {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-queue-'));
   const workers: WorkerInfo[] = [];
+  let hired = 0;
   const manager: QueueWorkers = {
     defaultProvider,
     list: () => workers,
     deskOccupied: (desk) => workers.some((w) => w.deskId === desk),
     spawn(deskId, by, prompt, _worktree, kind, provider, model, effort) {
       const worker: WorkerInfo = {
-        id: `worker-${workers.length}`, deskId, kind, provider, model, effort, prompt, name: 'Test',
+        id: `worker-${hired++}`, deskId, kind, provider, model, effort, prompt, name: 'Test',
         color: '#ffffff', status: 'working', acked: false, createdBy: by,
         createdAt: Date.now(), cols: 80, rows: 24, viewers: [],
       };
       workers.push(worker);
       return worker;
     },
-    kill: async () => ({}),
+    kill(id) {
+      // Gone from the desks right away, the way the real one does it (before its worktree is dealt with).
+      const i = workers.findIndex((w) => w.id === id);
+      if (i >= 0) workers.splice(i, 1);
+      return Promise.resolve({});
+    },
   };
   const queues: TaskQueue[] = [];
   let emptied = 0;
-  const open = () => {
+  const open = (room?: () => number) => {
     const queue = new TaskQueue(dir, manager, false, {
       update() {}, toast() {}, claimIssue: async () => undefined,
-      refreshGitHub() {}, hiringPaused: () => undefined, emptied: () => emptied++,
+      refreshGitHub() {}, hiringPaused: () => undefined, emptied: () => emptied++, room,
     });
     queues.push(queue);
     return queue;
@@ -183,4 +189,26 @@ test('a board agent at work does not hold one of the queue\'s slots', (t) => {
   assert.equal(q.state().tasks[0].status, 'running');
   // Its seat is a desk, never the kiosk.
   assert.match(f.workers[1].deskId, /^desk-/);
+});
+
+test('an office at its worker limit holds the queue, and a finished queue worker makes room', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  let limit = 1;
+  const q = f.open(() => limit - f.workers.length);
+  q.add('First', 'Tester'); q.add('Second', 'Tester');
+  assert.deepEqual(q.state().tasks.map((t) => t.status), ['running', 'queued']);
+  assert.equal(f.workers.length, 1);
+  // The first finishes: its worker goes home to make room, and the second task gets the seat.
+  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  assert.deepEqual(q.state().tasks.map((t) => t.status), ['done', 'running']);
+  assert.deepEqual(f.workers.map((w) => w.id), ['worker-1']);
+  // The limit lowered past who's there: nobody is sent home and nothing fails, the queue just waits.
+  q.add('Third', 'Tester');
+  limit = 0;
+  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  assert.deepEqual(q.state().tasks.map((t) => [t.status, t.outcome]), [['done', 'done'], ['done', 'done'], ['queued', undefined]]);
+  assert.equal(f.workers.length, 1);
+  // Room again: it carries on.
+  limit = 2; q.pump();
+  assert.equal(q.state().tasks[2].status, 'running');
 });

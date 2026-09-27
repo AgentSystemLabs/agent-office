@@ -63,6 +63,8 @@ export class PlayerController {
   private lockPending = false;
   private everLocked = false;
   enabled = true;
+  /** False while the mouse picks something else (an emote on the wheel), so it doesn't turn the camera. */
+  mouseLook = true;
 
   constructor(
     private camera: THREE.PerspectiveCamera,
@@ -102,6 +104,7 @@ export class PlayerController {
       }
     });
     window.addEventListener('pointermove', (e) => {
+      if (!this.mouseLook) return;
       if (this.locked) {
         // Some platforms report a bogus huge jump right after locking.
         const clamp = (v: number) => THREE.MathUtils.clamp(v, -250, 250);
