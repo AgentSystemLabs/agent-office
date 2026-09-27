@@ -602,3 +602,68 @@ test('Codex token snapshots survive restart, preserve permissions, and stay outs
   restored.handleCodexHook(worker.id, next.env.hookToken!, 'SessionStart', { session_id: 'new-root', source: 'clear' });
   assert.equal(restored.get(worker.id)?.usage, undefined);
 });
+
+test('a board agent is hired with its brief on the first prompt, then prompted, woken and asked to prove who it is', async (t) => {
+  const f = fixture();
+  const updates: WorkerInfo[] = [];
+  isolateProviderEnvironment(f, t);
+  const previousExit = process.env.FAKE_AGENT_EXIT_MS;
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_EXIT_MS = '600';
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousExit === undefined) delete process.env.FAKE_AGENT_EXIT_MS;
+    else process.env.FAKE_AGENT_EXIT_MS = previousExit;
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+  const workers = manager(f, f.claude, updates);
+  t.after(() => workers.shutdown());
+  // Each start of the agent, not what it reads from its terminal afterwards.
+  const launches = () => f.read().filter((r) => r.kind === 'claude' && r.args.includes('--settings') && r.stdin === undefined);
+
+  assert.match(workers.station('desk-1', 'test', 'file an issue') as string, /no agent/i);
+  assert.match(workers.station('station-issues', 'test', '   ') as string, /empty/i);
+  assert.match(workers.spawn('station-issues', 'test', undefined, false, 'shell') as string, /shell/i);
+
+  // Nobody there yet: it's hired, told what it's for, with the request after that.
+  const hired = workers.station('station-issues', 'Ada', 'File an issue about the dog');
+  assert.equal(typeof hired, 'object');
+  if (typeof hired === 'string') return;
+  assert.equal(hired.hired, true);
+  assert.equal(hired.info.name, 'Issues agent');
+  assert.equal(hired.info.deskId, 'station-issues');
+  assert.equal(hired.info.activity, 'File an issue about the dog');
+  const [first] = await waitFor(launches, (l) => l.length === 1);
+  const initial = first.args.at(-1)!;
+  assert.match(initial, /Issues agent/);
+  assert.match(initial, /office\/queue/);
+  assert.ok(initial.endsWith('File an issue about the dog'));
+  const id = hired.info.id;
+
+  // The same agent takes the next request in its session.
+  const again = workers.station('station-issues', 'Grace', 'Label it as a bug');
+  assert.deepEqual(typeof again === 'object' && [again.hired, again.info.id], [false, id]);
+  await waitFor(() => f.read(), (records) => records.some((r) => r.stdin?.includes('Label it as a bug')));
+
+  // Waiting on an answer, a prompt would answer the question, so it's refused.
+  assert.equal(workers.handleHook(id, first.env.hookToken!, 'SessionStart', { session_id: 'issues-session' }), true);
+  assert.equal(workers.handleHook(id, first.env.hookToken!, 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'gh issue create' } }), true);
+  assert.equal(workers.get(id)?.status, 'needs_input');
+  assert.match(workers.station('station-issues', 'Ada', 'hello?') as string, /waiting on an answer/i);
+
+  // Its own token proves who it is; anyone else's doesn't.
+  assert.equal(workers.authenticate(id, first.env.hookToken!)?.id, id);
+  assert.equal(workers.authenticate(id, 'not-its-token'), undefined);
+  assert.equal(workers.authenticate(id, ''), undefined);
+
+  // Asleep, a request wakes it up carrying on its session, without the brief again.
+  await waitFor(() => workers.get(id)?.status, (s) => s === 'exited');
+  assert.equal(workers.authenticate(id, first.env.hookToken!), undefined);
+  const woken = workers.station('station-issues', 'Ada', 'Close the duplicates');
+  assert.deepEqual(typeof woken === 'object' && [woken.hired, woken.info.id], [false, id]);
+  const [, second] = await waitFor(launches, (l) => l.length === 2);
+  assert.ok(second.args.includes('--resume') && second.args.includes('issues-session'));
+  assert.equal(second.args.at(-1), 'Close the duplicates');
+});

@@ -27,7 +27,7 @@ import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunne
 import { ChatLog } from './history.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, isAgentProvider } from '../shared/protocol.js';
-import { elevatorSpot, seatAt } from '../shared/layout.js';
+import { DESK_BY_ID, elevatorSpot, seatAt } from '../shared/layout.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
@@ -232,6 +232,7 @@ export async function startServer(cfg: Config) {
     } catch {
       return send(res, 400, {});
     }
+    if (url.pathname === '/office/queue') return officeQueue(req, res, url);
     if (req.method !== 'POST' || !['/hooks/claude', '/hooks/opencode', '/hooks/codex'].includes(url.pathname)) return send(res, 404, { ok: false });
     let payload: unknown = {};
     try {
@@ -252,6 +253,43 @@ export async function startServer(cfg: Config) {
         : workers.handleHook(workerId, token, url.searchParams.get('event') ?? '', payload);
     send(res, ok ? 200 : 401, {});
   });
+  /**
+   * The task queue, for the board agents (see stations.ts, which tells them how): GET lists it, POST
+   * adds a task, DELETE with ?task= takes a waiting one off. The agent's own hook token says who's asking.
+   */
+  const officeQueue = async (req: http.IncomingMessage, res: http.ServerResponse, url: URL) => {
+    const workerId = url.searchParams.get('worker') ?? '';
+    const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+    const floor = workerFloor(workerId);
+    const agent = floor?.workers.authenticate(workerId, token);
+    if (!floor || !agent) return send(res, 401, { error: 'Send your own AGENT_OFFICE_WORKER_ID as ?worker= and AGENT_OFFICE_HOOK_TOKEN as the bearer token' });
+    if (!DESK_BY_ID.get(agent.deskId)?.station) return send(res, 403, { error: 'Only the agents standing by the boards can use the queue' });
+    const view = () => {
+      const q = floor.queue.state();
+      return {
+        maxWorkers: q.maxWorkers,
+        tasks: q.tasks.map((t) => ({ id: t.id, title: t.title, status: t.status, outcome: t.outcome, issue: t.issue, addedBy: t.addedBy, worker: t.workerName, branch: t.branch, pr: t.pr, error: t.error })),
+      };
+    };
+    if (req.method === 'GET') return send(res, 200, view());
+    if (req.method === 'DELETE') {
+      const err = floor.queue.remove(url.searchParams.get('task') ?? '');
+      return err ? send(res, 400, { error: err }) : send(res, 200, view());
+    }
+    if (req.method !== 'POST') return send(res, 405, { error: 'GET, POST or DELETE' });
+    let body: { prompt?: unknown; title?: unknown; issue?: unknown };
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      return send(res, 400, { error: 'Send JSON: {"title": "…", "prompt": "…", "issue": 12}' });
+    }
+    const issue = Number.isInteger(body?.issue) && (body.issue as number) > 0 ? (body.issue as number) : undefined;
+    const err = floor.queue.add(str(body?.prompt, 20000), agent.name, str(body?.title, 200) || undefined, issue);
+    if (err) return send(res, 400, { error: err });
+    const task = floor.queue.state().tasks.at(-1)!;
+    toastFloor(floor, `📋 The ${agent.name} queued ${issue !== undefined ? `issue #${issue}` : `“${task.title}”`}`);
+    send(res, 200, { ok: true, task: { id: task.id, title: task.title, status: task.status } });
+  };
   // Workers' terminals outlive a restart of the office (see ptys.ts) with this address in their
   // environment, so listen where the last office did when that port is free.
   const hookPortPath = path.join(cfg.dataDir, 'hook-port');
@@ -999,6 +1037,14 @@ export async function startServer(cfg: Config) {
       case 'worker.prompt': {
         const w = worker(msg.workerId);
         warn(c, w ? w.floor.workers.prompt(w.wid, str(msg.prompt, 20000), who) : 'No such worker');
+        break;
+      }
+      case 'station.prompt': {
+        const floor = here();
+        if (!floor) break;
+        const r = floor.workers.station(str(msg.deskId, 32), who, str(msg.prompt, 20000));
+        if (typeof r === 'string') warn(c, r);
+        else if (r.hired) toastFloor(floor, `${who} asked the ${r.info.name} something`);
         break;
       }
       case 'worker.pr': {
