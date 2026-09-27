@@ -353,10 +353,10 @@ export class OfficeSound {
     this.count(kind === 'land' ? 'land' : 'step');
   }
 
-  /** Someone else's footstep. */
-  stepAt(x: number, z: number) {
+  /** Someone else's footstep, on the office floor unless `y` says where else. */
+  stepAt(x: number, z: number, y = 0) {
     if (!this.ctx) return;
-    this.play(pick(this.buf.steps), { at: { x, y: 0.1, z }, gain: rand(0.3, 0.38), rate: rand(0.9, 1.1), ref: 1.5, rolloff: 1.4 });
+    this.play(pick(this.buf.steps), { at: { x, y: y + 0.1, z }, gain: rand(0.3, 0.38), rate: rand(0.9, 1.1), ref: 1.5, rolloff: 1.4 });
     this.count('peerStep');
   }
 

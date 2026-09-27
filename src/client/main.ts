@@ -19,6 +19,7 @@ import { Laptop } from './world/laptop';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import { Gallery } from './world/gallery';
 import { Dog } from './world/dog';
+import { Departures } from './world/leaving';
 import { Confetti } from './world/confetti';
 import { Hanger } from './hanging';
 import { disposeSprite, textSprite } from './world/toon';
@@ -243,6 +244,19 @@ interface WorkerView {
   acked: boolean;
 }
 const workerViews = new Map<string, WorkerView>();
+/** Workers a `worker.remove` is taking out of the store right now. They walk out of the building; a worker that's gone because you changed floors just vanishes. */
+const sentHome = new Set<string>();
+// Workers sent home, packing up and walking out with a box of their things.
+const departures = new Departures(
+  scene,
+  (x, z, y) => groundAt(office.colliders, x, z, y),
+  (x, y, z) => sound.stepAt(x, z, y),
+  (deskId) => {
+    const desk = office.desks.get(deskId);
+    if (desk && !store.workerAtDesk(deskId)) desk.vacancy.visible = true;
+    arrangeBeanbags();
+  },
+);
 let firstWelcome = true;
 /** The server version this page was loaded with. */
 let bootVersion = '';
@@ -251,7 +265,10 @@ let upgradePhase = '';
 net.onStatus((up) => $('conn').classList.toggle('hidden', up));
 net.onMessage((msg) => {
   if (msg.t === 'welcome') voice.reset();
+  if (msg.t === 'welcome' || msg.t === 'floor.enter') departures.clear();
+  if (msg.t === 'worker.remove') sentHome.add(msg.workerId);
   store.apply(msg);
+  sentHome.clear();
   routeTerminalMessage(msg);
   routeChangesMessage(msg);
   routeTeamMessage(msg);
@@ -546,6 +563,7 @@ function syncWorkers() {
     const desk = office.desks.get(w.deskId);
     if (!desk) continue;
     if (!v) {
+      departures.vacate(w.deskId);
       const model = new Worker(w.name, w.color);
       desk.seatAnchor.add(model.root);
       const laptop = new Laptop();
@@ -576,11 +594,15 @@ function syncWorkers() {
   for (const [id, v] of workerViews) {
     if (store.workers.has(id)) continue;
     const desk = office.desks.get(v.deskId);
-    v.model.root.removeFromParent();
-    v.laptop.root.removeFromParent();
-    v.model.dispose();
-    v.laptop.dispose();
-    if (desk) desk.vacancy.visible = true;
+    // Sent home: it packs up and walks out, and the seat shows as free once it's up (see departures).
+    if (desk && sentHome.has(id)) departures.add(v.model, v.laptop, desk);
+    else {
+      v.model.root.removeFromParent();
+      v.laptop.root.removeFromParent();
+      v.model.dispose();
+      v.laptop.dispose();
+      if (desk) desk.vacancy.visible = true;
+    }
     sound.removeTypist(id);
     workerViews.delete(id);
   }
@@ -592,7 +614,8 @@ function syncWorkers() {
 
 /** Once every desk is taken, bean bags come out for the workers who don't fit. */
 function arrangeBeanbags() {
-  const appeared = office.setBeanbags(beanbagsOut((id) => !!store.workerAtDesk(id)));
+  // One stays out under a worker who's been sent home until it gets up.
+  const appeared = office.setBeanbags(beanbagsOut((id) => !!store.workerAtDesk(id) || departures.seated(id)));
   // One came out right where you're standing (on the office floor, not down in the garage): you end up on top of it.
   const p = player.pos;
   for (const c of appeared) if (p.y > -0.1 && p.y < c.top && p.x > c.minX - 0.3 && p.x < c.maxX + 0.3 && p.z > c.minZ - 0.3 && p.z < c.maxZ + 0.3) p.y = c.top;
@@ -1600,8 +1623,9 @@ function frame(ts?: number) {
     v.model.update(dt, t);
     v.laptop.update(dt, store.screens.get(id), Math.hypot(desk.x - camPos.x, desk.z - camPos.z));
   }
+  departures.update(dt, t);
   dog.update(dt);
-  office.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position)]);
+  office.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions()]);
   office.jukebox.update(t, dt, sound.beat());
   checkSmokeBreak(now);
   smoke.update(dt, camera);
@@ -1678,7 +1702,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, caffeine, camera, workerViews, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen, confetti, dog, sky };
+(window as any).__office = { store, player, caffeine, camera, workerViews, departures, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen, confetti, dog, sky };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

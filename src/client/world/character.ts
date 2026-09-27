@@ -60,6 +60,80 @@ export function cigarette(): { group: THREE.Group; ember: THREE.MeshToonMaterial
   return { group, ember };
 }
 
+/**
+ * An open cardboard box with someone's desk things in it: a plant, a photo, a mug, a rubber duck and
+ * some papers. It stands on y = 0 with its front toward +z.
+ */
+export function boxOfStuff(): THREE.Group {
+  const g = new THREE.Group();
+  const W = 0.52;
+  const H = 0.26;
+  const D = 0.3;
+  const T = 0.02;
+  const card = toon('#c8955c');
+  g.add(mesh(new THREE.BoxGeometry(W, T, D), card, 0, T / 2, 0));
+  for (const s of [-1, 1]) {
+    g.add(mesh(new THREE.BoxGeometry(W, H, T), card, 0, H / 2, s * (D - T) / 2));
+    g.add(mesh(new THREE.BoxGeometry(T, H, D - 2 * T), card, s * (W - T) / 2, H / 2, 0));
+  }
+  // Full to the brim.
+  g.add(mesh(new THREE.BoxGeometry(W - 2 * T, 0.01, D - 2 * T), toon('#8b6a47'), 0, H * 0.7, 0, false));
+  // Flaps: the front one hangs down over the front, the side ones stick up and out.
+  const flapMat = toon('#b5824c');
+  const front = new THREE.Group();
+  front.position.set(0, H, D / 2);
+  front.rotation.x = 1.2;
+  front.add(mesh(new THREE.BoxGeometry(W, T, 0.14), flapMat, 0, 0, 0.07));
+  g.add(front);
+  for (const s of [-1, 1]) {
+    const flap = new THREE.Group();
+    flap.position.set((s * W) / 2, H, 0);
+    flap.rotation.z = s * 0.95;
+    flap.add(mesh(new THREE.BoxGeometry(0.13, T, D), flapMat, s * 0.065, 0, 0));
+    g.add(flap);
+  }
+
+  // A potted plant in the back corner.
+  g.add(mesh(new THREE.CylinderGeometry(0.06, 0.045, 0.11, 10), toon('#e76f51'), -0.15, H - 0.03, -0.04, false));
+  for (const [x, y, z, r, c] of [
+    [-0.15, 0.1, -0.04, 0.07, '#5fb760'],
+    [-0.2, 0.07, 0.0, 0.05, '#3f8f45'],
+    [-0.11, 0.15, -0.07, 0.05, '#6fcf6a'],
+  ] as const)
+    g.add(mesh(new THREE.SphereGeometry(r, 10, 8), toon(c), x, H + y, z, false));
+  // Papers sticking up at the back.
+  for (const [x, rz] of [
+    [-0.01, 0.16],
+    [0.05, -0.1],
+  ]) {
+    const paper = mesh(new THREE.BoxGeometry(0.17, 0.22, 0.004), toon('#fffaf3'), x, H - 0.01, -0.1, false);
+    paper.rotation.set(-0.1, 0, rz);
+    g.add(paper);
+  }
+  // A framed photo, leaning back.
+  const photo = new THREE.Group();
+  photo.add(mesh(new THREE.BoxGeometry(0.16, 0.13, 0.02), toon('#2b2d42'), 0, 0, 0, false));
+  photo.add(mesh(new THREE.BoxGeometry(0.12, 0.09, 0.005), toon('#8ecae6'), 0, 0, 0.011, false));
+  photo.add(mesh(new THREE.SphereGeometry(0.018, 8, 6), toon('#ffd166'), 0.03, 0.02, 0.014, false));
+  photo.position.set(0.1, H + 0.04, -0.05);
+  photo.rotation.set(-0.3, 0, -0.12);
+  g.add(photo);
+  // A mug and the rubber duck, up front.
+  const mug = coffeeMug(0.9);
+  mug.position.set(0.0, H - 0.07, 0.07);
+  g.add(mug);
+  const duck = new THREE.Group();
+  const duckBody = mesh(new THREE.SphereGeometry(0.05, 10, 8), toon('#ffd166'), 0, 0, 0, false);
+  duckBody.scale.y = 0.8;
+  duck.add(duckBody);
+  duck.add(mesh(new THREE.SphereGeometry(0.032, 10, 8), toon('#ffd166'), 0, 0.055, 0.02, false));
+  duck.add(mesh(new THREE.ConeGeometry(0.014, 0.03, 6).rotateX(Math.PI / 2), toon('#f4a261'), 0, 0.05, 0.06, false));
+  duck.position.set(0.16, H + 0.01, 0.06);
+  duck.rotation.y = -0.4;
+  g.add(duck);
+  return g;
+}
+
 const v1 = new THREE.Vector3();
 const v2 = new THREE.Vector3();
 
@@ -449,6 +523,12 @@ export class Worker {
   private spawnT = 0;
   /** Seconds left jumping for joy (its pull request just merged). */
   private cheerT = 0;
+  private pupils: THREE.Mesh[] = [];
+  private feet: THREE.Mesh[] = [];
+  /** Sent home: the box of its things in its arms, and how far into its waddle it is. */
+  private leaving: { box: THREE.Group; boxT: number; stride: number } | null = null;
+  /** Sent home and on its way out: it waddles along instead of standing. */
+  walking = false;
 
   constructor(name: string, color: string) {
     const skin = toonUnique(color);
@@ -467,6 +547,7 @@ export class Worker {
       const pupil = mesh(new THREE.SphereGeometry(0.045, 10, 8), ink, sx * 0.11, 0.7, 0.29, false);
       this.body.add(pupil);
       this.eyes.push(eye, pupil);
+      this.pupils.push(pupil);
     }
     // Headset: band + mic
     const band = mesh(new THREE.TorusGeometry(0.29, 0.025, 6, 20, Math.PI), toon('#2b2d42'), 0, 0.72, 0, false);
@@ -489,7 +570,11 @@ export class Worker {
     };
     this.armL = arm(-0.3);
     this.armR = arm(0.3);
-    for (const sx of [-1, 1]) this.body.add(mesh(new THREE.CapsuleGeometry(0.06, 0.1, 4, 8), skin, sx * 0.12, 0.2, 0.05));
+    for (const sx of [-1, 1]) {
+      const foot = mesh(new THREE.CapsuleGeometry(0.06, 0.1, 4, 8), skin, sx * 0.12, 0.2, 0.05);
+      this.body.add(foot);
+      this.feet.push(foot);
+    }
 
     this.setName(name);
   }
@@ -524,7 +609,39 @@ export class Worker {
     this.drawBubble();
   }
 
+  /** Sent home: its light goes out, its face falls, and its things pop into a box in its arms. `farewell` goes over its head. */
+  leave(farewell: string) {
+    if (this.leaving) return;
+    this.bouncing = false;
+    this.cheerT = 0;
+    this.bounceT = 0;
+    this.bulb.color.set(STATUS_BULB.exited);
+    this.bulb.emissive.set('#000000');
+    if (this.bubble) {
+      this.root.remove(this.bubble);
+      disposeSprite(this.bubble);
+    }
+    this.bubbleKey = 'leaving';
+    this.bubbleIsCard = false;
+    this.bubble = textSprite(farewell, { bg: '#e9ecef', size: 34 });
+    this.root.add(this.bubble);
+    // Looking down, brows up in the middle.
+    for (const p of this.pupils) p.position.y -= 0.035;
+    for (const sx of [-1, 1]) {
+      const brow = mesh(new THREE.CapsuleGeometry(0.014, 0.08, 4, 6), toon('#1d1d1d'), sx * 0.11, 0.83, 0.228, false);
+      brow.rotation.z = Math.PI / 2 - sx * 0.4;
+      this.body.add(brow);
+    }
+    // Hugged to its belly, the arms round the sides.
+    const box = boxOfStuff();
+    box.position.set(0, 0.22, 0.33);
+    box.scale.setScalar(0.001);
+    this.body.add(box);
+    this.leaving = { box, boxT: 0, stride: 0 };
+  }
+
   private drawBubble() {
+    if (this.leaving) return;
     const { status, bouncing: bounce, task } = this;
     const hot = status === 'needs_input' || (status === 'done' && bounce);
     const bg = hot ? (status === 'done' ? '#caffbf' : '#ffd6e0') : status === 'working' ? '#ffec99' : '#fffaf3';
@@ -547,6 +664,7 @@ export class Worker {
   }
 
   update(dt: number, t: number) {
+    if (this.leaving) return this.carry(this.leaving, dt, t);
     this.cheerT = Math.max(0, this.cheerT - dt);
     // Jump up and down when done / waiting on a human (except while held), or cheering.
     if (this.bouncing || this.cheerT > 0) {
@@ -578,15 +696,47 @@ export class Worker {
       this.body.scale.setScalar(pop);
       this.body.rotation.y = THREE.MathUtils.lerp(this.body.rotation.y, 0, 0.1);
     }
-    // Blink
-    this.blinkAt -= dt;
-    const blinking = this.blinkAt < 0.12 && this.blinkAt > 0;
-    if (this.blinkAt < 0) this.blinkAt = 2 + Math.random() * 4;
-    for (const e of this.eyes) e.scale.y = blinking ? 0.1 : 1;
+    this.blink(dt);
     this.bulbMesh.scale.setScalar(this.status === 'needs_input' ? 1 + Math.abs(Math.sin(t * 8)) * 0.5 : 1);
     if (isAsleep(this.status)) this.body.rotation.z = Math.sin(t * 1.5) * 0.08;
     if (this.bubble) this.bubble.position.y = (this.bubbleIsCard ? 1.74 : 1.95) + (hopping ? this.body.position.y : 0) + Math.sin(t * 3) * 0.03;
     if (this.nameTag) this.nameTag.position.y = 1.55 + (hopping ? this.body.position.y : 0);
+  }
+
+  /** Sent home: head hung, the box in its arms, waddling along while `walking`. */
+  private carry(l: NonNullable<Worker['leaving']>, dt: number, t: number) {
+    // The box pops in, overshooting a little.
+    l.boxT = Math.min(1, l.boxT + dt * 2.5);
+    const u = l.boxT - 1;
+    l.box.scale.setScalar(Math.max(0.001, 1 + 2.7 * u * u * u + 1.7 * u * u));
+    const k = Math.min(1, dt * 10);
+    this.armL.rotation.x += (-1 - this.armL.rotation.x) * k;
+    this.armR.rotation.x += (-1 - this.armR.rotation.x) * k;
+    this.armL.rotation.z += (0.12 - this.armL.rotation.z) * k;
+    this.armR.rotation.z += (-0.12 - this.armR.rotation.z) * k;
+    if (this.walking) l.stride += dt * 9;
+    const s = this.walking ? Math.sin(l.stride) : 0;
+    this.feet.forEach((f, i) => {
+      const step = i ? -s : s;
+      f.position.z = 0.05 + step * 0.08;
+      f.position.y = 0.2 + Math.max(0, step) * 0.05;
+    });
+    this.body.position.y = Math.abs(s) * 0.05;
+    this.body.rotation.z = s * 0.1;
+    this.body.rotation.x += (0.15 - this.body.rotation.x) * Math.min(1, dt * 4);
+    this.body.rotation.y += -this.body.rotation.y * k;
+    this.body.scale.setScalar(1);
+    this.bulbMesh.scale.setScalar(1);
+    this.blink(dt);
+    if (this.bubble) this.bubble.position.y = 1.95 + Math.sin(t * 3) * 0.03;
+    if (this.nameTag) this.nameTag.position.y = 1.55;
+  }
+
+  private blink(dt: number) {
+    this.blinkAt -= dt;
+    const blinking = this.blinkAt < 0.12 && this.blinkAt > 0;
+    if (this.blinkAt < 0) this.blinkAt = 2 + Math.random() * 4;
+    for (const e of this.eyes) e.scale.y = blinking ? 0.1 : 1;
   }
 
   dispose() {
