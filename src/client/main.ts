@@ -9,6 +9,7 @@ import { isAsleep, isBusy } from '../shared/status';
 import { Net } from './net';
 import { store, loadProfile, loadSettings, saveSettings, type Profile, type Topic } from './state';
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
+import { Caffeine } from './caffeine';
 import { buildOffice, type InteractKind, type Interactable } from './world/office';
 import { Person, Worker } from './world/character';
 import { Hands } from './world/hands';
@@ -33,7 +34,7 @@ import { openAccounts, routeAccountsMessage } from './ui/accounts';
 import { mountServicesButton, openServices } from './ui/services';
 import { mountQueueButton, openQueue } from './ui/queue';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
-import { openHelp, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
+import { openHelp, renderCaffeine, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
 import { openCharacter } from './ui/character';
 import { openSettings } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
@@ -156,6 +157,9 @@ const player = new PlayerController(camera, canvas, office.colliders);
 placeInCar();
 player.view = settings.view;
 const hands = new Hands(store.profile.color, me.skinColor);
+const caffeine = new Caffeine();
+/** No shaking the view for the coffee jitters when the system asks for less motion. */
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const sound = new OfficeSound();
 sound.setVolume(settings.volume, settings.muted);
 const notifier = new DesktopNotifier(() => settings.notify, (id) => openWorkerTerminal(id));
@@ -758,10 +762,17 @@ function interact(target: Interactable | null, key: DeskKey) {
   else if (target.kind === 'queue') showQueue();
   else if (target.kind === 'tv') watchShare();
   else if (target.kind === 'decor' && target.decorId) hanger.view(target.decorId);
-  else if (target.kind === 'coffee') {
-    toast('☕ Mmm, fresh coffee. +10 focus');
-    sound.coffee();
-  }
+  else if (target.kind === 'coffee') drinkCoffee();
+}
+
+/** A cup from the kitchen machine: a minute of quicker feet and higher jumps, and a mug in your hand. */
+function drinkCoffee() {
+  const jittery = caffeine.drink(performance.now() / 1000);
+  sound.coffee();
+  if (player.view === 'first') hands.sip();
+  if (jittery) toast('☕ One cup too many… you’ve got the jitters!', 'warn');
+  else if (caffeine.cups > 1) toast('☕ Another cup: back to a full minute of buzz');
+  else toast('☕ Fresh coffee! A minute of quicker feet and higher jumps');
 }
 
 // ---- Interaction targeting & hint -----------------------------------------------------------------
@@ -837,8 +848,10 @@ function hintFor(it: Interactable): Hint {
       const any = currentShares().length > 0;
       return { k: String(any), parts: [title('📺 Office TV'), key('E', any ? 'Watch full screen' : 'Share your screen')] };
     }
-    case 'coffee':
-      return { k: '', parts: [title('☕ Coffee machine'), key('E', 'Grab a cup')] };
+    case 'coffee': {
+      const buzzed = caffeine.buzzed(performance.now() / 1000);
+      return { k: String(buzzed), parts: [title('☕ Coffee machine'), key('E', buzzed ? 'Another cup' : 'Grab a cup')] };
+    }
     case 'elevator': {
       const f = store.currentFloor();
       const n = store.floors.length;
@@ -1241,17 +1254,28 @@ function frame(ts?: number) {
   timer.update(ts);
   const dt = Math.min(timer.getDelta(), 0.1);
   const t = timer.getElapsed();
+  const now = performance.now();
+
+  // Coffee: quicker feet, higher jumps, a mug in hand, and maybe the jitters.
+  const secs = now / 1000;
+  player.speedBoost = caffeine.speed(secs);
+  player.jumpBoost = caffeine.jump(secs);
+  player.jitter = reduceMotion.matches ? 0 : caffeine.jitter(secs);
+  const mug = caffeine.buzzed(secs);
+  me.holdMug(mug);
+  hands.holdMug(mug);
+  renderCaffeine(caffeine, secs);
 
   player.update(dt);
   me.root.position.copy(player.pos);
   me.root.position.y += player.stepOffset;
   me.root.rotation.y = player.facing;
-  me.update(dt, t, player.moving && player.grounded, !player.grounded);
+  me.update(dt, t, player.moving && player.grounded, !player.grounded, player.speedBoost);
   me.setVoiceLevel(voice.inVoice ? voice.localLevel : 0);
   const firstPerson = player.view === 'first';
   // In first person you are the camera; in third, hide yourself when it's zoomed in right behind your head.
   me.root.visible = !firstPerson && camera.position.distanceTo(headPos.set(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5;
-  if (firstPerson) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded });
+  if (firstPerson) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded, jitter: player.jitter });
 
   // Your ears are in your head, facing wherever the camera looks.
   camera.getWorldDirection(lookDir);
@@ -1267,7 +1291,6 @@ function frame(ts?: number) {
     fallV = 0;
   }
 
-  const now = performance.now();
   const moved = Math.abs(player.pos.x - lastSent.x) + Math.abs(player.pos.y - lastSent.y) + Math.abs(player.pos.z - lastSent.z) > 0.01 || Math.abs(player.facing - lastSent.rotY) > 0.02;
   if ((moved || player.moving !== lastSent.moving) && now - lastSent.at > 66) {
     lastSent = { x: player.pos.x, y: player.pos.y, z: player.pos.z, rotY: player.facing, moving: player.moving, at: now };
@@ -1376,7 +1399,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, camera, workerViews, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen };
+(window as any).__office = { store, player, caffeine, camera, workerViews, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

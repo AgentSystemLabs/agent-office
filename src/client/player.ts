@@ -36,6 +36,13 @@ export class PlayerController {
   private bob = 0;
   /** Eased out after a step up or down, so the camera glides up stairs instead of popping. */
   stepOffset = 0;
+  /** Walking and running speed, as a multiple of normal (a coffee's buzz). */
+  speedBoost = 1;
+  /** Jump speed, as a multiple of normal. */
+  jumpBoost = 1;
+  /** 0 (steady) to 1: how hard the view trembles after one coffee too many. */
+  jitter = 0;
+  private jitterT = 0;
   /**
    * A click (not a drag) on the scene, in normalized device coordinates.
    * In first person it is always the crosshair, (0, 0).
@@ -211,7 +218,7 @@ export class PlayerController {
       const cos = Math.cos(this.camYaw);
       const dx = ix * cos + iz * sin;
       const dz = -ix * sin + iz * cos;
-      const speed = k.has('ShiftLeft') || k.has('ShiftRight') ? RUN : WALK;
+      const speed = (k.has('ShiftLeft') || k.has('ShiftRight') ? RUN : WALK) * this.speedBoost;
       this.tryMove(this.pos.x + dx * speed * dt, this.pos.z);
       this.tryMove(this.pos.x, this.pos.z + dz * speed * dt);
       if (this.view === 'third') {
@@ -225,7 +232,7 @@ export class PlayerController {
     const ground = groundAt(this.colliders, this.pos.x, this.pos.z, this.pos.y);
     const jump = this.enabled && k.has('Space') && this.grounded;
     if (jump) {
-      this.vy = JUMP_V;
+      this.vy = JUMP_V * this.jumpBoost;
       this.grounded = false;
     } else if (this.grounded && this.pos.y > ground && this.pos.y - ground <= STEP + 0.02) {
       // Walking down a stair: stay on your feet rather than falling a step.
@@ -248,9 +255,10 @@ export class PlayerController {
     }
     this.stepOffset *= Math.exp(-dt * 16);
     const walking = this.moving && this.grounded;
-    this.walkPhase += dt * (walking ? (k.has('ShiftLeft') || k.has('ShiftRight') ? 14 : 11) : 0);
+    this.walkPhase += dt * (walking ? (k.has('ShiftLeft') || k.has('ShiftRight') ? 14 : 11) * this.speedBoost : 0);
     const bob = walking ? Math.abs(Math.sin(this.walkPhase)) * 0.035 : 0;
     this.bob += (bob - this.bob) * Math.min(1, dt * 18);
+    this.jitterT += dt;
     this.updateCamera();
   }
 
@@ -258,6 +266,7 @@ export class PlayerController {
     if (this.view === 'first') {
       this.camera.position.set(this.pos.x, this.pos.y + EYE_HEIGHT + this.bob + this.stepOffset, this.pos.z);
       this.camera.rotation.set(this.lookPitch, this.camYaw, 0);
+      this.shake();
       return;
     }
     const target = new THREE.Vector3(this.pos.x, this.pos.y + this.stepOffset + 1.3, this.pos.z);
@@ -277,6 +286,17 @@ export class PlayerController {
     if (snap) this.camera.position.copy(cam);
     else this.camera.position.lerp(cam, 0.25);
     this.camera.lookAt(target);
+    this.shake();
+  }
+
+  /** The jitters: the view trembles a little, on top of wherever you're looking. */
+  private shake() {
+    if (this.jitter <= 0) return;
+    const a = this.jitter * 0.01;
+    const t = this.jitterT;
+    this.camera.rotation.x += a * (Math.sin(t * 71) + 0.6 * Math.sin(t * 131 + 1));
+    this.camera.rotation.y += a * (Math.sin(t * 89 + 2) + 0.6 * Math.sin(t * 157));
+    this.camera.rotation.z += a * Math.sin(t * 113 + 3);
   }
 
   /** Unit vector the character is facing, on the XZ plane. */

@@ -12,6 +12,7 @@ agent-office
 
 - **A floor per project.** The first time the office runs you start inside the elevator, and it asks for your first project: pick one of the repositories your `gh` login can see (or type `owner/name`) and the office clones it into `~/agent-office/<owner>/<repo>`. To add another project, or go to one, walk into the elevator on the north wall and press **E**, or click the project name in the top-left corner. Each floor has its own desks, workers, issues and PR boards, task queue, services and pictures, and its own wall and floor colors, so you always know where you are. You only see and hear the people on your floor. The elevator panel shows how many workers are busy or waiting on someone on each floor, and you get a heads-up when a worker on another floor starts waiting.
 - **Walk around.** Use WASD, Space to jump, and drag the mouse to orbit the camera. Everyone in the office sees everyone else move in real time.
+- **Coffee.** Press **E** at the coffee machine in the kitchen for a mug and a minute of quicker walking and higher jumps. A little meter under the project name shows how much buzz is left. Drink a third cup before the last one wears off and you get the jitters for a few seconds.
 - **Boss office.** Stairs along the back wall climb to a glass-walled office on the loft in the corner. From up there you can look down over every desk and watch your workers go.
 - **Pick your character.** The first time you join, a character select screen lets you choose your skin tone, hair style, hair color and shirt, with a spinning preview. Change it any time from **⚙️** or by clicking your name under *In the office*.
 - **Hire workers.** Walk up to an empty desk and press **E** to choose Claude Code, OpenCode or Codex, or press **P** to write a task first. A little worker sits down, a laptop opens, and the agent's live screen appears on it. Choose the agent for each queue task too.
@@ -144,7 +145,7 @@ OpenCode metrics come from assistant-message token/cost records exposed by its p
 | W A S D / arrows | Walk (hold Shift to run) |
 | Space | Jump (you can land on desks and couches) |
 | Mouse drag / wheel | Orbit / zoom the camera |
-| E | Interact: hire a worker, open its terminal, read a board, watch the TV, ride the elevator |
+| E | Interact: hire a worker, open its terminal, read a board, watch the TV, ride the elevator, grab a coffee |
 | P | Prompt: give a task to a new worker, or to the one at this desk |
 | C | Changes: the files the worker at this desk changed and their diff; commit, discard or open a PR |
 | B | Open a shared shell at an empty desk |
