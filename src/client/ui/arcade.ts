@@ -1,25 +1,15 @@
 import * as THREE from 'three';
 import { h, openModal, type Modal } from './dom';
+import { H, Minesweeper, W } from './minesweeper';
 
-/**
- * DEADFALL, the three.js survival game, from its GitHub Pages build. It draws at a fixed 960×540
- * (scaled up to the monitor) on medium quality and at most 60 fps, so it costs the same whatever
- * the window size and leaves the GPU room for the office.
- */
-const GAME = {
-  src: 'https://webdevcody.github.io/deadfall/?quality=medium&maxfps=60',
-  width: 960,
-  height: 540,
-};
-const ASPECT = GAME.width / GAME.height;
+const ASPECT = W / H;
 /** How much of the view (across or down, whichever runs out first) the monitor fills while you play. */
 const FILL = 0.8;
 
 /**
- * The boss's monitor. It shows a title card until you sit down and play. Then the camera glides up
- * to it and the game loads into a frame laid exactly over the screen. The camera looks straight at
- * the screen, so the frame is a plain centered box. Stopping throws the frame away, so the game
- * costs nothing while nobody's playing.
+ * The boss's monitor, which plays Minesweeper (ui/minesweeper.ts). The monitor shows the board as it
+ * was left. Sit down and play, and the camera glides up to the screen while a board you can click is
+ * laid exactly over it. The camera looks straight at the screen, so that board is a plain centered box.
  */
 export class Arcade {
   /** 0 is your own view, 1 is right up at the monitor. It eases between them. */
@@ -27,17 +17,24 @@ export class Arcade {
   private modal: Modal | null = null;
   private readonly at = new THREE.Vector3();
   private readonly facing = new THREE.Quaternion();
+  private readonly game = new Minesweeper();
+  /** What the monitor shows. */
+  private readonly picture = document.createElement('canvas');
+  private readonly texture = new THREE.CanvasTexture(this.picture);
+  /** The board you click while playing, drawn at the size it shows on screen so it stays crisp. */
+  private board: HTMLCanvasElement | null = null;
 
   constructor(private readonly screen: THREE.Mesh) {
+    this.picture.width = W;
+    this.picture.height = H;
+    this.texture.colorSpace = THREE.SRGBColorSpace;
     const mat = screen.material as THREE.MeshBasicMaterial;
-    mat.map = titleCard();
+    mat.map = this.texture;
     mat.color.set('#ffffff');
     mat.toneMapped = false;
-  }
-
-  /** Right up at the monitor and holding still: the office around it can be redrawn less often. */
-  get settled(): boolean {
-    return this.zoom === 1;
+    this.draw();
+    // Canvas text only picks up the office's font once it has loaded.
+    void document.fonts.ready.then(() => this.draw());
   }
 
   /** Anywhere between your view and the monitor: your first-person hands would cover the screen. */
@@ -47,31 +44,91 @@ export class Arcade {
 
   play() {
     if (this.modal) return;
-    const frame = h('iframe', { src: GAME.src, title: 'DEADFALL', allow: 'autoplay; fullscreen; gamepad' });
-    frame.style.width = `${GAME.width}px`;
-    frame.style.height = `${GAME.height}px`;
-    // Keys go straight to the game, without a click on it first.
-    frame.addEventListener('load', () => frame.focus());
+    const game = this.game;
+    // A finished game stays up on the monitor until the next player sits down to a fresh one.
+    if (game.state === 'won' || game.state === 'lost') game.reset();
+    const board = h('canvas', { 'aria-label': 'Minesweeper board' });
     const stop = h('button.btn', { type: 'button' }, '✕ Stop playing');
     const box = h(
       'div.arcade',
-      { role: 'dialog', 'aria-label': 'DEADFALL' },
-      h('div.arcade-screen', {}, frame),
-      h('div.arcade-bar', {}, h('span', {}, '🌲 DEADFALL'), h('span.tip', {}, 'Esc lets go of the mouse'), stop),
+      { role: 'dialog', 'aria-label': 'Minesweeper' },
+      h('div.arcade-screen', {}, board),
+      h('div.arcade-bar', {}, h('span', {}, '💣 Minesweeper'), h('span.tip', {}, 'Click to dig · right-click to flag'), stop),
     );
+
+    // Where the mouse is, in the game's 960×540.
+    const spot = (e: MouseEvent) => ({ x: (e.offsetX * W) / board.clientWidth, y: (e.offsetY * H) / board.clientHeight });
+    let holding = false;
+    board.addEventListener('pointerdown', (e) => {
+      const { x, y } = spot(e);
+      const i = game.cellAt(x, y);
+      // Right-click flags, and so do Ctrl- and Shift-click for a trackpad. The middle button chords.
+      if (e.button === 2 || (e.button === 0 && (e.ctrlKey || e.shiftKey))) game.flag(i);
+      else if (e.button === 1) game.chord(i);
+      else if (e.button === 0 && game.onFace(x, y)) game.reset();
+      else if (e.button === 0) {
+        // It digs when you let go, wherever you let go, like the original.
+        holding = true;
+        game.pressed = i;
+        board.setPointerCapture(e.pointerId);
+      }
+      this.draw();
+    });
+    board.addEventListener('pointermove', (e) => {
+      const { x, y } = spot(e);
+      const i = game.cellAt(x, y);
+      if (i === game.hover) return;
+      game.hover = i;
+      if (holding) game.pressed = i;
+      this.draw();
+    });
+    board.addEventListener('pointerup', (e) => {
+      if (e.button !== 0 || !holding) return;
+      holding = false;
+      const i = game.pressed;
+      game.pressed = -1;
+      // A click on a number digs around it, once its mines are all flagged.
+      if (game.isOpen(i)) game.chord(i);
+      else game.open(i);
+      this.draw();
+    });
+    board.addEventListener('pointerleave', () => {
+      if (holding) return;
+      game.hover = -1;
+      this.draw();
+    });
+    // No menu on right-click, and no scrolling or selecting on a click.
+    board.addEventListener('contextmenu', (e) => e.preventDefault());
+    board.addEventListener('mousedown', (e) => e.preventDefault());
+
+    // The clock only runs while someone's at the monitor.
+    let last = performance.now();
+    const clock = setInterval(() => {
+      const now = performance.now();
+      if (game.tick(now - last)) this.draw();
+      last = now;
+    }, 250);
+
     const fit = () => {
       const w = Math.min(innerWidth * FILL, innerHeight * FILL * ASPECT);
       box.style.width = `${w}px`;
       box.style.height = `${w / ASPECT}px`;
-      frame.style.transform = `scale(${w / GAME.width})`;
+      board.width = Math.round(w * devicePixelRatio);
+      board.height = Math.round((w / ASPECT) * devicePixelRatio);
+      this.draw();
     };
+    this.board = board;
     fit();
     window.addEventListener('resize', fit);
     this.modal = openModal(box, {
       backdropCloses: false,
       onClose: () => {
         window.removeEventListener('resize', fit);
+        clearInterval(clock);
         this.modal = null;
+        this.board = null;
+        game.hover = game.pressed = -1;
+        this.draw();
       },
     });
     this.modal.backdrop.classList.add('clear');
@@ -87,7 +144,7 @@ export class Arcade {
       this.zoom += (want - this.zoom) * Math.min(1, dt * 8);
       if (Math.abs(want - this.zoom) < 0.002) this.zoom = want;
     }
-    // Straight out from the screen, back just far enough that it fills FILL of the view, like the frame box does.
+    // Straight out from the screen, back just far enough that it fills FILL of the view, like the board's box does.
     const { width, height } = (this.screen.geometry as THREE.PlaneGeometry).parameters;
     const span = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * FILL;
     const back = Math.max(height / span, width / (span * camera.aspect));
@@ -96,43 +153,16 @@ export class Arcade {
     camera.position.lerp(this.at, this.zoom);
     camera.quaternion.slerp(this.facing, this.zoom);
   }
-}
 
-/** What the monitor shows while nobody's playing: misty old-growth forest at dusk. */
-function titleCard(): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = GAME.width;
-  c.height = GAME.height;
-  const g = c.getContext('2d')!;
-  const sky = g.createLinearGradient(0, 0, 0, GAME.height);
-  sky.addColorStop(0, '#1d2b33');
-  sky.addColorStop(0.6, '#6d7f79');
-  sky.addColorStop(1, '#2c3a2e');
-  g.fillStyle = sky;
-  g.fillRect(0, 0, GAME.width, GAME.height);
-  // Rows of conifers, darker the nearer they are.
-  for (const [row, color, size] of [
-    [330, '#3d4d45', 0.7],
-    [420, '#26332b', 1],
-    [540, '#121a15', 1.4],
-  ] as const) {
-    g.fillStyle = color;
-    for (let x = -20; x < GAME.width + 40; x += 46 * size) {
-      const tall = (150 + ((x * 7919) % 90)) * size;
-      g.beginPath();
-      g.moveTo(x, row);
-      g.lineTo(x + 22 * size, row - tall);
-      g.lineTo(x + 44 * size, row);
-      g.fill();
+  /** Draws the game on the board while you play, and on the monitor otherwise (the board covers it while you play). */
+  private draw() {
+    if (this.board) {
+      const g = this.board.getContext('2d')!;
+      g.setTransform(this.board.width / W, 0, 0, this.board.height / H, 0, 0);
+      this.game.paint(g, false);
+    } else {
+      this.game.paint(this.picture.getContext('2d')!, true);
+      this.texture.needsUpdate = true;
     }
   }
-  g.textAlign = 'center';
-  g.fillStyle = '#f1ede4';
-  g.font = '900 110px Nunito, ui-rounded, system-ui, sans-serif';
-  g.fillText('DEADFALL', 480, 250);
-  g.font = '800 30px Nunito, ui-rounded, system-ui, sans-serif';
-  g.fillText('Sit in the boss’s chair and press E to play', 480, 310);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
 }
