@@ -243,7 +243,11 @@ export class WorkerManager {
     return false;
   }
 
-  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort): WorkerInfo | string {
+  /**
+   * Hires a worker at a desk. `meeting` seats one at the meeting room's table instead, for that meeting
+   * (see meetings.ts), in the meeting's own worktree, which everyone at the table shares.
+   */
+  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }): WorkerInfo | string {
     const selectedProvider = kind === 'agent' ? provider ?? this.defaultProvider : undefined;
     const modelError = validateWorkerModel(kind, selectedProvider, model);
     if (modelError) return modelError;
@@ -254,6 +258,8 @@ export class WorkerManager {
     if (this.deskOccupied(deskId)) return seat.station ? `The ${STATION_AGENT[seat.station].name} is already there` : `That ${seat.beanbag ? 'bean bag' : 'desk'} is taken`;
     if (kind === 'shell' && seat.station) return 'A board agent is always an agent, not a shell';
     if (seat.station && !prompt?.trim()) return 'Tell the board agent what to do';
+    if (!seat.room !== !meeting) return seat.room ? 'Only a meeting seats workers at the meeting table: call one in the meeting room' : 'A meeting seats its workers at the meeting table';
+    if (meeting && (kind !== 'agent' || worktree)) return 'A meeting seats agents, in its own worktree';
     if (kind === 'shell' && provider !== undefined) return 'Shell workers do not have an agent provider';
     if (kind === 'agent' && selectedProvider === 'custom' && this.defaultProvider !== 'custom') return 'Custom is not the configured agent provider';
     if (kind === 'agent') {
@@ -266,7 +272,7 @@ export class WorkerManager {
     const agent = seat.station && STATION_AGENT[seat.station];
     const name = agent ? agent.name : (NAMES.find((n) => !used.has(n)) ?? `Worker ${this.workers.size + 1}`);
     const id = randomBytes(6).toString('hex');
-    let wt: WorkerInfo['worktree'];
+    let wt: WorkerInfo['worktree'] = meeting?.worktree;
     if (worktree) {
       const made = this.trees.create(`${name.toLowerCase()}-${id.slice(0, 4)}`);
       if (typeof made === 'string') return made;
@@ -292,6 +298,7 @@ export class WorkerManager {
       viewers: [],
       viewerIds: [],
       activity: prompt ? truncate(prompt, 80) : undefined,
+      meeting: meeting?.id,
     };
     const w = newWorker(info, newTracker());
     this.workers.set(id, w);
@@ -375,7 +382,8 @@ export class WorkerManager {
     this.events.remove(id);
     this.persist();
     const wt = w.info.worktree;
-    if (!wt) return {};
+    // A meeting's worktree is everyone at the table's: the meeting tidies it away once they've all gone.
+    if (!wt || w.info.meeting) return {};
     const name = w.info.name;
     if (!cleanup) {
       const work = describeWork(await this.trees.inspect(wt));
@@ -1130,9 +1138,10 @@ export class WorkerManager {
     w.info.status = status;
     // Done, idle or asleep: it's not acting anything out any more.
     if (status !== 'working' && status !== 'needs_input') w.info.action = undefined;
-    // Nobody is looking at the terminal right now -> raise the flag (the worker jumps).
+    // Nobody is looking at the terminal right now -> raise the flag (the worker jumps). A worker at the
+    // meeting table that ends its part is waiting on the meeting, not on anyone, so it stays quiet.
     if (status === 'done' || status === 'needs_input') {
-      w.info.acked = w.viewers.size > 0 && status === 'done';
+      w.info.acked = status === 'done' && (w.viewers.size > 0 || !!w.info.meeting);
       w.info.waitingSince = Date.now();
     } else w.info.acked = true;
     this.emitUpdate(w);
@@ -1301,6 +1310,7 @@ process.stdin.on('end', () => {
       activity: info.activity,
       task: info.task,
       pr: info.pr,
+      meeting: info.meeting,
       tracker: info.kind === 'agent' ? tracker : undefined,
       usage: info.provider === 'opencode' || info.provider === 'codex' ? info.usage : undefined,
       codexTranscript: info.provider === 'codex' ? codexTranscript : undefined,
@@ -1354,6 +1364,7 @@ process.stdin.on('end', () => {
           rows: 30,
           viewers: [],
           viewerIds: [],
+          meeting: typeof s.meeting === 'string' && DESK_BY_ID.get(s.deskId)?.room ? s.meeting : undefined,
         };
         const w = newWorker(info, tracker, typeof s.hookToken === 'string' && s.hookToken ? s.hookToken : undefined);
         if (provider === 'codex' && typeof s.codexTranscript === 'string') w.codexTranscript = s.codexTranscript;

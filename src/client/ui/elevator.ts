@@ -151,11 +151,11 @@ export function openElevator(opts: ElevatorOptions): void {
     if (matches.length > SHOWN) rows.push(h('p.empty', { style: 'padding:8px 10px' }, `…and ${matches.length - SHOWN} more — type to narrow it down`));
     listEl.replaceChildren(...rows);
     const pick = choice();
-    const dest = pick ? `${store.projectsDir}/${pick}` : `${store.projectsDir}/<owner>/<repo>`;
+    const dest = pick ? `${store.projectsDir.dir}/${pick}` : `${store.projectsDir.dir}/<owner>/<repo>`;
     statusEl.replaceChildren(
       adding
-        ? h('p.note.busy', {}, `⏳ Cloning ${adding} into ${store.projectsDir}/${adding}… A big repository can take a minute.`)
-        : h('p.note', {}, `Cloned into ${dest} with this machine's gh login. Everything on the new floor works in that checkout.`),
+        ? h('p.note.busy', {}, `⏳ Cloning ${adding} into ${store.projectsDir.dir}/${adding}… A big repository can take a minute.`)
+        : h('p.note', {}, `Cloned into ${dest} with this machine's gh login. Everything on the new floor works in that checkout.${store.me.admin ? ' Pick another folder in ⚙️ Settings.' : ''}`),
       ...[r.error, error].filter(Boolean).map((e) => h('p.err', {}, e)),
     );
     addBtn.disabled = !!adding || !pick || store.floors.some((f) => sameRepo(f.repo, pick));
@@ -233,7 +233,7 @@ export function openElevator(opts: ElevatorOptions): void {
     h('div.body', {}, intro, floorsEl, addEl),
     h('footer', {}, h('span.grow', {}, setup ? 'Your office, one floor per project' : 'Pick a floor · Esc to stay here'), addBtn),
   );
-  const unsubs = [store.on('floors', () => (renderFloors(), renderAdd())), store.on('repos', renderAdd), store.on('floor', renderFloors)];
+  const unsubs = [store.on('floors', () => (renderFloors(), renderAdd())), store.on('repos', renderAdd), store.on('projectsDir', renderAdd), store.on('floor', renderFloors)];
   const modal = openModal(el, {
     doing: '🛗 at the elevator',
     escCloses: !setup,

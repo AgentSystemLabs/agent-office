@@ -27,8 +27,11 @@ const SLIDE_G = 12;
 const SLIDE_MAX = 6.5;
 /** How fast you come out of the ceiling onto the floor below: the dark in between takes some of it off. */
 const SLIDE_IN = 3.5;
-/** A twirl round a pole that doesn't go anywhere (the one you land by). */
+/** A twirl round a pole that doesn't go anywhere (on the bottom floor). */
 const TWIRL = 1.15;
+/** Swinging off a pole onto a floor it goes on down through: how long, and how far out from it you end up (past the railing). */
+const SWING_OFF = 0.55;
+const OFF_POLE = POLE.rail + 0.4;
 
 /** Where you arrive on the other floor: the same spot in the office, on the other side of the ceiling. */
 export interface Arrival {
@@ -65,14 +68,16 @@ type State =
   | {
       kind: 'pole';
       spot: PoleSpot;
-      stage: 'hop' | 'slide' | 'wait' | 'twirl';
+      stage: 'hop' | 'slide' | 'wait' | 'twirl' | 'off';
       /** Where you are round the pole (0 = +z of it) and how fast you're going down. */
       angle: number;
       v: number;
       t: number;
       from: { x: number; y: number; z: number };
-      /** Come down through the ceiling onto the floor below: the next stop is the mat. */
+      /** Come down through the ceiling onto the floor below: the next stop is the mat, or off the pole beside its hole. */
       through: boolean;
+      /** Swinging off: where round the pole you started from. */
+      offFrom?: number;
     };
 
 export class Climber {
@@ -133,7 +138,7 @@ export class Climber {
     this.hooks.sound('grab');
   }
 
-  /** Swings once round a pole that goes nowhere from here (you land by it, coming down from above). */
+  /** Swings once round a pole that goes nowhere from here (the bottom floor's). */
   twirl(spot: PoleSpot) {
     if (this.state) return;
     const p = this.player;
@@ -331,6 +336,33 @@ export class Climber {
       this.face(s.angle, dt, -0.4);
       return;
     }
+    if (s.stage === 'off') {
+      // Round to the railing's gap, then out through it onto the floor with a little hop.
+      const k = Math.min(1, s.t / SWING_OFF);
+      const ease = (x: number) => x * x * (3 - 2 * x);
+      const turn = ease(Math.min(1, k / 0.6));
+      const out = ease(Math.max(0, (k - 0.4) / 0.6));
+      const a0 = s.offFrom ?? s.angle;
+      s.angle = a0 + Math.atan2(Math.sin(spot.open - a0), Math.cos(spot.open - a0)) * turn;
+      place(THREE.MathUtils.lerp(POLE.grip, OFF_POLE, out));
+      p.pos.y = Math.sin(Math.PI * k) * 0.25;
+      // From facing round the pole to facing out, away from it.
+      const along = s.angle + Math.PI / 2;
+      p.facing = along + Math.atan2(Math.sin(spot.open - along), Math.cos(spot.open - along)) * out;
+      if (p.view === 'first') {
+        const yaw = p.facing - Math.PI;
+        p.camYaw += Math.atan2(Math.sin(yaw - p.camYaw), Math.cos(yaw - p.camYaw)) * Math.min(1, dt * 10);
+        p.lookPitch += (-0.08 - p.lookPitch) * Math.min(1, dt * 8);
+      }
+      p.moving = out > 0 && k < 1;
+      this.rush = Math.max(0, this.rush - dt * 4);
+      if (k >= 1) {
+        p.pos.y = 0;
+        this.hooks.sound('land', s.v);
+        this.release('pole', true);
+      }
+      return;
+    }
     // Down you go, faster and faster, spinning round the pole; squeeze to slow down near the bottom.
     const braking = s.through && p.pos.y < 1;
     if (braking) s.v = Math.max(2, s.v - 26 * dt);
@@ -350,6 +382,13 @@ export class Climber {
     }
     if (p.pos.y <= 0 && s.through) {
       p.pos.y = 0;
+      if (this.hooks.floorThere(-1)) {
+        // No mat here: the pole goes on down through a hole in this floor. Off it, beside the hole.
+        s.stage = 'off';
+        s.t = 0;
+        s.offFrom = s.angle;
+        return;
+      }
       const speed = s.v;
       // Knees bend as you land.
       p.stepOffset = -0.35;
@@ -378,9 +417,9 @@ export class Climber {
  * Whether someone at `p` is holding on to the ladder or a pole (someone else, going by where they
  * are): up off the floor, right where your hands would be.
  */
-export function gripOf(p: { x: number; y: number; z: number }, poles: (PoleSpot | null)[], ground: number): Grip | null {
+export function gripOf(p: { x: number; y: number; z: number }, poles: readonly PoleSpot[], ground: number): Grip | null {
   if (Math.abs(p.y - ground) < 0.05) return null;
   if (Math.abs(p.x - LADDER.x) < 0.12 && Math.abs(p.z - LADDER.z) < 0.15) return 'ladder';
-  for (const s of poles) if (s && Math.abs(Math.hypot(p.x - s.x, p.z - s.z) - POLE.grip) < 0.12) return 'pole';
+  for (const s of poles) if (Math.abs(Math.hypot(p.x - s.x, p.z - s.z) - POLE.grip) < 0.12) return 'pole';
   return null;
 }

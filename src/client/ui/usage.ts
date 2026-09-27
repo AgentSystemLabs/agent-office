@@ -1,20 +1,9 @@
-import type { AgentProvider, Usage } from '../../shared/protocol';
+import { fmtCost, fmtTokens, tokensOf, type AgentProvider, type Usage } from '../../shared/protocol';
 import { store } from '../state';
 import { $, h } from './dom';
 import { providerUsageState, providerUsageTracked, resolvedProvider } from './provider';
 
-export const tokensOf = (u: Usage) => u.totalTokens ?? (u.input + u.output + (u.reasoning ?? 0) + u.cacheWrite + u.cacheRead);
-
-export function fmtTokens(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 1e6) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
-  return `${(n / 1e6).toFixed(n < 10e6 ? 2 : 1)}M`;
-}
-
-export function fmtCost(usd: number): string {
-  if (usd > 0 && usd < 0.005) return '<$0.01';
-  return `$${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
+export { fmtCost, fmtTokens, tokensOf };
 
 function displayedCost(u: Usage): string {
   return u.costKnown === false ? 'cost unavailable' : fmtCost(u.cost);

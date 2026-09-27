@@ -5,6 +5,7 @@ import { store, workerForPull } from '../state';
 import { h, openModal, timeAgo } from './dom';
 import { labelChip, openIssue, openPull } from './pull';
 import { providerLabel } from './provider';
+import type { MeetingPreset } from './meeting';
 
 export interface BoardActions {
   /** Start a worker on a ready-made prompt (shown for editing first). */
@@ -17,6 +18,8 @@ export interface BoardActions {
   queue(prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string, effort?: AgentEffort): void;
   /** Take the issue's card off the board, to carry to a desk or the queue. */
   pickUp(issue: GhIssue): void;
+  /** Call a meeting about it: the meeting room's form, filled in. */
+  meeting(preset: MeetingPreset): void;
 }
 
 /** The task a worker gets for an issue, from the board, a carried card or the queue. */

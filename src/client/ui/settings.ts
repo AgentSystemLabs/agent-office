@@ -236,6 +236,36 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   });
   limitClear.addEventListener('click', () => net.send({ t: 'machine.limit', limit: null }));
 
+  // Where the elevator clones new projects on the office's machine. Admins move it.
+  const dirInput = h('input', { type: 'text', placeholder: '~/Workspace', 'aria-label': 'Workspace folder', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
+  const dirSave = h('button.btn.primary', { type: 'button' }, 'Save');
+  const dirDefault = h('button.btn', { type: 'button' }, 'Use the default');
+  const dirRow = h('div.webhook', {}, dirInput, dirSave);
+  const dirActions = h('div.seg', { style: 'margin-top:8px' }, dirDefault);
+  const dirNote = h('p.setting-note');
+  const paintDir = () => {
+    const { dir, custom, by, at } = store.projectsDir;
+    const admin = store.me.admin;
+    dirInput.value = dir;
+    dirRow.classList.toggle('hidden', !admin);
+    dirActions.classList.toggle('hidden', !admin || !custom);
+    dirNote.textContent =
+      `New projects from the elevator are cloned into ${dir}/<owner>/<repo> on the office’s machine.` +
+      (custom && by && at ? ` Set by ${by} ${timeAgo(at)}.` : '') +
+      (admin ? ' A checkout of the same repository that’s already there is used as it is. Floors you already have stay where they are.' : ' An admin can move it.');
+  };
+  paintDir();
+  const saveDir = () => {
+    const dir = dirInput.value.trim();
+    if (!dir) return dirInput.focus();
+    if (dir !== store.projectsDir.dir) net.send({ t: 'floor.projectsDir', dir });
+  };
+  dirSave.addEventListener('click', saveDir);
+  dirInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') saveDir();
+  });
+  dirDefault.addEventListener('click', () => net.send({ t: 'floor.projectsDir', dir: '' }));
+
   // The dog on this floor, named for everyone here.
   const dogInput = h('input', { type: 'text', maxlength: DOG_NAME_MAX, 'aria-label': 'The dog’s name', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
   const dogSave = h('button.btn.primary', { type: 'button' }, 'Rename');
@@ -301,6 +331,10 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       h('label', { style: 'margin-top:18px' }, '👷 Worker limit'),
       limitRow,
       limitNote,
+      h('label', { style: 'margin-top:18px' }, '📁 Workspace folder'),
+      dirRow,
+      dirActions,
+      dirNote,
       dogSection,
       h('label', { style: 'margin-top:18px' }, 'Your character'),
       character,
@@ -313,6 +347,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const offDog = store.on('dog', paintDog);
   const offTheme = store.on('theme', paintTheme);
   const offLimit = [store.on('machine', paintLimit), store.on('me', paintLimit)];
+  const offDir = [store.on('projectsDir', paintDir), store.on('me', paintDir)];
   const modal = openModal(el, {
     doing: '⚙️ in settings',
     onClose: () => {
@@ -320,6 +355,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       offDog();
       offTheme();
       offLimit.forEach((off) => off());
+      offDir.forEach((off) => off());
     },
   });
   close.addEventListener('click', () => modal.close());

@@ -254,9 +254,9 @@ export class TaskQueue {
     return outcome === 'done';
   }
 
-  /** Agents holding a slot. The board agents don't: they stand by their boards, not at desks. */
+  /** Agents holding a slot. The board agents don't (they stand by their boards), nor do meetings (they have their own limits). */
   private busy(): number {
-    return this.workers.list().filter((w) => w.kind === 'agent' && BUSY.has(w.status) && !DESK_BY_ID.get(w.deskId)?.station).length;
+    return this.workers.list().filter((w) => w.kind === 'agent' && BUSY.has(w.status) && !DESK_BY_ID.get(w.deskId)?.station && !DESK_BY_ID.get(w.deskId)?.room).length;
   }
 
   /** A free desk, else a free bean bag. */

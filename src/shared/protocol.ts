@@ -1,6 +1,7 @@
 // Wire protocol between browser and server. Every WebSocket frame is one JSON object.
 
 import type { Look } from './avatar.js';
+import type { CabinetFrame, CabinetState, CabinetView } from './cabinet.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
 import type { EmoteId } from './emotes.js';
@@ -98,6 +99,8 @@ export interface WorkerInfo {
   usage?: Usage;
   /** Who last typed into its terminal (or sent it a prompt), and when. */
   lastInput?: { by: string; at: number };
+  /** The meeting it was called to, for a worker at the meeting room's table (see Meeting). */
+  meeting?: string;
 }
 
 /** Session usage. The persistent office ledger continues to cover Claude Code only. */
@@ -123,6 +126,23 @@ export interface Usage {
   callsKnown?: boolean;
   /** Authoritative provider total when it cannot be reconstructed from the displayed buckets. */
   totalTokens?: number;
+}
+
+/** Every token a session used, cache reads and writes included: what the office shows and budgets meetings by. */
+export function tokensOf(u: Usage): number {
+  return u.totalTokens ?? u.input + u.output + (u.reasoning ?? 0) + u.cacheWrite + u.cacheRead;
+}
+
+/** e.g. 950, 12k, 1.25M */
+export function fmtTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1e6) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1e6).toFixed(n < 10e6 ? 2 : 1)}M`;
+}
+
+export function fmtCost(usd: number): string {
+  if (usd > 0 && usd < 0.005) return '<$0.01';
+  return `$${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /** Spend across the whole office, kept on disk (see server/usage.ts). */
@@ -293,6 +313,138 @@ export interface QueueState {
   maxWorkers: number;
 }
 
+/** How the workers at the meeting table work together (see shared/meetings.ts). */
+export type MeetingPattern = 'debate' | 'lead' | 'mapreduce' | 'redblue' | 'review';
+
+/** A worker's place at a meeting. */
+export interface MeetingSeat {
+  /** Its part in the meeting, e.g. "Skeptic", "Red team" or "Security". */
+  role: string;
+  /** Its chair (see MEETING_SEATS in layout). */
+  deskId: string;
+  workerId?: string;
+  workerName?: string;
+  /** What its worker has used, kept after it goes home. `cost` is missing when its provider doesn't say. */
+  tokens?: number;
+  cost?: number;
+}
+
+/** One worker's part in a round: what it's doing, and the file that says it has done it. */
+export interface MeetingTurn {
+  /** Which of the meeting's seats. */
+  seat: number;
+  /** e.g. "proposing", "critiquing", "writing the decision". */
+  doing: string;
+  /** Relative to the meeting's checkout. */
+  file: string;
+  /** waiting: not handed over yet; sent: handed over, not started on; working: on it; done: its file is written. */
+  state: 'waiting' | 'sent' | 'working' | 'done';
+  sentAt?: number;
+  /** It was reminded once already: it ended its turn without writing the file, or never started. */
+  retried?: boolean;
+}
+
+export type MeetingStatus = 'running' | 'done' | 'stopped';
+
+/**
+ * A meeting in the meeting room: 2–5 workers on one question or task, in rounds, following a pattern.
+ * It ends when its output file is written, or stops at its round limit or token budget and says why.
+ */
+export interface Meeting {
+  id: string;
+  pattern: MeetingPattern;
+  title: string;
+  /** The question or task, as whoever called the meeting put it. */
+  prompt: string;
+  /** The file the meeting writes, relative to its checkout, declared up front. */
+  output: string;
+  /** The head of the table first. */
+  seats: MeetingSeat[];
+  /** Map-reduce: what the task runs over, a part per line. */
+  parts?: string[];
+  /** Review panel: the pull request under review. */
+  pr?: number;
+  /** The GitHub issue it's about, when it was called from one. */
+  issue?: number;
+  provider?: AgentProvider;
+  model?: string;
+  effort?: AgentEffort;
+  /** The round limit. */
+  rounds: number;
+  /** The round it's on (from 1), and the step within it (red / blue take turns inside a round). */
+  round: number;
+  step: number;
+  /** Red / blue: the red team found nothing more in this round, so it's the last. */
+  lastRound?: number;
+  /** The current step's parts. */
+  turns: MeetingTurn[];
+  /** Tokens every worker in the meeting may use between them, and how many they have. */
+  budget: number;
+  tokens: number;
+  /** USD, where the providers report it. */
+  cost: number;
+  /** False when a worker's provider reports no cost, so `cost` leaves it out. */
+  costKnown: boolean;
+  status: MeetingStatus;
+  /** Why it stopped short. */
+  reason?: string;
+  calledBy: string;
+  startedAt: number;
+  finishedAt?: number;
+  /** The meeting's own git worktree, relative to the project, which everyone at the table shares. */
+  worktree?: { path: string; branch: string; base: string; from?: string };
+  /** Where the round notes go, relative to the checkout. */
+  notes: string;
+  /** The commit on the meeting's branch that holds the output. */
+  commit?: string;
+  /** Review panel: the review the office posted on the pull request, or why it couldn't. */
+  review?: { url?: string; error?: string };
+  /** The start of the output file as it gets written, for the board in the room. */
+  preview?: string;
+  /** Its workers have gone home and its worktree was tidied away. */
+  cleared?: boolean;
+}
+
+/** A meeting that's over, in a line. */
+export interface MeetingRecord {
+  id: string;
+  pattern: MeetingPattern;
+  title: string;
+  status: MeetingStatus;
+  /** The line on the room's door: pattern, rounds, tokens, cost, and the output (or why it stopped). */
+  summary: string;
+  calledBy: string;
+  finishedAt: number;
+  branch?: string;
+  output: string;
+}
+
+export interface MeetingState {
+  /** The meeting in the room: the one running, or the last one until the room is cleared or the next is called. */
+  current: Meeting | null;
+  /** Earlier meetings on the floor, newest first. */
+  past: MeetingRecord[];
+}
+
+/** What calling a meeting asks for (see shared/meetings.ts for each pattern's defaults and limits). */
+export interface MeetingRequest {
+  pattern: MeetingPattern;
+  prompt: string;
+  title?: string;
+  /** The output file, relative to the checkout; the pattern's default when missing. */
+  output?: string;
+  /** A role per worker, the head of the table first. */
+  roles: string[];
+  parts?: string[];
+  pr?: number;
+  issue?: number;
+  rounds?: number;
+  budget?: number;
+  provider?: AgentProvider;
+  model?: string;
+  effort?: AgentEffort;
+}
+
 /** Where a team webhook posts: Slack and Discord get their own message format, anything else plain JSON. */
 export type WebhookKind = 'slack' | 'discord' | 'other';
 
@@ -454,6 +606,16 @@ export interface FloorInfo {
   people: number;
 }
 
+/** Where the elevator's "add a project" clones to: <dir>/<owner>/<repo> on the office's machine. */
+export interface ProjectsDirState {
+  /** For showing people: under the home folder it's ~/…. */
+  dir: string;
+  /** Set from ⚙️ Settings or --projects, rather than the office's default. */
+  custom: boolean;
+  by?: string;
+  at?: number;
+}
+
 /** A repository the office's `gh` login can clone, for the elevator's "add a project". */
 export interface RepoChoice {
   /** owner/name */
@@ -480,8 +642,12 @@ export interface FloorView {
   dog: DogState | null;
   /** What the lounge jukebox is playing. */
   jukebox: JukeboxState;
+  /** Who's at the arcade cabinet, what's on its screen, and the building's high scores. */
+  cabinet: CabinetView;
   /** What's drawn on this floor's whiteboard, and who's drawing. */
   whiteboard: WhiteboardView;
+  /** The meeting room: who's meeting about what, and the meetings before. */
+  meeting: MeetingState;
 }
 
 export type AccountRole = 'admin' | 'member';
@@ -761,6 +927,12 @@ export type ClientMsg =
   /** Forget the finished tasks. */
   | { t: 'queue.clear' }
   | { t: 'queue.limit'; maxWorkers: number }
+  /** Call a meeting: workers sit down round the meeting room's table and work through it in rounds. */
+  | ({ t: 'meeting.start' } & MeetingRequest)
+  /** Stop the meeting that's running; its workers stay at the table. */
+  | { t: 'meeting.stop' }
+  /** Send the last meeting's workers home and clear the table. */
+  | { t: 'meeting.clear' }
   /** Set the office's Slack / Discord webhook; '' removes it. */
   | { t: 'notify.webhook'; url: string }
   /** Post a test message through the webhook; the outcome comes back as a toast. */
@@ -803,6 +975,18 @@ export type ClientMsg =
   /** On to the next tune. */
   | { t: 'jukebox.skip' }
   | { t: 'jukebox.stop' }
+  /**
+   * Step up to the arcade cabinet on your floor to carry on with `game` (one the office started for
+   * you), or to start a new game, even while you're at it; the office answers with `cabinet`, naming
+   * who got it and their game.
+   */
+  | { t: 'cabinet.play'; game?: string }
+  | { t: 'cabinet.leave' }
+  /**
+   * Your game as it looks now, for everyone else on the floor to watch over your shoulder. It's also
+   * how your score gets on the high-score table: the office follows the game frame by frame.
+   */
+  | { t: 'cabinet.frame'; frame: CabinetFrame }
   /** You opened the whiteboard (or closed it): everyone on the floor sees who's drawing. */
   | { t: 'wb.open' }
   | { t: 'wb.close' }
@@ -822,6 +1006,8 @@ export type ClientMsg =
   | { t: 'floor.add'; repo: string }
   /** Dress the building up for a holiday, take the decorations down ('off'), or follow the calendar ('auto'). */
   | { t: 'theme.set'; pick: ThemePick }
+  /** Where new floors are cloned from now on (admins only); '' goes back to the default. */
+  | { t: 'floor.projectsDir'; dir: string }
   /** Give the dog on your floor a pat; it has to be within reach. */
   | { t: 'dog.pet' }
   /** Name the dog on your floor ('' gives it back its first name). */
@@ -836,7 +1022,7 @@ export type ServerMsg =
       /** Every floor of the building, for the elevator. */
       floors: FloorInfo[];
       /** Where new projects are cloned to, on the office's machine. */
-      projectsDir: string;
+      projectsDir: ProjectsDirState;
       ice: { urls: string | string[]; username?: string; credential?: string }[];
       chat: ChatLine[];
       /** Whether teammates can be invited from the office (see TeamState). */
@@ -861,6 +1047,8 @@ export type ServerMsg =
   | { t: 'floor.repos'; repos: RepoChoice[]; error?: string }
   /** Sent to whoever asked for the floor, once it's cloned (or couldn't be). */
   | { t: 'floor.added'; repo: string; floor?: string; error?: string }
+  /** The projects folder moved (see floor.projectsDir). */
+  | { t: 'projectsDir'; state: ProjectsDirState }
   | { t: 'peer.join'; peer: PeerInfo }
   | { t: 'peer.update'; peer: PeerInfo }
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }
@@ -898,6 +1086,10 @@ export type ServerMsg =
   /** What the dog on your floor is up to now: sent at the start of each leg of its day. */
   | { t: 'dog'; dog: DogState }
   | { t: 'jukebox'; state: JukeboxState }
+  /** Who's at the arcade cabinet on your floor now, and the building's high scores. */
+  | { t: 'cabinet'; state: CabinetState }
+  /** The game on your floor's cabinet, as its player sees it (sent to everyone else on the floor). */
+  | { t: 'cabinet.frame'; frame: CabinetFrame }
   /** Someone changed these elements on the floor's whiteboard (sent to everyone else on the floor). */
   | { t: 'wb.update'; elements: WbElement[] }
   /** Who has the floor's whiteboard open now. */
@@ -907,6 +1099,7 @@ export type ServerMsg =
   | { t: 'usage'; state: UsageState }
   | { t: 'limits'; state: PlanLimits }
   | { t: 'queue'; state: QueueState }
+  | { t: 'meeting'; state: MeetingState }
   | { t: 'notify'; state: NotifyState }
   | { t: 'machine'; state: MachineState }
   | { t: 'sky'; state: SkyState }
