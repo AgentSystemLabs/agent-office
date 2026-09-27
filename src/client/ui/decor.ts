@@ -134,6 +134,7 @@ export function openHangDialog(opts: { initial?: Decoration; onDone(choice: Hang
   }
 
   const modal = openModal(form, {
+    doing: '🖼️ hanging a picture',
     onClose: () => {
       seq++;
       clearTimeout(timer);

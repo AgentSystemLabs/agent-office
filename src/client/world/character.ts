@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES, type Look } from '../../shared/avatar';
-import type { WorkerStatus, WorkerTask } from '../../shared/protocol';
+import { EMOTE_BY_ID, type Emote, type EmoteId } from '../../shared/emotes';
+import type { CarriedIssue, WorkerAction, WorkerStatus, WorkerTask } from '../../shared/protocol';
 import { isAsleep } from '../../shared/status';
 import { HIPS } from '../player';
-import { cardSprite, disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
+import { HeldCard } from './card';
+import { cardSprite, disposeSprite, mesh, roundedBox, textSprite, toon, toonUnique } from './toon';
 
 export type Pose = 'stand' | 'walk' | 'sit' | 'type';
 
@@ -20,6 +22,18 @@ export function reachCurve(p: number): number {
   if (p < 0.5) return 1;
   const u = (p - 0.5) / 0.5;
   return 1 - u * u * (3 - 2 * u);
+}
+
+/** 0 → 1 → 0 over an emote `t` seconds into it: eased in quickly, out a little slower at the end. */
+export function emoteEnvelope(t: number, seconds: number): number {
+  const k = THREE.MathUtils.clamp(Math.min(t / 0.18, (seconds - t) / 0.3), 0, 1);
+  return k * k * (3 - 2 * k);
+}
+
+/** Overshoots 1 a little on the way there (p = 0..1), for things that pop in. */
+export function popCurve(p: number): number {
+  const u = Math.min(1, p) - 1;
+  return 1 + 2.7 * u * u * u + 1.7 * u * u;
 }
 
 /** A full mug of coffee standing on y = 0, with its handle on the -x side. */
@@ -137,6 +151,10 @@ export function boxOfStuff(): THREE.Group {
 const v1 = new THREE.Vector3();
 const v2 = new THREE.Vector3();
 
+/** Where the line under a person's name tag sits, just over their hair, and how far it lifts the name tag. */
+const DOING_Y = 1.95;
+const DOING_LIFT = 0.25;
+
 /** A chibi cartoon person — used for every human in the office. Forward is +z. */
 export class Person {
   readonly root = new THREE.Group();
@@ -151,6 +169,9 @@ export class Person {
   private hair = new THREE.Group();
   private look: Look;
   private label: THREE.Sprite | null = null;
+  /** The smaller line under the name tag: what they have open, or where they are (see whereabouts). */
+  private doing: THREE.Sprite | null = null;
+  private doingText = '';
   private speaking = false;
   private mic: THREE.Mesh;
   private head: THREE.Group;
@@ -165,6 +186,9 @@ export class Person {
   private reachT = -1;
   /** Held in the left hand, kept upright however the arm swings. */
   private mug = new THREE.Group();
+  private wantsMug = false;
+  /** An issue card off the board, held out in front in both hands. */
+  private card: HeldCard;
   pose: Pose = 'stand';
   private cig: THREE.Group;
   private ember: THREE.MeshToonMaterial;
@@ -173,12 +197,21 @@ export class Person {
   private wispIn = 0;
   /** Where smoke comes off: the lit end (a wisp) or the mouth, blowing it out along `dir`. */
   onSmoke: ((kind: 'wisp' | 'exhale', at: THREE.Vector3, dir: THREE.Vector3) => void) | null = null;
+  /** The emote being played, how far into it (seconds), and its emoji over their head. */
+  private emoting: { emote: Emote; t: number; pop: THREE.Sprite; size: THREE.Vector2 } | null = null;
+  /** A thumb up and a pointing finger on the right hand, out only for those emotes. */
+  private thumb: THREE.Mesh;
+  private finger: THREE.Mesh;
+  /** How much higher (meters) an emote's emoji pops up, to clear a chat bubble over their head. */
+  emojiLift = 0;
   /** Hips this high above the feet while sitting (on the seat), or null on their feet. */
   private hips: number | null = null;
   /** The last seat's, so getting up eases back down from it. */
   private seatHips = HIPS;
   /** 0 standing … 1 sitting, eased between so sitting down and getting up take a moment. */
   private sitK = 0;
+  /** Holding on to the ladder or a fire pole (see setGrip). */
+  private grip: 'ladder' | 'pole' | null = null;
 
   constructor(
     private name: string,
@@ -248,6 +281,20 @@ export class Person {
     this.cig.position.set(0, -0.38, 0).addScaledVector(along, 0.07);
     this.cig.visible = false;
     this.armL.add(this.cig);
+    // Between the hands when both arms are out in front (see update), its front to whoever they walk up to.
+    const holder = new THREE.Group();
+    holder.position.set(0, 0.8, 0.36);
+    holder.rotation.x = -0.1;
+    this.body.add(holder);
+    this.card = new HeldCard(holder, 0.46);
+    // Along the arm (the fist's -y) the finger points; the thumb sticks out of the front of the fist,
+    // which is up once the arm is out in front.
+    this.thumb = mesh(new THREE.CapsuleGeometry(0.035, 0.07, 4, 8).rotateX(Math.PI / 2), skin, 0, -0.38, 0.1, false);
+    this.finger = mesh(new THREE.CapsuleGeometry(0.03, 0.09, 4, 8), skin, 0, -0.5, 0.02, false);
+    for (const m of [this.thumb, this.finger]) {
+      m.visible = false;
+      this.armL.add(m);
+    }
 
     // Little mic icon that pops up while speaking
     this.mic = mesh(new THREE.SphereGeometry(0.09, 10, 8), toon('#7cf29a', { emissive: '#2a9d4b' }), 0, 2.25, 0, false);
@@ -350,8 +397,39 @@ export class Person {
     }
     const suffix = muted === null ? '' : muted ? ' 🔇' : ' 🎙️';
     this.label = textSprite(`${name}${suffix}`, { bg: '#fffaf3', size: 40 });
-    this.label.position.y = 2.0;
     this.root.add(this.label);
+    this.placeLabels();
+  }
+
+  /** Puts a smaller line under the name tag, like "💻 in Pixel's terminal"; none (or '') takes it away. */
+  setDoing(text: string | undefined) {
+    text ??= '';
+    if (text === this.doingText) return;
+    this.doingText = text;
+    if (this.doing) {
+      this.root.remove(this.doing);
+      disposeSprite(this.doing);
+      this.doing = null;
+    }
+    if (text) {
+      this.doing = textSprite(text, { bg: '#e9ecef', size: 26 });
+      this.doing.position.y = DOING_Y;
+      this.doing.visible = this.label?.visible ?? true;
+      this.root.add(this.doing);
+    }
+    this.placeLabels();
+  }
+
+  /** Where a chat bubble goes: over the name tag, however high it sits. */
+  get bubbleY(): number {
+    return 2.45 + (this.doing ? DOING_LIFT : 0);
+  }
+
+  /** The name tag and the mic badge move up out of the way of the line under them. */
+  private placeLabels() {
+    const lift = this.doing ? DOING_LIFT : 0;
+    if (this.label) this.label.position.y = 2.0 + lift;
+    this.mic.position.y = 2.25 + lift;
   }
 
   /** How loud this person is talking right now (0 when silent); drives the mic badge and the mouth. */
@@ -363,6 +441,7 @@ export class Person {
 
   showLabel(v: boolean) {
     if (this.label) this.label.visible = v;
+    if (this.doing) this.doing.visible = v;
   }
 
   /** Reach out with the right hand, as if pressing or grabbing something in front of you. */
@@ -372,7 +451,111 @@ export class Person {
 
   /** A mug of coffee in the left hand, or not. */
   holdMug(on: boolean) {
-    this.mug.visible = on;
+    this.wantsMug = on;
+    this.mug.visible = on && !this.card.held;
+  }
+
+  /** Carries an issue card in both hands, or puts it down (null). The mug waits while the hands are full. */
+  carry(card: CarriedIssue | null | undefined) {
+    this.card.set(card);
+    this.holdMug(this.wantsMug);
+  }
+
+  /** Waves, gives a thumbs up, claps…: the gesture, with its emoji popping up over their head. */
+  emote(id: EmoteId) {
+    const emote = EMOTE_BY_ID.get(id);
+    if (!emote) return;
+    this.endEmote();
+    const pop = textSprite(emote.emoji, { size: 72 });
+    const size = new THREE.Vector2(pop.scale.x, pop.scale.y);
+    pop.scale.set(0.001, 0.001, 1);
+    this.root.add(pop);
+    this.emoting = { emote, t: 0, pop, size };
+    this.thumb.visible = id === 'thumbs';
+    this.finger.visible = id === 'point';
+  }
+
+  /** The emote playing now, if any. */
+  get emoteId(): EmoteId | null {
+    return this.emoting?.emote.id ?? null;
+  }
+
+  private endEmote() {
+    const e = this.emoting;
+    if (!e) return;
+    this.root.remove(e.pop);
+    disposeSprite(e.pop);
+    this.emoting = null;
+    this.thumb.visible = this.finger.visible = false;
+  }
+
+  /**
+   * Poses the emote over whatever the arms were doing (walking, sitting, a drag on a cigarette),
+   * `k` of the way. The dance's bounce and steps only happen with both feet on the floor (`still`).
+   */
+  private emoteStep(dt: number, still: number) {
+    const e = this.emoting!;
+    e.t += dt;
+    const { seconds, id } = e.emote;
+    if (e.t >= seconds) return this.endEmote();
+    const k = emoteEnvelope(e.t, seconds);
+    const u = e.t;
+    const pose = (arm: THREE.Object3D, x: number, z: number) => {
+      arm.rotation.x = THREE.MathUtils.lerp(arm.rotation.x, x, k);
+      arm.rotation.z = THREE.MathUtils.lerp(arm.rotation.z, z, k);
+    };
+    // Forward is +z, so the character's right arm is the one on -x (armL), as in reach.
+    switch (id) {
+      case 'wave':
+        pose(this.armL, -0.35, -2.55 + Math.sin(u * 12) * 0.35);
+        this.head.rotation.z = -0.1 * k;
+        break;
+      case 'thumbs':
+        // Out in front, with a little pump that settles.
+        pose(this.armL, -1.75 - Math.exp(-u * 3) * Math.sin(u * 14) * 0.25, 0.2);
+        this.head.rotation.z = -0.08 * k;
+        break;
+      case 'clap': {
+        // Both hands out in front, meeting in the middle about three times a second.
+        const c = 0.5 - 0.5 * Math.cos(u * 19);
+        pose(this.armL, -1.25, 0.3 + 0.42 * c);
+        pose(this.armR, -1.25, -0.3 - 0.42 * c);
+        this.body.position.y += Math.abs(Math.sin(u * 9.5)) * 0.02 * k * still;
+        break;
+      }
+      case 'dance': {
+        // Two beats a second: arms up by turns, a hop on every beat, hips swaying, a knee up.
+        const b = u * Math.PI * 2;
+        const s = Math.sin(b);
+        pose(this.armL, -0.3, THREE.MathUtils.lerp(-0.35, -2.7, (s + 1) / 2));
+        pose(this.armR, -0.3, THREE.MathUtils.lerp(0.35, 2.7, (1 - s) / 2));
+        const m = k * still;
+        this.body.position.y += Math.abs(Math.sin(b)) * 0.08 * m;
+        this.body.rotation.z = s * 0.12 * m;
+        this.body.rotation.y = Math.sin(b / 2) * 0.45 * m;
+        this.legL.rotation.x = THREE.MathUtils.lerp(this.legL.rotation.x, -Math.max(0, s) * 0.7, m);
+        this.legR.rotation.x = THREE.MathUtils.lerp(this.legR.rotation.x, -Math.max(0, -s) * 0.7, m);
+        this.head.rotation.z = -s * 0.1 * k;
+        break;
+      }
+      case 'point':
+        // Arm straight out at whatever you face, with a jab to start.
+        pose(this.armL, -1.6 - Math.exp(-u * 4) * Math.sin(u * 16) * 0.15, 0.05);
+        break;
+      case 'facepalm':
+        // Hand to the face, head down and shaking slowly.
+        pose(this.armL, -2.4, 0.62);
+        this.body.rotation.x += 0.1 * k;
+        this.head.rotation.x += 0.3 * k;
+        this.head.rotation.y = Math.sin(u * 5) * 0.15 * k;
+        break;
+    }
+    // The emoji pops in over their head, rises a little, wobbles, and fades at the end.
+    const pop = popCurve(u / 0.3);
+    e.pop.scale.set(e.size.x * pop, e.size.y * pop, 1);
+    e.pop.position.y = 2.42 + this.emojiLift + Math.min(u, 1.5) * 0.12;
+    e.pop.material.rotation = Math.sin(u * 7) * 0.12;
+    e.pop.material.opacity = THREE.MathUtils.clamp((seconds - u) / 0.4, 0, 1);
   }
 
   get smoking(): boolean {
@@ -420,6 +603,14 @@ export class Person {
     this.pose = hips === null ? 'stand' : 'sit';
   }
 
+  /**
+   * On the ladder (hand over hand, as they climb) or a fire pole (hanging on with both arms up, legs
+   * wrapped round it: it's on their left, the +x side), or neither.
+   */
+  setGrip(grip: 'ladder' | 'pole' | null) {
+    this.grip = grip;
+  }
+
   /** `pace` speeds up the walk cycle for someone walking faster than usual. */
   update(dt: number, t: number, moving: boolean, airborne: boolean, pace = 1) {
     const target = moving ? 1 : 0;
@@ -447,6 +638,11 @@ export class Person {
       for (const arm of [this.armL, this.armR]) arm.rotation.x = THREE.MathUtils.lerp(arm.rotation.x, -0.55, sit);
     }
     if (this.smokeT >= 0) this.smokeStep(dt, moving, airborne);
+    if (this.card.held) {
+      // Both arms out in front, hands on the card's edges: it doesn't swing while they walk.
+      this.armL.rotation.set(-1.25, 0, 0.3);
+      this.armR.rotation.set(-1.25, 0, -0.3);
+    }
     let reach = 0;
     if (this.reachT >= 0) {
       this.reachT += dt;
@@ -458,6 +654,21 @@ export class Person {
     }
     // Lean into the reach a little.
     this.body.rotation.x = reach * 0.12;
+    this.body.rotation.z = 0;
+    if (this.grip === 'ladder') {
+      const c = Math.sin(this.walkPhase);
+      this.armL.rotation.set(-2.55 + c * 0.35, 0, -0.12);
+      this.armR.rotation.set(-2.55 - c * 0.35, 0, 0.12);
+      this.legL.rotation.set(-0.55 - c * 0.45, 0, 0);
+      this.legR.rotation.set(-0.55 + c * 0.45, 0, 0);
+      this.body.rotation.x = -0.08;
+    } else if (this.grip === 'pole') {
+      this.armL.rotation.set(0, 0, 2.95);
+      this.armR.rotation.set(0, 0, 2.45);
+      this.legL.rotation.set(-0.35, 0, 0.25);
+      this.legR.rotation.set(-1.15, 0, 0.35);
+      this.body.rotation.z = -0.16;
+    }
     if (this.mug.visible) this.mug.quaternion.copy(this.armR.quaternion).invert();
     this.body.position.y = moving && !airborne ? Math.abs(Math.sin(this.walkPhase)) * 0.06 : 0;
     // Down onto (or up onto) the seat: the hips go where it puts them.
@@ -473,6 +684,9 @@ export class Person {
     this.mouth.visible = talking;
     if (talking) this.mouth.scale.set(0.07 * (1 - this.mouthOpen * 0.2), 0.01 + this.mouthOpen * 0.045, 0.05);
     this.head.rotation.x = -this.mouthOpen * 0.08;
+    this.head.rotation.y = this.head.rotation.z = 0;
+    this.body.rotation.y = this.body.rotation.z = 0;
+    if (this.emoting) this.emoteStep(dt, moving || airborne ? 0 : 1 - sit);
   }
 }
 
@@ -498,6 +712,199 @@ const TASK_CHIP: Record<string, [string, string, string]> = {
   exited: ['💤 ASLEEP', STATUS_BULB.exited, '#ffffff'],
   offline: ['💤 ASLEEP', STATUS_BULB.offline, '#ffffff'],
 };
+
+/**
+ * What a worker's body is doing: resting, arms up for joy, arms crossed waiting on you, typing, or
+ * acting out its latest tool call.
+ */
+type Act = 'rest' | 'up' | 'waiting' | 'type' | WorkerAction;
+
+/** One way of holding itself, blended into the next over a moment (see Worker.update). */
+interface Stance {
+  /** Arms swung forward (x below 0 reaches toward the desk, -2.6 is straight up) and in toward the middle (z). The left arm is the one on -x. */
+  armLx: number;
+  armRx: number;
+  armLz: number;
+  armRz: number;
+  /** 0..1: shoulders brought forward and in, for arms that wrap round the front (crossed, or holding its head). */
+  reach: number;
+  /** Shoulders lowered, so crossed arms sit on its belly and not under its eyes. */
+  drop: number;
+  /** Leaning toward the desk (+) or back (-), turned, tipped to the side, bobbing up. */
+  lean: number;
+  turn: number;
+  roll: number;
+  lift: number;
+  /** How far its right foot is lifted, tapping, and both feet stretched out in front. */
+  tap: number;
+  kick: number;
+  /** Eyes open (1) or narrowed, and looking up (+) or down (-). */
+  lid: number;
+  look: number;
+}
+
+const STANCE_KEYS = ['armLx', 'armRx', 'armLz', 'armRz', 'reach', 'drop', 'lean', 'turn', 'roll', 'lift', 'tap', 'kick', 'lid', 'look'] as const;
+
+function stanceOf(act: Act, t: number, s: Stance): Stance {
+  s.armLx = s.armRx = -0.3;
+  s.armLz = s.armRz = s.reach = s.drop = s.lean = s.turn = s.roll = s.tap = s.kick = s.look = 0;
+  s.lift = Math.sin(t * 2) * 0.015;
+  s.lid = 1;
+  switch (act) {
+    case 'up':
+      s.armLx = s.armRx = -2.6;
+      s.lift = 0;
+      break;
+    case 'type':
+      s.armLx = -1.2 + Math.sin(t * 22) * 0.25;
+      s.armRx = -1.2 + Math.sin(t * 22 + 1.7) * 0.25;
+      s.lift = Math.abs(Math.sin(t * 11)) * 0.02;
+      break;
+    case 'edit':
+      // Hunched over the keys, typing flat out.
+      s.armLx = -1.25 + Math.sin(t * 34) * 0.34;
+      s.armRx = -1.25 + Math.sin(t * 34 + 1.9) * 0.34;
+      s.lean = 0.16;
+      s.lift = Math.abs(Math.sin(t * 17)) * 0.035;
+      s.look = -0.02;
+      break;
+    case 'read':
+      // The papers held up in front, eyes running down the page.
+      s.armLx = s.armRx = -2.05;
+      s.armLz = 0.3;
+      s.armRz = -0.3;
+      s.lean = -0.06;
+      s.look = -0.01 - ((t * 0.9) % 1) * 0.03;
+      break;
+    case 'test':
+      // Leaning back, hands behind its head, feet out: watching the bar fill.
+      s.armLx = s.armRx = -3.3;
+      s.armLz = 0.55;
+      s.armRz = -0.55;
+      s.lean = -0.32;
+      s.roll = Math.sin(t * 1.3) * 0.04;
+      s.kick = 0.08;
+      s.look = 0.025;
+      s.lift = 0;
+      break;
+    case 'web':
+      // Scrolling with one hand, looking up at the globe.
+      s.armLx = -1.2 + Math.sin(t * 9) * 0.15;
+      s.armRx = -0.8;
+      s.lean = -0.1;
+      s.look = 0.03;
+      break;
+    case 'failing':
+      // Head in its hands, shaking it slowly.
+      s.armLx = s.armRx = -2;
+      s.armLz = 0.45;
+      s.armRz = -0.45;
+      s.reach = 1;
+      s.lean = 0.38;
+      s.turn = Math.sin(t * 2.4) * 0.16;
+      s.lid = 0.55;
+      s.look = -0.035;
+      s.lift = 0;
+      break;
+    case 'waiting': {
+      // Arms crossed, hip cocked, tapping a foot.
+      const tap = Math.max(0, Math.sin(t * 16));
+      s.armLx = -1.05;
+      s.armRx = -1.2;
+      s.armLz = 1;
+      s.armRz = -1;
+      s.reach = 1;
+      s.drop = 0.11;
+      s.roll = 0.07;
+      s.tap = tap;
+      s.lift = tap * 0.012;
+      s.lid = 0.6;
+      break;
+    }
+  }
+  return s;
+}
+
+/** How long a worker keeps acting something out before the next thing, so quick tool calls don't flicker. */
+const ACT_MIN = 1.2;
+/** Head in its hands lasts at least this long, so you catch it. */
+const DESPAIR_MIN = 4;
+/** Waiting on you: it jumps this long (seconds), then taps its foot with its arms crossed until the cycle comes round. */
+const WAIT_HOPS = 2;
+const WAIT_CYCLE = 4.6;
+/** A full spin when it finishes, this long. */
+const TWIRL_TIME = 0.9;
+
+const ease = (x: number) => x * x * (3 - 2 * x);
+/** 0 → 1 with a little overshoot, for props popping in. */
+const popIn = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : 1 + 2.7 * (x - 1) ** 3 + 1.7 * (x - 1) ** 2);
+
+/** A stack of papers held up to read, bound at the top; its top sheet flips over. The sheets face -z. */
+function papers(): { group: THREE.Group; page: THREE.Group } {
+  const group = new THREE.Group();
+  const W = 0.34;
+  const H = 0.44;
+  const paper = toon('#fffaf3');
+  const ink = toon('#8d99ae');
+  ['#f1ece2', '#f7f3ea', '#fffaf3'].forEach((c, i) => {
+    const sheet = mesh(new THREE.BoxGeometry(W, H, 0.008), toon(c), (i - 1) * 0.012, -H / 2 - i * 0.006, 0.02 - i * 0.012, false);
+    sheet.rotation.z = (i - 1) * 0.04;
+    group.add(sheet);
+  });
+  const lines = (on: THREE.Object3D, z: number) => {
+    for (let i = 0; i < 6; i++) {
+      const short = i % 3 === 2;
+      on.add(mesh(new THREE.BoxGeometry(W * (short ? 0.45 : 0.72), 0.018, 0.004), ink, short ? -W * 0.135 : 0, -0.07 - i * 0.055, z, false));
+    }
+  };
+  lines(group, -0.01);
+  // The top sheet hangs from the binding, so it flips up over the top.
+  const page = new THREE.Group();
+  page.add(mesh(new THREE.BoxGeometry(W, H, 0.008), paper, 0, -H / 2, -0.016, false));
+  lines(page, -0.022);
+  group.add(page);
+  group.add(mesh(new THREE.BoxGeometry(W * 0.5, 0.05, 0.05), toon('#adb5bd'), 0, 0, 0, false));
+  return { group, page };
+}
+
+/** A progress bar that fills from left to right, its own +z toward whoever's watching. */
+function progressBar(): { group: THREE.Group; fill: THREE.Mesh } {
+  const group = new THREE.Group();
+  group.add(mesh(roundedBox(0.92, 0.2, 0.06, 0.07), toon('#2b2d42'), 0, 0, 0, false));
+  const geo = new THREE.BoxGeometry(0.8, 0.1, 0.04);
+  geo.translate(0.4, 0, 0);
+  const fill = mesh(geo, toon('#7cf29a', { emissive: '#1f7a3a' }), -0.4, 0, 0.02, false);
+  group.add(fill);
+  return { group, fill };
+}
+
+/** A little globe: blue sea, green blobs of land and a gold ring round its middle. */
+function globe(): { group: THREE.Group; ball: THREE.Group; ring: THREE.Mesh } {
+  const group = new THREE.Group();
+  const ball = new THREE.Group();
+  const r = 0.26;
+  ball.add(mesh(new THREE.SphereGeometry(r, 20, 14), toon('#4cc9f0'), 0, 0, 0, false));
+  const land = toon('#6fcf6a');
+  for (const [lat, lon, size] of [
+    [0.5, 0.2, 0.5],
+    [0.1, 0.9, 0.4],
+    [-0.4, 0.5, 0.45],
+    [0.3, 2.4, 0.6],
+    [-0.2, 3.3, 0.4],
+    [0.6, 4.4, 0.45],
+    [-0.5, 5.2, 0.35],
+  ]) {
+    const blob = mesh(new THREE.SphereGeometry(size * r, 10, 8), land, Math.cos(lat) * Math.sin(lon) * r * 0.86, Math.sin(lat) * r * 0.86, Math.cos(lat) * Math.cos(lon) * r * 0.86, false);
+    blob.scale.set(1.2, 0.8, 1.2);
+    ball.add(blob);
+  }
+  ball.rotation.z = 0.41;
+  group.add(ball);
+  const ring = mesh(new THREE.TorusGeometry(r * 1.35, 0.016, 6, 32), toon('#ffd166', { emissive: '#7a5b00' }), 0, 0, 0, false);
+  ring.rotation.x = Math.PI / 2 - 0.2;
+  group.add(ring);
+  return { group, ball, ring };
+}
 
 /** The little Claude worker that sits at a desk. Forward is +z. */
 export class Worker {
@@ -529,6 +936,25 @@ export class Worker {
   private leaving: { box: THREE.Group; boxT: number; stride: number } | null = null;
   /** Sent home and on its way out: it waddles along instead of standing. */
   walking = false;
+  /** What its latest tool call was (see setAction), and what it's acting out right now. */
+  private nextAction: WorkerAction | undefined;
+  private action: WorkerAction | undefined;
+  private actionT = 0;
+  /** How much of each act is in its stance right now, blending from one to the next. */
+  private acts = new Map<Act, number>();
+  private stance = {} as Stance;
+  private blend = {} as Stance;
+  /** Seconds it has been waiting on you, for the jump / tap-its-foot cycle. */
+  private waitT = 0;
+  private turnY = 0;
+  /** Seconds into its finishing spin, or -1. */
+  private twirlT = -1;
+  private flipT = 0;
+  private papers: ReturnType<typeof papers>;
+  private bar: ReturnType<typeof progressBar>;
+  private globe: ReturnType<typeof globe>;
+  /** Beside its laptop, where the bar and the globe float (see setPropSpot). */
+  private spot = new THREE.Vector3(-1, 1.1, 1.3);
 
   constructor(name: string, color: string) {
     const skin = toonUnique(color);
@@ -576,7 +1002,33 @@ export class Worker {
       this.feet.push(foot);
     }
 
+    // What it acts out with: papers in its hands, and beside its laptop a progress bar or a globe.
+    this.papers = papers();
+    this.papers.group.position.set(0, 0.86, 0.4);
+    this.papers.group.rotation.x = 0.35;
+    this.body.add(this.papers.group);
+    this.bar = progressBar();
+    this.globe = globe();
+    for (const prop of [this.papers.group, this.bar.group, this.globe.group]) prop.visible = false;
+    this.root.add(this.bar.group, this.globe.group);
+
     this.setName(name);
+  }
+
+  /** Where the progress bar and the globe float, in its own space: beside its laptop, where the card over its head doesn't hide them. */
+  setPropSpot(at: THREE.Vector3) {
+    this.spot.copy(at);
+  }
+
+  /** What its latest tool call was, to act out while it's working. */
+  setAction(action: WorkerAction | undefined) {
+    this.nextAction = action;
+  }
+
+  /** Just finished: a quick spin and a hop. */
+  celebrate() {
+    this.twirlT = 0;
+    this.cheer(1.2);
   }
 
   setName(name: string) {
@@ -615,6 +1067,12 @@ export class Worker {
     this.bouncing = false;
     this.cheerT = 0;
     this.bounceT = 0;
+    this.twirlT = -1;
+    for (const prop of [this.papers.group, this.bar.group, this.globe.group]) prop.visible = false;
+    this.armL.position.set(-0.3, 0.55, 0.05);
+    this.armR.position.set(0.3, 0.55, 0.05);
+    this.feet.forEach((f, i) => f.position.set(i ? 0.12 : -0.12, 0.2, 0.05));
+    for (const p of this.pupils) p.position.y = 0.7;
     this.bulb.color.set(STATUS_BULB.exited);
     this.bulb.emissive.set('#000000');
     if (this.bubble) {
@@ -663,44 +1121,121 @@ export class Worker {
     if (this.bubble) this.root.add(this.bubble);
   }
 
-  update(dt: number, t: number) {
+  /** `eye` is the camera, for the progress bar to face. */
+  update(dt: number, t: number, eye?: THREE.Vector3) {
     if (this.leaving) return this.carry(this.leaving, dt, t);
     this.cheerT = Math.max(0, this.cheerT - dt);
-    // Jump up and down when done / waiting on a human (except while held), or cheering.
+    // Waiting on you: a couple of seconds of jumping, then arms crossed and a tapping foot, and round again.
+    this.waitT = this.status === 'needs_input' ? this.waitT + dt : 0;
+    const tapping = this.status === 'needs_input' && (this.held || this.waitT % WAIT_CYCLE >= WAIT_HOPS);
+    // Jump up and down when done / waiting on a human (except while held or tapping), or cheering.
     if (this.bouncing || this.cheerT > 0) {
       const landAt = Math.ceil(this.bounceT / Math.PI) * Math.PI;
       this.bounceT += dt * 7;
-      if (this.held && !this.cheerT && this.bounceT >= landAt) this.bounceT = 0;
+      if ((this.held || tapping) && !this.cheerT && this.bounceT >= landAt) this.bounceT = 0;
     } else this.bounceT = 0;
     const hopping = this.bounceT > 0;
-    const working = this.status === 'working' && !hopping;
     // Pop-in when hired
     this.spawnT = Math.min(1, this.spawnT + dt * 2.5);
     const pop = this.spawnT < 1 ? 1 + Math.sin(this.spawnT * Math.PI) * 0.35 : 1;
-    // Typing arms
-    if (working) {
-      this.armL.rotation.x = -1.2 + Math.sin(t * 22) * 0.25;
-      this.armR.rotation.x = -1.2 + Math.sin(t * 22 + 1.7) * 0.25;
-    } else {
-      this.armL.rotation.x = THREE.MathUtils.lerp(this.armL.rotation.x, hopping || this.bouncing ? -2.6 : -0.3, 0.2);
-      this.armR.rotation.x = THREE.MathUtils.lerp(this.armR.rotation.x, hopping || this.bouncing ? -2.6 : -0.3, 0.2);
+
+    this.actionT += dt;
+    if (this.nextAction !== this.action && this.actionT >= (this.action === 'failing' ? DESPAIR_MIN : ACT_MIN)) {
+      this.action = this.nextAction;
+      this.actionT = 0;
+    }
+    const act: Act =
+      hopping || (this.bouncing && this.status === 'done') ? 'up'
+      : this.status === 'needs_input' ? 'waiting'
+      : this.status === 'working' ? (this.action ?? 'type')
+      : 'rest';
+    const s = this.pose(act, dt, t);
+
+    this.armL.rotation.set(s.armLx, 0, s.armLz);
+    this.armR.rotation.set(s.armRx, 0, s.armRz);
+    this.armL.position.set(-0.3 + s.reach * 0.07, 0.55 - s.drop, 0.05 + s.reach * 0.12);
+    this.armR.position.set(0.3 - s.reach * 0.07, 0.55 - s.drop + s.reach * 0.04, 0.05 + s.reach * 0.14);
+    this.feet.forEach((f, i) => f.position.set(i ? 0.12 : -0.12, 0.2 + (i ? s.tap * 0.07 : 0), 0.05 + s.kick + (i ? s.tap * 0.03 : 0)));
+    for (const p of this.pupils) p.position.y = 0.7 + s.look;
+    this.body.rotation.x = s.lean;
+    let twirl = 0;
+    if (this.twirlT >= 0) {
+      this.twirlT += dt;
+      twirl = ease(Math.min(1, this.twirlT / TWIRL_TIME)) * Math.PI * 2;
+      if (this.twirlT >= TWIRL_TIME) this.twirlT = -1;
     }
     if (hopping) {
-      const s = Math.abs(Math.sin(this.bounceT));
-      this.body.position.y = s * 0.55;
-      const squash = s < 0.15 ? 1 - (0.15 - s) * 1.6 : 1;
+      const h = Math.abs(Math.sin(this.bounceT));
+      this.body.position.y = h * 0.55;
+      const squash = h < 0.15 ? 1 - (0.15 - h) * 1.6 : 1;
       this.body.scale.set(pop * (2 - squash), pop * squash, pop * (2 - squash));
-      this.body.rotation.y = Math.sin(this.bounceT * 0.5) * 0.3;
+      this.turnY = Math.sin(this.bounceT * 0.5) * 0.3;
     } else {
-      this.body.position.y = working ? Math.abs(Math.sin(t * 11)) * 0.02 : Math.sin(t * 2) * 0.015;
+      this.body.position.y = s.lift;
       this.body.scale.setScalar(pop);
-      this.body.rotation.y = THREE.MathUtils.lerp(this.body.rotation.y, 0, 0.1);
+      this.turnY += (s.turn - this.turnY) * Math.min(1, dt * 6);
     }
-    this.blink(dt);
+    this.body.rotation.y = this.turnY + twirl;
+    this.body.rotation.z = isAsleep(this.status) ? Math.sin(t * 1.5) * 0.08 : s.roll;
+    this.props(dt, t, eye);
+    this.blink(dt, s.lid);
     this.bulbMesh.scale.setScalar(this.status === 'needs_input' ? 1 + Math.abs(Math.sin(t * 8)) * 0.5 : 1);
-    if (isAsleep(this.status)) this.body.rotation.z = Math.sin(t * 1.5) * 0.08;
     if (this.bubble) this.bubble.position.y = (this.bubbleIsCard ? 1.74 : 1.95) + (hopping ? this.body.position.y : 0) + Math.sin(t * 3) * 0.03;
     if (this.nameTag) this.nameTag.position.y = 1.55 + (hopping ? this.body.position.y : 0);
+  }
+
+  /** Eases toward `act`'s stance, out of whatever it was doing before. */
+  private pose(act: Act, dt: number, t: number): Stance {
+    const k = Math.min(1, dt * 8);
+    if (!this.acts.has(act)) this.acts.set(act, 0);
+    const out = this.blend;
+    for (const key of STANCE_KEYS) out[key] = 0;
+    let total = 0;
+    for (const [a, w0] of this.acts) {
+      const w = w0 + ((a === act ? 1 : 0) - w0) * k;
+      if (a !== act && w < 0.01) {
+        this.acts.delete(a);
+        continue;
+      }
+      this.acts.set(a, w);
+      const s = stanceOf(a, t, this.stance);
+      for (const key of STANCE_KEYS) out[key] += s[key] * w;
+      total += w;
+    }
+    for (const key of STANCE_KEYS) out[key] /= total;
+    return out;
+  }
+
+  /** The papers, the progress bar and the globe come and go with the act they belong to. */
+  private props(dt: number, t: number, eye?: THREE.Vector3) {
+    const show = (prop: THREE.Object3D, act: Act) => {
+      const w = this.acts.get(act) ?? 0;
+      prop.visible = w > 0.02;
+      if (prop.visible) prop.scale.setScalar(Math.max(0.001, popIn(w)));
+      return prop.visible;
+    };
+    if (show(this.papers.group, 'read')) {
+      // A page every second or so, flipped up and over the top.
+      this.flipT = (this.flipT + dt) % 1.1;
+      const f = Math.min(1, this.flipT / 0.45);
+      this.papers.page.rotation.x = -ease(f) * Math.PI * 1.1;
+      this.papers.page.visible = f < 1;
+    }
+    if (show(this.bar.group, 'test')) {
+      // Fills over a couple of seconds, holds full for a beat, starts over.
+      const c = t % 3;
+      this.bar.fill.scale.x = Math.max(0.02, ease(Math.min(1, c / 2.4)));
+      this.bar.group.position.copy(this.spot).y += Math.sin(t * 2) * 0.02;
+      if (eye) {
+        this.root.worldToLocal(v1.copy(eye));
+        this.bar.group.rotation.y = Math.atan2(v1.x - this.bar.group.position.x, v1.z - this.bar.group.position.z);
+      }
+    }
+    if (show(this.globe.group, 'web')) {
+      this.globe.group.position.copy(this.spot).y += Math.sin(t * 2) * 0.03;
+      this.globe.ball.rotation.y = t * 2.2;
+      this.globe.ring.rotation.z = t * 0.6;
+    }
   }
 
   /** Sent home: head hung, the box in its arms, waddling along while `walking`. */
@@ -732,11 +1267,12 @@ export class Worker {
     if (this.nameTag) this.nameTag.position.y = 1.55;
   }
 
-  private blink(dt: number) {
+  /** `lid` narrows the eyes (1 = wide open) between blinks. */
+  private blink(dt: number, lid = 1) {
     this.blinkAt -= dt;
     const blinking = this.blinkAt < 0.12 && this.blinkAt > 0;
     if (this.blinkAt < 0) this.blinkAt = 2 + Math.random() * 4;
-    for (const e of this.eyes) e.scale.y = blinking ? 0.1 : 1;
+    for (const e of this.eyes) e.scale.y = blinking ? 0.1 : lid;
   }
 
   dispose() {

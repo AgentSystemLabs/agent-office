@@ -819,3 +819,90 @@ test('the queue agent is launched without file-editing tools, and board agents g
   assert.equal(denied(deskLaunch.args), undefined);
   assert.equal((deskLaunch.env.path ?? '').split(path.delimiter).includes(bin), false);
 });
+
+test('a Claude worker acts out its latest tool call, and puts its head in its hands when its tests keep failing', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const previousExit = process.env.FAKE_AGENT_EXIT_MS;
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_EXIT_MS = '5000';
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousExit === undefined) delete process.env.FAKE_AGENT_EXIT_MS;
+    else process.env.FAKE_AGENT_EXIT_MS = previousExit;
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+  const workers = manager(f, f.claude, []);
+  t.after(() => workers.shutdown());
+  const worker = workers.spawn('desk-1', 'test', 'make the tests pass');
+  if (typeof worker === 'string') return assert.fail(worker);
+  const [launch] = await waitFor(() => f.read().filter((r) => r.kind === 'claude' && r.args.includes('--settings')), (l) => l.length === 1);
+  const settings = JSON.parse(readFileSync(launch.args[launch.args.indexOf('--settings') + 1], 'utf8'));
+  assert.ok(settings.hooks.PostToolUseFailure, 'failed tool calls are reported');
+
+  const token = launch.env.hookToken!;
+  const hook = (event: string, payload: object) => assert.equal(workers.handleHook(worker.id, token, event, { session_id: 'acting', ...payload }), true);
+  const action = () => workers.get(worker.id)?.action;
+  const npmTest = { tool_name: 'Bash', tool_input: { command: 'npm test 2>&1 | tail -5' } };
+  hook('SessionStart', {});
+  hook('UserPromptSubmit', { prompt: 'make the tests pass' });
+  assert.equal(action(), undefined);
+  hook('PreToolUse', { tool_name: 'Read', tool_input: { file_path: 'src/a.ts' } });
+  assert.equal(action(), 'read');
+  hook('PreToolUse', npmTest);
+  assert.equal(action(), 'test');
+  // Failed once (by exit code): still watching. An interrupt isn't a failure.
+  hook('PostToolUseFailure', { ...npmTest, error: 'Exit code 1\n# fail 2', is_interrupt: false });
+  hook('PostToolUseFailure', { ...npmTest, error: 'Interrupted', is_interrupt: true });
+  assert.equal(action(), 'test');
+  hook('PreToolUse', { tool_name: 'Edit', tool_input: { file_path: 'src/a.ts' } });
+  assert.equal(action(), 'edit');
+  // Failed again, by the summary it printed through the pipe: head in hands, until its next tool call.
+  hook('PreToolUse', npmTest);
+  hook('PostToolUse', { ...npmTest, tool_response: { stdout: '# tests 5\n# pass 3\n# fail 2', stderr: '' } });
+  assert.equal(action(), 'failing');
+  hook('PreToolUse', npmTest);
+  assert.equal(action(), 'test');
+  // A pass ends the streak: one more failure isn't "again and again".
+  hook('PostToolUse', { ...npmTest, tool_response: { stdout: '# tests 5\n# pass 5\n# fail 0', stderr: '' } });
+  hook('PreToolUse', npmTest);
+  hook('PostToolUseFailure', { ...npmTest, error: 'Exit code 1' });
+  assert.equal(action(), 'test');
+  // A failing command that isn't a test run doesn't count.
+  hook('PostToolUseFailure', { tool_name: 'Bash', tool_input: { command: 'git push' }, error: 'Exit code 1' });
+  assert.equal(action(), 'test');
+  hook('Stop', {});
+  assert.equal(workers.get(worker.id)?.status, 'done');
+  assert.equal(action(), undefined);
+});
+
+test('a worker is stamped with when it started waiting on someone, afresh each time', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const oldLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => { if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG; else process.env.FAKE_AGENT_LOG = oldLog; f.close(); });
+  const workers = manager(f, f.claude, []);
+  t.after(() => workers.shutdown());
+  const worker = workers.spawn('desk-1', 'test', 'fix the login');
+  assert.notEqual(typeof worker, 'string'); if (typeof worker === 'string') return;
+  const calls = await waitFor(f.read, (x) => x.some((r) => r.kind === 'claude' && r.args.includes('--settings')));
+  const token = calls.find((r) => r.kind === 'claude' && r.args.includes('--settings'))!.env.hookToken!;
+  const hook = (event: string, extra = {}) => workers.handleHook(worker.id, token, event, { session_id: 'waiting', ...extra });
+  hook('SessionStart');
+  hook('UserPromptSubmit', { prompt: 'fix the login' });
+  assert.equal(worker.status, 'working');
+  assert.equal(worker.waitingSince, undefined);
+  const before = Date.now();
+  hook('PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'npm test' } });
+  assert.equal(worker.status, 'needs_input');
+  const asked = worker.waitingSince!;
+  assert.ok(asked >= before && asked <= Date.now());
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  hook('PostToolUse', { tool_name: 'Bash' });
+  hook('Stop');
+  assert.equal(worker.status, 'done');
+  assert.ok(worker.waitingSince! > asked, 'finishing is a new wait');
+});

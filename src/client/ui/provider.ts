@@ -127,6 +127,15 @@ function preferredEffort(key: string): AgentEffort | undefined {
   return undefined;
 }
 
+/**
+ * What a picker remembered at `key` starts on, for hiring without showing one (an issue card
+ * dropped on a desk): the provider last picked anywhere, and that key's Claude model and effort.
+ */
+export function rememberedChoice(project: ProjectInfo | null, key: string): { provider: AgentProvider; model?: string; effort?: AgentEffort } {
+  const provider = preferredProvider(supportedProviders(project), resolvedProvider(project?.defaultProvider, project));
+  return provider === 'claude' ? { provider, model: preferredClaudeModel(key), effort: preferredEffort(key) } : { provider };
+}
+
 const MODEL_MAX = 256;
 let modelList: string[] | null = null;
 let modelListAt = 0;

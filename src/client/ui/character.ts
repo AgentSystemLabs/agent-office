@@ -207,7 +207,7 @@ export function openCharacter(first: boolean, onSave: (p: Profile) => void) {
     h('footer', {}, surprise, h('span.grow'), save),
   ) as HTMLFormElement;
 
-  const modal = openModal(form, { escCloses: !first, backdropCloses: !first, onClose: () => preview.dispose() });
+  const modal = openModal(form, { escCloses: !first, backdropCloses: !first, doing: '🪞 picking a new look', onClose: () => preview.dispose() });
   close?.addEventListener('click', () => modal.close());
   form.addEventListener('submit', (e) => {
     e.preventDefault();

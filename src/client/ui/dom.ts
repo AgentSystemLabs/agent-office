@@ -29,6 +29,8 @@ export function $(id: string): HTMLElement {
 export interface Modal {
   el: HTMLElement;
   backdrop: HTMLElement;
+  /** What having it open says you're doing, under your name tag (see PeerInfo.doing). */
+  doing?: string;
   close(): void;
 }
 
@@ -43,8 +45,17 @@ export function modalOpen(): boolean {
   return stack.length > 0;
 }
 
-/** Opens a modal. Esc closes it unless `escCloses` is false (for dialogs you mustn't skip). */
-export function openModal(content: HTMLElement, opts: { escCloses?: boolean; onClose?: () => void; backdropCloses?: boolean } = {}): Modal {
+/** What the open windows say you're doing: the topmost one that says anything (a merge dialog over a PR is still "reading PR #12"). */
+export function doingNow(): string | undefined {
+  for (let i = stack.length - 1; i >= 0; i--) if (stack[i].doing) return stack[i].doing;
+  return undefined;
+}
+
+/**
+ * Opens a modal. Esc closes it unless `escCloses` is false (for dialogs you mustn't skip). `doing`
+ * is what teammates see under your name tag while it's open, like "reading PR #12".
+ */
+export function openModal(content: HTMLElement, opts: { escCloses?: boolean; onClose?: () => void; backdropCloses?: boolean; doing?: string } = {}): Modal {
   const backdrop = h('div.backdrop', {}, content);
   const root = document.getElementById('modal-root')!;
   root.append(backdrop);
@@ -61,6 +72,7 @@ export function openModal(content: HTMLElement, opts: { escCloses?: boolean; onC
   const modal: Modal = {
     el: content,
     backdrop,
+    doing: opts.doing,
     close() {
       if (closed) return;
       closed = true;
@@ -85,7 +97,7 @@ export function closeAllModals() {
   while (stack.length) stack[stack.length - 1].close();
 }
 
-export function toast(text: string, level: 'info' | 'warn' | 'error' = 'info') {
+export function toast(text: string, level: 'info' | 'warn' | 'error' = 'info'): HTMLElement {
   const el = h('div.toast', { class: level }, text);
   document.getElementById('toasts')!.append(el);
   setTimeout(() => {
@@ -93,6 +105,7 @@ export function toast(text: string, level: 'info' | 'warn' | 'error' = 'info') {
     el.style.opacity = '0';
     setTimeout(() => el.remove(), 300);
   }, 3500);
+  return el;
 }
 
 export function timeAgo(iso: string | number): string {

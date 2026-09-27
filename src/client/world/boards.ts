@@ -3,10 +3,10 @@ import { DESK_BY_ID } from '../../shared/layout';
 import type { GhIssue, GhPull, GhState, QueueState, QueueTask, ServiceInfo, WorkerInfo } from '../../shared/protocol';
 import { workerForPull } from '../state';
 
-const NOTE_COLORS = ['#fff7b0', '#ffd6e0', '#caffbf', '#bde0fe', '#ffe5b4'];
-const PINS = ['#ef476f', '#118ab2', '#06d6a0', '#ffd166'];
+export const NOTE_COLORS = ['#fff7b0', '#ffd6e0', '#caffbf', '#bde0fe', '#ffe5b4'];
+export const PINS = ['#ef476f', '#118ab2', '#06d6a0', '#ffd166'];
 
-function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number, maxLines: number): string[] {
+export function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number, maxLines: number): string[] {
   const words = text.split(/\s+/);
   const lines: string[] = [];
   let cur = '';
