@@ -19,6 +19,17 @@ import type { NightParts } from './outside';
 
 const MAX_LAMPS = 24;
 const DEG = Math.PI / 180;
+/**
+ * The furthest off the haze ever is, however high up you are: past that nothing's built (the grass
+ * and the road round the office end there, the city round the roof just past it), so it hides that.
+ */
+export const HAZE_MAX = 300;
+/**
+ * The haze thins out with height over the street: past HAZE_CLEAR meters up, every HAZE_ABOVE
+ * meters more you see as far again as down on the street (from the roof of six floors, 3.4 times).
+ */
+const HAZE_CLEAR = 6;
+const HAZE_ABOVE = 17.5;
 /** The building, walls included: the office upstairs and the garage under it. */
 const B = { minX: FLOOR.minX - WALL_T, maxX: FLOOR.maxX + WALL_T, minZ: FLOOR.minZ - WALL_T, maxZ: FLOOR.maxZ + WALL_T } as const;
 
@@ -42,6 +53,8 @@ const uniforms = {
   skySnow: { value: 0 },
   /** How much further down the garage is than from the bottom floor: a storey for each floor below yours. */
   skyDrop: { value: 0 },
+  /** Where the street is, which the haze thins out with height over. */
+  skyStreet: { value: STREET_Y },
 };
 
 const v3 = (x: number, y: number, z: number) => `vec3(${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)})`;
@@ -118,9 +131,55 @@ const WORLD = /* glsl */ `
 }
 `;
 
-// Every lit material gets the lines above, sharing one set of uniforms. Nothing else in the office
-// uses onBeforeCompile, so this is its default; unlit ones (glass, signs, outlines) are left alone.
+/**
+ * The haze, over three.js's own fog: it thins out with height over the street (see HAZE_ABOVE), as
+ * thin as it is at your eye or at what you're looking at, whichever is higher. So from high up you
+ * see further, the street below included, and from down on the street the top of the building is
+ * as clear as the view from up there. Past HAZE_MAX there's nothing to see, whatever the height.
+ */
+const HAZE_PARS_VERTEX = /* glsl */ `
+#ifdef USE_FOG
+  varying float vSkyFogY;
+#endif
+`;
+
+/** How high the vertex is: the view matrix undone (its rotation's transpose), from the camera. */
+const HAZE_VERTEX = /* glsl */ `
+#ifdef USE_FOG
+  vSkyFogY = dot( viewMatrix[ 1 ].xyz, mvPosition.xyz ) + cameraPosition.y;
+#endif
+`;
+
+const HAZE_PARS = /* glsl */ `
+#ifdef USE_FOG
+  varying float vSkyFogY;
+  uniform float skyStreet;
+#endif
+`;
+
+const HAZE = /* glsl */ `
+#ifdef USE_FOG
+  #ifdef FOG_EXP2
+    float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
+  #else
+    // How many times as far off the haze is as down on the street; and past HAZE_MAX, from 45% of
+    // the way there, as the haze on the roof always went.
+    float skyReach = 1.0 + max( max( cameraPosition.y, vSkyFogY ) - skyStreet - ${HAZE_CLEAR.toFixed(1)}, 0.0 ) / ${HAZE_ABOVE.toFixed(1)};
+    float fogFactor = max( smoothstep( fogNear, fogFar, vFogDepth / skyReach ), smoothstep( ${(HAZE_MAX * 0.45).toFixed(1)}, ${HAZE_MAX.toFixed(1)}, vFogDepth ) );
+  #endif
+  gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );
+#endif
+`;
+
+// Everything with fog gets the haze above; every lit material also gets the lines before that,
+// sharing one set of uniforms. Nothing else in the office uses onBeforeCompile, so this is its
+// default; unlit ones (glass, signs, outlines) only get the haze.
 THREE.Material.prototype.onBeforeCompile = function (shader) {
+  if (shader.fragmentShader.includes('#include <fog_fragment>')) {
+    shader.uniforms.skyStreet = uniforms.skyStreet;
+    shader.vertexShader = shader.vertexShader.replace('#include <fog_pars_vertex>', `#include <fog_pars_vertex>\n${HAZE_PARS_VERTEX}`).replace('#include <fog_vertex>', `#include <fog_vertex>\n${HAZE_VERTEX}`);
+    shader.fragmentShader = shader.fragmentShader.replace('#include <fog_pars_fragment>', `#include <fog_pars_fragment>\n${HAZE_PARS}`).replace('#include <fog_fragment>', HAZE);
+  }
   if (!shader.fragmentShader.includes('#include <lights_fragment_end>')) return;
   Object.assign(shader.uniforms, uniforms);
   shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vSkyWorld;').replace('#include <project_vertex>', `#include <project_vertex>\n${WORLD}`);
@@ -316,6 +375,8 @@ export class Sky {
   lampsOn = 0;
   /** Up on the roof: out in the open, over the whole city (see setRoof). */
   private roof = false;
+  /** Where the street is from up there (the roof is at 0), for the haze. */
+  private roofStreet = 0;
 
   private state: SkyState;
   private heard = false;
@@ -486,12 +547,13 @@ export class Sky {
   }
 
   /**
-   * Up on the roof (or back down on a floor). Up there it's all outdoors: no lamplight from the office
-   * under your feet, no pools of light from the street lamps far below, rain everywhere, and the haze
-   * much further off so the city shows.
+   * Up on the roof, `drop` over the street (or back down on a floor). Up there it's all outdoors: no
+   * lamplight from the office under your feet, no pools of light from the street lamps far below, and
+   * rain everywhere. The haze thins out with height over the street far below (see HAZE).
    */
-  setRoof(on: boolean) {
+  setRoof(on: boolean, drop = 0) {
     this.roof = on;
+    this.roofStreet = -drop;
     uniforms.skyInside.value = on ? 0 : 1;
   }
 
@@ -635,10 +697,11 @@ export class Sky {
     const fog = this.scene.fog as THREE.Fog;
     fog.color.copy(sky);
     const precip = Math.max(this.rain, this.snow);
-    // From the roof you see across the city, not just the street.
-    const reach = this.roof ? 3.4 : 1;
-    fog.near = lerp(40, 3, this.fog) * (1 - 0.4 * precip) * reach;
-    fog.far = lerp(90, 28, this.fog) * (1 - 0.3 * precip) * reach;
+    // How far off the haze is down on the street; the higher up, the thinner it is (see HAZE), so
+    // the street never goes into it from the top floors, and from the roof you see across the city.
+    fog.near = lerp(40, 3, this.fog) * (1 - 0.4 * precip);
+    fog.far = lerp(90, 28, this.fog) * (1 - 0.3 * precip);
+    uniforms.skyStreet.value = this.roof ? this.roofStreet : this.night.street;
     this.night.clouds.color.copy(C.white).lerp(C.cloudGrey, this.cover).lerp(SPOOKY.cloud, sp);
     this.night.clouds.visible = this.fog < 0.6;
     // Halloween's gradient, over the flat sky: dark overhead, the sky's color at the horizon, which the fog fades into.

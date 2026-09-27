@@ -32,6 +32,8 @@ export interface Rooftop {
   interactables: Interactable[];
   elevator: Elevator;
   city: City;
+  /** The building has `floors` floors under the roof: the street is as far down as that is tall (see City). */
+  setFloors(floors: number): void;
   /** What looking or clicking can land on: everything but the city far below. */
   pickables: THREE.Object3D[];
   /** Where drinks are poured, for the sound of one. */
@@ -237,7 +239,7 @@ class Dj {
 
 // ---- The rooftop --------------------------------------------------------------------------------
 
-export function buildRooftop(night: NightParts): Rooftop {
+export function buildRooftop(night: NightParts, floors: number): Rooftop {
   const group = new THREE.Group();
   const colliders: Collider[] = [];
   const interactables: Interactable[] = [];
@@ -248,6 +250,7 @@ export function buildRooftop(night: NightParts): Rooftop {
   const cz = (B.minZ + B.maxZ) / 2;
 
   const city = buildCity(night);
+  city.setFloors(floors);
   group.add(city.group);
 
   // The deck, and the slab it's laid on (the top of the building).
@@ -833,6 +836,7 @@ export function buildRooftop(night: NightParts): Rooftop {
     interactables,
     elevator,
     city,
+    setFloors: (n) => city.setFloors(n),
     pickables: group.children.filter((c) => c !== city.group),
     pourAt: { x: bx + 0.2, y: ROOF_BAR.height + 0.2, z: bz },
     serve(z: number) {
