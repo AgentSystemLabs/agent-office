@@ -454,6 +454,16 @@ export interface FloorInfo {
   people: number;
 }
 
+/** Where the elevator's "add a project" clones to: <dir>/<owner>/<repo> on the office's machine. */
+export interface ProjectsDirState {
+  /** For showing people: under the home folder it's ~/…. */
+  dir: string;
+  /** Set from ⚙️ Settings or --projects, rather than the office's default. */
+  custom: boolean;
+  by?: string;
+  at?: number;
+}
+
 /** A repository the office's `gh` login can clone, for the elevator's "add a project". */
 export interface RepoChoice {
   /** owner/name */
@@ -805,6 +815,8 @@ export type ClientMsg =
   | { t: 'floor.repos'; refresh?: boolean }
   /** Clone a repository and make it a new floor; answered with `floor.added` once it's there. */
   | { t: 'floor.add'; repo: string }
+  /** Where new floors are cloned from now on (admins only); '' goes back to the default. */
+  | { t: 'floor.projectsDir'; dir: string }
   /** Give the dog on your floor a pat; it has to be within reach. */
   | { t: 'dog.pet' }
   /** Name the dog on your floor ('' gives it back its first name). */
@@ -819,7 +831,7 @@ export type ServerMsg =
       /** Every floor of the building, for the elevator. */
       floors: FloorInfo[];
       /** Where new projects are cloned to, on the office's machine. */
-      projectsDir: string;
+      projectsDir: ProjectsDirState;
       ice: { urls: string | string[]; username?: string; credential?: string }[];
       chat: ChatLine[];
       /** Whether teammates can be invited from the office (see TeamState). */
@@ -842,6 +854,8 @@ export type ServerMsg =
   | { t: 'floor.repos'; repos: RepoChoice[]; error?: string }
   /** Sent to whoever asked for the floor, once it's cloned (or couldn't be). */
   | { t: 'floor.added'; repo: string; floor?: string; error?: string }
+  /** The projects folder moved (see floor.projectsDir). */
+  | { t: 'projectsDir'; state: ProjectsDirState }
   | { t: 'peer.join'; peer: PeerInfo }
   | { t: 'peer.update'; peer: PeerInfo }
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }

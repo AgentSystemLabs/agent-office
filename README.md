@@ -98,7 +98,7 @@ agent-office --password 'correct horse battery staple'
 
 It prints the URLs your teammates can open. If you leave out `--password`, it generates one, saves it in `~/agent-office/.agent-office/config.json` and prints it. Open the office and the elevator asks for your first project.
 
-The office keeps its data in `~/agent-office` (`--home` or `AGENT_OFFICE_HOME` to move it) and clones projects next to it (`--projects` or `AGENT_OFFICE_PROJECTS`). The list of floors is `~/agent-office/.agent-office/floors.json`. Each floor keeps its workers, queue, pictures and worktrees in its own checkout's `.agent-office/`.
+The office keeps its data in `~/agent-office` (`--home` or `AGENT_OFFICE_HOME` to move it) and clones projects next to it, as `~/agent-office/<owner>/<repo>`. To clone them somewhere else, like `~/Workspace`, an admin picks the **Workspace folder** in ⚙️ Settings (or start with `--projects` or `AGENT_OFFICE_PROJECTS`). Floors you already have stay where they are, and a checkout of the same repository that's already in the new folder is used as it is. The list of floors is `~/agent-office/.agent-office/floors.json`. Each floor keeps its workers, queue, pictures and worktrees in its own checkout's `.agent-office/`.
 
 To start the office in a project you already have, pass its folder: `agent-office ~/code/my-project`. That project becomes a floor, and the office keeps its data in `~/code/my-project/.agent-office` as it always did. An office that already ran in a project (from before there were floors) carries on in it when you start `agent-office` there again.
 
@@ -122,7 +122,8 @@ agent-office accounts password on          # if every admin is ever locked out
 agent-office [dir] [options]
 
       --home <dir>        Where the office keeps its data without a [dir] (default ~/agent-office)
-      --projects <dir>    Where new floors are cloned, as <dir>/<owner>/<repo> (default ~/agent-office)
+      --projects <dir>    Where new floors are cloned, as <dir>/<owner>/<repo> (default ~/agent-office;
+                          also settable from ⚙️ Settings)
   -p, --port <n>          Port (default 4600, env PORT)
   -H, --host <addr>       Bind address (default 0.0.0.0)
       --password <pw>     Office password (env AGENT_OFFICE_PASSWORD)

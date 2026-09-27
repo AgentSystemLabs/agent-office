@@ -1,4 +1,4 @@
-import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, MachineState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
+import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, MachineState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
@@ -6,7 +6,7 @@ import { newer, type WbElement } from '../shared/whiteboard';
 import type { DogState } from '../shared/dog';
 import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'machine' | 'floors' | 'floor' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'whiteboard' | 'drawing';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'whiteboard' | 'drawing';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -126,7 +126,7 @@ class Store {
   floors: FloorInfo[] = [];
   floor: string | null = null;
   /** Where the office clones new floors to. */
-  projectsDir = '';
+  projectsDir: ProjectsDirState = { dir: '', custom: false };
   /** The repositories the office's gh login can clone, once asked for (see floor.repos). */
   repos: { list: RepoChoice[]; error?: string; loading: boolean; at: number } = { list: [], loading: false, at: 0 };
   issues: GhState<GhIssue> = { items: [], fetchedAt: 0, loading: true };
@@ -258,7 +258,7 @@ class Store {
         this.clock = undefined; // compared again, in case it's another office (or the same one, restarted)
         this.sky = msg.sky;
         this.enter(msg);
-        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'floors', 'sky'] as Topic[]) this.emit(t);
+        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'floors', 'projectsDir', 'sky'] as Topic[]) this.emit(t);
         break;
       case 'floor.enter':
         this.peers = new Map(msg.peers.map((p) => [p.id, p]));
@@ -268,6 +268,10 @@ class Store {
       case 'floors':
         this.floors = msg.floors;
         this.emit('floors');
+        break;
+      case 'projectsDir':
+        this.projectsDir = msg.state;
+        this.emit('projectsDir');
         break;
       case 'floor.repos':
         this.repos = { list: msg.repos, error: msg.error, loading: false, at: Date.now() };
