@@ -812,7 +812,7 @@ export class WorkerManager {
       });
     }
 
-    const shell = process.env.SHELL || '/bin/bash';
+    const shell = defaultShell();
     const isShell = info.kind === 'shell';
     const provider = info.provider;
     const isClaude = !isShell && provider === 'claude';
@@ -821,7 +821,7 @@ export class WorkerManager {
     const configured = !isShell && provider === this.defaultProvider;
     const command = this.command(info);
     const commandPath = isShell ? undefined : configured ? this.agentPath : resolveCommand(command);
-    let args = isShell ? ['-l'] : configured ? [...this.agentArgs] : [];
+    let args = isShell ? (WIN && !process.env.SHELL ? [] : ['-l']) : configured ? [...this.agentArgs] : [];
     if (isClaude) {
       args.unshift('--settings', this.settingsPath);
       if (resumeSessionId) args.push('--resume', resumeSessionId);
@@ -873,7 +873,7 @@ export class WorkerManager {
       } else {
         // Not found on PATH: let a login shell find it (nvm, asdf, ~/.local/bin ...).
         const line = ['exec', command, ...args].map((a, i) => (i < 2 ? a : shq(a))).join(' ');
-        proc = this.host.spawn({ file: shell, args: ['-l', '-i', '-c', line], ...where });
+        proc = this.host.spawn({ file: shell, args: shellRun(line), ...where });
       }
     } catch (err) {
       this.startFailed(w, (err as Error).message);
@@ -1015,7 +1015,7 @@ export class WorkerManager {
 
   /** What a worker's terminal runs: the shell, the configured agent command, or another provider's CLI. */
   private command(info: WorkerInfo): string {
-    if (info.kind === 'shell') return process.env.SHELL || '/bin/bash';
+    if (info.kind === 'shell') return defaultShell();
     return info.provider === this.defaultProvider ? this.agentCmd : info.provider ?? this.agentCmd;
   }
 
@@ -1413,28 +1413,45 @@ function screenText(term: HeadlessTerminal, from = 0): string {
   return out.join('\n');
 }
 
+const WIN = process.platform === 'win32';
+
+/** The shell workers get when none is configured: $SHELL on Unix, cmd.exe on Windows. */
+export function defaultShell(): string {
+  return process.env.SHELL || (WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/bash');
+}
+
+/** How to have the default shell run one command line. */
+function shellRun(line: string): string[] {
+  return WIN && !process.env.SHELL ? ['/d', '/s', '/c', line] : ['-l', '-i', '-c', line];
+}
+
 export function resolveCommand(cmd: string): string | null {
-  if (cmd.includes('/')) {
-    try {
-      accessSync(cmd, constants.X_OK);
-      return path.resolve(cmd);
-    } catch {
-      return null;
+  // Windows runs files by extension: `claude` is really claude.exe / claude.cmd. An npm shim with
+  // no extension is a sh script the console can't run, so only take it when asked for by name.
+  const exts = WIN && !path.extname(cmd) ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean) : [''];
+  const usable = (p: string): string | null => {
+    for (const ext of exts) {
+      try {
+        accessSync(p + ext, constants.X_OK);
+        return p + ext;
+      } catch {
+        // keep looking
+      }
     }
+    return null;
+  };
+  if (cmd.includes('/') || (WIN && cmd.includes('\\'))) {
+    const found = usable(cmd);
+    return found && path.resolve(found);
   }
   for (const dir of (process.env.PATH || '').split(path.delimiter)) {
     if (!dir) continue;
-    const p = path.join(dir, cmd);
-    try {
-      accessSync(p, constants.X_OK);
-      return p;
-    } catch {
-      // keep looking
-    }
+    const found = usable(path.join(dir, cmd));
+    if (found) return found;
   }
+  if (WIN && !process.env.SHELL) return null;
   try {
-    const shell = process.env.SHELL || '/bin/bash';
-    const found = execFileSync(shell, ['-l', '-i', '-c', `command -v ${shq(cmd)}`], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] })
+    const found = execFileSync(defaultShell(), ['-l', '-i', '-c', `command -v ${shq(cmd)}`], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] })
       .trim()
       .split('\n')
       .pop();
