@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ELEVATOR, ELEVATOR_CAR, ELEVATOR_FRONT, FLOOR, WALL_HEIGHT } from '../../shared/layout';
+import { CEILING_HEIGHT, ELEVATOR, ELEVATOR_CAR, ELEVATOR_FRONT, FLOOR, WALL_HEIGHT } from '../../shared/layout';
 import { mesh, roundedBox, textPlane, toon } from './toon';
 import type { Collider, Interactable } from './office';
 
@@ -41,7 +41,7 @@ export function buildElevator(): Elevator {
 
   // Side walls, the whole height of the room.
   for (const sx of [minX + wall / 2, maxX - wall / 2]) {
-    group.add(mesh(new THREE.BoxGeometry(wall, WALL_HEIGHT, depth), steel, sx, WALL_HEIGHT / 2, midZ));
+    group.add(mesh(new THREE.BoxGeometry(wall, CEILING_HEIGHT, depth), steel, sx, CEILING_HEIGHT / 2, midZ));
     colliders.push({ minX: sx - wall / 2, maxX: sx + wall / 2, minZ: back, maxZ: front, top: 99 });
   }
   // The front: a pillar either side of the doorway, and a header over it up to the ceiling line.
@@ -50,10 +50,10 @@ export function buildElevator(): Elevator {
     [minX, x - doorWidth / 2],
     [x + doorWidth / 2, maxX],
   ]) {
-    group.add(mesh(new THREE.BoxGeometry(pillar, WALL_HEIGHT, wall), steel, (x0 + x1) / 2, WALL_HEIGHT / 2, front - wall / 2));
+    group.add(mesh(new THREE.BoxGeometry(pillar, CEILING_HEIGHT, wall), steel, (x0 + x1) / 2, CEILING_HEIGHT / 2, front - wall / 2));
     colliders.push({ minX: x0, maxX: x1, minZ: front - wall, maxZ: front, top: 99 });
   }
-  const header = WALL_HEIGHT - doorHeight;
+  const header = CEILING_HEIGHT - doorHeight;
   group.add(mesh(new THREE.BoxGeometry(doorWidth, header, wall), steel, x, doorHeight + header / 2, front - wall / 2));
   // A brass frame round the doorway, and a kick plate along the bottom of the shaft.
   const frameT = 0.08;
@@ -87,6 +87,8 @@ export function buildElevator(): Elevator {
   rail(inD - 0.5, ELEVATOR_CAR.minX + 0.06, midZ - 0.1, false);
   rail(inD - 0.5, ELEVATOR_CAR.maxX - 0.06, midZ - 0.1, false);
   group.add(mesh(new THREE.BoxGeometry(inW - 0.2, 0.06, 0.16), toon('#fff7d6', { emissive: '#ffe08a' }), x, doorHeight + 0.35, front - wall - 0.1, false));
+  // The car's ceiling, up where the camera can't get above it.
+  group.add(mesh(new THREE.BoxGeometry(inW, 0.06, inD), steel, x, WALL_HEIGHT, (ELEVATOR_CAR.minZ + ELEVATOR_CAR.maxZ) / 2, false));
 
   // The button panel inside, by the doors on the right as you face out (the west wall).
   const panelIn = new THREE.Group();

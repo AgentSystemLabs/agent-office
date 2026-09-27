@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FLOOR, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
+import { CEILING_HEIGHT, FLOOR, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
 import type { SkyState, Weather } from '../../shared/protocol';
 import { guessPlace, sunPosition } from '../../shared/sun';
 import type { NightParts } from './outside';
@@ -10,11 +10,12 @@ import type { NightParts } from './outside';
  * every frame it sets the sky's color, the fog, the sun (or the moon), the lamps that come on at
  * night, and the rain or snow.
  *
- * The office has no roof, and the sun and the sky light everything, inside and out, so at night the
- * room would go as dark as the street. A few lines added to every lit material (below) give light
- * back where there are lamps: the office and the garage fill with lamplight, and each street lamp,
- * the balcony's string lights and the lamp over the exit throw a pool of light around them. The
- * same lines darken the ground outside when it's wet and lay snow on whatever faces up out there.
+ * The sun and the sky light everything, inside and out (the office's ceiling lets the sun through,
+ * see buildCeiling in office.ts), so at night the room would go as dark as the street. A few lines
+ * added to every lit material (below) give light back where there are lamps: the office and the
+ * garage fill with lamplight, and each street lamp, the balcony's string lights and the lamp over
+ * the exit throw a pool of light around them. The same lines darken the ground outside when it's
+ * wet and lay snow on whatever faces up out there.
  */
 
 const MAX_LAMPS = 24;
@@ -55,9 +56,9 @@ uniform vec3 skyLampMax;
 uniform float skyWet;
 uniform float skySnow;
 
-// Inside the office's walls (and up through its open top).
+// Inside the office's walls, up to its ceiling.
 float skyInOffice( vec3 p ) {
-  vec3 d = max( ${v3(FLOOR.minX - 0.02, -0.06, FLOOR.minZ - 0.02)} - p, p - ${v3(FLOOR.maxX + 0.02, 40, FLOOR.maxZ + 0.02)} );
+  vec3 d = max( ${v3(FLOOR.minX - 0.02, -0.06, FLOOR.minZ - 0.02)} - p, p - ${v3(FLOOR.maxX + 0.02, CEILING_HEIGHT + 0.02, FLOOR.maxZ + 0.02)} );
   return 1.0 - smoothstep( 0.0, 0.12, length( max( d, 0.0 ) ) );
 }
 

@@ -3,6 +3,7 @@
 // upstairs over a garage whose floor is level with the street (STREET_Y).
 
 export const FLOOR = { minX: -18, maxX: 18, minZ: -13, maxZ: 13 } as const;
+/** How high things go on the walls downstairs: boards, pictures, the lamps. The walls go on up to CEILING_HEIGHT. */
 export const WALL_HEIGHT = 4.2;
 
 export interface DeskDef {
@@ -146,6 +147,11 @@ export const JUKEBOX = { x: FLOOR.maxX - 0.42, y: 0.75, z: 5.4, width: 1.3, dept
 export const LOFT = { minX: 9, maxX: FLOOR.maxX, minZ: 8, maxZ: FLOOR.maxZ, y: 3, height: 2.8 } as const;
 /** Its stairs climb east along the south wall and arrive at the loft's west door. */
 export const STAIRS = { fromX: 3, toX: LOFT.minX, minZ: 11.2, maxZ: FLOOR.maxZ, steps: 15 } as const;
+/**
+ * The office ceiling, over the whole floor. The loft is a mezzanine, so the room is double height:
+ * the outside walls go on up past WALL_HEIGHT to a ceiling clear of the loft's roof and its sign.
+ */
+export const CEILING_HEIGHT = LOFT.y + LOFT.height + 0.8;
 
 export const SPAWN = { x: 8, z: 7 } as const;
 
