@@ -1,9 +1,9 @@
-import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, QueueState, QueueTask, ServerMsg, ServicesState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
+import type { ChatLine, GhIssue, GhPull, GhState, NotifyState, PeerInfo, ProjectInfo, QueueState, QueueTask, ServerMsg, ServicesState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'queue';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'queue' | 'notify';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -44,17 +44,20 @@ export interface Settings {
   /** Office sounds, 0–1. */
   volume: number;
   muted: boolean;
+  /** Desktop notifications when a worker needs input or finishes while you're in another tab (once the browser allows them). */
+  notify: boolean;
 }
 
 const SETTINGS_KEY = 'agent-office.settings';
 
 export function loadSettings(): Settings {
-  const s: Settings = { view: 'first', volume: 0.7, muted: false };
+  const s: Settings = { view: 'first', volume: 0.7, muted: false, notify: true };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
     if (saved?.view === 'first' || saved?.view === 'third') s.view = saved.view;
     if (typeof saved?.volume === 'number' && Number.isFinite(saved.volume)) s.volume = Math.max(0, Math.min(1, saved.volume));
     if (typeof saved?.muted === 'boolean') s.muted = saved.muted;
+    if (typeof saved?.notify === 'boolean') s.notify = saved.notify;
   } catch {
     // storage blocked
   }
@@ -95,6 +98,8 @@ class Store {
   decor: Decoration[] = [];
   usage: UsageState = { total: zeroUsage(), today: zeroUsage(), day: '', pauseHiring: false };
   queue: QueueState = { tasks: [], maxWorkers: 0 };
+  /** The office's Slack / Discord webhook. */
+  notify: NotifyState = {};
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -137,7 +142,8 @@ class Store {
         this.decor = msg.decor;
         this.usage = msg.usage;
         this.queue = msg.queue;
-        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade', 'services', 'decor', 'usage', 'queue'] as Topic[]) this.emit(t);
+        this.notify = msg.notify;
+        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade', 'services', 'decor', 'usage', 'queue', 'notify'] as Topic[]) this.emit(t);
         break;
       case 'peer.join':
       case 'peer.update':
@@ -205,6 +211,10 @@ class Store {
       case 'queue':
         this.queue = msg.state;
         this.emit('queue');
+        break;
+      case 'notify':
+        this.notify = msg.state;
+        this.emit('notify');
         break;
       case 'chat':
         this.chat.push(msg);
