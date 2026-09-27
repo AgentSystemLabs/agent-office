@@ -52,10 +52,11 @@ export function doingNow(): string | undefined {
 }
 
 /**
- * Opens a modal. Esc closes it unless `escCloses` is false (for dialogs you mustn't skip). `doing`
+ * Opens a modal. Esc closes it unless `escCloses` is false (for dialogs you mustn't skip), and so
+ * does a ✕ in its top right corner unless `closeButton` is false (it follows `escCloses`). `doing`
  * is what teammates see under your name tag while it's open, like "reading PR #12".
  */
-export function openModal(content: HTMLElement, opts: { escCloses?: boolean; onClose?: () => void; backdropCloses?: boolean; doing?: string } = {}): Modal {
+export function openModal(content: HTMLElement, opts: { escCloses?: boolean; onClose?: () => void; backdropCloses?: boolean; closeButton?: boolean; doing?: string } = {}): Modal {
   const backdrop = h('div.backdrop', {}, content);
   const root = document.getElementById('modal-root')!;
   root.append(backdrop);
@@ -87,10 +88,21 @@ export function openModal(content: HTMLElement, opts: { escCloses?: boolean; onC
   backdrop.addEventListener('mousedown', (e) => {
     if (e.target === backdrop && opts.backdropCloses !== false) modal.close();
   });
+  if (opts.closeButton ?? opts.escCloses !== false) addCloseButton(content, () => modal.close());
   window.addEventListener('keydown', onKey, true);
   stack.push(modal);
   listeners.forEach((fn) => fn(true));
   return modal;
+}
+
+/** The ✕ for a window that didn't bring its own: at the end of its header, or else on its top right corner. */
+function addCloseButton(content: HTMLElement, close: () => void) {
+  if (content.querySelector('.close')) return;
+  const x = h('button.btn.close', { type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onclick: close }, '✕');
+  const header = content.querySelector(':scope > header');
+  if (header) return header.append(x);
+  x.classList.add('corner');
+  content.append(x);
 }
 
 export function closeAllModals() {

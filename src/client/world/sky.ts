@@ -19,12 +19,25 @@ import type { NightParts } from './outside';
 
 const MAX_LAMPS = 24;
 const DEG = Math.PI / 180;
+/**
+ * The furthest off the haze ever is, however high up you are: past that nothing's built (the grass
+ * and the road round the office end there, the city round the roof just past it), so it hides that.
+ */
+export const HAZE_MAX = 300;
+/**
+ * The haze thins out with height over the street: past HAZE_CLEAR meters up, every HAZE_ABOVE
+ * meters more you see as far again as down on the street (from the roof of six floors, 3.4 times).
+ */
+const HAZE_CLEAR = 6;
+const HAZE_ABOVE = 17.5;
 /** The building, walls included: the office upstairs and the garage under it. */
 const B = { minX: FLOOR.minX - WALL_T, maxX: FLOOR.maxX + WALL_T, minZ: FLOOR.minZ - WALL_T, maxZ: FLOOR.maxZ + WALL_T } as const;
 
 const uniforms = {
   /** Off while drawing your hands in first person, which live in a scene of their own. */
   skyOn: { value: 1 },
+  /** Off up on the roof, where the office and the garage (which are under your feet there) aren't lit. */
+  skyInside: { value: 1 },
   /** Lamplight filling the office, and the garage: color × strength, in the units of three.js lights. */
   skyOffice: { value: new THREE.Color(0, 0, 0) },
   skyGarage: { value: new THREE.Color(0, 0, 0) },
@@ -38,6 +51,10 @@ const uniforms = {
   /** How wet the ground is, and how much snow lies on it: 0–1. */
   skyWet: { value: 0 },
   skySnow: { value: 0 },
+  /** How much further down the garage is than from the bottom floor: a storey for each floor below yours. */
+  skyDrop: { value: 0 },
+  /** Where the street is, which the haze thins out with height over. */
+  skyStreet: { value: STREET_Y },
 };
 
 const v3 = (x: number, y: number, z: number) => `vec3(${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)})`;
@@ -45,6 +62,7 @@ const v3 = (x: number, y: number, z: number) => `vec3(${x.toFixed(3)}, ${y.toFix
 const PARS = /* glsl */ `
 varying vec3 vSkyWorld;
 uniform float skyOn;
+uniform float skyInside;
 uniform vec3 skyOffice;
 uniform vec3 skyGarage;
 uniform int skyLampCount;
@@ -54,6 +72,7 @@ uniform vec3 skyLampMin;
 uniform vec3 skyLampMax;
 uniform float skyWet;
 uniform float skySnow;
+uniform float skyDrop;
 
 // Inside the office's walls (and up through its open top).
 float skyInOffice( vec3 p ) {
@@ -61,9 +80,9 @@ float skyInOffice( vec3 p ) {
   return 1.0 - smoothstep( 0.0, 0.12, length( max( d, 0.0 ) ) );
 }
 
-// Under the office: walled at the back and on the west side, open to the street on the south and east.
+// Under the bottom floor: walled at the back and on the west side, open to the street on the south and east.
 float skyInGarage( vec3 p ) {
-  if ( p.x < ${(B.minX + 0.05).toFixed(3)} || p.z < ${(B.minZ + 0.05).toFixed(3)} || p.y < ${(STREET_Y - 0.5).toFixed(3)} || p.y > ${(-SLAB + 0.02).toFixed(3)} ) return 0.0;
+  if ( p.x < ${(B.minX + 0.05).toFixed(3)} || p.z < ${(B.minZ + 0.05).toFixed(3)} || p.y + skyDrop < ${(STREET_Y - 0.5).toFixed(3)} || p.y + skyDrop > ${(-SLAB + 0.02).toFixed(3)} ) return 0.0;
   return 1.0 - smoothstep( 0.0, 3.0, length( max( p.xz - vec2( ${B.maxX.toFixed(3)}, ${B.maxZ.toFixed(3)} ), 0.0 ) ) );
 }
 
@@ -84,8 +103,8 @@ vec3 skyLampsAt( vec3 p, vec3 n ) {
 /** Wet ground is darker; snow covers what faces up. Only outdoors. Runs before the lights. */
 const SURFACE = /* glsl */ `
 vec3 skyN = normalize( ( vec4( normal, 0.0 ) * viewMatrix ).xyz );
-float skyIndoor = skyOn * skyInOffice( vSkyWorld );
-float skyGar = skyOn * skyInGarage( vSkyWorld );
+float skyIndoor = skyOn * skyInside * skyInOffice( vSkyWorld );
+float skyGar = skyOn * skyInside * skyInGarage( vSkyWorld );
 float skyUp = skyOn * ( 1.0 - max( skyIndoor, skyGar ) ) * smoothstep( 0.45, 0.85, skyN.y );
 material.diffuseColor *= 1.0 - 0.38 * skyWet * skyUp;
 material.diffuseColor = mix( material.diffuseColor, vec3( 0.93, 0.96, 1.0 ), skySnow * skyUp );
@@ -112,9 +131,55 @@ const WORLD = /* glsl */ `
 }
 `;
 
-// Every lit material gets the lines above, sharing one set of uniforms. Nothing else in the office
-// uses onBeforeCompile, so this is its default; unlit ones (glass, signs, outlines) are left alone.
+/**
+ * The haze, over three.js's own fog: it thins out with height over the street (see HAZE_ABOVE), as
+ * thin as it is at your eye or at what you're looking at, whichever is higher. So from high up you
+ * see further, the street below included, and from down on the street the top of the building is
+ * as clear as the view from up there. Past HAZE_MAX there's nothing to see, whatever the height.
+ */
+const HAZE_PARS_VERTEX = /* glsl */ `
+#ifdef USE_FOG
+  varying float vSkyFogY;
+#endif
+`;
+
+/** How high the vertex is: the view matrix undone (its rotation's transpose), from the camera. */
+const HAZE_VERTEX = /* glsl */ `
+#ifdef USE_FOG
+  vSkyFogY = dot( viewMatrix[ 1 ].xyz, mvPosition.xyz ) + cameraPosition.y;
+#endif
+`;
+
+const HAZE_PARS = /* glsl */ `
+#ifdef USE_FOG
+  varying float vSkyFogY;
+  uniform float skyStreet;
+#endif
+`;
+
+const HAZE = /* glsl */ `
+#ifdef USE_FOG
+  #ifdef FOG_EXP2
+    float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
+  #else
+    // How many times as far off the haze is as down on the street; and past HAZE_MAX, from 45% of
+    // the way there, as the haze on the roof always went.
+    float skyReach = 1.0 + max( max( cameraPosition.y, vSkyFogY ) - skyStreet - ${HAZE_CLEAR.toFixed(1)}, 0.0 ) / ${HAZE_ABOVE.toFixed(1)};
+    float fogFactor = max( smoothstep( fogNear, fogFar, vFogDepth / skyReach ), smoothstep( ${(HAZE_MAX * 0.45).toFixed(1)}, ${HAZE_MAX.toFixed(1)}, vFogDepth ) );
+  #endif
+  gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );
+#endif
+`;
+
+// Everything with fog gets the haze above; every lit material also gets the lines before that,
+// sharing one set of uniforms. Nothing else in the office uses onBeforeCompile, so this is its
+// default; unlit ones (glass, signs, outlines) only get the haze.
 THREE.Material.prototype.onBeforeCompile = function (shader) {
+  if (shader.fragmentShader.includes('#include <fog_fragment>')) {
+    shader.uniforms.skyStreet = uniforms.skyStreet;
+    shader.vertexShader = shader.vertexShader.replace('#include <fog_pars_vertex>', `#include <fog_pars_vertex>\n${HAZE_PARS_VERTEX}`).replace('#include <fog_vertex>', `#include <fog_vertex>\n${HAZE_VERTEX}`);
+    shader.fragmentShader = shader.fragmentShader.replace('#include <fog_pars_fragment>', `#include <fog_pars_fragment>\n${HAZE_PARS}`).replace('#include <fog_fragment>', HAZE);
+  }
   if (!shader.fragmentShader.includes('#include <lights_fragment_end>')) return;
   Object.assign(shader.uniforms, uniforms);
   shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vSkyWorld;').replace('#include <project_vertex>', `#include <project_vertex>\n${WORLD}`);
@@ -308,6 +373,10 @@ export class Sky {
   snow = 0;
   /** How far the lamps are on, 0–1: at night, and on the darkest of days. */
   lampsOn = 0;
+  /** Up on the roof: out in the open, over the whole city (see setRoof). */
+  private roof = false;
+  /** Where the street is from up there (the roof is at 0), for the haze. */
+  private roofStreet = 0;
 
   private state: SkyState;
   private heard = false;
@@ -343,6 +412,10 @@ export class Sky {
   private readonly sunDisc: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   private readonly moonDisc: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   private readonly halos: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>[] = [];
+  /** The halos down by the street, which go down with it. */
+  private readonly groundHalos = new THREE.Group();
+  /** Where the street was when the lamps were last put in place (see NightParts.street). */
+  private street = NaN;
   private readonly rainLines: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial>;
   private readonly drops: Float32Array;
   private readonly flakes: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
@@ -359,15 +432,7 @@ export class Sky {
     scene.fog ??= new THREE.Fog('#bfe3ff', 40, 90);
     if (!(scene.background instanceof THREE.Color)) scene.background = new THREE.Color('#bfe3ff');
 
-    // The lamps' pools of light, and the box around all of them.
-    const lamps = night.lamps.slice(0, MAX_LAMPS);
-    const lo = uniforms.skyLampMin.value.set(Infinity, Infinity, Infinity);
-    const hi = uniforms.skyLampMax.value.set(-Infinity, -Infinity, -Infinity);
-    lamps.forEach((l, i) => {
-      uniforms.skyLamps.value[i].set(l.x, l.y, l.z, l.reach);
-      lo.min(new THREE.Vector3(l.x - l.reach, l.y - l.reach, l.z - l.reach));
-      hi.max(new THREE.Vector3(l.x + l.reach, l.y + l.reach, l.z + l.reach));
-    });
+    this.placeLamps();
 
     // Stars, the sun and the moon, far off, always around you.
     const starPos: number[] = [];
@@ -391,25 +456,27 @@ export class Sky {
     this.dome.add(this.spookyDome, this.stars, this.sunDisc, this.moonDisc);
     scene.add(this.dome);
 
-    // Halos round the bulbs at night, one set of points per size.
+    // Halos round the bulbs at night, one set of points per size (and per floor or street).
     const halo = blobTexture(0.25);
-    const bySize = new Map<number, { pos: number[]; col: number[] }>();
+    const bySize = new Map<string, { size: number; ground: boolean; pos: number[]; col: number[] }>();
     for (const h of night.halos) {
-      let set = bySize.get(h.size);
-      if (!set) bySize.set(h.size, (set = { pos: [], col: [] }));
+      const key = `${h.size}|${!!h.ground}`;
+      let set = bySize.get(key);
+      if (!set) bySize.set(key, (set = { size: h.size, ground: !!h.ground, pos: [], col: [] }));
       set.pos.push(h.at.x, h.at.y, h.at.z);
       const c = new THREE.Color(h.color);
       set.col.push(c.r, c.g, c.b);
     }
-    for (const [size, { pos, col }] of bySize) {
+    for (const { size, ground, pos, col } of bySize.values()) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
       const p = new THREE.Points(geo, new THREE.PointsMaterial({ size, map: halo, vertexColors: true, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
       p.visible = false;
       this.halos.push(p);
-      scene.add(p);
+      (ground ? this.groundHalos : scene).add(p);
     }
+    scene.add(this.groundHalos);
 
     // Rain: streaks falling around you (x, y, z, speed per drop).
     const RAIN = 3000;
@@ -460,6 +527,41 @@ export class Sky {
     this.snap = true;
   }
 
+  /**
+   * The lamps' pools of light, and the box around all of them. The ones down by the street are as
+   * far down as the street is from the floor you're on.
+   */
+  private placeLamps() {
+    this.street = this.night.street;
+    const drop = STREET_Y - this.street;
+    uniforms.skyDrop.value = drop;
+    this.groundHalos.position.y = -drop;
+    const lo = uniforms.skyLampMin.value.set(Infinity, Infinity, Infinity);
+    const hi = uniforms.skyLampMax.value.set(-Infinity, -Infinity, -Infinity);
+    this.night.lamps.slice(0, MAX_LAMPS).forEach((l, i) => {
+      const y = l.ground ? l.y - drop : l.y;
+      uniforms.skyLamps.value[i].set(l.x, y, l.z, l.reach);
+      lo.min(new THREE.Vector3(l.x - l.reach, y - l.reach, l.z - l.reach));
+      hi.max(new THREE.Vector3(l.x + l.reach, y + l.reach, l.z + l.reach));
+    });
+  }
+
+  /**
+   * Up on the roof, `drop` over the street (or back down on a floor). Up there it's all outdoors: no
+   * lamplight from the office under your feet, no pools of light from the street lamps far below, and
+   * rain everywhere. The haze thins out with height over the street far below (see HAZE).
+   */
+  setRoof(on: boolean, drop = 0) {
+    this.roof = on;
+    this.roofStreet = -drop;
+    uniforms.skyInside.value = on ? 0 : 1;
+  }
+
+  /** Under a roof, out of the rain: the building, unless you're up on top of it. */
+  private sheltered(x: number, z: number): boolean {
+    return !this.roof && sheltered(x, z);
+  }
+
   /** Whether the lamps' light (and wet and snow) apply: off while your hands are drawn. */
   shading(on: boolean) {
     uniforms.skyOn.value = on ? 1 : 0;
@@ -467,10 +569,13 @@ export class Sky {
 
   /** How lit it is at `p`, 0–1 (1 is a clear day, or a room with its lights on), for your hands. */
   lightAt(p: THREE.Vector3): number {
-    const inside = (p.x > FLOOR.minX && p.x < FLOOR.maxX && p.z > FLOOR.minZ && p.z < FLOOR.maxZ) || (sheltered(p.x, p.z) && p.y < 0);
+    const inside = !this.roof && ((p.x > FLOOR.minX && p.x < FLOOR.maxX && p.z > FLOOR.minZ && p.z < FLOOR.maxZ) || (sheltered(p.x, p.z) && p.y < 0));
     if (inside) return 1;
     let lamp = 0;
-    for (const l of this.night.lamps) lamp = Math.max(lamp, 1 - Math.hypot(l.x - p.x, l.y - p.y, l.z - p.z) / l.reach);
+    if (!this.roof) {
+      const drop = STREET_Y - this.street;
+      for (const l of this.night.lamps) lamp = Math.max(lamp, 1 - Math.hypot(l.x - p.x, (l.ground ? l.y - drop : l.y) - p.y, l.z - p.z) / l.reach);
+    }
     return Math.min(1, Math.max(this.level, lamp * this.lampsOn));
   }
 
@@ -484,6 +589,7 @@ export class Sky {
   }
 
   update(dt: number, t: number, camera: THREE.Camera) {
+    if (this.night.street !== this.street) this.placeLamps();
     const s = this.state;
     let weather = this.preview.weather ?? s.weather;
     let k = this.preview.intensity ?? (this.preview.weather ? 0.8 : s.intensity);
@@ -566,7 +672,7 @@ export class Sky {
     uniforms.skyOffice.value.copy(C.office).lerp(C.officeNight, 1 - day).multiplyScalar(need * 3.2);
     uniforms.skyGarage.value.copy(C.garage).multiplyScalar(need * 2);
     const lamps = Math.min(this.night.lamps.length, MAX_LAMPS);
-    uniforms.skyLampCount.value = this.lampsOn > 0.005 ? lamps : 0;
+    uniforms.skyLampCount.value = this.lampsOn > 0.005 && !this.roof ? lamps : 0;
     for (let i = 0; i < lamps; i++) {
       const l = this.night.lamps[i];
       uniforms.skyLampColors.value[i].set(l.color).multiplyScalar(l.power * this.lampsOn);
@@ -575,7 +681,7 @@ export class Sky {
     for (const m of this.night.windows) m.emissiveIntensity = this.lampsOn * 1.1;
     for (const h of this.halos) {
       h.material.opacity = this.lampsOn * 0.85;
-      h.visible = this.lampsOn > 0.01;
+      h.visible = this.lampsOn > 0.01 && !this.roof;
     }
 
     // The sky's color, and the fog, which fades far things into it. Halloween's is its own.
@@ -591,8 +697,11 @@ export class Sky {
     const fog = this.scene.fog as THREE.Fog;
     fog.color.copy(sky);
     const precip = Math.max(this.rain, this.snow);
+    // How far off the haze is down on the street; the higher up, the thinner it is (see HAZE), so
+    // the street never goes into it from the top floors, and from the roof you see across the city.
     fog.near = lerp(40, 3, this.fog) * (1 - 0.4 * precip);
     fog.far = lerp(90, 28, this.fog) * (1 - 0.3 * precip);
+    uniforms.skyStreet.value = this.roof ? this.roofStreet : this.night.street;
     this.night.clouds.color.copy(C.white).lerp(C.cloudGrey, this.cover).lerp(SPOOKY.cloud, sp);
     this.night.clouds.visible = this.fog < 0.6;
     // Halloween's gradient, over the flat sky: dark overhead, the sky's color at the horizon, which the fog fades into.
@@ -659,6 +768,8 @@ export class Sky {
   private fall(dt: number, t: number) {
     const cx = this.camPos.x;
     const cz = this.camPos.z;
+    // Down to the street, or to a little below you when that's a long way down.
+    const floor = Math.max(this.street, this.camPos.y - 12);
     const wrap = (v: number, c: number, half: number) => (v - c > half ? v - 2 * half : v - c < -half ? v + 2 * half : v);
 
     const rainN = Math.round((this.drops.length / 4) * this.rain);
@@ -673,15 +784,15 @@ export class Sky {
         let x = wrap(this.drops[d] + slant * speed * dt, cx, 24);
         let y = this.drops[d + 1] - speed * dt;
         let z = wrap(this.drops[d + 2], cz, 24);
-        if (y < STREET_Y) {
-          y += 26;
+        if (y < floor || y > floor + 26) {
+          y = y < floor && y > floor - 1 ? y + 26 : floor + rand(0, 26);
           x = cx + rand(-24, 24);
           z = cz + rand(-24, 24);
         }
         this.drops[d] = x;
         this.drops[d + 1] = y;
         this.drops[d + 2] = z;
-        const len = sheltered(x, z) ? 0 : 0.5;
+        const len = this.sheltered(x, z) ? 0 : 0.5;
         a.set([x, y, z, x - slant * len, y + len, z], i * 6);
       }
       pos.needsUpdate = true;
@@ -699,15 +810,15 @@ export class Sky {
         let x = wrap(this.flakeState[f] + Math.sin(t * 0.9 + i) * 0.3 * dt + 0.15 * dt, cx, 20);
         let y = this.flakeState[f + 1] - speed * dt;
         let z = wrap(this.flakeState[f + 2] + Math.cos(t * 0.7 + i * 1.3) * 0.3 * dt, cz, 20);
-        if (y < STREET_Y) {
-          y += 22;
+        if (y < floor || y > floor + 22) {
+          y = y < floor && y > floor - 1 ? y + 22 : floor + rand(0, 22);
           x = cx + rand(-20, 20);
           z = cz + rand(-20, 20);
         }
         this.flakeState[f] = x;
         this.flakeState[f + 1] = y;
         this.flakeState[f + 2] = z;
-        a.set([x, sheltered(x, z) ? -1000 : y, z], i * 3);
+        a.set([x, this.sheltered(x, z) ? -1000 : y, z], i * 3);
       }
       pos.needsUpdate = true;
       this.flakes.geometry.setDrawRange(0, snowN);

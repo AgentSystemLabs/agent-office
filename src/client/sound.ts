@@ -2,15 +2,17 @@
  * Office sounds, synthesized with Web Audio so there are no audio files to ship: the room's air and a
  * humming fridge, workers typing while they work, footsteps, the coffee machine, birds outside the
  * windows by day and crickets at night, rain and thunder, the odd rustle or phone, the gong, the dog
- * barking, and the dings when a worker needs you. And the lounge jukebox, whose tunes are in music.ts.
+ * barking, and the dings when a worker needs you. And the lounge jukebox, whose tunes are in music.ts,
+ * and up on the roof, the wind, the city far below and the DJ's drum and bass (dnb.ts).
  *
  * Everything goes through one master gain that Settings turns down or mutes. Voice chat doesn't, and
  * the jukebox has a volume of its own.
  */
-import { CABINET, DESKS, FLOOR, GONG, JUKEBOX, WINDOWS as OPENINGS } from '../shared/layout';
+import { CABINET, DESKS, DJ_BOOTH, FLOOR, GONG, JUKEBOX, WINDOWS as OPENINGS } from '../shared/layout';
 import type { GongWhy } from '../shared/protocol';
 import { STREAM } from '../shared/jukebox';
 import { TunePlayer } from './music';
+import { DjPlayer } from './dnb';
 
 type Pos = { x: number; y: number; z: number };
 
@@ -85,6 +87,11 @@ export class OfficeSound {
   private ambience!: GainNode;
   /** Worker dings, which you still want to hear from another tab. */
   private alerts!: GainNode;
+  /** The office's own hum (the room and the fridge), left behind going up on the roof… */
+  private indoors!: GainNode;
+  /** …where there's wind, and the city far below. */
+  private outside!: GainNode;
+  private outdoors = false;
   private analyser!: AnalyserNode;
   private buf!: Buffers;
   private volume = 0.7;
@@ -113,6 +120,12 @@ export class OfficeSound {
   private tune: TunePlayer | null = null;
   private stream: HTMLAudioElement | null = null;
   private musicTimer = 0;
+  // The DJ on the roof, through the speakers by the booth, at your music volume.
+  private djIn!: PannerNode;
+  private dj: DjPlayer | null = null;
+  /** How far into the DJ's set it is (see djTime), while you're up there. */
+  private djClock: (() => number) | null = null;
+  private djTimer = 0;
   /** A stream that won't play here. */
   onMusicError?: (text: string) => void;
   /** How many of each sound have played, for quick checks from the console. */
@@ -185,6 +198,11 @@ export class OfficeSound {
     this.ambience.connect(this.master);
     this.alerts = ctx.createGain();
     this.alerts.connect(this.master);
+    this.indoors = ctx.createGain();
+    this.indoors.connect(this.ambience);
+    this.outside = ctx.createGain();
+    this.outside.gain.value = 0;
+    this.outside.connect(this.ambience);
     // The jukebox skips the master (it has its own volume) and keeps playing while the tab is hidden.
     this.musicIn = this.panner(JUKEBOX, MUSIC_REF, MUSIC_ROLLOFF);
     this.musicTone = biquad(ctx, 'lowpass', 16000, 0.5);
@@ -194,12 +212,18 @@ export class OfficeSound {
     this.musicMeter.fftSize = 2048;
     this.musicIn.connect(this.musicTone).connect(this.musicBus).connect(ctx.destination);
     this.musicBus.connect(this.musicMeter);
+    // Loud enough to hear from anywhere on the roof, and loudest on the dance floor.
+    this.djIn = this.panner({ x: DJ_BOOTH.x, y: 2.2, z: DJ_BOOTH.z }, 7, 0.8);
+    this.djIn.connect(this.musicBus);
     this.applyVolume();
     this.applyMusicVolume();
     this.applyJukebox();
     this.applyVisibility();
     this.startRoomTone();
     this.startFridge();
+    this.startWind();
+    this.applyOutdoors();
+    this.applyDj();
     const now = ctx.currentTime;
     this.nextBird = now + rand(5, 15);
     this.nextCricket = now + rand(2, 6);
@@ -266,11 +290,11 @@ export class OfficeSound {
     }
     this.tickRain(now);
     if (now >= this.nextPhone) {
-      this.phone(now);
+      if (!this.outdoors) this.phone(now);
       this.nextPhone = now + rand(90, 240);
     }
     if (now >= this.nextFidget) {
-      this.fidget(now);
+      if (!this.outdoors) this.fidget(now);
       this.nextFidget = now + rand(10, 30);
     }
   }
@@ -670,7 +694,7 @@ export class OfficeSound {
     const rumble = this.noise(this.buf.brown, true);
     const rumbleG = ctx.createGain();
     rumbleG.gain.value = 0.07;
-    rumble.connect(biquad(ctx, 'lowpass', 300, 0.7)).connect(rumbleG).connect(this.ambience);
+    rumble.connect(biquad(ctx, 'lowpass', 300, 0.7)).connect(rumbleG).connect(this.indoors);
     // ...and the air vents, swelling slowly.
     const air = this.noise(this.buf.white, true);
     const airG = ctx.createGain();
@@ -680,7 +704,7 @@ export class OfficeSound {
     const swellDepth = ctx.createGain();
     swellDepth.gain.value = 0.004;
     swell.connect(swellDepth).connect(airG.gain);
-    air.connect(biquad(ctx, 'bandpass', 650, 0.5)).connect(airG).connect(this.ambience);
+    air.connect(biquad(ctx, 'bandpass', 650, 0.5)).connect(airG).connect(this.indoors);
     rumble.start();
     air.start();
     swell.start();
@@ -701,7 +725,7 @@ export class OfficeSound {
     hum.connect(tone);
     whine.connect(whineG).connect(tone);
     const out = this.panner(FRIDGE, 1, 1.6);
-    tone.connect(gain).connect(out).connect(this.ambience);
+    tone.connect(gain).connect(out).connect(this.indoors);
     hum.start();
     whine.start();
     this.fridge = { gain, on: false, next: ctx.currentTime + rand(3, 12) };
@@ -714,7 +738,7 @@ export class OfficeSound {
     f.on = !f.on;
     f.gain.gain.setTargetAtTime(f.on ? 0.06 : 0, now, f.on ? 0.6 : 0.3);
     f.next = now + (f.on ? rand(25, 50) : rand(20, 45));
-    this.play(pick(this.buf.steps), { at: FRIDGE, gain: 0.25, rate: 0.6, ref: 1, rolloff: 1.6 });
+    this.play(pick(this.buf.steps), { at: FRIDGE, gain: 0.25, rate: 0.6, ref: 1, rolloff: 1.6, dest: this.indoors });
     this.count(f.on ? 'fridgeOn' : 'fridgeOff');
   }
 
@@ -1008,6 +1032,166 @@ export class OfficeSound {
       o.start(t0);
       o.stop(t0 + 0.3);
     });
+  }
+
+  // ---- The roof ---------------------------------------------------------------------------------
+
+  /** Up on the roof (true), or inside on a floor: the office's hum gives way to the wind and the city. */
+  setOutdoors(on: boolean) {
+    this.outdoors = on;
+    this.applyOutdoors();
+  }
+
+  private applyOutdoors() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    this.indoors.gain.setTargetAtTime(this.outdoors ? 0 : 1, now, 0.3);
+    this.outside.gain.setTargetAtTime(this.outdoors ? 1 : 0, now, 0.3);
+  }
+
+  private startWind() {
+    const ctx = this.ctx!;
+    // Traffic, far below…
+    const city = this.noise(this.buf.brown, true);
+    const cityG = ctx.createGain();
+    cityG.gain.value = 0.08;
+    city.connect(biquad(ctx, 'lowpass', 420, 0.6)).connect(cityG).connect(this.outside);
+    // …and the wind, gusting and dropping, whistling higher as it picks up.
+    const wind = this.noise(this.buf.white, true);
+    const tone = biquad(ctx, 'bandpass', 520, 0.8);
+    const windG = ctx.createGain();
+    windG.gain.value = 0.012;
+    const gust = ctx.createOscillator();
+    gust.frequency.value = 0.08;
+    const gustDepth = ctx.createGain();
+    gustDepth.gain.value = 0.009;
+    gust.connect(gustDepth).connect(windG.gain);
+    const pitch = ctx.createGain();
+    pitch.gain.value = 220;
+    gust.connect(pitch).connect(tone.frequency);
+    wind.connect(tone).connect(windG).connect(this.outside);
+    city.start();
+    wind.start();
+    gust.start();
+  }
+
+  /** The DJ's set on the roof, `clock` saying how far into it it is (see djTime); null stops it. */
+  setDj(clock: (() => number) | null) {
+    const was = !!this.djClock;
+    this.djClock = clock;
+    if (was !== !!clock) this.applyDj();
+  }
+
+  private applyDj() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (!this.djClock) {
+      this.dj?.stop();
+      this.dj = null;
+      clearInterval(this.djTimer);
+      return;
+    }
+    if (this.dj) return;
+    const dj = (this.dj = new DjPlayer(ctx, this.djIn));
+    this.count('dj');
+    // On a timer rather than every frame, so it carries on in a background tab.
+    const tick = () => {
+      if (this.djClock) dj.tick(this.djClock());
+    };
+    tick();
+    this.djTimer = window.setInterval(tick, 150);
+  }
+
+  /** Someone at the DJ booth blew the air horn. */
+  horn() {
+    if (!this.dj) return;
+    this.dj.horn();
+    this.count('horn');
+  }
+
+  /** A drink poured at the bar: ice into the glass, a splash, and a clink. */
+  pour(at: Pos) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count('pour');
+    const out = this.panner(at, 1.2, 1);
+    out.connect(this.ambience);
+    const t0 = ctx.currentTime + 0.05;
+    // Ice cubes knocking in.
+    for (let i = 0; i < 3; i++) this.clink(out, t0 + i * rand(0.07, 0.12), rand(2200, 3200), 0.05);
+    // The pour: filtered noise that rises in pitch as the glass fills.
+    const pour = this.noise(this.buf.white);
+    const tone = biquad(ctx, 'bandpass', 700, 1.4);
+    tone.frequency.setValueAtTime(700, t0 + 0.35);
+    tone.frequency.linearRampToValueAtTime(1500, t0 + 1.15);
+    const g = ctx.createGain();
+    envelope(g.gain, t0 + 0.35, [
+      [0.06, 0.09],
+      [0.7, 0.08],
+      [0.85, 0],
+    ]);
+    const wobble = this.noise(this.buf.gurgle, true);
+    wobble.playbackRate.value = 4;
+    const amp = ctx.createGain();
+    amp.gain.value = 0.6;
+    wobble.connect(amp.gain);
+    pour.connect(tone).connect(amp).connect(g).connect(out);
+    pour.start(t0 + 0.35);
+    pour.stop(t0 + 1.3);
+    wobble.start(t0 + 0.35);
+    wobble.stop(t0 + 1.3);
+    // Slid across the bar to you.
+    this.clink(out, t0 + 1.45, 3900, 0.08);
+  }
+
+  /** A glass rings: a couple of high partials, gone in a moment. */
+  private clink(out: AudioNode, when: number, f: number, level: number) {
+    const ctx = this.ctx!;
+    for (const [mul, lvl] of [
+      [1, 1],
+      [2.76, 0.4],
+    ]) {
+      const o = ctx.createOscillator();
+      o.frequency.value = f * mul;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, when);
+      g.gain.exponentialRampToValueAtTime(level * lvl, when + 0.003);
+      g.gain.exponentialRampToValueAtTime(0.0001, when + 0.25);
+      o.connect(g).connect(out);
+      o.start(when);
+      o.stop(when + 0.3);
+    }
+  }
+
+  /** Hic! One too many. */
+  hiccup() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count('hiccup');
+    const t0 = ctx.currentTime + 0.02;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(260, t0);
+    o.frequency.exponentialRampToValueAtTime(420, t0 + 0.06);
+    const g = ctx.createGain();
+    envelope(g.gain, t0, [
+      [0.008, 0.12],
+      [0.05, 0.08],
+      [0.11, 0],
+    ]);
+    o.connect(biquad(ctx, 'bandpass', 1100, 2.5)).connect(g).connect(this.ambience);
+    o.start(t0);
+    o.stop(t0 + 0.14);
+    // The catch in the throat, just before it.
+    const n = this.noise(this.buf.white);
+    const ng = ctx.createGain();
+    envelope(ng.gain, t0 - 0.015, [
+      [0.004, 0.08],
+      [0.02, 0],
+    ]);
+    n.connect(biquad(ctx, 'bandpass', 1800, 1)).connect(ng).connect(this.ambience);
+    n.start(t0 - 0.015);
+    n.stop(t0 + 0.02);
   }
 
   // ---- The jukebox ------------------------------------------------------------------------------

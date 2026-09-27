@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, LADDER, LOFT, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, seatAt, seatPlace, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, LADDER, LOFT, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, STOREY, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, roofDrop, seatAt, seatPlace, streetBelow, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
 import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
 import { MEETING_PATTERNS } from '../shared/meetings';
@@ -13,10 +13,16 @@ import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { Climber, gripOf, type Arrival, type Grip, type Way } from './climb';
 import { Caffeine } from './caffeine';
 import { buildOffice, type DeskView, type InteractKind, type Interactable } from './world/office';
+import { buildRooftop, type Rooftop } from './world/rooftop';
+import { DrunkVision } from './world/drunk';
+import { Booze, type Stage as Feeling } from './booze';
+import { djFrame, djTime } from './dnb';
+import { openBar } from './ui/bar';
+import { DRINK_BY_ID, ROOF, ROOF_NAME, type Drink, type DrinkId } from '../shared/rooftop';
 import { Person, Worker, type Stage } from './world/character';
 import { Hands } from './world/hands';
 import { Smoke } from './world/smoke';
-import { Sky, describeSky } from './world/sky';
+import { HAZE_MAX, Sky, describeSky } from './world/sky';
 import { Laptop } from './world/laptop';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import { Gallery } from './world/gallery';
@@ -36,7 +42,7 @@ import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage, worktreePref } from './ui/prompt';
 import { issuePrompt, openBoard } from './ui/boards';
-import { openPull, routePullMessage } from './ui/pull';
+import { openIssue, openPull, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { openAccounts, routeAccountsMessage } from './ui/accounts';
@@ -79,7 +85,9 @@ const scene = new THREE.Scene();
 // The sky's color and the fog change with the time of day and the weather (world/sky.ts).
 scene.background = new THREE.Color('#bfe3ff');
 scene.fog = new THREE.Fog('#bfe3ff', 40, 90);
-const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 200);
+/** How far the camera sees in the office: as far as the haze ever is, from the top floor. */
+const FAR = HAZE_MAX + 20;
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, FAR);
 
 const hemi = new THREE.HemisphereLight('#fff5e6', '#c9a27a', 1.5);
 const ambient = new THREE.AmbientLight('#ffffff', 0.5);
@@ -235,6 +243,38 @@ tvMat.toneMapped = false;
 // The boss's monitor upstairs: Minesweeper, from the boss's chair.
 const arcade = new Arcade(office.bossScreen);
 
+// ---- The rooftop bar ------------------------------------------------------------------------------
+/** Up on the roof: built the first time anyone goes up there. */
+let roof: Rooftop | null = null;
+function theRoof(): Rooftop {
+  if (!roof) {
+    roof = buildRooftop(office.night, roofFloors());
+    roof.group.visible = false;
+    scene.add(roof.group);
+    noOutline(roof.group);
+  }
+  return roof;
+}
+/** How many floors the roof stands on: every one that's built. */
+function roofFloors(): number {
+  return Math.max(1, builtFloors().length);
+}
+/** Floors come and go: the roof goes up or down with them, and the street's that much further down from it. */
+function syncRoof() {
+  if (!roof) return;
+  const floors = roofFloors();
+  roof.setFloors(floors);
+  if (upTop) sky.setRoof(true, roofDrop(floors));
+}
+store.on('floors', syncRoof);
+/** Where you are now: up on the roof (true), or on a floor of the office. */
+let upTop = false;
+/** How far into the DJ's set it is, on the office's clock, so everyone up there hears the same bar. */
+const djAt = () => djTime(store.officeNow());
+/** Drinks from the bar, and how they make the world look (see booze.ts, world/drunk.ts). */
+const booze = new Booze();
+const drunkVision = new DrunkVision(renderer);
+
 // ---- Networking & state -------------------------------------------------------------------------
 const net = new Net(() => store.profile);
 const voice = new Voice(net);
@@ -366,16 +406,22 @@ function usePole(i: number) {
   else climber.twirl(spot);
 }
 
-/** The ladder and the poles go where there are floors to go to from this one. */
+/**
+ * The ladder and the poles go where there are floors to go to from this one, and the building is as
+ * tall as there are floors, with the street as far down as this one is up.
+ */
 function syncStack() {
   const floors = builtFloors();
   const index = floors.findIndex((f) => f.id === store.floor);
-  const up = floors[index + 1]?.name;
+  // Up on the roof there's no ladder or pole to take: nothing above, nothing below.
+  const up = store.floor === ROOF ? undefined : floors[index + 1]?.name;
   const down = index > 0 ? floors[index - 1]?.name : undefined;
   const count = index < 0 ? 1 : floors.length;
   const s = office.stack.state;
   if (s.index === Math.max(0, index) && s.count === count && s.up === up && s.down === down) return;
   office.stack.set({ index: Math.max(0, index), count, up, down });
+  office.setLevel(Math.max(0, index), count);
+  player.street = streetBelow(index);
 }
 store.on('floors', syncStack);
 
@@ -417,6 +463,7 @@ const departures = new Departures(
   (x, z, y) => groundAt(office.colliders, x, z, y),
   (x, y, z) => sound.stepAt(x, z, y),
   () => arrangeSeats(),
+  () => office.stack.state.index > 0,
 );
 // Workers called to a meeting, walking in from the elevator to the meeting table.
 const arrivals = new Arrivals(
@@ -463,6 +510,7 @@ net.onMessage((msg) => {
       if (voice.inVoice || voice.sharing) net.send({ t: 'voice', voice: voice.inVoice, muted: voice.muted, sharing: voice.sharing });
       if (player.seat) net.send({ t: 'sit', seat: player.seat.key });
       if (carrying) net.send({ t: 'carry', issue: carrying.issue, title: carrying.title });
+      if (shownDrink) net.send({ t: 'act', drink: shownDrink });
       // After a reconnect the server has forgotten which terminal we had open, and what we're doing.
       sendDoing(true);
       const openId = openTerminalFor();
@@ -512,6 +560,17 @@ net.onMessage((msg) => {
       break;
     case 'peer.act': {
       const r = remotes.get(msg.id);
+      if (msg.drink !== undefined) {
+        // A drink from the rooftop bar in their hand, or put down.
+        const p = store.peers.get(msg.id);
+        if (p) {
+          if (msg.drink) p.drink = msg.drink;
+          else delete p.drink;
+        }
+        if (msg.drink) r?.person.reach();
+        r?.person.holdDrink(msg.drink ? (DRINK_BY_ID.get(msg.drink) ?? null) : null);
+        break;
+      }
       if (msg.smoke === undefined) {
         r?.person.reach();
         break;
@@ -527,6 +586,11 @@ net.onMessage((msg) => {
     case 'gong':
       gongRang(msg.why, msg.pr);
       break;
+    case 'horn':
+      if (!upTop) break;
+      sound.horn();
+      if (msg.by !== store.profile.name) toast(`📯 ${msg.by} blew the air horn!`);
+      break;
   }
 });
 
@@ -541,6 +605,13 @@ store.on('upgrade', renderUpgrade);
 function renderProject() {
   const p = store.project;
   renderTitle();
+  if (store.floor === ROOF) {
+    const n = builtFloors().length;
+    $('project-meta').classList.remove('lobby');
+    $('project-name').textContent = `🍸 ${ROOF_NAME}`;
+    $('project-meta').textContent = `🛗 on top of ${n} floor${n === 1 ? '' : 's'} · 🎧 drum & bass`;
+    return;
+  }
   if (!p) {
     $('project-name').textContent = '🏢 Agent Office';
     $('project-meta').textContent = store.floors.length ? '🛗 Take the elevator to a floor' : '🛗 No floors yet — add a project in the elevator';
@@ -593,7 +664,12 @@ function showElevator() {
   openElevator({ net, ride });
 }
 
-/** Rides the elevator to another floor. From outside the car, you step in while the lights are down. */
+/** The elevator where you are: the office's, or the one up on the roof. */
+function lift() {
+  return upTop && roof ? roof.elevator : office.elevator;
+}
+
+/** Rides the elevator to another floor (or up to the roof). From outside the car, you step in while the lights are down. */
 function ride(floorId: string) {
   if (trip || floorId === store.floor) return;
   closeAllModals();
@@ -603,7 +679,7 @@ function ride(floorId: string) {
   trip = { floor: floorId, how: 'elevator', timer: window.setTimeout(tripFailed, 10_000) };
   player.enabled = false;
   player.clearKeys();
-  office.elevator.setOpen(false);
+  lift().setOpen(false);
   // Wait for the doors to shut on you, then dim the lights and go.
   setTimeout(
     () => {
@@ -617,13 +693,19 @@ function ride(floorId: string) {
   );
 }
 
-/** Where you are, to arrive at the same spot on another floor. */
-function standingAt(): Arrival {
-  return { x: player.pos.x, y: player.pos.y, z: player.pos.z, rotY: player.facing };
+/** Where you are, to arrive at the same spot on floor `to`. Down on the street (or the steps to it), that's the street there too. */
+function standingAt(to: string): Arrival {
+  const floors = builtFloors();
+  const from = floors.findIndex((f) => f.id === store.floor);
+  const there = floors.findIndex((f) => f.id === to);
+  const below = player.pos.y < -SLAB - 0.05 && from >= 0 && there >= 0;
+  return { x: player.pos.x, y: below ? player.pos.y + (from - there) * STOREY : player.pos.y, z: player.pos.z, rotY: player.facing };
 }
 
 /** Straight to another floor from the floor list: a blink, and you're standing in the same spot there. */
 function switchFloor(floorId: string) {
+  // The roof isn't laid out like a floor: to and from it, it's the elevator.
+  if (upTop || floorId === ROOF) return ride(floorId);
   if (trip || floorId === store.floor) return;
   closeAllModals();
   if (hanger.active) hanger.cancel();
@@ -635,7 +717,7 @@ function switchFloor(floorId: string) {
   player.enabled = false;
   player.clearKeys();
   fade(true, true);
-  setTimeout(() => net.send({ t: 'floor.go', floor: floorId, at: standingAt() }), 170);
+  setTimeout(() => net.send({ t: 'floor.go', floor: floorId, at: standingAt(floorId) }), 170);
 }
 
 /** Through the ceiling up the ladder, or through the floor down one: the lights dip as you pass. */
@@ -652,7 +734,7 @@ function tripFailed() {
   if (!t) return;
   trip = null;
   fade(false);
-  if (t.how === 'elevator') office.elevator.setOpen(!!store.floor);
+  if (t.how === 'elevator') lift().setOpen(!!store.floor);
   if (t.how === 'ladder' || t.how === 'pole') climber.abort();
   player.enabled = !modalOpen();
 }
@@ -678,8 +760,40 @@ function paintFloor() {
 // A brand-new floor can arrive before the elevator's list says what color it is.
 store.on('floors', paintFloor);
 
+/**
+ * Up on the roof, or back down in the office: shows the one you're in, and walks, sounds, lights and
+ * looks as it does there.
+ */
+function setPlace() {
+  const up = store.floor === ROOF;
+  if (up === upTop) return;
+  upTop = up;
+  const r = up ? theRoof() : roof;
+  office.group.visible = !up;
+  // The holiday decorations are dressed round the office and the street below it, not up here.
+  holiday.group.visible = !up;
+  if (r) r.group.visible = up;
+  player.colliders = up ? r!.colliders : office.colliders;
+  sky.setRoof(up, roofDrop(roofFloors()));
+  sound.setOutdoors(up);
+  sound.setDj(up ? djAt : null);
+  // You can see the whole city from up there (and its clouds); from the top floors, as far as the haze.
+  camera.far = up ? 700 : FAR;
+  camera.updateProjectionMatrix();
+  // Drinks stay at the bar (what you've had comes down with you).
+  if (!up) booze.putDown();
+  if (hanger.active) hanger.cancel();
+  hintKey = 'stale';
+}
+
+/** What you can use where you are, and what's in the way of looking at it. */
+function usable(): Interactable[][] {
+  return upTop && roof ? [roof.interactables] : [office.interactables, gallery.interactables, dog.interactables];
+}
+
 /** You're on a floor (or in the building without one): paint it, and open the doors (or carry on down the pole…). */
 function arrive() {
+  setPlace();
   paintFloor();
   renderProject();
   noticeWaiting();
@@ -705,7 +819,7 @@ function arrive() {
     return;
   }
   setTimeout(() => {
-    office.elevator.setOpen(true);
+    lift().setOpen(true);
     sound.ding('done');
     player.enabled = !modalOpen();
   }, 450);
@@ -761,6 +875,7 @@ function syncPeers() {
       noOutline(r.person.root);
     }
     r.person.setSmoking(!!peer.smoking);
+    r.person.holdDrink(peer.drink ? (DRINK_BY_ID.get(peer.drink) ?? null) : null);
     r.person.carry(peer.carrying);
     r.person.sit(peer.seat ? (seatAt(peer.seat)?.hips ?? null) : null);
     r.person.setDoing(whereabouts(peer));
@@ -1358,9 +1473,11 @@ function watchShare() {
   close.addEventListener('click', () => modal.close());
 }
 
-function interact(target: Interactable | null, key: DeskKey) {
+/** `note` is the issue note you're pointing at on the issues board, if any (see aimedNote). */
+function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   if (!target) return;
-  if (key === 'E' && carrying && dropCard(target, carrying)) return;
+  if (target.kind !== 'issues') note = null;
+  if (key === 'E' && carrying && dropCard(target, carrying, note)) return;
   if (target.kind === 'desk' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
     // Nobody is hired at the meeting table: a meeting seats its own workers there.
@@ -1381,6 +1498,9 @@ function interact(target: Interactable | null, key: DeskKey) {
     if (key === 'X' && w) return killWorker(w.id);
     return;
   }
+  // A note on the issues board: E takes it straight off the cork, O opens it to read first.
+  if (note && key === 'E') return pickUp(note);
+  if (note && key === 'O') return openIssue(note, net, boardActions());
   if (key !== 'E') return;
   if (target.kind === 'elevator') showElevator();
   else if (target.kind === 'issues' || target.kind === 'pulls') openBoard(target.kind, net, boardActions());
@@ -1406,6 +1526,92 @@ function interact(target: Interactable | null, key: DeskKey) {
   else if (target.kind === 'ladder') grabLadder();
   else if (target.kind === 'pole' && target.pole !== undefined) usePole(target.pole);
   else if (target.kind === 'meeting') showMeeting();
+  else if (target.kind === 'bar') showBar();
+  else if (target.kind === 'dj') blowHorn();
+}
+
+// ---- The rooftop bar ---------------------------------------------------------------------------------
+/** What the bartender says as they slide it over. */
+const CHEERS: Record<string, string> = {
+  beer: 'Cheers! 🍻',
+  wine: 'Salud!',
+  martini: 'Shaken, not stirred',
+  maitai: 'Aloha!',
+  shot: 'Salt, shot, lime… whoa',
+  mojito: 'Fresh and minty',
+  water: 'Good call. Stay hydrated',
+};
+
+/** E at the bar: the menu. */
+function showBar() {
+  openBar({ cutOff: booze.cutOff(performance.now() / 1000), order: orderDrink });
+}
+
+/** The bartender comes over and pours it (a water, if you've had enough), and slides it across to you. */
+function orderDrink(d: Drink) {
+  const r = roof;
+  if (!r || !upTop) return;
+  const cut = d.strength > 0 && booze.cutOff(performance.now() / 1000);
+  const drink = cut ? DRINK_BY_ID.get('water')! : d;
+  r.serve(player.pos.z);
+  sound.pour(r.pourAt);
+  if (cut) toast("🙅 The bartender slides you a water instead: you've had enough", 'warn');
+  setTimeout(() => {
+    if (!upTop) return;
+    booze.drink(drink, performance.now() / 1000);
+    reach();
+    if (player.view === 'first') hands.sip();
+    if (!cut) toast(`${drink.emoji} ${drink.name}. ${CHEERS[drink.id] ?? 'Enjoy!'}`);
+  }, 1500);
+}
+
+let lastHorn = 0;
+/** E at the DJ booth: the air horn, for everyone on the roof. */
+function blowHorn() {
+  const now = performance.now();
+  if (now - lastHorn < 1500) return;
+  lastHorn = now;
+  net.send({ t: 'horn' });
+}
+
+/** How it's going to your head, the last time it changed, and when the next hiccup comes. */
+let feeling: Feeling = 0;
+let nextHiccup = 0;
+let nextSip = 0;
+/** The drink in your hand everyone else was last told about. */
+let shownDrink: DrinkId | null = null;
+const FEELINGS = ['😌 You feel sober again', '🥴 You’re feeling a little tipsy', '🌀 Whoa… is the city spinning?', '🤪 You’re wasted. Maybe have some water'];
+
+/** Every frame: how drunk you are, the glass in your hand, hiccups and the odd sip. */
+function drinking(now: number) {
+  const secs = now / 1000;
+  const amount = booze.amount(secs);
+  player.drunk = reduceMotion.matches ? 0 : Math.min(1.3, amount);
+  const glass = booze.holding(secs);
+  me.holdDrink(glass);
+  hands.holdDrink(glass);
+  const id = glass?.id ?? null;
+  if (id !== shownDrink) {
+    shownDrink = id;
+    net.send({ t: 'act', drink: id });
+  }
+  if (glass && player.view === 'first' && now > nextSip) {
+    if (nextSip) hands.sip();
+    nextSip = now + 9000 + Math.random() * 9000;
+  }
+  const stage = booze.stage(secs);
+  if (stage !== feeling) {
+    if (stage > feeling || stage === 0) toast(FEELINGS[stage], stage >= 3 ? 'warn' : 'info');
+    feeling = stage;
+  }
+  if (amount > 0.5 && now > nextHiccup) {
+    if (nextHiccup) {
+      sound.hiccup();
+      if (!reduceMotion.matches) thud = Math.max(thud, 0.25);
+    }
+    nextHiccup = now + 5000 + Math.random() * 12000;
+  }
+  return amount;
 }
 
 /** A cup from the kitchen machine: a minute of quicker feet and higher jumps, and a mug in your hand. */
@@ -1461,7 +1667,7 @@ function setCarrying(card: CarriedIssue | null) {
   hintKey = '';
 }
 
-/** ✋ in an issue's window: its card comes off the board and into your hands. */
+/** ✋ in an issue's window, or E at its note on the board: its card comes off the board and into your hands. */
 function pickUp(it: GhIssue) {
   closeAllModals();
   if (carrying?.issue === it.number) return;
@@ -1482,11 +1688,13 @@ function putBack() {
 /**
  * E with a card in your hands: an empty desk hires a worker for the issue (with the prompt 🤖 Hand
  * to a worker uses), an agent at a desk gets it as its next prompt, the queue board queues it, and
- * the issues board takes it back. False when it's none of those, so E does what it always does there.
+ * the issues board takes it back (or swaps it for the `note` you point at there). False when it's none
+ * of those, so E does what it always does there.
  */
-function dropCard(it: Interactable, card: CarriedIssue): boolean {
+function dropCard(it: Interactable, card: CarriedIssue, note: GhIssue | null): boolean {
   if (it.kind === 'issues') {
-    putBack();
+    if (note) pickUp(note);
+    else putBack();
     return true;
   }
   const prompt = issuePrompt({ number: card.issue, title: card.title });
@@ -1569,6 +1777,7 @@ function useSeat(seatId: string) {
   if (player.seat?.seatId === seatId) {
     if (seat.tv && tvShowing()) watchShare();
     else if (seat.game) arcade.play();
+    else if (seat.bar) showBar();
     else standUp();
     return;
   }
@@ -1599,7 +1808,7 @@ player.onStand = gotUp;
 /** What you're sitting on, so it's what E is about unless you're looking at something else. */
 function mySeat(): Interactable | null {
   const id = player.seat?.seatId;
-  return (id && office.interactables.find((it) => it.kind === 'seat' && it.seatId === id)) || null;
+  return (id && usable()[0].find((it) => it.kind === 'seat' && it.seatId === id)) || null;
 }
 
 // ---- The gong -------------------------------------------------------------------------------------
@@ -1690,7 +1899,7 @@ function pickTarget(): Interactable | null {
   if (player.pos.y < -SLAB - 1) return null;
   let best: Interactable | null = null;
   let bestD = Infinity;
-  for (const list of [office.interactables, gallery.interactables, dog.interactables]) {
+  for (const list of usable()) {
     for (const it of list) {
       if (it.off) continue;
       // Up on the loft, or down underneath it.
@@ -1749,7 +1958,8 @@ function hintFor(it: Interactable): Hint {
     case 'station':
       return it.deskId ? stationHint(it.deskId) : { k: '', parts: [] };
     case 'issues':
-      return board('📌 Issues board');
+      if (aimedNote) return { k: String(aimedNote.number), parts: [title(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', 'Take it'), key('O', 'Read it')] };
+      return issuesTex.hasNotes ? { k: 'notes', parts: [title('📌 Issues board'), key('E', 'Open'), aside('or point at a note to take it')] } : board('📌 Issues board');
     case 'pulls':
       return board('🔀 Pull request board');
     case 'services':
@@ -1811,7 +2021,7 @@ function hintFor(it: Interactable): Hint {
       if (!seat) return { k: '', parts: [] };
       if (player.seat?.seatId === seat.id) {
         const tv = !!seat.tv && tvShowing();
-        const use = tv ? 'Watch the TV' : seat.game ? 'Play Minesweeper' : '';
+        const use = tv ? 'Watch the TV' : seat.game ? 'Play Minesweeper' : seat.bar ? 'Order a drink' : '';
         return { k: `${seat.id}|sitting|${tv}`, parts: [title(seat.label), aside('sitting'), ...(use ? [key('E', use), key('W A S D', 'Get up')] : [key('E', 'Get up')])] };
       }
       const full = !freePlace(seat);
@@ -1831,6 +2041,15 @@ function hintFor(it: Interactable): Hint {
       const up = floorThere(1)?.name ?? 'upstairs';
       return { k: `landing|${up}`, parts: [title('🚒 Fire pole'), aside(`comes down from ${up}`), key('E', 'Twirl')] };
     }
+    case 'bar': {
+      const cut = booze.cutOff(performance.now() / 1000);
+      return { k: String(cut), parts: [title('🍸 Sky Bar'), aside(cut ? "you've had enough" : 'drinks on the house'), key('E', cut ? 'Ask for water' : 'Order a drink')] };
+    }
+    case 'dj': {
+      const f = djFrame(djAt());
+      const what = f.part === 'drop' ? '🔥 the drop' : f.part === 'build' ? 'building up…' : f.part === 'breakdown' ? 'the breakdown' : 'mixing in the next track';
+      return { k: what, parts: [title('🎧 DJ Merge Conflict'), aside(`drum & bass · ${what}`), key('E', '📯 Air horn!')] };
+    }
     case 'dog': {
       const doing = dog.doing(
         (id) => store.workers.get(id)?.name,
@@ -1844,7 +2063,7 @@ function hintFor(it: Interactable): Hint {
 /** With an issue card in your hands: what E does with it here, and how to put it back. */
 function carryHint(card: CarriedIssue, it: Interactable | null): Hint {
   const parts = (...mid: (HTMLElement | string)[]) => [h('span.title', {}, `🗂️ #${card.issue} in hand`), ...mid, key('Q', 'Put it back')];
-  if (it?.kind === 'issues') return { k: '', parts: parts(key('E', 'Pin it back up')) };
+  if (it?.kind === 'issues') return aimedNote ? { k: String(aimedNote.number), parts: parts(key('E', `Swap it for #${aimedNote.number}`)) } : { k: '', parts: parts(key('E', 'Pin it back up')) };
   if (it?.kind === 'queue') {
     const on = onQueue(card.issue);
     return { k: String(on), parts: parts(on ? aside('already on the queue') : key('E', 'Put it on the queue')) };
@@ -1983,13 +2202,14 @@ const finePointer = window.matchMedia('(pointer: fine)').matches;
 function renderCrosshair() {
   const show = player.view === 'first' && !modalOpen();
   const free = show && finePointer && player.canLock && !player.locked;
-  const k = `${show}|${!!target}|${free}`;
+  const k = `${show}|${!!target}|${free}|${relookOnKey}`;
   if (k === crossKey) return;
   crossKey = k;
   const el = $('crosshair');
   el.classList.toggle('hidden', !show);
   el.classList.toggle('on', !!target);
   el.classList.toggle('free', free);
+  el.querySelector('.look-hint')!.textContent = relookOnKey ? 'Press a key or click to look around' : 'Click to look around';
 }
 
 // ---- Reaching out ---------------------------------------------------------------------------------
@@ -2057,15 +2277,16 @@ function emoteKey(e: KeyboardEvent): boolean {
 const DESK_KEYS = { KeyE: 'E', KeyP: 'P', KeyR: 'R', KeyX: 'X', KeyB: 'B', KeyC: 'C', KeyO: 'O' } as const;
 type DeskKey = (typeof DESK_KEYS)[keyof typeof DESK_KEYS];
 
-function use(it: Interactable | null, key: DeskKey) {
+function use(it: Interactable | null, key: DeskKey, note = aimedNote) {
   if (!it) return;
   reach();
-  interact(it, key);
+  interact(it, key, note);
 }
 
 // ---- Input ----------------------------------------------------------------------------------------
 window.addEventListener('keydown', (e) => {
   if (modalOpen() || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (relookOnKey && e.key !== 'Escape' && player.canLock) player.lock();
   if (hanger.active && hangingKey(e.code)) {
     e.preventDefault();
     return;
@@ -2113,7 +2334,7 @@ function officeKey(e: KeyboardEvent): boolean {
       openHelp();
       return true;
     case 'KeyF':
-      hanger.start();
+      startHanging();
       return true;
     case 'KeyN':
       goToNextWaiting();
@@ -2177,8 +2398,11 @@ function sendDoing(reconnected = false) {
   net.send({ t: 'doing', what });
 }
 
-/** Whether the mouse was captured when the modals opened, so closing them gives it back. */
-let relookAfterModal = false;
+/**
+ * Set when closing the last window may not have given you the mouse back, so the next key you press
+ * takes it instead (a key counts for the browser, where the Esc that closed the window doesn't).
+ */
+let relookOnKey = false;
 onModalChange((open) => {
   player.enabled = !open;
   player.clearKeys();
@@ -2187,7 +2411,6 @@ onModalChange((open) => {
   if (open && walkingTo && !trip) stopWalking();
   if (open) {
     emoteWheel.close();
-    if (player.locked) relookAfterModal = true;
     player.unlock();
     $('hint').classList.add('hidden');
   } else {
@@ -2201,24 +2424,29 @@ onModalChange((open) => {
 function backToGame() {
   if (modalOpen()) return;
   if (!isTyping()) canvas.focus({ preventScroll: true });
-  // The browser lets a page re-capture the mouse it let go of itself, even from Esc. Otherwise it
-  // needs a recent click or key, like the one that closed the window; without one, "Click to look around".
-  if (player.canLock && (relookAfterModal || navigator.userActivation?.isActive)) player.lock();
-  relookAfterModal = false;
+  if (!player.canLock || player.locked) return;
+  // The browser lets a page re-capture the mouse it let go of itself, even on Esc (which it doesn't
+  // count as a click or key), and any time after a click, like one on ✕. When it won't (the mouse
+  // was already free when the window opened, or a stricter browser), the next key you press does.
+  player.lock();
+  relookOnKey = true;
 }
+document.addEventListener('pointerlockchange', () => {
+  if (player.locked) relookOnKey = false;
+});
 
 // ---- Clicking the world: use what's under the crosshair (first person) or the mouse (third) ----------
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6 };
 const eye = new THREE.Vector3();
 
-/** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
-function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boolean } | null {
+/** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */
+function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boolean; hit: THREE.Intersection } | null {
   raycaster.setFromCamera(ndc, camera);
   eye.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
-  for (const hit of raycaster.intersectObjects([office.group, dog.root], true)) {
+  for (const hit of raycaster.intersectObjects(upTop && roof ? roof.pickables : [office.group, dog.root], true)) {
     let it: Interactable | undefined;
     let shown = true;
     for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) {
@@ -2227,10 +2455,27 @@ function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boole
     }
     if (!shown) continue;
     if (!it) return null; // a wall, the floor, a plant… is in the way
-    return { it, near: hit.point.distanceTo(eye) <= REACH[it.kind] + slack };
+    return { it, near: hit.point.distanceTo(eye) <= REACH[it.kind] + slack, hit };
   }
   return null;
 }
+
+/** The issue whose note on the issues board an aim lands on, or null (bare cork, the frame, anything else). */
+function noteUnder(aim: { it: Interactable; hit: THREE.Intersection } | null): GhIssue | null {
+  if (aim?.it.kind !== 'issues' || aim.hit.object !== office.boardMeshes.issues || !aim.hit.uv) return null;
+  const n = issuesTex.noteAt(aim.hit.uv);
+  return n === undefined ? null : (store.issues.items.find((i) => i.number === n) ?? null);
+}
+
+/** The note on the issues board under the crosshair (or, in third person, the mouse), which E takes. */
+let aimedNote: GhIssue | null = null;
+/** Where the mouse is over the scene, for pointing at notes in third person; null when it's off it. */
+let pointer: THREE.Vector2 | null = null;
+canvas.addEventListener('pointermove', (e) => {
+  const r = canvas.getBoundingClientRect();
+  (pointer ??= new THREE.Vector2()).set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+});
+canvas.addEventListener('pointerleave', () => (pointer = null));
 
 player.onClick = (ndc) => {
   if (modalOpen()) return;
@@ -2252,7 +2497,7 @@ player.onClick = (ndc) => {
     toast('Walk closer to that first');
     return;
   }
-  use(aim.it, 'E');
+  use(aim.it, 'E', noteUnder(aim));
 };
 
 // Chat
@@ -2339,7 +2584,7 @@ $('hud').addEventListener('click', (e) => {
 // The project in the corner is the floor you're on; click it for the list of floors to go to.
 $('project').addEventListener('click', () => {
   if (!store.floor) return showElevator();
-  toggleFloorMenu($('project'), { go: switchFloor, elevator: showElevator });
+  toggleFloorMenu($('project'), { go: switchFloor, elevator: showElevator, roof: () => ride(ROOF) });
 });
 
 // ---- The HUD: a few buttons on the top bar, everything else in the ☰ menu ----------------------------
@@ -2365,11 +2610,12 @@ const hud = mountHud(
     },
     { id: 'search', icon: '🔎', label: 'Search', section: 'Open', key: '/', title: () => 'Search the chat and every terminal', run: showSearch },
     { id: 'elevator', icon: '🛗', label: 'Elevator', section: 'Open', count: () => store.floors.reduce((n, f) => n + (f.id === store.floor ? 0 : f.waiting), 0), title: () => 'Ride to another project', run: showElevator },
+    { id: 'roof', icon: '🍸', label: 'Rooftop bar', section: 'Open', shown: () => !upTop && builtFloors().length > 0, title: () => 'Ride the elevator up to the roof: a DJ, drinks and the city', run: () => ride(ROOF) },
     { id: 'voice', icon: '🎙️', label: () => (voice.inVoice ? 'Leave voice' : 'Join voice'), section: 'Together', key: 'V', on: () => voice.inVoice, blocked: noMedia, run: () => void toggleVoice() },
     // While you're in voice, the top bar keeps the mute button handy.
     { id: 'mute', icon: () => (voice.muted ? '🔇' : '🎙️'), label: () => (voice.muted ? 'Unmute' : 'Mute'), section: 'Together', key: 'M', shown: () => voice.inVoice, status: () => voice.inVoice, on: () => voice.inVoice, tone: () => (voice.muted ? 'danger' : undefined), title: () => (voice.muted ? 'Unmute (M)' : 'Mute (M)'), run: () => voice.toggleMute() },
     { id: 'share', icon: '🖥️', label: () => (voice.sharing ? 'Stop sharing' : 'Share screen'), section: 'Together', on: () => voice.sharing, status: () => voice.sharing, chip: () => 'Sharing', blocked: noMedia, run: () => void toggleShare() },
-    { id: 'decor', icon: '🖼️', label: () => (hanger.active ? 'Stop hanging the picture' : 'Hang a picture'), section: 'Together', key: 'F', on: () => hanger.active, status: () => hanger.active, run: () => (hanger.active ? hanger.cancel() : hanger.start()) },
+    { id: 'decor', icon: '🖼️', label: () => (hanger.active ? 'Stop hanging the picture' : 'Hang a picture'), section: 'Together', key: 'F', on: () => hanger.active, status: () => hanger.active, run: () => (hanger.active ? hanger.cancel() : startHanging()) },
     { id: 'team', icon: '👥', label: 'Invite teammates', section: 'Together', shown: () => store.invites, run: () => openTeam(net) },
     { id: 'accounts', icon: '🔑', label: 'Accounts', section: 'Together', shown: () => store.me.admin, title: () => 'Invite people, see who has an account, revoke them', run: () => openAccounts(net) },
     { id: 'settings', icon: '⚙️', label: 'Settings', section: 'Office', run: showSettings },
@@ -2406,6 +2652,11 @@ const hud = mountHud(
   settings,
   () => saveSettings(settings),
 );
+/** F: hang a picture on a wall of this floor. There are no walls for them up on the roof. */
+function startHanging() {
+  if (upTop) return toast('No walls to hang pictures on up here — take the elevator down to a floor', 'warn');
+  hanger.start();
+}
 function showSettings() {
   openSettings(
     net,
@@ -2488,6 +2739,8 @@ let fallV = 0;
 const lookDir = new THREE.Vector3();
 const workerPos = new THREE.Vector3();
 const headPos = new THREE.Vector3();
+/** Last frame went through the drunk vision. */
+let drunkVisionOn = false;
 
 function frame(ts: number) {
   frameRequest = undefined;
@@ -2512,6 +2765,8 @@ function frame(ts: number) {
   me.holdMug(mug);
   hands.holdMug(mug);
   renderCaffeine(caffeine, secs);
+  // Drinks from the rooftop bar: a glass in hand, and the world swaying.
+  const drunk = drinking(now);
 
   walkTick(now);
   player.update(dt);
@@ -2573,10 +2828,10 @@ function frame(ts: number) {
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     r.person.root.rotation.y += diff * Math.min(1, dt * 12);
     // On their feet if they're standing on something: the floor, a desk, a stair, the loft.
-    const ground = groundAt(office.colliders, p.x, p.z, p.y);
+    const ground = groundAt(player.colliders, p.x, p.z, p.y);
     const airborne = !sat && p.y > ground + 0.05;
     // Or holding on to the ladder or a pole; off a pole onto the mat, the firehouse bell rings.
-    const holding = sat ? null : gripOf(p, office.stack.poles(), ground);
+    const holding = sat || upTop ? null : gripOf(p, office.stack.poles(), ground);
     if (r.grip === 'pole' && !holding && Math.abs(p.y) < 0.2) sound.poleLanding(6, { x: pos.x, y: 0.5, z: pos.z });
     r.grip = holding;
     r.person.setGrip(holding);
@@ -2613,22 +2868,40 @@ function frame(ts: number) {
   departures.update(dt, t);
   arrivals.update(dt);
   dog.update(dt);
-  office.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions(), ...arrivals.positions()]);
-  office.stack.update(dt, [{ x: player.pos.x, y: player.pos.y, z: player.pos.z, grip }, ...[...remotes.values()].map((r) => ({ x: r.person.root.position.x, y: r.person.root.position.y, z: r.person.root.position.z, grip: r.grip }))], camera.position);
-  office.jukebox.update(t, dt, sound.beat());
+  if (!upTop) {
+    office.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions(), ...arrivals.positions()]);
+    office.stack.update(dt, [{ x: player.pos.x, y: player.pos.y, z: player.pos.z, grip }, ...[...remotes.values()].map((r) => ({ x: r.person.root.position.x, y: r.person.root.position.y, z: r.person.root.position.z, grip: r.grip }))], camera.position);
+    office.jukebox.update(t, dt, sound.beat());
+  }
   checkSmokeBreak(now);
   smoke.update(dt, camera);
   confetti.update(dt);
   hanger.update();
   sky.update(dt, t, camera);
-  holiday.update(t, sky.lampsOn, camera);
+  if (!upTop) holiday.update(t, sky.lampsOn, camera);
   sound.setWeather(sky.rain, 1 - sky.daylight);
+  if (upTop && roof) {
+    // Everything up there moves to the DJ's set; strobes flash the whole roof as a drop lands.
+    const strobe = roof.update(t, dt, djFrame(djAt()), { dark: sky.lampsOn, motion: !reduceMotion.matches });
+    ambient.intensity += strobe * 1.5;
+    hemi.intensity += strobe * 0.8;
+  }
 
+  aimedNote = null;
   if (modalOpen() || hanger.active || climber.active) target = null;
   else if (firstPerson) {
     const aim = aimedAt(CROSSHAIR);
     target = aim?.near ? aim.it : mySeat();
-  } else target = mySeat() ?? pickTarget();
+    if (aim?.near) aimedNote = noteUnder(aim);
+  } else {
+    target = mySeat() ?? pickTarget();
+    // By the issues board, the mouse points at the note you'd take.
+    if (target?.kind === 'issues' && pointer) {
+      const aim = aimedAt(pointer, 2.5);
+      if (aim?.near) aimedNote = noteUnder(aim);
+    }
+  }
+  issuesTex.lift(aimedNote?.number ?? null);
   renderHint();
   renderCrosshair();
 
@@ -2645,6 +2918,11 @@ function frame(ts: number) {
     for (const p of store.peers.values()) if (p.id !== store.you && !store.onMyFloor(p)) voice.setVolume(p.id, 0);
   }
 
+  // A few drinks in, the frame goes to the screen through the drunk vision (see world/drunk.ts).
+  const blurry = drunk > 0.01;
+  if (blurry) drunkVision.begin();
+  else if (drunkVisionOn) drunkVision.release();
+  drunkVisionOn = blurry;
   effect.render(scene, camera);
   pointToWaiting(now);
   // Not while the camera's up at the boss's monitor or the arcade, where they'd cover the screen.
@@ -2657,6 +2935,7 @@ function frame(ts: number) {
     effect.render(hands.scene, hands.camera);
     sky.shading(true);
   }
+  if (blurry) drunkVision.end(drunk, t, !reduceMotion.matches);
 }
 
 // ---- Boot ------------------------------------------------------------------------------------------
@@ -2699,7 +2978,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote };
+(window as any).__office = { roof: () => roof, booze, dj: () => djFrame(djAt()), store, player, caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

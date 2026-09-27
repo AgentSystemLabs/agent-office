@@ -202,6 +202,8 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
     // On the window, so the keys work wherever focus is while the menu is up.
     const onKey = (e: KeyboardEvent) => menuKey(el, e);
     menu = openModal(el, {
+      // A dropdown under ☰, which closes it again, like a click anywhere else.
+      closeButton: false,
       onClose: () => {
         menu = null;
         menuBtn.setAttribute('aria-expanded', 'false');

@@ -195,6 +195,11 @@ class Store {
     return this.floors.find((f) => f.id === this.floor);
   }
 
+  /** The office's clock (ms since 1970) as near as this page can tell, which the DJ on the roof keeps time by. */
+  officeNow(): number {
+    return this.clock ? performance.now() + this.clock.offset : Date.now();
+  }
+
   /** Whether someone is on your floor (people on other floors aren't in the room with you). */
   onMyFloor(peer: PeerInfo): boolean {
     return (peer.floor ?? null) === this.floor;

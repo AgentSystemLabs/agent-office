@@ -29,14 +29,16 @@ import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
-import { DESK_BY_ID, STREET_Y, elevatorSpot, seatAt } from '../shared/layout.js';
+import { DESK_BY_ID, elevatorSpot, seatHere, streetBelow } from '../shared/layout.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
+import { MAX_FLOORS } from '../shared/floors.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
 import { isThemePick } from '../shared/theme.js';
+import { ROOF, isDrink } from '../shared/rooftop.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -73,6 +75,8 @@ interface Client {
   lastMoveAt: number;
   lastActAt: number;
   lastGongAt: number;
+  /** When they last blew the DJ's air horn on the roof. */
+  lastHornAt: number;
   emotes: EmoteBucket;
   /** Has the floor's whiteboard open. */
   whiteboard: boolean;
@@ -158,7 +162,8 @@ function arrivalSpot(at: unknown): { x: number; y: number; z: number; rotY: numb
   if (!at || typeof at !== 'object') return undefined;
   const a = at as Record<string, unknown>;
   const clamp = (v: unknown, lo: number, hi: number) => Math.min(hi, Math.max(lo, num(v)));
-  return { x: clamp(a.x, -60, 60), y: clamp(a.y, STREET_Y, 10), z: clamp(a.z, -60, 60), rotY: num(a.rotY) };
+  // Down on the street from a floor high up, the street is a long way down.
+  return { x: clamp(a.x, -60, 60), y: clamp(a.y, streetBelow(MAX_FLOORS - 1), 10), z: clamp(a.z, -60, 60), rotY: num(a.rotY) };
 }
 const issueNumber = (v: unknown) => (Number.isInteger(v) && (v as number) > 0 ? (v as number) : undefined);
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -510,6 +515,8 @@ export async function startServer(cfg: Config) {
     meeting: floor?.meetings.state() ?? { current: null, past: [] },
     cabinet: { ...cabinetState(floor), frame: (floor && cabinetPlayer(floor)?.frame) ?? null },
   });
+  /** The rooftop bar: nobody works up there, so it has none of a floor's things. */
+  const roofView = (): FloorView => ({ ...floorView(undefined), floor: ROOF });
   const screensOf = (c: Client, floor: Floor | undefined) => {
     for (const { workerId, frame } of floor?.workers.fullScreens() ?? []) sendTo(c, { t: 'screen', workerId, ...frame, full: true });
   };
@@ -719,6 +726,29 @@ export async function startServer(cfg: Config) {
         const error = floor.whiteboard.addFile(body);
         return error ? send(res, 400, { error }) : send(res, 200, { ok: true });
       }
+      if (p === '/api/changes/file') {
+        // A changed picture in the Changes window at a desk: before (old) or after (new) the worker's edits.
+        if (req.method !== 'GET') return send(res, 405, { error: 'Method not allowed' });
+        const workerId = str(url.searchParams.get('worker'), 32);
+        const file = str(url.searchParams.get('path'), 4096);
+        const side = url.searchParams.get('side');
+        if (!workerId || !file || (side !== 'old' && side !== 'new')) return send(res, 400, { error: 'Bad request' });
+        if (!floor) return send(res, 404, { error: 'No such floor' });
+        if (!floor.workers.get(workerId)) return send(res, 404, { error: 'No such worker' });
+        const r = await floor.changes.file(workerId, file, side);
+        if ('error' in r) return send(res, r.status, { error: r.error });
+        res.writeHead(200, {
+          'content-type': r.type,
+          'content-length': String(r.body.length),
+          // The worker may change it again any moment.
+          'cache-control': 'no-store',
+          'x-content-type-options': 'nosniff',
+          'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+          'cross-origin-resource-policy': 'same-origin',
+        });
+        res.end(r.body);
+        return;
+      }
       if (p === '/api/search' && req.method === 'GET') return send(res, 200, search(url.searchParams.get('q') ?? '', floor));
       if (p.startsWith('/api/gh/') && req.method === 'GET') {
         // What the issue and PR windows show beyond the board cards (see github.ts).
@@ -807,7 +837,10 @@ export async function startServer(cfg: Config) {
   const onConnection = (ws: WebSocket, url: URL, session: Session) => {
     const id = randomBytes(5).toString('hex');
     // Back where they were before a reload or a restart, else the first floor. Everyone arrives by elevator.
-    const floor = arrivalFloor(url.searchParams.get('floor'));
+    const wanted = url.searchParams.get('floor');
+    // Up on the roof, as long as there's a building under it.
+    const onRoof = wanted === ROOF && floors.size > 0;
+    const floor = onRoof ? undefined : arrivalFloor(wanted);
     const spot = elevatorSpot();
     const account = session.account;
     // An account's name is its own; on the shared password people pick one.
@@ -825,6 +858,7 @@ export async function startServer(cfg: Config) {
       lastMoveAt: 0,
       lastActAt: 0,
       lastGongAt: 0,
+      lastHornAt: 0,
       // A little more lenient than the page's own, so emotes it let through aren't dropped for arriving bunched up.
       emotes: new EmoteBucket(EMOTE_EVERY * 0.8),
       whiteboard: false,
@@ -848,7 +882,7 @@ export async function startServer(cfg: Config) {
         muted: true,
         sharing: false,
         ...(account ? { account: true } : {}),
-        ...(floor ? { floor: floor.id } : {}),
+        ...(onRoof ? { floor: ROOF } : floor ? { floor: floor.id } : {}),
       },
     };
     clients.set(id, client);
@@ -873,7 +907,7 @@ export async function startServer(cfg: Config) {
       machine: machine.state(),
       sky: sky.state,
       theme: themes.state(),
-      ...floorView(floor),
+      ...(onRoof ? roofView() : floorView(floor)),
     });
     screensOf(client, floor);
     broadcast({ t: 'peer.join', peer: client.peer }, id);
@@ -932,6 +966,28 @@ export async function startServer(cfg: Config) {
    */
   const goToFloor = (c: Client, floor: Floor, at?: { x: number; y: number; z: number; rotY: number }) => {
     if (c.peer.floor === floor.id) return;
+    const left = leave(c, at);
+    Object.assign(c.peer, { floor: floor.id });
+    sendTo(c, { t: 'floor.enter', peers: [...clients.values()].map((o) => o.peer), ...floorView(floor) });
+    screensOf(c, floor);
+    arrived(c, left);
+    floor.arrived();
+    floor.workers.wakeAll();
+    floorsChanged();
+  };
+
+  /** Up to the rooftop bar, by elevator. */
+  const goToRoof = (c: Client) => {
+    if (c.peer.floor === ROOF) return;
+    const left = leave(c);
+    c.peer.floor = ROOF;
+    sendTo(c, { t: 'floor.enter', peers: [...clients.values()].map((o) => o.peer), ...roofView() });
+    arrived(c, left);
+    floorsChanged();
+  };
+
+  /** Off the floor (or the roof) `c` was on, to `at` on the next one, or into its elevator car. */
+  const leave = (c: Client, at?: { x: number; y: number; z: number; rotY: number }) => {
     const was = floorOf(c);
     if (was) {
       was.workers.detachAll(c.id);
@@ -945,17 +1001,17 @@ export async function startServer(cfg: Config) {
     c.whiteboard = false;
     stopPlaying(c, was);
     const spot = at ?? { ...elevatorSpot(), y: 0, rotY: 0 };
-    Object.assign(c.peer, { floor: floor.id, x: spot.x, y: spot.y, z: spot.z, rotY: spot.rotY, moving: false });
+    Object.assign(c.peer, { x: spot.x, y: spot.y, z: spot.z, rotY: spot.rotY, moving: false });
     delete c.peer.seat;
-    // An issue card belongs to the board it came off, which is on the floor they left.
+    // An issue card belongs to the board it came off, which is on the floor they left; a drink stays at the bar.
     delete c.peer.carrying;
-    sendTo(c, { t: 'floor.enter', peers: [...clients.values()].map((o) => o.peer), ...floorView(floor) });
-    screensOf(c, floor);
+    delete c.peer.drink;
+    return { was, wasDrawing };
+  };
+
+  const arrived = (c: Client, left: ReturnType<typeof leave>) => {
     broadcast({ t: 'peer.update', peer: c.peer }, c.id);
-    if (wasDrawing) drawingChanged(was);
-    floor.arrived();
-    floor.workers.wakeAll();
-    floorsChanged();
+    if (left.wasDrawing) drawingChanged(left.was);
   };
 
   /**
@@ -993,6 +1049,15 @@ export async function startServer(cfg: Config) {
         break;
       }
       case 'act': {
+        if (msg.drink !== undefined) {
+          // A drink from the rooftop bar, which stays up there.
+          const drink = isDrink(msg.drink) && c.peer.floor === ROOF ? msg.drink : undefined;
+          if (drink === c.peer.drink) break;
+          if (drink) c.peer.drink = drink;
+          else delete c.peer.drink;
+          broadcast({ t: 'peer.act', id: c.id, drink: drink ?? null }, c.id, true);
+          break;
+        }
         if (typeof msg.smoke === 'boolean') {
           if (msg.smoke === !!c.peer.smoking) break;
           c.peer.smoking = msg.smoke;
@@ -1010,8 +1075,9 @@ export async function startServer(cfg: Config) {
         break;
       case 'sit': {
         // Everyone sees them sit down (or get up), and anyone who comes in later finds them sitting.
+        // Only on a seat where they are: the roof's up on the roof, the office's on a floor.
         const key = str(msg.seat, 40);
-        const seat = seatAt(key) ? key : undefined;
+        const seat = seatHere(key, c.peer.floor === ROOF) ? key : undefined;
         if (seat === c.peer.seat) break;
         if (seat) c.peer.seat = seat;
         else delete c.peer.seat;
@@ -1055,6 +1121,11 @@ export async function startServer(cfg: Config) {
         break;
       }
       case 'floor.go': {
+        if (msg.floor === ROOF) {
+          if (floors.size) goToRoof(c);
+          else warn(c, 'There is no building to go up on yet');
+          break;
+        }
         const floor = floors.get(str(msg.floor, 64));
         if (!floor) warn(c, building.pending().some((d) => d.id === msg.floor) ? "That floor is still being cloned — it'll be ready in a moment" : 'No such floor');
         else goToFloor(c, floor, arrivalSpot(msg.at));
@@ -1266,6 +1337,13 @@ export async function startServer(cfg: Config) {
         if (!floor || now - c.lastGongAt < 500) break;
         c.lastGongAt = now;
         toFloor(floor, { t: 'gong', why: 'hit', by: who });
+        break;
+      }
+      case 'horn': {
+        const now = Date.now();
+        if (c.peer.floor !== ROOF || now - c.lastHornAt < 1500) break;
+        c.lastHornAt = now;
+        for (const o of clients.values()) if (o.peer.floor === ROOF) sendTo(o, { t: 'horn', by: who });
         break;
       }
       case 'gh.close': {

@@ -225,7 +225,11 @@ export const PLANTS: readonly (readonly [x: number, z: number, scale: number])[]
  */
 export const WHITEBOARD = { x: 5.4, z: -5.4, width: 4, height: 2.2, bottom: 0.5 } as const;
 
-/** The office is the second floor. The street, and the open garage under the office, are this far below its floor. */
+/**
+ * The bottom floor of the building is its second storey: the street, and the open garage under the
+ * office, are this far below its floor. Each floor stands one STOREY higher than the one below it,
+ * so from floor `i` the street is `streetBelow(i)` down.
+ */
 export const STREET_Y = -3.6;
 /** The street runs east–west in front of the building (south, +z), with a sidewalk along either side. */
 export const ROAD = { minZ: 23, maxZ: 31 } as const;
@@ -235,6 +239,11 @@ export const SLAB = 0.3;
 export const STOREY = WALL_HEIGHT + SLAB;
 /** How thick the outside walls are. They stand just outside FLOOR. */
 export const WALL_T = 0.3;
+
+/** How far below floor `index` of the building (0 is the bottom one) the street is. */
+export function streetBelow(index: number): number {
+  return STREET_Y - Math.max(0, index) * STOREY;
+}
 
 export type Side = 'north' | 'south' | 'east' | 'west';
 
@@ -258,7 +267,10 @@ export const WINDOWS: Opening[] = [
   { wall: 'east', u: (LOFT.minZ + LOFT.maxZ) / 2, width: 2.8, y0: LOFT.y + 0.9, y1: LOFT.y + 2.5 },
 ];
 
-/** The way out: a door in the west wall onto a landing, with stairs down to the street. */
+/**
+ * The way out of the bottom floor: a door in the west wall onto a landing, with stairs down to the
+ * street. The floors above have no door there; workers leave them off the balcony (see PARACHUTE).
+ */
 export const EXIT_DOOR: Opening = { wall: 'west', u: 6.5, width: 1.4, y0: 0, y1: 2.4 };
 export const EXIT_STAIRS = {
   maxX: FLOOR.minX - WALL_T,
@@ -277,6 +289,44 @@ export const BALCONY_DOOR: Opening = { wall: 'south', u: -4, width: 3, y0: 0, y1
 export const BALCONY = { minX: -10.5, maxX: 2.5, minZ: FLOOR.maxZ + WALL_T, maxZ: FLOOR.maxZ + WALL_T + 3.4 } as const;
 /** The ashtray on the balcony, where a smoke break starts. */
 export const ASHTRAY = { x: -8.2, z: BALCONY.maxZ - 0.55 } as const;
+/**
+ * Leaving a floor above the bottom one, with no exit door: out through the balcony doors to the
+ * railing straight ahead (`jump`), up onto its top (`railTop` high), and over it by parachute. The
+ * chute circles down onto the lot in front of the garage: `out` further from the building than it
+ * opened, and `east` (a random bit of it) along, clear of the balconies below and the street lamp by
+ * the balcony doors.
+ */
+export const PARACHUTE = { jump: { x: BALCONY_DOOR.u, z: BALCONY.maxZ - 0.45 }, railTop: 1.09, out: 1.2, east: [0.6, 1.8] } as const;
+
+// ---- The rooftop bar (see shared/rooftop.ts) ------------------------------------------------------
+// The roof of the building, level with the office floor's y = 0 and the same size, so the elevator
+// comes up in its usual spot. A glass railing runs round the edge, and the city is far below.
+
+/**
+ * How far below the roof the street is, with `floors` floors under it: the building is this tall.
+ * The roof stands a STOREY over the top floor, where a floor above it would be.
+ */
+export function roofDrop(floors: number): number {
+  return -streetBelow(Math.max(1, floors));
+}
+/** The DJ's stage, against the north edge west of the elevator, with the dance floor in front of it. */
+export const STAGE = { minX: -8, maxX: 2, minZ: FLOOR.minZ, maxZ: -9.2, height: 0.6 } as const;
+/** Where the DJ stands behind the decks, facing the dance floor (+z). */
+export const DJ_BOOTH = { x: -3, z: -11.3 } as const;
+/** LED tiles, a meter each, lighting up with the music. */
+export const DANCE_FLOOR = { minX: -8, maxX: 2, minZ: -9.2, maxZ: -2.2 } as const;
+/** The bar along the east side: its counter (x is its middle), with the bartender and the bottles behind it. */
+export const ROOF_BAR = { x: 12.95, minZ: -6, maxZ: 4, depth: 0.7, height: 1.1 } as const;
+/** The fire pit in the lounge, in the south-west corner, with sofas round three sides of it. */
+export const FIRE_PIT = { x: -12, z: 8.2, r: 0.9 } as const;
+/** Tall tables to stand at, between the elevator and the bar. */
+export const ROOF_TABLES: readonly { x: number; z: number }[] = [
+  { x: 6.6, z: 5.2 },
+  { x: 9.6, z: 8.8 },
+  { x: 6, z: 10.8 },
+];
+/** Sun loungers along the south edge, looking out over the street. */
+const LOUNGERS = [-2.2, 0.6, 3.4];
 
 /**
  * Something to sit on, standing at x, z on the floor at `y` (the loft's, for what's up there). You
@@ -302,6 +352,10 @@ export interface SeatDef {
   tv?: boolean;
   /** It faces the boss's monitor: E there, sitting down, plays Minesweeper on it. */
   game?: boolean;
+  /** Up on the rooftop bar, not in the office. */
+  roof?: boolean;
+  /** At the bar: E there, sitting down, orders a drink. */
+  bar?: boolean;
 }
 
 /**
@@ -321,6 +375,14 @@ export const SEATING: SeatDef[] = [
   { id: 'bench', label: '🪑 Bench', x: -9, y: 0, z: BALCONY.minZ + 0.3, rotY: 0, places: [-0.5, 0.5], hips: 0.47, depth: 0, out: 0.8 },
   { id: 'stool-1', label: '🪑 Stool', x: -0.6, y: 0, z: (BALCONY.minZ + BALCONY.maxZ) / 2 + 0.2, rotY: Math.PI / 2, places: [0], hips: 0.5, depth: 0, out: -0.7 },
   { id: 'stool-2', label: '🪑 Stool', x: 1, y: 0, z: (BALCONY.minZ + BALCONY.maxZ) / 2 + 0.2, rotY: -Math.PI / 2, places: [0], hips: 0.5, depth: 0, out: -0.7 },
+  // On the roof: bar stools along the counter, facing the bar…
+  ...[0, 1, 2, 3, 4, 5].map((i) => ({ id: `roof-stool-${i + 1}`, label: '🪑 Bar stool', x: ROOF_BAR.x - ROOF_BAR.depth / 2 - 0.45, y: 0, z: ROOF_BAR.minZ + 0.9 + i * 1.64, rotY: Math.PI / 2, places: [0], hips: 0.78, depth: 0, out: -0.75, roof: true, bar: true })),
+  // …sofas round the fire pit, open to the view on the south…
+  { id: 'roof-sofa-1', label: '🛋️ Sofa', x: FIRE_PIT.x, y: 0, z: FIRE_PIT.z - 2.3, rotY: 0, places: [-1.1, 0, 1.1], hips: 0.5, depth: -0.05, out: 0.8, roof: true },
+  { id: 'roof-sofa-2', label: '🛋️ Sofa', x: FIRE_PIT.x - 2.9, y: 0, z: FIRE_PIT.z + 0.4, rotY: Math.PI / 2, places: [-0.6, 0.6], hips: 0.5, depth: -0.05, out: 0.8, roof: true },
+  { id: 'roof-sofa-3', label: '🛋️ Sofa', x: FIRE_PIT.x + 2.9, y: 0, z: FIRE_PIT.z + 0.4, rotY: -Math.PI / 2, places: [-0.6, 0.6], hips: 0.5, depth: -0.05, out: 0.8, roof: true },
+  // …and sun loungers facing out over the city.
+  ...LOUNGERS.map((x, i) => ({ id: `roof-lounger-${i + 1}`, label: '🏖️ Lounger', x, y: 0, z: FLOOR.maxZ - 1.5, rotY: 0, places: [0], hips: 0.42, depth: -0.2, out: -1, roof: true })),
 ];
 export const SEATING_BY_ID = new Map(SEATING.map((s) => [s.id, s]));
 
@@ -359,6 +421,12 @@ export function seatAt(key: string): SeatPlace | undefined {
   const seat = m ? SEATING_BY_ID.get(m[1]) : undefined;
   const i = Number(m?.[2]);
   return seat && i < seat.places.length ? seatPlace(seat, i) : undefined;
+}
+
+/** The place `key` names, if it's somewhere you can sit from where you are: up on the roof, or down on a floor. */
+export function seatHere(key: string, onRoof: boolean): SeatPlace | undefined {
+  const place = seatAt(key);
+  return place && !!SEATING_BY_ID.get(place.seatId)!.roof === onRoof ? place : undefined;
 }
 
 /**

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES, type Look } from '../../shared/avatar';
 import { EMOTE_BY_ID, type Emote, type EmoteId } from '../../shared/emotes';
 import type { CarriedIssue, Theme, WorkerAction, WorkerStatus, WorkerTask } from '../../shared/protocol';
+import type { Drink } from '../../shared/rooftop';
 import { isAsleep } from '../../shared/status';
 import { HIPS } from '../player';
 import { HeldCard } from './card';
@@ -47,6 +48,96 @@ export function coffeeMug(scale = 1): THREE.Group {
   mug.add(mesh(new THREE.CylinderGeometry(r * 0.8, r * 0.8, height * 0.04, 16), toon('#6f4518'), 0, height, 0, false));
   mug.add(mesh(new THREE.TorusGeometry(height * 0.28, r * 0.2, 6, 12), china, -r, height / 2, 0, false));
   return mug;
+}
+
+/** Clear glass, faintly blue; no cartoon outline, so the drink inside shows through it. */
+const GLASS = new THREE.MeshBasicMaterial({ color: '#e8f6ff', transparent: true, opacity: 0.38, depthWrite: false });
+GLASS.userData.outlineParameters = { visible: false };
+
+/** A drink from the rooftop bar in its glass, standing on y = 0. */
+export function drinkGlass(d: Drink, scale = 1): THREE.Group {
+  const g = new THREE.Group();
+  const S = scale;
+  const cyl = (rTop: number, rBottom: number, h: number, mat: THREE.Material, y: number, x = 0) => {
+    g.add(mesh(new THREE.CylinderGeometry(rTop * S, rBottom * S, h * S, 14), mat, x * S, y * S, 0, false));
+  };
+  const liquid = toon(d.color);
+  // A stem and a foot, for the glasses that have them.
+  const stem = (h: number) => {
+    cyl(0.032, 0.034, 0.006, GLASS, 0.003);
+    cyl(0.005, 0.005, h, GLASS, h / 2);
+  };
+  switch (d.glass) {
+    case 'pint':
+      cyl(0.044, 0.036, 0.15, GLASS, 0.075);
+      cyl(0.041, 0.034, 0.115, liquid, 0.06);
+      cyl(0.043, 0.041, 0.022, toon('#fffaf0'), 0.128);
+      break;
+    case 'wine':
+      stem(0.07);
+      cyl(0.042, 0.03, 0.075, GLASS, 0.107);
+      cyl(0.036, 0.028, 0.035, liquid, 0.088);
+      break;
+    case 'martini': {
+      stem(0.075);
+      cyl(0.065, 0.005, 0.07, GLASS, 0.11);
+      cyl(0.052, 0.005, 0.055, liquid, 0.103);
+      // An olive on a stick.
+      const olive = mesh(new THREE.SphereGeometry(0.013 * S, 10, 8), toon('#7a9a3a'), 0.012 * S, 0.12 * S, 0, false);
+      g.add(olive);
+      const pick = mesh(new THREE.CylinderGeometry(0.002 * S, 0.002 * S, 0.09 * S, 6), toon('#c98b5a'), 0.02 * S, 0.14 * S, 0, false);
+      pick.rotation.z = -0.35;
+      g.add(pick);
+      break;
+    }
+    case 'highball': {
+      cyl(0.034, 0.032, 0.15, GLASS, 0.075);
+      cyl(0.031, 0.029, 0.12, liquid, 0.062);
+      // Ice, and a straw.
+      for (const [x, y] of [
+        [-0.01, 0.11],
+        [0.012, 0.095],
+      ]) {
+        const cube = mesh(new THREE.BoxGeometry(0.02 * S, 0.02 * S, 0.02 * S), toon('#f4fbff'), x * S, y * S, 0.004 * S, false);
+        cube.rotation.set(0.4, 0.6, 0.2);
+        g.add(cube);
+      }
+      if (d.id !== 'water') {
+        const straw = mesh(new THREE.CylinderGeometry(0.004 * S, 0.004 * S, 0.19 * S, 6), toon(d.id === 'maitai' ? '#ef476f' : '#06d6a0'), 0.012 * S, 0.13 * S, 0, false);
+        straw.rotation.z = -0.22;
+        g.add(straw);
+      }
+      if (d.id === 'maitai') {
+        // A paper umbrella, and a wedge of pineapple on the rim.
+        const umbrella = mesh(new THREE.ConeGeometry(0.035 * S, 0.018 * S, 10), toon('#ffd166'), -0.018 * S, 0.19 * S, 0, false);
+        umbrella.rotation.z = 0.4;
+        g.add(umbrella);
+        g.add(mesh(new THREE.BoxGeometry(0.028 * S, 0.02 * S, 0.01 * S), toon('#ffd166'), 0.03 * S, 0.148 * S, 0, false));
+      } else if (d.id === 'mojito') {
+        for (const [x, z] of [
+          [-0.012, 0.006],
+          [0.006, -0.01],
+          [0.01, 0.01],
+        ])
+          g.add(mesh(new THREE.SphereGeometry(0.009 * S, 6, 5), toon('#3f8f45'), x * S, 0.117 * S, z * S, false));
+        g.add(mesh(new THREE.CylinderGeometry(0.018 * S, 0.018 * S, 0.006 * S, 10, 1, false, 0, Math.PI), toon('#9bc53d'), 0.022 * S, 0.15 * S, 0, false));
+      }
+      break;
+    }
+    case 'shot':
+      cyl(0.026, 0.022, 0.06, GLASS, 0.03);
+      cyl(0.023, 0.02, 0.042, liquid, 0.024);
+      // A wedge of lime balanced on the rim.
+      g.add(mesh(new THREE.CylinderGeometry(0.016 * S, 0.016 * S, 0.008 * S, 10, 1, false, 0, Math.PI), toon('#9bc53d'), 0.022 * S, 0.065 * S, 0, false));
+      break;
+  }
+  return g;
+}
+
+/** Takes a glass from drinkGlass out of the hand holding it, and frees what it was made of (its materials are shared). */
+export function putDownGlass(g: THREE.Group) {
+  g.removeFromParent();
+  g.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
 }
 
 /** On a smoke break, one drag every this many seconds. */
@@ -197,9 +288,12 @@ export class Person {
   private talkUntil = 0;
   private walkPhase = 0;
   private reachT = -1;
-  /** Held in the left hand, kept upright however the arm swings. */
+  /** Held in the left hand, kept upright however the arm swings: a mug of coffee or a drink. */
   private mug = new THREE.Group();
+  private cup: THREE.Group;
   private wantsMug = false;
+  /** A drink from the rooftop bar, in the mug's place. */
+  private glass: { id: string; group: THREE.Group } | null = null;
   /** An issue card off the board, held out in front in both hands. */
   private card: HeldCard;
   pose: Pose = 'stand';
@@ -280,7 +374,7 @@ export class Person {
     this.armR = limb(0.24, 0.08, this.shirt, 0.33, 0.9);
     for (const arm of [this.armL, this.armR]) arm.add(mesh(new THREE.SphereGeometry(0.085, 12, 10), skin, 0, -0.38, 0));
     // Forward is +z, so the character's left arm is the one on +x. The handle faces the hand.
-    const cup = coffeeMug(1.4);
+    const cup = (this.cup = coffeeMug(1.4));
     cup.position.set(0.02, -0.08, 0.1);
     cup.rotation.y = -Math.PI / 2;
     this.mug.add(cup);
@@ -490,7 +584,24 @@ export class Person {
   /** A mug of coffee in the left hand, or not. */
   holdMug(on: boolean) {
     this.wantsMug = on;
-    this.mug.visible = on && !this.card.held;
+    this.cup.visible = !this.glass;
+    this.mug.visible = (on || !!this.glass) && !this.card.held;
+  }
+
+  /** A drink from the rooftop bar in the left hand (in place of a mug), or none (null). */
+  holdDrink(d: Drink | null) {
+    if ((d?.id ?? null) === (this.glass?.id ?? null)) return;
+    if (this.glass) {
+      putDownGlass(this.glass.group);
+      this.glass = null;
+    }
+    if (d) {
+      const group = drinkGlass(d, 1.4);
+      group.position.set(0.02, -0.08, 0.1);
+      this.mug.add(group);
+      this.glass = { id: d.id, group };
+    }
+    this.holdMug(this.wantsMug);
   }
 
   /** Carries an issue card in both hands, or puts it down (null). The mug waits while the hands are full. */
@@ -1210,6 +1321,17 @@ export class Worker {
     box.scale.setScalar(0.001);
     this.body.add(box);
     this.leaving = { box, boxT: 0, stride: 0 };
+  }
+
+  /** On its way out: says something else over its head in place of its farewell. */
+  say(text: string) {
+    if (!this.leaving) return;
+    if (this.bubble) {
+      this.root.remove(this.bubble);
+      disposeSprite(this.bubble);
+    }
+    this.bubble = textSprite(text, { bg: '#e9ecef', size: 34 });
+    this.root.add(this.bubble);
   }
 
   private drawBubble() {

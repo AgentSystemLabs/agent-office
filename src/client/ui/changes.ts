@@ -1,4 +1,4 @@
-import type { ChangedFile, ChangesState, ServerMsg } from '../../shared/protocol';
+import { changedImageType, type ChangedFile, type ChangesState, type ServerMsg } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, type Modal } from './dom';
@@ -77,6 +77,31 @@ function renderDiff(text: string, truncated: boolean): HTMLElement {
   }
   if (truncated) out.append(h('div.dl.meta', {}, h('span.ln'), h('span.ln'), h('span.code', {}, '… the rest of this diff is too long to show here')));
   return out;
+}
+
+/** Where one side of a changed picture loads from. The file's signature makes a new URL whenever it changes. */
+function imageUrl(workerId: string, f: ChangedFile, side: 'old' | 'new'): string {
+  const q = new URLSearchParams({ floor: store.floor ?? '', worker: workerId, path: f.path, side, v: f.sig });
+  return `/api/changes/file?${q}`;
+}
+
+/** A changed picture, before and after; new and deleted files only have the one side. */
+function renderPreview(workerId: string, f: ChangedFile): HTMLElement {
+  const sides: ('old' | 'new')[] = f.status === '?' || f.status === 'A' ? ['new'] : f.status === 'D' ? ['old'] : ['old', 'new'];
+  return h(
+    'div.img-preview',
+    {},
+    ...sides.map((side) => {
+      const label = side === 'old' ? 'Before' : 'After';
+      const size = h('span.size');
+      const frame = h('div.img-frame');
+      const img = h('img', { src: imageUrl(workerId, f, side), alt: `${side === 'old' ? f.from ?? f.path : f.path} (${label.toLowerCase()})` });
+      img.addEventListener('load', () => (size.textContent = `${img.naturalWidth} × ${img.naturalHeight}`));
+      img.addEventListener('error', () => frame.replaceChildren(h('p', {}, `Couldn't load the picture ${side === 'old' ? 'from before' : 'as it is now'}.`)));
+      frame.append(img);
+      return h('figure', {}, h('figcaption', {}, h('b', {}, label), size), frame);
+    }),
+  );
 }
 
 export function openChanges(net: Net, workerId: string, onTerminal?: () => void) {
@@ -265,9 +290,13 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void)
     else if (msg.t === 'changes.diff' && msg.workerId === workerId && msg.path === selected) {
       loading = false;
       shownSig = requestedSig;
-      diffBody.replaceChildren(msg.error ? h('div.changes-empty', {}, h('p', {}, msg.error)) : renderDiff(msg.diff, msg.truncated));
-      // The file changed again while the diff was on its way: fetch the fresh one.
       const f = state?.files.find((x) => x.path === selected);
+      const text = msg.error ? h('div.changes-empty', {}, h('p', {}, msg.error)) : renderDiff(msg.diff, msg.truncated);
+      const type = f ? changedImageType(f.path) : undefined;
+      // A picture's diff only says it differs, so show the picture instead. An SVG is text too: its diff stays below.
+      if (f && type) diffBody.replaceChildren(renderPreview(workerId, f), ...(type === 'image/svg+xml' ? [text] : []));
+      else diffBody.replaceChildren(text);
+      // The file changed again while the diff was on its way: fetch the fresh one.
       if (f && f.sig !== shownSig) requestDiff();
     }
   };
