@@ -592,6 +592,9 @@ export interface SearchResults {
   more: boolean;
 }
 
+/** Why the gong rang. */
+export type GongWhy = 'hit' | 'merged' | 'queue';
+
 export type ClientMsg =
   | { t: 'move'; x: number; y: number; z: number; rotY: number; moving: boolean }
   /**
@@ -617,6 +620,8 @@ export type ClientMsg =
   | { t: 'gh.merge'; number: number; method: GhMergeMethod; deleteBranch: boolean; auto?: boolean }
   /** Comment on an issue or a PR's conversation, as the server's gh account; answered with gh.commented. */
   | { t: 'gh.comment'; kind: 'issue' | 'pull'; number: number; body: string }
+  /** Hit the office gong (E at the gong); everyone on the floor hears it. */
+  | { t: 'gong' }
   /** Close an issue, or a pull request without merging it; the answer comes back as gh.closed. */
   | { t: 'gh.close'; kind: 'issue' | 'pull'; number: number; comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }
   | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string }
@@ -716,6 +721,11 @@ export type ServerMsg =
   | { t: 'gh.merged'; number: number; error?: string }
   /** Sent to whoever commented: the comment as GitHub saved it, or why it wasn't. */
   | { t: 'gh.commented'; kind: 'issue' | 'pull'; number: number; comment?: GhComment; error?: string }
+  /**
+   * The gong rings, for everyone on the floor: someone hit it, pull request `pr` merged (confetti
+   * over the desk it came from), or the last task on the queue just finished (a bigger party).
+   */
+  | { t: 'gong'; why: GongWhy; by?: string; pr?: number }
   /** Sent to whoever asked to close it. */
   | { t: 'gh.closed'; kind: 'issue' | 'pull'; number: number; error?: string }
   | { t: 'rtc'; from: string; data: unknown }

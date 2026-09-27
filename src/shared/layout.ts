@@ -53,9 +53,9 @@ export const DESKS: DeskDef[] = buildDesks();
  */
 export const BEANBAGS: DeskDef[] = (
   [
-    [5, -9.8, 0],
-    // Clear of the elevator doors at x 7.2..9.8.
-    [2, -9.8, 0],
+    // Either side of the gong, clear of its front and of the elevator doors at x 7.2..9.8.
+    [6, -9.8, 0],
+    [1, -9.8, 0],
     [-16.1, -9, Math.PI / 2],
     [-16.1, -3, Math.PI / 2],
     [-8.8, 10.2, Math.PI],
@@ -119,6 +119,9 @@ export const LOFT = { minX: 9, maxX: FLOOR.maxX, minZ: 8, maxZ: FLOOR.maxZ, y: 3
 export const STAIRS = { fromX: 3, toX: LOFT.minX, minZ: 11.2, maxZ: FLOOR.maxZ, steps: 15 } as const;
 
 export const SPAWN = { x: 8, z: 7 } as const;
+
+/** The gong: on the north wall between the PR board and the elevator, facing into the room. It rings when a PR merges. */
+export const GONG = { x: 3.5, z: FLOOR.minZ + 0.75, width: 1.9, height: 2.45 } as const;
 
 /** The office is the second floor. The street, and the open garage under the office, are this far below its floor. */
 export const STREET_Y = -3.6;
