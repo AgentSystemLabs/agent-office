@@ -1558,7 +1558,8 @@ export async function startServer(cfg: Config) {
         }
         // Already at it: that game's over, and this is the next one.
         if (c.playing) arcade.leave(c.game, floor.id);
-        c.game = arcade.start({ owner: c.accountId ? `account:${c.accountId}` : `name:${who}`, name: who, color: c.peer.color }, msg.game);
+        c.game = arcade.start({ owner: c.accountId ? `account:${c.accountId}` : `name:${who}`, name: who, color: c.peer.color, connection: c.id }, msg.game);
+        if (c.game !== msg.game && !arcade.counts(c.game)) warn(c, "🕹️ That's a lot of new games in a row, so this one won't go on the high-score table");
         c.playing = true;
         c.frame = undefined;
         cabinetChanged(floor);

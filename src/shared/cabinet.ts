@@ -10,6 +10,13 @@ export const WELL_ROWS = 20;
 /** How many games the high-score table keeps. */
 export const SCORES_KEPT = 10;
 const SCORE_MAX = 99_999_999;
+/** Points for clearing 1–4 lines at once, times the level they're cleared on. */
+export const CLEAR_POINTS = [0, 100, 300, 500, 800];
+
+/** The level a game is on with `lines` cleared: up one every ten, to 99. */
+export function levelFor(lines: number): number {
+  return Math.min(99, 1 + Math.floor(lines / 10));
+}
 
 export type PlayState = 'play' | 'paused' | 'over';
 

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { SCORES_KEPT, WELL_ROWS, checkScore, type CabinetFrame, type HighScore } from '../shared/cabinet.js';
+import { CLEAR_POINTS, SCORES_KEPT, WELL_ROWS, checkScore, levelFor, type CabinetFrame, type HighScore } from '../shared/cabinet.js';
 
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
@@ -71,30 +71,97 @@ export class HighScores {
   }
 }
 
-/** The fastest a game lands pieces, per second of play, and how many it can land in a burst on top of that. */
-export const PIECES_PER_SECOND = 6;
-export const PIECE_BURST = 15;
+/**
+ * The fastest a player lands pieces, per second, over all their games: about as fast as anyone keeps
+ * it up on these keys (a line a second, if every one went in a four-line clear). And how many more
+ * they can land in a burst on top of that.
+ */
+export const PIECES_PER_SECOND = 2.5;
+export const PIECE_BURST = 10;
+/** New games a player can start in a row that go on the table, and how often (ms) another one can after that. */
+export const GAME_BURST = 3;
+export const GAME_EVERY = 20_000;
 /**
  * The most a piece scores on its way down: the one before it soft-dropped the whole well (a point a
  * row) and then held, and this one hard-dropped the whole well (2 a row).
  */
 export const DROP_POINTS = 3 * (WELL_ROWS + 2);
-/** The most a cleared line scores, times the level: four at once is 800. */
-export const LINE_POINTS = 200;
 /** The high-score table changes (arcade.json written, every floor told) at most this often, in ms. */
 export const RECORD_EVERY = 2000;
 /** Games kept waiting for their players to come back to them, at most. */
 const GAMES_KEPT = 100;
+/** Players an Allowance keeps track of before it forgets the ones back to a full allowance. */
+const PLAYERS_KEPT = 256;
 
 /** Whose game it is (an account, or a name on the shared password) and how it shows on the table. */
 export interface Player {
   owner: string;
   name: string;
   color: string;
+  /** The connection it's played over: a new name on it is the same player to the office. */
+  connection?: string;
+}
+
+/**
+ * The most `lines` lines can score, cleared by `pieces` pieces landing after `before` lines: each
+ * landing clears up to four at once, for their CLEAR_POINTS times the level it's on then. -Infinity
+ * if that many pieces can't clear that many lines.
+ */
+export function clearPoints(before: number, lines: number, pieces: number): number {
+  if (!lines) return 0;
+  if (lines > pieces * 4) return -Infinity;
+  // most[n]: the most the first n of the lines score, cleared in `landings` landings exactly.
+  let most = [0, ...new Array<number>(lines).fill(-Infinity)];
+  let best = -Infinity;
+  for (let landings = 1; landings <= Math.min(pieces, lines); landings++) {
+    const was = most;
+    most = was.map((_, n) => {
+      let m = -Infinity;
+      for (let k = 1; k <= Math.min(4, n); k++) m = Math.max(m, was[n - k] + CLEAR_POINTS[k] * levelFor(before + n - k));
+      return m;
+    });
+    best = Math.max(best, most[lines]);
+  }
+  return best;
+}
+
+/**
+ * Something a player can only do so often: `burst` times in a row, and then again as it comes back
+ * at `perSecond`. It's kept under each thing they go by (their account or name, and their
+ * connection), so a new game, a new name or a new connection doesn't start them over.
+ */
+class Allowance {
+  private readonly used = new Map<string, { left: number; at: number }>();
+
+  constructor(
+    private readonly burst: number,
+    private readonly perSecond: number,
+  ) {}
+
+  /** What's left for the player going by `keys`: the least under any of them. */
+  left(keys: readonly string[]): number {
+    const now = Date.now();
+    return Math.min(...keys.map((k) => this.leftAt(k, now)));
+  }
+
+  take(keys: readonly string[], n: number) {
+    if (!n) return;
+    const now = Date.now();
+    for (const k of keys) this.used.set(k, { left: this.leftAt(k, now) - n, at: now });
+    // Anyone back to a full allowance is the same as someone never seen.
+    if (this.used.size > PLAYERS_KEPT) for (const k of [...this.used.keys()]) if (this.leftAt(k, now) >= this.burst) this.used.delete(k);
+  }
+
+  private leftAt(key: string, now: number): number {
+    const u = this.used.get(key);
+    return u ? Math.min(this.burst, u.left + ((now - u.at) / 1000) * this.perSecond) : this.burst;
+  }
 }
 
 interface Game extends Player {
   id: string;
+  /** What its player goes by, for their allowances. */
+  keys: string[];
   /** From its last frame that added up. */
   score: number;
   lines: number;
@@ -102,10 +169,10 @@ interface Game extends Player {
   pieces: number;
   /** The most its cleared lines could have scored between them. */
   clears: number;
-  /** Pieces it can still land: this refills at PIECES_PER_SECOND while it's played, up to PIECE_BURST. */
-  budget: number;
-  /** When `budget` was last topped up, while it's being played; null while it waits for its player. */
-  since: number | null;
+  /** Someone's at it; otherwise it waits for its player to come back to it. */
+  playing: boolean;
+  /** One too many new games in a row: it's followed like any other, but it never goes on the table. */
+  counts: boolean;
   /** The score last put up for the table. */
   offered: number;
 }
@@ -118,15 +185,18 @@ export type Verdict = 'ok' | 'void' | 'none';
  * the scores on the high-score table itself, so a browser can't post a score it didn't play for.
  *
  * A frame adds up when nothing in it went down, its level is the one its lines make, it hasn't
- * cleared more lines than its pieces could fill or scored more than they (and the lines) could, and
- * its pieces came no faster than PIECES_PER_SECOND of play, give or take a PIECE_BURST. A game with a
- * frame that doesn't add up never goes on the table again. However many games end at once, the table
- * changes at most every RECORD_EVERY ms.
+ * cleared more lines than its pieces could fill or scored more than they (and the lines, cleared
+ * the best way they could have been) could, and its player has landed no more pieces than
+ * PIECES_PER_SECOND lets them, give or take a PIECE_BURST, across all their games. A game with a
+ * frame that doesn't add up never goes on the table again, and nor does one started after GAME_BURST
+ * others in a row. However many games end at once, the table changes at most every RECORD_EVERY ms.
  */
 export class Arcade {
   private readonly games = new Map<string, Game>();
   /** Scores waiting to go on the table, by game, with the floor each was played on. */
   private readonly pending = new Map<string, { score: Omit<HighScore, 'at'>; floor: string }>();
+  private readonly pieces = new Allowance(PIECE_BURST, PIECES_PER_SECOND);
+  private readonly starts = new Allowance(GAME_BURST, 1000 / GAME_EVERY);
   private timer: ReturnType<typeof setTimeout> | null = null;
   private recordedAt = -Infinity;
 
@@ -138,10 +208,11 @@ export class Arcade {
 
   /** `player` steps up to the cabinet: back to game `resume` if it's theirs and waiting for them, else a new game. Says which. */
   start(player: Player, resume?: unknown): string {
-    const now = Date.now();
+    const keys = [player.owner, ...(player.connection ? [`connection:${player.connection}`] : [])];
     const was = typeof resume === 'string' ? this.games.get(resume) : undefined;
-    if (was && was.owner === player.owner && was.since === null) {
-      was.since = now;
+    if (was && was.owner === player.owner && !was.playing) {
+      was.playing = true;
+      was.keys = keys;
       // Played again: the last to go when there are too many.
       this.games.delete(was.id);
       this.games.set(was.id, was);
@@ -149,32 +220,37 @@ export class Arcade {
     }
     this.prune();
     const id = randomBytes(8).toString('hex');
-    this.games.set(id, { ...player, id, score: 0, lines: 0, level: 1, pieces: 0, clears: 0, budget: PIECE_BURST, since: now, offered: 0 });
+    const counts = this.starts.left(keys) >= 1;
+    if (counts) this.starts.take(keys, 1);
+    this.games.set(id, { ...player, id, keys, score: 0, lines: 0, level: 1, pieces: 0, clears: 0, playing: true, counts, offered: 0 });
     return id;
+  }
+
+  /** Whether game `id` can go on the table: false for one started after too many others in a row (and one that's gone). */
+  counts(id: string | undefined): boolean {
+    return !!(id && this.games.get(id)?.counts);
   }
 
   /** A frame from the player of game `id`, on `floor`. A game's last frame puts its score up for the table. */
   frame(id: string | undefined, f: CabinetFrame, floor: string): Verdict {
     const g = id === undefined ? undefined : this.games.get(id);
-    if (!g || g.since === null) return 'none';
-    this.refill(g);
+    if (!g || !g.playing) return 'none';
     const pieces = f.pieces - g.pieces;
     const lines = f.lines - g.lines;
-    const clears = g.clears + lines * LINE_POINTS * f.level;
     const adds =
       pieces >= 0 &&
       lines >= 0 &&
       f.score >= g.score &&
-      pieces <= g.budget &&
-      lines <= pieces * 4 &&
+      pieces <= this.pieces.left(g.keys) &&
       f.lines * 10 <= f.pieces * 4 &&
-      f.level === Math.min(99, 1 + Math.floor(f.lines / 10)) &&
-      f.score <= DROP_POINTS * (f.pieces + 1) + clears;
-    if (!adds) {
+      f.level === levelFor(f.lines);
+    const clears = adds ? g.clears + clearPoints(g.lines, lines, pieces) : -Infinity;
+    if (!adds || f.score > DROP_POINTS * (f.pieces + 1) + clears) {
       this.games.delete(g.id);
       return 'void';
     }
-    Object.assign(g, { score: f.score, lines: f.lines, level: f.level, pieces: f.pieces, clears, budget: g.budget - pieces });
+    this.pieces.take(g.keys, pieces);
+    Object.assign(g, { score: f.score, lines: f.lines, level: f.level, pieces: f.pieces, clears });
     if (f.state === 'over') {
       this.offer(g, floor);
       this.games.delete(g.id);
@@ -185,9 +261,8 @@ export class Arcade {
   /** The player of game `id` stepped away from it on `floor` (or left the office): it waits for them, with its score so far up for the table. */
   leave(id: string | undefined, floor: string) {
     const g = id === undefined ? undefined : this.games.get(id);
-    if (!g || g.since === null) return;
-    this.refill(g);
-    g.since = null;
+    if (!g || !g.playing) return;
+    g.playing = false;
     this.offer(g, floor);
   }
 
@@ -203,15 +278,8 @@ export class Arcade {
     if (changed) this.changed(first && { score: first, floor: waiting.find((w) => w.score.game === first.game)!.floor });
   }
 
-  private refill(g: Game) {
-    if (g.since === null) return;
-    const now = Date.now();
-    g.budget = Math.min(PIECE_BURST, g.budget + ((now - g.since) / 1000) * PIECES_PER_SECOND);
-    g.since = now;
-  }
-
   private offer(g: Game, floor: string) {
-    if (g.score <= g.offered) return;
+    if (!g.counts || g.score <= g.offered) return;
     g.offered = g.score;
     this.pending.set(g.id, { score: { game: g.id, name: g.name, color: g.color, score: g.score, lines: g.lines, level: g.level }, floor });
     if (this.timer) return;
@@ -223,7 +291,7 @@ export class Arcade {
   private prune() {
     for (const g of this.games.values()) {
       if (this.games.size < GAMES_KEPT) return;
-      if (g.since === null) this.games.delete(g.id);
+      if (!g.playing) this.games.delete(g.id);
     }
   }
 }

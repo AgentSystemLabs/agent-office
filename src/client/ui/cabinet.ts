@@ -47,6 +47,8 @@ export class Cabinet {
   private readonly view: ScreenZoom;
   /** Your game: the one you're playing, or the one you left paused. */
   private game: Blocks | null = null;
+  /** The game you last asked the office to carry on with, until it says which one you're on ('' for a new one). */
+  private asked = '';
   /** Its game-over sound has played. */
   private ended = false;
   private sent = { version: -1, at: 0 };
@@ -111,7 +113,7 @@ export class Cabinet {
     const p = store.cabinet.player;
     if (p && p.id !== store.you) return this.open('watch');
     if (!this.game || this.game.over) this.newGame();
-    this.net.send({ t: 'cabinet.play', game: this.game!.id || undefined });
+    this.ask(this.game!.id);
     this.open('play');
   }
 
@@ -153,6 +155,12 @@ export class Cabinet {
     this.game = g;
     this.ended = false;
     this.sent.version = -1;
+  }
+
+  /** Asks the office to carry on with game `id`, or to start a new one (''): it says which you're on in `cabinet`. */
+  private ask(id: string) {
+    this.asked = id;
+    this.net.send({ t: 'cabinet.play', game: id || undefined });
   }
 
   /**
@@ -253,7 +261,7 @@ export class Cabinet {
       if (k === 'go' || k === 'drop') {
         this.newGame();
         // A new game for the office to follow, and name.
-        this.net.send({ t: 'cabinet.play' });
+        this.ask('');
         this.dirty = true;
       }
       return;
@@ -283,8 +291,16 @@ export class Cabinet {
         this.open('watch');
       } else if (!p) {
         // The office forgot (a dropped connection): still here.
-        this.net.send({ t: 'cabinet.play', game: this.game?.id || undefined });
-      } else if (this.game) this.game.id = p.game;
+        this.ask(this.game?.id ?? '');
+      } else if (this.game) {
+        // It can't follow the old game on from where it was, so a new one for the new game it started.
+        if (lostGame(this.asked, p.game)) {
+          this.newGame();
+          toast("🕹️ The office lost track of your game, so here's a new one");
+        }
+        this.asked = '';
+        this.game.id = p.game;
+      }
     } else if (this.mode === 'watch' && (!p || p.id === store.you || p.name !== this.watching)) {
       if (!p) toast(`${this.watching} stepped away from the arcade`);
       this.modal?.close();
@@ -368,6 +384,14 @@ export class Cabinet {
     paintScreen(g, v);
     if (!this.board) this.texture.needsUpdate = true;
   }
+}
+
+/**
+ * Whether the office let go of the game you asked it to carry on with (`asked`, '' for a new one):
+ * it restarted, or gave up waiting for you, and started game `id` for you instead.
+ */
+export function lostGame(asked: string, id: string): boolean {
+  return asked !== '' && id !== asked;
 }
 
 /** " at Desk 3", or nothing when it's not at a desk here. */
