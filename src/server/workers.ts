@@ -2,7 +2,6 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, accessSync, constants } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import path from 'node:path';
-import * as pty from '@lydell/node-pty';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
 import type { Run, WorkerInfo, WorkerKind, WorkerStatus, WorkerTask } from '../shared/protocol.js';
@@ -13,6 +12,7 @@ import { gh } from './github.js';
 import type { ServiceOwner } from './services.js';
 import { TaskNamer, fallbackTask } from './tasks.js';
 import { addUsage, newTracker, restoreTracker, scanTracker, trackerUsage, zeroUsage, type Ledger, type UsageTracker } from './usage.js';
+import { PtyHost, SCROLLBACK, type Adopted, type Pty } from './ptys.js';
 
 type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
 
@@ -33,8 +33,9 @@ const SCRUB_ENV = new Set([
 const SCRUB_PREFIXES = ['CLAUDE_CODE_SESSION', 'CLAUDE_CODE_CHILD', 'CLAUDE_CODE_MESSAGING', 'NEBULA_', 'AGENT_OFFICE_'];
 const scrubbed = (k: string) => SCRUB_ENV.has(k) || SCRUB_PREFIXES.some((p) => k.startsWith(p));
 
-const SCROLLBACK = 3000;
 const SCREEN_INTERVAL_MS = 250;
+/** What a worker with a live terminal can be doing. */
+const RUNNING = new Set<unknown>(['starting', 'idle', 'working', 'done', 'needs_input'] satisfies WorkerStatus[]);
 const LATE_PROMPT_GRACE_MS = 5000;
 const KEYFRAME_MS = 8000;
 /** How many of a worker's latest prompts and tool calls the task namer sees. */
@@ -45,6 +46,11 @@ const TASK_REFRESH_TOOLS = 8;
 const TASK_REFRESH_MS = 90_000;
 const PR_TITLE_MAX = 72;
 const PR_TASK_MAX = 2500;
+/**
+ * A hook finding the office restarting (its workers keep running through that) retries, once a
+ * second, this many times in all: long enough for a dev-server reload.
+ */
+const HOOK_TRIES = 6;
 /** How often every worker's transcript is checked for new spend, on top of the hook-driven checks. */
 const USAGE_SCAN_MS = 10_000;
 
@@ -55,7 +61,7 @@ export interface HookEnv {
 
 interface Worker {
   info: WorkerInfo;
-  pty?: pty.IPty;
+  pty?: Pty;
   term?: HeadlessTerminal;
   ser?: InstanceType<typeof serialize.SerializeAddon>;
   viewers: Map<string, string>; // clientId -> name
@@ -76,6 +82,8 @@ interface Worker {
   /** Where the session's tokens and cost are read from (see usage.ts). */
   tracker: UsageTracker;
   scanTimer?: NodeJS.Timeout;
+  /** Its terminal in the host as of the last save, and how it was doing, to pick back up after a restart. */
+  saved?: { ptyId: string; status: WorkerStatus; acked: boolean };
 }
 
 export interface WorkerEvents {
@@ -97,6 +105,8 @@ export class WorkerManager {
   private closing = false;
   private namer: TaskNamer;
   private usageTimer: NodeJS.Timeout;
+  /** Runs the workers' terminals outside the office, so they outlive a restart of it (see ptys.ts). */
+  private host: PtyHost;
 
   constructor(
     private dir: string,
@@ -120,6 +130,7 @@ export class WorkerManager {
       this.emitUpdate(w);
       this.persist();
     });
+    this.host = new PtyHost(dataDir, () => this.events.toast("The workers' terminal host stopped — resuming them", 'warn'));
     this.restore();
     // A session may have ended (and written its final tally) while the office was down.
     for (const w of this.workers.values()) this.scanUsage(w);
@@ -127,8 +138,25 @@ export class WorkerManager {
     this.usageTimer = setInterval(() => {
       for (const w of this.workers.values()) this.scanUsage(w);
     }, USAGE_SCAN_MS);
-    // Whoever was at a desk when the office stopped (a restart, a crash, a dev-server reload) gets
-    // straight back to work.
+  }
+
+  /**
+   * Picks every worker whose terminal outlived the last office (a dev-server reload, an upgrade)
+   * back up where it is, mid-turn or not. Whoever else was at a desk when the office stopped gets
+   * straight back to work. Call once, before anyone can walk in.
+   */
+  async start() {
+    await this.host.connect();
+    await Promise.all(
+      [...this.workers.values()].map(async (w) => {
+        const saved = w.saved;
+        w.saved = undefined;
+        const adopted = saved && (await this.host.attach(saved.ptyId));
+        if (adopted) this.adopt(w, adopted, saved);
+      }),
+    );
+    // Terminals nobody saved a claim on (their worker was sent home as the office went down).
+    this.host.killUnclaimed();
     this.wakeAll();
   }
 
@@ -492,11 +520,16 @@ export class WorkerManager {
     this.persist();
   }
 
-  shutdown() {
+  /**
+   * The office is closing. On a restart (`keep`), terminals in the host keep running for the next
+   * office to pick back up; otherwise every worker stops.
+   */
+  shutdown(keep = false) {
     this.closing = true;
     clearInterval(this.screenTimer);
     clearInterval(this.usageTimer);
     for (const w of this.workers.values()) {
+      if (keep && w.pty?.id) continue;
       try {
         w.pty?.kill();
       } catch {
@@ -504,35 +537,15 @@ export class WorkerManager {
       }
     }
     this.persist();
+    if (keep) this.host.detach();
+    else this.host.stop();
   }
 
   // ---------------------------------------------------------------------------
 
   private launch(w: Worker, prompt: string | undefined, resumeSessionId: string | undefined) {
     const { info } = w;
-    const term = new headless.Terminal({ cols: info.cols, rows: info.rows, scrollback: SCROLLBACK, allowProposedApi: true });
-    const ser = new serialize.SerializeAddon();
-    term.loadAddon(ser as any);
-    // OSC 9;4 progress (Claude Code emits it): 0 = idle, anything else = busy. Catches Esc-cancel,
-    // which fires no Stop hook.
-    term.parser.registerOscHandler(9, (data: string) => {
-      const m = /^4;(\d)/.exec(data);
-      if (m) this.onProgress(w, m[1] !== '0');
-      return true;
-    });
-    term.onTitleChange((title: string) => {
-      const clean = title.replace(/^[^\p{L}\p{N}]+/u, '').trim();
-      if (clean && clean !== info.title && !/^claude( code)?$/i.test(clean)) {
-        info.title = clean;
-        this.emitUpdate(w);
-      }
-    });
-    w.term?.dispose();
-    w.term = term;
-    w.ser = ser;
-    w.lastLines = [];
-    w.screenDirty = true;
-
+    const term = this.newTerm(w);
     const shell = process.env.SHELL || '/bin/bash';
     const isShell = info.kind === 'shell';
     const isClaude = !isShell && /(^|\/)claude$/.test(this.agentCmd);
@@ -553,38 +566,100 @@ export class WorkerManager {
     });
 
     const cwd = info.worktree ? path.join(this.dir, info.worktree.path) : this.dir;
-    let proc: pty.IPty;
+    const where = { cwd, env, cols: info.cols, rows: info.rows };
+    let proc: Pty;
     try {
       if (!existsSync(cwd)) throw new Error(`working directory is gone: ${cwd}`);
       if (isShell) {
-        proc = pty.spawn(shell, args, { name: 'xterm-256color', cols: info.cols, rows: info.rows, cwd, env });
+        proc = this.host.spawn({ file: shell, args, ...where });
       } else if (this.agentPath) {
-        proc = pty.spawn(this.agentPath, args, { name: 'xterm-256color', cols: info.cols, rows: info.rows, cwd, env });
+        proc = this.host.spawn({ file: this.agentPath, args, ...where });
       } else {
         // Not found on PATH: let a login shell find it (nvm, asdf, ~/.local/bin ...).
         const line = ['exec', this.agentCmd, ...args].map((a, i) => (i < 2 ? a : shq(a))).join(' ');
-        proc = pty.spawn(shell, ['-l', '-i', '-c', line], { name: 'xterm-256color', cols: info.cols, rows: info.rows, cwd, env });
+        proc = this.host.spawn({ file: shell, args: ['-l', '-i', '-c', line], ...where });
       }
     } catch (err) {
-      info.status = 'exited';
-      info.exitCode = -1;
-      const what = isShell ? shell : this.agentCmd;
-      term.write(`\r\n\x1b[31mFailed to start ${what}: ${(err as Error).message}\x1b[0m\r\n`);
-      this.events.toast(`Could not start ${what}: ${(err as Error).message}`, 'error');
-      this.emitUpdate(w);
+      this.startFailed(w, (err as Error).message);
       return;
     }
-    w.pty = proc;
     if (!isClaude) info.status = 'idle';
+    this.follow(w, proc, term, isClaude, resumeSessionId);
+    this.emitUpdate(w);
+    this.persist();
+  }
 
+  /** Takes back a terminal the host kept running while the office was down. */
+  private adopt(w: Worker, adopted: Adopted, saved: NonNullable<Worker['saved']>) {
+    const { info } = w;
+    info.cols = adopted.cols;
+    info.rows = adopted.rows;
+    const term = this.newTerm(w);
+    term.write(adopted.snapshot);
+    this.setTitle(w, adopted.title);
+    // A hook that came in since the office started already says how it's doing.
+    if (info.status === 'offline') {
+      info.status = saved.status;
+      info.acked = saved.acked;
+    }
+    const isClaude = info.kind === 'agent' && /(^|\/)claude$/.test(this.agentCmd);
+    this.follow(w, adopted.pty, term, isClaude, undefined);
+    // A turn that ended while the office was down says so with its Stop hook, which retries until
+    // the office is back. Claude's progress report, where it gives one, says a turn is still going.
+    if (adopted.busy) this.onProgress(w, true);
+    this.emitUpdate(w);
+  }
+
+  /** A fresh screen for a worker's terminal, reading Claude's progress and title off it. */
+  private newTerm(w: Worker): HeadlessTerminal {
+    const term = new headless.Terminal({ cols: w.info.cols, rows: w.info.rows, scrollback: SCROLLBACK, allowProposedApi: true });
+    const ser = new serialize.SerializeAddon();
+    term.loadAddon(ser as any);
+    // OSC 9;4 progress (Claude Code emits it): 0 = idle, anything else = busy. Catches Esc-cancel,
+    // which fires no Stop hook.
+    term.parser.registerOscHandler(9, (data: string) => {
+      const m = /^4;(\d)/.exec(data);
+      if (m) this.onProgress(w, m[1] !== '0');
+      return true;
+    });
+    term.onTitleChange((title: string) => this.setTitle(w, title));
+    w.term?.dispose();
+    w.term = term;
+    w.ser = ser;
+    w.lastLines = [];
+    w.screenDirty = true;
+    return term;
+  }
+
+  private setTitle(w: Worker, title: string) {
+    const clean = title.replace(/^[^\p{L}\p{N}]+/u, '').trim();
+    if (clean && clean !== w.info.title && !/^claude( code)?$/i.test(clean)) {
+      w.info.title = clean;
+      this.emitUpdate(w);
+    }
+  }
+
+  /** Shows a worker's terminal output as it comes, and deals with the process ending. */
+  private follow(w: Worker, proc: Pty, term: HeadlessTerminal, isClaude: boolean, resumeSessionId: string | undefined) {
+    const { info } = w;
+    w.pty = proc;
     proc.onData((data) => {
       term.write(data);
       w.screenDirty = true;
       if (w.viewers.size) this.events.data(info.id, data, [...w.viewers.keys()]);
     });
-    proc.onExit(({ exitCode }) => {
+    proc.onExit(({ exitCode, error, lost }) => {
       if (w.pty !== proc || this.workers.get(info.id) !== w) return;
       w.pty = undefined;
+      if (error) {
+        this.startFailed(w, error);
+        return;
+      }
+      // The terminal host died and took the process with it: nothing the worker did.
+      if (lost && !this.closing) {
+        this.resume(info.id);
+        return;
+      }
       // Resuming a conversation Claude no longer has ("No conversation found") exits before Claude
       // ever starts. Start a fresh one rather than leave the worker asleep.
       if (isClaude && resumeSessionId && info.status === 'starting' && !this.closing) {
@@ -612,6 +687,17 @@ export class WorkerManager {
         this.setStatus(w, 'needs_input');
       } else this.setStatus(w, 'idle');
     }, 12000);
+  }
+
+  private startFailed(w: Worker, message: string) {
+    const what = w.info.kind === 'shell' ? process.env.SHELL || '/bin/bash' : this.agentCmd;
+    const msg = `\r\n\x1b[31mFailed to start ${what}: ${message}\x1b[0m\r\n`;
+    w.info.status = 'exited';
+    w.info.exitCode = -1;
+    w.term?.write(msg);
+    if (w.viewers.size) this.events.data(w.info.id, msg, [...w.viewers.keys()]);
+    w.screenDirty = true;
+    this.events.toast(`Could not start ${what}: ${message}`, 'error');
     this.emitUpdate(w);
   }
 
@@ -656,6 +742,8 @@ export class WorkerManager {
     if (status === 'done' || status === 'needs_input') w.info.acked = w.viewers.size > 0 && status === 'done';
     else w.info.acked = true;
     this.emitUpdate(w);
+    // What a restarted office picks the worker back up as, should its terminal outlive this one.
+    if (w.pty?.id) this.persist();
   }
 
   private syncViewers(w: Worker): boolean {
@@ -745,10 +833,15 @@ process.stdin.on('end', () => {
   const url = new URL(process.env.AGENT_OFFICE_HOOK_URL + '/hooks/claude');
   url.searchParams.set('worker', process.env.AGENT_OFFICE_WORKER_ID);
   url.searchParams.set('event', event);
-  const req = http.request(url, { method: 'POST', timeout: 3000, headers: { authorization: 'Bearer ' + process.env.AGENT_OFFICE_HOOK_TOKEN, 'content-type': 'application/json' } }, (res) => res.resume());
-  req.on('error', () => {});
-  req.on('timeout', () => req.destroy());
-  req.end(body);
+  const send = (tries) => {
+    const req = http.request(url, { method: 'POST', timeout: 3000, headers: { authorization: 'Bearer ' + process.env.AGENT_OFFICE_HOOK_TOKEN, 'content-type': 'application/json' } }, (res) => res.resume());
+    req.on('error', (err) => {
+      if (err.code === 'ECONNREFUSED' && tries > 1) setTimeout(() => send(tries - 1), 1000);
+    });
+    req.on('timeout', () => req.destroy());
+    req.end(body);
+  };
+  send(${HOOK_TRIES});
 });
 `,
       { mode: 0o600 },
@@ -756,7 +849,7 @@ process.stdin.on('end', () => {
     const hooks: Record<string, unknown[]> = {};
     for (const [event, matcher] of events) {
       const curl =
-        `curl -sS -m 3 -X POST -H "Authorization: Bearer $AGENT_OFFICE_HOOK_TOKEN" -H "Content-Type: application/json" ` +
+        `curl -sS -m 3 --retry ${HOOK_TRIES - 1} --retry-delay 1 --retry-connrefused -X POST -H "Authorization: Bearer $AGENT_OFFICE_HOOK_TOKEN" -H "Content-Type: application/json" ` +
         `--data-binary @- "$AGENT_OFFICE_HOOK_URL/hooks/claude?worker=$AGENT_OFFICE_WORKER_ID&event=${event}"`;
       const command =
         `if [ -z "$AGENT_OFFICE_WORKER_ID" ] || [ -z "$AGENT_OFFICE_HOOK_URL" ]; then exit 0; fi; ` +
@@ -768,7 +861,7 @@ process.stdin.on('end', () => {
   }
 
   private persist() {
-    const saved = [...this.workers.values()].map(({ info, tracker }) => ({
+    const saved = [...this.workers.values()].map(({ info, tracker, hookToken, pty }) => ({
       id: info.id,
       kind: info.kind,
       deskId: info.deskId,
@@ -784,6 +877,9 @@ process.stdin.on('end', () => {
       task: info.task,
       pr: info.pr,
       tracker: info.kind === 'agent' ? tracker : undefined,
+      // A terminal still running in the host, to pick back up after a restart. Its hooks keep the token.
+      hookToken,
+      pty: pty?.id ? { id: pty.id, status: info.status, acked: info.acked } : undefined,
     }));
     try {
       writeFileSync(this.statePath, JSON.stringify(saved, null, 2), { mode: 0o600 });
@@ -795,7 +891,7 @@ process.stdin.on('end', () => {
   private restore() {
     if (!existsSync(this.statePath)) return;
     try {
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { tracker?: unknown })[];
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { tracker?: unknown; hookToken?: unknown; pty?: any })[];
       for (const s of saved) {
         if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || this.deskOccupied(s.deskId)) continue;
         const tracker = restoreTracker(s.tracker);
@@ -821,8 +917,12 @@ process.stdin.on('end', () => {
           rows: 30,
           viewers: [],
         };
-        const w = newWorker(info, tracker);
+        const w = newWorker(info, tracker, typeof s.hookToken === 'string' && s.hookToken ? s.hookToken : undefined);
         w.screenDirty = false;
+        if (typeof s.pty?.id === 'string') {
+          const status: WorkerStatus = RUNNING.has(s.pty.status) ? s.pty.status : 'idle';
+          w.saved = { ptyId: s.pty.id, status, acked: s.pty.acked !== false };
+        }
         if (info.prompt) w.prompts = [info.prompt.replace(/\s+/g, ' ').trim()];
         this.workers.set(info.id, w);
       }
@@ -834,7 +934,7 @@ process.stdin.on('end', () => {
 
 // ---------------------------------------------------------------------------
 
-function newWorker(info: WorkerInfo, tracker: UsageTracker): Worker {
+function newWorker(info: WorkerInfo, tracker: UsageTracker, hookToken = randomBytes(16).toString('hex')): Worker {
   return {
     info,
     viewers: new Map(),
@@ -842,7 +942,7 @@ function newWorker(info: WorkerInfo, tracker: UsageTracker): Worker {
     lastLines: [],
     leftNeedsInputAt: 0,
     keyframeAt: 0,
-    hookToken: randomBytes(16).toString('hex'),
+    hookToken,
     prompts: [],
     tools: [],
     toolsSinceNamed: 0,

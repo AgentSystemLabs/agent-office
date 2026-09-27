@@ -1,7 +1,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -158,8 +158,26 @@ export async function startServer(cfg: Config) {
     const ok = workers.handleHook(url.searchParams.get('worker') ?? '', token, url.searchParams.get('event') ?? '', payload);
     send(res, ok ? 200 : 401, {});
   });
-  await new Promise<void>((resolve) => hookServer.listen(0, '127.0.0.1', resolve));
+  // Workers' terminals outlive a restart of the office (see ptys.ts) with this address in their
+  // environment, so listen where the last office did when that port is free.
+  const hookPortPath = path.join(cfg.dataDir, 'hook-port');
+  const listenHooks = (port: number) =>
+    new Promise<void>((resolve, reject) => {
+      hookServer.once('error', reject);
+      hookServer.listen(port, '127.0.0.1', () => {
+        hookServer.off('error', reject);
+        resolve();
+      });
+    });
+  let lastHookPort = 0;
+  try {
+    lastHookPort = Number(readFileSync(hookPortPath, 'utf8')) || 0;
+  } catch {
+    // first start
+  }
+  await listenHooks(lastHookPort).catch(() => listenHooks(0));
   const hookPort = (hookServer.address() as { port: number }).port;
+  writeFileSync(hookPortPath, String(hookPort), { mode: 0o600 });
 
   // What the workers spend, all time and today, with the optional daily budget.
   const ledger = new Ledger(
@@ -201,6 +219,7 @@ export async function startServer(cfg: Config) {
     },
     ledger,
   );
+  await workers.start();
 
   const github = new GitHub(
     cfg.dir,
@@ -789,7 +808,8 @@ export async function startServer(cfg: Config) {
   });
   services.start();
 
-  const shutdown = () => {
+  /** With `keep` (a restart), workers' terminals keep running for the next office to pick up. */
+  const shutdown = (keep = false) => {
     clearInterval(heartbeat);
     clearInterval(resync);
     github.stop();
@@ -797,7 +817,7 @@ export async function startServer(cfg: Config) {
     services.stop();
     queue.shutdown();
     changes.stop();
-    workers.shutdown();
+    workers.shutdown(keep);
     ledger.flush();
     for (const c of clients.values()) c.ws.close();
     server.close();

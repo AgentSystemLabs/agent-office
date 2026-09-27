@@ -46,11 +46,15 @@ console.log(`
 ${cfg.tls ? '' : '\n  tip: voice & screen share need https off localhost — use a reverse proxy or --self-signed\n'}`);
 
 let closing = false;
-const stop = () => {
+// SIGTERM is a restart (tsx watch reloading, a plain `kill`): workers keep running in their terminal
+// host and the next office picks them back up. Ctrl+C closes the office and stops them. (A systemd
+// restart stops the whole service, host included.)
+const stop = (signal: NodeJS.Signals) => {
   if (closing) process.exit(1);
   closing = true;
-  console.log('\n  closing the office…');
-  office.shutdown();
+  const keep = signal === 'SIGTERM';
+  console.log(keep ? '\n  closing the office — workers keep running for the next one…' : '\n  closing the office…');
+  office.shutdown(keep);
   setTimeout(() => process.exit(0), 300);
 };
 // Last line of defense: one bad request must never take down every running worker.
