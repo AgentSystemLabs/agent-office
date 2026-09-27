@@ -112,6 +112,8 @@ export const BOARDS = {
 
 /** The big TV on the east wall that shows whoever is screen sharing. */
 export const TV = { x: FLOOR.maxX - 0.1, y: 2.2, z: 0, width: 6.4, height: 3.6 } as const;
+/** The lounge jukebox, against the east wall south of the TV, facing into the room. `y` is its speaker. */
+export const JUKEBOX = { x: FLOOR.maxX - 0.42, y: 0.75, z: 5.4, width: 1.3, depth: 0.72, height: 1.85 } as const;
 
 /** The upstairs office: a glass-walled loft on posts in the south-east corner, looking down on the desks. */
 export const LOFT = { minX: 9, maxX: FLOOR.maxX, minZ: 8, maxZ: FLOOR.maxZ, y: 3, height: 2.8 } as const;

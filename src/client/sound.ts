@@ -1,14 +1,31 @@
 /**
  * Office sounds, synthesized with Web Audio so there are no audio files to ship: the room's air and a
  * humming fridge, workers typing while they work, footsteps, the coffee machine, birds outside the
- * windows, the odd rustle or phone, the gong, the dog barking, and the dings when a worker needs you.
+ * windows by day and crickets at night, rain and thunder, the odd rustle or phone, the gong, the dog
+ * barking, and the dings when a worker needs you. And the lounge jukebox, whose tunes are in music.ts.
  *
- * Everything goes through one master gain that Settings turns down or mutes. Voice chat doesn't.
+ * Everything goes through one master gain that Settings turns down or mutes. Voice chat doesn't, and
+ * the jukebox has a volume of its own.
  */
-import { DESKS, FLOOR, GONG, WINDOWS as OPENINGS } from '../shared/layout';
+import { DESKS, FLOOR, GONG, JUKEBOX, WINDOWS as OPENINGS } from '../shared/layout';
 import type { GongWhy } from '../shared/protocol';
+import { STREAM } from '../shared/jukebox';
+import { TunePlayer } from './music';
 
 type Pos = { x: number; y: number; z: number };
+
+/** What the jukebox on your floor plays: a tune or a stream, and when it started on performance.now()'s clock. */
+export interface JukeboxPlay {
+  track: string;
+  url?: string;
+  /** When it started on the office's clock, which tells one play of a track from the next. */
+  startedAt: number;
+  since: number;
+}
+
+/** How the jukebox fades with distance: the same curve for its tunes (a panner) and a stream (by hand). */
+const MUSIC_REF = 2.5;
+const MUSIC_ROLLOFF = 1.3;
 
 /** Where you hear from: your head, facing where the camera looks. */
 export interface Listener extends Pos {
@@ -73,9 +90,29 @@ export class OfficeSound {
   private typists = new Map<string, Typist>();
   private fridge: { gain: GainNode; on: boolean; next: number } | null = null;
   private nextBird = 0;
+  private nextCricket = 0;
   private nextPhone = 0;
   private nextFidget = 0;
+  /** Outside: how hard it's raining (0–1) and how dark it is (1 at night). */
+  private weather = { rain: 0, night: 0 };
+  private rainNodes: { gain: GainNode; tone: BiquadFilterNode } | null = null;
+  private nextRain = 0;
+  private nextDrip = 0;
   private listener: Listener = { x: 0, y: 1.4, z: 0, fx: 0, fz: -1 };
+  // The jukebox: from the cabinet, through a filter that muffles it from across the room, to your own volume.
+  private musicIn!: PannerNode;
+  private musicTone!: BiquadFilterNode;
+  private musicCutoff = 16000;
+  private musicBus!: GainNode;
+  private musicMeter!: AnalyserNode;
+  private musicVolume = 0.5;
+  private musicMuted = false;
+  private jukebox: JukeboxPlay | null = null;
+  private tune: TunePlayer | null = null;
+  private stream: HTMLAudioElement | null = null;
+  private musicTimer = 0;
+  /** A stream that won't play here. */
+  onMusicError?: (text: string) => void;
   /** How many of each sound have played, for quick checks from the console. */
   readonly played: Record<string, number> = {};
 
@@ -94,14 +131,20 @@ export class OfficeSound {
     this.applyVolume();
   }
 
+  /** The weather outside (see world/sky.ts), every frame. */
+  setWeather(rain: number, night: number) {
+    this.weather.rain = rain;
+    this.weather.night = night;
+  }
+
   /** Output level (RMS) right now, for headless checks. */
   level(): number {
-    if (!this.ctx) return 0;
-    const d = new Float32Array(this.analyser.fftSize);
-    this.analyser.getFloatTimeDomainData(d);
-    let s = 0;
-    for (const v of d) s += v * v;
-    return Math.sqrt(s / d.length);
+    return this.ctx ? rms(this.analyser) : 0;
+  }
+
+  /** The jukebox's level (RMS) where you stand, after your music volume. A stream doesn't show here. */
+  musicLevel(): number {
+    return this.ctx ? rms(this.musicMeter) : 0;
   }
 
   get state(): AudioContextState | 'locked' {
@@ -111,6 +154,8 @@ export class OfficeSound {
   private unlock() {
     if (this.ctx) {
       if (this.ctx.state === 'suspended') void this.ctx.resume();
+      // A ding can start audio before you've touched the page, when a stream isn't allowed to play yet.
+      if (this.stream?.paused) void this.stream.play().catch(() => {});
       return;
     }
     let ctx: AudioContext;
@@ -138,12 +183,24 @@ export class OfficeSound {
     this.ambience.connect(this.master);
     this.alerts = ctx.createGain();
     this.alerts.connect(this.master);
+    // The jukebox skips the master (it has its own volume) and keeps playing while the tab is hidden.
+    this.musicIn = this.panner(JUKEBOX, MUSIC_REF, MUSIC_ROLLOFF);
+    this.musicTone = biquad(ctx, 'lowpass', 16000, 0.5);
+    this.musicBus = ctx.createGain();
+    this.musicBus.gain.value = 0;
+    this.musicMeter = ctx.createAnalyser();
+    this.musicMeter.fftSize = 2048;
+    this.musicIn.connect(this.musicTone).connect(this.musicBus).connect(ctx.destination);
+    this.musicBus.connect(this.musicMeter);
     this.applyVolume();
+    this.applyMusicVolume();
+    this.applyJukebox();
     this.applyVisibility();
     this.startRoomTone();
     this.startFridge();
     const now = ctx.currentTime;
     this.nextBird = now + rand(5, 15);
+    this.nextCricket = now + rand(2, 6);
     this.nextPhone = now + rand(60, 150);
     this.nextFidget = now + rand(8, 20);
     void ctx.resume();
@@ -191,13 +248,21 @@ export class OfficeSound {
       L.setOrientation(l.fx / len, 0, l.fz / len, 0, 1, 0);
     }
     const now = ctx.currentTime;
+    this.hearJukebox(now);
     this.scheduleTyping(now);
     this.tickFridge(now);
+    const { rain, night } = this.weather;
     if (now >= this.nextBird) {
-      this.birds(now);
+      // Birds sing by day, and not in the rain.
+      if (night < 0.5 && rain < 0.1) this.birds(now);
       // Sometimes another bird answers from a different window.
       this.nextBird = now + (Math.random() < 0.35 ? rand(1.5, 4) : rand(12, 35));
     }
+    if (now >= this.nextCricket) {
+      if (night > 0.6 && rain < 0.05) this.crickets(now);
+      this.nextCricket = now + rand(3, 8);
+    }
+    this.tickRain(now);
     if (now >= this.nextPhone) {
       this.phone(now);
       this.nextPhone = now + rand(90, 240);
@@ -517,6 +582,103 @@ export class OfficeSound {
     }
   }
 
+  /** A cricket just outside a window, chirping away for a few seconds. */
+  private crickets(now: number) {
+    const ctx = this.ctx!;
+    this.count('crickets');
+    const out = this.panner(pick(WINDOWS), 2, 1.2);
+    out.connect(biquad(ctx, 'lowpass', 6000, 0.7)).connect(this.ambience);
+    const freq = rand(4200, 5200);
+    let t = now + 0.05;
+    for (let c = randInt(4, 9); c > 0; c--) {
+      for (let p = 0; p < 3; p++) {
+        const o = ctx.createOscillator();
+        o.frequency.value = freq;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.022, t + 0.004);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.022);
+        o.connect(g).connect(out);
+        o.start(t);
+        o.stop(t + 0.03);
+        t += 0.035;
+      }
+      t += rand(0.35, 0.6);
+    }
+  }
+
+  /** Where your ears are: in the office, where rain is muffled by the glass, in the garage, or out in it. */
+  private where(): 'office' | 'garage' | 'out' {
+    const { x, y, z } = this.listener;
+    const under = (m: number) => x > FLOOR.minX - m && x < FLOOR.maxX + m && z > FLOOR.minZ - m && z < FLOOR.maxZ + m;
+    if (under(0) && y > -0.5) return 'office';
+    return under(0.3) ? 'garage' : 'out';
+  }
+
+  /** Rain: a hiss that's muffled indoors, and drops pattering on the windows or all around you. */
+  private tickRain(now: number) {
+    const rain = this.weather.rain;
+    if (rain < 0.01 && !this.rainNodes) return;
+    const ctx = this.ctx!;
+    const where = this.where();
+    if (!this.rainNodes) {
+      const src = this.noise(this.buf.white, true);
+      const tone = biquad(ctx, 'lowpass', 1300, 0.5);
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      src.connect(biquad(ctx, 'highpass', 450, 0.5)).connect(tone).connect(gain).connect(this.ambience);
+      src.start();
+      this.rainNodes = { gain, tone };
+    }
+    if (now >= this.nextRain) {
+      // A few updates a second; its level eases anyway.
+      this.nextRain = now + 0.25;
+      const level = rain < 0.01 ? 0 : (where === 'out' ? 0.16 : where === 'garage' ? 0.11 : 0.06) * rain ** 0.8;
+      this.rainNodes.gain.gain.setTargetAtTime(level, now, 0.6);
+      this.rainNodes.tone.frequency.setTargetAtTime(where === 'out' ? 6500 : where === 'garage' ? 2600 : 1300, now, 0.3);
+    }
+    if (rain > 0.05 && now >= this.nextDrip) {
+      this.nextDrip = now + rand(0.03, 0.2) / rain;
+      const l = this.listener;
+      const at = where === 'office' ? pick(WINDOWS) : { x: l.x + rand(-4, 4), y: l.y - 1.2, z: l.z + rand(-4, 4) };
+      this.play(this.buf.drop, { at, gain: rand(0.05, 0.14), rate: rand(0.7, 1.4), ref: 1.5, rolloff: 1.3 });
+      this.count('drip');
+    }
+  }
+
+  /** Thunder, `delay` seconds after the flash: a crack when it's close, then a long low rumble. */
+  thunder(delay: number, loud: number) {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'running') return;
+    this.count('thunder');
+    const t0 = ctx.currentTime + delay;
+    const peak = 0.45 * loud * (this.where() === 'office' ? 0.6 : 1);
+    const src = this.noise(this.buf.brown, true);
+    const tone = biquad(ctx, 'lowpass', 700, 0.7);
+    tone.frequency.setValueAtTime(700, t0);
+    tone.frequency.exponentialRampToValueAtTime(110, t0 + 3.5);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(peak, t0 + 0.08 + (1 - loud) * 0.5);
+    g.gain.exponentialRampToValueAtTime(peak * 0.35, t0 + 1.3);
+    g.gain.exponentialRampToValueAtTime(peak * 0.6, t0 + 1.9);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 4 + loud * 2.5);
+    src.connect(tone).connect(g).connect(this.ambience);
+    src.start(t0, rand(0, 5));
+    src.stop(t0 + 7);
+    if (delay < 1) {
+      const crack = this.noise(this.buf.white);
+      const cg = ctx.createGain();
+      envelope(cg.gain, t0, [
+        [0.01, peak * 0.5],
+        [0.25, 0],
+      ]);
+      crack.connect(biquad(ctx, 'bandpass', 1800, 0.6)).connect(cg).connect(this.ambience);
+      crack.start(t0);
+      crack.stop(t0 + 0.3);
+    }
+  }
+
   /** A desk phone rings a couple of times somewhere across the room, then someone picks up. */
   private phone(now: number) {
     const ctx = this.ctx!;
@@ -668,6 +830,117 @@ export class OfficeSound {
     });
   }
 
+  // ---- The jukebox ------------------------------------------------------------------------------
+
+  /** What the jukebox on your floor plays, or null for nothing. It starts once the browser allows audio. */
+  setJukebox(play: JukeboxPlay | null) {
+    const was = this.jukebox;
+    this.jukebox = play;
+    // The same play, sent again after a reconnect or timed better once the clocks are compared: carry on
+    // (a tune lines itself up again as it goes; an audio file jumps to the right spot).
+    if (was && play && was.startedAt === play.startedAt && was.track === play.track && was.url === play.url) {
+      if (this.stream && Math.abs(was.since - play.since) > 250) this.seekStream(this.stream);
+      return;
+    }
+    this.applyJukebox(true);
+  }
+
+  /** Your own jukebox volume, 0–1, apart from the office sounds'. */
+  setMusicVolume(volume: number, muted: boolean) {
+    this.musicVolume = Math.max(0, Math.min(1, volume));
+    this.musicMuted = muted;
+    this.applyMusicVolume();
+  }
+
+  /** 1 on each beat of the tune, falling to 0 before the next, for the jukebox's lights. */
+  beat(): number {
+    if (this.tune) return this.tune.beat(this.musicAt());
+    if (this.stream && !this.stream.paused) return 0.35 + 0.25 * Math.sin(performance.now() / 320);
+    return 0;
+  }
+
+  /** How far into the jukebox's track it is now, in seconds. */
+  private musicAt(): number {
+    return this.jukebox ? Math.max(0, (performance.now() - this.jukebox.since) / 1000) : 0;
+  }
+
+  private applyMusicVolume() {
+    if (!this.ctx) return;
+    this.musicBus.gain.setTargetAtTime(this.musicGain(), this.ctx.currentTime, 0.04);
+    this.hearStream();
+  }
+
+  private musicGain(): number {
+    return this.musicMuted ? 0 : this.musicVolume * this.musicVolume;
+  }
+
+  /** Starts what the jukebox plays now, once there's audio; `changed` puts it on again from the top. */
+  private applyJukebox(changed = false) {
+    const ctx = this.ctx;
+    if (!ctx || (!changed && (this.tune || this.stream))) return;
+    this.tune?.stop();
+    this.tune = null;
+    if (this.stream) {
+      this.stream.pause();
+      this.stream.removeAttribute('src');
+      this.stream.load();
+      this.stream = null;
+    }
+    clearInterval(this.musicTimer);
+    const j = this.jukebox;
+    if (!j) return;
+    if (j.track === STREAM && j.url) return this.startStream(j.url);
+    const tune = (this.tune = new TunePlayer(ctx, this.musicIn, j.track));
+    this.count('tune');
+    // On a timer rather than every frame, so it carries on in a background tab.
+    const tick = () => tune.tick(this.musicAt());
+    tick();
+    this.musicTimer = window.setInterval(tick, 150);
+  }
+
+  private startStream(url: string) {
+    const a = new Audio();
+    a.preload = 'auto';
+    a.loop = true;
+    a.src = url;
+    a.addEventListener('loadedmetadata', () => this.seekStream(a));
+    a.addEventListener('error', () => {
+      if (this.stream === a) this.onMusicError?.("📻 The jukebox can't play that stream in your browser");
+    });
+    this.stream = a;
+    this.hearStream();
+    void a.play().catch(() => {});
+    this.count('stream');
+  }
+
+  /** An audio file (not live radio) picks up where everyone else is. */
+  private seekStream(a: HTMLAudioElement) {
+    if (Number.isFinite(a.duration) && a.duration > 0) a.currentTime = this.musicAt() % a.duration;
+  }
+
+  /** Muffles the jukebox the further you are from it. */
+  private hearJukebox(now: number) {
+    const d = this.jukeboxDistance();
+    const cutoff = d < 5 ? 16000 : Math.max(1600, 16000 * (5 / d) ** 1.5);
+    if (Math.abs(cutoff - this.musicCutoff) > this.musicCutoff * 0.02) {
+      this.musicCutoff = cutoff;
+      this.musicTone.frequency.setTargetAtTime(cutoff, now, 0.1);
+    }
+    this.hearStream();
+  }
+
+  /** A stream plays outside Web Audio (most don't allow that), so it gets quieter with distance by hand. */
+  private hearStream() {
+    if (!this.stream) return;
+    const d = Math.max(MUSIC_REF, this.jukeboxDistance());
+    this.stream.volume = Math.min(1, this.musicGain() * (MUSIC_REF / (MUSIC_REF + MUSIC_ROLLOFF * (d - MUSIC_REF))));
+  }
+
+  private jukeboxDistance(): number {
+    const l = this.listener;
+    return Math.hypot(l.x - JUKEBOX.x, l.y - JUKEBOX.y, l.z - JUKEBOX.z);
+  }
+
   // ---- Plumbing --------------------------------------------------------------------------------
 
   private panner(p: Pos, ref = 1.5, rolloff = 1.2): PannerNode {
@@ -702,6 +975,14 @@ export class OfficeSound {
   }
 }
 
+function rms(a: AnalyserNode): number {
+  const d = new Float32Array(a.fftSize);
+  a.getFloatTimeDomainData(d);
+  let s = 0;
+  for (const v of d) s += v * v;
+  return Math.sqrt(s / d.length);
+}
+
 function place(pn: PannerNode, x: number, y: number, z: number) {
   if (pn.positionX) {
     pn.positionX.value = x;
@@ -732,6 +1013,8 @@ interface Buffers {
   mouse: AudioBuffer;
   steps: AudioBuffer[];
   rustle: AudioBuffer;
+  /** A raindrop hitting the glass. */
+  drop: AudioBuffer;
   brown: AudioBuffer;
   white: AudioBuffer;
   /** A slow, lumpy 0–1 signal for wobbling other sounds' volume. */
@@ -745,6 +1028,7 @@ function makeBuffers(ctx: BaseAudioContext): Buffers {
     mouse: keyClick(ctx, { body: 900, bright: 1, release: 0.07, decay: 400, len: 0.1 }),
     steps: [0, 1, 2].map(() => footstep(ctx)),
     rustle: rustle(ctx),
+    drop: sample(ctx, 0.06, (t) => (Math.sin(2 * Math.PI * 2400 * t * (1 - t * 5)) * 0.6 + (Math.random() * 2 - 1) * 0.4) * Math.exp(-t * 110), 0.9),
     brown: loopable(ctx, 6, brownNoise()),
     white: sample(ctx, 5, () => Math.random() * 2 - 1),
     gurgle: loopable(ctx, 4, lumpy(ctx.sampleRate, 0.03, 0.11)),

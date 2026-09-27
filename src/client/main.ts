@@ -14,6 +14,7 @@ import { buildOffice, type InteractKind, type Interactable } from './world/offic
 import { Person, Worker } from './world/character';
 import { Hands } from './world/hands';
 import { Smoke } from './world/smoke';
+import { Sky, describeSky } from './world/sky';
 import { Laptop } from './world/laptop';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import { Gallery } from './world/gallery';
@@ -44,6 +45,8 @@ import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 import { elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
 import { providerLabel, resolvedProvider } from './ui/provider';
 import { renderLimits } from './ui/limits';
+import { openJukebox } from './ui/jukebox';
+import { trackTitle } from '../shared/jukebox';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -55,24 +58,29 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 const effect = new OutlineEffect(renderer, { defaultThickness: 0.0032, defaultColor: [0.17, 0.18, 0.26] });
 
 const scene = new THREE.Scene();
+// The sky's color and the fog change with the time of day and the weather (world/sky.ts).
 scene.background = new THREE.Color('#bfe3ff');
 scene.fog = new THREE.Fog('#bfe3ff', 40, 90);
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 200);
 
-scene.add(new THREE.HemisphereLight('#fff5e6', '#c9a27a', 1.5));
-scene.add(new THREE.AmbientLight('#ffffff', 0.5));
+const hemi = new THREE.HemisphereLight('#fff5e6', '#c9a27a', 1.5);
+const ambient = new THREE.AmbientLight('#ffffff', 0.5);
+scene.add(hemi, ambient);
+// The sun by day and the moon by night; the sky moves it (world/sky.ts).
 const sun = new THREE.DirectionalLight('#fff1d6', 2.2);
 sun.position.set(-8, 18, 10);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-// Wide enough for the office, the garage under it and the balcony and lot out front.
-Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 26, bottom: -26, near: 1, far: 80 });
+// Wide enough for the office, the garage under it and the balcony and lot out front, from wherever the sun is.
+Object.assign(sun.shadow.camera, { left: -32, right: 32, top: 30, bottom: -30, near: 1, far: 100 });
 sun.shadow.bias = -0.0008;
 sun.shadow.normalBias = 0.03;
 scene.add(sun);
 
 const office = buildOffice();
 scene.add(office.group);
+const sky = new Sky(scene, { sun, hemi, ambient }, office.night);
+store.on('sky', () => store.sky && sky.set(store.sky));
 
 const noOutline = (obj: THREE.Object3D) =>
   obj.traverse((o) => {
@@ -187,7 +195,16 @@ const dog = new Dog(sound, (id) => (store.workers.get(id)?.viewers.length ?? 0) 
 scene.add(dog.root);
 noOutline(dog.root);
 store.on('dog', () => dog.sync(store.dog, store.dogStart));
+sound.setMusicVolume(settings.music, settings.musicMuted);
+sound.onMusicError = (text) => toast(text, 'warn');
+// The jukebox on your floor: everyone there hears it from the same bar, and its lights say what's on.
+store.on('jukebox', () => {
+  const j = store.jukebox;
+  sound.setJukebox(j.on ? { track: j.track, url: j.url, startedAt: j.startedAt, since: j.since } : null);
+  office.jukebox.show(j.on, trackTitle(j));
+});
 const notifier = new DesktopNotifier(() => settings.notify, (id) => openWorkerTerminal(id));
+sky.onThunder = (delay, loud) => sound.thunder(delay, loud);
 const hanger = new Hanger(net, camera, canvas, player, office, gallery);
 scene.add(hanger.ghost.group);
 hanger.onChange = () => {
@@ -243,6 +260,8 @@ net.onMessage((msg) => {
   routeElevatorMessage(msg);
   switch (msg.t) {
     case 'welcome': {
+      // A few pings, to line this page's clock up with the office's for the jukebox.
+      for (let i = 0; i < 5; i++) setTimeout(() => net.send({ t: 'ping', at: performance.now() }), 200 + i * 500);
       const mine = store.peers.get(store.you);
       if (firstWelcome && mine) {
         placeInCar(mine);
@@ -748,6 +767,10 @@ function showQueue() {
   openQueue(net, { openTerminal: openWorkerTerminal });
 }
 
+function showJukebox() {
+  openJukebox(net, showSettings);
+}
+
 /** A prompt from the boards goes to a new worker at a free desk, or to one already at a desk. */
 function sendToWorker(title: string, text: { context?: string; initial?: string }) {
   const desk = freeDesk();
@@ -814,6 +837,7 @@ function interact(target: Interactable | null, key: DeskKey) {
   else if (target.kind === 'services') openServices();
   else if (target.kind === 'queue') showQueue();
   else if (target.kind === 'tv') watchShare();
+  else if (target.kind === 'jukebox') showJukebox();
   else if (target.kind === 'decor' && target.decorId) hanger.view(target.decorId);
   else if (target.kind === 'seat' && target.seatId) useSeat(target.seatId);
   else if (target.kind === 'dog') net.send({ t: 'dog.pet' });
@@ -1064,6 +1088,11 @@ function hintFor(it: Interactable): Hint {
       return { k: String(smokeBreakUntil > 0), parts: [title('🚬 Ashtray'), key('E', smokeBreakUntil ? 'Stub it out' : 'Take a smoke break')] };
     case 'gong':
       return { k: '', parts: [title('🎉 Merge gong'), aside('rings when a PR merges'), key('E', 'Bang it')] };
+    case 'jukebox': {
+      const j = store.jukebox;
+      const what = j.on ? trackTitle(j) : '';
+      return { k: `${j.on}|${what}`, parts: [title('🎵 Jukebox'), aside(j.on ? `♪ ${clip(what, 40)}` : 'off'), key('E', j.on ? 'Change the song' : 'Put on a song')] };
+    }
     case 'elevator': {
       const f = store.currentFloor();
       const n = store.floors.length;
@@ -1273,7 +1302,7 @@ function backToGame() {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, seat: 3 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
@@ -1428,7 +1457,8 @@ $('btn-upgrade').addEventListener('click', () => openUpgrade(net));
 $('btn-search').addEventListener('click', () => showSearch());
 $('btn-help').addEventListener('click', () => openHelp());
 $('btn-decor').addEventListener('click', () => (hanger.active ? hanger.cancel() : hanger.start()));
-$('btn-settings').addEventListener('click', () =>
+$('btn-settings').addEventListener('click', () => showSettings());
+function showSettings() {
   openSettings(
     net,
     settings,
@@ -1437,13 +1467,15 @@ $('btn-settings').addEventListener('click', () =>
       saveSettings(settings);
       player.setView(settings.view);
       sound.setVolume(settings.volume, settings.muted);
+      sound.setMusicVolume(settings.music, settings.musicMuted);
     },
     editProfile,
     () => sound.ding('done'),
     notifier,
     signOut,
-  ),
-);
+    store.sky ? { now: describeSky(store.sky), live: !!store.sky.city } : undefined,
+  );
+}
 
 async function signOut() {
   await fetch('/api/logout', { method: 'POST' }).catch(() => {});
@@ -1570,10 +1602,13 @@ function frame(ts?: number) {
   }
   dog.update(dt);
   office.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position)]);
+  office.jukebox.update(t, dt, sound.beat());
   checkSmokeBreak(now);
   smoke.update(dt, camera);
   confetti.update(dt);
   hanger.update();
+  sky.update(dt, t, camera);
+  sound.setWeather(sky.rain, 1 - sky.daylight);
 
   if (modalOpen() || hanger.active) target = null;
   else if (firstPerson) {
@@ -1592,9 +1627,13 @@ function frame(ts?: number) {
 
   effect.render(scene, camera);
   if (firstPerson) {
-    // Hands go on top of everything, so they never clip into a desk you walk up to.
+    // Hands go on top of everything, so they never clip into a desk you walk up to. They have
+    // lights of their own, turned down to match wherever you're standing.
     renderer.clearDepth();
+    hands.setLight(sky.lightAt(camera.position));
+    sky.shading(false);
     effect.render(hands.scene, hands.camera);
+    sky.shading(true);
   }
   requestAnimationFrame(frame);
 }
@@ -1639,7 +1678,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, caffeine, camera, workerViews, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen, confetti, dog };
+(window as any).__office = { store, player, caffeine, camera, workerViews, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen, confetti, dog, sky };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

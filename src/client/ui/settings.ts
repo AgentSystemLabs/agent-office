@@ -12,7 +12,8 @@ const VIEWS: [ViewMode, string, string][] = [
 
 const WEBHOOK_NAME: Record<WebhookKind, string> = { slack: 'Slack', discord: 'Discord', other: 'a webhook' };
 
-export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void, notifier: DesktopNotifier, onSignOut: () => void) {
+/** `outside` describes the sky over the office (see describeSky), once the server has said. */
+export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void, notifier: DesktopNotifier, onSignOut: () => void, outside?: { now: string; live: boolean }) {
   const seg = h('div.seg', { role: 'radiogroup', 'aria-label': 'Camera view' });
   const note = h('p.setting-note');
   const paint = () => {
@@ -40,34 +41,39 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   };
   paint();
 
-  const volume = h('input', { type: 'range', min: 0, max: 100, step: 1, 'aria-label': 'Office sounds volume' });
-  const pct = h('span.vol-pct');
-  const mute = h('button.btn', { type: 'button' });
-  const soundRow = h('div.volume', {}, mute, volume, pct);
-  const paintSound = () => {
-    const level = Math.round(settings.volume * 100);
-    volume.value = String(level);
-    volume.style.setProperty('--fill', `${level}%`);
-    pct.textContent = settings.muted ? 'Muted' : `${level}%`;
-    mute.textContent = settings.muted ? '🔊 Unmute' : '🔇 Mute';
-    mute.setAttribute('aria-pressed', String(settings.muted));
-    mute.classList.toggle('danger', settings.muted);
-    soundRow.classList.toggle('muted', settings.muted);
+  /** A volume slider with its mute button. Dragging it turns the sound back on; letting go plays `preview`. */
+  const volumeRow = (label: string, level: 'volume' | 'music', muted: 'muted' | 'musicMuted', preview?: () => void) => {
+    const slider = h('input', { type: 'range', min: 0, max: 100, step: 1, 'aria-label': label });
+    const pct = h('span.vol-pct');
+    const mute = h('button.btn', { type: 'button' });
+    const row = h('div.volume', {}, mute, slider, pct);
+    const paint = () => {
+      const v = Math.round(settings[level] * 100);
+      slider.value = String(v);
+      slider.style.setProperty('--fill', `${v}%`);
+      pct.textContent = settings[muted] ? 'Muted' : `${v}%`;
+      mute.textContent = settings[muted] ? '🔊 Unmute' : '🔇 Mute';
+      mute.setAttribute('aria-pressed', String(settings[muted]));
+      mute.classList.toggle('danger', settings[muted]);
+      row.classList.toggle('muted', settings[muted]);
+    };
+    paint();
+    slider.addEventListener('input', () => {
+      settings = { ...settings, [level]: Number(slider.value) / 100, [muted]: false };
+      onChange(settings);
+      paint();
+    });
+    if (preview) slider.addEventListener('change', preview);
+    mute.addEventListener('click', () => {
+      settings = { ...settings, [muted]: !settings[muted] };
+      onChange(settings);
+      paint();
+      if (!settings[muted]) preview?.();
+    });
+    return row;
   };
-  paintSound();
-  // Dragging the slider turns sound back on; letting go plays a sample at the new level.
-  volume.addEventListener('input', () => {
-    settings = { ...settings, volume: Number(volume.value) / 100, muted: false };
-    onChange(settings);
-    paintSound();
-  });
-  volume.addEventListener('change', previewSound);
-  mute.addEventListener('click', () => {
-    settings = { ...settings, muted: !settings.muted };
-    onChange(settings);
-    paintSound();
-    if (!settings.muted) previewSound();
-  });
+  const soundRow = volumeRow('Office sounds volume', 'volume', 'muted', previewSound);
+  const musicRow = volumeRow('Jukebox volume', 'music', 'musicMuted');
 
   // Desktop notifications: this browser's permission, then your own on/off.
   const notifyRow = h('div.seg');
@@ -201,7 +207,17 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       note,
       h('label', { style: 'margin-top:18px' }, 'Office sounds'),
       soundRow,
-      h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds outside, the dog, and the ding when a worker is done. Voice chat isn’t affected.'),
+      h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds and rain outside, the dog, and the ding when a worker is done. Voice chat isn’t affected.'),
+      h('label', { style: 'margin-top:18px' }, '🎵 Jukebox'),
+      musicRow,
+      h('p.setting-note', {}, 'The jukebox in the lounge. Everyone on the floor hears the same song, louder the closer they are to it; this is how loud it is for you alone.'),
+      ...(outside
+        ? [
+            h('label', { style: 'margin-top:18px' }, 'Outside'),
+            h('p.outside-now', {}, outside.now),
+            h('p.setting-note', {}, outside.live ? 'Everyone sees the same sky: the office’s clock and the live weather where it is.' : 'Everyone sees the same sky: the office’s clock, and weather that comes and goes. Start the office with --city to use a real city’s forecast.'),
+          ]
+        : []),
       h('label', { style: 'margin-top:18px' }, 'Desktop notifications'),
       notifyRow,
       notifyNote,

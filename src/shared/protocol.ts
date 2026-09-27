@@ -3,6 +3,7 @@
 import type { Look } from './avatar.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
+import type { JukeboxState } from './jukebox.js';
 
 export type WorkerStatus =
   | 'starting' // PTY launched, agent booting
@@ -410,6 +411,8 @@ export interface FloorView {
   services: ServicesState;
   /** The floor's dog; null in a building with no floors yet. */
   dog: DogState | null;
+  /** What the lounge jukebox is playing. */
+  jukebox: JukeboxState;
 }
 
 export type AccountRole = 'admin' | 'member';
@@ -568,6 +571,25 @@ export interface UpgradeState {
   error?: string;
 }
 
+export type Weather = 'clear' | 'cloudy' | 'rain' | 'storm' | 'snow' | 'fog';
+export const WEATHERS: readonly Weather[] = ['clear', 'cloudy', 'rain', 'storm', 'snow', 'fog'];
+
+/** What it's like outside the windows. The server decides it, so everyone sees the same sky. */
+export interface SkyState {
+  /** Where the office is, for the sun: a configured city, or a guess from the host's time zone. */
+  lat: number;
+  lon: number;
+  /** The office's clock, in minutes east of UTC. */
+  utcOffset: number;
+  weather: Weather;
+  /** 0–1: a drizzle to a downpour, a few flakes to a blizzard, haze to pea soup. */
+  intensity: number;
+  /** The city whose live forecast this is. Unset when the weather is made up or pinned. */
+  city?: string;
+  /** °C, from the forecast. */
+  temp?: number;
+}
+
 export interface ChatLine {
   from: string;
   name: string;
@@ -675,6 +697,11 @@ export type ClientMsg =
   /** Move, resize, re-frame or swap the image of a picture. */
   | { t: 'decor.update'; id: string; decor: Partial<DecorPlacement> }
   | { t: 'decor.remove'; id: string }
+  /** Put a tune on the jukebox (a JUKEBOX_TUNES id), or a stream; with neither, turn it back on. */
+  | { t: 'jukebox.play'; track?: string; url?: string }
+  /** On to the next tune. */
+  | { t: 'jukebox.skip' }
+  | { t: 'jukebox.stop' }
   /** Ride the elevator to another floor; the server answers with `floor.enter`. */
   | { t: 'floor.go'; floor: string }
   /** The repositories that could become a floor; answered with `floor.repos`. */
@@ -707,6 +734,8 @@ export type ServerMsg =
       limits: PlanLimits;
       me: Me;
       notify: NotifyState;
+      /** Outside the windows: the same on every floor. */
+      sky: SkyState;
     } & FloorView)
   /** You arrived on another floor: everything on it, replacing the last one's, and where everyone is now. */
   | ({ t: 'floor.enter'; peers: PeerInfo[] } & FloorView)
@@ -748,10 +777,12 @@ export type ServerMsg =
   | { t: 'decor'; items: Decoration[] }
   /** What the dog on your floor is up to now: sent at the start of each leg of its day. */
   | { t: 'dog'; dog: DogState }
+  | { t: 'jukebox'; state: JukeboxState }
   | { t: 'usage'; state: UsageState }
   | { t: 'limits'; state: PlanLimits }
   | { t: 'queue'; state: QueueState }
   | { t: 'notify'; state: NotifyState }
+  | { t: 'sky'; state: SkyState }
   /** Sent to whoever watches that worker's changes, whenever they change. */
   | { t: 'changes'; state: ChangesState }
   | { t: 'changes.diff'; workerId: string; path: string; diff: string; truncated: boolean; error?: string }
@@ -763,4 +794,5 @@ export type ServerMsg =
   | { t: 'accounts.invited'; invite?: AccountInvite; error?: string }
   /** Your role changed. */
   | { t: 'me'; me: Me }
-  | { t: 'pong'; at: number };
+  /** `now` is the office's clock as it answered, which the jukebox keeps time by. */
+  | { t: 'pong'; at: number; now: number };
