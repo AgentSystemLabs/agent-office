@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import type { GhCheck, GhComment, GhIssue, GhIssueDetail, GhMergeMethod, GhPull, GhPullDetail, GhRepoInfo, GhReviewComment, GhState } from '../shared/protocol.js';
+import type { GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhMergeMethod, GhPull, GhPullDetail, GhRepoInfo, GhReviewComment, GhState } from '../shared/protocol.js';
 
 const REFRESH_MS = 90_000;
 
@@ -173,8 +173,8 @@ export class GitHub {
   }
 
   async issueDetail(n: number): Promise<GhIssueDetail> {
-    const i = JSON.parse(await gh(['issue', 'view', String(n), '--json', 'number,body,comments'], this.dir));
-    return { number: i.number, body: String(i.body ?? ''), comments: commentsOf(i.comments) };
+    const i = JSON.parse(await gh(['issue', 'view', String(n), '--json', 'number,state,body,comments'], this.dir));
+    return { number: i.number, state: i.state, body: String(i.body ?? ''), comments: commentsOf(i.comments) };
   }
 
   /** Merges a PR, or with `auto` has GitHub merge it once its requirements pass. Returns an error. */
@@ -191,6 +191,28 @@ export class GitHub {
       return (err as Error).message;
     }
     void this.refreshPulls();
+    return undefined;
+  }
+
+  /** Closes an issue, or a pull request without merging it, optionally saying why. Returns an error. */
+  async close(kind: 'issue' | 'pull', n: number, opts: { comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }): Promise<string | undefined> {
+    try {
+      const repo = await this.repoInfo();
+      // --repo for the same reason as merge: --delete-branch must leave the office's checkout alone.
+      const args = [kind === 'issue' ? 'issue' : 'pr', 'close', String(n), '--repo', repo.nameWithOwner];
+      // --flag=value, so a comment starting with "-" isn't read as a flag.
+      if (opts.comment) args.push(`--comment=${opts.comment}`);
+      if (kind === 'issue' && opts.reason) args.push(`--reason=${opts.reason}`);
+      if (kind === 'pull' && opts.deleteBranch) args.push('--delete-branch');
+      await gh(args, this.dir);
+    } catch (err) {
+      return (err as Error).message;
+    }
+    const refresh = () => (kind === 'issue' ? this.refreshIssues() : this.refreshPulls());
+    // A refresh already in flight returns at once and can still list it as open, so look again shortly after.
+    void refresh().then(() => {
+      if ((kind === 'issue' ? this.issues : this.pulls).items.some((i) => i.number === n && i.state === 'OPEN')) setTimeout(() => void refresh(), 3000);
+    });
     return undefined;
   }
 

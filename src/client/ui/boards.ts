@@ -102,7 +102,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
         const ul = h('ul');
         col.items.forEach((it, i) =>
           ul.append(
-            card(it.number, it.title, [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, actions)),
+            card(it.number, it.title, [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, net, actions)),
           ),
         );
         if (!col.items.length) ul.append(h('li.empty', {}, 'Nothing here'));
