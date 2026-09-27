@@ -14,6 +14,12 @@ export type WorkerStatus =
 
 export type WorkerKind = 'agent' | 'shell';
 
+export type AgentProvider = 'claude' | 'opencode' | 'codex' | 'custom';
+
+export function isAgentProvider(value: unknown): value is AgentProvider {
+  return value === 'claude' || value === 'opencode' || value === 'codex' || value === 'custom';
+}
+
 /** What a worker is on, for the card above its head: "Fix Login Redirect" + what it's doing now. */
 export interface WorkerTask {
   name: string;
@@ -22,8 +28,11 @@ export interface WorkerTask {
 
 export interface WorkerInfo {
   id: string;
-  /** 'agent' runs Claude Code (or --agent); 'shell' is a plain shared login shell. */
+  /** 'agent' runs the selected provider; 'shell' is a plain shared login shell. */
   kind: WorkerKind;
+  provider?: AgentProvider;
+  /** Initial OpenCode model selected for this worker, when one was requested. */
+  model?: string;
   deskId: string;
   name: string;
   color: string;
@@ -53,17 +62,23 @@ export interface WorkerInfo {
   activity?: string;
   /** Written by a small model from its prompts and recent tool calls (see server/tasks.ts). */
   task?: WorkerTask;
-  /** Tokens and cost of its Claude session so far, subagents included (agents only). */
+  /** Reported session tokens and cost, when the provider supplies them (agents only). */
   usage?: Usage;
   /** Who last typed into its terminal (or sent it a prompt), and when. */
   lastInput?: { by: string; at: number };
 }
 
-/** Tokens and what they cost, summed over a Claude Code session or the whole office. */
+/** Session usage. The persistent office ledger continues to cover Claude Code only. */
 export interface Usage {
   /** Input tokens that missed the prompt cache. */
   input: number;
   output: number;
+  /** Reasoning tokens reported separately from output, when available. */
+  reasoning?: number;
+  /** False when the provider supplies tokens without usable pricing. Omitted for legacy Claude usage. */
+  costKnown?: boolean;
+  /** Provider history is still loading, failed to load, or reached a traversal limit. */
+  incomplete?: boolean;
   /** Tokens written to the prompt cache. */
   cacheWrite: number;
   /** Tokens read from the prompt cache. */
@@ -72,6 +87,10 @@ export interface Usage {
   cost: number;
   /** API calls (assistant messages) counted. */
   calls: number;
+  /** False when the provider reports cumulative tokens without a reliable call count. */
+  callsKnown?: boolean;
+  /** Authoritative provider total when it cannot be reconstructed from the displayed buckets. */
+  totalTokens?: number;
 }
 
 /** Spend across the whole office, kept on disk (see server/usage.ts). */
@@ -171,6 +190,9 @@ export type TaskStatus = 'queued' | 'running' | 'done';
 /** A task on the 📋 queue whiteboard: a GitHub issue or free text, seated to a worker by itself. */
 export interface QueueTask {
   id: string;
+  provider?: AgentProvider;
+  /** Initial OpenCode model selected for this task, when one was requested. */
+  model?: string;
   /** The GitHub issue it came from, when it did. */
   issue?: number;
   title: string;
@@ -280,6 +302,8 @@ export interface ProjectInfo {
   branch?: string;
   remote?: string;
   agentCmd: string;
+  defaultProvider: AgentProvider;
+  agentProviders: AgentProvider[];
 }
 
 export type AccountRole = 'admin' | 'member';
@@ -453,7 +477,7 @@ export type ClientMsg =
   /** You reached out to use something; everyone else sees your character's arm do it. */
   | { t: 'act' }
   | { t: 'profile'; name: string; color: string; look: Look }
-  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind }
+  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
@@ -468,7 +492,7 @@ export type ClientMsg =
   | { t: 'gh.refresh' }
   /** Merge a pull request; the answer comes back as gh.merged. */
   | { t: 'gh.merge'; number: number; method: GhMergeMethod; deleteBranch: boolean; auto?: boolean }
-  | { t: 'queue.add'; prompt: string; title?: string; issue?: number }
+  | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string }
   | { t: 'queue.remove'; taskId: string }
   /** Move a queued task up (-1) or down (+1) the queue. */
   | { t: 'queue.move'; taskId: string; delta: number }

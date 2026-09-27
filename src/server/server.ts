@@ -11,6 +11,8 @@ import type { Config } from './config.js';
 import { Auth, type Session } from './auth.js';
 import { Accounts } from './accounts.js';
 import { WorkerManager } from './workers.js';
+import { configuredProvider, OPEN_CODE_MODEL_MAX } from './agents.js';
+import { createOpenCodeModelCatalogue } from './models.js';
 import { GitHub } from './github.js';
 import { Team } from './team.js';
 import { Upgrader } from './upgrade.js';
@@ -21,6 +23,7 @@ import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import type { ChatLine, ClientMsg, Me, PeerInfo, ProjectInfo, ServerMsg, ServicesState } from '../shared/protocol.js';
+import { isAgentProvider } from '../shared/protocol.js';
 import { SPAWN } from '../shared/layout.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 
@@ -85,6 +88,8 @@ function projectInfo(cfg: Config): ProjectInfo {
     branch: git(['rev-parse', '--abbrev-ref', 'HEAD']),
     remote: git(['remote', 'get-url', 'origin']),
     agentCmd: [cfg.agentCmd, ...cfg.agentArgs].join(' '),
+    defaultProvider: configuredProvider(cfg.agentCmd),
+    agentProviders: configuredProvider(cfg.agentCmd) === 'custom' ? ['claude', 'opencode', 'codex', 'custom'] : ['claude', 'opencode', 'codex'],
   };
 }
 
@@ -154,6 +159,11 @@ export async function startServer(cfg: Config) {
   const clients = new Map<string, Client>();
   const chat: ChatLine[] = [];
   const project = projectInfo(cfg);
+  const modelCommand = configuredProvider(cfg.agentCmd) === 'opencode' ? cfg.agentCmd : 'opencode';
+  const openCodeModels = createOpenCodeModelCatalogue(
+    modelCommand.includes('/') ? path.resolve(modelCommand) : modelCommand,
+    cfg.dir,
+  );
 
   const sendTo = (c: Client, msg: ServerMsg) => {
     if (c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify(msg));
@@ -172,7 +182,7 @@ export async function startServer(cfg: Config) {
     if (error) sendTo(c, { t: 'toast', text: error, level: 'warn' });
   };
 
-  // --- Loopback-only endpoint that Claude Code hooks POST to --------------------------------
+  // --- Loopback-only endpoint for authenticated agent events -------------------------------
   let workers!: WorkerManager;
   let queue!: TaskQueue;
   let changes!: Changes;
@@ -183,16 +193,22 @@ export async function startServer(cfg: Config) {
     } catch {
       return send(res, 400, {});
     }
-    if (req.method !== 'POST' || url.pathname !== '/hooks/claude') return send(res, 404, { ok: false });
+    if (req.method !== 'POST' || !['/hooks/claude', '/hooks/opencode', '/hooks/codex'].includes(url.pathname)) return send(res, 404, { ok: false });
     let payload: unknown = {};
     try {
       const body = await readBody(req);
       payload = body ? JSON.parse(body) : {};
     } catch {
+      if (url.pathname !== '/hooks/claude') return send(res, 400, { ok: false });
       // permissive: a bad payload still counts as the event
     }
     const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
-    const ok = workers.handleHook(url.searchParams.get('worker') ?? '', token, url.searchParams.get('event') ?? '', payload);
+    const workerId = url.searchParams.get('worker') ?? '';
+    const ok = url.pathname === '/hooks/opencode'
+      ? workers.handleOpenCodeHook(workerId, token, payload)
+      : url.pathname === '/hooks/codex'
+        ? workers.handleCodexHook(workerId, token, url.searchParams.get('event') ?? '', payload)
+        : workers.handleHook(workerId, token, url.searchParams.get('event') ?? '', payload);
     send(res, ok ? 200 : 401, {});
   });
   await new Promise<void>((resolve) => hookServer.listen(0, '127.0.0.1', resolve));
@@ -441,6 +457,13 @@ export async function startServer(cfg: Config) {
         return;
       }
       if (p === '/api/whoami') return send(res, 200, { ok: true, me: meOf(session.account?.id) });
+      if (p === '/api/agents/opencode/models' && req.method === 'GET') {
+        try {
+          return send(res, 200, { models: await openCodeModels.get() });
+        } catch {
+          return send(res, 502, { error: 'Could not load OpenCode models' });
+        }
+      }
       if (p === '/api/image' && req.method === 'GET') {
         // A picture on the wall, fetched by the office so the 3D view can draw it (see decor.ts).
         const r = await images.get(url.searchParams.get('url') ?? '');
@@ -675,7 +698,12 @@ export async function startServer(cfg: Config) {
       }
       case 'worker.spawn': {
         const kind = msg.kind === 'shell' ? 'shell' : 'agent';
-        const r = workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind);
+        if (kind === 'agent' && msg.provider !== undefined && (!isAgentProvider(msg.provider) || !project.agentProviders.includes(msg.provider))) {
+          warn(c, 'Unknown agent provider');
+          break;
+        }
+        const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
+        const r = workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model);
         if (typeof r === 'string') warn(c, r);
         else toastAll(kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${r.prompt ? ' with a task' : ''}`);
         break;
@@ -755,8 +783,13 @@ export async function startServer(cfg: Config) {
         break;
       }
       case 'queue.add': {
+        if (msg.provider !== undefined && (!isAgentProvider(msg.provider) || !project.agentProviders.includes(msg.provider))) {
+          warn(c, 'Unknown agent provider');
+          break;
+        }
         const issue = Number.isInteger(msg.issue) && (msg.issue as number) > 0 ? (msg.issue as number) : undefined;
-        const err = queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue);
+        const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
+        const err = queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model);
         if (err) warn(c, err);
         else toastAll(`📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`);
         break;
