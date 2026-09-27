@@ -2,6 +2,7 @@
 
 import type { Look } from './avatar.js';
 import type { DecorPlacement, Decoration } from './decor.js';
+import type { WbElement, WbPointer, WhiteboardView } from './whiteboard.js';
 
 export type WorkerStatus =
   | 'starting' // PTY launched, agent booting
@@ -405,6 +406,8 @@ export interface FloorView {
   /** Pictures on this floor's walls. */
   decor: Decoration[];
   services: ServicesState;
+  /** What's drawn on this floor's whiteboard, and who's drawing. */
+  whiteboard: WhiteboardView;
 }
 
 export type AccountRole = 'admin' | 'member';
@@ -668,6 +671,13 @@ export type ClientMsg =
   /** Move, resize, re-frame or swap the image of a picture. */
   | { t: 'decor.update'; id: string; decor: Partial<DecorPlacement> }
   | { t: 'decor.remove'; id: string }
+  /** You opened the whiteboard (or closed it): everyone on the floor sees who's drawing. */
+  | { t: 'wb.open' }
+  | { t: 'wb.close' }
+  /** Elements you added or changed on the whiteboard; pictures go first, by POST /api/whiteboard/file. */
+  | { t: 'wb.update'; elements: WbElement[] }
+  /** Where your mouse is on the whiteboard, and what you have selected there. */
+  | ({ t: 'wb.pointer'; selected?: string[] } & WbPointer)
   /** Ride the elevator to another floor; the server answers with `floor.enter`. */
   | { t: 'floor.go'; floor: string }
   /** The repositories that could become a floor; answered with `floor.repos`. */
@@ -735,6 +745,12 @@ export type ServerMsg =
   | { t: 'upgrade'; state: UpgradeState }
   | { t: 'services'; state: ServicesState }
   | { t: 'decor'; items: Decoration[] }
+  /** Someone changed these elements on the floor's whiteboard (sent to everyone else on the floor). */
+  | { t: 'wb.update'; elements: WbElement[] }
+  /** Who has the floor's whiteboard open now. */
+  | { t: 'wb.people'; people: string[] }
+  /** Someone's mouse on the whiteboard; only people who have it open get these. */
+  | ({ t: 'wb.pointer'; id: string; selected?: string[] } & WbPointer)
   | { t: 'usage'; state: UsageState }
   | { t: 'limits'; state: PlanLimits }
   | { t: 'queue'; state: QueueState }

@@ -123,6 +123,13 @@ export const SPAWN = { x: 8, z: 7 } as const;
 /** The gong: on the north wall between the PR board and the elevator, facing into the room. It rings when a PR merges. */
 export const GONG = { x: 3.5, z: FLOOR.minZ + 0.75, width: 1.9, height: 2.45 } as const;
 
+/**
+ * The whiteboard on wheels everyone draws on together, out on the open floor between the desks and
+ * the lounge, facing into the room (+z). `width` and `height` are its writing surface, whose bottom
+ * edge is `bottom` above the floor.
+ */
+export const WHITEBOARD = { x: 5.4, z: -5.4, width: 4, height: 2.2, bottom: 0.5 } as const;
+
 /** The office is the second floor. The street, and the open garage under the office, are this far below its floor. */
 export const STREET_Y = -3.6;
 /** The office's floor slab, which is the garage's ceiling: it runs from -SLAB up to 0. */
