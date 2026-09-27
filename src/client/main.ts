@@ -165,7 +165,7 @@ const tvMat = office.tvScreen.material as THREE.MeshBasicMaterial;
 tvMat.color.set('#ffffff');
 tvMat.map = tvIdle;
 tvMat.toneMapped = false;
-// The boss's monitor upstairs: DEADFALL, from the boss's chair.
+// The boss's monitor upstairs: Minesweeper, from the boss's chair.
 const arcade = new Arcade(office.bossScreen);
 
 // ---- Networking & state -------------------------------------------------------------------------
@@ -1144,11 +1144,11 @@ function hintFor(it: Interactable): Hint {
       if (!seat) return { k: '', parts: [] };
       if (player.seat?.seatId === seat.id) {
         const tv = !!seat.tv && tvShowing();
-        const use = tv ? 'Watch the TV' : seat.game ? 'Play DEADFALL' : '';
+        const use = tv ? 'Watch the TV' : seat.game ? 'Play Minesweeper' : '';
         return { k: `${seat.id}|sitting|${tv}`, parts: [title(seat.label), aside('sitting'), ...(use ? [key('E', use), key('W A S D', 'Get up')] : [key('E', 'Get up')])] };
       }
       const full = !freePlace(seat);
-      return { k: `${seat.id}|${full}`, parts: [title(seat.label), seat.game ? aside('🌲 DEADFALL on the monitor') : '', full ? aside('no room') : key('E', 'Sit down')] };
+      return { k: `${seat.id}|${full}`, parts: [title(seat.label), seat.game ? aside('💣 Minesweeper on the monitor') : '', full ? aside('no room') : key('E', 'Sit down')] };
     }
     case 'dog': {
       const doing = dog.doing(
@@ -1543,8 +1543,6 @@ resize();
 const timer = new THREE.Timer();
 let lastSent = { x: 0, y: 0, z: 0, rotY: 0, moving: false, at: 0 };
 let speakTick = 0;
-/** Frames since the camera settled on the boss's monitor, to draw the office on only some of them. */
-let arcadeFrames = 0;
 /** Which half-stride your walk is on, so each one plays a footstep. */
 let stride = 0;
 /** How fast you were falling, so landing a jump thumps but stepping down a stair doesn't. */
@@ -1668,20 +1666,16 @@ function frame(ts?: number) {
     for (const p of store.peers.values()) if (p.id !== store.you && !store.onMyFloor(p)) voice.setVolume(p.id, 0);
   }
 
-  // Playing DEADFALL, the camera holds still on the monitor and the game covers most of the view,
-  // so the office around it only needs every third frame. That leaves the GPU to the game.
-  arcadeFrames = arcade.settled ? arcadeFrames + 1 : 0;
-  if (arcadeFrames % 3 === 0) {
-    effect.render(scene, camera);
-    if (firstPerson && !arcade.zoomed) {
-      // Hands go on top of everything, so they never clip into a desk you walk up to. They have
-      // lights of their own, turned down to match wherever you're standing.
-      renderer.clearDepth();
-      hands.setLight(sky.lightAt(camera.position));
-      sky.shading(false);
-      effect.render(hands.scene, hands.camera);
-      sky.shading(true);
-    }
+  effect.render(scene, camera);
+  // Not while the camera's up at the boss's monitor, where they'd cover the screen.
+  if (firstPerson && !arcade.zoomed) {
+    // Hands go on top of everything, so they never clip into a desk you walk up to. They have
+    // lights of their own, turned down to match wherever you're standing.
+    renderer.clearDepth();
+    hands.setLight(sky.lightAt(camera.position));
+    sky.shading(false);
+    effect.render(hands.scene, hands.camera);
+    sky.shading(true);
   }
   requestAnimationFrame(frame);
 }
