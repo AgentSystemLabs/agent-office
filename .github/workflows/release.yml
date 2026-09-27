@@ -1,0 +1,110 @@
+name: Release
+
+# Every change to the app that lands on main is built, tested and published as a GitHub release,
+# and install.sh installs the newest one. The version is package.json's major.minor plus the
+# number of commits on main (v0.1.68, v0.1.69, ...); bump package.json for a new minor.
+#
+# Pull requests get the same build, tests and a real install of the packed release through
+# install.sh, but publish nothing.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'bin/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
+      - 'vite.config.ts'
+      - '.github/workflows/release.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'bin/**'
+      - 'tests/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
+      - 'vite.config.ts'
+      - 'install.sh'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the version counts the commits on main
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install and build
+        run: npm ci # its prepare script builds the client and the server
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - name: Pack the release
+        id: pack
+        run: |
+          version="$(node -p 'require("./package.json").version.split(".").slice(0, 2).join(".")').$(git rev-list --count HEAD)"
+          npm version "$version" --no-git-tag-version --allow-same-version
+          # It's built already, and installs don't have the build tools.
+          npm pkg delete scripts.prepare
+          # Installs get exactly the dependency versions tested here.
+          cp package-lock.json npm-shrinkwrap.json
+          npm pkg set 'files[]=npm-shrinkwrap.json'
+          npm pack --ignore-scripts
+          mv "agent-office-$version.tgz" agent-office.tgz
+          tar -tzf agent-office.tgz | grep -qx 'package/npm-shrinkwrap.json'
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install it with install.sh and start it
+        env:
+          AGENT_OFFICE_TARBALL: ${{ github.workspace }}/agent-office.tgz
+          AGENT_OFFICE_INSTALL_DIR: ${{ runner.temp }}/install
+          AGENT_OFFICE_BIN_DIR: ${{ runner.temp }}/bin
+          AGENT_OFFICE_HOME: ${{ runner.temp }}/office
+          AGENT_OFFICE_INSTALL_ONLY: '1'
+        run: |
+          bash install.sh
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/bin/agent-office" --host 127.0.0.1 --port 4700 --password ci > office.log 2>&1 &
+          office=$!
+          for _ in $(seq 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4700/login.html || true)
+            [ "$code" = 200 ] && break
+            sleep 1
+          done
+          cat office.log
+          [ "$code" = 200 ] || { echo "the installed office didn't answer (last status: $code)"; exit 1; }
+          grep -qx "v${{ steps.pack.outputs.version }}" install/current
+          kill -INT "$office"
+
+      - name: Publish
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ steps.pack.outputs.version }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "$TAG is already released"
+            exit 0
+          fi
+          gh release create "$TAG" agent-office.tgz --target "$GITHUB_SHA" --title "$TAG" --generate-notes --latest
