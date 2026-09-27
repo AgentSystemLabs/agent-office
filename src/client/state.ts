@@ -1,12 +1,13 @@
-import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
+import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, MachineState, MeetingState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, ThemeState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
 import { newer, type WbElement } from '../shared/whiteboard';
 import type { DogState } from '../shared/dog';
 import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
+import type { CabinetFrame, CabinetState } from '../shared/cabinet';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'floors' | 'floor' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'whiteboard' | 'drawing';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -42,6 +43,11 @@ export function saveProfile(p: Profile) {
 
 export type ViewMode = 'first' | 'third';
 
+/** The panels you can show or hide on screen, from the ☰ menu. */
+export type HudPanel = 'workers' | 'people' | 'spend' | 'limits' | 'chat' | 'floor';
+/** Out of the way by default: only the chat shows until you turn the rest on. */
+export const HUD_DEFAULTS: Record<HudPanel, boolean> = { workers: false, people: false, spend: false, limits: false, chat: true, floor: false };
+
 export interface Settings {
   view: ViewMode;
   /** Limit rendering work for cooler, quieter laptops. */
@@ -54,6 +60,10 @@ export interface Settings {
   musicMuted: boolean;
   /** Desktop notifications when a worker needs input or finishes while you're in another tab (once the browser allows them). */
   notify: boolean;
+  /** Which panels show on screen. */
+  hud: Record<HudPanel, boolean>;
+  /** The ☰ menu's actions you pinned to the top bar, by id. */
+  pins: string[];
 }
 
 const SETTINGS_KEY = 'agent-office.settings';
@@ -77,7 +87,7 @@ function rememberFloor(id: string | null) {
 }
 
 export function loadSettings(): Settings {
-  const s: Settings = { view: 'first', lowPower: true, volume: 0.7, muted: false, music: 0.5, musicMuted: false, notify: true };
+  const s: Settings = { view: 'first', lowPower: true, volume: 0.7, muted: false, music: 0.5, musicMuted: false, notify: true, hud: { ...HUD_DEFAULTS }, pins: [] };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
     if (saved?.view === 'first' || saved?.view === 'third') s.view = saved.view;
@@ -87,6 +97,8 @@ export function loadSettings(): Settings {
     if (typeof saved?.music === 'number' && Number.isFinite(saved.music)) s.music = Math.max(0, Math.min(1, saved.music));
     if (typeof saved?.musicMuted === 'boolean') s.musicMuted = saved.musicMuted;
     if (typeof saved?.notify === 'boolean') s.notify = saved.notify;
+    for (const k of Object.keys(s.hud) as HudPanel[]) if (typeof saved?.hud?.[k] === 'boolean') s.hud[k] = saved.hud[k];
+    if (Array.isArray(saved?.pins)) s.pins = saved.pins.filter((p: unknown): p is string => typeof p === 'string').slice(0, 30);
   } catch {
     // storage blocked
   }
@@ -118,7 +130,7 @@ class Store {
   floors: FloorInfo[] = [];
   floor: string | null = null;
   /** Where the office clones new floors to. */
-  projectsDir = '';
+  projectsDir: ProjectsDirState = { dir: '', custom: false };
   /** The repositories the office's gh login can clone, once asked for (see floor.repos). */
   repos: { list: RepoChoice[]; error?: string; loading: boolean; at: number } = { list: [], loading: false, at: 0 };
   issues: GhState<GhIssue> = { items: [], fetchedAt: 0, loading: true };
@@ -140,21 +152,31 @@ class Store {
   whiteboard = new Map<string, WbElement>();
   /** Who has the whiteboard open (client ids). */
   drawing: string[] = [];
+  /** Who's at the arcade cabinet on your floor, and the building's high scores. */
+  cabinet: CabinetState = { player: null, scores: [] };
+  /** The game on the cabinet as its player last sent it; null while nobody plays. */
+  cabinetFrame: CabinetFrame | null = null;
   usage: UsageState = { total: zeroUsage(), today: zeroUsage(), day: '', pauseHiring: false };
   /** The Claude plan's 5-hour and weekly limits. */
   limits: PlanLimits = { windows: [], at: 0 };
   queue: QueueState = { tasks: [], maxWorkers: 0 };
+  /** The meeting room: the meeting at the table, and the ones before. */
+  meeting: MeetingState = { current: null, past: [] };
   /** Who you're signed in as (see /api/whoami). */
   me: Me = { admin: false };
   /** Everyone's accounts; only admins get these. */
   accounts: AccountsState | null = null;
   /** The office's Slack / Discord webhook. */
   notify: NotifyState = {};
+  /** How busy the office's machine is, and its worker limit. */
+  machine: MachineState = { cpu: 0, cores: 0, memUsed: 0, memTotal: 0, history: [], workers: 0 };
   /** The dog on your floor, and when (performance.now()) the leg it's on began. */
   dog: DogState | null = null;
   dogStart = 0;
   /** Outside the windows; null until the server says. */
   sky: SkyState | null = null;
+  /** The building's holiday decorations: the same on every floor. */
+  theme: ThemeState = { pick: 'auto', active: null };
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -210,13 +232,16 @@ class Store {
     this.issues = v.issues;
     this.pulls = v.pulls;
     this.queue = v.queue;
+    this.meeting = v.meeting;
     this.decor = v.decor;
     this.services = v.services;
     this.whiteboard = new Map(v.whiteboard.elements.map((e) => [e.id, e]));
     this.drawing = v.whiteboard.people;
+    this.cabinet = { player: v.cabinet.player, scores: v.cabinet.scores };
+    this.cabinetFrame = v.cabinet.frame;
     this.setDog(v.dog);
     this.setJukebox(v.jukebox);
-    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'decor', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing'] as Topic[]) this.emit(t);
+    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame'] as Topic[]) this.emit(t);
   }
 
   private setDog(dog: DogState | null) {
@@ -244,10 +269,12 @@ class Store {
         this.limits = msg.limits;
         this.me = msg.me;
         this.notify = msg.notify;
+        this.machine = msg.machine;
         this.clock = undefined; // compared again, in case it's another office (or the same one, restarted)
         this.sky = msg.sky;
+        this.theme = msg.theme;
         this.enter(msg);
-        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'floors', 'sky'] as Topic[]) this.emit(t);
+        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'floors', 'projectsDir', 'sky', 'theme'] as Topic[]) this.emit(t);
         break;
       case 'floor.enter':
         this.peers = new Map(msg.peers.map((p) => [p.id, p]));
@@ -257,6 +284,10 @@ class Store {
       case 'floors':
         this.floors = msg.floors;
         this.emit('floors');
+        break;
+      case 'projectsDir':
+        this.projectsDir = msg.state;
+        this.emit('projectsDir');
         break;
       case 'floor.repos':
         this.repos = { list: msg.repos, error: msg.error, loading: false, at: Date.now() };
@@ -333,6 +364,16 @@ class Store {
         this.setJukebox(msg.state);
         this.emit('jukebox');
         break;
+      case 'cabinet':
+        // Nobody at it any more: the last game's screen goes with them.
+        if (!msg.state.player || msg.state.player.id !== this.cabinet.player?.id) this.cabinetFrame = null;
+        this.cabinet = msg.state;
+        this.emit('cabinet');
+        break;
+      case 'cabinet.frame':
+        this.cabinetFrame = msg.frame;
+        this.emit('cabinetFrame');
+        break;
       case 'pong': {
         // The answer that came back quickest says best how the two clocks line up.
         const rtt = performance.now() - msg.at;
@@ -362,9 +403,17 @@ class Store {
         this.queue = msg.state;
         this.emit('queue');
         break;
+      case 'meeting':
+        this.meeting = msg.state;
+        this.emit('meeting');
+        break;
       case 'notify':
         this.notify = msg.state;
         this.emit('notify');
+        break;
+      case 'machine':
+        this.machine = msg.state;
+        this.emit('machine');
         break;
       case 'dog':
         this.setDog(msg.dog);
@@ -373,6 +422,10 @@ class Store {
       case 'sky':
         this.sky = msg.state;
         this.emit('sky');
+        break;
+      case 'theme':
+        this.theme = msg.state;
+        this.emit('theme');
         break;
       case 'chat':
         this.chat.push(msg);

@@ -57,6 +57,7 @@ export function openWhiteboard(net: Net) {
     people,
     modal: openModal(el, {
       escCloses: false,
+      doing: '🖍️ at the whiteboard',
       onClose: () => {
         window.removeEventListener('keydown', onKey, true);
         unsubscribe.forEach((off) => off());

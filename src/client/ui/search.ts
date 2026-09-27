@@ -173,7 +173,7 @@ export function openSearch(openTerminal: (workerId: string, find: TerminalFind) 
     (next ?? (e.key === 'ArrowUp' ? input : at)).focus();
   });
 
-  const modal = openModal(el, { onClose: () => clearTimeout(timer) });
+  const modal = openModal(el, { doing: '🔎 searching the office', onClose: () => clearTimeout(timer) });
   close.addEventListener('click', () => modal.close());
   render();
   void run();

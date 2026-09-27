@@ -3,24 +3,11 @@ import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, timeAgo, STATUS_LABEL } from './dom';
 import { confirmDialog } from './prompt';
-import { providerPicker, providerLabel, providerUsageState, resolvedProvider } from './provider';
+import { providerPicker, providerLabel, providerUsageState, resolvedProvider, modelBadge } from './provider';
+import { officeFull } from '../world/machine';
 
 export interface QueueActions {
   openTerminal(workerId: string): void;
-}
-
-/** The 📋 Queue button in the top bar: shows how many tasks are waiting or running. */
-export function mountQueueButton(btn: HTMLElement, onOpen: () => void) {
-  const count = h('span.svc-count');
-  btn.replaceChildren('📋 ', h('span', {}, 'Queue'), count);
-  const render = () => {
-    const n = store.queue.tasks.filter((t) => t.status !== 'done').length;
-    count.textContent = n ? String(n) : '';
-    count.classList.toggle('hidden', !n);
-  };
-  store.on('queue', render);
-  render();
-  btn.addEventListener('click', onOpen);
 }
 
 /** The queue task's name, linked to its GitHub issue when it has one. */
@@ -64,7 +51,7 @@ export function openQueue(net: Net, actions: QueueActions) {
   );
 
   const ta = h('textarea', { rows: 2, placeholder: 'Describe a task for the next free worker…', 'aria-label': 'New task' }) as HTMLTextAreaElement;
-  const provider = providerPicker(store.project, 'queue-provider', 'Queue provider');
+  const provider = providerPicker(store.project, 'queue-provider', 'Queue provider', 'queue');
   const addBtn = h('button.btn.primary', { type: 'submit' }, 'Add to queue');
   const form = h('form.queue-add', {}, ta, provider.element, addBtn) as HTMLFormElement;
   form.noValidate = true;
@@ -75,7 +62,7 @@ export function openQueue(net: Net, actions: QueueActions) {
       return;
     }
     if (!provider.valid()) return;
-    net.send({ t: 'queue.add', prompt: text, provider: provider.value(), model: provider.model() });
+    net.send({ t: 'queue.add', prompt: text, provider: provider.value(), model: provider.model(), effort: provider.effort() });
     ta.value = '';
   };
   form.addEventListener('submit', (e) => {
@@ -98,7 +85,8 @@ export function openQueue(net: Net, actions: QueueActions) {
     const w = t.workerId ? store.workers.get(t.workerId) : undefined;
     const meta: string[] = [];
     const buttons: HTMLElement[] = [];
-    const model = t.model ? ` · initial: ${t.model}` : '';
+    const badge = modelBadge(t.provider, t.model, t.effort);
+    const model = badge ? ` · initial: ${badge}` : '';
     const usageSuffix = (provider: AgentProvider | undefined, usage?: Usage) => {
       const state = providerUsageState(provider, store.project, usage);
       return state === 'untracked' ? ' · usage untracked' : state === 'waiting' && resolvedProvider(provider, store.project) === 'opencode' ? ' · waiting for metrics' : state === 'waiting' && resolvedProvider(provider, store.project) === 'codex' ? ' · waiting for first report' : '';
@@ -161,6 +149,7 @@ export function openQueue(net: Net, actions: QueueActions) {
     const running = q.tasks.filter((t) => t.status === 'running');
     const queued = q.tasks.filter((t) => t.status === 'queued');
     const done = q.tasks.filter((t) => t.status === 'done').slice().reverse();
+    const m = store.machine;
     const parts: (HTMLElement | null)[] = [
       h(
         'p.note',
@@ -171,6 +160,9 @@ export function openQueue(net: Net, actions: QueueActions) {
         h('b', {}, q.maxWorkers === 0 ? '0' : String(q.maxWorkers)),
         ' workers are busy, the next task gets a fresh worker in its own git worktree. Issues are assigned on GitHub when they start, and the pull request is linked when it shows up.',
       ),
+      queued.length && officeFull(m)
+        ? h('p.note', {}, `⏸ The office is at its limit of ${m.limit} worker${m.limit === 1 ? '' : 's'}, so the next task waits until one goes home. A queue worker that's finished goes home by itself to make room.`)
+        : null,
       section('🤖 Working on it', running),
       section('⏳ Up next', queued),
       section('✅ Finished', done, h('button.btn', { type: 'button', onclick: () => net.send({ t: 'queue.clear' }) }, 'Clear')),
@@ -179,9 +171,18 @@ export function openQueue(net: Net, actions: QueueActions) {
     list.replaceChildren(...parts.filter((n): n is HTMLElement => n !== null));
   };
 
-  const unsubs = [store.on('queue', render), store.on('workers', render), store.on('issues', render)];
+  // The machine reports every few seconds; only a change to whether the office is full shows here.
+  let full = '';
+  const machineChanged = () => {
+    const k = `${officeFull(store.machine)}|${store.machine.limit}`;
+    if (k === full) return;
+    full = k;
+    render();
+  };
+  const unsubs = [store.on('queue', render), store.on('workers', render), store.on('issues', render), store.on('machine', machineChanged)];
   const tick = setInterval(render, 30_000);
   const modal = openModal(el, {
+    doing: '📥 at the queue',
     onClose: () => {
       unsubs.forEach((u) => u());
       clearInterval(tick);

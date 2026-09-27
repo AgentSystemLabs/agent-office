@@ -12,6 +12,7 @@ import * as pty from '@lydell/node-pty';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
 import { PTY_PROTOCOL, SCROLLBACK, readMessages, type FromHost, type SpawnOpts, type ToHost } from './ptys.js';
+import { screenSnapshot } from './screen.js';
 
 /** How long terminals keep running with no office connected before the host gives up on it. */
 const ORPHAN_MS = 30 * 60_000;
@@ -22,7 +23,7 @@ interface Session {
   id: string;
   proc: pty.IPty;
   term: InstanceType<typeof headless.Terminal>;
-  ser: InstanceType<typeof serialize.SerializeAddon>;
+  snapshot: () => string;
   cols: number;
   rows: number;
   busy: boolean;
@@ -95,8 +96,9 @@ function spawn(id: string, opts: SpawnOpts) {
   const term = new headless.Terminal({ cols: opts.cols, rows: opts.rows, scrollback: SCROLLBACK, allowProposedApi: true });
   const ser = new serialize.SerializeAddon();
   term.loadAddon(ser as any);
+  const snapshot = screenSnapshot(term, ser);
   if (opts.prelude) term.write(opts.prelude);
-  const s: Session = { id, proc, term, ser, cols: opts.cols, rows: opts.rows, busy: false, title: '', attached: true };
+  const s: Session = { id, proc, term, snapshot, cols: opts.cols, rows: opts.rows, busy: false, title: '', attached: true };
   sessions.set(id, s);
   term.parser.registerOscHandler(9, (data: string) => {
     const m = /^4;(\d)/.exec(data);
@@ -137,7 +139,7 @@ function attach(id: string) {
     const held = s.held ?? [];
     s.held = undefined;
     if (office !== to) return;
-    const snapshot = s.ser.serialize({ scrollback: SCROLLBACK });
+    const snapshot = s.snapshot();
     send({ t: 'attached', id, pid: s.proc.pid, cols: s.cols, rows: s.rows, busy: s.busy, title: s.title, snapshot });
     for (const data of held) send({ t: 'data', id, data });
     if (s.exitCode !== undefined) {

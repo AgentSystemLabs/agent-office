@@ -1,8 +1,10 @@
 // Wire protocol between browser and server. Every WebSocket frame is one JSON object.
 
 import type { Look } from './avatar.js';
+import type { CabinetFrame, CabinetState, CabinetView } from './cabinet.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
+import type { EmoteId } from './emotes.js';
 import type { JukeboxState } from './jukebox.js';
 import type { WbElement, WbPointer, WhiteboardView } from './whiteboard.js';
 
@@ -17,10 +19,30 @@ export type WorkerStatus =
 
 export type WorkerKind = 'agent' | 'shell';
 
+/**
+ * What a working agent's latest tool call looks like from across the room (see shared/actions.ts):
+ * reading files, editing them, running tests or a build, on the web, or tests failing again and again.
+ */
+export type WorkerAction = 'read' | 'edit' | 'test' | 'web' | 'failing';
+
 export type AgentProvider = 'claude' | 'opencode' | 'codex' | 'custom';
 
 export function isAgentProvider(value: unknown): value is AgentProvider {
   return value === 'claude' || value === 'opencode' || value === 'codex' || value === 'custom';
+}
+
+/** A Claude model alias the hire dialog and queue can request explicitly (see server/agents.ts). */
+export type ClaudeModel = 'fable' | 'opus' | 'sonnet' | 'haiku';
+export const CLAUDE_MODELS: readonly ClaudeModel[] = ['fable', 'opus', 'sonnet', 'haiku'];
+export function isClaudeModel(value: unknown): value is ClaudeModel {
+  return value === 'fable' || value === 'opus' || value === 'sonnet' || value === 'haiku';
+}
+
+/** Claude Code's `--effort` levels, from fastest/cheapest to most thorough. */
+export type AgentEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export const AGENT_EFFORTS: readonly AgentEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+export function isAgentEffort(value: unknown): value is AgentEffort {
+  return value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' || value === 'max';
 }
 
 /** What a worker is on, for the card above its head: "Fix Login Redirect" + what it's doing now. */
@@ -34,14 +56,18 @@ export interface WorkerInfo {
   /** 'agent' runs the selected provider; 'shell' is a plain shared login shell. */
   kind: WorkerKind;
   provider?: AgentProvider;
-  /** Initial OpenCode model selected for this worker, when one was requested. */
+  /** Model requested for this worker, instead of the office's configured default: an OpenCode provider/model id, or a Claude model alias. */
   model?: string;
+  /** Reasoning effort requested for this worker, when one was chosen (Claude only). */
+  effort?: AgentEffort;
   deskId: string;
   name: string;
   color: string;
   status: WorkerStatus;
   /** True once someone opened the terminal after the last done / needs_input. */
   acked: boolean;
+  /** When it last went to done or needs_input (ms), so N goes to whoever has waited longest first. */
+  waitingSince?: number;
   createdBy: string;
   createdAt: number;
   prompt?: string;
@@ -61,14 +87,20 @@ export interface WorkerInfo {
   rows: number;
   /** Names of people currently viewing the terminal. */
   viewers: string[];
+  /** Who is viewing it, by connection (PeerInfo.id): one per open window, so a name can be here twice. */
+  viewerIds: string[];
   /** Latest line of meaningful activity (e.g. last prompt or tool). */
   activity?: string;
+  /** What its latest tool call is, for the worker to act out while it works. */
+  action?: WorkerAction;
   /** Written by a small model from its prompts and recent tool calls (see server/tasks.ts). */
   task?: WorkerTask;
   /** Reported session tokens and cost, when the provider supplies them (agents only). */
   usage?: Usage;
   /** Who last typed into its terminal (or sent it a prompt), and when. */
   lastInput?: { by: string; at: number };
+  /** The meeting it was called to, for a worker at the meeting room's table (see Meeting). */
+  meeting?: string;
 }
 
 /** Session usage. The persistent office ledger continues to cover Claude Code only. */
@@ -94,6 +126,23 @@ export interface Usage {
   callsKnown?: boolean;
   /** Authoritative provider total when it cannot be reconstructed from the displayed buckets. */
   totalTokens?: number;
+}
+
+/** Every token a session used, cache reads and writes included: what the office shows and budgets meetings by. */
+export function tokensOf(u: Usage): number {
+  return u.totalTokens ?? u.input + u.output + (u.reasoning ?? 0) + u.cacheWrite + u.cacheRead;
+}
+
+/** e.g. 950, 12k, 1.25M */
+export function fmtTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1e6) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1e6).toFixed(n < 10e6 ? 2 : 1)}M`;
+}
+
+export function fmtCost(usd: number): string {
+  if (usd > 0 && usd < 0.005) return '<$0.01';
+  return `$${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /** Spend across the whole office, kept on disk (see server/usage.ts). */
@@ -150,6 +199,12 @@ export interface WorktreeState {
   error?: string;
 }
 
+/** The issue on a card someone carries around the floor (see PeerInfo.carrying). */
+export interface CarriedIssue {
+  issue: number;
+  title: string;
+}
+
 export interface PeerInfo {
   id: string;
   name: string;
@@ -168,10 +223,14 @@ export interface PeerInfo {
   smoking?: boolean;
   /** Sitting down: the place they're in (see seatAt in layout), like "couch:1". */
   seat?: string;
+  /** An issue card they took off the issues board, on its way to a desk or the queue. */
+  carrying?: CarriedIssue;
   /** Signed in with their own account, so `name` is theirs and nobody else can take it. */
   account?: boolean;
   /** The floor they're on (see FloorInfo); none while the building has no floors yet. */
   floor?: string;
+  /** What they have open, in their own words: "in Pixel's terminal", "reading PR #12". */
+  doing?: string;
 }
 
 /** A styled run of text on a terminal row: [text, fg, bg, flags]. */
@@ -223,8 +282,10 @@ export type TaskStatus = 'queued' | 'running' | 'done';
 export interface QueueTask {
   id: string;
   provider?: AgentProvider;
-  /** Initial OpenCode model selected for this task, when one was requested. */
+  /** Model requested for this task, instead of the office's configured default: an OpenCode provider/model id, or a Claude model alias. */
   model?: string;
+  /** Reasoning effort requested for this task, when one was chosen (Claude only). */
+  effort?: AgentEffort;
   /** The GitHub issue it came from, when it did. */
   issue?: number;
   title: string;
@@ -252,6 +313,138 @@ export interface QueueState {
   maxWorkers: number;
 }
 
+/** How the workers at the meeting table work together (see shared/meetings.ts). */
+export type MeetingPattern = 'debate' | 'lead' | 'mapreduce' | 'redblue' | 'review';
+
+/** A worker's place at a meeting. */
+export interface MeetingSeat {
+  /** Its part in the meeting, e.g. "Skeptic", "Red team" or "Security". */
+  role: string;
+  /** Its chair (see MEETING_SEATS in layout). */
+  deskId: string;
+  workerId?: string;
+  workerName?: string;
+  /** What its worker has used, kept after it goes home. `cost` is missing when its provider doesn't say. */
+  tokens?: number;
+  cost?: number;
+}
+
+/** One worker's part in a round: what it's doing, and the file that says it has done it. */
+export interface MeetingTurn {
+  /** Which of the meeting's seats. */
+  seat: number;
+  /** e.g. "proposing", "critiquing", "writing the decision". */
+  doing: string;
+  /** Relative to the meeting's checkout. */
+  file: string;
+  /** waiting: not handed over yet; sent: handed over, not started on; working: on it; done: its file is written. */
+  state: 'waiting' | 'sent' | 'working' | 'done';
+  sentAt?: number;
+  /** It was reminded once already: it ended its turn without writing the file, or never started. */
+  retried?: boolean;
+}
+
+export type MeetingStatus = 'running' | 'done' | 'stopped';
+
+/**
+ * A meeting in the meeting room: 2–5 workers on one question or task, in rounds, following a pattern.
+ * It ends when its output file is written, or stops at its round limit or token budget and says why.
+ */
+export interface Meeting {
+  id: string;
+  pattern: MeetingPattern;
+  title: string;
+  /** The question or task, as whoever called the meeting put it. */
+  prompt: string;
+  /** The file the meeting writes, relative to its checkout, declared up front. */
+  output: string;
+  /** The head of the table first. */
+  seats: MeetingSeat[];
+  /** Map-reduce: what the task runs over, a part per line. */
+  parts?: string[];
+  /** Review panel: the pull request under review. */
+  pr?: number;
+  /** The GitHub issue it's about, when it was called from one. */
+  issue?: number;
+  provider?: AgentProvider;
+  model?: string;
+  effort?: AgentEffort;
+  /** The round limit. */
+  rounds: number;
+  /** The round it's on (from 1), and the step within it (red / blue take turns inside a round). */
+  round: number;
+  step: number;
+  /** Red / blue: the red team found nothing more in this round, so it's the last. */
+  lastRound?: number;
+  /** The current step's parts. */
+  turns: MeetingTurn[];
+  /** Tokens every worker in the meeting may use between them, and how many they have. */
+  budget: number;
+  tokens: number;
+  /** USD, where the providers report it. */
+  cost: number;
+  /** False when a worker's provider reports no cost, so `cost` leaves it out. */
+  costKnown: boolean;
+  status: MeetingStatus;
+  /** Why it stopped short. */
+  reason?: string;
+  calledBy: string;
+  startedAt: number;
+  finishedAt?: number;
+  /** The meeting's own git worktree, relative to the project, which everyone at the table shares. */
+  worktree?: { path: string; branch: string; base: string; from?: string };
+  /** Where the round notes go, relative to the checkout. */
+  notes: string;
+  /** The commit on the meeting's branch that holds the output. */
+  commit?: string;
+  /** Review panel: the review the office posted on the pull request, or why it couldn't. */
+  review?: { url?: string; error?: string };
+  /** The start of the output file as it gets written, for the board in the room. */
+  preview?: string;
+  /** Its workers have gone home and its worktree was tidied away. */
+  cleared?: boolean;
+}
+
+/** A meeting that's over, in a line. */
+export interface MeetingRecord {
+  id: string;
+  pattern: MeetingPattern;
+  title: string;
+  status: MeetingStatus;
+  /** The line on the room's door: pattern, rounds, tokens, cost, and the output (or why it stopped). */
+  summary: string;
+  calledBy: string;
+  finishedAt: number;
+  branch?: string;
+  output: string;
+}
+
+export interface MeetingState {
+  /** The meeting in the room: the one running, or the last one until the room is cleared or the next is called. */
+  current: Meeting | null;
+  /** Earlier meetings on the floor, newest first. */
+  past: MeetingRecord[];
+}
+
+/** What calling a meeting asks for (see shared/meetings.ts for each pattern's defaults and limits). */
+export interface MeetingRequest {
+  pattern: MeetingPattern;
+  prompt: string;
+  title?: string;
+  /** The output file, relative to the checkout; the pattern's default when missing. */
+  output?: string;
+  /** A role per worker, the head of the table first. */
+  roles: string[];
+  parts?: string[];
+  pr?: number;
+  issue?: number;
+  rounds?: number;
+  budget?: number;
+  provider?: AgentProvider;
+  model?: string;
+  effort?: AgentEffort;
+}
+
 /** Where a team webhook posts: Slack and Discord get their own message format, anything else plain JSON. */
 export type WebhookKind = 'slack' | 'discord' | 'other';
 
@@ -262,6 +455,31 @@ export interface NotifyState {
   /** Why the last post failed, until one gets through. */
   error?: string;
   lastSentAt?: number;
+}
+
+/**
+ * The office's machine (see server/machine.ts): how busy it is, for the wall monitor and a warning
+ * before hiring, and the most workers the office runs at once, across every floor.
+ */
+export interface MachineState {
+  /** Percent of every core busy, 0-100, over the last few seconds. */
+  cpu: number;
+  cores: number;
+  /** Memory in use and in all, bytes. */
+  memUsed: number;
+  memTotal: number;
+  /** The last few minutes, oldest first: [cpu %, memory %] a few seconds apart. */
+  history: [number, number][];
+  /** What makes another worker a strain right now, e.g. "memory is 93% used"; missing when nothing does. */
+  pressure?: string;
+  /** Workers in the office now: every floor's, shells and board agents too. */
+  workers: number;
+  /** The most workers the office takes; missing when there's no limit. */
+  limit?: number;
+  /** --max-workers: the limit can't be set any higher from the office. */
+  ceiling?: number;
+  /** The limit someone set in ⚙️ Settings, when there is one. */
+  set?: { limit: number; by: string; at: number };
 }
 
 export interface GhState<T> {
@@ -388,6 +606,16 @@ export interface FloorInfo {
   people: number;
 }
 
+/** Where the elevator's "add a project" clones to: <dir>/<owner>/<repo> on the office's machine. */
+export interface ProjectsDirState {
+  /** For showing people: under the home folder it's ~/…. */
+  dir: string;
+  /** Set from ⚙️ Settings or --projects, rather than the office's default. */
+  custom: boolean;
+  by?: string;
+  at?: number;
+}
+
 /** A repository the office's `gh` login can clone, for the elevator's "add a project". */
 export interface RepoChoice {
   /** owner/name */
@@ -414,8 +642,12 @@ export interface FloorView {
   dog: DogState | null;
   /** What the lounge jukebox is playing. */
   jukebox: JukeboxState;
+  /** Who's at the arcade cabinet, what's on its screen, and the building's high scores. */
+  cabinet: CabinetView;
   /** What's drawn on this floor's whiteboard, and who's drawing. */
   whiteboard: WhiteboardView;
+  /** The meeting room: who's meeting about what, and the meetings before. */
+  meeting: MeetingState;
 }
 
 export type AccountRole = 'admin' | 'member';
@@ -593,6 +825,21 @@ export interface SkyState {
   temp?: number;
 }
 
+/** A holiday the whole building dresses up for (see shared/theme.ts). */
+export type Theme = 'halloween' | 'christmas';
+/** What someone picked in ⚙️ Settings: a holiday, none, or whichever the calendar says. */
+export type ThemePick = Theme | 'auto' | 'off';
+
+/** The building's holiday theme: the same on every floor, for everyone. */
+export interface ThemeState {
+  pick: ThemePick;
+  /** What's up right now: the pick, or for 'auto' the holiday it is at the office. Null for none. */
+  active: Theme | null;
+  /** Who picked it, and when. Unset for the default (auto). */
+  by?: string;
+  at?: number;
+}
+
 export interface ChatLine {
   from: string;
   name: string;
@@ -634,19 +881,34 @@ export type ClientMsg =
   | { t: 'act'; smoke?: boolean }
   /** You sat down in a place on a couch, a beanbag, a chair or the bench (see seatAt in layout), or got up again (no seat). */
   | { t: 'sit'; seat?: string }
+  /** You picked an issue card up off the board (or put it down again, no issue): everyone sees it in your hands. */
+  | { t: 'carry'; issue?: number; title?: string }
+  /** An emote (hold G, or 1–6): everyone else on your floor sees your character do it. Rate limited, see EmoteBucket. */
+  | { t: 'emote'; emote: EmoteId }
   | { t: 'profile'; name: string; color: string; look: Look }
-  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string }
+  /** With `issue`, the worker is there for that GitHub issue: it's assigned on GitHub (so it moves to In progress) and taken off the queue. */
+  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: number }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
   | { t: 'worker.worktree'; workerId: string }
   | { t: 'worker.attach'; workerId: string }
   | { t: 'worker.detach'; workerId: string }
-  | { t: 'worker.prompt'; workerId: string; prompt: string }
+  /** With `issue`, the prompt hands the worker that GitHub issue, which is taken as for worker.spawn. */
+  | { t: 'worker.prompt'; workerId: string; prompt: string; issue?: number }
+  /**
+   * A prompt for the agent standing by a board (`deskId` is its kiosk, see STATIONS in layout). It's
+   * typed into its session, which is woken up first if it's asleep, or hired there when nobody is.
+   */
+  | { t: 'station.prompt'; deskId: string; prompt: string }
   /** Push a worktree worker's branch and open a pull request for it, drafted from its task. */
   | { t: 'worker.pr'; workerId: string }
   | { t: 'term.input'; workerId: string; data: string }
+  /** You're typing into that terminal (a keystroke or a paste, not the terminal answering itself); sent about once a second. */
+  | { t: 'term.typing'; workerId: string }
   | { t: 'term.resize'; workerId: string; cols: number; rows: number }
+  /** What you have open now (see PeerInfo.doing); none when you're back in the office. */
+  | { t: 'doing'; what?: string }
   | { t: 'gh.refresh' }
   /** Merge a pull request; the answer comes back as gh.merged. */
   | { t: 'gh.merge'; number: number; method: GhMergeMethod; deleteBranch: boolean; auto?: boolean }
@@ -656,7 +918,7 @@ export type ClientMsg =
   | { t: 'gong' }
   /** Close an issue, or a pull request without merging it; the answer comes back as gh.closed. */
   | { t: 'gh.close'; kind: 'issue' | 'pull'; number: number; comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }
-  | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string }
+  | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string; effort?: AgentEffort }
   | { t: 'queue.remove'; taskId: string }
   /** Move a queued task up (-1) or down (+1) the queue. */
   | { t: 'queue.move'; taskId: string; delta: number }
@@ -665,10 +927,18 @@ export type ClientMsg =
   /** Forget the finished tasks. */
   | { t: 'queue.clear' }
   | { t: 'queue.limit'; maxWorkers: number }
+  /** Call a meeting: workers sit down round the meeting room's table and work through it in rounds. */
+  | ({ t: 'meeting.start' } & MeetingRequest)
+  /** Stop the meeting that's running; its workers stay at the table. */
+  | { t: 'meeting.stop' }
+  /** Send the last meeting's workers home and clear the table. */
+  | { t: 'meeting.clear' }
   /** Set the office's Slack / Discord webhook; '' removes it. */
   | { t: 'notify.webhook'; url: string }
   /** Post a test message through the webhook; the outcome comes back as a toast. */
   | { t: 'notify.test' }
+  /** Admins: the most workers the office runs at once, across every floor; null takes the limit off. */
+  | { t: 'machine.limit'; limit: number | null }
   | { t: 'voice'; voice: boolean; muted: boolean; sharing: boolean }
   | { t: 'rtc'; to: string; data: unknown }
   | { t: 'chat'; text: string }
@@ -705,6 +975,18 @@ export type ClientMsg =
   /** On to the next tune. */
   | { t: 'jukebox.skip' }
   | { t: 'jukebox.stop' }
+  /**
+   * Step up to the arcade cabinet on your floor to carry on with `game` (one the office started for
+   * you), or to start a new game, even while you're at it; the office answers with `cabinet`, naming
+   * who got it and their game.
+   */
+  | { t: 'cabinet.play'; game?: string }
+  | { t: 'cabinet.leave' }
+  /**
+   * Your game as it looks now, for everyone else on the floor to watch over your shoulder. It's also
+   * how your score gets on the high-score table: the office follows the game frame by frame.
+   */
+  | { t: 'cabinet.frame'; frame: CabinetFrame }
   /** You opened the whiteboard (or closed it): everyone on the floor sees who's drawing. */
   | { t: 'wb.open' }
   | { t: 'wb.close' }
@@ -712,12 +994,20 @@ export type ClientMsg =
   | { t: 'wb.update'; elements: WbElement[] }
   /** Where your mouse is on the whiteboard, and what you have selected there. */
   | ({ t: 'wb.pointer'; selected?: string[] } & WbPointer)
-  /** Ride the elevator to another floor; the server answers with `floor.enter`. */
-  | { t: 'floor.go'; floor: string }
+  /**
+   * Go to another floor; the server answers with `floor.enter`. By elevator you arrive in the car;
+   * `at` is where you arrive instead: the same spot on the other floor (switching floors from the
+   * floor list), or the ladder or fire pole you came by.
+   */
+  | { t: 'floor.go'; floor: string; at?: { x: number; y: number; z: number; rotY: number } }
   /** The repositories that could become a floor; answered with `floor.repos`. */
   | { t: 'floor.repos'; refresh?: boolean }
   /** Clone a repository and make it a new floor; answered with `floor.added` once it's there. */
   | { t: 'floor.add'; repo: string }
+  /** Dress the building up for a holiday, take the decorations down ('off'), or follow the calendar ('auto'). */
+  | { t: 'theme.set'; pick: ThemePick }
+  /** Where new floors are cloned from now on (admins only); '' goes back to the default. */
+  | { t: 'floor.projectsDir'; dir: string }
   /** Give the dog on your floor a pat; it has to be within reach. */
   | { t: 'dog.pet' }
   /** Name the dog on your floor ('' gives it back its first name). */
@@ -732,7 +1022,7 @@ export type ServerMsg =
       /** Every floor of the building, for the elevator. */
       floors: FloorInfo[];
       /** Where new projects are cloned to, on the office's machine. */
-      projectsDir: string;
+      projectsDir: ProjectsDirState;
       ice: { urls: string | string[]; username?: string; credential?: string }[];
       chat: ChatLine[];
       /** Whether teammates can be invited from the office (see TeamState). */
@@ -744,8 +1034,11 @@ export type ServerMsg =
       limits: PlanLimits;
       me: Me;
       notify: NotifyState;
+      machine: MachineState;
       /** Outside the windows: the same on every floor. */
       sky: SkyState;
+      /** Halloween or Christmas decorations, all over the building, or none. */
+      theme: ThemeState;
     } & FloorView)
   /** You arrived on another floor: everything on it, replacing the last one's, and where everyone is now. */
   | ({ t: 'floor.enter'; peers: PeerInfo[] } & FloorView)
@@ -754,17 +1047,22 @@ export type ServerMsg =
   | { t: 'floor.repos'; repos: RepoChoice[]; error?: string }
   /** Sent to whoever asked for the floor, once it's cloned (or couldn't be). */
   | { t: 'floor.added'; repo: string; floor?: string; error?: string }
+  /** The projects folder moved (see floor.projectsDir). */
+  | { t: 'projectsDir'; state: ProjectsDirState }
   | { t: 'peer.join'; peer: PeerInfo }
   | { t: 'peer.update'; peer: PeerInfo }
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }
   | { t: 'peer.leave'; id: string }
   | { t: 'peer.act'; id: string; smoke?: boolean }
+  | { t: 'peer.emote'; id: string; emote: EmoteId }
   | { t: 'worker.update'; worker: WorkerInfo }
   | { t: 'worker.remove'; workerId: string }
   | { t: 'worker.worktree'; workerId: string; state: WorktreeState }
   | { t: 'screen'; workerId: string; cols: number; rows: number; lines: Record<number, Run[]>; full: boolean; cursor: [number, number] }
   | { t: 'term.snapshot'; workerId: string; data: string; cols: number; rows: number }
   | { t: 'term.data'; workerId: string; data: string }
+  /** Someone else in that terminal (`id`, a PeerInfo id) is typing; only its other viewers get these. */
+  | { t: 'term.typing'; workerId: string; id: string }
   | { t: 'gh.issues'; state: GhState<GhIssue> }
   | { t: 'gh.pulls'; state: GhState<GhPull> }
   /** Sent to whoever asked for the merge. */
@@ -788,6 +1086,10 @@ export type ServerMsg =
   /** What the dog on your floor is up to now: sent at the start of each leg of its day. */
   | { t: 'dog'; dog: DogState }
   | { t: 'jukebox'; state: JukeboxState }
+  /** Who's at the arcade cabinet on your floor now, and the building's high scores. */
+  | { t: 'cabinet'; state: CabinetState }
+  /** The game on your floor's cabinet, as its player sees it (sent to everyone else on the floor). */
+  | { t: 'cabinet.frame'; frame: CabinetFrame }
   /** Someone changed these elements on the floor's whiteboard (sent to everyone else on the floor). */
   | { t: 'wb.update'; elements: WbElement[] }
   /** Who has the floor's whiteboard open now. */
@@ -797,8 +1099,11 @@ export type ServerMsg =
   | { t: 'usage'; state: UsageState }
   | { t: 'limits'; state: PlanLimits }
   | { t: 'queue'; state: QueueState }
+  | { t: 'meeting'; state: MeetingState }
   | { t: 'notify'; state: NotifyState }
+  | { t: 'machine'; state: MachineState }
   | { t: 'sky'; state: SkyState }
+  | { t: 'theme'; state: ThemeState }
   /** Sent to whoever watches that worker's changes, whenever they change. */
   | { t: 'changes'; state: ChangesState }
   | { t: 'changes.diff'; workerId: string; path: string; diff: string; truncated: boolean; error?: string }

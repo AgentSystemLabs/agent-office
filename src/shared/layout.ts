@@ -3,7 +3,8 @@
 // upstairs over a garage whose floor is level with the street (STREET_Y).
 
 export const FLOOR = { minX: -18, maxX: 18, minZ: -13, maxZ: 13 } as const;
-export const WALL_HEIGHT = 4.2;
+/** How high the ceiling is: a meter over the loft's roof (LOFT.y + LOFT.height), all the way across the room. */
+export const WALL_HEIGHT = 6.8;
 
 export interface DeskDef {
   id: string;
@@ -14,6 +15,10 @@ export interface DeskDef {
   label: string;
   /** A bean bag on the floor instead of a desk; the worker sits on it at (x, z), facing -z at rotY 0. */
   beanbag?: boolean;
+  /** A board agent's kiosk instead of a desk (see STATIONS): the worker stands behind it. */
+  station?: StationKind;
+  /** A chair at the meeting room's table (see MEETING_SEATS): only a meeting seats a worker here. */
+  room?: boolean;
 }
 
 const DESK_WIDTH = 2.2;
@@ -53,9 +58,10 @@ export const DESKS: DeskDef[] = buildDesks();
  */
 export const BEANBAGS: DeskDef[] = (
   [
-    // Either side of the gong, clear of its front and of the elevator doors at x 7.2..9.8.
-    [6, -9.8, 0],
-    [1, -9.8, 0],
+    // Out in the north-east corner past the gong, and between the PR board and the elevator, clear of
+    // the gong's front and the elevator doors.
+    [15, -9.8, 0],
+    [5.4, -9.8, 0],
     [-16.1, -9, Math.PI / 2],
     [-16.1, -3, Math.PI / 2],
     [-8.8, 10.2, Math.PI],
@@ -63,16 +69,73 @@ export const BEANBAGS: DeskDef[] = (
     [12.2, -5.6, -Math.PI / 2],
     [12.2, 5.6, -Math.PI / 2],
     [-16.1, 3, Math.PI / 2],
-    [11, -9.8, 0],
+    // Clear of the board agents' kiosks, and of the floor in front of them.
+    [-13.2, -9.8, 0],
     [-12.6, 9.2, Math.PI / 2],
-    [-6, -9.8, 0],
+    [-5.4, -9.8, 0],
   ] as const
 ).map(([x, z, rotY], i) => ({ id: `beanbag-${i + 1}`, x, z, rotY, label: `Bean bag ${i + 1}`, beanbag: true }));
 
 /** Everywhere a worker can sit: the desks, then the bean bags. */
 export const SEATS: DeskDef[] = [...DESKS, ...BEANBAGS];
-/** Any seat by id, bean bags included. */
-export const DESK_BY_ID = new Map(SEATS.map((d) => [d.id, d]));
+
+/** The boards with an agent standing by: the Issues board, the PR board and the task queue. */
+export type StationKind = 'issues' | 'pulls' | 'queue';
+
+/**
+ * The board agents: a worker standing behind a little kiosk just west of each of those boards (see
+ * BOARDS), there for anyone to prompt about it. (x, z) is the kiosk. They face into the room, so at
+ * rotY PI the worker stands on the wall side of it. Nobody hires them from the desks or the queue.
+ */
+export const STATIONS: DeskDef[] = [
+  // Between the plant in the north-west corner and the Issues board.
+  { id: 'station-issues', station: 'issues', x: -15.6, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'Issues board' },
+  // Between the task queue and the PR board.
+  { id: 'station-pulls', station: 'pulls', x: 0, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'PR board' },
+  // Between the Issues board and the task queue.
+  { id: 'station-queue', station: 'queue', x: -7.8, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'Task queue' },
+];
+/** A board agent's kiosk: its top, and how far behind its middle (toward the wall) the agent stands. */
+export const KIOSK = { width: 0.8, depth: 0.5, height: 0.55, stand: 0.55 } as const;
+/** Each board agent's name and its color, the same whenever it's hired. */
+export const STATION_AGENT: Record<StationKind, { name: string; color: string }> = {
+  issues: { name: 'Issues agent', color: '#ef476f' },
+  pulls: { name: 'PR agent', color: '#118ab2' },
+  queue: { name: 'Queue agent', color: '#06d6a0' },
+};
+
+/** The upstairs office: a glass-walled loft on posts in the south-east corner, looking down on the desks. */
+export const LOFT = { minX: 9, maxX: FLOOR.maxX, minZ: 8, maxZ: FLOOR.maxZ, y: 3, height: 2.8 } as const;
+/** Its stairs climb east along the south wall and arrive at the loft's west door. */
+export const STAIRS = { fromX: 3, toX: LOFT.minX, minZ: 11.2, maxZ: FLOOR.maxZ, steps: 15 } as const;
+
+/**
+ * The meeting room: glass walls round the space under the boss office, from the loft's posts to the
+ * outside walls, with a long table in the middle. Workers called to a meeting sit round it (see
+ * MEETING_SEATS and server/meetings.ts). The glass stops under the loft's floor; the door is in the
+ * north wall, facing the lounge.
+ */
+export const MEETING_ROOM = { minX: LOFT.minX + 0.15, maxX: FLOOR.maxX, minZ: LOFT.minZ + 0.15, maxZ: FLOOR.maxZ, height: LOFT.y - 0.25, door: { x0: 10, x1: 11.4 } } as const;
+export const MEETING_TABLE = { x: 13.7, z: 10.55, width: 3.6, depth: 1.2, height: 0.76 } as const;
+/**
+ * The chairs round the meeting table, in the order a meeting fills them: the head of the table at its
+ * west end (whoever leads or writes the meeting up), then two down each side. (x, z) is where the
+ * laptop sits on the table; the chair is out from it the way a desk's is (deskSeat).
+ */
+export const MEETING_SEATS: DeskDef[] = (
+  [
+    [MEETING_TABLE.x - MEETING_TABLE.width / 2 + 0.35, MEETING_TABLE.z, -Math.PI / 2],
+    [MEETING_TABLE.x - 0.6, MEETING_TABLE.z - MEETING_TABLE.depth / 2 + 0.35, Math.PI],
+    [MEETING_TABLE.x - 0.6, MEETING_TABLE.z + MEETING_TABLE.depth / 2 - 0.35, 0],
+    [MEETING_TABLE.x + 1.1, MEETING_TABLE.z - MEETING_TABLE.depth / 2 + 0.35, Math.PI],
+    [MEETING_TABLE.x + 1.1, MEETING_TABLE.z + MEETING_TABLE.depth / 2 - 0.35, 0],
+  ] as const
+).map(([x, z, rotY], i) => ({ id: `meeting-${i + 1}`, x, z, rotY, label: i === 0 ? 'Head of the table' : `Meeting chair ${i + 1}`, room: true }));
+/** The board on the meeting room's back (south) wall that shows the meeting's output file as it's written. */
+export const MEETING_BOARD = { x: MEETING_TABLE.x, y: 1.95, z: FLOOR.maxZ - 0.08, width: 3.6, height: 1.2 } as const;
+
+/** Any place a worker can be by id: the seats, the board agents' kiosks and the meeting room's chairs. */
+export const DESK_BY_ID = new Map([...SEATS, ...STATIONS, ...MEETING_SEATS].map((d) => [d.id, d]));
 
 /** The seat a new worker takes when nobody picks one: the first free desk, else the first free bean bag. */
 export function nextFreeSeat(taken: (id: string) => boolean): DeskDef | undefined {
@@ -92,6 +155,19 @@ export function beanbagsOut(taken: (id: string) => boolean): Set<string> {
   return out;
 }
 
+/**
+ * The places nobody is at: every seat and board agent's kiosk with no worker there and nobody sent
+ * home still packing up there (`packing`). Each shows that it's free, with a '+' over a seat and the
+ * board agent waiting at a kiosk. It's worked out afresh from who's there rather than seat by seat as
+ * workers come and go, so swapping one floor's workers for another's never leaves a place showing
+ * free under someone (two floors can each have a Queue agent at the same kiosk).
+ */
+export function vacantSeats(workers: Iterable<{ deskId: string }>, packing: (id: string) => boolean = () => false): Set<string> {
+  const taken = new Set<string>();
+  for (const w of workers) taken.add(w.deskId);
+  return new Set([...DESK_BY_ID.keys()].filter((id) => !taken.has(id) && !packing(id)));
+}
+
 /** Where the worker (and the interacting player) stands relative to the desk. */
 export function deskSeat(desk: DeskDef, offset = 0.85): { x: number; z: number } {
   return {
@@ -102,28 +178,45 @@ export function deskSeat(desk: DeskDef, offset = 0.85): { x: number; z: number }
 
 /** Wall boards. `rotY` is the way the board faces (0 = +z, like the north-wall boards). */
 export const BOARDS = {
-  issues: { x: -10.5, y: 2.1, z: FLOOR.minZ + 0.08, rotY: 0, width: 6, height: 3, label: 'Issues' },
-  pulls: { x: -1.5, y: 2.1, z: FLOOR.minZ + 0.08, rotY: 0, width: 6, height: 3, label: 'Pull Requests' },
+  // Side by side along the north wall, the way work goes: an issue goes on the task queue (the
+  // whiteboard in the middle), and its worker's pull request comes out the other side. Each has its
+  // board agent's kiosk just west of it (see STATIONS).
+  issues: { x: -11.7, y: 2.1, z: FLOOR.minZ + 0.08, rotY: 0, width: 6, height: 3, label: 'Issues' },
+  queue: { x: -3.9, y: 2.1, z: FLOOR.minZ + 0.08, rotY: 0, width: 6, height: 3, label: '📋 Task queue' },
+  pulls: { x: 3.9, y: 2.1, z: FLOOR.minZ + 0.08, rotY: 0, width: 6, height: 3, label: 'Pull Requests' },
   // East wall, north of the lounge TV.
   services: { x: FLOOR.maxX - 0.08, y: 2.1, z: -8.2, rotY: -Math.PI / 2, width: 6, height: 3, label: '🌐 Services' },
-  // The task queue whiteboard, north wall, in the corner by the services board.
-  queue: { x: 14.5, y: 2.1, z: FLOOR.minZ + 0.08, rotY: 0, width: 6, height: 3, label: '📋 Task queue' },
 } as const;
 
 /** The big TV on the east wall that shows whoever is screen sharing. */
 export const TV = { x: FLOOR.maxX - 0.1, y: 2.2, z: 0, width: 6.4, height: 3.6 } as const;
+/**
+ * The monitor on the west wall, between the first two windows from the north (the ladder has the
+ * span between the middle two) and facing the desks: how busy the office's machine is, and how many
+ * workers it runs of the most it takes.
+ */
+export const MACHINE_MONITOR = { x: FLOOR.minX, y: 2.2, z: -6, width: 2.3, height: 1.3 } as const;
 /** The lounge jukebox, against the east wall south of the TV, facing into the room. `y` is its speaker. */
 export const JUKEBOX = { x: FLOOR.maxX - 0.42, y: 0.75, z: 5.4, width: 1.3, depth: 0.72, height: 1.85 } as const;
-
-/** The upstairs office: a glass-walled loft on posts in the south-east corner, looking down on the desks. */
-export const LOFT = { minX: 9, maxX: FLOOR.maxX, minZ: 8, maxZ: FLOOR.maxZ, y: 3, height: 2.8 } as const;
-/** Its stairs climb east along the south wall and arrive at the loft's west door. */
-export const STAIRS = { fromX: 3, toX: LOFT.minX, minZ: 11.2, maxZ: FLOOR.maxZ, steps: 15 } as const;
+/** The arcade cabinet, against the east wall between the jukebox and the loft, facing into the room. `width` runs along the wall. */
+export const CABINET = { x: FLOOR.maxX - 0.42, z: 7.05, width: 0.8, depth: 0.8, height: 1.9 } as const;
 
 export const SPAWN = { x: 8, z: 7 } as const;
 
-/** The gong: on the north wall between the PR board and the elevator, facing into the room. It rings when a PR merges. */
-export const GONG = { x: 3.5, z: FLOOR.minZ + 0.75, width: 1.9, height: 2.45 } as const;
+/** The gong: on the north wall just past the elevator from the PR board, facing into the room. It rings when a PR merges. */
+export const GONG = { x: 11.8, z: FLOOR.minZ + 0.75, width: 1.9, height: 2.45 } as const;
+
+/** Potted plants around the room: where each stands, and how big it is. */
+export const PLANTS: readonly (readonly [x: number, z: number, scale: number])[] = [
+  [-17.2, -12.2, 1.4],
+  [17.2, -12.2, 1.5],
+  [17.2, 12.2, 1.3],
+  [-17.2, 8.5, 1.2],
+  [14.2, -12.2, 1.1],
+  [-6, 0, 1],
+  [3.5, 0, 0.9],
+  [8.5, 5, 1.1],
+];
 
 /**
  * The whiteboard on wheels everyone draws on together, out on the open floor between the desks and
@@ -138,6 +231,8 @@ export const STREET_Y = -3.6;
 export const ROAD = { minZ: 23, maxZ: 31 } as const;
 /** The office's floor slab, which is the garage's ceiling: it runs from -SLAB up to 0. */
 export const SLAB = 0.3;
+/** From one floor of the building up to the next: the office's ceiling, and the slab over it. */
+export const STOREY = WALL_HEIGHT + SLAB;
 /** How thick the outside walls are. They stand just outside FLOOR. */
 export const WALL_T = 0.3;
 
@@ -205,7 +300,7 @@ export interface SeatDef {
   out: number;
   /** It faces the lounge TV: sitting down there puts whatever's being shared up on your screen. */
   tv?: boolean;
-  /** It faces the boss's monitor: E there, sitting down, plays DEADFALL on it. */
+  /** It faces the boss's monitor: E there, sitting down, plays Minesweeper on it. */
   game?: boolean;
 }
 
@@ -267,7 +362,7 @@ export function seatAt(key: string): SeatPlace | undefined {
 }
 
 /**
- * The elevator: a shaft against the north wall, between the PR board and the task queue, with its
+ * The elevator: a shaft against the north wall, between the PR board and the gong, with its
  * doors facing into the room. Every floor has it in the same spot, so you step out where you got in.
  */
 export const ELEVATOR = { x: 8.5, width: 2.6, depth: 2.4, wall: 0.14, doorWidth: 1.4, doorHeight: 2.4 } as const;
@@ -292,3 +387,38 @@ export function elevatorSpot(): { x: number; z: number } {
 export function inElevator(x: number, z: number): boolean {
   return x > ELEVATOR_CAR.minX && x < ELEVATOR_CAR.maxX && z > ELEVATOR_CAR.minZ && z < ELEVATOR_CAR.maxZ;
 }
+
+/**
+ * The ladder to the floors above and below: against the west wall at `z`, up through a hatch in the
+ * ceiling and down through one in the floor (every floor has it in the same spot, one long shaft).
+ * You climb it at `x`, facing the wall; `hatch` is the hole in the floor and the ceiling.
+ */
+export const LADDER = {
+  z: 0,
+  width: 0.62,
+  x: FLOOR.minX + 0.62,
+  hatch: { minX: FLOOR.minX, maxX: FLOOR.minX + 1, minZ: -0.5, maxZ: 0.5 },
+  /** How far in from the wall the trapdoor starts: the ladder goes through a slot along the wall. */
+  slot: 0.24,
+} as const;
+
+/** Where a fire pole can be. `open` is the way into its hole, where its railing has a gap (0 = +z, like rotY). */
+export interface PoleSpot {
+  x: number;
+  z: number;
+  open: number;
+}
+
+/**
+ * The fire poles, slid down to the floor below. Each one goes the whole way down the building, through
+ * a hole in every floor but the bottom one (where there's a mat to land on): whichever you walk up to
+ * takes you down one floor, and on a floor with another below you swing off it through the railing.
+ */
+export const POLES: readonly PoleSpot[] = [
+  // South of the desks, by the way in from the balcony.
+  { x: -6.6, z: 8.4, open: Math.PI / 2 },
+  // Out in the open between the desks and the lounge, where you step out of the elevator.
+  { x: 6.8, z: 1.6, open: Math.PI },
+];
+/** A pole's hole in the floor, the railing round it, and how far from the pole you hang on. */
+export const POLE = { hole: 0.68, rail: 0.9, grip: 0.4, radius: 0.055 } as const;

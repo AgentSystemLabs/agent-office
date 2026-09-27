@@ -12,42 +12,32 @@
       <canvas id="scene" tabindex="-1"></canvas>
       <div id="fade"></div>
       <div id="hud">
+        <div id="compass"></div>
         <header class="topbar">
-          <div class="project panel" id="project" role="button" tabindex="-1" title="The elevator: ride to another project">
+          <div class="project panel" id="project" role="button" tabindex="-1" title="Floors: go to another project">
             <div class="project-name"><span id="project-name">Agent Office</span><span id="floors-waiting" class="svc-count hidden"></span></div>
             <div class="project-meta" id="project-meta"></div>
           </div>
-          <div class="controls panel">
-            <button id="btn-voice" class="btn" title="Join voice (V)">🎙️ <span>Join voice</span></button>
-            <button id="btn-mute" class="btn hidden" title="Mute (M)">🔇</button>
-            <button id="btn-share" class="btn" title="Share your screen">🖥️ <span>Share screen</span></button>
-            <button id="btn-issues" class="btn" title="Issues board">📌 Issues</button>
-            <button id="btn-pulls" class="btn" title="Pull requests board">🔀 PRs</button>
-            <button id="btn-services" class="btn" title="Web servers the workers are running">🌐 Services</button>
-            <button id="btn-queue" class="btn" title="Task queue: issues and tasks waiting for a worker">📋 Queue</button>
-            <button id="btn-team" class="btn hidden" title="Invite teammates">👥 Invite</button>
-            <button id="btn-accounts" class="btn hidden" title="Accounts: invite people, see who has one, revoke them">🔑 Accounts</button>
-            <button id="btn-upgrade" class="btn hidden" title="Upgrade the office">⬆️</button>
-            <button id="btn-search" class="btn" title="Search the chat and every terminal (/)">🔎</button>
-            <button id="btn-whiteboard" class="btn" title="Whiteboard: draw together, live">📝</button>
-            <button id="btn-decor" class="btn" title="Hang a picture on a wall (F)">🖼️</button>
-            <button id="btn-settings" class="btn" title="Settings">⚙️</button>
-            <button id="btn-help" class="btn" title="Controls (H)">❓</button>
-          </div>
+          <!-- Filled by ui/menu.ts: pinned actions, what needs you right now, and the ☰ menu with everything else. -->
+          <nav id="dock" class="dock" aria-label="Office"></nav>
         </header>
         <aside class="side">
-          <section class="panel people">
-            <h3>In the office <span id="people-count" class="count"></span></h3>
+          <section id="people-panel" class="panel people">
+            <h3>In the office <span id="people-count" class="count"></span><button class="panel-x" data-hud="people" aria-label="Hide" title="Hide (☰ brings it back)">✕</button></h3>
             <ul id="people"></ul>
           </section>
-          <section class="panel workers">
-            <h3>Workers <span id="worker-count" class="count"></span><span id="workers-cost" class="cost" title="Spent by the workers at their desks"></span></h3>
+          <section id="workers-panel" class="panel workers">
+            <h3>Workers <span id="worker-count" class="count"></span><span id="workers-cost" class="cost" title="Spent by the workers at their desks"></span><button class="panel-x" data-hud="workers" aria-label="Hide" title="Hide (☰ brings it back)">✕</button></h3>
+            <button id="waiting" class="hidden" title="Go to the worker that has waited longest on someone (N)"></button>
             <ul id="workers"></ul>
+          </section>
+          <section id="spend" class="panel spend">
+            <h3>Spend<button class="panel-x" data-hud="spend" aria-label="Hide" title="Hide (☰ brings it back)">✕</button></h3>
             <div id="usage" class="usage hidden"></div>
           </section>
           <section id="limits" class="panel limits hidden" title="Read again now"></section>
         </aside>
-        <section class="chat panel" id="chat">
+        <section class="chat" id="chat">
           <ul id="chat-log"></ul>
           <input id="chat-input" maxlength="500" placeholder="Press T to chat" autocomplete="off" />
         </section>
