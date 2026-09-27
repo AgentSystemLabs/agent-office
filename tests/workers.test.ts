@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { accessSync, appendFileSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Ledger } from '../src/server/usage.js';
@@ -16,6 +17,7 @@ type Invocation = {
     hookToken?: string;
     hookUrl?: string;
     opencodeConfig?: string;
+    path?: string;
   };
 };
 
@@ -90,6 +92,7 @@ const record = (extra = {}) => fs.appendFileSync(log, JSON.stringify({
     hookToken: process.env.AGENT_OFFICE_HOOK_TOKEN,
     hookUrl: process.env.AGENT_OFFICE_HOOK_URL,
     opencodeConfig: process.env.OPENCODE_CONFIG_CONTENT,
+    path: process.env.PATH,
   },
 }) + '\\n');
 record();
@@ -696,7 +699,9 @@ test('a board agent is hired with its brief on the first prompt, then prompted, 
   const [first] = await waitFor(launches, (l) => l.length === 1);
   const initial = first.args.at(-1)!;
   assert.match(initial, /Issues agent/);
-  assert.match(initial, /office\/queue/);
+  assert.match(initial, /office-queue add/);
+  // Only the queue agent loses its file-editing tools.
+  assert.equal(first.args.includes('--disallowedTools'), false);
   assert.ok(initial.endsWith('File an issue about the dog'));
   const id = hired.info.id;
 
@@ -724,4 +729,66 @@ test('a board agent is hired with its brief on the first prompt, then prompted, 
   const [, second] = await waitFor(launches, (l) => l.length === 2);
   assert.ok(second.args.includes('--resume') && second.args.includes('issues-session'));
   assert.equal(second.args.at(-1), 'Close the duplicates');
+});
+
+test('the queue agent is launched without file-editing tools, and board agents get office-queue on their PATH', async (t) => {
+  const f = fixture();
+  const updates: WorkerInfo[] = [];
+  isolateProviderEnvironment(f, t);
+  const previousExit = process.env.FAKE_AGENT_EXIT_MS;
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_EXIT_MS = '600';
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousExit === undefined) delete process.env.FAKE_AGENT_EXIT_MS;
+    else process.env.FAKE_AGENT_EXIT_MS = previousExit;
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+  const workers = manager(f, f.claude, updates);
+  t.after(() => workers.shutdown());
+  const launches = (id: string) => f.read().filter((r) => r.kind === 'claude' && r.args.includes('--settings') && r.stdin === undefined && r.env.workerId === id);
+  const bin = path.join(f.data, 'bin');
+  const onPath = (r: Invocation) => (r.env.path ?? '').split(path.delimiter)[0] === bin;
+  const denied = (args: string[]) => {
+    const i = args.indexOf('--disallowedTools');
+    return i < 0 ? undefined : args.slice(i + 1, i + 4);
+  };
+
+  // The command is there, and runs the shipped script with the office's own node.
+  accessSync(path.join(bin, 'office-queue'), constants.X_OK);
+  assert.match(execFileSync(path.join(bin, 'office-queue'), ['--help'], { encoding: 'utf8' }), /office-queue add --title/);
+
+  const hired = workers.station('station-queue', 'Ada', 'Fix the typo in the README');
+  assert.equal(typeof hired, 'object');
+  if (typeof hired === 'string') return;
+  const id = hired.info.id;
+  const [first] = await waitFor(() => launches(id), (l) => l.length === 1);
+  assert.deepEqual(denied(first.args), ['Edit', 'Write', 'NotebookEdit']);
+  assert.ok(first.args.indexOf('--disallowedTools') < first.args.indexOf('--'), 'the tools come before the prompt');
+  assert.ok(first.args.at(-1)!.endsWith('Fix the typo in the README'));
+  assert.ok(onPath(first), 'office-queue is first on its PATH');
+
+  // Woken up carrying on its session, it's still without them.
+  assert.equal(workers.handleHook(id, first.env.hookToken!, 'SessionStart', { session_id: 'queue-session' }), true);
+  await waitFor(() => workers.get(id)?.status, (s) => s === 'exited');
+  workers.station('station-queue', 'Grace', 'Also bump the version');
+  const [, second] = await waitFor(() => launches(id), (l) => l.length === 2);
+  assert.ok(second.args.includes('--resume') && second.args.includes('queue-session'));
+  assert.deepEqual(denied(second.args), ['Edit', 'Write', 'NotebookEdit']);
+  assert.equal(second.args.at(-1), 'Also bump the version');
+  assert.ok(onPath(second));
+
+  // The other board agents keep their tools but get the command; a desk worker gets neither.
+  const pulls = workers.station('station-pulls', 'Ada', 'Sum up the open PRs');
+  const desk = workers.spawn('desk-2', 'Ada', 'Fix login');
+  assert.ok(typeof pulls === 'object' && typeof desk === 'object');
+  if (typeof pulls !== 'object' || typeof desk !== 'object') return;
+  const [pullsLaunch] = await waitFor(() => launches(pulls.info.id), (l) => l.length === 1);
+  const [deskLaunch] = await waitFor(() => launches(desk.id), (l) => l.length === 1);
+  assert.equal(denied(pullsLaunch.args), undefined);
+  assert.ok(onPath(pullsLaunch));
+  assert.equal(denied(deskLaunch.args), undefined);
+  assert.equal((deskLaunch.env.path ?? '').split(path.delimiter).includes(bin), false);
 });
