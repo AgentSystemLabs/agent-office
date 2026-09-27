@@ -1,7 +1,7 @@
 // Getting around the office floor downstairs (no stairs, no loft, no elevator), round the furniture
 // on a coarse grid: the dog's walks (server/dog.ts), and a worker's way out when it's sent home.
 
-import { BEANBAGS, DESK_SIZE, DESKS, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, LOFT, ROAD, STAIRS, WHITEBOARD, type DeskDef } from './layout.js';
+import { BEANBAGS, DESK_SIZE, DESKS, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LOFT, PLANTS, ROAD, STAIRS, STATIONS, WHITEBOARD, type DeskDef } from './layout.js';
 
 
 export type Pt = [number, number];
@@ -36,17 +36,7 @@ function obstacles(): { rects: Rect[]; circles: Circle[] } {
   rects.push([12.2, 13.8, -0.8, 0.8]); // coffee table
   circles.push([12.5, 3.5, 0.5], [14.5, -3.4, 0.5]); // beanbags
   rects.push([-17, -10.75, 11.7, 12.7]); // kitchen counter and fridge
-  for (const [x, z, s] of [
-    [-17.2, -12.2, 1.4],
-    [17.2, -12.2, 1.5],
-    [17.2, 12.2, 1.3],
-    [-17.2, 8.5, 1.2],
-    [5.5, -12.2, 1.1],
-    [-6, 0, 1],
-    [3.5, 0, 0.9],
-    [8.5, 5, 1.1],
-  ])
-    circles.push([x, z, 0.3 * s]);
+  for (const [x, z, s] of PLANTS) circles.push([x, z, 0.3 * s]);
   // The loft's posts, the stairs up to it, and the elevator shaft.
   for (const x of [LOFT.minX + 0.15, (LOFT.minX + LOFT.maxX) / 2]) circles.push([x, LOFT.minZ + 0.15, 0.14]);
   rects.push([STAIRS.fromX, STAIRS.toX, STAIRS.minZ - 0.1, STAIRS.maxZ]);
@@ -61,6 +51,13 @@ function obstacles(): { rects: Rect[]; circles: Circle[] } {
   // always come out in the same spots, so the dog keeps off those.
   for (const b of BEANBAGS) {
     const corners = [deskPoint(b, -0.62, -1.1), deskPoint(b, 0.62, -1.1), deskPoint(b, -0.62, 0.64), deskPoint(b, 0.62, 0.64)];
+    const xs = corners.map(([x]) => x);
+    const zs = corners.map(([, z]) => z);
+    rects.push([Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)]);
+  }
+  // The board agents' kiosks, and the agent standing behind each one.
+  for (const k of STATIONS) {
+    const corners = [deskPoint(k, -KIOSK.width / 2, -KIOSK.depth / 2), deskPoint(k, KIOSK.width / 2, -KIOSK.depth / 2), deskPoint(k, -KIOSK.width / 2, KIOSK.stand + 0.35), deskPoint(k, KIOSK.width / 2, KIOSK.stand + 0.35)];
     const xs = corners.map(([x]) => x);
     const zs = corners.map(([, z]) => z);
     rects.push([Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)]);
@@ -269,10 +266,15 @@ const pathLength = (pts: Pt[]) => pts.reduce((n, p, i) => (i ? n + Math.hypot(p[
  */
 export function wayHome(seat: DeskDef): Pt[] {
   const ways = [-1, 1].map((side) => {
-    // Beside the chair and back from the desk into the aisle, or off the bean bag and round behind it.
-    const [down, back] = seat.beanbag ? [deskPoint(seat, side * 1.05, 0.1), deskPoint(seat, side * 1.05, 1.25)] : [deskPoint(seat, side * 0.7, 0.95), deskPoint(seat, side * 0.7, 1.75)];
-    // A bean bag can stand with one side up against something.
-    const blocked = !!seat.beanbag && !walkable(down[0], down[1]);
+    // Beside the chair and back from the desk into the aisle, off the bean bag and round behind it, or
+    // out from behind the kiosk and round its front, into the room.
+    const [down, back] = seat.beanbag
+      ? [deskPoint(seat, side * 1.05, 0.1), deskPoint(seat, side * 1.05, 1.25)]
+      : seat.station
+        ? [deskPoint(seat, side * 0.95, KIOSK.stand), deskPoint(seat, side * 0.95, -1)]
+        : [deskPoint(seat, side * 0.7, 0.95), deskPoint(seat, side * 0.7, 1.75)];
+    // A bean bag or a kiosk can stand with one side up against something (the elevator, by the queue).
+    const blocked = !!(seat.beanbag || seat.station) && !walkable(down[0], down[1]);
     const pts = [down, ...route(back, EXIT)];
     return { pts, cost: (blocked ? 1000 : 0) + pathLength(pts) };
   });

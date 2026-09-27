@@ -100,6 +100,7 @@ export function openHelp() {
     ['Mouse', 'Look around in first person (click to capture the mouse, Esc to free it)'],
     ['Click / E', "Use what you look at: hire a worker, open its terminal, read a board, watch the TV, put a song on the jukebox, sit on a couch, a beanbag, a chair or the balcony bench (walk off to get up)"],
     ['🛗', 'Every project is a floor: step into the elevator on the north wall and press E (or click the project name, top left) to go to another one or add a project'],
+    ['🤖', 'An agent stands by the issues board, the PR board and the task queue. Press E at one and type what you want: it runs as an agent that knows that board. O there opens its terminal, X sends it home'],
     ['📝', 'The whiteboard on wheels between the desks and the lounge: press E to draw on it with everyone on your floor, live. What you draw stays up on the board'],
     ['🎉', 'The gong next to the PR board rings, and confetti flies over the desk, whenever a pull request merges. Walk up and press E to bang it yourself'],
     ['Drag / wheel', 'Orbit and zoom the camera in third person'],

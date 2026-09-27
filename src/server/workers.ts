@@ -9,7 +9,8 @@ import serialize from '@xterm/addon-serialize';
 import type { AgentEffort, AgentProvider, Run, TerminalHit, WorkerInfo, WorkerKind, WorkerStatus, WorkerTask } from '../shared/protocol.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, isAgentEffort, isClaudeModel } from '../shared/protocol.js';
 import { Worktrees, describeWork, type WorktreeCleanup, type WorktreeState } from './worktrees.js';
-import { DESK_BY_ID } from '../shared/layout.js';
+import { DESK_BY_ID, STATION_AGENT } from '../shared/layout.js';
+import { stationBrief } from './stations.js';
 import { isBusy } from '../shared/status.js';
 import { gh } from './github.js';
 import type { ServiceOwner } from './services.js';
@@ -21,6 +22,7 @@ import { reportedUsage } from './reported-usage.js';
 import { configuredProvider, isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeStatusEvent } from './opencode.js';
 import { ScrollbackStore, searchTerminal, terminalTail } from './history.js';
+import { screenSnapshot } from './screen.js';
 
 type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
 
@@ -79,6 +81,8 @@ interface Worker {
   pty?: Pty;
   term?: HeadlessTerminal;
   ser?: InstanceType<typeof serialize.SerializeAddon>;
+  /** The screen so far, for a browser opening the terminal (see screen.ts). */
+  snapshot?: () => string;
   viewers: Map<string, string>; // clientId -> name
   screenDirty: boolean;
   lastLines: string[];
@@ -237,7 +241,9 @@ export class WorkerManager {
     if (effortError) return effortError;
     const seat = DESK_BY_ID.get(deskId);
     if (!seat) return 'Unknown desk';
-    if (this.deskOccupied(deskId)) return `That ${seat.beanbag ? 'bean bag' : 'desk'} is taken`;
+    if (this.deskOccupied(deskId)) return seat.station ? `The ${STATION_AGENT[seat.station].name} is already there` : `That ${seat.beanbag ? 'bean bag' : 'desk'} is taken`;
+    if (kind === 'shell' && seat.station) return 'A board agent is always an agent, not a shell';
+    if (seat.station && !prompt?.trim()) return 'Tell the board agent what to do';
     if (kind === 'shell' && provider !== undefined) return 'Shell workers do not have an agent provider';
     if (kind === 'agent' && selectedProvider === 'custom' && this.defaultProvider !== 'custom') return 'Custom is not the configured agent provider';
     if (kind === 'agent') {
@@ -245,7 +251,8 @@ export class WorkerManager {
       if (paused) return paused;
     }
     const used = new Set([...this.workers.values()].map((w) => w.info.name.replace(/ 🐚$/, '')));
-    const name = NAMES.find((n) => !used.has(n)) ?? `Worker ${this.workers.size + 1}`;
+    const agent = seat.station && STATION_AGENT[seat.station];
+    const name = agent ? agent.name : (NAMES.find((n) => !used.has(n)) ?? `Worker ${this.workers.size + 1}`);
     const id = randomBytes(6).toString('hex');
     let wt: WorkerInfo['worktree'];
     if (worktree) {
@@ -261,7 +268,7 @@ export class WorkerManager {
       effort: selectedProvider === 'claude' ? effort : undefined,
       deskId,
       name: kind === 'shell' ? `${name} 🐚` : name,
-      color: kind === 'shell' ? '#8d99ae' : COLORS[Math.floor(Math.random() * COLORS.length)],
+      color: kind === 'shell' ? '#8d99ae' : agent ? agent.color : COLORS[Math.floor(Math.random() * COLORS.length)],
       status: 'starting',
       acked: true,
       createdBy: by,
@@ -276,19 +283,55 @@ export class WorkerManager {
     const w = newWorker(info, newTracker());
     this.workers.set(id, w);
     if (info.prompt) this.notePrompt(w, info.prompt);
-    this.launch(w, info.prompt, undefined);
+    // A board agent is told what it's there for ahead of its first request (which is what shows).
+    this.launch(w, seat.station && info.prompt ? `${stationBrief(seat.station)}\n\n${info.prompt}` : info.prompt, undefined);
     this.persist();
     return info;
   }
 
-  resume(id: string): string | undefined {
+  /** Starts a worker that isn't running again, carrying on its session, with `prompt` as its next message. */
+  resume(id: string, prompt?: string): string | undefined {
     const w = this.workers.get(id);
     if (!w) return 'No such worker';
     if (w.pty) return 'Worker is already running';
     w.info.status = 'starting';
     w.info.exitCode = undefined;
-    this.launch(w, undefined, w.info.sessionId);
+    const station = DESK_BY_ID.get(w.info.deskId)?.station;
+    // A board agent with no session to carry on starts over, so it needs telling what it's for again.
+    const first = prompt && station && !w.info.sessionId ? `${stationBrief(station)}\n\n${prompt}` : prompt;
+    if (prompt) {
+      w.info.activity = truncate(prompt, 80);
+      this.notePrompt(w, prompt);
+    }
+    this.launch(w, first, w.info.sessionId);
     return undefined;
+  }
+
+  /**
+   * A request for the agent standing by a board (see STATIONS): typed into its session, which is woken
+   * up with it if it's asleep, or it's hired there with it when nobody is. Returns what went wrong, or
+   * the agent and whether it was just hired.
+   */
+  station(deskId: string, by: string, text: string): { info: WorkerInfo; hired: boolean } | string {
+    if (!DESK_BY_ID.get(deskId)?.station) return 'There is no agent to ask there';
+    const clean = text.replace(/\r\n?/g, '\n').trim();
+    if (!clean) return 'Empty prompt';
+    const w = [...this.workers.values()].find((x) => x.info.deskId === deskId);
+    if (!w) {
+      const info = this.spawn(deskId, by, clean);
+      return typeof info === 'string' ? info : { info, hired: true };
+    }
+    // Typed into the question it's asking, the prompt would answer it.
+    if (w.info.status === 'needs_input') return `The ${w.info.name} is waiting on an answer in its terminal`;
+    if (!w.pty) w.info.lastInput = { by, at: Date.now() };
+    const err = w.pty ? this.prompt(w.info.id, clean, by) : this.resume(w.info.id, clean);
+    return err ?? { info: w.info, hired: false };
+  }
+
+  /** The worker whose terminal holds this hook token: how a worker proves it's asking for itself. */
+  authenticate(id: string, token: string): WorkerInfo | undefined {
+    const w = this.workers.get(id);
+    return w?.pty && token && safeEq(token, w.hookToken) ? w.info : undefined;
   }
 
   /** Starts every worker that isn't running: nobody should be found asleep at their desk. */
@@ -348,7 +391,7 @@ export class WorkerManager {
       changed = true;
     }
     if (changed) this.emitUpdate(w);
-    const data = w.ser ? w.ser.serialize({ scrollback: SCROLLBACK }) : offlineBanner(w.info);
+    const data = w.snapshot ? w.snapshot() : offlineBanner(w.info);
     return { data, cols: w.info.cols, rows: w.info.rows };
   }
 
@@ -772,7 +815,7 @@ export class WorkerManager {
       });
     }
 
-    const shell = process.env.SHELL || '/bin/bash';
+    const shell = defaultShell();
     const isShell = info.kind === 'shell';
     const provider = info.provider;
     const isClaude = !isShell && provider === 'claude';
@@ -781,7 +824,7 @@ export class WorkerManager {
     const configured = !isShell && provider === this.defaultProvider;
     const command = this.command(info);
     const commandPath = isShell ? undefined : configured ? this.agentPath : resolveCommand(command);
-    let args = isShell ? ['-l'] : configured ? [...this.agentArgs] : [];
+    let args = isShell ? (WIN && !process.env.SHELL ? [] : ['-l']) : configured ? [...this.agentArgs] : [];
     if (isClaude) {
       args.unshift('--settings', this.settingsPath);
       // A model/effort chosen for this worker overrides whatever --agent-args set office-wide.
@@ -836,7 +879,7 @@ export class WorkerManager {
       } else {
         // Not found on PATH: let a login shell find it (nvm, asdf, ~/.local/bin ...).
         const line = ['exec', command, ...args].map((a, i) => (i < 2 ? a : shq(a))).join(' ');
-        proc = this.host.spawn({ file: shell, args: ['-l', '-i', '-c', line], ...where });
+        proc = this.host.spawn({ file: shell, args: shellRun(line), ...where });
       }
     } catch (err) {
       this.startFailed(w, (err as Error).message);
@@ -891,6 +934,7 @@ export class WorkerManager {
     w.term?.dispose();
     w.term = term;
     w.ser = ser;
+    w.snapshot = screenSnapshot(term, ser);
     w.lastLines = [];
     w.screenDirty = true;
     w.fresh = undefined;
@@ -977,7 +1021,7 @@ export class WorkerManager {
 
   /** What a worker's terminal runs: the shell, the configured agent command, or another provider's CLI. */
   private command(info: WorkerInfo): string {
-    if (info.kind === 'shell') return process.env.SHELL || '/bin/bash';
+    if (info.kind === 'shell') return defaultShell();
     return info.provider === this.defaultProvider ? this.agentCmd : info.provider ?? this.agentCmd;
   }
 
@@ -1377,28 +1421,45 @@ function screenText(term: HeadlessTerminal, from = 0): string {
   return out.join('\n');
 }
 
+const WIN = process.platform === 'win32';
+
+/** The shell workers get when none is configured: $SHELL on Unix, cmd.exe on Windows. */
+export function defaultShell(): string {
+  return process.env.SHELL || (WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/bash');
+}
+
+/** How to have the default shell run one command line. */
+function shellRun(line: string): string[] {
+  return WIN && !process.env.SHELL ? ['/d', '/s', '/c', line] : ['-l', '-i', '-c', line];
+}
+
 export function resolveCommand(cmd: string): string | null {
-  if (cmd.includes('/')) {
-    try {
-      accessSync(cmd, constants.X_OK);
-      return path.resolve(cmd);
-    } catch {
-      return null;
+  // Windows runs files by extension: `claude` is really claude.exe / claude.cmd. An npm shim with
+  // no extension is a sh script the console can't run, so only take it when asked for by name.
+  const exts = WIN && !path.extname(cmd) ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean) : [''];
+  const usable = (p: string): string | null => {
+    for (const ext of exts) {
+      try {
+        accessSync(p + ext, constants.X_OK);
+        return p + ext;
+      } catch {
+        // keep looking
+      }
     }
+    return null;
+  };
+  if (cmd.includes('/') || (WIN && cmd.includes('\\'))) {
+    const found = usable(cmd);
+    return found && path.resolve(found);
   }
   for (const dir of (process.env.PATH || '').split(path.delimiter)) {
     if (!dir) continue;
-    const p = path.join(dir, cmd);
-    try {
-      accessSync(p, constants.X_OK);
-      return p;
-    } catch {
-      // keep looking
-    }
+    const found = usable(path.join(dir, cmd));
+    if (found) return found;
   }
+  if (WIN && !process.env.SHELL) return null;
   try {
-    const shell = process.env.SHELL || '/bin/bash';
-    const found = execFileSync(shell, ['-l', '-i', '-c', `command -v ${shq(cmd)}`], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] })
+    const found = execFileSync(defaultShell(), ['-l', '-i', '-c', `command -v ${shq(cmd)}`], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] })
       .trim()
       .split('\n')
       .pop();

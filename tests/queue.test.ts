@@ -156,3 +156,16 @@ test('the queue does not celebrate a task that stopped short, or one taken off i
   q.remove(q.state().tasks[1].id);
   assert.equal(f.emptied(), 0);
 });
+
+test('a board agent at work does not hold one of the queue\'s slots', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  f.workers.push({
+    id: 'issues-agent', deskId: 'station-issues', kind: 'agent', provider: 'claude', name: 'Issues agent',
+    color: '#ef476f', status: 'working', acked: true, createdBy: 'Ada', createdAt: Date.now(), cols: 80, rows: 24, viewers: [],
+  });
+  const q = f.open(); q.setLimit(1);
+  q.add('Fix login', 'Tester');
+  assert.equal(q.state().tasks[0].status, 'running');
+  // Its seat is a desk, never the kiosk.
+  assert.match(f.workers[1].deskId, /^desk-/);
+});
