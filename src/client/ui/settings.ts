@@ -2,6 +2,7 @@ import type { Net } from '../net';
 import { store, type Settings, type ViewMode } from '../state';
 import { askNotifyPermission, notifyPermission, type DesktopNotifier } from '../notify';
 import type { WebhookKind } from '../../shared/protocol';
+import { DOG_NAME_MAX, cleanDogName } from '../../shared/dog';
 import { h, openModal, timeAgo } from './dom';
 
 const VIEWS: [ViewMode, string, string][] = [
@@ -159,6 +160,30 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   hookTest.addEventListener('click', () => net.send({ t: 'notify.test' }));
   hookRemove.addEventListener('click', () => net.send({ t: 'notify.webhook', url: '' }));
 
+  // The dog on this floor, named for everyone here.
+  const dogInput = h('input', { type: 'text', maxlength: DOG_NAME_MAX, 'aria-label': 'The dog’s name', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
+  const dogSave = h('button.btn.primary', { type: 'button' }, 'Rename');
+  const dogNote = h('p.setting-note');
+  const dogSection = h('div', {}, h('label', { style: 'margin-top:18px' }, 'Office dog'), h('div.webhook', {}, dogInput, dogSave), dogNote);
+  const paintDog = () => {
+    const dog = store.dog;
+    dogSection.classList.toggle('hidden', !dog);
+    if (!dog) return;
+    dogInput.placeholder = dog.name;
+    dogNote.textContent = `${dog.name} lives on this floor. When a worker needs input, ${dog.name} runs to its desk and barks. Walk up and press E to pet it. A new name is for everyone on this floor.`;
+  };
+  paintDog();
+  const renameDog = () => {
+    const name = cleanDogName(dogInput.value);
+    if (!name) return dogInput.focus();
+    net.send({ t: 'dog.name', name });
+    dogInput.value = '';
+  };
+  dogSave.addEventListener('click', renameDog);
+  dogInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') renameDog();
+  });
+
   const account = store.me.account;
   const signOut = h('button.btn', { type: 'button' }, '🚪 Sign out');
   signOut.addEventListener('click', onSignOut);
@@ -176,7 +201,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       note,
       h('label', { style: 'margin-top:18px' }, 'Office sounds'),
       soundRow,
-      h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds outside, and the ding when a worker is done. Voice chat isn’t affected.'),
+      h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds outside, the dog, and the ding when a worker is done. Voice chat isn’t affected.'),
       h('label', { style: 'margin-top:18px' }, 'Desktop notifications'),
       notifyRow,
       notifyNote,
@@ -184,6 +209,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       h('div.webhook', {}, hookInput, hookSave),
       hookActions,
       hookStatus,
+      dogSection,
       h('label', { style: 'margin-top:18px' }, 'Your character'),
       character,
       h('label', { style: 'margin-top:18px' }, 'Signed in'),
@@ -191,7 +217,14 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       h('p.setting-note', {}, account ? `As ${account.name}, with your own account (${account.role}).` : 'With the shared office password.'),
     ),
   );
-  const modal = openModal(el, { onClose: store.on('notify', paintHook) });
+  const offNotify = store.on('notify', paintHook);
+  const offDog = store.on('dog', paintDog);
+  const modal = openModal(el, {
+    onClose: () => {
+      offNotify();
+      offDog();
+    },
+  });
   close.addEventListener('click', () => modal.close());
   character.addEventListener('click', () => {
     modal.close();

@@ -1,16 +1,17 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import type { ChangesState, FloorInfo, ProjectInfo, ServerMsg, WorkerInfo } from '../shared/protocol.js';
+import type { ChangesState, FloorInfo, PeerInfo, ProjectInfo, ServerMsg, WorkerInfo } from '../shared/protocol.js';
 import { isBusy } from '../shared/status.js';
 import type { FloorDef } from './building.js';
 import { excludeFromGit } from './config.js';
 import { configuredProvider } from './agents.js';
 import { WorkerManager, type HookEnv } from './workers.js';
-import { GitHub } from './github.js';
+import { GitHub, MergeWatch } from './github.js';
 import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { Decor } from './decor.js';
+import { Dog } from './dog.js';
 import type { Ledger } from './usage.js';
 
 type ToastLevel = 'info' | 'warn' | 'error';
@@ -33,6 +34,8 @@ export interface FloorContext {
   workerChanged(floor: Floor, w: WorkerInfo | string): void;
   /** How many people are on this floor right now. */
   people(floor: Floor): number;
+  /** Who's on this floor, and where they stand. */
+  peers(floor: Floor): PeerInfo[];
 }
 
 /** Boards on a floor nobody is on, with nothing running, are asked GitHub about this seldom. */
@@ -74,7 +77,10 @@ export class Floor {
   readonly decor: Decor;
   /** Settles once the workers whose terminals outlived the last office are picked back up, and the rest woken. */
   readonly ready: Promise<void>;
+  readonly dog: Dog;
   private timer: NodeJS.Timeout;
+  /** Pull requests merging, to ring the gong for. */
+  private merges = new MergeWatch();
 
   constructor(
     readonly def: FloorDef,
@@ -87,6 +93,13 @@ export class Floor {
     excludeFromGit(def.dir);
     this.project = projectInfo(def.dir, def.name, ctx.agentCmd, ctx.agentArgs);
 
+    // Before the workers, so it hears about the ones who wake up needing input.
+    this.dog = new Dog(def.id, dataDir, {
+      workers: () => this.workers?.list() ?? [],
+      people: () => ctx.peers(this),
+      send: (dog) => ctx.emit(this, { t: 'dog', dog }),
+    });
+
     this.workers = new WorkerManager(
       def.dir,
       dataDir,
@@ -98,12 +111,14 @@ export class Floor {
           ctx.emit(this, { t: 'worker.update', worker });
           // Still being built: the first updates come from waking the workers already at their desks.
           this.queue?.onWorker(worker);
+          this.dog.onWorker(worker);
           ctx.workerChanged(this, worker);
         },
         remove: (workerId) => {
           this.changes?.forget(workerId);
           ctx.emit(this, { t: 'worker.remove', workerId });
           this.queue?.onWorkerGone(workerId);
+          this.dog.onWorkerGone(workerId);
           ctx.workerChanged(this, workerId);
         },
         data: (workerId, data, viewers) => ctx.termData(workerId, data, viewers),
@@ -119,6 +134,11 @@ export class Floor {
       (state) => {
         ctx.emit(this, { t: 'gh.pulls', state });
         this.queue?.onPulls(state.items);
+        if (state.loading || state.error) return;
+        for (const p of this.merges.look(state.items)) {
+          ctx.toast(this, `🎉 PR #${p.number} merged: ${p.title}`);
+          this.merged(p.number);
+        }
       },
     );
     // The 📋 task queue seats workers by itself: it watches the workers and links PRs from GitHub.
@@ -128,6 +148,10 @@ export class Floor {
       claimIssue: (issue) => this.github.claim(issue),
       refreshGitHub: () => void this.github.refresh(),
       hiringPaused: () => ctx.ledger.hiringPaused,
+      emptied: () => {
+        ctx.toast(this, '📋 The queue is empty: every task is done 🎉');
+        ctx.emit(this, { t: 'gong', why: 'queue' });
+      },
     });
 
     // What each worker changed, for the Changes window at its desk (see changes.ts).
@@ -160,6 +184,11 @@ export class Floor {
     }, REFRESH_MS);
   }
 
+  /** Pull request `n` merged (`by` someone, from the PR window): the gong rings, once per PR. */
+  merged(n: number, by?: string) {
+    if (this.merges.ring(n)) this.ctx.emit(this, { t: 'gong', why: 'merged', pr: n, by });
+  }
+
   /** Someone just walked in: boards that haven't been looked at in a while get fetched again. */
   arrived() {
     if (Date.now() - Math.max(this.github.issues.fetchedAt, this.github.pulls.fetchedAt) > REFRESH_MS) void this.github.refresh();
@@ -189,6 +218,7 @@ export class Floor {
   /** With `keep` (a restart), the workers' terminals keep running for the next office to pick up. */
   shutdown(keep = false) {
     clearInterval(this.timer);
+    this.dog.stop();
     this.github.stop();
     this.queue.shutdown();
     this.changes.stop();

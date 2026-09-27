@@ -2,12 +2,12 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, SEAT_BY_ID, SLAB, deskSeat, inElevator, seatAt, seatPlace, type SeatDef, type SeatPlace } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, SEATING_BY_ID, SLAB, beanbagsOut, deskSeat, inElevator, nextFreeSeat, seatAt, seatPlace, type SeatDef, type SeatPlace } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
-import type { AgentProvider, PeerInfo, WorkerInfo } from '../shared/protocol';
+import type { AgentProvider, GongWhy, PeerInfo, WorkerInfo } from '../shared/protocol';
 import { isAsleep, isBusy } from '../shared/status';
 import { Net } from './net';
-import { store, loadProfile, loadSettings, saveSettings, type Profile, type Topic } from './state';
+import { store, loadProfile, loadSettings, saveSettings, workerForPull, type Profile, type Topic } from './state';
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { Caffeine } from './caffeine';
 import { buildOffice, type InteractKind, type Interactable } from './world/office';
@@ -17,6 +17,8 @@ import { Smoke } from './world/smoke';
 import { Laptop } from './world/laptop';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import { Gallery } from './world/gallery';
+import { Dog } from './world/dog';
+import { Confetti } from './world/confetti';
 import { Hanger } from './hanging';
 import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
@@ -41,6 +43,7 @@ import { openSettings } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 import { elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
 import { providerLabel, resolvedProvider } from './ui/provider';
+import { renderLimits } from './ui/limits';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -113,6 +116,10 @@ const gallery = new Gallery();
 office.group.add(gallery.group);
 store.on('decor', () => gallery.sync(store.decor));
 
+// Confetti for merges, landing on whatever it falls on
+const confetti = new Confetti((x, z, y) => groundAt(office.colliders, x, z, y));
+scene.add(confetti.mesh);
+
 // TV
 const tvVideo = document.createElement('video');
 tvVideo.muted = true;
@@ -175,6 +182,11 @@ me.onSmoke = (kind, at, dir) => {
 };
 const sound = new OfficeSound();
 sound.setVolume(settings.volume, settings.muted);
+// The floor's dog. It goes quiet once someone has the terminal of the worker it's barking at open.
+const dog = new Dog(sound, (id) => (store.workers.get(id)?.viewers.length ?? 0) > 0);
+scene.add(dog.root);
+noOutline(dog.root);
+store.on('dog', () => dog.sync(store.dog, store.dogStart));
 const notifier = new DesktopNotifier(() => settings.notify, (id) => openWorkerTerminal(id));
 const hanger = new Hanger(net, camera, canvas, player, office, gallery);
 scene.add(hanger.ghost.group);
@@ -291,6 +303,9 @@ net.onMessage((msg) => {
       r?.person.setSmoking(msg.smoke);
       break;
     }
+    case 'gong':
+      gongRang(msg.why, msg.pr);
+      break;
   }
 });
 
@@ -509,17 +524,9 @@ function syncWorkers() {
     if (!desk) continue;
     if (!v) {
       const model = new Worker(w.name, w.color);
-      model.root.position.copy(desk.seatAnchor.position);
-      model.root.position.y = 0.4;
-      model.root.position.z += 0.08;
-      model.root.rotation.y = Math.PI;
-      model.root.scale.setScalar(0.82);
-      desk.group.add(model.root);
+      desk.seatAnchor.add(model.root);
       const laptop = new Laptop();
-      laptop.root.position.copy(desk.laptopAnchor.position);
-      laptop.root.position.z -= 0.08;
-      laptop.root.scale.setScalar(1.3);
-      desk.group.add(laptop.root);
+      desk.laptopAnchor.add(laptop.root);
       noOutline(desk.group);
       desk.vacancy.visible = false;
       desk.chair.rotation.y = 0;
@@ -546,25 +553,38 @@ function syncWorkers() {
   for (const [id, v] of workerViews) {
     if (store.workers.has(id)) continue;
     const desk = office.desks.get(v.deskId);
-    desk?.group.remove(v.model.root);
-    desk?.group.remove(v.laptop.root);
+    v.model.root.removeFromParent();
+    v.laptop.root.removeFromParent();
     v.model.dispose();
     v.laptop.dispose();
     if (desk) desk.vacancy.visible = true;
     sound.removeTypist(id);
     workerViews.delete(id);
   }
+  arrangeBeanbags();
   renderWorkers((id) => openWorkerTerminal(id));
   notifier.sync(store.workers);
   renderTitle();
 }
+
+/** Once every desk is taken, bean bags come out for the workers who don't fit. */
+function arrangeBeanbags() {
+  const appeared = office.setBeanbags(beanbagsOut((id) => !!store.workerAtDesk(id)));
+  // One came out right where you're standing (on the office floor, not down in the garage): you end up on top of it.
+  const p = player.pos;
+  for (const c of appeared) if (p.y > -0.1 && p.y < c.top && p.x > c.minX - 0.3 && p.x < c.maxX + 0.3 && p.z > c.minZ - 0.3 && p.z < c.maxZ + 0.3) p.y = c.top;
+}
 store.on('workers', syncWorkers);
 store.on('workers', renderUsage);
 store.on('usage', renderUsage);
+store.on('limits', renderLimits);
+// The reset countdowns tick down between reads.
+setInterval(renderLimits, 30_000);
+$('limits').addEventListener('click', () => net.send({ t: 'limits.refresh' }));
 
 // ---- Actions ------------------------------------------------------------------------------------
 function freeDesk(): string | null {
-  // Prefer the empty desk nearest to you.
+  // Prefer the empty desk nearest to you; when they're all taken, the bean bag that's out.
   let best: string | null = null;
   let bestD = Infinity;
   for (const d of DESKS) {
@@ -575,7 +595,7 @@ function freeDesk(): string | null {
       best = d.id;
     }
   }
-  return best;
+  return best ?? nextFreeSeat((id) => !!store.workerAtDesk(id))?.id ?? null;
 }
 
 let askedToNotify = false;
@@ -690,7 +710,8 @@ function goToDesk(deskId: string) {
   const desk = DESK_BY_ID.get(deskId);
   if (!desk) return;
   closeAllModals();
-  const spot = deskSeat(desk, 2.4);
+  // Behind the worker, looking over their shoulder at the laptop.
+  const spot = deskSeat(desk, desk.beanbag ? 1.6 : 2.4);
   player.pos.set(spot.x, 0, spot.z);
   player.vy = 0;
   player.facing = Math.atan2(desk.x - spot.x, desk.z - spot.z);
@@ -728,7 +749,7 @@ function sendToWorker(title: string, text: { context?: string; initial?: string 
   const desk = freeDesk();
   const awake = [...store.workers.values()].filter((w) => w.kind === 'agent' && !isAsleep(w.status));
   if (!desk && !awake.length) {
-    toast('Every desk is taken — send a worker home first', 'warn');
+    toast('Every desk and bean bag is taken — send a worker home first', 'warn');
     return;
   }
   openAsk({
@@ -791,6 +812,7 @@ function interact(target: Interactable | null, key: DeskKey) {
   else if (target.kind === 'tv') watchShare();
   else if (target.kind === 'decor' && target.decorId) hanger.view(target.decorId);
   else if (target.kind === 'seat' && target.seatId) useSeat(target.seatId);
+  else if (target.kind === 'dog') net.send({ t: 'dog.pet' });
   else if (target.kind === 'coffee') drinkCoffee();
   else if (target.kind === 'smoke') {
     if (smokeBreakUntil) {
@@ -800,7 +822,7 @@ function interact(target: Interactable | null, key: DeskKey) {
       setSmoking(true);
       toast('🚬 Smoke break');
     }
-  }
+  } else if (target.kind === 'gong') hitGong();
 }
 
 /** A cup from the kitchen machine: a minute of quicker feet and higher jumps, and a mug in your hand. */
@@ -869,7 +891,7 @@ function tvShowing(): boolean {
 
 /** E at a seat: sit down on it. Sitting there already, get up, or on the couch facing the TV, watch it. */
 function useSeat(seatId: string) {
-  const seat = SEAT_BY_ID.get(seatId);
+  const seat = SEATING_BY_ID.get(seatId);
   if (!seat) return;
   if (player.seat?.seatId === seatId) {
     if (seat.tv && tvShowing()) watchShare();
@@ -906,6 +928,52 @@ function mySeat(): Interactable | null {
   return (id && office.interactables.find((it) => it.kind === 'seat' && it.seatId === id)) || null;
 }
 
+// ---- The gong -------------------------------------------------------------------------------------
+let lastHit = 0;
+/** E at the gong. The office rings it for everyone on the floor, you included (see gongRang). */
+function hitGong() {
+  const now = performance.now();
+  if (now - lastHit < 500) return;
+  lastHit = now;
+  net.send({ t: 'gong' });
+}
+
+/** Where confetti comes from over a desk: above the worker's head. */
+function burstOver(deskId: string, n: number) {
+  const d = DESK_BY_ID.get(deskId);
+  if (d) confetti.burst(d.x, 2.3, d.z, n);
+}
+
+/** Someone hit the gong, a pull request merged (confetti over its desk), or the queue emptied (a party). */
+function gongRang(why: GongWhy, pr?: number) {
+  office.gong.strike(why === 'hit' ? 0.7 : 1);
+  sound.gong(why);
+  const top = office.gong.top;
+  if (why === 'merged') {
+    // Over the desk it came from while its worker is still there, who jumps for joy; otherwise over the gong.
+    const it = store.pulls.items.find((p) => p.number === pr);
+    const w = pr === undefined ? undefined : workerForPull(store.workers.values(), it ?? { number: pr, headRefName: '' });
+    if (w && workerViews.has(w.id)) {
+      burstOver(w.deskId, 220);
+      if (!isAsleep(w.status)) workerViews.get(w.id)!.model.cheer();
+    } else confetti.burst(top.x, top.y, top.z, 220);
+  } else if (why === 'queue') {
+    // Three strokes (sound.gong plays them): a burst at the gong, then every desk, then a cannon.
+    confetti.burst(top.x, top.y, top.z, 160);
+    setTimeout(() => {
+      office.gong.strike(0.85);
+      for (const [id, v] of workerViews) {
+        burstOver(v.deskId, 120);
+        if (!isAsleep(store.workers.get(id)?.status ?? 'offline')) v.model.cheer(4);
+      }
+    }, 850);
+    setTimeout(() => {
+      office.gong.strike(1.2);
+      confetti.burst(top.x, top.y, top.z, 450, 1.5);
+    }, 1700);
+  }
+}
+
 // ---- Interaction targeting & hint -----------------------------------------------------------------
 let target: Interactable | null = null;
 let hintKey = '';
@@ -915,8 +983,9 @@ function pickTarget(): Interactable | null {
   if (player.pos.y < -SLAB - 1) return null;
   let best: Interactable | null = null;
   let bestD = Infinity;
-  for (const list of [office.interactables, gallery.interactables]) {
+  for (const list of [office.interactables, gallery.interactables, dog.interactables]) {
     for (const it of list) {
+      if (it.off) continue;
       // Up on the loft, or down underneath it.
       if (Math.abs((it.y ?? 0) - player.pos.y) > 1.5) continue;
       const d = Math.hypot(it.x - player.pos.x, it.z - player.pos.z);
@@ -989,6 +1058,8 @@ function hintFor(it: Interactable): Hint {
     }
     case 'smoke':
       return { k: String(smokeBreakUntil > 0), parts: [title('🚬 Ashtray'), key('E', smokeBreakUntil ? 'Stub it out' : 'Take a smoke break')] };
+    case 'gong':
+      return { k: '', parts: [title('🎉 Merge gong'), aside('rings when a PR merges'), key('E', 'Bang it')] };
     case 'elevator': {
       const f = store.currentFloor();
       const n = store.floors.length;
@@ -999,7 +1070,7 @@ function hintFor(it: Interactable): Hint {
       return { k: `${d?.title}|${d?.by}`, parts: [title(`🖼️ ${d?.title || 'A picture'}`), d ? aside(`hung by ${d.by}`) : '', key('E', 'Look closer')] };
     }
     case 'seat': {
-      const seat = SEAT_BY_ID.get(it.seatId ?? '');
+      const seat = SEATING_BY_ID.get(it.seatId ?? '');
       if (!seat) return { k: '', parts: [] };
       if (player.seat?.seatId === seat.id) {
         const tv = !!seat.tv && tvShowing();
@@ -1007,6 +1078,13 @@ function hintFor(it: Interactable): Hint {
       }
       const full = !freePlace(seat);
       return { k: `${seat.id}|${full}`, parts: [title(seat.label), full ? aside('no room') : key('E', 'Sit down')] };
+    }
+    case 'dog': {
+      const doing = dog.doing(
+        (id) => store.workers.get(id)?.name,
+        (id) => (id === store.you ? 'you' : store.peers.get(id)?.name),
+      );
+      return { k: `${dog.name}|${doing}`, parts: [title(`🐶 ${dog.name}`), doing ? aside(doing) : '', key('E', 'Pet')] };
     }
   }
 }
@@ -1191,14 +1269,14 @@ function backToGame() {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, seat: 3 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, seat: 3 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
 function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boolean } | null {
   raycaster.setFromCamera(ndc, camera);
   eye.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
-  for (const hit of raycaster.intersectObject(office.group, true)) {
+  for (const hit of raycaster.intersectObjects([office.group, dog.root], true)) {
     let it: Interactable | undefined;
     let shown = true;
     for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) {
@@ -1482,9 +1560,11 @@ function frame(ts?: number) {
     const desk = DESK_BY_ID.get(v.deskId)!;
     v.laptop.update(dt, store.screens.get(id), Math.hypot(desk.x - camPos.x, desk.z - camPos.z));
   }
+  dog.update(dt);
   office.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position)]);
   checkSmokeBreak(now);
   smoke.update(dt, camera);
+  confetti.update(dt);
   hanger.update();
 
   if (modalOpen() || hanger.active) target = null;
@@ -1551,7 +1631,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, caffeine, camera, workerViews, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen };
+(window as any).__office = { store, player, caffeine, camera, workerViews, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen, confetti, dog };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

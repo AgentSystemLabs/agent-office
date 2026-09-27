@@ -10,7 +10,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Config } from './config.js';
 import { Auth, type Session } from './auth.js';
 import { Accounts } from './accounts.js';
-import { resolveCommand } from './workers.js';
+import { childEnv, resolveCommand } from './workers.js';
 import { configuredProvider, OPEN_CODE_MODEL_MAX } from './agents.js';
 import { createOpenCodeModelCatalogue } from './models.js';
 import { Team } from './team.js';
@@ -18,6 +18,7 @@ import { Upgrader } from './upgrade.js';
 import { Services } from './services.js';
 import { ImageProxy } from './decor.js';
 import { Ledger } from './usage.js';
+import { PlanLimitsReader } from './limits.js';
 import { Webhook } from './webhook.js';
 import { Building, type FloorDef } from './building.js';
 import { Floor, type FloorContext } from './floor.js';
@@ -63,6 +64,7 @@ interface Client {
   stale: Set<string>;
   lastMoveAt: number;
   lastActAt: number;
+  lastGongAt: number;
   /** Cleared at each heartbeat ping and set again by the pong; still clear at the next one means gone. */
   isAlive: boolean;
 }
@@ -273,6 +275,15 @@ export async function startServer(cfg: Config) {
     toastAll,
   );
 
+  // The Claude plan's 5-hour and weekly limits, for the meter under the workers: one account for
+  // every floor.
+  const limits = new PlanLimitsReader(
+    configuredProvider(cfg.agentCmd) === 'claude' ? resolveCommand(cfg.agentCmd) : resolveCommand('claude'),
+    childEnv(),
+    () => clients.size > 0,
+    (state) => broadcast({ t: 'limits', state }),
+  );
+
   // Slack / Discord pings for workers that need input or finish (set from ⚙️ Settings or --webhook).
   webhook = new Webhook(cfg.dataDir, (workerId) => (workerId && workerFloor(workerId)?.def.name) || officeName, (state) => broadcast({ t: 'notify', state }));
   if (cfg.webhook !== undefined) {
@@ -314,6 +325,7 @@ export async function startServer(cfg: Config) {
       for (const c of clients.values()) if (c.peer.floor === floor.id) n++;
       return n;
     },
+    peers: (floor) => [...clients.values()].filter((c) => c.peer.floor === floor.id).map((c) => c.peer),
   };
   const openFloor = (def: FloorDef): Floor | undefined => {
     if (!existsSync(def.dir)) {
@@ -361,6 +373,7 @@ export async function startServer(cfg: Config) {
     queue: floor?.queue.state() ?? { tasks: [], maxWorkers: 0 },
     decor: floor?.decor.list() ?? [],
     services: servicesState(floor),
+    dog: floor?.dog.view() ?? null,
   });
   const screensOf = (c: Client, floor: Floor | undefined) => {
     for (const { workerId, frame } of floor?.workers.fullScreens() ?? []) sendTo(c, { t: 'screen', workerId, ...frame, full: true });
@@ -656,6 +669,7 @@ export async function startServer(cfg: Config) {
       stale: new Set(),
       lastMoveAt: 0,
       lastActAt: 0,
+      lastGongAt: 0,
       isAlive: true,
       peer: {
         id,
@@ -691,6 +705,7 @@ export async function startServer(cfg: Config) {
       version: upgrader.version,
       upgrade: upgrader.state,
       usage: ledger.state(),
+      limits: limits.state,
       me,
       notify: webhook.state(),
       ...floorView(floor),
@@ -704,6 +719,7 @@ export async function startServer(cfg: Config) {
       // Anyone whose process ended since (exited, or failed to resume) gets up as you walk in.
       floor.workers.wakeAll();
     }
+    limits.refresh();
 
     ws.on('message', (raw) => {
       let msg: ClientMsg;
@@ -868,6 +884,16 @@ export async function startServer(cfg: Config) {
           });
         break;
       }
+      case 'dog.pet':
+        floorOf(c)?.dog.pet(c.peer);
+        break;
+      case 'dog.name': {
+        const floor = here();
+        if (!floor) break;
+        const name = floor.dog.rename(str(msg.name, 200));
+        toastFloor(floor, `🐶 ${who} named the dog ${name}`);
+        break;
+      }
       case 'worker.spawn': {
         const floor = here();
         if (!floor) break;
@@ -961,7 +987,10 @@ export async function startServer(cfg: Config) {
         if (!floor || !Number.isSafeInteger(n) || n <= 0 || !method) break;
         void floor.github.merge(n, method, msg.deleteBranch === true, msg.auto === true).then((error) => {
           sendTo(c, { t: 'gh.merged', number: n, error });
-          if (!error) toastFloor(floor, msg.auto ? `${who} set PR #${n} to merge once its checks pass` : `🎉 ${who} merged PR #${n}`);
+          if (error) return;
+          toastFloor(floor, msg.auto ? `${who} set PR #${n} to merge once its checks pass` : `🎉 ${who} merged PR #${n}`);
+          // An auto-merge rings once GitHub gets round to it and the boards see it merged.
+          if (!msg.auto) floor.merged(n, who);
         });
         break;
       }
@@ -980,6 +1009,30 @@ export async function startServer(cfg: Config) {
         void floor.github.comment(kind, n, body).then((r) => {
           sendTo(c, { t: 'gh.commented', kind, number: n, ...r });
           if (r.comment) toastFloor(floor, `💬 ${who} commented on ${kind === 'pull' ? 'PR' : 'issue'} #${n}`);
+        });
+        break;
+      }
+      case 'gong': {
+        const floor = floorOf(c);
+        const now = Date.now();
+        if (!floor || now - c.lastGongAt < 500) break;
+        c.lastGongAt = now;
+        toFloor(floor, { t: 'gong', why: 'hit', by: who });
+        break;
+      }
+      case 'gh.close': {
+        const floor = here();
+        const n = num(msg.number);
+        const kind = msg.kind === 'issue' || msg.kind === 'pull' ? msg.kind : undefined;
+        if (!floor || !Number.isSafeInteger(n) || n <= 0 || !kind) break;
+        const reason = msg.reason === 'not planned' ? 'not planned' : 'completed';
+        void floor.github.close(kind, n, { comment: str(msg.comment, 20000).trim() || undefined, reason, deleteBranch: msg.deleteBranch === true }).then((error) => {
+          sendTo(c, { t: 'gh.closed', kind, number: n, error });
+          if (error) return;
+          if (kind === 'pull') return toastFloor(floor, `${who} closed PR #${n} without merging`);
+          // Nobody should be seated for an issue that's closed.
+          const dropped = floor.queue.dropIssue(n);
+          toastFloor(floor, `${who} closed issue #${n}${reason === 'not planned' ? ' as not planned' : ''}${dropped ? ' and took it off the queue' : ''}`);
         });
         break;
       }
@@ -1074,6 +1127,9 @@ export async function startServer(cfg: Config) {
           if (err) warn(c, err);
           else toastAll(`${who} is upgrading the office — it restarts when the new version is built`);
         });
+        break;
+      case 'limits.refresh':
+        limits.refresh();
         break;
       case 'team.get':
         void team.state().then((state) => sendTo(c, { t: 'team', state }));
@@ -1230,6 +1286,7 @@ export async function startServer(cfg: Config) {
     webhook.stop();
     for (const f of floors.values()) f.shutdown(keep);
     ledger.flush();
+    limits.close();
     for (const c of clients.values()) c.ws.close();
     server.close();
     hookServer.close();

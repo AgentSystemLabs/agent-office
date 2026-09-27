@@ -12,6 +12,8 @@ export interface DeskDef {
   /** Rotation around Y. At 0 the worker sits on the desk's +z side, facing -z. */
   rotY: number;
   label: string;
+  /** A bean bag on the floor instead of a desk; the worker sits on it at (x, z), facing -z at rotY 0. */
+  beanbag?: boolean;
 }
 
 const DESK_WIDTH = 2.2;
@@ -44,7 +46,51 @@ function buildDesks(): DeskDef[] {
 }
 
 export const DESKS: DeskDef[] = buildDesks();
-export const DESK_BY_ID = new Map(DESKS.map((d) => [d.id, d]));
+
+/**
+ * Overflow seats: once every desk is taken, bean bags come out around the room, one at a time in
+ * this order. Each faces a window or a wall, with open floor behind it to walk up to.
+ */
+export const BEANBAGS: DeskDef[] = (
+  [
+    // Either side of the gong, clear of its front and of the elevator doors at x 7.2..9.8.
+    [6, -9.8, 0],
+    [1, -9.8, 0],
+    [-16.1, -9, Math.PI / 2],
+    [-16.1, -3, Math.PI / 2],
+    [-8.8, 10.2, Math.PI],
+    [0.8, 10.2, Math.PI],
+    [12.2, -5.6, -Math.PI / 2],
+    [12.2, 5.6, -Math.PI / 2],
+    [-16.1, 3, Math.PI / 2],
+    [11, -9.8, 0],
+    [-12.6, 9.2, Math.PI / 2],
+    [-6, -9.8, 0],
+  ] as const
+).map(([x, z, rotY], i) => ({ id: `beanbag-${i + 1}`, x, z, rotY, label: `Bean bag ${i + 1}`, beanbag: true }));
+
+/** Everywhere a worker can sit: the desks, then the bean bags. */
+export const SEATS: DeskDef[] = [...DESKS, ...BEANBAGS];
+/** Any seat by id, bean bags included. */
+export const DESK_BY_ID = new Map(SEATS.map((d) => [d.id, d]));
+
+/** The seat a new worker takes when nobody picks one: the first free desk, else the first free bean bag. */
+export function nextFreeSeat(taken: (id: string) => boolean): DeskDef | undefined {
+  return SEATS.find((d) => !taken(d.id));
+}
+
+/**
+ * The bean bags that are out: every one in use, and while every desk is taken, the next free one
+ * too, so there's always somewhere to hire the next worker.
+ */
+export function beanbagsOut(taken: (id: string) => boolean): Set<string> {
+  const out = new Set(BEANBAGS.filter((b) => taken(b.id)).map((b) => b.id));
+  if (DESKS.every((d) => taken(d.id))) {
+    const spare = BEANBAGS.find((b) => !taken(b.id));
+    if (spare) out.add(spare.id);
+  }
+  return out;
+}
 
 /** Where the worker (and the interacting player) stands relative to the desk. */
 export function deskSeat(desk: DeskDef, offset = 0.85): { x: number; z: number } {
@@ -73,6 +119,9 @@ export const LOFT = { minX: 9, maxX: FLOOR.maxX, minZ: 8, maxZ: FLOOR.maxZ, y: 3
 export const STAIRS = { fromX: 3, toX: LOFT.minX, minZ: 11.2, maxZ: FLOOR.maxZ, steps: 15 } as const;
 
 export const SPAWN = { x: 8, z: 7 } as const;
+
+/** The gong: on the north wall between the PR board and the elevator, facing into the room. It rings when a PR merges. */
+export const GONG = { x: 3.5, z: FLOOR.minZ + 0.75, width: 1.9, height: 2.45 } as const;
 
 /** The office is the second floor. The street, and the open garage under the office, are this far below its floor. */
 export const STREET_Y = -3.6;
@@ -147,13 +196,16 @@ export interface SeatDef {
   tv?: boolean;
 }
 
-/** Where the office's couches, beanbags, chairs and the balcony bench are (buildOffice puts them there). */
-export const SEATS: SeatDef[] = [
+/**
+ * Where people can sit: the office's couches, beanbags, chairs and the balcony bench (buildOffice puts
+ * them there). Workers have their own seats, the desks and bean bags in SEATS.
+ */
+export const SEATING: SeatDef[] = [
   // The lounge couch, its back to the room, facing the TV.
   { id: 'couch', label: '🛋️ Couch', x: 10.5, y: 0, z: 0, rotY: Math.PI / 2, places: [-1.2, 0, 1.2], hips: 0.5, depth: -0.05, out: 0.9, tv: true },
   // Beanbags either side of the lounge, turned to the TV.
-  { id: 'beanbag-1', label: '🫘 Beanbag', x: 12.5, y: 0, z: 3.5, rotY: Math.atan2(TV.x - 12.5, TV.z - 3.5), places: [0], hips: 0.42, depth: -0.1, out: 1.2 },
-  { id: 'beanbag-2', label: '🫘 Beanbag', x: 14.5, y: 0, z: -3.4, rotY: Math.atan2(TV.x - 14.5, TV.z + 3.4), places: [0], hips: 0.42, depth: -0.1, out: 1.2 },
+  { id: 'lounge-beanbag-1', label: '🫘 Beanbag', x: 12.5, y: 0, z: 3.5, rotY: Math.atan2(TV.x - 12.5, TV.z - 3.5), places: [0], hips: 0.42, depth: -0.1, out: 1.2 },
+  { id: 'lounge-beanbag-2', label: '🫘 Beanbag', x: 14.5, y: 0, z: -3.4, rotY: Math.atan2(TV.x - 14.5, TV.z + 3.4), places: [0], hips: 0.42, depth: -0.1, out: 1.2 },
   // Up in the boss office: the couch against the east wall, and the chair at the big desk, facing the glass.
   { id: 'loft-couch', label: '🛋️ Couch', x: LOFT.maxX - 0.65, y: LOFT.y, z: (LOFT.minZ + LOFT.maxZ) / 2, rotY: -Math.PI / 2, places: [-0.5, 0.5], hips: 0.5, depth: -0.05, out: 0.9 },
   { id: 'boss-chair', label: "🪑 Boss's chair", x: (LOFT.minX + LOFT.maxX) / 2 + 0.5, y: LOFT.y, z: (LOFT.minZ + LOFT.maxZ) / 2 + 0.7, rotY: Math.PI, places: [0], hips: 0.62, depth: -0.05, out: -0.8 },
@@ -162,7 +214,7 @@ export const SEATS: SeatDef[] = [
   { id: 'stool-1', label: '🪑 Stool', x: -0.6, y: 0, z: (BALCONY.minZ + BALCONY.maxZ) / 2 + 0.2, rotY: Math.PI / 2, places: [0], hips: 0.5, depth: 0, out: -0.7 },
   { id: 'stool-2', label: '🪑 Stool', x: 1, y: 0, z: (BALCONY.minZ + BALCONY.maxZ) / 2 + 0.2, rotY: -Math.PI / 2, places: [0], hips: 0.5, depth: 0, out: -0.7 },
 ];
-export const SEAT_BY_ID = new Map(SEATS.map((s) => [s.id, s]));
+export const SEATING_BY_ID = new Map(SEATING.map((s) => [s.id, s]));
 
 /** One place on a seat: where your feet go on its floor, the way you face, and the rest of what sitting there takes. */
 export interface SeatPlace {
@@ -196,7 +248,7 @@ export function seatPlace(seat: SeatDef, i: number): SeatPlace {
 /** The place a peer's `seat` names, or undefined if there's no such place. */
 export function seatAt(key: string): SeatPlace | undefined {
   const m = /^([\w-]+):(\d+)$/.exec(key);
-  const seat = m ? SEAT_BY_ID.get(m[1]) : undefined;
+  const seat = m ? SEATING_BY_ID.get(m[1]) : undefined;
   const i = Number(m?.[2]);
   return seat && i < seat.places.length ? seatPlace(seat, i) : undefined;
 }

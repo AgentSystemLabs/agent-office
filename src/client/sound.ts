@@ -1,11 +1,12 @@
 /**
  * Office sounds, synthesized with Web Audio so there are no audio files to ship: the room's air and a
  * humming fridge, workers typing while they work, footsteps, the coffee machine, birds outside the
- * windows, the odd rustle or phone, and the dings when a worker needs you.
+ * windows, the odd rustle or phone, the gong, the dog barking, and the dings when a worker needs you.
  *
  * Everything goes through one master gain that Settings turns down or mutes. Voice chat doesn't.
  */
-import { DESKS, FLOOR, WINDOWS as OPENINGS } from '../shared/layout';
+import { DESKS, FLOOR, GONG, WINDOWS as OPENINGS } from '../shared/layout';
+import type { GongWhy } from '../shared/protocol';
 
 type Pos = { x: number; y: number; z: number };
 
@@ -24,6 +25,22 @@ const WINDOWS: Pos[] = OPENINGS.filter((o) => o.y0 < 2).map((o) =>
     ? { x: o.u, y: 2.4, z: o.wall === 'south' ? FLOOR.maxZ + 1.5 : FLOOR.minZ - 1.5 }
     : { x: o.wall === 'west' ? FLOOR.minX - 1.5 : FLOOR.maxX + 1.5, y: 2.4, z: o.u },
 );
+/** The middle of the gong's disc. */
+const GONG_AT: Pos = { x: GONG.x, y: GONG.height - 1.36, z: GONG.z };
+/** A gong's overtones don't line up like a string's: [ratio to the lowest, loudness, seconds to die away]. */
+const GONG_PARTIALS: [number, number, number][] = [
+  [1, 0.8, 7],
+  [1.51, 0.75, 5.5],
+  [2.13, 0.65, 4.6],
+  [2.66, 0.55, 3.8],
+  [3.19, 0.45, 3.1],
+  [3.84, 0.38, 2.5],
+  [4.48, 0.3, 2],
+  [5.27, 0.22, 1.6],
+  [6.35, 0.16, 1.2],
+  [7.61, 0.1, 0.9],
+  [9.08, 0.07, 0.6],
+];
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 const randInt = (a: number, b: number) => Math.floor(rand(a, b + 1));
@@ -345,6 +362,61 @@ export class OfficeSound {
     }
   }
 
+  // ---- The dog ----------------------------------------------------------------------------------
+
+  /** A few gruff woofs from where the dog is. */
+  bark(x: number, z: number, times: number) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count('bark');
+    const out = this.panner({ x, y: 0.5, z }, 2, 1);
+    out.connect(this.ambience);
+    let t = ctx.currentTime + 0.03;
+    const pitch = rand(0.95, 1.05);
+    for (let i = 0; i < times; i++) {
+      this.woof(out, t, 300 * pitch * rand(0.95, 1.05), 0.17, 0.55);
+      t += rand(0.3, 0.42);
+    }
+  }
+
+  /** A short, high, happy yip: someone petted the dog. */
+  yip(x: number, z: number) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count('yip');
+    const out = this.panner({ x, y: 0.5, z }, 1.5, 1);
+    out.connect(this.ambience);
+    this.woof(out, ctx.currentTime + 0.02, 620, 0.09, 0.3);
+  }
+
+  /** One bark: a buzzy voice that leaps up in pitch and falls away, shaped into a "wuh", with a breathy rasp. */
+  private woof(out: AudioNode, t: number, f: number, len: number, gain: number) {
+    const ctx = this.ctx!;
+    const voice = ctx.createOscillator();
+    voice.type = 'sawtooth';
+    voice.frequency.setValueAtTime(f * 0.75, t);
+    voice.frequency.exponentialRampToValueAtTime(f * 1.45, t + len * 0.22);
+    voice.frequency.exponentialRampToValueAtTime(f * 0.6, t + len);
+    const mouth = biquad(ctx, 'bandpass', 950, 1.1);
+    mouth.frequency.setValueAtTime(700, t);
+    mouth.frequency.linearRampToValueAtTime(1300, t + len * 0.3);
+    mouth.frequency.linearRampToValueAtTime(600, t + len);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(gain * 0.45, t + len * 0.5);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    voice.connect(mouth).connect(g).connect(out);
+    const breath = this.noise(this.buf.white);
+    const rasp = ctx.createGain();
+    rasp.gain.value = 0.35;
+    breath.connect(biquad(ctx, 'bandpass', 1800, 0.8)).connect(rasp).connect(g);
+    voice.start(t);
+    voice.stop(t + len + 0.02);
+    breath.start(t, rand(0, 4));
+    breath.stop(t + len + 0.02);
+  }
+
   /** A short pitched blip: a bubble when `ratio` > 1, a drip when < 1. */
   private blip(dest: AudioNode, when: number, freq: number, ratio: number, len: number, gain: number) {
     const ctx = this.ctx!;
@@ -502,6 +574,73 @@ export class OfficeSound {
     o.start(now);
     o.stop(now + len + 0.02);
     this.count('creak');
+  }
+
+  // ---- The gong ----------------------------------------------------------------------------------
+
+  /**
+   * The gong by the PR board rings: someone hit it, a pull request merged (a harder stroke), or the
+   * task queue emptied (three strokes, each bigger than the last). From where it hangs, so you hear
+   * which way it is.
+   */
+  gong(why: GongWhy) {
+    this.unlock();
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (ctx.state === 'suspended') void ctx.resume();
+    this.count(`gong.${why}`);
+    // Someone banging it is the room; a merge is news for the whole floor (and from another tab too,
+    // like the dings), so it carries further.
+    const out = why === 'hit' ? this.panner(GONG_AT, 4, 0.6) : this.panner(GONG_AT, 8, 0.45);
+    out.connect(why === 'hit' ? this.ambience : this.alerts);
+    const t0 = ctx.currentTime + 0.03;
+    if (why === 'queue') [0.7, 0.85, 1.1].forEach((strength, i) => this.strike(out, t0 + i * 0.85, strength));
+    else this.strike(out, t0, why === 'merged' ? 1 : rand(0.6, 0.8));
+  }
+
+  /** One stroke of the mallet: a felt thump, the metal ringing, and a bright wash that blooms after. */
+  private strike(out: AudioNode, t0: number, strength: number) {
+    const ctx = this.ctx!;
+    const f0 = 118 * rand(0.98, 1.02);
+    const ring = ctx.createGain();
+    ring.gain.value = 0.3 * strength;
+    ring.connect(out);
+    const long = 0.6 + 0.4 * strength;
+    for (const [ratio, amp, decay] of GONG_PARTIALS) {
+      const f = f0 * ratio;
+      const end = t0 + decay * long;
+      // Two of each a few cents apart, so the tone shimmers as it rings.
+      for (const cents of [-1, 1]) {
+        const o = ctx.createOscillator();
+        // Struck hard, a gong starts a touch sharp and settles.
+        o.frequency.setValueAtTime(f * (1 + 0.012 * strength), t0);
+        o.frequency.exponentialRampToValueAtTime(f, t0 + 1.2);
+        o.detune.value = cents * rand(2, 5);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(amp * 0.5, t0 + 0.01 + ratio * 0.004);
+        g.gain.exponentialRampToValueAtTime(0.0001, end);
+        o.connect(g).connect(ring);
+        o.start(t0);
+        o.stop(end + 0.05);
+      }
+    }
+    const thump = this.noise(this.buf.white);
+    const thumpG = ctx.createGain();
+    thumpG.gain.setValueAtTime(0.0001, t0);
+    thumpG.gain.exponentialRampToValueAtTime(0.45 * strength, t0 + 0.005);
+    thumpG.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.12);
+    thump.connect(biquad(ctx, 'lowpass', 420, 0.8)).connect(thumpG).connect(out);
+    thump.start(t0);
+    thump.stop(t0 + 0.15);
+    const wash = this.noise(this.buf.white, true);
+    const washG = ctx.createGain();
+    washG.gain.setValueAtTime(0, t0);
+    washG.gain.linearRampToValueAtTime(0.03 * strength, t0 + 0.45);
+    washG.gain.exponentialRampToValueAtTime(0.0001, t0 + 3.5 * long);
+    wash.connect(biquad(ctx, 'bandpass', 3200, 1.2)).connect(washG).connect(out);
+    wash.start(t0);
+    wash.stop(t0 + 3.5 * long + 0.05);
   }
 
   // ---- Alerts ----------------------------------------------------------------------------------

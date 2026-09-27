@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { PlayerController } from '../src/client/player.js';
 import type { Collider } from '../src/client/world/office.js';
-import { BALCONY, FLOOR, LOFT, SEAT_BY_ID, SLAB, STAIRS, seatAt, seatPlace } from '../src/shared/layout.js';
+import { BALCONY, FLOOR, LOFT, SEATING_BY_ID, SLAB, STAIRS, seatAt, seatPlace } from '../src/shared/layout.js';
 
 /** The office floor: upstairs, over the garage, so off it you'd drop to the street. */
 const officeFloor: Collider = { ...FLOOR, bottom: -SLAB, top: 0 };
@@ -140,7 +140,7 @@ test('sits on the lounge couch until you walk off, then gets up clear of it', (t
   const { player, keys, frames } = controller(t, [officeFloor, couch, table]);
   let gotUp = 0;
   player.onStand = () => gotUp++;
-  const place = seatPlace(SEAT_BY_ID.get('couch')!, 2);
+  const place = seatPlace(SEATING_BY_ID.get('couch')!, 2);
   player.sit(place);
   keys();
   frames(30);
@@ -161,7 +161,7 @@ test("gets up from the boss's chair behind it, away from the desk", (t) => {
   const floor: Collider = { minX: LOFT.minX, maxX: LOFT.maxX, minZ: LOFT.minZ, maxZ: LOFT.maxZ, bottom: 2.75, top: 3 };
   const desk: Collider = { minX: 12.7, maxX: 15.3, minZ: 9.6, maxZ: 10.8, bottom: 3, top: 3.8 };
   const { player, keys, frames } = controller(t, [floor, desk]);
-  player.sit(seatPlace(SEAT_BY_ID.get('boss-chair')!, 0));
+  player.sit(seatPlace(SEATING_BY_ID.get('boss-chair')!, 0));
   keys('Space');
   frames(1);
   assert.equal(player.seat, null);
@@ -172,7 +172,7 @@ test("gets up from the boss's chair behind it, away from the desk", (t) => {
 });
 
 test('gets up off a beanbag to the side when something stands in front of it', (t) => {
-  const bag = SEAT_BY_ID.get('beanbag-1')!;
+  const bag = SEATING_BY_ID.get('lounge-beanbag-1')!;
   const bean: Collider = { minX: bag.x - 0.5, maxX: bag.x + 0.5, minZ: bag.z - 0.5, maxZ: bag.z + 0.5, top: 0.6 };
   const place = seatPlace(bag, 0);
   const ax = place.x + Math.sin(bag.rotY) * bag.out;
@@ -189,7 +189,7 @@ test('gets up off the balcony bench onto the deck, clear of the bench', (t) => {
   const bench: Collider = { minX: -10, maxX: -8, minZ: BALCONY.minZ, maxZ: BALCONY.minZ + 0.55, top: 0.49 };
   const { player, keys, frames } = controller(t, [deck, bench]);
   for (const i of [0, 1]) {
-    player.sit(seatPlace(SEAT_BY_ID.get('bench')!, i));
+    player.sit(seatPlace(SEATING_BY_ID.get('bench')!, i));
     keys('KeyS');
     frames(1);
     assert.equal(player.seat, null);
