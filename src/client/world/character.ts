@@ -203,6 +203,8 @@ export class Person {
   private seatHips = HIPS;
   /** 0 standing … 1 sitting, eased between so sitting down and getting up take a moment. */
   private sitK = 0;
+  /** Holding on to the ladder or a fire pole (see setGrip). */
+  private grip: 'ladder' | 'pole' | null = null;
 
   constructor(
     private name: string,
@@ -562,6 +564,14 @@ export class Person {
     this.pose = hips === null ? 'stand' : 'sit';
   }
 
+  /**
+   * On the ladder (hand over hand, as they climb) or a fire pole (hanging on with both arms up, legs
+   * wrapped round it: it's on their left, the +x side), or neither.
+   */
+  setGrip(grip: 'ladder' | 'pole' | null) {
+    this.grip = grip;
+  }
+
   /** `pace` speeds up the walk cycle for someone walking faster than usual. */
   update(dt: number, t: number, moving: boolean, airborne: boolean, pace = 1) {
     const target = moving ? 1 : 0;
@@ -605,6 +615,21 @@ export class Person {
     }
     // Lean into the reach a little.
     this.body.rotation.x = reach * 0.12;
+    this.body.rotation.z = 0;
+    if (this.grip === 'ladder') {
+      const c = Math.sin(this.walkPhase);
+      this.armL.rotation.set(-2.55 + c * 0.35, 0, -0.12);
+      this.armR.rotation.set(-2.55 - c * 0.35, 0, 0.12);
+      this.legL.rotation.set(-0.55 - c * 0.45, 0, 0);
+      this.legR.rotation.set(-0.55 + c * 0.45, 0, 0);
+      this.body.rotation.x = -0.08;
+    } else if (this.grip === 'pole') {
+      this.armL.rotation.set(0, 0, 2.95);
+      this.armR.rotation.set(0, 0, 2.45);
+      this.legL.rotation.set(-0.35, 0, 0.25);
+      this.legR.rotation.set(-1.15, 0, 0.35);
+      this.body.rotation.z = -0.16;
+    }
     if (this.mug.visible) this.mug.quaternion.copy(this.armR.quaternion).invert();
     this.body.position.y = moving && !airborne ? Math.abs(Math.sin(this.walkPhase)) * 0.06 : 0;
     // Down onto (or up onto) the seat: the hips go where it puts them.

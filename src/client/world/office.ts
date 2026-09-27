@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LOFT, MACHINE_MONITOR, PLANTS, SEATING_BY_ID, SLAB, STAIRS, STATIONS, STATION_AGENT, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, type DeskDef, type Opening, type Side, type StationKind } from '../../shared/layout';
+import { ASHTRAY, ATRIUM, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LADDER, LOFT, MACHINE_MONITOR, PLANTS, SEATING_BY_ID, SLAB, STAIRS, STATIONS, STATION_AGENT, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, type DeskDef, type Opening, type Side, type StationKind } from '../../shared/layout';
 import { wallFacing, type WallId, type WallRect } from '../../shared/decor';
 import { deskPoint } from '../../shared/nav';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
@@ -9,6 +9,7 @@ import { buildElevator, type Elevator } from './elevator';
 import { buildGong, type Gong } from './gong';
 import { buildJukebox, type JukeboxView } from './jukebox';
 import { buildWhiteboard, type WhiteboardStand } from './whiteboard';
+import { buildStack, type Stack } from './stack';
 
 export interface Collider {
   minX: number;
@@ -20,7 +21,7 @@ export interface Collider {
   bottom?: number;
 }
 
-export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard';
+export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'ladder' | 'pole';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -33,6 +34,8 @@ export interface Interactable {
   deskId?: string;
   decorId?: string;
   seatId?: string;
+  /** Which of POLES, for a fire pole. */
+  pole?: number;
   /** Put away for now (a bean bag nobody needs yet): can't be used. */
   off?: boolean;
 }
@@ -77,6 +80,8 @@ export interface Office {
   jukebox: JukeboxView;
   /** The rolling whiteboard everyone draws on together. */
   whiteboard: WhiteboardStand;
+  /** The ceiling, the floor, and the ladder and fire poles between the floors of the building. */
+  stack: Stack;
   /** The sign over the elevator doors: which floor you're on. */
   setProjectName(name: string): void;
   /** Paints the walls, their trim and the floor in a floor's colors, so each project looks like itself. */
@@ -579,23 +584,24 @@ function buildExitStairs(group: THREE.Group, colliders: Collider[]) {
 
 /**
  * The four outside walls, built in pieces around their windows and doors. Each is painted inside in
- * the floor's colors and outside in the building's. Behind the loft they carry on up past the
- * ceiling downstairs, to the loft's roof.
+ * the floor's colors and outside in the building's. Round the loft they carry on up past the
+ * ceiling, to the atrium's.
  */
 function buildWalls(group: THREE.Group, colliders: Collider[], openings: Opening[], looks: Looks) {
   const inside = looks.wall;
   const outside = toon(PALETTE.exterior);
   const trimMat = looks.trim;
   const T = WALL_T;
-  const loftTop = LOFT.y + LOFT.height + 0.2;
+  // Round the loft the room goes up higher (see ATRIUM), and so do the walls.
+  const top = ATRIUM.y + SLAB;
   const walls: { side: Side; at: number; spans: [number, number, number][] }[] = [
     { side: 'north', at: FLOOR.minZ - T / 2, spans: [[FLOOR.minX - T, FLOOR.maxX + T, WALL_HEIGHT]] },
     {
       side: 'south',
       at: FLOOR.maxZ + T / 2,
       spans: [
-        [FLOOR.minX - T, LOFT.minX, WALL_HEIGHT],
-        [LOFT.minX, FLOOR.maxX + T, loftTop],
+        [FLOOR.minX - T, ATRIUM.minX, WALL_HEIGHT],
+        [ATRIUM.minX, FLOOR.maxX + T, top],
       ],
     },
     { side: 'west', at: FLOOR.minX - T / 2, spans: [[FLOOR.minZ, FLOOR.maxZ, WALL_HEIGHT]] },
@@ -603,8 +609,8 @@ function buildWalls(group: THREE.Group, colliders: Collider[], openings: Opening
       side: 'east',
       at: FLOOR.maxX + T / 2,
       spans: [
-        [FLOOR.minZ, LOFT.minZ, WALL_HEIGHT],
-        [LOFT.minZ, FLOOR.maxZ, loftTop],
+        [FLOOR.minZ, ATRIUM.minZ, WALL_HEIGHT],
+        [ATRIUM.minZ, FLOOR.maxZ, top],
       ],
     },
   ];
@@ -858,22 +864,19 @@ export function buildOffice(): Office {
   const interactables: Interactable[] = [];
   const fixtures: WallRect[] = [];
   const fixture = (wall: WallId, u: number, y: number, w: number, h: number) => fixtures.push({ wall, u0: u - w / 2, u1: u + w / 2, y0: y - h / 2, y1: y + h / 2 });
-  const width = FLOOR.maxX - FLOOR.minX;
-  const depth = FLOOR.maxZ - FLOOR.minZ;
-  const cx = (FLOOR.maxX + FLOOR.minX) / 2;
-  const cz = (FLOOR.maxZ + FLOOR.minZ) / 2;
 
   // What each floor paints its own way (see setLook): the walls, their trim, the planks.
   const looks: Looks = { wall: toonUnique(PALETTE.wall), trim: toonUnique(PALETTE.wallTrim), planks: [] };
 
-  // Floor
+  // Floor, and the ceiling, with the ways up and down to the other floors through them (see stack.ts).
   const floorTex = floorTexture();
   looks.planks.push(floorTex);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), new THREE.MeshToonMaterial({ map: floorTex, gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap }));
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.set(cx, 0, cz);
-  floor.receiveShadow = true;
-  group.add(floor);
+  const stack = buildStack(colliders, new THREE.MeshToonMaterial({ map: floorTex, gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap }), looks.wall);
+  stack.set({ index: 0, count: 1 });
+  group.add(stack.group);
+  interactables.push(...stack.interactables);
+  // The ladder and its sign, up the west wall.
+  fixture('west', LADDER.z + 0.6, WALL_HEIGHT / 2, LADDER.width + 2.4, WALL_HEIGHT);
 
   // Rugs under each desk cluster
   [
@@ -1191,7 +1194,7 @@ export function buildOffice(): Office {
     gong.update(dt);
   };
 
-  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, fixtures: () => fixtures, elevator, gong, jukebox, whiteboard, setProjectName, setLook, night, update };
+  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, fixtures: () => fixtures, elevator, gong, jukebox, whiteboard, stack, setProjectName, setLook, night, update };
 }
 
 /** The materials and textures a floor paints in its own colors. */

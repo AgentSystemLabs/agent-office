@@ -777,8 +777,12 @@ export type ClientMsg =
   | { t: 'wb.update'; elements: WbElement[] }
   /** Where your mouse is on the whiteboard, and what you have selected there. */
   | ({ t: 'wb.pointer'; selected?: string[] } & WbPointer)
-  /** Ride the elevator to another floor; the server answers with `floor.enter`. */
-  | { t: 'floor.go'; floor: string }
+  /**
+   * Go to another floor; the server answers with `floor.enter`. By elevator you arrive in the car;
+   * `at` is where you arrive instead: the same spot on the other floor (switching floors from the
+   * floor list), or the ladder or fire pole you came by.
+   */
+  | { t: 'floor.go'; floor: string; at?: { x: number; y: number; z: number; rotY: number } }
   /** The repositories that could become a floor; answered with `floor.repos`. */
   | { t: 'floor.repos'; refresh?: boolean }
   /** Clone a repository and make it a new floor; answered with `floor.added` once it's there. */
