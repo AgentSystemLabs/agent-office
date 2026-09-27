@@ -74,9 +74,11 @@ button { font-family: inherit; }
 .workers h3 { display: flex; align-items: baseline; gap: 5px; }
 .workers h3 .cost { margin-left: auto; font-size: 12px; text-transform: none; letter-spacing: 0; }
 .workers .cost { font-size: 11px; font-weight: 800; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.workers .name .cost { display: block; white-space: normal; overflow-wrap: anywhere; }
 /* Spend: today, the budget and all time */
 .usage { margin-top: 8px; padding-top: 8px; border-top: 2px dashed rgba(43, 45, 66, .25); font-size: 12px; font-weight: 700; display: flex; flex-direction: column; gap: 5px; }
 .usage .row { display: flex; align-items: baseline; gap: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.usage .row.muted { display: block; white-space: normal; overflow: visible; overflow-wrap: anywhere; }
 .usage .row b { font-weight: 900; font-variant-numeric: tabular-nums; }
 .usage .muted { color: var(--muted); font-weight: 600; }
 .usage.over .row b { color: var(--bad); }
@@ -154,6 +156,23 @@ button { font-family: inherit; }
 .close { width: 34px; height: 34px; padding: 0; justify-content: center; }
 
 .seg { display: flex; gap: 8px; flex-wrap: wrap; }
+.provider-choice { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; min-width: 190px; }
+.provider-choice label { margin: 0; white-space: nowrap; }
+.provider-select { min-width: 132px; padding: 6px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; font-weight: 800; }
+.provider-note { display: block; flex: 1 1 160px; min-width: 0; color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1.25; }
+.provider-model { display: flex; flex: 1 1 220px; flex-direction: column; gap: 3px; min-width: 180px; margin-top: 4px; }
+.provider-model label { margin: 0; font-size: 12px; }
+.provider-model input { width: 100%; padding: 6px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; }
+.provider-model input:invalid { border-color: var(--bad); }
+.provider-model-hint { color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1.25; }
+.queue-add .provider-choice { flex-direction: column; align-items: flex-start; gap: 2px; margin: 0; flex: none; }
+.queue-add .provider-choice label { font-size: 12px; }
+.queue-add .provider-note { flex: 0 1 auto; max-width: 155px; }
+.queue-add .provider-model { flex: 0 1 auto; min-width: 190px; }
+.modal.gh-window.issue footer .provider-choice { margin: 0; flex-direction: column; align-items: flex-start; gap: 2px; }
+.modal.gh-window.issue footer .provider-choice label { font-size: 12px; }
+.modal.gh-window.issue footer .provider-note { flex: 0 1 auto; max-width: 150px; }
+.modal.gh-window.issue footer .provider-model { flex: 0 1 auto; min-width: 190px; }
 .setting-note { margin: 10px 0 0; font-size: 13px; font-weight: 600; color: var(--muted); line-height: 1.4; }
 
 .swatches { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
@@ -580,8 +599,9 @@ a.when:hover { text-decoration: underline; }
 }
 
 /* Task queue */
-.queue-add { display: flex; gap: 8px; align-items: flex-end; }
+.queue-add { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
 .queue-add textarea { flex: 1; min-height: 46px; }
+.queue-add textarea { min-width: 180px; }
 .queue h4 { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px; font-size: 14px; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; }
 .queue h4 .count { color: var(--muted); }
 .queue h4 .btn { margin-left: auto; padding: 3px 10px; font-size: 13px; text-transform: none; letter-spacing: 0; }

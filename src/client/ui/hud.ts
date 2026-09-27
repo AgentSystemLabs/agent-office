@@ -1,7 +1,8 @@
 import { store } from '../state';
 import type { Voice } from '../voice';
 import { $, h, openModal, STATUS_LABEL } from './dom';
-import { fmtCost, usageTitle } from './usage';
+import { usageLabel, usageTitle } from './usage';
+import { providerLabel, providerUsageState, resolvedProvider } from './provider';
 
 export function renderPeople(voice: Voice, onEditProfile: () => void) {
   const ul = $('people');
@@ -38,14 +39,18 @@ export function renderWorkers(onOpen: (id: string) => void) {
   ul.replaceChildren();
   const workers = [...store.workers.values()].sort((a, b) => a.createdAt - b.createdAt);
   for (const w of workers) {
-    const sub = [w.worktree && `🌿 ${w.worktree.branch}`, w.pr && `🔀 PR #${w.pr.number}`, w.activity || w.title || w.prompt].filter(Boolean).join(' · ');
+    const provider = w.kind === 'agent' ? providerLabel(w.provider, store.project) : null;
+    const providerKind = w.kind === 'agent' ? resolvedProvider(w.provider, store.project) : undefined;
+    const usageState = w.kind === 'agent' ? providerUsageState(w.provider, store.project, w.usage) : undefined;
+    const usageNote = usageState === 'untracked' ? ' · usage untracked' : usageState === 'waiting' && providerKind === 'opencode' ? ' · waiting for metrics' : usageState === 'waiting' && providerKind === 'codex' ? ' · waiting for first report' : '';
+    const sub = [provider && `⚙️ ${provider}${usageNote}`, w.worktree && `🌿 ${w.worktree.branch}`, w.pr && `🔀 PR #${w.pr.number}`, w.activity || w.title || w.prompt].filter(Boolean).join(' · ');
     ul.append(
       h(
         'li',
         { onclick: () => onOpen(w.id), title: `Open ${w.name}'s terminal` },
         h('span.dot', { style: `background:${w.color}` }),
-        h('span.name', {}, w.name, sub ? h('span.sub', {}, sub) : null),
-        w.usage?.calls ? h('span.cost', { title: usageTitle(w.usage) }, fmtCost(w.usage.cost)) : null,
+        h('span.name', {}, w.name, sub ? h('span.sub', {}, sub) : null,
+          usageState === 'tracked' && w.usage ? h('span.cost', { title: usageTitle(w.usage, providerKind) }, usageLabel(w.usage, providerKind)) : null),
         h('span.pill', { class: w.status }, STATUS_LABEL[w.status] ?? w.status),
       ),
     );

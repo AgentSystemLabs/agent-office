@@ -2,10 +2,12 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, accessSync, constants } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import path from 'node:path';
+import { homedir } from 'node:os';
+import { CodexUsageReader } from './codex-usage.js';
 import * as pty from '@lydell/node-pty';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
-import type { Run, WorkerInfo, WorkerKind, WorkerStatus, WorkerTask } from '../shared/protocol.js';
+import type { AgentProvider, Run, WorkerInfo, WorkerKind, WorkerStatus, WorkerTask } from '../shared/protocol.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG } from '../shared/protocol.js';
 import { Worktrees, describeWork, type WorktreeCleanup, type WorktreeState } from './worktrees.js';
 import { DESK_BY_ID } from '../shared/layout.js';
@@ -14,6 +16,10 @@ import { gh } from './github.js';
 import type { ServiceOwner } from './services.js';
 import { TaskNamer, fallbackTask } from './tasks.js';
 import { addUsage, newTracker, restoreTracker, scanTracker, trackerUsage, zeroUsage, type Ledger, type UsageTracker } from './usage.js';
+import { codexHookArgs, normalizeCodexHook, writeCodexHook } from './codex.js';
+import { reportedUsage } from './reported-usage.js';
+import { configuredProvider, isValidOpenCodeModel, validateWorkerModel } from './agents.js';
+import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeStatusEvent } from './opencode.js';
 
 type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
 
@@ -29,6 +35,7 @@ const COLORS = ['#ff8a5b', '#5bc0eb', '#9bc53d', '#fde74c', '#c3423f', '#b388eb'
 // which breaks resume.
 const SCRUB_ENV = new Set([
   'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_CODE_EXECPATH', 'CLAUDE_PID', 'CLAUDE_EFFORT',
+  'CODEX_THREAD_ID', 'CODEX_INTERNAL_ORIGINATOR_OVERRIDE',
   'NO_COLOR', 'FORCE_COLOR', 'VSCODE_INJECTION', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION',
 ]);
 const SCRUB_PREFIXES = ['CLAUDE_CODE_SESSION', 'CLAUDE_CODE_CHILD', 'CLAUDE_CODE_MESSAGING', 'NEBULA_', 'AGENT_OFFICE_'];
@@ -67,6 +74,14 @@ interface Worker {
   hookToken: string;
   /** Claude never reported SessionStart: it's stuck on a trust/login/onboarding screen. */
   bootBlocked?: boolean;
+  /** OpenCode errors keep the desk visibly actionable until a new turn starts. */
+  openCodeError?: boolean;
+  codexUsage: CodexUsageReader;
+  codexHome?: string;
+  codexTranscript?: string;
+  codexTools: Map<string, string>;
+  codexPending: Set<string>;
+  codexPermissionUnknown?: boolean;
   /** Its latest prompts and tool calls, for naming its task. */
   prompts: string[];
   tools: string[];
@@ -93,6 +108,9 @@ export class WorkerManager {
   private settingsPath: string;
   private trees: Worktrees;
   private agentPath: string | null = null;
+  readonly defaultProvider: AgentProvider;
+  private openCodePlugin: string;
+  private codexHook: string;
   private screenTimer: NodeJS.Timeout;
   /** The office is shutting down: workers exiting now are being stopped, not failing to resume. */
   private closing = false;
@@ -108,12 +126,15 @@ export class WorkerManager {
     private events: WorkerEvents,
     private ledger: Ledger,
   ) {
+    this.defaultProvider = configuredProvider(agentCmd);
     this.trees = new Worktrees(dir);
     this.statePath = path.join(dataDir, 'workers.json');
     this.settingsPath = path.join(dataDir, 'claude-hooks.json');
     this.writeHookSettings();
+    this.openCodePlugin = writeOpenCodePlugin(dataDir);
+    this.codexHook = writeCodexHook(dataDir);
     this.agentPath = resolveCommand(agentCmd);
-    const claude = /(^|\/)claude$/.test(agentCmd) ? this.agentPath : resolveCommand('claude');
+    const claude = this.defaultProvider === 'claude' ? this.agentPath : resolveCommand('claude');
     this.namer = new TaskNamer(claude, childEnv(), (id, task, ctx) => {
       const w = this.workers.get(id);
       if (!w || w.taskEpoch !== ctx.epoch) return;
@@ -160,9 +181,14 @@ export class WorkerManager {
     return false;
   }
 
-  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent'): WorkerInfo | string {
+  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string): WorkerInfo | string {
+    const selectedProvider = kind === 'agent' ? provider ?? this.defaultProvider : undefined;
+    const modelError = validateWorkerModel(kind, selectedProvider, model);
+    if (modelError) return modelError;
     if (!DESK_BY_ID.has(deskId)) return 'Unknown desk';
     if (this.deskOccupied(deskId)) return 'That desk is taken';
+    if (kind === 'shell' && provider !== undefined) return 'Shell workers do not have an agent provider';
+    if (kind === 'agent' && selectedProvider === 'custom' && this.defaultProvider !== 'custom') return 'Custom is not the configured agent provider';
     if (kind === 'agent') {
       const paused = this.ledger.hiringPaused;
       if (paused) return paused;
@@ -179,6 +205,8 @@ export class WorkerManager {
     const info: WorkerInfo = {
       id,
       kind,
+      provider: selectedProvider,
+      model: selectedProvider === 'opencode' ? model : undefined,
       deskId,
       name: kind === 'shell' ? `${name} 🐚` : name,
       color: kind === 'shell' ? '#8d99ae' : COLORS[Math.floor(Math.random() * COLORS.length)],
@@ -393,7 +421,7 @@ export class WorkerManager {
   /** Claude Code hook callback. */
   handleHook(workerId: string, token: string, event: string, payload: any): boolean {
     const w = this.workers.get(workerId);
-    if (!w || !safeEq(token, w.hookToken)) return false;
+    if (!w || !w.pty || w.info.kind !== 'agent' || (w.info.provider !== 'claude' && w.info.provider !== 'custom') || !safeEq(token, w.hookToken)) return false;
     const now = Date.now();
     if (payload?.session_id && typeof payload.session_id === 'string' && payload.session_id !== w.info.sessionId) {
       w.info.sessionId = payload.session_id;
@@ -454,6 +482,129 @@ export class WorkerManager {
     return true;
   }
 
+  /** Native Codex lifecycle hooks register the root rollout for bounded metric reads. */
+  handleCodexHook(workerId: string, token: string, event: string, payload: unknown): boolean {
+    const w = this.workers.get(workerId);
+    if (!w || !w.pty || w.info.kind !== 'agent' || w.info.provider !== 'codex' || !safeEq(token, w.hookToken)) return false;
+    const report = normalizeCodexHook(event, payload);
+    if (!report) return false;
+    if (w.info.sessionId && w.info.sessionId !== report.sessionId && event !== 'SessionStart') return false;
+    if (!w.info.sessionId || w.info.sessionId !== report.sessionId) {
+      if (w.info.sessionId) {
+        this.clearTask(w);
+        w.info.usage = undefined;
+        w.codexTranscript = undefined;
+        w.codexUsage = new CodexUsageReader();
+      }
+      w.info.sessionId = report.sessionId;
+      this.persist();
+    }
+    if (report.transcriptPath) w.codexTranscript = report.transcriptPath;
+    this.scheduleScan(w);
+    w.bootBlocked = false;
+    const clearPending = () => {
+      w.codexTools.clear();
+      w.codexPending.clear();
+      w.codexPermissionUnknown = false;
+    };
+    const busy = () => this.setStatus(w, w.codexPending.size || w.codexPermissionUnknown ? 'needs_input' : 'working');
+    switch (report.event) {
+      case 'SessionStart':
+        clearPending();
+        if (report.source === 'clear') this.clearTask(w);
+        w.info.activity = undefined;
+        if (w.info.status === 'starting' || w.info.status === 'needs_input') this.setStatus(w, 'idle');
+        break;
+      case 'UserPromptSubmit':
+        clearPending();
+        if (report.prompt) {
+          w.info.activity = truncate(report.prompt, 80);
+          this.notePrompt(w, report.prompt);
+        }
+        this.setStatus(w, 'working');
+        break;
+      case 'PreToolUse':
+        w.info.activity = report.tool ? truncate(report.tool, 80) : 'Using a tool';
+        if (report.toolUseId && w.codexTools.size < 256) w.codexTools.set(report.toolUseId, report.tool ?? '');
+        if (/(?:^|[.])(?:AskUserQuestion|request_user_input)$/.test(report.tool ?? '')) {
+          if (report.toolUseId) w.codexPending.add(report.toolUseId);
+          else w.codexPermissionUnknown = true;
+        }
+        busy();
+        break;
+      case 'PermissionRequest':
+        w.info.activity = `Wants permission: ${truncate(report.tool ?? 'tool', 80)}`;
+        // PermissionRequest has no tool_use_id in the native schema. Keep every matching
+        // active call pending so an unrelated parallel tool cannot dismiss the prompt.
+        const candidates = [...w.codexTools].filter(([, tool]) => tool === report.tool);
+        if (!candidates.length) w.codexPermissionUnknown = true;
+        for (const [id] of candidates) w.codexPending.add(id);
+        this.setStatus(w, 'needs_input');
+        break;
+      case 'PostToolUse':
+        if (report.toolUseId) {
+          w.codexTools.delete(report.toolUseId);
+          w.codexPending.delete(report.toolUseId);
+        }
+        busy();
+        break;
+      case 'Stop':
+      case 'Interrupt':
+        clearPending();
+        this.setStatus(w, 'done');
+        break;
+    }
+    this.emitUpdate(w);
+    this.persist();
+    return true;
+  }
+
+  /** OpenCode plugin callback. The plugin has already filtered child sessions before this bridge. */
+  handleOpenCodeHook(workerId: string, token: string, payload: unknown): boolean {
+    const w = this.workers.get(workerId);
+    if (!w || !w.pty || w.info.kind !== 'agent' || w.info.provider !== 'opencode' || !safeEq(token, w.hookToken)) return false;
+    if (payload && typeof payload === 'object' && 'type' in payload && payload.type === 'usage') {
+      const report = payload as { sessionId?: unknown; usage?: unknown };
+      const usage = reportedUsage(report.usage);
+      if (!usage || !w.info.sessionId || report.sessionId !== w.info.sessionId) return false;
+      // Full snapshots replace previous totals. They never advance task status or enter the Claude ledger.
+      w.info.usage = usage;
+      this.emitUpdate(w);
+      this.persist();
+      return true;
+    }
+    if (!isOpenCodeHookEvent(payload)) return false;
+    if (w.info.sessionId && w.info.sessionId !== payload.sessionId && !(payload.type === 'session' && payload.status === 'starting')) return false;
+    if (!w.info.sessionId || (payload.type === 'session' && payload.status === 'starting' && w.info.sessionId !== payload.sessionId)) {
+      const switching = !!w.info.sessionId;
+      w.info.sessionId = payload.sessionId;
+      if (switching) {
+        w.info.usage = undefined;
+        this.clearTask(w);
+        w.info.activity = undefined;
+        this.setStatus(w, 'idle');
+      }
+      w.openCodeError = false;
+      this.persist();
+    }
+    if (payload.type === 'error') w.openCodeError = true;
+    else if (payload.status === 'working' || payload.prompt) w.openCodeError = false;
+    if (payload.prompt) {
+      w.info.activity = truncate(payload.prompt, 80);
+      this.notePrompt(w, payload.prompt);
+    } else if (payload.tool) {
+      w.info.activity = truncate(payload.tool, 80);
+    } else if (payload.detail) {
+      w.info.activity = truncate(payload.detail, 80);
+    }
+    if (payload.status === 'needs_input') this.setStatus(w, 'needs_input');
+    else if (payload.status === 'working') this.setStatus(w, 'working');
+    else if (payload.status === 'done' && w.pty) this.setStatus(w, w.openCodeError ? 'needs_input' : 'done');
+    else if (payload.status === 'starting' && w.info.status === 'starting') this.setStatus(w, 'idle');
+    else this.emitUpdate(w);
+    return true;
+  }
+
   /** A new message for the worker: show it right away, and have its task (re)named. */
   private notePrompt(w: Worker, prompt: string) {
     if (w.info.kind !== 'agent') return;
@@ -463,18 +614,21 @@ export class WorkerManager {
     w.prompts = [...w.prompts, clean].slice(-TASK_PROMPTS);
     const hadTask = !!w.info.task;
     if (!hadTask) w.info.task = fallbackTask(clean);
+    if (w.info.provider !== 'claude' && w.info.provider !== 'custom') return;
     // "yes", "go ahead", "2": a reply within the same task, not worth a new name.
     if (hadTask && clean.length < 16) return;
     this.nameTask(w);
   }
 
   private noteTool(w: Worker, tool: string) {
+    if (w.info.provider !== 'claude' && w.info.provider !== 'custom') return;
     w.tools = [...w.tools, tool].slice(-TASK_TOOLS);
     w.toolsSinceNamed++;
     if (w.info.task && w.toolsSinceNamed >= TASK_REFRESH_TOOLS && Date.now() - w.namedAt > TASK_REFRESH_MS) this.nameTask(w);
   }
 
   private nameTask(w: Worker) {
+    if (w.info.provider !== 'claude' && w.info.provider !== 'custom') return;
     w.toolsSinceNamed = 0;
     w.namedAt = Date.now();
     const previous = w.info.task && w.prompts.length > 1 ? w.info.task : undefined;
@@ -498,6 +652,8 @@ export class WorkerManager {
     clearInterval(this.screenTimer);
     clearInterval(this.usageTimer);
     for (const w of this.workers.values()) {
+      clearTimeout(w.scanTimer);
+      this.scanUsage(w);
       try {
         w.pty?.kill();
       } catch {
@@ -516,11 +672,13 @@ export class WorkerManager {
     term.loadAddon(ser as any);
     // OSC 9;4 progress (Claude Code emits it): 0 = idle, anything else = busy. Catches Esc-cancel,
     // which fires no Stop hook.
-    term.parser.registerOscHandler(9, (data: string) => {
-      const m = /^4;(\d)/.exec(data);
-      if (m) this.onProgress(w, m[1] !== '0');
-      return true;
-    });
+    if (info.provider === 'claude') {
+      term.parser.registerOscHandler(9, (data: string) => {
+        const m = /^4;(\d)/.exec(data);
+        if (m) this.onProgress(w, m[1] !== '0');
+        return true;
+      });
+    }
     term.onTitleChange((title: string) => {
       const clean = title.replace(/^[^\p{L}\p{N}]+/u, '').trim();
       if (clean && clean !== info.title && !/^claude( code)?$/i.test(clean)) {
@@ -536,13 +694,37 @@ export class WorkerManager {
 
     const shell = process.env.SHELL || '/bin/bash';
     const isShell = info.kind === 'shell';
-    const isClaude = !isShell && /(^|\/)claude$/.test(this.agentCmd);
-    const args = isShell ? ['-l'] : [...this.agentArgs];
+    const provider = info.provider;
+    const isClaude = !isShell && provider === 'claude';
+    const isOpenCode = !isShell && provider === 'opencode';
+    const isCodex = !isShell && provider === 'codex';
+    const configured = !isShell && provider === this.defaultProvider;
+    const command = isShell ? shell : configured ? this.agentCmd : provider ?? this.agentCmd;
+    const commandPath = isShell ? undefined : configured ? this.agentPath : resolveCommand(command);
+    let args = isShell ? ['-l'] : configured ? [...this.agentArgs] : [];
     if (isClaude) {
       args.unshift('--settings', this.settingsPath);
       if (resumeSessionId) args.push('--resume', resumeSessionId);
       // `--` so a prompt like "- fix login" is never parsed as a CLI option.
       if (prompt) args.push('--', prompt);
+    } else if (isOpenCode) {
+      if (resumeSessionId || info.model) args = withoutOpenCodeModel(args);
+      if (!resumeSessionId && info.model) args.push('--model', info.model);
+      if (resumeSessionId) args.push('--session', resumeSessionId);
+      if (prompt) args.push('--prompt', prompt);
+    } else if (isCodex) {
+      args.push(...codexHookArgs(this.codexHook), '--no-alt-screen');
+      if (resumeSessionId) args.push('resume', resumeSessionId);
+      if (prompt) args.push('--', prompt);
+    }
+    if (isCodex) {
+      w.codexTools.clear();
+      w.codexPending.clear();
+      w.codexPermissionUnknown = false;
+    }
+    if (isOpenCode || isCodex) {
+      w.hookToken = randomBytes(16).toString('hex');
+      w.openCodeError = false;
     }
     const env = childEnv();
     Object.assign(env, {
@@ -554,29 +736,34 @@ export class WorkerManager {
     });
 
     const cwd = info.worktree ? path.join(this.dir, info.worktree.path) : this.dir;
+    if (isCodex) w.codexHome = path.resolve(cwd, env.CODEX_HOME || path.join(env.HOME || homedir(), '.codex'));
     let proc: pty.IPty;
     try {
       if (!existsSync(cwd)) throw new Error(`working directory is gone: ${cwd}`);
+      if (isOpenCode) {
+        env.AGENT_OFFICE_SESSION_ID = resumeSessionId ?? '';
+        env.OPENCODE_CONFIG_CONTENT = mergeOpenCodeConfigContent(env.OPENCODE_CONFIG_CONTENT, openCodePluginSpecifier(this.openCodePlugin));
+      }
       if (isShell) {
         proc = pty.spawn(shell, args, { name: 'xterm-256color', cols: info.cols, rows: info.rows, cwd, env });
-      } else if (this.agentPath) {
-        proc = pty.spawn(this.agentPath, args, { name: 'xterm-256color', cols: info.cols, rows: info.rows, cwd, env });
+      } else if (commandPath) {
+        proc = pty.spawn(commandPath, args, { name: 'xterm-256color', cols: info.cols, rows: info.rows, cwd, env });
       } else {
         // Not found on PATH: let a login shell find it (nvm, asdf, ~/.local/bin ...).
-        const line = ['exec', this.agentCmd, ...args].map((a, i) => (i < 2 ? a : shq(a))).join(' ');
+        const line = ['exec', command, ...args].map((a, i) => (i < 2 ? a : shq(a))).join(' ');
         proc = pty.spawn(shell, ['-l', '-i', '-c', line], { name: 'xterm-256color', cols: info.cols, rows: info.rows, cwd, env });
       }
     } catch (err) {
       info.status = 'exited';
       info.exitCode = -1;
-      const what = isShell ? shell : this.agentCmd;
+      const what = isShell ? shell : command;
       term.write(`\r\n\x1b[31mFailed to start ${what}: ${(err as Error).message}\x1b[0m\r\n`);
       this.events.toast(`Could not start ${what}: ${(err as Error).message}`, 'error');
       this.emitUpdate(w);
       return;
     }
     w.pty = proc;
-    if (!isClaude) info.status = 'idle';
+    if (!isClaude && !isCodex) info.status = 'idle';
 
     proc.onData((data) => {
       term.write(data);
@@ -586,6 +773,7 @@ export class WorkerManager {
     proc.onExit(({ exitCode }) => {
       if (w.pty !== proc || this.workers.get(info.id) !== w) return;
       w.pty = undefined;
+      if (isCodex && !this.closing) this.scheduleScan(w);
       // Resuming a conversation Claude no longer has ("No conversation found") exits before Claude
       // ever starts. Start a fresh one rather than leave the worker asleep.
       if (isClaude && resumeSessionId && info.status === 'starting' && !this.closing) {
@@ -607,9 +795,11 @@ export class WorkerManager {
     // blocked on a human: folder trust dialog, login, first-run onboarding. Flag it so it jumps.
     setTimeout(() => {
       if (info.status !== 'starting' || w.pty !== proc) return;
-      if (isClaude) {
+      if (isClaude || isCodex) {
         w.bootBlocked = true;
-        info.activity = 'Waiting on a setup prompt (trust / login) — open the terminal';
+        info.activity = isCodex
+          ? 'Open the terminal: complete login and review Office hooks in /hooks'
+          : 'Waiting on a setup prompt (trust / login) — open the terminal';
         this.setStatus(w, 'needs_input');
       } else this.setStatus(w, 'idle');
     }, 12000);
@@ -627,7 +817,17 @@ export class WorkerManager {
 
   /** Picks up what the session logged since last time and books the difference. */
   private scanUsage(w: Worker) {
-    if (w.info.kind !== 'agent' || !w.tracker.transcript || this.workers.get(w.info.id) !== w) return;
+    if (w.info.kind === 'agent' && w.info.provider === 'codex') {
+      if (this.workers.get(w.info.id) !== w || !w.codexTranscript || !w.codexHome || !w.info.sessionId) return;
+      const usage = w.codexUsage.read(w.codexTranscript, w.info.sessionId, w.codexHome);
+      if (usage && JSON.stringify(usage) !== JSON.stringify(w.info.usage)) {
+        w.info.usage = usage;
+        this.emitUpdate(w);
+        this.persist();
+      }
+      return;
+    }
+    if (w.info.kind !== 'agent' || (w.info.provider !== 'claude' && w.info.provider !== 'custom') || !w.tracker.transcript || this.workers.get(w.info.id) !== w) return;
     try {
       if (!scanTracker(w.tracker)) return;
     } catch {
@@ -705,7 +905,7 @@ export class WorkerManager {
    * in on this machine. Flag that as needing a human, and clear it once the screen moves on.
    */
   private checkBlocked(w: Worker) {
-    if (w.info.kind !== 'agent' || !w.term) return;
+    if (w.info.kind !== 'agent' || !w.term || (w.info.provider !== 'claude' && w.info.provider !== 'custom')) return;
     const s = w.info.status;
     if (s !== 'starting' && s !== 'idle' && !(w.bootBlocked && s === 'needs_input')) return;
     const text = screenText(w.term);
@@ -769,9 +969,11 @@ process.stdin.on('end', () => {
   }
 
   private persist() {
-    const saved = [...this.workers.values()].map(({ info, tracker }) => ({
+    const saved = [...this.workers.values()].map(({ info, tracker, codexTranscript }) => ({
       id: info.id,
       kind: info.kind,
+      provider: info.provider,
+      model: info.model,
       deskId: info.deskId,
       name: info.name,
       color: info.color,
@@ -785,6 +987,8 @@ process.stdin.on('end', () => {
       task: info.task,
       pr: info.pr,
       tracker: info.kind === 'agent' ? tracker : undefined,
+      usage: info.provider === 'opencode' || info.provider === 'codex' ? info.usage : undefined,
+      codexTranscript: info.provider === 'codex' ? codexTranscript : undefined,
     }));
     try {
       writeFileSync(this.statePath, JSON.stringify(saved, null, 2), { mode: 0o600 });
@@ -796,13 +1000,22 @@ process.stdin.on('end', () => {
   private restore() {
     if (!existsSync(this.statePath)) return;
     try {
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { tracker?: unknown })[];
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { tracker?: unknown; codexTranscript?: unknown })[];
       for (const s of saved) {
         if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || this.deskOccupied(s.deskId)) continue;
         const tracker = restoreTracker(s.tracker);
+        const provider = s.kind === 'shell'
+          ? undefined
+          : s.provider === 'claude' || s.provider === 'opencode' || s.provider === 'codex' || s.provider === 'custom'
+            ? s.provider
+            : tracker.transcript
+              ? 'claude'
+              : this.defaultProvider;
         const info: WorkerInfo = {
           id: s.id,
           kind: s.kind === 'shell' ? 'shell' : 'agent',
+          provider,
+          model: provider === 'opencode' && isValidOpenCodeModel(s.model) ? s.model : undefined,
           deskId: s.deskId,
           name: s.name ?? 'Worker',
           color: s.color ?? COLORS[0],
@@ -817,12 +1030,13 @@ process.stdin.on('end', () => {
           activity: s.activity,
           task: validTask(s.task),
           pr: s.pr && typeof s.pr.number === 'number' && typeof s.pr.url === 'string' ? { number: s.pr.number, url: s.pr.url } : undefined,
-          usage: tracker.transcript ? trackerUsage(tracker) : undefined,
+          usage: provider === 'opencode' || provider === 'codex' ? reportedUsage(s.usage) : (provider === 'claude' || provider === 'custom') && tracker.transcript ? trackerUsage(tracker) : undefined,
           cols: 100,
           rows: 30,
           viewers: [],
         };
         const w = newWorker(info, tracker);
+        if (provider === 'codex' && typeof s.codexTranscript === 'string') w.codexTranscript = s.codexTranscript;
         w.screenDirty = false;
         if (info.prompt) w.prompts = [info.prompt.replace(/\s+/g, ' ').trim()];
         this.workers.set(info.id, w);
@@ -844,6 +1058,9 @@ function newWorker(info: WorkerInfo, tracker: UsageTracker): Worker {
     leftNeedsInputAt: 0,
     keyframeAt: 0,
     hookToken: randomBytes(16).toString('hex'),
+    codexUsage: new CodexUsageReader(),
+    codexTools: new Map(),
+    codexPending: new Set(),
     prompts: [],
     tools: [],
     toolsSinceNamed: 0,
@@ -851,6 +1068,20 @@ function newWorker(info: WorkerInfo, tracker: UsageTracker): Worker {
     taskEpoch: 0,
     tracker,
   };
+}
+
+function withoutOpenCodeModel(args: string[]): string[] {
+  const clean: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--model' || arg === '-m') {
+      if (args[i + 1] !== undefined && !args[i + 1].startsWith('-')) i++;
+      continue;
+    }
+    if (arg.startsWith('--model=') || (arg.startsWith('-m') && arg.length > 2)) continue;
+    clean.push(arg);
+  }
+  return clean;
 }
 
 /** The office's environment, minus anything that would make a child think it's a nested session. */
@@ -863,6 +1094,17 @@ function childEnv(): Record<string, string> {
 function validTask(t: unknown): WorkerTask | undefined {
   const v = t as Partial<WorkerTask> | undefined;
   return typeof v?.name === 'string' && typeof v.summary === 'string' ? { name: v.name, summary: v.summary } : undefined;
+}
+
+function isOpenCodeHookEvent(value: unknown): value is OpenCodeStatusEvent {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.type === 'string' && ['session', 'prompt', 'tool', 'permission', 'question', 'error'].includes(v.type)
+    && typeof v.sessionId === 'string' && v.sessionId.length > 0
+    && typeof v.status === 'string' && ['starting', 'working', 'needs_input', 'done'].includes(v.status)
+    && (v.prompt === undefined || typeof v.prompt === 'string')
+    && (v.tool === undefined || typeof v.tool === 'string')
+    && (v.detail === undefined || typeof v.detail === 'string');
 }
 
 function snapshotScreen(term: HeadlessTerminal, last: string[]) {
