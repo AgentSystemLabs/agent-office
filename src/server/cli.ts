@@ -33,7 +33,14 @@ if (cfg.host === '0.0.0.0' || cfg.host === '::') {
   }
 } else urls.add(`${scheme}://${cfg.host}:${cfg.port}`);
 
-const agent = office.workers.resolvedAgent;
+const agent = office.resolvedAgent;
+function floorsLine() {
+  const floors = office.floors();
+  const where = `new ones are cloned into ${cfg.projectsDir}`;
+  if (!floors.length) return `🛗 no floors yet — ride the elevator in the office to add a project (${where})`;
+  return `🛗 ${floors.length} floor${floors.length === 1 ? '' : 's'}: ${floors.map((f) => f.def.name).join(', ')} (${where})`;
+}
+
 function passwordLine() {
   if (!office.accounts.sharedPassword) return 'off — everyone signs in with their own account (agent-office accounts)';
   if (!cfg.passwordGenerated) return '(from --password / AGENT_OFFICE_PASSWORD)';
@@ -42,7 +49,9 @@ function passwordLine() {
   return cfg.password;
 }
 console.log(`
-  🏢  agent-office is open for ${cfg.dir}
+  🏢  agent-office is open${cfg.project ? ` for ${cfg.project}` : ''}
+
+  ${floorsLine()}
 
   ${[...urls].join('\n  ')}
 

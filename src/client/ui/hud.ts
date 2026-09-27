@@ -18,6 +18,8 @@ export function renderPeople(voice: Voice, onEditProfile: () => void) {
       h('span', {}, p.name),
       p.account ? h('span.acct', { title: `Signed in with ${you ? 'your' : 'their'} own account` }, '✓') : null,
       you ? h('span.you', {}, '(you)') : null,
+      // Somewhere else in the building: which floor.
+      !you && !store.onMyFloor(p) ? h('span.where', { title: 'On another floor' }, `🛗 ${store.floors.find((f) => f.id === p.floor)?.name ?? 'lobby'}`) : null,
       p.sharing ? h('span', { title: 'Sharing screen' }, '🖥️') : null,
       h('span.mic', {}, mic),
     );
@@ -76,6 +78,7 @@ export function openHelp() {
     ['Space', 'Jump'],
     ['Mouse', 'Look around in first person (click to capture the mouse, Esc to free it)'],
     ['Click / E', 'Use what you look at: hire a worker, open its terminal, read a board, watch the TV'],
+    ['🛗', 'Every project is a floor: step into the elevator on the north wall and press E (or click the project name, top left) to go to another one or add a project'],
     ['Drag / wheel', 'Orbit and zoom the camera in third person'],
     ['P', 'Prompt: give a task to a new or existing worker at the desk you face'],
     ['C', 'Changes: what the worker at the desk you face changed — files and diff, commit, discard, open a PR'],
@@ -85,7 +88,7 @@ export function openHelp() {
     ['F', 'Hang a picture from the web on a wall. Look at a picture and press E to move, edit or take it down'],
     ['O', 'Open a pull request for a worker on its own branch, or see the one it has'],
     ['T', 'Chat'],
-    ['/', 'Search the chat and every terminal, back to before the office last restarted'],
+    ['/', 'Search the chat and every terminal on your floor, back to before the office last restarted'],
     ['V / M', 'Join voice / mute'],
     ['Esc', 'Close any window and get back to looking around'],
     ['Ctrl + [', 'Send Esc to a terminal (e.g. to interrupt Claude)'],

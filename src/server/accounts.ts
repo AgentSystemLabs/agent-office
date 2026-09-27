@@ -1,6 +1,7 @@
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
-import { readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { officeHome } from './config.js';
 import type { AccountInvite, AccountRole, AccountsState } from '../shared/protocol.js';
 
 export const NAME_MAX = 24;
@@ -293,7 +294,9 @@ Usage:
   agent-office accounts password on|off        Whether the shared office password still works
 
 Options:
-  -d, --dir <dir>   The office's project directory (default: current directory)
+  -d, --dir <dir>   The office's directory: the project it was started in, or its
+                    home (default: the current directory if an office ran there,
+                    else ~/agent-office or $AGENT_OFFICE_HOME)
   -h, --help        Show this help
 
 Works while the office runs: it picks up the changes within seconds.
@@ -303,7 +306,8 @@ const day = (t: number) => new Date(t).toISOString().slice(0, 16).replace('T', '
 
 /** `agent-office accounts`: exits 0 when done, 1 when it couldn't, 2 for a usage error. */
 export function accountsCommand(argv: string[]): number {
-  let dir = process.cwd();
+  // An office started in this project keeps its accounts here; one started anywhere else, in its home.
+  let dir = existsSync(path.join(process.cwd(), '.agent-office', 'config.json')) ? process.cwd() : officeHome();
   let admin = false;
   const args: string[] = [];
   for (let i = 0; i < argv.length; i++) {

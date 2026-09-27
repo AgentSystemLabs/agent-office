@@ -56,7 +56,8 @@ export class Webhook {
 
   constructor(
     dataDir: string,
-    private project: string,
+    /** The project a worker works on (the floor it's on), or the office's name without one. */
+    private project: (workerId?: string) => string,
     private onState: (state: NotifyState) => void,
   ) {
     this.path = path.join(dataDir, 'webhook.json');
@@ -119,7 +120,7 @@ export class Webhook {
   /** Posts a test message. Resolves to an error message if it didn't get through. */
   test(by: string): Promise<string | undefined> {
     if (!this.saved) return Promise.resolve('No webhook is set');
-    return this.post({ kind: 'test', title: `🔔 ${by} connected ${this.project} to this channel`, detail: 'Workers that need input or finish will show up here.' });
+    return this.post({ kind: 'test', title: `🔔 ${by} connected ${this.project()} to this channel`, detail: 'Workers that need input or finish will show up here.' });
   }
 
   stop() {
@@ -137,7 +138,7 @@ export class Webhook {
     const what = status === 'needs_input' ? `🙋 ${w.name} needs input` : `✅ ${w.name} is done`;
     const task = w.task?.name ? ` — ${oneLine(w.task.name, 80)}` : '';
     const detail = alertDetail(w);
-    return this.post({ kind: status, title: `${what} in ${this.project}${task}`, detail: detail ? oneLine(detail, 300) : undefined, worker: w });
+    return this.post({ kind: status, title: `${what} in ${this.project(w.id)}${task}`, detail: detail ? oneLine(detail, 300) : undefined, worker: w });
   }
 
   private post(msg: { kind: Alert | 'test'; title: string; detail?: string; worker?: WorkerInfo }): Promise<string | undefined> {
@@ -171,7 +172,7 @@ export class Webhook {
       body = {
         text: msg.detail ? `${msg.title}\n${msg.detail}` : msg.title,
         event: msg.kind,
-        project: this.project,
+        project: this.project(w?.id),
         worker: w && { id: w.id, name: w.name, desk: w.deskId, status: w.status, task: w.task?.name, branch: w.worktree?.branch },
       };
     }

@@ -11,7 +11,9 @@ import type { TerminalFind } from './terminal';
 let lastQuery = '';
 
 async function search(q: string): Promise<SearchResults> {
-  const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`, { credentials: 'same-origin' });
+  // Terminals are the workers on your floor; the chat is the whole building's.
+  const floor = store.floor ? `&floor=${encodeURIComponent(store.floor)}` : '';
+  const r = await fetch(`/api/search?q=${encodeURIComponent(q)}${floor}`, { credentials: 'same-origin' });
   if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? `HTTP ${r.status}`);
   return r.json() as Promise<SearchResults>;
 }

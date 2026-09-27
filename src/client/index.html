@@ -10,10 +10,11 @@
   <body>
     <div id="app">
       <canvas id="scene" tabindex="-1"></canvas>
+      <div id="fade"></div>
       <div id="hud">
         <header class="topbar">
-          <div class="project panel">
-            <div class="project-name" id="project-name">Agent Office</div>
+          <div class="project panel" id="project" role="button" tabindex="-1" title="The elevator: ride to another project">
+            <div class="project-name"><span id="project-name">Agent Office</span><span id="floors-waiting" class="svc-count hidden"></span></div>
             <div class="project-meta" id="project-meta"></div>
           </div>
           <div class="controls panel">
