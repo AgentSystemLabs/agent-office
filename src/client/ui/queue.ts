@@ -3,7 +3,7 @@ import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, timeAgo, STATUS_LABEL } from './dom';
 import { confirmDialog } from './prompt';
-import { providerPicker, providerLabel, providerUsageState, resolvedProvider } from './provider';
+import { providerPicker, providerLabel, providerUsageState, resolvedProvider, modelBadge } from './provider';
 
 export interface QueueActions {
   openTerminal(workerId: string): void;
@@ -64,7 +64,7 @@ export function openQueue(net: Net, actions: QueueActions) {
   );
 
   const ta = h('textarea', { rows: 2, placeholder: 'Describe a task for the next free worker…', 'aria-label': 'New task' }) as HTMLTextAreaElement;
-  const provider = providerPicker(store.project, 'queue-provider', 'Queue provider');
+  const provider = providerPicker(store.project, 'queue-provider', 'Queue provider', 'queue');
   const addBtn = h('button.btn.primary', { type: 'submit' }, 'Add to queue');
   const form = h('form.queue-add', {}, ta, provider.element, addBtn) as HTMLFormElement;
   form.noValidate = true;
@@ -75,7 +75,7 @@ export function openQueue(net: Net, actions: QueueActions) {
       return;
     }
     if (!provider.valid()) return;
-    net.send({ t: 'queue.add', prompt: text, provider: provider.value(), model: provider.model() });
+    net.send({ t: 'queue.add', prompt: text, provider: provider.value(), model: provider.model(), effort: provider.effort() });
     ta.value = '';
   };
   form.addEventListener('submit', (e) => {
@@ -98,7 +98,8 @@ export function openQueue(net: Net, actions: QueueActions) {
     const w = t.workerId ? store.workers.get(t.workerId) : undefined;
     const meta: string[] = [];
     const buttons: HTMLElement[] = [];
-    const model = t.model ? ` · initial: ${t.model}` : '';
+    const badge = modelBadge(t.provider, t.model, t.effort);
+    const model = badge ? ` · initial: ${badge}` : '';
     const usageSuffix = (provider: AgentProvider | undefined, usage?: Usage) => {
       const state = providerUsageState(provider, store.project, usage);
       return state === 'untracked' ? ' · usage untracked' : state === 'waiting' && resolvedProvider(provider, store.project) === 'opencode' ? ' · waiting for metrics' : state === 'waiting' && resolvedProvider(provider, store.project) === 'codex' ? ' · waiting for first report' : '';

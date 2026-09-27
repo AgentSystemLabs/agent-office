@@ -187,6 +187,10 @@ button { font-family: inherit; }
 .provider-model input { width: 100%; padding: 6px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; }
 .provider-model input:invalid { border-color: var(--bad); }
 .provider-model-hint { color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1.25; }
+.provider-model.claude-model { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 8px; }
+.provider-model.claude-model label { white-space: nowrap; }
+.provider-model.claude-model select { width: 100%; padding: 6px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; font-weight: 800; }
+.provider-model.claude-model .provider-model-hint { grid-column: 1 / -1; }
 .queue-add .provider-choice { flex-direction: column; align-items: flex-start; gap: 2px; margin: 0; flex: none; }
 .queue-add .provider-choice label { font-size: 12px; }
 .queue-add .provider-note { flex: 0 1 auto; max-width: 155px; }

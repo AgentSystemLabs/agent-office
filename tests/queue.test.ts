@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { TaskQueue, type QueueWorkers } from '../src/server/queue.js';
-import type { AgentProvider, WorkerInfo } from '../src/shared/protocol.js';
+import type { AgentEffort, AgentProvider, WorkerInfo } from '../src/shared/protocol.js';
 
 function fixture(defaultProvider: AgentProvider = 'claude') {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-queue-'));
@@ -13,9 +13,9 @@ function fixture(defaultProvider: AgentProvider = 'claude') {
     defaultProvider,
     list: () => workers,
     deskOccupied: (desk) => workers.some((w) => w.deskId === desk),
-    spawn(deskId, by, prompt, _worktree, kind, provider, model) {
+    spawn(deskId, by, prompt, _worktree, kind, provider, model, effort) {
       const worker: WorkerInfo = {
-        id: `worker-${workers.length}`, deskId, kind, provider, model, prompt, name: 'Test',
+        id: `worker-${workers.length}`, deskId, kind, provider, model, effort, prompt, name: 'Test',
         color: '#ffffff', status: 'working', acked: false, createdBy: by,
         createdAt: Date.now(), cols: 80, rows: 24, viewers: [],
       };
@@ -94,13 +94,43 @@ test('queue preserves the selected OpenCode model through seating, retry, and re
   assert.equal(f.workers[2].model, 'anthropic/claude-sonnet-4');
 });
 
-test('queue rejects models unless they are valid OpenCode model ids', (t) => {
+test('queue rejects models unless they are valid Claude aliases or OpenCode model ids', (t) => {
   const f = fixture(); t.after(() => f.close());
   const q = f.open();
-  assert.match(q.add('Task', 'Tester', undefined, undefined, 'claude', 'openai/gpt-5') ?? '', /model|OpenCode/i);
+  assert.match(q.add('Task', 'Tester', undefined, undefined, 'claude', 'openai/gpt-5') ?? '', /model/i);
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', 'gpt-5') ?? '', /model|format|provider/i);
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', 'openai/gpt 5') ?? '', /model|format|whitespace/i);
   assert.equal(q.state().tasks.length, 0);
+});
+
+test('queue rejects reasoning effort unless the task is Claude and the level is known', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open();
+  assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', undefined, 'high' as AgentEffort) ?? '', /effort|Claude/i);
+  assert.match(q.add('Task', 'Tester', undefined, undefined, 'claude', undefined, 'overdrive' as AgentEffort) ?? '', /effort/i);
+  assert.equal(q.state().tasks.length, 0);
+});
+
+test('queue preserves a Claude model and effort through seating, retry, and restart', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open();
+  assert.equal(q.add('Fix login', 'Tester', undefined, undefined, 'claude', 'haiku', 'low'), undefined);
+  assert.equal(f.workers[0].model, 'haiku');
+  assert.equal(f.workers[0].effort, 'low');
+  assert.equal(q.state().tasks[0].model, 'haiku');
+  assert.equal(q.state().tasks[0].effort, 'low');
+  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  q.retry(q.state().tasks[0].id);
+  assert.equal(f.workers[1].model, 'haiku');
+  assert.equal(f.workers[1].effort, 'low');
+
+  q.setLimit(0);
+  q.add('Queued', 'Tester', undefined, undefined, 'claude', 'opus', 'max');
+  q.shutdown();
+  const restored = f.open();
+  restored.setLimit(2);
+  assert.equal(f.workers[2].model, 'opus');
+  assert.equal(f.workers[2].effort, 'max');
 });
 
 test('the queue says it emptied once, when its last task gets done', (t) => {

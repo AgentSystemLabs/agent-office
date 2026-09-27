@@ -1,4 +1,4 @@
-import type { AgentProvider, ServerMsg, WorktreeCleanup, WorktreeState } from '../../shared/protocol';
+import type { AgentEffort, AgentProvider, ServerMsg, WorktreeCleanup, WorktreeState } from '../../shared/protocol';
 import { h, openModal } from './dom';
 import { store } from '../state';
 import { providerPicker, type ProviderPicker } from './provider';
@@ -15,7 +15,9 @@ export interface PromptOptions {
   worktreeOption?: boolean;
   /** Offer the configured agent provider choice (only when hiring a new worker). */
   providerOption?: boolean;
-  onSubmit(text: string, opts: { worktree: boolean; provider?: AgentProvider; model?: string }): void;
+  /** The desk being hired at, so the model/effort choice remembered here is this desk's, not the whole office's. */
+  deskId?: string;
+  onSubmit(text: string, opts: { worktree: boolean; provider?: AgentProvider; model?: string; effort?: AgentEffort }): void;
 }
 
 const WT_KEY = 'agent-office.worktree';
@@ -40,7 +42,7 @@ export function openPrompt(opts: PromptOptions) {
         '🌿 Work in its own git worktree & branch',
     )
     : null;
-  const provider: ProviderPicker | null = opts.providerOption ? providerPicker(store.project, 'prompt-provider') : null;
+  const provider: ProviderPicker | null = opts.providerOption ? providerPicker(store.project, 'prompt-provider', 'Worker provider', opts.deskId ? `desk:${opts.deskId}` : 'prompt-provider') : null;
   const submit = h('button.btn.primary', { type: 'submit' }, opts.submitLabel ?? 'Send ✨');
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
   const form = h(
@@ -69,7 +71,7 @@ export function openPrompt(opts: PromptOptions) {
         // storage blocked
       }
     }
-    opts.onSubmit(text, { worktree: !!opts.worktreeOption && wtBox.checked, provider: provider?.value(), model: provider?.model() });
+    opts.onSubmit(text, { worktree: !!opts.worktreeOption && wtBox.checked, provider: provider?.value(), model: provider?.model(), effort: provider?.effort() });
   };
   form.addEventListener('submit', (e) => {
     e.preventDefault();
