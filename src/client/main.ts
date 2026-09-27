@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, LADDER, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, seatAt, seatPlace, vacantSeats, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, LADDER, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, seatAt, seatPlace, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
 import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo } from '../shared/protocol';
 import { isAsleep, isBusy } from '../shared/status';
@@ -27,6 +27,7 @@ import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
 import { OfficeSound } from './sound';
 import { DesktopNotifier, askNotifyPermission, notifyPermission, waitingOnSomeone } from './notify';
+import { NextUp, waitingInOrder, waitingLabel } from './nextup';
 import { $, h, clip, closeAllModals, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage, type TerminalFind } from './ui/terminal';
 import { openSearch } from './ui/search';
@@ -41,6 +42,7 @@ import { mountServicesButton, openServices } from './ui/services';
 import { mountQueueButton, openQueue } from './ui/queue';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
 import { openHelp, renderCaffeine, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
+import { Compass, type Bearing } from './ui/compass';
 import { openCharacter } from './ui/character';
 import { openSettings } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
@@ -809,6 +811,7 @@ function syncWorkers() {
   }
   arrangeSeats();
   renderWorkers((id) => openWorkerTerminal(id));
+  renderWaiting();
   notifier.sync(store.workers);
   renderTitle();
 }
@@ -1009,16 +1012,88 @@ function goToDesk(deskId: string) {
   const desk = DESK_BY_ID.get(deskId);
   if (!desk) return;
   closeAllModals();
+  standAt(desk);
+  const w = store.workerAtDesk(deskId);
+  toast(w ? `You're at ${desk.label}, ${w.name}'s desk` : `You're at ${desk.label}`);
+}
+
+/** Behind the worker, looking over their shoulder at the laptop (or in front of a board agent's kiosk). */
+function standAt(desk: DeskDef) {
+  if (player.seat) standUp();
+  if (hanger.active) hanger.cancel();
   if (climber.active) climber.abort();
-  // Behind the worker, looking over their shoulder at the laptop (or in front of a board agent's kiosk).
   const spot = deskSeat(desk, desk.station ? -1.6 : desk.beanbag ? 1.6 : 2.4);
   player.pos.set(spot.x, 0, spot.z);
   player.vy = 0;
   player.facing = Math.atan2(desk.x - spot.x, desk.z - spot.z);
   player.camYaw = player.facing - Math.PI;
   player.lookPitch = -0.2;
-  const w = store.workerAtDesk(deskId);
-  toast(w ? `You're at ${desk.label}, ${w.name}'s desk` : `You're at ${desk.label}`);
+}
+
+// ---- Who's waiting on you: N, the count in the Workers panel, and the compass --------------------------
+const nextUp = new NextUp();
+const compass = new Compass($('compass'));
+/** What the last press of N said, which the next press replaces. */
+let nextToast: HTMLElement | null = null;
+
+/** N: to the worker that has waited longest on someone, and on each press after, the next. */
+function goToNextWaiting() {
+  if (trip) return;
+  const w = nextUp.next(store.workers.values(), waitingBeside());
+  const desk = w && DESK_BY_ID.get(w.deskId);
+  nextToast?.remove();
+  if (!w || !desk) {
+    const other = store.floors.find((f) => f.id !== store.floor && f.waiting > 0);
+    nextToast = toast(other ? `🛗 Nobody's waiting on this floor. ${other.waiting} on the ${other.name} floor: take the elevator` : '👍 Nobody is waiting on you');
+    return;
+  }
+  closeAllModals();
+  standAt(desk);
+  const waiting = waitingInOrder(store.workers.values());
+  const of = waiting.length > 1 ? ` (${waiting.findIndex((x) => x.id === w.id) + 1} of ${waiting.length})` : '';
+  nextToast = toast(`${w.status === 'needs_input' ? `🙋 ${w.name} needs input` : `✅ ${w.name} is done`}${of}. E opens its terminal`);
+}
+
+/** The waiting worker you're standing at, if any: N skips it while anyone else is waiting. */
+function waitingBeside(): string | undefined {
+  let best: string | undefined;
+  let bestD = 2.5;
+  for (const w of store.workers.values()) {
+    const v = workerViews.get(w.id);
+    if (!v || !waitingOnSomeone(w)) continue;
+    const d = v.model.root.getWorldPosition(workerPos).distanceTo(player.pos);
+    if (d < bestD) {
+      bestD = d;
+      best = w.id;
+    }
+  }
+  return best;
+}
+
+function renderWaiting() {
+  const waiting = waitingInOrder(store.workers.values());
+  const el = $('waiting');
+  el.classList.toggle('hidden', !waiting.length);
+  el.classList.toggle('all-done', waiting.every((w) => w.status === 'done'));
+  if (waiting.length) el.replaceChildren(h('span', {}, waitingLabel(waiting)), h('span.key', {}, 'N'));
+}
+$('waiting').addEventListener('click', () => goToNextWaiting());
+
+const bearings: Bearing[] = [];
+const heads: THREE.Vector3[] = [];
+/** Arrows to the waiting workers you can't see from where you're looking. */
+function pointToWaiting(now: number) {
+  bearings.length = 0;
+  if (!trip && !modalOpen()) {
+    for (const w of store.workers.values()) {
+      const v = workerViews.get(w.id);
+      if (!v || !waitingOnSomeone(w)) continue;
+      const at = v.model.root.getWorldPosition((heads[bearings.length] ??= new THREE.Vector3()));
+      at.y += 1.2;
+      bearings.push({ id: w.id, name: w.name, status: w.status, at });
+    }
+  }
+  compass.update(camera, bearings, now);
 }
 
 /** Opening a sleeping worker's terminal wakes it, so there's nothing to press first. */
@@ -1783,6 +1858,9 @@ function officeKey(e: KeyboardEvent): boolean {
     case 'KeyF':
       hanger.start();
       return true;
+    case 'KeyN':
+      goToNextWaiting();
+      return true;
     case 'KeyQ':
       if (!carrying) return false;
       reach();
@@ -2208,6 +2286,7 @@ function frame(ts?: number) {
   }
 
   effect.render(scene, camera);
+  pointToWaiting(now);
   // Not while the camera's up at the boss's monitor, where they'd cover the screen.
   if (firstPerson && !arcade.zoomed) {
     // Hands go on top of everything, so they never clip into a desk you walk up to. They have
