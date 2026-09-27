@@ -138,6 +138,10 @@ export function openQueue(net: Net, actions: QueueActions) {
     );
   };
 
+  // The form stays put and only the list below it re-renders, so worker updates don't pull focus out of the textarea.
+  const list = h('div');
+  body.append(form, list);
+
   const render = () => {
     const q = store.queue;
     limitValue.textContent = q.maxWorkers === 0 ? 'Paused' : String(q.maxWorkers);
@@ -146,7 +150,6 @@ export function openQueue(net: Net, actions: QueueActions) {
     const queued = q.tasks.filter((t) => t.status === 'queued');
     const done = q.tasks.filter((t) => t.status === 'done').slice().reverse();
     const parts: (HTMLElement | null)[] = [
-      form,
       h(
         'p.note',
         {},
@@ -161,7 +164,7 @@ export function openQueue(net: Net, actions: QueueActions) {
       section('✅ Finished', done, h('button.btn', { type: 'button', onclick: () => net.send({ t: 'queue.clear' }) }, 'Clear')),
       running.length + queued.length + done.length ? null : h('div.queue-empty', {}, 'Nothing on the queue yet.'),
     ];
-    body.replaceChildren(...parts.filter((n): n is HTMLElement => n !== null));
+    list.replaceChildren(...parts.filter((n): n is HTMLElement => n !== null));
   };
 
   const unsubs = [store.on('queue', render), store.on('workers', render), store.on('issues', render)];
