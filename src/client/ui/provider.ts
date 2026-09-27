@@ -177,7 +177,11 @@ function claudeChoice(id: string, opts: PickerOptions) {
   const model = h('select.provider-select.model-select', { id: `${id}-claude-model`, 'aria-label': 'Claude model' }) as HTMLSelectElement;
   const modelDefault = h('option', { value: '' }) as HTMLOptionElement;
   model.append(modelDefault, ...CLAUDE_MODELS.map((m) => h('option', { value: m }, `${MODEL_STYLE[m].dot} ${modelLabel(m)}`)));
-  const effort = h('select.provider-select.effort-select', { id: `${id}-effort`, 'aria-label': 'Reasoning effort' }) as HTMLSelectElement;
+  const effort = h('select.provider-select.effort-select', {
+    id: `${id}-effort`,
+    'aria-label': 'Reasoning effort',
+    title: 'How long it thinks before it answers. A model without effort levels ignores it.',
+  }) as HTMLSelectElement;
   const effortDefault = h('option', { value: '' }) as HTMLOptionElement;
   effort.append(effortDefault, ...EFFORTS.map((e) => h('option', { value: e }, e)));
   const refresh = () => {
@@ -197,7 +201,7 @@ function claudeChoice(id: string, opts: PickerOptions) {
   }
   const element = h(
     'div.provider-claude',
-    { title: 'A smaller model is quicker and cheaper for small jobs; more effort thinks longer before it answers' },
+    { title: 'A smaller model is quicker and cheaper for small jobs' },
     h('label', { for: model.id }, 'Model'),
     model,
     h('label', { for: effort.id }, 'Effort'),
