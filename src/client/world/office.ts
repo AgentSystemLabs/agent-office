@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ASHTRAY, ATRIUM, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, CABINET, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LADDER, LOFT, MACHINE_MONITOR, PLANTS, SEATING_BY_ID, SLAB, STAIRS, STATIONS, STATION_AGENT, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, type DeskDef, type Opening, type Side, type StationKind } from '../../shared/layout';
+import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, CABINET, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LADDER, LOFT, MACHINE_MONITOR, PLANTS, SEATING_BY_ID, SLAB, STAIRS, STATIONS, STATION_AGENT, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, type DeskDef, type Opening, type Side, type StationKind } from '../../shared/layout';
 import { wallFacing, type WallId, type WallRect } from '../../shared/decor';
 import { deskPoint } from '../../shared/nav';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
@@ -201,9 +201,11 @@ function plant(scale = 1): THREE.Group {
   return g;
 }
 
-function pendant(): THREE.Group {
+/** A pendant lamp, its shade at 0, on a cord `cord` meters long. */
+function pendant(cord = 0.48): THREE.Group {
   const lamp = new THREE.Group();
-  lamp.add(mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.6, 4), toon(PALETTE.ink), 0, 0.3, 0, false));
+  const c = cord / 0.8;
+  lamp.add(mesh(new THREE.CylinderGeometry(0.01, 0.01, c, 4), toon(PALETTE.ink), 0, c / 2, 0, false));
   lamp.add(mesh(new THREE.ConeGeometry(0.5, 0.45, 16, 1, true), toon('#ffd166'), 0, 0, 0, false));
   lamp.add(mesh(new THREE.SphereGeometry(0.16, 10, 8), toon('#fff7d6', { emissive: '#ffe08a' }), 0, -0.15, 0, false));
   lamp.scale.setScalar(0.8);
@@ -585,37 +587,23 @@ function buildExitStairs(group: THREE.Group, colliders: Collider[]) {
   colliders.push({ minX, maxX, minZ: landingZ0 - 0.05, maxZ: landingZ0 + 0.1, bottom: STREET_Y, top: 99 });
 }
 
+/** Walls throw shade only this far up: any higher and a low sun's shadow would fill the room. */
+const SHADE_HEIGHT = 4.2;
+
 /**
  * The four outside walls, built in pieces around their windows and doors. Each is painted inside in
- * the floor's colors and outside in the building's. Round the loft they carry on up past the
- * ceiling, to the atrium's.
+ * the floor's colors and outside in the building's.
  */
 function buildWalls(group: THREE.Group, colliders: Collider[], openings: Opening[], looks: Looks) {
   const inside = looks.wall;
   const outside = toon(PALETTE.exterior);
   const trimMat = looks.trim;
   const T = WALL_T;
-  // Round the loft the room goes up higher (see ATRIUM), and so do the walls.
-  const top = ATRIUM.y + SLAB;
   const walls: { side: Side; at: number; spans: [number, number, number][] }[] = [
     { side: 'north', at: FLOOR.minZ - T / 2, spans: [[FLOOR.minX - T, FLOOR.maxX + T, WALL_HEIGHT]] },
-    {
-      side: 'south',
-      at: FLOOR.maxZ + T / 2,
-      spans: [
-        [FLOOR.minX - T, ATRIUM.minX, WALL_HEIGHT],
-        [ATRIUM.minX, FLOOR.maxX + T, top],
-      ],
-    },
+    { side: 'south', at: FLOOR.maxZ + T / 2, spans: [[FLOOR.minX - T, FLOOR.maxX + T, WALL_HEIGHT]] },
     { side: 'west', at: FLOOR.minX - T / 2, spans: [[FLOOR.minZ, FLOOR.maxZ, WALL_HEIGHT]] },
-    {
-      side: 'east',
-      at: FLOOR.maxX + T / 2,
-      spans: [
-        [FLOOR.minZ, ATRIUM.minZ, WALL_HEIGHT],
-        [ATRIUM.minZ, FLOOR.maxZ, top],
-      ],
-    },
+    { side: 'east', at: FLOOR.maxX + T / 2, spans: [[FLOOR.minZ, FLOOR.maxZ, WALL_HEIGHT]] },
   ];
   for (const w of walls) {
     const alongX = w.side === 'north' || w.side === 'south';
@@ -625,15 +613,15 @@ function buildWalls(group: THREE.Group, colliders: Collider[], openings: Opening
     const at = (u: number, y: number) => (alongX ? new THREE.Vector3(u, y, w.at) : new THREE.Vector3(w.at, y, u));
     const piece = (u0: number, u1: number, y0: number, y1: number) => {
       if (u1 - u0 < 0.001 || y1 - y0 < 0.001) return;
-      // Up past the ceiling downstairs the sun shines through, as it does through the loft's roof.
-      if (y0 < WALL_HEIGHT && y1 > WALL_HEIGHT) {
-        piece(u0, u1, y0, WALL_HEIGHT);
-        piece(u0, u1, WALL_HEIGHT, y1);
+      // Up high the sun shines through, as it does through the ceiling and the loft's roof.
+      if (y0 < SHADE_HEIGHT && y1 > SHADE_HEIGHT) {
+        piece(u0, u1, y0, SHADE_HEIGHT);
+        piece(u0, u1, SHADE_HEIGHT, y1);
         return;
       }
       const m = new THREE.Mesh(alongX ? box(u1 - u0, y1 - y0, T) : box(T, y1 - y0, u1 - u0), mats);
       m.position.copy(at((u0 + u1) / 2, (y0 + y1) / 2));
-      m.castShadow = y1 <= WALL_HEIGHT;
+      m.castShadow = y1 <= SHADE_HEIGHT;
       m.receiveShadow = true;
       group.add(m);
     };
@@ -874,7 +862,7 @@ export function buildOffice(): Office {
   // Floor, and the ceiling, with the ways up and down to the other floors through them (see stack.ts).
   const floorTex = floorTexture();
   looks.planks.push(floorTex);
-  const stack = buildStack(colliders, new THREE.MeshToonMaterial({ map: floorTex, gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap }), looks.wall);
+  const stack = buildStack(colliders, new THREE.MeshToonMaterial({ map: floorTex, gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap }));
   stack.set({ index: 0, count: 1 });
   group.add(stack.group);
   interactables.push(...stack.interactables);
@@ -1129,7 +1117,8 @@ export function buildOffice(): Office {
     colliders.push({ minX: x - r, maxX: x + r, minZ: z - r, maxZ: z + r, top: 0.5 * s });
   }
 
-  // Ceiling lamps (floating cartoon pendants)
+  // Ceiling lamps (cartoon pendants), hung on long cords down from the high ceiling.
+  const lampY = 4.05;
   for (const [x, z] of [
     [-10.5, -4],
     [-1.5, -4],
@@ -1137,10 +1126,10 @@ export function buildOffice(): Office {
     [-1.5, 4],
     [13, 0],
   ]) {
-    const lamp = pendant();
-    lamp.position.set(x, WALL_HEIGHT - 0.15, z);
+    const lamp = pendant(WALL_HEIGHT - lampY);
+    lamp.position.set(x, lampY, z);
     group.add(lamp);
-    night.halos.push({ at: new THREE.Vector3(x, WALL_HEIGHT - 0.27, z), size: 1.3, color: '#ffe08a' });
+    night.halos.push({ at: new THREE.Vector3(x, lampY - 0.12, z), size: 1.3, color: '#ffe08a' });
   }
 
   const bossScreen = buildLoft(group, colliders, interactables, looks);

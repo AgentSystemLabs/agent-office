@@ -1,11 +1,14 @@
 import * as THREE from 'three';
-import { ATRIUM, FLOOR, LADDER, POLE, POLES, SLAB, WALL_HEIGHT, WALL_T, poleDown, type PoleSpot } from '../../shared/layout';
+import { FLOOR, LADDER, POLE, POLES, SLAB, WALL_HEIGHT, WALL_T, WINDOWS, poleDown, type PoleSpot } from '../../shared/layout';
 import type { Collider, Interactable } from './office';
 import { mesh, textPlane, toon } from './toon';
 
 // The floors above and below this one: the ceiling (and the hatches and holes in it and in the floor),
 // the ladder up the west wall, and the fire poles. Every floor is built from the same office, so
 // what's here depends on which floor of the building you're on (see Stack.set).
+
+/** The top of the windows either side of the ladder, where the sign to the floor above hangs over. */
+const LADDER_WINDOW_HEAD = Math.max(...WINDOWS.filter((w) => w.wall === 'west').map((w) => w.y1));
 
 interface Rect {
   minX: number;
@@ -231,7 +234,7 @@ export interface Stack {
  * The floor you walk on (planks from `planks`), the slab under it, the ceiling over it, the ladder
  * and the fire poles. Their colliders go in `colliders` and change as floors come and go.
  */
-export function buildStack(colliders: Collider[], planks: THREE.Material, wallMat: THREE.Material): Stack {
+export function buildStack(colliders: Collider[], planks: THREE.Material): Stack {
   const group = new THREE.Group();
   const B = { minX: FLOOR.minX - WALL_T, maxX: FLOOR.maxX + WALL_T, minZ: FLOOR.minZ - WALL_T, maxZ: FLOOR.maxZ + WALL_T };
   const concrete = toon('#d3d6dd');
@@ -271,7 +274,7 @@ export function buildStack(colliders: Collider[], planks: THREE.Material, wallMa
   const ladder = new THREE.Group();
   const ladderMain = ladderPart(0, WALL_HEIGHT);
   // Brackets holding it off the wall.
-  for (const y of [0.9, 2.4, 3.8]) for (const s of [-1, 1]) ladderMain.add(mesh(new THREE.BoxGeometry(0.18, 0.05, 0.05), steel, FLOOR.minX + 0.08, y, LADDER.z + (s * LADDER.width) / 2, false));
+  for (let y = 0.9; y < WALL_HEIGHT - 0.4; y += 1.5) for (const s of [-1, 1]) ladderMain.add(mesh(new THREE.BoxGeometry(0.18, 0.05, 0.05), steel, FLOOR.minX + 0.08, y, LADDER.z + (s * LADDER.width) / 2, false));
   const ladderBelow = ladderPart(-2.2, 0);
   const ladderAbove = ladderPart(WALL_HEIGHT, WALL_HEIGHT + 2.2);
   ladder.add(ladderMain, ladderBelow, ladderAbove);
@@ -433,28 +436,12 @@ export function buildStack(colliders: Collider[], planks: THREE.Material, wallMa
     // Down the hole, the pole is right there to grab; this only catches anyone who somehow isn't sliding.
     if (goesDown) mine.push({ ...around(goesDown, POLE.hole), bottom: -1.4, top: -1.2 });
 
-    // The ceiling: tiles, WALL_HEIGHT up, except round the loft where the room goes up higher.
+    // The ceiling: tiles, WALL_HEIGHT up, with the hatch and the pole's hole when they come from somewhere.
     const ceilingHoles: Hole[] = [];
     if (above) ceilingHoles.push(LADDER.hatch);
     if (landsHere) ceilingHoles.push({ x: landsHere.x, z: landsHere.z, r: POLE.hole });
-    const outline: [number, number][] = [
-      [FLOOR.minX, FLOOR.minZ],
-      [FLOOR.maxX, FLOOR.minZ],
-      [FLOOR.maxX, ATRIUM.minZ],
-      [ATRIUM.minX, ATRIUM.minZ],
-      [ATRIUM.minX, FLOOR.maxZ],
-      [FLOOR.minX, FLOOR.maxZ],
-    ];
-    take(mesh(surface(outline, ceilingHoles, 1), ceilingMat, 0, WALL_HEIGHT, 0, false)).receiveShadow = false;
-    const atrium = { minX: ATRIUM.minX, maxX: FLOOR.maxX, minZ: ATRIUM.minZ, maxZ: FLOOR.maxZ };
-    take(mesh(surface(rectOutline(atrium), [], 1), ceilingMat, 0, ATRIUM.y, 0, false)).receiveShadow = false;
-    // Where it steps up: wall, from the ceiling up to the atrium's.
-    const step = ATRIUM.y - WALL_HEIGHT;
-    const stepX = take(mesh(new THREE.PlaneGeometry(FLOOR.maxZ - ATRIUM.minZ, step), wallMat, ATRIUM.minX, WALL_HEIGHT + step / 2, (ATRIUM.minZ + FLOOR.maxZ) / 2, false));
-    stepX.rotation.y = Math.PI / 2;
-    take(mesh(new THREE.PlaneGeometry(FLOOR.maxX - ATRIUM.minX, step), wallMat, (ATRIUM.minX + FLOOR.maxX) / 2, WALL_HEIGHT + step / 2, ATRIUM.minZ, false));
-    for (const r of cutRect(FLOOR, [atrium])) mine.push({ ...r, bottom: WALL_HEIGHT, top: WALL_HEIGHT + SLAB });
-    mine.push({ ...atrium, bottom: ATRIUM.y, top: ATRIUM.y + SLAB });
+    take(mesh(surface(rectOutline(FLOOR), ceilingHoles, 1), ceilingMat, 0, WALL_HEIGHT, 0, false)).receiveShadow = false;
+    mine.push({ ...FLOOR, bottom: WALL_HEIGHT, top: WALL_HEIGHT + SLAB });
 
     // The ladder, when there's anywhere to climb to.
     ladder.visible = others;
@@ -475,7 +462,7 @@ export function buildStack(colliders: Collider[], planks: THREE.Material, wallMa
     ladderSigns = [];
     // Above the window beside it and below its sill, so they cover neither.
     for (const [name, arrow, y] of [
-      [s.up, '⬆', WALL_HEIGHT - 0.42],
+      [s.up, '⬆', LADDER_WINDOW_HEAD + 0.48],
       [s.down, '⬇', 0.62],
     ] as const) {
       if (!others || !name) continue;

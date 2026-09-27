@@ -38,8 +38,8 @@ import { openPull, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { openAccounts, routeAccountsMessage } from './ui/accounts';
-import { mountServicesButton, openServices } from './ui/services';
-import { mountQueueButton, openQueue } from './ui/queue';
+import { openServices } from './ui/services';
+import { openQueue } from './ui/queue';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
 import { openHelp, renderCaffeine, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
 import { Compass, type Bearing } from './ui/compass';
@@ -52,6 +52,7 @@ import { providerLabel, rememberedChoice, resolvedProvider, modelBadge } from '.
 import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
 import { renderLimits } from './ui/limits';
 import { MachineTexture, officeFull, pressureNote } from './world/machine';
+import { mountHud } from './ui/menu';
 import { openJukebox } from './ui/jukebox';
 import { Arcade } from './ui/arcade';
 import { Cabinet } from './ui/cabinet';
@@ -272,9 +273,7 @@ sky.onThunder = (delay, loud) => sound.thunder(delay, loud);
 const hanger = new Hanger(net, camera, canvas, player, office, gallery);
 scene.add(hanger.ghost.group);
 hanger.onChange = () => {
-  const b = $('btn-decor');
-  b.classList.toggle('on', hanger.active);
-  b.title = hanger.active ? 'Stop hanging the picture (Esc)' : 'Hang a picture on a wall (F)';
+  hud.refresh();
   // Not '': that reads as "no hint shown", and the hanging hint would stay up.
   hintKey = 'stale';
 };
@@ -341,6 +340,7 @@ function grabLadder() {
   if (!floorThere(1) && !floorThere(-1)) return toast('No other floors yet — add a project in the elevator', 'warn');
   if (player.seat) standUp();
   if (hanger.active) hanger.cancel();
+  if (walkingTo) stopWalking();
   climber.grabLadder();
 }
 
@@ -350,6 +350,7 @@ function usePole(i: number) {
   if (trip || climber.active || !spot) return;
   if (player.seat) standUp();
   if (hanger.active) hanger.cancel();
+  if (walkingTo) stopWalking();
   if (spot === office.stack.poleDown()) climber.slide(spot);
   else if (spot === office.stack.poleLanding()) climber.twirl(spot);
 }
@@ -445,7 +446,7 @@ net.onMessage((msg) => {
       const watching = openChangesFor();
       if (watching && store.workers.has(watching)) net.send({ t: 'changes.watch', workerId: watching });
       renderProject();
-      $('btn-team').classList.toggle('hidden', !store.invites);
+      hud.refresh();
       // Back from a restart on another version: this page's code is stale, so load the new one.
       if (!bootVersion) bootVersion = msg.version;
       else if (msg.version !== bootVersion || restarting()) showUpgraded(msg.upgrade);
@@ -507,11 +508,6 @@ net.onMessage((msg) => {
 
 function renderUpgrade() {
   const u = store.upgrade;
-  const btn = $('btn-upgrade');
-  btn.classList.toggle('hidden', !u.available);
-  btn.classList.toggle('primary', !!u.latest && u.phase !== 'building');
-  btn.textContent = u.phase === 'building' ? '🛠️ Upgrading…' : u.latest ? '⬆️ Update' : '⬆️';
-  btn.title = u.latest ? `New version: ${u.latest.subject}` : 'Upgrade the office';
   const banner = $('upgrade-banner');
   banner.classList.toggle('hidden', u.phase !== 'building');
   banner.textContent = `🛠️ ${u.by ?? 'Someone'} is upgrading the office. It restarts on the new version in a minute or two.`;
@@ -524,10 +520,13 @@ function renderProject() {
   if (!p) {
     $('project-name').textContent = '🏢 Agent Office';
     $('project-meta').textContent = store.floors.length ? '🛗 Take the elevator to a floor' : '🛗 No floors yet — add a project in the elevator';
+    // Where to go next, so it shows even with the floor details turned off.
+    $('project-meta').classList.add('lobby');
     office.setProjectName(store.floors.length ? 'Pick a floor' : 'Lobby');
     return;
   }
   const n = store.floors.findIndex((f) => f.id === store.floor);
+  $('project-meta').classList.remove('lobby');
   $('project-name').textContent = `🏢 ${p.name}`;
   $('project-meta').textContent = [n >= 0 && `🛗 floor ${n + 1} of ${store.floors.length}`, p.branch && `⎇ ${p.branch}`, p.dir, `default: ${providerLabel(p.defaultProvider, p)}`].filter(Boolean).join(' · ');
   office.setProjectName(p.name);
@@ -606,6 +605,8 @@ function switchFloor(floorId: string) {
   if (hanger.active) hanger.cancel();
   if (climber.active) climber.abort();
   if (player.seat) standUp();
+  // The floor list isn't a window, so nothing else stops a walk over to someone on this floor.
+  if (walkingTo) stopWalking();
   trip = { floor: floorId, how: 'switch', timer: window.setTimeout(tripFailed, 10_000) };
   player.enabled = false;
   player.clearKeys();
@@ -1118,6 +1119,7 @@ function standAt(desk: DeskDef) {
   if (player.seat) standUp();
   if (hanger.active) hanger.cancel();
   if (climber.active) climber.abort();
+  if (walkingTo) stopWalking();
   const spot = deskSeat(desk, desk.station ? -1.6 : desk.beanbag ? 1.6 : 2.4);
   player.pos.set(spot.x, 0, spot.z);
   player.vy = 0;
@@ -1953,7 +1955,13 @@ function officeKey(e: KeyboardEvent): boolean {
     case 'KeyT':
     case 'Enter':
       e.preventDefault();
+      // With the chat turned off, it shows while you type.
+      $('chat').classList.add('peek');
       $('chat-input').focus();
+      return true;
+    case 'Tab':
+      e.preventDefault();
+      hud.toggleMenu();
       return true;
     case 'KeyV':
       void toggleVoice();
@@ -2119,6 +2127,7 @@ chatInput.addEventListener('keydown', (e) => {
   } else if (e.key === 'Escape') chatInput.blur();
   e.stopPropagation();
 });
+chatInput.addEventListener('blur', () => $('chat').classList.remove('peek'));
 store.on('chat', renderChat);
 
 // ---- Voice & screen share ---------------------------------------------------------------------------
@@ -2178,16 +2187,7 @@ function refreshShares() {
 }
 
 voice.onChange(() => {
-  const vb = $('btn-voice');
-  vb.classList.toggle('on', voice.inVoice);
-  vb.querySelector('span')!.textContent = voice.inVoice ? 'Leave voice' : 'Join voice';
-  const mb = $('btn-mute');
-  mb.classList.toggle('hidden', !voice.inVoice);
-  mb.textContent = voice.muted ? '🔇' : '🎙️';
-  mb.classList.toggle('danger', voice.muted);
-  const sb = $('btn-share');
-  sb.classList.toggle('on', voice.sharing);
-  sb.querySelector('span')!.textContent = voice.sharing ? 'Stop sharing' : 'Share screen';
+  hud.refresh();
   refreshShares();
 });
 
@@ -2196,34 +2196,65 @@ $('hud').addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest('button');
   if (btn) setTimeout(() => btn.blur(), 0);
 });
-if (!window.isSecureContext) {
-  for (const id of ['btn-voice', 'btn-share']) {
-    const b = $(id);
-    b.style.opacity = '0.55';
-    b.title = 'Voice and screen sharing need HTTPS or localhost — use a TLS proxy, --self-signed, or an SSH tunnel';
-  }
-}
 // The project in the corner is the floor you're on; click it for the list of floors to go to.
 $('project').addEventListener('click', () => {
   if (!store.floor) return showElevator();
   toggleFloorMenu($('project'), { go: switchFloor, elevator: showElevator });
 });
-$('btn-voice').addEventListener('click', () => void toggleVoice());
-$('btn-mute').addEventListener('click', () => voice.toggleMute());
-$('btn-share').addEventListener('click', () => void toggleShare());
-$('btn-issues').addEventListener('click', () => openBoard('issues', net, boardActions()));
-$('btn-pulls').addEventListener('click', () => openBoard('pulls', net, boardActions()));
-mountServicesButton($('btn-services'));
-mountQueueButton($('btn-queue'), showQueue);
-$('btn-team').addEventListener('click', () => openTeam(net));
-$('btn-accounts').addEventListener('click', () => openAccounts(net));
-store.on('me', () => $('btn-accounts').classList.toggle('hidden', !store.me.admin));
-$('btn-upgrade').addEventListener('click', () => openUpgrade(net));
-$('btn-search').addEventListener('click', () => showSearch());
-$('btn-help').addEventListener('click', () => openHelp());
-$('btn-whiteboard').addEventListener('click', () => openWhiteboard(net));
-$('btn-decor').addEventListener('click', () => (hanger.active ? hanger.cancel() : hanger.start()));
-$('btn-settings').addEventListener('click', () => showSettings());
+
+// ---- The HUD: a few buttons on the top bar, everything else in the ☰ menu ----------------------------
+const waitingNow = () => waitingInOrder(store.workers.values());
+const noMedia = () => (window.isSecureContext ? undefined : 'Voice and screen sharing need HTTPS or localhost — use a TLS proxy, --self-signed, or an SSH tunnel');
+const hud = mountHud(
+  [
+    { id: 'issues', icon: '📌', label: 'Issues', section: 'Open', count: () => store.issues.items.filter((i) => i.state === 'OPEN').length, run: () => openBoard('issues', net, boardActions()) },
+    { id: 'pulls', icon: '🔀', label: 'Pull requests', section: 'Open', count: () => store.pulls.items.filter((p) => p.state === 'OPEN').length, run: () => openBoard('pulls', net, boardActions()) },
+    { id: 'queue', icon: '📋', label: 'Task queue', section: 'Open', count: () => store.queue.tasks.filter((t) => t.status !== 'done').length, title: () => 'Issues and tasks waiting for a worker', run: showQueue },
+    { id: 'services', icon: '🌐', label: 'Services', section: 'Open', count: () => store.services.items.length, title: () => 'Web servers the workers are running', run: () => openServices() },
+    { id: 'whiteboard', icon: '📝', label: 'Whiteboard', section: 'Open', title: () => 'Draw together, live', run: () => openWhiteboard(net) },
+    { id: 'search', icon: '🔎', label: 'Search', section: 'Open', key: '/', title: () => 'Search the chat and every terminal', run: showSearch },
+    { id: 'elevator', icon: '🛗', label: 'Elevator', section: 'Open', count: () => store.floors.reduce((n, f) => n + (f.id === store.floor ? 0 : f.waiting), 0), title: () => 'Ride to another project', run: showElevator },
+    { id: 'voice', icon: '🎙️', label: () => (voice.inVoice ? 'Leave voice' : 'Join voice'), section: 'Together', key: 'V', on: () => voice.inVoice, blocked: noMedia, run: () => void toggleVoice() },
+    // While you're in voice, the top bar keeps the mute button handy.
+    { id: 'mute', icon: () => (voice.muted ? '🔇' : '🎙️'), label: () => (voice.muted ? 'Unmute' : 'Mute'), section: 'Together', key: 'M', shown: () => voice.inVoice, status: () => voice.inVoice, on: () => voice.inVoice, tone: () => (voice.muted ? 'danger' : undefined), title: () => (voice.muted ? 'Unmute (M)' : 'Mute (M)'), run: () => voice.toggleMute() },
+    { id: 'share', icon: '🖥️', label: () => (voice.sharing ? 'Stop sharing' : 'Share screen'), section: 'Together', on: () => voice.sharing, status: () => voice.sharing, chip: () => 'Sharing', blocked: noMedia, run: () => void toggleShare() },
+    { id: 'decor', icon: '🖼️', label: () => (hanger.active ? 'Stop hanging the picture' : 'Hang a picture'), section: 'Together', key: 'F', on: () => hanger.active, status: () => hanger.active, run: () => (hanger.active ? hanger.cancel() : hanger.start()) },
+    { id: 'team', icon: '👥', label: 'Invite teammates', section: 'Together', shown: () => store.invites, run: () => openTeam(net) },
+    { id: 'accounts', icon: '🔑', label: 'Accounts', section: 'Together', shown: () => store.me.admin, title: () => 'Invite people, see who has an account, revoke them', run: () => openAccounts(net) },
+    { id: 'settings', icon: '⚙️', label: 'Settings', section: 'Office', run: showSettings },
+    { id: 'help', icon: '❓', label: 'Controls', section: 'Office', key: 'H', run: openHelp },
+    {
+      id: 'upgrade',
+      icon: '⬆️',
+      label: () => (store.upgrade.phase === 'building' ? 'Upgrading…' : store.upgrade.latest ? 'Update the office' : 'Upgrade the office'),
+      section: 'Office',
+      shown: () => store.upgrade.available,
+      // A new version, or one being built, gets a place on the top bar until it's in.
+      status: () => !!store.upgrade.latest || store.upgrade.phase === 'building',
+      chip: () => (store.upgrade.phase === 'building' ? 'Upgrading…' : 'Update'),
+      tone: () => (store.upgrade.latest && store.upgrade.phase !== 'building' ? 'primary' : undefined),
+      title: () => (store.upgrade.latest ? `New version: ${store.upgrade.latest.subject}` : 'Upgrade the office'),
+      run: () => openUpgrade(net),
+    },
+    // Up on the top bar while workers wait on someone (N does the same), next to the Workers button.
+    {
+      id: 'waiting',
+      icon: () => (waitingNow().some((w) => w.status === 'needs_input') ? '🙋' : '✅'),
+      label: 'Next worker that needs you',
+      section: 'Open',
+      key: 'N',
+      shown: () => waitingNow().length > 0,
+      status: () => waitingNow().length > 0,
+      chip: () => waitingLabel(waitingNow()).replace(/^(🙋|✅) /, ''),
+      on: () => waitingNow().every((w) => w.status === 'done'),
+      tone: () => (waitingNow().some((w) => w.status === 'needs_input') ? 'danger' : undefined),
+      title: () => 'Go to the worker that has waited longest on someone (N)',
+      run: goToNextWaiting,
+    },
+  ],
+  settings,
+  () => saveSettings(settings),
+);
 function showSettings() {
   openSettings(
     net,

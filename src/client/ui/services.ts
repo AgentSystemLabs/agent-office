@@ -22,21 +22,6 @@ function describe(svc: ServiceInfo): { who: string; color: string; branch?: stri
   return { who: w?.name ?? 'A worker', color: w?.color ?? '#8d99ae', branch: w?.worktree?.branch };
 }
 
-/** The 🌐 Services button in the top bar: shows how many are running. */
-export function mountServicesButton(btn: HTMLElement) {
-  const label = h('span', {}, 'Services');
-  const count = h('span.svc-count');
-  btn.replaceChildren('🌐 ', label, count);
-  const render = () => {
-    const n = store.services.items.length;
-    count.textContent = n ? String(n) : '';
-    count.classList.toggle('hidden', !n);
-  };
-  store.on('services', render);
-  render();
-  btn.addEventListener('click', () => openServices());
-}
-
 export function openServices() {
   let os = guessOs();
   let picked: number | null = null;

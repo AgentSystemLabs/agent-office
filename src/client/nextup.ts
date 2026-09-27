@@ -1,5 +1,5 @@
 // The workers waiting on you on this floor, longest first: N takes you to each in turn (see main.ts),
-// arrows at the edge of the screen point to them (ui/compass.ts), and the Workers panel counts them.
+// arrows at the edge of the screen point to them (ui/compass.ts), and the top bar and the Workers panel count them.
 
 import type { WorkerInfo } from '../shared/protocol';
 import { waitingOnSomeone } from './notify';

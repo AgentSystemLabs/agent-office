@@ -10,20 +10,6 @@ export interface QueueActions {
   openTerminal(workerId: string): void;
 }
 
-/** The 📋 Queue button in the top bar: shows how many tasks are waiting or running. */
-export function mountQueueButton(btn: HTMLElement, onOpen: () => void) {
-  const count = h('span.svc-count');
-  btn.replaceChildren('📋 ', h('span', {}, 'Queue'), count);
-  const render = () => {
-    const n = store.queue.tasks.filter((t) => t.status !== 'done').length;
-    count.textContent = n ? String(n) : '';
-    count.classList.toggle('hidden', !n);
-  };
-  store.on('queue', render);
-  render();
-  btn.addEventListener('click', onOpen);
-}
-
 /** The queue task's name, linked to its GitHub issue when it has one. */
 function taskTitle(t: QueueTask): HTMLElement {
   if (t.issue === undefined) return h('div.queue-title', { title: t.prompt }, t.title);

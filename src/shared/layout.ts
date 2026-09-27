@@ -3,7 +3,8 @@
 // upstairs over a garage whose floor is level with the street (STREET_Y).
 
 export const FLOOR = { minX: -18, maxX: 18, minZ: -13, maxZ: 13 } as const;
-export const WALL_HEIGHT = 4.2;
+/** How high the ceiling is: a meter over the loft's roof (LOFT.y + LOFT.height), all the way across the room. */
+export const WALL_HEIGHT = 6.8;
 
 export interface DeskDef {
   id: string;
@@ -359,12 +360,6 @@ export function elevatorSpot(): { x: number; z: number } {
 export function inElevator(x: number, z: number): boolean {
   return x > ELEVATOR_CAR.minX && x < ELEVATOR_CAR.maxX && z > ELEVATOR_CAR.minZ && z < ELEVATOR_CAR.maxZ;
 }
-
-/**
- * The ceiling is WALL_HEIGHT up, except over the loft and round it, where the room goes up higher
- * (to `y`), so the loft still looks down on the desks. It runs from here to the east and south walls.
- */
-export const ATRIUM = { minX: LOFT.minX - 3, minZ: LOFT.minZ - 3, y: LOFT.y + LOFT.height + 1 } as const;
 
 /**
  * The ladder to the floors above and below: against the west wall at `z`, up through a hatch in the

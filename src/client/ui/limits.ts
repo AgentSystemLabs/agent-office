@@ -1,6 +1,7 @@
 import type { PlanWindow } from '../../shared/protocol';
 import { store } from '../state';
 import { $, h } from './dom';
+import { panelHide } from './menu';
 
 /** Numbers older than this say when they were read. */
 const STALE_MS = 10 * 60_000;
@@ -41,6 +42,6 @@ export function renderLimits() {
   if (!s.windows.length) return;
   const now = Date.now();
   const plan = s.plan ? s.plan.charAt(0).toUpperCase() + s.plan.slice(1) : '';
-  el.replaceChildren(h('h3', {}, 'Claude limits', plan ? h('span.plan', {}, plan) : null), ...s.windows.flatMap((w) => windowRow(w, now)));
+  el.replaceChildren(h('h3', {}, 'Claude limits', plan ? h('span.plan', {}, plan) : null, panelHide('limits')), ...s.windows.flatMap((w) => windowRow(w, now)));
   if (now - s.at > STALE_MS) el.append(h('div.row.muted', {}, `As of ${new Date(s.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`));
 }
