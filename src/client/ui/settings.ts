@@ -12,7 +12,8 @@ const VIEWS: [ViewMode, string, string][] = [
 
 const WEBHOOK_NAME: Record<WebhookKind, string> = { slack: 'Slack', discord: 'Discord', other: 'a webhook' };
 
-export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void, notifier: DesktopNotifier, onSignOut: () => void) {
+/** `outside` describes the sky over the office (see describeSky), once the server has said. */
+export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void, notifier: DesktopNotifier, onSignOut: () => void, outside?: { now: string; live: boolean }) {
   const seg = h('div.seg', { role: 'radiogroup', 'aria-label': 'Camera view' });
   const note = h('p.setting-note');
   const paint = () => {
@@ -201,7 +202,14 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       note,
       h('label', { style: 'margin-top:18px' }, 'Office sounds'),
       soundRow,
-      h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds outside, the dog, and the ding when a worker is done. Voice chat isn’t affected.'),
+      h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds and rain outside, the dog, and the ding when a worker is done. Voice chat isn’t affected.'),
+      ...(outside
+        ? [
+            h('label', { style: 'margin-top:18px' }, 'Outside'),
+            h('p.outside-now', {}, outside.now),
+            h('p.setting-note', {}, outside.live ? 'Everyone sees the same sky: the office’s clock and the live weather where it is.' : 'Everyone sees the same sky: the office’s clock, and weather that comes and goes. Start the office with --city to use a real city’s forecast.'),
+          ]
+        : []),
       h('label', { style: 'margin-top:18px' }, 'Desktop notifications'),
       notifyRow,
       notifyNote,

@@ -1,7 +1,8 @@
 /**
  * Office sounds, synthesized with Web Audio so there are no audio files to ship: the room's air and a
  * humming fridge, workers typing while they work, footsteps, the coffee machine, birds outside the
- * windows, the odd rustle or phone, the gong, the dog barking, and the dings when a worker needs you.
+ * windows by day and crickets at night, rain and thunder, the odd rustle or phone, the gong, the dog
+ * barking, and the dings when a worker needs you.
  *
  * Everything goes through one master gain that Settings turns down or mutes. Voice chat doesn't.
  */
@@ -73,8 +74,14 @@ export class OfficeSound {
   private typists = new Map<string, Typist>();
   private fridge: { gain: GainNode; on: boolean; next: number } | null = null;
   private nextBird = 0;
+  private nextCricket = 0;
   private nextPhone = 0;
   private nextFidget = 0;
+  /** Outside: how hard it's raining (0–1) and how dark it is (1 at night). */
+  private weather = { rain: 0, night: 0 };
+  private rainNodes: { gain: GainNode; tone: BiquadFilterNode } | null = null;
+  private nextRain = 0;
+  private nextDrip = 0;
   private listener: Listener = { x: 0, y: 1.4, z: 0, fx: 0, fz: -1 };
   /** How many of each sound have played, for quick checks from the console. */
   readonly played: Record<string, number> = {};
@@ -92,6 +99,12 @@ export class OfficeSound {
     this.volume = Math.max(0, Math.min(1, volume));
     this.muted = muted;
     this.applyVolume();
+  }
+
+  /** The weather outside (see world/sky.ts), every frame. */
+  setWeather(rain: number, night: number) {
+    this.weather.rain = rain;
+    this.weather.night = night;
   }
 
   /** Output level (RMS) right now, for headless checks. */
@@ -144,6 +157,7 @@ export class OfficeSound {
     this.startFridge();
     const now = ctx.currentTime;
     this.nextBird = now + rand(5, 15);
+    this.nextCricket = now + rand(2, 6);
     this.nextPhone = now + rand(60, 150);
     this.nextFidget = now + rand(8, 20);
     void ctx.resume();
@@ -193,11 +207,18 @@ export class OfficeSound {
     const now = ctx.currentTime;
     this.scheduleTyping(now);
     this.tickFridge(now);
+    const { rain, night } = this.weather;
     if (now >= this.nextBird) {
-      this.birds(now);
+      // Birds sing by day, and not in the rain.
+      if (night < 0.5 && rain < 0.1) this.birds(now);
       // Sometimes another bird answers from a different window.
       this.nextBird = now + (Math.random() < 0.35 ? rand(1.5, 4) : rand(12, 35));
     }
+    if (now >= this.nextCricket) {
+      if (night > 0.6 && rain < 0.05) this.crickets(now);
+      this.nextCricket = now + rand(3, 8);
+    }
+    this.tickRain(now);
     if (now >= this.nextPhone) {
       this.phone(now);
       this.nextPhone = now + rand(90, 240);
@@ -517,6 +538,103 @@ export class OfficeSound {
     }
   }
 
+  /** A cricket just outside a window, chirping away for a few seconds. */
+  private crickets(now: number) {
+    const ctx = this.ctx!;
+    this.count('crickets');
+    const out = this.panner(pick(WINDOWS), 2, 1.2);
+    out.connect(biquad(ctx, 'lowpass', 6000, 0.7)).connect(this.ambience);
+    const freq = rand(4200, 5200);
+    let t = now + 0.05;
+    for (let c = randInt(4, 9); c > 0; c--) {
+      for (let p = 0; p < 3; p++) {
+        const o = ctx.createOscillator();
+        o.frequency.value = freq;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.022, t + 0.004);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.022);
+        o.connect(g).connect(out);
+        o.start(t);
+        o.stop(t + 0.03);
+        t += 0.035;
+      }
+      t += rand(0.35, 0.6);
+    }
+  }
+
+  /** Where your ears are: in the office, where rain is muffled by the glass, in the garage, or out in it. */
+  private where(): 'office' | 'garage' | 'out' {
+    const { x, y, z } = this.listener;
+    const under = (m: number) => x > FLOOR.minX - m && x < FLOOR.maxX + m && z > FLOOR.minZ - m && z < FLOOR.maxZ + m;
+    if (under(0) && y > -0.5) return 'office';
+    return under(0.3) ? 'garage' : 'out';
+  }
+
+  /** Rain: a hiss that's muffled indoors, and drops pattering on the windows or all around you. */
+  private tickRain(now: number) {
+    const rain = this.weather.rain;
+    if (rain < 0.01 && !this.rainNodes) return;
+    const ctx = this.ctx!;
+    const where = this.where();
+    if (!this.rainNodes) {
+      const src = this.noise(this.buf.white, true);
+      const tone = biquad(ctx, 'lowpass', 1300, 0.5);
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      src.connect(biquad(ctx, 'highpass', 450, 0.5)).connect(tone).connect(gain).connect(this.ambience);
+      src.start();
+      this.rainNodes = { gain, tone };
+    }
+    if (now >= this.nextRain) {
+      // A few updates a second; its level eases anyway.
+      this.nextRain = now + 0.25;
+      const level = rain < 0.01 ? 0 : (where === 'out' ? 0.16 : where === 'garage' ? 0.11 : 0.06) * rain ** 0.8;
+      this.rainNodes.gain.gain.setTargetAtTime(level, now, 0.6);
+      this.rainNodes.tone.frequency.setTargetAtTime(where === 'out' ? 6500 : where === 'garage' ? 2600 : 1300, now, 0.3);
+    }
+    if (rain > 0.05 && now >= this.nextDrip) {
+      this.nextDrip = now + rand(0.03, 0.2) / rain;
+      const l = this.listener;
+      const at = where === 'office' ? pick(WINDOWS) : { x: l.x + rand(-4, 4), y: l.y - 1.2, z: l.z + rand(-4, 4) };
+      this.play(this.buf.drop, { at, gain: rand(0.05, 0.14), rate: rand(0.7, 1.4), ref: 1.5, rolloff: 1.3 });
+      this.count('drip');
+    }
+  }
+
+  /** Thunder, `delay` seconds after the flash: a crack when it's close, then a long low rumble. */
+  thunder(delay: number, loud: number) {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'running') return;
+    this.count('thunder');
+    const t0 = ctx.currentTime + delay;
+    const peak = 0.45 * loud * (this.where() === 'office' ? 0.6 : 1);
+    const src = this.noise(this.buf.brown, true);
+    const tone = biquad(ctx, 'lowpass', 700, 0.7);
+    tone.frequency.setValueAtTime(700, t0);
+    tone.frequency.exponentialRampToValueAtTime(110, t0 + 3.5);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(peak, t0 + 0.08 + (1 - loud) * 0.5);
+    g.gain.exponentialRampToValueAtTime(peak * 0.35, t0 + 1.3);
+    g.gain.exponentialRampToValueAtTime(peak * 0.6, t0 + 1.9);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 4 + loud * 2.5);
+    src.connect(tone).connect(g).connect(this.ambience);
+    src.start(t0, rand(0, 5));
+    src.stop(t0 + 7);
+    if (delay < 1) {
+      const crack = this.noise(this.buf.white);
+      const cg = ctx.createGain();
+      envelope(cg.gain, t0, [
+        [0.01, peak * 0.5],
+        [0.25, 0],
+      ]);
+      crack.connect(biquad(ctx, 'bandpass', 1800, 0.6)).connect(cg).connect(this.ambience);
+      crack.start(t0);
+      crack.stop(t0 + 0.3);
+    }
+  }
+
   /** A desk phone rings a couple of times somewhere across the room, then someone picks up. */
   private phone(now: number) {
     const ctx = this.ctx!;
@@ -732,6 +850,8 @@ interface Buffers {
   mouse: AudioBuffer;
   steps: AudioBuffer[];
   rustle: AudioBuffer;
+  /** A raindrop hitting the glass. */
+  drop: AudioBuffer;
   brown: AudioBuffer;
   white: AudioBuffer;
   /** A slow, lumpy 0–1 signal for wobbling other sounds' volume. */
@@ -745,6 +865,7 @@ function makeBuffers(ctx: BaseAudioContext): Buffers {
     mouse: keyClick(ctx, { body: 900, bright: 1, release: 0.07, decay: 400, len: 0.1 }),
     steps: [0, 1, 2].map(() => footstep(ctx)),
     rustle: rustle(ctx),
+    drop: sample(ctx, 0.06, (t) => (Math.sin(2 * Math.PI * 2400 * t * (1 - t * 5)) * 0.6 + (Math.random() * 2 - 1) * 0.4) * Math.exp(-t * 110), 0.9),
     brown: loopable(ctx, 6, brownNoise()),
     white: sample(ctx, 5, () => Math.random() * 2 - 1),
     gurgle: loopable(ctx, 4, lumpy(ctx.sampleRate, 0.03, 0.11)),

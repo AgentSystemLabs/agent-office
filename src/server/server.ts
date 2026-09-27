@@ -22,6 +22,7 @@ import { PlanLimitsReader } from './limits.js';
 import { Webhook } from './webhook.js';
 import { Building, type FloorDef } from './building.js';
 import { Floor, type FloorContext } from './floor.js';
+import { Sky } from './sky.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import { ChatLog } from './history.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
@@ -266,6 +267,10 @@ export async function startServer(cfg: Config) {
   await listenHooks(lastHookPort).catch(() => listenHooks(0));
   const hookPort = (hookServer.address() as { port: number }).port;
   writeFileSync(hookPortPath, String(hookPort), { mode: 0o600 });
+
+  // Day, night and the weather outside the windows, the same for everyone.
+  const sky = new Sky({ city: cfg.city, weather: cfg.weather }, (state) => broadcast({ t: 'sky', state }));
+  sky.start();
 
   // What the workers spend, all time and today, with the optional daily budget.
   const ledger = new Ledger(
@@ -708,6 +713,7 @@ export async function startServer(cfg: Config) {
       limits: limits.state,
       me,
       notify: webhook.state(),
+      sky: sky.state,
       ...floorView(floor),
     });
     screensOf(client, floor);
@@ -1273,6 +1279,7 @@ export async function startServer(cfg: Config) {
     upgrader.stop();
     services.stop();
     webhook.stop();
+    sky.stop();
     for (const f of floors.values()) f.shutdown(keep);
     ledger.flush();
     limits.close();
