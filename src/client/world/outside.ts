@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FLOOR, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
+import { FLOOR, ROAD, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
 import { CAR, supercar, type CarKind } from './cars';
 import type { Collider } from './office';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
@@ -9,8 +9,6 @@ const G = STREET_Y;
 const B = { minX: FLOOR.minX - WALL_T, maxX: FLOOR.maxX + WALL_T, minZ: FLOOR.minZ - WALL_T, maxZ: FLOOR.maxZ + WALL_T } as const;
 /** Parking bays are this wide; the rows of them start at x = -16. */
 const BAY = 3.2;
-/** The street runs east–west in front of the building (south, +z). */
-export const ROAD = { minZ: 23, maxZ: 31 } as const;
 
 /** A light that throws a pool of light around it at night (see sky.ts): where, how far, and its color. */
 export interface Lamp {

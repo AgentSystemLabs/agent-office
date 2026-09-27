@@ -127,6 +127,8 @@ export const GONG = { x: 3.5, z: FLOOR.minZ + 0.75, width: 1.9, height: 2.45 } a
 
 /** The office is the second floor. The street, and the open garage under the office, are this far below its floor. */
 export const STREET_Y = -3.6;
+/** The street runs east–west in front of the building (south, +z), with a sidewalk along either side. */
+export const ROAD = { minZ: 23, maxZ: 31 } as const;
 /** The office's floor slab, which is the garage's ceiling: it runs from -SLAB up to 0. */
 export const SLAB = 0.3;
 /** How thick the outside walls are. They stand just outside FLOOR. */
