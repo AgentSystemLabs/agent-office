@@ -29,7 +29,7 @@ import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
-import { DESK_BY_ID, STREET_Y, elevatorSpot, seatAt } from '../shared/layout.js';
+import { DESK_BY_ID, STREET_Y, elevatorSpot, seatHere } from '../shared/layout.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
@@ -1050,8 +1050,9 @@ export async function startServer(cfg: Config) {
         break;
       case 'sit': {
         // Everyone sees them sit down (or get up), and anyone who comes in later finds them sitting.
+        // Only on a seat where they are: the roof's up on the roof, the office's on a floor.
         const key = str(msg.seat, 40);
-        const seat = seatAt(key) ? key : undefined;
+        const seat = seatHere(key, c.peer.floor === ROOF) ? key : undefined;
         if (seat === c.peer.seat) break;
         if (seat) c.peer.seat = seat;
         else delete c.peer.seat;

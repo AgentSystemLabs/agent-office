@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DESK_BY_ID, vacantSeats } from '../src/shared/layout.js';
+import { DESK_BY_ID, seatHere, vacantSeats } from '../src/shared/layout.js';
 
 // Two floors that each have a Queue agent hired at the queue kiosk and a worker at desk 3.
 const agentOffice = [
@@ -44,4 +44,12 @@ test('a kiosk shows its idle agent again only once the hired one sent home has g
   // Someone new hired there while the last one was still packing: taken either way.
   packing.add('station-queue');
   assert.ok(!vacantSeats([{ deskId: 'station-queue' }], (id) => packing.has(id)).has('station-queue'));
+});
+
+test("you can only sit where you are: the roof's seats up on the roof, the office's on a floor", () => {
+  assert.ok(seatHere('couch:1', false));
+  assert.ok(seatHere('roof-stool-1:0', true));
+  assert.equal(seatHere('couch:1', true), undefined, 'no office couch from the roof');
+  assert.equal(seatHere('roof-stool-1:0', false), undefined, 'no bar stool from a project floor');
+  assert.equal(seatHere('couch:9', false), undefined, 'no such place on the couch');
 });

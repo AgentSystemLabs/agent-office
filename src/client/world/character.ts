@@ -134,6 +134,12 @@ export function drinkGlass(d: Drink, scale = 1): THREE.Group {
   return g;
 }
 
+/** Takes a glass from drinkGlass out of the hand holding it, and frees what it was made of (its materials are shared). */
+export function putDownGlass(g: THREE.Group) {
+  g.removeFromParent();
+  g.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+}
+
 /** On a smoke break, one drag every this many seconds. */
 export const SMOKE_CYCLE = 6;
 /** When, in a smoke cycle, the smoke is blown out. */
@@ -586,7 +592,7 @@ export class Person {
   holdDrink(d: Drink | null) {
     if ((d?.id ?? null) === (this.glass?.id ?? null)) return;
     if (this.glass) {
-      this.mug.remove(this.glass.group);
+      putDownGlass(this.glass.group);
       this.glass = null;
     }
     if (d) {

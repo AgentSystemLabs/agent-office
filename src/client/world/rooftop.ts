@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { DANCE_FLOOR, DJ_BOOTH, ELEVATOR, ELEVATOR_FRONT, FIRE_PIT, FLOOR, ROOF_BAR, SEATING_BY_ID, STAGE, WALL_HEIGHT, WALL_T } from '../../shared/layout';
+import { DANCE_FLOOR, DJ_BOOTH, ELEVATOR, ELEVATOR_FRONT, FIRE_PIT, FLOOR, ROOF_BAR, ROOF_TABLES, SEATING_BY_ID, STAGE, WALL_HEIGHT, WALL_T } from '../../shared/layout';
 import type { DjFrame } from '../dnb';
 import { Worker } from './character';
 import { buildCity, type City } from './city';
@@ -128,6 +128,15 @@ function beamMaterial(): THREE.ShaderMaterial {
   });
   m.userData.outlineParameters = { visible: false };
   return m;
+}
+
+/**
+ * Leaves light out of looking and clicking, so the crosshair goes through it: a beam or a laser
+ * (a line picks from a meter off it) would otherwise be in the way of whatever's behind.
+ */
+function unpickable<T extends THREE.Object3D>(obj: T): T {
+  obj.raycast = () => {};
+  return obj;
 }
 
 /** Makes `obj` somewhere to sit (see SEATING): walk up to it, or look at it, and press E. */
@@ -427,7 +436,7 @@ export function buildRooftop(night: NightParts): Rooftop {
     const lens = new THREE.MeshBasicMaterial({ color: '#ffffff' });
     lens.toneMapped = false;
     tilt.add(mesh(new THREE.CircleGeometry(0.11, 16).rotateX(Math.PI / 2), lens, 0, -0.232, 0, false));
-    const beam = new THREE.Mesh(beamGeo, beamMaterial());
+    const beam = unpickable(new THREE.Mesh(beamGeo, beamMaterial()));
     beam.position.y = -0.24;
     beam.frustumCulled = false;
     tilt.add(beam);
@@ -442,7 +451,7 @@ export function buildRooftop(night: NightParts): Rooftop {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(LASER_RAYS * 6), 3).setUsage(THREE.DynamicDrawUsage));
     const mat = new THREE.LineBasicMaterial({ color: k ? '#ff2bd6' : '#39ff14', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
-    const lines = new THREE.LineSegments(geo, mat);
+    const lines = unpickable(new THREE.LineSegments(geo, mat));
     lines.frustumCulled = false;
     group.add(lines);
     statics.add(mesh(new THREE.BoxGeometry(0.3, 0.18, 0.3), toon('#1d1d1d'), x, STAGE.height + 0.09, STAGE.maxZ - 0.25, false));
@@ -639,7 +648,7 @@ export function buildRooftop(night: NightParts): Rooftop {
     g.fillStyle = grad;
     g.fillRect(0, 0, 64, 64);
   });
-  const glows = new THREE.Points(glowGeo, new THREE.PointsMaterial({ size: 0.55, map: halo, vertexColors: true, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+  const glows = unpickable(new THREE.Points(glowGeo, new THREE.PointsMaterial({ size: 0.55, map: halo, vertexColors: true, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending })));
   group.add(glows);
 
   const barLight = new THREE.PointLight('#ffc98a', 0, 11, 1.2);
@@ -711,11 +720,7 @@ export function buildRooftop(night: NightParts): Rooftop {
 
   // Tall tables to stand at between the elevator and the bar, with a candle each.
   const candle = bulb(night, '#ffbf69', 0.5);
-  for (const [x, z] of [
-    [6.6, 5.2],
-    [9.6, 8.8],
-    [6, 10.8],
-  ]) {
+  for (const { x, z } of ROOF_TABLES) {
     statics.add(mesh(new THREE.CylinderGeometry(0.28, 0.32, 0.04, 16), toon(INK), x, 0.02, z, false));
     statics.add(mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.05, 8), toon(INK), x, 0.55, z, false));
     statics.add(mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.05, 20), toon('#f4f1ea'), x, 1.08, z));

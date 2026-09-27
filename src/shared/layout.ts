@@ -294,6 +294,12 @@ export const DANCE_FLOOR = { minX: -8, maxX: 2, minZ: -9.2, maxZ: -2.2 } as cons
 export const ROOF_BAR = { x: 12.95, minZ: -6, maxZ: 4, depth: 0.7, height: 1.1 } as const;
 /** The fire pit in the lounge, in the south-west corner, with sofas round three sides of it. */
 export const FIRE_PIT = { x: -12, z: 8.2, r: 0.9 } as const;
+/** Tall tables to stand at, between the elevator and the bar. */
+export const ROOF_TABLES: readonly { x: number; z: number }[] = [
+  { x: 6.6, z: 5.2 },
+  { x: 9.6, z: 8.8 },
+  { x: 6, z: 10.8 },
+];
 /** Sun loungers along the south edge, looking out over the street. */
 const LOUNGERS = [-2.2, 0.6, 3.4];
 
@@ -390,6 +396,12 @@ export function seatAt(key: string): SeatPlace | undefined {
   const seat = m ? SEATING_BY_ID.get(m[1]) : undefined;
   const i = Number(m?.[2]);
   return seat && i < seat.places.length ? seatPlace(seat, i) : undefined;
+}
+
+/** The place `key` names, if it's somewhere you can sit from where you are: up on the roof, or down on a floor. */
+export function seatHere(key: string, onRoof: boolean): SeatPlace | undefined {
+  const place = seatAt(key);
+  return place && !!SEATING_BY_ID.get(place.seatId)!.roof === onRoof ? place : undefined;
 }
 
 /**
