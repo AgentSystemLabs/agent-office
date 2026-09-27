@@ -353,6 +353,13 @@ export class OfficeSound {
     this.count(kind === 'land' ? 'land' : 'step');
   }
 
+  /** An issue card in your hands: taken off the board, or put down on a desk. */
+  paper() {
+    if (!this.ctx) return;
+    this.play(this.buf.rustle, { gain: 0.5, rate: rand(1.1, 1.3) });
+    this.count('paper');
+  }
+
   /** Someone else's footstep, on the office floor unless `y` says where else. */
   stepAt(x: number, z: number, y = 0) {
     if (!this.ctx) return;

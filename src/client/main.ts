@@ -4,7 +4,7 @@ import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
 import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, seatAt, seatPlace, vacantSeats, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
-import type { AgentEffort, AgentProvider, GongWhy, PeerInfo, WorkerInfo } from '../shared/protocol';
+import type { AgentEffort, AgentProvider, CarriedIssue, GhIssue, GongWhy, PeerInfo, WorkerInfo } from '../shared/protocol';
 import { isAsleep, isBusy } from '../shared/status';
 import { Net } from './net';
 import { store, loadProfile, loadSettings, saveSettings, workerForPull, type Profile, type Topic } from './state';
@@ -30,8 +30,8 @@ import { $, h, clip, closeAllModals, modalOpen, onModalChange, openModal, toast,
 import { openTerminal, openTerminalFor, routeTerminalMessage, type TerminalFind } from './ui/terminal';
 import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
-import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage } from './ui/prompt';
-import { openBoard } from './ui/boards';
+import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage, worktreePref } from './ui/prompt';
+import { issuePrompt, openBoard } from './ui/boards';
 import { openPull, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
@@ -44,7 +44,7 @@ import { openCharacter } from './ui/character';
 import { openSettings } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 import { elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
-import { providerLabel, resolvedProvider, modelBadge } from './ui/provider';
+import { providerLabel, rememberedChoice, resolvedProvider, modelBadge } from './ui/provider';
 import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
 import { renderLimits } from './ui/limits';
 import { MachineTexture, officeFull, pressureNote } from './world/machine';
@@ -127,8 +127,28 @@ function mountBoard(mesh: THREE.Mesh, texture: THREE.Texture, render: () => void
   for (const topic of topics) store.on(topic, render);
   render();
 }
+/** The issue card in your hands, taken off this floor's issues board (see Carrying an issue card), or null. */
+let carrying: CarriedIssue | null = null;
+/** Issues whose cards someone on this floor is carrying around, so they're missing from the board. */
+function offBoard(): Set<number> {
+  const off = new Set<number>();
+  if (carrying) off.add(carrying.issue);
+  for (const p of store.peers.values()) if (p.carrying && p.id !== store.you && store.onMyFloor(p)) off.add(p.carrying.issue);
+  return off;
+}
 const issuesTex = new BoardTexture('issues');
-mountBoard(office.boardMeshes.issues, issuesTex.texture, () => issuesTex.render(store.issues), ['issues']);
+const renderIssuesBoard = () => {
+  const off = offBoard();
+  issuesTex.render(off.size ? { ...store.issues, items: store.issues.items.filter((i) => !off.has(i.number)) } : store.issues);
+};
+mountBoard(office.boardMeshes.issues, issuesTex.texture, renderIssuesBoard, ['issues']);
+let carriedOff = '';
+store.on('peers', () => {
+  const k = [...offBoard()].join(',');
+  if (k === carriedOff) return;
+  carriedOff = k;
+  renderIssuesBoard();
+});
 const pullsTex = new BoardTexture('pulls');
 const renderPullsBoard = () => pullsTex.render(store.pulls, store.workers);
 mountBoard(office.boardMeshes.pulls, pullsTex.texture, renderPullsBoard, ['pulls']);
@@ -317,6 +337,7 @@ net.onMessage((msg) => {
       } else if (!store.floor) arrive();
       if (voice.inVoice || voice.sharing) net.send({ t: 'voice', voice: voice.inVoice, muted: voice.muted, sharing: voice.sharing });
       if (player.seat) net.send({ t: 'sit', seat: player.seat.key });
+      if (carrying) net.send({ t: 'carry', issue: carrying.issue, title: carrying.title });
       // After a reconnect the server has forgotten which terminal we had open.
       const openId = openTerminalFor();
       if (openId && store.workers.has(openId)) net.send({ t: 'worker.attach', workerId: openId });
@@ -332,6 +353,11 @@ net.onMessage((msg) => {
       break;
     }
     case 'floor.enter':
+      // The card belongs to the board downstairs (or up): the office already put it back there.
+      if (carrying) {
+        toast(`📌 #${carrying.issue} stayed behind on the other floor's board`);
+        setCarrying(null);
+      }
       arrive();
       break;
     case 'floors':
@@ -557,6 +583,7 @@ function syncPeers() {
       noOutline(r.person.root);
     }
     r.person.setSmoking(!!peer.smoking);
+    r.person.carry(peer.carrying);
     r.person.sit(peer.seat ? (seatAt(peer.seat)?.hips ?? null) : null);
   }
   for (const [id, r] of remotes) {
@@ -691,8 +718,8 @@ function officeIsFull(): boolean {
   return true;
 }
 
-function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string, effort?: AgentEffort) {
-  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort });
+function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string, effort?: AgentEffort, issue?: number) {
+  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort, issue });
   // The moment notifications start to matter: ask once (it has to come from a key press or click).
   if (settings.notify && notifyPermission() === 'default' && !askedToNotify) {
     askedToNotify = true;
@@ -906,6 +933,7 @@ function boardActions() {
     assign: (prompt: string, title: string) => sendToWorker(`🤖 ${title}`, { initial: prompt }),
     ask: (context: string, title: string) => sendToWorker(`✍️ ${title}`, { context }),
     goToDesk,
+    pickUp,
   };
 }
 
@@ -927,6 +955,7 @@ function watchShare() {
 
 function interact(target: Interactable | null, key: DeskKey) {
   if (!target) return;
+  if (key === 'E' && carrying && dropCard(target, carrying)) return;
   if (target.kind === 'desk' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
     if (key === 'B' && !w) return openShell(target.deskId);
@@ -1007,6 +1036,90 @@ function checkSmokeBreak(now: number) {
     setSmoking(false);
     toast("That one's done. Back to work!");
   }
+}
+
+// ---- Carrying an issue card ------------------------------------------------------------------------
+function setCarrying(card: CarriedIssue | null) {
+  if ((card?.issue ?? 0) === (carrying?.issue ?? 0)) return;
+  carrying = card;
+  me.carry(card);
+  hands.carry(card);
+  net.send({ t: 'carry', issue: card?.issue, title: card?.title });
+  carriedOff = [...offBoard()].join(',');
+  renderIssuesBoard();
+  hintKey = '';
+}
+
+/** ✋ in an issue's window: its card comes off the board and into your hands. */
+function pickUp(it: GhIssue) {
+  closeAllModals();
+  if (carrying?.issue === it.number) return;
+  if (carrying) toast(`📌 #${carrying.issue} went back on the board`);
+  setCarrying({ issue: it.number, title: it.title });
+  sound.paper();
+  toast(`✋ You took #${it.number} off the board: take it to an empty desk, a worker or the 📋 queue and press E`);
+}
+
+/** Q, or E at the issues board: the card goes back where it came from. */
+function putBack() {
+  if (!carrying) return;
+  toast(`📌 #${carrying.issue} is back on the board`);
+  setCarrying(null);
+  sound.paper();
+}
+
+/**
+ * E with a card in your hands: an empty desk hires a worker for the issue (with the prompt 🤖 Hand
+ * to a worker uses), an agent at a desk gets it as its next prompt, the queue board queues it, and
+ * the issues board takes it back. False when it's none of those, so E does what it always does there.
+ */
+function dropCard(it: Interactable, card: CarriedIssue): boolean {
+  if (it.kind === 'issues') {
+    putBack();
+    return true;
+  }
+  const prompt = issuePrompt({ number: card.issue, title: card.title });
+  if (it.kind === 'queue') {
+    if (onQueue(card.issue)) toast(`#${card.issue} is already on the queue`, 'warn');
+    else {
+      const { provider, model, effort } = rememberedChoice(store.project, 'queue');
+      net.send({ t: 'queue.add', prompt, title: `#${card.issue} ${card.title}`, issue: card.issue, provider, model, effort });
+      putDown();
+    }
+    return true;
+  }
+  if (it.kind !== 'desk' || !it.deskId) return false;
+  const w = store.workerAtDesk(it.deskId);
+  const why = w ? cantTakeCard(w) : hiringPaused() ? '💸 Budget spent — hiring resumes tomorrow' : '';
+  if (why) toast(why, 'warn');
+  else if (w) {
+    net.send({ t: 'worker.prompt', workerId: w.id, prompt, issue: card.issue });
+    putDown();
+  } else if (!officeIsFull()) {
+    const { provider, model, effort } = rememberedChoice(store.project, `desk:${it.deskId}`);
+    hire(it.deskId, prompt, !!store.project?.branch && worktreePref(), provider, model, effort, card.issue);
+    putDown();
+  }
+  return true;
+}
+
+/** The card left your hands for a desk or the queue (the office says who took it). */
+function putDown() {
+  setCarrying(null);
+  sound.paper();
+}
+
+function onQueue(issue: number): boolean {
+  const t = store.taskForIssue(issue);
+  return !!t && t.status !== 'done';
+}
+
+/** Why the worker at a desk can't be handed an issue card right now, or '' when it can. */
+function cantTakeCard(w: WorkerInfo): string {
+  if (w.kind === 'shell') return `${w.name} is a shell, not an agent`;
+  if (isAsleep(w.status)) return `${w.name} is asleep — press R to resume first`;
+  if (w.status === 'needs_input') return `${w.name} is waiting on an answer — open the terminal first`;
+  return '';
 }
 
 // ---- Sitting ----------------------------------------------------------------------------------------
@@ -1160,15 +1273,15 @@ interface Hint {
 function renderHint() {
   const el = $('hint');
   if (hanger.active && !modalOpen()) return renderHangHint(el);
-  if (!target || modalOpen()) {
+  if ((!target && !carrying) || modalOpen()) {
     if (hintKey) {
       el.classList.add('hidden');
       hintKey = '';
     }
     return;
   }
-  const hint = hintFor(target);
-  const k = `${target.kind}${target.deskId ?? ''}|${hint.k}`;
+  const hint = carrying ? carryHint(carrying, target) : hintFor(target!);
+  const k = `${target?.kind}${target?.deskId ?? ''}|${carrying?.issue ?? ''}|${hint.k}`;
   if (k === hintKey) return;
   hintKey = k;
   el.replaceChildren(...hint.parts);
@@ -1243,6 +1356,31 @@ function hintFor(it: Interactable): Hint {
       return { k: `${dog.name}|${doing}`, parts: [title(`🐶 ${dog.name}`), doing ? aside(doing) : '', key('E', 'Pet')] };
     }
   }
+}
+
+/** With an issue card in your hands: what E does with it here, and how to put it back. */
+function carryHint(card: CarriedIssue, it: Interactable | null): Hint {
+  const parts = (...mid: (HTMLElement | string)[]) => [h('span.title', {}, `🗂️ #${card.issue} in hand`), ...mid, key('Q', 'Put it back')];
+  if (it?.kind === 'issues') return { k: '', parts: parts(key('E', 'Pin it back up')) };
+  if (it?.kind === 'queue') {
+    const on = onQueue(card.issue);
+    return { k: String(on), parts: parts(on ? aside('already on the queue') : key('E', 'Put it on the queue')) };
+  }
+  if (it?.kind === 'desk' && it.deskId) {
+    const w = store.workerAtDesk(it.deskId);
+    if (!w) {
+      const paused = hiringPaused();
+      return { k: String(paused), parts: parts(paused ? h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow') : key('E', 'Hire a worker for it')) };
+    }
+    const why = cantTakeCard(w);
+    return { k: w.id + w.status + why, parts: parts(why ? aside(why) : key('E', `Hand it to ${w.name}`)) };
+  }
+  // Anything else works as usual, card in hand.
+  if (it) {
+    const rest = hintFor(it);
+    return { k: rest.k, parts: parts(...rest.parts) };
+  }
+  return { k: '', parts: parts(aside('take it to an empty desk, a worker or the 📋 queue')) };
 }
 
 function deskHint(deskId: string): Hint {
@@ -1452,6 +1590,11 @@ function officeKey(e: KeyboardEvent): boolean {
       return true;
     case 'KeyF':
       hanger.start();
+      return true;
+    case 'KeyQ':
+      if (!carrying) return false;
+      reach();
+      putBack();
       return true;
   }
   // By the character, so it's / on any keyboard layout. The search box opens without it.
@@ -1902,7 +2045,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, caffeine, camera, arcade, workerViews, departures, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen, confetti, dog, sky, emoteWheel, emote };
+(window as any).__office = { store, player, caffeine, camera, arcade, workerViews, departures, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen, confetti, dog, sky, carried: () => carrying, emoteWheel, emote };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;
