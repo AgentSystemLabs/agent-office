@@ -122,6 +122,19 @@ export function beanbagsOut(taken: (id: string) => boolean): Set<string> {
   return out;
 }
 
+/**
+ * The places nobody is at: every seat and board agent's kiosk with no worker there and nobody sent
+ * home still packing up there (`packing`). Each shows that it's free, with a '+' over a seat and the
+ * board agent waiting at a kiosk. It's worked out afresh from who's there rather than seat by seat as
+ * workers come and go, so swapping one floor's workers for another's never leaves a place showing
+ * free under someone (two floors can each have a Queue agent at the same kiosk).
+ */
+export function vacantSeats(workers: Iterable<{ deskId: string }>, packing: (id: string) => boolean = () => false): Set<string> {
+  const taken = new Set<string>();
+  for (const w of workers) taken.add(w.deskId);
+  return new Set([...DESK_BY_ID.keys()].filter((id) => !taken.has(id) && !packing(id)));
+}
+
 /** Where the worker (and the interacting player) stands relative to the desk. */
 export function deskSeat(desk: DeskDef, offset = 0.85): { x: number; z: number } {
   return {
