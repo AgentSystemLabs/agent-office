@@ -1,8 +1,9 @@
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync, accessSync, constants } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, accessSync, chmodSync, mkdirSync, constants } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { CodexUsageReader } from './codex-usage.js';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
@@ -10,7 +11,7 @@ import type { AgentEffort, AgentProvider, Run, TerminalHit, WorkerInfo, WorkerKi
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, isAgentEffort, isClaudeModel } from '../shared/protocol.js';
 import { Worktrees, describeWork, type WorktreeCleanup, type WorktreeState } from './worktrees.js';
 import { DESK_BY_ID, STATION_AGENT } from '../shared/layout.js';
-import { stationBrief } from './stations.js';
+import { QUEUE_AGENT_DISALLOWED_TOOLS, stationBrief } from './stations.js';
 import { isBusy } from '../shared/status.js';
 import { gh } from './github.js';
 import type { ServiceOwner } from './services.js';
@@ -134,6 +135,8 @@ export class WorkerManager {
   readonly defaultProvider: AgentProvider;
   private openCodePlugin: string;
   private codexHook: string;
+  /** Where the office-queue command is, for the board agents' PATH (see writeQueueCommand). */
+  private queueBin: string | undefined;
   private screenTimer: NodeJS.Timeout;
   /** The office is shutting down: workers exiting now are being stopped, not failing to resume. */
   private closing = false;
@@ -161,6 +164,7 @@ export class WorkerManager {
     this.writeHookSettings();
     this.openCodePlugin = writeOpenCodePlugin(dataDir);
     this.codexHook = writeCodexHook(dataDir);
+    this.queueBin = this.writeQueueCommand();
     this.agentPath = resolveCommand(agentCmd);
     const claude = this.defaultProvider === 'claude' ? this.agentPath : resolveCommand('claude');
     this.namer = new TaskNamer(claude, childEnv(), (id, task, ctx) => {
@@ -822,6 +826,7 @@ export class WorkerManager {
     const isOpenCode = !isShell && provider === 'opencode';
     const isCodex = !isShell && provider === 'codex';
     const configured = !isShell && provider === this.defaultProvider;
+    const station = DESK_BY_ID.get(info.deskId)?.station;
     const command = this.command(info);
     const commandPath = isShell ? undefined : configured ? this.agentPath : resolveCommand(command);
     let args = isShell ? (WIN && !process.env.SHELL ? [] : ['-l']) : configured ? [...this.agentArgs] : [];
@@ -830,6 +835,8 @@ export class WorkerManager {
       // A model/effort chosen for this worker overrides whatever --agent-args set office-wide.
       if (info.model) args.push('--model', info.model);
       if (info.effort) args.push('--effort', info.effort);
+      // The queue agent only ever adds to the queue: without these it can't touch the checkout's files.
+      if (station === 'queue') args.push('--disallowedTools', ...QUEUE_AGENT_DISALLOWED_TOOLS);
       if (resumeSessionId) args.push('--resume', resumeSessionId);
       // `--` so a prompt like "- fix login" is never parsed as a CLI option.
       if (prompt) args.push('--', prompt);
@@ -860,6 +867,12 @@ export class WorkerManager {
       AGENT_OFFICE_HOOK_URL: this.hook.url,
       AGENT_OFFICE_HOOK_TOKEN: w.hookToken,
     });
+    // A board agent reaches the queue with the office-queue command, whichever agent it runs.
+    if (station && this.queueBin) {
+      // Windows spells it Path.
+      const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+      env[key] = [this.queueBin, env[key]].filter(Boolean).join(path.delimiter);
+    }
 
     const cwd = this.cwd(info);
     if (isCodex) w.codexHome = codexHome(cwd, env);
@@ -1199,6 +1212,24 @@ process.stdin.on('end', () => {
     writeFileSync(this.settingsPath, JSON.stringify({ hooks }, null, 2), { mode: 0o600 });
   }
 
+  /**
+   * Writes the office-queue command into the data dir's bin/, running bin/office-queue.js with the
+   * office's own node, and returns that directory. Rewritten on every start, so after an upgrade it
+   * runs the new install's script.
+   */
+  private writeQueueCommand(): string | undefined {
+    const script = queueScript();
+    if (!script) return undefined;
+    const dir = path.join(this.dataDir, 'bin');
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const file = path.join(dir, 'office-queue');
+    writeFileSync(file, `#!/bin/sh\n# Agent Office's task queue, for the board agents (see bin/office-queue.js).\nexec ${shq(process.execPath)} ${shq(script)} "$@"\n`, { mode: 0o700 });
+    chmodSync(file, 0o700);
+    // cmd.exe and PowerShell find it by PATHEXT; Git Bash (Claude Code's shell there) runs the sh one.
+    if (WIN) writeFileSync(`${file}.cmd`, `@"${process.execPath}" "${script}" %*\r\n`);
+    return dir;
+  }
+
   private saveScrollback(w: Worker) {
     if (!w.term || !w.ser) return;
     w.unsaved = false;
@@ -1419,6 +1450,16 @@ function screenText(term: HeadlessTerminal, from = 0): string {
   const out: string[] = [];
   for (let y = Math.max(0, from - buf.viewportY); y < term.rows; y++) out.push(buf.getLine(buf.viewportY + y)?.translateToString(true) ?? '');
   return out.join('\n');
+}
+
+/** bin/office-queue.js in the install this office runs from (src/server under tsx, dist/server/server built). */
+function queueScript(): string | undefined {
+  let dir = path.dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 4; i++, dir = path.dirname(dir)) {
+    const file = path.join(dir, 'bin', 'office-queue.js');
+    if (existsSync(file)) return file;
+  }
+  return undefined;
 }
 
 const WIN = process.platform === 'win32';
