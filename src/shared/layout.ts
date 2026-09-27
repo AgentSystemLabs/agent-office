@@ -12,6 +12,8 @@ export interface DeskDef {
   /** Rotation around Y. At 0 the worker sits on the desk's +z side, facing -z. */
   rotY: number;
   label: string;
+  /** A bean bag on the floor instead of a desk; the worker sits on it at (x, z), facing -z at rotY 0. */
+  beanbag?: boolean;
 }
 
 const DESK_WIDTH = 2.2;
@@ -44,7 +46,50 @@ function buildDesks(): DeskDef[] {
 }
 
 export const DESKS: DeskDef[] = buildDesks();
-export const DESK_BY_ID = new Map(DESKS.map((d) => [d.id, d]));
+
+/**
+ * Overflow seats: once every desk is taken, bean bags come out around the room, one at a time in
+ * this order. Each faces a window or a wall, with open floor behind it to walk up to.
+ */
+export const BEANBAGS: DeskDef[] = (
+  [
+    [5, -9.8, 0],
+    [8, -9.8, 0],
+    [-16.1, -9, Math.PI / 2],
+    [-16.1, -3, Math.PI / 2],
+    [-8.8, 10.2, Math.PI],
+    [0.8, 10.2, Math.PI],
+    [12.2, -5.6, -Math.PI / 2],
+    [12.2, 5.6, -Math.PI / 2],
+    [-16.1, 3, Math.PI / 2],
+    [11, -9.8, 0],
+    [-12.6, 9.2, Math.PI / 2],
+    [-6, -9.8, 0],
+  ] as const
+).map(([x, z, rotY], i) => ({ id: `beanbag-${i + 1}`, x, z, rotY, label: `Bean bag ${i + 1}`, beanbag: true }));
+
+/** Everywhere a worker can sit: the desks, then the bean bags. */
+export const SEATS: DeskDef[] = [...DESKS, ...BEANBAGS];
+/** Any seat by id, bean bags included. */
+export const DESK_BY_ID = new Map(SEATS.map((d) => [d.id, d]));
+
+/** The seat a new worker takes when nobody picks one: the first free desk, else the first free bean bag. */
+export function nextFreeSeat(taken: (id: string) => boolean): DeskDef | undefined {
+  return SEATS.find((d) => !taken(d.id));
+}
+
+/**
+ * The bean bags that are out: every one in use, and while every desk is taken, the next free one
+ * too, so there's always somewhere to hire the next worker.
+ */
+export function beanbagsOut(taken: (id: string) => boolean): Set<string> {
+  const out = new Set(BEANBAGS.filter((b) => taken(b.id)).map((b) => b.id));
+  if (DESKS.every((d) => taken(d.id))) {
+    const spare = BEANBAGS.find((b) => !taken(b.id));
+    if (spare) out.add(spare.id);
+  }
+  return out;
+}
 
 /** Where the worker (and the interacting player) stands relative to the desk. */
 export function deskSeat(desk: DeskDef, offset = 0.85): { x: number; z: number } {

@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, SLAB, SPAWN, deskSeat } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, SLAB, SPAWN, beanbagsOut, deskSeat, nextFreeSeat } from '../shared/layout';
 import type { PeerInfo, WorkerInfo } from '../shared/protocol';
 import { Net } from './net';
 import { store, loadProfile, loadSettings, saveSettings, type Profile } from './state';
@@ -373,17 +373,9 @@ function syncWorkers() {
     if (!desk) continue;
     if (!v) {
       const model = new Worker(w.name, w.color);
-      model.root.position.copy(desk.seatAnchor.position);
-      model.root.position.y = 0.4;
-      model.root.position.z += 0.08;
-      model.root.rotation.y = Math.PI;
-      model.root.scale.setScalar(0.82);
-      desk.group.add(model.root);
+      desk.seatAnchor.add(model.root);
       const laptop = new Laptop();
-      laptop.root.position.copy(desk.laptopAnchor.position);
-      laptop.root.position.z -= 0.08;
-      laptop.root.scale.setScalar(1.3);
-      desk.group.add(laptop.root);
+      desk.laptopAnchor.add(laptop.root);
       noOutline(desk.group);
       desk.vacancy.visible = false;
       desk.chair.rotation.y = 0;
@@ -412,15 +404,24 @@ function syncWorkers() {
   for (const [id, v] of workerViews) {
     if (store.workers.has(id)) continue;
     const desk = office.desks.get(v.deskId);
-    desk?.group.remove(v.model.root);
-    desk?.group.remove(v.laptop.root);
+    v.model.root.removeFromParent();
+    v.laptop.root.removeFromParent();
     v.model.dispose();
     v.laptop.dispose();
     if (desk) desk.vacancy.visible = true;
     sound.removeTypist(id);
     workerViews.delete(id);
   }
+  arrangeBeanbags();
   renderWorkers((id) => openWorkerTerminal(id));
+}
+
+/** Once every desk is taken, bean bags come out for the workers who don't fit. */
+function arrangeBeanbags() {
+  const appeared = office.setBeanbags(beanbagsOut((id) => !!store.workerAtDesk(id)));
+  // One came out right where you're standing (on the office floor, not down in the garage): you end up on top of it.
+  const p = player.pos;
+  for (const c of appeared) if (p.y > -0.1 && p.y < c.top && p.x > c.minX - 0.3 && p.x < c.maxX + 0.3 && p.z > c.minZ - 0.3 && p.z < c.maxZ + 0.3) p.y = c.top;
 }
 store.on('workers', syncWorkers);
 store.on('workers', renderUsage);
@@ -428,7 +429,7 @@ store.on('usage', renderUsage);
 
 // ---- Actions ------------------------------------------------------------------------------------
 function freeDesk(): string | null {
-  // Prefer the empty desk nearest to you.
+  // Prefer the empty desk nearest to you; when they're all taken, the bean bag that's out.
   let best: string | null = null;
   let bestD = Infinity;
   for (const d of DESKS) {
@@ -439,7 +440,7 @@ function freeDesk(): string | null {
       best = d.id;
     }
   }
-  return best;
+  return best ?? nextFreeSeat((id) => !!store.workerAtDesk(id))?.id ?? null;
 }
 
 function hire(deskId: string, prompt?: string, worktree = false) {
@@ -530,7 +531,8 @@ function goToDesk(deskId: string) {
   const desk = DESK_BY_ID.get(deskId);
   if (!desk) return;
   closeAllModals();
-  const spot = deskSeat(desk, 2.4);
+  // Behind the worker, looking over their shoulder at the laptop.
+  const spot = deskSeat(desk, desk.beanbag ? 1.6 : 2.4);
   player.pos.set(spot.x, 0, spot.z);
   player.vy = 0;
   player.facing = Math.atan2(desk.x - spot.x, desk.z - spot.z);
@@ -563,7 +565,7 @@ function sendToWorker(title: string, text: { context?: string; initial?: string 
   const desk = freeDesk();
   const awake = [...store.workers.values()].filter((w) => w.kind === 'agent' && w.status !== 'exited' && w.status !== 'offline');
   if (!desk && !awake.length) {
-    toast('Every desk is taken — send a worker home first', 'warn');
+    toast('Every desk and bean bag is taken — send a worker home first', 'warn');
     return;
   }
   openAsk({
@@ -678,6 +680,7 @@ function pickTarget(): Interactable | null {
   let bestD = Infinity;
   for (const list of [office.interactables, gallery.interactables]) {
     for (const it of list) {
+      if (it.off) continue;
       const d = Math.hypot(it.x - player.pos.x, it.z - player.pos.z);
       if (d < it.radius && d < bestD) {
         best = it;

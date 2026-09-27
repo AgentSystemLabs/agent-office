@@ -188,8 +188,9 @@ export class WorkerManager {
   }
 
   spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent'): WorkerInfo | string {
-    if (!DESK_BY_ID.has(deskId)) return 'Unknown desk';
-    if (this.deskOccupied(deskId)) return 'That desk is taken';
+    const seat = DESK_BY_ID.get(deskId);
+    if (!seat) return 'Unknown desk';
+    if (this.deskOccupied(deskId)) return `That ${seat.beanbag ? 'bean bag' : 'desk'} is taken`;
     if (kind === 'agent') {
       const paused = this.ledger.hiringPaused;
       if (paused) return paused;
