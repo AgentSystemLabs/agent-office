@@ -4,10 +4,10 @@ import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
 import { DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, deskSeat, inElevator } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
-import type { AgentProvider, PeerInfo, WorkerInfo } from '../shared/protocol';
+import type { AgentProvider, GongWhy, PeerInfo, WorkerInfo } from '../shared/protocol';
 import { isAsleep, isBusy } from '../shared/status';
 import { Net } from './net';
-import { store, loadProfile, loadSettings, saveSettings, type Profile, type Topic } from './state';
+import { store, loadProfile, loadSettings, saveSettings, workerForPull, type Profile, type Topic } from './state';
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { buildOffice, type InteractKind, type Interactable } from './world/office';
 import { Person, Worker } from './world/character';
@@ -15,6 +15,7 @@ import { Hands } from './world/hands';
 import { Laptop } from './world/laptop';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import { Gallery } from './world/gallery';
+import { Confetti } from './world/confetti';
 import { Hanger } from './hanging';
 import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
@@ -109,6 +110,10 @@ mountBoard(office.boardMeshes.queue, queueTex.texture, () => queueTex.render(sto
 const gallery = new Gallery();
 office.group.add(gallery.group);
 store.on('decor', () => gallery.sync(store.decor));
+
+// Confetti for merges, landing on whatever it falls on
+const confetti = new Confetti((x, z, y) => groundAt(office.colliders, x, z, y));
+scene.add(confetti.mesh);
 
 // TV
 const tvVideo = document.createElement('video');
@@ -264,6 +269,9 @@ net.onMessage((msg) => {
       break;
     case 'peer.act':
       remotes.get(msg.id)?.person.reach();
+      break;
+    case 'gong':
+      gongRang(msg.why, msg.pr);
       break;
   }
 });
@@ -761,6 +769,52 @@ function interact(target: Interactable | null, key: DeskKey) {
   else if (target.kind === 'coffee') {
     toast('☕ Mmm, fresh coffee. +10 focus');
     sound.coffee();
+  } else if (target.kind === 'gong') hitGong();
+}
+
+// ---- The gong -------------------------------------------------------------------------------------
+let lastHit = 0;
+/** E at the gong. The office rings it for everyone on the floor, you included (see gongRang). */
+function hitGong() {
+  const now = performance.now();
+  if (now - lastHit < 500) return;
+  lastHit = now;
+  net.send({ t: 'gong' });
+}
+
+/** Where confetti comes from over a desk: above the worker's head. */
+function burstOver(deskId: string, n: number) {
+  const d = DESK_BY_ID.get(deskId);
+  if (d) confetti.burst(d.x, 2.3, d.z, n);
+}
+
+/** Someone hit the gong, a pull request merged (confetti over its desk), or the queue emptied (a party). */
+function gongRang(why: GongWhy, pr?: number) {
+  office.gong.strike(why === 'hit' ? 0.7 : 1);
+  sound.gong(why);
+  const top = office.gong.top;
+  if (why === 'merged') {
+    // Over the desk it came from while its worker is still there, who jumps for joy; otherwise over the gong.
+    const it = store.pulls.items.find((p) => p.number === pr);
+    const w = pr === undefined ? undefined : workerForPull(store.workers.values(), it ?? { number: pr, headRefName: '' });
+    if (w && workerViews.has(w.id)) {
+      burstOver(w.deskId, 220);
+      if (!isAsleep(w.status)) workerViews.get(w.id)!.model.cheer();
+    } else confetti.burst(top.x, top.y, top.z, 220);
+  } else if (why === 'queue') {
+    // Three strokes (sound.gong plays them): a burst at the gong, then every desk, then a cannon.
+    confetti.burst(top.x, top.y, top.z, 160);
+    setTimeout(() => {
+      office.gong.strike(0.85);
+      for (const [id, v] of workerViews) {
+        burstOver(v.deskId, 120);
+        if (!isAsleep(store.workers.get(id)?.status ?? 'offline')) v.model.cheer(4);
+      }
+    }, 850);
+    setTimeout(() => {
+      office.gong.strike(1.2);
+      confetti.burst(top.x, top.y, top.z, 450, 1.5);
+    }, 1700);
   }
 }
 
@@ -839,6 +893,8 @@ function hintFor(it: Interactable): Hint {
     }
     case 'coffee':
       return { k: '', parts: [title('☕ Coffee machine'), key('E', 'Grab a cup')] };
+    case 'gong':
+      return { k: '', parts: [title('🎉 Merge gong'), aside('rings when a PR merges'), key('E', 'Bang it')] };
     case 'elevator': {
       const f = store.currentFloor();
       const n = store.floors.length;
@@ -1031,7 +1087,7 @@ function backToGame() {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, elevator: 4.5 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, elevator: 4.5, gong: 3.5 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
@@ -1310,6 +1366,7 @@ function frame(ts?: number) {
     v.laptop.update(dt, store.screens.get(id), Math.hypot(desk.x - camPos.x, desk.z - camPos.z));
   }
   office.update(t, dt);
+  confetti.update(dt);
   hanger.update();
 
   if (modalOpen() || hanger.active) target = null;
@@ -1376,7 +1433,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, camera, workerViews, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen };
+(window as any).__office = { store, player, camera, workerViews, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen, confetti };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

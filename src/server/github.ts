@@ -65,6 +65,34 @@ function commentsOf(raw: any[]): GhComment[] {
   }));
 }
 
+/**
+ * Spots pull requests that merged between two looks at the list, so the gong rings however they
+ * merged: from the PR window, by a worker's `gh pr merge`, by auto-merge, or on GitHub itself.
+ */
+export class MergeWatch {
+  /** Open at the last look; unset until the first, so starting the office up rings for nothing. */
+  private open?: Set<number>;
+  /** Rang for already (merged from the PR window), so the next look doesn't ring them again. */
+  private rang = new Set<number>();
+
+  /** The gong rings for `n`: false if it already has. */
+  ring(n: number): boolean {
+    if (this.rang.has(n)) return false;
+    this.rang.add(n);
+    return true;
+  }
+
+  /** A fresh list from GitHub: the pull requests that merged since the last look and haven't rung yet. */
+  look(pulls: GhPull[]): GhPull[] {
+    const open = this.open;
+    const merged = open ? pulls.filter((p) => p.state === 'MERGED' && open.has(p.number) && !this.rang.has(p.number)) : [];
+    // Once GitHub says it merged, it never shows as open again to ring twice.
+    for (const p of pulls) if (p.state === 'MERGED') this.rang.delete(p.number);
+    this.open = new Set(pulls.filter((p) => p.state === 'OPEN').map((p) => p.number));
+    return merged;
+  }
+}
+
 export class GitHub {
   issues: GhState<GhIssue> = { items: [], fetchedAt: 0, loading: false };
   pulls: GhState<GhPull> = { items: [], fetchedAt: 0, loading: false };

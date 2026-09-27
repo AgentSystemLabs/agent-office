@@ -308,6 +308,8 @@ export class Worker {
   bouncing = false;
   private bounceT = 0;
   private spawnT = 0;
+  /** Seconds left jumping for joy (its pull request just merged). */
+  private cheerT = 0;
 
   constructor(name: string, color: string) {
     const skin = toonUnique(color);
@@ -372,6 +374,11 @@ export class Worker {
     this.drawBubble();
   }
 
+  /** Jumps for joy, arms up, for a few seconds. */
+  cheer(seconds = 3) {
+    this.cheerT = seconds;
+  }
+
   /** What it's working on, shown on a card over its head in place of the status bubble. */
   setTask(task: WorkerTask | undefined) {
     this.task = task;
@@ -401,7 +408,9 @@ export class Worker {
   }
 
   update(dt: number, t: number) {
-    const working = this.status === 'working';
+    this.cheerT = Math.max(0, this.cheerT - dt);
+    const hopping = this.bouncing || this.cheerT > 0;
+    const working = this.status === 'working' && !hopping;
     // Pop-in when hired
     this.spawnT = Math.min(1, this.spawnT + dt * 2.5);
     const pop = this.spawnT < 1 ? 1 + Math.sin(this.spawnT * Math.PI) * 0.35 : 1;
@@ -410,11 +419,11 @@ export class Worker {
       this.armL.rotation.x = -1.2 + Math.sin(t * 22) * 0.25;
       this.armR.rotation.x = -1.2 + Math.sin(t * 22 + 1.7) * 0.25;
     } else {
-      this.armL.rotation.x = THREE.MathUtils.lerp(this.armL.rotation.x, this.bouncing ? -2.6 : -0.3, 0.2);
-      this.armR.rotation.x = THREE.MathUtils.lerp(this.armR.rotation.x, this.bouncing ? -2.6 : -0.3, 0.2);
+      this.armL.rotation.x = THREE.MathUtils.lerp(this.armL.rotation.x, hopping ? -2.6 : -0.3, 0.2);
+      this.armR.rotation.x = THREE.MathUtils.lerp(this.armR.rotation.x, hopping ? -2.6 : -0.3, 0.2);
     }
-    // Jump up and down when done / waiting on a human
-    if (this.bouncing) {
+    // Jump up and down when done / waiting on a human, or cheering
+    if (hopping) {
       this.bounceT += dt * 7;
       const s = Math.abs(Math.sin(this.bounceT));
       this.body.position.y = s * 0.55;
@@ -434,8 +443,8 @@ export class Worker {
     for (const e of this.eyes) e.scale.y = blinking ? 0.1 : 1;
     this.bulbMesh.scale.setScalar(this.status === 'needs_input' ? 1 + Math.abs(Math.sin(t * 8)) * 0.5 : 1);
     if (isAsleep(this.status)) this.body.rotation.z = Math.sin(t * 1.5) * 0.08;
-    if (this.bubble) this.bubble.position.y = (this.bubbleIsCard ? 1.74 : 1.95) + (this.bouncing ? this.body.position.y : 0) + Math.sin(t * 3) * 0.03;
-    if (this.nameTag) this.nameTag.position.y = 1.55 + (this.bouncing ? this.body.position.y : 0);
+    if (this.bubble) this.bubble.position.y = (this.bubbleIsCard ? 1.74 : 1.95) + (hopping ? this.body.position.y : 0) + Math.sin(t * 3) * 0.03;
+    if (this.nameTag) this.nameTag.position.y = 1.55 + (hopping ? this.body.position.y : 0);
   }
 
   dispose() {

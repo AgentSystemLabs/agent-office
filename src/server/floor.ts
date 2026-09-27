@@ -7,7 +7,7 @@ import type { FloorDef } from './building.js';
 import { excludeFromGit } from './config.js';
 import { configuredProvider } from './agents.js';
 import { WorkerManager, type HookEnv } from './workers.js';
-import { GitHub } from './github.js';
+import { GitHub, MergeWatch } from './github.js';
 import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { Decor } from './decor.js';
@@ -73,6 +73,8 @@ export class Floor {
   readonly changes: Changes;
   readonly decor: Decor;
   private timer: NodeJS.Timeout;
+  /** Pull requests merging, to ring the gong for. */
+  private merges = new MergeWatch();
 
   constructor(
     readonly def: FloorDef,
@@ -117,6 +119,11 @@ export class Floor {
       (state) => {
         ctx.emit(this, { t: 'gh.pulls', state });
         this.queue?.onPulls(state.items);
+        if (state.loading || state.error) return;
+        for (const p of this.merges.look(state.items)) {
+          ctx.toast(this, `🎉 PR #${p.number} merged: ${p.title}`);
+          this.merged(p.number);
+        }
       },
     );
     // The 📋 task queue seats workers by itself: it watches the workers and links PRs from GitHub.
@@ -126,6 +133,10 @@ export class Floor {
       claimIssue: (issue) => this.github.claim(issue),
       refreshGitHub: () => void this.github.refresh(),
       hiringPaused: () => ctx.ledger.hiringPaused,
+      emptied: () => {
+        ctx.toast(this, '📋 The queue is empty: every task is done 🎉');
+        ctx.emit(this, { t: 'gong', why: 'queue' });
+      },
     });
 
     // What each worker changed, for the Changes window at its desk (see changes.ts).
@@ -155,6 +166,11 @@ export class Floor {
     this.timer = setInterval(() => {
       if (this.active() || Date.now() - this.github.issues.fetchedAt > IDLE_REFRESH_MS) void this.github.refresh();
     }, REFRESH_MS);
+  }
+
+  /** Pull request `n` merged (`by` someone, from the PR window): the gong rings, once per PR. */
+  merged(n: number, by?: string) {
+    if (this.merges.ring(n)) this.ctx.emit(this, { t: 'gong', why: 'merged', pr: n, by });
   }
 
   /** Someone just walked in: boards that haven't been looked at in a while get fetched again. */

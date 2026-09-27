@@ -555,6 +555,9 @@ export interface SearchResults {
   more: boolean;
 }
 
+/** Why the gong rang. */
+export type GongWhy = 'hit' | 'merged' | 'queue';
+
 export type ClientMsg =
   | { t: 'move'; x: number; y: number; z: number; rotY: number; moving: boolean }
   /** You reached out to use something; everyone else sees your character's arm do it. */
@@ -575,6 +578,8 @@ export type ClientMsg =
   | { t: 'gh.refresh' }
   /** Merge a pull request; the answer comes back as gh.merged. */
   | { t: 'gh.merge'; number: number; method: GhMergeMethod; deleteBranch: boolean; auto?: boolean }
+  /** Hit the office gong (E at the gong); everyone on the floor hears it. */
+  | { t: 'gong' }
   | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string }
   | { t: 'queue.remove'; taskId: string }
   /** Move a queued task up (-1) or down (+1) the queue. */
@@ -667,6 +672,11 @@ export type ServerMsg =
   | { t: 'gh.pulls'; state: GhState<GhPull> }
   /** Sent to whoever asked for the merge. */
   | { t: 'gh.merged'; number: number; error?: string }
+  /**
+   * The gong rings, for everyone on the floor: someone hit it, pull request `pr` merged (confetti
+   * over the desk it came from), or the last task on the queue just finished (a bigger party).
+   */
+  | { t: 'gong'; why: GongWhy; by?: string; pr?: number }
   | { t: 'rtc'; from: string; data: unknown }
   | ({ t: 'chat' } & ChatLine)
   | { t: 'toast'; text: string; level: 'info' | 'warn' | 'error' }

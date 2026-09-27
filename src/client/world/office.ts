@@ -1,9 +1,10 @@
 import * as THREE from 'three';
-import { BOARDS, DESKS, DESK_SIZE, ELEVATOR, FLOOR, LOFT, STAIRS, TV, WALL_HEIGHT, deskSeat, type DeskDef } from '../../shared/layout';
+import { BOARDS, DESKS, DESK_SIZE, ELEVATOR, FLOOR, GONG, LOFT, STAIRS, TV, WALL_HEIGHT, deskSeat, type DeskDef } from '../../shared/layout';
 import { wallFacing, type WallId, type WallRect } from '../../shared/decor';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
 import { mesh, roundedBox, textPlane, toon, toonUnique } from './toon';
 import { buildElevator, type Elevator } from './elevator';
+import { buildGong, type Gong } from './gong';
 
 export interface Collider {
   minX: number;
@@ -15,7 +16,7 @@ export interface Collider {
   bottom?: number;
 }
 
-export type InteractKind = 'desk' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'elevator';
+export type InteractKind = 'desk' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'elevator' | 'gong';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -48,6 +49,8 @@ export interface Office {
   /** What's already on the walls (boards, the TV, windows…), so pictures don't hang over it. */
   fixtures(): WallRect[];
   elevator: Elevator;
+  /** The merge gong by the PR board. */
+  gong: Gong;
   /** The sign over the elevator doors: which floor you're on. */
   setProjectName(name: string): void;
   /** Paints the walls, their trim and the floor in a floor's colors, so each project looks like itself. */
@@ -443,6 +446,13 @@ export function buildOffice(): Office {
   colliders.push(...elevator.colliders);
   interactables.push(elevator.interactable);
   fixture('north', ELEVATOR.x, WALL_HEIGHT / 2, ELEVATOR.width + 0.1, WALL_HEIGHT);
+
+  // The gong, between the PR board and the elevator.
+  const gong = buildGong();
+  group.add(gong.group);
+  colliders.push(...gong.colliders);
+  interactables.push(gong.interactable);
+  fixture('north', GONG.x, (GONG.height + 0.3) / 2, GONG.width + 1.2, GONG.height + 0.3);
   // Pictures stay clear of the stairs (step by step, so they can hang above them) and of what's on
   // the loft's walls upstairs, as buildLoft places it: a window on each wall, the couch, the sign.
   const run = (STAIRS.toX - STAIRS.fromX) / STAIRS.steps;
@@ -471,9 +481,10 @@ export function buildOffice(): Office {
       d.vacancy.rotation.y = t * 1.2;
     }
     elevator.update(dt);
+    gong.update(dt);
   };
 
-  return { group, colliders, interactables, desks, boardMeshes, tvScreen, fixtures: () => fixtures, elevator, setProjectName, setLook, update };
+  return { group, colliders, interactables, desks, boardMeshes, tvScreen, fixtures: () => fixtures, elevator, gong, setProjectName, setLook, update };
 }
 
 /** The materials and textures a floor paints in its own colors. */

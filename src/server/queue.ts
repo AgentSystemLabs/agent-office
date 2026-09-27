@@ -24,6 +24,8 @@ export interface QueueEvents {
   refreshGitHub(): void;
   /** Why no workers may be hired right now (today's budget is spent), if that's so. */
   hiringPaused(): string | undefined;
+  /** The last task on the queue just finished, done: nothing is left queued or running. */
+  emptied(): void;
 }
 
 export const DEFAULT_MAX_WORKERS = 3;
@@ -209,18 +211,23 @@ export class TaskQueue {
   private reconcile() {
     const byId = new Map(this.workers.list().map((w) => [w.id, w]));
     let changed = false;
+    let done = false;
     for (const t of this.tasks) {
       if (t.status !== 'running' || !t.workerId) continue;
       const w = byId.get(t.workerId);
       if (!w) this.finish(t, 'killed');
-      else if (FINISHED.has(w.status)) this.finish(t, w.status === 'done' ? 'done' : 'exited');
+      else if (FINISHED.has(w.status)) done = this.finish(t, w.status === 'done' ? 'done' : 'exited') || done;
       else continue;
       changed = true;
     }
-    if (changed) this.changed();
+    if (!changed) return;
+    this.changed();
+    // A task finishing is what empties the queue; removing or clearing tasks doesn't count.
+    if (done && this.tasks.every((t) => t.status === 'done')) this.events.emptied();
   }
 
-  private finish(t: QueueTask, outcome: NonNullable<QueueTask['outcome']>) {
+  /** Returns whether the task got done (rather than stopping short). */
+  private finish(t: QueueTask, outcome: NonNullable<QueueTask['outcome']>): boolean {
     t.status = 'done';
     t.outcome = outcome;
     t.finishedAt = Date.now();
@@ -230,6 +237,7 @@ export class TaskQueue {
       // The worker most likely just opened the PR; go and link it.
       this.events.refreshGitHub();
     } else if (outcome === 'exited') this.events.toast(`📋 ${who} stopped before finishing ${label(t)} — requeue it from the queue board`, 'warn');
+    return outcome === 'done';
   }
 
   private busy(): number {

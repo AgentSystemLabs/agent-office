@@ -73,6 +73,9 @@ export const STAIRS = { fromX: 3, toX: LOFT.minX, minZ: 11.2, maxZ: FLOOR.maxZ, 
 
 export const SPAWN = { x: 8, z: 7 } as const;
 
+/** The gong: on the north wall between the PR board and the elevator, facing into the room. It rings when a PR merges. */
+export const GONG = { x: 3.5, z: FLOOR.minZ + 0.75, width: 1.9, height: 2.45 } as const;
+
 /**
  * The elevator: a shaft against the north wall, between the PR board and the task queue, with its
  * doors facing into the room. Every floor has it in the same spot, so you step out where you got in.

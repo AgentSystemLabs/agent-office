@@ -63,6 +63,7 @@ interface Client {
   stale: Set<string>;
   lastMoveAt: number;
   lastActAt: number;
+  lastGongAt: number;
   /** Cleared at each heartbeat ping and set again by the pong; still clear at the next one means gone. */
   isAlive: boolean;
 }
@@ -636,6 +637,7 @@ export async function startServer(cfg: Config) {
       stale: new Set(),
       lastMoveAt: 0,
       lastActAt: 0,
+      lastGongAt: 0,
       isAlive: true,
       peer: {
         id,
@@ -924,8 +926,19 @@ export async function startServer(cfg: Config) {
         if (!floor || !Number.isSafeInteger(n) || n <= 0 || !method) break;
         void floor.github.merge(n, method, msg.deleteBranch === true, msg.auto === true).then((error) => {
           sendTo(c, { t: 'gh.merged', number: n, error });
-          if (!error) toastFloor(floor, msg.auto ? `${who} set PR #${n} to merge once its checks pass` : `🎉 ${who} merged PR #${n}`);
+          if (error) return;
+          toastFloor(floor, msg.auto ? `${who} set PR #${n} to merge once its checks pass` : `🎉 ${who} merged PR #${n}`);
+          // An auto-merge rings once GitHub gets round to it and the boards see it merged.
+          if (!msg.auto) floor.merged(n, who);
         });
+        break;
+      }
+      case 'gong': {
+        const floor = floorOf(c);
+        const now = Date.now();
+        if (!floor || now - c.lastGongAt < 500) break;
+        c.lastGongAt = now;
+        toFloor(floor, { t: 'gong', why: 'hit', by: who });
         break;
       }
       case 'queue.add': {
