@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { REACH_TIME, SMOKE_CYCLE, cigarette, coffeeMug, dragCurve, reachCurve } from './character';
+import { EMOTE_BY_ID, type Emote, type EmoteId } from '../../shared/emotes';
+import { REACH_TIME, SMOKE_CYCLE, cigarette, coffeeMug, dragCurve, emoteEnvelope, reachCurve } from './character';
 import { mesh, toon, toonUnique } from './toon';
 
 export interface HandsInput {
@@ -47,6 +48,10 @@ export class Hands {
   private lightLevel = 1;
   /** Seconds into a smoke break, or -1. Runs in step with your character's (see Person.setSmoking). */
   private smokeT = -1;
+  /** The emote your character is doing, and how far into it (see Person.emote). */
+  private emoting: { emote: Emote; t: number } | null = null;
+  /** Sticks up out of the right fist for a thumbs up. */
+  private thumbUp: THREE.Mesh;
 
   constructor(shirt: string, skin: string) {
     this.sleeve = toonUnique(shirt);
@@ -74,6 +79,10 @@ export class Hands {
     this.cig.position.set(-0.035, 0.03, -0.075);
     this.cig.visible = false;
     this.right.group.add(this.cig);
+    this.thumbUp = mesh(new THREE.CapsuleGeometry(0.027, 0.035, 4, 10), this.skin, -0.035, 0.065, -0.005, false);
+    this.thumbUp.rotation.z = 0.3;
+    this.thumbUp.visible = false;
+    this.right.group.add(this.thumbUp);
   }
 
   /** Puts a lit cigarette in your right hand, or takes it away. */
@@ -118,6 +127,13 @@ export class Hands {
   /** A mug of coffee in the left hand, or not. */
   holdMug(on: boolean) {
     this.mug.visible = on;
+  }
+
+  /** Your hands' half of an emote: a wave, a thumbs up, a clap… in front of your eyes. */
+  emote(id: EmoteId) {
+    const emote = EMOTE_BY_ID.get(id);
+    this.emoting = emote ? { emote, t: 0 } : null;
+    this.thumbUp.visible = id === 'thumbs';
   }
 
   /** Raise the mug for a sip, once the right hand is back from the coffee machine. */
@@ -215,6 +231,75 @@ export class Hands {
       r.position.z += 0.3 * d;
       r.rotation.x += 0.5 * d;
       this.ember.emissiveIntensity += ((d > 0.9 ? 1.4 : 0.3) - this.ember.emissiveIntensity) * Math.min(1, dt * 6);
+    }
+    if (this.emoting) this.emoteStep(dt, l);
+  }
+
+  /** Moves the hands (already placed for this frame) through the emote. */
+  private emoteStep(dt: number, l: THREE.Group) {
+    const e = this.emoting!;
+    e.t += dt;
+    const u = e.t;
+    const { seconds, id } = e.emote;
+    if (u >= seconds) {
+      this.emoting = null;
+      this.thumbUp.visible = false;
+      return;
+    }
+    const k = emoteEnvelope(u, seconds);
+    const r = this.right.group;
+    switch (id) {
+      case 'wave':
+        // Up in front of your shoulder (in from the edge, clear of the sidebar), rocking side to side.
+        r.position.x += (-0.09 + Math.sin(u * 12) * 0.035) * k;
+        r.position.y += 0.2 * k;
+        r.rotation.x += 0.9 * k;
+        r.rotation.z += Math.sin(u * 12) * 0.35 * k;
+        break;
+      case 'thumbs':
+        // Up in front of you, fist level and thumb up, with a little pump.
+        r.position.x -= 0.13 * k;
+        r.position.y += (0.12 + Math.exp(-u * 3) * Math.sin(u * 14) * 0.03) * k;
+        r.rotation.z += 0.25 * k;
+        break;
+      case 'clap': {
+        const c = 0.5 - 0.5 * Math.cos(u * 19);
+        for (const [g, side] of [
+          [r, 1],
+          [l, -1],
+        ] as const) {
+          g.position.x -= side * (0.1 + 0.085 * c) * k;
+          g.position.y += 0.06 * k;
+          g.rotation.z += side * 0.9 * k;
+        }
+        break;
+      }
+      case 'dance': {
+        // Up and down by turns, two beats a second.
+        const s = Math.sin(u * Math.PI * 2);
+        r.position.y += (0.1 + 0.1 * s) * k;
+        l.position.y += (0.1 - 0.1 * s) * k;
+        r.position.x += s * 0.03 * k;
+        l.position.x += s * 0.03 * k;
+        break;
+      }
+      case 'point': {
+        // Out toward the crosshair, like a reach you hold.
+        const jab = 1 + Math.exp(-u * 4) * Math.sin(u * 16) * 0.15;
+        r.position.x -= 0.16 * k;
+        r.position.y += 0.09 * k;
+        r.position.z -= 0.2 * k * jab;
+        r.rotation.x += 0.3 * k;
+        r.rotation.y += 0.15 * k;
+        break;
+      }
+      case 'facepalm':
+        // Palm up to your face, covering a corner of the view.
+        r.position.x -= 0.12 * k;
+        r.position.y += (0.17 + Math.sin(u * 5) * 0.01) * k;
+        r.position.z += 0.2 * k;
+        r.rotation.x += 0.9 * k;
+        break;
     }
   }
 }

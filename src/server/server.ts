@@ -32,6 +32,7 @@ import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
+import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -68,6 +69,7 @@ interface Client {
   lastMoveAt: number;
   lastActAt: number;
   lastGongAt: number;
+  emotes: EmoteBucket;
   /** Has the floor's whiteboard open. */
   whiteboard: boolean;
   lastWbPointerAt: number;
@@ -746,6 +748,8 @@ export async function startServer(cfg: Config) {
       lastMoveAt: 0,
       lastActAt: 0,
       lastGongAt: 0,
+      // A little more lenient than the page's own, so emotes it let through aren't dropped for arriving bunched up.
+      emotes: new EmoteBucket(EMOTE_EVERY * 0.8),
       whiteboard: false,
       lastWbPointerAt: 0,
       isAlive: true,
@@ -902,6 +906,9 @@ export async function startServer(cfg: Config) {
         toNeighbors(c, { t: 'peer.act', id: c.id }, true);
         break;
       }
+      case 'emote':
+        if (isEmote(msg.emote) && c.emotes.take(Date.now())) toNeighbors(c, { t: 'peer.emote', id: c.id, emote: msg.emote }, true);
+        break;
       case 'sit': {
         // Everyone sees them sit down (or get up), and anyone who comes in later finds them sitting.
         const key = str(msg.seat, 40);

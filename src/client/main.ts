@@ -50,6 +50,8 @@ import { renderLimits } from './ui/limits';
 import { openJukebox } from './ui/jukebox';
 import { Arcade } from './ui/arcade';
 import { trackTitle } from '../shared/jukebox';
+import { EMOTES, EMOTE_BY_ID, EmoteBucket, type EmoteId } from '../shared/emotes';
+import { EmoteWheel } from './ui/emotes';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -363,6 +365,9 @@ net.onMessage((msg) => {
       r?.person.setSmoking(msg.smoke);
       break;
     }
+    case 'peer.emote':
+      remotes.get(msg.id)?.person.emote(msg.emote);
+      break;
     case 'gong':
       gongRang(msg.why, msg.pr);
       break;
@@ -1311,6 +1316,54 @@ function reach() {
   }
 }
 
+// ---- Emotes ---------------------------------------------------------------------------------------
+/** The same limit the server keeps, so an emote you see yourself do is one everyone else sees too. */
+const emoteLimit = new EmoteBucket();
+let emoteWarnedAt = 0;
+/** Plays an emote on your character and your hands, and shows it to everyone else on the floor. */
+function emote(id: EmoteId) {
+  const now = performance.now();
+  if (!emoteLimit.take(now)) {
+    if (now - emoteWarnedAt > 3000) {
+      emoteWarnedAt = now;
+      toast('Easy there, one emote at a time', 'warn');
+    }
+    return;
+  }
+  me.emote(id);
+  hands.emote(id);
+  if (player.view === 'first') popEmoji(id);
+  net.send({ t: 'emote', emote: id });
+}
+const emoteWheel = new EmoteWheel(emote, (open) => (player.mouseLook = !open));
+$('hud').append(emoteWheel.el);
+
+/** In first person you can't see the emoji over your head, so it pops up on the screen instead. */
+function popEmoji(id: EmoteId) {
+  const e = EMOTE_BY_ID.get(id)!;
+  document.querySelector('.emote-pop')?.remove();
+  const el = h('div.emote-pop', { style: `--secs:${e.seconds}s`, 'aria-hidden': 'true' }, e.emoji);
+  el.addEventListener('animationend', () => el.remove());
+  $('hud').append(el);
+}
+
+/** G opens the emote wheel (hold it and point, or tap it and click); 1–6 play one straight away. */
+function emoteKey(e: KeyboardEvent): boolean {
+  if (e.code === 'KeyG') {
+    if (!e.repeat) emoteWheel.press();
+    return true;
+  }
+  if (e.code === 'Escape' && emoteWheel.isOpen) {
+    emoteWheel.close();
+    return true;
+  }
+  const n = /^(?:Digit|Numpad)([1-6])$/.exec(e.code);
+  if (!n) return false;
+  emoteWheel.close();
+  emote(EMOTES[Number(n[1]) - 1].id);
+  return true;
+}
+
 /** Keys that use what you're facing: at a desk, each does something else (see interact). */
 const DESK_KEYS = { KeyE: 'E', KeyP: 'P', KeyR: 'R', KeyX: 'X', KeyB: 'B', KeyC: 'C', KeyO: 'O' } as const;
 type DeskKey = (typeof DESK_KEYS)[keyof typeof DESK_KEYS];
@@ -1328,7 +1381,11 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
+  if (emoteKey(e)) return;
   if (officeKey(e)) player.clearKeys();
+});
+window.addEventListener('keyup', (e) => {
+  if (e.code === 'KeyG') emoteWheel.release();
 });
 
 /** The office's own keys; false for any other key, which is left to walking and the browser. */
@@ -1398,6 +1455,7 @@ onModalChange((open) => {
   player.enabled = !open;
   player.clearKeys();
   if (open) {
+    emoteWheel.close();
     if (player.locked) relookAfterModal = true;
     player.unlock();
     $('hint').classList.add('hidden');
@@ -1445,6 +1503,7 @@ function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boole
 
 player.onClick = (ndc) => {
   if (modalOpen()) return;
+  if (emoteWheel.isOpen) return emoteWheel.click();
   if (hanger.active) {
     reach();
     hanger.place(ndc);
@@ -1704,6 +1763,7 @@ function frame(ts?: number) {
       sound.stepAt(pos.x, pos.z);
     }
     r.person.setVoiceLevel(p.voice && !p.muted ? voice.levelOf(id) : 0);
+    r.person.emojiLift = r.bubble ? 0.45 : 0;
     if (r.bubble && now > r.bubble.until) {
       r.person.root.remove(r.bubble.sprite);
       disposeSprite(r.bubble.sprite);
@@ -1804,7 +1864,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, caffeine, camera, arcade, workerViews, departures, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen, confetti, dog, sky };
+(window as any).__office = { store, player, caffeine, camera, arcade, workerViews, departures, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen, confetti, dog, sky, emoteWheel, emote };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;
