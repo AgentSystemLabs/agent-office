@@ -46,6 +46,8 @@ export class PlayerController {
   jumpBoost = 1;
   /** 0 (steady) to 1: how hard the view trembles after one coffee too many. */
   jitter = 0;
+  /** How far below the floor you're on the street is: further down the higher your floor (see streetBelow). */
+  street = STREET_Y;
   private jitterT = 0;
   /** Where you're sitting, or null on your feet. You stay put there until you walk off or jump up. */
   seat: SeatPlace | null = null;
@@ -428,15 +430,16 @@ export class PlayerController {
     const roof = ceilingAt(this.colliders, cam.x, cam.z, floorY) - 0.3;
     cam.y = THREE.MathUtils.clamp(cam.y, floorY + 0.6, Math.max(floorY + 0.6, Math.min(floorY + 3.5, roof)));
     // Down on the street, stay under the garage ceiling so its edge never cuts across the view.
-    if (this.pos.y < -SLAB - 1 && !rigged) cam.y = Math.min(cam.y, Math.max(floorY + 0.6, -SLAB - 0.3));
+    const garage = this.street - STREET_Y - SLAB;
+    if (this.pos.y < garage - 1 && !rigged) cam.y = Math.min(cam.y, Math.max(floorY + 0.6, garage - 0.3));
     // How far you are out past each outside wall (west, east, north, south), and how far inside them the camera is.
     const e = WALL_T + m;
     const out = [FLOOR.minX - WALL_T - this.pos.x, this.pos.x - FLOOR.maxX - WALL_T, FLOOR.minZ - WALL_T - this.pos.z, this.pos.z - FLOOR.maxZ - WALL_T];
     const side = out.indexOf(Math.max(...out));
     const camIn = Math.min(cam.x - (FLOOR.minX - e), FLOOR.maxX + e - cam.x, cam.z - (FLOOR.minZ - e), FLOOR.maxZ + e - cam.z) > 0;
-    // Outside, back the camera out through the wall you're standing beyond: upstairs always, and
-    // downstairs where the garage is walled in (the west and north sides).
-    if (!indoors && out[side] > 0 && camIn && (cam.y > -SLAB || side === 0 || side === 2)) {
+    // Outside, back the camera out through the wall you're standing beyond: above the garage always,
+    // and down in it where it's walled in (the west and north sides).
+    if (!indoors && out[side] > 0 && camIn && (cam.y > garage || side === 0 || side === 2)) {
       if (side === 0) cam.x = FLOOR.minX - e;
       else if (side === 1) cam.x = FLOOR.maxX + e;
       else if (side === 2) cam.z = FLOOR.minZ - e;
@@ -539,10 +542,10 @@ function touches(c: Collider, x: number, z: number, r: number): boolean {
 
 /**
  * The floor under someone standing at (x, z) with their feet at `y`: the highest top they're on or
- * above, else the street. Without `fences`, what's there only to keep people out doesn't count.
+ * above (out of doors, the street's). Without `fences`, what's there only to keep people out doesn't count.
  */
 export function groundAt(colliders: Collider[], x: number, z: number, y: number, fences = true): number {
-  let g = STREET_Y;
+  let g = -Infinity;
   for (const c of colliders) {
     if (c.top > 50 || y < c.top - 0.1 || c.top <= g || (c.fence && !fences)) continue;
     if (touches(c, x, z, RADIUS)) g = c.top;

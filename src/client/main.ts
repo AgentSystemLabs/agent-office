@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, LADDER, LOFT, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, seatAt, seatPlace, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, LADDER, LOFT, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, STOREY, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, seatAt, seatPlace, streetBelow, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
 import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
 import { MEETING_PATTERNS } from '../shared/meetings';
@@ -368,7 +368,10 @@ function usePole(i: number) {
   else climber.twirl(spot);
 }
 
-/** The ladder and the poles go where there are floors to go to from this one. */
+/**
+ * The ladder and the poles go where there are floors to go to from this one, and the building is as
+ * tall as there are floors, with the street as far down as this one is up.
+ */
 function syncStack() {
   const floors = builtFloors();
   const index = floors.findIndex((f) => f.id === store.floor);
@@ -378,6 +381,8 @@ function syncStack() {
   const s = office.stack.state;
   if (s.index === Math.max(0, index) && s.count === count && s.up === up && s.down === down) return;
   office.stack.set({ index: Math.max(0, index), count, up, down });
+  office.setLevel(Math.max(0, index), count);
+  player.street = streetBelow(index);
 }
 store.on('floors', syncStack);
 
@@ -419,6 +424,7 @@ const departures = new Departures(
   (x, z, y) => groundAt(office.colliders, x, z, y),
   (x, y, z) => sound.stepAt(x, z, y),
   () => arrangeSeats(),
+  () => office.stack.state.index > 0,
 );
 // Workers called to a meeting, walking in from the elevator to the meeting table.
 const arrivals = new Arrivals(
@@ -619,9 +625,13 @@ function ride(floorId: string) {
   );
 }
 
-/** Where you are, to arrive at the same spot on another floor. */
-function standingAt(): Arrival {
-  return { x: player.pos.x, y: player.pos.y, z: player.pos.z, rotY: player.facing };
+/** Where you are, to arrive at the same spot on floor `to`. Down on the street (or the steps to it), that's the street there too. */
+function standingAt(to: string): Arrival {
+  const floors = builtFloors();
+  const from = floors.findIndex((f) => f.id === store.floor);
+  const there = floors.findIndex((f) => f.id === to);
+  const below = player.pos.y < -SLAB - 0.05 && from >= 0 && there >= 0;
+  return { x: player.pos.x, y: below ? player.pos.y + (from - there) * STOREY : player.pos.y, z: player.pos.z, rotY: player.facing };
 }
 
 /** Straight to another floor from the floor list: a blink, and you're standing in the same spot there. */
@@ -637,7 +647,7 @@ function switchFloor(floorId: string) {
   player.enabled = false;
   player.clearKeys();
   fade(true, true);
-  setTimeout(() => net.send({ t: 'floor.go', floor: floorId, at: standingAt() }), 170);
+  setTimeout(() => net.send({ t: 'floor.go', floor: floorId, at: standingAt(floorId) }), 170);
 }
 
 /** Through the ceiling up the ladder, or through the floor down one: the lights dip as you pass. */

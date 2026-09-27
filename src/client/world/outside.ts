@@ -19,15 +19,19 @@ export interface Lamp {
   color: string;
   /** How bright, at the middle of the pool. */
   power: number;
+  /** Down by the street (a street lamp, the one over the exit): it's further down the higher your floor is. */
+  ground?: boolean;
 }
 
 /** Everything that changes between day and night and with the weather, for the sky to drive. */
 export interface NightParts {
   /** Bulbs whose glow goes from `day` (emissive intensity by day) up to full at night. */
   bulbs: { mat: THREE.MeshToonMaterial; day: number }[];
-  /** Where each bulb's soft halo goes at night, and its color. */
-  halos: { at: THREE.Vector3; size: number; color: string }[];
+  /** Where each bulb's soft halo goes at night, and its color; `ground` as for a Lamp. */
+  halos: { at: THREE.Vector3; size: number; color: string; ground?: boolean }[];
   lamps: Lamp[];
+  /** How far below the floor you're on the street is (see streetBelow): what the `ground` lamps drop with. */
+  street: number;
   /** The neighbours' walls, whose windows light up at night. */
   windows: THREE.MeshToonMaterial[];
   clouds: THREE.MeshToonMaterial;
@@ -263,20 +267,22 @@ function streetLamp(parts: THREE.Group, night: NightParts, glass: THREE.MeshToon
   parts.add(mesh(new THREE.CylinderGeometry(0.12, 0.42, 0.26, 12), ink, x, G + H - 0.1, hz));
   parts.add(mesh(new THREE.SphereGeometry(0.22, 12, 8), glass, x, G + H - 0.3, hz, false));
   colliders.push({ minX: x - 0.2, maxX: x + 0.2, minZ: z - 0.2, maxZ: z + 0.2, bottom: G, top: G + H });
-  night.halos.push({ at: new THREE.Vector3(x, G + H - 0.34, hz), size: 2.4, color: '#ffd89a' });
-  night.lamps.push({ x, y: G + H - 0.6, z: hz, reach: 10, color: '#ffcf8a', power: 4 });
+  night.halos.push({ at: new THREE.Vector3(x, G + H - 0.34, hz), size: 2.4, color: '#ffd89a', ground: true });
+  night.lamps.push({ x, y: G + H - 0.6, z: hz, reach: 10, color: '#ffcf8a', power: 4, ground: true });
 }
 
 /**
  * Everything outside, down on the street: grass, the lot in front of the garage, a road with
- * sidewalks and street lamps, trees, neighbours' buildings and some clouds.
+ * sidewalks and street lamps, trees and neighbours' buildings, and in `sky` some clouds.
  */
-export function buildStreet(group: THREE.Group, colliders: Collider[], night: NightParts) {
+export function buildStreet(group: THREE.Group, colliders: Collider[], night: NightParts, sky: THREE.Group) {
   const lawn = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), toon('#a7d98b'));
   lawn.rotation.x = -Math.PI / 2;
   lawn.position.y = G - 0.03;
   lawn.receiveShadow = true;
   group.add(lawn);
+  // What you stand on anywhere out there, the lot and the road and the grass alike.
+  colliders.push({ minX: -200, maxX: 200, minZ: -200, maxZ: 200, bottom: G - 1, top: G });
 
   // The lot in front of the garage, out to the sidewalk.
   const lot = groundPlane(60, 21 - B.maxZ, 0, G - 0.01, (B.maxZ + 21) / 2, null, '#9a9ea8');
@@ -361,7 +367,7 @@ export function buildStreet(group: THREE.Group, colliders: Collider[], night: Ni
   // Puffy clouds, too far off for the fog to hide.
   const cloud = night.clouds;
   cloud.fog = false;
-  const sky = new THREE.Group();
+  const puffs = new THREE.Group();
   for (const [x, y, z, s] of [
     [-70, 34, -60, 1.3],
     [-10, 40, -90, 1.6],
@@ -385,7 +391,7 @@ export function buildStreet(group: THREE.Group, colliders: Collider[], night: Ni
     c.position.set(x, y, z);
     c.scale.setScalar(s);
     c.lookAt(0, y, 0);
-    sky.add(c);
+    puffs.add(c);
   }
-  group.add(mergeByMaterial(sky));
+  sky.add(mergeByMaterial(puffs));
 }

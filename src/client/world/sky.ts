@@ -38,6 +38,8 @@ const uniforms = {
   /** How wet the ground is, and how much snow lies on it: 0–1. */
   skyWet: { value: 0 },
   skySnow: { value: 0 },
+  /** How much further down the garage is than from the bottom floor: a storey for each floor below yours. */
+  skyDrop: { value: 0 },
 };
 
 const v3 = (x: number, y: number, z: number) => `vec3(${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)})`;
@@ -54,6 +56,7 @@ uniform vec3 skyLampMin;
 uniform vec3 skyLampMax;
 uniform float skyWet;
 uniform float skySnow;
+uniform float skyDrop;
 
 // Inside the office's walls (and up through its open top).
 float skyInOffice( vec3 p ) {
@@ -61,9 +64,9 @@ float skyInOffice( vec3 p ) {
   return 1.0 - smoothstep( 0.0, 0.12, length( max( d, 0.0 ) ) );
 }
 
-// Under the office: walled at the back and on the west side, open to the street on the south and east.
+// Under the bottom floor: walled at the back and on the west side, open to the street on the south and east.
 float skyInGarage( vec3 p ) {
-  if ( p.x < ${(B.minX + 0.05).toFixed(3)} || p.z < ${(B.minZ + 0.05).toFixed(3)} || p.y < ${(STREET_Y - 0.5).toFixed(3)} || p.y > ${(-SLAB + 0.02).toFixed(3)} ) return 0.0;
+  if ( p.x < ${(B.minX + 0.05).toFixed(3)} || p.z < ${(B.minZ + 0.05).toFixed(3)} || p.y + skyDrop < ${(STREET_Y - 0.5).toFixed(3)} || p.y + skyDrop > ${(-SLAB + 0.02).toFixed(3)} ) return 0.0;
   return 1.0 - smoothstep( 0.0, 3.0, length( max( p.xz - vec2( ${B.maxX.toFixed(3)}, ${B.maxZ.toFixed(3)} ), 0.0 ) ) );
 }
 
@@ -343,6 +346,10 @@ export class Sky {
   private readonly sunDisc: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   private readonly moonDisc: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   private readonly halos: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>[] = [];
+  /** The halos down by the street, which go down with it. */
+  private readonly groundHalos = new THREE.Group();
+  /** Where the street was when the lamps were last put in place (see NightParts.street). */
+  private street = NaN;
   private readonly rainLines: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial>;
   private readonly drops: Float32Array;
   private readonly flakes: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
@@ -359,15 +366,7 @@ export class Sky {
     scene.fog ??= new THREE.Fog('#bfe3ff', 40, 90);
     if (!(scene.background instanceof THREE.Color)) scene.background = new THREE.Color('#bfe3ff');
 
-    // The lamps' pools of light, and the box around all of them.
-    const lamps = night.lamps.slice(0, MAX_LAMPS);
-    const lo = uniforms.skyLampMin.value.set(Infinity, Infinity, Infinity);
-    const hi = uniforms.skyLampMax.value.set(-Infinity, -Infinity, -Infinity);
-    lamps.forEach((l, i) => {
-      uniforms.skyLamps.value[i].set(l.x, l.y, l.z, l.reach);
-      lo.min(new THREE.Vector3(l.x - l.reach, l.y - l.reach, l.z - l.reach));
-      hi.max(new THREE.Vector3(l.x + l.reach, l.y + l.reach, l.z + l.reach));
-    });
+    this.placeLamps();
 
     // Stars, the sun and the moon, far off, always around you.
     const starPos: number[] = [];
@@ -391,25 +390,27 @@ export class Sky {
     this.dome.add(this.spookyDome, this.stars, this.sunDisc, this.moonDisc);
     scene.add(this.dome);
 
-    // Halos round the bulbs at night, one set of points per size.
+    // Halos round the bulbs at night, one set of points per size (and per floor or street).
     const halo = blobTexture(0.25);
-    const bySize = new Map<number, { pos: number[]; col: number[] }>();
+    const bySize = new Map<string, { size: number; ground: boolean; pos: number[]; col: number[] }>();
     for (const h of night.halos) {
-      let set = bySize.get(h.size);
-      if (!set) bySize.set(h.size, (set = { pos: [], col: [] }));
+      const key = `${h.size}|${!!h.ground}`;
+      let set = bySize.get(key);
+      if (!set) bySize.set(key, (set = { size: h.size, ground: !!h.ground, pos: [], col: [] }));
       set.pos.push(h.at.x, h.at.y, h.at.z);
       const c = new THREE.Color(h.color);
       set.col.push(c.r, c.g, c.b);
     }
-    for (const [size, { pos, col }] of bySize) {
+    for (const { size, ground, pos, col } of bySize.values()) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
       const p = new THREE.Points(geo, new THREE.PointsMaterial({ size, map: halo, vertexColors: true, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
       p.visible = false;
       this.halos.push(p);
-      scene.add(p);
+      (ground ? this.groundHalos : scene).add(p);
     }
+    scene.add(this.groundHalos);
 
     // Rain: streaks falling around you (x, y, z, speed per drop).
     const RAIN = 3000;
@@ -460,6 +461,25 @@ export class Sky {
     this.snap = true;
   }
 
+  /**
+   * The lamps' pools of light, and the box around all of them. The ones down by the street are as
+   * far down as the street is from the floor you're on.
+   */
+  private placeLamps() {
+    this.street = this.night.street;
+    const drop = STREET_Y - this.street;
+    uniforms.skyDrop.value = drop;
+    this.groundHalos.position.y = -drop;
+    const lo = uniforms.skyLampMin.value.set(Infinity, Infinity, Infinity);
+    const hi = uniforms.skyLampMax.value.set(-Infinity, -Infinity, -Infinity);
+    this.night.lamps.slice(0, MAX_LAMPS).forEach((l, i) => {
+      const y = l.ground ? l.y - drop : l.y;
+      uniforms.skyLamps.value[i].set(l.x, y, l.z, l.reach);
+      lo.min(new THREE.Vector3(l.x - l.reach, y - l.reach, l.z - l.reach));
+      hi.max(new THREE.Vector3(l.x + l.reach, y + l.reach, l.z + l.reach));
+    });
+  }
+
   /** Whether the lamps' light (and wet and snow) apply: off while your hands are drawn. */
   shading(on: boolean) {
     uniforms.skyOn.value = on ? 1 : 0;
@@ -470,7 +490,8 @@ export class Sky {
     const inside = (p.x > FLOOR.minX && p.x < FLOOR.maxX && p.z > FLOOR.minZ && p.z < FLOOR.maxZ) || (sheltered(p.x, p.z) && p.y < 0);
     if (inside) return 1;
     let lamp = 0;
-    for (const l of this.night.lamps) lamp = Math.max(lamp, 1 - Math.hypot(l.x - p.x, l.y - p.y, l.z - p.z) / l.reach);
+    const drop = STREET_Y - this.street;
+    for (const l of this.night.lamps) lamp = Math.max(lamp, 1 - Math.hypot(l.x - p.x, (l.ground ? l.y - drop : l.y) - p.y, l.z - p.z) / l.reach);
     return Math.min(1, Math.max(this.level, lamp * this.lampsOn));
   }
 
@@ -484,6 +505,7 @@ export class Sky {
   }
 
   update(dt: number, t: number, camera: THREE.Camera) {
+    if (this.night.street !== this.street) this.placeLamps();
     const s = this.state;
     let weather = this.preview.weather ?? s.weather;
     let k = this.preview.intensity ?? (this.preview.weather ? 0.8 : s.intensity);
@@ -659,6 +681,8 @@ export class Sky {
   private fall(dt: number, t: number) {
     const cx = this.camPos.x;
     const cz = this.camPos.z;
+    // Down to the street, or to a little below you when that's a long way down.
+    const floor = Math.max(this.street, this.camPos.y - 12);
     const wrap = (v: number, c: number, half: number) => (v - c > half ? v - 2 * half : v - c < -half ? v + 2 * half : v);
 
     const rainN = Math.round((this.drops.length / 4) * this.rain);
@@ -673,8 +697,8 @@ export class Sky {
         let x = wrap(this.drops[d] + slant * speed * dt, cx, 24);
         let y = this.drops[d + 1] - speed * dt;
         let z = wrap(this.drops[d + 2], cz, 24);
-        if (y < STREET_Y) {
-          y += 26;
+        if (y < floor || y > floor + 26) {
+          y = y < floor && y > floor - 1 ? y + 26 : floor + rand(0, 26);
           x = cx + rand(-24, 24);
           z = cz + rand(-24, 24);
         }
@@ -699,8 +723,8 @@ export class Sky {
         let x = wrap(this.flakeState[f] + Math.sin(t * 0.9 + i) * 0.3 * dt + 0.15 * dt, cx, 20);
         let y = this.flakeState[f + 1] - speed * dt;
         let z = wrap(this.flakeState[f + 2] + Math.cos(t * 0.7 + i * 1.3) * 0.3 * dt, cz, 20);
-        if (y < STREET_Y) {
-          y += 22;
+        if (y < floor || y > floor + 22) {
+          y = y < floor && y > floor - 1 ? y + 22 : floor + rand(0, 22);
           x = cx + rand(-20, 20);
           z = cz + rand(-20, 20);
         }

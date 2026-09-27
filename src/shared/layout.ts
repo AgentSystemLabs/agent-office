@@ -225,7 +225,11 @@ export const PLANTS: readonly (readonly [x: number, z: number, scale: number])[]
  */
 export const WHITEBOARD = { x: 5.4, z: -5.4, width: 4, height: 2.2, bottom: 0.5 } as const;
 
-/** The office is the second floor. The street, and the open garage under the office, are this far below its floor. */
+/**
+ * The bottom floor of the building is its second storey: the street, and the open garage under the
+ * office, are this far below its floor. Each floor stands one STOREY higher than the one below it,
+ * so from floor `i` the street is `streetBelow(i)` down.
+ */
 export const STREET_Y = -3.6;
 /** The street runs east–west in front of the building (south, +z), with a sidewalk along either side. */
 export const ROAD = { minZ: 23, maxZ: 31 } as const;
@@ -235,6 +239,11 @@ export const SLAB = 0.3;
 export const STOREY = WALL_HEIGHT + SLAB;
 /** How thick the outside walls are. They stand just outside FLOOR. */
 export const WALL_T = 0.3;
+
+/** How far below floor `index` of the building (0 is the bottom one) the street is. */
+export function streetBelow(index: number): number {
+  return STREET_Y - Math.max(0, index) * STOREY;
+}
 
 export type Side = 'north' | 'south' | 'east' | 'west';
 
@@ -258,7 +267,10 @@ export const WINDOWS: Opening[] = [
   { wall: 'east', u: (LOFT.minZ + LOFT.maxZ) / 2, width: 2.8, y0: LOFT.y + 0.9, y1: LOFT.y + 2.5 },
 ];
 
-/** The way out: a door in the west wall onto a landing, with stairs down to the street. */
+/**
+ * The way out of the bottom floor: a door in the west wall onto a landing, with stairs down to the
+ * street. The floors above have no door there; workers leave them off the balcony (see PARACHUTE).
+ */
 export const EXIT_DOOR: Opening = { wall: 'west', u: 6.5, width: 1.4, y0: 0, y1: 2.4 };
 export const EXIT_STAIRS = {
   maxX: FLOOR.minX - WALL_T,
@@ -277,6 +289,14 @@ export const BALCONY_DOOR: Opening = { wall: 'south', u: -4, width: 3, y0: 0, y1
 export const BALCONY = { minX: -10.5, maxX: 2.5, minZ: FLOOR.maxZ + WALL_T, maxZ: FLOOR.maxZ + WALL_T + 3.4 } as const;
 /** The ashtray on the balcony, where a smoke break starts. */
 export const ASHTRAY = { x: -8.2, z: BALCONY.maxZ - 0.55 } as const;
+/**
+ * Leaving a floor above the bottom one, with no exit door: out through the balcony doors to the
+ * railing straight ahead (`jump`), up onto its top (`railTop` high), and over it by parachute. The
+ * chute circles down onto the lot in front of the garage: `out` further from the building than it
+ * opened, and `east` (a random bit of it) along, clear of the balconies below and the street lamp by
+ * the balcony doors.
+ */
+export const PARACHUTE = { jump: { x: BALCONY_DOOR.u, z: BALCONY.maxZ - 0.45 }, railTop: 1.09, out: 1.2, east: [0.6, 1.8] } as const;
 
 /**
  * Something to sit on, standing at x, z on the floor at `y` (the loft's, for what's up there). You
