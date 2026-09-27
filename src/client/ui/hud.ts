@@ -7,6 +7,7 @@ import { $, h, openModal, STATUS_LABEL } from './dom';
 import { usageLabel, usageTitle } from './usage';
 import { providerLabel, providerUsageState, resolvedProvider, modelBadge } from './provider';
 import { whereabouts } from './whereabouts';
+import { DESK_BY_ID } from '../../shared/layout';
 
 /** What the people list last showed, so it's only drawn again when something in it changed. */
 let peopleKey = '';
@@ -78,7 +79,10 @@ export function renderWorkers(onOpen: (id: string) => void) {
     );
   }
   if (!workers.length) ul.append(h('li.empty', {}, 'Walk up to a desk and press E to hire one'));
-  $('worker-count').textContent = workers.length ? String(workers.length) : '';
+  // The count is the workers hired onto desks and bean bags (and a meeting's table): the board agents
+  // standing at the Issues, PR and queue kiosks are listed but aren't counted.
+  const hired = workers.filter((w) => !DESK_BY_ID.get(w.deskId)?.station).length;
+  $('worker-count').textContent = hired ? String(hired) : '';
 }
 
 let caffeineKey = '';
