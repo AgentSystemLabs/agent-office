@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, LOFT, SEATING_BY_ID, SLAB, STAIRS, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, type DeskDef, type Opening, type Side } from '../../shared/layout';
+import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, LOFT, PLANTS, SEATING_BY_ID, SLAB, STAIRS, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, type DeskDef, type Opening, type Side } from '../../shared/layout';
 import { wallFacing, type WallId, type WallRect } from '../../shared/decor';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
 import { buildGarage, buildStreet, bulb, type NightParts } from './outside';
@@ -1030,17 +1030,7 @@ export function buildOffice(): Office {
   fixture('south', -11.3, 1.1, 1.1, 2.2);
 
   // Plants around the room
-  const plants: [number, number, number][] = [
-    [-17.2, -12.2, 1.4],
-    [17.2, -12.2, 1.5],
-    [17.2, 12.2, 1.3],
-    [-17.2, 8.5, 1.2],
-    [5.5, -12.2, 1.1],
-    [-6, 0, 1],
-    [3.5, 0, 0.9],
-    [8.5, 5, 1.1],
-  ];
-  for (const [x, z, s] of plants) {
+  for (const [x, z, s] of PLANTS) {
     const p = plant(s);
     p.position.set(x, 0, z);
     group.add(p);
@@ -1064,7 +1054,7 @@ export function buildOffice(): Office {
 
   const bossScreen = buildLoft(group, colliders, interactables, looks);
 
-  // The elevator to the other floors, against the north wall between the PR board and the queue.
+  // The elevator to the other floors, against the north wall past the gong.
   const elevator = buildElevator();
   group.add(elevator.group);
   colliders.push(...elevator.colliders);
