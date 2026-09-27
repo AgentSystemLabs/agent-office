@@ -85,7 +85,7 @@ export function closeAllModals() {
   while (stack.length) stack[stack.length - 1].close();
 }
 
-export function toast(text: string, level: 'info' | 'warn' | 'error' = 'info') {
+export function toast(text: string, level: 'info' | 'warn' | 'error' = 'info'): HTMLElement {
   const el = h('div.toast', { class: level }, text);
   document.getElementById('toasts')!.append(el);
   setTimeout(() => {
@@ -93,6 +93,7 @@ export function toast(text: string, level: 'info' | 'warn' | 'error' = 'info') {
     el.style.opacity = '0';
     setTimeout(() => el.remove(), 300);
   }, 3500);
+  return el;
 }
 
 export function timeAgo(iso: string | number): string {

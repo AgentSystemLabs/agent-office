@@ -52,6 +52,11 @@ export class PlayerController {
   /** You got up by walking off or jumping (not by stand()). */
   onStand: (() => void) | null = null;
   /**
+   * Something that has hold of you instead of your legs (the ladder, a fire pole): it moves you each
+   * frame, with no walking, falling or bumping into things, and the camera follows.
+   */
+  rig: ((dt: number) => void) | null = null;
+  /**
    * A click (not a drag) on the scene, in normalized device coordinates.
    * In first person it is always the crosshair, (0, 0).
    */
@@ -63,6 +68,8 @@ export class PlayerController {
   private lockPending = false;
   private everLocked = false;
   enabled = true;
+  /** False while the mouse picks something else (an emote on the wheel), so it doesn't turn the camera. */
+  mouseLook = true;
 
   constructor(
     private camera: THREE.PerspectiveCamera,
@@ -102,6 +109,7 @@ export class PlayerController {
       }
     });
     window.addEventListener('pointermove', (e) => {
+      if (!this.mouseLook) return;
       if (this.locked) {
         // Some platforms report a bogus huge jump right after locking.
         const clamp = (v: number) => THREE.MathUtils.clamp(v, -250, 250);
@@ -178,6 +186,11 @@ export class PlayerController {
     this.keys.clear();
   }
 
+  /** Whether any of these keys is held down (and you have the controls). */
+  holding(...codes: string[]): boolean {
+    return this.enabled && codes.some((c) => this.keys.has(c));
+  }
+
   /** Captures the mouse for looking around, as the first click on the scene does. */
   lock() {
     if (this.locked || this.lockPending) return;
@@ -244,6 +257,16 @@ export class PlayerController {
   update(dt: number) {
     dt = Math.min(dt, 0.05);
     const k = this.keys;
+    if (this.rig) {
+      this.rig(dt);
+      this.vy = 0;
+      this.grounded = false;
+      this.stepOffset *= Math.exp(-dt * 16);
+      this.bob = 0;
+      this.jitterT += dt;
+      this.updateCamera();
+      return;
+    }
     if (this.seat) {
       if (!this.enabled || !GET_UP.some((c) => k.has(c))) {
         this.moving = false;
@@ -336,16 +359,18 @@ export class PlayerController {
     // room while you're in the office, out of the building while you're outside or on the balcony.
     // And under the loft, its roof or the garage ceiling.
     const m = 0.4;
-    const indoors = this.pos.y > -SLAB - 0.5 && this.pos.x > FLOOR.minX && this.pos.x < FLOOR.maxX && this.pos.z > FLOOR.minZ && this.pos.z < FLOOR.maxZ;
+    // On the ladder or a pole you can be down in a shaft under the floor, but you're still indoors.
+    const rigged = !!this.rig;
+    const indoors = (rigged || this.pos.y > -SLAB - 0.5) && this.pos.x > FLOOR.minX && this.pos.x < FLOOR.maxX && this.pos.z > FLOOR.minZ && this.pos.z < FLOOR.maxZ;
     if (indoors) {
       cam.x = THREE.MathUtils.clamp(cam.x, FLOOR.minX + m, FLOOR.maxX - m);
       cam.z = THREE.MathUtils.clamp(cam.z, FLOOR.minZ + m, FLOOR.maxZ - m);
     }
-    const floorY = groundAt(this.colliders, this.pos.x, this.pos.z, this.pos.y);
+    const floorY = rigged ? 0 : groundAt(this.colliders, this.pos.x, this.pos.z, this.pos.y);
     const roof = ceilingAt(this.colliders, cam.x, cam.z, floorY) - 0.3;
     cam.y = THREE.MathUtils.clamp(cam.y, floorY + 0.6, Math.max(floorY + 0.6, Math.min(floorY + 3.5, roof)));
     // Down on the street, stay under the garage ceiling so its edge never cuts across the view.
-    if (this.pos.y < -SLAB - 1) cam.y = Math.min(cam.y, Math.max(floorY + 0.6, -SLAB - 0.3));
+    if (this.pos.y < -SLAB - 1 && !rigged) cam.y = Math.min(cam.y, Math.max(floorY + 0.6, -SLAB - 0.3));
     // How far you are out past each outside wall (west, east, north, south), and how far inside them the camera is.
     const e = WALL_T + m;
     const out = [FLOOR.minX - WALL_T - this.pos.x, this.pos.x - FLOOR.maxX - WALL_T, FLOOR.minZ - WALL_T - this.pos.z, this.pos.z - FLOOR.maxZ - WALL_T];

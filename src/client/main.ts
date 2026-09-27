@@ -2,13 +2,14 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, seatAt, seatPlace, vacantSeats, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, LADDER, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, seatAt, seatPlace, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
-import type { AgentEffort, AgentProvider, GongWhy, PeerInfo, WorkerInfo } from '../shared/protocol';
+import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo } from '../shared/protocol';
 import { isAsleep, isBusy } from '../shared/status';
 import { Net } from './net';
 import { store, loadProfile, loadSettings, saveSettings, workerForPull, type Profile, type Topic } from './state';
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
+import { Climber, gripOf, type Arrival, type Grip, type Way } from './climb';
 import { Caffeine } from './caffeine';
 import { buildOffice, type InteractKind, type Interactable } from './world/office';
 import { Person, Worker } from './world/character';
@@ -26,12 +27,13 @@ import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
 import { OfficeSound } from './sound';
 import { DesktopNotifier, askNotifyPermission, notifyPermission, waitingOnSomeone } from './notify';
+import { NextUp, waitingInOrder, waitingLabel } from './nextup';
 import { $, h, clip, closeAllModals, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage, type TerminalFind } from './ui/terminal';
 import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
-import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage } from './ui/prompt';
-import { openBoard } from './ui/boards';
+import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage, worktreePref } from './ui/prompt';
+import { issuePrompt, openBoard } from './ui/boards';
 import { openPull, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
@@ -40,16 +42,21 @@ import { mountServicesButton, openServices } from './ui/services';
 import { mountQueueButton, openQueue } from './ui/queue';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
 import { openHelp, renderCaffeine, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
+import { Compass, type Bearing } from './ui/compass';
 import { openCharacter } from './ui/character';
 import { openSettings } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 import { elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
-import { providerLabel, resolvedProvider, modelBadge } from './ui/provider';
+import { toggleFloorMenu } from './ui/floormenu';
+import { providerLabel, rememberedChoice, resolvedProvider, modelBadge } from './ui/provider';
 import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
 import { renderLimits } from './ui/limits';
+import { MachineTexture, officeFull, pressureNote } from './world/machine';
 import { openJukebox } from './ui/jukebox';
 import { Arcade } from './ui/arcade';
 import { trackTitle } from '../shared/jukebox';
+import { EMOTES, EMOTE_BY_ID, EmoteBucket, type EmoteId } from '../shared/emotes';
+import { EmoteWheel } from './ui/emotes';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -124,8 +131,28 @@ function mountBoard(mesh: THREE.Mesh, texture: THREE.Texture, render: () => void
   for (const topic of topics) store.on(topic, render);
   render();
 }
+/** The issue card in your hands, taken off this floor's issues board (see Carrying an issue card), or null. */
+let carrying: CarriedIssue | null = null;
+/** Issues whose cards someone on this floor is carrying around, so they're missing from the board. */
+function offBoard(): Set<number> {
+  const off = new Set<number>();
+  if (carrying) off.add(carrying.issue);
+  for (const p of store.peers.values()) if (p.carrying && p.id !== store.you && store.onMyFloor(p)) off.add(p.carrying.issue);
+  return off;
+}
 const issuesTex = new BoardTexture('issues');
-mountBoard(office.boardMeshes.issues, issuesTex.texture, () => issuesTex.render(store.issues), ['issues']);
+const renderIssuesBoard = () => {
+  const off = offBoard();
+  issuesTex.render(off.size ? { ...store.issues, items: store.issues.items.filter((i) => !off.has(i.number)) } : store.issues);
+};
+mountBoard(office.boardMeshes.issues, issuesTex.texture, renderIssuesBoard, ['issues']);
+let carriedOff = '';
+store.on('peers', () => {
+  const k = [...offBoard()].join(',');
+  if (k === carriedOff) return;
+  carriedOff = k;
+  renderIssuesBoard();
+});
 const pullsTex = new BoardTexture('pulls');
 const renderPullsBoard = () => pullsTex.render(store.pulls, store.workers);
 mountBoard(office.boardMeshes.pulls, pullsTex.texture, renderPullsBoard, ['pulls']);
@@ -141,6 +168,9 @@ const servicesTex = new ServicesBoardTexture();
 mountBoard(office.boardMeshes.services, servicesTex.texture, () => servicesTex.render(store.services.items, store.workers), ['services', 'workers']);
 const queueTex = new QueueBoardTexture();
 mountBoard(office.boardMeshes.queue, queueTex.texture, () => queueTex.render(store.queue, store.workers), ['queue', 'workers']);
+// The machine monitor on the west wall.
+const machineTex = new MachineTexture();
+mountBoard(office.machineScreen, machineTex.texture, () => machineTex.render(store.machine), ['machine']);
 
 // Pictures people hung on the walls
 const gallery = new Gallery();
@@ -243,6 +273,94 @@ hanger.onChange = () => {
   hintKey = 'stale';
 };
 
+// ---- The ladder and the fire poles ----------------------------------------------------------------
+/** The floors of the building from the bottom up (not the ones still being cloned: nobody can go there yet). */
+function builtFloors(): FloorInfo[] {
+  return store.floors.filter((f) => !f.cloning);
+}
+/** The floor above yours (1) or below it (-1), if there is one. */
+function floorThere(way: Way): FloorInfo | undefined {
+  const floors = builtFloors();
+  const i = floors.findIndex((f) => f.id === store.floor);
+  return i < 0 ? undefined : floors[i + way];
+}
+const climber = new Climber(player, {
+  floorThere: (way) => floorThere(way)?.name,
+  travel: (way, how, at) => {
+    const f = floorThere(way);
+    if (f) travel(f.id, how, at);
+    else climber.abort();
+  },
+  sound: (kind, speed = 0) => {
+    if (kind === 'grab') sound.rung(true);
+    else if (kind === 'rung') sound.rung();
+    else if (kind === 'slide') sound.slide();
+    else if (kind === 'twirl') sound.twirl();
+    else if (kind === 'bonk') {
+      sound.bonk();
+      toast(`🔝 ${store.currentFloor()?.name ?? 'This'} is the top floor — the hatch won't budge`);
+    } else if (kind === 'land') {
+      sound.poleLanding(speed);
+      landed(speed);
+    }
+  },
+  done: () => {
+    // Not '': that reads as "no hint shown", and the climbing hint would stay up.
+    hintKey = 'stale';
+  },
+});
+/** How hard the view shakes from landing off a pole, easing off to 0. */
+let thud = 0;
+/** Down the pole onto the mat: the view shakes, dust flies, and there's the floor you're on now. */
+function landed(speed: number) {
+  if (!reduceMotion.matches) thud = Math.min(1, speed / 7);
+  const at = new THREE.Vector3();
+  const dir = new THREE.Vector3();
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    at.set(player.pos.x + Math.sin(a) * 0.3, player.pos.y + 0.08, player.pos.z + Math.cos(a) * 0.3);
+    smoke.exhale(at, dir.set(Math.sin(a), 0.15, Math.cos(a)).normalize());
+  }
+  const f = store.currentFloor();
+  toast(`🚒 Wheee! Down to ${f?.name ?? 'the floor below'}`);
+}
+office.stack.onHatch = (where, open) => sound.hatch({ x: LADDER.x + 0.3, y: where === 'floor' ? 0 : WALL_HEIGHT, z: LADDER.z }, open);
+// Speed lines round the edge of the screen, sliding down a pole.
+const whoosh = h('div', { id: 'whoosh' });
+$('app').append(whoosh);
+
+/** E at the ladder: onto it, facing the wall. */
+function grabLadder() {
+  if (trip || climber.active) return;
+  if (!floorThere(1) && !floorThere(-1)) return toast('No other floors yet — add a project in the elevator', 'warn');
+  if (player.seat) standUp();
+  if (hanger.active) hanger.cancel();
+  climber.grabLadder();
+}
+
+/** E at a fire pole: down it, if it goes down from here; else a spin round it. */
+function usePole(i: number) {
+  const spot = POLES[i];
+  if (trip || climber.active || !spot) return;
+  if (player.seat) standUp();
+  if (hanger.active) hanger.cancel();
+  if (spot === office.stack.poleDown()) climber.slide(spot);
+  else if (spot === office.stack.poleLanding()) climber.twirl(spot);
+}
+
+/** The ladder and the poles go where there are floors to go to from this one. */
+function syncStack() {
+  const floors = builtFloors();
+  const index = floors.findIndex((f) => f.id === store.floor);
+  const up = floors[index + 1]?.name;
+  const down = index > 0 ? floors[index - 1]?.name : undefined;
+  const count = index < 0 ? 1 : floors.length;
+  const s = office.stack.state;
+  if (s.index === Math.max(0, index) && s.count === count && s.up === up && s.down === down) return;
+  office.stack.set({ index: Math.max(0, index), count, up, down });
+}
+store.on('floors', syncStack);
+
 function showMyProfile(p: Profile) {
   me.setColor(p.color);
   me.setLook(p.look);
@@ -260,6 +378,8 @@ interface RemotePeer {
   bubble?: { sprite: THREE.Sprite; until: number };
   /** Seconds walked since their last footstep. */
   stepT: number;
+  /** On the ladder or a pole, going by where they are. */
+  grip: Grip | null;
 }
 const remotes = new Map<string, RemotePeer>();
 
@@ -311,6 +431,7 @@ net.onMessage((msg) => {
       } else if (!store.floor) arrive();
       if (voice.inVoice || voice.sharing) net.send({ t: 'voice', voice: voice.inVoice, muted: voice.muted, sharing: voice.sharing });
       if (player.seat) net.send({ t: 'sit', seat: player.seat.key });
+      if (carrying) net.send({ t: 'carry', issue: carrying.issue, title: carrying.title });
       // After a reconnect the server has forgotten which terminal we had open.
       const openId = openTerminalFor();
       if (openId && store.workers.has(openId)) net.send({ t: 'worker.attach', workerId: openId });
@@ -326,6 +447,11 @@ net.onMessage((msg) => {
       break;
     }
     case 'floor.enter':
+      // The card belongs to the board downstairs (or up): the office already put it back there.
+      if (carrying) {
+        toast(`📌 #${carrying.issue} stayed behind on the other floor's board`);
+        setCarrying(null);
+      }
       arrive();
       break;
     case 'floors':
@@ -363,6 +489,9 @@ net.onMessage((msg) => {
       r?.person.setSmoking(msg.smoke);
       break;
     }
+    case 'peer.emote':
+      remotes.get(msg.id)?.person.emote(msg.emote);
+      break;
     case 'gong':
       gongRang(msg.why, msg.pr);
       break;
@@ -420,12 +549,15 @@ function placeInCar(at?: { x: number; z: number }) {
   player.lookPitch = -0.08;
 }
 
-function fade(on: boolean) {
+function fade(on: boolean, quick = false) {
+  $('fade').classList.toggle('quick', quick);
   $('fade').classList.toggle('on', on);
 }
 
-/** A ride under way: the doors are shut and the lights are down until the next floor arrives. */
-let riding: { floor: string; timer: number } | null = null;
+/** How you're going to another floor: by elevator, straight there from the floor list, or by the ladder or a pole. */
+type TripKind = 'elevator' | 'switch' | Grip;
+/** A trip under way: the lights are down (and by elevator the doors are shut) until the next floor arrives. */
+let trip: { floor: string; how: TripKind; timer: number } | null = null;
 
 function showElevator() {
   openElevator({ net, ride });
@@ -433,11 +565,12 @@ function showElevator() {
 
 /** Rides the elevator to another floor. From outside the car, you step in while the lights are down. */
 function ride(floorId: string) {
-  if (riding || floorId === store.floor) return;
+  if (trip || floorId === store.floor) return;
   closeAllModals();
   if (hanger.active) hanger.cancel();
+  if (climber.active) climber.abort();
   const inside = inElevator(player.pos.x, player.pos.z);
-  riding = { floor: floorId, timer: window.setTimeout(rideFailed, 10_000) };
+  trip = { floor: floorId, how: 'elevator', timer: window.setTimeout(tripFailed, 10_000) };
   player.enabled = false;
   player.clearKeys();
   office.elevator.setOpen(false);
@@ -454,13 +587,51 @@ function ride(floorId: string) {
   );
 }
 
-/** The floor never came (it's gone, or the office is unreachable): open up where you are. */
-function rideFailed() {
-  if (!riding) return;
-  riding = null;
+/** Where you are, to arrive at the same spot on another floor. */
+function standingAt(): Arrival {
+  return { x: player.pos.x, y: player.pos.y, z: player.pos.z, rotY: player.facing };
+}
+
+/** Straight to another floor from the floor list: a blink, and you're standing in the same spot there. */
+function switchFloor(floorId: string) {
+  if (trip || floorId === store.floor) return;
+  closeAllModals();
+  if (hanger.active) hanger.cancel();
+  if (climber.active) climber.abort();
+  if (player.seat) standUp();
+  trip = { floor: floorId, how: 'switch', timer: window.setTimeout(tripFailed, 10_000) };
+  player.enabled = false;
+  player.clearKeys();
+  fade(true, true);
+  setTimeout(() => net.send({ t: 'floor.go', floor: floorId, at: standingAt() }), 170);
+}
+
+/** Through the ceiling up the ladder, or through the floor down one: the lights dip as you pass. */
+function travel(floorId: string, how: Grip, at: Arrival) {
+  if (trip) return;
+  trip = { floor: floorId, how, timer: window.setTimeout(tripFailed, 10_000) };
+  fade(true, true);
+  setTimeout(() => net.send({ t: 'floor.go', floor: floorId, at }), 170);
+}
+
+/** The floor never came (it's gone, or the office is unreachable): back where you were. */
+function tripFailed() {
+  const t = trip;
+  if (!t) return;
+  trip = null;
   fade(false);
-  office.elevator.setOpen(!!store.floor);
+  if (t.how === 'elevator') office.elevator.setOpen(!!store.floor);
+  if (t.how === 'ladder' || t.how === 'pole') climber.abort();
   player.enabled = !modalOpen();
+}
+
+/** Arrived in a spot that's a pole's hole on this floor: step out of it, the way in. */
+function unstick() {
+  const spot = office.stack.poleDown();
+  const p = player.pos;
+  if (!spot || Math.max(Math.abs(p.x - spot.x), Math.abs(p.z - spot.z)) > POLE.rail + 0.35) return;
+  const out = POLE.rail + 0.7;
+  p.set(spot.x + Math.sin(spot.open) * out, Math.max(0, p.y), spot.z + Math.cos(spot.open) * out);
 }
 
 /** Which of the floor palettes the walls are painted in now. */
@@ -474,14 +645,16 @@ function paintFloor() {
 // A brand-new floor can arrive before the elevator's list says what color it is.
 store.on('floors', paintFloor);
 
-/** You're on a floor (or in the building without one): paint it, and open the doors. */
+/** You're on a floor (or in the building without one): paint it, and open the doors (or carry on down the pole…). */
 function arrive() {
   paintFloor();
   renderProject();
   noticeWaiting();
-  if (riding) {
-    clearTimeout(riding.timer);
-    riding = null;
+  syncStack();
+  const how = trip?.how ?? 'elevator';
+  if (trip) {
+    clearTimeout(trip.timer);
+    trip = null;
   }
   if (!store.floor) {
     // Nowhere to go yet: the doors stay shut until there's a floor, and the panel says how to add one.
@@ -492,6 +665,12 @@ function arrive() {
     return;
   }
   fade(false);
+  if (how !== 'elevator') {
+    player.enabled = !modalOpen();
+    if (how === 'switch') unstick();
+    else climber.arrived();
+    return;
+  }
   setTimeout(() => {
     office.elevator.setOpen(true);
     sound.ding('done');
@@ -517,7 +696,7 @@ function noticeWaiting() {
   const badge = $('floors-waiting');
   badge.textContent = elsewhere ? String(elsewhere) : '';
   badge.classList.toggle('hidden', !elsewhere);
-  $('project').title = elsewhere ? `${elsewhere} worker${elsewhere === 1 ? '' : 's'} on other floors waiting on someone — click to ride the elevator` : 'The elevator: ride to another project';
+  $('project').title = elsewhere ? `${elsewhere} worker${elsewhere === 1 ? '' : 's'} on other floors waiting on someone — click to go there` : 'Floors: go to another project';
 }
 
 // ---- Peers --------------------------------------------------------------------------------------
@@ -532,7 +711,7 @@ function syncPeers() {
       person.root.position.set(peer.x, peer.y, peer.z);
       scene.add(person.root);
       noOutline(person.root);
-      r = { person, target: new THREE.Vector3(peer.x, peer.y, peer.z), rotY: peer.rotY, moving: false, label: '', look: { ...peer.look }, stepT: 0 };
+      r = { person, target: new THREE.Vector3(peer.x, peer.y, peer.z), rotY: peer.rotY, moving: false, label: '', look: { ...peer.look }, stepT: 0, grip: null };
       remotes.set(id, r);
     }
     const label = `${peer.name}|${peer.voice ? (peer.muted ? 'm' : 'v') : '-'}|${peer.color}`;
@@ -548,6 +727,7 @@ function syncPeers() {
       noOutline(r.person.root);
     }
     r.person.setSmoking(!!peer.smoking);
+    r.person.carry(peer.carrying);
     r.person.sit(peer.seat ? (seatAt(peer.seat)?.hips ?? null) : null);
   }
   for (const [id, r] of remotes) {
@@ -642,6 +822,7 @@ function syncWorkers() {
   }
   arrangeSeats();
   renderWorkers((id) => openWorkerTerminal(id));
+  renderWaiting();
   notifier.sync(store.workers);
   renderTitle();
 }
@@ -685,8 +866,16 @@ function freeDesk(): string | null {
 
 let askedToNotify = false;
 
-function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string, effort?: AgentEffort) {
-  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort });
+/** The office is at its worker limit: says so, and says yes (the office would refuse the hire anyway). */
+function officeIsFull(): boolean {
+  const m = store.machine;
+  if (!officeFull(m)) return false;
+  toast(`🚫 The office is at its limit of ${m.limit} worker${m.limit === 1 ? '' : 's'} — send one home before hiring another`, 'warn');
+  return true;
+}
+
+function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string, effort?: AgentEffort, issue?: number) {
+  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort, issue });
   // The moment notifications start to matter: ask once (it has to come from a key press or click).
   if (settings.notify && notifyPermission() === 'default' && !askedToNotify) {
     askedToNotify = true;
@@ -695,6 +884,7 @@ function hire(deskId: string, prompt?: string, worktree = false, provider?: Agen
 }
 
 function openShell(deskId: string) {
+  if (officeIsFull()) return;
   net.send({ t: 'worker.spawn', deskId, kind: 'shell' });
 }
 
@@ -702,9 +892,11 @@ function promptAtDesk(deskId: string) {
   const w = store.workerAtDesk(deskId);
   const desk = DESK_BY_ID.get(deskId)!;
   if (!w) {
+    if (officeIsFull()) return;
     openPrompt({
       title: `✨ New task at ${desk.label}`,
       subtitle: 'A fresh worker will sit down and start on this right away. Choose the worker engine below.',
+      warning: pressureNote(store.machine),
       submitLabel: 'Hire & start',
       providerOption: true,
       worktreeOption: !!store.project?.branch,
@@ -732,9 +924,11 @@ function promptAtDesk(deskId: string) {
 /** Direct hire from an empty desk, with an optional first prompt and provider choice. */
 function hireAtDesk(deskId: string) {
   const desk = DESK_BY_ID.get(deskId)!;
+  if (officeIsFull()) return;
   openPrompt({
     title: `✨ Hire a worker at ${desk.label}`,
     subtitle: 'Choose the worker engine. You can start with an empty prompt and send work later.',
+    warning: pressureNote(store.machine),
     placeholder: 'Optional first task…',
     submitLabel: 'Hire & start',
     allowEmpty: true,
@@ -780,6 +974,8 @@ function askStation(deskId: string) {
     toast(`The ${name} is waiting on an answer — here's its terminal`, 'warn');
     return openWorkerTerminal(w.id);
   }
+  // Nobody there yet: asking hires the agent.
+  if (!w && officeIsFull()) return;
   const subtitle = !w
     ? `${info.does}, in a terminal of my own: press O at the kiosk to watch.`
     : isAsleep(w.status)
@@ -792,6 +988,7 @@ function askStation(deskId: string) {
     subtitle,
     placeholder: `e.g. ${info.example}`,
     submitLabel: 'Send ✨',
+    warning: w ? undefined : pressureNote(store.machine),
     onSubmit: (text) => net.send({ t: 'station.prompt', deskId, prompt: text }),
   });
 }
@@ -826,15 +1023,88 @@ function goToDesk(deskId: string) {
   const desk = DESK_BY_ID.get(deskId);
   if (!desk) return;
   closeAllModals();
-  // Behind the worker, looking over their shoulder at the laptop (or in front of a board agent's kiosk).
+  standAt(desk);
+  const w = store.workerAtDesk(deskId);
+  toast(w ? `You're at ${desk.label}, ${w.name}'s desk` : `You're at ${desk.label}`);
+}
+
+/** Behind the worker, looking over their shoulder at the laptop (or in front of a board agent's kiosk). */
+function standAt(desk: DeskDef) {
+  if (player.seat) standUp();
+  if (hanger.active) hanger.cancel();
+  if (climber.active) climber.abort();
   const spot = deskSeat(desk, desk.station ? -1.6 : desk.beanbag ? 1.6 : 2.4);
   player.pos.set(spot.x, 0, spot.z);
   player.vy = 0;
   player.facing = Math.atan2(desk.x - spot.x, desk.z - spot.z);
   player.camYaw = player.facing - Math.PI;
   player.lookPitch = -0.2;
-  const w = store.workerAtDesk(deskId);
-  toast(w ? `You're at ${desk.label}, ${w.name}'s desk` : `You're at ${desk.label}`);
+}
+
+// ---- Who's waiting on you: N, the count in the Workers panel, and the compass --------------------------
+const nextUp = new NextUp();
+const compass = new Compass($('compass'));
+/** What the last press of N said, which the next press replaces. */
+let nextToast: HTMLElement | null = null;
+
+/** N: to the worker that has waited longest on someone, and on each press after, the next. */
+function goToNextWaiting() {
+  if (trip) return;
+  const w = nextUp.next(store.workers.values(), waitingBeside());
+  const desk = w && DESK_BY_ID.get(w.deskId);
+  nextToast?.remove();
+  if (!w || !desk) {
+    const other = store.floors.find((f) => f.id !== store.floor && f.waiting > 0);
+    nextToast = toast(other ? `🛗 Nobody's waiting on this floor. ${other.waiting} on the ${other.name} floor: take the elevator` : '👍 Nobody is waiting on you');
+    return;
+  }
+  closeAllModals();
+  standAt(desk);
+  const waiting = waitingInOrder(store.workers.values());
+  const of = waiting.length > 1 ? ` (${waiting.findIndex((x) => x.id === w.id) + 1} of ${waiting.length})` : '';
+  nextToast = toast(`${w.status === 'needs_input' ? `🙋 ${w.name} needs input` : `✅ ${w.name} is done`}${of}. E opens its terminal`);
+}
+
+/** The waiting worker you're standing at, if any: N skips it while anyone else is waiting. */
+function waitingBeside(): string | undefined {
+  let best: string | undefined;
+  let bestD = 2.5;
+  for (const w of store.workers.values()) {
+    const v = workerViews.get(w.id);
+    if (!v || !waitingOnSomeone(w)) continue;
+    const d = v.model.root.getWorldPosition(workerPos).distanceTo(player.pos);
+    if (d < bestD) {
+      bestD = d;
+      best = w.id;
+    }
+  }
+  return best;
+}
+
+function renderWaiting() {
+  const waiting = waitingInOrder(store.workers.values());
+  const el = $('waiting');
+  el.classList.toggle('hidden', !waiting.length);
+  el.classList.toggle('all-done', waiting.every((w) => w.status === 'done'));
+  if (waiting.length) el.replaceChildren(h('span', {}, waitingLabel(waiting)), h('span.key', {}, 'N'));
+}
+$('waiting').addEventListener('click', () => goToNextWaiting());
+
+const bearings: Bearing[] = [];
+const heads: THREE.Vector3[] = [];
+/** Arrows to the waiting workers you can't see from where you're looking. */
+function pointToWaiting(now: number) {
+  bearings.length = 0;
+  if (!trip && !modalOpen()) {
+    for (const w of store.workers.values()) {
+      const v = workerViews.get(w.id);
+      if (!v || !waitingOnSomeone(w)) continue;
+      const at = v.model.root.getWorldPosition((heads[bearings.length] ??= new THREE.Vector3()));
+      at.y += 1.2;
+      bearings.push({ id: w.id, name: w.name, status: w.status, at });
+    }
+  }
+  compass.update(camera, bearings, now);
 }
 
 /** Opening a sleeping worker's terminal wakes it, so there's nothing to press first. */
@@ -892,6 +1162,7 @@ function boardActions() {
     assign: (prompt: string, title: string) => sendToWorker(`🤖 ${title}`, { initial: prompt }),
     ask: (context: string, title: string) => sendToWorker(`✍️ ${title}`, { context }),
     goToDesk,
+    pickUp,
   };
 }
 
@@ -913,6 +1184,7 @@ function watchShare() {
 
 function interact(target: Interactable | null, key: DeskKey) {
   if (!target) return;
+  if (key === 'E' && carrying && dropCard(target, carrying)) return;
   if (target.kind === 'desk' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
     if (key === 'B' && !w) return openShell(target.deskId);
@@ -952,6 +1224,8 @@ function interact(target: Interactable | null, key: DeskKey) {
     }
   } else if (target.kind === 'gong') hitGong();
   else if (target.kind === 'whiteboard') openWhiteboard(net);
+  else if (target.kind === 'ladder') grabLadder();
+  else if (target.kind === 'pole' && target.pole !== undefined) usePole(target.pole);
 }
 
 /** A cup from the kitchen machine: a minute of quicker feet and higher jumps, and a mug in your hand. */
@@ -993,6 +1267,90 @@ function checkSmokeBreak(now: number) {
     setSmoking(false);
     toast("That one's done. Back to work!");
   }
+}
+
+// ---- Carrying an issue card ------------------------------------------------------------------------
+function setCarrying(card: CarriedIssue | null) {
+  if ((card?.issue ?? 0) === (carrying?.issue ?? 0)) return;
+  carrying = card;
+  me.carry(card);
+  hands.carry(card);
+  net.send({ t: 'carry', issue: card?.issue, title: card?.title });
+  carriedOff = [...offBoard()].join(',');
+  renderIssuesBoard();
+  hintKey = '';
+}
+
+/** ✋ in an issue's window: its card comes off the board and into your hands. */
+function pickUp(it: GhIssue) {
+  closeAllModals();
+  if (carrying?.issue === it.number) return;
+  if (carrying) toast(`📌 #${carrying.issue} went back on the board`);
+  setCarrying({ issue: it.number, title: it.title });
+  sound.paper();
+  toast(`✋ You took #${it.number} off the board: take it to an empty desk, a worker or the 📋 queue and press E`);
+}
+
+/** Q, or E at the issues board: the card goes back where it came from. */
+function putBack() {
+  if (!carrying) return;
+  toast(`📌 #${carrying.issue} is back on the board`);
+  setCarrying(null);
+  sound.paper();
+}
+
+/**
+ * E with a card in your hands: an empty desk hires a worker for the issue (with the prompt 🤖 Hand
+ * to a worker uses), an agent at a desk gets it as its next prompt, the queue board queues it, and
+ * the issues board takes it back. False when it's none of those, so E does what it always does there.
+ */
+function dropCard(it: Interactable, card: CarriedIssue): boolean {
+  if (it.kind === 'issues') {
+    putBack();
+    return true;
+  }
+  const prompt = issuePrompt({ number: card.issue, title: card.title });
+  if (it.kind === 'queue') {
+    if (onQueue(card.issue)) toast(`#${card.issue} is already on the queue`, 'warn');
+    else {
+      const { provider, model, effort } = rememberedChoice(store.project, 'queue');
+      net.send({ t: 'queue.add', prompt, title: `#${card.issue} ${card.title}`, issue: card.issue, provider, model, effort });
+      putDown();
+    }
+    return true;
+  }
+  if (it.kind !== 'desk' || !it.deskId) return false;
+  const w = store.workerAtDesk(it.deskId);
+  const why = w ? cantTakeCard(w) : hiringPaused() ? '💸 Budget spent — hiring resumes tomorrow' : '';
+  if (why) toast(why, 'warn');
+  else if (w) {
+    net.send({ t: 'worker.prompt', workerId: w.id, prompt, issue: card.issue });
+    putDown();
+  } else if (!officeIsFull()) {
+    const { provider, model, effort } = rememberedChoice(store.project, `desk:${it.deskId}`);
+    hire(it.deskId, prompt, !!store.project?.branch && worktreePref(), provider, model, effort, card.issue);
+    putDown();
+  }
+  return true;
+}
+
+/** The card left your hands for a desk or the queue (the office says who took it). */
+function putDown() {
+  setCarrying(null);
+  sound.paper();
+}
+
+function onQueue(issue: number): boolean {
+  const t = store.taskForIssue(issue);
+  return !!t && t.status !== 'done';
+}
+
+/** Why the worker at a desk can't be handed an issue card right now, or '' when it can. */
+function cantTakeCard(w: WorkerInfo): string {
+  if (w.kind === 'shell') return `${w.name} is a shell, not an agent`;
+  if (isAsleep(w.status)) return `${w.name} is asleep — press R to resume first`;
+  if (w.status === 'needs_input') return `${w.name} is waiting on an answer — open the terminal first`;
+  return '';
 }
 
 // ---- Sitting ----------------------------------------------------------------------------------------
@@ -1146,15 +1504,16 @@ interface Hint {
 function renderHint() {
   const el = $('hint');
   if (hanger.active && !modalOpen()) return renderHangHint(el);
-  if (!target || modalOpen()) {
+  if (climber.active && !modalOpen()) return renderClimbHint(el);
+  if ((!target && !carrying) || modalOpen()) {
     if (hintKey) {
       el.classList.add('hidden');
       hintKey = '';
     }
     return;
   }
-  const hint = hintFor(target);
-  const k = `${target.kind}${target.deskId ?? ''}|${hint.k}`;
+  const hint = carrying ? carryHint(carrying, target) : hintFor(target!);
+  const k = `${target?.kind}${target?.deskId ?? ''}|${carrying?.issue ?? ''}|${hint.k}`;
   if (k === hintKey) return;
   hintKey = k;
   el.replaceChildren(...hint.parts);
@@ -1221,6 +1580,21 @@ function hintFor(it: Interactable): Hint {
       const full = !freePlace(seat);
       return { k: `${seat.id}|${full}`, parts: [title(seat.label), seat.game ? aside('💣 Minesweeper on the monitor') : '', full ? aside('no room') : key('E', 'Sit down')] };
     }
+    case 'ladder': {
+      const up = floorThere(1)?.name;
+      const down = floorThere(-1)?.name;
+      const where = [up && `⬆ ${up}`, down && `⬇ ${down}`].filter(Boolean).join(' · ');
+      return { k: where, parts: [title('🪜 Ladder'), aside(where || 'no other floors yet'), key('E', 'Climb on')] };
+    }
+    case 'pole': {
+      const spot = POLES[it.pole ?? 0];
+      if (spot === office.stack.poleDown()) {
+        const down = floorThere(-1)?.name ?? 'the floor below';
+        return { k: `down|${down}`, parts: [title('🚒 Fire pole'), aside(`down to ${down}`), key('E', 'Slide down!')] };
+      }
+      const up = floorThere(1)?.name ?? 'upstairs';
+      return { k: `landing|${up}`, parts: [title('🚒 Fire pole'), aside(`comes down from ${up}`), key('E', 'Twirl')] };
+    }
     case 'dog': {
       const doing = dog.doing(
         (id) => store.workers.get(id)?.name,
@@ -1231,16 +1605,48 @@ function hintFor(it: Interactable): Hint {
   }
 }
 
+/** With an issue card in your hands: what E does with it here, and how to put it back. */
+function carryHint(card: CarriedIssue, it: Interactable | null): Hint {
+  const parts = (...mid: (HTMLElement | string)[]) => [h('span.title', {}, `🗂️ #${card.issue} in hand`), ...mid, key('Q', 'Put it back')];
+  if (it?.kind === 'issues') return { k: '', parts: parts(key('E', 'Pin it back up')) };
+  if (it?.kind === 'queue') {
+    const on = onQueue(card.issue);
+    return { k: String(on), parts: parts(on ? aside('already on the queue') : key('E', 'Put it on the queue')) };
+  }
+  if (it?.kind === 'desk' && it.deskId) {
+    const w = store.workerAtDesk(it.deskId);
+    if (!w) {
+      const paused = hiringPaused();
+      return { k: String(paused), parts: parts(paused ? h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow') : key('E', 'Hire a worker for it')) };
+    }
+    const why = cantTakeCard(w);
+    return { k: w.id + w.status + why, parts: parts(why ? aside(why) : key('E', `Hand it to ${w.name}`)) };
+  }
+  // Anything else works as usual, card in hand.
+  if (it) {
+    const rest = hintFor(it);
+    return { k: rest.k, parts: parts(...rest.parts) };
+  }
+  return { k: '', parts: parts(aside('take it to an empty desk, a worker or the 📋 queue')) };
+}
+
 function deskHint(deskId: string): Hint {
   const w = store.workerAtDesk(deskId);
   if (!w) {
     const paused = hiringPaused();
+    const m = store.machine;
+    const full = officeFull(m);
     return {
-      k: String(paused),
+      k: `${paused}|${full}|${m.workers}|${m.limit}|${!!m.pressure}`,
       parts: [
         h('span.title', {}, `${DESK_BY_ID.get(deskId)!.label} · empty`),
-        ...(paused ? [h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow')] : [key('E', 'Hire a worker'), key('P', 'Hire with a task')]),
-        key('B', 'Shell'),
+        ...(full
+          ? [h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`)]
+          : [
+              m.pressure ? h('span.cost', { title: `This machine is under pressure: ${m.pressure}` }, '⚠️ Machine under pressure') : '',
+              ...(paused ? [h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow')] : [key('E', 'Hire a worker'), key('P', 'Hire with a task')]),
+              key('B', 'Shell'),
+            ]),
       ],
     };
   }
@@ -1268,7 +1674,18 @@ function stationHint(deskId: string): Hint {
   if (!kind) return { k: '', parts: [] };
   const w = store.workerAtDesk(deskId);
   const info = STATION_INFO[kind];
-  if (!w) return { k: '', parts: [h('span.title', {}, `${info.icon} ${STATION_AGENT[kind].name}`), aside(info.offer.replace(/^Ask me /, '')), key('E', 'Prompt')] };
+  if (!w) {
+    const m = store.machine;
+    const full = officeFull(m);
+    return {
+      k: `${full}|${m.workers}|${m.limit}`,
+      parts: [
+        h('span.title', {}, `${info.icon} ${STATION_AGENT[kind].name}`),
+        aside(info.offer.replace(/^Ask me /, '')),
+        full ? h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`) : key('E', 'Prompt'),
+      ],
+    };
+  }
   const doing = w.activity ? clip(w.activity, 48) : '';
   const provider = resolvedProvider(w.provider, store.project);
   const spent = w.usage ? usageLabel(w.usage, provider) : '';
@@ -1283,6 +1700,32 @@ function stationHint(deskId: string): Hint {
       key('X', 'Send home'),
     ],
   };
+}
+
+/** On the ladder: which way it goes from here, and how to get off. Down a pole: just hold on. */
+function renderClimbHint(el: HTMLElement) {
+  const title = (text: string) => h('span.title', {}, text);
+  const l = climber.ladder;
+  let k: string;
+  let parts: (HTMLElement | string)[];
+  if (l) {
+    const up = floorThere(1)?.name;
+    const down = floorThere(-1)?.name;
+    const atFloor = l.y < 0.4 && l.y > -0.05;
+    const busy = l.waiting || l.auto;
+    k = `ladder|${up}|${down}|${atFloor}|${busy}`;
+    parts = busy
+      ? [title('🪜 Climbing…')]
+      : [title('🪜 On the ladder'), up ? key('W', `Up to ${up}`) : aside('top floor'), key('S', down ? `Down to ${down}` : atFloor ? 'Step off' : 'Down'), key('E', atFloor ? 'Step off' : 'Let go')];
+  } else {
+    const how = climber.sliding;
+    k = `pole|${how}`;
+    parts = [title(how === 'twirl' ? '🚒 Wheee!' : '🚒 Wheeeeeee!')];
+  }
+  if (k === hintKey) return;
+  hintKey = k;
+  el.replaceChildren(...parts);
+  el.classList.remove('hidden');
 }
 
 function renderHangHint(el: HTMLElement) {
@@ -1322,6 +1765,54 @@ function reach() {
   }
 }
 
+// ---- Emotes ---------------------------------------------------------------------------------------
+/** The same limit the server keeps, so an emote you see yourself do is one everyone else sees too. */
+const emoteLimit = new EmoteBucket();
+let emoteWarnedAt = 0;
+/** Plays an emote on your character and your hands, and shows it to everyone else on the floor. */
+function emote(id: EmoteId) {
+  const now = performance.now();
+  if (!emoteLimit.take(now)) {
+    if (now - emoteWarnedAt > 3000) {
+      emoteWarnedAt = now;
+      toast('Easy there, one emote at a time', 'warn');
+    }
+    return;
+  }
+  me.emote(id);
+  hands.emote(id);
+  if (player.view === 'first') popEmoji(id);
+  net.send({ t: 'emote', emote: id });
+}
+const emoteWheel = new EmoteWheel(emote, (open) => (player.mouseLook = !open));
+$('hud').append(emoteWheel.el);
+
+/** In first person you can't see the emoji over your head, so it pops up on the screen instead. */
+function popEmoji(id: EmoteId) {
+  const e = EMOTE_BY_ID.get(id)!;
+  document.querySelector('.emote-pop')?.remove();
+  const el = h('div.emote-pop', { style: `--secs:${e.seconds}s`, 'aria-hidden': 'true' }, e.emoji);
+  el.addEventListener('animationend', () => el.remove());
+  $('hud').append(el);
+}
+
+/** G opens the emote wheel (hold it and point, or tap it and click); 1–6 play one straight away. */
+function emoteKey(e: KeyboardEvent): boolean {
+  if (e.code === 'KeyG') {
+    if (!e.repeat) emoteWheel.press();
+    return true;
+  }
+  if (e.code === 'Escape' && emoteWheel.isOpen) {
+    emoteWheel.close();
+    return true;
+  }
+  const n = /^(?:Digit|Numpad)([1-6])$/.exec(e.code);
+  if (!n) return false;
+  emoteWheel.close();
+  emote(EMOTES[Number(n[1]) - 1].id);
+  return true;
+}
+
 /** Keys that use what you're facing: at a desk, each does something else (see interact). */
 const DESK_KEYS = { KeyE: 'E', KeyP: 'P', KeyR: 'R', KeyX: 'X', KeyB: 'B', KeyC: 'C', KeyO: 'O' } as const;
 type DeskKey = (typeof DESK_KEYS)[keyof typeof DESK_KEYS];
@@ -1339,7 +1830,16 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
+  // On the ladder, E gets you off it (and nothing else is in reach); W, S and Space climb.
+  if (climber.active && (e.code === 'KeyE' || e.code === 'KeyF' || e.code in DESK_KEYS)) {
+    if (e.code === 'KeyE') climber.letGo();
+    return;
+  }
+  if (emoteKey(e)) return;
   if (officeKey(e)) player.clearKeys();
+});
+window.addEventListener('keyup', (e) => {
+  if (e.code === 'KeyG') emoteWheel.release();
 });
 
 /** The office's own keys; false for any other key, which is left to walking and the browser. */
@@ -1368,6 +1868,14 @@ function officeKey(e: KeyboardEvent): boolean {
       return true;
     case 'KeyF':
       hanger.start();
+      return true;
+    case 'KeyN':
+      goToNextWaiting();
+      return true;
+    case 'KeyQ':
+      if (!carrying) return false;
+      reach();
+      putBack();
       return true;
   }
   // By the character, so it's / on any keyboard layout. The search box opens without it.
@@ -1409,6 +1917,7 @@ onModalChange((open) => {
   player.enabled = !open;
   player.clearKeys();
   if (open) {
+    emoteWheel.close();
     if (player.locked) relookAfterModal = true;
     player.unlock();
     $('hint').classList.add('hidden');
@@ -1433,7 +1942,7 @@ function backToGame() {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, ladder: 3, pole: 4 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
@@ -1456,6 +1965,7 @@ function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boole
 
 player.onClick = (ndc) => {
   if (modalOpen()) return;
+  if (emoteWheel.isOpen) return emoteWheel.click();
   if (hanger.active) {
     reach();
     hanger.place(ndc);
@@ -1572,8 +2082,11 @@ if (!window.isSecureContext) {
     b.title = 'Voice and screen sharing need HTTPS or localhost — use a TLS proxy, --self-signed, or an SSH tunnel';
   }
 }
-// The project in the corner is the floor you're on; click it for the others.
-$('project').addEventListener('click', () => showElevator());
+// The project in the corner is the floor you're on; click it for the list of floors to go to.
+$('project').addEventListener('click', () => {
+  if (!store.floor) return showElevator();
+  toggleFloorMenu($('project'), { go: switchFloor, elevator: showElevator });
+});
 $('btn-voice').addEventListener('click', () => void toggleVoice());
 $('btn-mute').addEventListener('click', () => voice.toggleMute());
 $('btn-share').addEventListener('click', () => void toggleShare());
@@ -1654,23 +2167,37 @@ function frame(ts?: number) {
   const secs = now / 1000;
   player.speedBoost = caffeine.speed(secs);
   player.jumpBoost = caffeine.jump(secs);
-  player.jitter = reduceMotion.matches ? 0 : caffeine.jitter(secs);
+  thud = Math.max(0, thud - dt * 2.5);
+  player.jitter = reduceMotion.matches ? 0 : Math.max(caffeine.jitter(secs), thud);
   const mug = caffeine.buzzed(secs);
   me.holdMug(mug);
   hands.holdMug(mug);
   renderCaffeine(caffeine, secs);
 
   player.update(dt);
+  // Walked into a pole's hole: you grab the pole on your way down it.
+  const hole = office.stack.poleDown();
+  if (hole && !climber.active && !trip && !player.seat && player.enabled && Math.hypot(player.pos.x - hole.x, player.pos.z - hole.z) < POLE.hole - 0.15 && player.pos.y > -1.35 && player.pos.y < 0.6) climber.slide(hole);
   arcade.update(camera, dt);
   me.root.position.copy(player.pos);
   me.root.position.y += player.stepOffset;
   me.root.rotation.y = player.facing;
-  me.update(dt, t, player.moving && player.grounded, !player.grounded, player.speedBoost);
+  const grip = climber.grip;
+  me.setGrip(grip);
+  me.update(dt, t, (player.moving && player.grounded) || (grip === 'ladder' && player.moving), !player.grounded && !grip, player.speedBoost);
   me.setVoiceLevel(voice.inVoice ? voice.localLevel : 0);
   const firstPerson = player.view === 'first';
   // In first person you are the camera; in third, hide yourself when it's zoomed in right behind your head.
   me.root.visible = !firstPerson && camera.position.distanceTo(headPos.set(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5;
-  if (firstPerson) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded, jitter: player.jitter });
+  if (firstPerson) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded, jitter: player.jitter, grip });
+  // Down a pole: the view widens and the edges streak past.
+  const rush = reduceMotion.matches ? 0 : climber.rush;
+  const fov = 55 + rush * 16;
+  if (Math.abs(camera.fov - fov) > 0.05) {
+    camera.fov += (fov - camera.fov) * Math.min(1, dt * 8);
+    camera.updateProjectionMatrix();
+  }
+  whoosh.style.opacity = rush > 0.02 ? String(rush * 0.85) : '0';
 
   // Your ears are in your head, facing wherever the camera looks.
   camera.getWorldDirection(lookDir);
@@ -1705,9 +2232,15 @@ function frame(ts?: number) {
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     r.person.root.rotation.y += diff * Math.min(1, dt * 12);
     // On their feet if they're standing on something: the floor, a desk, a stair, the loft.
-    const airborne = !sat && p.y > groundAt(office.colliders, p.x, p.z, p.y) + 0.05;
+    const ground = groundAt(office.colliders, p.x, p.z, p.y);
+    const airborne = !sat && p.y > ground + 0.05;
+    // Or holding on to the ladder or a pole; off a pole onto the mat, the firehouse bell rings.
+    const holding = sat ? null : gripOf(p, [office.stack.poleDown(), office.stack.poleLanding()], ground);
+    if (r.grip === 'pole' && !holding && Math.abs(p.y) < 0.2) sound.poleLanding(6, { x: pos.x, y: 0.5, z: pos.z });
+    r.grip = holding;
+    r.person.setGrip(holding);
     const walking = !sat && p.moving && !airborne;
-    r.person.update(dt, t, walking, airborne && Math.abs(pos.y - r.target.y) > 0.01);
+    r.person.update(dt, t, walking || (holding === 'ladder' && p.moving), airborne && !holding && Math.abs(pos.y - r.target.y) > 0.01);
     // Their walk cycle takes a step every π/11 seconds.
     r.stepT = walking ? r.stepT + dt : 0.2;
     if (r.stepT >= Math.PI / 11) {
@@ -1715,6 +2248,7 @@ function frame(ts?: number) {
       sound.stepAt(pos.x, pos.z);
     }
     r.person.setVoiceLevel(p.voice && !p.muted ? voice.levelOf(id) : 0);
+    r.person.emojiLift = r.bubble ? 0.45 : 0;
     if (r.bubble && now > r.bubble.until) {
       r.person.root.remove(r.bubble.sprite);
       disposeSprite(r.bubble.sprite);
@@ -1738,6 +2272,7 @@ function frame(ts?: number) {
   departures.update(dt, t);
   dog.update(dt);
   office.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions()]);
+  office.stack.update(dt, [{ x: player.pos.x, y: player.pos.y, z: player.pos.z, grip }, ...[...remotes.values()].map((r) => ({ x: r.person.root.position.x, y: r.person.root.position.y, z: r.person.root.position.z, grip: r.grip }))], camera.position);
   office.jukebox.update(t, dt, sound.beat());
   checkSmokeBreak(now);
   smoke.update(dt, camera);
@@ -1746,7 +2281,7 @@ function frame(ts?: number) {
   sky.update(dt, t, camera);
   sound.setWeather(sky.rain, 1 - sky.daylight);
 
-  if (modalOpen() || hanger.active) target = null;
+  if (modalOpen() || hanger.active || climber.active) target = null;
   else if (firstPerson) {
     const aim = aimedAt(CROSSHAIR);
     target = aim?.near ? aim.it : mySeat();
@@ -1762,6 +2297,7 @@ function frame(ts?: number) {
   }
 
   effect.render(scene, camera);
+  pointToWaiting(now);
   // Not while the camera's up at the boss's monitor, where they'd cover the screen.
   if (firstPerson && !arcade.zoomed) {
     // Hands go on top of everything, so they never clip into a desk you walk up to. They have
@@ -1815,7 +2351,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { store, player, caffeine, camera, arcade, workerViews, departures, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, elevatorPanelOpen, confetti, dog, sky };
+(window as any).__office = { store, player, caffeine, camera, arcade, workerViews, departures, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, elevatorPanelOpen, confetti, dog, sky, carried: () => carrying, emoteWheel, emote };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

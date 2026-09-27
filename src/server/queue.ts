@@ -24,6 +24,8 @@ export interface QueueEvents {
   refreshGitHub(): void;
   /** Why no workers may be hired right now (today's budget is spent), if that's so. */
   hiringPaused(): string | undefined;
+  /** How many more workers the office has room for under its worker limit (Infinity without one). */
+  room?(): number;
   /** The last task on the queue just finished, done: nothing is left queued or running. */
   emptied(): void;
 }
@@ -292,7 +294,11 @@ export class TaskQueue {
       if (this.busy() >= this.maxWorkers) break;
       // A spent budget holds the queue instead of failing every task; the pump seats them once hiring resumes.
       if (this.events.hiringPaused()) break;
-      const desk = this.freeDesk() ?? this.recycleDesk();
+      // So does an office at its worker limit (--max-workers), unless one of the queue's own finished
+      // workers going home makes room. Over the limit (it was just lowered), it waits for people to send some home.
+      const room = this.events.room?.() ?? Infinity;
+      if (room < 0) break;
+      const desk = (room > 0 ? this.freeDesk() : undefined) ?? this.recycleDesk();
       if (!desk) break;
       const r = this.workers.spawn(desk, `${t.addedBy} (queue)`, t.prompt + (this.useWorktree ? WORKTREE_NOTE : ''), this.useWorktree, 'agent', t.provider ?? this.workers.defaultProvider, t.model, t.effort);
       changed = true;

@@ -20,6 +20,7 @@ import { ImageProxy } from './decor.js';
 import { Ledger } from './usage.js';
 import { PlanLimitsReader } from './limits.js';
 import { Webhook } from './webhook.js';
+import { MAX_WORKER_LIMIT, Machine, parseWorkerLimit } from './machine.js';
 import { Building, type FloorDef } from './building.js';
 import { Floor, type FloorContext } from './floor.js';
 import { Sky } from './sky.js';
@@ -27,11 +28,12 @@ import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunne
 import { ChatLog } from './history.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
-import { DESK_BY_ID, elevatorSpot, seatAt } from '../shared/layout.js';
+import { DESK_BY_ID, STREET_Y, elevatorSpot, seatAt } from '../shared/layout.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
+import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -68,6 +70,7 @@ interface Client {
   lastMoveAt: number;
   lastActAt: number;
   lastGongAt: number;
+  emotes: EmoteBucket;
   /** Has the floor's whiteboard open. */
   whiteboard: boolean;
   lastWbPointerAt: number;
@@ -144,6 +147,14 @@ function send(res: http.ServerResponse, status: number, body: unknown, headers: 
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+/** Where someone going to another floor says they arrive (see `floor.go`): on the grounds, or nowhere (the elevator). */
+function arrivalSpot(at: unknown): { x: number; y: number; z: number; rotY: number } | undefined {
+  if (!at || typeof at !== 'object') return undefined;
+  const a = at as Record<string, unknown>;
+  const clamp = (v: unknown, lo: number, hi: number) => Math.min(hi, Math.max(lo, num(v)));
+  return { x: clamp(a.x, -60, 60), y: clamp(a.y, STREET_Y, 10), z: clamp(a.z, -60, 60), rotY: num(a.rotY) };
+}
+const issueNumber = (v: unknown) => (Number.isInteger(v) && (v as number) > 0 ? (v as number) : undefined);
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const TOO_MANY_ATTEMPTS = 'Too many attempts. Try again in a few minutes.';
 /** WebSocket close code for a session that stopped counting: the account was revoked, or the shared password switched off. */
@@ -339,11 +350,34 @@ export async function startServer(cfg: Config) {
     if (err) console.error(`agent-office: --webhook: ${err}`);
   }
 
+  // The machine's CPU and memory, for the monitor on the wall and a warning before hiring, and the
+  // most workers the office runs at once, across every floor (--max-workers, or ⚙️ Settings).
+  const machine = new Machine(
+    cfg.dataDir,
+    cfg.maxWorkers,
+    () => {
+      let n = 0;
+      for (const f of floors.values()) n += f.workers.list().length;
+      return n;
+    },
+    (state) => broadcast({ t: 'machine', state }),
+  );
+  machine.start();
+  /** Queues everywhere may be waiting for room under the worker limit: let them look again. */
+  const pumpQueues = (except?: Floor) => {
+    if (machine.limit === undefined) return;
+    // Not right now: whoever freed the seat (a queue making room for its next task) takes it first.
+    setImmediate(() => {
+      for (const f of floors.values()) if (f !== except) f.queue.pump();
+    });
+  };
+
   const floorContext: FloorContext = {
     agentCmd: cfg.agentCmd,
     agentArgs: cfg.agentArgs,
     hook: { url: `http://127.0.0.1:${hookPort}`, token: '' },
     ledger,
+    capacity: machine,
     emit: toFloor,
     toast: toastFloor,
     termData: (workerId, data, viewers) => {
@@ -363,9 +397,12 @@ export async function startServer(cfg: Config) {
         if (c) sendTo(c, { t: 'changes', state });
       }
     },
-    workerChanged: (_floor, w) => {
-      if (typeof w === 'string') webhook.onWorkerGone(w);
-      else webhook.onWorker(w);
+    workerChanged: (floor, w) => {
+      if (typeof w === 'string') {
+        webhook.onWorkerGone(w);
+        pumpQueues(floor);
+      } else webhook.onWorker(w);
+      machine.workersChanged();
       floorsChanged();
     },
     people: (floor) => {
@@ -746,6 +783,8 @@ export async function startServer(cfg: Config) {
       lastMoveAt: 0,
       lastActAt: 0,
       lastGongAt: 0,
+      // A little more lenient than the page's own, so emotes it let through aren't dropped for arriving bunched up.
+      emotes: new EmoteBucket(EMOTE_EVERY * 0.8),
       whiteboard: false,
       lastWbPointerAt: 0,
       isAlive: true,
@@ -786,6 +825,7 @@ export async function startServer(cfg: Config) {
       limits: limits.state,
       me,
       notify: webhook.state(),
+      machine: machine.state(),
       sky: sky.state,
       ...floorView(floor),
     });
@@ -839,8 +879,11 @@ export async function startServer(cfg: Config) {
     }
   };
 
-  /** Rides `c` to another floor: everyone sees them leave and arrive, and they get the new floor's everything. */
-  const goToFloor = (c: Client, floor: Floor) => {
+  /**
+   * Takes `c` to another floor: everyone sees them leave and arrive, and they get the new floor's
+   * everything. They arrive in the elevator, or `at` the spot they came by.
+   */
+  const goToFloor = (c: Client, floor: Floor, at?: { x: number; y: number; z: number; rotY: number }) => {
     if (c.peer.floor === floor.id) return;
     const was = floorOf(c);
     if (was) {
@@ -852,9 +895,11 @@ export async function startServer(cfg: Config) {
     // The whiteboard downstairs stays downstairs.
     const wasDrawing = c.whiteboard;
     c.whiteboard = false;
-    const spot = elevatorSpot();
-    Object.assign(c.peer, { floor: floor.id, x: spot.x, y: 0, z: spot.z, rotY: 0, moving: false });
+    const spot = at ?? { ...elevatorSpot(), y: 0, rotY: 0 };
+    Object.assign(c.peer, { floor: floor.id, x: spot.x, y: spot.y, z: spot.z, rotY: spot.rotY, moving: false });
     delete c.peer.seat;
+    // An issue card belongs to the board it came off, which is on the floor they left.
+    delete c.peer.carrying;
     sendTo(c, { t: 'floor.enter', peers: [...clients.values()].map((o) => o.peer), ...floorView(floor) });
     screensOf(c, floor);
     broadcast({ t: 'peer.update', peer: c.peer }, c.id);
@@ -862,6 +907,15 @@ export async function startServer(cfg: Config) {
     floor.arrived();
     floor.workers.wakeAll();
     floorsChanged();
+  };
+
+  /**
+   * A worker took on GitHub issue `n` (an issue card dropped on its desk): assign it on GitHub, which
+   * moves it to In progress on the board, and take it off the queue so nobody else is seated for it.
+   */
+  const takeIssue = (c: Client, floor: Floor, n: number) => {
+    floor.queue.dropIssue(n);
+    void floor.github.claim(n).then((err) => warn(c, err && `Couldn't assign issue #${n} on GitHub: ${err}`));
   };
 
   const handleMessage = (c: Client, msg: ClientMsg) => {
@@ -902,6 +956,9 @@ export async function startServer(cfg: Config) {
         toNeighbors(c, { t: 'peer.act', id: c.id }, true);
         break;
       }
+      case 'emote':
+        if (isEmote(msg.emote) && c.emotes.take(Date.now())) toNeighbors(c, { t: 'peer.emote', id: c.id, emote: msg.emote }, true);
+        break;
       case 'sit': {
         // Everyone sees them sit down (or get up), and anyone who comes in later finds them sitting.
         const key = str(msg.seat, 40);
@@ -909,6 +966,15 @@ export async function startServer(cfg: Config) {
         if (seat === c.peer.seat) break;
         if (seat) c.peer.seat = seat;
         else delete c.peer.seat;
+        broadcast({ t: 'peer.update', peer: c.peer }, c.id);
+        break;
+      }
+      case 'carry': {
+        // Everyone on the floor sees the issue card in their hands, and whoever comes in later too.
+        const issue = issueNumber(msg.issue);
+        if (issue === c.peer.carrying?.issue) break;
+        if (issue !== undefined) c.peer.carrying = { issue, title: str(msg.title, 200) };
+        else delete c.peer.carrying;
         broadcast({ t: 'peer.update', peer: c.peer }, c.id);
         break;
       }
@@ -942,7 +1008,7 @@ export async function startServer(cfg: Config) {
       case 'floor.go': {
         const floor = floors.get(str(msg.floor, 64));
         if (!floor) warn(c, building.pending().some((d) => d.id === msg.floor) ? "That floor is still being cloned — it'll be ready in a moment" : 'No such floor');
-        else goToFloor(c, floor);
+        else goToFloor(c, floor, arrivalSpot(msg.at));
         break;
       }
       case 'floor.repos':
@@ -990,8 +1056,10 @@ export async function startServer(cfg: Config) {
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
         const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
         const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort);
+        const issue = kind === 'agent' ? issueNumber(msg.issue) : undefined;
         if (typeof r === 'string') warn(c, r);
-        else toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${r.prompt ? ' with a task' : ''}`);
+        else toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${issue ? ` for issue #${issue}` : r.prompt ? ' with a task' : ''}`);
+        if (typeof r !== 'string' && issue) takeIssue(c, floor, issue);
         break;
       }
       case 'worker.resume': {
@@ -1037,7 +1105,13 @@ export async function startServer(cfg: Config) {
       }
       case 'worker.prompt': {
         const w = worker(msg.workerId);
-        warn(c, w ? w.floor.workers.prompt(w.wid, str(msg.prompt, 20000), who) : 'No such worker');
+        const err = w ? w.floor.workers.prompt(w.wid, str(msg.prompt, 20000), who) : 'No such worker';
+        warn(c, err);
+        const issue = w?.info.kind === 'agent' ? issueNumber(msg.issue) : undefined;
+        if (w && !err && issue) {
+          toastFloor(w.floor, `${who} handed issue #${issue} to ${w.info.name}`);
+          takeIssue(c, w.floor, issue);
+        }
         break;
       }
       case 'station.prompt': {
@@ -1174,6 +1248,17 @@ export async function startServer(cfg: Config) {
       case 'notify.test':
         void webhook.test(who).then((err) => sendTo(c, { t: 'toast', text: err ?? '📣 Sent a test message', level: err ? 'warn' : 'info' }));
         break;
+      case 'machine.limit': {
+        if (!meOf(c.accountId).admin) return warn(c, 'Only admins can change the worker limit');
+        const limit = msg.limit === null ? undefined : parseWorkerLimit(msg.limit);
+        if (msg.limit !== null && limit === undefined) return warn(c, `The worker limit is a whole number from 1 to ${MAX_WORKER_LIMIT}`);
+        const err = machine.setLimit(limit, who);
+        if (err) return warn(c, err);
+        const now = machine.limit;
+        toastAll(limit !== undefined ? `⚙️ ${who} set the worker limit to ${now}` : now === undefined ? `⚙️ ${who} took the worker limit off` : `⚙️ ${who} put the worker limit back to ${now} (--max-workers)`);
+        pumpQueues();
+        break;
+      }
       case 'changes.watch': {
         const w = worker(msg.workerId);
         if (w) w.floor.changes.watch(w.wid, c.id);
@@ -1434,6 +1519,7 @@ export async function startServer(cfg: Config) {
     upgrader.stop();
     services.stop();
     webhook.stop();
+    machine.stop();
     sky.stop();
     for (const f of floors.values()) f.shutdown(keep);
     ledger.flush();

@@ -3,6 +3,7 @@
 import type { Look } from './avatar.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
+import type { EmoteId } from './emotes.js';
 import type { JukeboxState } from './jukebox.js';
 import type { WbElement, WbPointer, WhiteboardView } from './whiteboard.js';
 
@@ -64,6 +65,8 @@ export interface WorkerInfo {
   status: WorkerStatus;
   /** True once someone opened the terminal after the last done / needs_input. */
   acked: boolean;
+  /** When it last went to done or needs_input (ms), so N goes to whoever has waited longest first. */
+  waitingSince?: number;
   createdBy: string;
   createdAt: number;
   prompt?: string;
@@ -174,6 +177,12 @@ export interface WorktreeState {
   error?: string;
 }
 
+/** The issue on a card someone carries around the floor (see PeerInfo.carrying). */
+export interface CarriedIssue {
+  issue: number;
+  title: string;
+}
+
 export interface PeerInfo {
   id: string;
   name: string;
@@ -192,6 +201,8 @@ export interface PeerInfo {
   smoking?: boolean;
   /** Sitting down: the place they're in (see seatAt in layout), like "couch:1". */
   seat?: string;
+  /** An issue card they took off the issues board, on its way to a desk or the queue. */
+  carrying?: CarriedIssue;
   /** Signed in with their own account, so `name` is theirs and nobody else can take it. */
   account?: boolean;
   /** The floor they're on (see FloorInfo); none while the building has no floors yet. */
@@ -288,6 +299,31 @@ export interface NotifyState {
   /** Why the last post failed, until one gets through. */
   error?: string;
   lastSentAt?: number;
+}
+
+/**
+ * The office's machine (see server/machine.ts): how busy it is, for the wall monitor and a warning
+ * before hiring, and the most workers the office runs at once, across every floor.
+ */
+export interface MachineState {
+  /** Percent of every core busy, 0-100, over the last few seconds. */
+  cpu: number;
+  cores: number;
+  /** Memory in use and in all, bytes. */
+  memUsed: number;
+  memTotal: number;
+  /** The last few minutes, oldest first: [cpu %, memory %] a few seconds apart. */
+  history: [number, number][];
+  /** What makes another worker a strain right now, e.g. "memory is 93% used"; missing when nothing does. */
+  pressure?: string;
+  /** Workers in the office now: every floor's, shells and board agents too. */
+  workers: number;
+  /** The most workers the office takes; missing when there's no limit. */
+  limit?: number;
+  /** --max-workers: the limit can't be set any higher from the office. */
+  ceiling?: number;
+  /** The limit someone set in ⚙️ Settings, when there is one. */
+  set?: { limit: number; by: string; at: number };
 }
 
 export interface GhState<T> {
@@ -660,15 +696,21 @@ export type ClientMsg =
   | { t: 'act'; smoke?: boolean }
   /** You sat down in a place on a couch, a beanbag, a chair or the bench (see seatAt in layout), or got up again (no seat). */
   | { t: 'sit'; seat?: string }
+  /** You picked an issue card up off the board (or put it down again, no issue): everyone sees it in your hands. */
+  | { t: 'carry'; issue?: number; title?: string }
+  /** An emote (hold G, or 1–6): everyone else on your floor sees your character do it. Rate limited, see EmoteBucket. */
+  | { t: 'emote'; emote: EmoteId }
   | { t: 'profile'; name: string; color: string; look: Look }
-  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort }
+  /** With `issue`, the worker is there for that GitHub issue: it's assigned on GitHub (so it moves to In progress) and taken off the queue. */
+  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: number }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
   | { t: 'worker.worktree'; workerId: string }
   | { t: 'worker.attach'; workerId: string }
   | { t: 'worker.detach'; workerId: string }
-  | { t: 'worker.prompt'; workerId: string; prompt: string }
+  /** With `issue`, the prompt hands the worker that GitHub issue, which is taken as for worker.spawn. */
+  | { t: 'worker.prompt'; workerId: string; prompt: string; issue?: number }
   /**
    * A prompt for the agent standing by a board (`deskId` is its kiosk, see STATIONS in layout). It's
    * typed into its session, which is woken up first if it's asleep, or hired there when nobody is.
@@ -700,6 +742,8 @@ export type ClientMsg =
   | { t: 'notify.webhook'; url: string }
   /** Post a test message through the webhook; the outcome comes back as a toast. */
   | { t: 'notify.test' }
+  /** Admins: the most workers the office runs at once, across every floor; null takes the limit off. */
+  | { t: 'machine.limit'; limit: number | null }
   | { t: 'voice'; voice: boolean; muted: boolean; sharing: boolean }
   | { t: 'rtc'; to: string; data: unknown }
   | { t: 'chat'; text: string }
@@ -743,8 +787,12 @@ export type ClientMsg =
   | { t: 'wb.update'; elements: WbElement[] }
   /** Where your mouse is on the whiteboard, and what you have selected there. */
   | ({ t: 'wb.pointer'; selected?: string[] } & WbPointer)
-  /** Ride the elevator to another floor; the server answers with `floor.enter`. */
-  | { t: 'floor.go'; floor: string }
+  /**
+   * Go to another floor; the server answers with `floor.enter`. By elevator you arrive in the car;
+   * `at` is where you arrive instead: the same spot on the other floor (switching floors from the
+   * floor list), or the ladder or fire pole you came by.
+   */
+  | { t: 'floor.go'; floor: string; at?: { x: number; y: number; z: number; rotY: number } }
   /** The repositories that could become a floor; answered with `floor.repos`. */
   | { t: 'floor.repos'; refresh?: boolean }
   /** Clone a repository and make it a new floor; answered with `floor.added` once it's there. */
@@ -775,6 +823,7 @@ export type ServerMsg =
       limits: PlanLimits;
       me: Me;
       notify: NotifyState;
+      machine: MachineState;
       /** Outside the windows: the same on every floor. */
       sky: SkyState;
     } & FloorView)
@@ -790,6 +839,7 @@ export type ServerMsg =
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }
   | { t: 'peer.leave'; id: string }
   | { t: 'peer.act'; id: string; smoke?: boolean }
+  | { t: 'peer.emote'; id: string; emote: EmoteId }
   | { t: 'worker.update'; worker: WorkerInfo }
   | { t: 'worker.remove'; workerId: string }
   | { t: 'worker.worktree'; workerId: string; state: WorktreeState }
@@ -829,6 +879,7 @@ export type ServerMsg =
   | { t: 'limits'; state: PlanLimits }
   | { t: 'queue'; state: QueueState }
   | { t: 'notify'; state: NotifyState }
+  | { t: 'machine'; state: MachineState }
   | { t: 'sky'; state: SkyState }
   /** Sent to whoever watches that worker's changes, whenever they change. */
   | { t: 'changes'; state: ChangesState }

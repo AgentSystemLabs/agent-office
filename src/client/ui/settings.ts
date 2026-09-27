@@ -166,6 +166,40 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   hookTest.addEventListener('click', () => net.send({ t: 'notify.test' }));
   hookRemove.addEventListener('click', () => net.send({ t: 'notify.webhook', url: '' }));
 
+  // The most workers the office runs at once, across every floor. Admins set it.
+  const limitInput = h('input', { type: 'text', inputmode: 'numeric', 'aria-label': 'Most workers at once', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
+  const limitSave = h('button.btn.primary', { type: 'button' }, 'Set limit');
+  const limitClear = h('button.btn', { type: 'button' });
+  const limitRow = h('div.webhook', {}, limitInput, limitSave, limitClear);
+  const limitNote = h('p.setting-note');
+  const paintLimit = () => {
+    const m = store.machine;
+    const admin = store.me.admin;
+    limitRow.classList.toggle('hidden', !admin);
+    limitInput.placeholder = m.ceiling ? `1 to ${m.ceiling}` : 'e.g. 6';
+    limitClear.textContent = m.ceiling ? `Back to ${m.ceiling}` : 'No limit';
+    limitClear.classList.toggle('hidden', !m.set);
+    const now =
+      m.limit === undefined
+        ? `No limit: the office hires a worker for every free seat. ${m.workers} ${m.workers === 1 ? 'is' : 'are'} here now, across every floor.`
+        : `At most ${m.limit} worker${m.limit === 1 ? '' : 's'} at once, across every floor (${m.workers} now), shells and board agents too. Hiring past that is refused.`;
+    const from = m.set ? ` Set by ${m.set.by} ${timeAgo(m.set.at)}.` : '';
+    const cap = m.ceiling ? ` The office was started with --max-workers ${m.ceiling}, so it can't go any higher.` : '';
+    limitNote.textContent = now + from + cap + (admin ? '' : ' Admins can change it.');
+  };
+  paintLimit();
+  const saveLimit = () => {
+    const n = Number(limitInput.value.trim());
+    if (!limitInput.value.trim() || !Number.isInteger(n) || n < 1) return limitInput.focus();
+    net.send({ t: 'machine.limit', limit: n });
+    limitInput.value = '';
+  };
+  limitSave.addEventListener('click', saveLimit);
+  limitInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') saveLimit();
+  });
+  limitClear.addEventListener('click', () => net.send({ t: 'machine.limit', limit: null }));
+
   // The dog on this floor, named for everyone here.
   const dogInput = h('input', { type: 'text', maxlength: DOG_NAME_MAX, 'aria-label': 'The dog’s name', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
   const dogSave = h('button.btn.primary', { type: 'button' }, 'Rename');
@@ -225,6 +259,9 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       h('div.webhook', {}, hookInput, hookSave),
       hookActions,
       hookStatus,
+      h('label', { style: 'margin-top:18px' }, '👷 Worker limit'),
+      limitRow,
+      limitNote,
       dogSection,
       h('label', { style: 'margin-top:18px' }, 'Your character'),
       character,
@@ -235,10 +272,12 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   );
   const offNotify = store.on('notify', paintHook);
   const offDog = store.on('dog', paintDog);
+  const offLimit = [store.on('machine', paintLimit), store.on('me', paintLimit)];
   const modal = openModal(el, {
     onClose: () => {
       offNotify();
       offDog();
+      offLimit.forEach((off) => off());
     },
   });
   close.addEventListener('click', () => modal.close());

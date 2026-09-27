@@ -4,6 +4,7 @@ import { store } from '../state';
 import { h, openModal, timeAgo, STATUS_LABEL } from './dom';
 import { confirmDialog } from './prompt';
 import { providerPicker, providerLabel, providerUsageState, resolvedProvider, modelBadge } from './provider';
+import { officeFull } from '../world/machine';
 
 export interface QueueActions {
   openTerminal(workerId: string): void;
@@ -162,6 +163,7 @@ export function openQueue(net: Net, actions: QueueActions) {
     const running = q.tasks.filter((t) => t.status === 'running');
     const queued = q.tasks.filter((t) => t.status === 'queued');
     const done = q.tasks.filter((t) => t.status === 'done').slice().reverse();
+    const m = store.machine;
     const parts: (HTMLElement | null)[] = [
       h(
         'p.note',
@@ -172,6 +174,9 @@ export function openQueue(net: Net, actions: QueueActions) {
         h('b', {}, q.maxWorkers === 0 ? '0' : String(q.maxWorkers)),
         ' workers are busy, the next task gets a fresh worker in its own git worktree. Issues are assigned on GitHub when they start, and the pull request is linked when it shows up.',
       ),
+      queued.length && officeFull(m)
+        ? h('p.note', {}, `⏸ The office is at its limit of ${m.limit} worker${m.limit === 1 ? '' : 's'}, so the next task waits until one goes home. A queue worker that's finished goes home by itself to make room.`)
+        : null,
       section('🤖 Working on it', running),
       section('⏳ Up next', queued),
       section('✅ Finished', done, h('button.btn', { type: 'button', onclick: () => net.send({ t: 'queue.clear' }) }, 'Clear')),
@@ -180,7 +185,15 @@ export function openQueue(net: Net, actions: QueueActions) {
     list.replaceChildren(...parts.filter((n): n is HTMLElement => n !== null));
   };
 
-  const unsubs = [store.on('queue', render), store.on('workers', render), store.on('issues', render)];
+  // The machine reports every few seconds; only a change to whether the office is full shows here.
+  let full = '';
+  const machineChanged = () => {
+    const k = `${officeFull(store.machine)}|${store.machine.limit}`;
+    if (k === full) return;
+    full = k;
+    render();
+  };
+  const unsubs = [store.on('queue', render), store.on('workers', render), store.on('issues', render), store.on('machine', machineChanged)];
   const tick = setInterval(render, 30_000);
   const modal = openModal(el, {
     onClose: () => {
