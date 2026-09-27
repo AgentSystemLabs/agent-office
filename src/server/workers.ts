@@ -22,6 +22,7 @@ import { reportedUsage } from './reported-usage.js';
 import { configuredProvider, isValidOpenCodeModel, validateWorkerModel } from './agents.js';
 import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeStatusEvent } from './opencode.js';
 import { ScrollbackStore, searchTerminal, terminalTail } from './history.js';
+import { screenSnapshot } from './screen.js';
 
 type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
 
@@ -80,6 +81,8 @@ interface Worker {
   pty?: Pty;
   term?: HeadlessTerminal;
   ser?: InstanceType<typeof serialize.SerializeAddon>;
+  /** The screen so far, for a browser opening the terminal (see screen.ts). */
+  snapshot?: () => string;
   viewers: Map<string, string>; // clientId -> name
   screenDirty: boolean;
   lastLines: string[];
@@ -385,7 +388,7 @@ export class WorkerManager {
       changed = true;
     }
     if (changed) this.emitUpdate(w);
-    const data = w.ser ? w.ser.serialize({ scrollback: SCROLLBACK }) : offlineBanner(w.info);
+    const data = w.snapshot ? w.snapshot() : offlineBanner(w.info);
     return { data, cols: w.info.cols, rows: w.info.rows };
   }
 
@@ -925,6 +928,7 @@ export class WorkerManager {
     w.term?.dispose();
     w.term = term;
     w.ser = ser;
+    w.snapshot = screenSnapshot(term, ser);
     w.lastLines = [];
     w.screenDirty = true;
     w.fresh = undefined;
