@@ -359,3 +359,7 @@ node bin/agent-office.js /path/to/project --password dev
 ```
 
 `npm run dev` runs Vite with hot reload on :5173 and proxies to the server on :4600. Server edits restart the server, not the workers. The PTY host keeps running its old code, though: after changing `ptyhost.ts`, bump `PTY_PROTOCOL` in `ptys.ts` and the next server replaces the host (its workers resume their sessions).
+
+## License
+
+[MIT](LICENSE)
