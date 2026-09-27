@@ -10,8 +10,10 @@ export interface Config {
   /** The office's own folder: the building's data lives in its .agent-office. */
   dir: string;
   dataDir: string;
-  /** Where new floors are cloned, as <projectsDir>/<owner>/<repo>. */
+  /** Where new floors are cloned by default, as <projectsDir>/<owner>/<repo>. */
   projectsDir: string;
+  /** --projects / AGENT_OFFICE_PROJECTS: picks the projects folder, as ⚙️ Settings in the office does. */
+  projects?: string;
   /** Started as `agent-office <dir>`: that checkout is a floor of its own (it's also `dir`). */
   project?: string;
   host: string;
@@ -83,7 +85,8 @@ Options:
       --home <dir>        Where the office keeps its data when no [dir] is given
                           (default ~/agent-office, env AGENT_OFFICE_HOME)
       --projects <dir>    Where new floors are cloned, as <dir>/<owner>/<repo>
-                          (default ~/agent-office, env AGENT_OFFICE_PROJECTS)
+                          (default ~/agent-office, env AGENT_OFFICE_PROJECTS).
+                          Also settable from ⚙️ Settings in the office
   -p, --port <n>          Port to listen on (default 4600, env PORT)
   -H, --host <addr>       Address to bind (default 0.0.0.0)
       --password <pw>     Office password (env AGENT_OFFICE_PASSWORD).
@@ -288,7 +291,7 @@ export function loadConfig(argv: string[]): Config {
   }
   const dir = project || home;
   // New floors go next to the office's data when it has a home of its own, and never into a project.
-  const projectsDir = projects || (project ? path.join(os.homedir(), 'agent-office') : home);
+  const projectsDir = project ? path.join(os.homedir(), 'agent-office') : home;
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
     console.error('agent-office: invalid --port');
     process.exit(2);
@@ -370,6 +373,7 @@ export function loadConfig(argv: string[]): Config {
     dir,
     dataDir,
     projectsDir,
+    projects: projects || undefined,
     project: project || undefined,
     host,
     port,

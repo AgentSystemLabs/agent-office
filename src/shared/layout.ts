@@ -198,6 +198,8 @@ export const TV = { x: FLOOR.maxX - 0.1, y: 2.2, z: 0, width: 6.4, height: 3.6 }
 export const MACHINE_MONITOR = { x: FLOOR.minX, y: 2.2, z: -6, width: 2.3, height: 1.3 } as const;
 /** The lounge jukebox, against the east wall south of the TV, facing into the room. `y` is its speaker. */
 export const JUKEBOX = { x: FLOOR.maxX - 0.42, y: 0.75, z: 5.4, width: 1.3, depth: 0.72, height: 1.85 } as const;
+/** The arcade cabinet, against the east wall between the jukebox and the loft, facing into the room. `width` runs along the wall. */
+export const CABINET = { x: FLOOR.maxX - 0.42, z: 7.05, width: 0.8, depth: 0.8, height: 1.9 } as const;
 
 export const SPAWN = { x: 8, z: 7 } as const;
 
@@ -408,9 +410,9 @@ export interface PoleSpot {
 }
 
 /**
- * The fire poles, slid down to the floor below. Each floor's pole goes down through a hole in its
- * floor, and lands on the one below beside that floor's own hole, as in a real firehouse: the two
- * spots take turns, floor by floor, so nobody drops more than one floor. See poleDown.
+ * The fire poles, slid down to the floor below. Each one goes the whole way down the building, through
+ * a hole in every floor but the bottom one (where there's a mat to land on): whichever you walk up to
+ * takes you down one floor, and on a floor with another below you swing off it through the railing.
  */
 export const POLES: readonly PoleSpot[] = [
   // South of the desks, by the way in from the balcony.
@@ -420,8 +422,3 @@ export const POLES: readonly PoleSpot[] = [
 ];
 /** A pole's hole in the floor, the railing round it, and how far from the pole you hang on. */
 export const POLE = { hole: 0.68, rail: 0.9, grip: 0.4, radius: 0.055 } as const;
-
-/** Where the pole down from floor `i` (0 is the bottom one) goes through its floor, and lands on the floor below. */
-export function poleDown(i: number): PoleSpot {
-  return POLES[((i % 2) + 2) % 2];
-}

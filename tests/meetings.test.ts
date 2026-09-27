@@ -7,6 +7,7 @@ import path from 'node:path';
 import { MeetingRoom, type MeetingWorkers } from '../src/server/meetings.js';
 import { Worktrees } from '../src/server/worktrees.js';
 import type { MeetingRequest, WorkerInfo } from '../src/shared/protocol.js';
+import { MEETING_PATTERN_IDS, isMeetingPattern } from '../src/shared/meetings.js';
 
 function fixture(opts: { git?: boolean } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-meeting-'));
@@ -250,4 +251,9 @@ test('in a git project the output is committed on the meeting branch, which outl
   assert.equal(git('rev-parse', '--abbrev-ref', m.worktree!.branch), m.worktree!.branch);
   assert.equal(f.room.state().current, null);
   assert.match(f.room.state().past[0].summary, /Debate · 2 rounds · 0 tokens · \$0\.00 · ✅ docs\/decision\.md on office\/meeting-pick-a-cache-/);
+});
+
+test('only the real meeting patterns pass, not what every object inherits', () => {
+  for (const id of MEETING_PATTERN_IDS) assert.equal(isMeetingPattern(id), true);
+  for (const v of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf', '', 'nope', 1, null, undefined]) assert.equal(isMeetingPattern(v), false, String(v));
 });

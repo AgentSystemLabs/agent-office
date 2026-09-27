@@ -2,7 +2,6 @@ import http from 'node:http';
 import https from 'node:https';
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import type { Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
@@ -26,10 +25,12 @@ import { Floor, type FloorContext } from './floor.js';
 import { Sky } from './sky.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import { ChatLog } from './history.js';
+import { Arcade, HighScores } from './cabinet.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import { DESK_BY_ID, STREET_Y, elevatorSpot, seatAt } from '../shared/layout.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
+import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
@@ -74,6 +75,11 @@ interface Client {
   /** Has the floor's whiteboard open. */
   whiteboard: boolean;
   lastWbPointerAt: number;
+  /** At the arcade cabinet on their floor, playing `game` (see Arcade); `frame` is it as it looks now. */
+  playing: boolean;
+  game?: string;
+  frame?: CabinetFrame;
+  lastFrameAt: number;
   /** When this client last said it was typing, per terminal (see 'term.typing'). */
   typingAt: Map<string, number>;
   /** Cleared at each heartbeat ping and set again by the pong; still clear at the next one means gone. */
@@ -89,12 +95,6 @@ function findPublicDir(): string {
   const candidates = [path.resolve(here, '../../public'), path.resolve(here, '../../dist/public')];
   for (const c of candidates) if (existsSync(path.join(c, 'index.html'))) return c;
   throw new Error(`Client bundle not found (looked in ${candidates.join(', ')}). Run \`npm run build\`.`);
-}
-
-/** A path under the home folder as ~/…, for showing people. */
-function tildify(p: string): string {
-  const home = os.homedir();
-  return p === home || p.startsWith(home + path.sep) ? `~${p.slice(home.length)}` : p;
 }
 
 function clientIp(req: http.IncomingMessage, trustProxy: boolean): string {
@@ -174,6 +174,13 @@ export async function startServer(cfg: Config) {
   const clients = new Map<string, Client>();
   // Kept on disk, so a restart doesn't wipe it.
   const chat = new ChatLog(cfg.dataDir);
+  // The arcade's high scores: one table for the whole building, on every floor's cabinet. The office
+  // follows every game and puts the scores up itself (see Arcade).
+  const highScores = new HighScores(cfg.dataDir);
+  const arcade = new Arcade(highScores, (first) => {
+    for (const f of floors.values()) cabinetChanged(f);
+    if (first) toastFloor(floors.get(first.floor), `🏆 ${first.score.name} set a new arcade high score: ${scoreText(first.score.score)}`);
+  });
   /** What the office is called where it has no project of its own to go by (webhooks, invites). */
   const officeName = cfg.project ? path.basename(cfg.project) : 'the office';
   const modelCommand = configuredProvider(cfg.agentCmd) === 'opencode' ? cfg.agentCmd : 'opencode';
@@ -197,6 +204,10 @@ export async function startServer(cfg: Config) {
 
   // --- The building: a floor per project, each with its own workers, boards and queue -----------
   const building = new Building(cfg.dataDir, cfg.projectsDir);
+  if (cfg.projects) {
+    const err = building.setProjectsDir(cfg.projects, 'the command line');
+    if (err) console.error(`agent-office: --projects: ${err}`);
+  }
   const floors = new Map<string, Floor>();
   const floorOf = (c: Client): Floor | undefined => (c.peer.floor ? floors.get(c.peer.floor) : undefined);
   /** The floor a worker sits on. Worker ids are unique across the building. */
@@ -458,6 +469,25 @@ export async function startServer(cfg: Config) {
     if (floor) toFloor(floor, { t: 'wb.people', people: drawing(floor) });
   };
 
+  /** Who's playing the arcade cabinet on a floor. */
+  const cabinetPlayer = (floor: Floor): Client | undefined => [...clients.values()].find((c) => c.playing && c.peer.floor === floor.id);
+  const cabinetState = (floor: Floor | undefined): CabinetState => {
+    const p = floor && cabinetPlayer(floor);
+    return { player: p ? { id: p.id, name: p.peer.name, game: p.game ?? '' } : null, scores: highScores.top() };
+  };
+  const cabinetChanged = (floor: Floor | undefined) => {
+    if (floor) toFloor(floor, { t: 'cabinet', state: cabinetState(floor) });
+  };
+  /** `c` stepped away from the cabinet (or left the floor, or the office): their game waits, with its score so far on the table. */
+  const stopPlaying = (c: Client, floor = floorOf(c)) => {
+    if (!c.playing) return;
+    if (floor) arcade.leave(c.game, floor.id);
+    c.playing = false;
+    c.game = undefined;
+    c.frame = undefined;
+    cabinetChanged(floor);
+  };
+
   /** Everything on a floor, for whoever just arrived there. */
   const floorView = (floor: Floor | undefined): FloorView => ({
     floor: floor?.id ?? null,
@@ -472,6 +502,7 @@ export async function startServer(cfg: Config) {
     jukebox: floor?.jukebox.state() ?? { on: false, track: JUKEBOX_TUNES[0].id, startedAt: Date.now(), elapsed: 0 },
     whiteboard: { elements: floor?.whiteboard.scene() ?? [], people: floor ? drawing(floor) : [] },
     meeting: floor?.meetings.state() ?? { current: null, past: [] },
+    cabinet: { ...cabinetState(floor), frame: (floor && cabinetPlayer(floor)?.frame) ?? null },
   });
   const screensOf = (c: Client, floor: Floor | undefined) => {
     for (const { workerId, frame } of floor?.workers.fullScreens() ?? []) sendTo(c, { t: 'screen', workerId, ...frame, full: true });
@@ -792,6 +823,8 @@ export async function startServer(cfg: Config) {
       emotes: new EmoteBucket(EMOTE_EVERY * 0.8),
       whiteboard: false,
       lastWbPointerAt: 0,
+      playing: false,
+      lastFrameAt: 0,
       typingAt: new Map(),
       isAlive: true,
       peer: {
@@ -821,7 +854,7 @@ export async function startServer(cfg: Config) {
       you: id,
       peers: [...clients.values()].map((c) => c.peer),
       floors: floorInfos(),
-      projectsDir: tildify(cfg.projectsDir),
+      projectsDir: building.projectsDirState(),
       ice: cfg.iceServers,
       chat: chat.recent(50),
       invites: team.available,
@@ -859,6 +892,7 @@ export async function startServer(cfg: Config) {
     ws.on('close', () => {
       clients.delete(id);
       if (client.whiteboard) drawingChanged(floorOf(client));
+      stopPlaying(client);
       for (const f of floors.values()) {
         f.workers.detachAll(id);
         f.changes.unwatchAll(id);
@@ -899,9 +933,10 @@ export async function startServer(cfg: Config) {
     c.attached.clear();
     c.typingAt.clear();
     c.stale.clear();
-    // The whiteboard downstairs stays downstairs.
+    // The whiteboard downstairs stays downstairs, and so does the arcade.
     const wasDrawing = c.whiteboard;
     c.whiteboard = false;
+    stopPlaying(c, was);
     const spot = at ?? { ...elevatorSpot(), y: 0, rotY: 0 };
     Object.assign(c.peer, { floor: floor.id, x: spot.x, y: spot.y, z: spot.z, rotY: spot.rotY, moving: false });
     delete c.peer.seat;
@@ -1040,6 +1075,16 @@ export async function startServer(cfg: Config) {
             toastAll(`🛗 New floor: ${r.name}, added by ${who}`);
             sendTo(c, { t: 'floor.added', repo, floor: floor.id });
           });
+        break;
+      }
+      case 'floor.projectsDir': {
+        // It's a folder on the office's machine that `gh` writes into: admins pick it.
+        const err = meOf(c.accountId).admin ? building.setProjectsDir(str(msg.dir, 1024), who) : 'Only admins can move the workspace folder';
+        warn(c, err);
+        if (err) break;
+        const state = building.projectsDirState();
+        broadcast({ t: 'projectsDir', state });
+        toastAll(state.custom ? `📁 ${who} moved the workspace folder to ${state.dir}` : `📁 ${who} put the workspace folder back to ${state.dir}`);
         break;
       }
       case 'dog.pet':
@@ -1479,6 +1524,39 @@ export async function startServer(cfg: Config) {
         toastFloor(floor, `⏭️ ${who} skipped to “${floor.jukebox.title()}”`);
         break;
       }
+      case 'cabinet.play': {
+        const floor = here();
+        if (!floor || (c.playing && msg.game === c.game)) break;
+        const at = cabinetPlayer(floor);
+        if (at && at !== c) {
+          warn(c, `${at.peer.name} is on the arcade — press E there to watch`);
+          sendTo(c, { t: 'cabinet', state: cabinetState(floor) });
+          break;
+        }
+        // Already at it: that game's over, and this is the next one.
+        if (c.playing) arcade.leave(c.game, floor.id);
+        c.game = arcade.start({ owner: c.accountId ? `account:${c.accountId}` : `name:${who}`, name: who, color: c.peer.color }, msg.game);
+        c.playing = true;
+        c.frame = undefined;
+        cabinetChanged(floor);
+        break;
+      }
+      case 'cabinet.leave':
+        stopPlaying(c);
+        break;
+      case 'cabinet.frame': {
+        const floor = floorOf(c);
+        const frame = checkFrame(msg.frame);
+        if (!c.playing || !floor || !frame) break;
+        // Every frame counts towards the score, even one that comes too soon after the last to pass on.
+        if (arcade.frame(c.game, frame, floor.id) === 'void') warn(c, "🕹️ The office couldn't follow this game, so its score won't go on the high-score table");
+        c.frame = frame;
+        const now = Date.now();
+        if (now - c.lastFrameAt < 40) break;
+        c.lastFrameAt = now;
+        toNeighbors(c, { t: 'cabinet.frame', frame }, true);
+        break;
+      }
       case 'jukebox.stop': {
         const floor = here();
         if (!floor || !floor.jukebox.stop(who)) break;
@@ -1580,6 +1658,7 @@ export async function startServer(cfg: Config) {
     clearInterval(heartbeat);
     clearInterval(resync);
     clearTimeout(floorsTimer);
+    arcade.flush();
     upgrader.stop();
     services.stop();
     webhook.stop();
@@ -1593,5 +1672,5 @@ export async function startServer(cfg: Config) {
     hookServer.close();
   };
 
-  return { server, shutdown, accounts, publicDir, hookPort, floors: () => [...floors.values()], resolvedAgent: resolveCommand(cfg.agentCmd) };
+  return { server, shutdown, accounts, publicDir, hookPort, floors: () => [...floors.values()], projectsDir: () => building.projectsDir, resolvedAgent: resolveCommand(cfg.agentCmd) };
 }

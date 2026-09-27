@@ -80,7 +80,8 @@ export const MEETING_PATTERNS: Record<MeetingPattern, PatternDef> = {
 export const MEETING_PATTERN_IDS = Object.keys(MEETING_PATTERNS) as MeetingPattern[];
 
 export function isMeetingPattern(v: unknown): v is MeetingPattern {
-  return typeof v === 'string' && v in MEETING_PATTERNS;
+  // Own keys only: `in` would also take the prototype's (constructor, toString…), and those crash the server.
+  return typeof v === 'string' && Object.hasOwn(MEETING_PATTERNS, v);
 }
 
 /** Tokens a meeting may use by default: a million per worker at the table. */
