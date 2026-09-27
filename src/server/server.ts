@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
+import type { Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Config } from './config.js';
@@ -42,6 +43,8 @@ const MIME: Record<string, string> = {
 
 const CLEANUPS = new Set(['keep', 'worktree', 'all']);
 
+type ToastLevel = Extract<ServerMsg, { t: 'toast' }>['level'];
+
 interface Client {
   id: string;
   ws: WebSocket;
@@ -51,6 +54,8 @@ interface Client {
   stale: Set<string>;
   lastMoveAt: number;
   lastActAt: number;
+  /** Cleared at each heartbeat ping and set again by the pong; still clear at the next one means gone. */
+  isAlive: boolean;
 }
 
 const SLOW_CLIENT_BYTES = 8 * 1024 * 1024;
@@ -111,6 +116,22 @@ function readBody(req: http.IncomingMessage, limit = 1024 * 1024): Promise<strin
   });
 }
 
+/** Whether the page asking is the office itself, so another site can't open a socket with a visitor's cookie. */
+function sameOrigin(req: http.IncomingMessage, cfg: Config): boolean {
+  const origin = req.headers.origin;
+  const host = (cfg.trustProxy && (req.headers['x-forwarded-host'] as string)) || req.headers.host;
+  try {
+    return !!origin && new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+function refuseUpgrade(socket: Duplex) {
+  socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+  socket.destroy();
+}
+
 function send(res: http.ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
   const json = JSON.stringify(body);
   res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers });
@@ -120,6 +141,7 @@ function send(res: http.ServerResponse, status: number, body: unknown, headers: 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+const TOO_MANY_ATTEMPTS = 'Too many attempts. Try again in a few minutes.';
 
 export async function startServer(cfg: Config) {
   const publicDir = findPublicDir();
@@ -143,6 +165,11 @@ export async function startServer(cfg: Config) {
       if (droppable && c.ws.bufferedAmount > 4 * 1024 * 1024) continue;
       c.ws.send(json);
     }
+  };
+  const toastAll = (text: string, level: ToastLevel = 'info') => broadcast({ t: 'toast', text, level });
+  /** Tells just this person why their request didn't happen; nothing when there's no error. */
+  const warn = (c: Client, error: string | undefined) => {
+    if (error) sendTo(c, { t: 'toast', text: error, level: 'warn' });
   };
 
   // --- Loopback-only endpoint for authenticated agent events -------------------------------
@@ -182,7 +209,7 @@ export async function startServer(cfg: Config) {
     cfg.dataDir,
     { budget: cfg.budget, pauseHiring: cfg.budgetPause },
     (state) => broadcast({ t: 'usage', state }),
-    (text, level) => broadcast({ t: 'toast', text, level }),
+    toastAll,
   );
 
   workers = new WorkerManager(
@@ -213,7 +240,7 @@ export async function startServer(cfg: Config) {
         }
       },
       screen: (workerId, frame) => broadcast({ t: 'screen', workerId, ...frame }, undefined, true),
-      toast: (text, level) => broadcast({ t: 'toast', text, level }),
+      toast: toastAll,
     },
     ledger,
   );
@@ -229,7 +256,7 @@ export async function startServer(cfg: Config) {
   // The 📋 task queue seats workers by itself: it watches the workers and links PRs from GitHub.
   queue = new TaskQueue(cfg.dataDir, workers, !!project.branch, {
     update: (state) => broadcast({ t: 'queue', state }),
-    toast: (text, level) => broadcast({ t: 'toast', text, level }),
+    toast: toastAll,
     claimIssue: (issue) => github.claim(issue),
     refreshGitHub: () => void github.refresh(),
     hiringPaused: () => ledger.hiringPaused,
@@ -256,7 +283,7 @@ export async function startServer(cfg: Config) {
           if (c) sendTo(c, { t: 'changes', state });
         }
       },
-      toast: (text, level) => broadcast({ t: 'toast', text, level }),
+      toast: toastAll,
       refreshGitHub: () => void github.refresh(),
     },
   );
@@ -296,19 +323,34 @@ export async function startServer(cfg: Config) {
     createReadStream(file).pipe(res);
   };
 
-  const login = async (req: http.IncomingMessage, res: http.ServerResponse) => {
+  /** A file of the client bundle, or undefined when it's missing, a folder, or outside the bundle. */
+  const publicFile = (p: string): string | undefined => {
+    const file = path.join(publicDir, path.normalize(p).replace(/^(\.\.[/\\])+/, ''));
+    return file.startsWith(publicDir + path.sep) && existsSync(file) && statSync(file).isFile() ? file : undefined;
+  };
+
+  /**
+   * A password or claim-token guess: counts it against the IP, then reads `field` from the small
+   * JSON body. Undefined once it has already answered (rate limited, or a bad body).
+   */
+  const readGuess = async (req: http.IncomingMessage, res: http.ServerResponse, field: string, max: number): Promise<{ ip: string; value: string } | undefined> => {
     const ip = clientIp(req, cfg.trustProxy);
     // Counted before the body is read, so parallel guesses can't all slip under the limit.
-    if (!auth.allowAttempt(ip)) return send(res, 429, { error: 'Too many attempts. Try again in a few minutes.' });
-    let pw = '';
+    if (!auth.allowAttempt(ip)) return void send(res, 429, { error: TOO_MANY_ATTEMPTS });
     try {
-      pw = str(JSON.parse(await readBody(req, 4096)).password, 512);
+      return { ip, value: str(JSON.parse(await readBody(req, 4096))[field], max) };
     } catch {
-      return send(res, 400, { error: 'Bad request' });
+      send(res, 400, { error: 'Bad request' });
     }
-    if (!(await auth.checkPassword(pw))) return send(res, 401, { error: 'Wrong password' });
-    auth.recordSuccess(ip);
-    return send(res, 200, { ok: true }, { 'set-cookie': auth.cookie(req, auth.issue(), isSecure(req, cfg)) });
+  };
+  const signedIn = (req: http.IncomingMessage) => ({ 'set-cookie': auth.cookie(req, auth.issue(), isSecure(req, cfg)) });
+
+  const login = async (req: http.IncomingMessage, res: http.ServerResponse) => {
+    const guess = await readGuess(req, res, 'password', 512);
+    if (!guess) return;
+    if (!(await auth.checkPassword(guess.value))) return send(res, 401, { error: 'Wrong password' });
+    auth.recordSuccess(guess.ip);
+    return send(res, 200, { ok: true }, signedIn(req));
   };
 
   const handler = async (req: http.IncomingMessage, res: http.ServerResponse) => {
@@ -322,9 +364,11 @@ export async function startServer(cfg: Config) {
         if (svc === 'gone') return stoppedPage(res, tunneled);
         return relayRequest(req, res, svc);
       }
+      let url: URL;
       let p: string;
       try {
-        p = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
+        url = new URL(req.url ?? '/', 'http://x');
+        p = decodeURIComponent(url.pathname);
       } catch {
         return send(res, 400, { error: 'Bad request' });
       }
@@ -333,21 +377,15 @@ export async function startServer(cfg: Config) {
       const claimable = !!cfg.claimToken && !cfg.claimed && !!cfg.password;
       if (p === '/api/claim' && req.method === 'GET') return send(res, 200, { claimable });
       if (p === '/api/claim' && req.method === 'POST') {
-        const ip = clientIp(req, cfg.trustProxy);
-        if (!auth.allowAttempt(ip)) return send(res, 429, { error: 'Too many attempts. Try again in a few minutes.' });
-        let token = '';
-        try {
-          token = str(JSON.parse(await readBody(req, 4096)).token, 256);
-        } catch {
-          return send(res, 400, { error: 'Bad request' });
-        }
+        const guess = await readGuess(req, res, 'token', 256);
+        if (!guess) return;
         if (!claimable) return send(res, 410, { error: 'This office has already been claimed. Sign in with the password you saved.' });
-        if (!auth.checkToken(token, cfg.claimToken!)) return send(res, 403, { error: 'That claim link is not valid.' });
+        if (!auth.checkToken(guess.value, cfg.claimToken!)) return send(res, 403, { error: 'That claim link is not valid.' });
         const password = cfg.password!;
         cfg.markClaimed();
-        auth.recordSuccess(ip);
+        auth.recordSuccess(guess.ip);
         console.log('  the office password was claimed — it will not be shown again');
-        return send(res, 200, { password }, { 'set-cookie': auth.cookie(req, auth.issue(), isSecure(req, cfg)) });
+        return send(res, 200, { password }, signedIn(req));
       }
       if (p === '/api/logout' && req.method === 'POST') {
         return send(res, 200, { ok: true }, { 'set-cookie': auth.clearCookie(req) });
@@ -355,8 +393,8 @@ export async function startServer(cfg: Config) {
       if (p === '/api/health') return send(res, 200, { ok: true });
 
       if (p.startsWith('/assets/')) {
-        const file = path.join(publicDir, path.normalize(p).replace(/^(\.\.[/\\])+/, ''));
-        if (file.startsWith(publicDir) && existsSync(file) && statSync(file).isFile()) return serveFile(res, file, true);
+        const file = publicFile(p);
+        if (file) return serveFile(res, file, true);
         res.writeHead(404).end();
         return;
       }
@@ -379,7 +417,7 @@ export async function startServer(cfg: Config) {
       }
       if (p === '/api/image' && req.method === 'GET') {
         // A picture on the wall, fetched by the office so the 3D view can draw it (see decor.ts).
-        const r = await images.get(new URL(req.url ?? '/', 'http://x').searchParams.get('url') ?? '');
+        const r = await images.get(url.searchParams.get('url') ?? '');
         if ('error' in r) return send(res, r.status, { error: r.error });
         res.writeHead(200, {
           'content-type': r.type,
@@ -395,7 +433,7 @@ export async function startServer(cfg: Config) {
       }
       if (p.startsWith('/api/gh/') && req.method === 'GET') {
         // What the issue and PR windows show beyond the board cards (see github.ts).
-        const n = Number(new URL(req.url ?? '/', 'http://x').searchParams.get('number'));
+        const n = Number(url.searchParams.get('number'));
         if (!Number.isSafeInteger(n) || n <= 0) return send(res, 400, { error: 'Bad number' });
         try {
           if (p === '/api/gh/pull') return send(res, 200, await github.pullDetail(n));
@@ -412,8 +450,8 @@ export async function startServer(cfg: Config) {
         return send(res, 404, { error: 'Not found' });
       }
       if (p === '/' || p === '/index.html') return serveFile(res, path.join(publicDir, 'index.html'), false);
-      const file = path.join(publicDir, path.normalize(p).replace(/^(\.\.[/\\])+/, ''));
-      if (file.startsWith(publicDir + path.sep) && existsSync(file) && statSync(file).isFile()) return serveFile(res, file, false);
+      const file = publicFile(p);
+      if (file) return serveFile(res, file, false);
       res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
     } catch (err) {
       console.error(err);
@@ -431,9 +469,7 @@ export async function startServer(cfg: Config) {
     const svc = tunneled ? services.lookup(tunneled) : undefined;
     if (tunneled && svc) {
       if (svc !== 'gone' && auth.fromAnyCookie(req)) return relayUpgrade(req, socket, head, svc);
-      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
-      socket.destroy();
-      return;
+      return refuseUpgrade(socket);
     }
     let url: URL;
     try {
@@ -442,19 +478,7 @@ export async function startServer(cfg: Config) {
       socket.destroy();
       return;
     }
-    const origin = req.headers.origin;
-    const host = (cfg.trustProxy && (req.headers['x-forwarded-host'] as string)) || req.headers.host;
-    let sameOrigin = false;
-    try {
-      sameOrigin = !!origin && new URL(origin).host === host;
-    } catch {
-      sameOrigin = false;
-    }
-    if (url.pathname !== '/ws' || !auth.fromRequest(req) || !sameOrigin) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
-      socket.destroy();
-      return;
-    }
+    if (url.pathname !== '/ws' || !auth.fromRequest(req) || !sameOrigin(req, cfg)) return refuseUpgrade(socket);
     wss.handleUpgrade(req, socket, head, (ws) => onConnection(ws, url));
   });
 
@@ -470,6 +494,7 @@ export async function startServer(cfg: Config) {
       stale: new Set(),
       lastMoveAt: 0,
       lastActAt: 0,
+      isAlive: true,
       peer: {
         id,
         name,
@@ -486,8 +511,7 @@ export async function startServer(cfg: Config) {
       },
     };
     clients.set(id, client);
-    (ws as any).isAlive = true;
-    ws.on('pong', () => ((ws as any).isAlive = true));
+    ws.on('pong', () => (client.isAlive = true));
 
     sendTo(client, {
       t: 'welcome',
@@ -530,6 +554,9 @@ export async function startServer(cfg: Config) {
     });
     ws.on('error', () => ws.terminate());
   };
+
+  const decorChanged = () => broadcast({ t: 'decor', items: decor.list() });
+  const teamChanged = async () => broadcast({ t: 'team', state: await team.state() });
 
   const handleMessage = (c: Client, msg: ClientMsg) => {
     const who = c.peer.name;
@@ -582,29 +609,27 @@ export async function startServer(cfg: Config) {
       case 'worker.spawn': {
         const kind = msg.kind === 'shell' ? 'shell' : 'agent';
         if (kind === 'agent' && msg.provider !== undefined && (!isAgentProvider(msg.provider) || !project.agentProviders.includes(msg.provider))) {
-          sendTo(c, { t: 'toast', text: 'Unknown agent provider', level: 'warn' });
+          warn(c, 'Unknown agent provider');
           break;
         }
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
         const r = workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model);
-        if (typeof r === 'string') sendTo(c, { t: 'toast', text: r, level: 'warn' });
-        else broadcast({ t: 'toast', text: kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${r.prompt ? ' with a task' : ''}`, level: 'info' });
+        if (typeof r === 'string') warn(c, r);
+        else toastAll(kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${r.prompt ? ' with a task' : ''}`);
         break;
       }
-      case 'worker.resume': {
-        const err = workers.resume(str(msg.workerId, 32));
-        if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+      case 'worker.resume':
+        warn(c, workers.resume(str(msg.workerId, 32)));
         break;
-      }
       case 'worker.kill': {
         const w = workers.get(str(msg.workerId, 32));
         if (!w) break;
         // The worker leaves right away; its worktree is dealt with after that, and the outcome follows.
         const done = workers.kill(w.id, CLEANUPS.has(String(msg.cleanup)) ? msg.cleanup : undefined);
-        broadcast({ t: 'toast', text: `${who} sent ${w.name} home`, level: 'info' });
+        toastAll(`${who} sent ${w.name} home`);
         void done.then(({ note, error }) => {
-          if (note) broadcast({ t: 'toast', text: note, level: 'info' });
-          if (error) broadcast({ t: 'toast', text: error, level: 'warn' });
+          if (note) toastAll(note);
+          if (error) toastAll(error, 'warn');
         });
         break;
       }
@@ -630,18 +655,16 @@ export async function startServer(cfg: Config) {
         workers.detach(wid, c.id);
         break;
       }
-      case 'worker.prompt': {
-        const err = workers.prompt(str(msg.workerId, 32), str(msg.prompt, 20000));
-        if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+      case 'worker.prompt':
+        warn(c, workers.prompt(str(msg.workerId, 32), str(msg.prompt, 20000)));
         break;
-      }
       case 'worker.pr': {
         const wid = str(msg.workerId, 32);
         void workers.openPr(wid, who).then((r) => {
-          if (typeof r === 'string') return sendTo(c, { t: 'toast', text: r, level: 'warn' });
+          if (typeof r === 'string') return warn(c, r);
           const name = workers.get(wid)?.name ?? 'the worker';
-          broadcast({ t: 'toast', text: r.existed ? `${name}'s branch already has PR #${r.number}` : `${who} opened PR #${r.number} for ${name}`, level: 'info' });
-          if (r.dirty) sendTo(c, { t: 'toast', text: `${name} still has uncommitted changes in its worktree — they are not in the PR`, level: 'warn' });
+          toastAll(r.existed ? `${name}'s branch already has PR #${r.number}` : `${who} opened PR #${r.number} for ${name}`);
+          if (r.dirty) warn(c, `${name} still has uncommitted changes in its worktree — they are not in the PR`);
           // Put it on the board now rather than at the next poll. A refresh already in flight
           // returns at once and can miss it, so look again shortly after.
           void github.refresh().then(() => {
@@ -665,35 +688,31 @@ export async function startServer(cfg: Config) {
         if (!Number.isSafeInteger(n) || n <= 0 || !method) break;
         void github.merge(n, method, msg.deleteBranch === true, msg.auto === true).then((error) => {
           sendTo(c, { t: 'gh.merged', number: n, error });
-          if (!error) broadcast({ t: 'toast', text: msg.auto ? `${who} set PR #${n} to merge once its checks pass` : `🎉 ${who} merged PR #${n}`, level: 'info' });
+          if (!error) toastAll(msg.auto ? `${who} set PR #${n} to merge once its checks pass` : `🎉 ${who} merged PR #${n}`);
         });
         break;
       }
       case 'queue.add': {
         if (msg.provider !== undefined && (!isAgentProvider(msg.provider) || !project.agentProviders.includes(msg.provider))) {
-          sendTo(c, { t: 'toast', text: 'Unknown agent provider', level: 'warn' });
+          warn(c, 'Unknown agent provider');
           break;
         }
         const issue = Number.isInteger(msg.issue) && (msg.issue as number) > 0 ? (msg.issue as number) : undefined;
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
         const err = queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model);
-        if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
-        else broadcast({ t: 'toast', text: `📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`, level: 'info' });
+        if (err) warn(c, err);
+        else toastAll(`📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`);
         break;
       }
-      case 'queue.remove': {
-        const err = queue.remove(str(msg.taskId, 32));
-        if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+      case 'queue.remove':
+        warn(c, queue.remove(str(msg.taskId, 32)));
         break;
-      }
       case 'queue.move':
         queue.move(str(msg.taskId, 32), num(msg.delta) < 0 ? -1 : 1);
         break;
-      case 'queue.retry': {
-        const err = queue.retry(str(msg.taskId, 32));
-        if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
+      case 'queue.retry':
+        warn(c, queue.retry(str(msg.taskId, 32)));
         break;
-      }
       case 'queue.clear':
         queue.clear();
         break;
@@ -716,69 +735,63 @@ export async function startServer(cfg: Config) {
         break;
       }
       case 'changes.commit':
-        void changes.commit(str(msg.workerId, 32), str(msg.message, 5000), who).then((err) => {
-          if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
-        });
+        void changes.commit(str(msg.workerId, 32), str(msg.message, 5000), who).then((err) => warn(c, err));
         break;
       case 'changes.discard':
-        void changes.discard(str(msg.workerId, 32), typeof msg.path === 'string' ? str(msg.path, 4096) : undefined, who).then((err) => {
-          if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
-        });
+        void changes.discard(str(msg.workerId, 32), typeof msg.path === 'string' ? str(msg.path, 4096) : undefined, who).then((err) => warn(c, err));
         break;
       case 'changes.pr':
-        void changes.pullRequest(str(msg.workerId, 32), str(msg.title, 300), str(msg.body, 20000), who).then((err) => {
-          if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
-        });
+        void changes.pullRequest(str(msg.workerId, 32), str(msg.title, 300), str(msg.body, 20000), who).then((err) => warn(c, err));
         break;
       case 'upgrade.check':
         void upgrader.check();
         break;
       case 'upgrade.start':
         void upgrader.start(who).then((err) => {
-          if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
-          else broadcast({ t: 'toast', text: `${who} is upgrading the office — it restarts when the new version is built`, level: 'info' });
+          if (err) warn(c, err);
+          else toastAll(`${who} is upgrading the office — it restarts when the new version is built`);
         });
         break;
       case 'team.get':
         void team.state().then((state) => sendTo(c, { t: 'team', state }));
         break;
       case 'team.invite': {
-        const github = str(msg.github, 64);
-        void team.invite(github).then(async (r) => {
-          sendTo(c, { t: 'team.invited', github, ...r });
+        const user = str(msg.github, 64);
+        void team.invite(user).then(async (r) => {
+          sendTo(c, { t: 'team.invited', github: user, ...r });
           if ('error' in r) return;
-          broadcast({ t: 'toast', text: `${who} invited ${r.name} to the office`, level: 'info' });
-          broadcast({ t: 'team', state: await team.state() });
+          toastAll(`${who} invited ${r.name} to the office`);
+          await teamChanged();
         });
         break;
       }
       case 'team.remove': {
         const name = str(msg.name, 64);
         void team.remove(name).then(async (err) => {
-          if (err) return sendTo(c, { t: 'toast', text: err, level: 'warn' });
-          broadcast({ t: 'toast', text: `${who} removed ${name}'s access`, level: 'info' });
-          broadcast({ t: 'team', state: await team.state() });
+          if (err) return warn(c, err);
+          toastAll(`${who} removed ${name}'s access`);
+          await teamChanged();
         });
         break;
       }
       case 'decor.add': {
         const d = decor.add(msg.decor, who);
-        if (typeof d === 'string') return sendTo(c, { t: 'toast', text: d, level: 'warn' });
-        broadcast({ t: 'decor', items: decor.list() });
-        broadcast({ t: 'toast', text: `🖼️ ${who} hung ${d.title ? `“${d.title}”` : 'a picture'}`, level: 'info' });
+        if (typeof d === 'string') return warn(c, d);
+        decorChanged();
+        toastAll(`🖼️ ${who} hung ${d.title ? `“${d.title}”` : 'a picture'}`);
         break;
       }
       case 'decor.update': {
         const d = decor.update(str(msg.id, 32), msg.decor);
-        if (typeof d === 'string') return sendTo(c, { t: 'toast', text: d, level: 'warn' });
-        broadcast({ t: 'decor', items: decor.list() });
+        if (typeof d === 'string') return warn(c, d);
+        decorChanged();
         break;
       }
       case 'decor.remove': {
         const d = decor.remove(str(msg.id, 32));
         if (!d) break;
-        broadcast({ t: 'decor', items: decor.list() });
-        broadcast({ t: 'toast', text: `${who} took down ${d.title ? `“${d.title}”` : 'a picture'}`, level: 'info' });
+        decorChanged();
+        toastAll(`${who} took down ${d.title ? `“${d.title}”` : 'a picture'}`);
         break;
       }
       case 'ping':
@@ -801,11 +814,11 @@ export async function startServer(cfg: Config) {
   // Drop dead connections so ghosts don't linger in the office.
   const heartbeat = setInterval(() => {
     for (const c of clients.values()) {
-      if ((c.ws as any).isAlive === false) {
+      if (!c.isAlive) {
         c.ws.terminate();
         continue;
       }
-      (c.ws as any).isAlive = false;
+      c.isAlive = false;
       c.ws.ping();
     }
   }, 20_000);

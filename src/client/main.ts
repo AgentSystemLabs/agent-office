@@ -4,8 +4,9 @@ import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
 import { DESK_BY_ID, DESKS, SPAWN, deskSeat } from '../shared/layout';
 import type { AgentProvider, PeerInfo, WorkerInfo } from '../shared/protocol';
+import { isAsleep, isBusy } from '../shared/status';
 import { Net } from './net';
-import { store, loadProfile, loadSettings, saveSettings, type Profile } from './state';
+import { store, loadProfile, loadSettings, saveSettings, type Profile, type Topic } from './state';
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { buildOffice, type InteractKind, type Interactable } from './world/office';
 import { Person, Worker } from './world/character';
@@ -17,7 +18,7 @@ import { Hanger } from './hanging';
 import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
 import { OfficeSound } from './sound';
-import { $, h, closeAllModals, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
+import { $, h, clip, closeAllModals, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage } from './ui/prompt';
@@ -73,45 +74,31 @@ const noOutline = (obj: THREE.Object3D) =>
   });
 noOutline(office.group);
 
-// Boards
-const issuesTex = new BoardTexture('issues');
-const pullsTex = new BoardTexture('pulls');
-for (const [meshKey, tex] of [
-  ['issues', issuesTex],
-  ['pulls', pullsTex],
-] as const) {
-  const mat = office.boardMeshes[meshKey].material as THREE.MeshBasicMaterial;
-  mat.map = tex.texture;
+// Boards: each draws onto a canvas texture, redrawn whenever what it shows changes.
+function mountBoard(mesh: THREE.Mesh, texture: THREE.Texture, render: () => void, topics: Topic[]) {
+  const mat = mesh.material as THREE.MeshBasicMaterial;
+  mat.map = texture;
   mat.needsUpdate = true;
+  for (const topic of topics) store.on(topic, render);
+  render();
 }
-store.on('issues', () => issuesTex.render(store.issues));
-store.on('pulls', () => pullsTex.render(store.pulls, store.workers));
-issuesTex.render(store.issues);
-pullsTex.render(store.pulls, store.workers);
+const issuesTex = new BoardTexture('issues');
+mountBoard(office.boardMeshes.issues, issuesTex.texture, () => issuesTex.render(store.issues), ['issues']);
+const pullsTex = new BoardTexture('pulls');
+const renderPullsBoard = () => pullsTex.render(store.pulls, store.workers);
+mountBoard(office.boardMeshes.pulls, pullsTex.texture, renderPullsBoard, ['pulls']);
 // PR notes name the desk they came from. Redraw when that changes, not on every worker update.
 let deskLinks = '';
 store.on('workers', () => {
   const k = JSON.stringify([...store.workers.values()].filter((w) => w.worktree).map((w) => [w.worktree!.branch, w.pr?.number, w.name, w.color, w.deskId]));
   if (k === deskLinks) return;
   deskLinks = k;
-  pullsTex.render(store.pulls, store.workers);
+  renderPullsBoard();
 });
 const servicesTex = new ServicesBoardTexture();
-const servicesMat = office.boardMeshes.services.material as THREE.MeshBasicMaterial;
-servicesMat.map = servicesTex.texture;
-servicesMat.needsUpdate = true;
-const renderServicesBoard = () => servicesTex.render(store.services.items, store.workers);
-store.on('services', renderServicesBoard);
-store.on('workers', renderServicesBoard);
-renderServicesBoard();
+mountBoard(office.boardMeshes.services, servicesTex.texture, () => servicesTex.render(store.services.items, store.workers), ['services', 'workers']);
 const queueTex = new QueueBoardTexture();
-const queueMat = office.boardMeshes.queue.material as THREE.MeshBasicMaterial;
-queueMat.map = queueTex.texture;
-queueMat.needsUpdate = true;
-const renderQueueBoard = () => queueTex.render(store.queue, store.workers);
-store.on('queue', renderQueueBoard);
-store.on('workers', renderQueueBoard);
-renderQueueBoard();
+mountBoard(office.boardMeshes.queue, queueTex.texture, () => queueTex.render(store.queue, store.workers), ['queue', 'workers']);
 
 // Pictures people hung on the walls
 const gallery = new Gallery();
@@ -325,7 +312,6 @@ function syncPeers() {
 store.on('peers', syncPeers);
 
 function sayBubble(from: string, text: string) {
-  const short = text.length > 60 ? `${text.slice(0, 59)}…` : text;
   if (from === store.you) return;
   const r = remotes.get(from);
   if (!r) return;
@@ -333,14 +319,14 @@ function sayBubble(from: string, text: string) {
     r.person.root.remove(r.bubble.sprite);
     disposeSprite(r.bubble.sprite);
   }
-  const sprite = textSprite(`💬 ${short}`, { bg: '#ffffff', size: 34 });
+  const sprite = textSprite(`💬 ${clip(text, 60)}`, { bg: '#ffffff', size: 34 });
   sprite.position.y = 2.45;
   r.person.root.add(sprite);
   r.bubble = { sprite, until: performance.now() + 6000 };
 }
 
 // ---- Workers ------------------------------------------------------------------------------------
-function shouldBounce(w: WorkerInfo) {
+function shouldBounce(w: WorkerInfo): w is WorkerInfo & { status: 'needs_input' | 'done' } {
   return w.status === 'needs_input' || (w.status === 'done' && !w.acked);
 }
 
@@ -369,8 +355,8 @@ function syncWorkers() {
       workerViews.set(w.id, v);
     }
     if (v.status !== w.status || v.acked !== w.acked) {
-      const becameHot = shouldBounce(w) && !(v.status === w.status && v.acked === w.acked) && v.status !== '' && (w.status !== v.status);
-      if (becameHot && (w.status === 'needs_input' || w.status === 'done')) {
+      // It just finished or started waiting on you (not already so when this page first saw it): ding, and notify if you're away.
+      if (shouldBounce(w) && v.status !== '' && w.status !== v.status) {
         sound.ding(w.status);
         if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
           new Notification(`${w.name} ${w.status === 'done' ? 'is done' : 'needs input'}`, { body: w.activity ?? w.prompt ?? '', icon: '/favicon.svg' });
@@ -440,7 +426,7 @@ function promptAtDesk(deskId: string) {
       worktreeOption: !!store.project?.branch,
       onSubmit: (text, o) => hire(deskId, text, o.worktree, o.provider, o.model),
     });
-  } else if (w.status === 'exited' || w.status === 'offline') {
+  } else if (isAsleep(w.status)) {
     toast(`${w.name} is asleep — press R to resume first`, 'warn');
   } else if (w.kind === 'shell') {
     openPrompt({
@@ -502,7 +488,7 @@ function resumeWorker(w: WorkerInfo) {
 
 /** Whether a worker's branch can become a PR: it has its own worktree and isn't mid-turn. */
 function prReady(w: WorkerInfo) {
-  return !!w.worktree && w.status !== 'starting' && w.status !== 'working' && w.status !== 'needs_input';
+  return !!w.worktree && !isBusy(w.status);
 }
 
 /** O at a desk: see the worker's pull request, or push its branch and open one. */
@@ -539,7 +525,7 @@ function goToDesk(deskId: string) {
 function openWorkerTerminal(id: string) {
   const w = store.workers.get(id);
   if (!w) return;
-  if (w.status === 'exited' || w.status === 'offline') resumeWorker(w);
+  if (isAsleep(w.status)) resumeWorker(w);
   openTerminal(net, id, () => openWorkerChanges(id));
 }
 
@@ -556,7 +542,7 @@ function showQueue() {
 /** A prompt from the boards goes to a new worker at a free desk, or to one already at a desk. */
 function sendToWorker(title: string, text: { context?: string; initial?: string }) {
   const desk = freeDesk();
-  const awake = [...store.workers.values()].filter((w) => w.kind === 'agent' && w.status !== 'exited' && w.status !== 'offline');
+  const awake = [...store.workers.values()].filter((w) => w.kind === 'agent' && !isAsleep(w.status));
   if (!desk && !awake.length) {
     toast('Every desk is taken — send a worker home first', 'warn');
     return;
@@ -607,7 +593,7 @@ function interact(target: Interactable | null, key: DeskKey) {
     if (key === 'P') return promptAtDesk(target.deskId);
     if (key === 'E') return w ? openWorkerTerminal(w.id) : hireAtDesk(target.deskId);
     if (key === 'C' && w) return openWorkerChanges(w.id);
-    if (key === 'R' && w && (w.status === 'exited' || w.status === 'offline')) return resumeWorker(w);
+    if (key === 'R' && w && isAsleep(w.status)) return resumeWorker(w);
     if (key === 'X' && w) return killWorker(w.id);
     if (key === 'O' && w) return pullRequestFor(w);
     return;
@@ -647,6 +633,17 @@ function key(k: string, label: string) {
   return h('span', {}, h('span.key', {}, k), label);
 }
 
+/** Secondary text in the hint bar. */
+function aside(text: string) {
+  return h('span', { style: 'opacity:.75;font-weight:600' }, text);
+}
+
+interface Hint {
+  /** Changes whenever the hint needs redrawing. */
+  k: string;
+  parts: (HTMLElement | string)[];
+}
+
 function renderHint() {
   const el = $('hint');
   if (hanger.active && !modalOpen()) return renderHangHint(el);
@@ -657,60 +654,74 @@ function renderHint() {
     }
     return;
   }
-  let parts: (HTMLElement | string)[] = [];
-  let k = target.kind + (target.deskId ?? '');
-  if (target.kind === 'desk' && target.deskId) {
-    const w = store.workerAtDesk(target.deskId);
-    const desk = DESK_BY_ID.get(target.deskId)!;
-    if (!w) {
-      const paused = hiringPaused();
-      k += String(paused);
-      parts = [
-        h('span.title', {}, `${desk.label} · empty`),
-        ...(paused ? [h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow')] : [key('E', 'Hire a worker'), key('P', 'Hire with a task')]),
-        key('B', 'Shell'),
-      ];
-    } else {
-      k += w.status + w.id + (w.pr?.number ?? '') + (w.prOpening ? '!' : '');
-      const asleep = w.status === 'exited' || w.status === 'offline';
-      const doing = w.activity ? (w.activity.length > 48 ? `${w.activity.slice(0, 47)}…` : w.activity) : '';
-      const workerProvider = w.kind === 'agent' ? resolvedProvider(w.provider, store.project) : undefined;
-      const spent = w.kind === 'agent' && w.usage ? usageLabel(w.usage, workerProvider) : '';
-      k += doing + spent;
-      parts = [
-        h('span.title', {}, `${w.name} · ${STATUS_LABEL[w.status]}`),
-        doing ? h('span', { style: 'opacity:.75;font-weight:600' }, doing) : '',
-        spent ? h('span.cost', { title: usageTitle(w.usage!, workerProvider) }, spent) : '',
-        key('E', 'Open terminal'),
-        key('C', 'Changes'),
-        asleep ? key('R', w.kind === 'shell' ? 'Restart' : 'Resume') : key('P', w.kind === 'shell' ? 'Run command' : 'Prompt'),
-        w.pr ? key('O', `PR #${w.pr.number}`) : w.prOpening ? h('span', { style: 'opacity:.75;font-weight:600' }, '⏳ Opening PR…') : prReady(w) ? key('O', 'Open PR') : '',
-        key('X', 'Send home'),
-      ];
-    }
-  } else if (target.kind === 'issues') parts = [h('span.title', {}, '📌 Issues board'), key('E', 'Open')];
-  else if (target.kind === 'pulls') parts = [h('span.title', {}, '🔀 Pull request board'), key('E', 'Open')];
-  else if (target.kind === 'services') parts = [h('span.title', {}, '🌐 Services board'), key('E', 'Open')];
-  else if (target.kind === 'queue') {
-    const n = store.queue.tasks.filter((t) => t.status !== 'done').length;
-    k += n;
-    parts = [h('span.title', {}, `📋 Task queue${n ? ` · ${n}` : ''}`), key('E', 'Open')];
-  }
-  else if (target.kind === 'tv') {
-    const any = currentShares().length > 0;
-    k += any;
-    parts = [h('span.title', {}, '📺 Office TV'), key('E', any ? 'Watch full screen' : 'Share your screen')];
-  } else if (target.kind === 'coffee') parts = [h('span.title', {}, '☕ Coffee machine'), key('E', 'Grab a cup')];
-  else if (target.kind === 'decor') {
-    const id = target.decorId;
-    const d = store.decor.find((x) => x.id === id);
-    k += `${d?.title}|${d?.by}`;
-    parts = [h('span.title', {}, `🖼️ ${d?.title || 'A picture'}`), d ? h('span', { style: 'opacity:.75;font-weight:600' }, `hung by ${d.by}`) : '', key('E', 'Look closer')];
-  }
+  const hint = hintFor(target);
+  const k = `${target.kind}${target.deskId ?? ''}|${hint.k}`;
   if (k === hintKey) return;
   hintKey = k;
-  el.replaceChildren(...parts);
+  el.replaceChildren(...hint.parts);
   el.classList.remove('hidden');
+}
+
+/** What the hint bar says about the thing you're facing. */
+function hintFor(it: Interactable): Hint {
+  const title = (text: string) => h('span.title', {}, text);
+  const board = (name: string): Hint => ({ k: '', parts: [title(name), key('E', 'Open')] });
+  switch (it.kind) {
+    case 'desk':
+      return it.deskId ? deskHint(it.deskId) : { k: '', parts: [] };
+    case 'issues':
+      return board('📌 Issues board');
+    case 'pulls':
+      return board('🔀 Pull request board');
+    case 'services':
+      return board('🌐 Services board');
+    case 'queue': {
+      const n = store.queue.tasks.filter((t) => t.status !== 'done').length;
+      return { k: String(n), parts: [title(`📋 Task queue${n ? ` · ${n}` : ''}`), key('E', 'Open')] };
+    }
+    case 'tv': {
+      const any = currentShares().length > 0;
+      return { k: String(any), parts: [title('📺 Office TV'), key('E', any ? 'Watch full screen' : 'Share your screen')] };
+    }
+    case 'coffee':
+      return { k: '', parts: [title('☕ Coffee machine'), key('E', 'Grab a cup')] };
+    case 'decor': {
+      const d = store.decor.find((x) => x.id === it.decorId);
+      return { k: `${d?.title}|${d?.by}`, parts: [title(`🖼️ ${d?.title || 'A picture'}`), d ? aside(`hung by ${d.by}`) : '', key('E', 'Look closer')] };
+    }
+  }
+}
+
+function deskHint(deskId: string): Hint {
+  const w = store.workerAtDesk(deskId);
+  if (!w) {
+    const paused = hiringPaused();
+    return {
+      k: String(paused),
+      parts: [
+        h('span.title', {}, `${DESK_BY_ID.get(deskId)!.label} · empty`),
+        ...(paused ? [h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow')] : [key('E', 'Hire a worker'), key('P', 'Hire with a task')]),
+        key('B', 'Shell'),
+      ],
+    };
+  }
+  const doing = w.activity ? clip(w.activity, 48) : '';
+  const workerProvider = w.kind === 'agent' ? resolvedProvider(w.provider, store.project) : undefined;
+  const spent = w.kind === 'agent' && w.usage ? usageLabel(w.usage, workerProvider) : '';
+  const shell = w.kind === 'shell';
+  return {
+    k: w.status + w.id + (w.pr?.number ?? '') + (w.prOpening ? '!' : '') + doing + spent,
+    parts: [
+      h('span.title', {}, `${w.name} · ${STATUS_LABEL[w.status]}`),
+      doing ? aside(doing) : '',
+      spent ? h('span.cost', { title: usageTitle(w.usage!, workerProvider) }, spent) : '',
+      key('E', 'Open terminal'),
+      key('C', 'Changes'),
+      isAsleep(w.status) ? key('R', shell ? 'Restart' : 'Resume') : key('P', shell ? 'Run command' : 'Prompt'),
+      w.pr ? key('O', `PR #${w.pr.number}`) : w.prOpening ? aside('⏳ Opening PR…') : prReady(w) ? key('O', 'Open PR') : '',
+      key('X', 'Send home'),
+    ],
+  };
 }
 
 function renderHangHint(el: HTMLElement) {
@@ -750,7 +761,9 @@ function reach() {
   }
 }
 
-type DeskKey = 'E' | 'P' | 'R' | 'X' | 'B' | 'C' | 'O';
+/** Keys that use what you're facing: at a desk, each does something else (see interact). */
+const DESK_KEYS = { KeyE: 'E', KeyP: 'P', KeyR: 'R', KeyX: 'X', KeyB: 'B', KeyC: 'C', KeyO: 'O' } as const;
+type DeskKey = (typeof DESK_KEYS)[keyof typeof DESK_KEYS];
 
 function use(it: Interactable | null, key: DeskKey) {
   if (!it) return;
@@ -765,51 +778,39 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
+  if (officeKey(e)) player.clearKeys();
+});
+
+/** The office's own keys; false for any other key, which is left to walking and the browser. */
+function officeKey(e: KeyboardEvent): boolean {
+  const deskKey = DESK_KEYS[e.code as keyof typeof DESK_KEYS];
+  if (deskKey) {
+    // P opens a text box, which the key mustn't land in.
+    if (deskKey === 'P') e.preventDefault();
+    use(target, deskKey);
+    return true;
+  }
   switch (e.code) {
-    case 'KeyE':
-      use(target, 'E');
-      break;
-    case 'KeyP':
-      e.preventDefault();
-      use(target, 'P');
-      break;
-    case 'KeyR':
-      use(target, 'R');
-      break;
-    case 'KeyX':
-      use(target, 'X');
-      break;
-    case 'KeyB':
-      use(target, 'B');
-      break;
-    case 'KeyC':
-      use(target, 'C');
-      break;
-    case 'KeyO':
-      use(target, 'O');
-      break;
     case 'KeyT':
     case 'Enter':
       e.preventDefault();
-      ($('chat-input') as HTMLInputElement).focus();
-      break;
+      $('chat-input').focus();
+      return true;
     case 'KeyV':
       void toggleVoice();
-      break;
+      return true;
     case 'KeyM':
       voice.toggleMute();
-      break;
+      return true;
     case 'KeyH':
       openHelp();
-      break;
+      return true;
     case 'KeyF':
       hanger.start();
-      break;
-    default:
-      return;
+      return true;
   }
-  player.clearKeys();
-});
+  return false;
+}
 
 /** Keys while hanging a picture. Walking, chat and voice work as usual. */
 function hangingKey(code: string): boolean {
@@ -1051,6 +1052,7 @@ let stride = 0;
 /** How fast you were falling, so landing a jump thumps but stepping down a stair doesn't. */
 let fallV = 0;
 const lookDir = new THREE.Vector3();
+const headPos = new THREE.Vector3();
 
 function frame(ts?: number) {
   timer.update(ts);
@@ -1065,7 +1067,7 @@ function frame(ts?: number) {
   me.setVoiceLevel(voice.inVoice ? voice.localLevel : 0);
   const firstPerson = player.view === 'first';
   // In first person you are the camera; in third, hide yourself when it's zoomed in right behind your head.
-  me.root.visible = !firstPerson && camera.position.distanceTo(new THREE.Vector3(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5;
+  me.root.visible = !firstPerson && camera.position.distanceTo(headPos.set(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5;
   if (firstPerson) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded });
 
   // Your ears are in your head, facing wherever the camera looks.

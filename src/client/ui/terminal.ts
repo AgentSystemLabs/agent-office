@@ -7,6 +7,7 @@ import { TERM_THEME } from '../world/laptop';
 import { h, openModal, STATUS_LABEL, type Modal } from './dom';
 import { usageLabel, usageTitle } from './usage';
 import type { ServerMsg } from '../../shared/protocol';
+import { isAsleep } from '../../shared/status';
 import { providerLabel, providerUsageNote, providerUsageState, resolvedProvider } from './provider';
 
 let current: { workerId: string; modal: Modal } | null = null;
@@ -99,7 +100,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void)
     viewers.textContent = w.viewers.length ? `👀 ${w.viewers.join(', ')}` : '';
     const openCode = w.kind === 'agent' && resolvedProvider(w.provider, store.project) === 'opencode';
     modelsBtn.classList.toggle('hidden', !openCode);
-    modelsBtn.toggleAttribute('disabled', !openCode || !ready || w.status === 'exited' || w.status === 'offline');
+    modelsBtn.toggleAttribute('disabled', !openCode || !ready || isAsleep(w.status));
     // Someone else resized the shared PTY (the latest typist wins): follow it so this view renders
     // correctly. Typing here fits the terminal back to this window and reclaims the size.
     const ptySize = `${w.cols}x${w.rows}`;
