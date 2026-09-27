@@ -15,6 +15,7 @@ import { Dog } from './dog.js';
 import { Jukebox } from './jukebox.js';
 import { Whiteboard } from './whiteboard.js';
 import type { Ledger } from './usage.js';
+import type { Capacity } from './machine.js';
 
 type ToastLevel = 'info' | 'warn' | 'error';
 
@@ -25,6 +26,8 @@ export interface FloorContext {
   hook: HookEnv;
   /** Spend, across every floor. */
   ledger: Ledger;
+  /** The office's worker limit, across every floor. */
+  capacity: Capacity;
   /** To everyone on this floor. */
   emit(floor: Floor, msg: ServerMsg, droppable?: boolean): void;
   toast(floor: Floor, text: string, level?: ToastLevel): void;
@@ -131,6 +134,7 @@ export class Floor {
         toast: (text, level) => ctx.toast(this, text, level),
       },
       ctx.ledger,
+      ctx.capacity,
     );
 
     this.github = new GitHub(
@@ -153,6 +157,7 @@ export class Floor {
       claimIssue: (issue) => this.github.claim(issue),
       refreshGitHub: () => void this.github.refresh(),
       hiringPaused: () => ctx.ledger.hiringPaused,
+      room: () => ctx.capacity.room(),
       emptied: () => {
         ctx.toast(this, '📋 The queue is empty: every task is done 🎉');
         ctx.emit(this, { t: 'gong', why: 'queue' });

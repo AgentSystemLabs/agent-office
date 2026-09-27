@@ -47,6 +47,7 @@ import { elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elev
 import { providerLabel, resolvedProvider, modelBadge } from './ui/provider';
 import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
 import { renderLimits } from './ui/limits';
+import { MachineTexture, officeFull, pressureNote } from './world/machine';
 import { openJukebox } from './ui/jukebox';
 import { Arcade } from './ui/arcade';
 import { trackTitle } from '../shared/jukebox';
@@ -141,6 +142,9 @@ const servicesTex = new ServicesBoardTexture();
 mountBoard(office.boardMeshes.services, servicesTex.texture, () => servicesTex.render(store.services.items, store.workers), ['services', 'workers']);
 const queueTex = new QueueBoardTexture();
 mountBoard(office.boardMeshes.queue, queueTex.texture, () => queueTex.render(store.queue, store.workers), ['queue', 'workers']);
+// The machine monitor on the west wall.
+const machineTex = new MachineTexture();
+mountBoard(office.machineScreen, machineTex.texture, () => machineTex.render(store.machine), ['machine']);
 
 // Pictures people hung on the walls
 const gallery = new Gallery();
@@ -674,6 +678,14 @@ function freeDesk(): string | null {
 
 let askedToNotify = false;
 
+/** The office is at its worker limit: says so, and says yes (the office would refuse the hire anyway). */
+function officeIsFull(): boolean {
+  const m = store.machine;
+  if (!officeFull(m)) return false;
+  toast(`🚫 The office is at its limit of ${m.limit} worker${m.limit === 1 ? '' : 's'} — send one home before hiring another`, 'warn');
+  return true;
+}
+
 function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string, effort?: AgentEffort) {
   net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort });
   // The moment notifications start to matter: ask once (it has to come from a key press or click).
@@ -684,6 +696,7 @@ function hire(deskId: string, prompt?: string, worktree = false, provider?: Agen
 }
 
 function openShell(deskId: string) {
+  if (officeIsFull()) return;
   net.send({ t: 'worker.spawn', deskId, kind: 'shell' });
 }
 
@@ -691,9 +704,11 @@ function promptAtDesk(deskId: string) {
   const w = store.workerAtDesk(deskId);
   const desk = DESK_BY_ID.get(deskId)!;
   if (!w) {
+    if (officeIsFull()) return;
     openPrompt({
       title: `✨ New task at ${desk.label}`,
       subtitle: 'A fresh worker will sit down and start on this right away. Choose the worker engine below.',
+      warning: pressureNote(store.machine),
       submitLabel: 'Hire & start',
       providerOption: true,
       worktreeOption: !!store.project?.branch,
@@ -721,9 +736,11 @@ function promptAtDesk(deskId: string) {
 /** Direct hire from an empty desk, with an optional first prompt and provider choice. */
 function hireAtDesk(deskId: string) {
   const desk = DESK_BY_ID.get(deskId)!;
+  if (officeIsFull()) return;
   openPrompt({
     title: `✨ Hire a worker at ${desk.label}`,
     subtitle: 'Choose the worker engine. You can start with an empty prompt and send work later.',
+    warning: pressureNote(store.machine),
     placeholder: 'Optional first task…',
     submitLabel: 'Hire & start',
     allowEmpty: true,
@@ -769,6 +786,8 @@ function askStation(deskId: string) {
     toast(`The ${name} is waiting on an answer — here's its terminal`, 'warn');
     return openWorkerTerminal(w.id);
   }
+  // Nobody there yet: asking hires the agent.
+  if (!w && officeIsFull()) return;
   const subtitle = !w
     ? `${info.does}, in a terminal of my own: press O at the kiosk to watch.`
     : isAsleep(w.status)
@@ -781,6 +800,7 @@ function askStation(deskId: string) {
     subtitle,
     placeholder: `e.g. ${info.example}`,
     submitLabel: 'Send ✨',
+    warning: w ? undefined : pressureNote(store.machine),
     onSubmit: (text) => net.send({ t: 'station.prompt', deskId, prompt: text }),
   });
 }
@@ -1224,12 +1244,19 @@ function deskHint(deskId: string): Hint {
   const w = store.workerAtDesk(deskId);
   if (!w) {
     const paused = hiringPaused();
+    const m = store.machine;
+    const full = officeFull(m);
     return {
-      k: String(paused),
+      k: `${paused}|${full}|${m.workers}|${m.limit}|${!!m.pressure}`,
       parts: [
         h('span.title', {}, `${DESK_BY_ID.get(deskId)!.label} · empty`),
-        ...(paused ? [h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow')] : [key('E', 'Hire a worker'), key('P', 'Hire with a task')]),
-        key('B', 'Shell'),
+        ...(full
+          ? [h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`)]
+          : [
+              m.pressure ? h('span.cost', { title: `This machine is under pressure: ${m.pressure}` }, '⚠️ Machine under pressure') : '',
+              ...(paused ? [h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow')] : [key('E', 'Hire a worker'), key('P', 'Hire with a task')]),
+              key('B', 'Shell'),
+            ]),
       ],
     };
   }
@@ -1257,7 +1284,18 @@ function stationHint(deskId: string): Hint {
   if (!kind) return { k: '', parts: [] };
   const w = store.workerAtDesk(deskId);
   const info = STATION_INFO[kind];
-  if (!w) return { k: '', parts: [h('span.title', {}, `${info.icon} ${STATION_AGENT[kind].name}`), aside(info.offer.replace(/^Ask me /, '')), key('E', 'Prompt')] };
+  if (!w) {
+    const m = store.machine;
+    const full = officeFull(m);
+    return {
+      k: `${full}|${m.workers}|${m.limit}`,
+      parts: [
+        h('span.title', {}, `${info.icon} ${STATION_AGENT[kind].name}`),
+        aside(info.offer.replace(/^Ask me /, '')),
+        full ? h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`) : key('E', 'Prompt'),
+      ],
+    };
+  }
   const doing = w.activity ? clip(w.activity, 48) : '';
   const provider = resolvedProvider(w.provider, store.project);
   const spent = w.usage ? usageLabel(w.usage, provider) : '';

@@ -20,6 +20,7 @@ import { ImageProxy } from './decor.js';
 import { Ledger } from './usage.js';
 import { PlanLimitsReader } from './limits.js';
 import { Webhook } from './webhook.js';
+import { MAX_WORKER_LIMIT, Machine, parseWorkerLimit } from './machine.js';
 import { Building, type FloorDef } from './building.js';
 import { Floor, type FloorContext } from './floor.js';
 import { Sky } from './sky.js';
@@ -339,11 +340,34 @@ export async function startServer(cfg: Config) {
     if (err) console.error(`agent-office: --webhook: ${err}`);
   }
 
+  // The machine's CPU and memory, for the monitor on the wall and a warning before hiring, and the
+  // most workers the office runs at once, across every floor (--max-workers, or ⚙️ Settings).
+  const machine = new Machine(
+    cfg.dataDir,
+    cfg.maxWorkers,
+    () => {
+      let n = 0;
+      for (const f of floors.values()) n += f.workers.list().length;
+      return n;
+    },
+    (state) => broadcast({ t: 'machine', state }),
+  );
+  machine.start();
+  /** Queues everywhere may be waiting for room under the worker limit: let them look again. */
+  const pumpQueues = (except?: Floor) => {
+    if (machine.limit === undefined) return;
+    // Not right now: whoever freed the seat (a queue making room for its next task) takes it first.
+    setImmediate(() => {
+      for (const f of floors.values()) if (f !== except) f.queue.pump();
+    });
+  };
+
   const floorContext: FloorContext = {
     agentCmd: cfg.agentCmd,
     agentArgs: cfg.agentArgs,
     hook: { url: `http://127.0.0.1:${hookPort}`, token: '' },
     ledger,
+    capacity: machine,
     emit: toFloor,
     toast: toastFloor,
     termData: (workerId, data, viewers) => {
@@ -363,9 +387,12 @@ export async function startServer(cfg: Config) {
         if (c) sendTo(c, { t: 'changes', state });
       }
     },
-    workerChanged: (_floor, w) => {
-      if (typeof w === 'string') webhook.onWorkerGone(w);
-      else webhook.onWorker(w);
+    workerChanged: (floor, w) => {
+      if (typeof w === 'string') {
+        webhook.onWorkerGone(w);
+        pumpQueues(floor);
+      } else webhook.onWorker(w);
+      machine.workersChanged();
       floorsChanged();
     },
     people: (floor) => {
@@ -786,6 +813,7 @@ export async function startServer(cfg: Config) {
       limits: limits.state,
       me,
       notify: webhook.state(),
+      machine: machine.state(),
       sky: sky.state,
       ...floorView(floor),
     });
@@ -1174,6 +1202,17 @@ export async function startServer(cfg: Config) {
       case 'notify.test':
         void webhook.test(who).then((err) => sendTo(c, { t: 'toast', text: err ?? '📣 Sent a test message', level: err ? 'warn' : 'info' }));
         break;
+      case 'machine.limit': {
+        if (!meOf(c.accountId).admin) return warn(c, 'Only admins can change the worker limit');
+        const limit = msg.limit === null ? undefined : parseWorkerLimit(msg.limit);
+        if (msg.limit !== null && limit === undefined) return warn(c, `The worker limit is a whole number from 1 to ${MAX_WORKER_LIMIT}`);
+        const err = machine.setLimit(limit, who);
+        if (err) return warn(c, err);
+        const now = machine.limit;
+        toastAll(limit !== undefined ? `⚙️ ${who} set the worker limit to ${now}` : now === undefined ? `⚙️ ${who} took the worker limit off` : `⚙️ ${who} put the worker limit back to ${now} (--max-workers)`);
+        pumpQueues();
+        break;
+      }
       case 'changes.watch': {
         const w = worker(msg.workerId);
         if (w) w.floor.changes.watch(w.wid, c.id);
@@ -1434,6 +1473,7 @@ export async function startServer(cfg: Config) {
     upgrader.stop();
     services.stop();
     webhook.stop();
+    machine.stop();
     sky.stop();
     for (const f of floors.values()) f.shutdown(keep);
     ledger.flush();
