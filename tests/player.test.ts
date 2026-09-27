@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { PlayerController } from '../src/client/player.js';
 import type { Collider } from '../src/client/world/office.js';
-import { LOFT, STAIRS } from '../src/shared/layout.js';
+import { FLOOR, LOFT, SLAB, STAIRS } from '../src/shared/layout.js';
+
+/** The office floor: upstairs, over the garage, so off it you'd drop to the street. */
+const officeFloor: Collider = { ...FLOOR, bottom: -SLAB, top: 0 };
 
 function controller(t: TestContext, colliders: Collider[]) {
   const win = new EventTarget();
@@ -16,7 +19,7 @@ function controller(t: TestContext, colliders: Collider[]) {
       else Reflect.deleteProperty(globalThis, name);
     });
   }
-  const player = new PlayerController(new THREE.PerspectiveCamera(), new EventTarget() as unknown as HTMLElement, colliders);
+  const player = new PlayerController(new THREE.PerspectiveCamera(), new EventTarget() as unknown as HTMLElement, [officeFloor, ...colliders]);
   player.camYaw = 0;
   function keys(...codes: string[]) {
     player.clearKeys();

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FLOOR } from '../shared/layout';
+import { FLOOR, SLAB, STREET_Y, WALL_T } from '../shared/layout';
 import type { ViewMode } from './state';
 import type { Collider } from './world/office';
 
@@ -276,13 +276,33 @@ export class PlayerController {
       Math.cos(this.camYaw) * Math.cos(this.camPitch),
     ).multiplyScalar(this.camDist);
     const cam = target.clone().add(off);
-    // Keep the camera inside the room so walls never block the view, and under the loft or its roof.
+    // Keep the camera on your side of the outside walls, so they never block the view: inside the
+    // room while you're in the office, out of the building while you're outside or on the balcony.
+    // And under the loft, its roof or the garage ceiling.
     const m = 0.4;
-    cam.x = THREE.MathUtils.clamp(cam.x, FLOOR.minX + m, FLOOR.maxX - m);
-    cam.z = THREE.MathUtils.clamp(cam.z, FLOOR.minZ + m, FLOOR.maxZ - m);
+    const indoors = this.pos.y > -SLAB - 0.5 && this.pos.x > FLOOR.minX && this.pos.x < FLOOR.maxX && this.pos.z > FLOOR.minZ && this.pos.z < FLOOR.maxZ;
+    if (indoors) {
+      cam.x = THREE.MathUtils.clamp(cam.x, FLOOR.minX + m, FLOOR.maxX - m);
+      cam.z = THREE.MathUtils.clamp(cam.z, FLOOR.minZ + m, FLOOR.maxZ - m);
+    }
     const floorY = groundAt(this.colliders, this.pos.x, this.pos.z, this.pos.y);
     const roof = ceilingAt(this.colliders, cam.x, cam.z, floorY) - 0.3;
     cam.y = THREE.MathUtils.clamp(cam.y, floorY + 0.6, Math.max(floorY + 0.6, Math.min(floorY + 3.5, roof)));
+    // Down on the street, stay under the garage ceiling so its edge never cuts across the view.
+    if (this.pos.y < -SLAB - 1) cam.y = Math.min(cam.y, Math.max(floorY + 0.6, -SLAB - 0.3));
+    // How far you are out past each outside wall (west, east, north, south), and how far inside them the camera is.
+    const e = WALL_T + m;
+    const out = [FLOOR.minX - WALL_T - this.pos.x, this.pos.x - FLOOR.maxX - WALL_T, FLOOR.minZ - WALL_T - this.pos.z, this.pos.z - FLOOR.maxZ - WALL_T];
+    const side = out.indexOf(Math.max(...out));
+    const camIn = Math.min(cam.x - (FLOOR.minX - e), FLOOR.maxX + e - cam.x, cam.z - (FLOOR.minZ - e), FLOOR.maxZ + e - cam.z) > 0;
+    // Outside, back the camera out through the wall you're standing beyond: upstairs always, and
+    // downstairs where the garage is walled in (the west and north sides).
+    if (!indoors && out[side] > 0 && camIn && (cam.y > -SLAB || side === 0 || side === 2)) {
+      if (side === 0) cam.x = FLOOR.minX - e;
+      else if (side === 1) cam.x = FLOOR.maxX + e;
+      else if (side === 2) cam.z = FLOOR.minZ - e;
+      else cam.z = FLOOR.maxZ + e;
+    }
     if (snap) this.camera.position.copy(cam);
     else this.camera.position.lerp(cam, 0.25);
     this.camera.lookAt(target);
@@ -378,9 +398,9 @@ function touches(c: Collider, x: number, z: number, r: number): boolean {
   return (x - nx) ** 2 + (z - nz) ** 2 < r * r;
 }
 
-/** The floor under someone standing at (x, z) with their feet at `y`: the highest top they're on or above. */
+/** The floor under someone standing at (x, z) with their feet at `y`: the highest top they're on or above, else the street. */
 export function groundAt(colliders: Collider[], x: number, z: number, y: number): number {
-  let g = 0;
+  let g = STREET_Y;
   for (const c of colliders) {
     if (c.top > 50 || y < c.top - 0.1 || c.top <= g) continue;
     if (touches(c, x, z, RADIUS)) g = c.top;

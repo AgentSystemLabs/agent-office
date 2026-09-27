@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { BOARDS, DESKS, DESK_SIZE, ELEVATOR, FLOOR, LOFT, STAIRS, TV, WALL_HEIGHT, deskSeat, type DeskDef } from '../../shared/layout';
+import { ASHTRAY, BALCONY, BALCONY_DOOR, BOARDS, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, LOFT, SLAB, STAIRS, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, type DeskDef, type Opening, type Side } from '../../shared/layout';
 import { wallFacing, type WallId, type WallRect } from '../../shared/decor';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
-import { mesh, roundedBox, textPlane, toon, toonUnique } from './toon';
+import { buildGarage, buildStreet } from './outside';
+import { mergeByMaterial, mesh, roundedBox, textPlane, toon, toonUnique } from './toon';
 import { buildElevator, type Elevator } from './elevator';
 
 export interface Collider {
@@ -15,7 +16,7 @@ export interface Collider {
   bottom?: number;
 }
 
-export type InteractKind = 'desk' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'elevator';
+export type InteractKind = 'desk' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -52,7 +53,18 @@ export interface Office {
   setProjectName(name: string): void;
   /** Paints the walls, their trim and the floor in a floor's colors, so each project looks like itself. */
   setLook(p: FloorPalette): void;
-  update(t: number, dt: number): void;
+  /** Animates the office; doors open for anyone in `people` who comes up to them. */
+  update(t: number, dt: number, people: Iterable<{ x: number; y: number; z: number }>): void;
+}
+
+/** A door that opens by itself when someone comes up to it, and closes behind them. */
+interface Door {
+  x: number;
+  y: number;
+  z: number;
+  /** 0 shut, 1 wide open. */
+  open: number;
+  show(open: number): void;
 }
 
 const PALETTE = {
@@ -69,9 +81,43 @@ const PALETTE = {
   plant: '#5fb760',
   plantDark: '#3f8f45',
   pot: '#e76f51',
-  glass: '#bfe6ff',
   ink: '#2b2d42',
+  /** The building's outside paint. */
+  exterior: '#e07a5f',
 };
+
+/** Window glass: faintly blue and see-through. */
+const GLASS = new THREE.MeshBasicMaterial({ color: '#d6f1ff', transparent: true, opacity: 0.14, depthWrite: false, side: THREE.DoubleSide });
+const SHINE = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
+
+/** A sheet of glass `w` by `h`, centered, with a couple of cartoon glints so it reads as glass. */
+function glassPane(w: number, h: number): THREE.Group {
+  const g = new THREE.Group();
+  g.add(mesh(new THREE.PlaneGeometry(w, h), GLASS, 0, 0, 0, false));
+  for (const [gx, gw] of [
+    [-w * 0.2, 0.18],
+    [-w * 0.2 + 0.32, 0.08],
+  ]) {
+    const glint = mesh(new THREE.PlaneGeometry(gw, h * 0.55), SHINE, gx, h * 0.07, 0.01, false);
+    glint.rotation.z = -0.5;
+    g.add(glint);
+  }
+  return g;
+}
+
+/** The middle of an outside wall at `u` along it, and the turn that makes local +z point outdoors. */
+function onWall(side: Side, u: number): { x: number; z: number; rotY: number } {
+  switch (side) {
+    case 'north':
+      return { x: u, z: FLOOR.minZ - WALL_T / 2, rotY: Math.PI };
+    case 'south':
+      return { x: u, z: FLOOR.maxZ + WALL_T / 2, rotY: 0 };
+    case 'west':
+      return { x: FLOOR.minX - WALL_T / 2, z: u, rotY: -Math.PI / 2 };
+    case 'east':
+      return { x: FLOOR.maxX + WALL_T / 2, z: u, rotY: Math.PI / 2 };
+  }
+}
 
 /** Chunky planks in a floor's colors. */
 function paintPlanks(c: HTMLCanvasElement, p: FloorPalette) {
@@ -126,17 +172,433 @@ function pendant(): THREE.Group {
   return lamp;
 }
 
-/** An outside window: frame, sky-blue glass and a mullion, facing +z (or +x when `side`). */
-function outsideWindow(x: number, y: number, z: number, side = false): THREE.Group {
-  const glass = toon(PALETTE.glass, { emissive: '#4b7fa3' });
-  const frameMat = toon('#ffffff');
-  const w = new THREE.Group();
-  w.add(mesh(box(3.2, 2, 0.1), frameMat, 0, 0, 0, false));
-  w.add(mesh(box(2.9, 1.7, 0.12), glass, 0, 0, 0, false));
-  w.add(mesh(box(0.08, 1.7, 0.14), frameMat, 0, 0, 0, false));
-  w.position.set(x, y, z);
-  if (side) w.rotation.y = Math.PI / 2;
-  return w;
+/** A window filling its hole in an outside wall: a frame lining the hole, a mullion, sills and real glass. */
+function windowIn(o: Opening): THREE.Group {
+  const g = new THREE.Group();
+  const frame = toon('#ffffff');
+  const w = o.width;
+  const h = o.y1 - o.y0;
+  const F = 0.09;
+  const D = WALL_T + 0.04;
+  // Built along x with the outside toward +z, then turned onto its wall.
+  g.add(mesh(box(w, F, D), frame, 0, o.y1 - F / 2, 0, false));
+  g.add(mesh(box(w, F, D), frame, 0, o.y0 + F / 2, 0, false));
+  for (const sx of [-1, 1]) g.add(mesh(box(F, h, D), frame, sx * (w / 2 - F / 2), (o.y0 + o.y1) / 2, 0, false));
+  g.add(mesh(box(F * 0.8, h - 2 * F, 0.08), frame, 0, (o.y0 + o.y1) / 2, 0, false));
+  const pane = glassPane(w - 2 * F, h - 2 * F);
+  pane.position.y = (o.y0 + o.y1) / 2;
+  g.add(pane);
+  g.add(mesh(box(w + 0.2, 0.06, 0.2), frame, 0, o.y0 - 0.03, -(WALL_T / 2 + 0.08)));
+  g.add(mesh(box(w + 0.2, 0.06, 0.16), frame, 0, o.y0 - 0.03, WALL_T / 2 + 0.06));
+  const at = onWall(o.wall, o.u);
+  g.position.set(at.x, 0, at.z);
+  g.rotation.y = at.rotY;
+  return g;
+}
+
+/** A door's frame and threshold, lining its hole in the wall (built like windowIn: along x, outdoors toward +z). */
+function doorFrame(o: Opening): THREE.Group {
+  const g = new THREE.Group();
+  const frame = toon('#ffffff');
+  const F = 0.08;
+  const D = WALL_T + 0.04;
+  g.add(mesh(box(o.width, F, D), frame, 0, o.y1 - F / 2, 0, false));
+  for (const sx of [-1, 1]) g.add(mesh(box(F, o.y1, D), frame, sx * (o.width / 2 - F / 2), o.y1 / 2, 0, false));
+  g.add(mesh(box(o.width, 0.03, D), toon('#8d99ae'), 0, 0.015, 0, false));
+  return g;
+}
+
+/** Stands a wall-built group (along x, outdoors toward +z) in its wall. */
+function mount(g: THREE.Group, o: Opening): THREE.Group {
+  const at = onWall(o.wall, o.u);
+  g.position.set(at.x, 0, at.z);
+  g.rotation.y = at.rotY;
+  return g;
+}
+
+/** The way out: a teal door with a porthole in the west wall. It swings outward, onto the landing. */
+function exitDoor(): { group: THREE.Group; door: Door } {
+  const o = EXIT_DOOR;
+  const g = doorFrame(o);
+  const F = 0.08;
+  const leafW = o.width - 2 * F - 0.02;
+  const leafH = o.y1 - F - 0.02;
+  const shape = new THREE.Shape();
+  shape.moveTo(0, 0);
+  shape.lineTo(leafW, 0);
+  shape.lineTo(leafW, leafH);
+  shape.lineTo(0, leafH);
+  shape.closePath();
+  const port = { x: leafW / 2, y: leafH - 0.55, r: 0.2 };
+  const hole = new THREE.Path();
+  hole.absarc(port.x, port.y, port.r, 0, Math.PI * 2, true);
+  shape.holes.push(hole);
+  const leafGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.06, bevelEnabled: false, curveSegments: 16 });
+  leafGeo.translate(0, 0, -0.03);
+  const leaf = new THREE.Group();
+  leaf.add(mesh(leafGeo, toon('#2a9d8f'), 0, 0.01, 0));
+  leaf.add(mesh(new THREE.CircleGeometry(port.r, 20), GLASS, port.x, port.y + 0.01, 0, false));
+  leaf.add(mesh(new THREE.TorusGeometry(port.r, 0.035, 8, 24), toon('#ffffff'), port.x, port.y + 0.01, 0, false));
+  // A push bar inside, a pull handle outside.
+  leaf.add(mesh(box(leafW * 0.7, 0.05, 0.05), toon('#adb5bd'), leafW * 0.5, 1.0, -0.07));
+  leaf.add(mesh(box(0.05, 0.3, 0.05), toon('#adb5bd'), leafW - 0.15, 1.0, 0.07));
+  // Hinged on the outer face, so it opens out of the building.
+  const hinge = new THREE.Group();
+  hinge.position.set(-o.width / 2 + F + 0.01, 0, WALL_T / 2 - 0.05);
+  hinge.add(leaf);
+  g.add(hinge);
+
+  const exit = textPlane('EXIT', { bg: '#2a9d4b', color: '#ffffff', size: 64, border: '#ffffff' });
+  exit.scale.multiplyScalar(0.7);
+  exit.position.set(0, o.y1 + 0.35, -(WALL_T / 2 + 0.03));
+  exit.rotation.y = Math.PI;
+  g.add(exit);
+  // A lamp over it outside.
+  g.add(mesh(box(0.32, 0.1, 0.18), toon(PALETTE.ink), 0, o.y1 + 0.42, WALL_T / 2 + 0.09));
+  g.add(mesh(new THREE.SphereGeometry(0.08, 10, 8), toon('#fff7d6', { emissive: '#ffe08a' }), 0, o.y1 + 0.33, WALL_T / 2 + 0.12, false));
+
+  const at = onWall(o.wall, o.u);
+  const door: Door = {
+    x: at.x,
+    y: 0,
+    z: at.z,
+    open: 0,
+    show: (k) => (hinge.rotation.y = -1.8 * k * k * (3 - 2 * k)),
+  };
+  return { group: mount(g, o), door };
+}
+
+/** Glass doors out to the balcony that slide apart, into the wall on either side, when someone comes up. */
+function balconyDoor(): { group: THREE.Group; door: Door } {
+  const o = BALCONY_DOOR;
+  const g = doorFrame(o);
+  const F = 0.08;
+  const half = (o.width - 2 * F) / 2;
+  const h = o.y1 - F;
+  const alu = toon('#aab4be');
+  const panels: [THREE.Group, number][] = [];
+  for (const side of [-1, 1]) {
+    const p = new THREE.Group();
+    const pw = half + 0.02;
+    for (const y of [0.04, h - 0.04]) p.add(mesh(box(pw, 0.08, 0.05), alu, 0, y, 0, false));
+    for (const x of [-pw / 2 + 0.035, pw / 2 - 0.035]) p.add(mesh(box(0.07, h, 0.05), alu, x, h / 2, 0, false));
+    const pane = glassPane(pw - 0.14, h - 0.16);
+    pane.position.y = h / 2;
+    p.add(pane);
+    p.add(mesh(box(0.03, 0.45, 0.08), toon(PALETTE.ink), -side * (pw / 2 - 0.12), 1.05, 0, false));
+    const x0 = (side * half) / 2;
+    p.position.x = x0;
+    g.add(p);
+    panels.push([p, x0]);
+  }
+  const at = onWall(o.wall, o.u);
+  const door: Door = {
+    x: at.x,
+    y: 0,
+    z: at.z,
+    open: 0,
+    show: (k) => {
+      const e = k * k * (3 - 2 * k);
+      for (const [p, x0] of panels) p.position.x = x0 + Math.sign(x0) * e * (half + 0.04);
+    },
+  };
+  return { group: mount(g, o), door };
+}
+
+/** A sagging string of party bulbs from `a` to `b`. */
+function stringLights(a: THREE.Vector3, b: THREE.Vector3, sag: number): THREE.Group {
+  const mid = a.clone().add(b).multiplyScalar(0.5);
+  mid.y -= sag * 2;
+  const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
+  const g = new THREE.Group();
+  g.add(mesh(new THREE.TubeGeometry(curve, 24, 0.012, 4), toon(PALETTE.ink), 0, 0, 0, false));
+  const n = Math.max(2, Math.round(curve.getLength() / 0.5));
+  const colors = ['#ffd166', '#ff8fa3', '#8ecae6', '#caffbf'];
+  for (let i = 1; i < n; i++) {
+    const p = curve.getPoint(i / n);
+    g.add(mesh(new THREE.SphereGeometry(0.055, 8, 6), toon(colors[i % colors.length], { emissive: colors[i % colors.length] }), p.x, p.y - 0.06, p.z, false));
+  }
+  return mergeByMaterial(g);
+}
+
+/**
+ * The smoking balcony off the south wall, over the garage entrance: a deck with a glass railing on
+ * its three open sides, string lights, a bench under the window, a bistro table, plants and the
+ * ashtray, where you take a smoke break.
+ */
+function buildBalcony(group: THREE.Group, colliders: Collider[], interactables: Interactable[]) {
+  const { minX, maxX, minZ, maxZ } = BALCONY;
+  const w = maxX - minX;
+  const d = maxZ - minZ;
+  const cx = (minX + maxX) / 2;
+  const cz = (minZ + maxZ) / 2;
+  // Everything that doesn't move and isn't textured goes in here, merged at the end.
+  const parts = new THREE.Group();
+  parts.add(mesh(box(w, SLAB - 0.01, d), toon(PALETTE.wallTrim), cx, -SLAB / 2 - 0.005, cz));
+  const deck = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshToonMaterial({ map: floorTexture(w, d), color: '#d6a574', gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap }));
+  deck.rotation.x = -Math.PI / 2;
+  deck.position.set(cx, 0.002, cz);
+  deck.receiveShadow = true;
+  group.add(deck);
+  colliders.push({ minX, maxX, minZ, maxZ, bottom: -SLAB, top: 0 });
+
+  // Posts down to the street at the outer corners.
+  const postH = -SLAB - STREET_Y;
+  for (const x of [minX + 0.25, maxX - 0.25]) {
+    parts.add(mesh(new THREE.CylinderGeometry(0.12, 0.12, postH, 12), toon('#e6e8ee'), x, STREET_Y + postH / 2, maxZ - 0.25));
+    colliders.push({ minX: x - 0.14, maxX: x + 0.14, minZ: maxZ - 0.39, maxZ: maxZ - 0.11, bottom: STREET_Y, top: -SLAB });
+  }
+
+  // The railing: posts, a wooden top rail and glass between, on the three open sides.
+  const railH = 1.05;
+  const ink = toon(PALETTE.deskLeg);
+  const wood = toon(PALETTE.wood);
+  const inset = 0.06;
+  const sides: [number, number, number, number][] = [
+    [minX + inset, maxZ - inset, maxX - inset, maxZ - inset],
+    [minX + inset, minZ, minX + inset, maxZ - inset],
+    [maxX - inset, minZ, maxX - inset, maxZ - inset],
+  ];
+  for (const [x0, z0, x1, z1] of sides) {
+    const len = Math.hypot(x1 - x0, z1 - z0);
+    const alongX = z0 === z1;
+    const n = Math.ceil(len / 1.6);
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      parts.add(mesh(box(0.06, railH, 0.06), ink, x0 + (x1 - x0) * t, railH / 2, z0 + (z1 - z0) * t, false));
+    }
+    const rail = mesh(alongX ? box(len + 0.1, 0.07, 0.12) : box(0.12, 0.07, len + 0.1), wood, (x0 + x1) / 2, railH + 0.02, (z0 + z1) / 2);
+    parts.add(rail);
+    for (let i = 0; i < n; i++) {
+      const t = (i + 0.5) / n;
+      const pane = glassPane(len / n - 0.1, railH - 0.2);
+      pane.position.set(x0 + (x1 - x0) * t, (railH - 0.2) / 2 + 0.08, z0 + (z1 - z0) * t);
+      pane.rotation.y = alongX ? 0 : Math.PI / 2;
+      parts.add(pane);
+    }
+    colliders.push({ minX: Math.min(x0, x1) - 0.05, maxX: Math.max(x0, x1) + 0.05, minZ: Math.min(z0, z1) - 0.05, maxZ: Math.max(z0, z1) + 0.05, bottom: -SLAB, top: 99 });
+  }
+
+  // Lamp poles on the outer corners, with string lights to them from the wall and between them.
+  const poleH = 2.7;
+  const sw = new THREE.Vector3(minX + inset, poleH, maxZ - inset);
+  const se = new THREE.Vector3(maxX - inset, poleH, maxZ - inset);
+  for (const p of [sw, se]) parts.add(mesh(new THREE.CylinderGeometry(0.035, 0.035, poleH - railH, 6), ink, p.x, (poleH + railH) / 2, p.z, false));
+  parts.add(stringLights(sw, se, 0.35));
+  parts.add(stringLights(sw, new THREE.Vector3(-6.5, 3.5, minZ + 0.02), 0.3));
+  parts.add(stringLights(new THREE.Vector3(-6.5, 3.5, minZ + 0.02), se, 0.35));
+
+  // A bench under the window, a bistro table with two stools, and plants.
+  const bench = new THREE.Group();
+  bench.add(mesh(roundedBox(2, 0.08, 0.46, 0.05), wood, 0, 0.45, 0));
+  bench.add(mesh(box(2, 0.32, 0.06), wood, 0, 0.78, -0.2));
+  for (const sx of [-0.85, 0.85]) bench.add(mesh(box(0.06, 0.45, 0.4), ink, sx, 0.22, 0));
+  bench.position.set(-9, 0, minZ + 0.3);
+  parts.add(bench);
+  colliders.push({ minX: -10, maxX: -8, minZ, maxZ: minZ + 0.55, top: 0.49 });
+  const tx = 0.2;
+  const tz = cz + 0.2;
+  const table = new THREE.Group();
+  table.add(mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.05, 20), toon('#fffaf3'), 0, 0.74, 0));
+  table.add(mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.7, 8), ink, 0, 0.37, 0));
+  table.add(mesh(new THREE.CylinderGeometry(0.25, 0.28, 0.04, 16), ink, 0, 0.02, 0));
+  table.add(mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.12, 10), toon('#ef476f'), 0.15, 0.82, 0.05));
+  table.position.set(tx, 0, tz);
+  parts.add(table);
+  colliders.push({ minX: tx - 0.4, maxX: tx + 0.4, minZ: tz - 0.4, maxZ: tz + 0.4, top: 0.77 });
+  for (const sx of [-1, 1]) {
+    const x = tx + sx * 0.8;
+    const stool = new THREE.Group();
+    stool.add(mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.06, 16), toon(sx < 0 ? '#5bc0eb' : '#ff8a5b'), 0, 0.46, 0));
+    stool.add(mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.44, 6), ink, 0, 0.22, 0));
+    stool.add(mesh(new THREE.CylinderGeometry(0.16, 0.18, 0.03, 12), ink, 0, 0.015, 0));
+    stool.position.set(x, 0, tz);
+    parts.add(stool);
+    colliders.push({ minX: x - 0.2, maxX: x + 0.2, minZ: tz - 0.2, maxZ: tz + 0.2, top: 0.49 });
+  }
+  for (const [px, pz, sc] of [
+    [maxX - 0.55, minZ + 0.5, 1.1],
+    [minX + 0.55, maxZ - 0.55, 0.9],
+  ]) {
+    const p = plant(sc);
+    p.position.set(px, 0, pz);
+    parts.add(p);
+    const r = 0.3 * sc;
+    colliders.push({ minX: px - r, maxX: px + r, minZ: pz - r, maxZ: pz + r, top: 0.5 * sc });
+  }
+
+  group.add(mergeByMaterial(parts));
+
+  // The ashtray: a standing bin with a sand-filled bowl and a couple of butts in it.
+  const tray = new THREE.Group();
+  const steel = toon('#8d99ae');
+  tray.add(mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.05, 16), steel, 0, 0.025, 0));
+  tray.add(mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.8, 10), steel, 0, 0.45, 0));
+  tray.add(mesh(new THREE.CylinderGeometry(0.2, 0.14, 0.14, 16), steel, 0, 0.9, 0));
+  tray.add(mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.02, 16), toon('#e9d8a6'), 0, 0.965, 0, false));
+  for (const [bx, bz, a] of [
+    [0.06, 0.02, 0.4],
+    [-0.05, -0.06, 2.1],
+    [-0.02, 0.08, 1.2],
+  ]) {
+    const butt = mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.07, 6).rotateZ(Math.PI / 2), toon(a > 1 ? '#fffaf3' : '#e9a03b'), bx, 0.98, bz, false);
+    butt.rotation.y = a;
+    tray.add(butt);
+  }
+  tray.position.set(ASHTRAY.x, 0, ASHTRAY.z);
+  group.add(tray);
+  colliders.push({ minX: ASHTRAY.x - 0.2, maxX: ASHTRAY.x + 0.2, minZ: ASHTRAY.z - 0.2, maxZ: ASHTRAY.z + 0.2, top: 1 });
+  const it: Interactable = { kind: 'smoke', x: ASHTRAY.x, z: ASHTRAY.z, radius: 1.8 };
+  interactables.push(it);
+  tray.userData.interact = it;
+
+  const sign = textPlane('🚬 Smoke break', { bg: '#2b2d42', color: '#fffaf3', size: 56, border: '#fffaf3' });
+  sign.scale.multiplyScalar(0.8);
+  sign.position.set(-6.5, 2.2, minZ + 0.02);
+  group.add(sign);
+}
+
+/**
+ * Outside the exit: a concrete landing level with the office floor, and steps running south
+ * along the west wall down to the street, with a railing on the open side.
+ */
+function buildExitStairs(group: THREE.Group, colliders: Collider[]) {
+  const { minX, maxX, landingZ0, landingZ1, steps, run } = EXIT_STAIRS;
+  const width = maxX - minX;
+  const rise = -STREET_Y / steps;
+  const treads = steps - 1;
+  const L = landingZ1 - landingZ0;
+  // Side profile: x runs south from the landing's north end, y is height.
+  const profile = new THREE.Shape();
+  profile.moveTo(0, STREET_Y);
+  profile.lineTo(0, 0);
+  profile.lineTo(L, 0);
+  for (let i = 1; i <= treads; i++) {
+    profile.lineTo(L + (i - 1) * run, -i * rise);
+    profile.lineTo(L + i * run, -i * rise);
+  }
+  profile.lineTo(L + treads * run, STREET_Y);
+  profile.closePath();
+  const block = mesh(new THREE.ExtrudeGeometry(profile, { depth: width, bevelEnabled: false }), toon('#d3d6dd'), maxX, 0, landingZ0);
+  block.rotation.y = -Math.PI / 2;
+  group.add(block);
+  const tread = toon('#b9bdc6');
+  const cx = (minX + maxX) / 2;
+  group.add(mesh(box(width, 0.04, L), tread, cx, -0.015, landingZ0 + L / 2, false));
+  colliders.push({ minX, maxX, minZ: landingZ0, maxZ: landingZ1, bottom: STREET_Y, top: 0 });
+  for (let i = 1; i <= treads; i++) {
+    const z0 = landingZ1 + (i - 1) * run;
+    group.add(mesh(box(width, 0.04, run + 0.02), tread, cx, -i * rise - 0.015, z0 + run / 2, false));
+    colliders.push({ minX, maxX, minZ: z0, maxZ: z0 + run, bottom: STREET_Y, top: -i * rise });
+  }
+
+  // The railing: round the landing's open sides, then down the stairs.
+  const ink = toon(PALETTE.deskLeg);
+  const railX = minX + 0.06;
+  const railH = 1.0;
+  const post = (x: number, y: number, z: number) => group.add(mesh(new THREE.CylinderGeometry(0.03, 0.03, railH, 6), ink, x, y + railH / 2, z, false));
+  const rail = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) => {
+    const len = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
+    const r = mesh(new THREE.CylinderGeometry(0.035, 0.035, len, 6), ink, (x0 + x1) / 2, (y0 + y1) / 2 + railH, (z0 + z1) / 2, false);
+    r.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(x1 - x0, y1 - y0, z1 - z0).normalize());
+    group.add(r);
+  };
+  const nz = landingZ0 + 0.06;
+  post(maxX - 0.05, 0, nz);
+  post(railX, 0, nz);
+  post(railX, 0, landingZ1);
+  rail(maxX - 0.05, 0, nz, railX, 0, nz);
+  rail(railX, 0, nz, railX, 0, landingZ1);
+  const bottomZ = landingZ1 + (treads - 0.5) * run;
+  for (let i = 2; i <= treads; i += 3) post(railX, -i * rise, landingZ1 + (i - 0.5) * run);
+  post(railX, -treads * rise, bottomZ);
+  rail(railX, 0, landingZ1, railX, -treads * rise, bottomZ);
+  colliders.push({ minX: minX - 0.05, maxX: minX + 0.1, minZ: landingZ0, maxZ: bottomZ, bottom: STREET_Y, top: 99 });
+  colliders.push({ minX, maxX, minZ: landingZ0 - 0.05, maxZ: landingZ0 + 0.1, bottom: STREET_Y, top: 99 });
+}
+
+/**
+ * The four outside walls, built in pieces around their windows and doors. Each is painted inside in
+ * the floor's colors and outside in the building's. Behind the loft they carry on up past the
+ * ceiling downstairs, to the loft's roof.
+ */
+function buildWalls(group: THREE.Group, colliders: Collider[], openings: Opening[], looks: Looks) {
+  const inside = looks.wall;
+  const outside = toon(PALETTE.exterior);
+  const trimMat = looks.trim;
+  const T = WALL_T;
+  const loftTop = LOFT.y + LOFT.height + 0.2;
+  const walls: { side: Side; at: number; spans: [number, number, number][] }[] = [
+    { side: 'north', at: FLOOR.minZ - T / 2, spans: [[FLOOR.minX - T, FLOOR.maxX + T, WALL_HEIGHT]] },
+    {
+      side: 'south',
+      at: FLOOR.maxZ + T / 2,
+      spans: [
+        [FLOOR.minX - T, LOFT.minX, WALL_HEIGHT],
+        [LOFT.minX, FLOOR.maxX + T, loftTop],
+      ],
+    },
+    { side: 'west', at: FLOOR.minX - T / 2, spans: [[FLOOR.minZ, FLOOR.maxZ, WALL_HEIGHT]] },
+    {
+      side: 'east',
+      at: FLOOR.maxX + T / 2,
+      spans: [
+        [FLOOR.minZ, LOFT.minZ, WALL_HEIGHT],
+        [LOFT.minZ, FLOOR.maxZ, loftTop],
+      ],
+    },
+  ];
+  for (const w of walls) {
+    const alongX = w.side === 'north' || w.side === 'south';
+    // A box's faces go +x, -x, +y, -y, +z, -z; the one facing outdoors gets the outside paint.
+    const out = { east: 0, west: 1, south: 4, north: 5 }[w.side];
+    const mats = Array.from({ length: 6 }, (_, i) => (i === out ? outside : inside));
+    const at = (u: number, y: number) => (alongX ? new THREE.Vector3(u, y, w.at) : new THREE.Vector3(w.at, y, u));
+    const piece = (u0: number, u1: number, y0: number, y1: number) => {
+      if (u1 - u0 < 0.001 || y1 - y0 < 0.001) return;
+      // Up past the ceiling downstairs the sun shines through, as it does through the loft's roof.
+      if (y0 < WALL_HEIGHT && y1 > WALL_HEIGHT) {
+        piece(u0, u1, y0, WALL_HEIGHT);
+        piece(u0, u1, WALL_HEIGHT, y1);
+        return;
+      }
+      const m = new THREE.Mesh(alongX ? box(u1 - u0, y1 - y0, T) : box(T, y1 - y0, u1 - u0), mats);
+      m.position.copy(at((u0 + u1) / 2, (y0 + y1) / 2));
+      m.castShadow = y1 <= WALL_HEIGHT;
+      m.receiveShadow = true;
+      group.add(m);
+    };
+    // Baseboard and collider run between the doors.
+    const run = (u0: number, u1: number) => {
+      if (u1 - u0 < 0.001) return;
+      const p = at((u0 + u1) / 2, 0.125);
+      group.add(mesh(alongX ? box(u1 - u0, 0.25, T + 0.04) : box(T + 0.04, 0.25, u1 - u0), trimMat, p.x, p.y, p.z, false));
+      block(u0, u1);
+    };
+    const block = (u0: number, u1: number, bottom?: number) =>
+      colliders.push(alongX ? { minX: u0, maxX: u1, minZ: w.at - T / 2, maxZ: w.at + T / 2, top: 99, bottom } : { minX: w.at - T / 2, maxX: w.at + T / 2, minZ: u0, maxZ: u1, top: 99, bottom });
+    const holes = openings.filter((o) => o.wall === w.side).sort((a, b) => a.u - b.u);
+    for (const [a, b, top] of w.spans) {
+      let u = a;
+      let floorU = a;
+      for (const o of holes) {
+        const h0 = o.u - o.width / 2;
+        const h1 = o.u + o.width / 2;
+        if (h0 < a || h1 > b) continue;
+        piece(u, h0, 0, top);
+        piece(h0, h1, 0, o.y0);
+        piece(h0, h1, o.y1, top);
+        u = h1;
+        if (o.y0 > 0) continue;
+        // A door: walk through it, under the wall above.
+        run(floorU, h0);
+        block(h0, h1, o.y1);
+        floorU = h1;
+      }
+      piece(u, b, 0, top);
+      run(floorU, b);
+    }
+  }
 }
 
 function chair(color: string): THREE.Group {
@@ -247,12 +709,6 @@ export function buildOffice(): Office {
   floor.receiveShadow = true;
   group.add(floor);
 
-  // Outside ground so windows don't look into the void
-  const lawn = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), toon('#a7d98b'));
-  lawn.rotation.x = -Math.PI / 2;
-  lawn.position.y = -0.02;
-  group.add(lawn);
-
   // Rugs under each desk cluster
   [
     [-10.5, -4],
@@ -264,33 +720,35 @@ export function buildOffice(): Office {
     group.add(rug);
   });
 
-  // Walls
-  const wallMat = looks.wall;
+  // Outside walls, with real windows you see out of and a door out.
   const trimMat = looks.trim;
-  const T = 0.3;
-  const walls: [number, number, number, number][] = [
-    // x, z, w, d
-    [cx, FLOOR.minZ - T / 2, width + T * 2, T],
-    [cx, FLOOR.maxZ + T / 2, width + T * 2, T],
-    [FLOOR.minX - T / 2, cz, T, depth],
-    [FLOOR.maxX + T / 2, cz, T, depth],
-  ];
-  for (const [x, z, w, d] of walls) {
-    group.add(mesh(box(w, WALL_HEIGHT, d), wallMat, x, WALL_HEIGHT / 2, z));
-    group.add(mesh(box(w + 0.02, 0.25, d + 0.04), trimMat, x, 0.125, z, false));
-    colliders.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2, top: 99 });
+  const openings = [...WINDOWS, EXIT_DOOR, BALCONY_DOOR];
+  buildWalls(group, colliders, openings, looks);
+  const glazing = new THREE.Group();
+  for (const o of WINDOWS) {
+    glazing.add(windowIn(o));
+    fixture(o.wall, o.u, (o.y0 + o.y1) / 2 - 0.03, o.width + 0.2, o.y1 - o.y0 + 0.12);
   }
+  group.add(mergeByMaterial(glazing));
+  const doors: Door[] = [];
+  const exit = exitDoor();
+  group.add(exit.group);
+  doors.push(exit.door);
+  const stairs = new THREE.Group();
+  buildExitStairs(stairs, colliders);
+  group.add(mergeByMaterial(stairs));
+  // The door, its frame and the EXIT sign over it.
+  fixture(EXIT_DOOR.wall, EXIT_DOOR.u, (EXIT_DOOR.y1 + 0.7) / 2, EXIT_DOOR.width + 0.3, EXIT_DOOR.y1 + 0.7);
+  // Out the glass doors on the south wall: the balcony.
+  const slider = balconyDoor();
+  group.add(slider.group);
+  doors.push(slider.door);
+  fixture(BALCONY_DOOR.wall, BALCONY_DOOR.u, (BALCONY_DOOR.y1 + 0.1) / 2, BALCONY_DOOR.width + 0.2, BALCONY_DOOR.y1 + 0.1);
+  buildBalcony(group, colliders, interactables);
 
-  // Windows on the south and west walls (none behind the loft's stairs)
-  for (let x = -14; x <= 14; x += 5) {
-    if (x + 1.6 > STAIRS.fromX) continue;
-    group.add(outsideWindow(x, 2.2, FLOOR.maxZ - 0.02));
-    fixture('south', x, 2.2, 3.2, 2);
-  }
-  for (let z = -9; z <= 6; z += 6) {
-    group.add(outsideWindow(FLOOR.minX + 0.02, 2.2, z, true));
-    fixture('west', z, 2.2, 3.2, 2);
-  }
+  // Downstairs: the garage under the office, and the street outside.
+  buildGarage(group, colliders);
+  buildStreet(group);
 
   // Desks
   const desks = new Map<string, DeskView>();
@@ -444,13 +902,11 @@ export function buildOffice(): Office {
   interactables.push(elevator.interactable);
   fixture('north', ELEVATOR.x, WALL_HEIGHT / 2, ELEVATOR.width + 0.1, WALL_HEIGHT);
   // Pictures stay clear of the stairs (step by step, so they can hang above them) and of what's on
-  // the loft's walls upstairs, as buildLoft places it: a window on each wall, the couch, the sign.
+  // the loft's walls upstairs, as buildLoft places it: the couch and the sign.
   const run = (STAIRS.toX - STAIRS.fromX) / STAIRS.steps;
   const rise = LOFT.y / STAIRS.steps;
   for (let i = 1; i <= STAIRS.steps; i++) fixture('south', STAIRS.fromX + (i - 0.5) * run, (i * rise) / 2, run, i * rise);
   const loftZ = (LOFT.minZ + LOFT.maxZ) / 2;
-  fixture('south', LOFT.minX + 2, LOFT.y + 1.5, 3.2, 2);
-  fixture('east', loftZ, LOFT.y + 1.5, 3.2, 2);
   fixture('east', loftZ, LOFT.y + 0.5, 2.4, 1);
   fixture('south', LOFT.maxX - 3, LOFT.y + 1.9, 2.6, 0.6);
 
@@ -464,7 +920,15 @@ export function buildOffice(): Office {
     }
   };
 
-  const update = (t: number, dt: number) => {
+  const update = (t: number, dt: number, people: Iterable<{ x: number; y: number; z: number }>) => {
+    const near = new Set<Door>();
+    for (const p of people) for (const d of doors) if (Math.abs(p.y - d.y) < 1.6 && Math.hypot(p.x - d.x, p.z - d.z) < 2.4) near.add(d);
+    for (const d of doors) {
+      const want = near.has(d) ? 1 : 0;
+      if (d.open === want) continue;
+      d.open = want > d.open ? Math.min(1, d.open + dt * 2.5) : Math.max(0, d.open - dt * 1.6);
+      d.show(d.open);
+    }
     for (const d of desks.values()) {
       if (!d.vacancy.visible) continue;
       d.vacancy.position.y = DESK_SIZE.height + 0.55 + Math.sin(t * 2 + d.def.x) * 0.06;
@@ -518,36 +982,19 @@ function buildLoft(group: THREE.Group, colliders: Collider[], looks: Looks) {
     colliders.push({ minX: x - 0.14, maxX: x + 0.14, minZ: minZ + 0.01, maxZ: minZ + 0.29, top: floorY - SLAB });
   }
 
-  // The outside walls carry on up past the roofline behind the loft; the sun shines through them and the roof.
-  const upper = roofY + 0.2 - WALL_HEIGHT;
-  const south = mesh(box(w + 0.3, upper, 0.3), wallMat, cx + 0.15, WALL_HEIGHT + upper / 2, maxZ + 0.15, false);
-  const east = mesh(box(0.3, upper, d + 0.3), wallMat, maxX + 0.15, WALL_HEIGHT + upper / 2, cz + 0.15, false);
-  const roof = mesh(box(w + 0.3, 0.2, d + 0.3), wallMat, cx + 0.15, roofY + 0.1, cz + 0.15, false);
-  group.add(south, east, roof);
+  // The outside walls carry on up behind the loft (buildWalls); the sun shines through them and the roof.
+  const roof = mesh(box(w + WALL_T, 0.2, d + WALL_T), wallMat, cx + WALL_T / 2, roofY + 0.1, cz + WALL_T / 2, false);
+  group.add(roof);
   group.add(mesh(box(w + 0.34, 0.24, 0.04), trimMat, cx + 0.15, roofY + 0.1, minZ - 0.02, false));
   group.add(mesh(box(0.04, 0.24, d + 0.34), trimMat, minX - 0.02, roofY + 0.1, cz + 0.15, false));
   colliders.push({ minX, maxX, minZ, maxZ, bottom: roofY, top: roofY + 0.2 });
   group.add(mesh(box(w, 0.25, 0.04), trimMat, cx, floorY + 0.125, maxZ - 0.02, false));
   group.add(mesh(box(0.04, 0.25, d), trimMat, maxX - 0.02, floorY + 0.125, cz, false));
-  group.add(outsideWindow(minX + 2, floorY + 1.5, maxZ - 0.02));
-  group.add(outsideWindow(maxX - 0.02, floorY + 1.5, cz, true));
 
   // Floor-to-ceiling glass on the north and west sides, so you can look down on everyone working.
-  const glass = new THREE.MeshBasicMaterial({ color: '#d6f1ff', transparent: true, opacity: 0.14, depthWrite: false, side: THREE.DoubleSide });
-  const shine = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
   const doorZ = STAIRS.minZ;
   const pane = (len: number, px: number, pz: number, rotY: number) => {
-    const g = new THREE.Group();
-    g.add(mesh(new THREE.PlaneGeometry(len, height), glass, 0, 0, 0, false));
-    // A couple of cartoon glints, so it reads as glass.
-    for (const [gx, gw] of [
-      [-len * 0.2, 0.18],
-      [-len * 0.2 + 0.32, 0.08],
-    ]) {
-      const glint = mesh(new THREE.PlaneGeometry(gw, height * 0.55), shine, gx, 0.2, 0.01, false);
-      glint.rotation.z = -0.5;
-      g.add(glint);
-    }
+    const g = glassPane(len, height);
     g.position.set(px, floorY + height / 2, pz);
     g.rotation.y = rotY;
     group.add(g);

@@ -138,6 +138,8 @@ export interface PeerInfo {
   voice: boolean;
   muted: boolean;
   sharing: boolean;
+  /** On a smoke break, cigarette in hand. */
+  smoking?: boolean;
   /** Signed in with their own account, so `name` is theirs and nobody else can take it. */
   account?: boolean;
   /** The floor they're on (see FloorInfo); none while the building has no floors yet. */
@@ -301,6 +303,8 @@ export interface GhPullDetail {
   reviewComments: GhReviewComment[];
   checks: GhCheck[];
   repo: GhRepoInfo;
+  /** Who gh is signed in as on the server, and so who comments from the office appear from ('' if unknown). */
+  viewer: string;
 }
 
 /** GET /api/gh/issue?number=N */
@@ -308,7 +312,12 @@ export interface GhIssueDetail {
   number: number;
   body: string;
   comments: GhComment[];
+  /** See GhPullDetail.viewer. */
+  viewer: string;
 }
+
+/** GitHub turns away comments longer than this. */
+export const GH_COMMENT_MAX = 65536;
 
 export interface ProjectInfo {
   name: string;
@@ -557,8 +566,11 @@ export interface SearchResults {
 
 export type ClientMsg =
   | { t: 'move'; x: number; y: number; z: number; rotY: number; moving: boolean }
-  /** You reached out to use something; everyone else sees your character's arm do it. */
-  | { t: 'act' }
+  /**
+   * You reached out to use something; everyone else sees your character's arm do it. With `smoke`,
+   * you lit a cigarette (or put it out) on the balcony instead.
+   */
+  | { t: 'act'; smoke?: boolean }
   | { t: 'profile'; name: string; color: string; look: Look }
   | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string }
   | { t: 'worker.resume'; workerId: string }
@@ -575,6 +587,8 @@ export type ClientMsg =
   | { t: 'gh.refresh' }
   /** Merge a pull request; the answer comes back as gh.merged. */
   | { t: 'gh.merge'; number: number; method: GhMergeMethod; deleteBranch: boolean; auto?: boolean }
+  /** Comment on an issue or a PR's conversation, as the server's gh account; answered with gh.commented. */
+  | { t: 'gh.comment'; kind: 'issue' | 'pull'; number: number; body: string }
   | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string }
   | { t: 'queue.remove'; taskId: string }
   /** Move a queued task up (-1) or down (+1) the queue. */
@@ -656,7 +670,7 @@ export type ServerMsg =
   | { t: 'peer.update'; peer: PeerInfo }
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }
   | { t: 'peer.leave'; id: string }
-  | { t: 'peer.act'; id: string }
+  | { t: 'peer.act'; id: string; smoke?: boolean }
   | { t: 'worker.update'; worker: WorkerInfo }
   | { t: 'worker.remove'; workerId: string }
   | { t: 'worker.worktree'; workerId: string; state: WorktreeState }
@@ -667,6 +681,8 @@ export type ServerMsg =
   | { t: 'gh.pulls'; state: GhState<GhPull> }
   /** Sent to whoever asked for the merge. */
   | { t: 'gh.merged'; number: number; error?: string }
+  /** Sent to whoever commented: the comment as GitHub saved it, or why it wasn't. */
+  | { t: 'gh.commented'; kind: 'issue' | 'pull'; number: number; comment?: GhComment; error?: string }
   | { t: 'rtc'; from: string; data: unknown }
   | ({ t: 'chat' } & ChatLine)
   | { t: 'toast'; text: string; level: 'info' | 'warn' | 'error' }
