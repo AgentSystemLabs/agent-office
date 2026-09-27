@@ -5,7 +5,7 @@ import type { ChangesState, FloorInfo, PeerInfo, ProjectInfo, ServerMsg, WorkerI
 import { isBusy } from '../shared/status.js';
 import type { FloorDef } from './building.js';
 import { excludeFromGit } from './config.js';
-import { configuredProvider } from './agents.js';
+import { configuredProvider, flagValue } from './agents.js';
 import { WorkerManager, type HookEnv } from './workers.js';
 import { GitHub, MergeWatch } from './github.js';
 import { TaskQueue } from './queue.js';
@@ -53,14 +53,18 @@ export function projectInfo(dir: string, name: string, agentCmd: string, agentAr
       return undefined;
     }
   };
+  const provider = configuredProvider(agentCmd);
   return {
     name,
     dir,
     branch: git(['rev-parse', '--abbrev-ref', 'HEAD']),
     remote: git(['remote', 'get-url', 'origin']),
     agentCmd: [agentCmd, ...agentArgs].join(' '),
-    defaultProvider: configuredProvider(agentCmd),
-    agentProviders: configuredProvider(agentCmd) === 'custom' ? ['claude', 'opencode', 'codex', 'custom'] : ['claude', 'opencode', 'codex'],
+    defaultProvider: provider,
+    agentProviders: provider === 'custom' ? ['claude', 'opencode', 'codex', 'custom'] : ['claude', 'opencode', 'codex'],
+    // --agent-args only reaches the configured agent (see WorkerManager.launch).
+    defaultModel: provider === 'claude' ? flagValue(agentArgs, ['--model']) : undefined,
+    defaultEffort: provider === 'claude' ? flagValue(agentArgs, ['--effort']) : undefined,
   };
 }
 

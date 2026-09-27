@@ -93,6 +93,8 @@ export interface UsageTracker {
   since: Usage;
   /** Latest transcript timestamp seen. */
   at?: number;
+  /** The model of the session's latest reply (a subagent's doesn't count). */
+  model?: string;
 }
 
 export const newTracker = (): UsageTracker => ({ files: {}, since: zeroUsage() });
@@ -121,6 +123,7 @@ export function restoreTracker(saved: any): UsageTracker {
   if (base) t.base = { ...base, at: num(saved.base.at) };
   t.since = asUsage(saved.since) ?? zeroUsage();
   if (num(saved.at)) t.at = saved.at;
+  if (typeof saved.model === 'string' && saved.model) t.model = saved.model;
   return t;
 }
 
@@ -150,26 +153,31 @@ export function scanTracker(t: UsageTracker): boolean {
       } catch {
         continue;
       }
-      if (applyLine(t, cur, obj)) changed = true;
+      if (applyLine(t, cur, obj, file === t.transcript)) changed = true;
     }
   }
   return changed;
 }
 
-function applyLine(t: UsageTracker, cur: FileCursor, line: any): boolean {
+/** `main`: the line is from the session's own transcript, not a subagent's. */
+function applyLine(t: UsageTracker, cur: FileCursor, line: any, main: boolean): boolean {
   if (!line || typeof line !== 'object') return false;
   const at = typeof line.timestamp === 'string' ? Date.parse(line.timestamp) : NaN;
   if (at > (t.at ?? 0)) t.at = at;
   if (line.type === 'assistant') {
     const msg = line.message;
     if (!msg || typeof msg !== 'object' || typeof msg.id !== 'string' || !msg.usage) return false;
+    // Errors Claude Code writes itself are logged as "<synthetic>".
+    const model = main && typeof msg.model === 'string' && /^[\w.[\]-]+$/.test(msg.model) ? msg.model : undefined;
+    const switched = !!model && model !== t.model;
+    if (model) t.model = model;
     // Already inside Claude Code's own tally.
-    if (t.base && at <= t.base.at) return false;
+    if (t.base && at <= t.base.at) return switched;
     const u = usageOfMessage(typeof msg.model === 'string' ? msg.model : '', msg.usage);
     const delta = cur.lastId === msg.id && cur.lastUsage ? addUsage(u, cur.lastUsage, -1) : u;
     cur.lastId = msg.id;
     cur.lastUsage = u;
-    if (isZero(delta)) return false;
+    if (isZero(delta)) return switched;
     t.since = addUsage(t.since, delta);
     return true;
   }

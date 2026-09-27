@@ -1,4 +1,5 @@
 import type { AgentProvider, ServerMsg, WorktreeCleanup, WorktreeState } from '../../shared/protocol';
+import type { Effort } from '../../shared/models';
 import { h, openModal } from './dom';
 import { store } from '../state';
 import { providerPicker, type ProviderPicker } from './provider';
@@ -15,7 +16,7 @@ export interface PromptOptions {
   worktreeOption?: boolean;
   /** Offer the configured agent provider choice (only when hiring a new worker). */
   providerOption?: boolean;
-  onSubmit(text: string, opts: { worktree: boolean; provider?: AgentProvider; model?: string }): void;
+  onSubmit(text: string, opts: { worktree: boolean; provider?: AgentProvider; model?: string; effort?: Effort }): void;
 }
 
 const WT_KEY = 'agent-office.worktree';
@@ -69,7 +70,7 @@ export function openPrompt(opts: PromptOptions) {
         // storage blocked
       }
     }
-    opts.onSubmit(text, { worktree: !!opts.worktreeOption && wtBox.checked, provider: provider?.value(), model: provider?.model() });
+    opts.onSubmit(text, { worktree: !!opts.worktreeOption && wtBox.checked, provider: provider?.value(), model: provider?.model(), effort: provider?.effort() });
   };
   form.addEventListener('submit', (e) => {
     e.preventDefault();

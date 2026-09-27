@@ -19,7 +19,8 @@ import { addUsage, newTracker, restoreTracker, scanTracker, trackerUsage, zeroUs
 import { PtyHost, SCROLLBACK, type Adopted, type Pty } from './ptys.js';
 import { codexHookArgs, normalizeCodexHook, writeCodexHook } from './codex.js';
 import { reportedUsage } from './reported-usage.js';
-import { configuredProvider, isValidOpenCodeModel, validateWorkerModel } from './agents.js';
+import { configuredProvider, isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel, withoutFlags } from './agents.js';
+import { isClaudeModel, isEffort, type Effort } from '../shared/models.js';
 import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeStatusEvent } from './opencode.js';
 import { ScrollbackStore, searchTerminal, terminalTail } from './history.js';
 
@@ -230,9 +231,9 @@ export class WorkerManager {
     return false;
   }
 
-  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string): WorkerInfo | string {
+  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: Effort): WorkerInfo | string {
     const selectedProvider = kind === 'agent' ? provider ?? this.defaultProvider : undefined;
-    const modelError = validateWorkerModel(kind, selectedProvider, model);
+    const modelError = validateWorkerModel(kind, selectedProvider, model) ?? validateWorkerEffort(kind, selectedProvider, effort);
     if (modelError) return modelError;
     const seat = DESK_BY_ID.get(deskId);
     if (!seat) return 'Unknown desk';
@@ -259,7 +260,8 @@ export class WorkerManager {
       id,
       kind,
       provider: selectedProvider,
-      model: selectedProvider === 'opencode' ? model : undefined,
+      model: selectedProvider === 'opencode' || selectedProvider === 'claude' ? model : undefined,
+      effort: selectedProvider === 'claude' ? effort : undefined,
       deskId,
       name: kind === 'shell' ? `${name} 🐚` : name,
       color: kind === 'shell' ? '#8d99ae' : agent ? agent.color : COLORS[Math.floor(Math.random() * COLORS.length)],
@@ -820,12 +822,16 @@ export class WorkerManager {
     const commandPath = isShell ? undefined : configured ? this.agentPath : resolveCommand(command);
     let args = isShell ? ['-l'] : configured ? [...this.agentArgs] : [];
     if (isClaude) {
+      // Its own model and effort replace the configured ones, on a resume too: Claude Code would
+      // otherwise pick the session back up on the default model.
+      if (info.model) args = [...withoutFlags(args, ['--model']), '--model', info.model];
+      if (info.effort) args = [...withoutFlags(args, ['--effort']), '--effort', info.effort];
       args.unshift('--settings', this.settingsPath);
       if (resumeSessionId) args.push('--resume', resumeSessionId);
       // `--` so a prompt like "- fix login" is never parsed as a CLI option.
       if (prompt) args.push('--', prompt);
     } else if (isOpenCode) {
-      if (resumeSessionId || info.model) args = withoutOpenCodeModel(args);
+      if (resumeSessionId || info.model) args = withoutFlags(args, ['--model', '-m']);
       if (!resumeSessionId && info.model) args.push('--model', info.model);
       if (resumeSessionId) args.push('--session', resumeSessionId);
       if (prompt) args.push('--prompt', prompt);
@@ -1049,6 +1055,7 @@ export class WorkerManager {
     const before = w.info.usage ?? zeroUsage();
     const after = trackerUsage(w.tracker);
     w.info.usage = after;
+    w.info.liveModel = w.tracker.model;
     this.ledger.add(addUsage(after, before, -1));
     this.emitUpdate(w);
     this.persist();
@@ -1201,6 +1208,7 @@ process.stdin.on('end', () => {
       kind: info.kind,
       provider: info.provider,
       model: info.model,
+      effort: info.effort,
       deskId: info.deskId,
       name: info.name,
       color: info.color,
@@ -1245,7 +1253,9 @@ process.stdin.on('end', () => {
           id: s.id,
           kind: s.kind === 'shell' ? 'shell' : 'agent',
           provider,
-          model: provider === 'opencode' && isValidOpenCodeModel(s.model) ? s.model : undefined,
+          model: (provider === 'opencode' && isValidOpenCodeModel(s.model)) || (provider === 'claude' && isClaudeModel(s.model)) ? s.model : undefined,
+          effort: provider === 'claude' && isEffort(s.effort) ? s.effort : undefined,
+          liveModel: tracker.model,
           deskId: s.deskId,
           name: s.name ?? 'Worker',
           color: s.color ?? COLORS[0],
@@ -1307,20 +1317,6 @@ function newWorker(info: WorkerInfo, tracker: UsageTracker, hookToken = randomBy
 /** Where a Codex worker's sessions are logged, for reading its usage. */
 function codexHome(cwd: string, env: NodeJS.ProcessEnv): string {
   return path.resolve(cwd, env.CODEX_HOME || path.join(env.HOME || homedir(), '.codex'));
-}
-
-function withoutOpenCodeModel(args: string[]): string[] {
-  const clean: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === '--model' || arg === '-m') {
-      if (args[i + 1] !== undefined && !args[i + 1].startsWith('-')) i++;
-      continue;
-    }
-    if (arg.startsWith('--model=') || (arg.startsWith('-m') && arg.length > 2)) continue;
-    clean.push(arg);
-  }
-  return clean;
 }
 
 /** The office's environment, minus anything that would make a child think it's a nested session. */

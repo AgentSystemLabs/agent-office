@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, type Run } from '../../shared/protocol';
-import { mesh, roundedBox, toon } from './toon';
+import { mesh, roundedBox, toon, toonUnique } from './toon';
 
 export const TERM_THEME = {
   background: '#1e1f2e',
@@ -149,6 +149,8 @@ export function paintScreen(ctx: CanvasRenderingContext2D, w: number, h: number,
   }
 }
 
+const STICKER = '#ff8a5b';
+
 export class Laptop {
   readonly root = new THREE.Group();
   private canvas = document.createElement('canvas');
@@ -159,6 +161,7 @@ export class Laptop {
   private paintedAt = 0;
   private openT = 0;
   private placeholder = 'booting…';
+  private sticker = toonUnique(STICKER);
 
   constructor() {
     this.canvas.width = 1024;
@@ -185,12 +188,17 @@ export class Laptop {
     screen.position.set(0, 0.25, 0.014);
     this.lid.add(screen);
     // Sticker on the back of the lid
-    const sticker = mesh(new THREE.CircleGeometry(0.07, 20), toon('#ff8a5b'), 0, 0.27, -0.014, false);
+    const sticker = mesh(new THREE.CircleGeometry(0.07, 20), this.sticker, 0, 0.27, -0.014, false);
     sticker.rotation.y = Math.PI;
     this.lid.add(sticker);
     this.lid.rotation.x = Math.PI / 2; // closed; animates open
     paintScreen(this.ctx, this.canvas.width, this.canvas.height, undefined, this.placeholder);
     this.texture.needsUpdate = true;
+  }
+
+  /** The sticker on the back of the lid, in the color of its worker's model; none for the default one. */
+  setSticker(color: string | undefined) {
+    this.sticker.color.set(color ?? STICKER);
   }
 
   setPlaceholder(text: string) {

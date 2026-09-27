@@ -1,9 +1,10 @@
-import type { AgentProvider, QueueTask, Usage } from '../../shared/protocol';
+import type { AgentProvider, QueueTask, Usage, WorkerInfo } from '../../shared/protocol';
+import { CLAUDE_MODELS, EFFORTS, isClaudeModel, isEffort, modelLabel } from '../../shared/models';
 import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, timeAgo, STATUS_LABEL } from './dom';
 import { confirmDialog } from './prompt';
-import { providerPicker, providerLabel, providerUsageState, resolvedProvider } from './provider';
+import { MODEL_STYLE, modelSummary, providerPicker, providerLabel, providerUsageState, resolvedProvider, workerModel } from './provider';
 
 export interface QueueActions {
   openTerminal(workerId: string): void;
@@ -55,16 +56,30 @@ export function openQueue(net: Net, actions: QueueActions) {
   const limit = h('div.queue-limit', { title: 'How many workers the queue keeps busy at once. 0 pauses it.' }, 'Workers at once', minus, limitValue, plus);
   minus.addEventListener('click', () => net.send({ t: 'queue.limit', maxWorkers: store.queue.maxWorkers - 1 }));
   plus.addEventListener('click', () => net.send({ t: 'queue.limit', maxWorkers: store.queue.maxWorkers + 1 }));
+  // What Claude Code tasks run on unless they were given their own model or effort when queued.
+  const defaultModel = h('select.provider-select.model-select', { 'aria-label': 'Queue default Claude model' },
+    h('option', { value: '' }, 'Office default'),
+    ...CLAUDE_MODELS.map((m) => h('option', { value: m }, `${MODEL_STYLE[m].dot} ${modelLabel(m)}`)),
+  ) as HTMLSelectElement;
+  const defaultEffort = h('select.provider-select.effort-select', { 'aria-label': 'Queue default effort' },
+    h('option', { value: '' }, 'Default effort'),
+    ...EFFORTS.map((e) => h('option', { value: e }, e)),
+  ) as HTMLSelectElement;
+  const sendDefaults = () =>
+    net.send({ t: 'queue.model', model: isClaudeModel(defaultModel.value) ? defaultModel.value : undefined, effort: isEffort(defaultEffort.value) ? defaultEffort.value : undefined });
+  defaultModel.addEventListener('change', sendDefaults);
+  defaultEffort.addEventListener('change', sendDefaults);
+  const defaults = h('div.queue-limit.queue-model', { title: 'The Claude model and effort a Claude Code task runs on, unless it was queued with its own' }, 'Claude', defaultModel, defaultEffort);
   const el = h(
     'div.modal',
     { role: 'dialog', 'aria-label': 'Task queue', style: 'width:min(800px,100%)' },
-    h('header', {}, h('h2', {}, '📋 Task queue'), limit, close),
+    h('header', {}, h('h2', {}, '📋 Task queue'), defaults, limit, close),
     body,
     h('footer', {}, h('span.grow', {}, 'The queue keeps going while you are away. Set “workers at once” to 0 to pause it.')),
   );
 
   const ta = h('textarea', { rows: 2, placeholder: 'Describe a task for the next free worker…', 'aria-label': 'New task' }) as HTMLTextAreaElement;
-  const provider = providerPicker(store.project, 'queue-provider', 'Queue provider');
+  const provider = providerPicker(store.project, 'queue-provider', 'Queue provider', { queue: true });
   const addBtn = h('button.btn.primary', { type: 'submit' }, 'Add to queue');
   const form = h('form.queue-add', {}, ta, provider.element, addBtn) as HTMLFormElement;
   form.noValidate = true;
@@ -75,7 +90,7 @@ export function openQueue(net: Net, actions: QueueActions) {
       return;
     }
     if (!provider.valid()) return;
-    net.send({ t: 'queue.add', prompt: text, provider: provider.value(), model: provider.model() });
+    net.send({ t: 'queue.add', prompt: text, provider: provider.value(), model: provider.model(), effort: provider.effort() });
     ta.value = '';
   };
   form.addEventListener('submit', (e) => {
@@ -98,15 +113,18 @@ export function openQueue(net: Net, actions: QueueActions) {
     const w = t.workerId ? store.workers.get(t.workerId) : undefined;
     const meta: string[] = [];
     const buttons: HTMLElement[] = [];
-    const model = t.model ? ` · initial: ${t.model}` : '';
+    // Once seated, what its worker really runs on; before that, what it was queued with.
+    const engine = (w?: WorkerInfo) => {
+      const picked = w ? modelSummary(workerModel(w, store.project), w.effort) : modelSummary(t.model, t.effort);
+      return `⚙️ ${providerLabel(t.provider ?? w?.provider, store.project)}${picked ? ` · ${picked}` : ''}`;
+    };
     const usageSuffix = (provider: AgentProvider | undefined, usage?: Usage) => {
       const state = providerUsageState(provider, store.project, usage);
       return state === 'untracked' ? ' · usage untracked' : state === 'waiting' && resolvedProvider(provider, store.project) === 'opencode' ? ' · waiting for metrics' : state === 'waiting' && resolvedProvider(provider, store.project) === 'codex' ? ' · waiting for first report' : '';
     };
     let pos: string | null = null;
     if (t.status === 'running') {
-      const selectedProvider = providerLabel(t.provider ?? w?.provider, store.project);
-      meta.push(`⚙️ ${selectedProvider}${model}${usageSuffix(t.provider ?? w?.provider, w?.usage)}`);
+      meta.push(`${engine(w)}${usageSuffix(t.provider ?? w?.provider, w?.usage)}`);
       meta.push(`${t.workerName ?? 'a worker'} · ${w ? STATUS_LABEL[w.status] ?? w.status : 'gone'}`);
       if (t.branch) meta.push(`🌿 ${t.branch}`);
       if (t.startedAt) meta.push(`started ${timeAgo(t.startedAt)}`);
@@ -125,13 +143,13 @@ export function openQueue(net: Net, actions: QueueActions) {
       const queued = store.queue.tasks.filter((x) => x.status === 'queued');
       const i = queued.indexOf(t);
       pos = String(i + 1);
-      meta.push(`⚙️ ${providerLabel(t.provider, store.project)}${model}${usageSuffix(t.provider, w?.usage)}`);
+      meta.push(`${engine()}${usageSuffix(t.provider, w?.usage)}`);
       meta.push(`added by ${t.addedBy} ${timeAgo(t.addedAt)}`);
       buttons.push(h('button.btn', { type: 'button', title: 'Move up', 'aria-label': 'Move up', disabled: i === 0, onclick: () => net.send({ t: 'queue.move', taskId: t.id, delta: -1 }) }, '↑'));
       buttons.push(h('button.btn', { type: 'button', title: 'Move down', 'aria-label': 'Move down', disabled: i === queued.length - 1, onclick: () => net.send({ t: 'queue.move', taskId: t.id, delta: 1 }) }, '↓'));
       buttons.push(h('button.btn', { type: 'button', title: 'Remove from the queue', 'aria-label': 'Remove', onclick: () => net.send({ t: 'queue.remove', taskId: t.id }) }, '✕'));
     } else {
-      meta.push(`⚙️ ${providerLabel(t.provider, store.project)}${model}${usageSuffix(t.provider, w?.usage)}`);
+      meta.push(`${engine(w)}${usageSuffix(t.provider, w?.usage)}`);
       meta.push(outcome(t));
       if (t.workerName) meta.push(t.workerName);
       if (t.branch) meta.push(`🌿 ${t.branch}`);
@@ -157,6 +175,10 @@ export function openQueue(net: Net, actions: QueueActions) {
   const render = () => {
     const q = store.queue;
     limitValue.textContent = q.maxWorkers === 0 ? 'Paused' : String(q.maxWorkers);
+    // Not while someone's picking in them (a queue update would snap the choice back).
+    if (document.activeElement !== defaultModel) defaultModel.value = q.model ?? '';
+    if (document.activeElement !== defaultEffort) defaultEffort.value = q.effort ?? '';
+    provider.refresh();
     minus.toggleAttribute('disabled', q.maxWorkers <= 0);
     const running = q.tasks.filter((t) => t.status === 'running');
     const queued = q.tasks.filter((t) => t.status === 'queued');

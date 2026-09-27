@@ -76,6 +76,9 @@ button { font-family: inherit; }
 .workers h3 .cost { margin-left: auto; font-size: 12px; text-transform: none; letter-spacing: 0; }
 .workers .cost { font-size: 11px; font-weight: 800; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .workers .name .cost { display: block; white-space: normal; overflow-wrap: anywhere; }
+/* The model a worker runs on, in its headset's color */
+.model-chip { display: inline-block; margin-left: 5px; padding: 0 6px; border-radius: 999px; border: 1.5px solid var(--ink); background: var(--c, #e9ecef); color: #fff; font-size: 10px; font-weight: 900; line-height: 15px; vertical-align: 1px; text-shadow: 0 1px 0 rgba(0, 0, 0, .35); }
+.model-chip.plain { background: #e9ecef; color: var(--ink); text-shadow: none; }
 /* Spend: today, the budget and all time */
 .usage { margin-top: 8px; padding-top: 8px; border-top: 2px dashed rgba(43, 45, 66, .25); font-size: 12px; font-weight: 700; display: flex; flex-direction: column; gap: 5px; }
 .usage .row { display: flex; align-items: baseline; gap: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -187,6 +190,11 @@ button { font-family: inherit; }
 .provider-model input { width: 100%; padding: 6px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; }
 .provider-model input:invalid { border-color: var(--bad); }
 .provider-model-hint { color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1.25; }
+.provider-claude { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
+.provider-claude label { font-size: 12px; }
+.provider-select.model-select { min-width: 118px; }
+.provider-select.effort-select { min-width: 92px; }
+.queue-model .provider-select { min-width: 0; padding: 2px 6px; font-size: 12px; }
 .queue-add .provider-choice { flex-direction: column; align-items: flex-start; gap: 2px; margin: 0; flex: none; }
 .queue-add .provider-choice label { font-size: 12px; }
 .queue-add .provider-note { flex: 0 1 auto; max-width: 155px; }

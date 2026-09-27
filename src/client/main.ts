@@ -5,6 +5,7 @@ import { sameLook } from '../shared/avatar';
 import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, seatAt, seatPlace, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
 import type { AgentProvider, GongWhy, PeerInfo, WorkerInfo } from '../shared/protocol';
+import { modelLabel, type Effort } from '../shared/models';
 import { isAsleep, isBusy } from '../shared/status';
 import { Net } from './net';
 import { store, loadProfile, loadSettings, saveSettings, workerForPull, type Profile, type Topic } from './state';
@@ -44,7 +45,7 @@ import { openCharacter } from './ui/character';
 import { openSettings } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 import { elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
-import { providerLabel, resolvedProvider } from './ui/provider';
+import { modelColor, providerLabel, resolvedProvider, workerModel } from './ui/provider';
 import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
 import { renderLimits } from './ui/limits';
 import { openJukebox } from './ui/jukebox';
@@ -614,6 +615,9 @@ function syncWorkers() {
       noOutline(v.model.root);
     }
     v.model.setTask(w.task && w.kind === 'agent' ? { ...w.task, name: `${providerLabel(w.provider, store.project)} · ${w.task.name}` } : w.task);
+    const runsOn = workerModel(w, store.project);
+    v.model.setModel(runsOn && modelLabel(runsOn), modelColor(runsOn));
+    v.laptop.setSticker(modelColor(runsOn));
     const deskDef = DESK_BY_ID.get(w.deskId);
     if (deskDef) sound.setTyping(w.id, deskDef.x, deskDef.z, w.status === 'working');
     const again = w.kind === 'shell' ? 'restart' : 'resume';
@@ -674,8 +678,8 @@ function freeDesk(): string | null {
 
 let askedToNotify = false;
 
-function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string) {
-  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model });
+function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string, effort?: Effort) {
+  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort });
   // The moment notifications start to matter: ask once (it has to come from a key press or click).
   if (settings.notify && notifyPermission() === 'default' && !askedToNotify) {
     askedToNotify = true;
@@ -697,7 +701,7 @@ function promptAtDesk(deskId: string) {
       submitLabel: 'Hire & start',
       providerOption: true,
       worktreeOption: !!store.project?.branch,
-      onSubmit: (text, o) => hire(deskId, text, o.worktree, o.provider, o.model),
+      onSubmit: (text, o) => hire(deskId, text, o.worktree, o.provider, o.model, o.effort),
     });
   } else if (isAsleep(w.status)) {
     toast(`${w.name} is asleep — press R to resume first`, 'warn');
@@ -728,7 +732,7 @@ function hireAtDesk(deskId: string) {
     allowEmpty: true,
     providerOption: true,
     worktreeOption: !!store.project?.branch,
-    onSubmit: (text, o) => hire(deskId, text || undefined, o.worktree, o.provider, o.model),
+    onSubmit: (text, o) => hire(deskId, text || undefined, o.worktree, o.provider, o.model, o.effort),
   });
 }
 
@@ -866,16 +870,16 @@ function sendToWorker(title: string, text: { context?: string; initial?: string 
     workers: awake.map((w) => ({ id: w.id, name: w.name, color: w.color, status: w.status })),
     worktreeOption: !!store.project?.branch,
     providerOption: true,
-    onSubmit: (prompt, to, worktree, provider, model) => {
+    onSubmit: (prompt, to, worktree, provider, model, effort) => {
       if (to) net.send({ t: 'worker.prompt', workerId: to, prompt });
-      else if (desk) hire(desk, prompt, worktree, provider, model);
+      else if (desk) hire(desk, prompt, worktree, provider, model, effort);
     },
   });
 }
 
 function boardActions() {
   return {
-    queue: (prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string) => net.send({ t: 'queue.add', prompt, title, issue, provider, model }),
+    queue: (prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string, effort?: Effort) => net.send({ t: 'queue.add', prompt, title, issue, provider, model, effort }),
     assign: (prompt: string, title: string) => sendToWorker(`🤖 ${title}`, { initial: prompt }),
     ask: (context: string, title: string) => sendToWorker(`✍️ ${title}`, { context }),
     goToDesk,

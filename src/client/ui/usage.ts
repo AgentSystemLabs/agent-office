@@ -1,7 +1,8 @@
 import type { AgentProvider, Usage } from '../../shared/protocol';
 import { store } from '../state';
 import { $, h } from './dom';
-import { providerUsageState, providerUsageTracked, resolvedProvider } from './provider';
+import { modelLabel, modelFamily } from '../../shared/models';
+import { MODEL_STYLE, providerUsageState, providerUsageTracked, resolvedProvider, workerModel } from './provider';
 
 export const tokensOf = (u: Usage) => u.totalTokens ?? (u.input + u.output + (u.reasoning ?? 0) + u.cacheWrite + u.cacheRead);
 
@@ -86,9 +87,21 @@ export function renderUsage() {
   let currentCodexIncomplete = false;
   let codexWaiting = false;
   let untracked = false;
+  /** Claude Code's current desks, by the model each runs on: what a cheaper model saves shows here. */
+  const byModel = new Map<string, { cost: number; tokens: number; workers: number; dot: string }>();
   for (const w of store.workers.values()) {
     if (w.kind !== 'agent') continue;
     const provider = resolvedProvider(w.provider, store.project);
+    const model = provider === 'claude' ? workerModel(w, store.project) : undefined;
+    if (model && w.usage && w.usage.costKnown !== false) {
+      const label = modelLabel(model);
+      const family = modelFamily(model);
+      const row = byModel.get(label) ?? { cost: 0, tokens: 0, workers: 0, dot: family ? MODEL_STYLE[family].dot : '⚪' };
+      row.cost += w.usage.cost;
+      row.tokens += tokensOf(w.usage);
+      row.workers++;
+      byModel.set(label, row);
+    }
     const state = providerUsageState(provider, store.project, w.usage);
     if (state === 'untracked') untracked = true;
     if (provider === 'opencode') {
@@ -153,6 +166,16 @@ export function renderUsage() {
     rows.push(h('div.budget', { class: over ? 'over' : pct >= 80 ? 'near' : '', title: state, role: 'progressbar', 'aria-valuenow': Math.round(pct) }, h('div.fill', { style: `width:${pct}%` })));
   }
   if (s.total.calls > 0 || s.budget !== undefined) rows.push(h('div.row.muted', { title: usageTitle(s.total, 'claude') }, `Claude Code all time ${displayedCost(s.total)} · ${fmtTokens(tokensOf(s.total))} tokens`));
+  if (byModel.size) {
+    const models = [...byModel].sort((a, b) => b[1].cost - a[1].cost);
+    rows.push(
+      h(
+        'div.row.muted.by-model',
+        { title: models.map(([label, m]) => `${label}: ${fmtCost(m.cost)} · ${fmtTokens(m.tokens)} tokens · ${m.workers} worker${m.workers === 1 ? '' : 's'}`).join('\n') },
+        `By model: ${models.map(([label, m]) => `${m.dot} ${label} ${fmtCost(m.cost)}`).join(' · ')}`,
+      ),
+    );
+  }
   if (currentOpenCodeReports > 0) {
     const amount = currentOpenCodeCostUnknown ? 'cost unavailable' : `${fmtCost(currentOpenCodeCost)} reported`;
     rows.push(

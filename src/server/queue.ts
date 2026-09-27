@@ -3,14 +3,15 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { isAgentProvider, type AgentProvider, type GhPull, type QueueState, type QueueTask, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
 import { DESK_BY_ID, SEATS, nextFreeSeat } from '../shared/layout.js';
-import { isValidOpenCodeModel, validateWorkerModel } from './agents.js';
+import { isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel } from './agents.js';
+import { isClaudeModel, isEffort, type Effort } from '../shared/models.js';
 
 /** What the queue needs from the worker manager. Narrow on purpose, so a smoke test can fake it. */
 export interface QueueWorkers {
   readonly defaultProvider: AgentProvider;
   list(): WorkerInfo[];
   deskOccupied(deskId: string): boolean;
-  spawn(deskId: string, by: string, prompt: string, worktree: boolean, kind: 'agent', provider: AgentProvider, model?: string): WorkerInfo | string;
+  spawn(deskId: string, by: string, prompt: string, worktree: boolean, kind: 'agent', provider: AgentProvider, model?: string, effort?: Effort): WorkerInfo | string;
   /** Resolves with a line about what became of the worker's worktree. */
   kill(id: string): Promise<{ note?: string; error?: string }>;
 }
@@ -47,6 +48,9 @@ const WORKTREE_NOTE = "\n\nYou're in your own git worktree, on a fresh branch ma
 export class TaskQueue {
   private tasks: QueueTask[] = [];
   private maxWorkers = DEFAULT_MAX_WORKERS;
+  /** What a Claude Code task runs on when it wasn't given its own model or effort. */
+  private model?: string;
+  private effort?: Effort;
   private statePath: string;
   private timer: NodeJS.Timeout;
   private pumping = false;
@@ -68,16 +72,16 @@ export class TaskQueue {
   }
 
   state(): QueueState {
-    return { tasks: this.tasks.map((t) => ({ ...t })), maxWorkers: this.maxWorkers };
+    return { tasks: this.tasks.map((t) => ({ ...t })), maxWorkers: this.maxWorkers, model: this.model, effort: this.effort };
   }
 
   get limit(): number {
     return this.maxWorkers;
   }
 
-  add(prompt: string, by: string, title?: string, issue?: number, provider: AgentProvider = this.workers.defaultProvider, model?: string): string | undefined {
+  add(prompt: string, by: string, title?: string, issue?: number, provider: AgentProvider = this.workers.defaultProvider, model?: string, effort?: Effort): string | undefined {
     if (!isAgentProvider(provider) || (provider === 'custom' && this.workers.defaultProvider !== 'custom')) return 'Unknown agent provider';
-    const modelError = validateWorkerModel('agent', provider, model);
+    const modelError = validateWorkerModel('agent', provider, model) ?? validateWorkerEffort('agent', provider, effort);
     if (modelError) return modelError;
     const clean = prompt.replace(/\r\n?/g, '\n').trim();
     if (!clean) return 'Empty task';
@@ -86,7 +90,8 @@ export class TaskQueue {
     const task: QueueTask = {
       id: randomBytes(6).toString('hex'),
       provider,
-      model: provider === 'opencode' ? model : undefined,
+      model,
+      effort,
       issue,
       title: (title?.trim() || firstLine(clean)).slice(0, 120),
       prompt: clean,
@@ -139,7 +144,7 @@ export class TaskQueue {
     if (t.status !== 'done') return 'That task is still on the queue';
     if (t.issue !== undefined && this.tasks.some((x) => x !== t && x.issue === t.issue && x.status !== 'done')) return `Issue #${t.issue} is already on the queue`;
     this.tasks.splice(this.tasks.indexOf(t), 1);
-    const fresh: QueueTask = { id: t.id, provider: t.provider, model: t.model, issue: t.issue, title: t.title, prompt: t.prompt, addedBy: t.addedBy, addedAt: Date.now(), status: 'queued' };
+    const fresh: QueueTask = { id: t.id, provider: t.provider, model: t.model, effort: t.effort, issue: t.issue, title: t.title, prompt: t.prompt, addedBy: t.addedBy, addedAt: Date.now(), status: 'queued' };
     this.tasks.push(fresh);
     this.changed();
     this.pump();
@@ -151,6 +156,17 @@ export class TaskQueue {
     const before = this.tasks.length;
     this.tasks = this.tasks.filter((t) => t.status !== 'done');
     if (this.tasks.length !== before) this.changed();
+  }
+
+  /** The Claude model and effort for tasks that weren't given their own; undefined is the office's default. */
+  setDefaults(model: string | undefined, effort: Effort | undefined): string | undefined {
+    const error = validateWorkerModel('agent', 'claude', model) ?? validateWorkerEffort('agent', 'claude', effort);
+    if (error) return error;
+    if (model === this.model && effort === this.effort) return undefined;
+    this.model = model;
+    this.effort = effort;
+    this.changed();
+    return undefined;
   }
 
   setLimit(n: number) {
@@ -291,7 +307,18 @@ export class TaskQueue {
       if (this.events.hiringPaused()) break;
       const desk = this.freeDesk() ?? this.recycleDesk();
       if (!desk) break;
-      const r = this.workers.spawn(desk, `${t.addedBy} (queue)`, t.prompt + (this.useWorktree ? WORKTREE_NOTE : ''), this.useWorktree, 'agent', t.provider ?? this.workers.defaultProvider, t.model);
+      const provider = t.provider ?? this.workers.defaultProvider;
+      const claude = provider === 'claude';
+      const r = this.workers.spawn(
+        desk,
+        `${t.addedBy} (queue)`,
+        t.prompt + (this.useWorktree ? WORKTREE_NOTE : ''),
+        this.useWorktree,
+        'agent',
+        provider,
+        t.model ?? (claude ? this.model : undefined),
+        t.effort ?? (claude ? this.effort : undefined),
+      );
       changed = true;
       if (typeof r === 'string') {
         t.status = 'done';
@@ -326,7 +353,7 @@ export class TaskQueue {
 
   private persist() {
     try {
-      writeFileSync(this.statePath, JSON.stringify({ maxWorkers: this.maxWorkers, tasks: this.tasks }, null, 2), { mode: 0o600 });
+      writeFileSync(this.statePath, JSON.stringify({ maxWorkers: this.maxWorkers, model: this.model, effort: this.effort, tasks: this.tasks }, null, 2), { mode: 0o600 });
     } catch {
       // disk issues shouldn't take the office down
     }
@@ -335,15 +362,18 @@ export class TaskQueue {
   private restore() {
     if (!existsSync(this.statePath)) return;
     try {
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { maxWorkers?: number; tasks?: Partial<QueueTask>[] };
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { maxWorkers?: number; model?: unknown; effort?: unknown; tasks?: Partial<QueueTask>[] };
       if (typeof saved.maxWorkers === 'number' && Number.isFinite(saved.maxWorkers)) this.maxWorkers = Math.max(0, Math.min(SEATS.length, Math.floor(saved.maxWorkers)));
+      if (isClaudeModel(saved.model)) this.model = saved.model;
+      if (isEffort(saved.effort)) this.effort = saved.effort;
       for (const s of saved.tasks ?? []) {
         if (typeof s.id !== 'string' || typeof s.prompt !== 'string' || typeof s.title !== 'string') continue;
         const provider = isAgentProvider(s.provider) ? s.provider : this.workers.defaultProvider;
         const t: QueueTask = {
           id: s.id,
           provider,
-          model: provider === 'opencode' && isValidOpenCodeModel(s.model) ? s.model : undefined,
+          model: (provider === 'opencode' && isValidOpenCodeModel(s.model)) || (provider === 'claude' && isClaudeModel(s.model)) ? s.model : undefined,
+          effort: provider === 'claude' && isEffort(s.effort) ? s.effort : undefined,
           issue: typeof s.issue === 'number' ? s.issue : undefined,
           title: s.title,
           prompt: s.prompt,

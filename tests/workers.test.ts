@@ -6,6 +6,7 @@ import path from 'node:path';
 import { Ledger } from '../src/server/usage.js';
 import { WorkerManager, type WorkerEvents } from '../src/server/workers.js';
 import type { AgentProvider, WorkerInfo } from '../src/shared/protocol.js';
+import type { Effort } from '../src/shared/models.js';
 
 type Invocation = {
   kind: string;
@@ -395,15 +396,101 @@ test('OpenCode keeps configured model flags when no explicit model is selected, 
   assert.ok(resumed.args.includes('--keep'));
 });
 
-test('workers reject models for non-OpenCode providers and malformed model ids', (t) => {
+test('workers reject models and efforts their provider cannot take', (t) => {
   const f = fixture();
   t.after(() => f.close());
   const workers = manager(f, f.claude, []);
   t.after(() => workers.shutdown());
-  assert.match(workers.spawn('desk-1', 'test', 'bad', false, 'agent', 'claude', 'openai/gpt-5') as string, /model|OpenCode/i);
+  assert.match(workers.spawn('desk-1', 'test', 'bad', false, 'agent', 'claude', 'openai/gpt-5') as string, /model/i);
+  assert.match(workers.spawn('desk-1', 'test', 'bad', false, 'agent', 'claude', 'opus --dangerously-skip-permissions') as string, /model/i);
+  assert.match(workers.spawn('desk-1', 'test', 'bad', false, 'agent', 'codex', 'opus') as string, /model/i);
   assert.match(workers.spawn('desk-2', 'test', 'bad', false, 'agent', 'opencode', 'gpt-5') as string, /model|format|provider/i);
   assert.match(workers.spawn('desk-3', 'test', 'bad', false, 'agent', 'opencode', 'openai/gpt 5') as string, /model|format|whitespace/i);
   assert.match(workers.spawn('desk-4', 'test', 'bad', false, 'shell', undefined, 'openai/gpt-5') as string, /shell|model/i);
+  assert.match(workers.spawn('desk-4', 'test', 'bad', false, 'agent', 'claude', 'haiku', 'huge' as Effort) as string, /effort/i);
+  assert.match(workers.spawn('desk-4', 'test', 'bad', false, 'agent', 'opencode', undefined, 'low') as string, /effort/i);
+  assert.equal(workers.list().length, 0);
+});
+
+test('Claude workers run on their own model and effort instead of --agent-args, on a resume too', async (t) => {
+  const f = fixture();
+  const updates: WorkerInfo[] = [];
+  isolateProviderEnvironment(f, t);
+  const previousExit = process.env.FAKE_AGENT_EXIT_MS;
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_EXIT_MS = '180';
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousExit === undefined) delete process.env.FAKE_AGENT_EXIT_MS;
+    else process.env.FAKE_AGENT_EXIT_MS = previousExit;
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+
+  const workers = manager(f, f.claude, updates, ['--model', 'opus', '--keep', '--effort=high']);
+  t.after(() => workers.shutdown());
+  const launches = () => f.read().filter((r) => r.kind === 'claude' && r.args.includes('--settings') && r.stdin === undefined);
+  const haiku = workers.spawn('desk-1', 'test', 'lint fix', false, 'agent', 'claude', 'haiku', 'low');
+  const plain = workers.spawn('desk-2', 'test', 'big refactor');
+  assert.equal(typeof haiku, 'object');
+  assert.equal(typeof plain, 'object');
+  if (typeof haiku === 'string' || typeof plain === 'string') return;
+  assert.equal(haiku.model, 'haiku');
+  assert.equal(haiku.effort, 'low');
+  await waitFor(launches, (records) => records.length >= 2);
+  const byWorker = (id: string) => launches().filter((r) => r.env.workerId === id);
+  const [first] = byWorker(haiku.id);
+  assert.deepEqual(first.args.filter((a) => a !== '--settings' && !a.endsWith('claude-hooks.json')), ['--keep', '--model', 'haiku', '--effort', 'low', '--', 'lint fix']);
+  // Without a pick, --agent-args decides.
+  const [other] = byWorker(plain.id);
+  assert.ok(other.args.includes('opus'));
+  assert.ok(other.args.includes('--effort=high'));
+
+  assert.equal(workers.handleHook(haiku.id, first.env.hookToken!, 'SessionStart', { session_id: 'haiku-session' }), true);
+  await waitFor(() => workers.get(haiku.id)?.status, (status) => status === 'exited');
+  assert.equal(workers.resume(haiku.id), undefined);
+  await waitFor(() => byWorker(haiku.id), (records) => records.length >= 2);
+  const resumed = byWorker(haiku.id)[1];
+  assert.deepEqual(resumed.args.filter((a) => a !== '--settings' && !a.endsWith('claude-hooks.json')), ['--keep', '--model', 'haiku', '--effort', 'low', '--resume', 'haiku-session']);
+});
+
+test('a Claude worker shows the model its transcript says it runs on, and keeps its pick over a restart', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+  const updates: WorkerInfo[] = [];
+  const workers = manager(f, f.claude, updates);
+  const worker = workers.spawn('desk-1', 'test', 'task', false, 'agent', 'claude', 'sonnet', 'max');
+  assert.equal(typeof worker, 'object');
+  if (typeof worker === 'string') return;
+  const launched = await waitFor(() => f.read(), (records) => records.some((r) => r.env.workerId === worker.id));
+  const token = launched.find((r) => r.env.workerId === worker.id)!.env.hookToken!;
+  const transcript = path.join(f.root, 'session.jsonl');
+  const reply = (id: string, model: string) => JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(), message: { id, model, usage: { input_tokens: 10, output_tokens: 5 } } }) + '\n';
+  writeFileSync(transcript, reply('a', 'claude-sonnet-5') + reply('b', '<synthetic>'));
+  // A subagent on another model doesn't change what the worker itself runs on.
+  mkdirSync(path.join(f.root, 'session', 'subagents'), { recursive: true });
+  writeFileSync(path.join(f.root, 'session', 'subagents', 'agent-1.jsonl'), reply('c', 'claude-haiku-4-5-20251001'));
+  assert.equal(workers.handleHook(worker.id, token, 'Stop', { session_id: 's', transcript_path: transcript }), true);
+  await waitFor(() => workers.get(worker.id)?.liveModel, (m) => m === 'claude-sonnet-5');
+  appendFileSync(transcript, reply('d', 'claude-opus-5-5'));
+  assert.equal(workers.handleHook(worker.id, token, 'Stop', { session_id: 's', transcript_path: transcript }), true);
+  await waitFor(() => workers.get(worker.id)?.liveModel, (m) => m === 'claude-opus-5-5');
+  workers.shutdown();
+
+  const restored = manager(f, f.claude, []);
+  t.after(() => restored.shutdown());
+  const back = restored.get(worker.id);
+  assert.equal(back?.model, 'sonnet');
+  assert.equal(back?.effort, 'max');
+  assert.equal(back?.liveModel, 'claude-opus-5-5');
 });
 
 test('provider and hook boundaries reject invalid combinations', async (t) => {

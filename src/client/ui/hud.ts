@@ -2,8 +2,9 @@ import { BUZZ_SECONDS, type Caffeine } from '../caffeine';
 import { store } from '../state';
 import type { Voice } from '../voice';
 import { $, h, openModal, STATUS_LABEL } from './dom';
+import type { WorkerInfo } from '../../shared/protocol';
 import { usageLabel, usageTitle } from './usage';
-import { providerLabel, providerUsageState, resolvedProvider } from './provider';
+import { modelColor, modelSummary, providerLabel, providerUsageState, resolvedProvider, workerModel } from './provider';
 
 export function renderPeople(voice: Voice, onEditProfile: () => void) {
   const ul = $('people');
@@ -38,6 +39,16 @@ export function updateSpeaking(voice: Voice) {
   }
 }
 
+/** The model a worker runs on, in the color its headset wears in the office. */
+function modelChip(w: WorkerInfo): HTMLElement | null {
+  const model = workerModel(w, store.project);
+  const text = modelSummary(model, w.effort);
+  if (!text) return null;
+  const color = modelColor(model);
+  const title = `${model ? `Runs on ${model}` : 'Runs on the default model'}${w.effort ? ` at ${w.effort} effort` : ''}`;
+  return h(`span.model-chip${color ? '' : '.plain'}`, { style: color && `--c:${color}`, title }, text);
+}
+
 export function renderWorkers(onOpen: (id: string) => void) {
   const ul = $('workers');
   ul.replaceChildren();
@@ -53,7 +64,7 @@ export function renderWorkers(onOpen: (id: string) => void) {
         'li',
         { onclick: () => onOpen(w.id), title: `Open ${w.name}'s terminal` },
         h('span.dot', { style: `background:${w.color}` }),
-        h('span.name', {}, w.name, sub ? h('span.sub', {}, sub) : null,
+        h('span.name', {}, w.name, modelChip(w), sub ? h('span.sub', {}, sub) : null,
           usageState === 'tracked' && w.usage ? h('span.cost', { title: usageTitle(w.usage, providerKind) }, usageLabel(w.usage, providerKind)) : null),
         h('span.pill', { class: w.status }, STATUS_LABEL[w.status] ?? w.status),
       ),
@@ -104,6 +115,7 @@ export function openHelp() {
     ['🎉', 'The gong next to the PR board rings, and confetti flies over the desk, whenever a pull request merges. Walk up and press E to bang it yourself'],
     ['Drag / wheel', 'Orbit and zoom the camera in third person'],
     ['P', 'Prompt: give a task to a new or existing worker at the desk you face'],
+    ['🎧', "When you hire a Claude Code worker, pick its model and effort (a small job doesn't need the biggest model). Its headset and laptop sticker show which: 🟣 Fable, 🟠 Opus, 🔵 Sonnet, 🟢 Haiku"],
     ['C', 'Changes: what the worker at the desk you face changed — files and diff, commit, discard, open a PR'],
     ['B', 'Open a shared shell (dev servers, git, tests) at an empty desk'],
     ['R', 'Resume a sleeping worker'],

@@ -499,6 +499,9 @@ const TASK_CHIP: Record<string, [string, string, string]> = {
   offline: ['💤 ASLEEP', STATUS_BULB.offline, '#ffffff'],
 };
 
+/** A worker's headset, until it wears its model's color. */
+const HEADSET = '#2b2d42';
+
 /** The little Claude worker that sits at a desk. Forward is +z. */
 export class Worker {
   readonly root = new THREE.Group();
@@ -512,6 +515,9 @@ export class Worker {
   /** The bubble is a task card: it hangs from its tail instead of floating. */
   private bubbleIsCard = false;
   private task: WorkerTask | undefined;
+  /** The model it runs on, for its task card; its headset wears the model's color. */
+  private modelName: string | undefined;
+  private headset = toonUnique(HEADSET);
   private nameTag: THREE.Sprite | null = null;
   private eyes: THREE.Mesh[] = [];
   private blinkAt = Math.random() * 4;
@@ -550,10 +556,10 @@ export class Worker {
       this.pupils.push(pupil);
     }
     // Headset: band + mic
-    const band = mesh(new THREE.TorusGeometry(0.29, 0.025, 6, 20, Math.PI), toon('#2b2d42'), 0, 0.72, 0, false);
+    const band = mesh(new THREE.TorusGeometry(0.29, 0.025, 6, 20, Math.PI), this.headset, 0, 0.72, 0, false);
     band.rotation.y = Math.PI / 2;
     this.body.add(band);
-    for (const sx of [-1, 1]) this.body.add(mesh(new THREE.SphereGeometry(0.07, 10, 8), toon('#2b2d42'), sx * 0.29, 0.72, 0, false));
+    for (const sx of [-1, 1]) this.body.add(mesh(new THREE.SphereGeometry(0.07, 10, 8), this.headset, sx * 0.29, 0.72, 0, false));
     // Antenna with status bulb
     this.body.add(mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.22, 6), toon('#2b2d42'), 0, 1.07, 0, false));
     this.bulb = toonUnique(STATUS_BULB.starting);
@@ -609,6 +615,14 @@ export class Worker {
     this.drawBubble();
   }
 
+  /** The model it runs on (e.g. "Haiku 4.5") and that model's color, for its headset; none for the default look. */
+  setModel(name: string | undefined, color: string | undefined) {
+    this.headset.color.set(color ?? HEADSET);
+    if (name === this.modelName) return;
+    this.modelName = name;
+    this.drawBubble();
+  }
+
   /** Sent home: its light goes out, its face falls, and its things pop into a box in its arms. `farewell` goes over its head. */
   leave(farewell: string) {
     if (this.leaving) return;
@@ -647,7 +661,7 @@ export class Worker {
     const bg = hot ? (status === 'done' ? '#caffbf' : '#ffd6e0') : status === 'working' ? '#ffec99' : '#fffaf3';
     const bubble =
       status === 'needs_input' ? '❗ needs you' : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤' : '';
-    const key = task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble;
+    const key = task ? `${status}|${bounce}|${task.name}|${task.summary}|${this.modelName}` : bubble;
     if (key === this.bubbleKey) return;
     this.bubbleKey = key;
     if (this.bubble) {
@@ -657,7 +671,8 @@ export class Worker {
     }
     this.bubbleIsCard = !!task;
     if (task) {
-      const [text, chipBg, color] = TASK_CHIP[status] ?? TASK_CHIP.idle;
+      const [chip, chipBg, color] = TASK_CHIP[status] ?? TASK_CHIP.idle;
+      const text = this.modelName ? `${chip} · ${this.modelName.toUpperCase()}` : chip;
       this.bubble = cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: task.summary, bg: isAsleep(status) ? '#e9ecef' : bg });
     } else if (bubble) this.bubble = textSprite(bubble, { bg, size: 38 });
     if (this.bubble) this.root.add(this.bubble);

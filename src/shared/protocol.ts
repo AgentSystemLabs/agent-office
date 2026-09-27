@@ -3,6 +3,7 @@
 import type { Look } from './avatar.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
+import type { Effort } from './models.js';
 import type { JukeboxState } from './jukebox.js';
 import type { WbElement, WbPointer, WhiteboardView } from './whiteboard.js';
 
@@ -34,8 +35,18 @@ export interface WorkerInfo {
   /** 'agent' runs the selected provider; 'shell' is a plain shared login shell. */
   kind: WorkerKind;
   provider?: AgentProvider;
-  /** Initial OpenCode model selected for this worker, when one was requested. */
+  /**
+   * The model it was hired on, when one was picked: a Claude Code alias like `haiku`, or an
+   * OpenCode provider/model. Without one it runs on the configured default.
+   */
   model?: string;
+  /** Claude Code's reasoning effort, when one was picked. */
+  effort?: Effort;
+  /**
+   * The model its latest reply came from, off its transcript (Claude Code only): what it really
+   * runs on, on the default too, or after a /model in its terminal.
+   */
+  liveModel?: string;
   deskId: string;
   name: string;
   color: string;
@@ -223,8 +234,10 @@ export type TaskStatus = 'queued' | 'running' | 'done';
 export interface QueueTask {
   id: string;
   provider?: AgentProvider;
-  /** Initial OpenCode model selected for this task, when one was requested. */
+  /** The model picked for this task (see WorkerInfo.model); without one, the queue's default. */
   model?: string;
+  /** Claude Code's reasoning effort picked for this task; without one, the queue's default. */
+  effort?: Effort;
   /** The GitHub issue it came from, when it did. */
   issue?: number;
   title: string;
@@ -250,6 +263,9 @@ export interface QueueState {
   tasks: QueueTask[];
   /** How many workers the queue may keep busy at once; 0 pauses it. */
   maxWorkers: number;
+  /** The Claude model and effort a Claude Code task gets when it wasn't given its own. */
+  model?: string;
+  effort?: Effort;
 }
 
 /** Where a team webhook posts: Slack and Discord get their own message format, anything else plain JSON. */
@@ -360,6 +376,9 @@ export interface ProjectInfo {
   agentCmd: string;
   defaultProvider: AgentProvider;
   agentProviders: AgentProvider[];
+  /** The model and effort `--agent-args` gives Claude Code workers, when it's the configured agent. */
+  defaultModel?: string;
+  defaultEffort?: string;
 }
 
 /**
@@ -635,7 +654,7 @@ export type ClientMsg =
   /** You sat down in a place on a couch, a beanbag, a chair or the bench (see seatAt in layout), or got up again (no seat). */
   | { t: 'sit'; seat?: string }
   | { t: 'profile'; name: string; color: string; look: Look }
-  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string }
+  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: Effort }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
@@ -661,7 +680,7 @@ export type ClientMsg =
   | { t: 'gong' }
   /** Close an issue, or a pull request without merging it; the answer comes back as gh.closed. */
   | { t: 'gh.close'; kind: 'issue' | 'pull'; number: number; comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }
-  | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string }
+  | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string; effort?: Effort }
   | { t: 'queue.remove'; taskId: string }
   /** Move a queued task up (-1) or down (+1) the queue. */
   | { t: 'queue.move'; taskId: string; delta: number }
@@ -670,6 +689,8 @@ export type ClientMsg =
   /** Forget the finished tasks. */
   | { t: 'queue.clear' }
   | { t: 'queue.limit'; maxWorkers: number }
+  /** The queue's default Claude model and effort; leave one out for the office's own default. */
+  | { t: 'queue.model'; model?: string; effort?: Effort }
   /** Set the office's Slack / Discord webhook; '' removes it. */
   | { t: 'notify.webhook'; url: string }
   /** Post a test message through the webhook; the outcome comes back as a toast. */

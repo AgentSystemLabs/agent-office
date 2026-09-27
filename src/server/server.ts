@@ -32,6 +32,7 @@ import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
+import { modelLabel, type Effort } from '../shared/models.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -988,7 +989,9 @@ export async function startServer(cfg: Config) {
           break;
         }
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
-        const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model);
+        // Checked against the known levels by spawn.
+        const effort = msg.effort === undefined ? undefined : (str(msg.effort, 16) as Effort);
+        const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort);
         if (typeof r === 'string') warn(c, r);
         else toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${r.prompt ? ' with a task' : ''}`);
         break;
@@ -1138,7 +1141,8 @@ export async function startServer(cfg: Config) {
         }
         const issue = Number.isInteger(msg.issue) && (msg.issue as number) > 0 ? (msg.issue as number) : undefined;
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
-        const err = floor.queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model);
+        const effort = msg.effort === undefined ? undefined : (str(msg.effort, 16) as Effort);
+        const err = floor.queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model, effort);
         if (err) warn(c, err);
         else toastFloor(floor, `📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`);
         break;
@@ -1162,6 +1166,16 @@ export async function startServer(cfg: Config) {
       case 'queue.limit':
         floorOf(c)?.queue.setLimit(num(msg.maxWorkers));
         break;
+      case 'queue.model': {
+        const floor = here();
+        if (!floor) break;
+        const model = msg.model === undefined ? undefined : str(msg.model, 101);
+        const effort = msg.effort === undefined ? undefined : (str(msg.effort, 16) as Effort);
+        const err = floor.queue.setDefaults(model, effort);
+        if (err) warn(c, err);
+        else toastFloor(floor, `📋 ${who} set the queue's default to ${model ? modelLabel(model) : 'the office model'}${effort ? ` · ${effort} effort` : ''}`);
+        break;
+      }
       case 'notify.webhook': {
         const url = str(msg.url, 4096).trim();
         const err = webhook.set(url, who);

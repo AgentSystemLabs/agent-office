@@ -1019,11 +1019,11 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
   // The footer stays put and renderFrame only shows, hides and relabels, so a board refresh never
   // pulls focus out of the provider picker.
   const closeIssue = h('button.btn', { type: 'button', title: 'Close this issue on GitHub', onclick: () => openClose('issue', it, net, load) }, '✔️ Close issue…');
-  const queueProvider = providerPicker(store.project, `issue-provider-${it.number}`, 'Queue provider');
+  const queueProvider = providerPicker(store.project, `issue-provider-${it.number}`, 'Queue provider', { queue: true });
   const addIssueToQueue = () => {
     if (!queueProvider.valid()) return;
     modal.close();
-    actions.queue(issuePrompt(it), `#${it.number} ${it.title}`, it.number, queueProvider.value(), queueProvider.model());
+    actions.queue(issuePrompt(it), `#${it.number} ${it.title}`, it.number, queueProvider.value(), queueProvider.model(), queueProvider.effort());
   };
   const queue = h('button.btn', { type: 'button', onclick: addIssueToQueue }) as HTMLButtonElement;
   const el = h(
@@ -1059,6 +1059,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
     const onQueue = !!task && task.status !== 'done';
     closeIssue.classList.toggle('hidden', !isOpen);
     queueProvider.element.classList.toggle('hidden', !isOpen || onQueue);
+    queueProvider.refresh();
     queue.classList.toggle('hidden', !isOpen);
     queue.disabled = onQueue;
     queue.title = onQueue ? '' : 'A worker picks it up by itself when a desk is free and there is room under the worker limit';

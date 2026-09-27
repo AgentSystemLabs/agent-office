@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { TaskQueue, type QueueWorkers } from '../src/server/queue.js';
 import type { AgentProvider, WorkerInfo } from '../src/shared/protocol.js';
+import type { Effort } from '../src/shared/models.js';
 
 function fixture(defaultProvider: AgentProvider = 'claude') {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-queue-'));
@@ -13,9 +14,9 @@ function fixture(defaultProvider: AgentProvider = 'claude') {
     defaultProvider,
     list: () => workers,
     deskOccupied: (desk) => workers.some((w) => w.deskId === desk),
-    spawn(deskId, by, prompt, _worktree, kind, provider, model) {
+    spawn(deskId, by, prompt, _worktree, kind, provider, model, effort) {
       const worker: WorkerInfo = {
-        id: `worker-${workers.length}`, deskId, kind, provider, model, prompt, name: 'Test',
+        id: `worker-${workers.length}`, deskId, kind, provider, model, effort, prompt, name: 'Test',
         color: '#ffffff', status: 'working', acked: false, createdBy: by,
         createdAt: Date.now(), cols: 80, rows: 24, viewers: [],
       };
@@ -94,10 +95,44 @@ test('queue preserves the selected OpenCode model through seating, retry, and re
   assert.equal(f.workers[2].model, 'anthropic/claude-sonnet-4');
 });
 
-test('queue rejects models unless they are valid OpenCode model ids', (t) => {
+test('Claude tasks run on the queue default model and effort unless queued with their own', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open(); q.setLimit(0);
+  assert.equal(q.setDefaults('sonnet', 'medium'), undefined);
+  assert.equal(q.add('Big refactor', 'Tester'), undefined);
+  assert.equal(q.add('Lint fix', 'Tester', undefined, undefined, 'claude', 'haiku', 'low'), undefined);
+  assert.equal(q.add('Just cheaper', 'Tester', undefined, undefined, 'claude', 'haiku'), undefined);
+  assert.equal(q.add('Elsewhere', 'Tester', undefined, undefined, 'opencode'), undefined);
+  // The default is looked up when a task is seated, not when it's queued.
+  assert.equal(q.setDefaults('opus', 'high'), undefined);
+  q.shutdown();
+  const restored = f.open();
+  assert.equal(restored.state().model, 'opus');
+  assert.equal(restored.state().effort, 'high');
+  restored.setLimit(4);
+  assert.deepEqual(f.workers.map((w) => [w.provider, w.model, w.effort]), [
+    ['claude', 'opus', 'high'],
+    ['claude', 'haiku', 'low'],
+    ['claude', 'haiku', 'high'],
+    ['opencode', undefined, undefined],
+  ]);
+  // A retried task keeps its own pick.
+  f.workers[1].status = 'done'; restored.onWorker(f.workers[1]);
+  restored.retry(restored.state().tasks[1].id);
+  assert.deepEqual([f.workers[4].model, f.workers[4].effort], ['haiku', 'low']);
+  assert.match(restored.setDefaults('gpt-5', undefined) ?? '', /model/i);
+  assert.match(restored.setDefaults(undefined, 'huge' as Effort) ?? '', /effort/i);
+  assert.equal(restored.state().model, 'opus');
+  assert.equal(restored.setDefaults(undefined, undefined), undefined);
+  assert.equal(restored.state().model, undefined);
+});
+
+test('queue rejects models and efforts the provider cannot take', (t) => {
   const f = fixture(); t.after(() => f.close());
   const q = f.open();
-  assert.match(q.add('Task', 'Tester', undefined, undefined, 'claude', 'openai/gpt-5') ?? '', /model|OpenCode/i);
+  assert.match(q.add('Task', 'Tester', undefined, undefined, 'claude', 'openai/gpt-5') ?? '', /model/i);
+  assert.match(q.add('Task', 'Tester', undefined, undefined, 'codex', 'opus') ?? '', /model/i);
+  assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', undefined, 'low') ?? '', /effort/i);
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', 'gpt-5') ?? '', /model|format|provider/i);
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', 'openai/gpt 5') ?? '', /model|format|whitespace/i);
   assert.equal(q.state().tasks.length, 0);
