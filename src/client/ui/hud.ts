@@ -82,6 +82,7 @@ export function openHelp() {
     ['F', 'Hang a picture from the web on a wall. Look at a picture and press E to move, edit or take it down'],
     ['O', 'Open a pull request for a worker on its own branch, or see the one it has'],
     ['T', 'Chat'],
+    ['/', 'Search the chat and every terminal, back to before the office last restarted'],
     ['V / M', 'Join voice / mute'],
     ['Esc', 'Close any window and get back to looking around'],
     ['Ctrl + [', 'Send Esc to a terminal (e.g. to interrupt Claude)'],

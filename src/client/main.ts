@@ -19,7 +19,8 @@ import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
 import { OfficeSound } from './sound';
 import { $, h, clip, closeAllModals, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
-import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
+import { openTerminal, openTerminalFor, routeTerminalMessage, type TerminalFind } from './ui/terminal';
+import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage } from './ui/prompt';
 import { openBoard } from './ui/boards';
@@ -522,11 +523,16 @@ function goToDesk(deskId: string) {
 }
 
 /** Opening a sleeping worker's terminal wakes it, so there's nothing to press first. */
-function openWorkerTerminal(id: string) {
+function openWorkerTerminal(id: string, find?: TerminalFind) {
   const w = store.workers.get(id);
   if (!w) return;
   if (isAsleep(w.status)) resumeWorker(w);
-  openTerminal(net, id, () => openWorkerChanges(id));
+  openTerminal(net, id, () => openWorkerChanges(id), find);
+}
+
+/** 🔎 the chat and every terminal; a terminal line opens that terminal right at it. */
+function showSearch() {
+  openSearch(openWorkerTerminal);
 }
 
 /** What the worker changed: changed files, diff, commit / discard / open a PR. */
@@ -809,6 +815,12 @@ function officeKey(e: KeyboardEvent): boolean {
       hanger.start();
       return true;
   }
+  // By the character, so it's / on any keyboard layout. The search box opens without it.
+  if (e.key === '/') {
+    e.preventDefault();
+    showSearch();
+    return true;
+  }
   return false;
 }
 
@@ -1009,6 +1021,7 @@ mountServicesButton($('btn-services'));
 mountQueueButton($('btn-queue'), showQueue);
 $('btn-team').addEventListener('click', () => openTeam(net));
 $('btn-upgrade').addEventListener('click', () => openUpgrade(net));
+$('btn-search').addEventListener('click', () => showSearch());
 $('btn-help').addEventListener('click', () => openHelp());
 $('btn-decor').addEventListener('click', () => (hanger.active ? hanger.cancel() : hanger.start()));
 $('btn-settings').addEventListener('click', () =>
