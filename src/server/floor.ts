@@ -72,6 +72,8 @@ export class Floor {
   readonly queue: TaskQueue;
   readonly changes: Changes;
   readonly decor: Decor;
+  /** Settles once the workers whose terminals outlived the last office are picked back up, and the rest woken. */
+  readonly ready: Promise<void>;
   private timer: NodeJS.Timeout;
   /** Pull requests merging, to ring the gong for. */
   private merges = new MergeWatch();
@@ -160,6 +162,7 @@ export class Floor {
     );
 
     this.decor = new Decor(dataDir);
+    this.ready = this.workers.start();
 
     void this.github.refresh();
     // A floor with people on it, or work under way, keeps its boards fresh; the others check in now and then.
@@ -199,11 +202,12 @@ export class Floor {
     };
   }
 
-  shutdown() {
+  /** With `keep` (a restart), the workers' terminals keep running for the next office to pick up. */
+  shutdown(keep = false) {
     clearInterval(this.timer);
     this.github.stop();
     this.queue.shutdown();
     this.changes.stop();
-    this.workers.shutdown();
+    this.workers.shutdown(keep);
   }
 }

@@ -4,7 +4,6 @@ import { execFile, execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { homedir } from 'node:os';
 import { CodexUsageReader } from './codex-usage.js';
-import * as pty from '@lydell/node-pty';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
 import type { AgentProvider, Run, TerminalHit, WorkerInfo, WorkerKind, WorkerStatus, WorkerTask } from '../shared/protocol.js';
@@ -16,6 +15,7 @@ import { gh } from './github.js';
 import type { ServiceOwner } from './services.js';
 import { TaskNamer, fallbackTask } from './tasks.js';
 import { addUsage, newTracker, restoreTracker, scanTracker, trackerUsage, zeroUsage, type Ledger, type UsageTracker } from './usage.js';
+import { PtyHost, SCROLLBACK, type Adopted, type Pty } from './ptys.js';
 import { codexHookArgs, normalizeCodexHook, writeCodexHook } from './codex.js';
 import { reportedUsage } from './reported-usage.js';
 import { configuredProvider, isValidOpenCodeModel, validateWorkerModel } from './agents.js';
@@ -42,8 +42,9 @@ const SCRUB_ENV = new Set([
 const SCRUB_PREFIXES = ['CLAUDE_CODE_SESSION', 'CLAUDE_CODE_CHILD', 'CLAUDE_CODE_MESSAGING', 'NEBULA_', 'AGENT_OFFICE_'];
 const scrubbed = (k: string) => SCRUB_ENV.has(k) || SCRUB_PREFIXES.some((p) => k.startsWith(p));
 
-const SCROLLBACK = 3000;
 const SCREEN_INTERVAL_MS = 250;
+/** What a worker with a live terminal can be doing. */
+const RUNNING = new Set<unknown>(['starting', 'idle', 'working', 'done', 'needs_input'] satisfies WorkerStatus[]);
 const LATE_PROMPT_GRACE_MS = 5000;
 const KEYFRAME_MS = 8000;
 /** How often a steady typist's "last typed" time is refreshed for everyone. */
@@ -56,6 +57,11 @@ const TASK_REFRESH_TOOLS = 8;
 const TASK_REFRESH_MS = 90_000;
 const PR_TITLE_MAX = 72;
 const PR_TASK_MAX = 2500;
+/**
+ * A hook finding the office restarting (its workers keep running through that) retries, once a
+ * second, this many times in all: long enough for a dev-server reload.
+ */
+const HOOK_TRIES = 6;
 /** How often every worker's transcript is checked for new spend, on top of the hook-driven checks. */
 const USAGE_SCAN_MS = 10_000;
 /** How often a terminal with new output is saved to disk, so even a crash loses at most this much. */
@@ -70,7 +76,7 @@ export interface HookEnv {
 
 interface Worker {
   info: WorkerInfo;
-  pty?: pty.IPty;
+  pty?: Pty;
   term?: HeadlessTerminal;
   ser?: InstanceType<typeof serialize.SerializeAddon>;
   viewers: Map<string, string>; // clientId -> name
@@ -99,6 +105,8 @@ interface Worker {
   /** Where the session's tokens and cost are read from (see usage.ts). */
   tracker: UsageTracker;
   scanTimer?: NodeJS.Timeout;
+  /** Its terminal in the host as of the last save, and how it was doing, to pick back up after a restart. */
+  saved?: { ptyId: string; status: WorkerStatus; acked: boolean };
   /** Output since its scrollback was last saved to disk. */
   unsaved?: boolean;
   /** Where this run's own output starts, below the scrollback carried over from before. */
@@ -127,6 +135,8 @@ export class WorkerManager {
   private closing = false;
   private namer: TaskNamer;
   private usageTimer: NodeJS.Timeout;
+  /** Runs the workers' terminals outside the office, so they outlive a restart of it (see ptys.ts). */
+  private host: PtyHost;
   /** Each worker's terminal on disk, so a restart doesn't wipe it (see history.ts). */
   private scrollback: ScrollbackStore;
   private saveTimer: NodeJS.Timeout;
@@ -156,6 +166,7 @@ export class WorkerManager {
       this.emitUpdate(w);
       this.persist();
     });
+    this.host = new PtyHost(dataDir, () => this.events.toast("The workers' terminal host stopped — resuming them", 'warn'));
     this.scrollback = new ScrollbackStore(dataDir);
     this.restore();
     this.scrollback.prune(new Set(this.workers.keys()));
@@ -168,8 +179,25 @@ export class WorkerManager {
     this.saveTimer = setInterval(() => {
       for (const w of this.workers.values()) if (w.unsaved) this.saveScrollback(w);
     }, SAVE_SCROLLBACK_MS);
-    // Whoever was at a desk when the office stopped (a restart, a crash, a dev-server reload) gets
-    // straight back to work.
+  }
+
+  /**
+   * Picks every worker whose terminal outlived the last office (a dev-server reload, an upgrade)
+   * back up where it is, mid-turn or not. Whoever else was at a desk when the office stopped (a
+   * restart, a crash) gets straight back to work. Call once, before anyone can walk in.
+   */
+  async start() {
+    await this.host.connect();
+    await Promise.all(
+      [...this.workers.values()].map(async (w) => {
+        const saved = w.saved;
+        w.saved = undefined;
+        const adopted = saved && (await this.host.attach(saved.ptyId));
+        if (adopted) this.adopt(w, adopted, saved);
+      }),
+    );
+    // Terminals nobody saved a claim on (their worker was sent home as the office went down).
+    this.host.killUnclaimed();
     this.wakeAll();
   }
 
@@ -697,7 +725,11 @@ export class WorkerManager {
     this.persist();
   }
 
-  shutdown() {
+  /**
+   * The office is closing. On a restart (`keep`), terminals in the host keep running for the next
+   * office to pick back up; otherwise every worker stops.
+   */
+  shutdown(keep = false) {
     this.closing = true;
     clearInterval(this.screenTimer);
     clearInterval(this.usageTimer);
@@ -707,6 +739,7 @@ export class WorkerManager {
       this.scanUsage(w);
       // Before the process goes, so the next office shows what it was doing, not how it was stopped.
       if (w.unsaved) this.saveScrollback(w);
+      if (keep && w.pty?.id) continue;
       try {
         w.pty?.kill();
       } catch {
@@ -714,6 +747,8 @@ export class WorkerManager {
       }
     }
     this.persist();
+    if (keep) this.host.detach();
+    else this.host.stop();
   }
 
   // ---------------------------------------------------------------------------
@@ -724,34 +759,11 @@ export class WorkerManager {
     // when the office last stopped, so earlier output is still there to scroll back to and search.
     const restarted = !w.term;
     const before = w.term && w.ser ? terminalTail(w.term, w.ser, SCROLLBACK) : this.scrollback.load(info.id);
-    const term = new headless.Terminal({ cols: info.cols, rows: info.rows, scrollback: SCROLLBACK, allowProposedApi: true });
-    const ser = new serialize.SerializeAddon();
-    term.loadAddon(ser as any);
-    // OSC 9;4 progress (Claude Code emits it): 0 = idle, anything else = busy. Catches Esc-cancel,
-    // which fires no Stop hook.
-    if (info.provider === 'claude') {
-      term.parser.registerOscHandler(9, (data: string) => {
-        const m = /^4;(\d)/.exec(data);
-        if (m) this.onProgress(w, m[1] !== '0');
-        return true;
-      });
-    }
-    term.onTitleChange((title: string) => {
-      const clean = title.replace(/^[^\p{L}\p{N}]+/u, '').trim();
-      if (clean && clean !== info.title && !/^claude( code)?$/i.test(clean)) {
-        info.title = clean;
-        this.emitUpdate(w);
-      }
-    });
-    w.term?.dispose();
-    w.term = term;
-    w.ser = ser;
-    w.lastLines = [];
-    w.screenDirty = true;
-    w.fresh = undefined;
-    if (before) {
+    const prelude = before ? `${before}\r\n${restarted ? RESTORED_NOTE : ''}` : undefined;
+    const term = this.newTerm(w);
+    if (prelude) {
       // Writes are parsed in order, so this lands before anything the new process prints.
-      term.write(`${before}\r\n${restarted ? RESTORED_NOTE : ''}`, () => {
+      term.write(prelude, () => {
         if (w.term === term) w.fresh = term.registerMarker(0);
       });
     }
@@ -763,7 +775,7 @@ export class WorkerManager {
     const isOpenCode = !isShell && provider === 'opencode';
     const isCodex = !isShell && provider === 'codex';
     const configured = !isShell && provider === this.defaultProvider;
-    const command = isShell ? shell : configured ? this.agentCmd : provider ?? this.agentCmd;
+    const command = this.command(info);
     const commandPath = isShell ? undefined : configured ? this.agentPath : resolveCommand(command);
     let args = isShell ? ['-l'] : configured ? [...this.agentArgs] : [];
     if (isClaude) {
@@ -799,9 +811,11 @@ export class WorkerManager {
       AGENT_OFFICE_HOOK_TOKEN: w.hookToken,
     });
 
-    const cwd = info.worktree ? path.join(this.dir, info.worktree.path) : this.dir;
-    if (isCodex) w.codexHome = path.resolve(cwd, env.CODEX_HOME || path.join(env.HOME || homedir(), '.codex'));
-    let proc: pty.IPty;
+    const cwd = this.cwd(info);
+    if (isCodex) w.codexHome = codexHome(cwd, env);
+    // The host keeps its own copy of the screen for the next office: it starts with the same history.
+    const where = { cwd, env, cols: info.cols, rows: info.rows, prelude };
+    let proc: Pty;
     try {
       if (!existsSync(cwd)) throw new Error(`working directory is gone: ${cwd}`);
       if (isOpenCode) {
@@ -809,35 +823,105 @@ export class WorkerManager {
         env.OPENCODE_CONFIG_CONTENT = mergeOpenCodeConfigContent(env.OPENCODE_CONFIG_CONTENT, openCodePluginSpecifier(this.openCodePlugin));
       }
       if (isShell) {
-        proc = pty.spawn(shell, args, { name: 'xterm-256color', cols: info.cols, rows: info.rows, cwd, env });
+        proc = this.host.spawn({ file: shell, args, ...where });
       } else if (commandPath) {
-        proc = pty.spawn(commandPath, args, { name: 'xterm-256color', cols: info.cols, rows: info.rows, cwd, env });
+        proc = this.host.spawn({ file: commandPath, args, ...where });
       } else {
         // Not found on PATH: let a login shell find it (nvm, asdf, ~/.local/bin ...).
         const line = ['exec', command, ...args].map((a, i) => (i < 2 ? a : shq(a))).join(' ');
-        proc = pty.spawn(shell, ['-l', '-i', '-c', line], { name: 'xterm-256color', cols: info.cols, rows: info.rows, cwd, env });
+        proc = this.host.spawn({ file: shell, args: ['-l', '-i', '-c', line], ...where });
       }
     } catch (err) {
-      info.status = 'exited';
-      info.exitCode = -1;
-      const what = isShell ? shell : command;
-      term.write(`\r\n\x1b[31mFailed to start ${what}: ${(err as Error).message}\x1b[0m\r\n`);
-      this.events.toast(`Could not start ${what}: ${(err as Error).message}`, 'error');
-      this.emitUpdate(w);
+      this.startFailed(w, (err as Error).message);
       return;
     }
-    w.pty = proc;
     if (!isClaude && !isCodex) info.status = 'idle';
+    this.follow(w, proc, term, resumeSessionId);
+    this.emitUpdate(w);
+    this.persist();
+  }
 
+  /** Takes back a terminal the host kept running while the office was down. */
+  private adopt(w: Worker, adopted: Adopted, saved: NonNullable<Worker['saved']>) {
+    const { info } = w;
+    info.cols = adopted.cols;
+    info.rows = adopted.rows;
+    const term = this.newTerm(w);
+    // Scrollback and all, the history from before this run included: only what it prints from here
+    // on can say it's stuck on a login.
+    term.write(adopted.snapshot, () => {
+      if (w.term === term) w.fresh = term.registerMarker(0);
+    });
+    this.setTitle(w, adopted.title);
+    // A hook that came in since the office started already says how it's doing.
+    if (info.status === 'offline') {
+      info.status = saved.status;
+      info.acked = saved.acked;
+    }
+    if (info.provider === 'codex') w.codexHome = codexHome(this.cwd(info), childEnv());
+    this.follow(w, adopted.pty, term, undefined);
+    // A turn that ended while the office was down says so with its Stop hook, which retries until
+    // the office is back. Claude's progress report, where it gives one, says a turn is still going.
+    if (adopted.busy && info.provider === 'claude') this.onProgress(w, true);
+    this.emitUpdate(w);
+  }
+
+  /** A fresh screen for a worker's terminal, reading Claude's progress and title off it. */
+  private newTerm(w: Worker): HeadlessTerminal {
+    const term = new headless.Terminal({ cols: w.info.cols, rows: w.info.rows, scrollback: SCROLLBACK, allowProposedApi: true });
+    const ser = new serialize.SerializeAddon();
+    term.loadAddon(ser as any);
+    // OSC 9;4 progress (Claude Code emits it): 0 = idle, anything else = busy. Catches Esc-cancel,
+    // which fires no Stop hook.
+    if (w.info.provider === 'claude') {
+      term.parser.registerOscHandler(9, (data: string) => {
+        const m = /^4;(\d)/.exec(data);
+        if (m) this.onProgress(w, m[1] !== '0');
+        return true;
+      });
+    }
+    term.onTitleChange((title: string) => this.setTitle(w, title));
+    w.term?.dispose();
+    w.term = term;
+    w.ser = ser;
+    w.lastLines = [];
+    w.screenDirty = true;
+    w.fresh = undefined;
+    return term;
+  }
+
+  private setTitle(w: Worker, title: string) {
+    const clean = title.replace(/^[^\p{L}\p{N}]+/u, '').trim();
+    if (clean && clean !== w.info.title && !/^claude( code)?$/i.test(clean)) {
+      w.info.title = clean;
+      this.emitUpdate(w);
+    }
+  }
+
+  /** Shows a worker's terminal output as it comes, and deals with the process ending. */
+  private follow(w: Worker, proc: Pty, term: HeadlessTerminal, resumeSessionId: string | undefined) {
+    const { info } = w;
+    const isClaude = info.kind === 'agent' && info.provider === 'claude';
+    const isCodex = info.kind === 'agent' && info.provider === 'codex';
+    w.pty = proc;
     proc.onData((data) => {
       term.write(data);
       w.screenDirty = true;
       w.unsaved = true;
       if (w.viewers.size) this.events.data(info.id, data, [...w.viewers.keys()]);
     });
-    proc.onExit(({ exitCode }) => {
+    proc.onExit(({ exitCode, error, lost }) => {
       if (w.pty !== proc || this.workers.get(info.id) !== w) return;
       w.pty = undefined;
+      if (error) {
+        this.startFailed(w, error);
+        return;
+      }
+      // The terminal host died and took the process with it: nothing the worker did.
+      if (lost && !this.closing) {
+        this.resume(info.id);
+        return;
+      }
       if (isCodex && !this.closing) this.scheduleScan(w);
       // Resuming a conversation Claude no longer has ("No conversation found") exits before Claude
       // ever starts. Start a fresh one rather than leave the worker asleep.
@@ -869,7 +953,29 @@ export class WorkerManager {
         this.setStatus(w, 'needs_input');
       } else this.setStatus(w, 'idle');
     }, 12000);
+  }
+
+  private startFailed(w: Worker, message: string) {
+    const what = this.command(w.info);
+    const msg = `\r\n\x1b[31mFailed to start ${what}: ${message}\x1b[0m\r\n`;
+    w.info.status = 'exited';
+    w.info.exitCode = -1;
+    w.term?.write(msg);
+    if (w.viewers.size) this.events.data(w.info.id, msg, [...w.viewers.keys()]);
+    w.screenDirty = true;
+    w.unsaved = true;
+    this.events.toast(`Could not start ${what}: ${message}`, 'error');
     this.emitUpdate(w);
+  }
+
+  /** What a worker's terminal runs: the shell, the configured agent command, or another provider's CLI. */
+  private command(info: WorkerInfo): string {
+    if (info.kind === 'shell') return process.env.SHELL || '/bin/bash';
+    return info.provider === this.defaultProvider ? this.agentCmd : info.provider ?? this.agentCmd;
+  }
+
+  private cwd(info: WorkerInfo): string {
+    return info.worktree ? path.join(this.dir, info.worktree.path) : this.dir;
   }
 
   /** Hooks fire in bursts (every tool call); one read a moment later covers the whole burst. */
@@ -923,6 +1029,8 @@ export class WorkerManager {
     if (status === 'done' || status === 'needs_input') w.info.acked = w.viewers.size > 0 && status === 'done';
     else w.info.acked = true;
     this.emitUpdate(w);
+    // What a restarted office picks the worker back up as, should its terminal outlive this one.
+    if (w.pty?.id) this.persist();
   }
 
   private syncViewers(w: Worker): boolean {
@@ -1013,10 +1121,15 @@ process.stdin.on('end', () => {
   const url = new URL(process.env.AGENT_OFFICE_HOOK_URL + '/hooks/claude');
   url.searchParams.set('worker', process.env.AGENT_OFFICE_WORKER_ID);
   url.searchParams.set('event', event);
-  const req = http.request(url, { method: 'POST', timeout: 3000, headers: { authorization: 'Bearer ' + process.env.AGENT_OFFICE_HOOK_TOKEN, 'content-type': 'application/json' } }, (res) => res.resume());
-  req.on('error', () => {});
-  req.on('timeout', () => req.destroy());
-  req.end(body);
+  const send = (tries) => {
+    const req = http.request(url, { method: 'POST', timeout: 3000, headers: { authorization: 'Bearer ' + process.env.AGENT_OFFICE_HOOK_TOKEN, 'content-type': 'application/json' } }, (res) => res.resume());
+    req.on('error', (err) => {
+      if (err.code === 'ECONNREFUSED' && tries > 1) setTimeout(() => send(tries - 1), 1000);
+    });
+    req.on('timeout', () => req.destroy());
+    req.end(body);
+  };
+  send(${HOOK_TRIES});
 });
 `,
       { mode: 0o600 },
@@ -1024,7 +1137,7 @@ process.stdin.on('end', () => {
     const hooks: Record<string, unknown[]> = {};
     for (const [event, matcher] of events) {
       const curl =
-        `curl -sS -m 3 -X POST -H "Authorization: Bearer $AGENT_OFFICE_HOOK_TOKEN" -H "Content-Type: application/json" ` +
+        `curl -sS -m 3 --retry ${HOOK_TRIES - 1} --retry-delay 1 --retry-connrefused -X POST -H "Authorization: Bearer $AGENT_OFFICE_HOOK_TOKEN" -H "Content-Type: application/json" ` +
         `--data-binary @- "$AGENT_OFFICE_HOOK_URL/hooks/claude?worker=$AGENT_OFFICE_WORKER_ID&event=${event}"`;
       const command =
         `if [ -z "$AGENT_OFFICE_WORKER_ID" ] || [ -z "$AGENT_OFFICE_HOOK_URL" ]; then exit 0; fi; ` +
@@ -1042,7 +1155,7 @@ process.stdin.on('end', () => {
   }
 
   private persist() {
-    const saved = [...this.workers.values()].map(({ info, tracker, codexTranscript }) => ({
+    const saved = [...this.workers.values()].map(({ info, tracker, codexTranscript, hookToken, pty }) => ({
       id: info.id,
       kind: info.kind,
       provider: info.provider,
@@ -1062,6 +1175,9 @@ process.stdin.on('end', () => {
       tracker: info.kind === 'agent' ? tracker : undefined,
       usage: info.provider === 'opencode' || info.provider === 'codex' ? info.usage : undefined,
       codexTranscript: info.provider === 'codex' ? codexTranscript : undefined,
+      // A terminal still running in the host, to pick back up after a restart. Its hooks keep the token.
+      hookToken,
+      pty: pty?.id ? { id: pty.id, status: info.status, acked: info.acked } : undefined,
     }));
     try {
       writeFileSync(this.statePath, JSON.stringify(saved, null, 2), { mode: 0o600 });
@@ -1073,7 +1189,7 @@ process.stdin.on('end', () => {
   private restore() {
     if (!existsSync(this.statePath)) return;
     try {
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { tracker?: unknown; codexTranscript?: unknown })[];
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { tracker?: unknown; codexTranscript?: unknown; hookToken?: unknown; pty?: any })[];
       for (const s of saved) {
         if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || this.deskOccupied(s.deskId)) continue;
         const tracker = restoreTracker(s.tracker);
@@ -1108,9 +1224,13 @@ process.stdin.on('end', () => {
           rows: 30,
           viewers: [],
         };
-        const w = newWorker(info, tracker);
+        const w = newWorker(info, tracker, typeof s.hookToken === 'string' && s.hookToken ? s.hookToken : undefined);
         if (provider === 'codex' && typeof s.codexTranscript === 'string') w.codexTranscript = s.codexTranscript;
         w.screenDirty = false;
+        if (typeof s.pty?.id === 'string') {
+          const status: WorkerStatus = RUNNING.has(s.pty.status) ? s.pty.status : 'idle';
+          w.saved = { ptyId: s.pty.id, status, acked: s.pty.acked !== false };
+        }
         if (info.prompt) w.prompts = [info.prompt.replace(/\s+/g, ' ').trim()];
         this.workers.set(info.id, w);
       }
@@ -1122,7 +1242,7 @@ process.stdin.on('end', () => {
 
 // ---------------------------------------------------------------------------
 
-function newWorker(info: WorkerInfo, tracker: UsageTracker): Worker {
+function newWorker(info: WorkerInfo, tracker: UsageTracker, hookToken = randomBytes(16).toString('hex')): Worker {
   return {
     info,
     viewers: new Map(),
@@ -1130,7 +1250,7 @@ function newWorker(info: WorkerInfo, tracker: UsageTracker): Worker {
     lastLines: [],
     leftNeedsInputAt: 0,
     keyframeAt: 0,
-    hookToken: randomBytes(16).toString('hex'),
+    hookToken,
     codexUsage: new CodexUsageReader(),
     codexTools: new Map(),
     codexPending: new Set(),
@@ -1141,6 +1261,11 @@ function newWorker(info: WorkerInfo, tracker: UsageTracker): Worker {
     taskEpoch: 0,
     tracker,
   };
+}
+
+/** Where a Codex worker's sessions are logged, for reading its usage. */
+function codexHome(cwd: string, env: NodeJS.ProcessEnv): string {
+  return path.resolve(cwd, env.CODEX_HOME || path.join(env.HOME || homedir(), '.codex'));
 }
 
 function withoutOpenCodeModel(args: string[]): string[] {

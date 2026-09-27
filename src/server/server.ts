@@ -1,7 +1,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Duplex } from 'node:stream';
@@ -24,7 +24,7 @@ import { Floor, type FloorContext } from './floor.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import { ChatLog } from './history.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
-import { isAgentProvider } from '../shared/protocol.js';
+import { GH_COMMENT_MAX, isAgentProvider } from '../shared/protocol.js';
 import { elevatorSpot } from '../shared/layout.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
@@ -245,8 +245,26 @@ export async function startServer(cfg: Config) {
         : workers.handleHook(workerId, token, url.searchParams.get('event') ?? '', payload);
     send(res, ok ? 200 : 401, {});
   });
-  await new Promise<void>((resolve) => hookServer.listen(0, '127.0.0.1', resolve));
+  // Workers' terminals outlive a restart of the office (see ptys.ts) with this address in their
+  // environment, so listen where the last office did when that port is free.
+  const hookPortPath = path.join(cfg.dataDir, 'hook-port');
+  const listenHooks = (port: number) =>
+    new Promise<void>((resolve, reject) => {
+      hookServer.once('error', reject);
+      hookServer.listen(port, '127.0.0.1', () => {
+        hookServer.off('error', reject);
+        resolve();
+      });
+    });
+  let lastHookPort = 0;
+  try {
+    lastHookPort = Number(readFileSync(hookPortPath, 'utf8')) || 0;
+  } catch {
+    // first start
+  }
+  await listenHooks(lastHookPort).catch(() => listenHooks(0));
   const hookPort = (hookServer.address() as { port: number }).port;
+  writeFileSync(hookPortPath, String(hookPort), { mode: 0o600 });
 
   // What the workers spend, all time and today, with the optional daily budget.
   const ledger = new Ledger(
@@ -315,6 +333,8 @@ export async function startServer(cfg: Config) {
   // Started in a project: it's a floor too (the one it has always been).
   if (cfg.project) building.ensureLocal(cfg.project, 'the office');
   for (const def of building.list()) openFloor(def);
+  // Workers still running from the last office are back at their desks before anyone walks in.
+  await Promise.all([...floors.values()].map((f) => f.ready));
 
   const team = new Team(cfg.publicHost, cfg.port);
 
@@ -770,6 +790,12 @@ export async function startServer(cfg: Config) {
         break;
       }
       case 'act': {
+        if (typeof msg.smoke === 'boolean') {
+          if (msg.smoke === !!c.peer.smoking) break;
+          c.peer.smoking = msg.smoke;
+          broadcast({ t: 'peer.act', id: c.id, smoke: msg.smoke }, c.id, true);
+          break;
+        }
         const now = Date.now();
         if (now - c.lastActAt < 100) break;
         c.lastActAt = now;
@@ -930,6 +956,24 @@ export async function startServer(cfg: Config) {
           toastFloor(floor, msg.auto ? `${who} set PR #${n} to merge once its checks pass` : `🎉 ${who} merged PR #${n}`);
           // An auto-merge rings once GitHub gets round to it and the boards see it merged.
           if (!msg.auto) floor.merged(n, who);
+        });
+        break;
+      }
+      case 'gh.comment': {
+        const floor = here();
+        const n = num(msg.number);
+        const kind = msg.kind === 'pull' ? 'pull' : 'issue';
+        if (!floor || !Number.isSafeInteger(n) || n <= 0) break;
+        const body = typeof msg.body === 'string' ? msg.body : '';
+        // Refused rather than cut short: a comment that silently lost its end would read as finished.
+        const invalid = !body.trim() ? 'The comment is empty' : body.length > GH_COMMENT_MAX ? `GitHub takes comments of up to ${GH_COMMENT_MAX} characters` : '';
+        if (invalid) {
+          sendTo(c, { t: 'gh.commented', kind, number: n, error: invalid });
+          break;
+        }
+        void floor.github.comment(kind, n, body).then((r) => {
+          sendTo(c, { t: 'gh.commented', kind, number: n, ...r });
+          if (r.comment) toastFloor(floor, `💬 ${who} commented on ${kind === 'pull' ? 'PR' : 'issue'} #${n}`);
         });
         break;
       }
@@ -1178,14 +1222,15 @@ export async function startServer(cfg: Config) {
   });
   services.start();
 
-  const shutdown = () => {
+  /** With `keep` (a restart), workers' terminals keep running for the next office to pick up. */
+  const shutdown = (keep = false) => {
     clearInterval(heartbeat);
     clearInterval(resync);
     clearTimeout(floorsTimer);
     upgrader.stop();
     services.stop();
     webhook.stop();
-    for (const f of floors.values()) f.shutdown();
+    for (const f of floors.values()) f.shutdown(keep);
     ledger.flush();
     for (const c of clients.values()) c.ws.close();
     server.close();

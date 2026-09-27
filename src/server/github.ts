@@ -27,6 +27,27 @@ function labels(raw: any[]): { name: string; color: string }[] {
   return (raw ?? []).map((l) => ({ name: String(l.name), color: `#${l.color ?? '888888'}` }));
 }
 
+/**
+ * How urgent an issue's labels say it is, 0 (critical) to 3 (low); 4 when it has no priority label.
+ * Reads "priority: high", "priority/low", "P1", "critical" and the like.
+ */
+export function priorityRank(labels: { name: string }[]): number {
+  let best = 4;
+  for (const { name } of labels) {
+    const n = name.toLowerCase().trim();
+    const p = /^p([0-3])$/.exec(n) ?? /^priority\W*p?([0-3])$/.exec(n);
+    let rank = p ? Number(p[1]) : 4;
+    if (!p && (n.includes('priority') || /^(critical|urgent|blocker)$/.test(n))) {
+      if (/critical|urgent|blocker|highest/.test(n)) rank = 0;
+      else if (/high/.test(n)) rank = 1;
+      else if (/medium|\bmed\b|normal|moderate/.test(n)) rank = 2;
+      else if (/low|minor/.test(n)) rank = 3;
+    }
+    best = Math.min(best, rank);
+  }
+  return best;
+}
+
 function checksOf(rollup: any[]): GhPull['checks'] {
   if (!rollup?.length) return 'none';
   let pending = false;
@@ -98,6 +119,7 @@ export class GitHub {
   pulls: GhState<GhPull> = { items: [], fetchedAt: 0, loading: false };
   private timer?: NodeJS.Timeout;
   private repo?: Promise<GhRepoInfo>;
+  private login?: Promise<string>;
 
   constructor(
     private dir: string,
@@ -129,14 +151,22 @@ export class GitHub {
     return this.repo;
   }
 
+  /** Who gh is signed in as, which is who the office comments as. Asked once; '' when gh can't say. */
+  viewer(): Promise<string> {
+    this.login ??= gh(['api', 'user', '--jq', '.login'], this.dir).then((out) => out.trim());
+    this.login.catch(() => (this.login = undefined));
+    return this.login.catch(() => '');
+  }
+
   /** A PR's description, conversation, line comments, checks and whether it can merge. */
   async pullDetail(n: number): Promise<GhPullDetail> {
     const fields = 'number,body,state,isDraft,reviewDecision,headRefName,baseRefName,mergeable,mergeStateStatus,commits,comments,reviews,statusCheckRollup';
     const jq = '.[] | {id, in_reply_to_id, path, line, side, body, user: .user.login, created_at, html_url}';
-    const [view, lines, repo] = await Promise.all([
+    const [view, lines, repo, viewer] = await Promise.all([
       gh(['pr', 'view', String(n), '--json', fields], this.dir),
       gh(['api', `repos/{owner}/{repo}/pulls/${n}/comments?per_page=100`, '--paginate', '--jq', jq], this.dir),
       this.repoInfo(),
+      this.viewer(),
     ]);
     const p = JSON.parse(view);
     const reviewComments: GhReviewComment[] = lines
@@ -171,6 +201,7 @@ export class GitHub {
       reviewComments,
       checks: (p.statusCheckRollup ?? []).map(checkOf),
       repo,
+      viewer,
     };
   }
 
@@ -180,8 +211,28 @@ export class GitHub {
   }
 
   async issueDetail(n: number): Promise<GhIssueDetail> {
-    const i = JSON.parse(await gh(['issue', 'view', String(n), '--json', 'number,body,comments'], this.dir));
-    return { number: i.number, body: String(i.body ?? ''), comments: commentsOf(i.comments) };
+    const [view, viewer] = await Promise.all([gh(['issue', 'view', String(n), '--json', 'number,body,comments'], this.dir), this.viewer()]);
+    const i = JSON.parse(view);
+    return { number: i.number, body: String(i.body ?? ''), comments: commentsOf(i.comments), viewer };
+  }
+
+  /**
+   * Comments on an issue, or on a PR's conversation (to GitHub a PR is an issue too), as whoever gh
+   * is signed in as. Returns the comment as GitHub saved it, or why it couldn't.
+   */
+  async comment(kind: 'issue' | 'pull', n: number, body: string): Promise<{ comment?: GhComment; error?: string }> {
+    let comment: GhComment;
+    try {
+      // -f sends the body as a plain string: no @file reading, no {owner} filling in.
+      const jq = '{id: .node_id, author: {login: .user.login}, body, createdAt: .created_at, url: .html_url}';
+      const out = await gh(['api', '--method', 'POST', `repos/{owner}/{repo}/issues/${n}/comments`, '-f', `body=${body}`, '--jq', jq], this.dir);
+      [comment] = commentsOf([JSON.parse(out)]);
+    } catch (err) {
+      return { error: (err as Error).message };
+    }
+    // The issue board counts comments; a PR's card shows when it was last updated.
+    void (kind === 'issue' ? this.refreshIssues() : this.refreshPulls());
+    return { comment };
   }
 
   /** Merges a PR, or with `auto` has GitHub merge it once its requirements pass. Returns an error. */
@@ -236,6 +287,9 @@ export class GitHub {
         body: String(i.body ?? '').slice(0, 4000),
         comments: Array.isArray(i.comments) ? i.comments.length : Number(i.comments ?? 0),
       }));
+      // Highest priority first, so the board (and the notes that fit on the wall) lead with it.
+      // The sort is stable: within a priority, gh's newest-first order stays.
+      items.sort((a, b) => priorityRank(a.labels) - priorityRank(b.labels));
       this.issues = { items, fetchedAt: Date.now(), loading: false };
     } catch (err) {
       this.issues = { ...this.issues, loading: false, error: (err as Error).message, fetchedAt: Date.now() };

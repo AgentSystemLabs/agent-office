@@ -5,7 +5,7 @@
  *
  * Everything goes through one master gain that Settings turns down or mutes. Voice chat doesn't.
  */
-import { DESKS, FLOOR, GONG } from '../shared/layout';
+import { DESKS, FLOOR, GONG, WINDOWS as OPENINGS } from '../shared/layout';
 import type { GongWhy } from '../shared/protocol';
 
 type Pos = { x: number; y: number; z: number };
@@ -19,6 +19,12 @@ export interface Listener extends Pos {
 // The kitchen props (office.ts puts the kitchen at x -14.5, z 12.2).
 const COFFEE_MACHINE: Pos = { x: -15.7, y: 1.4, z: 12.2 };
 const FRIDGE: Pos = { x: -11.3, y: 1.1, z: 12.2 };
+/** Just outside the office's windows (not the loft's). */
+const WINDOWS: Pos[] = OPENINGS.filter((o) => o.y0 < 2).map((o) =>
+  o.wall === 'south' || o.wall === 'north'
+    ? { x: o.u, y: 2.4, z: o.wall === 'south' ? FLOOR.maxZ + 1.5 : FLOOR.minZ - 1.5 }
+    : { x: o.wall === 'west' ? FLOOR.minX - 1.5 : FLOOR.maxX + 1.5, y: 2.4, z: o.u },
+);
 /** The middle of the gong's disc. */
 const GONG_AT: Pos = { x: GONG.x, y: GONG.height - 1.36, z: GONG.z };
 /** A gong's overtones don't line up like a string's: [ratio to the lowest, loudness, seconds to die away]. */
@@ -34,11 +40,6 @@ const GONG_PARTIALS: [number, number, number][] = [
   [6.35, 0.16, 1.2],
   [7.61, 0.1, 0.9],
   [9.08, 0.07, 0.6],
-];
-/** Just outside the south and west windows. */
-const WINDOWS: Pos[] = [
-  ...[-14, -9, -4, 1, 6, 11].map((x) => ({ x, y: 2.4, z: FLOOR.maxZ + 1.5 })),
-  ...[-9, -3, 3].map((z) => ({ x: FLOOR.minX - 1.5, y: 2.4, z })),
 ];
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
