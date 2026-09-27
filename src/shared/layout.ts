@@ -14,6 +14,8 @@ export interface DeskDef {
   label: string;
   /** A bean bag on the floor instead of a desk; the worker sits on it at (x, z), facing -z at rotY 0. */
   beanbag?: boolean;
+  /** A board agent's kiosk instead of a desk (see STATIONS): the worker stands behind it. */
+  station?: StationKind;
 }
 
 const DESK_WIDTH = 2.2;
@@ -63,16 +65,41 @@ export const BEANBAGS: DeskDef[] = (
     [12.2, -5.6, -Math.PI / 2],
     [12.2, 5.6, -Math.PI / 2],
     [-16.1, 3, Math.PI / 2],
-    [11, -9.8, 0],
+    // Clear of the board agents' kiosks, and of the floor in front of them.
+    [13, -9.8, 0],
     [-12.6, 9.2, Math.PI / 2],
-    [-6, -9.8, 0],
+    [-8.6, -9.8, 0],
   ] as const
 ).map(([x, z, rotY], i) => ({ id: `beanbag-${i + 1}`, x, z, rotY, label: `Bean bag ${i + 1}`, beanbag: true }));
 
 /** Everywhere a worker can sit: the desks, then the bean bags. */
 export const SEATS: DeskDef[] = [...DESKS, ...BEANBAGS];
-/** Any seat by id, bean bags included. */
-export const DESK_BY_ID = new Map(SEATS.map((d) => [d.id, d]));
+
+/** The boards with an agent standing by: the Issues board, the PR board and the task queue. */
+export type StationKind = 'issues' | 'pulls' | 'queue';
+
+/**
+ * The board agents: a worker standing behind a little kiosk just west of each of those boards (see
+ * BOARDS), there for anyone to prompt about it. (x, z) is the kiosk. They face into the room, so at
+ * rotY PI the worker stands on the wall side of it. Nobody hires them from the desks or the queue.
+ */
+export const STATIONS: DeskDef[] = [
+  { id: 'station-issues', station: 'issues', x: -14.4, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'Issues board' },
+  { id: 'station-pulls', station: 'pulls', x: -5.4, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'PR board' },
+  // Between the elevator and the queue board.
+  { id: 'station-queue', station: 'queue', x: 10.65, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'Task queue' },
+];
+/** A board agent's kiosk: its top, and how far behind its middle (toward the wall) the agent stands. */
+export const KIOSK = { width: 0.8, depth: 0.5, height: 0.55, stand: 0.55 } as const;
+/** Each board agent's name and its color, the same whenever it's hired. */
+export const STATION_AGENT: Record<StationKind, { name: string; color: string }> = {
+  issues: { name: 'Issues agent', color: '#ef476f' },
+  pulls: { name: 'PR agent', color: '#118ab2' },
+  queue: { name: 'Queue agent', color: '#06d6a0' },
+};
+
+/** Any place a worker can be by id: the seats, and the board agents' kiosks. */
+export const DESK_BY_ID = new Map([...SEATS, ...STATIONS].map((d) => [d.id, d]));
 
 /** The seat a new worker takes when nobody picks one: the first free desk, else the first free bean bag. */
 export function nextFreeSeat(taken: (id: string) => boolean): DeskDef | undefined {
