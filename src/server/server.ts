@@ -21,6 +21,7 @@ import { Decor, ImageProxy } from './decor.js';
 import { Ledger } from './usage.js';
 import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
+import { Webhook } from './webhook.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import type { ChatLine, ClientMsg, Me, PeerInfo, ProjectInfo, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { isAgentProvider } from '../shared/protocol.js';
@@ -186,6 +187,7 @@ export async function startServer(cfg: Config) {
   let workers!: WorkerManager;
   let queue!: TaskQueue;
   let changes!: Changes;
+  let webhook!: Webhook;
   const hookServer = http.createServer(async (req, res) => {
     let url: URL;
     try {
@@ -232,11 +234,13 @@ export async function startServer(cfg: Config) {
       update: (worker) => {
         broadcast({ t: 'worker.update', worker });
         queue?.onWorker(worker);
+        webhook?.onWorker(worker);
       },
       remove: (workerId) => {
         changes.forget(workerId);
         broadcast({ t: 'worker.remove', workerId });
         queue?.onWorkerGone(workerId);
+        webhook?.onWorkerGone(workerId);
       },
       data: (workerId, data, viewers) => {
         const json = JSON.stringify({ t: 'term.data', workerId, data } satisfies ServerMsg);
@@ -272,6 +276,14 @@ export async function startServer(cfg: Config) {
     hiringPaused: () => ledger.hiringPaused,
   });
   github.start();
+
+  // Slack / Discord pings for workers that need input or finish (set from ⚙️ Settings or --webhook).
+  webhook = new Webhook(cfg.dataDir, project.name, (state) => broadcast({ t: 'notify', state }));
+  for (const w of workers.list()) webhook.onWorker(w);
+  if (cfg.webhook !== undefined) {
+    const err = webhook.set(cfg.webhook, 'the command line');
+    if (err) console.error(`agent-office: --webhook: ${err}`);
+  }
 
   // What each worker changed, for the Changes window at its desk (see changes.ts).
   changes = new Changes(
@@ -618,6 +630,7 @@ export async function startServer(cfg: Config) {
       usage: ledger.state(),
       queue: queue.state(),
       me,
+      notify: webhook.state(),
     });
     for (const { workerId, frame } of workers.fullScreens()) sendTo(client, { t: 'screen', workerId, ...frame, full: true });
     broadcast({ t: 'peer.join', peer: client.peer }, id);
@@ -809,6 +822,16 @@ export async function startServer(cfg: Config) {
       case 'queue.limit':
         queue.setLimit(num(msg.maxWorkers));
         break;
+      case 'notify.webhook': {
+        const url = str(msg.url, 4096).trim();
+        const err = webhook.set(url, who);
+        warn(c, err);
+        if (!err) toastAll(url ? `📣 ${who} set up team notifications` : `${who} turned off team notifications`);
+        break;
+      }
+      case 'notify.test':
+        void webhook.test(who).then((err) => sendTo(c, { t: 'toast', text: err ?? '📣 Sent a test message', level: err ? 'warn' : 'info' }));
+        break;
       case 'changes.watch':
         if (workers.get(str(msg.workerId, 32))) changes.watch(str(msg.workerId, 32), c.id);
         break;
@@ -988,6 +1011,7 @@ export async function startServer(cfg: Config) {
     upgrader.stop();
     services.stop();
     queue.shutdown();
+    webhook.stop();
     changes.stop();
     workers.shutdown();
     ledger.flush();
