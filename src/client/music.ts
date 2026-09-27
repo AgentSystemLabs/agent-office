@@ -502,9 +502,9 @@ export class TunePlayer {
 
 // ---- Plumbing --------------------------------------------------------------------------------------
 
-const mtof = (m: number) => 440 * 2 ** ((m - 69) / 12);
+export const mtof = (m: number) => 440 * 2 ** ((m - 69) / 12);
 
-function biquad(ctx: BaseAudioContext, type: BiquadFilterType, freq: number, q: number): BiquadFilterNode {
+export function biquad(ctx: BaseAudioContext, type: BiquadFilterType, freq: number, q: number): BiquadFilterNode {
   const f = ctx.createBiquadFilter();
   f.type = type;
   f.frequency.value = freq;
@@ -513,7 +513,7 @@ function biquad(ctx: BaseAudioContext, type: BiquadFilterType, freq: number, q: 
 }
 
 /** The same 0–1 for the same numbers, on everyone's machine. */
-function hash(a: number, b: number): number {
+export function hash(a: number, b: number): number {
   let h = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x632be5ab, 0xc2b2ae35);
   h ^= h >>> 15;
   h = Math.imul(h, 0x2c1b3c6d);
@@ -521,7 +521,7 @@ function hash(a: number, b: number): number {
   return (h >>> 0) / 4294967296;
 }
 
-function mulberry(seed: number): () => number {
+export function mulberry(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -540,7 +540,7 @@ interface Buffers {
 }
 const made = new WeakMap<BaseAudioContext, Buffers>();
 
-function buffers(ctx: BaseAudioContext): Buffers {
+export function buffers(ctx: BaseAudioContext): Buffers {
   let b = made.get(ctx);
   if (b) return b;
   const sr = ctx.sampleRate;
