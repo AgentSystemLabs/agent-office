@@ -61,7 +61,7 @@ agent-office
 
 On the machine that runs the office (your laptop or a VPS):
 
-- **Node.js 20+**. Prebuilt PTY binaries ship for Linux and macOS, x64 and arm64, so no compiler is needed.
+- **Node.js 20+**. Prebuilt PTY binaries ship for Linux, macOS and Windows, x64 and arm64, so no compiler is needed.
 - **Claude Code** (`claude`), **OpenCode** (`opencode`) and/or **Codex CLI** (`codex`), installed and configured as the user that runs the office. Install each provider you want to use. Codex requires native command-hook support (tested with CLI 0.154.0).
 - **git**, plus the **GitHub CLI** (`gh`) logged in (`gh auth login`) if you want the issue and PR boards.
 - `curl` is optional. The status hooks use it when it's there and fall back to Node when it isn't.
@@ -80,7 +80,21 @@ Anything after `bash -s --` goes to the office, such as a project directory or a
 curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.sh | bash -s -- ~/code/my-project --port 4700
 ```
 
-The script checks for Node.js 20+ and npm, downloads the newest [release](https://github.com/AgentSystemLabs/agent-office/releases) into `~/.local/share/agent-office` and installs its dependencies there. It also puts an `agent-office` command in `~/.local/bin`, so after the first run `agent-office` on its own starts the office. Run the curl line again to update. Set `AGENT_OFFICE_VERSION=v0.1.68` to install a particular release, or `AGENT_OFFICE_INSTALL_ONLY=1` to install without starting. The other settings are listed at the top of [`install.sh`](install.sh). It runs on macOS and Linux. On Windows, run it inside WSL.
+The script checks for Node.js 20+ and npm, downloads the newest [release](https://github.com/AgentSystemLabs/agent-office/releases) into `~/.local/share/agent-office` and installs its dependencies there. It also puts an `agent-office` command in `~/.local/bin`, so after the first run `agent-office` on its own starts the office. Run the curl line again to update. Set `AGENT_OFFICE_VERSION=v0.1.68` to install a particular release, or `AGENT_OFFICE_INSTALL_ONLY=1` to install without starting. The other settings are listed at the top of [`install.sh`](install.sh). It runs on macOS and Linux.
+
+**On Windows**, one line in PowerShell does the same:
+
+```powershell
+irm https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.ps1 | iex
+```
+
+To pass the office a project directory or a port, run it as a script block instead:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.ps1))) C:\code\my-project --port 4700
+```
+
+It installs releases into `%LOCALAPPDATA%\agent-office` and puts an `agent-office` command in `%LOCALAPPDATA%\agent-office\bin`, which it adds to your user PATH. Open a new terminal after the first install and `agent-office` starts the office from PowerShell, cmd or Git Bash. Run the irm line again to update. It takes the same settings as `install.sh`, set the PowerShell way (`$env:AGENT_OFFICE_VERSION = 'v0.1.68'` before the irm line), plus `AGENT_OFFICE_NO_MODIFY_PATH=1` to leave your PATH alone, and `AGENT_OFFICE_BIN_DIR=none` skips the command. They're listed at the top of [`install.ps1`](install.ps1). It works in Windows PowerShell 5.1 and PowerShell 7. You can also run `install.sh` inside WSL.
 
 Or install from a clone, to work on the office itself:
 
