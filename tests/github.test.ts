@@ -221,3 +221,19 @@ test('reports corrupt configuration without overwriting it', () => {
     rmSync(data, { recursive: true, force: true });
   }
 });
+
+test('routes issue claims through the explicitly tracked repository', async () => {
+  const data = tempData();
+  try {
+    writeFileSync(path.join(data, 'issue-repositories.json'), '["other/project"]');
+    const f = fixture();
+    const github = new GitHub('/tmp/project', () => {}, () => {}, data, f.runner);
+    assert.equal(await github.trackedRepository('OTHER/PROJECT'), 'other/project');
+    assert.equal(await github.claim(7, 'other/project'), undefined);
+    const claim = f.calls.find((args) => args[0] === 'issue' && args[1] === 'edit');
+    assert.deepEqual(claim?.slice(0, 7), ['issue', 'edit', '7', '--add-assignee', '@me', '--repo', 'other/project']);
+    assert.match((await github.claim(8, 'unknown/project')) ?? '', /not configured/i);
+  } finally {
+    rmSync(data, { recursive: true, force: true });
+  }
+});

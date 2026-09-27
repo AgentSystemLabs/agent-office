@@ -1,5 +1,5 @@
 import { execFile, execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -44,9 +44,10 @@ export class Worktrees {
    */
   create(slug: string): (Required<WorktreeRef> & { from?: string }) | string {
     try {
+      const rel = this.ensureCreatePath(slug);
+      this.excludeFromGit();
       const base = this.gitSync(['rev-parse', 'HEAD']);
       const from = this.currentBranch();
-      const rel = path.join(WORKTREES_DIR, slug);
       const branch = `${BRANCH_PREFIX}${slug}`;
       this.gitSync(['worktree', 'add', '-b', branch, rel, base]);
       return { path: rel, branch, base, from };
@@ -142,6 +143,41 @@ export class Worktrees {
     const { stdout } = await execFileP('git', args, { cwd, encoding: 'utf8', timeout: 60_000, maxBuffer: 16 * 1024 * 1024 });
     return stdout.trim();
   }
+
+  /** Ensure Git cannot follow a reserved office path out of this repository. */
+  private ensureCreatePath(slug: string): string {
+    if (!slug || slug !== path.basename(slug) || slug.includes('\0')) throw new Error('invalid worktree name');
+    const office = path.join(this.root, '.agent-office');
+    const parent = path.join(office, 'worktrees');
+    ensureDirectory(office, this.root);
+    ensureDirectory(parent, this.root);
+    const target = path.join(parent, slug);
+    try {
+      lstatSync(target);
+      throw new Error('worktree path already exists');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+    // Check the real parent immediately before invoking git. This rejects a symlink swap that
+    // happened while the directories were being prepared, as far as the synchronous handoff allows.
+    const realParent = realpathSync(parent);
+    if (!within(this.root, realParent)) throw new Error('worktree parent escapes the project');
+    return path.join(WORKTREES_DIR, slug);
+  }
+
+  /** Keep generated worktree state out of the project's Git status, including foreign roots. */
+  private excludeFromGit() {
+    try {
+      const gitDir = this.gitSync(['rev-parse', '--git-common-dir']);
+      const exclude = path.resolve(this.dir, gitDir, 'info', 'exclude');
+      const current = existsSync(exclude) ? readFileSync(exclude, 'utf8') : '';
+      if (current.split('\n').some((line) => line.trim() === '.agent-office/' || line.trim() === '.agent-office')) return;
+      mkdirSync(path.dirname(exclude), { recursive: true });
+      appendFileSync(exclude, `${current && !current.endsWith('\n') ? '\n' : ''}.agent-office/\n`);
+    } catch {
+      // A non-git root or read-only exclude file should be reported by git itself; never block hiring.
+    }
+  }
 }
 
 /** Why deleting this would lose something ("2 uncommitted changes, 1 unpushed commit"), or '' when it wouldn't. */
@@ -178,4 +214,19 @@ function isDir(p: string): boolean {
   } catch {
     return false;
   }
+}
+
+function ensureDirectory(dir: string, root: string) {
+  let stat;
+  try {
+    stat = lstatSync(dir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    mkdirSync(dir, { mode: 0o700 });
+    stat = lstatSync(dir);
+  }
+  if (stat.isSymbolicLink()) throw new Error(`reserved worktree path is a symlink: ${dir}`);
+  if (!stat.isDirectory()) throw new Error(`reserved worktree path is not a directory: ${dir}`);
+  const resolved = realpathSync(dir);
+  if (!within(root, resolved)) throw new Error(`reserved worktree path escapes the project: ${dir}`);
 }

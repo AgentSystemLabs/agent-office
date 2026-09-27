@@ -26,6 +26,11 @@ export interface WorkerTask {
   summary: string;
 }
 
+export interface WorkerProject {
+  repository: string;
+  dir: string;
+}
+
 export interface WorkerInfo {
   id: string;
   /** 'agent' runs the selected provider; 'shell' is a plain shared login shell. */
@@ -33,6 +38,8 @@ export interface WorkerInfo {
   provider?: AgentProvider;
   /** Initial OpenCode model selected for this worker, when one was requested. */
   model?: string;
+  /** Verified checkout for a worker assigned to another repository. */
+  project?: WorkerProject;
   deskId: string;
   name: string;
   color: string;
@@ -43,8 +50,8 @@ export interface WorkerInfo {
   createdAt: number;
   prompt?: string;
   /**
-   * Set when the worker runs in its own git worktree (path relative to the office dir). `from` is
-   * the branch the office was on when the worktree was cut, which its pull request targets.
+   * Set when the worker runs in its own git worktree (path relative to project.dir, or the office
+   * dir for legacy/current-project workers). `from` is the source branch its PR targets.
    */
   worktree?: { path: string; branch: string; base: string; from?: string };
   /** The pull request opened from this desk for the worktree branch (see 'worker.pr'). */
@@ -207,6 +214,8 @@ export interface QueueTask {
   model?: string;
   /** The GitHub issue it came from, when it did. */
   issue?: number;
+  issueRepository?: string;
+  project?: WorkerProject;
   title: string;
   prompt: string;
   addedBy: string;
@@ -446,14 +455,14 @@ export type ClientMsg =
   /** You reached out to use something; everyone else sees your character's arm do it. */
   | { t: 'act' }
   | { t: 'profile'; name: string; color: string; look: Look }
-  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string }
+  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; repository?: string }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
   | { t: 'worker.worktree'; workerId: string }
   | { t: 'worker.attach'; workerId: string }
   | { t: 'worker.detach'; workerId: string }
-  | { t: 'worker.prompt'; workerId: string; prompt: string }
+  | { t: 'worker.prompt'; workerId: string; prompt: string; repository?: string }
   /** Push a worktree worker's branch and open a pull request for it, drafted from its task. */
   | { t: 'worker.pr'; workerId: string }
   | { t: 'term.input'; workerId: string; data: string }

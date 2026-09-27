@@ -21,8 +21,14 @@ export interface ChangesTarget {
   cwd: string;
   /** That directory relative to the office dir ('' for the project itself). */
   rel: string;
+  /** Root project checkout; foreign workers use this instead of the office checkout. */
+  projectDir?: string;
+  /** GitHub repository identity, used to keep branch/PR caches separate. */
+  repository?: string;
   /** The commit its worktree branched from, when it has one. */
   worktreeBase?: string;
+  /** The source branch of the worker worktree, in the worker project's repository. */
+  worktreeFrom?: string;
 }
 
 export interface ChangesEvents {
@@ -128,7 +134,7 @@ export class Changes {
     private baseBranch: string | undefined,
     private target: (workerId: string) => ChangesTarget | undefined,
     /** An open pull request whose head is that branch, from the PR board. */
-    private openPull: (branch: string) => { number: number; url: string } | undefined,
+    private openPull: (branch: string, target?: ChangesTarget) => { number: number; url: string } | undefined,
     private events: ChangesEvents,
   ) {
     if (baseBranch === 'HEAD') this.baseBranch = undefined;
@@ -245,7 +251,7 @@ export class Changes {
       const url = r.out.trim().split('\n').pop() ?? '';
       if (r.code !== 0 || !/^https?:\/\//.test(url)) throw new GitError(reason(r, url || 'gh pr create failed'));
       const number = Number(/\/(\d+)$/.exec(url)?.[1] ?? 0);
-      this.opened.set(s.branch, { number, url });
+      this.opened.set(openedKey(t.repository, s.branch), { number, url });
       this.events.toast(`${who} opened a pull request for ${t.name}: ${url}`, 'info');
       this.events.refreshGitHub();
       return undefined;
@@ -319,10 +325,12 @@ export class Changes {
     const onBranch = branch !== 'HEAD';
     let ref: string | undefined;
     let label = 'HEAD';
-    if (this.baseBranch && branch !== this.baseBranch && (await gitMaybe(['rev-parse', '--verify', '--quiet', `refs/heads/${this.baseBranch}`], t.cwd))) {
+    const sameProject = !t.projectDir || path.resolve(t.projectDir) === path.resolve(this.dir);
+    const targetBaseBranch = sameProject ? this.baseBranch : t.worktreeFrom;
+    if (sameProject && this.baseBranch && branch !== this.baseBranch && (await gitMaybe(['rev-parse', '--verify', '--quiet', `refs/heads/${this.baseBranch}`], t.cwd))) {
       ref = this.baseBranch;
       label = this.baseBranch;
-    } else if (t.worktreeBase && branch !== this.baseBranch) {
+    } else if (t.worktreeBase && branch !== targetBaseBranch) {
       ref = t.worktreeBase;
       label = t.worktreeBase.slice(0, 7);
     } else {
@@ -334,7 +342,7 @@ export class Changes {
       }
     }
     const commit = (ref && (await gitMaybe(['merge-base', ref, 'HEAD'], t.cwd))) || head;
-    const prBase = onBranch && this.baseBranch && branch !== this.baseBranch ? this.baseBranch : undefined;
+    const prBase = onBranch && targetBaseBranch && branch !== targetBaseBranch ? targetBaseBranch : undefined;
     return { commit, label, branch: onBranch ? branch : undefined, prBase };
   }
 
@@ -406,7 +414,7 @@ export class Changes {
       );
       const ahead = Number(await gitMaybe(['rev-list', '--count', `${base.commit}..HEAD`], t.cwd)) || 0;
       const subject = ahead ? await gitMaybe(['log', '-1', '--format=%s'], t.cwd) : undefined;
-      const pr = base.branch ? this.opened.get(base.branch) ?? this.openPull(base.branch) : undefined;
+      const pr = base.branch ? this.opened.get(openedKey(t.repository, base.branch)) ?? this.openPull(base.branch, t) : undefined;
       return { workerId, dir: t.rel, branch: base.branch ?? 'HEAD', base: base.label, ahead, subject, files: list, more: all.length - list.length, prBase: base.prBase, pr, at: Date.now() };
     } catch (err) {
       return errorState(workerId, t.rel, err instanceof GitError ? err.message : String((err as Error).message ?? err));
@@ -416,4 +424,8 @@ export class Changes {
 
 function errorState(workerId: string, dir: string, error: string): ChangesState {
   return { workerId, dir, base: 'HEAD', ahead: 0, files: [], more: 0, error, at: Date.now() };
+}
+
+function openedKey(repository: string | undefined, branch: string): string {
+  return `${repository?.toLowerCase() ?? ''}:${branch}`;
 }

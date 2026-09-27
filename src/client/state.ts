@@ -70,9 +70,19 @@ export function saveSettings(s: Settings) {
   }
 }
 
-/** The worker whose worktree branch a pull request came from, if it is still at a desk. */
-export function workerForPull(workers: Iterable<WorkerInfo>, pr: { number: number; headRefName: string }): WorkerInfo | undefined {
-  for (const w of workers) if (w.pr?.number === pr.number || (w.worktree && w.worktree.branch === pr.headRefName)) return w;
+function repositoryFromUrl(url: string): string | undefined {
+  const match = /github\.com\/([^/]+\/[^/#?]+)/i.exec(url);
+  return normalizeIssueRepository(match?.[1]?.replace(/\.git$/, ''));
+}
+
+/** The worker whose worktree branch a pull request came from, scoped to its repository. */
+export function workerForPull(workers: Iterable<WorkerInfo>, pr: { number: number; headRefName: string; url?: string }, currentRepository?: string): WorkerInfo | undefined {
+  const pullRepository = pr.url ? repositoryFromUrl(pr.url) : undefined;
+  for (const w of workers) {
+    const workerRepository = w.project?.repository ?? currentRepository;
+    if (pullRepository && workerRepository && !sameRepository(pullRepository, workerRepository)) continue;
+    if (w.pr?.number === pr.number || (w.worktree && w.worktree.branch === pr.headRefName)) return w;
+  }
   return undefined;
 }
 
@@ -87,9 +97,13 @@ export function issueIdentityKey(issue: Pick<GhIssue, 'number' | 'repository'>):
   return `${issue.repository?.toLowerCase() ?? ''}#${issue.number}`;
 }
 
-export function taskForIssueMatches(task: Pick<QueueTask, 'issue'>, issue: number, repository?: string, currentRepository?: string): boolean {
+export function taskForIssueMatches(task: Pick<QueueTask, 'issue' | 'issueRepository'>, issue: number, repository?: string, currentRepository?: string): boolean {
   if (task.issue !== issue) return false;
-  return !repository || (!!currentRepository && sameRepository(repository, currentRepository));
+  // Queue entries written before multi-repository execution had no repository field; they belong
+  // to the office's current checkout. A repository-qualified task must match the issue's repo.
+  const taskRepository = task.issueRepository ?? currentRepository;
+  const issueRepository = repository ?? currentRepository;
+  return !!taskRepository && !!issueRepository && sameRepository(taskRepository, issueRepository);
 }
 
 export type IssueRepositoryFilter = 'all' | string;
@@ -143,7 +157,6 @@ class Store {
   /** The queue task for an issue: the one on the queue if there is one, else the latest finished one. */
   taskForIssue(issue: number, repository?: string): QueueTask | undefined {
     const currentRepository = this.issues.currentRepository ?? projectRepository(this.project);
-    if (repository && (!currentRepository || !sameRepository(repository, currentRepository))) return undefined;
     const tasks = this.queue.tasks.filter((t) => taskForIssueMatches(t, issue, repository, currentRepository));
     return tasks.find((t) => t.status !== 'done') ?? tasks[tasks.length - 1];
   }

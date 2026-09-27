@@ -1,12 +1,12 @@
 import type { GhCheck, GhComment, GhIssue, GhIssueDetail, GhMergeMethod, GhPull, GhPullDetail, GhReviewComment, ServerMsg } from '../../shared/protocol';
-import { isCurrentIssue } from '../../shared/issue-repositories';
 import type { Net } from '../net';
-import { AVATAR_COLORS, store, workerForPull } from '../state';
+import { AVATAR_COLORS, projectRepository, store, workerForPull } from '../state';
 import { issuePrompt, type BoardActions } from './boards';
 import { h, openModal, timeAgo, type Modal } from './dom';
 import { markdown, repoUrlOf } from './markdown';
 import { buildTree, looksGenerated, parseDiff, renderFileDiff, renderThread, repliesOf, Reviewed, STATUS_WORD, treeOrder, type DiffFile, type TreeDir } from './pulldiff';
 import { providerPicker } from './provider';
+import { lookupIssueProject } from './repository-project';
 
 // The windows behind the board cards. A PR opens on its conversation (description, comments,
 // reviews, line comments, checks) with a Files tab for the diff, where you tick files off as
@@ -389,7 +389,7 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
     const conflicts = !!detail && conflicted(detail);
     const merge = h(conflicts ? 'button.btn' : 'button.btn.primary', { type: 'button', disabled: !detail, title: detail ? 'Merge this pull request' : 'Loading…' }, '🔀 Merge…');
     merge.addEventListener('click', () => detail && openMerge(it, detail, net, handToWorker, loadAll));
-    const w = workerForPull(store.workers.values(), it);
+    const w = workerForPull(store.workers.values(), it, store.issues.currentRepository ?? projectRepository(store.project));
     footBtns.replaceChildren(
       ...nodes(
       w ? h('button.btn', { type: 'button', onclick: () => actions.goToDesk(w.deskId) }, `🪑 Go to ${w.name}'s desk`) : null,
@@ -803,20 +803,19 @@ export function openIssue(it: GhIssue, actions: BoardActions) {
   let error = '';
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const conv = h('div.gh-conv');
+  const projectHint = h('span.repo-project-hint', {}, it.repository ? '📁 finding checkout…' : '');
   const [word, cls] = it.state === 'OPEN' ? ['open', 'done'] : ['closed', 'offline'];
-  const current = isCurrentIssue(it, store.issues);
-  const task = current ? store.taskForIssue(it.number, it.repository) : undefined;
+  const task = store.taskForIssue(it.number, it.repository);
   const onQueue = !!task && task.status !== 'done';
-  const queueProvider = current && it.state === 'OPEN' ? providerPicker(store.project, `issue-provider-${it.repository ?? 'current'}-${it.number}`, 'Queue provider') : null;
+  const queueProvider = it.state === 'OPEN' ? providerPicker(store.project, `issue-provider-${it.repository ?? 'current'}-${it.number}`, 'Queue provider') : null;
   queueProvider?.element.classList.toggle('hidden', onQueue);
   const addIssueToQueue = () => {
-    if (!current) return;
     if (queueProvider && !queueProvider.valid()) return;
     modal.close();
     actions.queue(issuePrompt(it), `#${it.number} ${it.title}`, it.number, queueProvider?.value(), queueProvider?.model(), it.repository);
   };
   const queue =
-    current && it.state === 'OPEN'
+    it.state === 'OPEN'
       ? h(
           'button.btn',
           { type: 'button', disabled: onQueue, title: onQueue ? undefined : 'A worker picks it up by itself when a desk is free and there is room under the worker limit', onclick: addIssueToQueue },
@@ -831,10 +830,10 @@ export function openIssue(it: GhIssue, actions: BoardActions) {
       'div.gh-meta',
       {},
       avatar(it.author),
-      current ? null : h('span.readonly-badge', {}, '👀 tracking only'),
       h('b', {}, it.author),
       h('span', {}, `opened this ${timeAgo(it.createdAt)}`),
       it.assignees.length ? h('span', {}, `· 👤 ${it.assignees.join(', ')}`) : null,
+      projectHint,
       ...it.labels.slice(0, 6).map(labelChip),
     ),
     h('div.gh-body', {}, conv),
@@ -842,10 +841,10 @@ export function openIssue(it: GhIssue, actions: BoardActions) {
       'footer',
       {},
       h('a.grow', { href: it.url, target: '_blank', rel: 'noopener noreferrer' }, 'Open on GitHub ↗'),
-      current ? h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this issue', onclick: () => actions.ask(issueContext(it), `Ask about issue #${it.number}`) }, '✍️ Ask a worker…') : h('span.readonly-explanation', {}, 'Tracked for visibility only. Open an office in this repository to work on it.'),
+      h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this issue', onclick: () => actions.ask(issueContext(it), `Ask about issue #${it.number}`, it.repository) }, '✍️ Ask a worker…'),
       queueProvider?.element ?? null,
       queue,
-      current ? h('button.btn.primary', { type: 'button', onclick: () => actions.assign(issuePrompt(it), `Hand issue #${it.number} to a worker`) }, '🤖 Hand to a worker') : null,
+      h('button.btn.primary', { type: 'button', onclick: () => actions.assign(issuePrompt(it), `Hand issue #${it.number} to a worker`, it.repository) }, '🤖 Hand to a worker'),
     ),
   );
   const render = () => {
@@ -867,4 +866,14 @@ export function openIssue(it: GhIssue, actions: BoardActions) {
   const modal = openModal(el);
   close.addEventListener('click', () => modal.close());
   load();
+  if (it.repository) {
+    lookupIssueProject(it.repository)
+      .then((project) => {
+        projectHint.textContent = project ? `📁 ${project.dir}` : '📁 checkout selected when work starts';
+        projectHint.title = project?.dir ?? '';
+      })
+      .catch(() => {
+        projectHint.textContent = '📁 checkout selected when work starts';
+      });
+  }
 }

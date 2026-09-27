@@ -60,7 +60,7 @@ export class BoardTexture {
   }
 
   /** `workers` lets PR notes name the desk they came from. */
-  render(state: GhState<GhIssue> | GhState<GhPull>, workers?: Map<string, WorkerInfo>) {
+  render(state: GhState<GhIssue> | GhState<GhPull>, workers?: Map<string, WorkerInfo>, currentRepository?: string) {
     const g = this.ctx;
     const W = this.canvas.width;
     const H = this.canvas.height;
@@ -115,7 +115,7 @@ export class BoardTexture {
       g.fillRect(-nw / 2, -nh / 2, nw, nh);
       g.fillStyle = '#2b2d42';
       const fs = Math.round(22 * Math.min(scale, nh / 164));
-      const w = this.kind === 'pulls' && workers ? workerForPull(workers.values(), it as GhPull) : undefined;
+      const w = this.kind === 'pulls' && workers ? workerForPull(workers.values(), it as GhPull, currentRepository) : undefined;
       const repository = this.kind === 'issues' ? (it as GhIssue).repository ?? 'current project' : '';
       const footer = (w ? fs * 1.3 : 0) + (repository ? fs : 0);
       g.font = `900 ${Math.round(fs * 1.35)}px Nunito, ui-rounded, system-ui, sans-serif`;

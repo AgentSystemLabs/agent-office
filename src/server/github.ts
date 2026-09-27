@@ -223,6 +223,11 @@ export class GitHub {
     return found;
   }
 
+  /** Resolves and validates an issue repository for trusted queue/server routing. */
+  trackedRepository(value: unknown): Promise<string> {
+    return this.resolveIssueRepository(value);
+  }
+
   async refresh() {
     await Promise.all([this.refreshIssues(), this.refreshPulls()]);
   }
@@ -317,9 +322,11 @@ export class GitHub {
   }
 
   /** Assigns the issue to whoever gh is signed in as, which moves it to In progress on the board. */
-  async claim(issue: number): Promise<string | undefined> {
+  async claim(issue: number, repository?: string): Promise<string | undefined> {
     try {
-      await this.runGh(['issue', 'edit', String(issue), '--add-assignee', '@me'], this.dir);
+      const args = ['issue', 'edit', String(issue), '--add-assignee', '@me'];
+      if (repository !== undefined) args.push('--repo', await this.resolveIssueRepository(repository));
+      await this.runGh(args, this.dir);
     } catch (err) {
       return (err as Error).message;
     }

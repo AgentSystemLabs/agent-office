@@ -13,6 +13,7 @@ import { WorkerManager } from './workers.js';
 import { configuredProvider, OPEN_CODE_MODEL_MAX } from './agents.js';
 import { createOpenCodeModelCatalogue } from './models.js';
 import { GitHub } from './github.js';
+import { RepositoryProjects } from './repository-projects.js';
 import { normalizeIssueRepository, sameRepository } from '../shared/issue-repositories.js';
 import { Team } from './team.js';
 import { Upgrader } from './upgrade.js';
@@ -22,7 +23,7 @@ import { Ledger } from './usage.js';
 import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
-import type { ChatLine, ClientMsg, PeerInfo, ProjectInfo, ServerMsg, ServicesState } from '../shared/protocol.js';
+import type { ChatLine, ClientMsg, PeerInfo, ProjectInfo, ServerMsg, ServicesState, WorkerProject } from '../shared/protocol.js';
 import { isAgentProvider } from '../shared/protocol.js';
 import { SPAWN } from '../shared/layout.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
@@ -259,11 +260,22 @@ export async function startServer(cfg: Config) {
   queue = new TaskQueue(cfg.dataDir, workers, !!project.branch, {
     update: (state) => broadcast({ t: 'queue', state }),
     toast: toastAll,
-    claimIssue: (issue) => github.claim(issue),
+    claimIssue: (issue, repository) => github.claim(issue, repository),
+    currentRepository: () => github.issues.currentRepository,
     refreshGitHub: () => void github.refresh(),
     hiringPaused: () => ledger.hiringPaused,
   });
   github.start();
+  const repositoryProjects = new RepositoryProjects(cfg.dir, cfg.dataDir);
+  const resolveWorkProject = async (value: string): Promise<WorkerProject | undefined> => {
+    const repository = await github.trackedRepository(value);
+    if (sameRepository(repository, github.issues.currentRepository)) return undefined;
+    const selected = await repositoryProjects.resolve(repository);
+    if (!selected) throw new Error(`Choose the local project folder for ${repository} before starting work.`);
+    await github.trackedRepository(repository);
+    return selected;
+  };
+  const workPrompt = (prompt: string, selected?: WorkerProject) => selected ? `${prompt}\n\n${repositoryProjects.context(selected)}` : prompt;
 
   // What each worker changed, for the Changes window at its desk (see changes.ts).
   changes = new Changes(
@@ -272,9 +284,12 @@ export async function startServer(cfg: Config) {
     (workerId) => {
       const w = workers.get(workerId);
       if (!w) return undefined;
-      return { name: w.name, cwd: w.worktree ? path.join(cfg.dir, w.worktree.path) : cfg.dir, rel: w.worktree?.path ?? '', worktreeBase: w.worktree?.base };
+      const cwd = workers.workingDirectory(workerId);
+      if (!cwd) return undefined;
+      return { name: w.name, cwd, rel: w.project ? cwd : w.worktree?.path ?? '', worktreeBase: w.worktree?.base, worktreeFrom: w.worktree?.from, projectDir: w.project?.dir, repository: w.project?.repository };
     },
-    (branch) => {
+    (branch, target) => {
+      if (target?.repository && !sameRepository(target.repository, github.issues.currentRepository)) return undefined;
       const pr = github.pulls.items.find((p) => p.state === 'OPEN' && p.headRefName === branch);
       return pr ? { number: pr.number, url: pr.url } : undefined;
     },
@@ -410,6 +425,23 @@ export async function startServer(cfg: Config) {
         return;
       }
       if (p === '/api/whoami') return send(res, 200, { ok: true });
+      if (p === '/api/repository-project') {
+        if (req.method !== 'GET' && req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
+        if (req.method === 'POST' && !sameOrigin(req, cfg)) return send(res, 403, { error: 'Invalid origin' });
+        try {
+          const body = req.method === 'POST' ? JSON.parse(await readBody(req, 8192)) : undefined;
+          const repository = await github.trackedRepository(body?.repository ?? url.searchParams.get('repository'));
+          if (sameRepository(repository, github.issues.currentRepository)) {
+            return send(res, 200, { project: { repository, dir: cfg.dir } });
+          }
+          const selected = req.method === 'GET' ? await repositoryProjects.resolve(repository)
+            : body?.clone === true ? await repositoryProjects.clone(repository, body.directory)
+            : await repositoryProjects.bind(repository, body?.directory);
+          return send(res, 200, { project: selected });
+        } catch (err) {
+          return send(res, 400, { error: (err as Error).message });
+        }
+      }
       if (p === '/api/agents/opencode/models' && req.method === 'GET') {
         try {
           return send(res, 200, { models: await openCodeModels.get() });
@@ -550,7 +582,7 @@ export async function startServer(cfg: Config) {
         return;
       }
       if (!msg || typeof msg !== 'object') return;
-      handleMessage(client, msg);
+      void handleMessage(client, msg).catch((err) => warn(client, (err as Error).message));
     });
     ws.on('close', () => {
       clients.delete(id);
@@ -564,7 +596,7 @@ export async function startServer(cfg: Config) {
   const decorChanged = () => broadcast({ t: 'decor', items: decor.list() });
   const teamChanged = async () => broadcast({ t: 'team', state: await team.state() });
 
-  const handleMessage = (c: Client, msg: ClientMsg) => {
+  const handleMessage = async (c: Client, msg: ClientMsg) => {
     const who = c.peer.name;
     switch (msg.t) {
       case 'move': {
@@ -619,7 +651,8 @@ export async function startServer(cfg: Config) {
           break;
         }
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
-        const r = workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model);
+        const selected = msg.repository === undefined ? undefined : await resolveWorkProject(msg.repository);
+        const r = workers.spawn(str(msg.deskId, 32), who, workPrompt(str(msg.prompt, 20000), selected) || undefined, msg.worktree === true, kind, msg.provider, model, selected);
         if (typeof r === 'string') warn(c, r);
         else toastAll(kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${r.prompt ? ' with a task' : ''}`);
         break;
@@ -661,9 +694,15 @@ export async function startServer(cfg: Config) {
         workers.detach(wid, c.id);
         break;
       }
-      case 'worker.prompt':
-        warn(c, workers.prompt(str(msg.workerId, 32), str(msg.prompt, 20000)));
+      case 'worker.prompt': {
+        const w = workers.get(str(msg.workerId, 32));
+        if (msg.repository !== undefined) {
+          const repository = await github.trackedRepository(msg.repository);
+          if (!w || !sameRepository(w.project?.repository ?? github.issues.currentRepository, repository)) throw new Error('Choose a worker assigned to this repository.');
+        }
+        warn(c, workers.prompt(str(msg.workerId, 32), workPrompt(str(msg.prompt, 20000), w?.project)));
         break;
+      }
       case 'worker.pr': {
         const wid = str(msg.workerId, 32);
         void workers.openPr(wid, who).then((r) => {
@@ -712,13 +751,11 @@ export async function startServer(cfg: Config) {
           break;
         }
         const issue = Number.isInteger(msg.issue) && (msg.issue as number) > 0 ? (msg.issue as number) : undefined;
-        // Extra repositories are tracked only: a worker still runs in this project's checkout.
-        if (msg.issueRepository !== undefined && (issue === undefined || !normalizeIssueRepository(msg.issueRepository) || !sameRepository(msg.issueRepository, github.issues.currentRepository))) {
-          warn(c, 'Issues from another repository can be tracked here. Run its workers from that repository’s office.');
-          break;
-        }
+        if (msg.issueRepository !== undefined && issue === undefined) throw new Error('A repository issue needs a valid issue number.');
+        const selected = msg.issueRepository === undefined ? undefined : await resolveWorkProject(msg.issueRepository);
+        const repository = msg.issueRepository === undefined ? undefined : await github.trackedRepository(msg.issueRepository);
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
-        const err = queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model);
+        const err = queue.add(workPrompt(str(msg.prompt, 20000), selected), who, str(msg.title, 200), issue, msg.provider, model, repository, selected);
         if (err) warn(c, err);
         else toastAll(`📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`);
         break;

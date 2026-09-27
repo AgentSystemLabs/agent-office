@@ -4,9 +4,10 @@ import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
 import { DESK_BY_ID, DESKS, SPAWN, deskSeat } from '../shared/layout';
 import type { AgentProvider, PeerInfo, WorkerInfo } from '../shared/protocol';
+import { sameRepository } from '../shared/issue-repositories';
 import { isAsleep, isBusy } from '../shared/status';
 import { Net } from './net';
-import { store, loadProfile, loadSettings, saveSettings, type Profile, type Topic } from './state';
+import { projectRepository, store, loadProfile, loadSettings, saveSettings, type Profile, type Topic } from './state';
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { buildOffice, type InteractKind, type Interactable } from './world/office';
 import { Person, Worker } from './world/character';
@@ -34,6 +35,7 @@ import { openCharacter } from './ui/character';
 import { openSettings } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 import { providerLabel, resolvedProvider } from './ui/provider';
+import { ensureIssueProject } from './ui/repository-project';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -85,7 +87,7 @@ function mountBoard(mesh: THREE.Mesh, texture: THREE.Texture, render: () => void
 const issuesTex = new BoardTexture('issues');
 mountBoard(office.boardMeshes.issues, issuesTex.texture, () => issuesTex.render(store.issues), ['issues']);
 const pullsTex = new BoardTexture('pulls');
-const renderPullsBoard = () => pullsTex.render(store.pulls, store.workers);
+const renderPullsBoard = () => pullsTex.render(store.pulls, store.workers, store.issues.currentRepository ?? projectRepository(store.project));
 mountBoard(office.boardMeshes.pulls, pullsTex.texture, renderPullsBoard, ['pulls']);
 // PR notes name the desk they came from. Redraw when that changes, not on every worker update.
 let deskLinks = '';
@@ -406,8 +408,8 @@ function freeDesk(): string | null {
   return best;
 }
 
-function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string) {
-  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model });
+function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string, repository?: string) {
+  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, ...(repository ? { repository } : {}) });
 }
 
 function openShell(deskId: string) {
@@ -540,11 +542,25 @@ function showQueue() {
 }
 
 /** A prompt from the boards goes to a new worker at a free desk, or to one already at a desk. */
-function sendToWorker(title: string, text: { context?: string; initial?: string }) {
+function actionRepository(repository?: string): string | undefined {
+  const current = store.issues.currentRepository ?? projectRepository(store.project);
+  return repository && (!current || !sameRepository(repository, current)) ? repository : undefined;
+}
+
+async function sendToWorker(title: string, text: { context?: string; initial?: string }, repository?: string) {
+  const targetRepository = actionRepository(repository);
+  if (targetRepository && !(await ensureIssueProject(targetRepository))) return;
   const desk = freeDesk();
-  const awake = [...store.workers.values()].filter((w) => w.kind === 'agent' && !isAsleep(w.status));
+  const current = store.issues.currentRepository ?? projectRepository(store.project);
+  const awake = [...store.workers.values()].filter((w) => {
+    if (w.kind !== 'agent' || isAsleep(w.status)) return false;
+    const workerRepository = w.project?.repository ?? current;
+    const target = targetRepository ?? current;
+    if (!target) return !w.project;
+    return !!workerRepository && sameRepository(workerRepository, target);
+  });
   if (!desk && !awake.length) {
-    toast('Every desk is taken — send a worker home first', 'warn');
+    toast(targetRepository ? `No worker is available for ${targetRepository} — free a desk first` : 'Every desk is taken — send a worker home first', 'warn');
     return;
   }
   openAsk({
@@ -552,20 +568,26 @@ function sendToWorker(title: string, text: { context?: string; initial?: string 
     ...text,
     newDesk: desk ? DESK_BY_ID.get(desk)!.label : undefined,
     workers: awake.map((w) => ({ id: w.id, name: w.name, color: w.color, status: w.status })),
-    worktreeOption: !!store.project?.branch,
+    worktreeOption: !!store.project?.branch || !!targetRepository,
     providerOption: true,
     onSubmit: (prompt, to, worktree, provider, model) => {
-      if (to) net.send({ t: 'worker.prompt', workerId: to, prompt });
-      else if (desk) hire(desk, prompt, worktree, provider, model);
+      const wireRepository = repository;
+      if (to) net.send({ t: 'worker.prompt', workerId: to, prompt, ...(wireRepository ? { repository: wireRepository } : {}) });
+      else if (desk) hire(desk, prompt, worktree, provider, model, wireRepository);
     },
   });
 }
 
 function boardActions() {
+  const currentRepository = () => store.issues.currentRepository ?? projectRepository(store.project);
   return {
-    queue: (prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string, issueRepository?: string) => net.send({ t: 'queue.add', prompt, title, issue, provider, model, issueRepository }),
-    assign: (prompt: string, title: string) => sendToWorker(`🤖 ${title}`, { initial: prompt }),
-    ask: (context: string, title: string) => sendToWorker(`✍️ ${title}`, { context }),
+    queue: async (prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string, issueRepository?: string) => {
+      const targetRepository = actionRepository(issueRepository);
+      if (targetRepository && !(await ensureIssueProject(targetRepository))) return;
+      net.send({ t: 'queue.add', prompt, title, issue, provider, model, issueRepository: targetRepository ?? issueRepository });
+    },
+    assign: (prompt: string, title: string, repository?: string) => void sendToWorker(`🤖 ${title}`, { initial: prompt }, repository ?? currentRepository()),
+    ask: (context: string, title: string, repository?: string) => void sendToWorker(`✍️ ${title}`, { context }, repository ?? currentRepository()),
     goToDesk,
   };
 }

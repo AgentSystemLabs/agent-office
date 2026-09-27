@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync, accessSync, constants } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, accessSync, constants, realpathSync } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { homedir } from 'node:os';
@@ -7,7 +7,7 @@ import { CodexUsageReader } from './codex-usage.js';
 import * as pty from '@lydell/node-pty';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
-import type { AgentProvider, Run, WorkerInfo, WorkerKind, WorkerStatus, WorkerTask } from '../shared/protocol.js';
+import type { AgentProvider, Run, WorkerInfo, WorkerKind, WorkerProject, WorkerStatus, WorkerTask } from '../shared/protocol.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG } from '../shared/protocol.js';
 import { Worktrees, describeWork, type WorktreeCleanup, type WorktreeState } from './worktrees.js';
 import { DESK_BY_ID } from '../shared/layout.js';
@@ -20,6 +20,7 @@ import { codexHookArgs, normalizeCodexHook, writeCodexHook } from './codex.js';
 import { reportedUsage } from './reported-usage.js';
 import { configuredProvider, isValidOpenCodeModel, validateWorkerModel } from './agents.js';
 import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeStatusEvent } from './opencode.js';
+import { verifyRepositoryProject } from './repository-projects.js';
 
 type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
 
@@ -107,6 +108,7 @@ export class WorkerManager {
   private statePath: string;
   private settingsPath: string;
   private trees: Worktrees;
+  private projectTrees = new Map<string, Worktrees>();
   private agentPath: string | null = null;
   readonly defaultProvider: AgentProvider;
   private openCodePlugin: string;
@@ -166,13 +168,24 @@ export class WorkerManager {
     return this.workers.get(id)?.info;
   }
 
+  private treesFor(project?: WorkerProject): Worktrees {
+    if (!project) return this.trees;
+    const root = path.resolve(project.dir);
+    let trees = this.projectTrees.get(root);
+    if (!trees) {
+      trees = new Worktrees(root);
+      this.projectTrees.set(root, trees);
+    }
+    return trees;
+  }
+
   /** Each worker's terminal process and directory, to tell whose servers are whose. */
   owners(): ServiceOwner[] {
     return [...this.workers.values()].map((w) => ({
       workerId: w.info.id,
       pid: w.pty?.pid,
       agent: w.info.kind === 'agent',
-      cwd: w.info.worktree ? path.join(this.dir, w.info.worktree.path) : this.dir,
+      cwd: this.workingDirectory(w.info.id) ?? this.dir,
     }));
   }
 
@@ -181,7 +194,7 @@ export class WorkerManager {
     return false;
   }
 
-  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string): WorkerInfo | string {
+  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, project?: WorkerProject): WorkerInfo | string {
     const selectedProvider = kind === 'agent' ? provider ?? this.defaultProvider : undefined;
     const modelError = validateWorkerModel(kind, selectedProvider, model);
     if (modelError) return modelError;
@@ -193,12 +206,17 @@ export class WorkerManager {
       const paused = this.ledger.hiringPaused;
       if (paused) return paused;
     }
+    if (project) {
+      const checked = verifyRepositoryProject(project);
+      if (typeof checked === 'string') return checked;
+      project = checked;
+    }
     const used = new Set([...this.workers.values()].map((w) => w.info.name.replace(/ 🐚$/, '')));
     const name = NAMES.find((n) => !used.has(n)) ?? `Worker ${this.workers.size + 1}`;
     const id = randomBytes(6).toString('hex');
     let wt: WorkerInfo['worktree'];
     if (worktree) {
-      const made = this.trees.create(`${name.toLowerCase()}-${id.slice(0, 4)}`);
+      const made = this.treesFor(project).create(`${name.toLowerCase()}-${id.slice(0, 4)}`);
       if (typeof made === 'string') return made;
       wt = made;
     }
@@ -207,6 +225,7 @@ export class WorkerManager {
       kind,
       provider: selectedProvider,
       model: selectedProvider === 'opencode' ? model : undefined,
+      project,
       deskId,
       name: kind === 'shell' ? `${name} 🐚` : name,
       color: kind === 'shell' ? '#8d99ae' : COLORS[Math.floor(Math.random() * COLORS.length)],
@@ -268,21 +287,34 @@ export class WorkerManager {
     const wt = w.info.worktree;
     if (!wt) return {};
     const name = w.info.name;
+    if (!safeWorktreePath(w.info.project?.dir ?? this.dir, wt.path)) return { error: `Couldn't delete ${name}'s worktree: invalid worktree path` };
     if (!cleanup) {
-      const work = describeWork(await this.trees.inspect(wt));
+      const work = describeWork(await this.treesFor(w.info.project).inspect(wt));
       if (work) return { note: `Kept ${name}'s worktree and branch ${wt.branch} — it has ${work}` };
       cleanup = 'all';
     }
     if (cleanup === 'keep') return { note: `Kept ${name}'s worktree and branch ${wt.branch}` };
-    const error = await this.trees.remove(wt, cleanup);
+    const error = await this.treesFor(w.info.project).remove(wt, cleanup);
     if (error) return { error: `Couldn't delete ${name}'s worktree: ${error}` };
     return { note: cleanup === 'all' ? `Deleted ${name}'s worktree and branch ${wt.branch}` : `Deleted ${name}'s worktree and kept branch ${wt.branch}` };
   }
 
   /** What a worker's worktree holds, so whoever sends it home knows what deleting it would lose. */
   inspectWorktree(id: string): Promise<WorktreeState | undefined> {
-    const wt = this.workers.get(id)?.info.worktree;
-    return wt ? this.trees.inspect(wt) : Promise.resolve(undefined);
+    const worker = this.workers.get(id);
+    const wt = worker?.info.worktree;
+    const project = worker?.info.project;
+    if (!wt) return Promise.resolve(undefined);
+    if (!safeWorktreePath(project?.dir ?? this.dir, wt.path)) return Promise.resolve({ exists: false, dirty: 0, ahead: 0, unpushed: 0, error: 'invalid worktree path' });
+    return this.treesFor(project).inspect(wt);
+  }
+
+  /** Absolute checkout used by a worker, including its worktree when it has one. */
+  workingDirectory(id: string): string | undefined {
+    const w = this.workers.get(id);
+    if (!w) return undefined;
+    const root = w.info.project?.dir ?? this.dir;
+    return w.info.worktree ? safeWorktreePath(root, w.info.worktree.path) : root;
   }
 
   attach(id: string, clientId: string, name: string): { data: string; cols: number; rows: number } | undefined {
@@ -352,7 +384,10 @@ export class WorkerManager {
     if (isBusy(info.status)) {
       return `${info.name} is still ${info.status === 'needs_input' ? 'waiting on input' : info.status} — wait until it's done`;
     }
-    const cwd = path.join(this.dir, wt.path);
+    const root = info.project?.dir ?? this.dir;
+    const trees = this.treesFor(info.project);
+    const cwd = safeWorktreePath(root, wt.path);
+    if (!cwd) return 'Invalid worktree path';
     if (!existsSync(cwd)) return `${info.name}'s worktree is gone (${wt.path})`;
     info.prOpening = true;
     this.emitUpdate(w);
@@ -367,7 +402,7 @@ export class WorkerManager {
         return { ...open, existed: true, dirty };
       }
       await run('git', ['push', '-u', 'origin', wt.branch], cwd, 90_000);
-      const base = await this.pushedBranch([wt.from, this.trees.currentBranch()], wt.branch);
+      const base = await this.pushedBranch([wt.from, trees.currentBranch()], wt.branch, root);
       const { title, body } = draftPr(info, commits, by);
       const out = await gh(['pr', 'create', '--head', wt.branch, ...(base ? ['--base', base] : []), '--title', title, '--body', body], cwd, 60_000);
       const url = out.trim().split('\n').pop() ?? '';
@@ -386,11 +421,11 @@ export class WorkerManager {
   }
 
   /** The first of these branches that exists on origin, for a PR base. None: gh picks the default branch. */
-  private async pushedBranch(candidates: (string | undefined)[], not: string): Promise<string | undefined> {
+  private async pushedBranch(candidates: (string | undefined)[], not: string, cwd: string): Promise<string | undefined> {
     for (const c of candidates) {
       if (!c || c === not) continue;
       try {
-        await run('git', ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${c}`], this.dir);
+        await run('git', ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${c}`], cwd);
         return c;
       } catch {
         // not on the remote (or never fetched)
@@ -735,7 +770,28 @@ export class WorkerManager {
       AGENT_OFFICE_HOOK_TOKEN: w.hookToken,
     });
 
-    const cwd = info.worktree ? path.join(this.dir, info.worktree.path) : this.dir;
+    const cwd = this.workingDirectory(info.id);
+    if (!cwd) {
+      info.status = 'exited';
+      info.exitCode = -1;
+      term.write('\r\n\x1b[31mFailed to start worker: invalid worktree path\x1b[0m\r\n');
+      this.events.toast(`Could not start ${info.name}: invalid worktree path`, 'error');
+      this.emitUpdate(w);
+      this.persist();
+      return;
+    }
+    if (info.project) {
+      const checked = verifyRepositoryProject(info.project);
+      if (typeof checked === 'string') {
+        info.status = 'exited';
+        info.exitCode = -1;
+        term.write(`\r\n\x1b[31mFailed to start worker: ${checked}\x1b[0m\r\n`);
+        this.events.toast(`Could not start ${info.name}: ${checked}`, 'error');
+        this.emitUpdate(w);
+        this.persist();
+        return;
+      }
+    }
     if (isCodex) w.codexHome = path.resolve(cwd, env.CODEX_HOME || path.join(env.HOME || homedir(), '.codex'));
     let proc: pty.IPty;
     try {
@@ -980,6 +1036,7 @@ process.stdin.on('end', () => {
       createdBy: info.createdBy,
       createdAt: info.createdAt,
       prompt: info.prompt,
+      project: info.project,
       worktree: info.worktree,
       title: info.title,
       sessionId: info.sessionId,
@@ -1011,11 +1068,13 @@ process.stdin.on('end', () => {
             : tracker.transcript
               ? 'claude'
               : this.defaultProvider;
+        if (s.project !== undefined && !isProjectShape(s.project)) continue;
         const info: WorkerInfo = {
           id: s.id,
           kind: s.kind === 'shell' ? 'shell' : 'agent',
           provider,
           model: provider === 'opencode' && isValidOpenCodeModel(s.model) ? s.model : undefined,
+          project: s.project && isProjectShape(s.project) ? { repository: s.project.repository, dir: s.project.dir } : undefined,
           deskId: s.deskId,
           name: s.name ?? 'Worker',
           color: s.color ?? COLORS[0],
@@ -1094,6 +1153,34 @@ function childEnv(): Record<string, string> {
 function validTask(t: unknown): WorkerTask | undefined {
   const v = t as Partial<WorkerTask> | undefined;
   return typeof v?.name === 'string' && typeof v.summary === 'string' ? { name: v.name, summary: v.summary } : undefined;
+}
+
+function isProjectShape(value: unknown): value is WorkerProject {
+  const p = value as Partial<WorkerProject> | undefined;
+  return typeof p?.repository === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?\/[A-Za-z0-9_.-]{1,100}$/.test(p.repository)
+    && typeof p.dir === 'string' && p.dir.length > 0;
+}
+
+function safeWorktreePath(root: string, relative: string): string | undefined {
+  if (!relative || path.isAbsolute(relative)) return undefined;
+  const abs = path.resolve(root, relative);
+  const rel = path.relative(path.resolve(root), abs);
+  if (!rel || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) return undefined;
+  const prefix = path.join('.agent-office', 'worktrees') + path.sep;
+  if (!rel.startsWith(prefix)) return undefined;
+  if (existsSync(abs)) {
+    let realRoot: string;
+    let realAbs: string;
+    try {
+      realRoot = realpathSync(root);
+      realAbs = realpathSync(abs);
+    } catch {
+      return undefined;
+    }
+    const realRel = path.relative(realRoot, realAbs);
+    if (!realRel || realRel.startsWith('..' + path.sep) || path.isAbsolute(realRel) || !realRel.startsWith(prefix)) return undefined;
+  }
+  return abs;
 }
 
 function isOpenCodeHookEvent(value: unknown): value is OpenCodeStatusEvent {

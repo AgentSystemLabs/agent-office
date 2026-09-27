@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { GhIssue, GhIssuesState } from '../src/shared/protocol.js';
-import { issueIdentityKey, issueRepositoryLabel, projectRepository, taskForIssueMatches, visibleIssues } from '../src/client/state.js';
+import { issueIdentityKey, issueRepositoryLabel, projectRepository, taskForIssueMatches, visibleIssues, workerForPull } from '../src/client/state.js';
 
 const issue = (repository: string, number: number): GhIssue => ({
   repository,
@@ -27,11 +27,12 @@ test('issue repository labels and filters keep same-number issues distinct', () 
 });
 
 test('external issue task matching does not reuse a current-repository task', () => {
-  assert.equal(taskForIssueMatches({ issue: 1 }, 1, 'acme/two', 'acme/one'), false);
+  assert.equal(taskForIssueMatches({ issue: 1, issueRepository: 'acme/two' }, 1, 'acme/one', 'acme/one'), false);
+  assert.equal(taskForIssueMatches({ issue: 1, issueRepository: 'acme/two' }, 1, 'acme/two', 'acme/one'), true);
+  assert.equal(taskForIssueMatches({ issue: 1, issueRepository: 'ACME/ONE' }, 1, 'acme/one', 'acme/one'), true);
   assert.equal(taskForIssueMatches({ issue: 1 }, 1, 'acme/one', 'acme/one'), true);
-  assert.equal(taskForIssueMatches({ issue: 1 }, 1, 'ACME/ONE', 'acme/one'), true);
-  assert.equal(taskForIssueMatches({ issue: 1 }, 1, 'acme/one'), false);
-  assert.equal(taskForIssueMatches({ issue: 1 }, 1), true);
+  assert.equal(taskForIssueMatches({ issue: 1 }, 1, 'acme/two', 'acme/one'), false);
+  assert.equal(taskForIssueMatches({ issue: 1 }, 1, undefined, 'acme/one'), true);
 });
 
 test('project repository is derived from its remote without exposing a path', () => {
@@ -39,4 +40,11 @@ test('project repository is derived from its remote without exposing a path', ()
     name: 'one', dir: '/tmp/one', remote: 'git@github.com:acme/one.git',
     agentCmd: 'claude', defaultProvider: 'claude', agentProviders: ['claude'],
   }), 'acme/one');
+});
+
+test('PR desk links stay scoped to the pull request repository', () => {
+  const foreign = { id: 'foreign', project: { repository: 'acme/other', dir: '/tmp/other' }, pr: { number: 7, url: 'https://github.com/acme/other/pull/7' }, worktree: { path: '.agent-office/worktrees/a', branch: 'office/a', base: 'main' } } as any;
+  const current = { id: 'current', pr: { number: 7, url: 'https://github.com/acme/main/pull/7' }, worktree: { path: '.agent-office/worktrees/b', branch: 'office/b', base: 'main' } } as any;
+  assert.equal(workerForPull([foreign, current], { number: 7, headRefName: 'office/b', url: 'https://github.com/acme/main/pull/7' }, 'acme/main')?.id, 'current');
+  assert.equal(workerForPull([foreign], { number: 7, headRefName: 'office/a', url: 'https://github.com/acme/main/pull/7' }, 'acme/main'), undefined);
 });

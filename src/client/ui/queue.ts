@@ -1,5 +1,4 @@
 import type { AgentProvider, QueueTask, Usage } from '../../shared/protocol';
-import { isCurrentIssue } from '../../shared/issue-repositories';
 import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, timeAgo, STATUS_LABEL } from './dom';
@@ -27,8 +26,9 @@ export function mountQueueButton(btn: HTMLElement, onOpen: () => void) {
 /** The queue task's name, linked to its GitHub issue when it has one. */
 function taskTitle(t: QueueTask): HTMLElement {
   if (t.issue === undefined) return h('div.queue-title', { title: t.prompt }, t.title);
-  const issue = store.issues.items.find((i) => i.number === t.issue && isCurrentIssue(i, store.issues));
-  const repo = issue?.repository ? `${issue.repository} · ` : '';
+  const repository = t.issueRepository;
+  const issue = store.issues.items.find((i) => i.number === t.issue && (!repository || i.repository?.toLowerCase() === repository.toLowerCase()));
+  const repo = repository ? `${repository} · ` : issue?.repository ? `${issue.repository} · ` : '';
   const text = t.title.startsWith(`#${t.issue}`) ? `${repo}${t.title}` : `${repo}#${t.issue} ${t.title}`;
   return h('div.queue-title', { title: t.prompt }, issue ? h('a', { href: issue.url, target: '_blank', rel: 'noopener' }, text) : text);
 }
@@ -111,6 +111,7 @@ export function openQueue(net: Net, actions: QueueActions) {
       meta.push(`⚙️ ${selectedProvider}${model}${usageSuffix(t.provider ?? w?.provider, w?.usage)}`);
       meta.push(`${t.workerName ?? 'a worker'} · ${w ? STATUS_LABEL[w.status] ?? w.status : 'gone'}`);
       if (t.branch) meta.push(`🌿 ${t.branch}`);
+      if (t.project?.dir) meta.push(`📁 ${t.project.dir}`);
       if (t.startedAt) meta.push(`started ${timeAgo(t.startedAt)}`);
       meta.push(`by ${t.addedBy}`);
       if (w) {
@@ -129,6 +130,7 @@ export function openQueue(net: Net, actions: QueueActions) {
       pos = String(i + 1);
       meta.push(`⚙️ ${providerLabel(t.provider, store.project)}${model}${usageSuffix(t.provider, w?.usage)}`);
       meta.push(`added by ${t.addedBy} ${timeAgo(t.addedAt)}`);
+      if (t.project?.dir) meta.push(`📁 ${t.project.dir}`);
       buttons.push(h('button.btn', { type: 'button', title: 'Move up', 'aria-label': 'Move up', disabled: i === 0, onclick: () => net.send({ t: 'queue.move', taskId: t.id, delta: -1 }) }, '↑'));
       buttons.push(h('button.btn', { type: 'button', title: 'Move down', 'aria-label': 'Move down', disabled: i === queued.length - 1, onclick: () => net.send({ t: 'queue.move', taskId: t.id, delta: 1 }) }, '↓'));
       buttons.push(h('button.btn', { type: 'button', title: 'Remove from the queue', 'aria-label': 'Remove', onclick: () => net.send({ t: 'queue.remove', taskId: t.id }) }, '✕'));
@@ -136,6 +138,7 @@ export function openQueue(net: Net, actions: QueueActions) {
       meta.push(`⚙️ ${providerLabel(t.provider, store.project)}${model}${usageSuffix(t.provider, w?.usage)}`);
       meta.push(outcome(t));
       if (t.workerName) meta.push(t.workerName);
+      if (t.project?.dir) meta.push(`📁 ${t.project.dir}`);
       if (t.branch) meta.push(`🌿 ${t.branch}`);
       if (t.finishedAt) meta.push(timeAgo(t.finishedAt));
       if (t.pr) buttons.push(h('a.btn', { href: t.pr.url, target: '_blank', rel: 'noopener', title: t.pr.title }, `🔀 PR #${t.pr.number}${t.pr.state === 'MERGED' ? ' ✓' : t.pr.state === 'DRAFT' ? ' (draft)' : ''}`));

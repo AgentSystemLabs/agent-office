@@ -280,6 +280,7 @@ button { font-family: inherit; }
 .board-readonly-note { flex: none; padding: 7px 10px; border: 2px solid var(--ink); border-radius: 9px; background: #fffaf3; color: var(--ink); }
 .board-readonly-note:empty { display: none; }
 .repo-chip, .readonly-badge { display: inline-block; padding: 2px 6px; border-radius: 6px; background: #e0f2fe; color: #1d4f91; font-size: 11px; font-weight: 900; }
+.repo-project-hint { color: var(--muted); font-size: 11px; font-weight: 800; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .column { flex: 1; min-width: 220px; display: flex; flex-direction: column; background: rgba(255, 250, 243, .55); border: 3px solid var(--ink); border-radius: 14px; overflow: hidden; }
 .column h4 { margin: 0; padding: 8px 12px; font-size: 14px; font-weight: 900; background: var(--paper); border-bottom: 3px solid var(--ink); display: flex; justify-content: space-between; }
 .column ul { list-style: none; margin: 0; padding: 10px; display: flex; flex-direction: column; gap: 10px; overflow: auto; flex: 1; }
@@ -640,6 +641,10 @@ a.when:hover { text-decoration: underline; }
 .qchip { padding: 1px 6px; border-radius: 999px; border: 1.5px solid var(--ink); background: #e0f2fe; color: var(--ink); font-size: 10px; font-weight: 900; }
 .qchip.running { background: #d8f5e3; }
 .qchip.done { background: #fff1de; }
+.modal.repository-project { width: min(620px, 100%); }
+.repository-project .body p { margin: 0 0 12px; line-height: 1.45; }
+.repository-project-hint { color: var(--muted); font-size: 12px; font-weight: 700; }
+.repository-project-error { min-height: 1.4em; color: var(--bad); font-size: 13px; font-weight: 800; }
 @media (max-width: 640px) {
   .queue-limit span { display: none; }
 }

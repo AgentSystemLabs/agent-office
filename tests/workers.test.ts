@@ -179,6 +179,20 @@ function hasPrompt(invocation: Invocation, prompt: string): boolean {
   return invocation.args.includes(prompt) || invocation.stdin?.includes(prompt) === true;
 }
 
+test('restored foreign workers keep project identity and fail closed when the checkout is gone', (t) => {
+  const f = fixture();
+  const project = { repository: 'acme/foreign-project', dir: path.join(f.root, 'missing-project') };
+  writeFileSync(path.join(f.data, 'workers.json'), JSON.stringify([{
+    id: 'foreign-worker', kind: 'agent', provider: 'claude', deskId: 'desk-1', name: 'Foreign', color: '#fff',
+    createdBy: 'test', createdAt: Date.now(), project,
+  }]));
+  const workers = manager(f, f.claude, [], []);
+  t.after(() => { workers.shutdown(); f.close(); });
+  const restored = workers.get('foreign-worker');
+  assert.deepEqual(restored?.project, project);
+  assert.equal(restored?.status, 'exited');
+});
+
 test('Claude workers use the configured executable, pass prompts and resume ids, and stay hook-operational', async (t) => {
   const f = fixture();
   const updates: WorkerInfo[] = [];
