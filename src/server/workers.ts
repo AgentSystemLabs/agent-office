@@ -38,6 +38,8 @@ const SCROLLBACK = 3000;
 const SCREEN_INTERVAL_MS = 250;
 const LATE_PROMPT_GRACE_MS = 5000;
 const KEYFRAME_MS = 8000;
+/** How often a steady typist's "last typed" time is refreshed for everyone. */
+const TYPED_REFRESH_MS = 15_000;
 /** How many of a worker's latest prompts and tool calls the task namer sees. */
 const TASK_PROMPTS = 5;
 const TASK_TOOLS = 10;
@@ -283,18 +285,33 @@ export class WorkerManager {
     }
   }
 
-  write(id: string, data: string) {
+  /** Keystrokes from `by`'s browser. */
+  write(id: string, data: string, by: string) {
     const w = this.workers.get(id);
     if (!w?.pty) return;
     w.pty.write(data);
+    let changed = this.typed(w, by);
     if (w.info.status === 'needs_input' && w.info.acked === false) {
       w.info.acked = true;
-      this.emitUpdate(w);
+      changed = true;
     }
+    if (changed) this.emitUpdate(w);
   }
 
-  /** Types a prompt into the agent's input box and submits it. */
-  prompt(id: string, text: string): string | undefined {
+  /**
+   * Remembers who typed into the terminal last. Says whether that's news: another person, or the
+   * same one after a pause (not every keystroke, or a typist would flood everyone with updates).
+   */
+  private typed(w: Worker, by: string): boolean {
+    const now = Date.now();
+    const last = w.info.lastInput;
+    if (last?.by === by && now - last.at < TYPED_REFRESH_MS) return false;
+    w.info.lastInput = { by, at: now };
+    return true;
+  }
+
+  /** Types a prompt into the agent's input box and submits it; `by` is the person who sent it, if any. */
+  prompt(id: string, text: string, by?: string): string | undefined {
     const w = this.workers.get(id);
     if (!w) return 'No such worker';
     if (!w.pty) return 'Worker is not running';
@@ -305,6 +322,7 @@ export class WorkerManager {
     setTimeout(() => w.pty?.write('\r'), 120);
     w.info.activity = truncate(clean, 80);
     this.notePrompt(w, clean);
+    if (by) w.info.lastInput = { by, at: Date.now() };
     this.emitUpdate(w);
     return undefined;
   }

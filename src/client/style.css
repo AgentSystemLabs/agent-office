@@ -310,6 +310,16 @@ button { font-family: inherit; }
 .team-list .name { flex: 1; }
 .team-list .keys { font-size: 12px; color: var(--muted); font-weight: 700; }
 .team-list .btn { padding: 3px 10px; font-size: 13px; }
+.accounts .dot { background: #dee2e6; }
+.accounts .dot.on { background: var(--good); }
+.accounts .you { color: var(--muted); font-weight: 600; }
+.accounts .invite-row select { font: inherit; font-weight: 800; border: 3px solid var(--ink); border-radius: 12px; padding: 0 8px; background: #fff; color: var(--ink); }
+.accounts .cmd { margin-top: 10px; }
+.accounts .team-head .btn { padding: 3px 10px; font-size: 13px; }
+.role { font-size: 11px; font-weight: 900; padding: 1px 7px; border-radius: 999px; border: 2px solid var(--ink); background: #e0f2fe; }
+.role.admin { background: var(--warn); }
+.acct { font-size: 11px; color: var(--good); font-weight: 900; }
+.modal.term header .typed { font-size: 12px; font-weight: 800; color: var(--muted); white-space: nowrap; }
 
 /* Services board */
 .svc-count { margin-left: 6px; background: var(--accent); color: #fff; border-radius: 999px; padding: 0 7px; font-size: 12px; }

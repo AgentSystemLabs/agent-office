@@ -1,4 +1,4 @@
-import type { Settings, ViewMode } from '../state';
+import { store, type Settings, type ViewMode } from '../state';
 import { h, openModal } from './dom';
 
 const VIEWS: [ViewMode, string, string][] = [
@@ -6,7 +6,7 @@ const VIEWS: [ViewMode, string, string][] = [
   ['third', '🎥 Third person', 'Follow your character from behind. Drag to orbit the camera, scroll to zoom, and click things to use them.'],
 ];
 
-export function openSettings(settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void) {
+export function openSettings(settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void, onSignOut: () => void) {
   const seg = h('div.seg', { role: 'radiogroup', 'aria-label': 'Camera view' });
   const note = h('p.setting-note');
   const paint = () => {
@@ -63,7 +63,10 @@ export function openSettings(settings: Settings, onChange: (s: Settings) => void
     if (!settings.muted) previewSound();
   });
 
-  const character = h('button.btn', { type: 'button' }, '🧍 Change your look & name');
+  const account = store.me.account;
+  const character = h('button.btn', { type: 'button' }, account ? '🧍 Change your look' : '🧍 Change your look & name');
+  const signOut = h('button.btn', { type: 'button' }, '🚪 Sign out');
+  signOut.addEventListener('click', onSignOut);
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const el = h(
     'div.modal',
@@ -80,6 +83,9 @@ export function openSettings(settings: Settings, onChange: (s: Settings) => void
       h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds outside, and the ding when a worker is done. Voice chat isn’t affected.'),
       h('label', { style: 'margin-top:18px' }, 'Your character'),
       character,
+      h('label', { style: 'margin-top:18px' }, 'Signed in'),
+      h('div.volume', {}, signOut),
+      h('p.setting-note', {}, account ? `As ${account.name}, with your own account (${account.role}).` : 'With the shared office password.'),
     ),
   );
   const modal = openModal(el);

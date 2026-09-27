@@ -26,6 +26,7 @@ import { openBoard } from './ui/boards';
 import { openPull, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
+import { openAccounts, routeAccountsMessage } from './ui/accounts';
 import { mountServicesButton, openServices } from './ui/services';
 import { mountQueueButton, openQueue } from './ui/queue';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
@@ -201,6 +202,7 @@ net.onMessage((msg) => {
   routeTerminalMessage(msg);
   routeChangesMessage(msg);
   routeTeamMessage(msg);
+  routeAccountsMessage(msg);
   routePullMessage(msg);
   switch (msg.t) {
     case 'welcome': {
@@ -988,6 +990,8 @@ $('btn-pulls').addEventListener('click', () => openBoard('pulls', net, boardActi
 mountServicesButton($('btn-services'));
 mountQueueButton($('btn-queue'), showQueue);
 $('btn-team').addEventListener('click', () => openTeam(net));
+$('btn-accounts').addEventListener('click', () => openAccounts(net));
+store.on('me', () => $('btn-accounts').classList.toggle('hidden', !store.me.admin));
 $('btn-upgrade').addEventListener('click', () => openUpgrade(net));
 $('btn-help').addEventListener('click', () => openHelp());
 $('btn-decor').addEventListener('click', () => (hanger.active ? hanger.cancel() : hanger.start()));
@@ -1002,8 +1006,14 @@ $('btn-settings').addEventListener('click', () =>
     },
     editProfile,
     () => sound.ding('done'),
+    signOut,
   ),
 );
+
+async function signOut() {
+  await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+  location.href = '/login';
+}
 
 function editProfile() {
   openCharacter(false, (p) => {
@@ -1140,21 +1150,38 @@ function boot() {
   }
 }
 
-const saved = loadProfile();
-if (saved?.look) {
-  store.profile = { ...saved, look: saved.look };
-  showMyProfile(store.profile);
-  boot();
-} else {
-  // Pick a character first (people from before there was a choice keep their name and color).
-  if (saved) Object.assign(store.profile, { name: saved.name, color: saved.color });
-  // Render the office behind the character select screen.
-  requestAnimationFrame(frame);
-  openCharacter(true, (p) => {
-    showMyProfile(p);
-    net.connect();
-  });
+/** Who you're signed in as. With an account of your own, your name is that account's. */
+async function whoami() {
+  try {
+    const res = await fetch('/api/whoami', { cache: 'no-store' });
+    if (res.status === 401) location.href = '/login';
+    const { me } = (await res.json()) as { me?: typeof store.me };
+    if (me) store.me = me;
+  } catch {
+    // the welcome message says it too
+  }
 }
+
+void whoami().then(() => {
+  const saved = loadProfile();
+  if (saved && store.me.account) saved.name = store.me.account.name;
+  if (store.me.account) store.profile.name = store.me.account.name;
+  store.emit('me');
+  if (saved?.look) {
+    store.profile = { ...saved, look: saved.look };
+    showMyProfile(store.profile);
+    boot();
+  } else {
+    // Pick a character first (people from before there was a choice keep their name and color).
+    if (saved) Object.assign(store.profile, { name: saved.name, color: saved.color });
+    // Render the office behind the character select screen.
+    requestAnimationFrame(frame);
+    openCharacter(true, (p) => {
+      showMyProfile(p);
+      net.connect();
+    });
+  }
+});
 
 // Debug handle for quick checks from the console / headless screenshots.
 (window as any).__office = { store, player, camera, workerViews, scene, net, renderer, hands, me, remotes, settings, gallery, hanger };

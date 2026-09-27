@@ -8,7 +8,8 @@ import type { Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Config } from './config.js';
-import { Auth } from './auth.js';
+import { Auth, type Session } from './auth.js';
+import { Accounts } from './accounts.js';
 import { WorkerManager } from './workers.js';
 import { GitHub } from './github.js';
 import { Team } from './team.js';
@@ -19,7 +20,7 @@ import { Ledger } from './usage.js';
 import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
-import type { ChatLine, ClientMsg, PeerInfo, ProjectInfo, ServerMsg, ServicesState } from '../shared/protocol.js';
+import type { ChatLine, ClientMsg, Me, PeerInfo, ProjectInfo, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { SPAWN } from '../shared/layout.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 
@@ -46,6 +47,12 @@ interface Client {
   id: string;
   ws: WebSocket;
   peer: PeerInfo;
+  /** Signed in with this account; none means the shared office password. */
+  accountId?: string;
+  /** Whether this person was last told they're an admin (see `me`). */
+  admin: boolean;
+  /** Signed out while connected; whatever it still sends is dropped until the socket closes. */
+  out?: boolean;
   attached: Set<string>;
   /** Terminals whose output was skipped because this client fell behind; re-snapshotted later. */
   stale: Set<string>;
@@ -137,10 +144,13 @@ const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const TOO_MANY_ATTEMPTS = 'Too many attempts. Try again in a few minutes.';
+/** WebSocket close code for a session that stopped counting: the account was revoked, or the shared password switched off. */
+const SIGNED_OUT = 4001;
 
 export async function startServer(cfg: Config) {
   const publicDir = findPublicDir();
-  const auth = new Auth(cfg.verifier, cfg.salt, cfg.secret);
+  const accounts = new Accounts(cfg.dataDir);
+  const auth = new Auth(cfg.verifier, cfg.salt, cfg.secret, accounts);
   const clients = new Map<string, Client>();
   const chat: ChatLine[] = [];
   const project = projectInfo(cfg);
@@ -314,27 +324,62 @@ export async function startServer(cfg: Config) {
   };
 
   /**
-   * A password or claim-token guess: counts it against the IP, then reads `field` from the small
-   * JSON body. Undefined once it has already answered (rate limited, or a bad body).
+   * A password, claim-token or invite guess: counts it against the IP, then reads the small JSON
+   * body. Undefined once it has already answered (rate limited, or a bad body).
    */
-  const readGuess = async (req: http.IncomingMessage, res: http.ServerResponse, field: string, max: number): Promise<{ ip: string; value: string } | undefined> => {
+  const readGuess = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<{ ip: string; body: Record<string, unknown> } | undefined> => {
     const ip = clientIp(req, cfg.trustProxy);
     // Counted before the body is read, so parallel guesses can't all slip under the limit.
     if (!auth.allowAttempt(ip)) return void send(res, 429, { error: TOO_MANY_ATTEMPTS });
     try {
-      return { ip, value: str(JSON.parse(await readBody(req, 4096))[field], max) };
+      const body = JSON.parse(await readBody(req, 4096));
+      if (body && typeof body === 'object') return { ip, body };
     } catch {
-      send(res, 400, { error: 'Bad request' });
+      // answered below
     }
+    send(res, 400, { error: 'Bad request' });
   };
-  const signedIn = (req: http.IncomingMessage) => ({ 'set-cookie': auth.cookie(req, auth.issue(), isSecure(req, cfg)) });
+  const signedIn = (req: http.IncomingMessage, accountId?: string) => ({ 'set-cookie': auth.cookie(req, auth.issue(accountId), isSecure(req, cfg)) });
 
+  /** With a name, that person's own account; without one, the shared office password (while it's on). */
   const login = async (req: http.IncomingMessage, res: http.ServerResponse) => {
-    const guess = await readGuess(req, res, 'password', 512);
+    const guess = await readGuess(req, res);
     if (!guess) return;
-    if (!(await auth.checkPassword(guess.value))) return send(res, 401, { error: 'Wrong password' });
+    const name = str(guess.body.name, 64).trim();
+    const password = str(guess.body.password, 512);
+    if (name) {
+      const account = await accounts.check(name, password);
+      if (!account) return send(res, 401, { error: 'Wrong name or password' });
+      auth.recordSuccess(guess.ip);
+      return send(res, 200, { ok: true }, signedIn(req, account.id));
+    }
+    if (!accounts.sharedPassword) return send(res, 401, { error: 'Sign in with your name and your own password' });
+    if (!(await auth.checkPassword(password))) {
+      return send(res, 401, { error: accounts.any ? 'Wrong password. With an account of your own, type your name too.' : 'Wrong password' });
+    }
     auth.recordSuccess(guess.ip);
     return send(res, 200, { ok: true }, signedIn(req));
+  };
+  /** Which fields the sign-in forms ask for. */
+  const loginOptions = () => ({ accounts: accounts.any, shared: accounts.sharedPassword });
+
+  /**
+   * An invite link: `peek` says who it's for; otherwise it makes the account and signs it in.
+   * Counted like a password guess, since the token is one.
+   */
+  const join = async (req: http.IncomingMessage, res: http.ServerResponse) => {
+    const guess = await readGuess(req, res);
+    if (!guess) return;
+    const token = str(guess.body.token, 128);
+    const invite = accounts.findInvite(token);
+    if (!invite) return send(res, 410, { error: 'This invite link has expired or was already used. Ask whoever sent it for a new one.' });
+    auth.recordSuccess(guess.ip);
+    if (guess.body.peek === true) return send(res, 200, { name: invite.name, role: invite.role, by: invite.createdBy, project: project.name });
+    const r = await accounts.join(token, str(guess.body.name, 64), str(guess.body.password, 1024));
+    if (typeof r === 'string') return send(res, 400, { error: r });
+    console.log(`  ${r.name} joined the office with an invite from ${r.createdBy}`);
+    accountsChanged();
+    return send(res, 200, { ok: true, name: r.name }, signedIn(req, r.id));
   };
 
   const handler = async (req: http.IncomingMessage, res: http.ServerResponse) => {
@@ -344,7 +389,7 @@ export async function startServer(cfg: Config) {
       const svc = tunneled ? services.lookup(tunneled) : undefined;
       if (tunneled && svc) {
         if (req.method === 'POST' && req.url === RELAY_LOGIN) return await login(req, res);
-        if (!auth.fromAnyCookie(req)) return signInPage(res, tunneled);
+        if (!auth.fromAnyCookie(req)) return signInPage(res, tunneled, loginOptions());
         if (svc === 'gone') return stoppedPage(res, tunneled);
         return relayRequest(req, res, svc);
       }
@@ -357,14 +402,16 @@ export async function startServer(cfg: Config) {
         return send(res, 400, { error: 'Bad request' });
       }
       if (p === '/api/login' && req.method === 'POST') return await login(req, res);
+      if (p === '/api/login' && req.method === 'GET') return send(res, 200, loginOptions());
+      if (p === '/api/join' && req.method === 'POST') return await join(req, res);
       // One-time reveal of the generated password. After this the plaintext is gone for good.
       const claimable = !!cfg.claimToken && !cfg.claimed && !!cfg.password;
       if (p === '/api/claim' && req.method === 'GET') return send(res, 200, { claimable });
       if (p === '/api/claim' && req.method === 'POST') {
-        const guess = await readGuess(req, res, 'token', 256);
+        const guess = await readGuess(req, res);
         if (!guess) return;
         if (!claimable) return send(res, 410, { error: 'This office has already been claimed. Sign in with the password you saved.' });
-        if (!auth.checkToken(guess.value, cfg.claimToken!)) return send(res, 403, { error: 'That claim link is not valid.' });
+        if (!auth.checkToken(str(guess.body.token, 256), cfg.claimToken!)) return send(res, 403, { error: 'That claim link is not valid.' });
         const password = cfg.password!;
         cfg.markClaimed();
         auth.recordSuccess(guess.ip);
@@ -384,14 +431,16 @@ export async function startServer(cfg: Config) {
       }
       if (p === '/login' || p === '/login.html') return serveFile(res, path.join(publicDir, 'login.html'), false);
       if (p === '/claim' || p === '/claim.html') return serveFile(res, path.join(publicDir, 'claim.html'), false);
+      if (p === '/join' || p === '/join.html') return serveFile(res, path.join(publicDir, 'join.html'), false);
       if (p === '/favicon.svg') return serveFile(res, path.join(publicDir, 'favicon.svg'), false);
 
-      if (!auth.fromRequest(req)) {
+      const session = auth.fromRequest(req);
+      if (!session) {
         if (p.startsWith('/api/')) return send(res, 401, { error: 'Not logged in' });
         res.writeHead(302, { location: '/login' }).end();
         return;
       }
-      if (p === '/api/whoami') return send(res, 200, { ok: true });
+      if (p === '/api/whoami') return send(res, 200, { ok: true, me: meOf(session.account?.id) });
       if (p === '/api/image' && req.method === 'GET') {
         // A picture on the wall, fetched by the office so the 3D view can draw it (see decor.ts).
         const r = await images.get(url.searchParams.get('url') ?? '');
@@ -455,18 +504,54 @@ export async function startServer(cfg: Config) {
       socket.destroy();
       return;
     }
-    if (url.pathname !== '/ws' || !auth.fromRequest(req) || !sameOrigin(req, cfg)) return refuseUpgrade(socket);
-    wss.handleUpgrade(req, socket, head, (ws) => onConnection(ws, url));
+    const session = url.pathname === '/ws' && sameOrigin(req, cfg) ? auth.fromRequest(req) : undefined;
+    if (!session) return refuseUpgrade(socket);
+    wss.handleUpgrade(req, socket, head, (ws) => onConnection(ws, url, session));
   });
 
-  const onConnection = (ws: WebSocket, url: URL) => {
+  /** Who a connection is: its account's current name and role, or an admin guest on the shared password. */
+  const meOf = (accountId: string | undefined): Me => {
+    const a = accounts.get(accountId);
+    return a ? { account: { name: a.name, role: a.role }, admin: a.role === 'admin' } : { admin: !accountId };
+  };
+  /** Still signed in: the account wasn't revoked, and the shared password wasn't switched off. */
+  const stillIn = (c: Client) => (c.accountId ? !!accounts.get(c.accountId) : accounts.sharedPassword);
+  const signOut = (c: Client) => {
+    c.out = true;
+    c.ws.close(SIGNED_OUT, 'Signed out');
+  };
+  const onlineAccounts = () => new Set([...clients.values()].map((c) => c.accountId).filter((id): id is string => !!id));
+  /** Tells each admin what the accounts are now, and everyone whether they're (still) an admin. */
+  const accountsChanged = () => {
+    let state: ReturnType<Accounts['state']> | undefined;
+    for (const c of clients.values()) {
+      if (c.out) continue;
+      if (!stillIn(c)) {
+        signOut(c);
+        continue;
+      }
+      const me = meOf(c.accountId);
+      if (me.admin !== c.admin) {
+        c.admin = me.admin;
+        sendTo(c, { t: 'me', me });
+      }
+      if (me.admin) sendTo(c, { t: 'accounts', state: (state ??= accounts.state(onlineAccounts())) });
+    }
+  };
+
+  const onConnection = (ws: WebSocket, url: URL, session: Session) => {
     const id = randomBytes(5).toString('hex');
-    const name = str(url.searchParams.get('name'), 24).trim() || `Guest ${id.slice(0, 3)}`;
+    const account = session.account;
+    // An account's name is its own; on the shared password people pick one.
+    const name = account?.name ?? (str(url.searchParams.get('name'), 24).trim() || `Guest ${id.slice(0, 3)}`);
     const colorParam = url.searchParams.get('color') ?? '';
     const intParam = (k: string) => (url.searchParams.get(k) ? Number(url.searchParams.get(k)) : undefined);
+    const me = meOf(account?.id);
     const client: Client = {
       id,
       ws,
+      accountId: account?.id,
+      admin: me.admin,
       attached: new Set(),
       stale: new Set(),
       lastMoveAt: 0,
@@ -485,9 +570,11 @@ export async function startServer(cfg: Config) {
         voice: false,
         muted: true,
         sharing: false,
+        ...(account ? { account: true } : {}),
       },
     };
     clients.set(id, client);
+    if (account) accounts.seen(account.id);
     ws.on('pong', () => (client.isAlive = true));
 
     sendTo(client, {
@@ -507,9 +594,11 @@ export async function startServer(cfg: Config) {
       decor: decor.list(),
       usage: ledger.state(),
       queue: queue.state(),
+      me,
     });
     for (const { workerId, frame } of workers.fullScreens()) sendTo(client, { t: 'screen', workerId, ...frame, full: true });
     broadcast({ t: 'peer.join', peer: client.peer }, id);
+    if (account) accountsChanged(); // now online
     // Anyone whose process ended since (exited, or failed to resume) gets up as you walk in.
     workers.wakeAll();
 
@@ -520,7 +609,7 @@ export async function startServer(cfg: Config) {
       } catch {
         return;
       }
-      if (!msg || typeof msg !== 'object') return;
+      if (!msg || typeof msg !== 'object' || client.out) return;
       handleMessage(client, msg);
     });
     ws.on('close', () => {
@@ -528,6 +617,7 @@ export async function startServer(cfg: Config) {
       workers.detachAll(id);
       changes.unwatchAll(id);
       broadcast({ t: 'peer.leave', id });
+      if (account) accountsChanged();
     });
     ws.on('error', () => ws.terminate());
   };
@@ -557,7 +647,7 @@ export async function startServer(cfg: Config) {
       }
       case 'profile': {
         const name = str(msg.name, 24).trim();
-        if (name) c.peer.name = name;
+        if (name && !c.accountId) c.peer.name = name;
         if (COLOR_RE.test(msg.color)) c.peer.color = msg.color;
         c.peer.look = sanitizeLook(msg.look, c.peer.look);
         broadcast({ t: 'peer.update', peer: c.peer });
@@ -577,7 +667,7 @@ export async function startServer(cfg: Config) {
       case 'chat': {
         const text = str(msg.text, 500).trim();
         if (!text) break;
-        const line: ChatLine = { from: c.id, name: who, color: c.peer.color, text, at: Date.now() };
+        const line: ChatLine = { from: c.id, name: who, color: c.peer.color, text, at: Date.now(), ...(c.accountId ? { account: true } : {}) };
         chat.push(line);
         if (chat.length > 200) chat.splice(0, chat.length - 200);
         broadcast({ t: 'chat', ...line });
@@ -628,7 +718,7 @@ export async function startServer(cfg: Config) {
         break;
       }
       case 'worker.prompt':
-        warn(c, workers.prompt(str(msg.workerId, 32), str(msg.prompt, 20000)));
+        warn(c, workers.prompt(str(msg.workerId, 32), str(msg.prompt, 20000), who));
         break;
       case 'worker.pr': {
         const wid = str(msg.workerId, 32);
@@ -646,7 +736,7 @@ export async function startServer(cfg: Config) {
         break;
       }
       case 'term.input':
-        if (c.attached.has(msg.workerId)) workers.write(msg.workerId, str(msg.data, 64 * 1024));
+        if (c.attached.has(msg.workerId)) workers.write(msg.workerId, str(msg.data, 64 * 1024), who);
         break;
       case 'term.resize':
         if (c.attached.has(msg.workerId)) workers.resize(msg.workerId, num(msg.cols), num(msg.rows));
@@ -741,6 +831,14 @@ export async function startServer(cfg: Config) {
         });
         break;
       }
+      case 'accounts.get':
+      case 'accounts.invite':
+      case 'accounts.cancel':
+      case 'accounts.revoke':
+      case 'accounts.role':
+      case 'accounts.shared':
+        handleAccounts(c, msg);
+        break;
       case 'decor.add': {
         const d = decor.add(msg.decor, who);
         if (typeof d === 'string') return warn(c, d);
@@ -767,6 +865,56 @@ export async function startServer(cfg: Config) {
     }
   };
 
+  /** Inviting, listing and revoking people. Admins only: an admin account, or the shared password. */
+  const handleAccounts = (c: Client, msg: Extract<ClientMsg, { t: `accounts.${string}` }>) => {
+    const who = c.peer.name;
+    if (!meOf(c.accountId).admin) return warn(c, 'Only admins can manage accounts');
+    switch (msg.t) {
+      case 'accounts.get':
+        sendTo(c, { t: 'accounts', state: accounts.state(onlineAccounts()) });
+        break;
+      case 'accounts.invite': {
+        const r = accounts.invite(who, msg.role === 'admin' ? 'admin' : 'member', typeof msg.name === 'string' ? msg.name : undefined);
+        if (typeof r === 'string') return sendTo(c, { t: 'accounts.invited', error: r });
+        sendTo(c, { t: 'accounts.invited', invite: r });
+        accountsChanged();
+        break;
+      }
+      case 'accounts.cancel':
+        if (accounts.cancel(str(msg.inviteId, 32))) accountsChanged();
+        break;
+      case 'accounts.revoke': {
+        const id = str(msg.accountId, 32);
+        if (id === c.accountId) return warn(c, "You can't revoke your own account");
+        const a = accounts.revoke(id);
+        if (!a) break;
+        console.log(`  ${who} revoked ${a.name}'s account`);
+        toastAll(`${who} revoked ${a.name}'s account`);
+        accountsChanged(); // signs them out everywhere
+        break;
+      }
+      case 'accounts.role': {
+        const id = str(msg.accountId, 32);
+        if (id === c.accountId) return warn(c, "You can't change your own role");
+        const a = accounts.setRole(id, msg.role === 'admin' ? 'admin' : 'member');
+        if (!a) break;
+        toastAll(a.role === 'admin' ? `${who} made ${a.name} an admin` : `${a.name} is no longer an admin`);
+        accountsChanged();
+        break;
+      }
+      case 'accounts.shared': {
+        if (msg.on === accounts.sharedPassword) break;
+        // Only someone who can still get in without it may switch it off.
+        if (!msg.on && !c.accountId) return warn(c, 'Sign in with an admin account of your own first, or nobody could get back in');
+        accounts.setSharedPassword(!!msg.on);
+        console.log(`  ${who} switched the shared office password ${msg.on ? 'on' : 'off'}`);
+        toastAll(msg.on ? `${who} switched the shared office password back on` : `🔑 ${who} switched off the shared office password — everyone signs in with their own account now`);
+        accountsChanged(); // signs out whoever came in with it
+        break;
+      }
+    }
+  };
+
   const resync = setInterval(() => {
     for (const c of clients.values()) {
       if (!c.stale.size || c.ws.bufferedAmount > SLOW_CLIENT_BYTES / 8) continue;
@@ -779,15 +927,19 @@ export async function startServer(cfg: Config) {
   }, 1000);
 
   // Drop dead connections so ghosts don't linger in the office.
+  // Also signs out anyone `agent-office accounts` revoked, and passes on role changes made there.
   const heartbeat = setInterval(() => {
+    let accountsMoved = false;
     for (const c of clients.values()) {
       if (!c.isAlive) {
         c.ws.terminate();
         continue;
       }
+      if (!c.out && (!stillIn(c) || c.admin !== meOf(c.accountId).admin)) accountsMoved = true;
       c.isAlive = false;
       c.ws.ping();
     }
+    if (accountsMoved) accountsChanged();
   }, 20_000);
 
   await new Promise<void>((resolve, reject) => {
@@ -811,5 +963,5 @@ export async function startServer(cfg: Config) {
     hookServer.close();
   };
 
-  return { server, shutdown, workers, publicDir, hookPort };
+  return { server, shutdown, workers, accounts, publicDir, hookPort };
 }

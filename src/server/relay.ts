@@ -72,7 +72,7 @@ function esc(s: string): string {
 const STYLE = `body{margin:0;min-height:100vh;display:grid;place-items:center;background:#bfe3ff;font:16px/1.5 Nunito,ui-rounded,system-ui,sans-serif;color:#2b2d42}
 main{background:#fffaf3;border:3px solid #2b2d42;border-radius:18px;box-shadow:0 6px 0 #2b2d42;padding:28px 32px;max-width:440px;margin:16px}
 h1{margin:0 0 8px;font-size:22px}p{margin:0 0 14px}code{background:#f1e7d8;border-radius:6px;padding:1px 5px}
-form{display:flex;gap:8px}input{flex:1;min-width:0;font:inherit;padding:8px 12px;border:2px solid #2b2d42;border-radius:10px}
+form{display:flex;flex-wrap:wrap;gap:8px}input{flex:1;min-width:0;font:inherit;padding:8px 12px;border:2px solid #2b2d42;border-radius:10px}
 button{font:inherit;font-weight:800;padding:8px 16px;border:2px solid #2b2d42;border-radius:10px;background:#ffd166;cursor:pointer}
 .err{color:#c1121f;font-weight:700;min-height:1.5em;margin:10px 0 0}`;
 
@@ -89,15 +89,18 @@ function page(res: http.ServerResponse, status: number, title: string, body: str
 /** Where the sign-in form below posts; the office answers it on service tunnels only. */
 export const RELAY_LOGIN = '/__agent-office/login';
 
-export function signInPage(res: http.ServerResponse, port: number) {
+/** `opts` says which fields to ask for: a name when there are accounts, a password always. */
+export function signInPage(res: http.ServerResponse, port: number, opts: { accounts: boolean; shared: boolean }) {
+  const askName = opts.accounts || !opts.shared;
+  const how = !askName ? 'the office password' : opts.shared ? 'your name and password (or just the office password)' : 'your name and password';
   page(
     res,
     401,
     '🔒 Sign in to the office',
-    `<p>This is a worker's server on port ${port}, reached through the office. Sign in with the office password to see it.</p>
-<form id="f"><input id="pw" type="password" placeholder="Office password" autocomplete="current-password" autofocus><button>Sign in</button></form><p class="err" id="err"></p>`,
-    `document.getElementById('f').addEventListener('submit',async(e)=>{e.preventDefault();const err=document.getElementById('err');err.textContent='';
-try{const r=await fetch(${JSON.stringify(RELAY_LOGIN)},{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:document.getElementById('pw').value})});
+    `<p>This is a worker's server on port ${port}, reached through the office. Sign in with ${how} to see it.</p>
+<form id="f">${askName ? `<input id="name" placeholder="${opts.shared ? 'Your name (optional)' : 'Your name'}" autocomplete="username"${opts.shared ? '' : ' required'} autofocus>` : ''}<input id="pw" type="password" placeholder="${askName ? 'Password' : 'Office password'}" autocomplete="current-password"${askName ? '' : ' autofocus'}><button>Sign in</button></form><p class="err" id="err"></p>`,
+    `document.getElementById('f').addEventListener('submit',async(e)=>{e.preventDefault();const err=document.getElementById('err');err.textContent='';const n=document.getElementById('name');
+try{const r=await fetch(${JSON.stringify(RELAY_LOGIN)},{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:n?n.value:'',password:document.getElementById('pw').value})});
 if(r.ok)location.reload();else err.textContent=(await r.json().catch(()=>({}))).error||'Sign-in failed'}catch{err.textContent='Could not reach the office'}})`,
   );
 }
