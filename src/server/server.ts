@@ -726,6 +726,29 @@ export async function startServer(cfg: Config) {
         const error = floor.whiteboard.addFile(body);
         return error ? send(res, 400, { error }) : send(res, 200, { ok: true });
       }
+      if (p === '/api/changes/file') {
+        // A changed picture in the Changes window at a desk: before (old) or after (new) the worker's edits.
+        if (req.method !== 'GET') return send(res, 405, { error: 'Method not allowed' });
+        const workerId = str(url.searchParams.get('worker'), 32);
+        const file = str(url.searchParams.get('path'), 4096);
+        const side = url.searchParams.get('side');
+        if (!workerId || !file || (side !== 'old' && side !== 'new')) return send(res, 400, { error: 'Bad request' });
+        if (!floor) return send(res, 404, { error: 'No such floor' });
+        if (!floor.workers.get(workerId)) return send(res, 404, { error: 'No such worker' });
+        const r = await floor.changes.file(workerId, file, side);
+        if ('error' in r) return send(res, r.status, { error: r.error });
+        res.writeHead(200, {
+          'content-type': r.type,
+          'content-length': String(r.body.length),
+          // The worker may change it again any moment.
+          'cache-control': 'no-store',
+          'x-content-type-options': 'nosniff',
+          'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+          'cross-origin-resource-policy': 'same-origin',
+        });
+        res.end(r.body);
+        return;
+      }
       if (p === '/api/search' && req.method === 'GET') return send(res, 200, search(url.searchParams.get('q') ?? '', floor));
       if (p.startsWith('/api/gh/') && req.method === 'GET') {
         // What the issue and PR windows show beyond the board cards (see github.ts).

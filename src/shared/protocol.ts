@@ -757,6 +757,28 @@ export interface ChangedFile {
   sig: string;
 }
 
+/** Changed files the Changes window can show as a picture (GET /api/changes/file), by extension. */
+const CHANGED_IMAGE_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  bmp: 'image/bmp',
+  ico: 'image/x-icon',
+  svg: 'image/svg+xml',
+};
+
+/** The content type of a changed picture, or undefined when the file isn't one. */
+export function changedImageType(filePath: string): string | undefined {
+  const name = filePath.slice(filePath.lastIndexOf('/') + 1);
+  const dot = name.lastIndexOf('.');
+  if (dot <= 0) return undefined;
+  const ext = name.slice(dot + 1).toLowerCase();
+  return Object.hasOwn(CHANGED_IMAGE_TYPES, ext) ? CHANGED_IMAGE_TYPES[ext] : undefined;
+}
+
 /** What a worker changed in its checkout, against the branch the office was opened on. */
 export interface ChangesState {
   workerId: string;
