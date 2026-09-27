@@ -187,6 +187,7 @@ OpenCode metrics come from assistant-message token/cost records exposed by its p
 | O | Open a pull request for a worker on its own branch, or see the one it has |
 | F | Hang a picture from the web on a wall (scroll to size it, click to hang it) |
 | T / Enter | Chat |
+| G / 1–6 | Emote: hold G for the wheel (point and let go) or press 1–6 to wave, give a thumbs up, clap, dance, point or facepalm; everyone on your floor sees it |
 | / | Search the chat and every terminal on your floor |
 | V / M | Join voice / mute |
 | Esc | Close any window (a terminal too) and get back to looking around |

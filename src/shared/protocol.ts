@@ -3,6 +3,7 @@
 import type { Look } from './avatar.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
+import type { EmoteId } from './emotes.js';
 import type { JukeboxState } from './jukebox.js';
 import type { WbElement, WbPointer, WhiteboardView } from './whiteboard.js';
 
@@ -677,6 +678,8 @@ export type ClientMsg =
   | { t: 'act'; smoke?: boolean }
   /** You sat down in a place on a couch, a beanbag, a chair or the bench (see seatAt in layout), or got up again (no seat). */
   | { t: 'sit'; seat?: string }
+  /** An emote (hold G, or 1–6): everyone else on your floor sees your character do it. Rate limited, see EmoteBucket. */
+  | { t: 'emote'; emote: EmoteId }
   | { t: 'profile'; name: string; color: string; look: Look }
   | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort }
   | { t: 'worker.resume'; workerId: string }
@@ -810,6 +813,7 @@ export type ServerMsg =
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }
   | { t: 'peer.leave'; id: string }
   | { t: 'peer.act'; id: string; smoke?: boolean }
+  | { t: 'peer.emote'; id: string; emote: EmoteId }
   | { t: 'worker.update'; worker: WorkerInfo }
   | { t: 'worker.remove'; workerId: string }
   | { t: 'worker.worktree'; workerId: string; state: WorktreeState }
