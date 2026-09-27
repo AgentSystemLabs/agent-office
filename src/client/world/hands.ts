@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { REACH_TIME, reachCurve } from './character';
+import { REACH_TIME, SMOKE_CYCLE, cigarette, dragCurve, reachCurve } from './character';
 import { mesh, toon, toonUnique } from './toon';
 
 export interface HandsInput {
@@ -32,6 +32,10 @@ export class Hands {
   private last: { yaw: number; pitch: number } | null = null;
   private air = 0;
   private walk = 0;
+  private cig: THREE.Group;
+  private ember: THREE.MeshToonMaterial;
+  /** Seconds into a smoke break, or -1. Runs in step with your character's (see Person.setSmoking). */
+  private smokeT = -1;
 
   constructor(shirt: string, skin: string) {
     this.sleeve = toonUnique(shirt);
@@ -43,6 +47,28 @@ export class Hands {
     this.scene.add(sun);
     this.right = this.arm(1);
     this.left = this.arm(-1);
+    // Held between the fingers of the right hand, lit end out past the knuckles.
+    const cig = cigarette();
+    this.cig = cig.group;
+    this.ember = cig.ember;
+    this.cig.scale.setScalar(0.55);
+    this.cig.rotation.set(0.35, Math.PI + 0.5, 0);
+    this.cig.position.set(-0.035, 0.03, -0.075);
+    this.cig.visible = false;
+    this.right.group.add(this.cig);
+  }
+
+  /** Puts a lit cigarette in your right hand, or takes it away. */
+  setSmoking(on: boolean) {
+    if (on === this.smokeT >= 0) return;
+    this.smokeT = on ? 0 : -1;
+    this.cig.visible = on;
+  }
+
+  /** Where the cigarette's lit end is, in camera space (the hands' camera sits where the real one is). */
+  cigTip(out: THREE.Vector3): THREE.Vector3 {
+    this.right.group.updateMatrixWorld(true);
+    return this.cig.localToWorld(out.set(0, 0, 0.09));
   }
 
   setColor(shirt: string) {
@@ -129,5 +155,15 @@ export class Hands {
     r.rotation.z += 0.22 * k;
     this.left.group.position.y -= 0.025 * k;
     this.left.group.position.z += 0.03 * k;
+    // A drag: the cigarette hand comes up to your mouth, just under the camera, and back down.
+    if (this.smokeT >= 0) {
+      this.smokeT += dt;
+      const d = s.walking || s.airborne ? 0 : dragCurve(this.smokeT % SMOKE_CYCLE);
+      r.position.x -= 0.2 * d;
+      r.position.y += 0.02 * d;
+      r.position.z += 0.3 * d;
+      r.rotation.x += 0.5 * d;
+      this.ember.emissiveIntensity += ((d > 0.9 ? 1.4 : 0.3) - this.ember.emissiveIntensity) * Math.min(1, dt * 6);
+    }
   }
 }

@@ -309,6 +309,8 @@ test('OpenCode workers use OpenCode-only hooks/config, never invoke Claude namin
   const restoredUpdates: WorkerInfo[] = [];
   const restored = manager(f, f.opencode, restoredUpdates);
   t.after(() => restored.shutdown());
+  // Wakes the workers from before the restart (see WorkerManager.start).
+  await restored.start();
   assert.equal(restored.get(worker.id)?.provider, 'opencode');
   assert.equal(restored.get(worker.id)?.prompt, 'initial OpenCode prompt');
   assert.equal(restored.get(worker.id)?.sessionId, 'oc-child');
@@ -479,6 +481,8 @@ test('OpenCode usage snapshots replace totals, persist across restart, and never
   workers.shutdown();
   const restored = manager(f, f.opencode, [], []);
   t.after(() => restored.shutdown());
+  // Wakes the workers from before the restart (see WorkerManager.start).
+  await restored.start();
   assert.deepEqual(restored.get(worker.id)?.usage, usage);
   const calls = await waitFor(f.read, x => x.filter(r => r.kind === 'opencode' && !r.stdin).length >= 2);
   const nextToken = calls.filter(r => r.kind === 'opencode' && !r.stdin).at(-1)!.env.hookToken!;
@@ -533,6 +537,8 @@ test('Codex workers preserve native approvals, follow authenticated root hooks, 
   workers.shutdown();
   const restored = manager(f, f.claude, [], []);
   t.after(() => restored.shutdown());
+  // Wakes the workers from before the restart (see WorkerManager.start).
+  await restored.start();
   const nextCalls = await waitFor(f.read, x => x.filter(r => r.kind === 'codex' && !r.stdin).length >= 2);
   const next = nextCalls.filter(r => r.kind === 'codex' && !r.stdin).at(-1)!;
   assert.deepEqual(next.args.slice(-2), ['resume', 'codex-root']);
@@ -585,6 +591,8 @@ test('Codex token snapshots survive restart, preserve permissions, and stay outs
   workers.shutdown();
   const restored = manager(f, f.codex, [], []);
   t.after(() => restored.shutdown());
+  // Wakes the workers from before the restart (see WorkerManager.start).
+  await restored.start();
   assert.deepEqual(restored.get(worker.id)?.usage, worker.usage);
   const nextCalls = await waitFor(f.read, x => x.filter(r => r.kind === 'codex' && !r.stdin).length >= 2);
   const next = nextCalls.filter(r => r.kind === 'codex' && !r.stdin).at(-1)!;

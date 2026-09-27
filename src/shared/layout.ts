@@ -1,5 +1,6 @@
 // Static office layout shared by the server (validation) and client (rendering).
-// Units are meters; +y is up. The office floor spans FLOOR.minX..maxX / minZ..maxZ.
+// Units are meters; +y is up. The office floor spans FLOOR.minX..maxX / minZ..maxZ at y = 0,
+// upstairs over a garage whose floor is level with the street (STREET_Y).
 
 export const FLOOR = { minX: -18, maxX: 18, minZ: -13, maxZ: 13 } as const;
 export const WALL_HEIGHT = 4.2;
@@ -72,6 +73,55 @@ export const LOFT = { minX: 9, maxX: FLOOR.maxX, minZ: 8, maxZ: FLOOR.maxZ, y: 3
 export const STAIRS = { fromX: 3, toX: LOFT.minX, minZ: 11.2, maxZ: FLOOR.maxZ, steps: 15 } as const;
 
 export const SPAWN = { x: 8, z: 7 } as const;
+
+/** The office is the second floor. The street, and the open garage under the office, are this far below its floor. */
+export const STREET_Y = -3.6;
+/** The office's floor slab, which is the garage's ceiling: it runs from -SLAB up to 0. */
+export const SLAB = 0.3;
+/** How thick the outside walls are. They stand just outside FLOOR. */
+export const WALL_T = 0.3;
+
+export type Side = 'north' | 'south' | 'east' | 'west';
+
+/**
+ * A hole in an outside wall: `u` is its center along the wall (x on the north and south walls, z on
+ * the east and west ones), `y0`..`y1` its sill and head above the office floor.
+ */
+export interface Opening {
+  wall: Side;
+  u: number;
+  width: number;
+  y0: number;
+  y1: number;
+}
+
+/** Windows you can see out of, and the loft's two, which sit higher up. */
+export const WINDOWS: Opening[] = [
+  ...[-14, -9, 1].map((u) => ({ wall: 'south' as const, u, width: 3, y0: 1.1, y1: 3.3 })),
+  ...[-9, -3, 3].map((u) => ({ wall: 'west' as const, u, width: 3, y0: 1.1, y1: 3.3 })),
+  { wall: 'south', u: LOFT.minX + 2, width: 2.8, y0: LOFT.y + 0.9, y1: LOFT.y + 2.5 },
+  { wall: 'east', u: (LOFT.minZ + LOFT.maxZ) / 2, width: 2.8, y0: LOFT.y + 0.9, y1: LOFT.y + 2.5 },
+];
+
+/** The way out: a door in the west wall onto a landing, with stairs down to the street. */
+export const EXIT_DOOR: Opening = { wall: 'west', u: 6.5, width: 1.4, y0: 0, y1: 2.4 };
+export const EXIT_STAIRS = {
+  maxX: FLOOR.minX - WALL_T,
+  minX: FLOOR.minX - WALL_T - 1.6,
+  /** The landing outside the door, level with the office floor. */
+  landingZ0: 5.6,
+  landingZ1: 7.5,
+  /** The steps run south from the landing down to the street. */
+  steps: 15,
+  run: 0.34,
+} as const;
+
+/** Glass doors out to the balcony, on the south wall. They slide apart into the wall on either side. */
+export const BALCONY_DOOR: Opening = { wall: 'south', u: -4, width: 3, y0: 0, y1: 2.5 };
+/** The smoking balcony, hanging over the garage entrance. */
+export const BALCONY = { minX: -10.5, maxX: 2.5, minZ: FLOOR.maxZ + WALL_T, maxZ: FLOOR.maxZ + WALL_T + 3.4 } as const;
+/** The ashtray on the balcony, where a smoke break starts. */
+export const ASHTRAY = { x: -8.2, z: BALCONY.maxZ - 0.55 } as const;
 
 /**
  * The elevator: a shaft against the north wall, between the PR board and the task queue, with its

@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, deskSeat, inElevator } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, SLAB, deskSeat, inElevator } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
 import type { AgentProvider, PeerInfo, WorkerInfo } from '../shared/protocol';
 import { isAsleep, isBusy } from '../shared/status';
@@ -12,6 +12,7 @@ import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { buildOffice, type InteractKind, type Interactable } from './world/office';
 import { Person, Worker } from './world/character';
 import { Hands } from './world/hands';
+import { Smoke } from './world/smoke';
 import { Laptop } from './world/laptop';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import { Gallery } from './world/gallery';
@@ -60,9 +61,10 @@ const sun = new THREE.DirectionalLight('#fff1d6', 2.2);
 sun.position.set(-8, 18, 10);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 16, bottom: -16, near: 1, far: 50 });
+// Wide enough for the office, the garage under it and the balcony and lot out front.
+Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 26, bottom: -26, near: 1, far: 80 });
 sun.shadow.bias = -0.0008;
-sun.shadow.normalBias = 0.02;
+sun.shadow.normalBias = 0.03;
 scene.add(sun);
 
 const office = buildOffice();
@@ -156,6 +158,17 @@ const player = new PlayerController(camera, canvas, office.colliders);
 placeInCar();
 player.view = settings.view;
 const hands = new Hands(store.profile.color, me.skinColor);
+// Cigarette smoke, from anyone on a smoke break.
+const smoke = new Smoke();
+scene.add(smoke.group);
+const puff = (kind: 'wisp' | 'exhale', at: THREE.Vector3, dir: THREE.Vector3) => (kind === 'wisp' ? smoke.wisp(at) : smoke.exhale(at, dir));
+const camLocal = new THREE.Vector3();
+// In first person yours comes off the cigarette in your hand and out in front of the camera.
+me.onSmoke = (kind, at, dir) => {
+  if (player.view !== 'first') return puff(kind, at, dir);
+  if (kind === 'wisp') return smoke.wisp(camera.localToWorld(hands.cigTip(camLocal)));
+  smoke.exhale(camera.localToWorld(camLocal.set(0, -0.14, -0.3)), camera.getWorldDirection(camLocal).setY(0.1).normalize());
+};
 const sound = new OfficeSound();
 sound.setVolume(settings.volume, settings.muted);
 const notifier = new DesktopNotifier(() => settings.notify, (id) => openWorkerTerminal(id));
@@ -262,9 +275,17 @@ net.onMessage((msg) => {
     case 'chat':
       sayBubble(msg.from, msg.text);
       break;
-    case 'peer.act':
-      remotes.get(msg.id)?.person.reach();
+    case 'peer.act': {
+      const r = remotes.get(msg.id);
+      if (msg.smoke === undefined) {
+        r?.person.reach();
+        break;
+      }
+      const p = store.peers.get(msg.id);
+      if (p) p.smoking = msg.smoke;
+      r?.person.setSmoking(msg.smoke);
       break;
+    }
   }
 });
 
@@ -425,6 +446,7 @@ function syncPeers() {
     let r = remotes.get(id);
     if (!r) {
       const person = new Person(peer.name, peer.color, peer.look);
+      person.onSmoke = puff;
       person.root.position.set(peer.x, peer.y, peer.z);
       scene.add(person.root);
       noOutline(person.root);
@@ -443,6 +465,7 @@ function syncPeers() {
       r.person.setLook(peer.look);
       noOutline(r.person.root);
     }
+    r.person.setSmoking(!!peer.smoking);
   }
   for (const [id, r] of remotes) {
     const peer = store.peers.get(id);
@@ -761,6 +784,45 @@ function interact(target: Interactable | null, key: DeskKey) {
   else if (target.kind === 'coffee') {
     toast('☕ Mmm, fresh coffee. +10 focus');
     sound.coffee();
+  } else if (target.kind === 'smoke') {
+    if (smokeBreakUntil) {
+      setSmoking(false);
+      toast('You stub it out in the ashtray');
+    } else {
+      setSmoking(true);
+      toast('🚬 Smoke break');
+    }
+  }
+}
+
+// ---- Smoke breaks ------------------------------------------------------------------------------------
+/** When your smoke break ends by itself (performance.now()), or 0 when you're not on one. */
+let smokeBreakUntil = 0;
+const SMOKE_BREAK_MS = 90_000;
+
+function setSmoking(on: boolean) {
+  if (on === smokeBreakUntil > 0) return;
+  smokeBreakUntil = on ? performance.now() + SMOKE_BREAK_MS : 0;
+  me.setSmoking(on);
+  hands.setSmoking(on);
+  net.send({ t: 'act', smoke: on });
+}
+
+/** Out on the balcony (a little slack at the door), where smoking is allowed. */
+function onBalcony(): boolean {
+  const p = player.pos;
+  return p.y > -0.5 && p.y < 2 && p.x > BALCONY.minX - 0.5 && p.x < BALCONY.maxX + 0.5 && p.z > BALCONY.minZ - 0.8 && p.z < BALCONY.maxZ + 0.5;
+}
+
+/** Ends the break when the cigarette burns down, or when you take it back inside. */
+function checkSmokeBreak(now: number) {
+  if (!smokeBreakUntil) return;
+  if (!onBalcony()) {
+    setSmoking(false);
+    toast('🚭 No smoking inside, so you put it out');
+  } else if (now > smokeBreakUntil) {
+    setSmoking(false);
+    toast("That one's done. Back to work!");
   }
 }
 
@@ -769,6 +831,8 @@ let target: Interactable | null = null;
 let hintKey = '';
 
 function pickTarget(): Interactable | null {
+  // Everything you can use is upstairs; down on the street you're under it all.
+  if (player.pos.y < -SLAB - 1) return null;
   let best: Interactable | null = null;
   let bestD = Infinity;
   for (const list of [office.interactables, gallery.interactables]) {
@@ -839,6 +903,8 @@ function hintFor(it: Interactable): Hint {
     }
     case 'coffee':
       return { k: '', parts: [title('☕ Coffee machine'), key('E', 'Grab a cup')] };
+    case 'smoke':
+      return { k: String(smokeBreakUntil > 0), parts: [title('🚬 Ashtray'), key('E', smokeBreakUntil ? 'Stub it out' : 'Take a smoke break')] };
     case 'elevator': {
       const f = store.currentFloor();
       const n = store.floors.length;
@@ -1031,7 +1097,7 @@ function backToGame() {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, elevator: 4.5 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, and whether it is within reach (plus `slack` meters). */
@@ -1309,7 +1375,9 @@ function frame(ts?: number) {
     const desk = DESK_BY_ID.get(v.deskId)!;
     v.laptop.update(dt, store.screens.get(id), Math.hypot(desk.x - camPos.x, desk.z - camPos.z));
   }
-  office.update(t, dt);
+  office.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position)]);
+  checkSmokeBreak(now);
+  smoke.update(dt, camera);
   hanger.update();
 
   if (modalOpen() || hanger.active) target = null;

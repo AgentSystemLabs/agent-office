@@ -341,6 +341,8 @@ export class Ghost {
 export function aimAtWall(ray: THREE.Ray, maxDist = 60): { wall: WallId; u: number; y: number } | null {
   const o = ray.origin;
   const d = ray.direction;
+  // Only from inside: out on the balcony or down on the street, the walls face the other way.
+  if (o.x < FLOOR.minX || o.x > FLOOR.maxX || o.z < FLOOR.minZ || o.z > FLOOR.maxZ || o.y < 0) return null;
   // The loft's floor hides whatever is past it, from above or below.
   if (d.y !== 0) {
     const t = (LOFT.y - 0.12 - o.y) / d.y;

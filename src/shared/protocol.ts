@@ -138,6 +138,8 @@ export interface PeerInfo {
   voice: boolean;
   muted: boolean;
   sharing: boolean;
+  /** On a smoke break, cigarette in hand. */
+  smoking?: boolean;
   /** Signed in with their own account, so `name` is theirs and nobody else can take it. */
   account?: boolean;
   /** The floor they're on (see FloorInfo); none while the building has no floors yet. */
@@ -557,8 +559,11 @@ export interface SearchResults {
 
 export type ClientMsg =
   | { t: 'move'; x: number; y: number; z: number; rotY: number; moving: boolean }
-  /** You reached out to use something; everyone else sees your character's arm do it. */
-  | { t: 'act' }
+  /**
+   * You reached out to use something; everyone else sees your character's arm do it. With `smoke`,
+   * you lit a cigarette (or put it out) on the balcony instead.
+   */
+  | { t: 'act'; smoke?: boolean }
   | { t: 'profile'; name: string; color: string; look: Look }
   | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string }
   | { t: 'worker.resume'; workerId: string }
@@ -656,7 +661,7 @@ export type ServerMsg =
   | { t: 'peer.update'; peer: PeerInfo }
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }
   | { t: 'peer.leave'; id: string }
-  | { t: 'peer.act'; id: string }
+  | { t: 'peer.act'; id: string; smoke?: boolean }
   | { t: 'worker.update'; worker: WorkerInfo }
   | { t: 'worker.remove'; workerId: string }
   | { t: 'worker.worktree'; workerId: string; state: WorktreeState }
