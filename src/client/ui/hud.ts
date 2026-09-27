@@ -1,6 +1,7 @@
 import { BUZZ_SECONDS, type Caffeine } from '../caffeine';
 import { store } from '../state';
 import type { Voice } from '../voice';
+import type { ChatLine } from '../../shared/protocol';
 import { $, h, openModal, STATUS_LABEL } from './dom';
 import { usageLabel, usageTitle } from './usage';
 import { providerLabel, providerUsageState, resolvedProvider, modelBadge } from './provider';
@@ -93,12 +94,28 @@ export function renderCaffeine(caffeine: Caffeine, now: number) {
   $('caffeine-left').textContent = `${Math.ceil(left)}s`;
 }
 
+/** How long a chat line stays up before it fades away. Hovering the chat, or typing in it, brings them all back. */
+const CHAT_LINGER = 12_000;
+/** When this page first showed each line. */
+const chatSeen = new WeakMap<ChatLine, number>();
+
 export function renderChat() {
   const log = $('chat-log');
+  const now = performance.now();
   log.replaceChildren(
-    ...store.chat.slice(-60).map((c) =>
-      h('li', {}, h('b', { style: `color:${c.color}`, title: c.account ? `${c.name}, signed in with their own account` : undefined }, c.name), c.account ? h('span.acct', {}, ' ✓') : null, ': ', c.text),
-    ),
+    ...store.chat.slice(-60).map((c) => {
+      const seen = chatSeen.get(c) ?? now;
+      chatSeen.set(c, seen);
+      // Older lines start their fade in the past, so they're already gone.
+      return h(
+        'li',
+        { style: `animation-delay:${Math.round(CHAT_LINGER - (now - seen))}ms` },
+        h('b', { style: `color:${c.color}`, title: c.account ? `${c.name}, signed in with their own account` : undefined }, c.name),
+        c.account ? h('span.acct', {}, ' ✓') : null,
+        ': ',
+        c.text,
+      );
+    }),
   );
   log.scrollTop = log.scrollHeight;
 }
@@ -130,9 +147,10 @@ export function openHelp() {
     ['G / 1–6', 'Emote: hold G, point at one and let go (or tap G and click one), or press 1–6: wave, thumbs up, clap, dance, point, facepalm. Everyone on your floor sees it'],
     ['/', 'Search the chat and every terminal on your floor, back to before the office last restarted'],
     ['V / M', 'Join voice / mute'],
+    ['Tab', 'The ☰ menu, top right: every window, and what shows on screen. Pin what you use most to the top bar'],
     ['Esc', 'Close any window and get back to looking around'],
     ['Ctrl + [', 'Send Esc to a terminal (e.g. to interrupt Claude)'],
-    ['⚙️', 'Settings: switch between first and third person'],
+    ['⚙️', 'Settings (in the ☰ menu): switch between first and third person'],
   ];
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const el = h(

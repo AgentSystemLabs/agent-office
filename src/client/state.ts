@@ -42,6 +42,11 @@ export function saveProfile(p: Profile) {
 
 export type ViewMode = 'first' | 'third';
 
+/** The panels you can show or hide on screen, from the ☰ menu. */
+export type HudPanel = 'workers' | 'people' | 'spend' | 'limits' | 'chat' | 'floor';
+/** Out of the way by default: only the chat shows until you turn the rest on. */
+export const HUD_DEFAULTS: Record<HudPanel, boolean> = { workers: false, people: false, spend: false, limits: false, chat: true, floor: false };
+
 export interface Settings {
   view: ViewMode;
   /** Office sounds, 0–1. */
@@ -52,6 +57,10 @@ export interface Settings {
   musicMuted: boolean;
   /** Desktop notifications when a worker needs input or finishes while you're in another tab (once the browser allows them). */
   notify: boolean;
+  /** Which panels show on screen. */
+  hud: Record<HudPanel, boolean>;
+  /** The ☰ menu's actions you pinned to the top bar, by id. */
+  pins: string[];
 }
 
 const SETTINGS_KEY = 'agent-office.settings';
@@ -75,7 +84,7 @@ function rememberFloor(id: string | null) {
 }
 
 export function loadSettings(): Settings {
-  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, notify: true };
+  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, notify: true, hud: { ...HUD_DEFAULTS }, pins: [] };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
     if (saved?.view === 'first' || saved?.view === 'third') s.view = saved.view;
@@ -84,6 +93,8 @@ export function loadSettings(): Settings {
     if (typeof saved?.music === 'number' && Number.isFinite(saved.music)) s.music = Math.max(0, Math.min(1, saved.music));
     if (typeof saved?.musicMuted === 'boolean') s.musicMuted = saved.musicMuted;
     if (typeof saved?.notify === 'boolean') s.notify = saved.notify;
+    for (const k of Object.keys(s.hud) as HudPanel[]) if (typeof saved?.hud?.[k] === 'boolean') s.hud[k] = saved.hud[k];
+    if (Array.isArray(saved?.pins)) s.pins = saved.pins.filter((p: unknown): p is string => typeof p === 'string').slice(0, 30);
   } catch {
     // storage blocked
   }
