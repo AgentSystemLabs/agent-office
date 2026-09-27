@@ -25,6 +25,8 @@ const B = { minX: FLOOR.minX - WALL_T, maxX: FLOOR.maxX + WALL_T, minZ: FLOOR.mi
 const uniforms = {
   /** Off while drawing your hands in first person, which live in a scene of their own. */
   skyOn: { value: 1 },
+  /** Off up on the roof, where the office and the garage (which are under your feet there) aren't lit. */
+  skyInside: { value: 1 },
   /** Lamplight filling the office, and the garage: color × strength, in the units of three.js lights. */
   skyOffice: { value: new THREE.Color(0, 0, 0) },
   skyGarage: { value: new THREE.Color(0, 0, 0) },
@@ -47,6 +49,7 @@ const v3 = (x: number, y: number, z: number) => `vec3(${x.toFixed(3)}, ${y.toFix
 const PARS = /* glsl */ `
 varying vec3 vSkyWorld;
 uniform float skyOn;
+uniform float skyInside;
 uniform vec3 skyOffice;
 uniform vec3 skyGarage;
 uniform int skyLampCount;
@@ -87,8 +90,8 @@ vec3 skyLampsAt( vec3 p, vec3 n ) {
 /** Wet ground is darker; snow covers what faces up. Only outdoors. Runs before the lights. */
 const SURFACE = /* glsl */ `
 vec3 skyN = normalize( ( vec4( normal, 0.0 ) * viewMatrix ).xyz );
-float skyIndoor = skyOn * skyInOffice( vSkyWorld );
-float skyGar = skyOn * skyInGarage( vSkyWorld );
+float skyIndoor = skyOn * skyInside * skyInOffice( vSkyWorld );
+float skyGar = skyOn * skyInside * skyInGarage( vSkyWorld );
 float skyUp = skyOn * ( 1.0 - max( skyIndoor, skyGar ) ) * smoothstep( 0.45, 0.85, skyN.y );
 material.diffuseColor *= 1.0 - 0.38 * skyWet * skyUp;
 material.diffuseColor = mix( material.diffuseColor, vec3( 0.93, 0.96, 1.0 ), skySnow * skyUp );
@@ -311,6 +314,8 @@ export class Sky {
   snow = 0;
   /** How far the lamps are on, 0–1: at night, and on the darkest of days. */
   lampsOn = 0;
+  /** Up on the roof: out in the open, over the whole city (see setRoof). */
+  private roof = false;
 
   private state: SkyState;
   private heard = false;
@@ -480,6 +485,21 @@ export class Sky {
     });
   }
 
+  /**
+   * Up on the roof (or back down on a floor). Up there it's all outdoors: no lamplight from the office
+   * under your feet, no pools of light from the street lamps far below, rain everywhere, and the haze
+   * much further off so the city shows.
+   */
+  setRoof(on: boolean) {
+    this.roof = on;
+    uniforms.skyInside.value = on ? 0 : 1;
+  }
+
+  /** Under a roof, out of the rain: the building, unless you're up on top of it. */
+  private sheltered(x: number, z: number): boolean {
+    return !this.roof && sheltered(x, z);
+  }
+
   /** Whether the lamps' light (and wet and snow) apply: off while your hands are drawn. */
   shading(on: boolean) {
     uniforms.skyOn.value = on ? 1 : 0;
@@ -487,11 +507,13 @@ export class Sky {
 
   /** How lit it is at `p`, 0–1 (1 is a clear day, or a room with its lights on), for your hands. */
   lightAt(p: THREE.Vector3): number {
-    const inside = (p.x > FLOOR.minX && p.x < FLOOR.maxX && p.z > FLOOR.minZ && p.z < FLOOR.maxZ) || (sheltered(p.x, p.z) && p.y < 0);
+    const inside = !this.roof && ((p.x > FLOOR.minX && p.x < FLOOR.maxX && p.z > FLOOR.minZ && p.z < FLOOR.maxZ) || (sheltered(p.x, p.z) && p.y < 0));
     if (inside) return 1;
     let lamp = 0;
-    const drop = STREET_Y - this.street;
-    for (const l of this.night.lamps) lamp = Math.max(lamp, 1 - Math.hypot(l.x - p.x, (l.ground ? l.y - drop : l.y) - p.y, l.z - p.z) / l.reach);
+    if (!this.roof) {
+      const drop = STREET_Y - this.street;
+      for (const l of this.night.lamps) lamp = Math.max(lamp, 1 - Math.hypot(l.x - p.x, (l.ground ? l.y - drop : l.y) - p.y, l.z - p.z) / l.reach);
+    }
     return Math.min(1, Math.max(this.level, lamp * this.lampsOn));
   }
 
@@ -588,7 +610,7 @@ export class Sky {
     uniforms.skyOffice.value.copy(C.office).lerp(C.officeNight, 1 - day).multiplyScalar(need * 3.2);
     uniforms.skyGarage.value.copy(C.garage).multiplyScalar(need * 2);
     const lamps = Math.min(this.night.lamps.length, MAX_LAMPS);
-    uniforms.skyLampCount.value = this.lampsOn > 0.005 ? lamps : 0;
+    uniforms.skyLampCount.value = this.lampsOn > 0.005 && !this.roof ? lamps : 0;
     for (let i = 0; i < lamps; i++) {
       const l = this.night.lamps[i];
       uniforms.skyLampColors.value[i].set(l.color).multiplyScalar(l.power * this.lampsOn);
@@ -597,7 +619,7 @@ export class Sky {
     for (const m of this.night.windows) m.emissiveIntensity = this.lampsOn * 1.1;
     for (const h of this.halos) {
       h.material.opacity = this.lampsOn * 0.85;
-      h.visible = this.lampsOn > 0.01;
+      h.visible = this.lampsOn > 0.01 && !this.roof;
     }
 
     // The sky's color, and the fog, which fades far things into it. Halloween's is its own.
@@ -613,8 +635,10 @@ export class Sky {
     const fog = this.scene.fog as THREE.Fog;
     fog.color.copy(sky);
     const precip = Math.max(this.rain, this.snow);
-    fog.near = lerp(40, 3, this.fog) * (1 - 0.4 * precip);
-    fog.far = lerp(90, 28, this.fog) * (1 - 0.3 * precip);
+    // From the roof you see across the city, not just the street.
+    const reach = this.roof ? 3.4 : 1;
+    fog.near = lerp(40, 3, this.fog) * (1 - 0.4 * precip) * reach;
+    fog.far = lerp(90, 28, this.fog) * (1 - 0.3 * precip) * reach;
     this.night.clouds.color.copy(C.white).lerp(C.cloudGrey, this.cover).lerp(SPOOKY.cloud, sp);
     this.night.clouds.visible = this.fog < 0.6;
     // Halloween's gradient, over the flat sky: dark overhead, the sky's color at the horizon, which the fog fades into.
@@ -705,7 +729,7 @@ export class Sky {
         this.drops[d] = x;
         this.drops[d + 1] = y;
         this.drops[d + 2] = z;
-        const len = sheltered(x, z) ? 0 : 0.5;
+        const len = this.sheltered(x, z) ? 0 : 0.5;
         a.set([x, y, z, x - slant * len, y + len, z], i * 6);
       }
       pos.needsUpdate = true;
@@ -731,7 +755,7 @@ export class Sky {
         this.flakeState[f] = x;
         this.flakeState[f + 1] = y;
         this.flakeState[f + 2] = z;
-        a.set([x, sheltered(x, z) ? -1000 : y, z], i * 3);
+        a.set([x, this.sheltered(x, z) ? -1000 : y, z], i * 3);
       }
       pos.needsUpdate = true;
       this.flakes.geometry.setDrawRange(0, snowN);

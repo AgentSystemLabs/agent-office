@@ -23,11 +23,25 @@ export function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number, 
   return lines;
 }
 
+/** A note as it was last drawn: its middle, size and tilt on the canvas. */
+interface DrawnNote {
+  number: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  tilt: number;
+}
+
 /** Renders a cork board with pinned sticky notes onto a canvas texture. */
 export class BoardTexture {
   readonly texture: THREE.CanvasTexture;
   private canvas = document.createElement('canvas');
   private ctx: CanvasRenderingContext2D;
+  private notes: DrawnNote[] = [];
+  /** The note being reached for, drawn lifted off the cork (see lift). */
+  private lifted: number | null = null;
+  private last: [GhState<GhIssue> | GhState<GhPull>, Map<string, WorkerInfo> | undefined] | null = null;
 
   constructor(private kind: 'issues' | 'pulls') {
     this.canvas.width = 1200;
@@ -38,8 +52,39 @@ export class BoardTexture {
     this.texture.anisotropy = 8;
   }
 
+  /** Whether any notes are up on the board. */
+  get hasNotes(): boolean {
+    return this.notes.length > 0;
+  }
+
+  /** The note at a point on the board's face (its uv), or undefined over bare cork. */
+  noteAt(uv: THREE.Vector2): number | undefined {
+    const px = uv.x * this.canvas.width;
+    const py = (1 - uv.y) * this.canvas.height;
+    // Topmost first: later notes are drawn over earlier ones.
+    for (let i = this.notes.length - 1; i >= 0; i--) {
+      const n = this.notes[i];
+      // Into the note's own (tilted) frame.
+      const dx = px - n.x;
+      const dy = py - n.y;
+      const c = Math.cos(-n.tilt);
+      const s = Math.sin(-n.tilt);
+      if (Math.abs(dx * c - dy * s) <= n.w / 2 && Math.abs(dx * s + dy * c) <= n.h / 2) return n.number;
+    }
+    return undefined;
+  }
+
+  /** Draws one note lifted off the cork, the one you're about to take (null for none). */
+  lift(number: number | null) {
+    if (number === this.lifted) return;
+    this.lifted = number;
+    if (this.last) this.render(...this.last);
+  }
+
   /** `workers` lets PR notes name the desk they came from. */
   render(state: GhState<GhIssue> | GhState<GhPull>, workers?: Map<string, WorkerInfo>) {
+    this.last = [state, workers];
+    this.notes = [];
     const g = this.ctx;
     const W = this.canvas.width;
     const H = this.canvas.height;
@@ -83,14 +128,24 @@ export class BoardTexture {
       const r = Math.floor(i / cols);
       const x = gx + c * (nw + gx);
       const y = gy + r * (nh + gy);
+      const tilt = ((it.number * 37) % 7 - 3) * 0.012;
+      this.notes.push({ number: it.number, x: x + nw / 2, y: y + nh / 2, w: nw, h: nh, tilt });
+      const lifted = it.number === this.lifted;
       g.save();
       g.translate(x + nw / 2, y + nh / 2);
-      g.rotate(((it.number * 37) % 7 - 3) * 0.012);
-      g.fillStyle = 'rgba(0,0,0,.25)';
-      g.fillRect(-nw / 2 + 5, -nh / 2 + 7, nw, nh);
+      g.rotate(tilt);
+      // Lifted: a little bigger, with its shadow further off, as if it's coming away from the cork.
+      if (lifted) g.scale(1.06, 1.06);
+      g.fillStyle = lifted ? 'rgba(0,0,0,.32)' : 'rgba(0,0,0,.25)';
+      g.fillRect(-nw / 2 + (lifted ? 12 : 5), -nh / 2 + (lifted ? 16 : 7), nw, nh);
       const draft = this.kind === 'pulls' && (it as GhPull).isDraft;
       g.fillStyle = draft ? '#e9ecef' : NOTE_COLORS[it.number % NOTE_COLORS.length];
       g.fillRect(-nw / 2, -nh / 2, nw, nh);
+      if (lifted) {
+        g.lineWidth = 6;
+        g.strokeStyle = '#2b2d42';
+        g.strokeRect(-nw / 2, -nh / 2, nw, nh);
+      }
       g.fillStyle = '#2b2d42';
       const fs = Math.round(22 * Math.min(scale, nh / 164));
       const w = this.kind === 'pulls' && workers ? workerForPull(workers.values(), it as GhPull) : undefined;

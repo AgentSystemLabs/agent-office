@@ -1,4 +1,5 @@
 import { BUZZ_SECONDS, type Caffeine } from '../caffeine';
+import { ROOF, ROOF_NAME } from '../../shared/rooftop';
 import { store } from '../state';
 import type { Voice } from '../voice';
 import type { ChatLine } from '../../shared/protocol';
@@ -32,7 +33,11 @@ export function renderPeople(voice: Voice, onEditProfile: () => void, onWalkTo: 
       p.account ? h('span.acct', { title: `Signed in with ${you ? 'your' : 'their'} own account` }, '✓') : null,
       you ? h('span.you', {}, '(you)') : null,
       // Somewhere else in the building: which floor.
-      !you && !store.onMyFloor(p) ? h('span.where', { title: 'On another floor' }, `🛗 ${store.floors.find((f) => f.id === p.floor)?.name ?? 'lobby'}`) : null,
+      !you && !store.onMyFloor(p)
+        ? p.floor === ROOF
+          ? h('span.where', { title: 'Up on the roof' }, `🍸 ${ROOF_NAME}`)
+          : h('span.where', { title: 'On another floor' }, `🛗 ${store.floors.find((f) => f.id === p.floor)?.name ?? 'lobby'}`)
+        : null,
       p.sharing ? h('span', { title: 'Sharing screen' }, '🖥️') : null,
       h('span.mic', {}, mic),
     );
@@ -134,6 +139,7 @@ export function openHelp() {
     ['🕹️', 'The arcade cabinet in the lounge plays BLOCKFALL: arrows (or WASD) move and turn, Space drops, C holds, P pauses. Everyone on the floor sees your game on it, and E there watches whoever is playing. One of your workers needing input pauses it'],
     ['🎉', 'Whenever a pull request merges, the gong next to the PR board rings, confetti rains down all over the floor and every worker gets up on its desk for a quick dance. Walk up to the gong and press E to bang it yourself'],
     ['N', "Next worker that needs you: go to whoever has waited longest (needs input, or done and nobody's looked), and again for the next one. Arrows at the edge of the screen point to the ones out of sight"],
+    ['🍸', 'The elevator goes up to the rooftop bar: a DJ playing drum and bass under the lights, and the city all around. Press E at the bar for a drink (it goes to your head for a bit) and at the DJ booth for the air horn'],
     ['Drag / wheel', 'Orbit and zoom the camera in third person'],
     ['P', 'Prompt: give a task to a new or existing worker at the desk you face'],
     ['C', 'Changes: what the worker at the desk you face changed — files and diff, commit, discard, open a PR'],
@@ -141,7 +147,7 @@ export function openHelp() {
     ['R', 'Resume a sleeping worker'],
     ['X', 'Send a worker home (frees the desk)'],
     ['F', 'Hang a picture from the web on a wall. Look at a picture and press E to move, edit or take it down'],
-    ['Q', 'Put back the issue card in your hands (✋ Pick it up in an issue, then E at an empty desk, a worker or the queue board)'],
+    ['Q', 'Put back the issue card in your hands (E at a note on the issues board, or ✋ Pick it up in an issue; then E at an empty desk, a worker or the queue board)'],
     ['🐶', 'Walk up to the office dog and press E to pet it. When a worker needs input, it runs to that desk and barks. Name it in ⚙️ Settings'],
     ['O', 'Open a pull request for a worker on its own branch, or see the one it has'],
     ['T', 'Chat'],

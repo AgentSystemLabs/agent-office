@@ -49,6 +49,8 @@ export class PlayerController {
   /** How far below the floor you're on the street is: further down the higher your floor (see streetBelow). */
   street = STREET_Y;
   private jitterT = 0;
+  /** How drunk you are (see booze.ts): the view rolls and sways, and you stagger as you walk. */
+  drunk = 0;
   /** Where you're sitting, or null on your feet. You stay put there until you walk off or jump up. */
   seat: SeatPlace | null = null;
   /** You got up by walking off or jumping (not by stand()). */
@@ -82,7 +84,8 @@ export class PlayerController {
   constructor(
     private camera: THREE.PerspectiveCamera,
     private dom: HTMLElement,
-    private colliders: Collider[],
+    /** What you bump into and stand on: the office's, or the roof's up there. */
+    public colliders: Collider[],
   ) {
     camera.rotation.order = 'YXZ';
     window.addEventListener('keydown', (e) => {
@@ -317,8 +320,11 @@ export class PlayerController {
       ix /= len;
       iz /= len;
       // Camera-relative: "forward" is where the camera looks.
-      const sin = Math.sin(this.camYaw);
-      const cos = Math.cos(this.camYaw);
+      // Drunk, your feet wander off to one side and then the other.
+      const t = this.jitterT;
+      const stagger = this.drunk * (0.4 * Math.sin(t * 1.6) + 0.22 * Math.sin(t * 3.7 + 1));
+      const sin = Math.sin(this.camYaw + stagger);
+      const cos = Math.cos(this.camYaw + stagger);
       const dx = ix * cos + iz * sin;
       const dz = -ix * sin + iz * cos;
       const speed = (k.has('ShiftLeft') || k.has('ShiftRight') ? RUN : WALK) * this.speedBoost;
@@ -332,7 +338,8 @@ export class PlayerController {
       }
     }
 
-    const ground = groundAt(this.colliders, this.pos.x, this.pos.z, this.pos.y);
+    // Never below the street: past the edge of the grass there's nothing else to stand on.
+    const ground = Math.max(groundAt(this.colliders, this.pos.x, this.pos.z, this.pos.y), this.street);
     const jump = this.enabled && k.has('Space') && this.grounded;
     if (jump) {
       this.vy = JUMP_V * this.jumpBoost;
@@ -426,7 +433,7 @@ export class PlayerController {
       cam.x = THREE.MathUtils.clamp(cam.x, FLOOR.minX + m, FLOOR.maxX - m);
       cam.z = THREE.MathUtils.clamp(cam.z, FLOOR.minZ + m, FLOOR.maxZ - m);
     }
-    const floorY = rigged ? 0 : groundAt(this.colliders, this.pos.x, this.pos.z, this.pos.y);
+    const floorY = rigged ? 0 : Math.max(groundAt(this.colliders, this.pos.x, this.pos.z, this.pos.y), this.street);
     const roof = ceilingAt(this.colliders, cam.x, cam.z, floorY) - 0.3;
     cam.y = THREE.MathUtils.clamp(cam.y, floorY + 0.6, Math.max(floorY + 0.6, Math.min(floorY + 3.5, roof)));
     // Down on the street, stay under the garage ceiling so its edge never cuts across the view.
@@ -451,11 +458,17 @@ export class PlayerController {
     this.shake();
   }
 
-  /** The jitters: the view trembles a little, on top of wherever you're looking. */
+  /** The jitters: the view trembles a little, on top of wherever you're looking. Drunk, it rolls and sways. */
   private shake() {
+    const t = this.jitterT;
+    if (this.drunk > 0) {
+      const d = this.drunk;
+      this.camera.rotation.z += d * (0.07 * Math.sin(t * 0.9) + 0.025 * Math.sin(t * 2.3 + 1));
+      this.camera.rotation.x += d * 0.03 * Math.sin(t * 0.7 + 2);
+      this.camera.rotation.y += d * 0.04 * Math.sin(t * 0.55 + 4);
+    }
     if (this.jitter <= 0) return;
     const a = this.jitter * 0.01;
-    const t = this.jitterT;
     this.camera.rotation.x += a * (Math.sin(t * 71) + 0.6 * Math.sin(t * 131 + 1));
     this.camera.rotation.y += a * (Math.sin(t * 89 + 2) + 0.6 * Math.sin(t * 157));
     this.camera.rotation.z += a * Math.sin(t * 113 + 3);
