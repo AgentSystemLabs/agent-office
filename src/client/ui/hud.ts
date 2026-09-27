@@ -16,6 +16,7 @@ export function renderPeople(voice: Voice, onEditProfile: () => void) {
       { 'data-peer': p.id, title: you ? 'Change your character' : p.name, style: you ? 'cursor:pointer' : '' },
       h('span.dot', { style: `background:${p.color}` }),
       h('span', {}, p.name),
+      p.account ? h('span.acct', { title: `Signed in with ${you ? 'your' : 'their'} own account` }, '✓') : null,
       you ? h('span.you', {}, '(you)') : null,
       p.sharing ? h('span', { title: 'Sharing screen' }, '🖥️') : null,
       h('span.mic', {}, mic),
@@ -62,7 +63,9 @@ export function renderWorkers(onOpen: (id: string) => void) {
 export function renderChat() {
   const log = $('chat-log');
   log.replaceChildren(
-    ...store.chat.slice(-60).map((c) => h('li', {}, h('b', { style: `color:${c.color}` }, c.name), ': ', c.text)),
+    ...store.chat.slice(-60).map((c) =>
+      h('li', {}, h('b', { style: `color:${c.color}`, title: c.account ? `${c.name}, signed in with their own account` : undefined }, c.name), c.account ? h('span.acct', {}, ' ✓') : null, ': ', c.text),
+    ),
   );
   log.scrollTop = log.scrollHeight;
 }

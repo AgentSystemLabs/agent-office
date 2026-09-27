@@ -63,7 +63,7 @@ export class ChatLog {
       try {
         const l = JSON.parse(s) as Partial<ChatLine>;
         if (typeof l.text !== 'string' || typeof l.name !== 'string' || typeof l.at !== 'number') continue;
-        this.lines.push({ from: typeof l.from === 'string' ? l.from : '', name: l.name, color: typeof l.color === 'string' ? l.color : '#4f86f7', text: l.text, at: l.at });
+        this.lines.push({ from: typeof l.from === 'string' ? l.from : '', name: l.name, color: typeof l.color === 'string' ? l.color : '#4f86f7', text: l.text, at: l.at, ...(l.account === true ? { account: true } : {}) });
       } catch {
         // a torn last line (the office died mid-write) is skipped
       }

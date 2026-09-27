@@ -11,7 +11,7 @@ const VIEWS: [ViewMode, string, string][] = [
 
 const WEBHOOK_NAME: Record<WebhookKind, string> = { slack: 'Slack', discord: 'Discord', other: 'a webhook' };
 
-export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void, notifier: DesktopNotifier) {
+export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void, notifier: DesktopNotifier, onSignOut: () => void) {
   const seg = h('div.seg', { role: 'radiogroup', 'aria-label': 'Camera view' });
   const note = h('p.setting-note');
   const paint = () => {
@@ -159,7 +159,10 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   hookTest.addEventListener('click', () => net.send({ t: 'notify.test' }));
   hookRemove.addEventListener('click', () => net.send({ t: 'notify.webhook', url: '' }));
 
-  const character = h('button.btn', { type: 'button' }, '🧍 Change your look & name');
+  const account = store.me.account;
+  const signOut = h('button.btn', { type: 'button' }, '🚪 Sign out');
+  signOut.addEventListener('click', onSignOut);
+  const character = h('button.btn', { type: 'button' }, account ? '🧍 Change your look' : '🧍 Change your look & name');
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const el = h(
     'div.modal',
@@ -183,6 +186,9 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       hookStatus,
       h('label', { style: 'margin-top:18px' }, 'Your character'),
       character,
+      h('label', { style: 'margin-top:18px' }, 'Signed in'),
+      h('div.volume', {}, signOut),
+      h('p.setting-note', {}, account ? `As ${account.name}, with your own account (${account.role}).` : 'With the shared office password.'),
     ),
   );
   const modal = openModal(el, { onClose: store.on('notify', paintHook) });

@@ -1,5 +1,6 @@
 :root { --bg: #ffe8cc; --ink: #2b2d42; --card: #fffaf3; --accent: #ff8a5b; --muted: #7a6f65; --border: #2b2d42; }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; }
 body {
   background: radial-gradient(circle at 20% 20%, #ffd6a5 0, transparent 40%), radial-gradient(circle at 80% 70%, #caffbf 0, transparent 45%), var(--bg);
@@ -24,3 +25,6 @@ button.mini { width: auto; margin: 0; padding: 6px 10px; font-size: 13px; box-sh
 .check { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 14px; font-weight: 800; }
 .check input { width: auto; margin: 0; }
 a { color: var(--ink); font-weight: 800; }
+label + label { margin-top: 12px; }
+.note { text-align: left; color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+.role { display: inline-block; background: #fff3c4; border: 2px solid var(--border); border-radius: 999px; padding: 0 8px; font-size: 13px; font-weight: 800; }

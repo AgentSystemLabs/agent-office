@@ -64,6 +64,8 @@ export interface WorkerInfo {
   task?: WorkerTask;
   /** Reported session tokens and cost, when the provider supplies them (agents only). */
   usage?: Usage;
+  /** Who last typed into its terminal (or sent it a prompt), and when. */
+  lastInput?: { by: string; at: number };
 }
 
 /** Session usage. The persistent office ledger continues to cover Claude Code only. */
@@ -136,6 +138,8 @@ export interface PeerInfo {
   voice: boolean;
   muted: boolean;
   sharing: boolean;
+  /** Signed in with their own account, so `name` is theirs and nobody else can take it. */
+  account?: boolean;
 }
 
 /** A styled run of text on a terminal row: [text, fg, bg, flags]. */
@@ -314,6 +318,47 @@ export interface ProjectInfo {
   agentProviders: AgentProvider[];
 }
 
+export type AccountRole = 'admin' | 'member';
+
+/** Who this browser is signed in as. */
+export interface Me {
+  /** Your own account; missing when you came in with the shared office password. */
+  account?: { name: string; role: AccountRole };
+  /** May invite, list and revoke accounts. */
+  admin: boolean;
+}
+
+export interface AccountInfo {
+  id: string;
+  name: string;
+  role: AccountRole;
+  createdAt: number;
+  createdBy: string;
+  lastSeenAt?: number;
+  /** In the office right now. */
+  online: boolean;
+}
+
+/** A single-use link that makes a named account: /join#<token>. */
+export interface AccountInvite {
+  id: string;
+  token: string;
+  /** The name the account gets; when missing, whoever opens the link picks one. */
+  name?: string;
+  role: AccountRole;
+  createdBy: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
+/** Per-person accounts, for admins (see server/accounts.ts). */
+export interface AccountsState {
+  accounts: AccountInfo[];
+  invites: AccountInvite[];
+  /** Whether the shared office password still lets people in. */
+  sharedPassword: boolean;
+}
+
 export interface TeamMember {
   /** GitHub username (or the name deploy/aws.sh invited a key file under). */
   name: string;
@@ -435,6 +480,8 @@ export interface ChatLine {
   color: string;
   text: string;
   at: number;
+  /** Said by someone signed in with their own account. */
+  account?: boolean;
 }
 
 /** A line of a worker's terminal that matched a search. */
@@ -495,6 +542,14 @@ export type ClientMsg =
   | { t: 'team.get' }
   | { t: 'team.invite'; github: string }
   | { t: 'team.remove'; name: string }
+  /** The rest of the accounts messages are for admins only. */
+  | { t: 'accounts.get' }
+  | { t: 'accounts.invite'; name?: string; role: AccountRole }
+  | { t: 'accounts.cancel'; inviteId: string }
+  | { t: 'accounts.revoke'; accountId: string }
+  | { t: 'accounts.role'; accountId: string; role: AccountRole }
+  /** Let the shared office password sign people in, or stop it. */
+  | { t: 'accounts.shared'; on: boolean }
   /** Follow what a worker changed (the office polls its checkout while anyone watches). */
   | { t: 'changes.watch'; workerId: string }
   | { t: 'changes.unwatch'; workerId: string }
@@ -533,6 +588,7 @@ export type ServerMsg =
       decor: Decoration[];
       usage: UsageState;
       queue: QueueState;
+      me: Me;
       notify: NotifyState;
     }
   | { t: 'peer.join'; peer: PeerInfo }
@@ -565,4 +621,10 @@ export type ServerMsg =
   | { t: 'changes.diff'; workerId: string; path: string; diff: string; truncated: boolean; error?: string }
   /** Sent to whoever asked for the invite. */
   | { t: 'team.invited'; github: string; name?: string; keys?: number; error?: string }
+  /** Sent to admins, when asked and whenever accounts change. */
+  | { t: 'accounts'; state: AccountsState }
+  /** Sent to whoever made the invite. */
+  | { t: 'accounts.invited'; invite?: AccountInvite; error?: string }
+  /** Your role changed. */
+  | { t: 'me'; me: Me }
   | { t: 'pong'; at: number };

@@ -7,6 +7,10 @@ if (argv[0] === 'prune') {
   const { prune } = await import('./prune.js');
   process.exit(await prune(argv.slice(1)));
 }
+if (argv[0] === 'accounts') {
+  const { accountsCommand } = await import('./accounts.js');
+  process.exit(accountsCommand(argv.slice(1)));
+}
 
 const cfg = loadConfig(argv);
 await ensureSelfSigned(cfg);
@@ -31,6 +35,7 @@ if (cfg.host === '0.0.0.0' || cfg.host === '::') {
 
 const agent = office.workers.resolvedAgent;
 function passwordLine() {
+  if (!office.accounts.sharedPassword) return 'off — everyone signs in with their own account (agent-office accounts)';
   if (!cfg.passwordGenerated) return '(from --password / AGENT_OFFICE_PASSWORD)';
   if (cfg.claimToken && !cfg.claimed) return 'shown exactly once to whoever opens the claim link (/claim?t=…)';
   if (cfg.claimed || !cfg.password) return '(already claimed — never shown again; reset with --reset-password)';

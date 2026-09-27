@@ -35,7 +35,7 @@ agent-office
 - **Voice.** Browser-to-browser WebRTC voice. Volume depends on how close you stand, but people are never fully silent.
 - **Office sounds.** Busy workers clatter away at their keyboards, footsteps pad past, the fridge hums, birds chirp outside the windows and the coffee machine grinds and gurgles. It's all synthesized in the browser and placed where it happens, so it gets louder as you walk closer. Turn it down or mute it under **⚙️**, which also covers the worker dings but not voice chat.
 - **Screen sharing.** Your screen appears on the lounge TV for everyone, and there's a full-screen viewer.
-- **Password protected.** The session cookie is signed, and login attempts are rate limited.
+- **An account for everyone.** Open **🔑 Accounts** and make an invite link. Whoever opens it picks a password and gets an account in their own name. That name is the one on their character, in chat and on every terminal they type into (**⌨️** in the terminal header shows who typed last), and nobody else can take it. Admins see everyone's accounts there, can make someone an admin, and can revoke an account, which signs that person out at once. The shared office password keeps working alongside the accounts until an admin switches it off. Sessions are signed cookies, and login attempts are rate limited.
 
 ## Requirements
 
@@ -65,6 +65,22 @@ agent-office --password 'correct horse battery staple'
 
 It prints the URLs your teammates can open. If you leave out `--password`, it generates one, saves it in `.agent-office/config.json` and prints it.
 
+### Accounts
+
+The office password gets you in until everyone has an account, and whoever signs in with it is an admin. Open **🔑 Accounts** and make an invite link for each person. Give the invite a name, or leave it empty and they pick their own, and make them a *Member* or an *Admin*. Send them the link: it works once, for 7 days, and they choose their own password. Make one for yourself too, as an admin.
+
+Once everyone has an account, switch off the shared password in the same panel. You have to be signed in with your own admin account to do that. From then on, revoking someone locks them out for good. While the shared password still works, anyone who knows it can get back in.
+
+The same works from a terminal on the office's machine, even while the office runs:
+
+```bash
+agent-office accounts                      # accounts, open invites, and the shared password
+agent-office accounts invite ada --admin   # prints a single-use /join#… link
+agent-office accounts revoke ada           # signed out within seconds
+agent-office accounts role ada member
+agent-office accounts password on          # if every admin is ever locked out
+```
+
 ```
 agent-office [dir] [options]
 
@@ -87,6 +103,11 @@ agent-office prune [dir] [-n|--dry-run] [-f|--force]
   Removes leftover worker worktrees under .agent-office/worktrees/ and their
   office/* branches. Anything with uncommitted changes or unpushed commits is
   kept unless --force is given.
+
+agent-office accounts [list | invite [name] [--admin] | revoke <name> | role <name> admin|member | password on|off] [-d <dir>]
+
+  Invite, list and revoke people's own accounts, and switch the shared password
+  off or on. Works while the office runs.
 ```
 
 ## Choosing an agent
@@ -302,14 +323,14 @@ browser ──HTTPS/WSS──▶ agent-office (Node)
 - **Services.** Every 4 seconds the office lists the TCP ports its user's processes listen on (`ss`, or `lsof` on macOS). It credits each port to the worker whose terminal started it. It goes by the process tree first. For a server that detached from it, it uses the `AGENT_OFFICE_WORKER_ID` the process inherited (Linux), then whether it runs inside that worker's worktree. Ports that answer HTTP are shown. A request for `localhost:<port>` that reaches the office's own port (that's what a service tunnel does) is relayed to that server, WebSockets included, so hot reload works.
 - **Pictures.** WebGL can only draw an image from another site if that site sends CORS headers, and most don't. So the office fetches each picture itself (`/api/image`, images up to 15 MB) and serves it from its own origin. Any image link works, and a picture on a worker's dev server does too. Browsers shrink each one to 1024 px before it goes on the wall.
 - **Task queue.** `queue.json` holds the tasks and their providers in order. A task is seated when a desk is free and fewer than the limit are busy (a worker that is starting, ready, working or waiting for input). It finishes when its worker ends its turn (Claude/Codex `Stop` hooks or OpenCode's idle event), stops, or is sent home. The PR is matched by GitHub's closing-issue references (`closes #12`) or by the worker's branch.
-- **State.** `.agent-office/` in the project holds the password, the signing secret, the hook settings, the saved workers and their scrollback, the chat, the task queue and the pictures on the walls (`decor.json`). It is added to `.git/info/exclude` automatically, so it never shows up in `git status`.
+- **State.** `.agent-office/` in the project holds the password, the signing secret, the accounts and open invites (`accounts.json`), the hook settings, the saved workers and their scrollback, the chat, the task queue and the pictures on the walls (`decor.json`). It is added to `.git/info/exclude` automatically, so it never shows up in `git status`.
 
 ## Security notes
 
-Anyone with the password can drive Claude Code, OpenCode or Codex in that directory, and through it run commands as the user that runs the office. Treat the password like SSH access:
+Anyone who can sign in can drive Claude Code, OpenCode or Codex in that directory, and through it run commands as the user that runs the office. Treat the password, the accounts and the invite links like SSH access:
 
 - Use a strong password and HTTPS. With `--trust-proxy`, cookies are `Secure` once the proxy says the request came over https.
-- Changing the password signs everyone out, because sessions are signed with a key derived from it. Login attempts are limited to 10 per 5 minutes per client.
+- Changing the shared password signs out everyone who came in with it, because those sessions are signed with a key derived from it. Account sessions carry the account's id and are checked on every request, so revoking an account, or switching the shared password off, signs those people out at once, open connections included. Account passwords are stored as scrypt hashes, and invite links carry their token after the `#`, so it never reaches a server log. Login and invite attempts are limited to 10 per 5 minutes per client.
 - Only enable `--trust-proxy` behind a proxy that appends `X-Forwarded-For` (Caddy and nginx both do). The office uses the rightmost hop.
 - Run the office as a dedicated, unprivileged user, in the project you mean to share.
 - The WebSocket checks the session cookie and the `Origin` header. The hook endpoint only listens on loopback and needs a random per-worker token.
