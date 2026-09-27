@@ -110,6 +110,9 @@ export class Dog {
       o.removeFromParent();
       o.traverse((m) => (m as THREE.Mesh).geometry?.dispose());
     }
+    // The wings' and the red nose's materials are the costume's own; the rest are shared toon ones.
+    for (const w of this.wings) w.traverse((m) => ((m as THREE.Mesh).material as THREE.Material | undefined)?.dispose());
+    this.rudolph?.dispose();
     this.outfit = [];
     this.wings = [];
     this.rudolph = null;

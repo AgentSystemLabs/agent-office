@@ -156,6 +156,8 @@ export class Hands {
       if (arm.dressed) {
         arm.dressed.removeFromParent();
         arm.dressed.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+        // The witch-fire's material is its own (its glow texture is shared, see glowTexture).
+        arm.fire?.material.dispose();
         arm.dressed = arm.fire = null;
       }
       for (const m of arm.mitten) m.visible = !warlock && !(theme === 'christmas' && m === arm.finger);

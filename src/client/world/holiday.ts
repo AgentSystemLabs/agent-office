@@ -55,7 +55,8 @@ function pumpkinSpots(): Spot[] {
   // Under the TV, beside the elevator, out on the balcony and on the landing outside the exit.
   spots.push([17.55, 0, -2.4, 0.22, FACE.west], [17.6, 0, 2.3, 0.17, FACE.west], [10.35, 0, FLOOR.minZ + 0.4, 0.22, FACE.south]);
   for (const x of [-9.3, -5.8, -2.2, 1.4]) spots.push([x, 1.105, BALCONY.maxZ - 0.06, 0.13, FACE.north]);
-  spots.push([BALCONY.minX + 0.4, 0, BALCONY.maxZ - 0.4, 0.2, FACE.north], [BALCONY.maxX - 0.4, 0, BALCONY.maxZ - 0.4, 0.2, FACE.north]);
+  // (Only the south-east corner: the south-west one has the balcony's potted plant.)
+  spots.push([BALCONY.maxX - 0.4, 0, BALCONY.maxZ - 0.4, 0.2, FACE.north]);
   spots.push([EXIT_STAIRS.minX + 0.3, 0, EXIT_STAIRS.landingZ0 + 0.25, 0.17, FACE.south]);
   // Down the street, at the foot of every lamp (see buildStreet), facing the office.
   for (const x of [-40, -28, -16, -4, 8, 16, 28, 40]) spots.push([x + 0.6, G + 0.04, 21.7, 0.3, FACE.north]);

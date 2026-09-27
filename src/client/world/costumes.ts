@@ -375,8 +375,11 @@ export function warlockHand(side: 1 | -1, skin: THREE.Material): THREE.Group {
   return g;
 }
 
-/** Soft round blob, for glows. */
+let glow: THREE.CanvasTexture | null = null;
+
+/** Soft round blob, for glows: one texture, shared by everything that glows (so dressing up again doesn't make another). */
 export function glowTexture(): THREE.CanvasTexture {
+  if (glow) return glow;
   const c = document.createElement('canvas');
   c.width = c.height = 64;
   const g = c.getContext('2d')!;
@@ -386,7 +389,7 @@ export function glowTexture(): THREE.CanvasTexture {
   grad.addColorStop(1, 'rgba(255,255,255,0)');
   g.fillStyle = grad;
   g.fillRect(0, 0, 64, 64);
-  return new THREE.CanvasTexture(c);
+  return (glow = new THREE.CanvasTexture(c));
 }
 
 /** Green witch-fire swirling round a warlock's hand: points to move each frame (see Hands.update). */
