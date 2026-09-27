@@ -25,7 +25,7 @@ import { Floor, type FloorContext } from './floor.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import { ChatLog } from './history.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
-import { isAgentProvider } from '../shared/protocol.js';
+import { GH_COMMENT_MAX, isAgentProvider } from '../shared/protocol.js';
 import { elevatorSpot } from '../shared/layout.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
@@ -963,6 +963,40 @@ export async function startServer(cfg: Config) {
         void floor.github.merge(n, method, msg.deleteBranch === true, msg.auto === true).then((error) => {
           sendTo(c, { t: 'gh.merged', number: n, error });
           if (!error) toastFloor(floor, msg.auto ? `${who} set PR #${n} to merge once its checks pass` : `🎉 ${who} merged PR #${n}`);
+        });
+        break;
+      }
+      case 'gh.comment': {
+        const floor = here();
+        const n = num(msg.number);
+        const kind = msg.kind === 'pull' ? 'pull' : 'issue';
+        if (!floor || !Number.isSafeInteger(n) || n <= 0) break;
+        const body = typeof msg.body === 'string' ? msg.body : '';
+        // Refused rather than cut short: a comment that silently lost its end would read as finished.
+        const invalid = !body.trim() ? 'The comment is empty' : body.length > GH_COMMENT_MAX ? `GitHub takes comments of up to ${GH_COMMENT_MAX} characters` : '';
+        if (invalid) {
+          sendTo(c, { t: 'gh.commented', kind, number: n, error: invalid });
+          break;
+        }
+        void floor.github.comment(kind, n, body).then((r) => {
+          sendTo(c, { t: 'gh.commented', kind, number: n, ...r });
+          if (r.comment) toastFloor(floor, `💬 ${who} commented on ${kind === 'pull' ? 'PR' : 'issue'} #${n}`);
+        });
+        break;
+      }
+      case 'gh.close': {
+        const floor = here();
+        const n = num(msg.number);
+        const kind = msg.kind === 'issue' || msg.kind === 'pull' ? msg.kind : undefined;
+        if (!floor || !Number.isSafeInteger(n) || n <= 0 || !kind) break;
+        const reason = msg.reason === 'not planned' ? 'not planned' : 'completed';
+        void floor.github.close(kind, n, { comment: str(msg.comment, 20000).trim() || undefined, reason, deleteBranch: msg.deleteBranch === true }).then((error) => {
+          sendTo(c, { t: 'gh.closed', kind, number: n, error });
+          if (error) return;
+          if (kind === 'pull') return toastFloor(floor, `${who} closed PR #${n} without merging`);
+          // Nobody should be seated for an issue that's closed.
+          const dropped = floor.queue.dropIssue(n);
+          toastFloor(floor, `${who} closed issue #${n}${reason === 'not planned' ? ' as not planned' : ''}${dropped ? ' and took it off the queue' : ''}`);
         });
         break;
       }

@@ -108,6 +108,15 @@ export class TaskQueue {
     return undefined;
   }
 
+  /** Takes a closed issue's waiting task off the queue (a running one carries on). Returns whether there was one. */
+  dropIssue(issue: number): boolean {
+    const i = this.tasks.findIndex((t) => t.issue === issue && t.status === 'queued');
+    if (i < 0) return false;
+    this.tasks.splice(i, 1);
+    this.changed();
+    return true;
+  }
+
   /** Moves a queued task one place up (-1) or down (+1) among the queued tasks. */
   move(taskId: string, delta: -1 | 1) {
     const queued = this.tasks.filter((t) => t.status === 'queued');
