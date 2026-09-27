@@ -282,6 +282,7 @@ export class WorkerManager {
       cols: 100,
       rows: 30,
       viewers: [],
+      viewerIds: [],
       activity: prompt ? truncate(prompt, 80) : undefined,
     };
     const w = newWorker(info, newTracker());
@@ -1099,9 +1100,11 @@ export class WorkerManager {
 
   private syncViewers(w: Worker): boolean {
     const names = [...new Set(w.viewers.values())];
-    const same = names.length === w.info.viewers.length && names.every((n, i) => n === w.info.viewers[i]);
-    if (same) return false;
+    const ids = [...w.viewers.keys()];
+    const same = (a: string[], b: string[]) => a.length === b.length && a.every((n, i) => n === b[i]);
+    if (same(names, w.info.viewers) && same(ids, w.info.viewerIds)) return false;
     w.info.viewers = names;
+    w.info.viewerIds = ids;
     return true;
   }
 
@@ -1307,6 +1310,7 @@ process.stdin.on('end', () => {
           cols: 100,
           rows: 30,
           viewers: [],
+          viewerIds: [],
         };
         const w = newWorker(info, tracker, typeof s.hookToken === 'string' && s.hookToken ? s.hookToken : undefined);
         if (provider === 'codex' && typeof s.codexTranscript === 'string') w.codexTranscript = s.codexTranscript;

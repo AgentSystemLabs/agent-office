@@ -69,6 +69,10 @@ button { font-family: inherit; }
 .dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--ink); flex: none; }
 .people .you { color: var(--muted); font-weight: 600; }
 .people .mic { margin-left: auto; font-size: 12px; }
+.people li.walk { cursor: pointer; }
+.people li.walk:hover { background: var(--paper-2); }
+.people .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.people .sub { display: block; font-size: 11px; font-weight: 600; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .people .speaking { color: var(--good); }
 .workers .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workers .sub { display: block; font-size: 11px; font-weight: 600; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -249,7 +253,14 @@ button { font-family: inherit; }
 .modal.term header { background: var(--paper); }
 .modal.term .term-host { flex: 1; min-height: 0; padding: 8px 4px 4px 10px; background: #1e1f2e; }
 .modal.term .term-host .xterm { height: 100%; }
-.viewers { display: flex; gap: 4px; font-size: 12px; font-weight: 800; color: var(--muted); align-items: center; }
+/* Who's in the terminal: a face per person, and a pencil on whoever's typing. */
+.viewers { display: flex; align-items: center; gap: 4px; }
+.avatar { position: relative; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--ink); display: grid; place-items: center; flex: none; font-size: 10px; font-weight: 900; letter-spacing: -.02em; color: var(--ink); cursor: default; }
+.avatar.typing { margin-right: 4px; animation: typing-bob .9s ease-in-out infinite; }
+.avatar.typing::after { content: '✎'; position: absolute; right: -9px; bottom: -7px; width: 11px; height: 11px; border-radius: 50%; background: var(--paper); border: 2px solid var(--ink); font-size: 7px; line-height: 11px; text-align: center; }
+@keyframes typing-bob { 50% { transform: translateY(-3px); } }
+.modal.term header .typed.now { color: var(--ink); }
+@media (prefers-reduced-motion: reduce) { .avatar.typing { animation: none; } }
 .modal.term header .cost { font-size: 12px; font-weight: 800; color: var(--muted); white-space: nowrap; }
 
 /* Changes window: changed files + diff at a desk */

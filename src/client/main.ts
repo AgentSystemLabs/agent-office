@@ -26,7 +26,7 @@ import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
 import { OfficeSound } from './sound';
 import { DesktopNotifier, askNotifyPermission, notifyPermission, waitingOnSomeone } from './notify';
-import { $, h, clip, closeAllModals, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
+import { $, h, clip, closeAllModals, doingNow, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage, type TerminalFind } from './ui/terminal';
 import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
@@ -50,6 +50,8 @@ import { renderLimits } from './ui/limits';
 import { openJukebox } from './ui/jukebox';
 import { Arcade } from './ui/arcade';
 import { trackTitle } from '../shared/jukebox';
+import { whereabouts } from './ui/whereabouts';
+import { wayTo } from './walkto';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -311,7 +313,8 @@ net.onMessage((msg) => {
       } else if (!store.floor) arrive();
       if (voice.inVoice || voice.sharing) net.send({ t: 'voice', voice: voice.inVoice, muted: voice.muted, sharing: voice.sharing });
       if (player.seat) net.send({ t: 'sit', seat: player.seat.key });
-      // After a reconnect the server has forgotten which terminal we had open.
+      // After a reconnect the server has forgotten which terminal we had open, and what we're doing.
+      sendDoing(true);
       const openId = openTerminalFor();
       if (openId && store.workers.has(openId)) net.send({ t: 'worker.attach', workerId: openId });
       const watching = openChangesFor();
@@ -549,6 +552,7 @@ function syncPeers() {
     }
     r.person.setSmoking(!!peer.smoking);
     r.person.sit(peer.seat ? (seatAt(peer.seat)?.hips ?? null) : null);
+    r.person.setDoing(whereabouts(peer));
   }
   for (const [id, r] of remotes) {
     const peer = store.peers.get(id);
@@ -557,7 +561,7 @@ function syncPeers() {
       remotes.delete(id);
     }
   }
-  renderPeople(voice, editProfile);
+  renderPeople(voice, editProfile, walkTo);
   refreshShares();
 }
 store.on('peers', syncPeers);
@@ -571,10 +575,79 @@ function sayBubble(from: string, text: string) {
     disposeSprite(r.bubble.sprite);
   }
   const sprite = textSprite(`💬 ${clip(text, 60)}`, { bg: '#ffffff', size: 34 });
-  sprite.position.y = 2.45;
+  sprite.position.y = r.person.bubbleY;
   r.person.root.add(sprite);
   r.bubble = { sprite, until: performance.now() + 6000 };
 }
+
+// ---- Walking over to someone --------------------------------------------------------------------
+/** Near enough to talk: where a walk over to someone ends. */
+const NEAR_ENOUGH = 1.6;
+/** Who you're on your way to (clicked in the sidebar), and when to look again at where they've got to. */
+let walkingTo: { id: string; replanAt: number } | null = null;
+
+/** Walks you over to a teammate, riding the elevator first if they're on another floor. A key of yours takes over. */
+function walkTo(id: string) {
+  const p = store.peers.get(id);
+  if (!p || id === store.you) return;
+  if (!store.onMyFloor(p) && !p.floor) return;
+  if (player.seat) standUp();
+  walkingTo = { id, replanAt: 0 };
+  if (store.onMyFloor(p)) toast(`🚶 Walking over to ${p.name}`);
+  else {
+    toast(`🛗 Taking the elevator to ${p.name}, on the ${store.floors.find((f) => f.id === p.floor)?.name ?? 'other'} floor`);
+    ride(p.floor!);
+  }
+}
+
+function stopWalking() {
+  walkingTo = null;
+  player.stopWalking();
+}
+
+/** Where they are, sitting or standing. */
+function whereIs(p: PeerInfo): { x: number; y: number; z: number } {
+  return (p.seat && seatAt(p.seat)) || p;
+}
+
+/** There: stop, and turn to them. */
+function arrivedAt(at: { x: number; z: number }) {
+  stopWalking();
+  const yaw = Math.atan2(at.x - player.pos.x, at.z - player.pos.z);
+  player.facing = yaw;
+  player.camYaw = yaw - Math.PI;
+}
+
+/** Each frame: keep heading for them, looking again every so often in case they've moved on. */
+function walkTick(now: number) {
+  if (!walkingTo || riding || !player.enabled) return;
+  // Sitting down on the way is stopping there.
+  if (player.seat) return stopWalking();
+  const p = store.peers.get(walkingTo.id);
+  if (!p || !store.onMyFloor(p)) {
+    toast(p ? `${p.name} left the floor before you got there` : 'They left the office', 'warn');
+    return stopWalking();
+  }
+  const at = whereIs(p);
+  if (Math.hypot(at.x - player.pos.x, at.z - player.pos.z) < NEAR_ENOUGH && Math.abs(at.y - player.pos.y) < 1) return arrivedAt(at);
+  if (now < walkingTo.replanAt) return;
+  walkingTo.replanAt = now + 800;
+  player.walkPath(wayTo(player.pos, at));
+}
+
+player.onPathEnd = (why) => {
+  if (!walkingTo) return;
+  if (why === 'cancelled') return void (walkingTo = null);
+  const p = store.peers.get(walkingTo.id);
+  if (!p) return stopWalking();
+  const at = whereIs(p);
+  // As near as the way goes (they're behind a desk, or on the couch): that'll do.
+  if (Math.hypot(at.x - player.pos.x, at.z - player.pos.z) < 3) return arrivedAt(at);
+  if (why === 'stuck') {
+    toast(`🚧 Couldn't find a way over to ${p.name}`, 'warn');
+    stopWalking();
+  } else walkingTo.replanAt = 0;
+};
 
 // ---- Workers ------------------------------------------------------------------------------------
 /** How close (meters) you stop a worker jumping, and how far you go before it starts again. */
@@ -896,7 +969,7 @@ function watchShare() {
   video.srcObject = stream;
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const el = h('div.modal.viewer', { role: 'dialog', 'aria-label': 'Screen share' }, h('header', {}, h('h2', {}, `🖥️ ${who}'s screen`), close), video);
-  const modal = openModal(el, { onClose: () => (video.srcObject = null) });
+  const modal = openModal(el, { doing: `🖥️ watching ${who}'s screen`, onClose: () => (video.srcObject = null) });
   close.addEventListener('click', () => modal.close());
 }
 
@@ -1392,11 +1465,34 @@ function hangingKey(code: string): boolean {
   return false;
 }
 
+/** What you last told the office you have open (see PeerInfo.doing). */
+let doingSent: string | undefined;
+/** Tells everyone what you have open now, for the line under your name tag. A reconnected office has forgotten. */
+function sendDoing(reconnected = false) {
+  if (reconnected) doingSent = undefined;
+  let what = doingNow();
+  // The office keeps 60 UTF-16 units of it: cut it short here instead, between whole characters.
+  if (what && what.length > 60) {
+    let cut = '';
+    for (const ch of what) {
+      if (cut.length + ch.length >= 60) break;
+      cut += ch;
+    }
+    what = `${cut}…`;
+  }
+  if (what === doingSent) return;
+  doingSent = what;
+  net.send({ t: 'doing', what });
+}
+
 /** Whether the mouse was captured when the modals opened, so closing them gives it back. */
 let relookAfterModal = false;
 onModalChange((open) => {
   player.enabled = !open;
   player.clearKeys();
+  sendDoing();
+  // Opening something on the way over to someone is stopping there.
+  if (open && walkingTo && !riding) stopWalking();
   if (open) {
     if (player.locked) relookAfterModal = true;
     player.unlock();
@@ -1649,6 +1745,7 @@ function frame(ts?: number) {
   hands.holdMug(mug);
   renderCaffeine(caffeine, secs);
 
+  walkTick(now);
   player.update(dt);
   arcade.update(camera, dt);
   me.root.position.copy(player.pos);
@@ -1745,6 +1842,12 @@ function frame(ts?: number) {
 
   if (now - speakTick > 200) {
     speakTick = now;
+    // What people are up to changes as they walk about, not only when they open something.
+    for (const [id, r] of remotes) {
+      const p = store.peers.get(id);
+      if (p) r.person.setDoing(whereabouts(p));
+    }
+    renderPeople(voice, editProfile, walkTo, false);
     updateSpeaking(voice);
     // People on other floors can't be heard here (their voice connection stays up for when you meet).
     for (const p of store.peers.values()) if (p.id !== store.you && !store.onMyFloor(p)) voice.setVolume(p.id, 0);

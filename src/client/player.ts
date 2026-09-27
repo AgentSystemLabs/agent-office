@@ -51,6 +51,12 @@ export class PlayerController {
   seat: SeatPlace | null = null;
   /** You got up by walking off or jumping (not by stand()). */
   onStand: (() => void) | null = null;
+  /** Corners still to walk through on your own (see walkPath), or null while you're steering. */
+  private path: { x: number; z: number }[] | null = null;
+  /** How long a walk along `path` has been getting nowhere. */
+  private stuckFor = 0;
+  /** A walk along a path ended: at its end, by a key of yours, or up against something. */
+  onPathEnd: ((why: 'arrived' | 'cancelled' | 'stuck') => void) | null = null;
   /**
    * A click (not a drag) on the scene, in normalized device coordinates.
    * In first person it is always the crosshair, (0, 0).
@@ -236,6 +242,16 @@ export class PlayerController {
     }
   }
 
+  /** Walks you through these corners by yourself until you get there, or take a step or a jump of your own. */
+  walkPath(points: { x: number; z: number }[]) {
+    this.path = points.length ? points.map((p) => ({ ...p })) : null;
+    this.stuckFor = 0;
+  }
+
+  stopWalking() {
+    this.path = null;
+  }
+
   /** How far sitting moves your hips (and eyes) from where they are standing. */
   private get lift(): number {
     return this.seat ? this.seat.hips - HIPS : 0;
@@ -263,9 +279,15 @@ export class PlayerController {
       if (k.has('KeyA') || k.has('ArrowLeft')) ix -= 1;
       if (k.has('KeyD') || k.has('ArrowRight')) ix += 1;
     }
-    this.moving = ix !== 0 || iz !== 0;
+    const steering = ix !== 0 || iz !== 0;
+    this.moving = steering;
+    if (this.path && (steering || (this.enabled && k.has('Space')))) {
+      this.path = null;
+      this.onPathEnd?.('cancelled');
+    }
+    if (this.path && this.enabled) this.followPath(dt);
     if (this.view === 'first') this.facing = Math.atan2(Math.sin(this.camYaw + Math.PI), Math.cos(this.camYaw + Math.PI));
-    if (this.moving) {
+    if (steering) {
       const len = Math.hypot(ix, iz);
       ix /= len;
       iz /= len;
@@ -316,6 +338,42 @@ export class PlayerController {
     this.bob += (bob - this.bob) * Math.min(1, dt * 18);
     this.jitterT += dt;
     this.updateCamera();
+  }
+
+  /** A step along `path`: toward its next corner, turning (and in first person, looking) the way you go. */
+  private followPath(dt: number) {
+    const path = this.path!;
+    const next = path[0];
+    const dx = next.x - this.pos.x;
+    const dz = next.z - this.pos.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 0.25) {
+      path.shift();
+      if (!path.length) {
+        this.path = null;
+        this.onPathEnd?.('arrived');
+      }
+      return;
+    }
+    // Run the long way round, walk the last few meters.
+    let left = dist;
+    for (let i = 1; i < path.length; i++) left += Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
+    const step = Math.min(dist, (left > 6 ? RUN : WALK) * this.speedBoost * dt);
+    const x0 = this.pos.x;
+    const z0 = this.pos.z;
+    this.tryMove(this.pos.x + (dx / dist) * step, this.pos.z);
+    this.tryMove(this.pos.x, this.pos.z + (dz / dist) * step);
+    this.moving = true;
+    const want = Math.atan2(dx, dz);
+    const ease = Math.min(1, dt * 8);
+    if (this.view === 'first') this.camYaw += Math.atan2(Math.sin(want + Math.PI - this.camYaw), Math.cos(want + Math.PI - this.camYaw)) * ease;
+    else this.facing += Math.atan2(Math.sin(want - this.facing), Math.cos(want - this.facing)) * ease;
+    // Up against something the map didn't know about: give up rather than walk on the spot.
+    this.stuckFor = Math.hypot(this.pos.x - x0, this.pos.z - z0) < step * 0.2 ? this.stuckFor + dt : 0;
+    if (this.stuckFor > 1) {
+      this.path = null;
+      this.onPathEnd?.('stuck');
+    }
   }
 
   updateCamera(snap = false) {

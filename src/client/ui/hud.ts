@@ -4,19 +4,30 @@ import type { Voice } from '../voice';
 import { $, h, openModal, STATUS_LABEL } from './dom';
 import { usageLabel, usageTitle } from './usage';
 import { providerLabel, providerUsageState, resolvedProvider, modelBadge } from './provider';
+import { whereabouts } from './whereabouts';
 
-export function renderPeople(voice: Voice, onEditProfile: () => void) {
+/** What the people list last showed, so it's only drawn again when something in it changed. */
+let peopleKey = '';
+
+/** The people list in the sidebar. Click yourself to change your character, or anyone else to walk over to them. */
+export function renderPeople(voice: Voice, onEditProfile: () => void, onWalkTo: (id: string) => void, force = true) {
+  const peers = [...store.peers.values()].sort((a, b) => (a.id === store.you ? -1 : b.id === store.you ? 1 : a.name.localeCompare(b.name)));
+  // What each of them is up to changes as they walk about (onto the balcony, up the stairs).
+  const doing = peers.map((p) => (p.id === store.you ? undefined : whereabouts(p)));
+  const key = peers.map((p, i) => `${p.id}|${doing[i] ?? ''}`).join('\n');
+  if (!force && key === peopleKey) return;
+  peopleKey = key;
   const ul = $('people');
   ul.replaceChildren();
-  const peers = [...store.peers.values()].sort((a, b) => (a.id === store.you ? -1 : b.id === store.you ? 1 : a.name.localeCompare(b.name)));
-  for (const p of peers) {
+  peers.forEach((p, i) => {
     const you = p.id === store.you;
     const mic = !p.voice ? '' : p.muted ? '🔇' : '🎙️';
+    const sub = doing[i];
     const li = h(
       'li',
-      { 'data-peer': p.id, title: you ? 'Change your character' : p.name, style: you ? 'cursor:pointer' : '' },
+      { 'data-peer': p.id, class: 'walk', title: you ? 'Change your character' : `${store.onMyFloor(p) ? 'Walk over to' : 'Take the elevator to'} ${p.name}${sub ? ` (${sub})` : ''}` },
       h('span.dot', { style: `background:${p.color}` }),
-      h('span', {}, p.name),
+      h('span.name', {}, p.name, sub ? h('span.sub', {}, sub) : null),
       p.account ? h('span.acct', { title: `Signed in with ${you ? 'your' : 'their'} own account` }, '✓') : null,
       you ? h('span.you', {}, '(you)') : null,
       // Somewhere else in the building: which floor.
@@ -24,9 +35,9 @@ export function renderPeople(voice: Voice, onEditProfile: () => void) {
       p.sharing ? h('span', { title: 'Sharing screen' }, '🖥️') : null,
       h('span.mic', {}, mic),
     );
-    if (you) li.addEventListener('click', onEditProfile);
+    li.addEventListener('click', () => (you ? onEditProfile() : onWalkTo(p.id)));
     ul.append(li);
-  }
+  });
   $('people-count').textContent = String(peers.length);
   void voice;
 }
@@ -99,6 +110,7 @@ export function openHelp() {
     ['☕', 'Press E at the coffee machine in the kitchen for a minute of quicker walking and higher jumps. Three cups in a row gives you the jitters'],
     ['Mouse', 'Look around in first person (click to capture the mouse, Esc to free it)'],
     ['Click / E', "Use what you look at: hire a worker, open its terminal, read a board, watch the TV, put a song on the jukebox, sit on a couch, a beanbag, a chair or the balcony bench (walk off to get up)"],
+    ['👥', 'Click someone under "In the office" to walk over to them (on another floor, you ride the elevator first). The line under their name says what they have open or where they are'],
     ['🛗', 'Every project is a floor: step into the elevator on the north wall and press E (or click the project name, top left) to go to another one or add a project'],
     ['🤖', 'An agent stands by the issues board, the PR board and the task queue. Press E at one and type what you want: it runs as an agent that knows that board. O there opens its terminal, X sends it home'],
     ['📝', 'The whiteboard on wheels between the desks and the lounge: press E to draw on it with everyone on your floor, live. What you draw stays up on the board'],

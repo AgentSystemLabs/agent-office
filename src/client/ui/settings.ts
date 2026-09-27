@@ -236,6 +236,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const offNotify = store.on('notify', paintHook);
   const offDog = store.on('dog', paintDog);
   const modal = openModal(el, {
+    doing: '⚙️ in settings',
     onClose: () => {
       offNotify();
       offDog();

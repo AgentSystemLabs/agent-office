@@ -82,7 +82,7 @@ export function openJukebox(net: Net, openVolume: () => void) {
     if (e.key === 'Enter') play();
   });
 
-  const modal = openModal(el, { onClose: store.on('jukebox', render) });
+  const modal = openModal(el, { doing: '🎵 at the jukebox', onClose: store.on('jukebox', render) });
   close.addEventListener('click', () => modal.close());
   volume.addEventListener('click', () => {
     modal.close();

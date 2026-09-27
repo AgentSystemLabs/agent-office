@@ -6,7 +6,7 @@ import { store } from '../state';
 import { TERM_THEME } from '../world/laptop';
 import { h, openModal, STATUS_LABEL, timeAgo, toast, type Modal } from './dom';
 import { usageLabel, usageTitle } from './usage';
-import type { ServerMsg } from '../../shared/protocol';
+import type { ServerMsg, WorkerInfo } from '../../shared/protocol';
 import { isAsleep } from '../../shared/status';
 import { findLine } from '../../shared/search';
 import { providerLabel, providerUsageNote, providerUsageState, resolvedProvider } from './provider';
@@ -17,6 +17,23 @@ export interface TerminalFind {
   needle: string;
   /** How many rows from the bottom of the worker's terminal the line was. */
   fromEnd: number;
+}
+
+/** How long someone shows as typing after the last word from their keyboard (they send one about every second). */
+const TYPING_SHOWS_MS = 2500;
+
+/** "Sam is typing…", "Sam and Ada are typing…", "Sam and 2 others are typing…". */
+function typingLine(names: string[]): string {
+  if (names.length === 1) return `${names[0]} is typing…`;
+  if (names.length === 2) return `${names[0]} and ${names[1]} are typing…`;
+  return `${names[0]} and ${names.length - 1} others are typing…`;
+}
+
+/** Up to two letters for someone's face: "Sam" -> "S", "Ada Lovelace" -> "AL". */
+function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const first = (w: string | undefined) => (w ? Array.from(w)[0].toUpperCase() : '');
+  return first(words[0]) + (words.length > 1 ? first(words[words.length - 1]) : '') || '?';
 }
 
 let current: { workerId: string; modal: Modal; find(f: TerminalFind): void } | null = null;
@@ -97,6 +114,60 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
     }
   };
 
+  /** Who else is typing here right now (PeerInfo ids), until when. */
+  const typing = new Map<string, number>();
+  /** The viewers' faces, and who's typing (or who typed last, once nobody is). */
+  const renderPresence = (w: WorkerInfo) => {
+    const now = Date.now();
+    for (const [id, until] of typing) if (until <= now || !w.viewerIds.includes(id)) typing.delete(id);
+    const people = viewersOf(w);
+    viewers.replaceChildren(
+      ...people.map((v) =>
+        h(
+          'span.avatar',
+          { class: v.typing ? 'typing' : '', style: `background:${v.color}`, title: `${v.name}${v.you ? ' (you)' : ''}${v.typing ? ' · typing' : ''}` },
+          initials(v.name),
+        ),
+      ),
+    );
+    viewers.title = people.length ? `In this terminal: ${people.map((v) => (v.you ? `${v.name} (you)` : v.name)).join(', ')}` : '';
+    const typists = people.filter((v) => v.typing && !v.you).map((v) => v.name);
+    typed.classList.toggle('now', typists.length > 0);
+    if (typists.length) {
+      typed.textContent = `✍️ ${typingLine(typists)}`;
+      typed.title = '';
+    } else {
+      typed.textContent = w.lastInput ? `⌨️ ${w.lastInput.by}` : '';
+      typed.title = w.lastInput ? `${w.lastInput.by} typed here last, ${timeAgo(w.lastInput.at)}` : '';
+    }
+  };
+  /** Everyone in the terminal, one face per person however many windows they have it open in, you first. */
+  const viewersOf = (w: WorkerInfo) => {
+    const byName = new Map<string, { name: string; color: string; you: boolean; typing: boolean }>();
+    for (const id of w.viewerIds) {
+      const p = store.peers.get(id);
+      if (!p) continue;
+      const v = byName.get(p.name) ?? { name: p.name, color: p.color, you: false, typing: false };
+      v.you ||= id === store.you;
+      v.typing ||= typing.has(id);
+      byName.set(p.name, v);
+    }
+    return [...byName.values()].sort((a, b) => Number(b.you) - Number(a.you));
+  };
+  // Typing stops showing a couple of seconds after the last keystroke.
+  const typingTimer = setInterval(() => {
+    const w = store.workers.get(workerId);
+    if (w && typing.size) renderPresence(w);
+  }, 500);
+  /** Tells the others here you're typing, about once a second while you are. */
+  let typingSentAt = 0;
+  const sayTyping = () => {
+    const now = Date.now();
+    if (now - typingSentAt < 1000) return;
+    typingSentAt = now;
+    net.send({ t: 'term.typing', workerId });
+  };
+
   const refresh = () => {
     const w = store.workers.get(workerId);
     if (!w) {
@@ -110,9 +181,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
     const usageState = w.kind === 'agent' ? providerUsageState(w.provider, store.project, w.usage) : undefined;
     cost.textContent = w.kind !== 'agent' ? '' : usageState === 'tracked' && w.usage ? usageLabel(w.usage, workerProvider) : workerProvider === 'opencode' && usageState === 'waiting' ? 'waiting for metrics' : workerProvider === 'codex' && usageState === 'waiting' ? 'waiting for first report' : usageState === 'untracked' ? 'usage untracked' : '';
     cost.title = w.kind === 'agent' && w.usage ? usageTitle(w.usage, workerProvider) : w.kind === 'agent' ? providerUsageNote(workerProvider!) : '';
-    viewers.textContent = w.viewers.length ? `👀 ${w.viewers.join(', ')}` : '';
-    typed.textContent = w.lastInput ? `⌨️ ${w.lastInput.by}` : '';
-    typed.title = w.lastInput ? `${w.lastInput.by} typed here last, ${timeAgo(w.lastInput.at)}` : '';
+    renderPresence(w);
     const openCode = w.kind === 'agent' && resolvedProvider(w.provider, store.project) === 'opencode';
     modelsBtn.classList.toggle('hidden', !openCode);
     modelsBtn.toggleAttribute('disabled', !openCode || !ready || isAsleep(w.status));
@@ -155,7 +224,11 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
 
   const onMsg = (msg: ServerMsg) => {
     if (msg.t === 'term.data' && msg.workerId === workerId) term.write(msg.data);
-    else if (msg.t === 'term.snapshot' && msg.workerId === workerId) {
+    else if (msg.t === 'term.typing' && msg.workerId === workerId) {
+      typing.set(msg.id, Date.now() + TYPING_SHOWS_MS);
+      const w = store.workers.get(workerId);
+      if (w) renderPresence(w);
+    } else if (msg.t === 'term.snapshot' && msg.workerId === workerId) {
       term.reset();
       term.resize(msg.cols, msg.rows);
       term.write(msg.data, () => {
@@ -170,13 +243,21 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   };
   listeners.add(onMsg);
   const unsub = store.on('workers', refresh);
+  // A viewer's name or color can change while they're here.
+  const unsubPeers = store.on('peers', () => {
+    const w = store.workers.get(workerId);
+    if (w) renderPresence(w);
+  });
   const ro = new ResizeObserver(() => sendSize());
 
   const modal = openModal(el, {
     backdropCloses: true,
+    doing: `💻 in ${info.name}'s terminal`,
     onClose: () => {
       listeners.delete(onMsg);
       unsub();
+      unsubPeers();
+      clearInterval(typingTimer);
       ro.disconnect();
       net.send({ t: 'worker.detach', workerId });
       term.dispose();
@@ -209,6 +290,10 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
     sendSize(true);
     net.send({ t: 'term.input', workerId, data });
   });
+  // Only your own keys and pastes count as typing, not the terminal answering the program's queries.
+  term.onKey(sayTyping);
+  term.textarea?.addEventListener('input', sayTyping);
+  term.textarea?.addEventListener('paste', sayTyping);
   modelsBtn.addEventListener('click', () => {
     if (modelsBtn.hasAttribute('disabled')) return;
     sendSize(true);
