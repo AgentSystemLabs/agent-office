@@ -1,9 +1,10 @@
 import { DESK_BY_ID } from '../../shared/layout';
-import type { GhIssue, GhPull, WorkerInfo } from '../../shared/protocol';
+import type { AgentProvider, GhIssue, GhPull, WorkerInfo } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store, workerForPull } from '../state';
 import { h, openModal, timeAgo } from './dom';
 import { labelChip, openIssue, openPull } from './pull';
+import { providerLabel } from './provider';
 
 export interface BoardActions {
   /** Start a worker on a ready-made prompt (shown for editing first). */
@@ -13,7 +14,7 @@ export interface BoardActions {
   /** Walks you to the desk a pull request came from. */
   goToDesk(deskId: string): void;
   /** Put an issue on the 📋 task queue; a worker is seated for it when there's room. */
-  queue(prompt: string, title: string, issue: number): void;
+  queue(prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string): void;
 }
 
 /** The task a worker gets for an issue, from the board or the queue. */
@@ -67,9 +68,10 @@ function deskChip(w: WorkerInfo) {
 function queueChip(issue: number): Node | '' {
   const t = store.taskForIssue(issue);
   if (!t) return '';
-  if (t.status === 'queued') return h('span.qchip', {}, store.queue.tasks.find((x) => x.status === 'queued') === t ? '📋 up next' : '📋 queued');
-  if (t.status === 'running') return h('span.qchip.running', {}, `🤖 ${t.workerName ?? 'a worker'}`);
-  return t.pr ? h('span.qchip.done', {}, `🔀 PR #${t.pr.number}`) : '';
+  const provider = ` · ${providerLabel(t.provider, store.project)}`;
+  if (t.status === 'queued') return h('span.qchip', {}, `${store.queue.tasks.find((x) => x.status === 'queued') === t ? '📋 up next' : '📋 queued'}${provider}`);
+  if (t.status === 'running') return h('span.qchip.running', {}, `🤖 ${t.workerName ?? 'a worker'}${provider}`);
+  return t.pr ? h('span.qchip.done', {}, `🔀 PR #${t.pr.number}${provider}`) : '';
 }
 
 function card(n: number, title: string, meta: (Node | string)[], i: number, onclick: () => void) {

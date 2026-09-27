@@ -1,5 +1,7 @@
-import type { ServerMsg, WorktreeCleanup, WorktreeState } from '../../shared/protocol';
+import type { AgentProvider, ServerMsg, WorktreeCleanup, WorktreeState } from '../../shared/protocol';
 import { h, openModal } from './dom';
+import { store } from '../state';
+import { providerPicker, type ProviderPicker } from './provider';
 
 export interface PromptOptions {
   title: string;
@@ -7,9 +9,13 @@ export interface PromptOptions {
   placeholder?: string;
   initial?: string;
   submitLabel?: string;
+  /** Allow hiring a worker without an initial prompt (the direct hire flow). */
+  allowEmpty?: boolean;
   /** Offer the "own git worktree" option (only when hiring a new worker). */
   worktreeOption?: boolean;
-  onSubmit(text: string, opts: { worktree: boolean }): void;
+  /** Offer the configured agent provider choice (only when hiring a new worker). */
+  providerOption?: boolean;
+  onSubmit(text: string, opts: { worktree: boolean; provider?: AgentProvider; model?: string }): void;
 }
 
 const WT_KEY = 'agent-office.worktree';
@@ -22,7 +28,7 @@ function worktreePref(): boolean {
 }
 
 export function openPrompt(opts: PromptOptions) {
-  const ta = h('textarea', { rows: 7, placeholder: opts.placeholder ?? 'What should Claude work on?', 'aria-label': 'Prompt' }) as HTMLTextAreaElement;
+  const ta = h('textarea', { rows: 7, placeholder: opts.placeholder ?? 'What should the worker work on?', 'aria-label': 'Prompt' }) as HTMLTextAreaElement;
   ta.value = opts.initial ?? '';
   const wtBox = h('input', { type: 'checkbox', id: 'wt-toggle' }) as HTMLInputElement;
   wtBox.checked = worktreePref();
@@ -32,26 +38,29 @@ export function openPrompt(opts: PromptOptions) {
         { for: 'wt-toggle', style: 'display:flex;gap:8px;align-items:center;margin:10px 0 0;font-weight:700;cursor:pointer', title: 'Isolate this worker on its own branch so parallel workers never collide' },
         wtBox,
         '🌿 Work in its own git worktree & branch',
-      )
+    )
     : null;
+  const provider: ProviderPicker | null = opts.providerOption ? providerPicker(store.project, 'prompt-provider') : null;
   const submit = h('button.btn.primary', { type: 'submit' }, opts.submitLabel ?? 'Send ✨');
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
   const form = h(
     'form.modal',
     { role: 'dialog', 'aria-label': opts.title },
     h('header', {}, h('h2', {}, opts.title)),
-    h('div.body', {}, opts.subtitle ? h('p', { style: 'margin:0 0 10px;font-weight:700;color:var(--muted)' }, opts.subtitle) : null, ta, wtRow),
+    h('div.body', {}, opts.subtitle ? h('p', { style: 'margin:0 0 10px;font-weight:700;color:var(--muted)' }, opts.subtitle) : null, ta, provider?.element ?? null, wtRow),
     h('footer', {}, h('span.grow', {}, 'Enter to send · Shift+Enter for a new line'), cancel, submit),
   ) as HTMLFormElement;
+  form.noValidate = true;
 
   const modal = openModal(form);
   cancel.addEventListener('click', () => modal.close());
   const send = () => {
     const text = ta.value.trim();
-    if (!text) {
+    if (!text && !opts.allowEmpty) {
       ta.focus();
       return;
     }
+    if (provider && !provider.valid()) return;
     modal.close();
     if (opts.worktreeOption) {
       try {
@@ -60,7 +69,7 @@ export function openPrompt(opts: PromptOptions) {
         // storage blocked
       }
     }
-    opts.onSubmit(text, { worktree: !!opts.worktreeOption && wtBox.checked });
+    opts.onSubmit(text, { worktree: !!opts.worktreeOption && wtBox.checked, provider: provider?.value(), model: provider?.model() });
   };
   form.addEventListener('submit', (e) => {
     e.preventDefault();

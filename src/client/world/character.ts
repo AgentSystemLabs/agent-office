@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES, type Look } from '../../shared/avatar';
-import type { WorkerTask } from '../../shared/protocol';
+import type { WorkerStatus, WorkerTask } from '../../shared/protocol';
+import { isAsleep } from '../../shared/status';
 import { cardSprite, disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
 
 export type Pose = 'stand' | 'walk' | 'sit' | 'type';
@@ -388,7 +389,7 @@ export class Worker {
   private nameTag: THREE.Sprite | null = null;
   private eyes: THREE.Mesh[] = [];
   private blinkAt = Math.random() * 4;
-  status = 'starting';
+  status: WorkerStatus = 'starting';
   bouncing = false;
   private bounceT = 0;
   private spawnT = 0;
@@ -447,7 +448,7 @@ export class Worker {
     this.root.add(this.nameTag);
   }
 
-  setStatus(status: string, bounce: boolean) {
+  setStatus(status: WorkerStatus, bounce: boolean) {
     this.status = status;
     this.bouncing = bounce;
     const c = STATUS_BULB[status] ?? '#adb5bd';
@@ -467,7 +468,7 @@ export class Worker {
     const hot = status === 'needs_input' || (status === 'done' && bounce);
     const bg = hot ? (status === 'done' ? '#caffbf' : '#ffd6e0') : status === 'working' ? '#ffec99' : '#fffaf3';
     const bubble =
-      status === 'needs_input' ? '❗ needs you' : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : status === 'offline' || status === 'exited' ? '💤' : '';
+      status === 'needs_input' ? '❗ needs you' : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤' : '';
     const key = task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble;
     if (key === this.bubbleKey) return;
     this.bubbleKey = key;
@@ -479,8 +480,7 @@ export class Worker {
     this.bubbleIsCard = !!task;
     if (task) {
       const [text, chipBg, color] = TASK_CHIP[status] ?? TASK_CHIP.idle;
-      const asleep = status === 'offline' || status === 'exited';
-      this.bubble = cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: task.summary, bg: asleep ? '#e9ecef' : bg });
+      this.bubble = cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: task.summary, bg: isAsleep(status) ? '#e9ecef' : bg });
     } else if (bubble) this.bubble = textSprite(bubble, { bg, size: 38 });
     if (this.bubble) this.root.add(this.bubble);
   }
@@ -517,9 +517,8 @@ export class Worker {
     const blinking = this.blinkAt < 0.12 && this.blinkAt > 0;
     if (this.blinkAt < 0) this.blinkAt = 2 + Math.random() * 4;
     for (const e of this.eyes) e.scale.y = blinking ? 0.1 : 1;
-    const sleepy = this.status === 'offline' || this.status === 'exited';
     this.bulbMesh.scale.setScalar(this.status === 'needs_input' ? 1 + Math.abs(Math.sin(t * 8)) * 0.5 : 1);
-    if (sleepy) this.body.rotation.z = Math.sin(t * 1.5) * 0.08;
+    if (isAsleep(this.status)) this.body.rotation.z = Math.sin(t * 1.5) * 0.08;
     if (this.bubble) this.bubble.position.y = (this.bubbleIsCard ? 1.74 : 1.95) + (this.bouncing ? this.body.position.y : 0) + Math.sin(t * 3) * 0.03;
     if (this.nameTag) this.nameTag.position.y = 1.55 + (this.bouncing ? this.body.position.y : 0);
   }

@@ -1,7 +1,8 @@
 import { store } from '../state';
 import type { Voice } from '../voice';
 import { $, h, openModal, STATUS_LABEL } from './dom';
-import { fmtCost, usageTitle } from './usage';
+import { usageLabel, usageTitle } from './usage';
+import { providerLabel, providerUsageState, resolvedProvider } from './provider';
 
 export function renderPeople(voice: Voice, onEditProfile: () => void) {
   const ul = $('people');
@@ -15,7 +16,10 @@ export function renderPeople(voice: Voice, onEditProfile: () => void) {
       { 'data-peer': p.id, title: you ? 'Change your character' : p.name, style: you ? 'cursor:pointer' : '' },
       h('span.dot', { style: `background:${p.color}` }),
       h('span', {}, p.name),
+      p.account ? h('span.acct', { title: `Signed in with ${you ? 'your' : 'their'} own account` }, '✓') : null,
       you ? h('span.you', {}, '(you)') : null,
+      // Somewhere else in the building: which floor.
+      !you && !store.onMyFloor(p) ? h('span.where', { title: 'On another floor' }, `🛗 ${store.floors.find((f) => f.id === p.floor)?.name ?? 'lobby'}`) : null,
       p.sharing ? h('span', { title: 'Sharing screen' }, '🖥️') : null,
       h('span.mic', {}, mic),
     );
@@ -38,14 +42,18 @@ export function renderWorkers(onOpen: (id: string) => void) {
   ul.replaceChildren();
   const workers = [...store.workers.values()].sort((a, b) => a.createdAt - b.createdAt);
   for (const w of workers) {
-    const sub = [w.worktree && `🌿 ${w.worktree.branch}`, w.pr && `🔀 PR #${w.pr.number}`, w.activity || w.title || w.prompt].filter(Boolean).join(' · ');
+    const provider = w.kind === 'agent' ? providerLabel(w.provider, store.project) : null;
+    const providerKind = w.kind === 'agent' ? resolvedProvider(w.provider, store.project) : undefined;
+    const usageState = w.kind === 'agent' ? providerUsageState(w.provider, store.project, w.usage) : undefined;
+    const usageNote = usageState === 'untracked' ? ' · usage untracked' : usageState === 'waiting' && providerKind === 'opencode' ? ' · waiting for metrics' : usageState === 'waiting' && providerKind === 'codex' ? ' · waiting for first report' : '';
+    const sub = [provider && `⚙️ ${provider}${usageNote}`, w.worktree && `🌿 ${w.worktree.branch}`, w.pr && `🔀 PR #${w.pr.number}`, w.activity || w.title || w.prompt].filter(Boolean).join(' · ');
     ul.append(
       h(
         'li',
         { onclick: () => onOpen(w.id), title: `Open ${w.name}'s terminal` },
         h('span.dot', { style: `background:${w.color}` }),
-        h('span.name', {}, w.name, sub ? h('span.sub', {}, sub) : null),
-        w.usage?.calls ? h('span.cost', { title: usageTitle(w.usage) }, fmtCost(w.usage.cost)) : null,
+        h('span.name', {}, w.name, sub ? h('span.sub', {}, sub) : null,
+          usageState === 'tracked' && w.usage ? h('span.cost', { title: usageTitle(w.usage, providerKind) }, usageLabel(w.usage, providerKind)) : null),
         h('span.pill', { class: w.status }, STATUS_LABEL[w.status] ?? w.status),
       ),
     );
@@ -57,7 +65,9 @@ export function renderWorkers(onOpen: (id: string) => void) {
 export function renderChat() {
   const log = $('chat-log');
   log.replaceChildren(
-    ...store.chat.slice(-60).map((c) => h('li', {}, h('b', { style: `color:${c.color}` }, c.name), ': ', c.text)),
+    ...store.chat.slice(-60).map((c) =>
+      h('li', {}, h('b', { style: `color:${c.color}`, title: c.account ? `${c.name}, signed in with their own account` : undefined }, c.name), c.account ? h('span.acct', {}, ' ✓') : null, ': ', c.text),
+    ),
   );
   log.scrollTop = log.scrollHeight;
 }
@@ -68,6 +78,7 @@ export function openHelp() {
     ['Space', 'Jump'],
     ['Mouse', 'Look around in first person (click to capture the mouse, Esc to free it)'],
     ['Click / E', 'Use what you look at: hire a worker, open its terminal, read a board, watch the TV'],
+    ['🛗', 'Every project is a floor: step into the elevator on the north wall and press E (or click the project name, top left) to go to another one or add a project'],
     ['Drag / wheel', 'Orbit and zoom the camera in third person'],
     ['P', 'Prompt: give a task to a new or existing worker at the desk you face'],
     ['C', 'Changes: what the worker at the desk you face changed — files and diff, commit, discard, open a PR'],
@@ -77,6 +88,7 @@ export function openHelp() {
     ['F', 'Hang a picture from the web on a wall. Look at a picture and press E to move, edit or take it down'],
     ['O', 'Open a pull request for a worker on its own branch, or see the one it has'],
     ['T', 'Chat'],
+    ['/', 'Search the chat and every terminal on your floor, back to before the office last restarted'],
     ['V / M', 'Join voice / mute'],
     ['Esc', 'Close any window and get back to looking around'],
     ['Ctrl + [', 'Send Esc to a terminal (e.g. to interrupt Claude)'],

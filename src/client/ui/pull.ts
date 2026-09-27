@@ -5,19 +5,25 @@ import { issuePrompt, type BoardActions } from './boards';
 import { h, openModal, timeAgo, type Modal } from './dom';
 import { markdown, repoUrlOf } from './markdown';
 import { buildTree, looksGenerated, parseDiff, renderFileDiff, renderThread, repliesOf, Reviewed, STATUS_WORD, treeOrder, type DiffFile, type TreeDir } from './pulldiff';
+import { providerPicker } from './provider';
 
 // The windows behind the board cards. A PR opens on its conversation (description, comments,
 // reviews, line comments, checks) with a Files tab for the diff, where you tick files off as
 // reviewed; from here you merge it, or hand it to a worker to review, fix up and merge.
 
+/** The board windows ask about the floor you're on. */
+function onFloor(url: string): string {
+  return store.floor ? `${url}&floor=${encodeURIComponent(store.floor)}` : url;
+}
+
 async function getJson<T>(url: string): Promise<T> {
-  const r = await fetch(url, { credentials: 'same-origin' });
+  const r = await fetch(onFloor(url), { credentials: 'same-origin' });
   if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? `HTTP ${r.status}`);
   return r.json() as Promise<T>;
 }
 
 async function getText(url: string): Promise<string> {
-  const r = await fetch(url, { credentials: 'same-origin' });
+  const r = await fetch(onFloor(url), { credentials: 'same-origin' });
   if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? `HTTP ${r.status}`);
   return r.text();
 }
@@ -802,11 +808,18 @@ export function openIssue(it: GhIssue, actions: BoardActions) {
   const [word, cls] = it.state === 'OPEN' ? ['open', 'done'] : ['closed', 'offline'];
   const task = store.taskForIssue(it.number);
   const onQueue = !!task && task.status !== 'done';
+  const queueProvider = it.state === 'OPEN' ? providerPicker(store.project, `issue-provider-${it.number}`, 'Queue provider') : null;
+  queueProvider?.element.classList.toggle('hidden', onQueue);
+  const addIssueToQueue = () => {
+    if (queueProvider && !queueProvider.valid()) return;
+    modal.close();
+    actions.queue(issuePrompt(it), `#${it.number} ${it.title}`, it.number, queueProvider?.value(), queueProvider?.model());
+  };
   const queue =
     it.state === 'OPEN'
       ? h(
           'button.btn',
-          { type: 'button', disabled: onQueue, title: onQueue ? undefined : 'A worker picks it up by itself when a desk is free and there is room under the worker limit', onclick: () => (modal.close(), actions.queue(issuePrompt(it), `#${it.number} ${it.title}`, it.number)) },
+          { type: 'button', disabled: onQueue, title: onQueue ? undefined : 'A worker picks it up by itself when a desk is free and there is room under the worker limit', onclick: addIssueToQueue },
           onQueue ? (task!.status === 'running' ? `🤖 ${task!.workerName ?? 'A worker'} is on it` : '📋 On the queue') : '📋 Add to queue',
         )
       : null;
@@ -829,6 +842,7 @@ export function openIssue(it: GhIssue, actions: BoardActions) {
       {},
       h('a.grow', { href: it.url, target: '_blank', rel: 'noopener noreferrer' }, 'Open on GitHub ↗'),
       h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this issue', onclick: () => actions.ask(issueContext(it), `Ask about issue #${it.number}`) }, '✍️ Ask a worker…'),
+      queueProvider?.element ?? null,
       queue,
       h('button.btn.primary', { type: 'button', onclick: () => actions.assign(issuePrompt(it), `Hand issue #${it.number} to a worker`) }, '🤖 Hand to a worker'),
     ),

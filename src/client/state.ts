@@ -1,9 +1,9 @@
-import type { ChatLine, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, QueueState, QueueTask, ServerMsg, ServicesState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
+import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, NotifyState, PeerInfo, Me, ProjectInfo, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, TeamState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
 
-type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'queue';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'queue' | 'me' | 'accounts' | 'notify' | 'floors' | 'floor' | 'repos';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -44,17 +44,38 @@ export interface Settings {
   /** Office sounds, 0–1. */
   volume: number;
   muted: boolean;
+  /** Desktop notifications when a worker needs input or finishes while you're in another tab (once the browser allows them). */
+  notify: boolean;
 }
 
 const SETTINGS_KEY = 'agent-office.settings';
+const FLOOR_KEY = 'agent-office.floor';
+
+/** The floor you were last on, to come back to it after a reload. */
+export function lastFloor(): string | null {
+  try {
+    return localStorage.getItem(FLOOR_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function rememberFloor(id: string | null) {
+  try {
+    if (id) localStorage.setItem(FLOOR_KEY, id);
+  } catch {
+    // storage blocked
+  }
+}
 
 export function loadSettings(): Settings {
-  const s: Settings = { view: 'first', volume: 0.7, muted: false };
+  const s: Settings = { view: 'first', volume: 0.7, muted: false, notify: true };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
     if (saved?.view === 'first' || saved?.view === 'third') s.view = saved.view;
     if (typeof saved?.volume === 'number' && Number.isFinite(saved.volume)) s.volume = Math.max(0, Math.min(1, saved.volume));
     if (typeof saved?.muted === 'boolean') s.muted = saved.muted;
+    if (typeof saved?.notify === 'boolean') s.notify = saved.notify;
   } catch {
     // storage blocked
   }
@@ -82,6 +103,13 @@ class Store {
   workers = new Map<string, WorkerInfo>();
   screens = new Map<string, ScreenState>();
   project: ProjectInfo | null = null;
+  /** Every floor of the building, and the one you're on (null while there are none). */
+  floors: FloorInfo[] = [];
+  floor: string | null = null;
+  /** Where the office clones new floors to. */
+  projectsDir = '';
+  /** The repositories the office's gh login can clone, once asked for (see floor.repos). */
+  repos: { list: RepoChoice[]; error?: string; loading: boolean; at: number } = { list: [], loading: false, at: 0 };
   issues: GhState<GhIssue> = { items: [], fetchedAt: 0, loading: true };
   pulls: GhState<GhPull> = { items: [], fetchedAt: 0, loading: true };
   ice: RTCIceServer[] = [];
@@ -95,6 +123,12 @@ class Store {
   decor: Decoration[] = [];
   usage: UsageState = { total: zeroUsage(), today: zeroUsage(), day: '', pauseHiring: false };
   queue: QueueState = { tasks: [], maxWorkers: 0 };
+  /** Who you're signed in as (see /api/whoami). */
+  me: Me = { admin: false };
+  /** Everyone's accounts; only admins get these. */
+  accounts: AccountsState | null = null;
+  /** The office's Slack / Discord webhook. */
+  notify: NotifyState = {};
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -108,6 +142,16 @@ class Store {
     this.subs.get(topic)?.forEach((fn) => fn());
   }
 
+  /** The floor you're on. */
+  currentFloor(): FloorInfo | undefined {
+    return this.floors.find((f) => f.id === this.floor);
+  }
+
+  /** Whether someone is on your floor (people on other floors aren't in the room with you). */
+  onMyFloor(peer: PeerInfo): boolean {
+    return (peer.floor ?? null) === this.floor;
+  }
+
   workerAtDesk(deskId: string): WorkerInfo | undefined {
     for (const w of this.workers.values()) if (w.deskId === deskId) return w;
     return undefined;
@@ -119,25 +163,50 @@ class Store {
     return tasks.find((t) => t.status !== 'done') ?? tasks[tasks.length - 1];
   }
 
+  /** Everything on the floor you just arrived on, in place of the last one's. */
+  private enter(v: FloorView) {
+    this.floor = v.floor;
+    rememberFloor(v.floor);
+    this.project = v.project;
+    this.workers = new Map(v.workers.map((w) => [w.id, w]));
+    this.screens.clear(); // fresh full frames follow
+    this.issues = v.issues;
+    this.pulls = v.pulls;
+    this.queue = v.queue;
+    this.decor = v.decor;
+    this.services = v.services;
+    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'decor', 'services'] as Topic[]) this.emit(t);
+  }
+
   apply(msg: ServerMsg) {
     switch (msg.t) {
       case 'welcome':
         this.you = msg.you;
         this.peers = new Map(msg.peers.map((p) => [p.id, p]));
-        this.workers = new Map(msg.workers.map((w) => [w.id, w]));
-        this.screens.clear(); // fresh full frames follow the welcome
-        this.project = msg.project;
-        this.issues = msg.issues;
-        this.pulls = msg.pulls;
+        this.floors = msg.floors;
+        this.projectsDir = msg.projectsDir;
         this.ice = msg.ice as RTCIceServer[];
         this.chat = msg.chat;
         this.invites = msg.invites;
         this.upgrade = msg.upgrade;
-        this.services = msg.services;
-        this.decor = msg.decor;
         this.usage = msg.usage;
-        this.queue = msg.queue;
-        for (const t of ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'upgrade', 'services', 'decor', 'usage', 'queue'] as Topic[]) this.emit(t);
+        this.me = msg.me;
+        this.notify = msg.notify;
+        this.enter(msg);
+        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'me', 'notify', 'floors'] as Topic[]) this.emit(t);
+        break;
+      case 'floor.enter':
+        this.peers = new Map(msg.peers.map((p) => [p.id, p]));
+        this.enter(msg);
+        this.emit('peers');
+        break;
+      case 'floors':
+        this.floors = msg.floors;
+        this.emit('floors');
+        break;
+      case 'floor.repos':
+        this.repos = { list: msg.repos, error: msg.error, loading: false, at: Date.now() };
+        this.emit('repos');
         break;
       case 'peer.join':
       case 'peer.update':
@@ -186,6 +255,14 @@ class Store {
         this.team = msg.state;
         this.emit('team');
         break;
+      case 'me':
+        this.me = msg.me;
+        this.emit('me');
+        break;
+      case 'accounts':
+        this.accounts = msg.state;
+        this.emit('accounts');
+        break;
       case 'upgrade':
         this.upgrade = msg.state;
         this.emit('upgrade');
@@ -205,6 +282,10 @@ class Store {
       case 'queue':
         this.queue = msg.state;
         this.emit('queue');
+        break;
+      case 'notify':
+        this.notify = msg.state;
+        this.emit('notify');
         break;
       case 'chat':
         this.chat.push(msg);

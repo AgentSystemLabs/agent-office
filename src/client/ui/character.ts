@@ -137,6 +137,13 @@ export function openCharacter(first: boolean, onSave: (p: Profile) => void) {
 
   const input = h('input', { type: 'text', maxlength: 24, value: first ? '' : pick.name, placeholder: 'e.g. Ada', 'aria-label': 'Your name' }) as HTMLInputElement;
   if (first && pick.name !== 'Guest') input.value = pick.name;
+  // Your account's name is the one everyone sees; only the look is yours to change here.
+  const account = store.me.account;
+  if (account) {
+    input.value = account.name;
+    input.readOnly = true;
+    input.title = 'Your account name';
+  }
 
   const skinRow = h('div.swatches', { role: 'radiogroup', 'aria-label': 'Skin tone' });
   const styleRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Hair style' });
@@ -186,6 +193,7 @@ export function openCharacter(first: boolean, onSave: (p: Profile) => void) {
         {},
         h('label', {}, 'Your name'),
         input,
+        account ? h('p.setting-note', {}, `🔑 Signed in as ${account.name}, so that's your name here.`) : null,
         h('label', {}, 'Skin tone'),
         skinRow,
         h('label', {}, 'Hair'),
@@ -213,5 +221,5 @@ export function openCharacter(first: boolean, onSave: (p: Profile) => void) {
     modal.close();
     onSave(store.profile);
   });
-  setTimeout(() => input.focus(), 30);
+  if (!account) setTimeout(() => input.focus(), 30);
 }

@@ -1,0 +1,197 @@
+import { execFileSync } from 'node:child_process';
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
+import type { ChangesState, FloorInfo, ProjectInfo, ServerMsg, WorkerInfo } from '../shared/protocol.js';
+import { isBusy } from '../shared/status.js';
+import type { FloorDef } from './building.js';
+import { excludeFromGit } from './config.js';
+import { configuredProvider } from './agents.js';
+import { WorkerManager, type HookEnv } from './workers.js';
+import { GitHub } from './github.js';
+import { TaskQueue } from './queue.js';
+import { Changes } from './changes.js';
+import { Decor } from './decor.js';
+import type { Ledger } from './usage.js';
+
+type ToastLevel = 'info' | 'warn' | 'error';
+
+/** What a floor needs from the building around it. */
+export interface FloorContext {
+  agentCmd: string;
+  agentArgs: string[];
+  hook: HookEnv;
+  /** Spend, across every floor. */
+  ledger: Ledger;
+  /** To everyone on this floor. */
+  emit(floor: Floor, msg: ServerMsg, droppable?: boolean): void;
+  toast(floor: Floor, text: string, level?: ToastLevel): void;
+  /** A worker's terminal output, for whoever has that terminal open. */
+  termData(workerId: string, data: string, viewers: string[]): void;
+  /** What a worker changed, for whoever has its Changes window open. */
+  changes(state: ChangesState, clients: string[]): void;
+  /** A worker on this floor changed, or left (then just its id). */
+  workerChanged(floor: Floor, w: WorkerInfo | string): void;
+  /** How many people are on this floor right now. */
+  people(floor: Floor): number;
+}
+
+/** Boards on a floor nobody is on, with nothing running, are asked GitHub about this seldom. */
+const IDLE_REFRESH_MS = 10 * 60_000;
+const REFRESH_MS = 90_000;
+
+/** What `git` says about a checkout: its name, branch and origin for the top bar. */
+export function projectInfo(dir: string, name: string, agentCmd: string, agentArgs: string[]): ProjectInfo {
+  const git = (args: string[]) => {
+    try {
+      return execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    } catch {
+      return undefined;
+    }
+  };
+  return {
+    name,
+    dir,
+    branch: git(['rev-parse', '--abbrev-ref', 'HEAD']),
+    remote: git(['remote', 'get-url', 'origin']),
+    agentCmd: [agentCmd, ...agentArgs].join(' '),
+    defaultProvider: configuredProvider(agentCmd),
+    agentProviders: configuredProvider(agentCmd) === 'custom' ? ['claude', 'opencode', 'codex', 'custom'] : ['claude', 'opencode', 'codex'],
+  };
+}
+
+/**
+ * One floor of the building: a project's checkout with its own desks and workers, issues and PR
+ * boards, task queue and pictures, all kept in that checkout's .agent-office folder.
+ */
+export class Floor {
+  readonly id: string;
+  readonly dir: string;
+  readonly project: ProjectInfo;
+  readonly workers: WorkerManager;
+  readonly github: GitHub;
+  readonly queue: TaskQueue;
+  readonly changes: Changes;
+  readonly decor: Decor;
+  /** Settles once the workers whose terminals outlived the last office are picked back up, and the rest woken. */
+  readonly ready: Promise<void>;
+  private timer: NodeJS.Timeout;
+
+  constructor(
+    readonly def: FloorDef,
+    private ctx: FloorContext,
+  ) {
+    this.id = def.id;
+    this.dir = def.dir;
+    const dataDir = path.join(def.dir, '.agent-office');
+    mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+    excludeFromGit(def.dir);
+    this.project = projectInfo(def.dir, def.name, ctx.agentCmd, ctx.agentArgs);
+
+    this.workers = new WorkerManager(
+      def.dir,
+      dataDir,
+      ctx.agentCmd,
+      ctx.agentArgs,
+      ctx.hook,
+      {
+        update: (worker) => {
+          ctx.emit(this, { t: 'worker.update', worker });
+          // Still being built: the first updates come from waking the workers already at their desks.
+          this.queue?.onWorker(worker);
+          ctx.workerChanged(this, worker);
+        },
+        remove: (workerId) => {
+          this.changes?.forget(workerId);
+          ctx.emit(this, { t: 'worker.remove', workerId });
+          this.queue?.onWorkerGone(workerId);
+          ctx.workerChanged(this, workerId);
+        },
+        data: (workerId, data, viewers) => ctx.termData(workerId, data, viewers),
+        screen: (workerId, frame) => ctx.emit(this, { t: 'screen', workerId, ...frame }, true),
+        toast: (text, level) => ctx.toast(this, text, level),
+      },
+      ctx.ledger,
+    );
+
+    this.github = new GitHub(
+      def.dir,
+      (state) => ctx.emit(this, { t: 'gh.issues', state }),
+      (state) => {
+        ctx.emit(this, { t: 'gh.pulls', state });
+        this.queue?.onPulls(state.items);
+      },
+    );
+    // The 📋 task queue seats workers by itself: it watches the workers and links PRs from GitHub.
+    this.queue = new TaskQueue(dataDir, this.workers, !!this.project.branch, {
+      update: (state) => ctx.emit(this, { t: 'queue', state }),
+      toast: (text, level) => ctx.toast(this, text, level),
+      claimIssue: (issue) => this.github.claim(issue),
+      refreshGitHub: () => void this.github.refresh(),
+      hiringPaused: () => ctx.ledger.hiringPaused,
+    });
+
+    // What each worker changed, for the Changes window at its desk (see changes.ts).
+    this.changes = new Changes(
+      def.dir,
+      this.project.branch,
+      (workerId) => {
+        const w = this.workers.get(workerId);
+        if (!w) return undefined;
+        return { name: w.name, cwd: w.worktree ? path.join(def.dir, w.worktree.path) : def.dir, rel: w.worktree?.path ?? '', worktreeBase: w.worktree?.base };
+      },
+      (branch) => {
+        const pr = this.github.pulls.items.find((p) => p.state === 'OPEN' && p.headRefName === branch);
+        return pr ? { number: pr.number, url: pr.url } : undefined;
+      },
+      {
+        state: (state, ids) => ctx.changes(state, ids),
+        toast: (text, level) => ctx.toast(this, text, level),
+        refreshGitHub: () => void this.github.refresh(),
+      },
+    );
+
+    this.decor = new Decor(dataDir);
+    this.ready = this.workers.start();
+
+    void this.github.refresh();
+    // A floor with people on it, or work under way, keeps its boards fresh; the others check in now and then.
+    this.timer = setInterval(() => {
+      if (this.active() || Date.now() - this.github.issues.fetchedAt > IDLE_REFRESH_MS) void this.github.refresh();
+    }, REFRESH_MS);
+  }
+
+  /** Someone just walked in: boards that haven't been looked at in a while get fetched again. */
+  arrived() {
+    if (Date.now() - Math.max(this.github.issues.fetchedAt, this.github.pulls.fetchedAt) > REFRESH_MS) void this.github.refresh();
+  }
+
+  private active(): boolean {
+    return this.ctx.people(this) > 0 || this.workers.list().some((w) => isBusy(w.status)) || this.queue.state().tasks.some((t) => t.status !== 'done');
+  }
+
+  info(): FloorInfo {
+    const ws = this.workers.list();
+    return {
+      id: this.id,
+      name: this.def.name,
+      repo: this.def.repo,
+      dir: this.dir,
+      palette: this.def.palette,
+      addedBy: this.def.addedBy,
+      addedAt: this.def.addedAt,
+      workers: ws.length,
+      busy: ws.filter((w) => w.status === 'working').length,
+      waiting: ws.filter((w) => w.kind === 'agent' && (w.status === 'needs_input' || (w.status === 'done' && !w.acked))).length,
+      people: this.ctx.people(this),
+    };
+  }
+
+  /** With `keep` (a restart), the workers' terminals keep running for the next office to pick up. */
+  shutdown(keep = false) {
+    clearInterval(this.timer);
+    this.github.stop();
+    this.queue.shutdown();
+    this.changes.stop();
+    this.workers.shutdown(keep);
+  }
+}

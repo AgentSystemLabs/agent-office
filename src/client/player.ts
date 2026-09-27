@@ -305,19 +305,23 @@ export class PlayerController {
   }
 
   /** What stands in your way at (x, z) with your feet at `y`, or null. */
-  private blocker(x: number, z: number, y: number): Collider | null {
+  private blocker(x: number, z: number, y: number, allowEscape = false): Collider | null {
     let hit: Collider | null = null;
     for (const c of this.colliders) {
       // Stood on top of it, or passing beneath it.
       if (y >= c.top - 0.05 || y + HEIGHT <= (c.bottom ?? 0)) continue;
-      if (!touches(c, x, z, RADIUS)) continue;
+      // A spawn or height change can leave the body overlapping a solid. Only
+      // allow escape toward its near side, never through it to the far side.
+      if (allowEscape && touches(c, this.pos.x, this.pos.z, RADIUS)) {
+        if (escapes(c, this.pos.x, this.pos.z, x, z)) continue;
+      } else if (!touches(c, x, z, RADIUS)) continue;
       if (!hit || c.top > hit.top) hit = c;
     }
     return hit;
   }
 
   private tryMove(x: number, z: number) {
-    const hit = this.blocker(x, z, this.pos.y);
+    const hit = this.blocker(x, z, this.pos.y, true);
     if (!hit) {
       this.pos.x = x;
       this.pos.z = z;
@@ -325,10 +329,46 @@ export class PlayerController {
     }
     // A stair: step up onto it if there's room there.
     const up = hit.top - this.pos.y;
-    if (!this.grounded || up > STEP || this.blocker(x, z, hit.top) || this.pos.y + HEIGHT + up > ceilingAt(this.colliders, x, z, this.pos.y)) return;
-    this.pos.set(x, hit.top, z);
-    this.stepOffset -= up;
+    if (this.grounded && up <= STEP && !this.blocker(x, z, hit.top) && this.pos.y + HEIGHT + up <= ceilingAt(this.colliders, x, z, this.pos.y)) {
+      this.pos.set(x, hit.top, z);
+      this.stepOffset -= up;
+      return;
+    }
+    // Use the free part of this axis's step instead of throwing it all away.
+    // The other axis can then slide along the surface, even on slower frames.
+    const dx = x - this.pos.x;
+    const dz = z - this.pos.z;
+    let free = 0;
+    let blocked = 1;
+    for (let i = 0; i < 12; i++) {
+      const fraction = (free + blocked) / 2;
+      if (this.blocker(this.pos.x + dx * fraction, this.pos.z + dz * fraction, this.pos.y, true)) blocked = fraction;
+      else free = fraction;
+    }
+    this.pos.x += dx * free;
+    this.pos.z += dz * free;
   }
+}
+
+/** Whether the whole axis step moves out of an existing overlap. */
+function escapes(c: Collider, fromX: number, fromZ: number, x: number, z: number): boolean {
+  if (penetration(c, x, z) >= penetration(c, fromX, fromZ) - 1e-8) return false;
+  const nx = fromX - THREE.MathUtils.clamp(fromX, c.minX, c.maxX);
+  const nz = fromZ - THREE.MathUtils.clamp(fromZ, c.minZ, c.maxZ);
+  if (nx || nz) return nx * (x - fromX) + nz * (z - fromZ) >= 0;
+  // Inside the footprint, head toward a nearest face. An endpoint with less
+  // overlap alone is insufficient: a long step could cross a thin wall first.
+  const nearest = Math.min(fromX - c.minX, c.maxX - fromX, fromZ - c.minZ, c.maxZ - fromZ);
+  return (nearest === fromX - c.minX && x < fromX) || (nearest === c.maxX - fromX && x > fromX)
+    || (nearest === fromZ - c.minZ && z < fromZ) || (nearest === c.maxZ - fromZ && z > fromZ);
+}
+
+/** Signed overlap depth, including when the center is inside the footprint. */
+function penetration(c: Collider, x: number, z: number): number {
+  const dx = Math.max(c.minX - x, 0, x - c.maxX);
+  const dz = Math.max(c.minZ - z, 0, z - c.maxZ);
+  if (dx || dz) return RADIUS - Math.hypot(dx, dz);
+  return RADIUS + Math.min(x - c.minX, c.maxX - x, z - c.minZ, c.maxZ - z);
 }
 
 /** Whether a body of radius `r` at (x, z) overlaps the collider's footprint. */

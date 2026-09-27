@@ -95,6 +95,7 @@ function spawn(id: string, opts: SpawnOpts) {
   const term = new headless.Terminal({ cols: opts.cols, rows: opts.rows, scrollback: SCROLLBACK, allowProposedApi: true });
   const ser = new serialize.SerializeAddon();
   term.loadAddon(ser as any);
+  if (opts.prelude) term.write(opts.prelude);
   const s: Session = { id, proc, term, ser, cols: opts.cols, rows: opts.rows, busy: false, title: '', attached: true };
   sessions.set(id, s);
   term.parser.registerOscHandler(9, (data: string) => {
