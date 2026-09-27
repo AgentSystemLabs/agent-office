@@ -7,7 +7,7 @@ import { TERM_THEME } from '../world/laptop';
 import { h, openModal, STATUS_LABEL, type Modal } from './dom';
 import { usageLabel, usageTitle } from './usage';
 import type { ServerMsg } from '../../shared/protocol';
-import { providerLabel, providerUsageNote, providerUsageTracked, resolvedProvider } from './provider';
+import { providerLabel, providerUsageNote, providerUsageState, resolvedProvider } from './provider';
 
 let current: { workerId: string; modal: Modal } | null = null;
 const listeners = new Set<(msg: ServerMsg) => void>();
@@ -92,9 +92,10 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void)
     title.textContent = [w.kind === 'agent' ? providerLabel(w.provider, store.project) : null, w.name, w.title, w.worktree && `🌿 ${w.worktree.branch}`].filter(Boolean).join(' · ');
     pill.className = `pill ${w.status}`;
     pill.textContent = STATUS_LABEL[w.status] ?? w.status;
-    const tracked = w.kind === 'agent' && providerUsageTracked(w.provider, store.project, w.usage);
-    cost.textContent = !tracked ? (w.kind === 'agent' ? 'usage untracked' : '') : w.usage?.calls ? usageLabel(w.usage) : '';
-    cost.title = tracked && w.usage ? usageTitle(w.usage) : w.kind === 'agent' ? providerUsageNote(resolvedProvider(w.provider, store.project)) : '';
+    const workerProvider = w.kind === 'agent' ? resolvedProvider(w.provider, store.project) : undefined;
+    const usageState = w.kind === 'agent' ? providerUsageState(w.provider, store.project, w.usage) : undefined;
+    cost.textContent = w.kind !== 'agent' ? '' : usageState === 'tracked' && w.usage ? usageLabel(w.usage, workerProvider) : workerProvider === 'opencode' && usageState === 'waiting' ? 'waiting for metrics' : usageState === 'untracked' ? 'usage untracked' : '';
+    cost.title = w.kind === 'agent' && w.usage ? usageTitle(w.usage, workerProvider) : w.kind === 'agent' ? providerUsageNote(workerProvider!) : '';
     viewers.textContent = w.viewers.length ? `👀 ${w.viewers.join(', ')}` : '';
     const openCode = w.kind === 'agent' && resolvedProvider(w.provider, store.project) === 'opencode';
     modelsBtn.classList.toggle('hidden', !openCode);

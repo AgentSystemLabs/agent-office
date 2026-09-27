@@ -32,7 +32,7 @@ import { openHelp, renderChat, renderPeople, renderWorkers, updateSpeaking } fro
 import { openCharacter } from './ui/character';
 import { openSettings } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
-import { providerLabel, providerUsageTracked } from './ui/provider';
+import { providerLabel, resolvedProvider } from './ui/provider';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -674,12 +674,13 @@ function renderHint() {
       k += w.status + w.id + (w.pr?.number ?? '') + (w.prOpening ? '!' : '');
       const asleep = w.status === 'exited' || w.status === 'offline';
       const doing = w.activity ? (w.activity.length > 48 ? `${w.activity.slice(0, 47)}…` : w.activity) : '';
-      const spent = w.kind === 'agent' && providerUsageTracked(w.provider, store.project, w.usage) && w.usage?.calls ? usageLabel(w.usage) : '';
+      const workerProvider = w.kind === 'agent' ? resolvedProvider(w.provider, store.project) : undefined;
+      const spent = w.kind === 'agent' && w.usage ? usageLabel(w.usage, workerProvider) : '';
       k += doing + spent;
       parts = [
         h('span.title', {}, `${w.name} · ${STATUS_LABEL[w.status]}`),
         doing ? h('span', { style: 'opacity:.75;font-weight:600' }, doing) : '',
-        spent ? h('span.cost', { title: usageTitle(w.usage!) }, spent) : '',
+        spent ? h('span.cost', { title: usageTitle(w.usage!, workerProvider) }, spent) : '',
         key('E', 'Open terminal'),
         key('C', 'Changes'),
         asleep ? key('R', w.kind === 'shell' ? 'Restart' : 'Resume') : key('P', w.kind === 'shell' ? 'Run command' : 'Prompt'),

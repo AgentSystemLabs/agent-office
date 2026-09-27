@@ -27,7 +27,7 @@ export interface Config {
   iceServers: RTCIceServerLike[];
   /** Address teammates SSH-tunnel to (set by deploy/aws.sh); enables invites from the office. */
   publicHost?: string;
-  /** Daily tracked Claude Code spend budget, USD. OpenCode spend is not tracked. */
+  /** Daily tracked Claude Code spend budget, USD. OpenCode/Codex spend is excluded. */
   budget?: number;
   /** Refuse new hires for the rest of the day once the budget is spent. */
   budgetPause: boolean;
@@ -39,7 +39,7 @@ export interface RTCIceServerLike {
   credential?: string;
 }
 
-const HELP = `agent-office — a 3D office for your team and its Claude Code / OpenCode workers
+const HELP = `agent-office — a 3D office for your team and its Claude Code / OpenCode / Codex workers
 
 Usage:
   agent-office [dir] [options]
@@ -66,7 +66,7 @@ Options:
                           next start) and exit
       --agent <cmd>       Default agent command (default "claude", env AGENT_OFFICE_AGENT)
       --agent-args <str>  Extra args for the configured agent, e.g. "--model opus"
-                          Workers can also select Claude Code or OpenCode in the UI
+                          Workers can also select Claude Code, OpenCode or Codex in the UI
       --tls-cert <file>   Serve HTTPS with this certificate (PEM)
       --tls-key <file>    ...and this private key (PEM)
       --self-signed       Serve HTTPS with a generated self-signed certificate
@@ -75,7 +75,7 @@ Options:
                           turn:user:pass@turn.example.com:3478
       --budget <usd>      Daily budget for tracked Claude Code spend (env
                           AGENT_OFFICE_BUDGET). Everyone is warned when the
-                          day's spend passes it. OpenCode spend is not tracked
+                          day's spend passes it. OpenCode/Codex spend is excluded
       --budget-pause      ...and no new workers can be hired until the next
                           day (env AGENT_OFFICE_BUDGET_PAUSE=1)
   -h, --help              Show this help

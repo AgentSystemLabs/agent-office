@@ -6,12 +6,13 @@ const PROVIDER_KEY = 'agent-office.provider';
 export const PROVIDER_LABEL: Record<AgentProvider, string> = {
   claude: 'Claude Code',
   opencode: 'OpenCode',
+  codex: 'Codex',
   custom: 'Custom',
 };
 
 /** Providers the server says this project can start. */
 export function supportedProviders(project: ProjectInfo | null): AgentProvider[] {
-  const values = project?.agentProviders?.filter((p): p is AgentProvider => p === 'claude' || p === 'opencode' || p === 'custom') ?? [];
+  const values = project?.agentProviders?.filter((p): p is AgentProvider => p === 'claude' || p === 'opencode' || p === 'codex' || p === 'custom') ?? [];
   if (values.length) return [...new Set(values)];
   return project?.defaultProvider && PROVIDER_LABEL[project.defaultProvider] ? [project.defaultProvider] : ['claude'];
 }
@@ -31,13 +32,25 @@ export function providerLabel(provider: AgentProvider | undefined, project: Proj
 
 export function providerUsageTracked(provider: AgentProvider | undefined, project: ProjectInfo | null, usage?: Usage): boolean {
   const selected = resolvedProvider(provider, project);
-  return selected === 'claude' || (selected === 'custom' && usage !== undefined);
+  return selected === 'claude' || ((selected === 'opencode' || selected === 'custom') && usage !== undefined);
+}
+
+export type ProviderUsageState = 'tracked' | 'waiting' | 'untracked';
+
+/** Distinguishes a provider with no first report from one whose metrics are intentionally unavailable. */
+export function providerUsageState(provider: AgentProvider | undefined, project: ProjectInfo | null, usage?: Usage): ProviderUsageState {
+  const selected = resolvedProvider(provider, project);
+  if (selected === 'claude') return usage ? 'tracked' : 'waiting';
+  if (selected === 'opencode') return usage ? 'tracked' : 'waiting';
+  if (selected === 'custom') return usage ? 'tracked' : 'untracked';
+  return 'untracked';
 }
 
 export function providerUsageNote(provider: AgentProvider): string {
   if (provider === 'claude') return 'Office usage and budget track Claude Code.';
+  if (provider === 'codex') return 'Install and sign in to Codex CLI; review its native /hooks behavior before enabling it. This office does not bypass or auto-approve hooks, and usage is not tracked.';
   if (provider === 'custom') return 'Usage is untracked unless compatible Claude Code hooks report it.';
-  return 'Usage is untracked; office budget and totals cover Claude Code only.';
+  return 'OpenCode reports model/provider estimates; they are not billing, and arrive after the first report.';
 }
 
 function preferredProvider(options: AgentProvider[], fallback: AgentProvider): AgentProvider {

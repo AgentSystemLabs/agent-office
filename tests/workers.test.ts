@@ -25,6 +25,7 @@ type Fixture = {
   log: string;
   claude: string;
   opencode: string;
+  codex: string;
   custom: string;
   read(): Invocation[];
   close(): void;
@@ -42,6 +43,7 @@ function isolateProviderEnvironment(f: Fixture, t: { after(fn: () => void): void
     XDG_CACHE_HOME: process.env.XDG_CACHE_HOME,
     CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
     OPENCODE_CONFIG_DIR: process.env.OPENCODE_CONFIG_DIR,
+    CODEX_HOME: process.env.CODEX_HOME,
   };
   const home = path.join(f.root, 'home');
   const config = path.join(f.root, 'config');
@@ -57,6 +59,7 @@ function isolateProviderEnvironment(f: Fixture, t: { after(fn: () => void): void
   process.env.XDG_CACHE_HOME = cache;
   process.env.CLAUDE_CONFIG_DIR = path.join(config, 'claude');
   process.env.OPENCODE_CONFIG_DIR = path.join(config, 'opencode');
+  process.env.CODEX_HOME = path.join(config, 'codex');
   // Delete by variable name only. Do not read or log any credential value.
   for (const key of Object.keys(process.env)) {
     // These are the office hook variables used by the in-process OpenCode
@@ -114,11 +117,13 @@ function fixture(): Fixture {
   const claude = path.join(bin, 'claude');
   const opencode = path.join(bin, 'opencode');
   const custom = path.join(bin, 'custom-agent');
+  const codex = path.join(bin, 'codex');
   mkdirSync(data, { recursive: true });
   mkdirSync(bin, { recursive: true });
   writeFileSync(claude, fakeAgent, { mode: 0o700 });
   writeFileSync(opencode, fakeAgent, { mode: 0o700 });
   writeFileSync(custom, fakeAgent, { mode: 0o700 });
+  writeFileSync(codex, fakeAgent, { mode: 0o700 });
   chmodSync(claude, 0o700);
   chmodSync(opencode, 0o700);
   chmodSync(custom, 0o700);
@@ -129,6 +134,7 @@ function fixture(): Fixture {
     log,
     claude,
     opencode,
+    codex,
     custom,
     read() {
       if (!existsSync(log)) return [];
@@ -440,4 +446,99 @@ test('provider and hook boundaries reject invalid combinations', async (t) => {
     assert.ok(token);
     assert.equal(customWorkers.handleHook(custom.id, token!, 'SessionStart', { session_id: 'custom-session' }), true);
   }
+});
+
+test('OpenCode usage snapshots replace totals, persist across restart, and never change status or Claude budget', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const oldLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => { if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG; else process.env.FAKE_AGENT_LOG = oldLog; f.close(); });
+  const book = ledger(f.data);
+  const workers = new WorkerManager(f.root, f.data, f.opencode, [], { url: 'http://127.0.0.1:1', token: '' }, events([]), book);
+  t.after(() => workers.shutdown());
+  const worker = workers.spawn('desk-1', 'test');
+  assert.notEqual(typeof worker, 'string'); if (typeof worker === 'string') return;
+  const invocations = await waitFor(f.read, x => x.some(r => r.kind === 'opencode'));
+  const token = invocations.find(r => r.kind === 'opencode')!.env.hookToken!;
+  workers.handleOpenCodeHook(worker.id, token, { type: 'session', sessionId: 'usage-root', status: 'starting' });
+  workers.handleOpenCodeHook(worker.id, token, { type: 'permission', sessionId: 'usage-root', status: 'needs_input' });
+  const usage = { input: 20, output: 8, reasoning: 4, cacheRead: 6, cacheWrite: 2, cost: 0.003, calls: 1, costKnown: true };
+  const report = { type: 'usage', sessionId: 'usage-root', usage };
+  assert.equal(workers.handleOpenCodeHook(worker.id, token, report), true);
+  assert.equal(workers.handleOpenCodeHook(worker.id, token, report), true);
+  assert.deepEqual(workers.get(worker.id)?.usage, usage);
+  assert.equal(workers.get(worker.id)?.status, 'needs_input');
+  assert.equal(book.state().total.calls, 0);
+  assert.equal(book.state().total.cost, 0);
+  for (const bad of [{ ...usage, input: -1 }, { ...usage, cost: Infinity }, { ...usage, calls: '1' }]) {
+    assert.equal(workers.handleOpenCodeHook(worker.id, token, { ...report, usage: bad }), false);
+  }
+  assert.equal(workers.handleOpenCodeHook(worker.id, 'wrong', report), false);
+  assert.equal(workers.handleOpenCodeHook(worker.id, token, { ...report, sessionId: 'unrelated' }), false);
+  workers.shutdown();
+  const restored = manager(f, f.opencode, [], []);
+  t.after(() => restored.shutdown());
+  assert.deepEqual(restored.get(worker.id)?.usage, usage);
+  const calls = await waitFor(f.read, x => x.filter(r => r.kind === 'opencode' && !r.stdin).length >= 2);
+  const nextToken = calls.filter(r => r.kind === 'opencode' && !r.stdin).at(-1)!.env.hookToken!;
+  restored.handleOpenCodeHook(worker.id, nextToken, { type: 'session', sessionId: 'next-root', status: 'starting' });
+  assert.equal(restored.get(worker.id)?.usage, undefined);
+});
+
+
+test('Codex workers preserve native approvals, follow authenticated root hooks, and resume their provider session', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const oldLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => { if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG; else process.env.FAKE_AGENT_LOG = oldLog; f.close(); });
+  const book = ledger(f.data);
+  const workers = new WorkerManager(f.root, f.data, f.claude, ['--claude-only'], { url: 'http://127.0.0.1:1', token: '' }, events([]), book);
+  t.after(() => workers.shutdown());
+  const worker = workers.spawn('desk-1', 'test', '- fix the login', false, 'agent', 'codex');
+  assert.notEqual(typeof worker, 'string'); if (typeof worker === 'string') return;
+  const calls = await waitFor(f.read, x => x.some(r => r.kind === 'codex'));
+  const first = calls.find(r => r.kind === 'codex')!;
+  const token = first.env.hookToken!;
+  assert.equal(worker.status, 'starting');
+  assert.ok(first.args.includes('--no-alt-screen'));
+  assert.deepEqual(first.args.slice(-2), ['--', '- fix the login']);
+  assert.equal(first.args.some(a => /bypass|--yolo|--claude-only|--settings/.test(a)), false);
+  assert.equal(first.args.filter(a => a.startsWith('hooks.')).length, 7);
+  assert.equal(calls.some(r => r.kind === 'claude'), false);
+  const hook = (event: string, extra = {}) => workers.handleCodexHook(worker.id, token, event, { session_id: 'codex-root', ...extra });
+  assert.equal(workers.handleCodexHook(worker.id, 'wrong', 'SessionStart', { session_id: 'codex-root' }), false);
+  assert.equal(hook('SessionStart', { source: 'startup' }), true);
+  assert.equal(worker.status, 'idle');
+  assert.equal(hook('UserPromptSubmit', { prompt: 'Implement the actual task' }), true);
+  assert.equal(worker.status, 'working');
+  assert.equal(hook('PreToolUse', { tool_name: 'exec_command', tool_use_id: 'call-permission' }), true);
+  assert.equal(hook('PreToolUse', { tool_name: 'read_file', tool_use_id: 'call-other' }), true);
+  assert.equal(hook('PermissionRequest', { tool_name: 'exec_command' }), true);
+  assert.equal(hook('PostToolUse', { tool_name: 'read_file', tool_use_id: 'call-other' }), true);
+  assert.equal(worker.status, 'needs_input');
+  assert.equal(worker.status, 'needs_input');
+  assert.equal(hook('Stop', { agent_id: 'child' }), false);
+  assert.equal(worker.status, 'needs_input');
+  assert.equal(hook('PostToolUse', { tool_name: 'exec_command', tool_use_id: 'call-permission' }), true);
+  assert.equal(worker.status, 'working');
+  assert.equal(hook('Stop'), true);
+  assert.equal(worker.status, 'done');
+  assert.equal(workers.handleHook(worker.id, token, 'Stop', { session_id: 'claude' }), false);
+  assert.equal(workers.handleOpenCodeHook(worker.id, token, { type: 'session', sessionId: 'oc', status: 'starting' }), false);
+  assert.equal(worker.sessionId, 'codex-root');
+  assert.equal(worker.usage, undefined);
+  assert.equal(book.state().total.calls, 0);
+  workers.shutdown();
+  const restored = manager(f, f.claude, [], []);
+  t.after(() => restored.shutdown());
+  const nextCalls = await waitFor(f.read, x => x.filter(r => r.kind === 'codex' && !r.stdin).length >= 2);
+  const next = nextCalls.filter(r => r.kind === 'codex' && !r.stdin).at(-1)!;
+  assert.deepEqual(next.args.slice(-2), ['resume', 'codex-root']);
+  assert.notEqual(next.env.hookToken, token);
+  assert.equal(restored.get(worker.id)?.provider, 'codex');
+  assert.equal(restored.handleCodexHook(worker.id, token, 'Stop', { session_id: 'codex-root' }), false);
+  assert.equal(restored.handleCodexHook(worker.id, next.env.hookToken!, 'SessionStart', { session_id: 'codex-root', source: 'resume' }), true);
+  assert.equal(restored.get(worker.id)?.status, 'idle');
 });

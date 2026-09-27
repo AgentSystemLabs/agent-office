@@ -1,8 +1,8 @@
 import { store } from '../state';
 import type { Voice } from '../voice';
 import { $, h, openModal, STATUS_LABEL } from './dom';
-import { fmtCost, usageTitle } from './usage';
-import { providerLabel, providerUsageTracked } from './provider';
+import { usageLabel, usageTitle } from './usage';
+import { providerLabel, providerUsageState, resolvedProvider } from './provider';
 
 export function renderPeople(voice: Voice, onEditProfile: () => void) {
   const ul = $('people');
@@ -40,15 +40,17 @@ export function renderWorkers(onOpen: (id: string) => void) {
   const workers = [...store.workers.values()].sort((a, b) => a.createdAt - b.createdAt);
   for (const w of workers) {
     const provider = w.kind === 'agent' ? providerLabel(w.provider, store.project) : null;
-    const tracked = w.kind === 'agent' && providerUsageTracked(w.provider, store.project, w.usage);
-    const sub = [provider && `⚙️ ${provider}${tracked ? '' : ' · usage untracked'}`, w.worktree && `🌿 ${w.worktree.branch}`, w.pr && `🔀 PR #${w.pr.number}`, w.activity || w.title || w.prompt].filter(Boolean).join(' · ');
+    const providerKind = w.kind === 'agent' ? resolvedProvider(w.provider, store.project) : undefined;
+    const usageState = w.kind === 'agent' ? providerUsageState(w.provider, store.project, w.usage) : undefined;
+    const usageNote = usageState === 'untracked' ? ' · usage untracked' : usageState === 'waiting' && providerKind === 'opencode' ? ' · waiting for metrics' : '';
+    const sub = [provider && `⚙️ ${provider}${usageNote}`, w.worktree && `🌿 ${w.worktree.branch}`, w.pr && `🔀 PR #${w.pr.number}`, w.activity || w.title || w.prompt].filter(Boolean).join(' · ');
     ul.append(
       h(
         'li',
         { onclick: () => onOpen(w.id), title: `Open ${w.name}'s terminal` },
         h('span.dot', { style: `background:${w.color}` }),
-        h('span.name', {}, w.name, sub ? h('span.sub', {}, sub) : null),
-        tracked && w.usage?.calls ? h('span.cost', { title: usageTitle(w.usage) }, fmtCost(w.usage.cost)) : null,
+        h('span.name', {}, w.name, sub ? h('span.sub', {}, sub) : null,
+          usageState === 'tracked' && w.usage ? h('span.cost', { title: usageTitle(w.usage, providerKind) }, usageLabel(w.usage, providerKind)) : null),
         h('span.pill', { class: w.status }, STATUS_LABEL[w.status] ?? w.status),
       ),
     );

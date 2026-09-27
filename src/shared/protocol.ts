@@ -14,10 +14,10 @@ export type WorkerStatus =
 
 export type WorkerKind = 'agent' | 'shell';
 
-export type AgentProvider = 'claude' | 'opencode' | 'custom';
+export type AgentProvider = 'claude' | 'opencode' | 'codex' | 'custom';
 
 export function isAgentProvider(value: unknown): value is AgentProvider {
-  return value === 'claude' || value === 'opencode' || value === 'custom';
+  return value === 'claude' || value === 'opencode' || value === 'codex' || value === 'custom';
 }
 
 /** What a worker is on, for the card above its head: "Fix Login Redirect" + what it's doing now. */
@@ -62,15 +62,21 @@ export interface WorkerInfo {
   activity?: string;
   /** Written by a small model from its prompts and recent tool calls (see server/tasks.ts). */
   task?: WorkerTask;
-  /** Tokens and cost of its Claude session so far, subagents included (agents only). */
+  /** Reported session tokens and cost, when the provider supplies them (agents only). */
   usage?: Usage;
 }
 
-/** Tokens and what they cost, summed over a Claude Code session or the whole office. */
+/** Session usage. The persistent office ledger continues to cover Claude Code only. */
 export interface Usage {
   /** Input tokens that missed the prompt cache. */
   input: number;
   output: number;
+  /** Reasoning tokens reported separately from output, when available. */
+  reasoning?: number;
+  /** False when the provider supplies tokens without usable pricing. Omitted for legacy Claude usage. */
+  costKnown?: boolean;
+  /** Provider history is still loading, failed to load, or reached a traversal limit. */
+  incomplete?: boolean;
   /** Tokens written to the prompt cache. */
   cacheWrite: number;
   /** Tokens read from the prompt cache. */

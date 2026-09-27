@@ -1,9 +1,9 @@
-import type { QueueTask } from '../../shared/protocol';
+import type { AgentProvider, QueueTask, Usage } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, timeAgo, STATUS_LABEL } from './dom';
 import { confirmDialog } from './prompt';
-import { providerPicker, providerLabel, providerUsageTracked } from './provider';
+import { providerPicker, providerLabel, providerUsageState, resolvedProvider } from './provider';
 
 export interface QueueActions {
   openTerminal(workerId: string): void;
@@ -99,10 +99,14 @@ export function openQueue(net: Net, actions: QueueActions) {
     const meta: string[] = [];
     const buttons: HTMLElement[] = [];
     const model = t.model ? ` · initial: ${t.model}` : '';
+    const usageSuffix = (provider: AgentProvider | undefined, usage?: Usage) => {
+      const state = providerUsageState(provider, store.project, usage);
+      return state === 'untracked' ? ' · usage untracked' : state === 'waiting' && resolvedProvider(provider, store.project) === 'opencode' ? ' · waiting for metrics' : '';
+    };
     let pos: string | null = null;
     if (t.status === 'running') {
       const selectedProvider = providerLabel(t.provider ?? w?.provider, store.project);
-      meta.push(`⚙️ ${selectedProvider}${model}${providerUsageTracked(t.provider ?? w?.provider, store.project, w?.usage) ? '' : ' · usage untracked'}`);
+      meta.push(`⚙️ ${selectedProvider}${model}${usageSuffix(t.provider ?? w?.provider, w?.usage)}`);
       meta.push(`${t.workerName ?? 'a worker'} · ${w ? STATUS_LABEL[w.status] ?? w.status : 'gone'}`);
       if (t.branch) meta.push(`🌿 ${t.branch}`);
       if (t.startedAt) meta.push(`started ${timeAgo(t.startedAt)}`);
@@ -121,13 +125,13 @@ export function openQueue(net: Net, actions: QueueActions) {
       const queued = store.queue.tasks.filter((x) => x.status === 'queued');
       const i = queued.indexOf(t);
       pos = String(i + 1);
-      meta.push(`⚙️ ${providerLabel(t.provider, store.project)}${model}${providerUsageTracked(t.provider, store.project, w?.usage) ? '' : ' · usage untracked'}`);
+      meta.push(`⚙️ ${providerLabel(t.provider, store.project)}${model}${usageSuffix(t.provider, w?.usage)}`);
       meta.push(`added by ${t.addedBy} ${timeAgo(t.addedAt)}`);
       buttons.push(h('button.btn', { type: 'button', title: 'Move up', 'aria-label': 'Move up', disabled: i === 0, onclick: () => net.send({ t: 'queue.move', taskId: t.id, delta: -1 }) }, '↑'));
       buttons.push(h('button.btn', { type: 'button', title: 'Move down', 'aria-label': 'Move down', disabled: i === queued.length - 1, onclick: () => net.send({ t: 'queue.move', taskId: t.id, delta: 1 }) }, '↓'));
       buttons.push(h('button.btn', { type: 'button', title: 'Remove from the queue', 'aria-label': 'Remove', onclick: () => net.send({ t: 'queue.remove', taskId: t.id }) }, '✕'));
     } else {
-      meta.push(`⚙️ ${providerLabel(t.provider, store.project)}${model}${providerUsageTracked(t.provider, store.project, w?.usage) ? '' : ' · usage untracked'}`);
+      meta.push(`⚙️ ${providerLabel(t.provider, store.project)}${model}${usageSuffix(t.provider, w?.usage)}`);
       meta.push(outcome(t));
       if (t.workerName) meta.push(t.workerName);
       if (t.branch) meta.push(`🌿 ${t.branch}`);

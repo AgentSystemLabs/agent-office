@@ -77,7 +77,7 @@ function projectInfo(cfg: Config): ProjectInfo {
     remote: git(['remote', 'get-url', 'origin']),
     agentCmd: [cfg.agentCmd, ...cfg.agentArgs].join(' '),
     defaultProvider: configuredProvider(cfg.agentCmd),
-    agentProviders: configuredProvider(cfg.agentCmd) === 'custom' ? ['claude', 'opencode', 'custom'] : ['claude', 'opencode'],
+    agentProviders: configuredProvider(cfg.agentCmd) === 'custom' ? ['claude', 'opencode', 'codex', 'custom'] : ['claude', 'opencode', 'codex'],
   };
 }
 
@@ -156,20 +156,22 @@ export async function startServer(cfg: Config) {
     } catch {
       return send(res, 400, {});
     }
-    if (req.method !== 'POST' || !['/hooks/claude', '/hooks/opencode'].includes(url.pathname)) return send(res, 404, { ok: false });
+    if (req.method !== 'POST' || !['/hooks/claude', '/hooks/opencode', '/hooks/codex'].includes(url.pathname)) return send(res, 404, { ok: false });
     let payload: unknown = {};
     try {
       const body = await readBody(req);
       payload = body ? JSON.parse(body) : {};
     } catch {
-      if (url.pathname === '/hooks/opencode') return send(res, 400, { ok: false });
+      if (url.pathname !== '/hooks/claude') return send(res, 400, { ok: false });
       // permissive: a bad payload still counts as the event
     }
     const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
     const workerId = url.searchParams.get('worker') ?? '';
     const ok = url.pathname === '/hooks/opencode'
       ? workers.handleOpenCodeHook(workerId, token, payload)
-      : workers.handleHook(workerId, token, url.searchParams.get('event') ?? '', payload);
+      : url.pathname === '/hooks/codex'
+        ? workers.handleCodexHook(workerId, token, url.searchParams.get('event') ?? '', payload)
+        : workers.handleHook(workerId, token, url.searchParams.get('event') ?? '', payload);
     send(res, ok ? 200 : 401, {});
   });
   await new Promise<void>((resolve) => hookServer.listen(0, '127.0.0.1', resolve));

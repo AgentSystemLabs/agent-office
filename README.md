@@ -1,6 +1,6 @@
 # 🏢 Agent Office
 
-A cartoon 3D office your team walks around in together. Sit a Claude Code or OpenCode worker at any empty desk, watch its terminal on the laptop in front of it, and jump into that terminal with everyone else. Issues and pull requests hang on cork boards on the wall. You can talk over voice and put your screen on the lounge TV.
+A cartoon 3D office your team walks around in together. Sit a Claude Code, OpenCode or Codex worker at any empty desk, watch its terminal on the laptop in front of it, and jump into that terminal with everyone else. Issues and pull requests hang on cork boards on the wall. You can talk over voice and put your screen on the lounge TV.
 
 Everything is scoped to **one directory on the machine that runs it**: every worker, terminal and board works in that project.
 
@@ -14,16 +14,16 @@ agent-office
 - **Walk around.** Use WASD, Space to jump, and drag the mouse to orbit the camera. Everyone in the office sees everyone else move in real time.
 - **Boss office.** Stairs along the back wall climb to a glass-walled office on the loft in the corner. From up there you can look down over every desk and watch your workers go.
 - **Pick your character.** The first time you join, a character select screen lets you choose your skin tone, hair style, hair color and shirt, with a spinning preview. Change it any time from **⚙️** or by clicking your name under *In the office*.
-- **Hire workers.** Walk up to an empty desk and press **E** to choose Claude Code or OpenCode, or press **P** to write a task first. A little worker sits down, a laptop opens, and the agent's live screen appears on it. Choose the agent for each queue task too.
+- **Hire workers.** Walk up to an empty desk and press **E** to choose Claude Code, OpenCode or Codex, or press **P** to write a task first. A little worker sits down, a laptop opens, and the agent's live screen appears on it. Choose the agent for each queue task too.
 - **Shared shells.** Press **B** at an empty desk to open a plain login shell for dev servers, git or tests. It's shared the same way as a Claude terminal.
 - **Isolated branches.** When you hire with a task, you can tick *own git worktree*. The worker then gets its own `office/<name>` branch under `.agent-office/worktrees/`, so parallel workers never share a checkout. When you send that worker home you choose whether to keep the worktree and branch, delete the worktree, or delete both, and the office warns you first about uncommitted changes or commits no remote has. `agent-office prune` clears out whatever was kept, once it is safe.
 - **One-click PRs.** When a worktree worker is done, press **O** at its desk. The office pushes the branch and opens a pull request with a title and body drafted from the task (work handed over from the issues board gets a `Closes #n`). The PR shows up on the PR board right away, tagged with the worker's desk, and **Go to desk** takes you there. Press **O** again to see the PR.
 - **Shared terminals.** Press **E** at an occupied desk to open the real terminal (a PTY, over WebSockets). Several people can type into the same session at once, and anyone who joins late gets the full scrollback.
 - **Changes at the desk.** Press **C** at an occupied desk (or click **🌿 Changes** in its terminal) to see what the worker changed: the changed files and their diff against the branch the office was opened on, refreshed every couple of seconds while it works. From there you can commit, discard, or push the branch and open a pull request.
-- **Live status.** Claude Code hooks and an OpenCode plugin drive each worker's status: *working*, *needs input* or *done*. When a worker needs a human or has finished, it jumps up and down and you hear a ding. Its antenna bulb shows the status from across the room.
-- **Task cards.** A card over each worker's head names what it's on ("Fix Login Redirect") and says in one line what it's doing right now. For Claude workers, Claude Haiku writes it from prompts and recent tools through the `claude` CLI. OpenCode uses local task summaries and never invokes Claude to name its tasks.
-- **Survives restarts.** Workers retain their agent choice and session ID on disk. **R** resumes the corresponding Claude Code or OpenCode session.
-- **Cost per worker.** Claude Code workers show tracked session cost and tokens. OpenCode costs are marked as untracked. Today's and all-time totals, `--budget` warnings and `--budget-pause` use tracked Claude Code spend only; they cannot cap OpenCode spending. Once the tracked budget is spent, the hiring pause applies to all new workers. Totals survive restarts.
+- **Live status.** Claude Code and Codex hooks plus an OpenCode plugin drive each worker's status: *working*, *needs input* or *done*. When a worker needs a human or has finished, it jumps up and down and you hear a ding. Its antenna bulb shows the status from across the room.
+- **Task cards.** A card over each worker's head names what it's on ("Fix Login Redirect") and says in one line what it's doing right now. For Claude workers, Claude Haiku writes it from prompts and recent tools through the `claude` CLI. OpenCode and Codex use local task summaries and never invoke Claude to name their tasks.
+- **Survives restarts.** Workers retain their agent choice and session ID on disk. **R** resumes the corresponding Claude Code, OpenCode or Codex session.
+- **Cost per worker.** Claude Code workers show tracked session cost and tokens. OpenCode workers show tokens and model/provider-reported cost estimates, including child-session usage, with a cache/reasoning breakdown in tooltips. These estimates are not billing; missing cost is shown as unavailable. Codex usage is not tracked. Today's and all-time totals, `--budget` warnings and `--budget-pause` use tracked Claude Code spend only; they cannot cap OpenCode or Codex spending. Once the tracked budget is spent, the hiring pause applies to all new workers. OpenCode session snapshots and Claude totals survive restarts. OpenCode current-desk totals disappear when their workers are sent home.
 - **Issues board.** A tack board shows GitHub issues in *Open*, *In progress* and *Closed*. Click an issue to read it and its comments, then choose **Hand to a worker** to seat a worker with a ready-made prompt, or **Add to queue**.
 - **PR board.** A second tack board shows pull requests in *Draft*, *In review*, *Approved*, *Merged* and *Closed*, with CI status and diff size. Click a PR to read its description, comments, reviews and checks. **Files changed** shows the diff, with the files listed on the left as a folder tree or a flat list, and review comments under the lines they're on. Tick a file **Reviewed** (or press **V**; **J**/**K** step through files) and it folds away. Your ticks are kept in your browser, and a file you ticked that changes again is flagged. **Merge…** squashes, merges or rebases it, and can have GitHub merge it once its checks pass. **Review** and **Fix comments & merge** hand the PR to a worker; the second one addresses the review comments, gets the checks green and merges. When the PR conflicts with its base, that button becomes **Fix conflicts & merge**: a new worker is picked by default, merges the base in, resolves the conflicts and merges.
 - **Ask a worker about anything on a board.** Every issue and PR has **✍️ Ask a worker…**: type your own prompt, and the worker gets it along with which issue or PR it's about. Send it to a new worker at a free desk, or to one already sitting at a desk.
@@ -40,7 +40,7 @@ agent-office
 On the machine that runs the office (your laptop or a VPS):
 
 - **Node.js 20+**. Prebuilt PTY binaries ship for Linux and macOS, x64 and arm64, so no compiler is needed.
-- **Claude Code** (`claude`) and/or **OpenCode** (`opencode`), installed and configured as the user that runs the office. Install both to use both kinds of worker.
+- **Claude Code** (`claude`), **OpenCode** (`opencode`) and/or **Codex CLI** (`codex`), installed and configured as the user that runs the office. Install each provider you want to use. Codex requires native command-hook support (tested with CLI 0.154.0).
 - **git**, plus the **GitHub CLI** (`gh`) logged in (`gh auth login`) if you want the issue and PR boards.
 - `curl` is optional. The status hooks use it when it's there and fall back to Node when it isn't.
 
@@ -76,7 +76,7 @@ agent-office [dir] [options]
       --self-signed       Serve HTTPS with a generated self-signed cert
       --trust-proxy       Trust X-Forwarded-* (behind Caddy/nginx)
       --turn <url>        Add a TURN server for voice, e.g. turn:user:pass@host:3478
-      --budget <usd>      Daily tracked Claude Code budget (OpenCode spend is untracked)
+      --budget <usd>      Daily tracked Claude Code budget (OpenCode/Codex excluded)
       --budget-pause      ...and nobody can hire a new worker until the next day
 
 agent-office prune [dir] [-n|--dry-run] [-f|--force]
@@ -88,7 +88,7 @@ agent-office prune [dir] [-n|--dry-run] [-f|--force]
 
 ## Choosing an agent
 
-Select **Claude Code** or **OpenCode** when hiring a worker, handing off a board item, or adding a queue task. Existing workers keep their provider when prompted or resumed, and queued tasks keep their choice when retried or restored after a restart.
+Select **Claude Code**, **OpenCode** or **Codex** when hiring a worker, handing off a board item, or adding a queue task. Existing workers keep their provider when prompted or resumed, and queued tasks keep their choice when retried or restored after a restart.
 
 For OpenCode, the optional **OpenCode model** field selects the initial model for a new worker or queue task. Suggestions come from `opencode models`; you can also enter a `provider/model` ID. Leave it empty to use your OpenCode settings (including configured CLI arguments). An explicit choice overrides configured model arguments for that launch and stays with a queued task when retried.
 
@@ -100,9 +100,13 @@ Claude Code remains the default. To default to OpenCode:
 agent-office /path/to/project --agent opencode
 ```
 
-`--agent-args` applies only to the provider configured by `--agent`; choosing the other provider uses its normal command and settings. OpenCode model flags therefore never reach Claude Code, and vice versa. An arbitrary `--agent` executable remains available as **Custom**.
+`--agent-args` applies only to the provider configured by `--agent`; choosing another provider uses its normal command and settings. OpenCode model flags therefore never reach Claude Code, and vice versa. An arbitrary `--agent` executable remains available as **Custom**.
 
-OpenCode receives prompts through `--prompt` and resumes its saved session through `--session`. The office adds a local event plugin through `OPENCODE_CONFIG_CONTENT`, preserving existing inline JSON settings and plugin entries. Inline settings must be a JSON object; configuration files continue to use OpenCode's own loader. The office does not edit your OpenCode configuration files or bypass permission prompts. The bridge reports worker status to a loopback endpoint authenticated by a per-worker token. OpenCode must be installed separately on machines provisioned with the existing AWS script, which still installs Claude Code only.
+OpenCode receives prompts through `--prompt` and resumes its saved session through `--session`. The office adds a local event plugin through `OPENCODE_CONFIG_CONTENT`, preserving existing inline JSON settings and plugin entries. Inline settings must be a JSON object; configuration files continue to use OpenCode's own loader. The office does not edit your OpenCode configuration files or bypass permission prompts. The bridge reports worker status to a loopback endpoint authenticated by a per-worker token. OpenCode and Codex must be installed separately on machines provisioned with the existing AWS script, which still installs Claude Code only.
+
+Codex uses its interactive CLI with `--no-alt-screen`, preserves native sandbox and approval settings, and resumes through `codex resume <session-id>`. Set it as the default with `--agent codex`; use `/model` inside its terminal to choose a model. The office supplies command hooks through per-process config overrides, without editing your Codex configuration. On first use, open the terminal, complete any login/setup, and review the generated Office commands in `/hooks`. Hooks need your native trust approval before session/status tracking works; the office never bypasses that review. Workers that do not report startup are marked as needing input. Codex tasks use local summaries and do not launch Claude for task naming.
+
+OpenCode metrics come from assistant-message token/cost records exposed by its plugin SDK. Updated messages replace prior values so streaming updates do not add the same call twice; existing root and child sessions are loaded on resume. History that is still loading or unavailable is labeled as partial. These snapshots update usage only, so a report cannot dismiss a permission request. The daily budget and historical ledger remain Claude-only.
 
 ## Controls
 
@@ -283,7 +287,7 @@ browser ──HTTPS/WSS──▶ agent-office (Node)
                          └─ WebRTC signaling relay (voice + screen share are peer-to-peer)
 ```
 
-- **Status.** Claude workers start with `--settings .agent-office/claude-hooks.json`. That file adds hooks (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PermissionRequest`, `Notification`, `Stop`, `SessionStart`) which `curl` a server bound to `127.0.0.1`. The hooks merge with your own Claude settings; they don't replace them. OSC 9;4 progress sequences in Claude terminals also count, which catches an Esc-cancel. OpenCode workers use a generated plugin to forward session, permission and question events to the same loopback server, with a separate endpoint.
+- **Status.** Claude workers start with `--settings .agent-office/claude-hooks.json`. That file adds hooks (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PermissionRequest`, `Notification`, `Stop`, `SessionStart`) which `curl` a server bound to `127.0.0.1`. The hooks merge with your own Claude settings; they don't replace them. OSC 9;4 progress sequences in Claude terminals also count, which catches an Esc-cancel. OpenCode workers use a generated plugin to forward session, permission and question events to the same loopback server, with a separate endpoint. Codex uses a generated stdin-only command helper and its own authenticated endpoint; it never reads transcripts or changes approval settings.
 - **Shared shells.** Press **B** at an empty desk to open a plain login shell for dev servers, git or tests. It's shared the same way as a Claude terminal.
 - **Isolated branches.** When you hire with a task, you can tick *own git worktree*. The worker then gets its own `office/<name>` branch under `.agent-office/worktrees/`, so parallel workers never share a checkout. When you send that worker home you choose whether to keep the worktree and branch, delete the worktree, or delete both, and the office warns you first about uncommitted changes or commits no remote has. `agent-office prune` clears out whatever was kept, once it is safe.
 - **Pull requests.** **O** at a worktree worker's desk runs `git push -u origin office/<name>` in its worktree, then `gh pr create` with the task as the body and the commits listed. The base is the branch the office was on when the worktree was cut, if that branch is on the remote. The PR number is saved with the worker, so the board can point back at the desk.
@@ -292,12 +296,12 @@ browser ──HTTPS/WSS──▶ agent-office (Node)
 - **Cost.** Hooks carry no usage, but each one names the session's transcript (`~/.claude/projects/<dir>/<session>.jsonl`). The office reads what gets appended to it, and to the subagent transcripts next to it: every assistant message records the API's token usage and the model, which the office prices from its own table (cache writes and reads included). When a session ends, Claude Code appends its own tally (`cost-state`), and the worker's numbers snap to that, which also covers calls that never reach the transcript. Per-worker totals are saved with the worker, and `.agent-office/usage.json` keeps the office's all-time and per-day spend, so nothing is lost on a restart or when a worker is sent home. On an office deployed with `deploy/aws.sh`, put `AGENT_OFFICE_BUDGET=20` (and `AGENT_OFFICE_BUDGET_PAUSE=1`) in `/etc/agent-office/env` and restart the service.
 - **Services.** Every 4 seconds the office lists the TCP ports its user's processes listen on (`ss`, or `lsof` on macOS). It credits each port to the worker whose terminal started it. It goes by the process tree first. For a server that detached from it, it uses the `AGENT_OFFICE_WORKER_ID` the process inherited (Linux), then whether it runs inside that worker's worktree. Ports that answer HTTP are shown. A request for `localhost:<port>` that reaches the office's own port (that's what a service tunnel does) is relayed to that server, WebSockets included, so hot reload works.
 - **Pictures.** WebGL can only draw an image from another site if that site sends CORS headers, and most don't. So the office fetches each picture itself (`/api/image`, images up to 15 MB) and serves it from its own origin. Any image link works, and a picture on a worker's dev server does too. Browsers shrink each one to 1024 px before it goes on the wall.
-- **Task queue.** `queue.json` holds the tasks and their providers in order. A task is seated when a desk is free and fewer than the limit are busy (a worker that is starting, ready, working or waiting for input). It finishes when its worker ends its turn (Claude's `Stop` hook or OpenCode's idle event), stops, or is sent home. The PR is matched by GitHub's closing-issue references (`closes #12`) or by the worker's branch.
+- **Task queue.** `queue.json` holds the tasks and their providers in order. A task is seated when a desk is free and fewer than the limit are busy (a worker that is starting, ready, working or waiting for input). It finishes when its worker ends its turn (Claude/Codex `Stop` hooks or OpenCode's idle event), stops, or is sent home. The PR is matched by GitHub's closing-issue references (`closes #12`) or by the worker's branch.
 - **State.** `.agent-office/` in the project holds the password, the signing secret, the hook settings, the saved workers, the task queue and the pictures on the walls (`decor.json`). It is added to `.git/info/exclude` automatically, so it never shows up in `git status`.
 
 ## Security notes
 
-Anyone with the password can drive Claude Code or OpenCode in that directory, and through it run commands as the user that runs the office. Treat the password like SSH access:
+Anyone with the password can drive Claude Code, OpenCode or Codex in that directory, and through it run commands as the user that runs the office. Treat the password like SSH access:
 
 - Use a strong password and HTTPS. With `--trust-proxy`, cookies are `Secure` once the proxy says the request came over https.
 - Changing the password signs everyone out, because sessions are signed with a key derived from it. Login attempts are limited to 10 per 5 minutes per client.
