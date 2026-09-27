@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LOFT, SEATING_BY_ID, SLAB, STAIRS, STATIONS, STATION_AGENT, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, type DeskDef, type Opening, type Side, type StationKind } from '../../shared/layout';
+import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LOFT, PLANTS, SEATING_BY_ID, SLAB, STAIRS, STATIONS, STATION_AGENT, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, type DeskDef, type Opening, type Side, type StationKind } from '../../shared/layout';
 import { wallFacing, type WallId, type WallRect } from '../../shared/decor';
 import { deskPoint } from '../../shared/nav';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
@@ -1095,17 +1095,7 @@ export function buildOffice(): Office {
   fixture('south', -11.3, 1.1, 1.1, 2.2);
 
   // Plants around the room
-  const plants: [number, number, number][] = [
-    [-17.2, -12.2, 1.4],
-    [17.2, -12.2, 1.5],
-    [17.2, 12.2, 1.3],
-    [-17.2, 8.5, 1.2],
-    [5.5, -12.2, 1.1],
-    [-6, 0, 1],
-    [3.5, 0, 0.9],
-    [8.5, 5, 1.1],
-  ];
-  for (const [x, z, s] of plants) {
+  for (const [x, z, s] of PLANTS) {
     const p = plant(s);
     p.position.set(x, 0, z);
     group.add(p);
@@ -1129,14 +1119,14 @@ export function buildOffice(): Office {
 
   const bossScreen = buildLoft(group, colliders, interactables, looks);
 
-  // The elevator to the other floors, against the north wall between the PR board and the queue.
+  // The elevator to the other floors, against the north wall between the PR board and the gong.
   const elevator = buildElevator();
   group.add(elevator.group);
   colliders.push(...elevator.colliders);
   interactables.push(elevator.interactable);
   fixture('north', ELEVATOR.x, WALL_HEIGHT / 2, ELEVATOR.width + 0.1, WALL_HEIGHT);
 
-  // The gong, between the PR board and the elevator.
+  // The gong, just past the elevator from the PR board.
   const gong = buildGong();
   group.add(gong.group);
   colliders.push(...gong.colliders);

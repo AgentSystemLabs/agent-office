@@ -55,9 +55,10 @@ export const DESKS: DeskDef[] = buildDesks();
  */
 export const BEANBAGS: DeskDef[] = (
   [
-    // Either side of the gong, clear of its front and of the elevator doors at x 7.2..9.8.
-    [6, -9.8, 0],
-    [1, -9.8, 0],
+    // Out in the north-east corner past the gong, and between the PR board and the elevator, clear of
+    // the gong's front and the elevator doors.
+    [15, -9.8, 0],
+    [5.4, -9.8, 0],
     [-16.1, -9, Math.PI / 2],
     [-16.1, -3, Math.PI / 2],
     [-8.8, 10.2, Math.PI],
@@ -66,9 +67,9 @@ export const BEANBAGS: DeskDef[] = (
     [12.2, 5.6, -Math.PI / 2],
     [-16.1, 3, Math.PI / 2],
     // Clear of the board agents' kiosks, and of the floor in front of them.
-    [13, -9.8, 0],
+    [-13.2, -9.8, 0],
     [-12.6, 9.2, Math.PI / 2],
-    [-8.6, -9.8, 0],
+    [-5.4, -9.8, 0],
   ] as const
 ).map(([x, z, rotY], i) => ({ id: `beanbag-${i + 1}`, x, z, rotY, label: `Bean bag ${i + 1}`, beanbag: true }));
 
@@ -84,10 +85,12 @@ export type StationKind = 'issues' | 'pulls' | 'queue';
  * rotY PI the worker stands on the wall side of it. Nobody hires them from the desks or the queue.
  */
 export const STATIONS: DeskDef[] = [
-  { id: 'station-issues', station: 'issues', x: -14.4, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'Issues board' },
-  { id: 'station-pulls', station: 'pulls', x: -5.4, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'PR board' },
-  // Between the elevator and the queue board.
-  { id: 'station-queue', station: 'queue', x: 10.65, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'Task queue' },
+  // Between the plant in the north-west corner and the Issues board.
+  { id: 'station-issues', station: 'issues', x: -15.6, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'Issues board' },
+  // Between the task queue and the PR board.
+  { id: 'station-pulls', station: 'pulls', x: 0, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'PR board' },
+  // Between the Issues board and the task queue.
+  { id: 'station-queue', station: 'queue', x: -7.8, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'Task queue' },
 ];
 /** A board agent's kiosk: its top, and how far behind its middle (toward the wall) the agent stands. */
 export const KIOSK = { width: 0.8, depth: 0.5, height: 0.55, stand: 0.55 } as const;
@@ -129,12 +132,14 @@ export function deskSeat(desk: DeskDef, offset = 0.85): { x: number; z: number }
 
 /** Wall boards. `rotY` is the way the board faces (0 = +z, like the north-wall boards). */
 export const BOARDS = {
-  issues: { x: -10.5, y: 2.1, z: FLOOR.minZ + 0.08, rotY: 0, width: 6, height: 3, label: 'Issues' },
-  pulls: { x: -1.5, y: 2.1, z: FLOOR.minZ + 0.08, rotY: 0, width: 6, height: 3, label: 'Pull Requests' },
+  // Side by side along the north wall, the way work goes: an issue goes on the task queue (the
+  // whiteboard in the middle), and its worker's pull request comes out the other side. Each has its
+  // board agent's kiosk just west of it (see STATIONS).
+  issues: { x: -11.7, y: 2.1, z: FLOOR.minZ + 0.08, rotY: 0, width: 6, height: 3, label: 'Issues' },
+  queue: { x: -3.9, y: 2.1, z: FLOOR.minZ + 0.08, rotY: 0, width: 6, height: 3, label: '📋 Task queue' },
+  pulls: { x: 3.9, y: 2.1, z: FLOOR.minZ + 0.08, rotY: 0, width: 6, height: 3, label: 'Pull Requests' },
   // East wall, north of the lounge TV.
   services: { x: FLOOR.maxX - 0.08, y: 2.1, z: -8.2, rotY: -Math.PI / 2, width: 6, height: 3, label: '🌐 Services' },
-  // The task queue whiteboard, north wall, in the corner by the services board.
-  queue: { x: 14.5, y: 2.1, z: FLOOR.minZ + 0.08, rotY: 0, width: 6, height: 3, label: '📋 Task queue' },
 } as const;
 
 /** The big TV on the east wall that shows whoever is screen sharing. */
@@ -149,8 +154,20 @@ export const STAIRS = { fromX: 3, toX: LOFT.minX, minZ: 11.2, maxZ: FLOOR.maxZ, 
 
 export const SPAWN = { x: 8, z: 7 } as const;
 
-/** The gong: on the north wall between the PR board and the elevator, facing into the room. It rings when a PR merges. */
-export const GONG = { x: 3.5, z: FLOOR.minZ + 0.75, width: 1.9, height: 2.45 } as const;
+/** The gong: on the north wall just past the elevator from the PR board, facing into the room. It rings when a PR merges. */
+export const GONG = { x: 11.8, z: FLOOR.minZ + 0.75, width: 1.9, height: 2.45 } as const;
+
+/** Potted plants around the room: where each stands, and how big it is. */
+export const PLANTS: readonly (readonly [x: number, z: number, scale: number])[] = [
+  [-17.2, -12.2, 1.4],
+  [17.2, -12.2, 1.5],
+  [17.2, 12.2, 1.3],
+  [-17.2, 8.5, 1.2],
+  [14.2, -12.2, 1.1],
+  [-6, 0, 1],
+  [3.5, 0, 0.9],
+  [8.5, 5, 1.1],
+];
 
 /**
  * The whiteboard on wheels everyone draws on together, out on the open floor between the desks and
@@ -294,7 +311,7 @@ export function seatAt(key: string): SeatPlace | undefined {
 }
 
 /**
- * The elevator: a shaft against the north wall, between the PR board and the task queue, with its
+ * The elevator: a shaft against the north wall, between the PR board and the gong, with its
  * doors facing into the room. Every floor has it in the same spot, so you step out where you got in.
  */
 export const ELEVATOR = { x: 8.5, width: 2.6, depth: 2.4, wall: 0.14, doorWidth: 1.4, doorHeight: 2.4 } as const;
