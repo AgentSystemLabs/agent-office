@@ -67,7 +67,7 @@ export const MEETING_PATTERNS: Record<MeetingPattern, PatternDef> = {
   review: {
     icon: '🔍',
     label: 'Review panel',
-    blurb: 'Reviewers read a pull request through their own lens; the head of the table merges them into one review, posted on the PR.',
+    blurb: 'Reviewers read a pull request through their own lens; their findings are merged and posted on the PR as one review, line comments tagged by lens.',
     roles: ['Correctness', 'Security', 'Performance & simplicity', 'Tests', 'API design'],
     seats: { min: 2, max: 5, default: 3 },
     rounds: { min: 2, max: 2, default: 2 },
@@ -142,7 +142,7 @@ export function meetingSummary(m: Meeting): string {
   const head = `${p.icon} ${p.label} · ${ran} · ${meetingSpend(m)}`;
   if (m.status === 'stopped') return `${head} · ⛔ ${m.reason ?? 'stopped'}`;
   if (m.status === 'running') return head;
-  const where = m.review?.url ? ' · posted on the PR' : m.review?.error ? ` · couldn't post it: ${m.review.error}` : m.commit ? ` on ${m.worktree?.branch}` : m.worktree ? ` in ${m.worktree.branch}'s worktree` : '';
+  const where = m.review?.url ? ' · posted on the PR' : m.review?.error ? ` · couldn't post it: ${m.review.error}` : m.review?.posting ? ' · posting it on the PR' : m.pattern === 'review' && m.hold && m.findings ? ` · ${m.findings.length} finding${m.findings.length === 1 ? '' : 's'} to trim, then post` : m.commit ? ` on ${m.worktree?.branch}` : m.worktree ? ` in ${m.worktree.branch}'s worktree` : '';
   return `${head} · ✅ ${m.output}${where}`;
 }
 

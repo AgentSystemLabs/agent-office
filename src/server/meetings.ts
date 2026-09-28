@@ -1,12 +1,13 @@
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { MEETING_SEATS } from '../shared/layout.js';
 import { MAX_MEETING_BUDGET, MEETING_NOTES_DIR, MEETING_PATTERNS, TOKENS_PER_SEAT, isMeetingPattern, meetingRecord, outputProblem, slugify } from '../shared/meetings.js';
 import { fmtTokens, isAgentEffort, isAgentProvider, tokensOf, type AgentEffort, type AgentProvider, type Meeting, type MeetingRecord, type MeetingRequest, type MeetingState, type MeetingTurn, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
 import { validateWorkerEffort, validateWorkerModel } from './agents.js';
+import { mergeFindings, normalize, parseFindings, type ReviewFinding } from '../shared/review.js';
 import { gitError, type WorktreeRef, type WorktreeState } from './worktrees.js';
 
 const execFileP = promisify(execFile);
@@ -35,8 +36,11 @@ export interface MeetingEvents {
   toast(text: string, level: 'info' | 'warn' | 'error'): void;
   /** Why nobody may be hired right now (today's budget is spent), if that's so. */
   hiringPaused(): string | undefined;
-  /** Posts the review panel's review on its pull request. Resolves to the review's URL. */
-  postReview(pr: number, file: string): Promise<string>;
+  /**
+   * Posts the review panel's review on its pull request: the head of the table's summary, and the
+   * findings as line comments tagged by lens. Resolves to the review's URL.
+   */
+  postReview(pr: number, summary: string, findings: ReviewFinding[], lenses: string[]): Promise<string>;
 }
 
 const PUMP_MS = 3000;
@@ -50,7 +54,11 @@ const ROLE_MAX = 40;
 const PARTS_MAX = 100;
 /** Who the office types a meeting's prompts as. */
 const BY = 'the meeting room';
-/** What a red team or a reviewer writes when it has nothing to report. */
+/** The review panel's merged findings, in the notes, for the head of the table to go through. */
+const FINDINGS = 'findings.json';
+/** How much of the head of the table's summary goes on the pull request. */
+const SUMMARY_MAX = 20_000;
+/** What a red team writes when it has nothing to report. */
 const NOTHING = /^\W*no findings\b/i;
 
 /** Ready for its next part: not starting up, busy, waiting on someone, or asleep. */
@@ -181,6 +189,7 @@ export class MeetingRoom {
       status: 'running',
       calledBy: by,
       startedAt: Date.now(),
+      hold: req.pattern === 'review' && req.hold === true ? true : undefined,
       worktree,
       // Without git, the notes go with the floor's other state.
       notes: worktree ? MEETING_NOTES_DIR : `.agent-office/meetings/${id}`,
@@ -226,6 +235,20 @@ export class MeetingRoom {
     this.archive(m);
     this.current = null;
     this.changed();
+    return undefined;
+  }
+
+  /**
+   * Posts a held review panel's findings on its pull request, leaving out those at the indexes in
+   * `drop` (the ones someone trimmed in the meeting room).
+   */
+  post(drop: number[], by: string): string | undefined {
+    const m = this.current;
+    if (!m || m.pattern !== 'review' || m.status !== 'done' || !m.findings) return 'No review panel has findings waiting';
+    if (m.review?.url || m.review?.posting) return 'The panel’s review is already on the pull request';
+    const gone = new Set(drop.filter((i) => Number.isInteger(i)));
+    this.events.toast(`🔍 ${by} is posting the panel's review on PR #${m.pr}${gone.size ? ` (${gone.size} finding${gone.size === 1 ? '' : 's'} trimmed)` : ''}`, 'info');
+    this.publish(m, m.findings.filter((_, i) => !gone.has(i)));
     return undefined;
   }
 
@@ -348,6 +371,22 @@ export class MeetingRoom {
       case 'working': {
         if (!ready(w.status)) return false;
         if (this.written(m, t)) {
+          // A reviewer's findings the office can't read get one more go; after that they're left out.
+          const bad = t.retried ? undefined : this.unreadable(m, t);
+          if (bad) {
+            // Moved aside, so the part only counts as done once it's written again.
+            const file = path.join(this.cwd(m), t.file);
+            try {
+              renameSync(file, `${file}.unreadable`);
+            } catch {
+              // then it's taken as it is next time round
+            }
+            t.retried = true;
+            t.state = 'sent';
+            t.sentAt = now;
+            this.workers.prompt(w.id, `The office couldn't read your findings (${bad}); they're in ${file}.unreadable now. Write them again to ${file} as nothing but a JSON array, like [{"file": "src/a.ts", "line": 12, "severity": "high", "comment": "…"}] (or [] when there are none), then end your turn.`, BY);
+            return true;
+          }
           t.state = 'done';
           return true;
         }
@@ -369,6 +408,7 @@ export class MeetingRoom {
   private next(m: Meeting) {
     // Red / blue: the red team found nothing more to fix, so blue writes it up this round.
     if (m.pattern === 'redblue' && m.step === 1 && NOTHING.test(this.head(m, m.turns[0]?.file))) m.lastRound = m.round;
+    if (m.pattern === 'review' && m.round === 1 && !this.isLast(m, 1)) this.gather(m);
     const more = this.plan(m, m.round, m.step + 1);
     if (more) {
       m.step++;
@@ -396,19 +436,9 @@ export class MeetingRoom {
     this.events.toast(`🤝 The ${p.label} meeting on “${m.title}” is done: it wrote ${m.output}`, 'info');
     const cwd = this.cwd(m);
     if (m.pattern === 'review' && m.pr !== undefined) {
-      const pr = m.pr;
-      void this.events.postReview(pr, path.join(cwd, m.output)).then(
-        (url) => {
-          m.review = { url };
-          this.events.toast(`🔍 Posted the panel's review on PR #${pr}`, 'info');
-          this.changed();
-        },
-        (err) => {
-          m.review = { error: (err as Error).message };
-          this.events.toast(`Couldn't post the panel's review on PR #${pr}: ${m.review.error}`, 'warn');
-          this.changed();
-        },
-      );
+      m.findings = this.finalFindings(m);
+      if (m.hold) this.events.toast(`🔍 The panel's ${m.findings.length} finding${m.findings.length === 1 ? '' : 's'} on PR #${m.pr} are waiting in the meeting room: trim them, then post the review`, 'info');
+      else this.publish(m, m.findings);
     } else if (m.worktree) {
       void commitAll(cwd, `${m.title}\n\n${p.label} meeting in Agent Office, called by ${m.calledBy}. Output: ${m.output}`, m.notes).then(
         (sha) => {
@@ -421,6 +451,31 @@ export class MeetingRoom {
         },
       );
     }
+  }
+
+  /** Posts the review panel's review: the summary the head of the table wrote, and these findings. */
+  private publish(m: Meeting, findings: ReviewFinding[]) {
+    const pr = m.pr!;
+    let summary = '';
+    try {
+      summary = readStart(path.join(this.cwd(m), m.output), SUMMARY_MAX * 2).slice(0, SUMMARY_MAX);
+    } catch {
+      // posted without a summary: the findings are the review
+    }
+    m.review = { posting: true };
+    this.changed();
+    void this.events.postReview(pr, summary, findings, m.seats.map((s) => s.role)).then(
+      (url) => {
+        m.review = { url };
+        this.events.toast(`🔍 Posted the panel's review on PR #${pr}: ${findings.length} finding${findings.length === 1 ? '' : 's'}`, 'info');
+        this.changed();
+      },
+      (err) => {
+        m.review = { error: (err as Error).message };
+        this.events.toast(`Couldn't post the panel's review on PR #${pr}: ${m.review.error}`, 'warn');
+        this.changed();
+      },
+    );
   }
 
   /** Stops the meeting short, saying why. Whoever is still busy is told to stop (Esc). */
@@ -507,7 +562,7 @@ export class MeetingRoom {
       lead: `Round 1: the ${head} splits the task into a part for each of the others and writes the plan. Round 2: each of them does their part. Round 3: the ${head} merges the work, checks it and writes it up.`,
       mapreduce: `Round 1: each mapper does the task over its own parts. Round 2: the ${head} combines what they found into one result.`,
       redblue: `Each round the Red team attacks the change (bugs, security holes, edge cases) and the Blue team fixes what holds up. The ${head} writes it all up in the last round, which comes early if Red finds nothing more.`,
-      review: `Round 1: each reviewer reviews the pull request through their own lens. Round 2: the ${head} merges the reviews into one, which the office posts on the pull request.`,
+      review: `Round 1: each reviewer reviews the pull request through their own lens and writes their findings as JSON. The office merges them, one per problem. Round 2: the ${head} drops the ones that don't hold up and writes the summary; the office posts it on the pull request as one review, the findings as line comments tagged by lens.`,
     };
     const where = !m.worktree
       ? `You're in the project's folder, which other people use too: don't commit, push or switch branches.`
@@ -603,13 +658,60 @@ export class MeetingRoom {
           return all.map((i) => ({
             seat: i,
             doing: 'reviewing',
-            file: note(1, i),
-            ask: `Review pull request #${m.pr} through your lens, ${m.seats[i].role}, and nothing else. Read it with gh pr view ${m.pr} and gh pr diff ${m.pr}; don't check it out or change any files. Write your findings to ${A(note(1, i))}, one per bullet: the file:line, what's wrong and what to do about it, the most serious first. If you find nothing, write just NO FINDINGS. Then end your turn.`,
+            file: findingsNote(m, i),
+            ask: `Review pull request #${m.pr} through your lens, ${m.seats[i].role}, and nothing else. Read it with gh pr view ${m.pr} and gh pr diff ${m.pr}; don't check it out or change any files. Write your findings to ${A(findingsNote(m, i))} as nothing but a JSON array, the most serious first, one object per problem: {"file": "path/from/the/repo/root.ts", "line": 12, "severity": "high" | "medium" | "low", "comment": "what's wrong and what to do about it"}. The line is in the new version of the file, on a line the diff shows; leave it out for a finding about a whole file. Write [] if you find nothing. Then end your turn.`,
           }));
         }
-        return [{ seat: 0, doing: 'writing the review', file: m.output, ask: `Read every reviewer's findings (${notes(1, all)}). Drop the duplicates, keeping the clearest wording, and write one combined review to ${A(m.output)} in Markdown: a short summary with your verdict first, then the findings, the most serious first, each tagged with the lens it came from in bold brackets like **[${m.seats[1]?.role ?? 'Security'}]**, with its file:line. Don't post it: the office posts it on the pull request once the file is written. ${out}` }];
+        const merged = A(`${m.notes}/${FINDINGS}`);
+        return [{ seat: 0, doing: 'writing the review', file: m.output, ask: `The office merged every reviewer's findings into ${merged}, one per problem, each with the lenses that found it. Check them against the diff and delete from that file the ones that don't hold up, keeping it a JSON array of the same objects. Then write the review's summary to ${A(m.output)} in Markdown: your verdict first, then a few lines on what matters most. Don't list the findings: the office posts them on the lines they're about, tagged by lens. Don't post anything yourself. ${out}` }];
       }
     }
+  }
+
+  // --- The review panel's findings --------------------------------------------
+
+  /** Why a reviewer's findings file can't be read, or undefined when it can (or isn't one). */
+  private unreadable(m: Meeting, t: MeetingTurn): string | undefined {
+    if (m.pattern !== 'review' || !t.file.endsWith('.json')) return undefined;
+    try {
+      parseFindings(readFileSync(path.join(this.cwd(m), t.file), 'utf8'), m.seats[t.seat].role);
+      return undefined;
+    } catch (err) {
+      return (err as Error).message;
+    }
+  }
+
+  /** Every reviewer's findings, merged: those the office can't read are left out, saying so. */
+  private merged(m: Meeting): ReviewFinding[] {
+    const lists: ReviewFinding[][] = [];
+    m.seats.forEach((s, i) => {
+      try {
+        lists.push(parseFindings(readFileSync(path.join(this.cwd(m), findingsNote(m, i)), 'utf8'), s.role));
+      } catch {
+        this.events.toast(`🔍 Left out the ${s.role} reviewer's findings: the office couldn't read them`, 'warn');
+      }
+    });
+    return mergeFindings(lists);
+  }
+
+  /** Round 1 is written: merge the findings into the notes for the head of the table to go through. */
+  private gather(m: Meeting) {
+    try {
+      writeFileSync(path.join(this.cwd(m), m.notes, FINDINGS), `${JSON.stringify(this.merged(m), null, 2)}\n`);
+    } catch {
+      // finalFindings merges them again
+    }
+  }
+
+  /** The findings to post: the merged file as the head of the table left it, or merged afresh. */
+  private finalFindings(m: Meeting): ReviewFinding[] {
+    try {
+      const raw: unknown = JSON.parse(readFileSync(path.join(this.cwd(m), m.notes, FINDINGS), 'utf8'));
+      if (Array.isArray(raw)) return mergeFindings([raw.map((x) => normalize(x)).filter((f): f is ReviewFinding => f !== null)]);
+    } catch {
+      // no merged file, or the head of the table broke it
+    }
+    return this.merged(m);
   }
 
   // --- Files -----------------------------------------------------------------
@@ -714,6 +816,11 @@ function readStart(file: string, bytes: number): string {
   } finally {
     closeSync(fd);
   }
+}
+
+/** Where the reviewer at seat `i` writes its findings. */
+function findingsNote(m: Meeting, i: number): string {
+  return `${m.notes}/r1-${i + 1}-${slugify(m.seats[i].role, 24)}.json`;
 }
 
 /** Roles that repeat get numbered, so each worker at the table has one of its own: Engineer 1, Engineer 2. */

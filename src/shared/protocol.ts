@@ -6,6 +6,7 @@ import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
 import type { EmoteId } from './emotes.js';
 import type { JukeboxState } from './jukebox.js';
+import type { ReviewFinding } from './review.js';
 import type { DrinkId } from './rooftop.js';
 import type { WbElement, WbPointer, WhiteboardView } from './whiteboard.js';
 
@@ -400,8 +401,12 @@ export interface Meeting {
   notes: string;
   /** The commit on the meeting's branch that holds the output. */
   commit?: string;
-  /** Review panel: the review the office posted on the pull request, or why it couldn't. */
-  review?: { url?: string; error?: string };
+  /** Review panel: the review the office posted on the pull request (or is posting), or why it couldn't. */
+  review?: { url?: string; error?: string; posting?: boolean };
+  /** Review panel: every reviewer's findings, merged, once the meeting is done. */
+  findings?: ReviewFinding[];
+  /** Review panel: wait for someone to trim the findings in the meeting room before posting them. */
+  hold?: boolean;
   /** The start of the output file as it gets written, for the board in the room. */
   preview?: string;
   /** Its workers have gone home and its worktree was tidied away. */
@@ -446,6 +451,8 @@ export interface MeetingRequest {
   provider?: AgentProvider;
   model?: string;
   effort?: AgentEffort;
+  /** Review panel: hold the findings for someone to trim before they're posted. */
+  hold?: boolean;
 }
 
 /** Where a team webhook posts: Slack and Discord get their own message format, anything else plain JSON. */
@@ -939,6 +946,8 @@ export type ClientMsg =
   | { t: 'meeting.stop' }
   /** Send the last meeting's workers home and clear the table. */
   | { t: 'meeting.clear' }
+  /** Review panel held for trimming: post its findings, leaving out those at these indexes. */
+  | { t: 'meeting.post'; drop: number[] }
   /** Set the office's Slack / Discord webhook; '' removes it. */
   | { t: 'notify.webhook'; url: string }
   /** Post a test message through the webhook; the outcome comes back as a toast. */

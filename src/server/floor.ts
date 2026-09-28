@@ -187,7 +187,7 @@ export class Floor {
         update: (state) => ctx.emit(this, { t: 'meeting', state }),
         toast: (text, level) => ctx.toast(this, text, level),
         hiringPaused: () => ctx.ledger.hiringPaused,
-        postReview: (pr, file) => this.github.review(pr, file),
+        postReview: (pr, summary, findings, lenses) => this.github.review(pr, summary, findings, lenses),
       },
     );
 

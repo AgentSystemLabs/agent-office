@@ -1392,6 +1392,7 @@ export async function startServer(cfg: Config) {
           provider: msg.provider,
           model: msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1),
           effort: isAgentEffort(msg.effort) ? msg.effort : undefined,
+          hold: msg.hold === true,
         };
         warn(c, floor.meetings.start(request, who));
         break;
@@ -1404,6 +1405,11 @@ export async function startServer(cfg: Config) {
       case 'meeting.clear': {
         const floor = here();
         if (floor) warn(c, floor.meetings.clear(who));
+        break;
+      }
+      case 'meeting.post': {
+        const floor = here();
+        if (floor) warn(c, floor.meetings.post(Array.isArray(msg.drop) ? msg.drop.slice(0, 200).filter((i: unknown): i is number => Number.isInteger(i)) : [], who));
         break;
       }
       case 'notify.webhook': {

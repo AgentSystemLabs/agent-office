@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import type { GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhMergeMethod, GhPull, GhPullDetail, GhRepoInfo, GhReviewComment, GhState } from '../shared/protocol.js';
+import { buildReview, diffLines, type ReviewFinding, type ReviewPayload } from '../shared/review.js';
 
 const REFRESH_MS = 90_000;
 
@@ -10,6 +11,19 @@ function friendly(raw: string): string {
   if (/auth login|not logged in|authentication/i.test(raw)) return "gh isn't logged in on the server — run `gh auth login`";
   if (/could not resolve to a repository|not found/i.test(raw)) return "gh can't find this repository on GitHub (check the remote and access)";
   return raw;
+}
+
+/** Runs gh with `input` on its stdin. */
+function ghInput(args: string[], input: string, cwd: string, timeout = 60_000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = execFile('gh', args, { cwd, maxBuffer: 32 * 1024 * 1024, timeout }, (err, stdout, stderr) => {
+      if (err) {
+        const msg = (stderr || err.message || '').trim().split('\n').slice(-2).join(' ');
+        reject(new Error((err as NodeJS.ErrnoException).code === 'ENOENT' ? 'GitHub CLI (gh) is not installed on the server' : friendly(msg)));
+      } else resolve(stdout);
+    });
+    child.stdin?.end(input);
+  });
 }
 
 export function gh(args: string[], cwd: string, timeout = 30_000): Promise<string> {
@@ -236,14 +250,29 @@ export class GitHub {
   }
 
   /**
-   * Posts a review on a pull request that only comments (the meeting room's review panel), its body
-   * read from a file. Resolves to the review's URL.
+   * Posts the review panel's review on a pull request, one that only comments: the summary as its
+   * body, and each finding as a line comment tagged by lens where its line is in the diff (in the body
+   * otherwise). Resolves to the review's URL.
    */
-  async review(n: number, file: string): Promise<string> {
-    // -F reads @file's contents as the value; {owner}/{repo} are filled in from the checkout's remote.
-    const url = (await gh(['api', '--method', 'POST', `repos/{owner}/{repo}/pulls/${n}/reviews`, '-F', `body=@${file}`, '-f', 'event=COMMENT', '--jq', '.html_url'], this.dir, 60_000)).trim();
+  async review(n: number, summary: string, findings: ReviewFinding[], lenses: string[]): Promise<string> {
+    let lines = new Map<string, Set<number>>();
+    try {
+      lines = diffLines(await gh(['pr', 'diff', String(n)], this.dir, 60_000));
+    } catch {
+      // without the diff every finding goes in the body
+    }
+    // {owner}/{repo} are filled in from the checkout's remote; the review goes in as JSON on stdin.
+    const post = (payload: ReviewPayload) => ghInput(['api', '--method', 'POST', `repos/{owner}/{repo}/pulls/${n}/reviews`, '--input', '-', '--jq', '.html_url'], JSON.stringify(payload), this.dir);
+    let url: string;
+    try {
+      url = await post(buildReview(findings, summary, lines, lenses));
+    } catch (err) {
+      // GitHub turns the whole review down over one line it won't take: post it with them all in the body.
+      if (!/unprocessable|422|pull_request_review_thread|part of the diff/i.test((err as Error).message)) throw err;
+      url = await post(buildReview(findings, summary, new Map(), lenses));
+    }
     void this.refreshPulls();
-    return url;
+    return url.trim();
   }
 
   /** Merges a PR, or with `auto` has GitHub merge it once its requirements pass. Returns an error. */
