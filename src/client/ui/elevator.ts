@@ -4,10 +4,12 @@ import { ROOF, ROOF_NAME } from '../../shared/rooftop';
 import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, timeAgo, type Modal } from './dom';
+import { confirmDialog } from './prompt';
 
 // The elevator's panel: a button for every floor (every project), and "add a project", which clones
 // one of the repositories the office's gh login can see and makes it a new floor. The first time
-// the office runs there are no floors, and this is where you start.
+// the office runs there are no floors, and this is where you start. Admins can take a floor off the
+// building here too; its checkout stays on disk.
 
 export interface ElevatorOptions {
   net: Net;
@@ -90,6 +92,22 @@ export function openElevator(opts: ElevatorOptions): void {
     return btn;
   };
 
+  /** The floor's button, with a 🗑 beside it for admins to take it off the building. */
+  const floorRow = (f: FloorInfo, i: number) => {
+    const btn = floorButton(f, i);
+    if (!store.me.admin || f.cloning || f.local) return btn;
+    const off = h('button.btn.floor-off', { type: 'button', title: `Take ${f.name} off the building`, 'aria-label': `Remove ${f.name}` }, '🗑');
+    off.addEventListener('click', () => confirmRemove(f));
+    return h('div.floor-row', {}, btn, off);
+  };
+
+  const confirmRemove = (f: FloorInfo) => {
+    const next = store.floors.find((o) => o.id !== f.id && !o.cloning);
+    const workers = f.workers ? `Its ${f.workers} worker${f.workers === 1 ? '' : 's'} stop${f.workers === 1 ? 's' : ''}. ` : '';
+    const people = f.people ? `Everyone on it rides the elevator to ${next ? next.name : 'the lobby'}. ` : '';
+    confirmDialog(`Take ${f.name} off the building?`, `${workers}${people}Nothing is deleted: its checkout stays in ${f.dir}, .agent-office folder and all.`, '🗑 Remove floor', () => net.send({ t: 'floor.remove', floor: f.id }));
+  };
+
   /** The roof, over every floor: the rooftop bar. */
   const roofButton = () => {
     const here = store.floor === ROOF;
@@ -111,9 +129,10 @@ export function openElevator(opts: ElevatorOptions): void {
 
   const renderFloors = () => {
     const floors = store.floors;
+    // Top floor first, the way an elevator's buttons stack, with the roof over them and floor 1 at the bottom.
     floorsEl.replaceChildren(
       ...(floors.some((f) => !f.cloning) ? [roofButton()] : []),
-      ...(floors.length ? floors.map(floorButton) : [h('p.empty', {}, 'No floors yet.')]),
+      ...(floors.length ? floors.map(floorRow).reverse() : [h('p.empty', {}, 'No floors yet.')]),
     );
   };
 
@@ -254,7 +273,7 @@ export function openElevator(opts: ElevatorOptions): void {
     h('div.body', {}, intro, floorsEl, addEl),
     h('footer', {}, h('span.grow', {}, setup ? 'Your office, one floor per project' : 'Pick a floor · Esc to stay here'), addBtn),
   );
-  const unsubs = [store.on('floors', () => (renderFloors(), renderAdd())), store.on('repos', renderAdd), store.on('projectsDir', renderAdd), store.on('floor', renderFloors), store.on('peers', renderFloors)];
+  const unsubs = [store.on('floors', () => (renderFloors(), renderAdd())), store.on('repos', renderAdd), store.on('projectsDir', renderAdd), store.on('floor', renderFloors), store.on('peers', renderFloors), store.on('me', renderFloors)];
   const modal = openModal(el, {
     doing: '🛗 at the elevator',
     escCloses: !setup,

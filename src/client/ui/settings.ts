@@ -76,6 +76,37 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     return row;
   };
   const soundRow = volumeRow('Office sounds volume', 'volume', 'muted', previewSound);
+
+  // Voice chat: an open mic, or muted until you hold V.
+  const talkRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Voice chat' });
+  const paintTalk = () => {
+    talkRow.replaceChildren(
+      ...(
+        [
+          [false, '🎙️ Open mic'],
+          [true, '✋ Push to talk'],
+        ] as const
+      ).map(([ptt, label]) =>
+        h(
+          'button.btn',
+          {
+            type: 'button',
+            role: 'radio',
+            'aria-checked': String(settings.pushToTalk === ptt),
+            class: settings.pushToTalk === ptt ? 'on' : '',
+            onclick: () => {
+              if (settings.pushToTalk === ptt) return;
+              settings = { ...settings, pushToTalk: ptt };
+              onChange(settings);
+              paintTalk();
+            },
+          },
+          label,
+        ),
+      ),
+    );
+  };
+  paintTalk();
   const musicRow = volumeRow('Jukebox volume', 'music', 'musicMuted');
 
   // The building's holiday theme, for everyone.
@@ -308,6 +339,9 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       h('label', { style: 'margin-top:18px' }, 'Office sounds'),
       soundRow,
       h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds and rain outside, the dog, and the ding when a worker is done. Voice chat isn’t affected.'),
+      h('label', { style: 'margin-top:18px' }, 'Voice chat'),
+      talkRow,
+      h('p.setting-note', {}, 'Either way, V joins voice, holding V talks and you’re muted once you let go, and M mutes or unmutes. With push to talk you join muted. Leave voice from the ☰ menu.'),
       h('label', { style: 'margin-top:18px' }, '🎵 Jukebox'),
       musicRow,
       h('p.setting-note', {}, 'The jukebox in the lounge. Everyone on the floor hears the same song, louder the closer they are to it; this is how loud it is for you alone.'),

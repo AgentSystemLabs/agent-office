@@ -1,9 +1,9 @@
 import { DESK_BY_ID } from '../../shared/layout';
-import type { AgentEffort, AgentProvider, GhIssue, GhPull, WorkerInfo } from '../../shared/protocol';
+import type { AgentEffort, AgentProvider, GhIssue, GhLabel, GhPull, WorkerInfo } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store, workerForPull } from '../state';
 import { h, openModal, timeAgo } from './dom';
-import { labelChip, openIssue, openPull } from './pull';
+import { labelChip, openIssue, openLabels, openPull } from './pull';
 import { providerLabel } from './provider';
 import type { MeetingPreset } from './meeting';
 
@@ -98,7 +98,7 @@ function boardLabels(items: { labels: { name: string; color: string }[] }[]): Ma
   return all;
 }
 
-function labelChips(labels: { name: string; color: string }[]) {
+function labelChips(labels: GhLabel[]) {
   return labels.slice(0, 4).map(labelChip);
 }
 
@@ -128,10 +128,16 @@ function queueChip(issue: number): Node | '' {
   return t.pr ? h('span.qchip.done', {}, `🔀 PR #${t.pr.number} · ${provider}`) : '';
 }
 
-function card(n: number, title: string, meta: (Node | string)[], i: number, onclick: () => void) {
+function card(n: number, title: string, meta: (Node | string)[], i: number, onclick: () => void, onLabels: () => void) {
   return h(
     'li.card',
-    { style: `--tilt:${TILTS[n % TILTS.length]};background:${NOTE_COLORS[n % NOTE_COLORS.length]};--pin:${['#ef476f', '#118ab2', '#06d6a0', '#ffd166'][i % 4]}`, tabindex: 0, onclick, onkeydown: ((e: KeyboardEvent) => e.key === 'Enter' && onclick()) as EventListener },
+    {
+      style: `--tilt:${TILTS[n % TILTS.length]};background:${NOTE_COLORS[n % NOTE_COLORS.length]};--pin:${['#ef476f', '#118ab2', '#06d6a0', '#ffd166'][i % 4]}`,
+      tabindex: 0,
+      onclick,
+      onkeydown: ((e: KeyboardEvent) => e.key === 'Enter' && e.target === e.currentTarget && onclick()) as EventListener,
+    },
+    h('button.card-labels', { type: 'button', title: 'Change the labels', 'aria-label': `Change the labels on #${n}`, onclick: ((e: Event) => (e.stopPropagation(), onLabels())) as EventListener }, '🏷️'),
     h('div.num', {}, `#${n}`),
     h('div.ttl', {}, title),
     h('div.meta', {}, ...meta.filter((m) => m !== '').map((m) => (typeof m === 'string' ? h('span', {}, m) : m))),
@@ -236,7 +242,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
       for (const col of issueColumns(store.issues.items)) {
         body.append(
           column(col, all, (it, i) =>
-            card(it.number, it.title, [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, net, actions)),
+            card(it.number, it.title, [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, net, actions), () => openLabels('issue', it, net)),
           ),
         );
       }
@@ -260,6 +266,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
               ],
               i,
               () => openPull(it, net, actions),
+              () => openLabels('pull', it, net),
             );
           }),
         );

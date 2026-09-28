@@ -28,7 +28,7 @@ import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunne
 import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
-import { GH_COMMENT_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
+import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import { DESK_BY_ID, elevatorSpot, seatHere, streetBelow } from '../shared/layout.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
@@ -235,7 +235,7 @@ export async function startServer(cfg: Config) {
     if (floor) toFloor(floor, { t: 'toast', text, level });
   };
   const floorInfos = (): FloorInfo[] => [
-    ...[...floors.values()].map((f) => f.info()),
+    ...[...floors.values()].map((f) => ({ ...f.info(), ...(building.isLocal(f.id) ? { local: true } : {}) })),
     ...building.pending().map((d) => ({ id: d.id, name: d.name, repo: d.repo, dir: d.dir, palette: d.palette, addedBy: d.addedBy, addedAt: d.addedAt, cloning: true, workers: 0, busy: 0, waiting: 0, people: 0 })),
   ];
   // The elevator's counts change with every worker update; tell everyone at most a few times a second.
@@ -753,12 +753,14 @@ export async function startServer(cfg: Config) {
       if (p.startsWith('/api/gh/') && req.method === 'GET') {
         // What the issue and PR windows show beyond the board cards (see github.ts).
         const n = Number(url.searchParams.get('number'));
-        if (!Number.isSafeInteger(n) || n <= 0) return send(res, 400, { error: 'Bad number' });
+        // The repo's labels (for the label picker) are the one thing not about a single issue or PR.
+        if (p !== '/api/gh/labels' && (!Number.isSafeInteger(n) || n <= 0)) return send(res, 400, { error: 'Bad number' });
         if (!floor) return send(res, 404, { error: 'No such floor' });
         const github = floor.github;
         try {
           if (p === '/api/gh/pull') return send(res, 200, await github.pullDetail(n));
           if (p === '/api/gh/issue') return send(res, 200, await github.issueDetail(n));
+          if (p === '/api/gh/labels') return send(res, 200, await github.repoLabels());
           if (p === '/api/gh/pull/diff') {
             const diff = await github.pullDiff(n);
             res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -986,6 +988,39 @@ export async function startServer(cfg: Config) {
     floorsChanged();
   };
 
+  /** Out to the lobby, where the elevator has nowhere to go: the building's last floor was taken off. */
+  const toLobby = (c: Client) => {
+    const left = leave(c);
+    delete c.peer.floor;
+    sendTo(c, { t: 'floor.enter', peers: [...clients.values()].map((o) => o.peer), ...floorView(undefined) });
+    arrived(c, left);
+  };
+
+  /**
+   * Takes `floor` off the building (already out of floors.json): everyone on it rides the elevator to
+   * the next floor, or out to the lobby if it was the last (the roof goes with it), and its workers stop.
+   */
+  const closeFloor = (floor: Floor, who: string) => {
+    const name = floor.def.name;
+    const next = [...floors.values()].find((f) => f !== floor);
+    // The list without it first, so nobody arrives somewhere (the lobby's panel) that still shows it.
+    const list = floorInfos().filter((f) => f.id !== floor.id);
+    floorsSent = JSON.stringify(list);
+    broadcast({ t: 'floors', floors: list });
+    for (const c of clients.values()) {
+      if (c.peer.floor === floor.id || (!next && c.peer.floor === ROOF)) {
+        if (next) goToFloor(c, next);
+        else toLobby(c);
+        sendTo(c, { t: 'toast', text: next ? `🛗 ${who} took ${name} off the building, so you rode the elevator to ${next.def.name}` : `🛗 ${who} took ${name}, the last floor, off the building`, level: 'warn' });
+      } else sendTo(c, { t: 'toast', text: `🛗 ${who} took ${name} off the building`, level: 'info' });
+    }
+    floors.delete(floor.id);
+    floor.shutdown();
+    floorsChanged();
+    // Its workers made room under the worker limit.
+    pumpQueues();
+  };
+
   /** Off the floor (or the roof) `c` was on, to `at` on the next one, or into its elevator car. */
   const leave = (c: Client, at?: { x: number; y: number; z: number; rotY: number }) => {
     const was = floorOf(c);
@@ -1153,6 +1188,18 @@ export async function startServer(cfg: Config) {
             toastAll(`🛗 New floor: ${r.name}, added by ${who}`);
             sendTo(c, { t: 'floor.added', repo, floor: floor.id });
           });
+        break;
+      }
+      case 'floor.remove': {
+        // Everyone's workers on it stop: admins do it.
+        if (!meOf(c.accountId).admin) return warn(c, 'Only admins can take a floor off the building');
+        const id = str(msg.floor, 64);
+        const r = building.remove(id);
+        if (typeof r === 'string') return warn(c, r);
+        console.log(`  ${who} took the ${r.name} floor off the building (${r.dir} stays where it is)`);
+        const floor = floors.get(id);
+        if (floor) closeFloor(floor, who);
+        else floorsChanged();
         break;
       }
       case 'floor.projectsDir': {
@@ -1359,6 +1406,24 @@ export async function startServer(cfg: Config) {
           // Nobody should be seated for an issue that's closed.
           const dropped = floor.queue.dropIssue(n);
           toastFloor(floor, `${who} closed issue #${n}${reason === 'not planned' ? ' as not planned' : ''}${dropped ? ' and took it off the queue' : ''}`);
+        });
+        break;
+      }
+      case 'gh.labels': {
+        const floor = here();
+        const n = num(msg.number);
+        const kind = msg.kind === 'issue' || msg.kind === 'pull' ? msg.kind : undefined;
+        if (!floor || !Number.isSafeInteger(n) || n <= 0 || !kind) break;
+        const names = (v: unknown) => [...new Set((Array.isArray(v) ? v : []).map((l) => str(l, GH_LABEL_MAX + 1)).filter((l) => l && l.length <= GH_LABEL_MAX))].slice(0, 100);
+        const add = names(msg.add);
+        const remove = names(msg.remove).filter((l) => !add.includes(l));
+        if (!add.length && !remove.length) {
+          sendTo(c, { t: 'gh.labeled', kind, number: n, error: 'No labels to change' });
+          break;
+        }
+        void floor.github.setLabels(kind, n, add, remove).then((r) => {
+          sendTo(c, { t: 'gh.labeled', kind, number: n, ...r });
+          if (r.labels) toastFloor(floor, `🏷️ ${who} labeled ${kind === 'pull' ? 'PR' : 'issue'} #${n}: ${[...add.map((l) => `+${l}`), ...remove.map((l) => `−${l}`)].join(' ')}`);
         });
         break;
       }

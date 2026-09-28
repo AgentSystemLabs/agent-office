@@ -244,13 +244,21 @@ export const FLAG_BOLD = 1;
 export const FLAG_INVERSE = 2;
 export const FLAG_DIM = 4;
 
+/** A GitHub label; `color` is a CSS color ("#d73a4a"). */
+export interface GhLabel {
+  name: string;
+  color: string;
+  /** What it's for, in the repo's list of labels (the label picker's /api/gh/labels). */
+  description?: string;
+}
+
 export interface GhIssue {
   number: number;
   title: string;
   state: string;
   url: string;
   author: string;
-  labels: { name: string; color: string }[];
+  labels: GhLabel[];
   assignees: string[];
   createdAt: string;
   updatedAt: string;
@@ -265,7 +273,7 @@ export interface GhPull {
   isDraft: boolean;
   url: string;
   author: string;
-  labels: { name: string; color: string }[];
+  labels: GhLabel[];
   reviewDecision: string;
   headRefName: string;
   baseRefName: string;
@@ -572,6 +580,8 @@ export interface GhIssueDetail {
 
 /** GitHub turns away comments longer than this. */
 export const GH_COMMENT_MAX = 65536;
+/** Longer than any label name: GitHub stops at 50 characters, and JS counts an emoji as two. */
+export const GH_LABEL_MAX = 100;
 
 export interface ProjectInfo {
   name: string;
@@ -599,6 +609,8 @@ export interface FloorInfo {
   palette: number;
   /** Being cloned: on the elevator panel, but nobody can go there yet. */
   cloning?: boolean;
+  /** The project the office was started in (`agent-office <dir>`), which keeps its data: always a floor. */
+  local?: boolean;
   addedBy: string;
   addedAt: number;
   /**
@@ -949,6 +961,8 @@ export type ClientMsg =
   | { t: 'horn' }
   /** Close an issue, or a pull request without merging it; the answer comes back as gh.closed. */
   | { t: 'gh.close'; kind: 'issue' | 'pull'; number: number; comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }
+  /** Put labels on an issue or PR and take others off, as the server's gh account; answered with gh.labeled. */
+  | { t: 'gh.labels'; kind: 'issue' | 'pull'; number: number; add: string[]; remove: string[] }
   | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string; effort?: AgentEffort }
   | { t: 'queue.remove'; taskId: string }
   /** Move a queued task up (-1) or down (+1) the queue. */
@@ -1035,6 +1049,8 @@ export type ClientMsg =
   | { t: 'floor.repos'; refresh?: boolean }
   /** Clone a repository and make it a new floor; answered with `floor.added` once it's there. */
   | { t: 'floor.add'; repo: string }
+  /** Take a floor off the building (admins only). Its checkout stays on disk; everyone on it rides to another floor. */
+  | { t: 'floor.remove'; floor: string }
   /** Dress the building up for a holiday, take the decorations down ('off'), or follow the calendar ('auto'). */
   | { t: 'theme.set'; pick: ThemePick }
   /** Where new floors are cloned from now on (admins only); '' goes back to the default. */
@@ -1109,6 +1125,8 @@ export type ServerMsg =
   | { t: 'horn'; by: string }
   /** Sent to whoever asked to close it. */
   | { t: 'gh.closed'; kind: 'issue' | 'pull'; number: number; error?: string }
+  /** Sent to whoever changed them: the labels it has now, or why they didn't change. */
+  | { t: 'gh.labeled'; kind: 'issue' | 'pull'; number: number; labels?: GhLabel[]; error?: string }
   | { t: 'rtc'; from: string; data: unknown }
   | ({ t: 'chat' } & ChatLine)
   | { t: 'toast'; text: string; level: 'info' | 'warn' | 'error' }

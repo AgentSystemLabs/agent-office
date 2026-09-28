@@ -444,6 +444,11 @@ button { font-family: inherit; }
 .desk-link { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border: 2px solid var(--ink); border-radius: 999px; background: #fff; color: var(--ink); font-weight: 800; white-space: nowrap; }
 .desk-link::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--dot, var(--accent)); border: 1px solid var(--ink); }
 .label { padding: 1px 6px; border-radius: 999px; border: 1.5px solid var(--ink); color: var(--ink); font-size: 10px; font-weight: 800; }
+/* A card's 🏷️ (the label picker) shows on hover or focus; touch screens always show it. */
+.card-labels { position: absolute; top: 5px; right: 5px; width: 26px; height: 26px; padding: 0; display: grid; place-items: center; font-size: 13px; background: var(--paper); border: 2px solid var(--ink); border-radius: 8px; box-shadow: 0 2px 0 var(--ink); cursor: pointer; opacity: 0; transition: opacity .1s; }
+.card:hover .card-labels, .card:focus-within .card-labels { opacity: 1; }
+.card-labels:hover { background: var(--paper-2); }
+@media (hover: none) { .card-labels { opacity: 1; } }
 .board-status { font-size: 12px; font-weight: 700; color: var(--muted); }
 .board-error { margin: auto; background: var(--paper); border: 3px solid var(--ink); border-radius: 14px; padding: 18px 22px; font-weight: 800; max-width: 520px; text-align: center; }
 .detail pre { white-space: pre-wrap; word-break: break-word; font: 13px/1.5 ui-monospace, Menlo, monospace; background: #fff; border: 2px solid var(--ink); border-radius: 10px; padding: 10px; max-height: 45vh; overflow: auto; margin: 10px 0 0; }
@@ -661,6 +666,18 @@ a.when:hover { text-decoration: underline; }
 .gh-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 .gh-merge-result { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border: 2px solid var(--ink); border-radius: 10px; font-weight: 800; background: #e0f2fe; }
 .gh-merge-result.error { display: block; background: #ffd6e0; white-space: pre-wrap; overflow-wrap: anywhere; font-weight: 700; font-size: 13px; }
+/* The label picker (openLabels) */
+.gh-label-edit { padding: 1px 9px; font-size: 12px; box-shadow: 0 2px 0 var(--ink); }
+.gh-labeler .body { min-height: 0; }
+.gh-labels { list-style: none; margin: 0; padding: 4px; max-height: min(420px, 50vh); overflow: auto; border: 3px solid var(--ink); border-radius: 12px; background: #fff; }
+.gh-labels li + li { border-top: 1px solid rgba(43, 45, 66, .1); }
+.gh-labels label.gh-check { padding: 7px 8px; border-radius: 8px; flex-wrap: wrap; }
+.gh-labels label.gh-check:hover { background: var(--paper-2); }
+.gh-labels .label { font-size: 12px; }
+.gh-labels small { flex-basis: 100%; padding-left: 24px; color: var(--muted); font-weight: 600; font-size: 12px; }
+.gh-labels .gh-error { margin: 8px auto; }
+.gh-labeler footer .grow { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+.gh-labeler .gh-quiet a { color: #1d6fd6; font-weight: 800; }
 
 /* Send a prompt to a worker (ui/ask.ts) */
 .modal.ask { width: min(660px, 100%); }
@@ -874,6 +891,9 @@ a.when:hover { text-decoration: underline; }
 .elevator .floor-btn:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
 .elevator .floor-btn:disabled { cursor: default; }
 .elevator .floor-btn.here { background: var(--paper-2); box-shadow: none; transform: translateY(2px); }
+.elevator .floor-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: stretch; }
+.elevator .floor-off { padding: 0 12px; font-size: 16px; }
+.elevator .floor-off:hover { background: #ffe3d6; }
 .elevator .floor-no { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--ink); display: grid; place-items: center; font-weight: 900; font-size: 15px; color: #fff; text-shadow: 0 1px 0 rgba(0, 0, 0, .35); }
 .elevator .floor-text { display: flex; flex-direction: column; min-width: 0; }
 .elevator .floor-name { font-weight: 900; font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
