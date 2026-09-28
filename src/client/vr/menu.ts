@@ -8,7 +8,7 @@
  * hire (free desks, with the worktree toggle), queue (running/queued/done, with tap-twice remove + requeue), board (issues/PRs tabs, read + hand-to-worker),
  * a detail view for one issue or PR (hand it over, queue it, comment, close it, review a PR), floors (ride the elevator), jukebox (tunes + a stream row), bar (drinks),
  * chat (the floor's chat + say something), assign (hand an issue to a worker), meeting (the room's
- * status + call one with the pattern defaults), services (the workers' web servers, tap to copy
+ * status + call one with the pattern defaults, and the earlier meetings), services (the workers' web servers, tap to copy
  * a tunnel command), people (who else is around — tap a row to walk over), and settings
  * (glide, turning, turn speed, teleport fade, the dog's name — the ⚙️ Settings VR section
  * plus the office dog, in the headset).
@@ -586,7 +586,7 @@ export class VrMenu {
     if (this.view === 'settings') return this.settingsRows().length;
     if (this.view === 'meeting') {
       const m = this.stores.getMeeting().current;
-      return m ? m.seats.length + 1 : 0;
+      return (m ? m.seats.length + 1 : 0) + this.stores.getMeeting().past.length;
     }
     if (this.view === 'services') return this.stores.getServices().items.length;
     if (this.view === 'people') return this.stores.getPeers().length;
@@ -1022,7 +1022,7 @@ export class VrMenu {
     if (this.view === 'queue' && count === 0) this.centerNote(ctx, w, 'Nothing on the queue', h);
     if (this.view === 'chat' && !this.chatLines().length) this.centerNote(ctx, w, 'Quiet on this floor — say hi ✍️', h);
     if (this.view === 'assign' && !this.awakeWorkers().length) this.centerNote(ctx, w, 'Nobody awake — hire a worker first', h);
-    if (this.view === 'meeting' && !this.stores.getMeeting().current) this.centerNote(ctx, w, 'The table is empty — 🤝 call one', h);
+    if (this.view === 'meeting' && !this.stores.getMeeting().current && !this.stores.getMeeting().past.length) this.centerNote(ctx, w, 'The table is empty — 🤝 call one', h);
     if (this.view === 'services' && !this.stores.getServices().items.length) this.centerNote(ctx, w, 'Nothing running yet', h);
     if (this.view === 'people' && !this.stores.getPeers().length) this.centerNote(ctx, w, 'Just you here', h);
     ctx.restore();
@@ -1146,10 +1146,17 @@ export class VrMenu {
     }
   }
 
-  /** The meeting view's rows: the summary first, then a row per seat (the DOM window, trimmed). */
+  /** The meeting view's rows: the summary first, then a row per seat, then the earlier meetings (the DOM window, trimmed). */
   private paintMeetingRow(ctx: CanvasRenderingContext2D, i: number, x: number, y: number, bw: number, rh: number) {
     const m = this.stores.getMeeting().current;
-    if (!m) return;
+    const past = this.stores.getMeeting().past;
+    const pastRow = i - (m ? m.seats.length + 1 : 0);
+    if (!m || pastRow >= 0) {
+      const r = past[pastRow];
+      if (!r) return;
+      this.rowText(ctx, '🗂️', r.title, r.summary, x, y, bw, rh);
+      return;
+    }
     const p = MEETING_PATTERNS[m.pattern];
     if (i === 0) {
       const title = m.status === 'running' ? `${p.icon} ${m.title}` : m.status === 'done' ? `✅ ${m.title}` : `⛔ ${m.title}`;

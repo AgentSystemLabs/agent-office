@@ -682,6 +682,12 @@ if (new URLSearchParams(location.search).has('vrtest')) {
       };
       store.emit('meeting');
     },
+    // Seeds a fake earlier meeting into this client's room (reload clears it).
+    seedMeetingPast: (title: string) => {
+      store.meeting.past = store.meeting.past.filter((r) => r.title !== title);
+      store.meeting.past.unshift({ id: 'zzz-past', pattern: 'debate', title, status: 'done', summary: 'Seeded by the VR meeting-history check.', calledBy: 'vrtest', finishedAt: Date.now(), output: 'docs/zzz-past.md' });
+      store.emit('meeting');
+    },
     // Whether this client is in voice (the join-voice check reads this back).
     inVoice: () => voice.inVoice,
     // The floor dog's name (the rename check reads this back).
