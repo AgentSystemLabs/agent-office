@@ -1,4 +1,4 @@
-import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, MachineState, MeetingState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, ThemeState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
+import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, MachineState, MeetingState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, PromptsState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, ThemeState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import type { WorkerPr } from './world/character';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
@@ -7,8 +7,9 @@ import { newer, type WbElement } from '../shared/whiteboard';
 import type { DogState } from '../shared/dog';
 import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
+import type { BallState } from '../shared/hoop';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting' | 'prompts' | 'ball';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -194,10 +195,14 @@ class Store {
   /** The dog on your floor, and when (performance.now()) the leg it's on began. */
   dog: DogState | null = null;
   dogStart = 0;
+  /** The basketball on this floor, as the office last said (see world/hoop.ts). */
+  ball: BallState = {};
   /** Outside the windows; null until the server says. */
   sky: SkyState | null = null;
   /** The building's holiday decorations: the same on every floor. */
   theme: ThemeState = { pick: 'auto', active: null };
+  /** The office's prompts as rewritten in ⚙️ Settings, and the worker everyone starts on: the same on every floor. */
+  prompts: PromptsState = { custom: {} };
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -267,7 +272,8 @@ class Store {
     this.cabinetFrame = v.cabinet.frame;
     this.setDog(v.dog);
     this.setJukebox(v.jukebox);
-    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame'] as Topic[]) this.emit(t);
+    this.ball = v.ball ?? {};
+    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'ball'] as Topic[]) this.emit(t);
   }
 
   private setDog(dog: DogState | null) {
@@ -299,8 +305,9 @@ class Store {
         this.clock = undefined; // compared again, in case it's another office (or the same one, restarted)
         this.sky = msg.sky;
         this.theme = msg.theme;
+        this.prompts = msg.prompts ?? { custom: {} };
         this.enter(msg);
-        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'floors', 'projectsDir', 'sky', 'theme'] as Topic[]) this.emit(t);
+        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'floors', 'projectsDir', 'sky', 'theme', 'prompts'] as Topic[]) this.emit(t);
         break;
       case 'floor.enter':
         this.peers = new Map(msg.peers.map((p) => [p.id, p]));
@@ -445,6 +452,10 @@ class Store {
         this.setDog(msg.dog);
         this.emit('dog');
         break;
+      case 'ball':
+        this.ball = msg.ball;
+        this.emit('ball');
+        break;
       case 'sky':
         this.sky = msg.state;
         this.emit('sky');
@@ -452,6 +463,10 @@ class Store {
       case 'theme':
         this.theme = msg.state;
         this.emit('theme');
+        break;
+      case 'prompts':
+        this.prompts = msg.state;
+        this.emit('prompts');
         break;
       case 'chat':
         this.chat.push(msg);

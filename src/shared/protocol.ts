@@ -5,7 +5,9 @@ import type { CabinetFrame, CabinetState, CabinetView } from './cabinet.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
 import type { EmoteId } from './emotes.js';
+import type { BallState } from './hoop.js';
 import type { JukeboxState } from './jukebox.js';
+import type { PromptId } from './prompts.js';
 import type { DrinkId } from './rooftop.js';
 import type { WbElement, WbPointer, WhiteboardView } from './whiteboard.js';
 
@@ -44,6 +46,28 @@ export type AgentEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export const AGENT_EFFORTS: readonly AgentEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 export function isAgentEffort(value: unknown): value is AgentEffort {
   return value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' || value === 'max';
+}
+
+/** Which agent a worker runs: its provider, and optionally the model and (Claude only) the reasoning effort. */
+export interface AgentChoice {
+  provider: AgentProvider;
+  /** An OpenCode provider/model id, or a Claude model alias; unset for the provider's own default. */
+  model?: string;
+  effort?: AgentEffort;
+}
+
+/**
+ * The prompts the office writes for workers by itself (shared/prompts.ts) and the worker everyone
+ * starts on, as set in ⚙️ Settings: the same on every floor.
+ */
+export interface PromptsState {
+  /** Prompts someone rewrote, by id; the rest are the defaults. */
+  custom: Partial<Record<PromptId, { text: string; by: string; at: number }>>;
+  /**
+   * What a worker starts on unless whoever starts it picks another. Unset: the agent the office was
+   * started with (--agent), on its own default model.
+   */
+  agent?: AgentChoice & { by: string; at: number };
 }
 
 /** What a worker is on, for the card above its head: "Fix Login Redirect" + what it's doing now. */
@@ -222,6 +246,8 @@ export interface PeerInfo {
   sharing: boolean;
   /** On a smoke break, cigarette in hand. */
   smoking?: boolean;
+  /** At the golf tee on the balcony, club in hand. */
+  golfing?: boolean;
   /** Sitting down: the place they're in (see seatAt in layout), like "couch:1". */
   seat?: string;
   /** An issue card they took off the issues board, on its way to a desk or the queue. */
@@ -246,13 +272,21 @@ export const FLAG_BOLD = 1;
 export const FLAG_INVERSE = 2;
 export const FLAG_DIM = 4;
 
+/** A GitHub label; `color` is a CSS color ("#d73a4a"). */
+export interface GhLabel {
+  name: string;
+  color: string;
+  /** What it's for, in the repo's list of labels (the label picker's /api/gh/labels). */
+  description?: string;
+}
+
 export interface GhIssue {
   number: number;
   title: string;
   state: string;
   url: string;
   author: string;
-  labels: { name: string; color: string }[];
+  labels: GhLabel[];
   assignees: string[];
   createdAt: string;
   updatedAt: string;
@@ -267,7 +301,7 @@ export interface GhPull {
   isDraft: boolean;
   url: string;
   author: string;
-  labels: { name: string; color: string }[];
+  labels: GhLabel[];
   reviewDecision: string;
   headRefName: string;
   baseRefName: string;
@@ -574,6 +608,8 @@ export interface GhIssueDetail {
 
 /** GitHub turns away comments longer than this. */
 export const GH_COMMENT_MAX = 65536;
+/** Longer than any label name: GitHub stops at 50 characters, and JS counts an emoji as two. */
+export const GH_LABEL_MAX = 100;
 
 export interface ProjectInfo {
   name: string;
@@ -658,6 +694,8 @@ export interface FloorView {
   whiteboard: WhiteboardView;
   /** The meeting room: who's meeting about what, and the meetings before. */
   meeting: MeetingState;
+  /** The basketball by the hoop: who has it, or how it was last thrown. */
+  ball: BallState;
 }
 
 export type AccountRole = 'admin' | 'member';
@@ -908,10 +946,15 @@ export type ClientMsg =
   | { t: 'move'; x: number; y: number; z: number; rotY: number; moving: boolean }
   /**
    * You reached out to use something; everyone else sees your character's arm do it. With `smoke`,
-   * you lit a cigarette (or put it out) on the balcony instead; with `drink`, you took a drink from
-   * the rooftop bar (or finished it, null).
+   * you lit a cigarette (or put it out) on the balcony instead; with `golf`, you took a club out at
+   * the tee (or put it back); with `drink`, you took a drink from the rooftop bar (or finished it, null).
    */
-  | { t: 'act'; smoke?: boolean; drink?: DrinkId | null }
+  | { t: 'act'; smoke?: boolean; golf?: boolean; drink?: DrinkId | null }
+  /**
+   * You hit a golf ball off the tee: its heading (0 is south, toward +x from there), loft (radians)
+   * and power (0–1). Everyone on your floor works out where it goes the same way (world/golf.ts fly).
+   */
+  | { t: 'golf'; yaw: number; loft: number; power: number }
   /** You sat down in a place on a couch, a beanbag, a chair or the bench (see seatAt in layout), or got up again (no seat). */
   | { t: 'sit'; seat?: string }
   /** You picked an issue card up off the board (or put it down again, no issue): everyone sees it in your hands. */
@@ -953,6 +996,8 @@ export type ClientMsg =
   | { t: 'horn' }
   /** Close an issue, or a pull request without merging it; the answer comes back as gh.closed. */
   | { t: 'gh.close'; kind: 'issue' | 'pull'; number: number; comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }
+  /** Put labels on an issue or PR and take others off, as the server's gh account; answered with gh.labeled. */
+  | { t: 'gh.labels'; kind: 'issue' | 'pull'; number: number; add: string[]; remove: string[] }
   | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string; effort?: AgentEffort }
   | { t: 'queue.remove'; taskId: string }
   /** Move a queued task up (-1) or down (+1) the queue. */
@@ -1045,6 +1090,14 @@ export type ClientMsg =
   | { t: 'theme.set'; pick: ThemePick }
   /** Where new floors are cloned from now on (admins only); '' goes back to the default. */
   | { t: 'floor.projectsDir'; dir: string }
+  /** Rewrite one of the office's prompts (admins only); null puts the default back. */
+  | { t: 'prompts.set'; id: PromptId; text: string | null }
+  /** Pick the worker everyone starts on (admins only); null goes back to the office's --agent. */
+  | { t: 'prompts.agent'; choice: AgentChoice | null }
+  /** Pick up the floor's basketball (or catch it): yours if nobody else has it. */
+  | { t: 'ball.take' }
+  /** Throw the basketball in your hands from (x, y, z) at (vx, vy, vz) m/s, or drop it; everyone on the floor sees it fly. */
+  | { t: 'ball.throw'; x: number; y: number; z: number; vx: number; vy: number; vz: number }
   /** Give the dog on your floor a pat; it has to be within reach. */
   | { t: 'dog.pet' }
   /** Name the dog on your floor ('' gives it back its first name). */
@@ -1076,6 +1129,8 @@ export type ServerMsg =
       sky: SkyState;
       /** Halloween or Christmas decorations, all over the building, or none. */
       theme: ThemeState;
+      /** The office's prompts and the worker everyone starts on. */
+      prompts: PromptsState;
     } & FloorView)
   /** You arrived on another floor: everything on it, replacing the last one's, and where everyone is now. */
   | ({ t: 'floor.enter'; peers: PeerInfo[] } & FloorView)
@@ -1090,7 +1145,9 @@ export type ServerMsg =
   | { t: 'peer.update'; peer: PeerInfo }
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }
   | { t: 'peer.leave'; id: string }
-  | { t: 'peer.act'; id: string; smoke?: boolean; drink?: DrinkId | null }
+  | { t: 'peer.act'; id: string; smoke?: boolean; golf?: boolean; drink?: DrinkId | null }
+  /** Someone on your floor hit a golf ball off the tee (see the client's 'golf'). */
+  | { t: 'golf'; id: string; yaw: number; loft: number; power: number }
   | { t: 'peer.emote'; id: string; emote: EmoteId }
   | { t: 'worker.update'; worker: WorkerInfo }
   | { t: 'worker.remove'; workerId: string }
@@ -1115,6 +1172,8 @@ export type ServerMsg =
   | { t: 'horn'; by: string }
   /** Sent to whoever asked to close it. */
   | { t: 'gh.closed'; kind: 'issue' | 'pull'; number: number; error?: string }
+  /** Sent to whoever changed them: the labels it has now, or why they didn't change. */
+  | { t: 'gh.labeled'; kind: 'issue' | 'pull'; number: number; labels?: GhLabel[]; error?: string }
   | { t: 'rtc'; from: string; data: unknown }
   | ({ t: 'chat' } & ChatLine)
   | { t: 'toast'; text: string; level: 'info' | 'warn' | 'error' }
@@ -1124,6 +1183,8 @@ export type ServerMsg =
   | { t: 'decor'; items: Decoration[] }
   /** What the dog on your floor is up to now: sent at the start of each leg of its day. */
   | { t: 'dog'; dog: DogState }
+  /** The basketball on your floor was picked up, thrown, or put back under the hoop. */
+  | { t: 'ball'; ball: BallState }
   | { t: 'jukebox'; state: JukeboxState }
   /** Who's at the arcade cabinet on your floor now, and the building's high scores. */
   | { t: 'cabinet'; state: CabinetState }
@@ -1143,6 +1204,7 @@ export type ServerMsg =
   | { t: 'machine'; state: MachineState }
   | { t: 'sky'; state: SkyState }
   | { t: 'theme'; state: ThemeState }
+  | { t: 'prompts'; state: PromptsState }
   /** Sent to whoever watches that worker's changes, whenever they change. */
   | { t: 'changes'; state: ChangesState }
   | { t: 'changes.diff'; workerId: string; path: string; diff: string; truncated: boolean; error?: string }

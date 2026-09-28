@@ -7,6 +7,8 @@ import path from 'node:path';
 import { Ledger } from '../src/server/usage.js';
 import { WorkerManager, type WorkerEvents } from '../src/server/workers.js';
 import type { AgentProvider, WorkerInfo } from '../src/shared/protocol.js';
+import type { PromptSource } from '../src/server/prompts.js';
+import { PROMPTS } from '../src/shared/prompts.js';
 
 type Invocation = {
   kind: string;
@@ -756,6 +758,42 @@ test('a board agent is hired with its brief on the first prompt, then prompted, 
   const [, second] = await waitFor(launches, (l) => l.length === 2);
   assert.ok(second.args.includes('--resume') && second.args.includes('issues-session'));
   assert.equal(second.args.at(-1), 'Close the duplicates');
+});
+
+test('a worker nobody picked a model for starts on the office default, and a board agent is told its rewritten brief', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+  const prompts: PromptSource = {
+    text: (id) => (id === 'station.issues' ? 'You triage issues. The request:' : PROMPTS[id].text),
+    agent: () => ({ provider: 'claude', model: 'sonnet', effort: 'low' }),
+  };
+  const workers = new WorkerManager(f.root, f.data, f.claude, ['--from-test'], { url: 'http://127.0.0.1:1', token: '' }, events([]), ledger(f.data), undefined, prompts);
+  t.after(() => workers.shutdown());
+  const launches = (id: string) => f.read().filter((r) => r.kind === 'claude' && r.args.includes('--settings') && r.stdin === undefined && r.env.workerId === id);
+  const flag = (args: string[], name: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
+
+  const hired = workers.station('station-issues', 'Ada', 'File one about the dog');
+  assert.equal(typeof hired, 'object');
+  if (typeof hired === 'string') return;
+  assert.deepEqual([hired.info.provider, hired.info.model, hired.info.effort], ['claude', 'sonnet', 'low']);
+  const [first] = await waitFor(() => launches(hired.info.id), (l) => l.length === 1);
+  assert.equal(first.args.at(-1), 'You triage issues. The request:\n\nFile one about the dog');
+  assert.deepEqual([flag(first.args, '--model'), flag(first.args, '--effort')], ['sonnet', 'low']);
+
+  // Picked at the desk, the pick wins, down to "the provider's own model".
+  const desk = workers.spawn('desk-1', 'Ada', 'Fix it', false, 'agent', 'claude');
+  assert.equal(typeof desk, 'object');
+  if (typeof desk === 'string') return;
+  assert.deepEqual([desk.provider, desk.model, desk.effort], ['claude', undefined, undefined]);
+  const [own] = await waitFor(() => launches(desk.id), (l) => l.length === 1);
+  assert.equal(own.args.includes('--model'), false);
 });
 
 test('the queue agent is launched without file-editing tools, and board agents get office-queue on their PATH', async (t) => {

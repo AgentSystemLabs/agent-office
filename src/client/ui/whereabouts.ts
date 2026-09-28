@@ -10,6 +10,7 @@ import { ROOF } from '../../shared/rooftop';
 export function whereabouts(p: PeerInfo): string | undefined {
   if (p.doing) return p.doing;
   if (p.smoking) return '🚬 on a smoke break';
+  if (p.golfing) return '🏌️ teeing off';
   const place = p.seat ? seatAt(p.seat) : undefined;
   const seat = place && SEATING_BY_ID.get(place.seatId);
   if (seat) {
