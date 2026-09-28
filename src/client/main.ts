@@ -56,7 +56,7 @@ import { openSettings } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 import { elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
 import { toggleFloorMenu } from './ui/floormenu';
-import { providerLabel, rememberedChoice, resolvedProvider, modelBadge } from './ui/provider';
+import { providerLabel, officeChoice, resolvedProvider, modelBadge } from './ui/provider';
 import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
 import { renderLimits } from './ui/limits';
 import { MachineTexture, officeFull, pressureNote } from './world/machine';
@@ -1182,12 +1182,11 @@ function promptAtDesk(deskId: string) {
     if (officeIsFull()) return;
     openPrompt({
       title: `✨ New task at ${desk.label}`,
-      subtitle: 'A fresh worker will sit down and start on this right away. Choose the worker engine below.',
+      subtitle: 'A fresh worker will sit down and start on this right away.',
       warning: pressureNote(store.machine),
       submitLabel: 'Hire & start',
       providerOption: true,
       worktreeOption: !!store.project?.branch,
-      deskId,
       onSubmit: (text, o) => hire(deskId, text, o.worktree, o.provider, o.model, o.effort),
     });
   } else if (isAsleep(w.status)) {
@@ -1214,14 +1213,13 @@ function hireAtDesk(deskId: string) {
   if (officeIsFull()) return;
   openPrompt({
     title: `✨ Hire a worker at ${desk.label}`,
-    subtitle: 'Choose the worker engine. You can start with an empty prompt and send work later.',
+    subtitle: 'You can start with an empty prompt and send work later.',
     warning: pressureNote(store.machine),
     placeholder: 'Optional first task…',
     submitLabel: 'Hire & start',
     allowEmpty: true,
     providerOption: true,
     worktreeOption: !!store.project?.branch,
-    deskId,
     onSubmit: (text, o) => hire(deskId, text || undefined, o.worktree, o.provider, o.model, o.effort),
   });
 }
@@ -1721,7 +1719,7 @@ function dropCard(it: Interactable, card: CarriedIssue, note: GhIssue | null): b
   if (it.kind === 'queue') {
     if (onQueue(card.issue)) toast(`#${card.issue} is already on the queue`, 'warn');
     else {
-      const { provider, model, effort } = rememberedChoice(store.project, 'queue');
+      const { provider, model, effort } = officeChoice(store.project);
       net.send({ t: 'queue.add', prompt, title: `#${card.issue} ${card.title}`, issue: card.issue, provider, model, effort });
       putDown();
     }
@@ -1741,7 +1739,7 @@ function dropCard(it: Interactable, card: CarriedIssue, note: GhIssue | null): b
     net.send({ t: 'worker.prompt', workerId: w.id, prompt, issue: card.issue });
     putDown();
   } else if (!officeIsFull()) {
-    const { provider, model, effort } = rememberedChoice(store.project, `desk:${it.deskId}`);
+    const { provider, model, effort } = officeChoice(store.project);
     hire(it.deskId, prompt, !!store.project?.branch && worktreePref(), provider, model, effort, card.issue);
     putDown();
   }

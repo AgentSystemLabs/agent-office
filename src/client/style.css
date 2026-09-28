@@ -279,6 +279,15 @@ button { font-family: inherit; }
 .provider-model.claude-model label { white-space: nowrap; }
 .provider-model.claude-model select { width: 100%; padding: 6px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; font-weight: 800; }
 .provider-model.claude-model .provider-model-hint { grid-column: 1 / -1; }
+/* Which worker to start: the office's default on a line, and the fields under it once ✏️ Edit opens them. */
+.provider-pick { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; min-width: 0; }
+.provider-pick > .provider-choice { margin-top: 0; }
+.provider-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.provider-label { font-weight: 800; font-size: 14px; white-space: nowrap; }
+.provider-current { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 3px 10px; font-size: 13px; font-weight: 800; background: var(--paper-2); border: 2px dashed rgba(43, 45, 66, .35); border-radius: 9px; }
+.provider-summary .btn { padding: 3px 9px; font-size: 12px; border-width: 2px; border-radius: 9px; box-shadow: 0 2px 0 var(--ink); }
+.modal.gh-window.issue footer .provider-pick { margin: 0; gap: 4px; }
+.modal.gh-window.issue footer .provider-label { font-size: 12px; }
 .modal.gh-window.issue footer .provider-choice { margin: 0; flex-direction: column; align-items: flex-start; gap: 2px; }
 .modal.gh-window.issue footer .provider-choice label { font-size: 12px; }
 .modal.gh-window.issue footer .provider-note { flex: 0 1 auto; max-width: 150px; }
@@ -776,21 +785,22 @@ a.when:hover { text-decoration: underline; }
 }
 
 /* Task queue */
-/* The prompt gets its own row; the picker's pieces flow into one line under it, then its notes. */
-.queue-add { display: flex; gap: 8px 6px; align-items: center; flex-wrap: wrap; }
+/* The prompt gets its own row; under it, which worker (and the pickers in one line once ✏️ Edit opens them), then its notes. */
+.queue-add { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
 .queue-add textarea { flex: 1 1 100%; min-height: 60px; }
-.queue-add .provider-choice, .queue-add .provider-model:not(.hidden) { display: contents; }
-.queue-add label { margin: 0 0 0 8px; font-size: 13px; white-space: nowrap; }
+.queue-add .provider-pick { flex: 1 1 0; min-width: 0; margin: 0; }
+.queue-add .provider-choice { gap: 6px; min-width: 0; }
+.queue-add .provider-model:not(.hidden) { display: contents; }
+.queue-add .provider-choice label { margin: 0 0 0 6px; font-size: 13px; white-space: nowrap; }
 .queue-add .provider-choice > label:first-child { margin-left: 0; }
 /* A zero basis keeps the row from wrapping: the pickers shrink first (down to a readable floor) and grow back to their natural width when there's room. */
 .queue-add .provider-select, .queue-add .provider-model.claude-model select { flex: 1 1 0; width: auto; min-width: 84px; max-width: max-content; }
 .queue-add .provider-model input[type=text] { flex: 1 1 0; width: auto; min-width: 140px; padding: 6px 9px; border-width: 2px; border-radius: 9px; font-size: 13px; }
+.queue-add .provider-note, .queue-add .provider-model-hint { order: 2; flex: 1 1 100%; }
 .queue-add button[type=submit] { margin-left: auto; }
-.queue-add::after { content: ''; order: 1; flex-basis: 100%; margin-top: -6px; }
-.queue-add .provider-note, .queue-add .provider-model-hint { order: 2; flex: 0 1 auto; margin-top: -6px; }
 /* Too narrow for one line: each label and its picker take a row, so a label never ends up stranded from its picker. */
 @media (max-width: 640px) {
-  .queue-add label { flex: 0 0 64px; margin-left: 0; }
+  .queue-add .provider-choice label { flex: 0 0 64px; margin-left: 0; }
   .queue-add .provider-select, .queue-add .provider-model.claude-model select, .queue-add .provider-model input[type=text] { flex: 1 1 calc(100% - 70px); max-width: none; }
 }
 .queue h4 { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px; font-size: 14px; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; }
@@ -993,3 +1003,35 @@ a.when:hover { text-decoration: underline; }
 .meeting-past summary { font-weight: 800; cursor: pointer; }
 .meeting-past ul { padding-left: 18px; margin: 6px 0 0; }
 .meeting-past li { margin: 6px 0; }
+
+/* The office's prompts (⚙️ Settings): the list down the side, the one picked on the right. */
+.modal.prompts { width: min(1100px, 100%); height: min(820px, calc(100vh - 32px)); }
+.prompts-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 250px minmax(0, 1fr); }
+.prompt-list { display: flex; flex-direction: column; gap: 2px; padding: 10px; overflow: auto; background: var(--paper-2); border-right: 3px solid var(--ink); }
+.prompt-list h4 { margin: 12px 6px 4px; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.prompt-list h4:first-child { margin-top: 2px; }
+.prompt-item { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 10px; text-align: left; font: inherit; font-size: 13.5px; font-weight: 700; color: var(--ink); background: none; border: 2px solid transparent; border-radius: 10px; cursor: pointer; }
+.prompt-item > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prompt-item:hover { background: #fff; }
+.prompt-item.on { background: #fff; border-color: var(--ink); }
+.prompt-mark { font-size: 12px; color: var(--accent); }
+.prompt-edit { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; padding: 14px 16px; overflow: auto; }
+.prompt-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.prompt-head h3 { margin: 0; font-size: 17px; font-weight: 900; }
+.prompt-status { font-size: 12px; font-weight: 800; color: var(--muted); }
+.prompt-status.dirty { color: var(--accent); }
+.prompt-used { margin: 0; font-size: 13px; font-weight: 600; line-height: 1.4; color: var(--muted); }
+.modal textarea.prompt-text { flex: 1 1 auto; min-height: 220px; font: 13px/1.5 ui-monospace, Menlo, monospace; resize: none; }
+.modal textarea.prompt-text[readonly] { background: var(--paper-2); }
+.prompt-vars { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.prompt-vars-head { flex-basis: 100%; font-size: 12px; font-weight: 800; color: var(--muted); }
+.prompt-var { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; padding: 3px 8px; font: inherit; background: #fff; border: 2px solid rgba(43, 45, 66, .25); border-radius: 8px; cursor: pointer; }
+.prompt-var:hover:not(:disabled) { border-color: var(--accent); }
+.prompt-var:disabled { cursor: default; }
+.prompt-var code { font: 700 12px ui-monospace, Menlo, monospace; color: var(--ink); }
+.prompt-var small { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.prompt-warnings p { margin: 0; font-size: 12.5px; font-weight: 700; color: var(--bad); }
+@media (max-width: 720px) {
+  .prompts-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: 180px minmax(0, 1fr); }
+  .prompt-list { border-right: 0; border-bottom: 3px solid var(--ink); }
+}

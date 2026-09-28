@@ -6,6 +6,7 @@ import { h, openModal, timeAgo } from './dom';
 import { labelChip, openIssue, openPull } from './pull';
 import { providerLabel } from './provider';
 import type { MeetingPreset } from './meeting';
+import { officePrompt } from './prompts';
 
 export interface BoardActions {
   /** Start a worker on a ready-made prompt (shown for editing first). */
@@ -22,9 +23,14 @@ export interface BoardActions {
   meeting(preset: MeetingPreset): void;
 }
 
-/** The task a worker gets for an issue, from the board, a carried card or the queue. */
-export function issuePrompt(it: Pick<GhIssue, 'number' | 'title'>): string {
-  return `Work on GitHub issue #${it.number}: "${it.title}".\n\nRead it first with \`gh issue view ${it.number} --comments\`. Create a new branch, implement the change, verify it, then open a pull request that closes #${it.number}.`;
+/** The task a worker gets for an issue, from the board, a carried card or the queue (the 'issue.work' prompt). */
+export function issuePrompt(it: Pick<GhIssue, 'number' | 'title'> & { url?: string }): string {
+  return officePrompt('issue.work', issueVars(it));
+}
+
+/** What an issue's prompts fill in. A carried card has no URL, but the board usually knows it. */
+export function issueVars(it: Pick<GhIssue, 'number' | 'title'> & { url?: string }) {
+  return { number: it.number, title: it.title, url: it.url ?? store.issues.items.find((i) => i.number === it.number)?.url ?? '' };
 }
 
 const TILTS = ['-1.2deg', '0.8deg', '-0.4deg', '1.4deg', '0deg', '-0.9deg'];

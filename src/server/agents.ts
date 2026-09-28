@@ -16,6 +16,11 @@ export function configuredProvider(command: string): AgentProvider {
   return 'custom';
 }
 
+/** The providers an office started with `configured` can hire: the three it knows, and a custom --agent only when that's what it was started with. */
+export function agentProviders(configured: AgentProvider): AgentProvider[] {
+  return configured === 'custom' ? ['claude', 'opencode', 'codex', 'custom'] : ['claude', 'opencode', 'codex'];
+}
+
 /** OpenCode model ids are argv values, so reject anything that could be ambiguous or unsafe. */
 export function isValidOpenCodeModel(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0 || value.length > OPEN_CODE_MODEL_MAX) return false;

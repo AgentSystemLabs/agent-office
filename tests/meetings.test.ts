@@ -6,10 +6,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { MeetingRoom, type MeetingWorkers } from '../src/server/meetings.js';
 import { Worktrees } from '../src/server/worktrees.js';
-import type { MeetingRequest, WorkerInfo } from '../src/shared/protocol.js';
+import type { AgentChoice, MeetingRequest, WorkerInfo } from '../src/shared/protocol.js';
 import { MEETING_PATTERN_IDS, isMeetingPattern } from '../src/shared/meetings.js';
+import { PROMPTS, type PromptId } from '../src/shared/prompts.js';
 
-function fixture(opts: { git?: boolean } = {}) {
+function fixture(opts: { git?: boolean; rewritten?: Partial<Record<PromptId, string>>; officeDefault?: AgentChoice } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-meeting-'));
   const dataDir = path.join(dir, '.agent-office');
   mkdirSync(dataDir, { recursive: true });
@@ -31,6 +32,7 @@ function fixture(opts: { git?: boolean } = {}) {
   let ids = 0;
   const manager: MeetingWorkers = {
     defaultProvider: 'claude',
+    officeDefault: opts.officeDefault,
     list: () => workers,
     seat(deskId, by, prompt, provider, model, effort, meeting) {
       if (workers.some((w) => w.deskId === deskId)) return 'taken';
@@ -65,6 +67,7 @@ function fixture(opts: { git?: boolean } = {}) {
       reviews.push({ pr, file });
       return `https://github.com/o/r/pull/${pr}#pullrequestreview-1`;
     },
+    prompt: (id) => opts.rewritten?.[id] ?? PROMPTS[id].text,
   });
   const cwd = () => {
     const wt = room.state().current?.worktree;
@@ -256,4 +259,31 @@ test('in a git project the output is committed on the meeting branch, which outl
 test('only the real meeting patterns pass, not what every object inherits', () => {
   for (const id of MEETING_PATTERN_IDS) assert.equal(isMeetingPattern(id), true);
   for (const v of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf', '', 'nope', 1, null, undefined]) assert.equal(isMeetingPattern(v), false, String(v));
+});
+
+test('a meeting says what the office’s rewritten prompts say, and seats the default worker when nobody picked one', (t) => {
+  const f = fixture({
+    rewritten: {
+      'meeting.brief': 'You are the {{role}}. Topic: {{about}}{{nothing}}',
+      'meeting.debate.propose': 'Pitch it as the {{role}}, into {{file}}.',
+      'meeting.nudge': 'Still waiting on {{file}}!',
+    },
+    officeDefault: { provider: 'claude', model: 'sonnet', effort: 'medium' },
+  });
+  t.after(() => f.close());
+  assert.equal(f.start({ rounds: 3, provider: undefined }), undefined);
+  assert.equal(f.prompts[0].text, `You are the Chair. Topic: Which cache should we use?{{nothing}}\n\nRound 1 of 3, proposing. Pitch it as the Chair, into ${path.join(f.cwd(), '.agent-office', 'meetings', f.room.state().current!.id, 'r1-1-chair.md')}.`);
+  assert.deepEqual(f.workers.map((w) => [w.provider, w.model, w.effort]), Array(3).fill(['claude', 'sonnet', 'medium']));
+  // A worker that ends its turn without its part is nudged in the office's words.
+  const w = f.workers[0];
+  w.status = 'working';
+  f.room.onWorker(w);
+  w.status = 'done';
+  f.room.onWorker(w);
+  assert.match(f.prompts.at(-1)!.text, /^Still waiting on \S+r1-1-chair\.md!$/);
+  // Picked, the meeting's own choice wins.
+  const g = fixture({ officeDefault: { provider: 'claude', model: 'sonnet' } });
+  t.after(() => g.close());
+  assert.equal(g.start({ provider: 'claude', model: 'haiku' }), undefined);
+  assert.deepEqual(g.workers.map((x) => x.model), ['haiku', 'haiku', 'haiku']);
 });
