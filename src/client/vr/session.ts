@@ -30,7 +30,25 @@ import type { HeadPose } from './math';
 import { describeSessionError, requestVRSession, type VrReferenceSpace } from './support';
 import { GRAB_HOLD_MS, VRGrab, type GrabAim, type GrabHooks } from './grab';
 
-/** Standard WebXR gamepad buttons (OpenXR / XR Standard mapping). Trigger and squeeze sit at 0/1 in every layout; the face buttons move (see faceButtons). */
+/**
+ * Standard WebXR gamepad buttons, per the "xr-standard" mapping of the WebXR Gamepads Module
+ * (https://www.w3.org/TR/webxr-gamepads-module-1/#xr-standard-gamepad-mapping): [0] primary
+ * trigger, [1] squeeze, [2] touchpad, [3] thumbstick press, [4]+ vendor buttons.
+ *
+ * The Galaxy XR controllers use exactly this layout. Chromium binds them through the OpenXR
+ * Oculus Touch profile (system name "Moohan", reported as "samsung-galaxyxr" in
+ * device/vr/openxr/openxr_interaction_profiles.cc), and OpenXrController::GetWebXRGamepad
+ * (device/vr/openxr/openxr_controller.cc) builds buttons [trigger, squeeze, placeholder,
+ * thumbstick, x|a, y|b, thumbrest] with axes [placeholder, placeholder, stick x, stick y].
+ * The official profile (webxr-input-profiles packages/registry/profiles/samsung/
+ * samsung-galaxyxr.json) agrees, and also lists a left "menu" at [7], which Chromium does not
+ * put on the gamepad. The placeholders stand for the touchpad the controller doesn't have,
+ * which is why the stick is at [3] and A/B at [4]/[5]. Do not "fix" STICK to 2 or A/B to 3/4
+ * for Galaxy XR; see faceButtons for the one case where those indices move.
+ *
+ * These indices describe controllers only. Tracked hands also report a gamepad, with a
+ * different meaning for [4] (see controllerPad).
+ */
 export const XR_BUTTON = { TRIGGER: 0, SQUEEZE: 1, STICK: 3, A: 4, B: 5 } as const;
 /** Snap-turn step. */
 export const SNAP_ANGLE = Math.PI / 4;
@@ -227,14 +245,41 @@ export function buttonDown(gamepad: Gamepad | undefined, index: number): boolean
 }
 
 /**
- * Face-button indices for one gamepad. XR Standard pads the touchpad slot (buttons[2],
- * axes[0,1]) even where no touchpad exists — real Quest and Galaxy XR controllers look
- * like that, with the stick at [3] and A/B at [4,5]. Emulators that compact the slot away
- * (the IWSDK Quest profile: stick at [2], A/B at [3,4]) also compact the axes to two, so
- * the axes length tells the layouts apart — the padding decision covers both arrays.
+ * Face-button indices for one controller gamepad. XR Standard pads the touchpad slot
+ * (buttons[2], axes[0,1]) even where no touchpad exists. Real Quest and Galaxy XR controllers
+ * look like that (see XR_BUTTON), with the stick at [3] and A/B at [4,5]. Emulators that
+ * compact the slot away (the IWSDK Quest profile: stick at [2], A/B at [3,4]) also compact the
+ * axes to two, so the axes length tells the layouts apart; the padding decision covers both
+ * arrays.
+ *
+ * Never pass a hand's gamepad here. A hand's gamepad has no axes, so this falls to the compact
+ * layout and reads the hand's grasp button ([4]) as B. Callers get their gamepad through
+ * controllerPad, which returns nothing for hands.
  */
 export function faceButtons(gamepad: Gamepad | undefined): { stick: number; a: number; b: number } {
   return (gamepad?.axes.length ?? 0) >= 4 ? { stick: XR_BUTTON.STICK, a: XR_BUTTON.A, b: XR_BUTTON.B } : { stick: 2, a: 3, b: 4 };
+}
+
+/**
+ * The gamepad to read sticks and face buttons from: a controller's, never a hand's.
+ *
+ * Tracked hands carry a gamepad too. In Chromium, a hand's gamepad is built by
+ * OpenXrController::GetWebXRGamepad (device/vr/openxr/openxr_controller.cc): its hand profiles
+ * (XR_EXT_hand_interaction / XR_MSFT_hand_interaction, reported as "generic-hand-select-grasp"
+ * in device/vr/openxr/openxr_interaction_profiles.cc) bind only a trigger (pinch) and a grasp.
+ * XRStandardGamepadBuilder (device/vr/util/xr_standard_gamepad_builder.cc) then pads the missing
+ * squeeze, touchpad and thumbstick slots, so the hand's gamepad is buttons
+ * [pinch, placeholder, placeholder, placeholder, grasp] and has no axes. The registry profile
+ * (webxr-input-profiles generic-hand-select-grasp.json) has the same layout.
+ *
+ * Reading that like a controller goes wrong: faceButtons sees no axes and picks the compact
+ * layout, so grasp at [4] reads as B and a closed fist fires N (jump to the next waiting worker).
+ *
+ * A source with `hand` set is a hand, whatever its gamepad looks like. Hand input goes through
+ * select/pinch events and joints (updateHolds, updateTouches), never through this gamepad.
+ */
+export function controllerPad(source: XRInputSource | null | undefined): Gamepad | undefined {
+  return source && !source.hand ? (source.gamepad ?? undefined) : undefined;
 }
 
 /**
@@ -769,8 +814,10 @@ export class VRSession {
   private onSelectStart(i: number): void {
     if (!this.active) return;
     const st = this.rays[i];
-    // Hands pinch-hold (per-frame, below); controllers click at once. The test is the hand
-    // joints, not the gamepad: some runtimes also expose a (dead) gamepad on hand sources.
+    // Hands pinch-hold (per-frame, below); controllers click at once. Tell them apart by
+    // `source.hand` (the WebXR Hand Input joints), never by `source.gamepad`: Chromium gives
+    // tracked hands an xr-standard gamepad too ([pinch, pad, pad, pad, grasp], see
+    // controllerPad), so "has a gamepad" is true for Galaxy XR hands as well as controllers.
     if (!st.source?.hand) {
       // Buttons mean a controller: the trigger clicks at once, with a light tick for the press
       // itself (hands have no haptics, and their holds resolve per frame below instead).
@@ -1061,7 +1108,7 @@ export class VRSession {
 
   /** Stick deflection for a ray's gamepad. */
   private stick(i: number): { x: number; y: number } {
-    return decodeThumbstick(this.rays[i]?.source?.gamepad?.axes ?? []);
+    return decodeThumbstick(this.gamepad(i)?.axes ?? []);
   }
 
   /**
@@ -1080,13 +1127,13 @@ export class VRSession {
   /** The glide/climb stick: the left controller's, else the right's when it flies solo. */
   private moveStick(): { x: number; y: number } {
     const r = this.rayFor('left') ?? this.rayFor('right');
-    return decodeThumbstick(r?.source?.gamepad?.axes ?? []);
+    return decodeThumbstick(controllerPad(r?.source)?.axes ?? []);
   }
 
   /** The turn stick: the right controller's, else the left's when it flies solo. */
   private turnStick(): { x: number; y: number } {
     const r = this.rayFor('right') ?? this.rayFor('left');
-    return decodeThumbstick(r?.source?.gamepad?.axes ?? []);
+    return decodeThumbstick(controllerPad(r?.source)?.axes ?? []);
   }
 
   /** Ladder rungs from the glide stick: push up to climb, down to go back. Hands pinch instead (see pinchClimb). */
@@ -1121,8 +1168,9 @@ export class VRSession {
     return dir;
   }
 
+  /** A ray's controller gamepad; undefined for hands (see controllerPad). Every stick and button read goes through this. */
   private gamepad(i: number): Gamepad | undefined {
-    return this.rays[i]?.source?.gamepad ?? undefined;
+    return controllerPad(this.rays[i]?.source);
   }
 
   /**
@@ -1141,7 +1189,11 @@ export class VRSession {
     return Math.hypot(s.x, s.y) > STICK_ON;
   }
 
-  /** Edge-triggered buttons: B/Y or stick-click is N; A hold (or stick-forward) aims a teleport. */
+  /**
+   * Edge-triggered buttons: B/Y or stick-click is N; A hold (or stick-forward) aims a teleport.
+   * Controllers only: this.gamepad() is undefined for a tracked hand, so every read below is
+   * false for hands. Keep it that way (see controllerPad for what a hand's [4] actually is).
+   */
   private pollButtons(): void {
     const rigged = !!this.hooks.player.rig;
     for (let i = 0; i < 2; i++) {
