@@ -3,7 +3,7 @@ import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES, type Look } from '../../shared/av
 import { EMOTE_BY_ID, type Emote, type EmoteId } from '../../shared/emotes';
 import type { CarriedIssue, Theme, WorkerAction, WorkerStatus, WorkerTask } from '../../shared/protocol';
 import type { Drink } from '../../shared/rooftop';
-import { isAsleep } from '../../shared/status';
+import { isAsleep, type WorkerPr } from '../../shared/status';
 import { HIPS } from '../player';
 import { HeldCard } from './card';
 import { UNDEAD_SKIN, elfBoot, elfHat, elfWorker, santaHat, warlockHat, zombieWorker } from './costumes';
@@ -857,6 +857,15 @@ const TASK_CHIP: Record<string, [string, string, string]> = {
   offline: ['💤 ASLEEP', STATUS_BULB.offline, '#ffffff'],
 };
 
+/** A worker's pull request as its bubble shows it: open or merged, and the words to label it with ("🎉 MR !12 merged"). */
+export interface PrBadge {
+  state: WorkerPr['state'];
+  label: string;
+}
+
+/** The outline of a worker's bubble, and its pill, once it has a pull request: GitHub's open green, or the PR board's merged purple. */
+const PR_INK: Record<WorkerPr['state'], string> = { open: '#2da44e', merged: '#9d4edd' };
+
 /**
  * What a worker's body is doing: resting, arms up for joy, arms crossed waiting on you, typing, or
  * acting out its latest tool call.
@@ -1066,6 +1075,8 @@ export class Worker {
   /** The bubble is a task card: it hangs from its tail instead of floating. */
   private bubbleIsCard = false;
   private task: WorkerTask | undefined;
+  /** Its pull request, open or merged: its bubble is outlined (and labelled, while it rests) to match. */
+  private pr: PrBadge | undefined;
   private nameTag: THREE.Sprite | null = null;
   private eyes: THREE.Mesh[] = [];
   private blinkAt = Math.random() * 4;
@@ -1268,6 +1279,11 @@ export class Worker {
     this.drawBubble();
   }
 
+  setPr(pr: PrBadge | undefined) {
+    this.pr = pr;
+    this.drawBubble();
+  }
+
   /** Sent home: its light goes out, its face falls, and its things pop into a box in its arms. `farewell` goes over its head. */
   leave(farewell: string) {
     if (this.leaving) return;
@@ -1318,11 +1334,14 @@ export class Worker {
 
   private drawBubble() {
     if (this.leaving) return;
-    const { status, bouncing: bounce, task } = this;
+    const { status, bouncing: bounce, task, pr } = this;
     const hot = status === 'needs_input' || (status === 'done' && bounce);
     const bg = hot ? (status === 'done' ? '#caffbf' : '#ffd6e0') : status === 'working' ? '#ffec99' : '#fffaf3';
-    const bubble = status === 'needs_input' ? '❗ needs you' : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤' : '';
-    const key = task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble;
+    const border = pr && PR_INK[pr.state];
+    // Not working on or waiting for something more: its pull request in place of ready / done / asleep.
+    const prLabel = pr && status !== 'working' && status !== 'needs_input' && status !== 'starting' ? pr.label : undefined;
+    const bubble = prLabel ?? (status === 'needs_input' ? '❗ needs you' : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤' : '');
+    const key = `${border}|${prLabel}|${task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble}`;
     if (key === this.bubbleKey) return;
     this.bubbleKey = key;
     if (this.bubble) {
@@ -1332,9 +1351,9 @@ export class Worker {
     }
     this.bubbleIsCard = !!task;
     if (task) {
-      const [text, chipBg, color] = TASK_CHIP[status] ?? TASK_CHIP.idle;
-      this.bubble = cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: task.summary, bg: isAsleep(status) ? '#e9ecef' : bg });
-    } else if (bubble) this.bubble = textSprite(bubble, { bg: '#0a0a0a', color: '#eeeeee', border: '#2f2f2f', size: 38 });
+      const [text, chipBg, color] = prLabel && border ? [prLabel.toUpperCase(), border, '#ffffff'] : (TASK_CHIP[status] ?? TASK_CHIP.idle);
+      this.bubble = cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: task.summary, bg: isAsleep(status) ? '#e9ecef' : bg, border });
+    } else if (bubble) this.bubble = textSprite(bubble, { bg: '#0a0a0a', color: '#eeeeee', border: border ?? '#2f2f2f', size: 38 });
     if (this.bubble) this.root.add(this.bubble);
   }
 
