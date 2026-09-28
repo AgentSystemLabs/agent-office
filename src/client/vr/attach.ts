@@ -53,7 +53,7 @@
  */
 
 import * as THREE from 'three';
-import type { ChatLine, FloorInfo, GhIssue, GhPull, GhState, QueueState, WorkerInfo } from '../../shared/protocol';
+import type { ChatLine, FloorInfo, GhIssue, GhPull, GhState, MeetingState, QueueState, WorkerInfo } from '../../shared/protocol';
 import type { JukeboxState } from '../../shared/jukebox';
 import type { VrSettings } from '../state';
 import type { ScreenState } from '../world/laptop';
@@ -75,7 +75,7 @@ export interface VrUiVoice {
 /** Everything the VR UI needs from the office: stores, clients and DOM-shared actions. No globals. */
 export interface VrUiDeps {
   send: (msg: VrTerminalMsg) => void;
-  subscribe: (topic: 'screens' | 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox', fn: () => void) => () => void;
+  subscribe: (topic: 'screens' | 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting', fn: () => void) => () => void;
   getScreen: (workerId: string) => ScreenState | undefined;
   getWorker: (workerId: string) => WorkerInfo | undefined;
   getWorkers: () => WorkerInfo[];
@@ -87,6 +87,7 @@ export interface VrUiDeps {
   getFloors: () => FloorInfo[];
   currentFloor: () => string | null;
   getJukebox: () => JukeboxState;
+  getMeeting: () => MeetingState;
   onRoof: () => boolean;
   barCutOff: () => boolean;
   getVrSettings: () => VrSettings;
@@ -141,7 +142,7 @@ export interface VrUiHandle {
   stickScroll: (rayId: number, axisY: number, dt: number) => void;
   /** Cancels a ray's in-flight press without clicking (disconnect, session end). */
   cancelRay: (rayId: number) => void;
-  /** Shifts head-placed modal panels (prompt + its keyboard) by a teleport's delta. */
+  /** Shifts head-placed modal panels (prompt + its keyboard) by a virtual move's delta. */
   carryAlong: (delta: THREE.Vector3) => void;
   /** Repaints, cursor blink, menu follow. Pass the head pose for follow mode. */
   update: (dt: number, head?: HeadPose | null) => void;
@@ -187,6 +188,7 @@ class VrUi implements VrUiHandle {
         getFloors: deps.getFloors,
         currentFloor: deps.currentFloor,
         getJukebox: deps.getJukebox,
+        getMeeting: deps.getMeeting,
         onRoof: deps.onRoof,
         barCutOff: deps.barCutOff,
         getVrSettings: deps.getVrSettings,
@@ -434,7 +436,7 @@ class VrUi implements VrUiHandle {
     }
   };
 
-  /** A teleport's delta carries the modal panels along (the terminal and its keyboard stay). */
+  /** A virtual move's delta carries the modal panels along (the terminal and its keyboard stay). */
   carryAlong = (delta: THREE.Vector3): void => {
     if (this.prompt.visible) this.prompt.panel.group.position.add(delta);
     if (this.keyboard.visible && this.keyboardExplicit !== undefined) {

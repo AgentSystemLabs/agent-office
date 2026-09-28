@@ -7,12 +7,15 @@
  * Views: main (Hire, Next waiting, Queue, Issues/PRs, Floors, Jukebox, Bar, Chat, Mute, Exit VR),
  * hire (free desks), queue (running/queued/done), board (issues/PRs tabs, read + hand-to-worker),
  * a detail view for one issue or PR, floors (ride the elevator), jukebox (tunes), bar (drinks),
- * chat (the floor's chat + say something), assign (hand an issue to a worker), and settings
+ * chat (the floor's chat + say something), assign (hand an issue to a worker), meeting (the room's
+ * status + call one with the pattern defaults), and settings
  * (glide, turning, turn speed, teleport fade — the ⚙️ Settings VR section, in the headset).
  */
 
 import type * as THREE from 'three';
-import type { ChatLine, FloorInfo, GhIssue, GhPull, GhState, QueueState, QueueTask, WorkerInfo } from '../../shared/protocol';
+import type { ChatLine, FloorInfo, GhIssue, GhPull, GhState, MeetingState, QueueState, QueueTask, WorkerInfo } from '../../shared/protocol';
+import { fmtTokens } from '../../shared/protocol';
+import { MEETING_PATTERNS, meetingSpend } from '../../shared/meetings';
 import { JUKEBOX_TUNES, trackTitle, type JukeboxState } from '../../shared/jukebox';
 import { DRINKS, ROOF, ROOF_NAME, type Drink } from '../../shared/rooftop';
 import { isAsleep } from '../../shared/status';
@@ -23,7 +26,7 @@ import { clampScroll, type HeadPose, type Rect } from './math';
 import { WorldPanel } from './panel';
 
 export interface VrMenuStores {
-  subscribe: (topic: 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox', fn: () => void) => () => void;
+  subscribe: (topic: 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting', fn: () => void) => () => void;
   getWorkers: () => WorkerInfo[];
   getIssues: () => GhState<GhIssue>;
   getPulls: () => GhState<GhPull>;
@@ -41,6 +44,8 @@ export interface VrMenuStores {
   inVoice: () => boolean;
   /** VR locomotion and comfort (the ⚙️ Settings VR section's values, live). */
   getVrSettings: () => VrSettings;
+  /** The meeting room: the meeting at the table, and the ones before. */
+  getMeeting: () => MeetingState;
 }
 
 export interface VrMenuActions {
@@ -64,11 +69,17 @@ export interface VrMenuActions {
   toggleMute: () => void;
   /** Patches VR locomotion/comfort — the DOM ⚙️ Settings VR section's function (assign + save). */
   vrSettings: (patch: Partial<VrSettings>) => void;
+  /** Calls a meeting with the pattern defaults — the DOM meeting form's send (main.ts vrMeeting). */
+  meetingCall: () => void;
+  /** Stops the running meeting — the DOM meeting window's stop (meeting.stop). */
+  meetingStop: () => void;
+  /** Clears the room — the DOM meeting window's clear (meeting.clear). */
+  meetingClear: () => void;
   /** Leaves the immersive session — the XR session owner's exit. */
   exitVr: () => void;
 }
 
-export type MenuView = 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'assign' | 'settings';
+export type MenuView = 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'assign' | 'settings' | 'meeting';
 
 export interface MenuDetail {
   kind: 'issue' | 'pull';
@@ -91,6 +102,15 @@ const JB_STOP: Rect = { x: 0.72, y: 0.015, w: 0.13, h: 0.09 };
 const JB_SKIP: Rect = { x: 0.86, y: 0.015, w: 0.11, h: 0.09 };
 /** Chat view: the "say something" button in the header. */
 const SAY_BTN: Rect = { x: 0.72, y: 0.015, w: 0.25, h: 0.09 };
+/** Header buttons for the meeting view: call one, stop it, or clear the room. */
+const MTG_CALL: Rect = { x: 0.72, y: 0.015, w: 0.25, h: 0.09 };
+const MTG_STOP: Rect = { x: 0.72, y: 0.015, w: 0.25, h: 0.09 };
+const MTG_CLEAR: Rect = { x: 0.72, y: 0.015, w: 0.25, h: 0.09 };
+
+/** A seat's turn in words (the DOM meeting window's PART_LABEL). */
+function partLabel(state: string): string {
+  return { waiting: 'up next', sent: 'handed over', working: 'on it', done: 'written' }[state] ?? state;
+}
 
 /** A worker status in words, without the DOM module's label table. */
 function statusLabel(status: string): string {
@@ -139,7 +159,7 @@ export class VrMenu {
     this.panel = new WorldPanel({ width: widthM, height: heightM, paint: (ctx, w, h, _dirty, state) => this.paint(ctx, w, h, state) });
     this.panel.setScrollRegion('list', BODY);
     this.panel.setVisible(false);
-    this.unsubs = (['workers', 'issues', 'pulls', 'queue', 'chat', 'floors', 'floor', 'jukebox'] as const).map((t) => stores.subscribe(t, () => this.refresh()));
+    this.unsubs = (['workers', 'issues', 'pulls', 'queue', 'chat', 'floors', 'floor', 'jukebox', 'meeting'] as const).map((t) => stores.subscribe(t, () => this.refresh()));
     this.syncButtons();
   }
 
@@ -283,6 +303,14 @@ export class VrMenu {
       { id: 'jukebox', icon: '🎵', title: 'Jukebox', sub: () => (j.on ? trackTitle(j) : 'off — pick a tune') },
       { id: 'chat', icon: '💬', title: 'Chat', sub: () => { const c = this.chatLines(); return c.length ? `${c[c.length - 1].name}: ${c[c.length - 1].text.slice(0, 24)}` : 'say hi to the floor'; } },
       {
+        id: 'meeting', icon: '🤝', title: 'Meeting room',
+        sub: () => {
+          const m = this.stores.getMeeting().current;
+          if (!m) return 'the table is empty · call one';
+          return m.status === 'running' ? `🔴 ${m.title}` : `${m.status} · ${m.title}`;
+        },
+      },
+      {
         id: 'mute', icon: this.stores.isMuted() ? '🔇' : '🎙️', title: this.stores.isMuted() ? 'Unmute' : 'Mute',
         sub: () => (this.stores.inVoice() ? 'in voice (M)' : 'not in voice'),
       },
@@ -328,6 +356,13 @@ export class VrMenu {
     }
     if (this.view === 'chat') {
       buttons.push({ id: 'say', rect: SAY_BTN, onClick: () => this.onChatSay?.() });
+    }
+    if (this.view === 'meeting') {
+      const m = this.stores.getMeeting().current;
+      // One header button, whatever the state: the ended summary row taps to call another.
+      if (!m) buttons.push({ id: 'mtg:call', rect: MTG_CALL, onClick: () => this.actions.meetingCall() });
+      else if (m.status === 'running') buttons.push({ id: 'mtg:stop', rect: MTG_STOP, onClick: () => this.actions.meetingStop() });
+      else buttons.push({ id: 'mtg:clear', rect: MTG_CLEAR, onClick: () => this.actions.meetingClear() });
     }
     if (this.view === 'detail' && this.detail) {
       const d = this.detail;
@@ -379,6 +414,10 @@ export class VrMenu {
     if (this.view === 'chat') return Math.max(1, this.chatLines().length);
     if (this.view === 'assign') return Math.max(1, this.awakeWorkers().length);
     if (this.view === 'settings') return this.settingsRows().length;
+    if (this.view === 'meeting') {
+      const m = this.stores.getMeeting().current;
+      return m ? m.seats.length + 1 : 0;
+    }
     // board
     return this.boardTab === 'issues' ? Math.max(1, this.openIssues().length) : Math.max(1, this.openPulls().length);
   }
@@ -393,6 +432,7 @@ export class VrMenu {
       case 'jukebox': return this.go('jukebox');
       case 'bar': return this.go('bar');
       case 'chat': return this.go('chat');
+      case 'meeting': return this.go('meeting');
       case 'mute': return this.actions.toggleMute();
       case 'settings': return this.go('settings');
       case 'controls': return this.onShowControls?.();
@@ -434,6 +474,19 @@ export class VrMenu {
       return;
     }
     if (this.view === 'chat') return; // lines are read-only; ✍️ says something
+    if (this.view === 'meeting') {
+      // Row 0 is the summary (tap it to call another once the room is free); a seat opens
+      // its worker's terminal, like the queue rows.
+      if (i === 0) {
+        const m = this.stores.getMeeting().current;
+        if (m && m.status !== 'running') this.actions.meetingCall();
+        return;
+      }
+      const seat = this.stores.getMeeting().current?.seats[i - 1];
+      const w = seat?.workerId ? this.stores.getWorkers().find((x) => x.id === seat.workerId) : undefined;
+      if (w) this.onOpenTerminal?.(w.id);
+      return;
+    }
     if (this.view === 'settings') {
       const s = this.stores.getVrSettings();
       if (i === 0) this.actions.vrSettings({ glide: !s.glide });
@@ -501,16 +554,17 @@ export class VrMenu {
     ctx.roundRect(0, 0, w, h, Math.round(h * 0.02));
     ctx.clip();
 
-    const title = this.view === 'main' ? '☰ Menu' : this.view === 'hire' ? '✨ Hire worker' : this.view === 'queue' ? '📋 Task queue' : this.view === 'board' ? '📌 Issues / PRs' : this.view === 'floors' ? '🛗 Floors' : this.view === 'jukebox' ? '🎵 Jukebox' : this.view === 'bar' ? '🍸 Sky Bar' : this.view === 'chat' ? '💬 Chat' : this.view === 'settings' ? '⚙️ VR settings' : this.view === 'assign' ? `🤖 Hand #${this.assignTarget?.number ?? ''} to…` : this.detailTitle();
+    const title = this.view === 'main' ? '☰ Menu' : this.view === 'hire' ? '✨ Hire worker' : this.view === 'queue' ? '📋 Task queue' : this.view === 'board' ? '📌 Issues / PRs' : this.view === 'floors' ? '🛗 Floors' : this.view === 'jukebox' ? '🎵 Jukebox' : this.view === 'bar' ? '🍸 Sky Bar' : this.view === 'chat' ? '💬 Chat' : this.view === 'settings' ? '⚙️ VR settings' : this.view === 'meeting' ? '🤝 Meeting room' : this.view === 'assign' ? `🤖 Hand #${this.assignTarget?.number ?? ''} to…` : this.detailTitle();
     ctx.fillStyle = '#eeeeee';
     ctx.font = `700 ${Math.round(h * 0.042)}px ${TERM_FONT}`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    ctx.fillText(title, w * (this.view === 'main' ? 0.05 : 0.22), h * HEADER_H * 0.55, w * (this.view === 'board' ? 0.3 : this.view === 'jukebox' || this.view === 'chat' ? 0.34 : 0.5));
+    ctx.fillText(title, w * (this.view === 'main' ? 0.05 : 0.22), h * HEADER_H * 0.55, w * (this.view === 'board' ? 0.3 : this.view === 'jukebox' || this.view === 'chat' || this.view === 'meeting' ? 0.34 : 0.5));
     if (this.view !== 'main') this.paintBack(ctx, w, h, state);
     if (this.view === 'board') this.paintTabs(ctx, w, h, state);
     if (this.view === 'jukebox') this.paintTransport(ctx, w, h, state);
     if (this.view === 'chat') this.paintSay(ctx, w, h, state);
+    if (this.view === 'meeting') this.paintMeetingBtns(ctx, w, h, state);
     ctx.strokeStyle = '#ee6018';
     ctx.lineWidth = Math.max(2, h * 0.004);
     ctx.beginPath();
@@ -597,6 +651,25 @@ export class VrMenu {
     ctx.textBaseline = 'alphabetic';
   }
 
+  private paintMeetingBtns(ctx: CanvasRenderingContext2D, w: number, h: number, state: { hoverId: string | null; pressedId: string | null }) {
+    const m = this.stores.getMeeting().current;
+    const btns: { id: string; label: string; r: Rect }[] = !m
+      ? [{ id: 'mtg:call', label: '🤝 call', r: MTG_CALL }]
+      : m.status === 'running'
+        ? [{ id: 'mtg:stop', label: '⏹ stop', r: MTG_STOP }]
+        : [{ id: 'mtg:clear', label: '🧹 clear', r: MTG_CLEAR }];
+    for (const b of btns) {
+      this.pill(ctx, b.r, w, h, b.id, state);
+      ctx.fillStyle = '#eeeeee';
+      ctx.font = `700 ${Math.round(b.r.h * h * 0.36)}px ${TERM_FONT}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(b.label, (b.r.x + b.r.w / 2) * w, (b.r.y + b.r.h / 2) * h);
+    }
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+  }
+
   private paintMain(ctx: CanvasRenderingContext2D, w: number, h: number, state: { hoverId: string | null; pressedId: string | null }) {
     const items = this.mainItems();
     items.forEach((item, i) => {
@@ -661,6 +734,7 @@ export class VrMenu {
     if (this.view === 'queue' && count === 0) this.centerNote(ctx, w, 'Nothing on the queue', h);
     if (this.view === 'chat' && !this.chatLines().length) this.centerNote(ctx, w, 'Quiet on this floor — say hi ✍️', h);
     if (this.view === 'assign' && !this.awakeWorkers().length) this.centerNote(ctx, w, 'Nobody awake — hire a worker first', h);
+    if (this.view === 'meeting' && !this.stores.getMeeting().current) this.centerNote(ctx, w, 'The table is empty — 🤝 call one', h);
     ctx.restore();
     // Scrollbar.
     if (count > visible) {
@@ -734,6 +808,10 @@ export class VrMenu {
       this.rowText(ctx, r.icon, r.title, r.sub, x, y, bw, rh);
       return;
     }
+    if (this.view === 'meeting') {
+      this.paintMeetingRow(ctx, i, x, y, bw, rh);
+      return;
+    }
     if (this.view === 'queue') {
       const l = this.queueLists();
       const all: { t: QueueTask; icon: string }[] = [
@@ -759,6 +837,29 @@ export class VrMenu {
       if (!pr) return;
       this.rowText(ctx, pr.isDraft ? '📝' : '🔀', `#${pr.number} ${pr.title}`, `${pr.author} · +${pr.additions}/-${pr.deletions}`, x, y, bw, rh);
     }
+  }
+
+  /** The meeting view's rows: the summary first, then a row per seat (the DOM window, trimmed). */
+  private paintMeetingRow(ctx: CanvasRenderingContext2D, i: number, x: number, y: number, bw: number, rh: number) {
+    const m = this.stores.getMeeting().current;
+    if (!m) return;
+    const p = MEETING_PATTERNS[m.pattern];
+    if (i === 0) {
+      const title = m.status === 'running' ? `${p.icon} ${m.title}` : m.status === 'done' ? `✅ ${m.title}` : `⛔ ${m.title}`;
+      const doing = [...new Set(m.turns.filter((t) => t.state !== 'done').map((t) => t.doing))].join(', ');
+      const sub = m.status === 'running'
+        ? `Round ${m.round} of ${m.rounds}${doing ? ` · ${doing}` : ''} · ${meetingSpend(m)} of ${fmtTokens(m.budget)}`
+        : m.status === 'done'
+          ? `Wrote ${m.output} in ${m.round} round${m.round === 1 ? '' : 's'} · tap to call another`
+          : `Stopped in round ${m.round} · tap to call another`;
+      this.rowText(ctx, '🤝', title, sub, x, y, bw, rh);
+      return;
+    }
+    const seat = m.seats[i - 1];
+    if (!seat) return;
+    const turn = m.turns.find((t) => t.seat === i - 1);
+    const part = m.status === 'running' ? (turn ? `${partLabel(turn.state)}: ${turn.doing}` : 'listening') : seat.tokens ? `${fmtTokens(seat.tokens)} tokens` : 'sat in';
+    this.rowText(ctx, i === 1 ? '👑' : '💺', seat.role, `${seat.workerName ?? '…'} · ${part}`, x, y, bw, rh);
   }
 
   private rowText(ctx: CanvasRenderingContext2D, icon: string, title: string, sub: string, x: number, y: number, bw: number, rh: number) {

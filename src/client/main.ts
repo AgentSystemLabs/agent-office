@@ -5,7 +5,7 @@ import { sameLook } from '../shared/avatar';
 import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, LADDER, LOFT, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, STOREY, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, roofDrop, seatAt, seatPlace, streetBelow, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
 import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
-import { MEETING_PATTERNS } from '../shared/meetings';
+import { MEETING_PATTERNS, defaultMeetingRequest } from '../shared/meetings';
 import { isAsleep, isBusy } from '../shared/status';
 import { Net } from './net';
 import { store, loadProfile, loadSettings, saveSettings, workerForPull, type Profile, type Topic } from './state';
@@ -330,43 +330,46 @@ player.view = settings.view;
 // and the Enter VR button stays hidden where XR is unavailable.
 /** World-space VR panels (menu, terminal, keyboard): attached on session enter, disposed on end. Null on desktop. */
 let vrUi: VrUiHandle | null = null;
+/** E in VR: modal flows open world-space panels instead of invisible DOM windows. The carried card drops first, exactly as on desktop; what stays physical falls through to use(). */
+function vrUseE(it: Interactable | null, note: GhIssue | null) {
+  // On the ladder, E gets you off it — exactly like the desktop key, before everything else.
+  if (climber.active) {
+    climber.letGo();
+    return;
+  }
+  // Aiming at nothing (the ladder's let-go fires this way too): E lands on nothing, as on desktop.
+  if (!it) return;
+  if (vrUi) {
+    if (carrying && dropCard(it, carrying, note)) return;
+    if (it.kind === 'desk' && it.deskId) {
+      const w = store.workerAtDesk(it.deskId);
+      // Nobody is hired at the meeting table: E there opens the room, like the desktop key.
+      if (!w && DESK_BY_ID.get(it.deskId)?.room) return vrUi.showMenu('meeting');
+      if (w) vrUi.openTerminal(w.id);
+      else vrHire(it.deskId);
+      return;
+    }
+    if (it.kind === 'station' && it.deskId) {
+      vrAskStation(it.deskId);
+      return;
+    }
+    if (it.kind === 'elevator') return vrUi.showMenu('floors');
+    if (it.kind === 'issues' || it.kind === 'pulls') return vrUi.showMenu('board');
+    if (it.kind === 'queue') return vrUi.showMenu('queue');
+    if (it.kind === 'jukebox') return vrUi.showMenu('jukebox');
+    if (it.kind === 'bar') return vrUi.showMenu('bar');
+    if (it.kind === 'meeting') return vrUi.showMenu('meeting');
+    if (it.kind === 'whiteboard' || it.kind === 'services' || it.kind === 'tv' || it.kind === 'decor' || it.kind === 'cabinet') {
+      toast(`The ${it.kind} isn't in VR yet — hop on the desktop for that one`, 'warn');
+      return;
+    }
+  }
+  use(it, 'E', note);
+}
 const vr = new VRSession(renderer, scene, camera, {
   player,
   settings,
-  useE: (it, note) => {
-    // On the ladder, E gets you off it — exactly like the desktop key, before everything else.
-    if (climber.active) {
-      climber.letGo();
-      return;
-    }
-    // Aiming at nothing (the ladder's let-go fires this way too): E lands on nothing, as on desktop.
-    if (!it) return;
-    // In VR, modal flows open world-space panels instead of invisible DOM windows. The carried
-    // card drops first, exactly as on desktop; what stays physical falls through to use().
-    if (vrUi) {
-      if (carrying && dropCard(it, carrying, note)) return;
-      if (it.kind === 'desk' && it.deskId) {
-        const w = store.workerAtDesk(it.deskId);
-        if (w) vrUi.openTerminal(w.id);
-        else vrHire(it.deskId);
-        return;
-      }
-      if (it.kind === 'station' && it.deskId) {
-        vrAskStation(it.deskId);
-        return;
-      }
-      if (it.kind === 'elevator') return vrUi.showMenu('floors');
-      if (it.kind === 'issues' || it.kind === 'pulls') return vrUi.showMenu('board');
-      if (it.kind === 'queue') return vrUi.showMenu('queue');
-      if (it.kind === 'jukebox') return vrUi.showMenu('jukebox');
-      if (it.kind === 'bar') return vrUi.showMenu('bar');
-      if (it.kind === 'meeting' || it.kind === 'whiteboard' || it.kind === 'services' || it.kind === 'tv' || it.kind === 'decor' || it.kind === 'cabinet') {
-        toast(`The ${it.kind} isn't in VR yet — hop on the desktop for that one`, 'warn');
-        return;
-      }
-    }
-    use(it, 'E', note);
-  },
+  useE: vrUseE,
   pickFromRay: (ray, slack) => pickFromRay(ray, slack),
   noteUnder: (aim) => noteUnder(aim),
   nextWaiting: () => goToNextWaiting(),
@@ -402,6 +405,7 @@ const vr = new VRSession(renderer, scene, camera, {
       onRoof: () => upTop,
       barCutOff: () => booze.cutOff(performance.now() / 1000),
       getVrSettings: () => settings.vr,
+      getMeeting: () => store.meeting,
       voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => voice.toggleMute() },
       actions: {
         hire: (deskId) => vrHire(deskId),
@@ -414,6 +418,9 @@ const vr = new VRSession(renderer, scene, camera, {
           const d = DRINK_BY_ID.get(id);
           if (d) orderDrink(d);
         },
+        meetingCall: () => vrMeeting(),
+        meetingStop: () => net.send({ t: 'meeting.stop' }),
+        meetingClear: () => net.send({ t: 'meeting.clear' }),
         sendChat: (text) => net.send({ t: 'chat', text }),
         vrSettings: (patch) => {
           Object.assign(settings.vr, patch);
@@ -455,7 +462,7 @@ if (new URLSearchParams(location.search).has('vrtest')) {
       g.getWorldPosition(v);
       return [v.x, v.y, v.z] as [number, number, number];
     },
-    showMenu: (view: 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'assign' | 'settings') => vrUi?.showMenu(view),
+    showMenu: (view: 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'assign' | 'settings' | 'meeting') => vrUi?.showMenu(view),
     // Hides the dash (controls card + menu) so the rays aim at the world, not a panel.
     hideDash: () => {
       vrUi?.controls.hide();
@@ -485,6 +492,13 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     },
     // Types into the focused VR terminal (the VR keyboard's path, without aiming at keys).
     type: (text: string) => vrUi?.terminal.type(text),
+    // Clicks a menu/prompt button by id (the panel's own button registry + onClick).
+    mclick: (id: string) => vrUi?.menu.panel.clickButton(id) ?? false,
+    promptButton: (id: string) => vrUi?.prompt.panel.clickButton(id) ?? false,
+    // The menu's current view (E-routing checks read this back).
+    menuView: () => vrUi?.menu.currentView() ?? null,
+    // E through the session's own dispatch, at a made-up target (E-routing checks).
+    tapUse: (kind: string, deskId?: string) => vrUseE({ kind, deskId } as Interactable, null),
     // What the VR prompt field holds (assert scripts read this back after pressing keys).
     promptText: () => vrUi?.promptText() ?? null,
     // Downs shots for the drunk-in-VR check (strength adds up; water sobers): returns the level.
@@ -1596,6 +1610,38 @@ function vrAskStation(deskId: string) {
     onSubmit: (text) => {
       const c = rememberedChoice(store.project, `desk:${deskId}`);
       net.send({ t: 'station.prompt', deskId, prompt: text, provider: c.provider, model: c.model, effort: c.effort });
+    },
+  });
+}
+/** The meeting view's 🤝 call in VR: what's it about, an optional title, then a debate with the pattern defaults (seats, rounds, output, budget) on the meeting engine. */
+function vrMeeting() {
+  if (!vrUi) return;
+  if (store.meeting.current?.status === 'running') {
+    toast(`The room is busy with “${store.meeting.current.title}” until it ends or someone stops it`, 'warn');
+    return;
+  }
+  vrUi.askText({
+    title: '🤝 Call a meeting',
+    subtitle: '🗣️ Debate · 3 workers · a decision doc at the end',
+    placeholder: 'The question to settle…',
+    submitLabel: 'Next →',
+    onSubmit: (about) => {
+      vrUi?.askText({
+        title: '🤝 Call a meeting',
+        subtitle: about.length > 42 ? `${about.slice(0, 41)}…` : about,
+        placeholder: 'Title (optional)',
+        submitLabel: 'Start it 🤝',
+        allowEmpty: true,
+        onSubmit: (title) => {
+          if (store.meeting.current?.status === 'running') {
+            toast(`The room is busy with “${store.meeting.current.title}” until it ends or someone stops it`, 'warn');
+            return;
+          }
+          const c = rememberedChoice(store.project, 'meeting');
+          net.send({ t: 'meeting.start', ...defaultMeetingRequest(about, title || undefined, c) });
+          toast('🤝 Calling the Debate meeting: the workers are heading for the meeting room');
+        },
+      });
     },
   });
 }

@@ -85,7 +85,7 @@ const tasks: QueueTask[] = [
   { id: 't4', title: 'Old task with a PR', prompt: 'old', addedBy: 'nik', addedAt: now - 8000000, status: 'done', finishedAt: now - 7000000, outcome: 'done', workerName: 'Sam', pr: { number: 42, url: '#', title: 'Fix ghost dog collision', state: 'OPEN' } },
 ];
 
-type Topic = 'screens' | 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox';
+type Topic = 'screens' | 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting';
 const subs = new Map<Topic, Set<() => void>>();
 function emit(t: Topic) {
   subs.get(t)?.forEach((fn) => fn());
@@ -140,6 +140,7 @@ const deps: VrUiDeps = {
   getFloors: () => floors,
   currentFloor: () => 'f1',
   getJukebox: () => jukebox,
+  getMeeting: () => ({ current: null, past: [] }),
   onRoof: () => false,
   barCutOff: () => false,
   getVrSettings: () => ({ glide: false, turn: 'snap', turnSpeed: 90, fade: true }),
@@ -152,6 +153,9 @@ const deps: VrUiDeps = {
     ride: (floorId) => log('ride to', floorId),
     jukebox: (op, track) => log('jukebox', op, track ?? ''),
     orderDrink: (id) => log('order drink', id),
+    meetingCall: () => log('call a meeting (would open the VR meeting prompts)'),
+    meetingStop: () => log('stop the meeting'),
+    meetingClear: () => log('clear the room'),
     sendChat: (text) => log('say', text),
     vrSettings: (patch) => log('VR settings', JSON.stringify(patch)),
     exitVr: () => log('exit VR (would end the XR session)'),

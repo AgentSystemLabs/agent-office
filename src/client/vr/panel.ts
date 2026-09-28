@@ -168,6 +168,14 @@ export class WorldPanel {
     this.markDirty();
   }
 
+  /** Clicks a button by id (the emulator hook's way to press menu/prompt buttons). */
+  clickButton(id: string): boolean {
+    const btn = this.buttons.find((b) => b.id === id);
+    if (!btn || !this.visible) return false;
+    btn.onClick();
+    return true;
+  }
+
   /** Adds or moves a scroll region; content sizes arrive via setScrollContent during paint. */
   setScrollRegion(id: string, rect: Rect) {
     const cur = this.scrolls.get(id);

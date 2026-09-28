@@ -255,6 +255,7 @@ const _d = new THREE.Vector3();
 const _h = new THREE.Vector3();
 const _l = new THREE.Vector3();
 const _e = new THREE.Vector3();
+const _u = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _f = new THREE.Vector3();
 const _m = new THREE.Matrix4();
@@ -295,7 +296,7 @@ export interface VRUiSink {
   stickScroll: (rayId: number, axisY: number, dt: number) => void;
   /** Cancels a ray's in-flight press without clicking (disconnect, session end). */
   cancelRay: (rayId: number) => void;
-  /** Shifts head-placed modal panels (prompt + its keyboard) by a teleport's delta. */
+  /** Shifts head-placed modal panels (prompt + its keyboard) by a virtual move's delta. */
   carryAlong: (delta: THREE.Vector3) => void;
   update: (dt: number, head?: HeadPose | null) => void;
   toggleMenu: () => void;
@@ -1177,6 +1178,13 @@ export class VRSession {
     const d = this.sway;
     this.dolly.rotation.z = d > 0 ? d * (0.07 * Math.sin(t * 0.9) + 0.025 * Math.sin(t * 2.3 + 1)) : 0;
     this.dolly.rotation.x = d > 0 ? d * 0.03 * Math.sin(t * 0.7 + 2) : 0;
+    // Virtual moves carry the modal panels (teleports, glides, N, falls, elevator rides):
+    // whatever moved the avatar since last frame, in full 3D. Room-scale walking leaves them
+    // world-fixed — when you walk on your feet, staying put is correct.
+    if (!roomMoved) {
+      _u.subVectors(player.pos, this.lastAvatar);
+      if (_u.lengthSq() > 1e-10) this.ui?.carryAlong(_u);
+    }
     this.lastAvatar.copy(player.pos);
     player.moving = this.glideActive || roomMoved || _e.length() > 1e-4 || this.fade !== 'idle';
     player.facing = this.headFacing();
@@ -1220,15 +1228,11 @@ export class VRSession {
 
   private placeAvatar(at: THREE.Vector3): void {
     const { player } = this.hooks;
-    _e.set(at.x - player.pos.x, at.y - player.pos.y, at.z - player.pos.z);
     player.pos.set(at.x, at.y, at.z);
     player.vy = 0;
     player.grounded = true;
     this.snapGround();
-    // A teleport mid-prompt would strand the question at the far side of the room: the modal
-    // panels ride along (the menu/controls/toast follow the head anyway; the terminal stays).
-    _e.y += player.pos.y - at.y;
-    if (_e.lengthSq() > 1e-10) this.ui?.carryAlong(_e);
+    // followHead carries the rig and the modal panels off the move next frame.
   }
 
   private updateFade(dt: number): void {

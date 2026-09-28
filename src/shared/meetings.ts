@@ -1,7 +1,7 @@
 // The meeting room's patterns: how 2–5 workers at the table work on one question or task together.
 // The server runs them (server/meetings.ts); the client offers them when a meeting is called.
 
-import { fmtCost, fmtTokens, type Meeting, type MeetingPattern, type MeetingRecord } from './protocol.js';
+import { fmtCost, fmtTokens, type AgentEffort, type AgentProvider, type Meeting, type MeetingPattern, type MeetingRecord, type MeetingRequest } from './protocol.js';
 
 export interface PatternDef {
   icon: string;
@@ -148,4 +148,27 @@ export function meetingSummary(m: Meeting): string {
 
 export function meetingRecord(m: Meeting): MeetingRecord {
   return { id: m.id, pattern: m.pattern, title: m.title, status: m.status, summary: meetingSummary(m), calledBy: m.calledBy, finishedAt: m.finishedAt ?? Date.now(), branch: m.worktree?.branch, output: m.output };
+}
+
+/**
+ * A meeting with everything the form would default to: a debate, the pattern's default seats,
+ * rounds and output, a per-seat token budget, and the caller's engine. The VR call flow sends
+ * this (two prompts, no knobs); the desktop form sends the same shape with chosen values.
+ */
+export function defaultMeetingRequest(prompt: string, title: string | undefined, engine: { provider: AgentProvider; model?: string; effort?: AgentEffort }): MeetingRequest {
+  const def = MEETING_PATTERNS.debate;
+  const roles = def.roles.slice(0, def.seats.default);
+  const slug = slugify(title?.trim() || prompt.trim().split('\n')[0] || 'meeting', 32);
+  return {
+    pattern: 'debate',
+    prompt,
+    title: title?.trim() || undefined,
+    output: def.output(slug),
+    roles: [...roles],
+    rounds: def.rounds.default,
+    budget: roles.length * TOKENS_PER_SEAT,
+    provider: engine.provider,
+    model: engine.model,
+    effort: engine.effort,
+  };
 }

@@ -278,3 +278,23 @@ test('only the real meeting patterns pass, not what every object inherits', () =
   for (const id of MEETING_PATTERN_IDS) assert.equal(isMeetingPattern(id), true);
   for (const v of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf', '', 'nope', 1, null, undefined]) assert.equal(isMeetingPattern(v), false, String(v));
 });
+
+test('the VR call flow sends a debate with the pattern defaults', async () => {
+  const { defaultMeetingRequest, MEETING_PATTERNS, TOKENS_PER_SEAT } = await import('../src/shared/meetings.js');
+  const req = defaultMeetingRequest('Should the dog use A* or a navmesh?', undefined, { provider: 'droid' });
+  const def = MEETING_PATTERNS.debate;
+  assert.equal(req.pattern, 'debate');
+  assert.equal(req.prompt, 'Should the dog use A* or a navmesh?');
+  assert.equal(req.title, undefined);
+  assert.deepEqual(req.roles, def.roles.slice(0, def.seats.default));
+  assert.equal(req.rounds, def.rounds.default);
+  assert.equal(req.budget, def.seats.default * TOKENS_PER_SEAT);
+  assert.equal(req.provider, 'droid');
+  assert.equal(req.model, undefined);
+  // The output defaults to the pattern's, slugged from the first line when untitled.
+  assert.equal(req.output, def.output('should-the-dog-use-a-or-a-navmes'));
+  const titled = defaultMeetingRequest('Does not matter', 'Pick a cache!', { provider: 'claude', model: 'opus', effort: 'high' });
+  assert.equal(titled.title, 'Pick a cache!');
+  assert.equal(titled.output, def.output('pick-a-cache'));
+  assert.equal(titled.model, 'opus');
+});
