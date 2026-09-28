@@ -2314,6 +2314,10 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => {
   if (e.code === 'KeyG') emoteWheel.release();
 });
+// Letting go of V mutes you again, wherever the key comes up: a window or a terminal opened meanwhile,
+// or another app (the browser never says the key came up there).
+window.addEventListener('keyup', (e) => e.code === 'KeyV' && voice.stopTalking(), true);
+window.addEventListener('blur', () => voice.stopTalking());
 
 /** The office's own keys; false for any other key, which is left to walking and the browser. */
 function officeKey(e: KeyboardEvent): boolean {
@@ -2337,7 +2341,10 @@ function officeKey(e: KeyboardEvent): boolean {
       hud.toggleMenu();
       return true;
     case 'KeyV':
-      void toggleVoice();
+      // Joins voice; in it, it's push to talk (let go and you're muted, above).
+      if (e.repeat) return true;
+      if (voice.inVoice) voice.startTalking();
+      else void joinVoice();
       return true;
     case 'KeyM':
       voice.toggleMute();
@@ -2532,10 +2539,13 @@ store.on('chat', renderChat);
 // ---- Voice & screen share ---------------------------------------------------------------------------
 async function toggleVoice() {
   if (voice.inVoice) voice.leaveVoice();
-  else {
-    const err = await voice.joinVoice();
-    if (err) toast(err, 'warn');
-  }
+  else await joinVoice();
+}
+
+async function joinVoice() {
+  const err = await voice.joinVoice(settings.pushToTalk);
+  if (err) toast(err, 'warn');
+  else if (settings.pushToTalk && voice.inVoice) toast('🎙️ In voice, muted: hold V to talk');
 }
 
 async function toggleShare() {
@@ -2625,9 +2635,22 @@ const hud = mountHud(
     { id: 'search', icon: '🔎', label: 'Search', section: 'Open', key: '/', title: () => 'Search the chat and every terminal', run: showSearch },
     { id: 'elevator', icon: '🛗', label: 'Elevator', section: 'Open', count: () => store.floors.reduce((n, f) => n + (f.id === store.floor ? 0 : f.waiting), 0), title: () => 'Ride to another project', run: showElevator },
     { id: 'roof', icon: '🍸', label: 'Rooftop bar', section: 'Open', shown: () => !upTop && builtFloors().length > 0, title: () => 'Ride the elevator up to the roof: a DJ, drinks and the city', run: () => ride(ROOF) },
-    { id: 'voice', icon: '🎙️', label: () => (voice.inVoice ? 'Leave voice' : 'Join voice'), section: 'Together', key: 'V', on: () => voice.inVoice, blocked: noMedia, run: () => void toggleVoice() },
-    // While you're in voice, the top bar keeps the mute button handy.
-    { id: 'mute', icon: () => (voice.muted ? '🔇' : '🎙️'), label: () => (voice.muted ? 'Unmute' : 'Mute'), section: 'Together', key: 'M', shown: () => voice.inVoice, status: () => voice.inVoice, on: () => voice.inVoice, tone: () => (voice.muted ? 'danger' : undefined), title: () => (voice.muted ? 'Unmute (M)' : 'Mute (M)'), run: () => voice.toggleMute() },
+    // In voice, V is push to talk, so leaving is only from here.
+    { id: 'voice', icon: '🎙️', label: () => (voice.inVoice ? 'Leave voice' : 'Join voice'), section: 'Together', key: () => (voice.inVoice ? undefined : 'V'), on: () => voice.inVoice, blocked: noMedia, run: () => void toggleVoice() },
+    // While you're in voice, the top bar keeps the mute button handy. Muted is the usual with push to talk, so it doesn't stand out then.
+    {
+      id: 'mute',
+      icon: () => (voice.muted ? '🔇' : '🎙️'),
+      label: () => (voice.muted ? 'Unmute' : 'Mute'),
+      section: 'Together',
+      key: 'M',
+      shown: () => voice.inVoice,
+      status: () => voice.inVoice,
+      on: () => voice.inVoice,
+      tone: () => (voice.muted && !settings.pushToTalk ? 'danger' : undefined),
+      title: () => (voice.muted ? 'Muted: hold V to talk, or M to unmute' : 'Mute (M) · hold V to talk'),
+      run: () => voice.toggleMute(),
+    },
     { id: 'share', icon: '🖥️', label: () => (voice.sharing ? 'Stop sharing' : 'Share screen'), section: 'Together', on: () => voice.sharing, status: () => voice.sharing, chip: () => 'Sharing', blocked: noMedia, run: () => void toggleShare() },
     { id: 'decor', icon: '🖼️', label: () => (hanger.active ? 'Stop hanging the picture' : 'Hang a picture'), section: 'Together', key: 'F', on: () => hanger.active, status: () => hanger.active, run: () => (hanger.active ? hanger.cancel() : startHanging()) },
     { id: 'team', icon: '👥', label: 'Invite teammates', section: 'Together', shown: () => store.invites, run: () => openTeam(net) },
@@ -2676,8 +2699,14 @@ function showSettings() {
     net,
     settings,
     (s) => {
+      // Switching to push to talk mutes you now; back to an open mic turns it on.
+      const talkChanged = s.pushToTalk !== settings.pushToTalk;
       Object.assign(settings, s);
       saveSettings(settings);
+      if (talkChanged) {
+        voice.setMuted(settings.pushToTalk);
+        hud.refresh();
+      }
       player.setView(settings.view);
       sound.setVolume(settings.volume, settings.muted);
       sound.setMusicVolume(settings.music, settings.musicMuted);
