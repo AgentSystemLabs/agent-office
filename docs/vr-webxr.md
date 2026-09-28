@@ -33,7 +33,7 @@ menu's ❓ row brings it back).
 |---|---|
 | Trigger / pinch tap | **E** on whatever the ray points at (desks, boards, elevator, gong, dog, seats…) |
 | Pinch hold (hands) | Aim a teleport arc; release to go (green lands, red doesn't) |
-| Both hands pinch-hold | Toggle the ☰ menu (the hands' squeeze) |
+| Both hands pinch-hold, rays off the panels | Toggle the ☰ menu (the hands' squeeze) |
 | Squeeze | Cancel: the carried issue card goes back, else the topmost window closes, else ☰ |
 | B / Y, or stick click | **N**: go to the next worker waiting on someone |
 | Hold A / X | Aim a teleport arc; release to go (green lands, red doesn't) |
@@ -41,6 +41,7 @@ menu's ❓ row brings it back).
 | Left stick (glide on) | Smooth glide in the stick direction, relative to where you look |
 | Right stick sideways | Snap-turn 45° per push (or smooth-turn, see Settings) |
 | Left stick sideways (glide off) | Snap-/smooth-turn, for single-stick headsets |
+| On a ladder: stick up/down, or pinch-hold right/left | Climb up / back down (E, or a quick pinch tap, lets go) |
 | Walk around the room | Room-scale: the avatar follows the headset through the usual collision |
 
 Trigger is the controller `select` event, fired at once; a hand-tracked pinch resolves per
@@ -60,6 +61,16 @@ desktop users see the VR user walk, glide, turn and teleport like anyone else.
 
 Persisted in the existing settings store (`Settings.vr`, localStorage) like everything else.
 
+## World-space UI
+
+E in VR opens panels floating in the office, not DOM modals: the ☰ menu (hire, queue,
+board, floors, jukebox, chat, settings), worker terminals, the prompt + QWERTY keyboard,
+the controls card, and a toast mirror. Both rays press independently (two-handed typing),
+held keys repeat like a desktop board, and the prompt + keyboard ride teleports along.
+Head-placed panels draw through walls (below the cursor dots); the terminal stays
+depth-tested furniture. The menu, controls card and toast glide after the head; the
+terminal, prompt and keyboard stay where they opened so you can lean in.
+
 ## What VR reuses, and what it skips
 
 - **Interact dispatch**: `interact()` / `use()` are called untouched — trigger is literally E
@@ -68,17 +79,15 @@ Persisted in the existing settings store (`Settings.vr`, localStorage) like ever
 - **Collision**: gliding, room-scale and teleport landings use the player collision
   (`stepTo`, `blockedAt`, `groundBelow` on `PlayerController`). Ladders, poles, seats and the
   elevator work via the same E dispatch; N and floor changes rebase the rig.
-- **Skipped in the headset**: the cartoon first-person hands (your hands are real), drunk-vision
-  post (render targets don't mix with the XR framebuffer), and the DOM fade (an in-headset quad
-  fades teleports instead). Outlines keep rendering via `renderOutline`, three's documented VR
-  path for `OutlineEffect`.
+- **Skipped in the headset**: the cartoon first-person hands (your hands are real) and the
+  DOM fade (an in-headset quad fades teleports and elevator/ladder trips instead). Drunk
+  vision's post shader can't run on the XR framebuffer, so the rig rolls and pitches with
+  the same wobble (and the glide staggers) instead. Outlines keep rendering via
+  `renderOutline`, three's documented VR path for `OutlineEffect`.
 
-Known gaps (world-space UI arrives separately — see below):
+Known gaps:
 
-- E opens the same DOM panels as desktop (terminals, boards, menus). They render on the flat
-  mirror and after you exit VR; they are **not visible in the headset yet**.
 - The arcade/cabinet zoom cameras and Minesweeper assume a flat screen.
-- Elevator floor changes cut without a visible in-headset fade.
 - Pure hand tracking (no controllers) can point, pinch, teleport and open the menu, but not
   glide or turn: there are no sticks to drive them.
 - Sitting: E sits the avatar down, but eye height stays physical — stand or sit to match.
@@ -89,6 +98,10 @@ Known gaps (world-space UI arrives separately — see below):
   `local-floor` → `bounded-floor` → `local` fallback chain, error strings.
 - `src/client/vr/session.ts` — `VRSession`: the dolly rig, rays + cursor dots, input mapping,
   teleport arc, snap/smooth turn, glide, room-scale follow, in-headset fade.
+- `src/client/vr/attach.ts` — builds the world-space UI and routes rays to it; `panel.ts`
+  (canvas panels, per-ray presses), `menu.ts`, `terminal-panel.ts`, `prompt.ts`,
+  `keyboard.ts`, `controls.ts`, `toast.ts`, `math.ts` (ray/panel math), `preview.ts`
+  (desktop debug render).
 - `src/client/main.ts` — owns the hooks the session calls into. The render loop runs through
   `renderer.setAnimationLoop` (desktop-identical rAF timestamps; XR start/stop swaps the driver
   by itself), and `renderer.xr.enabled = true` from boot (every XR branch in three is gated on
@@ -111,7 +124,8 @@ cursor dot (green within reach, cyan beyond it). Controller `selectstart` is E a
 three updates from the hand aim pose, so one raycast path covers controllers and hands. A
 hand-tracked pinch resolves per frame from the union of the runtime's `select` and three's
 joint-distance `pinchstart`/`pinchend` (`PinchHold` in session.ts): a tap is E, a hold past
-450 ms aims a teleport the release fires, and both hands held past 600 ms toggle the menu.
+450 ms aims a teleport the release fires, and both hands held past 600 ms toggle the menu —
+unless either ray works a panel, so two-handed typing never pops the menu up mid-word.
 Buttons and sticks follow the XR Standard gamepad mapping (stick at axes [2,3] when present).
 Select/teleport/cancel fire a short haptic pulse where the controller has an actuator.
 
@@ -162,16 +176,16 @@ rejects under `npm run dev`. The session catches that and the pinch fallback rea
 `hand.joints` straight off three's hand spaces instead — behaviorally identical (`Hands` is a
 thin accessor over those same records). The shipped `dist/` build loads the real `Hands`.
 
-## Seam for world-space UI panels
-
-A parallel worker owns world-space panels. The attach points, all stable:
+## World-space UI attach points
 
 - `window.__office.vr` — the live `VRSession`: `vr.active`, `vr.dolly` (rig to parent panels
   under for head-locked UI), `vr.lookDir(out)` (head forward for placement).
-- `VRHooks.useE` / `onSelect` in `session.ts` — where E fires in VR; panels can observe or
-  pre-empt per `Interactable.kind` before the DOM modal path runs.
+- `VRUiSink` in `session.ts` — the UI contract: `routeRay`, `panelHit`, `stickScroll`,
+  `cancelRay`, `carryAlong`, `update`, `toggleMenu`, `openTerminal`, `setCarrying`.
 - `VRSession.update` calls `hooks.onTarget` every frame with the ray hover — panel focus state
   can key off the same hover.
+- `?vrtest=1` exposes `window.__vrtest` (ray state, teleports, key presses, panel probes);
+  `src/client/iwsdk-scripts/` drives it through the IWSDK Quest 3 emulation.
 
 ## What needs a headset to verify
 

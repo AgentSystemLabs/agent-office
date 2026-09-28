@@ -141,6 +141,8 @@ export interface VrUiHandle {
   stickScroll: (rayId: number, axisY: number, dt: number) => void;
   /** Cancels a ray's in-flight press without clicking (disconnect, session end). */
   cancelRay: (rayId: number) => void;
+  /** Shifts head-placed modal panels (prompt + its keyboard) by a teleport's delta. */
+  carryAlong: (delta: THREE.Vector3) => void;
   /** Repaints, cursor blink, menu follow. Pass the head pose for follow mode. */
   update: (dt: number, head?: HeadPose | null) => void;
   dispose: () => void;
@@ -429,6 +431,14 @@ class VrUi implements VrUiHandle {
       st.panel = null;
       st.uv = null;
       st.pressed = false;
+    }
+  };
+
+  /** A teleport's delta carries the modal panels along (the terminal and its keyboard stay). */
+  carryAlong = (delta: THREE.Vector3): void => {
+    if (this.prompt.visible) this.prompt.panel.group.position.add(delta);
+    if (this.keyboard.visible && this.keyboardExplicit !== undefined) {
+      this.keyboard.panel.group.position.add(delta);
     }
   };
 

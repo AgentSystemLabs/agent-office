@@ -505,6 +505,36 @@ if (new URLSearchParams(location.search).has('vrtest')) {
       }
       return out;
     },
+    // Keyboard key centers, world + rig-local (hand-aiming scripts look the hands at these).
+    keyPos: (ids: string[]) => {
+      const kb = vrUi?.keyboard;
+      if (!kb) return null;
+      const out: Record<string, [number, number, number] | null> = {};
+      for (const id of ids) {
+        const r = kb.keyRectOf(id);
+        if (!r) {
+          out[id] = null;
+          continue;
+        }
+        const p = new THREE.Vector3((r.x + r.w / 2 - 0.5) * kb.panel.width, (0.5 - (r.y + r.h / 2)) * kb.panel.height, 0);
+        kb.panel.mesh.localToWorld(p);
+        out[id] = [p.x, p.y, p.z];
+      }
+      const head = new THREE.Vector3();
+      camera.getWorldPosition(head);
+      // The emulator drives hands in rig-local space (clamped to reach): the same keys there.
+      const local: Record<string, [number, number, number] | null> = {};
+      for (const id of ids) {
+        const w = out[id];
+        if (!w) {
+          local[id] = null;
+          continue;
+        }
+        const l = vr.dolly.worldToLocal(new THREE.Vector3(w[0], w[1], w[2]));
+        local[id] = [l.x, l.y, l.z];
+      }
+      return { keys: out, head: [head.x, head.y, head.z] as [number, number, number], local };
+    },
     // Presses a VR keyboard key through the panel's own per-ray press path:
     // key(0, 'k:a', true) holds, (…, false) lets go (and types, when still on the key).
     key: (rayId: number, keyId: string, down: boolean) => {
@@ -522,6 +552,8 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     },
     // Per-ray input state (controller vs hand, holds, aims).
     rays: () => vr.debugRays(),
+    // Each ray's world origin + direction (aiming checks).
+    rayPos: () => vr.debugRayPos(),
     // Sends test workers home (shells spawned by `shell`).
     kill: (id: string) => net.send({ t: 'worker.kill', workerId: id }),
     // Grabs the ladder outright (climber-level, skipping the other-floors check), for climb tests.

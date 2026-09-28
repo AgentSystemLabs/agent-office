@@ -295,6 +295,8 @@ export interface VRUiSink {
   stickScroll: (rayId: number, axisY: number, dt: number) => void;
   /** Cancels a ray's in-flight press without clicking (disconnect, session end). */
   cancelRay: (rayId: number) => void;
+  /** Shifts head-placed modal panels (prompt + its keyboard) by a teleport's delta. */
+  carryAlong: (delta: THREE.Vector3) => void;
   update: (dt: number, head?: HeadPose | null) => void;
   toggleMenu: () => void;
   openTerminal: (workerId: string) => void;
@@ -569,7 +571,7 @@ export class VRSession {
   }
 
   /** Emulator test hook (?vrtest=1): per-ray input state, for verifying holds and aims. */
-  debugRays(): { handed: string | null; controller: boolean; selectHeld: boolean; pinchHeld: boolean; aiming: boolean; teleportHeld: boolean }[] {
+  debugRays(): { handed: string | null; controller: boolean; selectHeld: boolean; pinchHeld: boolean; aiming: boolean; teleportHeld: boolean; ui: boolean }[] {
     return this.rays.map((r) => ({
       handed: r.handed,
       controller: !!r.source && !r.source.hand,
@@ -577,7 +579,19 @@ export class VRSession {
       pinchHeld: r.pinchHeld,
       aiming: r.hold.isAiming,
       teleportHeld: r.teleportHeld,
+      ui: r.uiConsumed,
     }));
+  }
+
+  /** Emulator test hook (?vrtest=1): each ray's world origin + direction, for aiming checks. */
+  debugRayPos(): { origin: [number, number, number]; dir: [number, number, number] }[] {
+    return this.rays.map((r) => {
+      const o = new THREE.Vector3();
+      const d = new THREE.Vector3();
+      o.setFromMatrixPosition(r.targetRay.matrixWorld);
+      xrRayDirection(r.targetRay, d);
+      return { origin: [o.x, o.y, o.z], dir: [d.x, d.y, d.z] };
+    });
   }
 
   /** Faces the avatar's heading with the head straight: N (and the elevator) rebase the rig here. */
@@ -796,9 +810,13 @@ export class VRSession {
         st.hold.update(true, now, st.uiConsumed || bothHeld || rigged);
       }
     }
-    // Both hands pinching together: the menu, claimed before either hold can aim or tap.
+    // Both hands pinching together: the menu, claimed before either hold can aim or tap —
+    // unless a ray works a panel (two-handed typing holds both pinches; the menu would pop up
+    // mid-word and eat the holds).
     if (bothHeld && this.ui) {
-      const [a, b] = [this.rays[heldNow[0]].hold, this.rays[heldNow[1]].hold];
+      const [ra, rb] = [this.rays[heldNow[0]], this.rays[heldNow[1]]];
+      if (ra.uiConsumed || rb.uiConsumed) return;
+      const [a, b] = [ra.hold, rb.hold];
       const since = Math.min(a.heldSince, b.heldSince);
       if (since >= 0 && !a.isConsumed && !a.isAiming && !b.isAiming && now - since >= MENU_HOLD_MS) {
         a.consume();
@@ -1202,10 +1220,15 @@ export class VRSession {
 
   private placeAvatar(at: THREE.Vector3): void {
     const { player } = this.hooks;
+    _e.set(at.x - player.pos.x, at.y - player.pos.y, at.z - player.pos.z);
     player.pos.set(at.x, at.y, at.z);
     player.vy = 0;
     player.grounded = true;
     this.snapGround();
+    // A teleport mid-prompt would strand the question at the far side of the room: the modal
+    // panels ride along (the menu/controls/toast follow the head anyway; the terminal stays).
+    _e.y += player.pos.y - at.y;
+    if (_e.lengthSq() > 1e-10) this.ui?.carryAlong(_e);
   }
 
   private updateFade(dt: number): void {
