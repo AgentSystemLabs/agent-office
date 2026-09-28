@@ -29,7 +29,7 @@ import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunne
 import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
-import { GH_COMMENT_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
+import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import { DESK_BY_ID, elevatorSpot, seatHere, streetBelow } from '../shared/layout.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
@@ -77,6 +77,8 @@ interface Client {
   lastMoveAt: number;
   lastActAt: number;
   lastGongAt: number;
+  /** When they last hit a golf ball off the balcony. */
+  lastGolfAt: number;
   /** When they last blew the DJ's air horn on the roof. */
   lastHornAt: number;
   emotes: EmoteBucket;
@@ -516,6 +518,7 @@ export async function startServer(cfg: Config) {
     decor: floor?.decor.list() ?? [],
     services: servicesState(floor),
     dog: floor?.dog.view() ?? null,
+    ball: floor?.court.state() ?? {},
     jukebox: floor?.jukebox.state() ?? { on: false, track: JUKEBOX_TUNES[0].id, startedAt: Date.now(), elapsed: 0 },
     whiteboard: { elements: floor?.whiteboard.scene() ?? [], people: floor ? drawing(floor) : [] },
     meeting: floor?.meetings.state() ?? { current: null, past: [] },
@@ -759,12 +762,14 @@ export async function startServer(cfg: Config) {
       if (p.startsWith('/api/gh/') && req.method === 'GET') {
         // What the issue and PR windows show beyond the board cards (see github.ts).
         const n = Number(url.searchParams.get('number'));
-        if (!Number.isSafeInteger(n) || n <= 0) return send(res, 400, { error: 'Bad number' });
+        // The repo's labels (for the label picker) are the one thing not about a single issue or PR.
+        if (p !== '/api/gh/labels' && (!Number.isSafeInteger(n) || n <= 0)) return send(res, 400, { error: 'Bad number' });
         if (!floor) return send(res, 404, { error: 'No such floor' });
         const github = floor.github;
         try {
           if (p === '/api/gh/pull') return send(res, 200, await github.pullDetail(n));
           if (p === '/api/gh/issue') return send(res, 200, await github.issueDetail(n));
+          if (p === '/api/gh/labels') return send(res, 200, await github.repoLabels());
           if (p === '/api/gh/pull/diff') {
             const diff = await github.pullDiff(n);
             res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -864,6 +869,7 @@ export async function startServer(cfg: Config) {
       lastMoveAt: 0,
       lastActAt: 0,
       lastGongAt: 0,
+      lastGolfAt: 0,
       lastHornAt: 0,
       // A little more lenient than the page's own, so emotes it let through aren't dropped for arriving bunched up.
       emotes: new EmoteBucket(EMOTE_EVERY * 0.8),
@@ -944,6 +950,7 @@ export async function startServer(cfg: Config) {
       for (const f of floors.values()) {
         f.workers.detachAll(id);
         f.changes.unwatchAll(id);
+        if (f.court.left(id)) ballChanged(f);
       }
       broadcast({ t: 'peer.leave', id });
       if (account) accountsChanged();
@@ -953,6 +960,7 @@ export async function startServer(cfg: Config) {
   };
 
   const decorChanged = (floor: Floor) => toFloor(floor, { t: 'decor', items: floor.decor.list() });
+  const ballChanged = (floor: Floor) => toFloor(floor, { t: 'ball', ball: floor.court.state() });
   const jukeboxChanged = (floor: Floor) => toFloor(floor, { t: 'jukebox', state: floor.jukebox.state() });
   const teamChanged = async () => broadcast({ t: 'team', state: await team.state() });
 
@@ -1033,6 +1041,9 @@ export async function startServer(cfg: Config) {
       was.workers.detachAll(c.id);
       was.changes.unwatchAll(c.id);
     }
+    // The ball stays on its floor, back under the hoop. That floor hears so once they're off it (see
+    // arrived), or their own page would put it down before it knew they'd gone.
+    const ballLeft = !!was?.court.left(c.id);
     c.attached.clear();
     c.typingAt.clear();
     c.stale.clear();
@@ -1043,15 +1054,17 @@ export async function startServer(cfg: Config) {
     const spot = at ?? { ...elevatorSpot(), y: 0, rotY: 0 };
     Object.assign(c.peer, { x: spot.x, y: spot.y, z: spot.z, rotY: spot.rotY, moving: false });
     delete c.peer.seat;
+    delete c.peer.golfing;
     // An issue card belongs to the board it came off, which is on the floor they left; a drink stays at the bar.
     delete c.peer.carrying;
     delete c.peer.drink;
-    return { was, wasDrawing };
+    return { was, wasDrawing, ballLeft };
   };
 
   const arrived = (c: Client, left: ReturnType<typeof leave>) => {
     broadcast({ t: 'peer.update', peer: c.peer }, c.id);
     if (left.wasDrawing) drawingChanged(left.was);
+    if (left.ballLeft && left.was) ballChanged(left.was);
   };
 
   /**
@@ -1104,10 +1117,27 @@ export async function startServer(cfg: Config) {
           broadcast({ t: 'peer.act', id: c.id, smoke: msg.smoke }, c.id, true);
           break;
         }
+        if (typeof msg.golf === 'boolean') {
+          // The tee's on an office floor's balcony; there's none up on the roof.
+          const golf = msg.golf && c.peer.floor !== ROOF;
+          if (golf === !!c.peer.golfing) break;
+          if (golf) c.peer.golfing = true;
+          else delete c.peer.golfing;
+          broadcast({ t: 'peer.act', id: c.id, golf }, c.id, true);
+          break;
+        }
         const now = Date.now();
         if (now - c.lastActAt < 100) break;
         c.lastActAt = now;
         toNeighbors(c, { t: 'peer.act', id: c.id }, true);
+        break;
+      }
+      case 'golf': {
+        const now = Date.now();
+        const [yaw, loft, power] = [num(msg.yaw), num(msg.loft), num(msg.power)];
+        if (!c.peer.golfing || now - c.lastGolfAt < 800 || Math.abs(yaw) > 2 || loft < 0 || loft > 1.6 || power < 0 || power > 1) break;
+        c.lastGolfAt = now;
+        toNeighbors(c, { t: 'golf', id: c.id, yaw, loft, power });
         break;
       }
       case 'emote':
@@ -1215,6 +1245,16 @@ export async function startServer(cfg: Config) {
         const state = building.projectsDirState();
         broadcast({ t: 'projectsDir', state });
         toastAll(state.custom ? `📁 ${who} moved the workspace folder to ${state.dir}` : `📁 ${who} put the workspace folder back to ${state.dir}`);
+        break;
+      }
+      case 'ball.take':
+      case 'ball.throw': {
+        const floor = floorOf(c);
+        if (!floor) break;
+        const changed = msg.t === 'ball.take' ? floor.court.take(c.id) : floor.court.throw(c.id, { x: num(msg.x), y: num(msg.y), z: num(msg.z), vx: num(msg.vx), vy: num(msg.vy), vz: num(msg.vz) });
+        // Whoever didn't get it (someone else caught it first) is told where it really is.
+        if (changed) ballChanged(floor);
+        else sendTo(c, { t: 'ball', ball: floor.court.state() });
         break;
       }
       case 'dog.pet':
@@ -1411,6 +1451,24 @@ export async function startServer(cfg: Config) {
           // Nobody should be seated for an issue that's closed.
           const dropped = floor.queue.dropIssue(n);
           toastFloor(floor, `${who} closed issue #${n}${reason === 'not planned' ? ' as not planned' : ''}${dropped ? ' and took it off the queue' : ''}`);
+        });
+        break;
+      }
+      case 'gh.labels': {
+        const floor = here();
+        const n = num(msg.number);
+        const kind = msg.kind === 'issue' || msg.kind === 'pull' ? msg.kind : undefined;
+        if (!floor || !Number.isSafeInteger(n) || n <= 0 || !kind) break;
+        const names = (v: unknown) => [...new Set((Array.isArray(v) ? v : []).map((l) => str(l, GH_LABEL_MAX + 1)).filter((l) => l && l.length <= GH_LABEL_MAX))].slice(0, 100);
+        const add = names(msg.add);
+        const remove = names(msg.remove).filter((l) => !add.includes(l));
+        if (!add.length && !remove.length) {
+          sendTo(c, { t: 'gh.labeled', kind, number: n, error: 'No labels to change' });
+          break;
+        }
+        void floor.github.setLabels(kind, n, add, remove).then((r) => {
+          sendTo(c, { t: 'gh.labeled', kind, number: n, ...r });
+          if (r.labels) toastFloor(floor, `🏷️ ${who} labeled ${kind === 'pull' ? 'PR' : 'issue'} #${n}: ${[...add.map((l) => `+${l}`), ...remove.map((l) => `−${l}`)].join(' ')}`);
         });
         break;
       }
