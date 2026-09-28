@@ -1,4 +1,4 @@
-import type { GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhMergeMethod, GhPullDetail, GhPull, GhRepoInfo, GhState } from '../shared/protocol.js';
+import type { GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhLabel, GhMergeMethod, GhPullDetail, GhPull, GhRepoInfo, GhState } from '../shared/protocol.js';
 import type { Forge } from '../shared/floors.js';
 
 /** An open pull (or merge) request: its number on the board and its page. */
@@ -38,6 +38,37 @@ export interface Board extends PullHost {
   merge(n: number, method: GhMergeMethod, deleteBranch: boolean, auto: boolean): Promise<string | undefined>;
   close(kind: 'issue' | 'pull', n: number, opts: { comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }): Promise<string | undefined>;
   claim(issue: number): Promise<string | undefined>;
+  /** Every label the repository has, for the label picker. */
+  repoLabels(): Promise<GhLabel[]>;
+  /** Puts labels on an issue or PR and takes others off. Returns the labels it has now, or why they didn't change. */
+  setLabels(kind: 'issue' | 'pull', n: number, add: string[], remove: string[]): Promise<{ labels?: GhLabel[]; error?: string }>;
 }
 
 export type BoardListener<T> = (s: GhState<T>) => void;
+
+/**
+ * Labels just changed from the office, by "issue:N" or "pull:N". A list asked for before the change
+ * still has the old labels, so the new ones are kept over it; a list asked for after the change is
+ * believed, and the change forgotten.
+ */
+export class Relabels {
+  private changed = new Map<string, { labels: GhLabel[]; at: number }>();
+
+  set(kind: 'issue' | 'pull', n: number, labels: GhLabel[], at = Date.now()) {
+    this.changed.set(`${kind}:${n}`, { labels, at });
+  }
+
+  /** `items` as a list asked for at `asked` should show them. */
+  apply<T extends GhIssue | GhPull>(kind: 'issue' | 'pull', items: T[], asked: number): T[] {
+    return items.map((it) => {
+      const key = `${kind}:${it.number}`;
+      const r = this.changed.get(key);
+      if (!r) return it;
+      if (r.at < asked) {
+        this.changed.delete(key);
+        return it;
+      }
+      return { ...it, labels: r.labels };
+    });
+  }
+}

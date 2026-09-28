@@ -1,10 +1,12 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { gitlabParts } from '../shared/floors.js';
-import type { GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhMergeMethod, GhPull, GhPullDetail, GhRepoInfo, GhReviewComment, GhState } from '../shared/protocol.js';
-import type { Board, BoardListener, PullRef } from './forge.js';
+import type { GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhLabel, GhMergeMethod, GhPull, GhPullDetail, GhRepoInfo, GhReviewComment, GhState } from '../shared/protocol.js';
+import { type Board, type BoardListener, type PullRef, Relabels } from './forge.js';
 import { priorityRank } from './github.js';
 
 const REFRESH_MS = 90_000;
+/** How long the project's list of labels is kept before the label picker asks GitLab again. */
+const LABELS_MS = 60_000;
 
 /** Turns glab's stderr into something a person standing at the board can act on. */
 function friendly(raw: string): string {
@@ -71,8 +73,12 @@ const MR_FIELDS =
 
 type Node = Record<string, any>;
 
-function labelsOf(raw: any): { name: string; color: string }[] {
-  return (raw?.nodes ?? []).map((l: any) => ({ name: String(l.title), color: /^#[0-9a-f]{3,8}$/i.test(l.color ?? '') ? l.color : '#888888' }));
+function colorOf(c: unknown): string {
+  return typeof c === 'string' && /^#[0-9a-f]{3,8}$/i.test(c) ? c : '#888888';
+}
+
+function labelsOf(raw: any): GhLabel[] {
+  return (raw?.nodes ?? []).map((l: any) => ({ name: String(l.title), color: colorOf(l.color) }));
 }
 
 function issueState(s: string): string {
@@ -254,6 +260,8 @@ export class GitLab implements Board {
   /** The project's id in REST paths (the URL-encoded full path works everywhere an id does). */
   private id: string;
   private projectUrl: string;
+  private labelList?: { at: number; list: Promise<GhLabel[]> };
+  private relabeled = new Relabels();
 
   constructor(
     private dir: string,
@@ -461,6 +469,53 @@ export class GitLab implements Board {
     return undefined;
   }
 
+  /** Every label the project can use (its group's too), for the label picker. Asked again after a minute (or a failure). */
+  repoLabels(): Promise<GhLabel[]> {
+    if (!this.labelList || Date.now() - this.labelList.at > LABELS_MS) {
+      const list = this.api(`projects/${this.id}/labels?per_page=100`, ['--paginate'], 60_000).then((out) =>
+        pages<{ name?: string; color?: string; description?: string | null }>(out).map((l) => ({ name: String(l.name), color: colorOf(l.color), description: l.description || undefined })),
+      );
+      this.labelList = { at: Date.now(), list };
+      list.catch(() => this.labelList?.list === list && (this.labelList = undefined));
+    }
+    return this.labelList.list;
+  }
+
+  /**
+   * Puts labels on an issue or MR and takes others off, as whoever glab is signed in as. Returns the
+   * labels it has now, or why they didn't change.
+   */
+  async setLabels(kind: 'issue' | 'pull', n: number, add: string[], remove: string[]): Promise<{ labels?: GhLabel[]; error?: string }> {
+    // GitLab label names can't hold a comma, so the comma-separated lists below are safe.
+    if ([...add, ...remove].some((l) => l.includes(','))) return { error: "GitLab label names can't contain a comma" };
+    let now: GhLabel[];
+    try {
+      const args = ['--method', 'PUT'];
+      if (add.length) args.push('-f', `add_labels=${add.join(',')}`);
+      if (remove.length) args.push('-f', `remove_labels=${remove.join(',')}`);
+      const saved = JSON.parse(await this.api(`projects/${this.id}/${kind === 'issue' ? 'issues' : 'merge_requests'}/${n}`, args)) as { labels?: string[] };
+      // The answer names the labels without their colors; the project's list has those.
+      const known = new Map((await this.repoLabels().catch(() => [] as GhLabel[])).map((l) => [l.name, l.color]));
+      now = (saved.labels ?? []).map((name) => ({ name: String(name), color: known.get(name) ?? '#888888' }));
+    } catch (err) {
+      void (kind === 'issue' ? this.refreshIssues() : this.refreshPulls());
+      return { error: (err as Error).message };
+    }
+    // The board shows them at once, before the next look at GitLab.
+    const at = Date.now();
+    this.relabeled.set(kind, n, now, at);
+    if (kind === 'issue') {
+      this.issues = { ...this.issues, items: this.relabeled.apply('issue', this.issues.items, at).sort((a, b) => priorityRank(a.labels) - priorityRank(b.labels)) };
+      this.onIssues(this.issues);
+      void this.refreshIssues();
+    } else {
+      this.pulls = { ...this.pulls, items: this.relabeled.apply('pull', this.pulls.items, at) };
+      this.onPulls(this.pulls);
+      void this.refreshPulls();
+    }
+    return { labels: now };
+  }
+
   async createPull(cwd: string, head: string, base: string | undefined, title: string, body: string): Promise<PullRef> {
     const args = ['mr', 'create', '--repo', this.projectUrl, '--head', this.projectUrl, '--source-branch', head, '--title', title, `--description=${body}`, '--yes'];
     if (base) args.push('--target-branch', base);
@@ -481,9 +536,10 @@ export class GitLab implements Board {
     if (this.issues.loading) return;
     this.issues = { ...this.issues, loading: true };
     this.onIssues(this.issues);
+    const asked = Date.now();
     try {
       const [open, closed] = await Promise.all([this.list('issues', 'opened', 'CREATED_DESC', 300), this.list('issues', 'closed', 'UPDATED_DESC', 40)]);
-      const items: GhIssue[] = [...open, ...closed].map((i) => ({
+      const fetched: GhIssue[] = [...open, ...closed].map((i) => ({
         number: Number(i.iid),
         title: String(i.title),
         state: issueState(i.state),
@@ -496,6 +552,7 @@ export class GitLab implements Board {
         body: String(i.description ?? '').slice(0, 4000),
         comments: Number(i.userNotesCount ?? 0),
       }));
+      const items = this.relabeled.apply('issue', fetched, asked);
       items.sort((a, b) => priorityRank(a.labels) - priorityRank(b.labels));
       this.issues = { items, fetchedAt: Date.now(), loading: false };
     } catch (err) {
@@ -508,9 +565,10 @@ export class GitLab implements Board {
     if (this.pulls.loading) return;
     this.pulls = { ...this.pulls, loading: true };
     this.onPulls(this.pulls);
+    const asked = Date.now();
     try {
       const [open, merged, closed] = await Promise.all([this.list('mergeRequests', 'opened', 'CREATED_DESC', 150), this.list('mergeRequests', 'merged', 'MERGED_AT_DESC', 30), this.list('mergeRequests', 'closed', 'UPDATED_DESC', 40)]);
-      const items: GhPull[] = [...open, ...merged, ...closed].map((p) => {
+      const fetched: GhPull[] = [...open, ...merged, ...closed].map((p) => {
         const body = String(p.description ?? '');
         return {
           number: Number(p.iid),
@@ -532,6 +590,7 @@ export class GitLab implements Board {
           closes: closesOf(body, this.projectUrl),
         };
       });
+      const items = this.relabeled.apply('pull', fetched, asked);
       this.pulls = { items, fetchedAt: Date.now(), loading: false };
     } catch (err) {
       this.pulls = { ...this.pulls, loading: false, error: (err as Error).message, fetchedAt: Date.now() };
