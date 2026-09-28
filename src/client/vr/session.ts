@@ -303,6 +303,8 @@ export interface VRUiSink {
   openTerminal: (workerId: string) => void;
   /** The issue card in hand, if any: the UI keeps a sticky hint up while one is carried. */
   setCarrying: (card: { issue: number; title: string } | null) => void;
+  /** Fires when a ray's release clicks a panel button (the session ticks the controller). */
+  onPanelClick: ((rayId: number) => void) | null;
 }
 
 export class VRSession {
@@ -557,6 +559,8 @@ export class VRSession {
   /** World-space UI panels for this session (vr/attach.ts): rays route to them first. */
   setUi(ui: VRUiSink | null): void {
     this.ui = ui;
+    // Every panel click ticks the controller that made it (keys, rows, buttons alike).
+    if (ui) ui.onPanelClick = (rayId) => this.pulse(rayId, 0.2, 12);
   }
 
   /** Emulator test hook (?vrtest=1): the same landing a real teleport fire would take. */
@@ -1012,6 +1016,10 @@ export class VRSession {
             st.dot.position.copy(st.targetRay.worldToLocal(_e.copy(p)));
             st.dot.scale.setScalar(1);
             (st.dot.material as THREE.MeshBasicMaterial).color.set(0xee6018);
+            // The line ends where the dot parks (no piercing the panel into the room behind).
+            st.line.scale.z = THREE.MathUtils.clamp(st.dot.position.length() / 5, 0.02, 1);
+          } else {
+            st.line.scale.z = 1;
           }
           continue;
         }
@@ -1027,6 +1035,9 @@ export class VRSession {
         const m = st.dot.material as THREE.MeshBasicMaterial;
         st.dot.scale.setScalar(aim.near ? 1.5 : 1);
         m.color.set(aim.near ? 0x51ff7a : 0x7df9ff);
+        st.line.scale.z = THREE.MathUtils.clamp(st.dot.position.length() / 5, 0.02, 1);
+      } else {
+        st.line.scale.z = 1;
       }
     }
   }

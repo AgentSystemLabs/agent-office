@@ -127,6 +127,8 @@ export interface VrUiHandle {
   showToast: (text: string, level?: 'info' | 'warn' | 'error') => void;
   /** The issue card in hand, if any: a sticky hint while one is carried. */
   setCarrying: (card: { issue: number; title: string } | null) => void;
+  /** Fires when a ray's release clicks a panel button (the session ticks the controller). */
+  onPanelClick: ((rayId: number) => void) | null;
   /** Redirects the keyboard (default target is the focused VR terminal; null mutes it). */
   setKeyboardTarget: (t: KeyboardTarget | null) => void;
   /** What the prompt field holds now (the emulator hook reads this back for assert scripts). */
@@ -343,6 +345,7 @@ class VrUi implements VrUiHandle {
   setCarrying = (card: { issue: number; title: string } | null) => {
     this.toast.setSticky(card ? `✋ Carrying #${card.issue} — E at a desk, a worker or the queue · squeeze puts it back` : null);
   };
+  onPanelClick: ((rayId: number) => void) | null = null;
   promptText = () => this.prompt.text;
 
   setKeyboardTarget = (t: KeyboardTarget | null) => {
@@ -376,7 +379,8 @@ class VrUi implements VrUiHandle {
       const uv = st.panel.panel.raycast(raycaster);
       st.panel.panel.pointerMove(rayId, uv);
       if (!pressed) {
-        st.panel.panel.pointerUp(rayId, uv);
+        const clicked = st.panel.panel.pointerUp(rayId, uv);
+        if (clicked) this.onPanelClick?.(rayId);
         st.pressed = false;
         st.panel = null;
       }

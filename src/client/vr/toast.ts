@@ -57,8 +57,11 @@ export class VrToast {
   }
 
   private paint(ctx: CanvasRenderingContext2D, w: number, h: number, _state: { hoverId: string | null; pressedId: string | null; time: number }) {
-    const line = this.sticky ?? this.text;
-    const edge = this.sticky ? '#ee6018' : this.level === 'error' ? '#ef476f' : this.level === 'warn' ? '#f2b134' : '#06d6a0';
+    // A fresh toast talks over the sticky line (an error while carrying still shows); once it
+    // expires, the sticky line is back underneath.
+    const fresh = performance.now() <= this.until;
+    const line = fresh ? this.text : (this.sticky ?? this.text);
+    const edge = !fresh && this.sticky ? '#ee6018' : this.level === 'error' ? '#ef476f' : this.level === 'warn' ? '#f2b134' : '#06d6a0';
     ctx.fillStyle = 'rgba(12,12,15,0.92)';
     ctx.beginPath();
     ctx.roundRect(0, 0, w, h, h * 0.3);
