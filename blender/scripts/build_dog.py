@@ -1,39 +1,31 @@
 """The office dog: modelled, rigged and animated by this script, and exported to
-src/client/models/dog.glb for src/client/world/dog.ts.
+src/client/models/dog.glb for src/client/world/dog.ts. The shared helpers are in
+aokit.py and the conventions in blender/README.md.
 
-The .glb is output and this script is the source: change the dog here and run it
-again. Nothing is placed by hand, so any part of it can be edited by an agent.
+Headless, from the repo root (`-- --shots` also writes review sheets):
+
+    blender --background --factory-startup --python blender/scripts/build_dog.py [-- --shots]
 
 Through the Blender MCP bridge (module globals don't survive between calls, so
 import it every time):
 
     import sys, importlib
     sys.path.insert(0, r"<repo>/blender/scripts")
-    import build_dog; importlib.reload(build_dog)
+    import aokit, build_dog; importlib.reload(aokit); importlib.reload(build_dog)
     build_dog.main()
-
-Headless, from the repo root:
-
-    blender --background --factory-startup --python blender/scripts/build_dog.py
 
 Two runs give the same dog but not the same bytes (the exporter's triangle order
 and the last bit of a few weights vary), so commit the .glb only when the dog
-changed.
-
-The dog faces -Y here; the glTF exporter turns that into +Z, the office's forward.
-Its left is +X. Bone, socket, material and clip names are a contract with
-dog.ts and tests/dog-model.test.ts, so rename them in all three places.
+changed. Bone, socket, material and clip names are a contract with dog.ts and
+tests/dog-model.test.ts, so rename them in all three places.
 """
-import bpy, bmesh, math, os, tempfile
+import bpy, bmesh, math, os, sys
 from mathutils import Euler, Matrix, Vector
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.abspath(os.path.join(_HERE, os.pardir, os.pardir))
-OUT = os.path.join(ROOT, "src", "client", "models", "dog.glb")
-# Review renders are scratch, never in the repo.
-SHOT_DIR = os.environ.get("DOG_SHOTS") or os.path.join(tempfile.gettempdir(), "dog-shots")
-
-FPS = 24
+# Run headless, Blender doesn't put this folder on the import path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import aokit as ao
+from aokit import Pose, UP, TAU, wave, ease
 
 # Preview colours only (the golden coat); dog.ts recolours the coat and swaps every
 # material for its own toon one by name.
@@ -50,46 +42,8 @@ COLORS = {
 }
 
 
-def _linear(c):
-    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
-
-
 def material(name):
-    m = bpy.data.materials.get(name) or bpy.data.materials.new(name)
-    h = COLORS[name].lstrip("#")
-    m.diffuse_color = tuple(_linear(int(h[i:i + 2], 16) / 255) for i in (0, 2, 4)) + (1.0,)
-    return m
-
-
-def clear():
-    for o in list(bpy.data.objects):
-        bpy.data.objects.remove(o, do_unlink=True)
-    for coll in (bpy.data.meshes, bpy.data.armatures, bpy.data.materials, bpy.data.actions,
-                 bpy.data.cameras, bpy.data.lights, bpy.data.metaballs, bpy.data.curves):
-        for d in list(coll):
-            coll.remove(d)
-
-
-# ---- Shapes ---------------------------------------------------------------------------------------
-
-def ellipsoid(bm, center, radii, rot=(0, 0, 0), segs=24, rings=16):
-    """A squashed sphere, turned by `rot` (XYZ euler) about its own centre."""
-    verts = bmesh.ops.create_uvsphere(bm, u_segments=segs, v_segments=rings, radius=1.0)["verts"]
-    m = Matrix.Translation(center) @ Euler(rot, 'XYZ').to_matrix().to_4x4() @ Matrix.Diagonal((*radii, 1))
-    bmesh.ops.transform(bm, matrix=m, verts=verts)
-    return verts
-
-
-def limb(bm, a, b, ra, rb, segs=18, rings=14):
-    """A capsule from `a` (radius ra) to `b` (radius rb)."""
-    a, b = Vector(a), Vector(b)
-    verts = bmesh.ops.create_uvsphere(bm, u_segments=segs, v_segments=rings, radius=1.0)["verts"]
-    length = (b - a).length
-    for v in verts:
-        v.co = v.co * rb + Vector((0, 0, length)) if v.co.z >= 0 else v.co * ra
-    turn = (b - a).to_track_quat('Z', 'Y').to_matrix().to_4x4()
-    bmesh.ops.transform(bm, matrix=Matrix.Translation(a) @ turn, verts=verts)
-    return verts
+    return ao.material(name, COLORS[name])
 
 
 # Where things are (Blender space, metres). Head centre and the hip hinge match the
@@ -97,8 +51,6 @@ def limb(bm, a, b, ra, rb, segs=18, rings=14):
 HEAD = (0, -0.29, 0.57)
 FRONT_X, BACK_X = 0.078, 0.088
 FRONT_Y, BACK_Y = -0.17, 0.14
-
-
 MUZZLE = ((0, -0.405, 0.525), (0.082, 0.095, 0.064))
 TAIL = [(0, 0.22, 0.40), (0, 0.29, 0.47), (0, 0.325, 0.55), (0, 0.325, 0.63)]
 NECK = ((0, -0.17, 0.40), (0, -0.25, 0.51))
@@ -119,127 +71,45 @@ def body_mesh():
     """Everything that is one skin: body, neck, head, muzzle, legs, tail."""
     bm = bmesh.new()
     # Torso: a round chest, a slimmer waist, a round rump.
-    limb(bm, (0, 0.12, 0.35), (0, -0.12, 0.36), 0.132, 0.138)
-    ellipsoid(bm, (0, -0.15, 0.35), (0.145, 0.135, 0.15))
-    ellipsoid(bm, (0, 0.13, 0.35), (0.135, 0.125, 0.135))
-    limb(bm, *NECK, 0.095, 0.09)
+    ao.limb(bm, (0, 0.12, 0.35), (0, -0.12, 0.36), 0.132, 0.138)
+    ao.ellipsoid(bm, (0, -0.15, 0.35), (0.145, 0.135, 0.15))
+    ao.ellipsoid(bm, (0, 0.13, 0.35), (0.135, 0.125, 0.135))
+    ao.limb(bm, *NECK, 0.095, 0.09)
     # Head: round and big, puppy-like, with soft cheeks and one bean of a muzzle.
-    ellipsoid(bm, HEAD, (0.155, 0.145, 0.14))
+    ao.ellipsoid(bm, HEAD, (0.155, 0.145, 0.14))
     for sx in (-1, 1):
-        ellipsoid(bm, (sx * 0.06, -0.33, 0.525), (0.07, 0.07, 0.06))
-    ellipsoid(bm, *MUZZLE)
+        ao.ellipsoid(bm, (sx * 0.06, -0.33, 0.525), (0.07, 0.07, 0.06))
+    ao.ellipsoid(bm, *MUZZLE)
     for sx in (-1, 1):
         # Front legs: shoulder, wrist, then a round paw.
         top, joint, foot, _ = leg("front", sx)
-        limb(bm, top, joint, 0.058, 0.046)
-        limb(bm, joint, foot, 0.046, 0.043)
-        ellipsoid(bm, (foot[0], foot[1] - 0.023, 0.032), (0.052, 0.066, 0.034))
+        ao.limb(bm, top, joint, 0.058, 0.046)
+        ao.limb(bm, joint, foot, 0.046, 0.043)
+        ao.ellipsoid(bm, (foot[0], foot[1] - 0.023, 0.032), (0.052, 0.066, 0.034))
         # Back legs: a big round haunch, then the hock and a paw.
         top, joint, foot, _ = leg("back", sx)
-        ellipsoid(bm, (top[0], BACK_Y, 0.30), (0.075, 0.1, 0.105))
-        limb(bm, (top[0], BACK_Y + 0.01, 0.26), joint, 0.06, 0.046)
-        limb(bm, joint, foot, 0.046, 0.043)
-        ellipsoid(bm, (foot[0], foot[1] - 0.025, 0.032), (0.052, 0.066, 0.034))
+        ao.ellipsoid(bm, (top[0], BACK_Y, 0.30), (0.075, 0.1, 0.105))
+        ao.limb(bm, (top[0], BACK_Y + 0.01, 0.26), joint, 0.06, 0.046)
+        ao.limb(bm, joint, foot, 0.046, 0.043)
+        ao.ellipsoid(bm, (foot[0], foot[1] - 0.025, 0.032), (0.052, 0.066, 0.034))
     # Tail: up and back in a curve, thick at the root, thinning to a tip.
     for a, b, ra, rb in zip(TAIL, TAIL[1:], (0.048, 0.04, 0.032), (0.04, 0.032, 0.022)):
-        limb(bm, a, b, ra, rb)
-    me = bpy.data.meshes.new("Dog")
-    bm.to_mesh(me)
-    bm.free()
-    ob = bpy.data.objects.new("Dog", me)
-    bpy.context.scene.collection.objects.link(ob)
-    return ob
-
-
-def fuse(ob, voxel=0.0065, smooth=10, quads=4200):
-    """Melts the overlapping shapes into one skin, rounds off the seams, then lays even quads
-    over it. Evenly sized quads bend cleanly at the joints; thinning with Decimate instead left
-    long slivers down the legs that pinched and streaked when a leg folded."""
-    rm = ob.modifiers.new("Remesh", 'REMESH')
-    rm.mode = 'VOXEL'
-    rm.voxel_size = voxel
-    rm.adaptivity = 0
-    sm = ob.modifiers.new("Smooth", 'SMOOTH')
-    sm.factor = 0.5
-    sm.iterations = smooth
-    _apply(ob, "Remesh")
-    _apply(ob, "Smooth")
-    dense = len(ob.data.polygons)
-    with bpy.context.temp_override(object=ob, active_object=ob, selected_objects=[ob]):
-        bpy.ops.object.quadriflow_remesh(target_faces=quads, use_mesh_symmetry=True, use_preserve_sharp=False,
-                                         use_preserve_boundary=False, seed=1, mode='FACES')
-    if len(ob.data.polygons) >= dense:  # QuadriFlow gives up on meshes it can't handle
-        dec = ob.modifiers.new("Decimate", 'DECIMATE')
-        dec.ratio = min(1.0, quads * 2 / max(1, _tris(ob)))
-        _apply(ob, "Decimate")
-    for p in ob.data.polygons:
-        p.use_smooth = True
-
-
-def _tris(ob):
-    return sum(len(p.vertices) - 2 for p in ob.data.polygons)
-
-
-def _apply(ob, name):
-    with bpy.context.temp_override(object=ob, active_object=ob, selected_objects=[ob]):
-        bpy.ops.object.modifier_apply(modifier=name)
-
-
-def _blob(p, center, radii):
-    """Roughly the distance outside an ellipsoid, in its own radii (negative inside)."""
-    return math.sqrt(sum(((p[i] - center[i]) / radii[i]) ** 2 for i in range(3))) - 1.0
+        ao.limb(bm, a, b, ra, rb)
+    return ao.mesh_object("Dog", bm)
 
 
 def light_patch(p):
     """Where the coat is light (negative) or not (positive): muzzle, a blaze up the nose, a bib
-    down the chest, the belly, socks and the tail tip. Unions are min, intersections max."""
+    down the chest, the belly, socks and the tail tip."""
+    blob = ao.blob
     return min(
-        max(_blob(p, MUZZLE[0], tuple(r * 1.12 for r in MUZZLE[1])), (p.y + 0.355) * 12),
-        max(_blob(p, (0, -0.36, 0.5), (0.026, 0.12, 0.14)), (0.555 - p.z) * 12),
-        max(_blob(p, (0, -0.27, 0.32), (0.1, 0.11, 0.15)), (0.235 - p.z) * 12),
-        max(_blob(p, (0, -0.03, 0.19), (0.075, 0.15, 0.07)), (abs(p.x) - 0.05) * 12),
+        max(blob(p, MUZZLE[0], tuple(r * 1.12 for r in MUZZLE[1])), (p.y + 0.355) * 12),
+        max(blob(p, (0, -0.36, 0.5), (0.026, 0.12, 0.14)), (0.555 - p.z) * 12),
+        max(blob(p, (0, -0.27, 0.32), (0.1, 0.11, 0.15)), (0.235 - p.z) * 12),
+        max(blob(p, (0, -0.03, 0.19), (0.075, 0.15, 0.07)), (abs(p.x) - 0.05) * 12),
         (p.z - 0.062) * 12,
         max((0.6 - p.z) * 12, (0.28 - p.y) * 12),
     )
-
-
-def cut_along(bm, field):
-    """Splits every face the field's zero line crosses, exactly along that line, so a patch's
-    edge is a clean curve instead of a staircase of whole triangles."""
-    val = {v: field(v.co) for v in bm.verts}
-    crossing = [e for e in bm.edges if (val[e.verts[0]] < 0) != (val[e.verts[1]] < 0)
-                and abs(val[e.verts[0]]) > 1e-6 and abs(val[e.verts[1]]) > 1e-6]
-    on = set(v for v in bm.verts if abs(val[v]) <= 1e-6)
-    for e in crossing:
-        a, b = e.verts
-        _, v = bmesh.utils.edge_split(e, a, val[a] / (val[a] - val[b]))
-        val[v] = 0.0
-        on.add(v)
-    for f in list({f for v in on for f in v.link_faces}):
-        ends = [v for v in f.verts if v in on]
-        if len(ends) == 2 and not any(ends[1] in (e.other_vert(ends[0]),) for e in ends[0].link_edges):
-            bmesh.utils.face_split(f, ends[0], ends[1])
-    bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 4])
-    return val
-
-
-def paint(ob):
-    """Fur, with the light patches cut into it along smooth edges."""
-    me = ob.data
-    me.materials.clear()
-    me.materials.append(material("Fur"))
-    me.materials.append(material("Light"))
-    bm = bmesh.new()
-    bm.from_mesh(me)
-    cut_along(bm, light_patch)
-    # A cut that passes right by a vertex leaves slivers; fold them away.
-    bmesh.ops.dissolve_degenerate(bm, dist=1e-4, edges=bm.edges[:])
-    bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 4])
-    for f in bm.faces:
-        f.material_index = 1 if light_patch(f.calc_center_median()) < 0 else 0
-        f.smooth = True
-    bm.to_mesh(me)
-    bm.free()
 
 
 # ---- Loose parts (each its own shape, skinned rigidly to one or two bones) ----------------------
@@ -249,15 +119,8 @@ def part(name, mat, build, groups):
     {bone: weight}."""
     bm = bmesh.new()
     build(bm)
-    me = bpy.data.meshes.new(name)
-    bm.to_mesh(me)
-    bm.free()
-    me.materials.append(material(mat))
-    for p in me.polygons:
-        p.use_smooth = True
-    ob = bpy.data.objects.new(name, me)
-    bpy.context.scene.collection.objects.link(ob)
-    for v in me.vertices:
+    ob = ao.mesh_object(name, bm, [material(mat)])
+    for v in ob.data.vertices:
         for bone, w in groups(v.co).items():
             vg = ob.vertex_groups.get(bone) or ob.vertex_groups.new(name=bone)
             vg.add([v.index], w, 'REPLACE')
@@ -275,7 +138,7 @@ EAR_TILT = (0.12, -0.26, 0)
 
 def ear(bm, sx):
     """A floppy ear: a flat teardrop hanging from the side of the head, wider at the bottom."""
-    verts = limb(bm, (0, 0, 0), (0, 0, -EAR_LEN), 0.04, 0.064)
+    verts = ao.limb(bm, (0, 0, 0), (0, 0, -EAR_LEN), 0.04, 0.064)
     m = (Matrix.Translation((sx * EAR_TOP[0], EAR_TOP[1], EAR_TOP[2]))
          @ Euler((EAR_TILT[0], sx * EAR_TILT[1], 0), 'XYZ').to_matrix().to_4x4()
          @ Matrix.Diagonal((0.36, 1.0, 1.0, 1.0)))
@@ -294,11 +157,11 @@ EYE = (0.066, -0.412, 0.595)
 
 
 def eye(bm, sx):
-    ellipsoid(bm, (sx * EYE[0], EYE[1], EYE[2]), (0.024, 0.016, 0.031), rot=(0, 0, -sx * 0.32), segs=16, rings=10)
+    ao.ellipsoid(bm, (sx * EYE[0], EYE[1], EYE[2]), (0.024, 0.016, 0.031), rot=(0, 0, -sx * 0.32), segs=16, rings=10)
 
 
 def shine(bm, sx):
-    ellipsoid(bm, (sx * (EYE[0] + 0.006), EYE[1] - 0.013, EYE[2] + 0.012), (0.008, 0.005, 0.009), segs=10, rings=6)
+    ao.ellipsoid(bm, (sx * (EYE[0] + 0.006), EYE[1] - 0.013, EYE[2] + 0.012), (0.008, 0.005, 0.009), segs=10, rings=6)
 
 
 def collar_matrix():
@@ -308,20 +171,8 @@ def collar_matrix():
 
 
 def collar(bm):
-    """A torus round the neck (bmesh has no torus primitive, so it's built ring by ring)."""
-    R, r, n, m = 0.1, 0.019, 28, 8
-    grid = []
-    for i in range(n):
-        a = 2 * math.pi * i / n
-        row = []
-        for j in range(m):
-            b = 2 * math.pi * j / m
-            row.append(bm.verts.new(((R + r * math.cos(b)) * math.cos(a), (R + r * math.cos(b)) * math.sin(a), r * math.sin(b))))
-        grid.append(row)
-    for i in range(n):
-        for j in range(m):
-            bm.faces.new((grid[i][j], grid[(i + 1) % n][j], grid[(i + 1) % n][(j + 1) % m], grid[i][(j + 1) % m]))
-    bmesh.ops.transform(bm, matrix=collar_matrix(), verts=bm.verts[:])
+    m = collar_matrix()
+    ao.torus(bm, m.translation, 0.1, 0.019, rot=m.to_euler(), n=28, m=8)
 
 
 def tag(bm):
@@ -341,11 +192,11 @@ def parts():
         obs.append(part(f"ear_{side}", "Ear", lambda bm, sx=sx: ear(bm, sx), ear_weights(sx)))
         obs.append(part(f"eye_{side}", "Ink", lambda bm, sx=sx: eye(bm, sx), rigid(f"eye_{side}")))
         obs.append(part(f"shine_{side}", "Shine", lambda bm, sx=sx: shine(bm, sx), rigid(f"eye_{side}")))
-    obs.append(part("nose", "Nose", lambda bm: ellipsoid(bm, (0, -0.497, 0.56), (0.037, 0.026, 0.027), segs=16, rings=10), rigid("head")))
+    obs.append(part("nose", "Nose", lambda bm: ao.ellipsoid(bm, (0, -0.497, 0.56), (0.037, 0.026, 0.027), segs=16, rings=10), rigid("head")))
     # The mouth: a dark inside under the muzzle, a lower jaw that drops open, a tongue on it.
-    obs.append(part("mouth", "Ink", lambda bm: ellipsoid(bm, (0, -0.405, 0.479), (0.042, 0.068, 0.02), segs=16, rings=8), rigid("head")))
-    obs.append(part("chin", "Light", lambda bm: ellipsoid(bm, (0, -0.4, 0.47), (0.05, 0.07, 0.026), segs=18, rings=10), rigid("jaw")))
-    obs.append(part("tongue", "Tongue", lambda bm: ellipsoid(bm, (0, -0.425, 0.493), (0.032, 0.05, 0.011), segs=14, rings=8), rigid("jaw")))
+    obs.append(part("mouth", "Ink", lambda bm: ao.ellipsoid(bm, (0, -0.405, 0.479), (0.042, 0.068, 0.02), segs=16, rings=8), rigid("head")))
+    obs.append(part("chin", "Light", lambda bm: ao.ellipsoid(bm, (0, -0.4, 0.47), (0.05, 0.07, 0.026), segs=18, rings=10), rigid("jaw")))
+    obs.append(part("tongue", "Tongue", lambda bm: ao.ellipsoid(bm, (0, -0.425, 0.493), (0.032, 0.05, 0.011), segs=14, rings=8), rigid("jaw")))
     obs.append(part("collar", "Collar", collar, rigid("neck")))
     obs.append(part("tag", "Tag", tag, rigid("neck")))
     return obs
@@ -354,9 +205,7 @@ def parts():
 # ---- Skeleton -----------------------------------------------------------------------------------
 
 def bones():
-    """(name, head, tail, parent, deforms the body skin). Rolls are set so every bone's local X is
-    the dog's +X: a positive X rotation tips a bone's far end forward and down (a nod, a jaw
-    opening), or swings a leg's foot back."""
+    """(name, head, tail, parent, deforms the body skin)."""
     out = [
         ("root", (0, 0, 0), (0, -0.12, 0), None, False),
         ("hips", (0, 0.15, 0.35), (0, 0.0, 0.36), "root", True),
@@ -389,30 +238,6 @@ def bones():
     return out
 
 
-def rig():
-    data = bpy.data.armatures.new("DogRig")
-    arm = bpy.data.objects.new("DogRig", data)
-    bpy.context.scene.collection.objects.link(arm)
-    bpy.context.view_layer.objects.active = arm
-    arm.select_set(True)
-    bpy.ops.object.mode_set(mode='EDIT')
-    spec = bones()
-    for name, head, tail, parent, _ in spec:
-        b = data.edit_bones.new(name)
-        b.head, b.tail = head, tail
-        if parent:
-            b.parent = data.edit_bones[parent]
-    for b in data.edit_bones:
-        # align_roll points the bone's Z axis, so aim Z at +X cross the bone to get X along +X.
-        b.align_roll(Vector((1, 0, 0)).cross((b.tail - b.head).normalized()))
-    bpy.ops.object.mode_set(mode='OBJECT')
-    for name, _, _, _, deform in spec:
-        data.bones[name].use_deform = deform
-    for pb in arm.pose.bones:
-        pb.rotation_mode = 'XYZ'
-    return arm
-
-
 # (leg bone, the torso bone it hangs from, fully the leg's below this height, not at all above this)
 LEG_REACH = [(f"{k}_upper_{s}", torso, lo, hi)
              for k, torso, lo, hi in (("front", "chest", 0.2, 0.3), ("back", "hips", 0.17, 0.29))
@@ -424,14 +249,14 @@ def soften_legs(body):
     doesn't drag creases into the side; the torso bone takes what the leg lets go of."""
     groups = {g.name: g for g in body.vertex_groups}
     for v in body.data.vertices:
-        for leg, torso, lo, hi in LEG_REACH:
+        for leg_bone, torso, lo, hi in LEG_REACH:
             try:
-                w = groups[leg].weight(v.index)
+                w = groups[leg_bone].weight(v.index)
             except RuntimeError:
                 continue
             k = min(1.0, max(0.0, (hi - v.co.z) / (hi - lo)))
             if k < 1.0:
-                groups[leg].add([v.index], w * k, 'REPLACE')
+                groups[leg_bone].add([v.index], w * k, 'REPLACE')
                 groups[torso].add([v.index], w * (1 - k), 'ADD')
 
 
@@ -458,16 +283,7 @@ def skin(arm, body, loose):
     # though nothing is weighted to it) and leaves out only the IK targets added later.
     for b in arm.data.bones:
         b.use_deform = True
-    bpy.ops.object.select_all(action='DESELECT')
-    for ob in loose:
-        ob.select_set(True)
-    body.select_set(True)
-    bpy.context.view_layer.objects.active = body
-    bpy.ops.object.join()
-    # Joining leaves something validate() tidies (no geometry changes); do it here so the
-    # exporter doesn't warn.
-    body.data.validate()
-    return body
+    return ao.join(body, loose)
 
 
 SOCKETS = {
@@ -477,17 +293,6 @@ SOCKETS = {
 }
 
 
-def sockets(arm):
-    for name, (bone, at) in SOCKETS.items():
-        s = bpy.data.objects.new(name, None)
-        bpy.context.scene.collection.objects.link(s)
-        s.empty_display_size = 0.05
-        s.parent = arm
-        s.parent_type = 'BONE'
-        s.parent_bone = bone
-        s.matrix_world = Matrix.Translation(at)
-
-
 # ---- Animation ----------------------------------------------------------------------------------
 #
 # The legs are posed with IK: each paw follows a target bone (ik_front_L, ...) that the clips
@@ -495,8 +300,6 @@ def sockets(arm):
 # themselves don't deform anything and aren't exported.
 
 LEGS = [(k, s) for k in ("front", "back") for s in ("L", "R")]
-UP = (0.0, 0.0, 1.0)
-TAU = 2 * math.pi
 
 
 def ik_setup(arm):
@@ -517,53 +320,6 @@ def ik_setup(arm):
         keep.target, keep.subtarget = arm, f"ik_{kind}_{s}"
     for pb in arm.pose.bones:
         pb.rotation_mode = 'QUATERNION'
-
-
-class Pose:
-    """One moment of a clip: turns (about a bone's own x/y/z, or about a world axis given as a
-    vector, applied in order) and moves (world-space offsets from the rest pose)."""
-
-    def __init__(self):
-        self.turns, self.moves = {}, {}
-
-    def turn(self, bone, axis, angle):
-        self.turns.setdefault(bone, []).append((axis, angle))
-        return self
-
-    def move(self, bone, x=0.0, y=0.0, z=0.0):
-        old = self.moves.get(bone, (0, 0, 0))
-        self.moves[bone] = (old[0] + x, old[1] + y, old[2] + z)
-        return self
-
-    def both(self, bone, axis, angle, mirrored=False):
-        """The same turn on the _L and _R bone; `mirrored` flips it on the right."""
-        self.turn(f"{bone}_L", axis, angle)
-        self.turn(f"{bone}_R", axis, -angle if mirrored else angle)
-        return self
-
-
-AXES = {"x": Vector((1, 0, 0)), "y": Vector((0, 1, 0)), "z": Vector((0, 0, 1))}
-
-
-def apply(arm, pose):
-    from mathutils import Quaternion
-    for pb in arm.pose.bones:
-        rest = pb.bone.matrix_local.to_3x3().inverted()
-        q = Quaternion()
-        for axis, angle in pose.turns.get(pb.name, ()):
-            v = AXES[axis] if isinstance(axis, str) else (rest @ Vector(axis)).normalized()
-            q = q @ Quaternion(v, angle)
-        pb.rotation_quaternion = q
-        off = pose.moves.get(pb.name)
-        pb.location = rest @ Vector(off) if off else Vector()
-
-
-def wave(t, n, phase=0.0):
-    return math.sin(TAU * (n * t + phase))
-
-
-def ease(v):
-    return v * v * (3 - 2 * v)
 
 
 def step(p, kind, s, u, stride, lift, stance=0.5, curl=0.6):
@@ -723,114 +479,17 @@ CLIPS = {
 }
 
 
-def clips(arm):
-    arm.animation_data_create()
-    for name, (frames, fn) in CLIPS.items():
-        act = bpy.data.actions.new(name)
-        act.use_fake_user = True
-        arm.animation_data.action = act
-        for f in range(frames + 1):
-            apply(arm, fn(f / frames))
-            for pb in arm.pose.bones:
-                pb.keyframe_insert("rotation_quaternion", frame=f + 1)
-                pb.keyframe_insert("location", frame=f + 1)
-        act.use_frame_range = True
-        act.frame_start, act.frame_end = 1, frames + 1
-        act.use_cyclic = True
-    arm.animation_data.action = None
-    apply(arm, Pose())
-
-
-def show(arm, clip, t):
-    """Puts the rig at `t` (0..1) through a clip, for a review render."""
-    act = bpy.data.actions[clip]
-    arm.animation_data.action = act
-    frames = CLIPS[clip][0]
-    bpy.context.scene.frame_set(1 + round(t * frames))
-
-
-# ---- Export -------------------------------------------------------------------------------------
-
-def export(arm, path=OUT):
-    arm.animation_data.action = None
-    apply(arm, Pose())
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    bpy.ops.export_scene.gltf(
-        filepath=path,
-        export_format='GLB',
-        export_yup=True,
-        export_texcoords=False,
-        export_cameras=False,
-        export_lights=False,
-        export_animations=True,
-        export_animation_mode='ACTIONS',
-        export_force_sampling=True,
-        export_anim_slide_to_zero=True,
-        # Drops repeated keyframes, but keeps every bone keyed in every clip, so a clip always
-        # sets the whole pose (a held sit keeps its legs).
-        export_optimize_animation_size=True,
-        export_optimize_animation_keep_anim_armature=True,
-        export_reset_pose_bones=True,
-        # Only bones that deform, so the IK targets stay behind.
-        export_def_bones=True,
-    )
-    return path
-
-
-# ---- Review renders -----------------------------------------------------------------------------
-
-VIEWS = {
-    "tq": (0.95, -1.0, 0.55),
-    "side": (1.0, 0.0, 0.12),
-    "front": (0.0, -1.0, 0.18),
-    "back": (-0.6, 1.0, 0.5),
-    "top": (0.0, -0.05, 1.0),
-}
-
-
-def shoot(name, view="tq", target=(0, -0.03, 0.34), dist=1.9, res=(900, 700)):
-    """A Workbench render with outlines to SHOT_DIR/<name>.png, for looking at while modelling."""
-    sc = bpy.context.scene
-    sc.render.engine = 'BLENDER_WORKBENCH'
-    sc.render.resolution_x, sc.render.resolution_y = res
-    sc.render.resolution_percentage = 100
-    sh = sc.display.shading
-    sh.light = 'STUDIO'
-    sh.color_type = 'MATERIAL'
-    sh.show_object_outline = True
-    sh.object_outline_color = (0.17, 0.18, 0.26)
-    sh.show_shadows = False
-    sh.show_cavity = False
-    sh.show_specular_highlight = False
-    sc.display.render_aa = '8'
-    if sc.world is None:
-        sc.world = bpy.data.worlds.new("World")
-    sc.world.color = (0.52, 0.76, 1.0)
-    cam = sc.camera
-    if cam is None:
-        cam = bpy.data.objects.new("Camera", bpy.data.cameras.new("Camera"))
-        sc.collection.objects.link(cam)
-        sc.camera = cam
-    cam.data.lens = 50
-    d = Vector(VIEWS.get(view, view)).normalized()
-    t = Vector(target)
-    cam.location = t + d * dist
-    cam.rotation_euler = (t - cam.location).to_track_quat('-Z', 'Y').to_euler()
-    os.makedirs(SHOT_DIR, exist_ok=True)
-    sc.render.filepath = os.path.join(SHOT_DIR, name + ".png")
-    bpy.ops.render.render(write_still=True)
-    return sc.render.filepath
-
+# ---- Review -------------------------------------------------------------------------------------
 
 def floor_report(samples=8):
     """How far each clip pushes the skin under the floor (metres, negative is under), and which
     material dips lowest: a check to run after touching any pose."""
     arm, body = bpy.data.objects["DogRig"], bpy.data.objects["Dog"]
     out = {}
-    for clip, (frames, _) in CLIPS.items():
+    for clip in CLIPS:
         worst = (1.0, None)
         for k in range(samples):
-            show(arm, clip, k / samples)
+            ao.show(arm, CLIPS, clip, k / samples)
             ev = body.evaluated_get(bpy.context.evaluated_depsgraph_get())
             me = ev.to_mesh()
             for p in me.polygons:
@@ -839,57 +498,37 @@ def floor_report(samples=8):
                     worst = (z, body.material_slots[p.material_index].name)
             ev.to_mesh_clear()
         out[clip] = (round(worst[0], 3), worst[1])
-    arm.animation_data.action = None
-    apply(arm, Pose())
+    ao.show(arm, CLIPS, None, 0)
     return out
 
 
-def sheet(name, shots, cell=(420, 330), target=(0, -0.03, 0.3), dist=1.7):
-    """Several renders side by side in one PNG: `shots` is [(clip or None, t, view)]."""
-    import numpy as np
+def sheet(name, shots, **kw):
+    """Review renders side by side: `shots` is [(clip or None for rest, t, view)]."""
     arm = bpy.data.objects["DogRig"]
-    tiles = []
-    for i, (clip, t, view) in enumerate(shots):
-        if clip:
-            show(arm, clip, t)
-        else:
-            arm.animation_data.action = None
-            apply(arm, Pose())
-        path = shoot(f"_tile{i}", view, target=target, dist=dist, res=cell)
-        img = bpy.data.images.load(path, check_existing=False)
-        px = np.array(img.pixels[:], dtype=np.float32).reshape(cell[1], cell[0], 4)
-        tiles.append(px)
-        bpy.data.images.remove(img)
-    rows = [np.concatenate(tiles[i:i + 4], axis=1) for i in range(0, len(tiles), 4)]
-    width = max(r.shape[1] for r in rows)
-    rows = [np.pad(r, ((0, 0), (0, width - r.shape[1]), (0, 0))) for r in rows]
-    full = np.concatenate(rows[::-1], axis=0)
-    out = bpy.data.images.new(name, full.shape[1], full.shape[0], alpha=True)
-    out.pixels = full.ravel()
-    out.filepath_raw = os.path.join(SHOT_DIR, name + ".png")
-    out.file_format = 'PNG'
-    out.save()
-    bpy.data.images.remove(out)
-    arm.animation_data.action = None
-    apply(arm, Pose())
-    return os.path.join(SHOT_DIR, name + ".png")
+    kw.setdefault("target", (0, -0.03, 0.3))
+    path = ao.sheet(name, [(lambda c=clip, t=t: ao.show(arm, CLIPS, c, t), view) for clip, t, view in shots], **kw)
+    ao.show(arm, CLIPS, None, 0)
+    return path
 
 
 def main(write=True):
-    clear()
-    bpy.context.scene.render.fps = FPS
+    ao.clear()
     body = body_mesh()
-    fuse(body)
-    paint(body)
-    arm = rig()
+    ao.fuse(body)
+    ao.paint(body, material("Fur"), [(material("Light"), light_patch)])
+    arm = ao.armature("DogRig", bones())
     skin(arm, body, parts())
-    sockets(arm)
+    for name, (bone, at) in SOCKETS.items():
+        ao.socket(arm, name, bone, at)
     ik_setup(arm)
-    clips(arm)
+    ao.key_clips(arm, CLIPS)
     if write:
-        export(arm)
+        ao.export("dog", arm)
     return arm, body
 
 
 if __name__ == "__main__" and bpy.app.background:
     main()
+    if "--shots" in ao.args():
+        print("sheet:", sheet("dog", [(None, 0, "tq"), ("walk", 0.25, "side"), ("run", 0.3, "side"), ("wag", 0.1, "front"),
+                                      ("sniff", 0.1, "side"), ("sit", 0, "tq"), ("lie", 0, "tq"), ("nap", 0, "tq")]))
