@@ -37,7 +37,7 @@ import { Voice } from './voice';
 import { OfficeSound } from './sound';
 import { DesktopNotifier, askNotifyPermission, notifyPermission, waitingOnSomeone } from './notify';
 import { NextUp, waitingInOrder, waitingLabel } from './nextup';
-import { $, h, clip, closeAllModals, closeTopModal, doingNow, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
+import { $, h, clip, closeAllModals, closeTopModal, doingNow, modalOpen, onModalChange, openModal, timeAgo, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage, type TerminalFind } from './ui/terminal';
 import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
@@ -330,9 +330,10 @@ player.view = settings.view;
 // and the Enter VR button stays hidden where XR is unavailable.
 /** World-space VR panels (menu, terminal, keyboard): attached on session enter, disposed on end. Null on desktop. */
 let vrUi: VrUiHandle | null = null;
+/** The picture E armed in VR (the terminal ⏻ button's tap-twice, for the walls). */
+let decorArmed = { id: '', until: 0 };
 /** E in VR: modal flows open world-space panels instead of invisible DOM windows. The carried card drops first, exactly as on desktop; what stays physical falls through to use(). */
-function vrUseE(it: Interactable | null, note: GhIssue | null) {
-  // On the ladder, E gets you off it — exactly like the desktop key, before everything else.
+function vrUseE(it: Interactable | null, note: GhIssue | null) {  // On the ladder, E gets you off it — exactly like the desktop key, before everything else.
   if (climber.active) {
     climber.letGo();
     return;
@@ -360,7 +361,23 @@ function vrUseE(it: Interactable | null, note: GhIssue | null) {
     if (it.kind === 'bar') return vrUi.showMenu('bar');
     if (it.kind === 'meeting') return vrUi.showMenu('meeting');
     if (it.kind === 'services') return vrUi.showMenu('services');
-    if (it.kind === 'whiteboard' || it.kind === 'tv' || it.kind === 'decor' || it.kind === 'cabinet') {
+    // The picture is right there on the wall; E says who hung it, and E again takes it down
+    // (the DOM dialog's take-down + confirm, without the dialog — move/edit stay desktop).
+    if (it.kind === 'decor' && it.decorId) {
+      const d = store.decor.find((x) => x.id === it.decorId);
+      if (!d) return;
+      const now = performance.now();
+      if (decorArmed.id === d.id && now < decorArmed.until) {
+        decorArmed = { id: '', until: 0 };
+        net.send({ t: 'decor.remove', id: d.id });
+        toast(`🖼️ “${d.title || 'The picture'}” comes down`);
+        return;
+      }
+      decorArmed = { id: d.id, until: now + 6000 };
+      toast(`🖼️ ${d.title || 'A picture'} — hung by ${d.by}, ${timeAgo(d.at)}. E again to take it down`);
+      return;
+    }
+    if (it.kind === 'whiteboard' || it.kind === 'tv' || it.kind === 'cabinet') {
       toast(`The ${it.kind} isn't in VR yet — hop on the desktop for that one`, 'warn');
       return;
     }
@@ -510,7 +527,9 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     // The menu's current view (E-routing checks read this back).
     menuView: () => vrUi?.menu.currentView() ?? null,
     // E through the session's own dispatch, at a made-up target (E-routing checks).
-    tapUse: (kind: string, deskId?: string) => vrUseE({ kind, deskId } as Interactable, null),
+    tapUse: (kind: string, deskId?: string, decorId?: string) => vrUseE({ kind, deskId, decorId } as Interactable, null),
+    // The pictures on the walls (the decor E-again check reads this back).
+    decor: () => store.decor.map((d) => ({ id: d.id, title: d.title, by: d.by })),
     // What the VR prompt field holds (assert scripts read this back after pressing keys).
     promptText: () => vrUi?.promptText() ?? null,
     // Downs shots for the drunk-in-VR check (strength adds up; water sobers): returns the level.
