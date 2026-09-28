@@ -307,7 +307,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     dirRow.classList.toggle('hidden', !admin);
     dirActions.classList.toggle('hidden', !admin || !custom);
     dirNote.textContent =
-      `New projects from the elevator are cloned into ${dir}/<owner>/<repo> on the office’s machine.` +
+      `New projects from the elevator are cloned into ${dir}/<owner>/<repo> (GitLab: ${dir}/<host>/<group>/<project>) on the office’s machine. It can’t be inside a git checkout.` +
       (custom && by && at ? ` Set by ${by} ${timeAgo(at)}.` : '') +
       (admin ? ' A checkout of the same repository that’s already there is used as it is. Floors you already have stay where they are.' : ' An admin can move it.');
   };

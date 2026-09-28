@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { loadConfig } from '../src/server/config.js';
 
@@ -39,6 +39,12 @@ test('--agent-args with nothing after it still needs a value', (t) => {
 
 test('other flags still treat a leading -- as a missing value', (t) => {
   assert.throws(() => load(t, '--agent', '--agent-args', 'x'), /exit 2: agent-office: --agent needs a value/);
+});
+
+test('new floors are cloned into ~/.agent-office/projects, not next to the office', (t) => {
+  const cfg = load(t);
+  assert.equal(cfg.projectsDir, path.join(homedir(), '.agent-office', 'projects'));
+  assert.notEqual(path.dirname(cfg.projectsDir), cfg.dir);
 });
 
 test('the default agent is droid', (t) => {

@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import type { GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhMergeMethod, GhPull, GhPullDetail, GhRepoInfo, GhReviewComment, GhState } from '../shared/protocol.js';
+import type { Board, PullHost, PullRef } from './forge.js';
 
 const REFRESH_MS = 90_000;
 
@@ -114,7 +115,26 @@ export class MergeWatch {
   }
 }
 
-export class GitHub {
+/** Pull requests on GitHub, opened and found with `gh` in the branch's checkout. */
+export const githubPulls: PullHost = {
+  async createPull(cwd, head, base, title, body) {
+    const out = await gh(['pr', 'create', '--head', head, ...(base ? ['--base', base] : []), '--title', title, '--body', body], cwd, 120_000);
+    const url = out.trim().split('\n').pop() ?? '';
+    const number = Number(/\/pull\/(\d+)/.exec(url)?.[1]);
+    if (!number) throw new Error(`gh did not return a pull request URL (${out.trim().slice(0, 120)})`);
+    return { number, url };
+  },
+  async findOpenPull(branch, cwd): Promise<PullRef | undefined> {
+    const out = await gh(['pr', 'list', '--head', branch, '--state', 'open', '--limit', '1', '--json', 'number,url'], cwd);
+    const found = (JSON.parse(out || '[]') as PullRef[])[0];
+    return found ? { number: found.number, url: found.url } : undefined;
+  },
+};
+
+export class GitHub implements Board {
+  readonly forge = 'github' as const;
+  readonly createPull = githubPulls.createPull;
+  readonly findOpenPull = githubPulls.findOpenPull;
   issues: GhState<GhIssue> = { items: [], fetchedAt: 0, loading: false };
   pulls: GhState<GhPull> = { items: [], fetchedAt: 0, loading: false };
   private timer?: NodeJS.Timeout;

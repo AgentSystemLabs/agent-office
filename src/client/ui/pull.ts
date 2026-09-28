@@ -1,6 +1,6 @@
 import type { GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhMergeMethod, GhPull, GhPullDetail, GhReviewComment, ServerMsg } from '../../shared/protocol';
 import type { Net } from '../net';
-import { AVATAR_COLORS, store, workerForPull } from '../state';
+import { AVATAR_COLORS, store, words, workerForPull } from '../state';
 import { issuePrompt, type BoardActions } from './boards';
 import { issueMeeting } from './meeting';
 import { h, openModal, timeAgo, type Modal } from './dom';
@@ -93,6 +93,12 @@ interface MergePref {
 }
 
 const METHOD_LABEL: Record<GhMergeMethod, string> = { squash: 'Squash and merge', merge: 'Create a merge commit', rebase: 'Rebase and merge' };
+/** GitLab merges the way the project is set up to; squashing is the one choice per merge request. */
+const GITLAB_METHOD_LABEL: Record<GhMergeMethod, string> = { squash: 'Squash and merge', merge: 'Merge', rebase: 'Rebase and merge' };
+
+function methodLabel(m: GhMergeMethod): string {
+  return (store.project?.forge === 'gitlab' ? GITLAB_METHOD_LABEL : METHOD_LABEL)[m];
+}
 
 /** The merge dialog's remembered defaults (the VR merge fires with the same ones). */
 export function mergePref(methods: GhMergeMethod[]): { method: GhMergeMethod; deleteBranch: boolean } {
@@ -100,14 +106,19 @@ export function mergePref(methods: GhMergeMethod[]): { method: GhMergeMethod; de
   return { method: p.method && methods.includes(p.method) ? p.method : methods[0], deleteBranch: p.deleteBranch ?? true };
 }
 
-/** owner/repo from a PR or issue URL. */
+/** owner/repo (GitLab: group/…/project) from a PR or issue URL. */
 function nameWithOwner(url: string): string {
   return repoUrlOf(url).replace(/^https?:\/\/[^/]+\//, '');
 }
 
+/** The project's page, for glab's --repo (which then reaches the right GitLab instance). */
+function repoArg(url: string): string {
+  return store.project?.forge === 'gitlab' ? repoUrlOf(url) : nameWithOwner(url);
+}
+
 // ---- Small pieces ---------------------------------------------------------------------------------
 
-/** A GitHub label in its own color, with text that stays readable on dark ones. */
+/** A label in its own color, with text that stays readable on dark ones. */
 export function labelChip(l: { name: string; color: string }) {
   const n = parseInt(l.color.slice(1), 16);
   const lum = Number.isNaN(n) ? 1 : (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
@@ -151,7 +162,7 @@ function spinnerRow(text: string) {
 }
 
 function errorBox(text: string, retry?: () => void) {
-  return h('div.gh-error', {}, `Couldn't load from GitHub: ${text}`, retry ? h('button.btn', { type: 'button', onclick: retry }, 'Try again') : null);
+  return h('div.gh-error', {}, `Couldn't load from ${words().site}: ${text}`, retry ? h('button.btn', { type: 'button', onclick: retry }, 'Try again') : null);
 }
 
 const CHECK_ICON: Record<GhCheck['state'], string> = { pass: '✅', fail: '❌', pending: '🟡', skip: '⚪' };
@@ -172,7 +183,7 @@ export interface MergeStatus {
   cls: 'ok' | 'warn' | 'bad' | 'muted';
   /** False when merging can't work at all (draft, conflicts, already merged). */
   can: boolean;
-  /** GitHub could merge it on its own once the requirements pass. */
+  /** GitHub or GitLab could merge it on its own once the requirements pass. */
   auto: boolean;
 }
 /** The PR window's detail fetch (main.ts runs the same fetch for the VR merge box). */
@@ -191,17 +202,17 @@ export function mergeStatus(d: GhPullDetail): MergeStatus {
   const pending = d.checks.filter((c) => c.state === 'pending').length;
   if (d.state === 'MERGED') return { icon: '🎉', text: 'Merged.', short: 'Merged', cls: 'ok', can: false, auto: false };
   if (d.state === 'CLOSED') return { icon: '🗑️', text: 'Closed without merging.', short: 'Closed', cls: 'muted', can: false, auto: false };
-  if (d.isDraft) return { icon: '📝', text: 'This is still a draft. Mark it ready for review on GitHub before merging.', short: 'Draft', cls: 'muted', can: false, auto: false };
+  if (d.isDraft) return { icon: '📝', text: `This is still a draft. Mark it ready for review on ${words().site} before merging.`, short: 'Draft', cls: 'muted', can: false, auto: false };
   if (conflicted(d))
     return { icon: '⚠️', text: `This branch has conflicts with ${d.baseRefName} that must be resolved first.`, short: 'Conflicts', cls: 'bad', can: false, auto: false };
   if (d.mergeStateStatus === 'BEHIND') return { icon: '⤵️', text: `The branch is behind ${d.baseRefName}, and this repo wants it up to date before merging.`, short: 'Behind base', cls: 'warn', can: true, auto: true };
   if (d.mergeStateStatus === 'BLOCKED') {
-    const why = d.reviewDecision === 'CHANGES_REQUESTED' ? 'changes were requested' : d.reviewDecision === 'REVIEW_REQUIRED' ? 'it needs an approving review' : failing ? `${failing} check${failing > 1 ? 's are' : ' is'} failing` : pending ? 'required checks are still running' : 'a branch rule is not met yet';
+    const why = d.reviewDecision === 'CHANGES_REQUESTED' ? 'changes were requested' : d.reviewDecision === 'REVIEW_REQUIRED' ? 'it needs an approving review' : d.blocked ? d.blocked : failing ? `${failing} check${failing > 1 ? 's are' : ' is'} failing` : pending ? 'required checks are still running' : 'a branch rule is not met yet';
     return { icon: '🚫', text: `Merging is blocked: ${why}.`, short: 'Blocked', cls: 'bad', can: true, auto: true };
   }
   if (failing) return { icon: '❌', text: `${failing} check${failing > 1 ? 's' : ''} failing. It can still be merged.`, short: 'Checks failing', cls: 'warn', can: true, auto: false };
   if (pending || d.mergeStateStatus === 'UNSTABLE') return { icon: '🟡', text: 'Checks are still running. It can be merged now, or once they pass.', short: 'Checks running', cls: 'warn', can: true, auto: true };
-  if (d.mergeStateStatus === 'UNKNOWN' || d.mergeable === 'UNKNOWN') return { icon: '⏳', text: 'GitHub is still working out whether this can merge. Refresh in a moment.', short: 'Checking…', cls: 'muted', can: true, auto: false };
+  if (d.mergeStateStatus === 'UNKNOWN' || d.mergeable === 'UNKNOWN') return { icon: '⏳', text: `${words().site} is still working out whether this can merge. Refresh in a moment.`, short: 'Checking…', cls: 'muted', can: true, auto: false };
   return { icon: '✅', text: `Ready to merge: no conflicts with ${d.baseRefName}${d.checks.length ? ' and all checks passed' : ''}.`, short: 'Ready to merge', cls: 'ok', can: true, auto: false };
 }
 
@@ -219,14 +230,14 @@ function checksList(checks: GhCheck[]) {
 
 interface CommentBox {
   el: HTMLElement;
-  /** Names the GitHub account the comment goes out as, once the window knows it. */
+  /** Names the GitHub or GitLab account the comment goes out as, once the window knows it. */
   setViewer(login: string): void;
   /** Stops waiting for an answer; the window closed. */
   dispose(): void;
 }
 
 /**
- * Where you comment on an issue or a PR's conversation. It goes out through the server's gh, so
+ * Where you comment on an issue or a PR's conversation. It goes out through the server's gh or glab, so
  * as that account rather than as you. The draft is kept per item until it is posted, so Esc or a
  * closed window doesn't lose it.
  */
@@ -240,7 +251,7 @@ function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: string, net
   const shown = h('div.gh-compose-preview.hidden');
   const write = h('button.btn.on', { type: 'button' }, 'Write');
   const preview = h('button.btn', { type: 'button' }, 'Preview');
-  const who = h('span.grow', {}, "Posts to GitHub as the office's gh account");
+  const who = h('span.grow', {}, `Posts to ${words().site} as the office's ${words().cli} account`);
   const post = h('button.btn.primary', { type: 'button' }, 'Comment');
   const result = h('div.gh-merge-result.error.hidden');
   const el = h(
@@ -296,7 +307,7 @@ function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: string, net
         saveDraft();
         setPreview(false);
         onPosted(msg.comment);
-      } else fail(msg.error ?? 'GitHub did not take the comment');
+      } else fail(msg.error ?? `${words().site} did not take the comment`);
       sync();
     });
     // The office drops messages while it's disconnected, and then no answer comes.
@@ -322,7 +333,7 @@ function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: string, net
   return {
     el,
     setViewer(login) {
-      if (login) who.textContent = `Posts to GitHub as @${login}`;
+      if (login) who.textContent = `Posts to ${words().site} as @${login}`;
     },
     dispose: settle,
   };
@@ -331,53 +342,78 @@ function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: string, net
 // ---- Prompts for workers ------------------------------------------------------------------------
 
 function reviewPrompt(it: GhPull) {
+  const w = words();
+  if (w.cli === 'glab') return `Review merge request ${w.ref(it.number)}: "${it.title}".\n\nUse \`glab mr view ${it.number} --comments\` and \`glab mr diff ${it.number}\`. Look for bugs, risky changes and missing tests, then give me a short summary with concrete suggestions. Don't push any commits.`;
   return `Review pull request #${it.number}: "${it.title}".\n\nUse \`gh pr view ${it.number} --comments\` and \`gh pr diff ${it.number}\`. Look for bugs, risky changes and missing tests, then give me a short summary with concrete suggestions. Don't push any commits.`;
 }
 
 function checkoutStep(it: GhPull) {
-  return `Get onto its branch: \`gh pr checkout ${it.number}\`. If git says \`${it.headRefName}\` is already checked out in another worktree, use \`git fetch origin ${it.headRefName} && git checkout --detach FETCH_HEAD\` instead and push with \`git push origin HEAD:${it.headRefName}\`.`;
+  const checkout = words().cli === 'glab' ? `glab mr checkout ${it.number}` : `gh pr checkout ${it.number}`;
+  return `Get onto its branch: \`${checkout}\`. If git says \`${it.headRefName}\` is already checked out in another worktree, use \`git fetch origin ${it.headRefName} && git checkout --detach FETCH_HEAD\` instead and push with \`git push origin HEAD:${it.headRefName}\`.`;
 }
 
 function mergeCommand(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
+  if (words().cli === 'glab') return `glab mr merge ${it.number}${method === 'squash' ? ' --squash' : ''}${deleteBranch ? ' --remove-source-branch' : ''} --auto-merge=false --yes --repo ${repoArg(it.url)}`;
   return `gh pr merge ${it.number} --${method}${deleteBranch ? ' --delete-branch' : ''} --repo ${nameWithOwner(it.url)}`;
 }
 
-function fixAndMergePrompt(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
+/** The forge's commands a worker reads feedback and waits for checks with. */
+function reviewCommands(it: GhPull) {
   const n = it.number;
-  const repo = nameWithOwner(it.url);
+  if (words().cli === 'glab') {
+    return {
+      view: `glab mr view ${n} --comments`,
+      feedback: `\`glab mr view ${n} --comments\`, and the threads on lines of code with \`glab mr note list ${n} --type diff --state unresolved\``,
+      checks: `\`glab ci status --branch ${it.headRefName} --wait\``,
+    };
+  }
+  return {
+    view: `gh pr view ${n}`,
+    feedback: `\`gh pr view ${n} --comments\`, and the comments on lines of code with \`gh api repos/${nameWithOwner(it.url)}/pulls/${n}/comments\``,
+    checks: `\`gh pr checks ${n} --watch\``,
+  };
+}
+
+function fixAndMergePrompt(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
+  const w = words();
+  const c = reviewCommands(it);
   return [
-    `Get pull request #${n} "${it.title}" (${it.url}) ready and merge it.`,
+    `Get ${w.pull} ${w.ref(it.number)} "${it.title}" (${it.url}) ready and merge it.`,
     '',
     `1. ${checkoutStep(it)}`,
-    `2. Read all the feedback: \`gh pr view ${n} --comments\`, and the comments on lines of code with \`gh api repos/${repo}/pulls/${n}/comments\`.`,
-    `3. Address every review comment that is still open: fix it, or if you disagree, reply on the PR saying why. If the branch conflicts with \`${it.baseRefName}\`, merge \`${it.baseRefName}\` in and resolve the conflicts.`,
+    `2. Read all the feedback: ${c.feedback}.`,
+    `3. Address every review comment that is still open: fix it, or if you disagree, reply on the ${w.pr} saying why. If the branch conflicts with \`${it.baseRefName}\`, merge \`${it.baseRefName}\` in and resolve the conflicts.`,
     '4. Verify your changes the way this project does (build, typecheck, tests), then commit and push.',
-    `5. Wait for the checks with \`gh pr checks ${n} --watch\` and fix anything that fails.`,
+    `5. Wait for the checks with ${c.checks} and fix anything that fails.`,
     `6. When the checks pass and no feedback is left, merge it: \`${mergeCommand(it, method, deleteBranch)}\`. If something only a person can decide is in the way, stop and tell me instead of merging.`,
   ].join('\n');
 }
 
 function fixConflictsPrompt(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
-  const n = it.number;
+  const w = words();
+  const c = reviewCommands(it);
   const base = it.baseRefName;
   return [
-    `Pull request #${n} "${it.title}" (${it.url}) has merge conflicts with \`${base}\`. Resolve them and merge it.`,
+    `${w.pull[0].toUpperCase()}${w.pull.slice(1)} ${w.ref(it.number)} "${it.title}" (${it.url}) has merge conflicts with \`${base}\`. Resolve them and merge it.`,
     '',
     `1. ${checkoutStep(it)}`,
     `2. Bring in the latest \`${base}\`: \`git fetch origin ${base} && git merge origin/${base}\`.`,
-    `3. Resolve every conflict so both sides' changes survive. Read the PR (\`gh pr view ${n}\`) and the \`${base}\` commits that touched the same code to see what each side meant; don't just take one side.`,
+    `3. Resolve every conflict so both sides' changes survive. Read the ${w.pr} (\`${c.view}\`) and the \`${base}\` commits that touched the same code to see what each side meant; don't just take one side.`,
     '4. Verify the result the way this project does (build, typecheck, tests), then commit the merge and push.',
-    `5. Wait for the checks with \`gh pr checks ${n} --watch\` and fix anything that fails.`,
+    `5. Wait for the checks with ${c.checks} and fix anything that fails.`,
     `6. When the checks pass, merge it: \`${mergeCommand(it, method, deleteBranch)}\`. If a conflict needs a decision only a person can make, stop and tell me instead of merging.`,
   ].join('\n');
 }
 
 function pullContext(it: GhPull) {
-  return `This is about pull request #${it.number} "${it.title}" (${it.url}), branch \`${it.headRefName}\` into \`${it.baseRefName}\`. Read it with \`gh pr view ${it.number} --comments\` and see its changes with \`gh pr diff ${it.number}\`.`;
+  const w = words();
+  const read = w.cli === 'glab' ? `\`glab mr view ${it.number} --comments\` and see its changes with \`glab mr diff ${it.number}\`` : `\`gh pr view ${it.number} --comments\` and see its changes with \`gh pr diff ${it.number}\``;
+  return `This is about ${w.pull} ${w.ref(it.number)} "${it.title}" (${it.url}), branch \`${it.headRefName}\` into \`${it.baseRefName}\`. Read it with ${read}.`;
 }
 
 function issueContext(it: GhIssue) {
-  return `This is about GitHub issue #${it.number} "${it.title}" (${it.url}). Read it with \`gh issue view ${it.number} --comments\`.`;
+  const w = words();
+  return `This is about ${w.site} issue #${it.number} "${it.title}" (${it.url}). Read it with \`${w.cli} issue view ${it.number} --comments\`.`;
 }
 
 // ---- Merge dialog -------------------------------------------------------------------------------
@@ -395,10 +431,10 @@ function openMerge(it: GhPull, d: GhPullDetail, net: Net, handToWorker: () => vo
   const renderMethods = () => {
     methodBtns.replaceChildren(
       ...methods.map((m) =>
-        h('button.btn', { type: 'button', class: m === method ? 'on' : '', onclick: () => ((method = m), savePref(MERGE_KEY, { method, deleteBranch }), renderMethods()) }, METHOD_LABEL[m]),
+        h('button.btn', { type: 'button', class: m === method ? 'on' : '', onclick: () => ((method = m), savePref(MERGE_KEY, { method, deleteBranch }), renderMethods()) }, methodLabel(m)),
       ),
     );
-    go.textContent = auto.checked ? 'Merge when ready' : METHOD_LABEL[method];
+    go.textContent = auto.checked ? 'Merge when ready' : methodLabel(method);
   };
   auto.addEventListener('change', renderMethods);
   const del = h('input', { type: 'checkbox', id: 'merge-del' }) as HTMLInputElement;
@@ -416,8 +452,8 @@ function openMerge(it: GhPull, d: GhPullDetail, net: Net, handToWorker: () => vo
 
   const el = h(
     'div.modal.gh-merge',
-    { role: 'dialog', 'aria-label': `Merge PR #${it.number}` },
-    h('header', {}, h('h2', {}, `Merge #${it.number}`)),
+    { role: 'dialog', 'aria-label': `Merge ${words().pr} ${words().ref(it.number)}` },
+    h('header', {}, h('h2', {}, `Merge ${words().ref(it.number)}`)),
     h(
       'div.body',
       {},
@@ -427,7 +463,7 @@ function openMerge(it: GhPull, d: GhPullDetail, net: Net, handToWorker: () => vo
       h('label', { style: 'margin-top:14px' }, 'How'),
       methodBtns,
       h('label.gh-check', { for: 'merge-del' }, del, `Delete ${it.headRefName} after merging`),
-      st.auto ? h('label.gh-check', { for: 'merge-auto', title: 'gh pr merge --auto (the repo must allow auto-merge)' }, auto, 'Merge automatically once the requirements pass') : null,
+      st.auto ? h('label.gh-check', { for: 'merge-auto', title: words().cli === 'glab' ? 'GitLab auto-merge: it merges once its pipeline and merge checks pass' : 'gh pr merge --auto (the repo must allow auto-merge)' }, auto, 'Merge automatically once the requirements pass') : null,
       result,
     ),
     h('footer', {}, st.can || conflicted(d) ? null : worker, h('span.grow'), cancel, conflicted(d) ? worker : go),
@@ -446,7 +482,7 @@ function openMerge(it: GhPull, d: GhPullDetail, net: Net, handToWorker: () => vo
     busy = true;
     go.disabled = true;
     result.className = 'gh-merge-result';
-    result.replaceChildren(h('span.spinner'), auto.checked && st.auto ? 'Asking GitHub to merge it when ready…' : 'Merging…');
+    result.replaceChildren(h('span.spinner'), auto.checked && st.auto ? `Asking ${words().site} to merge it when ready…` : 'Merging…');
     mergeWaiters.set(it.number, (msg) => {
       mergeWaiters.delete(it.number);
       busy = false;
@@ -479,33 +515,39 @@ function openClose(kind: 'issue' | 'pull', it: GhIssue | GhPull, net: Net, onClo
   const reasons = h('div.seg');
   const renderReasons = () => {
     reasons.replaceChildren(...(Object.keys(REASON_LABEL) as GhCloseReason[]).map((r) => h('button.btn', { type: 'button', class: r === reason ? 'on' : '', onclick: () => ((reason = r), renderReasons()) }, REASON_LABEL[r])));
-    go.textContent = pull ? 'Close pull request' : `Close as ${reason}`;
+    go.textContent = pull ? `Close ${words().pull}` : `Close as ${reason}`;
   };
   const comment = h('textarea', { rows: 4, placeholder: 'Leave a comment (optional)', 'aria-label': 'Closing comment' }) as HTMLTextAreaElement;
   const del = h('input', { type: 'checkbox', id: 'close-del' }) as HTMLInputElement;
   const w = pull && workerForPull(store.workers.values(), pull);
   const result = h('div.gh-merge-result.hidden');
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
-  const noun = pull ? 'pull request' : 'issue';
+  const noun = pull ? words().pull : 'issue';
+  const ref = pull ? words().ref(it.number) : `#${it.number}`;
+  // GitLab doesn't record why an issue was closed.
+  const askWhy = !pull && words().cli === 'gh';
 
   const el = h(
     'div.modal.gh-merge',
-    { role: 'dialog', 'aria-label': `Close ${noun} #${it.number}` },
-    h('header', {}, h('h2', {}, `Close ${pull ? 'PR' : 'issue'} #${it.number}`)),
+    { role: 'dialog', 'aria-label': `Close ${noun} ${ref}` },
+    h('header', {}, h('h2', {}, `Close ${pull ? words().pr : 'issue'} ${ref}`)),
     h(
       'div.body',
       {},
       h('p.gh-merge-title', {}, it.title, pull ? h('small', {}, `${pull.headRefName} → ${pull.baseRefName}`) : null),
       pull
-        ? h('div.gh-status.muted', {}, h('span', {}, 'ℹ️'), `It won't be merged, and can be reopened on GitHub later.${w ? ` ${w.name} is still at a desk working on its branch.` : ''}`)
-        : h('label', {}, 'Why'),
-      pull ? h('label.gh-check', { for: 'close-del' }, del, `Delete ${pull.headRefName} too`) : reasons,
+        ? h('div.gh-status.muted', {}, h('span', {}, 'ℹ️'), `It won't be merged, and can be reopened on ${words().site} later.${w ? ` ${w.name} is still at a desk working on its branch.` : ''}`)
+        : askWhy
+          ? h('label', {}, 'Why')
+          : null,
+      pull ? h('label.gh-check', { for: 'close-del' }, del, `Delete ${pull.headRefName} too`) : askWhy ? reasons : null,
       comment,
       result,
     ),
     h('footer', {}, h('span.grow'), cancel, go),
   );
   renderReasons();
+  if (!pull && !askWhy) go.textContent = 'Close issue';
 
   const modal = openModal(el, { onClose: () => closeWaiters.delete(key) });
   cancel.addEventListener('click', () => modal.close());
@@ -554,7 +596,7 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
   // --- Frame
   const pill = h('span.pill');
   const title = h('h2');
-  const reload = h('button.btn', { type: 'button', title: 'Reload from GitHub' }, 'Reload');
+  const reload = h('button.btn', { type: 'button', title: `Reload from ${words().site}` }, 'Reload');
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const meta = h('div.gh-meta');
   const tabConv = h('button.gh-tab', { type: 'button', role: 'tab' });
@@ -574,25 +616,26 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
   const footBtns = h('span.gh-foot');
   const el = h(
     'div.modal.gh-window',
-    { role: 'dialog', 'aria-label': `Pull request #${it.number}`, tabindex: -1 },
+    { role: 'dialog', 'aria-label': `${words().pull} ${words().ref(it.number)}`, tabindex: -1 },
     h('header', {}, pill, title, reload, close),
     meta,
     h('nav.gh-tabs', { role: 'tablist' }, tabConv, tabFiles),
     h('div.gh-body', {}, conv, filesPane),
-    h('footer', {}, h('a.grow', { href: it.url, target: '_blank', rel: 'noopener noreferrer' }, 'Open on GitHub ↗'), footBtns),
+    h('footer', {}, h('a.grow', { href: it.url, target: '_blank', rel: 'noopener noreferrer' }, `Open on ${words().site} ↗`), footBtns),
   );
 
   const handToWorker = () => {
     const p = mergePref(detail?.repo.methods ?? ['squash', 'merge', 'rebase']);
-    if (detail && conflicted(detail)) actions.assign(fixConflictsPrompt(it, p.method, p.deleteBranch), `Fix conflicts & merge PR #${it.number}`);
-    else actions.assign(fixAndMergePrompt(it, p.method, p.deleteBranch), `Fix up & merge PR #${it.number}`);
+    const w = words();
+    if (detail && conflicted(detail)) actions.assign(fixConflictsPrompt(it, p.method, p.deleteBranch), `Fix conflicts & merge ${w.pr} ${w.ref(it.number)}`);
+    else actions.assign(fixAndMergePrompt(it, p.method, p.deleteBranch), `Fix up & merge ${w.pr} ${w.ref(it.number)}`);
   };
 
   const renderFrame = () => {
     const [word, cls] = stateOf(it);
     pill.className = `pill ${cls}`;
     pill.textContent = word;
-    title.textContent = `#${it.number} ${it.title}`;
+    title.textContent = `${words().ref(it.number)} ${it.title}`;
     title.title = it.title;
     const commits = detail ? `${detail.commits} commit${detail.commits === 1 ? '' : 's'}` : 'its commits';
     meta.replaceChildren(
@@ -620,23 +663,25 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
 
     const isOpen = it.state === 'OPEN';
     const conflicts = !!detail && conflicted(detail);
-    const merge = h(conflicts ? 'button.btn' : 'button.btn.primary', { type: 'button', disabled: !detail, title: detail ? 'Merge this pull request' : 'Loading…' }, 'Merge…');
+    const fw = words();
+    const pr = `${fw.pr} ${fw.ref(it.number)}`;
+    const merge = h(conflicts ? 'button.btn' : 'button.btn.primary', { type: 'button', disabled: !detail, title: detail ? `Merge this ${fw.pull}` : 'Loading…' }, 'Merge…');
     merge.addEventListener('click', () => detail && openMerge(it, detail, net, handToWorker, loadAll));
     const w = workerForPull(store.workers.values(), it);
     footBtns.replaceChildren(
       ...nodes(
       w ? h('button.btn', { type: 'button', onclick: () => actions.goToDesk(w.deskId) }, `Go to ${w.name}'s desk`) : null,
-      h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this PR', onclick: () => actions.ask(pullContext(it), `Ask about PR #${it.number}`) }, 'Ask a worker…'),
-      isOpen ? h('button.btn', { type: 'button', onclick: () => actions.assign(reviewPrompt(it), `Review PR #${it.number}`) }, 'Review') : null,
+      h('button.btn', { type: 'button', title: `Send a worker your own prompt about this ${fw.pr}`, onclick: () => actions.ask(pullContext(it), `Ask about ${pr}`) }, 'Ask a worker…'),
+      isOpen ? h('button.btn', { type: 'button', onclick: () => actions.assign(reviewPrompt(it), `Review ${pr}`) }, 'Review') : null,
       isOpen
-        ? h('button.btn', { type: 'button', title: 'A few workers review it in the meeting room, each through its own lens, and the office posts one combined review', onclick: () => actions.meeting({ pattern: 'review', pr: it.number, title: `Review of PR #${it.number}`, prompt: `Review pull request #${it.number}: “${it.title}”.` }) }, 'Review panel…')
+        ? h('button.btn', { type: 'button', title: 'A few workers review it in the meeting room, each through its own lens, and the office posts one combined review', onclick: () => actions.meeting({ pattern: 'review', pr: it.number, title: `Review of ${pr}`, prompt: `Review ${fw.pull} ${fw.ref(it.number)}: “${it.title}”.` }) }, 'Review panel…')
         : null,
       conflicts
         ? h('button.btn.primary', { type: 'button', title: 'A new worker merges the base in, resolves the conflicts, gets the checks green, then merges', onclick: handToWorker }, 'Fix conflicts & merge')
         : isOpen
           ? h('button.btn', { type: 'button', title: 'A worker addresses the review comments, gets the checks green, then merges', onclick: handToWorker }, 'Fix comments & merge')
           : null,
-      isOpen ? h('button.btn', { type: 'button', title: 'Close this pull request without merging it', onclick: () => openClose('pull', it, net, loadAll) }, 'Close PR…') : null,
+      isOpen ? h('button.btn', { type: 'button', title: `Close this ${fw.pull} without merging it`, onclick: () => openClose('pull', it, net, loadAll) }, `Close ${fw.pr}…`) : null,
       isOpen ? merge : null,
       ),
     );
@@ -1021,7 +1066,7 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
     renderFrame();
   });
   const modal: Modal = openModal(el, {
-    doing: `🔀 reading PR #${it.number}`,
+    doing: `🔀 reading ${words().pr} ${words().ref(it.number)}`,
     onClose: () => {
       unsub();
       comment.dispose();
@@ -1053,7 +1098,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
   conv.append(h('div.gh-col', {}, thread, comment.el));
   // The footer stays put and renderFrame only shows, hides and relabels, so a board refresh never
   // pulls focus out of the provider picker.
-  const closeIssue = h('button.btn', { type: 'button', title: 'Close this issue on GitHub', onclick: () => openClose('issue', it, net, load) }, 'Close issue…');
+  const closeIssue = h('button.btn', { type: 'button', title: `Close this issue on ${words().site}`, onclick: () => openClose('issue', it, net, load) }, 'Close issue…');
   const queueProvider = providerPicker(store.project, `issue-provider-${it.number}`, 'Queue provider');
   const addIssueToQueue = () => {
     if (!queueProvider.valid()) return;
@@ -1079,7 +1124,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
     h(
       'footer',
       {},
-      h('a.grow', { href: it.url, target: '_blank', rel: 'noopener noreferrer' }, 'Open on GitHub ↗'),
+      h('a.grow', { href: it.url, target: '_blank', rel: 'noopener noreferrer' }, `Open on ${words().site} ↗`),
       h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this issue', onclick: () => actions.ask(issueContext(it), `Ask about issue #${it.number}`) }, 'Ask a worker…'),
       h('button.btn', { type: 'button', title: 'Workers take it on together in the meeting room: a debate, lead & team, map-reduce or red / blue', onclick: () => actions.meeting(issueMeeting(it.number, it.title)) }, 'Meeting…'),
       closeIssue,

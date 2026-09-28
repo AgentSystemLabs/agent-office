@@ -1,7 +1,7 @@
 import { DESK_BY_ID } from '../../shared/layout';
 import type { AgentEffort, AgentProvider, GhIssue, GhPull, WorkerInfo } from '../../shared/protocol';
 import type { Net } from '../net';
-import { store, workerForPull } from '../state';
+import { store, words, workerForPull } from '../state';
 import { h, openModal, timeAgo } from './dom';
 import { labelChip, openIssue, openPull } from './pull';
 import { providerLabel } from './provider';
@@ -24,6 +24,9 @@ export interface BoardActions {
 
 /** The task a worker gets for an issue, from the board, a carried card or the queue. */
 export function issuePrompt(it: Pick<GhIssue, 'number' | 'title'>): string {
+  if (words().cli === 'glab') {
+    return `Work on GitLab issue #${it.number}: "${it.title}".\n\nRead it first with \`glab issue view ${it.number} --comments\`. Create a new branch, implement the change, verify it, then open a merge request with \`glab mr create\` whose description says "Closes #${it.number}".`;
+  }
   return `Work on GitHub issue #${it.number}: "${it.title}".\n\nRead it first with \`gh issue view ${it.number} --comments\`. Create a new branch, implement the change, verify it, then open a pull request that closes #${it.number}.`;
 }
 
@@ -82,14 +85,14 @@ function queueChip(issue: number): Node | '' {
     if (w) return workerChip(w, `${w.name} is working on this at ${DESK_BY_ID.get(w.deskId)?.label ?? 'a desk'} · ${provider}`);
     return h('span.qchip.running', {}, `🤖 ${t.workerName ?? 'a worker'} · ${provider}`);
   }
-  return t.pr ? h('span.qchip.done', {}, `🔀 PR #${t.pr.number} · ${provider}`) : '';
+  return t.pr ? h('span.qchip.done', {}, `🔀 ${words().pr} ${words().ref(t.pr.number)} · ${provider}`) : '';
 }
 
-function card(n: number, title: string, meta: (Node | string)[], i: number, onclick: () => void) {
+function card(ref: string, title: string, meta: (Node | string)[], i: number, onclick: () => void) {
   return h(
     'li.card',
     { tabindex: 0, onclick, onkeydown: ((e: KeyboardEvent) => e.key === 'Enter' && onclick()) as EventListener },
-    h('div.num', {}, `#${n}`),
+    h('div.num', {}, ref),
     h('div.ttl', {}, title),
     h('div.meta', {}, ...meta.filter((m) => m !== '').map((m) => (typeof m === 'string' ? h('span', {}, m) : m))),
   );
@@ -98,9 +101,10 @@ function card(n: number, title: string, meta: (Node | string)[], i: number, oncl
 export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActions) {
   const body = h('div.body');
   const status = h('span.board-status');
-  const refresh = h('button.btn', { title: 'Refresh from GitHub', onclick: () => net.send({ t: 'gh.refresh' }) }, 'Refresh');
+  const refresh = h('button.btn', { title: `Refresh from ${words().site}`, onclick: () => net.send({ t: 'gh.refresh' }) }, 'Refresh');
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
-  const el = h('div.modal.board', { role: 'dialog', 'aria-label': kind === 'issues' ? 'Issues board' : 'Pull requests board' }, h('header', {}, h('h2', {}, kind === 'issues' ? 'Issues' : 'Pull requests'), status, refresh, close), body);
+  const pulls = words().cli === 'glab' ? 'Merge requests' : 'Pull requests';
+  const el = h('div.modal.board', { role: 'dialog', 'aria-label': kind === 'issues' ? 'Issues board' : `${pulls} board` }, h('header', {}, h('h2', {}, kind === 'issues' ? 'Issues' : pulls), status, refresh, close), body);
 
   const render = () => {
     const st = kind === 'issues' ? store.issues : store.pulls;
@@ -110,7 +114,8 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
     const { scrollLeft, scrollTop } = body;
     body.replaceChildren();
     if (st.error && !st.items.length) {
-      body.append(h('div.board-error', {}, `Couldn't load from GitHub: ${st.error}`, h('br'), h('small', {}, 'The server runs `gh` in the project directory — make sure it is installed and authenticated (gh auth login).')));
+      const w = words();
+      body.append(h('div.board-error', {}, `Couldn't load from ${w.site}: ${st.error}`, h('br'), h('small', {}, `The server runs \`${w.cli}\` in the project directory — make sure it is installed and authenticated (${w.cli} auth login).`)));
       return;
     }
     if (kind === 'issues') {
@@ -118,7 +123,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
         const ul = h('ul');
         col.items.forEach((it, i) =>
           ul.append(
-            card(it.number, it.title, [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, net, actions)),
+            card(`#${it.number}`, it.title, [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, net, actions)),
           ),
         );
         if (!col.items.length) ul.append(h('li.empty', {}, 'Nothing here'));
@@ -131,7 +136,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
           const w = workerForPull(store.workers.values(), it);
           ul.append(
             card(
-              it.number,
+              words().ref(it.number),
               it.title,
               [
                 w ? deskChip(w) : '',
@@ -165,7 +170,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
     status.textContent = st.loading ? 'Refreshing…' : st.fetchedAt ? `Updated ${timeAgo(st.fetchedAt)}` : '';
   }, 15000);
   const modal = openModal(el, {
-    doing: kind === 'issues' ? '📋 at the issues board' : '🔀 at the PR board',
+    doing: kind === 'issues' ? '📋 at the issues board' : `🔀 at the ${words().pr} board`,
     onClose: () => {
       unsubs.forEach((u) => u());
       clearInterval(timer);

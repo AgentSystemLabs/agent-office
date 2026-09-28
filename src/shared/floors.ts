@@ -37,24 +37,101 @@ export function floorPalette(i: number): FloorPalette {
   return FLOOR_PALETTES[((i % FLOOR_PALETTES.length) + FLOOR_PALETTES.length) % FLOOR_PALETTES.length];
 }
 
+/** Where a floor's repository is hosted, which decides whether `gh` or `glab` talks to it. */
+export type Forge = 'github' | 'gitlab';
+
+/** The GitLab instance a bare group/subgroup/project path means. */
+export const DEFAULT_GITLAB_HOST = 'gitlab.com';
+
+const GH_OWNER = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/;
+const GH_NAME = /^[a-zA-Z0-9_.-]{1,100}$/;
+const HOST = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+const GL_SEGMENT = /^[a-zA-Z0-9_](?:[a-zA-Z0-9_.-]{0,253}[a-zA-Z0-9_-])?$/;
+/** GitLab nests groups up to 20 deep, plus the project. */
+const GL_MAX_SEGMENTS = 21;
+
 /**
- * `owner/repo` from what someone typed or pasted: owner/repo, a github.com URL (https, ssh or
- * git@), with or without .git. Undefined for anything else, so it can never become a CLI option,
- * a path or another host.
+ * A repository from what someone typed or pasted, or from a checkout's remote URL. GitHub
+ * repositories come back as `owner/repo` (owner/repo, or a github.com URL: https, ssh or git@).
+ * GitLab projects come back as `host/group/…/project` (a URL on any other host, host/group/project,
+ * or a bare path of three or more segments, which means gitlab.com). Undefined for anything else,
+ * so it can never become a CLI option or a path outside the projects folder.
  */
 export function normalizeRepo(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   let s = value.trim();
-  if (s.length > 200) return undefined;
-  s = s.replace(/^(?:https?:\/\/|ssh:\/\/)?(?:[\w.-]+@)?github\.com[/:]/i, '');
-  s = s.replace(/[?#].*$/, '').replace(/\/+$/, '').replace(/\.git$/i, '');
-  const parts = s.split('/');
+  if (s.length > 400) return undefined;
+  let host: string | undefined;
+  const url = /^(?:(?:https?|ssh|git):\/\/)?(?:[\w.~%-]+@)?([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(?::\d+)?[/:](.*)$/.exec(s);
+  if (url) {
+    host = url[1].toLowerCase();
+    s = url[2];
+  } else if (/^[a-z]+:\/\//i.test(s) || s.includes('@')) {
+    return undefined;
+  }
+  s = s.replace(/[?#].*$/, '').replace(/^\/+|\/+$/g, '');
+  if (host && host !== 'github.com') return gitlabRepo(host, s);
+  if (!host && s.split('/').length >= 3) return gitlabRepo(DEFAULT_GITLAB_HOST, s);
+  const parts = s.replace(/\.git$/i, '').split('/');
   // A URL may go on past the repository (…/owner/repo/issues/12).
   if (parts.length < 2) return undefined;
   const [owner, repo] = parts;
-  if (!/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/.test(owner)) return undefined;
-  if (!/^[a-zA-Z0-9_.-]{1,100}$/.test(repo) || repo === '.' || repo === '..') return undefined;
+  if (!GH_OWNER.test(owner)) return undefined;
+  if (!GH_NAME.test(repo) || repo === '.' || repo === '..') return undefined;
   return `${owner}/${repo}`;
+}
+
+function gitlabRepo(host: string, rest: string): string | undefined {
+  if (!HOST.test(host)) return undefined;
+  // Pages of a project (…/project/-/merge_requests/12) sit after its /-/.
+  const parts = rest.replace(/\/-(?:\/.*)?$/, '').replace(/\.git$/i, '').split('/');
+  if (parts.length < 2 || parts.length > GL_MAX_SEGMENTS) return undefined;
+  if (!parts.every((p) => GL_SEGMENT.test(p) && !/\.(?:git|atom)$/i.test(p))) return undefined;
+  return `${host}/${parts.join('/')}`;
+}
+
+/** GitLab repositories carry their host; GitHub's are plain owner/repo. */
+export function forgeOf(repo: string | undefined): Forge | undefined {
+  if (!repo) return undefined;
+  return repo.split('/')[0].includes('.') ? 'gitlab' : 'github';
+}
+
+/** A GitLab repository's instance and its group/…/project path. */
+export function gitlabParts(repo: string): { host: string; path: string } {
+  const i = repo.indexOf('/');
+  return { host: repo.slice(0, i), path: repo.slice(i + 1) };
+}
+
+/** The repository's path on its host: owner/repo on GitHub, group/…/project on GitLab. */
+export function repoPath(repo: string): string {
+  return forgeOf(repo) === 'gitlab' ? gitlabParts(repo).path : repo;
+}
+
+/** The repository's home page. */
+export function repoWebUrl(repo: string): string {
+  return forgeOf(repo) === 'gitlab' ? `https://${repo}` : `https://github.com/${repo}`;
+}
+
+/** How a forge names things, for text shown to people and prompts given to workers. */
+export interface ForgeWords {
+  site: 'GitHub' | 'GitLab';
+  cli: 'gh' | 'glab';
+  /** "PR" or "MR". */
+  pr: string;
+  /** "pull request" or "merge request". */
+  pull: string;
+  /** How a pull request is referenced in text: #12 on GitHub, !12 on GitLab. */
+  ref(n: number): string;
+}
+
+const WORDS: Record<Forge, ForgeWords> = {
+  github: { site: 'GitHub', cli: 'gh', pr: 'PR', pull: 'pull request', ref: (n) => `#${n}` },
+  gitlab: { site: 'GitLab', cli: 'glab', pr: 'MR', pull: 'merge request', ref: (n) => `!${n}` },
+};
+
+/** GitHub's words unless the forge is GitLab. */
+export function forgeWords(forge: Forge | undefined): ForgeWords {
+  return WORDS[forge ?? 'github'];
 }
 
 export function sameRepo(a: string | undefined, b: string | undefined): boolean {

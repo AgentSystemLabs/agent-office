@@ -1,6 +1,7 @@
 // Wire protocol between browser and server. Every WebSocket frame is one JSON object.
 
 import type { Look } from './avatar.js';
+import type { Forge } from './floors.js';
 import type { CabinetFrame, CabinetState, CabinetView } from './cabinet.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
@@ -549,6 +550,8 @@ export interface GhPullDetail {
   mergeable: string;
   /** CLEAN, BLOCKED, BEHIND, DIRTY, UNSTABLE, DRAFT, HAS_HOOKS or UNKNOWN. */
   mergeStateStatus: string;
+  /** Why it's BLOCKED, when the review decision and checks don't say (GitLab's merge checks). */
+  blocked?: string;
   commits: number;
   comments: GhComment[];
   reviews: GhComment[];
@@ -578,6 +581,8 @@ export interface ProjectInfo {
   dir: string;
   branch?: string;
   remote?: string;
+  /** Where its repository is hosted, and so which CLI its boards and workers use. */
+  forge: Forge;
   agentCmd: string;
   defaultProvider: AgentProvider;
   agentProviders: AgentProvider[];
@@ -589,9 +594,9 @@ export interface ProjectInfo {
  */
 export interface FloorInfo {
   id: string;
-  /** The repository's name, or the folder's when it isn't on GitHub. */
+  /** The repository's name, or the folder's when it isn't on GitHub or GitLab. */
   name: string;
-  /** owner/name on GitHub. */
+  /** owner/name on GitHub, or host/group/…/project on GitLab (see normalizeRepo). */
   repo?: string;
   /** Its checkout on the office's machine. */
   dir: string;
@@ -612,7 +617,7 @@ export interface FloorInfo {
   people: number;
 }
 
-/** Where the elevator's "add a project" clones to: <dir>/<owner>/<repo> on the office's machine. */
+/** Where the elevator's "add a project" clones to: <dir>/<owner>/<repo> (GitLab: <dir>/<host>/<group>/…/<project>) on the office's machine. */
 export interface ProjectsDirState {
   /** For showing people: under the home folder it's ~/…. */
   dir: string;
@@ -622,10 +627,11 @@ export interface ProjectsDirState {
   at?: number;
 }
 
-/** A repository the office's `gh` login can clone, for the elevator's "add a project". */
+/** A repository the office's `gh` or `glab` login can clone, for the elevator's "add a project". */
 export interface RepoChoice {
-  /** owner/name */
+  /** owner/name on GitHub, host/group/…/project on GitLab. */
   name: string;
+  forge: Forge;
   description?: string;
   private: boolean;
   /** ISO time of the last push. */

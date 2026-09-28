@@ -1642,7 +1642,7 @@ export class VrMenu {
     ctx.font = `500 ${Math.round(h * 0.024)}px ${TERM_FONT}`;
     ctx.textBaseline = 'top';
     ctx.textAlign = 'left';
-    const line = !m || m.state === 'loading' ? '⤵️ asking GitHub whether this merges…' : m.state === 'error' ? '⚠️ merge status unavailable' : `${m.status!.icon} ${m.status!.short}`;
+    const line = !m || m.state === 'loading' ? '⤵️ asking whether this merges…' : m.state === 'error' ? '⚠️ merge status unavailable' : `${m.status!.icon} ${m.status!.short}`;
     ctx.fillText(line, BODY.x * w, h * 0.632);
     if (m?.state === 'ready' && m.status?.can) {
       const armed = this.mergeArmedFor === number && performance.now() < this.mergeArmedUntil;

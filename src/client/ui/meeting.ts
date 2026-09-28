@@ -1,7 +1,7 @@
 import { MEETING_PATTERNS, MEETING_PATTERN_IDS, TOKENS_PER_SEAT, meetingSpend, outputProblem, slugify } from '../../shared/meetings';
 import { fmtTokens, type Meeting, type MeetingPattern, type MeetingTurn } from '../../shared/protocol';
 import type { Net } from '../net';
-import { store } from '../state';
+import { store, words } from '../state';
 import { meetingStage } from '../world/meeting';
 import { h, openModal, timeAgo, toast, STATUS_LABEL, type Modal } from './dom';
 import { confirmDialog } from './prompt';
@@ -22,9 +22,10 @@ export interface MeetingActions {
   openPr(workerId: string): void;
 }
 
-/** A meeting about a GitHub issue: the form filled in with it. */
+/** A meeting about an issue: the form filled in with it. */
 export function issueMeeting(n: number, title: string): MeetingPreset {
-  return { issue: n, title: `#${n} ${title}`, prompt: `GitHub issue #${n}: “${title}”. Read it first with gh issue view ${n} --comments.` };
+  const w = words();
+  return { issue: n, title: `#${n} ${title}`, prompt: `${w.site} issue #${n}: “${title}”. Read it first with ${w.cli} issue view ${n} --comments.` };
 }
 
 const PART_LABEL: Record<MeetingTurn['state'], string> = { waiting: 'up next', sent: 'handed over', working: 'on it', done: 'written' };
@@ -95,7 +96,7 @@ function renderStatus(m: Meeting, body: HTMLElement, foot: HTMLElement, net: Net
     }),
   );
   const where = m.worktree ? h('span', {}, '🌿 ', h('code', {}, m.worktree.branch), m.commit ? ` · committed ${m.commit}` : '') : null;
-  const review = m.review?.url ? h('a', { href: m.review.url, target: '_blank', rel: 'noopener noreferrer' }, `The review on PR #${m.pr} ↗`) : m.review?.error ? h('span.bad', {}, `Couldn't post the review: ${m.review.error}`) : null;
+  const review = m.review?.url ? h('a', { href: m.review.url, target: '_blank', rel: 'noopener noreferrer' }, `The review on ${words().pr} ${words().ref(m.pr ?? 0)} ↗`) : m.review?.error ? h('span.bad', {}, `Couldn't post the review: ${m.review.error}`) : null;
   body.replaceChildren(
     ...present(
     h('div.meeting-head', {}, pill, h('b', {}, `${p.icon} ${p.label}`), h('span.meeting-title', { title: m.prompt }, m.title)),
@@ -113,7 +114,7 @@ function renderStatus(m: Meeting, body: HTMLElement, foot: HTMLElement, net: Net
     ...present(
     h('span.grow', {}, running ? 'The workers stay at the table after it ends, so you can read their terminals.' : 'Clearing the room sends the workers home. A committed output stays on its branch.'),
     running ? h('button.btn', { type: 'button', onclick: () => confirmDialog('Stop the meeting?', `The workers stop where they are and stay at the table. ${m.output} is only there if it was written.`, 'Stop it', () => net.send({ t: 'meeting.stop' })) }, 'Stop meeting') : null,
-    !running && m.commit && head?.worktree ? h('button.btn', { type: 'button', title: `Push ${m.worktree?.branch} and open a pull request`, onclick: () => actions.openPr(head.id) }, head.pr ? `PR #${head.pr.number}` : 'Open PR') : null,
+    !running && m.commit && head?.worktree ? h('button.btn', { type: 'button', title: `Push ${m.worktree?.branch} and open a ${words().pull}`, onclick: () => actions.openPr(head.id) }, head.pr ? `${words().pr} ${words().ref(head.pr.number)}` : `Open ${words().pr}`) : null,
     !running ? h('button.btn', { type: 'button', onclick: () => net.send({ t: 'meeting.clear' }) }, 'Clear the room') : null,
     !running ? h('button.btn.primary', { type: 'button', onclick: callAnother }, 'Call a meeting…') : null,
     ),
@@ -280,7 +281,7 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
     const key = JSON.stringify(opts);
     if (prSel.dataset.key !== key) {
       prSel.dataset.key = key;
-      prSel.replaceChildren(h('option', { value: '' }, open.length || preset?.pr ? 'Pick a pull request…' : 'No open pull requests'), ...opts.map(([v, label]) => h('option', { value: v }, label.length > 70 ? `${label.slice(0, 69)}…` : label)));
+      prSel.replaceChildren(h('option', { value: '' }, open.length || preset?.pr ? `Pick a ${words().pull}…` : `No open ${words().pull}s`), ...opts.map(([v, label]) => h('option', { value: v }, label.length > 70 ? `${label.slice(0, 69)}…` : label)));
       prSel.value = want;
       syncOutput();
     }

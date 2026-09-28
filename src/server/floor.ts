@@ -9,6 +9,9 @@ import { excludeFromGit } from './config.js';
 import { configuredProvider } from './agents.js';
 import { WorkerManager, type HookEnv } from './workers.js';
 import { GitHub, MergeWatch } from './github.js';
+import { GitLab } from './gitlab.js';
+import type { Board } from './forge.js';
+import { forgeOf, forgeWords, type Forge } from '../shared/floors.js';
 import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { Decor } from './decor.js';
@@ -46,12 +49,12 @@ export interface FloorContext {
   peers(floor: Floor): PeerInfo[];
 }
 
-/** Boards on a floor nobody is on, with nothing running, are asked GitHub about this seldom. */
+/** Boards on a floor nobody is on, with nothing running, are asked GitHub or GitLab about this seldom. */
 const IDLE_REFRESH_MS = 10 * 60_000;
 const REFRESH_MS = 90_000;
 
 /** What `git` says about a checkout: its name, branch and origin for the top bar. */
-export function projectInfo(dir: string, name: string, agentCmd: string, agentArgs: string[]): ProjectInfo {
+export function projectInfo(dir: string, name: string, agentCmd: string, agentArgs: string[], forge: Forge = 'github'): ProjectInfo {
   const git = (args: string[]) => {
     try {
       return execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
@@ -64,6 +67,7 @@ export function projectInfo(dir: string, name: string, agentCmd: string, agentAr
     dir,
     branch: git(['rev-parse', '--abbrev-ref', 'HEAD']),
     remote: git(['remote', 'get-url', 'origin']),
+    forge,
     agentCmd: [agentCmd, ...agentArgs].join(' '),
     defaultProvider: configuredProvider(agentCmd),
     agentProviders: configuredProvider(agentCmd) === 'custom' ? ['droid', 'claude', 'opencode', 'codex', 'custom'] : ['droid', 'claude', 'opencode', 'codex'],
@@ -79,7 +83,8 @@ export class Floor {
   readonly dir: string;
   readonly project: ProjectInfo;
   readonly workers: WorkerManager;
-  readonly github: GitHub;
+  /** The issue and PR boards, on GitHub or GitLab as the floor's repository is. */
+  readonly board: Board;
   readonly queue: TaskQueue;
   readonly changes: Changes;
   readonly decor: Decor;
@@ -104,7 +109,20 @@ export class Floor {
     const dataDir = path.join(def.dir, '.agent-office');
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
     excludeFromGit(def.dir);
-    this.project = projectInfo(def.dir, def.name, ctx.agentCmd, ctx.agentArgs);
+    const forge = forgeOf(def.repo) ?? 'github';
+    const words = forgeWords(forge);
+    this.project = projectInfo(def.dir, def.name, ctx.agentCmd, ctx.agentArgs, forge);
+    const onIssues = (state: Board['issues']) => ctx.emit(this, { t: 'gh.issues', state });
+    const onPulls = (state: Board['pulls']) => {
+      ctx.emit(this, { t: 'gh.pulls', state });
+      this.queue?.onPulls(state.items);
+      if (state.loading || state.error) return;
+      for (const p of this.merges.look(state.items)) {
+        ctx.toast(this, `🎉 ${words.pr} ${words.ref(p.number)} merged: ${p.title}`);
+        this.merged(p.number);
+      }
+    };
+    this.board = forge === 'gitlab' && def.repo ? new GitLab(def.dir, def.repo, onIssues, onPulls) : new GitHub(def.dir, onIssues, onPulls);
 
     // Before the workers, so it hears about the ones who wake up needing input.
     this.dog = new Dog(def.id, dataDir, {
@@ -142,27 +160,15 @@ export class Floor {
       },
       ctx.ledger,
       ctx.capacity,
+      this.board,
     );
 
-    this.github = new GitHub(
-      def.dir,
-      (state) => ctx.emit(this, { t: 'gh.issues', state }),
-      (state) => {
-        ctx.emit(this, { t: 'gh.pulls', state });
-        this.queue?.onPulls(state.items);
-        if (state.loading || state.error) return;
-        for (const p of this.merges.look(state.items)) {
-          ctx.toast(this, `🎉 PR #${p.number} merged: ${p.title}`);
-          this.merged(p.number);
-        }
-      },
-    );
     // The 📋 task queue seats workers by itself: it watches the workers and links PRs from GitHub.
     this.queue = new TaskQueue(dataDir, this.workers, !!this.project.branch, {
       update: (state) => ctx.emit(this, { t: 'queue', state }),
       toast: (text, level) => ctx.toast(this, text, level),
-      claimIssue: (issue) => this.github.claim(issue),
-      refreshGitHub: () => void this.github.refresh(),
+      claimIssue: (issue) => this.board.claim(issue),
+      refreshGitHub: () => void this.board.refresh(),
       hiringPaused: () => ctx.ledger.hiringPaused,
       room: () => ctx.capacity.room(),
       emptied: () => {
@@ -188,8 +194,9 @@ export class Floor {
         update: (state) => ctx.emit(this, { t: 'meeting', state }),
         toast: (text, level) => ctx.toast(this, text, level),
         hiringPaused: () => ctx.ledger.hiringPaused,
-        postReview: (pr, file) => this.github.review(pr, file),
+        postReview: (pr, file) => this.board.review(pr, file),
       },
+      forge,
     );
 
     // What each worker changed, for the Changes window at its desk (see changes.ts).
@@ -202,14 +209,15 @@ export class Floor {
         return { name: w.name, cwd: w.worktree ? path.join(def.dir, w.worktree.path) : def.dir, rel: w.worktree?.path ?? '', worktreeBase: w.worktree?.base };
       },
       (branch) => {
-        const pr = this.github.pulls.items.find((p) => p.state === 'OPEN' && p.headRefName === branch);
+        const pr = this.board.pulls.items.find((p) => p.state === 'OPEN' && p.headRefName === branch);
         return pr ? { number: pr.number, url: pr.url } : undefined;
       },
       {
         state: (state, ids) => ctx.changes(state, ids),
         toast: (text, level) => ctx.toast(this, text, level),
-        refreshGitHub: () => void this.github.refresh(),
+        refreshGitHub: () => void this.board.refresh(),
       },
+      this.board,
     );
 
     this.decor = new Decor(dataDir);
@@ -217,10 +225,10 @@ export class Floor {
     this.whiteboard = new Whiteboard(dataDir);
     this.ready = this.workers.start();
 
-    void this.github.refresh();
+    void this.board.refresh();
     // A floor with people on it, or work under way, keeps its boards fresh; the others check in now and then.
     this.timer = setInterval(() => {
-      if (this.active() || Date.now() - this.github.issues.fetchedAt > IDLE_REFRESH_MS) void this.github.refresh();
+      if (this.active() || Date.now() - this.board.issues.fetchedAt > IDLE_REFRESH_MS) void this.board.refresh();
     }, REFRESH_MS);
   }
 
@@ -231,7 +239,7 @@ export class Floor {
 
   /** Someone just walked in: boards that haven't been looked at in a while get fetched again. */
   arrived() {
-    if (Date.now() - Math.max(this.github.issues.fetchedAt, this.github.pulls.fetchedAt) > REFRESH_MS) void this.github.refresh();
+    if (Date.now() - Math.max(this.board.issues.fetchedAt, this.board.pulls.fetchedAt) > REFRESH_MS) void this.board.refresh();
   }
 
   private active(): boolean {
@@ -259,7 +267,7 @@ export class Floor {
   shutdown(keep = false) {
     clearInterval(this.timer);
     this.dog.stop();
-    this.github.stop();
+    this.board.stop();
     this.queue.shutdown();
     this.meetings.shutdown();
     this.changes.stop();

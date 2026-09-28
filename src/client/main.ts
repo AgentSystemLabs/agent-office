@@ -9,7 +9,7 @@ import { MEETING_PATTERNS, defaultMeetingRequest, reviewMeetingRequest } from '.
 import { cleanDogName } from '../shared/dog';
 import { isAsleep, isBusy } from '../shared/status';
 import { Net } from './net';
-import { store, loadProfile, loadSettings, saveSettings, workerForPull, type Profile, type Topic } from './state';
+import { store, loadProfile, loadSettings, saveSettings, words, workerForPull, type Profile, type Topic } from './state';
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { Climber, gripOf, type Arrival, type Grip, type Way } from './climb';
 import { Caffeine } from './caffeine';
@@ -2002,7 +2002,7 @@ function vrMergeFire(number: number) {
   if (!info || info.number !== number || info.state !== 'ready' || !info.status?.can || !info.methods) return;
   const { method, deleteBranch } = mergePref(info.methods);
   const auto = info.status.auto && info.status.cls !== 'ok';
-  toast(auto ? 'Asking GitHub to merge it when ready…' : 'Merging…');
+  toast(auto ? `Asking ${words().site} to merge it when ready…` : 'Merging…');
   const off = onMerged(number, (msg) => {
     clearTimeout(timer);
     off();
@@ -2088,7 +2088,7 @@ function vrComment(kind: 'issue' | 'pull', number: number) {
         clearTimeout(timer);
         off();
         if (msg.comment) toast(`💬 Posted on #${number}`);
-        else toast(msg.error ?? 'GitHub did not take the comment', 'warn');
+        else toast(msg.error ?? `${words().site} did not take the comment`, 'warn');
       });
       // The office drops messages while it's disconnected, and then no answer comes.
       const timer = window.setTimeout(() => {

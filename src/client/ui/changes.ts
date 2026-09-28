@@ -1,6 +1,6 @@
 import { changedImageType, type ChangedFile, type ChangesState, type ServerMsg } from '../../shared/protocol';
 import type { Net } from '../net';
-import { store } from '../state';
+import { store, words } from '../state';
 import { h, openModal, type Modal } from './dom';
 import { confirmDialog, openPrompt } from './prompt';
 
@@ -237,18 +237,18 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void)
     commitBtn.textContent = uncommitted ? `Commit ${uncommitted} file${uncommitted > 1 ? 's' : ''}…` : 'Commit…';
     prSlot.replaceChildren();
     if (!s) return;
-    if (s.pr) prSlot.append(h('a.btn.primary', { href: s.pr.url, target: '_blank', rel: 'noopener', title: 'Open on GitHub' }, `PR #${s.pr.number} ↗`));
+    if (s.pr) prSlot.append(h('a.btn.primary', { href: s.pr.url, target: '_blank', rel: 'noopener', title: `Open on ${words().site}` }, `${words().pr} ${words().ref(s.pr.number)} ↗`));
     else if (s.prBase) {
       const why = busy ? '' : uncommitted ? 'Commit first' : !s.ahead ? `Nothing on ${s.branch} that ${s.prBase} lacks yet` : '';
-      const pr = h('button.btn.primary', { type: 'button', title: why || `Push ${s.branch} and open a pull request against ${s.prBase}` }, 'Open PR…');
+      const pr = h('button.btn.primary', { type: 'button', title: why || `Push ${s.branch} and open a ${words().pull} against ${s.prBase}` }, `Open ${words().pr}…`);
       pr.disabled = busy || !!why;
       pr.addEventListener('click', () =>
         openPrompt({
-          title: 'Open a pull request',
-          subtitle: `Pushes ${s.branch} to origin and opens a PR against ${s.prBase}. The first line is the title; the rest is the description.`,
+          title: `Open a ${words().pull}`,
+          subtitle: `Pushes ${s.branch} to origin and opens a ${words().pr} against ${s.prBase}. The first line is the title; the rest is the description.`,
           initial: s.subject ?? '',
           placeholder: 'Title',
-          submitLabel: 'Open PR ↗',
+          submitLabel: `Open ${words().pr} ↗`,
           onSubmit: (text) => {
             const [first, ...rest] = text.split('\n');
             net.send({ t: 'changes.pr', workerId, title: first.trim(), body: rest.join('\n').trim() });

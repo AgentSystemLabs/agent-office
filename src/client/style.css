@@ -925,6 +925,7 @@ a.when:hover { text-decoration: underline; }
 .elevator .repo:hover { background: var(--surface-hover); }
 .elevator .repo.sel { background: var(--accent-muted); }
 .elevator .repo .nm { font-weight: 600; white-space: nowrap; }
+.elevator .repo .forge { flex: none; font-size: 12px; }
 .elevator .repo .desc { flex: 1; min-width: 0; font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .elevator .repo .when { font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
 .elevator .note { margin: 8px 0 0; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }

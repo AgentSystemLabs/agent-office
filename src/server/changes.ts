@@ -3,6 +3,8 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { ImageResult } from './decor.js';
 import { changedImageType, type ChangedFile, type ChangeStatus, type ChangesState } from '../shared/protocol.js';
+import { githubPulls } from './github.js';
+import type { PullHost } from './forge.js';
 
 // What a worker changed, for the Changes window at its desk: the files it touched and their diff,
 // against the branch the office was opened on. While anyone has the window open, the office polls
@@ -163,6 +165,8 @@ export class Changes {
     /** An open pull request whose head is that branch, from the PR board. */
     private openPull: (branch: string) => { number: number; url: string } | undefined,
     private events: ChangesEvents,
+    /** Where pull requests are opened: GitHub, or the floor's GitLab project. */
+    private pulls: PullHost = githubPulls,
   ) {
     if (baseBranch === 'HEAD') this.baseBranch = undefined;
   }
@@ -296,7 +300,7 @@ export class Changes {
     });
   }
 
-  /** Pushes the branch and opens a pull request for it with `gh`. */
+  /** Pushes the branch and opens a pull request for it with `gh` (a merge request with `glab` on GitLab). */
   async pullRequest(workerId: string, title: string, body: string, who: string): Promise<string | undefined> {
     if (!title.trim()) return 'The pull request needs a title';
     return this.action(workerId, 'Pushing the branch and opening a pull request…', async (t, w) => {
@@ -309,10 +313,7 @@ export class Changes {
       const remote = remotes.includes('origin') ? 'origin' : remotes[0];
       if (!remote) return 'This project has no git remote to push to';
       await git(['push', '-u', remote, s.branch], t.cwd, 120_000);
-      const r = await run('gh', ['pr', 'create', '--head', s.branch, '--base', s.prBase, '--title', title.trim(), '--body', body], t.cwd, 120_000);
-      const url = r.out.trim().split('\n').pop() ?? '';
-      if (r.code !== 0 || !/^https?:\/\//.test(url)) throw new GitError(reason(r, url || 'gh pr create failed'));
-      const number = Number(/\/(\d+)$/.exec(url)?.[1] ?? 0);
+      const { number, url } = await this.pulls.createPull(t.cwd, s.branch, s.prBase, title.trim(), body);
       this.opened.set(s.branch, { number, url });
       this.events.toast(`${who} opened a pull request for ${t.name}: ${url}`, 'info');
       this.events.refreshGitHub();

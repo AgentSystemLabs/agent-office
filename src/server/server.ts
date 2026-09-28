@@ -36,7 +36,7 @@ import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
-import { MAX_FLOORS } from '../shared/floors.js';
+import { MAX_FLOORS, forgeWords } from '../shared/floors.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
 import { isThemePick } from '../shared/theme.js';
@@ -517,8 +517,8 @@ export async function startServer(cfg: Config) {
     floor: floor?.id ?? null,
     project: floor?.project ?? null,
     workers: floor?.workers.list() ?? [],
-    issues: floor?.github.issues ?? { items: [], fetchedAt: 0, loading: false },
-    pulls: floor?.github.pulls ?? { items: [], fetchedAt: 0, loading: false },
+    issues: floor?.board.issues ?? { items: [], fetchedAt: 0, loading: false },
+    pulls: floor?.board.pulls ?? { items: [], fetchedAt: 0, loading: false },
     queue: floor?.queue.state() ?? { tasks: [], maxWorkers: 0 },
     decor: floor?.decor.list() ?? [],
     services: servicesState(floor),
@@ -780,16 +780,16 @@ export async function startServer(cfg: Config) {
       }
       if (p === '/api/search' && req.method === 'GET') return send(res, 200, search(url.searchParams.get('q') ?? '', floor));
       if (p.startsWith('/api/gh/') && req.method === 'GET') {
-        // What the issue and PR windows show beyond the board cards (see github.ts).
+        // What the issue and PR windows show beyond the board cards (see github.ts and gitlab.ts).
         const n = Number(url.searchParams.get('number'));
         if (!Number.isSafeInteger(n) || n <= 0) return send(res, 400, { error: 'Bad number' });
         if (!floor) return send(res, 404, { error: 'No such floor' });
-        const github = floor.github;
+        const board = floor.board;
         try {
-          if (p === '/api/gh/pull') return send(res, 200, await github.pullDetail(n));
-          if (p === '/api/gh/issue') return send(res, 200, await github.issueDetail(n));
+          if (p === '/api/gh/pull') return send(res, 200, await board.pullDetail(n));
+          if (p === '/api/gh/issue') return send(res, 200, await board.issueDetail(n));
           if (p === '/api/gh/pull/diff') {
-            const diff = await github.pullDiff(n);
+            const diff = await board.pullDiff(n);
             res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
             res.end(diff);
             return;
@@ -1045,12 +1045,12 @@ export async function startServer(cfg: Config) {
   };
 
   /**
-   * A worker took on GitHub issue `n` (an issue card dropped on its desk): assign it on GitHub, which
+   * A worker took on issue `n` (an issue card dropped on its desk): assign it on GitHub or GitLab, which
    * moves it to In progress on the board, and take it off the queue so nobody else is seated for it.
    */
   const takeIssue = (c: Client, floor: Floor, n: number) => {
     floor.queue.dropIssue(n);
-    void floor.github.claim(n).then((err) => warn(c, err && `Couldn't assign issue #${n} on GitHub: ${err}`));
+    void floor.board.claim(n).then((err) => warn(c, err && `Couldn't assign issue #${n} on ${forgeWords(floor.board.forge).site}: ${err}`));
   };
 
   const handleMessage = (c: Client, msg: ClientMsg) => {
@@ -1164,11 +1164,11 @@ export async function startServer(cfg: Config) {
       case 'floor.repos':
         void building.repos(msg.refresh === true).then(
           (repos) => sendTo(c, { t: 'floor.repos', repos }),
-          (err: Error) => sendTo(c, { t: 'floor.repos', repos: [], error: `Couldn't list your repositories with gh: ${err.message}` }),
+          (err: Error) => sendTo(c, { t: 'floor.repos', repos: [], error: `Couldn't list your repositories with gh or glab: ${err.message}` }),
         );
         break;
       case 'floor.add': {
-        const repo = str(msg.repo, 200);
+        const repo = str(msg.repo, 400);
         void building
           .add(repo, who, (def) => {
             floorsChanged();
@@ -1186,7 +1186,7 @@ export async function startServer(cfg: Config) {
         break;
       }
       case 'floor.projectsDir': {
-        // It's a folder on the office's machine that `gh` writes into: admins pick it.
+        // It's a folder on the office's machine that `gh` and `glab` write into: admins pick it.
         const err = meOf(c.accountId).admin ? building.setProjectsDir(str(msg.dir, 1024), who) : 'Only admins can move the workspace folder';
         warn(c, err);
         if (err) break;
@@ -1296,12 +1296,13 @@ export async function startServer(cfg: Config) {
         void floor.workers.openPr(wid, who).then((r) => {
           if (typeof r === 'string') return warn(c, r);
           const name = floor.workers.get(wid)?.name ?? 'the worker';
-          toastFloor(floor, r.existed ? `${name}'s branch already has PR #${r.number}` : `${who} opened PR #${r.number} for ${name}`);
-          if (r.dirty) warn(c, `${name} still has uncommitted changes in its worktree — they are not in the PR`);
+          const w = forgeWords(floor.board.forge);
+          toastFloor(floor, r.existed ? `${name}'s branch already has ${w.pr} ${w.ref(r.number)}` : `${who} opened ${w.pr} ${w.ref(r.number)} for ${name}`);
+          if (r.dirty) warn(c, `${name} still has uncommitted changes in its worktree — they are not in the ${w.pr}`);
           // Put it on the board now rather than at the next poll. A refresh already in flight
           // returns at once and can miss it, so look again shortly after.
-          void floor.github.refresh().then(() => {
-            if (!floor.github.pulls.items.some((p) => p.number === r.number)) setTimeout(() => void floor.github.refresh(), 3000);
+          void floor.board.refresh().then(() => {
+            if (!floor.board.pulls.items.some((p) => p.number === r.number)) setTimeout(() => void floor.board.refresh(), 3000);
           });
         });
         break;
@@ -1333,18 +1334,19 @@ export async function startServer(cfg: Config) {
         if (c.attached.has(msg.workerId)) workerFloor(msg.workerId)?.workers.resize(msg.workerId, num(msg.cols), num(msg.rows));
         break;
       case 'gh.refresh':
-        void floorOf(c)?.github.refresh();
+        void floorOf(c)?.board.refresh();
         break;
       case 'gh.merge': {
         const floor = here();
         const n = num(msg.number);
         const method = (['squash', 'merge', 'rebase'] as const).find((m) => m === msg.method);
         if (!floor || !Number.isSafeInteger(n) || n <= 0 || !method) break;
-        void floor.github.merge(n, method, msg.deleteBranch === true, msg.auto === true).then((error) => {
+        void floor.board.merge(n, method, msg.deleteBranch === true, msg.auto === true).then((error) => {
           sendTo(c, { t: 'gh.merged', number: n, error });
           if (error) return;
-          toastFloor(floor, msg.auto ? `${who} set PR #${n} to merge once its checks pass` : `🎉 ${who} merged PR #${n}`);
-          // An auto-merge rings once GitHub gets round to it and the boards see it merged.
+          const w = forgeWords(floor.board.forge);
+          toastFloor(floor, msg.auto ? `${who} set ${w.pr} ${w.ref(n)} to merge once its checks pass` : `🎉 ${who} merged ${w.pr} ${w.ref(n)}`);
+          // An auto-merge rings once the host gets round to it and the boards see it merged.
           if (!msg.auto) floor.merged(n, who);
         });
         break;
@@ -1356,14 +1358,15 @@ export async function startServer(cfg: Config) {
         if (!floor || !Number.isSafeInteger(n) || n <= 0) break;
         const body = typeof msg.body === 'string' ? msg.body : '';
         // Refused rather than cut short: a comment that silently lost its end would read as finished.
-        const invalid = !body.trim() ? 'The comment is empty' : body.length > GH_COMMENT_MAX ? `GitHub takes comments of up to ${GH_COMMENT_MAX} characters` : '';
+        const invalid = !body.trim() ? 'The comment is empty' : body.length > GH_COMMENT_MAX ? `${forgeWords(floor.board.forge).site} takes comments of up to ${GH_COMMENT_MAX} characters` : '';
         if (invalid) {
           sendTo(c, { t: 'gh.commented', kind, number: n, error: invalid });
           break;
         }
-        void floor.github.comment(kind, n, body).then((r) => {
+        void floor.board.comment(kind, n, body).then((r) => {
           sendTo(c, { t: 'gh.commented', kind, number: n, ...r });
-          if (r.comment) toastFloor(floor, `💬 ${who} commented on ${kind === 'pull' ? 'PR' : 'issue'} #${n}`);
+          const w = forgeWords(floor.board.forge);
+          if (r.comment) toastFloor(floor, `💬 ${who} commented on ${kind === 'pull' ? `${w.pr} ${w.ref(n)}` : `issue #${n}`}`);
         });
         break;
       }
@@ -1388,10 +1391,11 @@ export async function startServer(cfg: Config) {
         const kind = msg.kind === 'issue' || msg.kind === 'pull' ? msg.kind : undefined;
         if (!floor || !Number.isSafeInteger(n) || n <= 0 || !kind) break;
         const reason = msg.reason === 'not planned' ? 'not planned' : 'completed';
-        void floor.github.close(kind, n, { comment: str(msg.comment, 20000).trim() || undefined, reason, deleteBranch: msg.deleteBranch === true }).then((error) => {
+        void floor.board.close(kind, n, { comment: str(msg.comment, 20000).trim() || undefined, reason, deleteBranch: msg.deleteBranch === true }).then((error) => {
           sendTo(c, { t: 'gh.closed', kind, number: n, error });
           if (error) return;
-          if (kind === 'pull') return toastFloor(floor, `${who} closed PR #${n} without merging`);
+          const w = forgeWords(floor.board.forge);
+          if (kind === 'pull') return toastFloor(floor, `${who} closed ${w.pr} ${w.ref(n)} without merging`);
           // Nobody should be seated for an issue that's closed.
           const dropped = floor.queue.dropIssue(n);
           toastFloor(floor, `${who} closed issue #${n}${reason === 'not planned' ? ' as not planned' : ''}${dropped ? ' and took it off the queue' : ''}`);

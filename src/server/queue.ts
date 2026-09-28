@@ -321,7 +321,7 @@ export class TaskQueue {
       if (t.issue !== undefined) {
         const issue = t.issue;
         void this.events.claimIssue(issue).then((err) => {
-          if (err) this.events.toast(`Couldn't assign issue #${issue} on GitHub: ${err}`, 'warn');
+          if (err) this.events.toast(`Couldn't assign issue #${issue}: ${err}`, 'warn');
         });
       }
     }

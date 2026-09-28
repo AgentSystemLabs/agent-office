@@ -10,7 +10,7 @@ export interface Config {
   /** The office's own folder: the building's data lives in its .agent-office. */
   dir: string;
   dataDir: string;
-  /** Where new floors are cloned by default, as <projectsDir>/<owner>/<repo>. */
+  /** Where new floors are cloned by default (~/.agent-office/projects), as <projectsDir>/<owner>/<repo>. */
   projectsDir: string;
   /** --projects / AGENT_OFFICE_PROJECTS: picks the projects folder, as ⚙️ Settings in the office does. */
   projects?: string;
@@ -66,9 +66,10 @@ Usage:
   agent-office accounts [list|invite|revoke|role|password] ...
 
 Runs the office. Every project is a floor of the building: ride the elevator,
-pick one of the repositories your \`gh\` login can see, and the office clones it
-into the projects folder as a new floor. Workers, terminals, boards and the
-task queue on a floor all belong to that floor's checkout.
+pick one of the repositories your \`gh\` (GitHub) or \`glab\` (GitLab) login can
+see, and the office clones it into the projects folder as a new floor. Workers,
+terminals, boards and the task queue on a floor all belong to that floor's
+checkout.
 
 Started from anywhere, the office keeps its data in --home. Given a [dir] (or
 started in a project where an office already ran), it keeps its data in
@@ -85,8 +86,10 @@ Options:
       --home <dir>        Where the office keeps its data when no [dir] is given
                           (default ~/agent-office, env AGENT_OFFICE_HOME)
       --projects <dir>    Where new floors are cloned, as <dir>/<owner>/<repo>
-                          (default ~/agent-office, env AGENT_OFFICE_PROJECTS).
-                          Also settable from ⚙️ Settings in the office
+                          (GitLab: <dir>/<host>/<group>/<project>). Default
+                          ~/.agent-office/projects, env AGENT_OFFICE_PROJECTS.
+                          It can't be inside a git checkout. Also settable
+                          from ⚙️ Settings in the office
   -p, --port <n>          Port to listen on (default 4600, env PORT)
   -H, --host <addr>       Address to bind (default 0.0.0.0)
       --password <pw>     Office password (env AGENT_OFFICE_PASSWORD).
@@ -158,6 +161,14 @@ function parseTurn(url: string): RTCIceServerLike {
 /** Where the office lives when it isn't started in a project: ~/agent-office, or $AGENT_OFFICE_HOME. */
 export function officeHome(): string {
   return path.resolve(process.env.AGENT_OFFICE_HOME || path.join(os.homedir(), 'agent-office'));
+}
+
+/**
+ * Where new floors are cloned unless another folder is picked: ~/.agent-office/projects. It's its
+ * own folder, apart from the office's home, which may be a checkout of Agent Office itself.
+ */
+export function defaultProjectsDir(): string {
+  return path.join(os.homedir(), '.agent-office', 'projects');
 }
 
 /** Keep the office's own data out of git without touching the project's .gitignore. */
@@ -290,8 +301,7 @@ export function loadConfig(argv: string[]): Config {
     process.exit(2);
   }
   const dir = project || home;
-  // New floors go next to the office's data when it has a home of its own, and never into a project.
-  const projectsDir = project ? path.join(os.homedir(), 'agent-office') : home;
+  const projectsDir = defaultProjectsDir();
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
     console.error('agent-office: invalid --port');
     process.exit(2);

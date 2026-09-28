@@ -6,6 +6,7 @@ import { newer, type WbElement } from '../shared/whiteboard';
 import type { DogState } from '../shared/dog';
 import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
+import { forgeWords, type ForgeWords } from '../shared/floors';
 
 export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting';
 
@@ -150,7 +151,7 @@ class Store {
   floor: string | null = null;
   /** Where the office clones new floors to. */
   projectsDir: ProjectsDirState = { dir: '', custom: false };
-  /** The repositories the office's gh login can clone, once asked for (see floor.repos). */
+  /** The repositories the office's gh and glab logins can clone, once asked for (see floor.repos). */
   repos: { list: RepoChoice[]; error?: string; loading: boolean; at: number } = { list: [], loading: false, at: 0 };
   issues: GhState<GhIssue> = { items: [], fetchedAt: 0, loading: true };
   pulls: GhState<GhPull> = { items: [], fetchedAt: 0, loading: true };
@@ -461,3 +462,8 @@ class Store {
 }
 
 export const store = new Store();
+
+/** How the floor you're on names things: GitHub's PRs and gh, or GitLab's MRs and glab. */
+export function words(): ForgeWords {
+  return forgeWords(store.project?.forge);
+}

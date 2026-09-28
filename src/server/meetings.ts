@@ -8,6 +8,7 @@ import { MAX_MEETING_BUDGET, MEETING_NOTES_DIR, MEETING_PATTERNS, TOKENS_PER_SEA
 import { fmtTokens, isAgentEffort, isAgentProvider, tokensOf, type AgentEffort, type AgentProvider, type Meeting, type MeetingRecord, type MeetingRequest, type MeetingState, type MeetingTurn, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
 import { validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { gitError, type WorktreeRef, type WorktreeState } from './worktrees.js';
+import type { Forge } from '../shared/floors.js';
 
 const execFileP = promisify(execFile);
 
@@ -98,6 +99,8 @@ export class MeetingRoom {
     /** Git worktrees, in a project that's a git repository. */
     private trees: MeetingTrees | undefined,
     private events: MeetingEvents,
+    /** Where the project is hosted: which CLI the workers read pull requests and issues with. */
+    private forge: Forge = 'github',
   ) {
     this.statePath = path.join(dataDir, 'meetings.json');
     this.restore();
@@ -497,6 +500,18 @@ export class MeetingRoom {
   // --- The patterns ----------------------------------------------------------
 
   /** What every worker is told when it sits down, ahead of its first part. */
+  private pullName() {
+    return this.forge === 'gitlab' ? 'merge request' : 'pull request';
+  }
+
+  private pullRef(n: number) {
+    return this.forge === 'gitlab' ? `!${n}` : `#${n}`;
+  }
+
+  private readPull(n: number) {
+    return this.forge === 'gitlab' ? `glab mr view ${n} --comments and glab mr diff ${n}` : `gh pr view ${n} and gh pr diff ${n}`;
+  }
+
   private brief(m: Meeting, i: number): string {
     const p = MEETING_PATTERNS[m.pattern];
     const role = m.seats[i].role;
@@ -520,8 +535,8 @@ export class MeetingRoom {
       m.title,
       `You're the ${role} in a ${p.label} meeting in Agent Office's meeting room, round the table with ${list(others)}. ${how[m.pattern]}`,
       `What the meeting is about:\n${m.prompt}`,
-      m.pr !== undefined ? `The pull request is #${m.pr}: read it with gh pr view ${m.pr} and gh pr diff ${m.pr}.` : '',
-      m.issue !== undefined ? `It comes from GitHub issue #${m.issue}: gh issue view ${m.issue} --comments.` : '',
+      m.pr !== undefined ? `The ${this.pullName()} is ${this.pullRef(m.pr)}: read it with ${this.readPull(m.pr)}.` : '',
+      m.issue !== undefined ? `It comes from ${this.forge === 'gitlab' ? 'GitLab' : 'GitHub'} issue #${m.issue}: ${this.forge === 'gitlab' ? 'glab' : 'gh'} issue view ${m.issue} --comments.` : '',
       `How it runs: the office hands each of you your part of every round in a message like this one. Do just that part, write it to the file it names, and end your turn; the next round starts once every part of this one is written. Your working directory is ${this.cwd(m)}, and every file of the meeting is in it: the notes go in ${path.join(this.cwd(m), m.notes)}/, which is where you read what the others wrote. The meeting ends when ${m.output} (${path.join(this.cwd(m), m.output)}) is written, and only the part that says so writes it. It has ${m.rounds} round${m.rounds === 1 ? '' : 's'} at most and ${fmtTokens(m.budget)} tokens between all of you, so keep your notes short: bullets over prose.`,
       where + inside,
     ]
@@ -604,10 +619,10 @@ export class MeetingRoom {
             seat: i,
             doing: 'reviewing',
             file: note(1, i),
-            ask: `Review pull request #${m.pr} through your lens, ${m.seats[i].role}, and nothing else. Read it with gh pr view ${m.pr} and gh pr diff ${m.pr}; don't check it out or change any files. Write your findings to ${A(note(1, i))}, one per bullet: the file:line, what's wrong and what to do about it, the most serious first. If you find nothing, write just NO FINDINGS. Then end your turn.`,
+            ask: `Review ${this.pullName()} ${this.pullRef(m.pr!)} through your lens, ${m.seats[i].role}, and nothing else. Read it with ${this.readPull(m.pr!)}; don't check it out or change any files. Write your findings to ${A(note(1, i))}, one per bullet: the file:line, what's wrong and what to do about it, the most serious first. If you find nothing, write just NO FINDINGS. Then end your turn.`,
           }));
         }
-        return [{ seat: 0, doing: 'writing the review', file: m.output, ask: `Read every reviewer's findings (${notes(1, all)}). Drop the duplicates, keeping the clearest wording, and write one combined review to ${A(m.output)} in Markdown: a short summary with your verdict first, then the findings, the most serious first, each tagged with the lens it came from in bold brackets like **[${m.seats[1]?.role ?? 'Security'}]**, with its file:line. Don't post it: the office posts it on the pull request once the file is written. ${out}` }];
+        return [{ seat: 0, doing: 'writing the review', file: m.output, ask: `Read every reviewer's findings (${notes(1, all)}). Drop the duplicates, keeping the clearest wording, and write one combined review to ${A(m.output)} in Markdown: a short summary with your verdict first, then the findings, the most serious first, each tagged with the lens it came from in bold brackets like **[${m.seats[1]?.role ?? 'Security'}]**, with its file:line. Don't post it: the office posts it on the ${this.pullName()} once the file is written. ${out}` }];
       }
     }
   }

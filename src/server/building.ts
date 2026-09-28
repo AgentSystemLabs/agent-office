@@ -2,15 +2,16 @@ import { execFile, execFileSync } from 'node:child_process';
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { FLOOR_PALETTES, MAX_FLOORS, normalizeRepo, sameRepo } from '../shared/floors.js';
+import { FLOOR_PALETTES, MAX_FLOORS, forgeOf, gitlabParts, normalizeRepo, sameRepo } from '../shared/floors.js';
 import type { ProjectsDirState, RepoChoice } from '../shared/protocol.js';
 import { gh } from './github.js';
+import { gitlabApi, gitlabHosts, glab, isGitlabHost } from './gitlab.js';
 
 /** A floor as floors.json keeps it. */
 export interface FloorDef {
   id: string;
   name: string;
-  /** owner/name on GitHub. */
+  /** owner/name on GitHub, host/group/…/project on GitLab. */
   repo?: string;
   dir: string;
   palette: number;
@@ -25,7 +26,7 @@ interface PickedDir {
   at: number;
 }
 
-/** How long the list of repositories `gh` can see is reused before it's asked again. */
+/** How long the list of repositories `gh` and `glab` can see is reused before it's asked again. */
 const REPOS_TTL_MS = 5 * 60_000;
 const MAX_REPOS = 1000;
 const CLONE_TIMEOUT_MS = 30 * 60_000;
@@ -33,8 +34,9 @@ const CLONE_TIMEOUT_MS = 30 * 60_000;
 /**
  * The floors of the building, saved in <office>/.agent-office/floors.json: which projects there are,
  * where their checkouts live, and how each floor is painted. New floors are cloned with the office
- * machine's `gh` login into <projects>/<owner>/<repo>; the projects folder can be picked in ⚙️ Settings
- * (kept in projects-folder.json).
+ * machine's `gh` login into <projects>/<owner>/<repo>, or its `glab` login into
+ * <projects>/<host>/<group>/…/<project>; the projects folder can be picked in ⚙️ Settings (kept in
+ * projects-folder.json).
  */
 export class Building {
   private defs: FloorDef[] = [];
@@ -76,7 +78,7 @@ export class Building {
       dir = path.resolve(typed);
     }
     if (dir !== this.defaultProjectsDir) {
-      const why = unwritable(dir);
+      const why = unwritable(dir) ?? insideCheckout(dir);
       if (why) return why;
       // Cloning into a project would nest checkouts inside its git tree.
       const inside = this.defs.find((d) => within(dir, path.resolve(d.dir)));
@@ -122,24 +124,26 @@ export class Building {
    */
   async add(input: string, by: string, started: (def: FloorDef) => void): Promise<FloorDef | string> {
     const wanted = normalizeRepo(input);
-    if (!wanted) return 'Pick a repository, or type it as owner/name';
+    if (!wanted) return 'Pick a repository, or type it as owner/name (GitHub) or a GitLab URL or group/project path';
     if (this.defs.some((d) => sameRepo(d.repo, wanted))) return `${wanted} already has a floor`;
     if (this.cloning.has(wanted.toLowerCase())) return `${wanted} is already being cloned`;
     if (this.defs.length + this.cloning.size >= MAX_FLOORS) return `The building is full (${MAX_FLOORS} floors)`;
-    // Asking GitHub first says whether this login can see it at all, and gets the name's real case.
+    const nested = insideCheckout(this.projectsDir);
+    if (nested) return `${nested}. Pick another workspace folder in ⚙️ Settings`;
+    // Asking the host first says whether this login can see it at all, and gets the name's real case.
     let repo: string;
     try {
-      const view = JSON.parse(await gh(['repo', 'view', wanted, '--json', 'nameWithOwner'], this.dataDir, 30_000)) as { nameWithOwner?: string };
-      repo = normalizeRepo(view.nameWithOwner) ?? wanted;
+      repo = await this.lookUp(wanted);
     } catch (err) {
-      return `Couldn't find ${wanted} on GitHub: ${(err as Error).message}`;
+      return `Couldn't find ${wanted} on ${forgeOf(wanted) === 'gitlab' ? 'GitLab' : 'GitHub'}: ${(err as Error).message}`;
     }
     const key = repo.toLowerCase();
     if (this.defs.some((d) => sameRepo(d.repo, repo))) return `${repo} already has a floor`;
     if (this.cloning.has(key)) return `${repo} is already being cloned`;
-    const [owner, name] = repo.split('/');
-    const dest = path.join(this.projectsDir, owner, name);
+    const dest = path.join(this.projectsDir, ...repo.split('/'));
+    if (!within(dest, this.projectsDir)) return `${repo} isn't a repository name the office can clone`;
     if (this.defs.some((d) => path.resolve(d.dir) === dest)) return `${dest} is already a floor`;
+    const name = repo.split('/').pop() ?? repo;
     const def = this.newDef(name, repo, dest, by);
     this.cloning.set(key, def);
     started(def);
@@ -154,11 +158,25 @@ export class Building {
     return def;
   }
 
-  /** Repositories the office's `gh` login can clone, most recently pushed first. */
+  /** The repository's name as its host spells it, which also says this login can see it. */
+  private async lookUp(repo: string): Promise<string> {
+    if (forgeOf(repo) === 'gitlab') {
+      const { host, path: full } = gitlabParts(repo);
+      const p = JSON.parse(await gitlabApi(host, this.dataDir, `projects/${encodeURIComponent(full)}`, [], 30_000)) as { path_with_namespace?: string };
+      return normalizeRepo(`${host}/${p.path_with_namespace ?? full}`) ?? repo;
+    }
+    const view = JSON.parse(await gh(['repo', 'view', repo, '--json', 'nameWithOwner'], this.dataDir, 30_000)) as { nameWithOwner?: string };
+    return normalizeRepo(view.nameWithOwner) ?? repo;
+  }
+
+  /**
+   * Repositories the office's `gh` and `glab` logins can clone, most recently pushed first. A CLI
+   * that's missing or signed out just adds nothing; only when both fail is it an error.
+   */
   async repos(refresh = false): Promise<RepoChoice[]> {
     const cached = this.repoCache;
     if (cached && !refresh && Date.now() - cached.at < REPOS_TTL_MS) return cached.repos;
-    const repos = listRepos(this.dataDir);
+    const repos = listAllRepos(this.dataDir);
     this.repoCache = { at: Date.now(), repos };
     // A failure is worth asking again next time, not keeping for five minutes.
     repos.catch(() => {
@@ -251,11 +269,29 @@ function unwritable(dir: string): string | undefined {
   return undefined;
 }
 
-/** The GitHub repository a checkout's origin points at. */
+/** Why new checkouts can't go under `dir`: it's inside a git checkout, whose tree would take them in. */
+export function insideCheckout(dir: string): string | undefined {
+  let at = path.resolve(dir);
+  for (;;) {
+    if (existsSync(path.join(at, '.git'))) return `${tildify(dir)} is inside the git checkout at ${tildify(at)}, so clones there would land in that project's tree`;
+    const up = path.dirname(at);
+    if (up === at) return undefined;
+    at = up;
+  }
+}
+
+/** The repository a remote URL points at, on GitHub or on a GitLab instance. */
+export function remoteRepo(url: string): string | undefined {
+  if (/github\.com[/:]/i.test(url)) return normalizeRepo(url);
+  const host = /^(?:(?:https?|ssh|git):\/\/)?(?:[\w.~%-]+@)?([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(?::\d+)?[/:]/.exec(url.trim())?.[1];
+  return host && isGitlabHost(host) ? normalizeRepo(url) : undefined;
+}
+
+/** The GitHub or GitLab repository a checkout's origin points at. */
 export function originRepo(dir: string): string | undefined {
   try {
     const url = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000 }).trim();
-    return /github\.com[/:]/i.test(url) ? normalizeRepo(url) : undefined;
+    return remoteRepo(url);
   } catch {
     return undefined;
   }
@@ -275,13 +311,58 @@ async function cloneInto(repo: string, dest: string): Promise<string | undefined
   } catch (err) {
     return `Couldn't make ${path.dirname(dest)}: ${(err as Error).message}`;
   }
+  const gitlab = forgeOf(repo) === 'gitlab';
+  // glab takes the project's URL, so an instance other than its default is cloned from the right place.
+  const [cmd, args] = gitlab ? ['glab', ['repo', 'clone', `https://${repo}`, dest]] : ['gh', ['repo', 'clone', repo, dest]];
+  const env = gitlab ? { ...process.env, GLAB_NO_PROMPT: '1', NO_PROMPT: '1' } : process.env;
   return new Promise((resolve) => {
-    execFile('gh', ['repo', 'clone', repo, dest], { cwd: path.dirname(dest), timeout: CLONE_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 }, (err, _out, stderr) => {
+    execFile(cmd, args, { cwd: path.dirname(dest), env, timeout: CLONE_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 }, (err, _out, stderr) => {
       if (!err) return resolve(undefined);
       const why = String(stderr || err.message).trim().split('\n').filter(Boolean).slice(-2).join(' ');
-      resolve(`Couldn't clone ${repo}: ${why || 'gh failed'}`);
+      resolve(`Couldn't clone ${repo}: ${why || `${cmd} failed`}`);
     });
   });
+}
+
+async function listAllRepos(cwd: string): Promise<RepoChoice[]> {
+  const [github, ...gitlab] = await Promise.allSettled([listRepos(cwd), ...gitlabHosts().map((host) => listGitlabRepos(host, cwd))]);
+  const lists = [github, ...gitlab];
+  const ok = lists.filter((r): r is PromiseFulfilledResult<RepoChoice[]> => r.status === 'fulfilled');
+  if (!ok.length) {
+    const why = lists.map((r) => (r.status === 'rejected' ? (r.reason as Error).message : '')).filter(Boolean);
+    throw new Error(why.join(' · ') || 'neither gh nor glab could list repositories');
+  }
+  return ok
+    .flatMap((r) => r.value)
+    .sort((a, b) => (b.pushedAt ?? '').localeCompare(a.pushedAt ?? ''))
+    .slice(0, MAX_REPOS * 2);
+}
+
+/** Projects the `glab` login is a member of on `host`, most recently active first. */
+async function listGitlabRepos(host: string, cwd: string): Promise<RepoChoice[]> {
+  const out = await glab(['api', '--hostname', host, '--paginate', '--output', 'ndjson', 'projects?membership=true&archived=false&simple=true&per_page=100&order_by=last_activity_at'], cwd, 90_000);
+  const repos: RepoChoice[] = [];
+  const seen = new Set<string>();
+  for (const line of out.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const r = JSON.parse(line) as { path_with_namespace?: unknown; description?: unknown; visibility?: unknown; last_activity_at?: unknown };
+      const name = normalizeRepo(typeof r.path_with_namespace === 'string' ? `${host}/${r.path_with_namespace}` : undefined);
+      if (!name || seen.has(name.toLowerCase())) continue;
+      seen.add(name.toLowerCase());
+      repos.push({
+        name,
+        forge: 'gitlab',
+        description: typeof r.description === 'string' && r.description ? r.description.slice(0, 200) : undefined,
+        private: r.visibility !== 'public',
+        pushedAt: typeof r.last_activity_at === 'string' ? r.last_activity_at : undefined,
+      });
+    } catch {
+      // not a line of ours
+    }
+    if (repos.length >= MAX_REPOS) break;
+  }
+  return repos;
 }
 
 async function listRepos(cwd: string): Promise<RepoChoice[]> {
@@ -307,6 +388,7 @@ async function listRepos(cwd: string): Promise<RepoChoice[]> {
       seen.add(name.toLowerCase());
       repos.push({
         name,
+        forge: 'github',
         description: typeof r.description === 'string' && r.description ? r.description.slice(0, 200) : undefined,
         private: r.private === true,
         pushedAt: typeof r.pushedAt === 'string' ? r.pushedAt : undefined,
