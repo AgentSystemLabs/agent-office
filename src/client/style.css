@@ -556,6 +556,14 @@ button { font-family: inherit; }
 .acct { font: 500 10px var(--font-mono); color: var(--success); }
 .modal.term header .typed { font: 400 11px var(--font-mono); color: var(--text-secondary); white-space: nowrap; }
 
+/* Pair a VR headset (ui/vr.ts): a QR for the headset to scan, and the code to type. */
+.body.vr { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.vr-qr { width: min(240px, 100%); height: auto; border-radius: var(--radius); border: 1px solid var(--border); background: #fff; }
+.vr-code { font: 700 28px/1 var(--font-mono); letter-spacing: .18em; text-indent: .18em; user-select: all; }
+.vr-countdown { margin: 0; font: 500 12px var(--font-mono); color: var(--text-secondary); }
+.vr-status { margin: 0; font-size: 13px; color: var(--text-secondary); }
+.vr-status.error { color: var(--danger); }
+
 /* Services board */
 .svc-count { margin-left: 6px; background: var(--accent-muted); color: var(--accent); border-radius: var(--radius-xs); padding: 0 5px; font: 600 10px/1.5 var(--font-mono); }
 .svc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
