@@ -603,6 +603,9 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     },
     // Types into the focused VR terminal (the VR keyboard's path, without aiming at keys).
     type: (text: string) => vrUi?.terminal.type(text),
+    // Drops the socket (it reconnects on its own) + whether it's up (reconnect checks).
+    dropNet: () => net.debugDrop(),
+    netUp: () => net.up,
     // Clicks a menu/prompt button by id (the panel's own button registry + onClick).
     mclick: (id: string) => vrUi?.menu.panel.clickButton(id) ?? false,
     promptButton: (id: string) => vrUi?.prompt.panel.clickButton(id) ?? false,
@@ -977,6 +980,9 @@ net.onMessage((msg) => {
       sendDoing(true);
       const openId = openTerminalFor();
       if (openId && store.workers.has(openId)) net.send({ t: 'worker.attach', workerId: openId });
+      // The VR terminal too (else its screen freezes where the connection dropped).
+      const vrId = vrUi?.terminal.focused();
+      if (vrId && vrId !== openId && store.workers.has(vrId)) net.send({ t: 'worker.attach', workerId: vrId });
       const watching = openChangesFor();
       if (watching && store.workers.has(watching)) net.send({ t: 'changes.watch', workerId: watching });
       renderProject();

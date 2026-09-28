@@ -69,6 +69,10 @@ export class Net {
   expectRestart() {
     this.restartExpected = true;
   }
+  /** Emulator test hook (?vrtest=1): drops the socket (it reconnects on its own, like any outage). */
+  debugDrop() {
+    this.ws?.close();
+  }
 
   send(msg: ClientMsg) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
