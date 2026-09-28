@@ -31,12 +31,14 @@ menu's ❓ row brings it back).
 
 | Input | Action |
 |---|---|
-| Trigger / pinch tap | **E** on whatever the ray points at (desks, boards, elevator, gong, dog, seats…) |
+| Trigger / pinch tap | **E** on whatever the ray points at (desks, boards, elevator, gong, dog, seats…). Trigger uses the object in that controller's hand first. |
+| Squeeze / pinch-hold within 30 cm of a cup or issue note | Grab it in that hand; let go to put it down |
+| Bring a held coffee mug to your mouth | Drink once after a short hold; trigger also drinks it |
 | Touch a cab floor button with an index fingertip | Ride to that floor, without pinching |
-| Touch the dog, gong disc, or coffee machine with a tracked hand | Pet, ring, or drink, without pinching |
+| Touch the dog or gong disc with a tracked hand | Pet or ring, without pinching |
 | Pinch hold (hands) | Aim a teleport arc; release to go (green lands, red doesn't) |
 | Both hands pinch-hold, rays off the panels | Toggle the ☰ menu (the hands' squeeze) |
-| Squeeze | Cancel: the carried issue card goes back, else the topmost window closes, else ☰ |
+| Squeeze away from grabbables, with no physical object held | Cancel: the carried issue card goes back, else the topmost window closes, else ☰ |
 | B / Y, or stick click | **N**: go to the next worker waiting on someone |
 | Hold A / X | Aim a teleport arc; release to go (green lands, red doesn't) |
 | Left stick forward (glide off) | Same teleport aim; release past center to go |
@@ -51,6 +53,32 @@ frame from the union of the runtime's `select` and three's joint-distance
 `pinchstart`/`pinchend`, so runtimes that fire both for one pinch still read as one hold —
 see "Input" below. Every VR move goes through the avatar and the normal `move` messages, so
 desktop users see the VR user walk, glide, turn and teleport like anyone else.
+
+### Held coffee and issue cards
+
+Reach for the cup under the kitchen coffee machine or a note on the issues board.
+Controller squeeze grabs immediately; a tracked pinch held for 180 ms grabs before the
+teleport threshold. Reach is measured from the controller grip or the midpoint of the
+tracked thumb/index tips, not from the long aim ray. Panels and elevator touches keep
+priority. One object can be carried at a time, in either hand.
+
+Coffee stays attached to the hand. Bring it just below the headset for 350 ms, or press
+that controller's trigger, to drink it through the usual coffee action. Each cup gives one
+drink and visibly empties. Release to set it upright on the supporting floor or furniture;
+it can be picked up again, still empty. Take a fresh cup at the machine to refill.
+
+For an issue, aim at the board, queue, a desk or the meeting table and press the holding
+controller's trigger, or tap with the free hand. Releasing while aimed at one of those
+targets also uses it. Pinning returns the original card, queueing and desk handoff use the
+existing carry actions, and meeting opens the VR meeting prompt with the issue number,
+title and instructions filled in. Releasing elsewhere returns the card to its board.
+There is no throwing physics.
+
+Peers see the same object, hand pose and empty/placed coffee state over `peer.carrying`.
+Pose updates are capped at 20 Hz and do not repaint the people list or boards. Session end,
+loss of the holding input source, loss of tracking, floor changes and network disconnects
+clear held objects; session/floor/network transitions also remove placed mugs. Desktop
+coffee, issue carrying and controls are unchanged.
 
 ### Physical keyboard
 
@@ -93,8 +121,11 @@ fallbacks, including from outside the cab. Desktop retains its decorative cab pa
 
 ### Physical hand contact
 
-Reach out to pet the dog's head or back, tap the gong disc, or touch the coffee machine.
-Fingertips and palm joints can activate these objects. Their contact zones follow the visible
+Reach out to pet the dog's head or back, or tap the gong disc.
+Fingertips and palm joints can activate these objects. The coffee machine has no contact
+zone: a hand reaching for its cup would press the machine first, so coffee in VR comes only
+from grabbing the cup (see "Held coffee and issue cards"). A hand that holds an object
+touches nothing. Their contact zones follow the visible
 geometry with only a few centimeters of tolerance, not the much larger desktop walk-up radius.
 The dog's zones follow its pose; the gong's zone stays at the resting disc so its swing cannot
 ring it again against a stationary hand. Nearby furniture, the gong frame, and walking past
@@ -165,6 +196,10 @@ Known gaps:
   `local-floor` → `bounded-floor` → `local` fallback chain, error strings.
 - `src/client/vr/session.ts` — `VRSession`: the dolly rig, rays + cursor dots, input mapping,
   teleport arc, snap/smooth turn, glide, room-scale follow, in-headset fade.
+- `src/client/vr/grab.ts` — single-owner physical grabs, object use/release, placement and
+  throttled poses. `Grabbable` supplies domain callbacks; world meshes opt in with
+  `userData.grabbable`. `world/held-object.ts` shares local/peer object geometry and offsets,
+  and `shared/carry.ts` validates carry messages before the server stores or relays them.
 - `src/client/vr/attach.ts` — builds the world-space UI and routes rays to it; `panel.ts`
   (canvas panels, per-ray presses), `menu.ts`, `terminal-panel.ts`, `prompt.ts`,
   `keyboard.ts`, `controls.ts`, `toast.ts`, `math.ts` (ray/panel math), `preview.ts`
@@ -187,12 +222,15 @@ size and pixel ratio restored, and `player.updateCamera(true)` snaps the view ba
 
 Each input source gets its target-ray space parented under the dolly, with a ray line and a
 cursor dot (green within reach, cyan beyond it). Controller `selectstart` is E at once;
-`squeezestart` is cancel, B/Y/stick-click edges are N. Hands drive the same target-ray spaces
+`squeezestart` grabs nearby opted-in objects (otherwise cancel), and `squeezeend` releases.
+B/Y/stick-click edges are N. Hands drive the same target-ray spaces
 three updates from the hand aim pose, so one raycast path covers controllers and hands. A
 hand-tracked pinch resolves per frame from the union of the runtime's `select` and three's
 joint-distance `pinchstart`/`pinchend` (`PinchHold` in session.ts): a tap is E, a hold past
 450 ms aims a teleport the release fires, and both hands held past 600 ms toggle the menu —
 unless either ray works a panel, so two-handed typing never pops the menu up mid-word.
+A nearby object claims a pinch at 180 ms, before teleport can aim. Its release cannot click
+a panel, press E or teleport, and an occupied hand does not join the two-hand menu gesture.
 A hand already aiming a teleport isn't hijacked: the second hand joining late doesn't menu.
 All four behaviors were driven with real runtime hand input in the emulator (single hold →
 aim → teleport; both together → menu with suppressed aims and consumed releases; late
@@ -300,10 +338,22 @@ calling VR done:
     floors-menu fallback. This physical-headset check is still pending; automated tests or
     IWSDK emulation do not satisfy it.
 12. Galaxy XR physical contact: pet the dog standing, sitting and lying down; touch the gong
-    and coffee machine with either hand. Hold contact (including both hands), withdraw, and
-    re-touch. Walk past without reaching out, briefly lose tracking, and check pinch/ray and
-    controller fallbacks. This physical-headset check is pending; automated checks do not
-    satisfy issue #4's hardware acceptance criterion.
+    with either hand. Hold contact (including both hands), withdraw, and re-touch. Walk past
+    without reaching out, briefly lose tracking, and check pinch/ray and controller fallbacks.
+    Reach for the coffee cup and confirm the machine does not drink on contact. This
+    physical-headset check is pending; automated checks do not satisfy issue #4's hardware
+    acceptance criterion.
+13. **Galaxy XR grab acceptance is pending.** With hands, pick up coffee, move it, sip once,
+    put it on a desk and pick the empty cup back up. With both hands and controllers, take an
+    issue note, pin it, queue it, hand it to a desk and open a meeting with its issue preset.
+    Observe the held/placed poses from a second client. Check hand tracking loss, controller
+    disconnect, session exit, floor changes and network reconnect for orphaned objects.
+    Confirm grabbing never also teleports or opens the menu, and ordinary teleport/menu/panel
+    gestures still work away from objects. Node tests and browser checks do not satisfy this
+    physical-headset requirement.
+
+`tests/vr-grab.test.ts` covers physical reach, ownership, controller and pinch event routing,
+mouth use, placement/re-grab, peer rendering, cleanup, and wire validation.
 
 The cab's geometry, picking, press animation, list updates and touch debounce have Node tests
 in `tests/elevator.test.ts` and `tests/vr.test.ts`. In an active IWSDK session, after visiting

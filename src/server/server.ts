@@ -42,6 +42,7 @@ import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
 import { isThemePick } from '../shared/theme.js';
 import { ROOF, isDrink } from '../shared/rooftop.js';
+import { readCarry, sameCarry } from '../shared/carry.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -1148,12 +1149,13 @@ export async function startServer(cfg: Config) {
         break;
       }
       case 'carry': {
-        // Everyone on the floor sees the issue card in their hands, and whoever comes in later too.
-        const issue = issueNumber(msg.issue);
-        if (issue === c.peer.carrying?.issue) break;
-        if (issue !== undefined) c.peer.carrying = { issue, title: str(msg.title, 200) };
+        const carrying = readCarry(msg, c.peer);
+        if (carrying === undefined) break;
+        if (JSON.stringify(carrying) === JSON.stringify(c.peer.carrying ?? null)) break;
+        const carryOnly = sameCarry(c.peer.carrying, carrying);
+        if (carrying) c.peer.carrying = carrying;
         else delete c.peer.carrying;
-        broadcast({ t: 'peer.update', peer: c.peer }, c.id);
+        toNeighbors(c, { t: 'peer.update', peer: c.peer, ...(carryOnly ? { carryOnly: true } : {}) });
         break;
       }
       case 'profile': {

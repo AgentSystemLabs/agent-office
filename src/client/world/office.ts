@@ -142,6 +142,8 @@ export interface Office {
    */
   setBeanbags(out: Set<string>): Collider[];
   boardMeshes: Record<keyof typeof BOARDS, THREE.Mesh>;
+  /** VR opt-in surfaces; userData.grabbable identifies the object factory. */
+  grabbables: THREE.Mesh[];
   tvScreen: THREE.Mesh;
   /** The monitor on the boss's desk upstairs, where Minesweeper plays (ui/arcade.ts). */
   bossScreen: THREE.Mesh;
@@ -1242,7 +1244,8 @@ export function buildOffice(): Office {
   kitchen.add(mesh(box(5, 0.95, 1), toon('#8ecae6'), 0, 0.475, 0));
   kitchen.add(mesh(box(5.1, 0.08, 1.1), toon(PALETTE.desk), 0, 0.99, 0));
   const cup: Interactable = { kind: 'coffee', x: -15.7, z: 10.9, radius: 1.4 };
-  const coffee = buildCoffeeMachine(cup);
+  const { machine: coffee, cup: coffeeCup } = buildCoffeeMachine(cup);
+  boardMeshes.issues.userData.grabbable = 'issue';
   coffee.position.set(-1.2, 1.03, 0);
   kitchen.add(coffee);
   kitchen.add(mesh(roundedBox(1.1, 2.2, 1, 0.1), toon('#f8f9fa'), 3.2, 1.1, 0));
@@ -1371,6 +1374,7 @@ export function buildOffice(): Office {
     desks,
     setBeanbags,
     boardMeshes,
+    grabbables: [coffeeCup, boardMeshes.issues],
     tvScreen,
     bossScreen,
     machineScreen,

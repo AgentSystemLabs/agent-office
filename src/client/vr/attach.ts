@@ -522,7 +522,7 @@ class VrUi implements VrUiHandle {
   };
 
   setCarrying = (card: { issue: number; title: string } | null) => {
-    this.toast.setSticky(card ? `✋ Carrying #${card.issue} — E at a desk, a worker or the queue · squeeze puts it back` : null);
+    this.toast.setSticky(card ? `✋ #${card.issue} · trigger / free-hand tap at a desk, queue or meeting · let go to put back` : null);
   };
   setAim = (text: string | null) => {
     this.aim.set(text);

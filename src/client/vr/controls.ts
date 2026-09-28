@@ -17,17 +17,20 @@ interface GestureRow {
 
 const HANDS: GestureRow[] = [
   { gesture: '👌 Pinch', does: 'use it (E)' },
-  { gesture: 'Touch', does: 'pet dog · ring gong · coffee · cab keys' },
-  { gesture: '👌… hold', does: 'aim teleport, let go to land' },
+  { gesture: 'Touch', does: 'pet dog · ring gong · cab keys' },
+  { gesture: '👌… near a cup/card', does: 'hold to grab · let go to put down' },
+  { gesture: '☕ / 📋 held', does: 'sip at mouth / free-hand tap to use' },
+  { gesture: '👌… away from objects', does: 'aim teleport, let go to land' },
   { gesture: '🤏🤏 both', does: 'hold together, rays off the panels: ☰ menu' },
   { gesture: '🪜 Ladder', does: 'hold right climbs · left goes down · tap lets go' },
   { gesture: '🚶 walk', does: 'the room is the room: just walk' },
 ];
 
 const CONTROLLERS: GestureRow[] = [
-  { gesture: '🔫 Trigger', does: 'use it (E)' },
+  { gesture: '🔫 Trigger', does: 'use it (E) / drink the held cup' },
   { gesture: '🅰️ Hold A', does: 'aim teleport, let go to land' },
-  { gesture: '🫳 Squeeze', does: 'cancel / ☰ menu' },
+  { gesture: '🫳 Squeeze nearby', does: 'grab cup/card · release puts down' },
+  { gesture: '🫳 Squeeze away', does: 'cancel / ☰ menu (empty hands)' },
   { gesture: '🅱️ / stick-click', does: 'N: next waiting worker' },
   { gesture: '🕹️ Sticks', does: 'right turns · left glides or aims*' },
   { gesture: '🪜 Ladder', does: 'E grabs · left stick climbs · E lets go' },

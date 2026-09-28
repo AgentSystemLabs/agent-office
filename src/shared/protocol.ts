@@ -208,6 +208,16 @@ export interface CarriedIssue {
   title: string;
 }
 
+/** World-space object pose, in meters. Coffee can rest on a surface instead of in a hand. */
+export interface CarryPose {
+  hand: 'left' | 'right';
+  position: [number, number, number];
+  quaternion: [number, number, number, number];
+  placed?: boolean;
+}
+
+export type CarriedObject = (CarriedIssue & { kind?: 'issue'; pose?: CarryPose }) | { kind: 'coffee'; empty: boolean; pose: CarryPose };
+
 export interface PeerInfo {
   id: string;
   name: string;
@@ -226,8 +236,8 @@ export interface PeerInfo {
   smoking?: boolean;
   /** Sitting down: the place they're in (see seatAt in layout), like "couch:1". */
   seat?: string;
-  /** An issue card they took off the issues board, on its way to a desk or the queue. */
-  carrying?: CarriedIssue;
+  /** Desktop issue card, or a physically held/placed VR object. Uses the same carry channel. */
+  carrying?: CarriedObject;
   /** A drink from the rooftop bar in their hand. */
   drink?: DrinkId;
   /** Signed in with their own account, so `name` is theirs and nobody else can take it. */
@@ -960,7 +970,7 @@ export type ClientMsg =
   /** You sat down in a place on a couch, a beanbag, a chair or the bench (see seatAt in layout), or got up again (no seat). */
   | { t: 'sit'; seat?: string }
   /** You picked an issue card up off the board (or put it down again, no issue): everyone sees it in your hands. */
-  | { t: 'carry'; issue?: number; title?: string }
+  | { t: 'carry'; issue?: number; title?: string; kind?: 'issue' | 'coffee'; empty?: boolean; pose?: CarryPose }
   /** An emote (hold G, or 1–6): everyone else on your floor sees your character do it. Rate limited, see EmoteBucket. */
   | { t: 'emote'; emote: EmoteId }
   | { t: 'profile'; name: string; color: string; look: Look }
@@ -1140,7 +1150,7 @@ export type ServerMsg =
   /** The projects folder moved (see floor.projectsDir). */
   | { t: 'projectsDir'; state: ProjectsDirState }
   | { t: 'peer.join'; peer: PeerInfo }
-  | { t: 'peer.update'; peer: PeerInfo }
+  | { t: 'peer.update'; peer: PeerInfo; carryOnly?: boolean }
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }
   | { t: 'peer.leave'; id: string }
   | { t: 'peer.act'; id: string; smoke?: boolean; drink?: DrinkId | null }

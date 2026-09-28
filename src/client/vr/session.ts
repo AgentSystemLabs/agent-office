@@ -4,8 +4,9 @@
 // Hands speak pinch: three forwards the runtime's select events plus its own joint-distance
 // pinchstart/pinchend to the target-ray spaces, and the session reads their union as one
 // held state per hand — a tap is E, a hold is a teleport aim, both hands together open the
-// menu (both-held suppresses aiming, so the menu gesture stays reachable). Controllers keep
-// their instant trigger (they have A for teleport, squeeze for menu).
+// menu (both-held suppresses aiming, so the menu gesture stays reachable). Nearby grabbables
+// claim pinch holds before teleport. Controllers use squeeze to grab (otherwise cancel/menu),
+// trigger to use, and A for teleport.
 //
 // The ladder and the poles work too: the desktop update that steps them never runs in VR, so
 // the session steps the rig itself, with the glide stick working the rungs and E letting go.
@@ -27,6 +28,7 @@ import type { InteractKind, Interactable } from '../world/office';
 import type { CarriedIssue, GhIssue } from '../../shared/protocol';
 import type { HeadPose } from './math';
 import { describeSessionError, requestVRSession, type VrReferenceSpace } from './support';
+import { GRAB_HOLD_MS, VRGrab, type GrabAim, type GrabHooks } from './grab';
 
 /** Standard WebXR gamepad buttons (OpenXR / XR Standard mapping). Trigger and squeeze sit at 0/1 in every layout; the face buttons move (see faceButtons). */
 export const XR_BUTTON = { TRIGGER: 0, SQUEEZE: 1, STICK: 3, A: 4, B: 5 } as const;
@@ -180,6 +182,7 @@ export interface VRHooks {
   /** Q with a card in hand: pin it back up. */
   putBack: () => void;
   carrying: () => CarriedIssue | null;
+  grab?: GrabHooks;
   /** Close the topmost window, like Esc. False when none is open. */
   closeTop: () => boolean;
   modalOpen: () => boolean;
@@ -308,6 +311,7 @@ interface RayState {
   targetRay: THREE.XRTargetRaySpace;
   grip: THREE.XRGripSpace;
   hand: THREE.XRHandSpace;
+  pinchAnchor: THREE.Group;
   source: XRInputSource | null;
   /** Which hand this ray is, when the runtime says (slot order is no guide: one controller may sit in either). */
   handed: 'left' | 'right' | null;
@@ -398,12 +402,14 @@ export class VRSession {
   private frame = 0;
   /** World-space UI panels, set by main.ts on session enter and cleared on end. Null on desktop. */
   private ui: VRUiSink | null = null;
+  private grab: VRGrab | null;
   private onSessionEnd = () => this.restore();
 
   constructor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera, hooks: VRHooks) {
     this.renderer = renderer;
     this.camera = camera;
     this.hooks = hooks;
+    this.grab = hooks.grab ? new VRGrab(scene, hooks.grab) : null;
     this.dolly.visible = false;
     scene.add(this.dolly);
 
@@ -442,6 +448,7 @@ export class VRSession {
         targetRay,
         grip,
         hand,
+        pinchAnchor: new THREE.Group(),
         source: null,
         handed: null,
         selectHeld: false,
@@ -472,6 +479,9 @@ export class VRSession {
         this.rays[i].pinchHeld = false;
       });
       targetRay.addEventListener('squeezestart', () => this.onSqueeze(i));
+      targetRay.addEventListener('squeezeend', () => {
+        if (!this.rays[i].source?.hand) this.grab?.release(i, this.grabAim(i));
+      });
       this.rays.push(st);
     }
     // Parabolic arc + landing marker, drawn while a teleport is aimed.
@@ -526,7 +536,7 @@ export class VRSession {
     this.dolly.visible = true;
     this.contacts.clear();
     for (const r of this.rays) {
-      this.dolly.add(r.targetRay, r.grip, r.hand);
+      this.dolly.add(r.targetRay, r.grip, r.hand, r.pinchAnchor);
       r.selectHeld = false;
       r.pinchHeld = false;
       r.hold.reset();
@@ -571,6 +581,7 @@ export class VRSession {
   /** Back to the desktop camera and controls, exactly as they were. */
   private restore(): void {
     const { player } = this.hooks;
+    this.clearGrab();
     if (this.session) {
       this.session.removeEventListener('end', this.onSessionEnd);
       this.session = null;
@@ -609,6 +620,7 @@ export class VRSession {
       r.targetRay.removeFromParent();
       r.grip.removeFromParent();
       r.hand.removeFromParent();
+      r.pinchAnchor.removeFromParent();
     }
     // Any press in flight dies with the session (the UI disposes next, but cancel first so
     // nothing clicks on the way out).
@@ -632,6 +644,12 @@ export class VRSession {
     this.ui = ui;
     // Every panel click ticks the controller that made it (keys, rows, buttons alike).
     if (ui) ui.onPanelClick = (rayId) => this.pulse(rayId, 0.2, 12);
+  }
+
+  /** Floor and network transitions cannot leave a hand attached to the old world. */
+  clearGrab(): void {
+    this.grab?.clear();
+    for (const st of this.rays) st.hold.consume();
   }
 
   /** Emulator test hook (?vrtest=1): the same landing a real teleport fire would take. */
@@ -725,6 +743,7 @@ export class VRSession {
 
   private onDisconnected(i: number): void {
     const st = this.rays[i];
+    if (this.grab?.owns(i)) this.clearGrab();
     st.source = null;
     st.handed = null;
     st.hover = null;
@@ -773,6 +792,7 @@ export class VRSession {
     // Panel presses stream through routeRay's own pointerDown/pointerUp, so by the time a tap
     // resolves there is nothing left to click here; the world hover is what E is for.
     if (st.uiConsumed || st.touch.active) return;
+    if (this.grab?.use(i, this.grabAim(i))) return;
     const hover = st.hover;
     // On the ladder or a pole, E lets go (and only that): the rungs are in your hands rather
     // than under the ray, so it fires with nothing in reach — like the desktop key, anywhere
@@ -790,9 +810,18 @@ export class VRSession {
     this.pulse(i, 0.4, 25);
   }
 
-  /** Squeeze: cancel — the card goes back, the topmost window closes, else the VR menu toggles. */
+  /** Squeeze grabs nearby objects first; with empty hands away from them it cancels. */
   private onSqueeze(i: number): void {
     if (!this.active) return;
+    const st = this.rays[i];
+    // Some hand runtimes also emit squeeze: the pinch arbiter owns hand input exclusively.
+    if (st.source?.hand) return;
+    if (this.grab?.held) return;
+    const anchor = this.grabAnchor(st);
+    if (!st.uiConsumed && !st.touch.active && !this.hooks.player.rig && !this.teleportAiming() && anchor && this.grab?.begin(i, st.handed ?? 'right', anchor)) {
+      this.pulse(i, 0.4, 25);
+      return;
+    }
     if (this.hooks.carrying()) {
       this.hooks.putBack();
       this.ui?.setCarrying(this.hooks.carrying());
@@ -803,6 +832,27 @@ export class VRSession {
       this.ui.toggleMenu();
       this.pulse(i, 0.3, 20);
     }
+  }
+
+  private grabAim(i: number): GrabAim | null {
+    const st = this.rays[i];
+    return !st.uiConsumed && st.hover?.near ? { it: st.hover.it, note: this.hooks.noteUnder(st.hover) } : null;
+  }
+
+  /** Real grip for controllers, midpoint of the tracked pinch for hands. Never stale joints. */
+  private grabAnchor(st: RayState): THREE.Object3D | null {
+    if (!st.source) return null;
+    if (!st.source.hand) return st.grip.visible ? st.grip : null;
+    const index = st.hand.joints['index-finger-tip'];
+    const thumb = st.hand.joints['thumb-tip'];
+    if (!st.hand.visible || !index?.visible || !thumb?.visible) return null;
+    index.getWorldPosition(_e);
+    thumb.getWorldPosition(_u);
+    st.pinchAnchor.position.copy(this.dolly.worldToLocal(_e.add(_u).multiplyScalar(0.5)));
+    this.dolly.getWorldQuaternion(_q).invert();
+    index.getWorldQuaternion(st.pinchAnchor.quaternion).premultiply(_q);
+    st.pinchAnchor.updateMatrixWorld(true);
+    return st.pinchAnchor;
   }
 
   private pulse(i: number, strength: number, ms: number): void {
@@ -859,6 +909,13 @@ export class VRSession {
     this.updateTurn(dt);
     if (!rigged) this.updateGlide(dt);
     this.followHead();
+    this.dolly.updateMatrixWorld(true);
+    for (let i = 0; i < this.rays.length; i++) {
+      if (this.grab?.owns(i) && !this.grabAnchor(this.rays[i])) this.clearGrab();
+    }
+    this.headWorld(_h);
+    _h.y -= 0.08;
+    this.grab?.update(_h, performance.now());
     this.updateFade(dt);
     // What the flat mirror's hint bar shows: the right ray's target, else the left's.
     // The headset's aim bar names what E would do to the same target (quiet while climbing).
@@ -876,7 +933,8 @@ export class VRSession {
   private updateTouches(): void {
     const now = performance.now();
     const blocked = !!this.hooks.player.rig || this.teleportAiming() || this.fade !== 'idle';
-    for (const st of this.rays) {
+    for (let i = 0; i < this.rays.length; i++) {
+      const st = this.rays[i];
       let target: Interactable | null = null;
       let touchingJoint: XRHandJoint | null = null;
       let tracked = false;
@@ -885,6 +943,8 @@ export class VRSession {
           const joint = st.hand.joints[name];
           if (!joint?.visible) continue;
           tracked = true;
+          // A hand holding an object is tracked but touches nothing the object brushes past.
+          if (this.grab?.owns(i)) break;
           target = this.hooks.touchTarget?.(joint.getWorldPosition(_e), name === 'index-finger-tip') ?? null;
           if (target) {
             touchingJoint = name;
@@ -918,7 +978,7 @@ export class VRSession {
    * three's joint-distance pinch events (runtimes that fire both for one pinch still read as
    * one hold): a tap is E, a hold aims a teleport the release fires, and both hands together
    * toggle the menu. Controllers never reach here — their trigger fires E at once, with A for
-   * teleports and squeeze for the menu.
+   * teleports and squeeze for grabbing/cancel.
    */
   private updateHolds(): void {
     const now = performance.now();
@@ -929,7 +989,7 @@ export class VRSession {
     });
     const heldNow = hands.filter((i) => {
       const st = this.rays[i];
-      return st.selectHeld || st.pinchHeld;
+      return (st.selectHeld || st.pinchHeld) && !this.grab?.owns(i);
     });
     // Both hands down together: the menu gesture owns both holds, so neither may start aiming
     // (without this each crosses the aim threshold first and the menu never fires).
@@ -938,12 +998,19 @@ export class VRSession {
       const st = this.rays[i];
       const held = st.selectHeld || st.pinchHeld;
       if (!held && st.hold.isHeld) {
+        this.grab?.release(i, this.grabAim(i));
         const out = st.hold.release();
         if (out === 'teleport') this.fireTeleport(i);
         else if (out === 'select') this.tapE(i);
       } else if (held) {
         // On a panel a hold drags/scrolls, on the ladder it stays a tap (E lets go): neither aims.
-        st.hold.update(true, now, st.uiConsumed || bothHeld || rigged);
+        const anchor = this.grabAnchor(st);
+        const nearGrab = !st.uiConsumed && !st.touch.active && !rigged && !!anchor && !!this.grab?.canGrab(anchor.getWorldPosition(_e));
+        st.hold.update(true, now, st.uiConsumed || bothHeld || rigged || nearGrab || !!this.grab?.owns(i));
+        if (nearGrab && !st.hold.isConsumed && !st.hold.isAiming && now - st.hold.heldSince >= GRAB_HOLD_MS && this.grab?.begin(i, st.handed ?? 'right', anchor!)) {
+          st.hold.consume();
+          this.ui?.cancelRay(i);
+        }
         // A touch owns even a pinch that started on this very frame. Withdrawing and
         // releasing must not also tap the ray's target or start a teleport.
         if (st.touch.active) st.hold.consume();
@@ -957,7 +1024,7 @@ export class VRSession {
       if (ra.uiConsumed || rb.uiConsumed || ra.touch.active || rb.touch.active) return;
       const [a, b] = [ra.hold, rb.hold];
       const since = Math.min(a.heldSince, b.heldSince);
-      if (since >= 0 && !a.isConsumed && !a.isAiming && !b.isAiming && now - since >= MENU_HOLD_MS) {
+      if (since >= 0 && !a.isConsumed && !b.isConsumed && !a.isAiming && !b.isAiming && now - since >= MENU_HOLD_MS) {
         a.consume();
         b.consume();
         this.ui.toggleMenu();
@@ -1136,7 +1203,7 @@ export class VRSession {
       // this on desktop, but the VR path builds rays by hand. Without it every frame logs.
       this.raycaster.camera = this.camera;
       // World-space UI panels eat the ray first; the world only sees rays no panel took.
-      if (this.ui) {
+      if (this.ui && !this.grab?.owns(i) && !(st.source.hand && st.hold.isConsumed && st.hold.isHeld)) {
         const gp = this.gamepad(i);
         const pressed = !st.touch.active && !st.hold.isConsumed && (buttonDown(gp, XR_BUTTON.TRIGGER) || st.selectHeld || st.pinchHeld);
         if (this.ui.routeRay(i, this.raycaster, pressed)) {

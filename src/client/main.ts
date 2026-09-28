@@ -34,7 +34,9 @@ import {
   type StationKind,
 } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
-import type { AgentEffort, AgentProvider, CarriedIssue, ChangesState, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
+import type { AgentEffort, AgentProvider, CarriedIssue, CarriedObject, ChangesState, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
+import { HeldObjectView } from './world/held-object';
+import { GRAB_REACH, type Grabbable } from './vr/grab';
 import { MEETING_PATTERNS, defaultMeetingRequest, reviewMeetingRequest } from '../shared/meetings';
 import { cleanDogName } from '../shared/dog';
 import { isAsleep, isBusy } from '../shared/status';
@@ -199,11 +201,12 @@ function mountBoard(mesh: THREE.Mesh, texture: THREE.Texture, render: () => void
 }
 /** The issue card in your hands, taken off this floor's issues board (see Carrying an issue card), or null. */
 let carrying: CarriedIssue | null = null;
+let physicalCarry: CarriedObject | null = null;
 /** Issues whose cards someone on this floor is carrying around, so they're missing from the board. */
 function offBoard(): Set<number> {
   const off = new Set<number>();
   if (carrying) off.add(carrying.issue);
-  for (const p of store.peers.values()) if (p.carrying && p.id !== store.you && store.onMyFloor(p)) off.add(p.carrying.issue);
+  for (const p of store.peers.values()) if (p.carrying && p.carrying.kind !== 'coffee' && p.id !== store.you && store.onMyFloor(p)) off.add(p.carrying.issue);
   return off;
 }
 const issuesTex = new BoardTexture('issues');
@@ -380,7 +383,7 @@ let decorArmed = { id: '', until: 0 };
 function vrAimLabel(it: Interactable, note: GhIssue | null): string | null {
   // A card in hand changes what E means (the desktop carryHint's lines, shortened).
   if (carrying) {
-    if (note) return `E · swap for #${note.number}`;
+    if (note && !physicalCarry?.pose) return `E · swap for #${note.number}`;
     if (it.kind === 'issues') return `E · pin #${carrying.issue} back`;
     if (it.kind === 'queue') return `E · queue #${carrying.issue}`;
     if (it.kind === 'meeting') return `E · meet about #${carrying.issue}`;
@@ -409,7 +412,7 @@ function vrAimLabel(it: Interactable, note: GhIssue | null): string | null {
       return it.floorId === store.floor ? `${name} · you are here` : `E · ride to ${name}`;
     }
     case 'issues':
-      return 'E · the issues board';
+      return note ? `Squeeze / pinch-hold near #${note.number} · grab` : 'E · the issues board';
     case 'pulls':
       return 'E · the pull requests';
     case 'queue':
@@ -442,7 +445,7 @@ function vrAimLabel(it: Interactable, note: GhIssue | null): string | null {
     case 'dog':
       return 'E · pet the dog';
     case 'coffee':
-      return caffeine.buzzed(performance.now() / 1000) ? 'E · another cup' : 'E · grab a cup';
+      return 'Squeeze / pinch-hold near the cup · grab';
     case 'smoke':
       return smokeBreakUntil ? 'E · stub it out' : 'E · smoke break';
     case 'gong':
@@ -466,20 +469,23 @@ function vrUseE(it: Interactable | null, note: GhIssue | null) {
   }
   // Aiming at nothing (the ladder's let-go fires this way too): E lands on nothing, as on desktop.
   if (!it) return;
+  if (it.kind === 'coffee') {
+    toast('☕ Reach for the cup and hold a pinch or squeeze to pick it up.');
+    return;
+  }
   if (it.kind === 'elevator' && it.floorId) {
     if (!trip && lift().pressFloor(it.floorId)) ride(it.floorId);
     return;
   }
   if (vrUi) {
-    // Carrying + E at the meeting table: the card goes back and the room opens. Desktop's
-    // dropCard opens the DOM meeting form with the issue preset — the room opens bare instead
-    // (an invisible dialog in the headset would be worse than no preset).
+    // The same issue preset as desktop, in a world-space prompt.
     if (carrying && (it.kind === 'meeting' || (it.kind === 'desk' && it.deskId && DESK_BY_ID.get(it.deskId)?.room && !store.workerAtDesk(it.deskId)))) {
+      const preset = issueMeeting(carrying.issue, carrying.title);
       putBack();
-      vrUi.showMenu('meeting');
+      vrMeeting(preset);
       return;
     }
-    if (carrying && dropCard(it, carrying, note)) return;
+    if (carrying && dropCard(it, carrying, physicalCarry?.pose ? null : note)) return;
     if (it.kind === 'desk' && it.deskId) {
       const w = store.workerAtDesk(it.deskId);
       // Nobody is hired at the meeting table: E there opens the room, like the desktop key.
@@ -551,6 +557,17 @@ const vr = new VRSession(renderer, scene, camera, {
   nextWaiting: () => goToNextWaiting(),
   putBack: () => putBack(),
   carrying: () => carrying,
+  grab: {
+    pick: (point) => pickVrGrab(point),
+    changed: (item) => {
+      physicalCarry = item;
+      const state = item ?? carrying;
+      net.carry(state);
+      me.carry(item?.pose ? null : carrying);
+      vrUi?.setCarrying(carrying);
+    },
+    ground: (point) => Math.max(player.street, player.groundBelow(point.x, point.z, point.y)),
+  },
   closeTop: () => closeTopModal(),
   modalOpen: () => modalOpen(),
   toast: (text, level) => toast(text, level),
@@ -564,6 +581,8 @@ const vr = new VRSession(renderer, scene, camera, {
   aimLabel: (it, note) => vrAimLabel(it, note),
   resize: () => resize(),
   onEnter: () => {
+    // A desktop card has no grabbing hand. Put it back before physical input takes over.
+    if (carrying) putBack();
     // A focused DOM field (the chat box) would take IME text the capture below can't cancel.
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     syncElevatorButtons();
@@ -697,6 +716,7 @@ const vr = new VRSession(renderer, scene, camera, {
     vr.setUi(vrUi);
   },
   onEnd: () => {
+    setCarrying(null);
     syncElevatorButtons();
     vr.setUi(null);
     if (vrChangesWorker) net.send({ t: 'changes.unwatch', workerId: vrChangesWorker });
@@ -992,6 +1012,7 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     },
     // Per-ray input state (controller vs hand, holds, aims).
     rays: () => vr.debugRays(),
+    held: () => physicalCarry,
     // Each ray's world origin + direction (aiming checks).
     rayPos: () => vr.debugRayPos(),
     // Sends test workers home (shells spawned by `shell`).
@@ -1182,6 +1203,7 @@ function showMyProfile(p: Profile) {
 
 interface RemotePeer {
   person: Person;
+  held: HeldObjectView;
   target: THREE.Vector3;
   rotY: number;
   moving: boolean;
@@ -1219,7 +1241,13 @@ let firstWelcome = true;
 let bootVersion = '';
 let upgradePhase = '';
 
-net.onStatus((up) => $('conn').classList.toggle('hidden', up));
+net.onStatus((up) => {
+  $('conn').classList.toggle('hidden', up);
+  if (!up && vr.active) {
+    vr.clearGrab();
+    setCarrying(null);
+  }
+});
 net.onMessage((msg) => {
   if (msg.t === 'welcome') voice.reset();
   if (msg.t === 'welcome' || msg.t === 'floor.enter') {
@@ -1256,7 +1284,7 @@ net.onMessage((msg) => {
       } else if (!store.floor) arrive();
       if (voice.inVoice || voice.sharing) net.send({ t: 'voice', voice: voice.inVoice, muted: voice.muted, sharing: voice.sharing });
       if (player.seat) net.send({ t: 'sit', seat: player.seat.key });
-      if (carrying) net.send({ t: 'carry', issue: carrying.issue, title: carrying.title });
+      if (carrying) net.carry(carrying);
       if (shownDrink) net.send({ t: 'act', drink: shownDrink });
       // After a reconnect the server has forgotten which terminal we had open, and what we're doing.
       sendDoing(true);
@@ -1277,6 +1305,7 @@ net.onMessage((msg) => {
       break;
     }
     case 'floor.enter':
+      vr.clearGrab();
       // The card belongs to the board downstairs (or up): the office already put it back there.
       if (carrying) {
         toast(`📌 #${carrying.issue} stayed behind on the other floor's board`);
@@ -1627,7 +1656,9 @@ function syncPeers() {
       person.root.position.set(peer.x, peer.y, peer.z);
       scene.add(person.root);
       noOutline(person.root);
-      r = { person, target: new THREE.Vector3(peer.x, peer.y, peer.z), rotY: peer.rotY, moving: false, label: '', look: { ...peer.look }, grip: null };
+      const held = new HeldObjectView();
+      scene.add(held.root);
+      r = { person, held, target: new THREE.Vector3(peer.x, peer.y, peer.z), rotY: peer.rotY, moving: false, label: '', look: { ...peer.look }, grip: null };
       remotes.set(id, r);
     }
     const label = `${peer.name}|${peer.voice ? (peer.muted ? 'm' : 'v') : '-'}|${peer.color}`;
@@ -1644,7 +1675,8 @@ function syncPeers() {
     }
     r.person.setSmoking(!!peer.smoking);
     r.person.holdDrink(peer.drink ? (DRINK_BY_ID.get(peer.drink) ?? null) : null);
-    r.person.carry(peer.carrying);
+    r.person.carry(peer.carrying?.kind !== 'coffee' && !peer.carrying?.pose ? peer.carrying : null);
+    r.held.pose(peer.carrying);
     r.person.sit(peer.seat ? (seatAt(peer.seat)?.hips ?? null) : null);
     r.person.setDoing(whereabouts(peer));
   }
@@ -1652,6 +1684,7 @@ function syncPeers() {
     const peer = store.peers.get(id);
     if (!peer || !store.onMyFloor(peer)) {
       scene.remove(r.person.root);
+      r.held.dispose();
       remotes.delete(id);
     }
   }
@@ -1659,6 +1692,9 @@ function syncPeers() {
   refreshShares();
 }
 store.on('peers', syncPeers);
+store.on('carrying', () => {
+  for (const [id, r] of remotes) r.held.pose(store.peers.get(id)?.carrying);
+});
 
 function sayBubble(from: string, text: string) {
   if (from === store.you) return;
@@ -2326,7 +2362,7 @@ function vrAskStation(deskId: string) {
   });
 }
 /** The VR meeting view's 🤝 call in VR: what's it about, an optional title, then a meeting with the pattern defaults (seats, rounds, output, budget) on the meeting engine. The pattern row cycles the three that run from a bare question — the review panel needs its PR and map-reduce needs its parts (the desktop form asks for those). */
-function vrMeeting() {
+function vrMeeting(preset?: MeetingPreset) {
   if (!vrUi) return;
   if (store.meeting.current?.status === 'running') {
     toast(`The room is busy with “${store.meeting.current.title}” until it ends or someone stops it`, 'warn');
@@ -2342,6 +2378,7 @@ function vrMeeting() {
     title: '🤝 Call a meeting',
     subtitle: 'The workers head for the meeting room',
     placeholder: 'The question to settle…',
+    initial: preset?.prompt,
     submitLabel: 'Next →',
     engine: {
       label: patternLabel,
@@ -2354,6 +2391,7 @@ function vrMeeting() {
         title: '🤝 Call a meeting',
         subtitle: about.length > 42 ? `${about.slice(0, 41)}…` : about,
         placeholder: 'Title (optional)',
+        initial: preset?.title,
         submitLabel: 'Start it 🤝',
         allowEmpty: true,
         onSubmit: (title) => {
@@ -2362,7 +2400,7 @@ function vrMeeting() {
             return;
           }
           const c = rememberedChoice(store.project, 'meeting');
-          net.send({ t: 'meeting.start', ...defaultMeetingRequest(about, title || undefined, c, pattern) });
+          net.send({ t: 'meeting.start', ...defaultMeetingRequest(about, title || undefined, c, pattern), ...(preset?.issue ? { issue: preset.issue } : {}) });
           toast(`🤝 Calling the ${MEETING_PATTERNS[pattern].label} meeting: the workers are heading for the meeting room`);
         },
       });
@@ -2796,12 +2834,70 @@ function checkSmokeBreak(now: number) {
 }
 
 // ---- Carrying an issue card ------------------------------------------------------------------------
+/** World geometry opts in via userData.grabbable. The hand must be near the actual surface. */
+function pickVrGrab(point: THREE.Vector3): Grabbable | null {
+  if (upTop || !net.up) return null;
+  for (const object of office.grabbables) {
+    if (object.userData.grabbable === 'coffee') {
+      const at = object.getWorldPosition(new THREE.Vector3());
+      if (at.distanceTo(point) > GRAB_REACH) continue;
+      const item: CarriedObject = { kind: 'coffee', empty: false, pose: { hand: 'right', position: at.toArray(), quaternion: [0, 0, 0, 1] } };
+      return {
+        point: at,
+        item,
+        take: () => {
+          putBack();
+          toast('☕ Bring the mug to your mouth, or press trigger. Let go to put it down.');
+        },
+        use: () => {
+          if (item.empty) return;
+          item.empty = true;
+          drinkCoffee();
+        },
+        release: () => {},
+        valid: () => !carrying,
+        place: true,
+        mouthUse: true,
+      };
+    }
+    if (object.userData.grabbable !== 'issue') continue;
+    const local = object.worldToLocal(point.clone());
+    const { width, height } = (object.geometry as THREE.PlaneGeometry).parameters;
+    if (local.z < -0.02 || Math.abs(local.x) > width / 2 || Math.abs(local.y) > height / 2) continue;
+    const at = object.localToWorld(new THREE.Vector3(local.x, local.y, 0));
+    if (at.distanceTo(point) > GRAB_REACH) continue;
+    const number = issuesTex.noteAt(new THREE.Vector2(local.x / width + 0.5, local.y / height + 0.5));
+    const issue = store.issues.items.find((i) => i.number === number);
+    if (!issue || offBoard().has(issue.number)) continue;
+    const use = (aim: { it: Interactable } | null) => {
+      // Physical use never swaps for a different note while pinning the held card back.
+      if (aim && ['issues', 'queue', 'meeting', 'desk'].includes(aim.it.kind)) vrUseE(aim.it, null);
+    };
+    return {
+      point: at,
+      item: { issue: issue.number, title: issue.title },
+      take: () => {
+        pickUp(issue);
+        toast(`✋ Holding #${issue.number}: trigger or free-hand tap to pin, queue or meet. Let go to return it.`);
+      },
+      use,
+      release: (aim) => {
+        if (carrying?.issue !== issue.number) return;
+        use(aim);
+        if (carrying?.issue === issue.number) putBack();
+      },
+      valid: () => carrying?.issue === issue.number,
+    };
+  }
+  return null;
+}
+
 function setCarrying(card: CarriedIssue | null) {
   if ((card?.issue ?? 0) === (carrying?.issue ?? 0)) return;
   carrying = card;
   me.carry(card);
   hands.carry(card);
-  net.send({ t: 'carry', issue: card?.issue, title: card?.title });
+  net.carry(card);
   carriedOff = [...offBoard()].join(',');
   renderIssuesBoard();
   hintKey = '';
@@ -3959,7 +4055,7 @@ function frame(ts?: number, xrFrame?: XRFrame) {
   thud = Math.max(0, thud - dt * 2.5);
   player.jitter = reduceMotion.matches ? 0 : Math.max(caffeine.jitter(secs), thud);
   const mug = caffeine.buzzed(secs);
-  me.holdMug(mug);
+  me.holdMug(mug && !inVR);
   hands.holdMug(mug);
   renderCaffeine(caffeine, secs);
   // Drinks from the rooftop bar: a glass in hand, and the world swaying.

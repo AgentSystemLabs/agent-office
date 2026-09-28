@@ -40,6 +40,7 @@ import type { JiraBoardState, JiraFloorState } from '../shared/jira';
 
 export type Topic =
   | 'peers'
+  | 'carrying'
   | 'workers'
   | 'issues'
   | 'pulls'
@@ -394,7 +395,7 @@ class Store {
       case 'peer.join':
       case 'peer.update':
         this.peers.set(msg.peer.id, msg.peer);
-        this.emit('peers');
+        this.emit(msg.t === 'peer.update' && msg.carryOnly ? 'carrying' : 'peers');
         break;
       case 'peer.move': {
         const p = this.peers.get(msg.id);

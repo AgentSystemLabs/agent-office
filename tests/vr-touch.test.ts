@@ -33,35 +33,45 @@ function canvasStub(t: TestContext) {
 
 function coffeeFixture() {
   const it: Interactable = { kind: 'coffee', x: -15.7, z: 10.9, radius: 1.4 };
-  const group = buildCoffeeMachine(it);
+  const { machine: group, cup } = buildCoffeeMachine(it);
   group.position.set(-15.7, 1.03, 12.2);
-  return { it, group };
+  return { it, group, cup };
 }
 
-test('coffee touch follows the casing and brew button, not the desktop walk-up radius', () => {
-  const { it, group } = coffeeFixture();
-  const pick = (x: number, y: number, z: number) => pickTouchTarget(group.localToWorld(new THREE.Vector3(x, y, z)), [[it]]);
-  assert.equal(pick(0, 0.35, -0.27), it, 'front of the machine facing the aisle');
-  assert.equal(pick(0.18, 0.55, 0.33), it, 'protruding brew button');
-  assert.equal(pick(0.32, 0.35, 0), it, 'side of the casing');
-  assert.equal(pick(0, 0.35, -0.4), null, 'passing near the counter is not contact');
-  assert.equal(pick(0, 0.85, 0), null, 'above the machine');
-  assert.equal(pick(0, -0.2, 0), null, 'the counter is not the machine');
-  assert.equal(pickTouchTarget(new THREE.Vector3(it.x, 1, it.z), [[it]]), null, 'walk-up point remains distinct');
+test('the coffee machine has no hand contact: VR coffee comes from grabbing its cup', () => {
+  const { it, group, cup } = coffeeFixture();
+  assert.equal(it.touch, undefined);
+  for (const [x, y, z] of [
+    [0, 0.35, -0.27],
+    [0.18, 0.55, 0.33],
+    [0, 0.1, 0.12],
+  ]) {
+    assert.equal(pickTouchTarget(group.localToWorld(new THREE.Vector3(x, y, z)), [[it]]), null, `casing/button/cup at ${x},${y},${z}`);
+  }
+  assert.equal(cup.userData.grabbable, 'coffee');
+  assert.equal(cup.parent, group);
   assert.equal(it.radius, 1.4, 'desktop radius is unchanged');
+});
 
+test('touch volumes respect parent transforms, hidden floors and disabled targets', (t) => {
+  canvasStub(t);
+  const gong = buildGong();
+  const it = gong.interactable;
+  const local = new THREE.Vector3(0, GONG.height - 0.34 - 1.02, 0.1);
+  const pick = () => pickTouchTarget(gong.group.localToWorld(local.clone()), [[it]]);
   const parent = new THREE.Group();
   parent.position.set(4, 3, -2);
   parent.rotation.y = 1.2;
-  parent.add(group);
-  assert.equal(pick(0, 0.35, -0.27), it, 'world-space joints respect parent transforms');
+  parent.add(gong.group);
+  parent.updateMatrixWorld(true);
+  assert.equal(pick(), it, 'world-space joints respect parent transforms');
   parent.visible = false;
-  assert.equal(pick(0, 0.35, -0.27), null, 'hidden floor');
+  assert.equal(pick(), null, 'hidden floor');
   parent.visible = true;
   it.off = true;
-  assert.equal(pick(0, 0.35, -0.27), null, 'disabled target');
+  assert.equal(pick(), null, 'disabled target');
   it.off = false;
-  assert.equal(pickTouchTarget(group.localToWorld(new THREE.Vector3(0, 0.35, 0)), [[]]), null, 'other floors do not participate');
+  assert.equal(pickTouchTarget(gong.group.localToWorld(local.clone()), [[]]), null, 'other floors do not participate');
 });
 
 test('gong contact is limited to the disc and its swing cannot rearm a stationary hand', (t) => {
@@ -130,6 +140,7 @@ type SessionUnderTest = Pick<VRSession, 'active' | 'update'> & {
   onSelectStart: VRSession['onSelectStart'];
   updateTouches: VRSession['updateTouches'];
   updateHolds: VRSession['updateHolds'];
+  grab: Pick<NonNullable<VRSession['grab']>, 'owns'> | null;
 };
 
 function sessionFixture(t: TestContext) {
@@ -197,6 +208,18 @@ test('session touch dispatches once for either hand, sharing the latch until bot
   move(1, true, 'middle-finger-metacarpal');
   tick(1200);
   assert.deepEqual(calls, [target, target], 'palm contact works after both hands withdraw');
+});
+
+test('a hand holding a grabbed object touches nothing; the free hand still does', (t) => {
+  const { session, calls, move, tick, target } = sessionFixture(t);
+  session.grab = { owns: (ray) => ray === 0 };
+  move(0, true);
+  tick(0);
+  tick(200);
+  assert.equal(calls.length, 0, 'the held object brushing a touch zone does not activate it');
+  move(1, true);
+  tick(400);
+  assert.deepEqual(calls, [target]);
 });
 
 test('hidden or missing joints never fire, and tracking loss alone never rearms contact', (t) => {
