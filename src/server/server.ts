@@ -10,7 +10,7 @@ import type { Config } from './config.js';
 import { Auth, type Session } from './auth.js';
 import { Accounts } from './accounts.js';
 import { childEnv, resolveCommand } from './workers.js';
-import { configuredProvider, OPEN_CODE_MODEL_MAX } from './agents.js';
+import { agentProviders, configuredProvider, OPEN_CODE_MODEL_MAX } from './agents.js';
 import { createOpenCodeModelCatalogue } from './models.js';
 import { Team } from './team.js';
 import { Upgrader } from './upgrade.js';
@@ -24,11 +24,12 @@ import { Building, type FloorDef } from './building.js';
 import { Floor, type FloorContext } from './floor.js';
 import { Sky } from './sky.js';
 import { Themes } from './theme.js';
+import { OfficePrompts } from './prompts.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
-import { GH_COMMENT_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
+import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import { DESK_BY_ID, elevatorSpot, seatHere, streetBelow } from '../shared/layout.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
@@ -38,6 +39,7 @@ import { MAX_FLOORS } from '../shared/floors.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
 import { isThemePick } from '../shared/theme.js';
+import { PROMPTS, PROMPT_MAX, isPromptId } from '../shared/prompts.js';
 import { ROOF, isDrink } from '../shared/rooftop.js';
 
 const MIME: Record<string, string> = {
@@ -75,6 +77,8 @@ interface Client {
   lastMoveAt: number;
   lastActAt: number;
   lastGongAt: number;
+  /** When they last hit a golf ball off the balcony. */
+  lastGolfAt: number;
   /** When they last blew the DJ's air horn on the roof. */
   lastHornAt: number;
   emotes: EmoteBucket;
@@ -235,7 +239,7 @@ export async function startServer(cfg: Config) {
     if (floor) toFloor(floor, { t: 'toast', text, level });
   };
   const floorInfos = (): FloorInfo[] => [
-    ...[...floors.values()].map((f) => f.info()),
+    ...[...floors.values()].map((f) => ({ ...f.info(), ...(building.isLocal(f.id) ? { local: true } : {}) })),
     ...building.pending().map((d) => ({ id: d.id, name: d.name, repo: d.repo, dir: d.dir, palette: d.palette, addedBy: d.addedBy, addedAt: d.addedAt, cloning: true, workers: 0, busy: 0, waiting: 0, people: 0 })),
   ];
   // The elevator's counts change with every worker update; tell everyone at most a few times a second.
@@ -351,6 +355,9 @@ export async function startServer(cfg: Config) {
   // goes by the calendar at the office, the sky's clock.
   const themes = new Themes(cfg.dataDir, () => sky.state.utcOffset, (state) => broadcast({ t: 'theme', state }));
   themes.start();
+  // The prompts the office writes for workers by itself, and the worker everyone starts on (⚙️ Settings).
+  const configured = configuredProvider(cfg.agentCmd);
+  const prompts = new OfficePrompts(cfg.dataDir, { list: agentProviders(configured), configured }, (state) => broadcast({ t: 'prompts', state }));
 
   // What the workers spend, all time and today, with the optional daily budget.
   const ledger = new Ledger(
@@ -404,6 +411,7 @@ export async function startServer(cfg: Config) {
     hook: { url: `http://127.0.0.1:${hookPort}`, token: '' },
     ledger,
     capacity: machine,
+    prompts,
     emit: toFloor,
     toast: toastFloor,
     termData: (workerId, data, viewers) => {
@@ -510,6 +518,7 @@ export async function startServer(cfg: Config) {
     decor: floor?.decor.list() ?? [],
     services: servicesState(floor),
     dog: floor?.dog.view() ?? null,
+    ball: floor?.court.state() ?? {},
     jukebox: floor?.jukebox.state() ?? { on: false, track: JUKEBOX_TUNES[0].id, startedAt: Date.now(), elapsed: 0 },
     whiteboard: { elements: floor?.whiteboard.scene() ?? [], people: floor ? drawing(floor) : [] },
     meeting: floor?.meetings.state() ?? { current: null, past: [] },
@@ -749,16 +758,44 @@ export async function startServer(cfg: Config) {
         res.end(r.body);
         return;
       }
+      if (p.startsWith('/api/docs') && req.method === 'GET') {
+        // The bookshelf: the project's Markdown files, one to read, and the pictures in it (see docs.ts).
+        if (!floor) return send(res, 404, { error: 'No such floor' });
+        if (p === '/api/docs') return send(res, 200, await floor.docs.list());
+        const file = str(url.searchParams.get('path'), 4096);
+        if (!file) return send(res, 400, { error: 'Bad request' });
+        if (p === '/api/docs/file') {
+          const r = await floor.docs.read(file);
+          return 'error' in r ? send(res, r.status, { error: r.error }) : send(res, 200, r);
+        }
+        if (p === '/api/docs/picture') {
+          const r = await floor.docs.picture(file);
+          if ('error' in r) return send(res, r.status, { error: r.error });
+          res.writeHead(200, {
+            'content-type': r.type,
+            'content-length': String(r.body.length),
+            'cache-control': 'no-store',
+            'x-content-type-options': 'nosniff',
+            'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+            'cross-origin-resource-policy': 'same-origin',
+          });
+          res.end(r.body);
+          return;
+        }
+        return send(res, 404, { error: 'Not found' });
+      }
       if (p === '/api/search' && req.method === 'GET') return send(res, 200, search(url.searchParams.get('q') ?? '', floor));
       if (p.startsWith('/api/gh/') && req.method === 'GET') {
         // What the issue and PR windows show beyond the board cards (see github.ts).
         const n = Number(url.searchParams.get('number'));
-        if (!Number.isSafeInteger(n) || n <= 0) return send(res, 400, { error: 'Bad number' });
+        // The repo's labels (for the label picker) are the one thing not about a single issue or PR.
+        if (p !== '/api/gh/labels' && (!Number.isSafeInteger(n) || n <= 0)) return send(res, 400, { error: 'Bad number' });
         if (!floor) return send(res, 404, { error: 'No such floor' });
         const github = floor.github;
         try {
           if (p === '/api/gh/pull') return send(res, 200, await github.pullDetail(n));
           if (p === '/api/gh/issue') return send(res, 200, await github.issueDetail(n));
+          if (p === '/api/gh/labels') return send(res, 200, await github.repoLabels());
           if (p === '/api/gh/pull/diff') {
             const diff = await github.pullDiff(n);
             res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -858,6 +895,7 @@ export async function startServer(cfg: Config) {
       lastMoveAt: 0,
       lastActAt: 0,
       lastGongAt: 0,
+      lastGolfAt: 0,
       lastHornAt: 0,
       // A little more lenient than the page's own, so emotes it let through aren't dropped for arriving bunched up.
       emotes: new EmoteBucket(EMOTE_EVERY * 0.8),
@@ -907,6 +945,7 @@ export async function startServer(cfg: Config) {
       machine: machine.state(),
       sky: sky.state,
       theme: themes.state(),
+      prompts: prompts.state(),
       ...(onRoof ? roofView() : floorView(floor)),
     });
     screensOf(client, floor);
@@ -937,6 +976,7 @@ export async function startServer(cfg: Config) {
       for (const f of floors.values()) {
         f.workers.detachAll(id);
         f.changes.unwatchAll(id);
+        if (f.court.left(id)) ballChanged(f);
       }
       broadcast({ t: 'peer.leave', id });
       if (account) accountsChanged();
@@ -946,6 +986,7 @@ export async function startServer(cfg: Config) {
   };
 
   const decorChanged = (floor: Floor) => toFloor(floor, { t: 'decor', items: floor.decor.list() });
+  const ballChanged = (floor: Floor) => toFloor(floor, { t: 'ball', ball: floor.court.state() });
   const jukeboxChanged = (floor: Floor) => toFloor(floor, { t: 'jukebox', state: floor.jukebox.state() });
   const teamChanged = async () => broadcast({ t: 'team', state: await team.state() });
 
@@ -986,6 +1027,39 @@ export async function startServer(cfg: Config) {
     floorsChanged();
   };
 
+  /** Out to the lobby, where the elevator has nowhere to go: the building's last floor was taken off. */
+  const toLobby = (c: Client) => {
+    const left = leave(c);
+    delete c.peer.floor;
+    sendTo(c, { t: 'floor.enter', peers: [...clients.values()].map((o) => o.peer), ...floorView(undefined) });
+    arrived(c, left);
+  };
+
+  /**
+   * Takes `floor` off the building (already out of floors.json): everyone on it rides the elevator to
+   * the next floor, or out to the lobby if it was the last (the roof goes with it), and its workers stop.
+   */
+  const closeFloor = (floor: Floor, who: string) => {
+    const name = floor.def.name;
+    const next = [...floors.values()].find((f) => f !== floor);
+    // The list without it first, so nobody arrives somewhere (the lobby's panel) that still shows it.
+    const list = floorInfos().filter((f) => f.id !== floor.id);
+    floorsSent = JSON.stringify(list);
+    broadcast({ t: 'floors', floors: list });
+    for (const c of clients.values()) {
+      if (c.peer.floor === floor.id || (!next && c.peer.floor === ROOF)) {
+        if (next) goToFloor(c, next);
+        else toLobby(c);
+        sendTo(c, { t: 'toast', text: next ? `🛗 ${who} took ${name} off the building, so you rode the elevator to ${next.def.name}` : `🛗 ${who} took ${name}, the last floor, off the building`, level: 'warn' });
+      } else sendTo(c, { t: 'toast', text: `🛗 ${who} took ${name} off the building`, level: 'info' });
+    }
+    floors.delete(floor.id);
+    floor.shutdown();
+    floorsChanged();
+    // Its workers made room under the worker limit.
+    pumpQueues();
+  };
+
   /** Off the floor (or the roof) `c` was on, to `at` on the next one, or into its elevator car. */
   const leave = (c: Client, at?: { x: number; y: number; z: number; rotY: number }) => {
     const was = floorOf(c);
@@ -993,6 +1067,9 @@ export async function startServer(cfg: Config) {
       was.workers.detachAll(c.id);
       was.changes.unwatchAll(c.id);
     }
+    // The ball stays on its floor, back under the hoop. That floor hears so once they're off it (see
+    // arrived), or their own page would put it down before it knew they'd gone.
+    const ballLeft = !!was?.court.left(c.id);
     c.attached.clear();
     c.typingAt.clear();
     c.stale.clear();
@@ -1003,15 +1080,17 @@ export async function startServer(cfg: Config) {
     const spot = at ?? { ...elevatorSpot(), y: 0, rotY: 0 };
     Object.assign(c.peer, { x: spot.x, y: spot.y, z: spot.z, rotY: spot.rotY, moving: false });
     delete c.peer.seat;
+    delete c.peer.golfing;
     // An issue card belongs to the board it came off, which is on the floor they left; a drink stays at the bar.
     delete c.peer.carrying;
     delete c.peer.drink;
-    return { was, wasDrawing };
+    return { was, wasDrawing, ballLeft };
   };
 
   const arrived = (c: Client, left: ReturnType<typeof leave>) => {
     broadcast({ t: 'peer.update', peer: c.peer }, c.id);
     if (left.wasDrawing) drawingChanged(left.was);
+    if (left.ballLeft && left.was) ballChanged(left.was);
   };
 
   /**
@@ -1064,10 +1143,27 @@ export async function startServer(cfg: Config) {
           broadcast({ t: 'peer.act', id: c.id, smoke: msg.smoke }, c.id, true);
           break;
         }
+        if (typeof msg.golf === 'boolean') {
+          // The tee's on an office floor's balcony; there's none up on the roof.
+          const golf = msg.golf && c.peer.floor !== ROOF;
+          if (golf === !!c.peer.golfing) break;
+          if (golf) c.peer.golfing = true;
+          else delete c.peer.golfing;
+          broadcast({ t: 'peer.act', id: c.id, golf }, c.id, true);
+          break;
+        }
         const now = Date.now();
         if (now - c.lastActAt < 100) break;
         c.lastActAt = now;
         toNeighbors(c, { t: 'peer.act', id: c.id }, true);
+        break;
+      }
+      case 'golf': {
+        const now = Date.now();
+        const [yaw, loft, power] = [num(msg.yaw), num(msg.loft), num(msg.power)];
+        if (!c.peer.golfing || now - c.lastGolfAt < 800 || Math.abs(yaw) > 2 || loft < 0 || loft > 1.6 || power < 0 || power > 1) break;
+        c.lastGolfAt = now;
+        toNeighbors(c, { t: 'golf', id: c.id, yaw, loft, power });
         break;
       }
       case 'emote':
@@ -1155,6 +1251,18 @@ export async function startServer(cfg: Config) {
           });
         break;
       }
+      case 'floor.remove': {
+        // Everyone's workers on it stop: admins do it.
+        if (!meOf(c.accountId).admin) return warn(c, 'Only admins can take a floor off the building');
+        const id = str(msg.floor, 64);
+        const r = building.remove(id, who);
+        if (typeof r === 'string') return warn(c, r);
+        console.log(`  ${who} took the ${r.name} floor off the building (${r.dir} stays where it is)`);
+        const floor = floors.get(id);
+        if (floor) closeFloor(floor, who);
+        else floorsChanged();
+        break;
+      }
       case 'floor.projectsDir': {
         // It's a folder on the office's machine that `gh` writes into: admins pick it.
         const err = meOf(c.accountId).admin ? building.setProjectsDir(str(msg.dir, 1024), who) : 'Only admins can move the workspace folder';
@@ -1163,6 +1271,16 @@ export async function startServer(cfg: Config) {
         const state = building.projectsDirState();
         broadcast({ t: 'projectsDir', state });
         toastAll(state.custom ? `📁 ${who} moved the workspace folder to ${state.dir}` : `📁 ${who} put the workspace folder back to ${state.dir}`);
+        break;
+      }
+      case 'ball.take':
+      case 'ball.throw': {
+        const floor = floorOf(c);
+        if (!floor) break;
+        const changed = msg.t === 'ball.take' ? floor.court.take(c.id) : floor.court.throw(c.id, { x: num(msg.x), y: num(msg.y), z: num(msg.z), vx: num(msg.vx), vy: num(msg.vy), vz: num(msg.vz) });
+        // Whoever didn't get it (someone else caught it first) is told where it really is.
+        if (changed) ballChanged(floor);
+        else sendTo(c, { t: 'ball', ball: floor.court.state() });
         break;
       }
       case 'dog.pet':
@@ -1287,9 +1405,12 @@ export async function startServer(cfg: Config) {
       }
       case 'doing': {
         const what = str(msg.what, 60).trim() || undefined;
-        if (what === c.peer.doing) break;
+        const reading = msg.reading === true || undefined;
+        if (what === c.peer.doing && reading === c.peer.reading) break;
         if (what) c.peer.doing = what;
         else delete c.peer.doing;
+        if (reading) c.peer.reading = true;
+        else delete c.peer.reading;
         broadcast({ t: 'peer.update', peer: c.peer });
         break;
       }
@@ -1359,6 +1480,24 @@ export async function startServer(cfg: Config) {
           // Nobody should be seated for an issue that's closed.
           const dropped = floor.queue.dropIssue(n);
           toastFloor(floor, `${who} closed issue #${n}${reason === 'not planned' ? ' as not planned' : ''}${dropped ? ' and took it off the queue' : ''}`);
+        });
+        break;
+      }
+      case 'gh.labels': {
+        const floor = here();
+        const n = num(msg.number);
+        const kind = msg.kind === 'issue' || msg.kind === 'pull' ? msg.kind : undefined;
+        if (!floor || !Number.isSafeInteger(n) || n <= 0 || !kind) break;
+        const names = (v: unknown) => [...new Set((Array.isArray(v) ? v : []).map((l) => str(l, GH_LABEL_MAX + 1)).filter((l) => l && l.length <= GH_LABEL_MAX))].slice(0, 100);
+        const add = names(msg.add);
+        const remove = names(msg.remove).filter((l) => !add.includes(l));
+        if (!add.length && !remove.length) {
+          sendTo(c, { t: 'gh.labeled', kind, number: n, error: 'No labels to change' });
+          break;
+        }
+        void floor.github.setLabels(kind, n, add, remove).then((r) => {
+          sendTo(c, { t: 'gh.labeled', kind, number: n, ...r });
+          if (r.labels) toastFloor(floor, `🏷️ ${who} labeled ${kind === 'pull' ? 'PR' : 'issue'} #${n}: ${[...add.map((l) => `+${l}`), ...remove.map((l) => `−${l}`)].join(' ')}`);
         });
         break;
       }
@@ -1456,6 +1595,32 @@ export async function startServer(cfg: Config) {
                 ? `${who} took the holiday decorations down`
                 : `📅 ${who} set the decorations to follow the calendar${now ? ` (it's ${now === 'halloween' ? 'Halloween 🎃' : 'Christmas 🎄'} season)` : ''}`,
         );
+        break;
+      }
+      case 'prompts.set': {
+        if (!meOf(c.accountId).admin) return warn(c, 'Only admins can change the office’s prompts');
+        if (!isPromptId(msg.id) || (msg.text !== null && typeof msg.text !== 'string')) return;
+        const custom = !!prompts.state().custom[msg.id];
+        const err = prompts.setPrompt(msg.id, msg.text === null ? null : str(msg.text, PROMPT_MAX + 1), who);
+        if (err) return warn(c, err);
+        const now = !!prompts.state().custom[msg.id];
+        const { label } = PROMPTS[msg.id];
+        if (now) toastAll(`📝 ${who} rewrote the “${label}” prompt`);
+        else if (custom) toastAll(`📝 ${who} put the default “${label}” prompt back`);
+        break;
+      }
+      case 'prompts.agent': {
+        if (!meOf(c.accountId).admin) return warn(c, 'Only admins can pick the office’s default worker');
+        const ch = msg.choice;
+        if (ch !== null && (!ch || typeof ch !== 'object')) return;
+        const choice = ch && {
+          provider: ch.provider,
+          model: ch.model === undefined || ch.model === '' ? undefined : str(ch.model, OPEN_CODE_MODEL_MAX + 1),
+          effort: ch.effort === undefined ? undefined : ch.effort,
+        };
+        const err = prompts.setAgent(choice, who);
+        if (err) return warn(c, err);
+        toastAll(choice ? `🤖 ${who} set the office’s default worker` : `🤖 ${who} put the office’s default worker back to ${path.basename(cfg.agentCmd)}`);
         break;
       }
       case 'machine.limit': {

@@ -1,5 +1,5 @@
 import { execFile, execFileSync } from 'node:child_process';
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { FLOOR_PALETTES, MAX_FLOORS, normalizeRepo, sameRepo } from '../shared/floors.js';
@@ -25,6 +25,13 @@ interface PickedDir {
   at: number;
 }
 
+/** The checkout the office was started in, once it's been taken off the building (local-floor.json). */
+interface LocalOff {
+  dir: string;
+  by: string;
+  at: number;
+}
+
 /** How long the list of repositories `gh` can see is reused before it's asked again. */
 const REPOS_TTL_MS = 5 * 60_000;
 const MAX_REPOS = 1000;
@@ -44,6 +51,13 @@ export class Building {
   /** Floors being cloned, by lower-cased repo. Not saved until the clone is there. */
   private cloning = new Map<string, FloorDef>();
   private repoCache?: { at: number; repos: Promise<RepoChoice[]> };
+  /** The checkout the office was started in (see ensureLocal), and the repository it's a checkout of. */
+  private local?: { dir: string; repo?: string };
+  /** The floor that checkout is, while it is one. */
+  private localId?: string;
+  private localFile: string;
+  /** That checkout was taken off the building: a restart doesn't put it back. */
+  private localOff?: LocalOff;
 
   constructor(
     /** The office's own data folder; `gh` runs there, since the projects folder may not exist yet. */
@@ -53,8 +67,10 @@ export class Building {
   ) {
     this.file = path.join(dataDir, 'floors.json');
     this.pickedFile = path.join(dataDir, 'projects-folder.json');
+    this.localFile = path.join(dataDir, 'local-floor.json');
     this.load();
     this.loadPicked();
+    this.loadLocalOff();
   }
 
   /** Where new floors are cloned. Floors already there stay where they are when it moves. */
@@ -101,16 +117,47 @@ export class Building {
   }
 
   /**
-   * Makes the checkout the office was started in a floor, if it isn't one yet. It's the office's own
-   * project: `agent-office <dir>` has always meant that one.
+   * Makes the checkout the office was started in a floor, if it isn't one yet: `agent-office <dir>`
+   * has always meant that project. Once someone takes it off the building it stays off (the office
+   * still keeps its own data in it), until its repository is added again from the elevator.
    */
-  ensureLocal(dir: string, by: string): FloorDef {
+  ensureLocal(dir: string, by: string): FloorDef | undefined {
     const abs = path.resolve(dir);
     const known = this.defs.find((d) => path.resolve(d.dir) === abs);
-    if (known) return known;
+    this.local = { dir: abs, repo: known?.repo ?? originRepo(abs) };
+    if (known) {
+      this.localId = known.id;
+      if (this.localOff) this.setLocalOff(undefined);
+      return known;
+    }
+    if (this.localOff && path.resolve(this.localOff.dir) === abs) return undefined;
     // Named after its folder, as the office always called it.
-    const def = this.newDef(path.basename(abs), originRepo(abs), abs, by);
+    const def = this.newDef(path.basename(abs), this.local.repo, abs, by);
     this.defs.unshift(def);
+    this.localId = def.id;
+    this.save();
+    return def;
+  }
+
+  /** The office keeps its own data in this floor's checkout. */
+  isLocal(id: string): boolean {
+    return id === this.localId;
+  }
+
+  /**
+   * Takes a floor off the building. Its checkout stays where it is, with its workers, queue and
+   * pictures in its .agent-office folder: adding the repository again moves back in, as long as the
+   * checkout is still where the projects folder clones it (or it's the one the office was started
+   * in). Returns the floor, or why it can't.
+   */
+  remove(id: string, by = '?'): FloorDef | string {
+    const def = this.defs.find((d) => d.id === id);
+    if (!def) return [...this.cloning.values()].some((d) => d.id === id) ? "That floor is still being cloned — take it off once it's there" : 'No such floor';
+    this.defs = this.defs.filter((d) => d !== def);
+    if (this.isLocal(id)) {
+      this.localId = undefined;
+      this.setLocalOff({ dir: def.dir, by, at: Date.now() });
+    }
     this.save();
     return def;
   }
@@ -126,6 +173,17 @@ export class Building {
     if (this.defs.some((d) => sameRepo(d.repo, wanted))) return `${wanted} already has a floor`;
     if (this.cloning.has(wanted.toLowerCase())) return `${wanted} is already being cloned`;
     if (this.defs.length + this.cloning.size >= MAX_FLOORS) return `The building is full (${MAX_FLOORS} floors)`;
+    // The office's own checkout, taken off before: it moves back in where it is, not into a second clone.
+    const home = this.local;
+    if (this.localOff && home && sameRepo(home.repo, wanted) && existsSync(home.dir)) {
+      const def = this.newDef(path.basename(home.dir), home.repo, home.dir, by);
+      started(def);
+      this.defs.push(def);
+      this.localId = def.id;
+      this.setLocalOff(undefined);
+      this.save();
+      return def;
+    }
     // Asking GitHub first says whether this login can see it at all, and gets the name's real case.
     let repo: string;
     try {
@@ -210,6 +268,27 @@ export class Building {
       }
     } catch {
       // never picked: the default
+    }
+  }
+
+  private loadLocalOff() {
+    try {
+      const saved = JSON.parse(readFileSync(this.localFile, 'utf8')) as Partial<LocalOff>;
+      if (typeof saved.dir === 'string' && path.isAbsolute(saved.dir)) {
+        this.localOff = { dir: saved.dir, by: typeof saved.by === 'string' ? saved.by : '?', at: typeof saved.at === 'number' ? saved.at : Date.now() };
+      }
+    } catch {
+      // never taken off
+    }
+  }
+
+  private setLocalOff(off: LocalOff | undefined) {
+    this.localOff = off;
+    try {
+      if (off) writeFileSync(this.localFile, JSON.stringify(off, null, 2), { mode: 0o600 });
+      else rmSync(this.localFile, { force: true });
+    } catch (err) {
+      console.error(`agent-office: couldn't save ${this.localFile}: ${(err as Error).message}`);
     }
   }
 

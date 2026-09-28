@@ -201,6 +201,13 @@ export const JUKEBOX = { x: FLOOR.maxX - 0.42, y: 0.75, z: 5.4, width: 1.3, dept
 /** The arcade cabinet, against the east wall between the jukebox and the loft, facing into the room. `width` runs along the wall. */
 export const CABINET = { x: FLOOR.maxX - 0.42, z: 7.05, width: 0.8, depth: 0.8, height: 1.9 } as const;
 
+/**
+ * The bookshelf of the project's docs (every Markdown file in it, see shared/docs.ts): against the
+ * south wall between the middle window and the balcony doors, facing into the room (-z). `width`
+ * runs along the wall.
+ */
+export const BOOKSHELF = { x: -6.5, z: FLOOR.maxZ - 0.21, width: 1.7, depth: 0.42, height: 2.3 } as const;
+
 export const SPAWN = { x: 8, z: 7 } as const;
 
 /** The gong: on the north wall just past the elevator from the PR board, facing into the room. It rings when a PR merges. */
@@ -289,6 +296,18 @@ export const BALCONY_DOOR: Opening = { wall: 'south', u: -4, width: 3, y0: 0, y1
 export const BALCONY = { minX: -10.5, maxX: 2.5, minZ: FLOOR.maxZ + WALL_T, maxZ: FLOOR.maxZ + WALL_T + 3.4 } as const;
 /** The ashtray on the balcony, where a smoke break starts. */
 export const ASHTRAY = { x: -8.2, z: BALCONY.maxZ - 0.55 } as const;
+/**
+ * The golf tee on the balcony, between the ashtray and the doors: a square of turf `size` across,
+ * with the ball teed up at `ball`, hit out over the railing at the hole across the street
+ * (GOLF_HOLE). The golf bag leans on the wall behind it at `bag`, just short of the doors.
+ */
+export const GOLF_TEE = { x: -6.75, z: 14.75, size: 1.5, ball: { x: -6.95, z: 14.75 }, bag: { x: -5.8, z: BALCONY.minZ + 0.28 } } as const;
+/**
+ * The hole across the street, out past the far sidewalk where the neighbours leave a gap: its pin,
+ * the green round it (`green` its radius) and the fairway leading up to it (x `fairway` wide, from
+ * the sidewalk to the green). Down on the street, so it's further down the higher your floor is.
+ */
+export const GOLF_HOLE = { x: -5, z: 58, green: 5.5, fairway: [-11, 0] } as const;
 /**
  * Leaving a floor above the bottom one, with no exit door: out through the balcony doors to the
  * railing straight ahead (`jump`), up onto its top (`railTop` high), and over it by parachute. The
@@ -478,13 +497,11 @@ export interface PoleSpot {
 }
 
 /**
- * The fire poles, slid down to the floor below. Each one goes the whole way down the building, through
- * a hole in every floor but the bottom one (where there's a mat to land on): whichever you walk up to
- * takes you down one floor, and on a floor with another below you swing off it through the railing.
+ * The fire pole, slid down to the floor below. It goes the whole way down the building, through a hole
+ * in every floor but the bottom one (where there's a mat to land on): it takes you down one floor, and
+ * on a floor with another below you swing off it through the railing, ready to go again.
  */
 export const POLES: readonly PoleSpot[] = [
-  // South of the desks, by the way in from the balcony.
-  { x: -6.6, z: 8.4, open: Math.PI / 2 },
   // Out in the open between the desks and the lounge, where you step out of the elevator.
   { x: 6.8, z: 1.6, open: Math.PI },
 ];

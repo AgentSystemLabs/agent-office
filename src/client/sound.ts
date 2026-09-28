@@ -449,6 +449,71 @@ export class OfficeSound {
     this.blip(this.ambience, this.ctx.currentTime + 0.01, 180, 0.6, 0.18, 0.12);
   }
 
+  // ---- Golf off the balcony ------------------------------------------------------------------------
+
+  /**
+   * A golf ball: the club through it (`hit`), coming down on grass or the road (`bounce`, `speed`
+   * in m/s) or dying in sand or rough (`thud`), off the railing's glass (`rail`) or a wall, rattling
+   * into the cup, and a fanfare for a hole in one. `at` is where, for someone else's ball; your own
+   * you hear wherever it is, since the camera's following it.
+   */
+  golf(kind: 'hit' | 'bounce' | 'thud' | 'rail' | 'wall' | 'cup' | 'cheer', at?: Pos, speed = 5) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count(`golf-${kind}`);
+    const out = at ? this.panner(at, 3, 1) : ctx.createGain();
+    out.connect(this.ambience);
+    const t0 = ctx.currentTime + 0.005;
+    const hard = Math.min(1, speed / 15);
+    switch (kind) {
+      case 'hit':
+        // A crisp tock, and the swish of the club on through.
+        this.blip(out, t0, 1900, 0.55, 0.06, 0.3, 'triangle');
+        this.play(pick(this.buf.steps), { gain: 0.45, rate: 2.6, dest: out });
+        {
+          const swish = this.noise(this.buf.white);
+          const g = ctx.createGain();
+          envelope(g.gain, t0, [
+            [0.03, 0.06],
+            [0.16, 0],
+          ]);
+          swish.connect(biquad(ctx, 'bandpass', 2400, 1.2)).connect(g).connect(out);
+          swish.start(t0);
+          swish.stop(t0 + 0.2);
+        }
+        break;
+      case 'bounce':
+        this.play(pick(this.buf.steps), { gain: 0.08 + hard * 0.3, rate: rand(1.7, 2), dest: out });
+        this.blip(out, t0, rand(620, 700), 0.7, 0.05, 0.03 + hard * 0.06);
+        break;
+      case 'thud':
+        this.play(pick(this.buf.steps), { gain: 0.08 + hard * 0.2, rate: rand(1.1, 1.3), dest: out });
+        break;
+      case 'rail':
+        // A knock on the glass.
+        this.clink(out, t0, rand(1250, 1400), 0.05 + hard * 0.08);
+        this.play(pick(this.buf.steps), { gain: 0.25, rate: 2.2, dest: out });
+        break;
+      case 'wall':
+        this.play(pick(this.buf.steps), { gain: 0.15 + hard * 0.3, rate: 1.9, dest: out });
+        break;
+      case 'cup':
+        // Plunk, and a rattle round the bottom.
+        this.blip(out, t0, 520, 0.6, 0.12, 0.14, 'triangle');
+        for (let i = 1; i <= 3; i++) this.blip(out, t0 + 0.08 + i * 0.06, 900 - i * 90, 0.8, 0.04, 0.05 / i);
+        break;
+      case 'cheer':
+        // Ta-da-da-DAAA.
+        [523, 659, 784, 1047].forEach((f, i) => {
+          const when = t0 + 0.25 + i * 0.13;
+          const len = i === 3 ? 0.9 : 0.2;
+          this.blip(out, when, f, 1, len, 0.1, 'triangle');
+          this.blip(out, when, f * 2, 1, len * 0.7, 0.03);
+        });
+        break;
+    }
+  }
+
   /** Whoosh: the rush of air and the squeal of hands on brass, all the way down a fire pole. */
   slide(seconds = 1.6) {
     const ctx = this.ctx;
@@ -545,6 +610,54 @@ export class OfficeSound {
         o.start(when);
         o.stop(when + len + 0.02);
       }
+    }
+  }
+
+  // ---- The basketball -----------------------------------------------------------------------------
+
+  /**
+   * The ball, from where it is, `speed` m/s into what it hit: a hollow bounce off the floor (or a
+   * desk, a wall), a clank off the rim, a thud off the backboard, or the swish of the net.
+   */
+  ball(kind: 'bounce' | 'rim' | 'board' | 'score', at: Pos, speed: number) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count(`ball-${kind}`);
+    const loud = Math.min(1, speed / 7);
+    const out = this.panner(at, 2, 1.1);
+    out.connect(this.ambience);
+    const t0 = ctx.currentTime + 0.005;
+    if (kind === 'bounce') {
+      // The pong of the air inside, over a slap on the floor.
+      this.blip(out, t0, rand(150, 175), 0.7, 0.16, 0.05 + 0.3 * loud);
+      this.play(pick(this.buf.steps), { gain: 0.15 + 0.5 * loud, rate: rand(1.25, 1.4), dest: out });
+    } else if (kind === 'rim') {
+      // Steel ringing, a little out of tune with itself.
+      const f = rand(520, 600);
+      for (const [ratio, amp, len] of [
+        [1, 0.1, 0.5],
+        [2.43, 0.06, 0.35],
+        [4.1, 0.03, 0.2],
+      ] as const) this.blip(out, t0, f * ratio, 0.99, len, amp * (0.3 + loud));
+      this.play(pick(this.buf.steps), { gain: 0.2 * loud, rate: 1.9, dest: out });
+    } else if (kind === 'board') {
+      this.play(pick(this.buf.steps), { gain: 0.25 + 0.5 * loud, rate: 0.8, dest: out });
+      this.blip(out, t0, 240, 0.8, 0.12, 0.05 + 0.1 * loud);
+    } else {
+      // Swish: a breath of noise through the net, brightening as it goes.
+      const n = this.noise(this.buf.white);
+      const tone = biquad(ctx, 'bandpass', 2400, 1.2);
+      tone.frequency.setValueAtTime(1800, t0);
+      tone.frequency.linearRampToValueAtTime(4200, t0 + 0.28);
+      const g = ctx.createGain();
+      envelope(g.gain, t0, [
+        [0.03, 0.22],
+        [0.18, 0.14],
+        [0.34, 0],
+      ]);
+      n.connect(tone).connect(g).connect(out);
+      n.start(t0);
+      n.stop(t0 + 0.4);
     }
   }
 

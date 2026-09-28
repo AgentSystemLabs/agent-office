@@ -1,7 +1,9 @@
 import { execFile } from 'node:child_process';
-import type { GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhMergeMethod, GhPull, GhPullDetail, GhRepoInfo, GhReviewComment, GhState } from '../shared/protocol.js';
+import type { GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhLabel, GhMergeMethod, GhPull, GhPullDetail, GhRepoInfo, GhReviewComment, GhState } from '../shared/protocol.js';
 
 const REFRESH_MS = 90_000;
+/** How long the repo's list of labels is kept before the label picker asks GitHub again. */
+const LABELS_MS = 60_000;
 
 /** Turns gh's stderr into something a person standing at the board can act on. */
 function friendly(raw: string): string {
@@ -23,29 +25,8 @@ export function gh(args: string[], cwd: string, timeout = 30_000): Promise<strin
   });
 }
 
-function labels(raw: any[]): { name: string; color: string }[] {
+function labels(raw: any[]): GhLabel[] {
   return (raw ?? []).map((l) => ({ name: String(l.name), color: `#${l.color ?? '888888'}` }));
-}
-
-/**
- * How urgent an issue's labels say it is, 0 (critical) to 3 (low); 4 when it has no priority label.
- * Reads "priority: high", "priority/low", "P1", "critical" and the like.
- */
-export function priorityRank(labels: { name: string }[]): number {
-  let best = 4;
-  for (const { name } of labels) {
-    const n = name.toLowerCase().trim();
-    const p = /^p([0-3])$/.exec(n) ?? /^priority\W*p?([0-3])$/.exec(n);
-    let rank = p ? Number(p[1]) : 4;
-    if (!p && (n.includes('priority') || /^(critical|urgent|blocker)$/.test(n))) {
-      if (/critical|urgent|blocker|highest/.test(n)) rank = 0;
-      else if (/high/.test(n)) rank = 1;
-      else if (/medium|\bmed\b|normal|moderate/.test(n)) rank = 2;
-      else if (/low|minor/.test(n)) rank = 3;
-    }
-    best = Math.min(best, rank);
-  }
-  return best;
 }
 
 function checksOf(rollup: any[]): GhPull['checks'] {
@@ -120,6 +101,9 @@ export class GitHub {
   private timer?: NodeJS.Timeout;
   private repo?: Promise<GhRepoInfo>;
   private login?: Promise<string>;
+  private labelList?: { at: number; list: Promise<GhLabel[]> };
+  /** Labels just changed from the office, by "issue:N" or "pull:N", and when. */
+  private relabeled = new Map<string, { labels: GhLabel[]; at: number }>();
 
   constructor(
     private dir: string,
@@ -285,6 +269,79 @@ export class GitHub {
     return undefined;
   }
 
+  /** Every label the repository has, for the label picker. Asked again after a minute (or a failure). */
+  repoLabels(): Promise<GhLabel[]> {
+    if (!this.labelList || Date.now() - this.labelList.at > LABELS_MS) {
+      const list = gh(['api', 'repos/{owner}/{repo}/labels?per_page=100', '--paginate', '--jq', '.[] | {name, color, description}'], this.dir).then((out) =>
+        out
+          .split('\n')
+          .filter((l) => l.trim())
+          .map((l) => JSON.parse(l))
+          .map((l: any) => ({ name: String(l.name), color: `#${l.color ?? '888888'}`, description: l.description || undefined })),
+      );
+      this.labelList = { at: Date.now(), list };
+      list.catch(() => this.labelList?.list === list && (this.labelList = undefined));
+    }
+    return this.labelList.list;
+  }
+
+  /**
+   * Puts labels on an issue or PR and takes others off (to GitHub a PR is an issue too), as whoever
+   * gh is signed in as. Returns the labels it has now, or why they didn't change.
+   */
+  async setLabels(kind: 'issue' | 'pull', n: number, add: string[], remove: string[]): Promise<{ labels?: GhLabel[]; error?: string }> {
+    const path = `repos/{owner}/{repo}/issues/${n}/labels`;
+    const jq = '[.[] | {name, color}]';
+    let now: GhLabel[] | undefined;
+    try {
+      // -f labels[]=… sends a JSON array of plain strings: no @file reading, no {owner} filling in.
+      if (add.length) now = labels(JSON.parse(await gh(['api', '--method', 'POST', path, ...add.flatMap((l) => ['-f', `labels[]=${l}`]), '--jq', jq], this.dir)));
+      for (const l of remove) {
+        try {
+          now = labels(JSON.parse(await gh(['api', '--method', 'DELETE', `${path}/${encodeURIComponent(l)}`, '--jq', jq], this.dir)));
+        } catch (err) {
+          // Someone took it off already, which is what was asked for.
+          if (!/label does not exist/i.test((err as Error).message)) throw err;
+        }
+      }
+      now ??= labels(JSON.parse(await gh(['api', `${path}?per_page=100`, '--jq', jq], this.dir)));
+    } catch (err) {
+      // Some may have changed before it failed.
+      void (kind === 'issue' ? this.refreshIssues() : this.refreshPulls());
+      return { error: (err as Error).message };
+    }
+    // The board shows them at once, before the next look at GitHub (see relabel).
+    const at = Date.now();
+    this.relabeled.set(`${kind}:${n}`, { labels: now, at });
+    if (kind === 'issue') {
+      this.issues = { ...this.issues, items: this.relabel('issue', this.issues.items, at) };
+      this.onIssues(this.issues);
+      void this.refreshIssues();
+    } else {
+      this.pulls = { ...this.pulls, items: this.relabel('pull', this.pulls.items, at) };
+      this.onPulls(this.pulls);
+      void this.refreshPulls();
+    }
+    return { labels: now };
+  }
+
+  /**
+   * A list asked for before a label change made here still has the old labels, so the new ones are
+   * kept over it; a list asked for after the change is believed, and the change forgotten.
+   */
+  private relabel<T extends GhIssue | GhPull>(kind: 'issue' | 'pull', items: T[], asked: number): T[] {
+    return items.map((it) => {
+      const key = `${kind}:${it.number}`;
+      const r = this.relabeled.get(key);
+      if (!r) return it;
+      if (r.at < asked) {
+        this.relabeled.delete(key);
+        return it;
+      }
+      return { ...it, labels: r.labels };
+    });
+  }
+
   /** Assigns the issue to whoever gh is signed in as, which moves it to In progress on the board. */
   async claim(issue: number): Promise<string | undefined> {
     try {
@@ -300,6 +357,7 @@ export class GitHub {
     if (this.issues.loading) return;
     this.issues = { ...this.issues, loading: true };
     this.onIssues(this.issues);
+    const asked = Date.now();
     try {
       // Open and closed separately, so old open issues are never crowded out by recent closed ones.
       const fields = 'number,title,state,url,author,labels,assignees,createdAt,updatedAt,body,comments';
@@ -307,7 +365,7 @@ export class GitHub {
         gh(['issue', 'list', '--state', 'open', '--limit', '300', '--json', fields], this.dir),
         gh(['issue', 'list', '--state', 'closed', '--limit', '40', '--json', fields], this.dir),
       ]);
-      const items: GhIssue[] = [...JSON.parse(open), ...JSON.parse(closed)].map((i: any) => ({
+      const fetched: GhIssue[] = [...JSON.parse(open), ...JSON.parse(closed)].map((i: any) => ({
         number: i.number,
         title: i.title,
         state: i.state,
@@ -320,9 +378,7 @@ export class GitHub {
         body: String(i.body ?? '').slice(0, 4000),
         comments: Array.isArray(i.comments) ? i.comments.length : Number(i.comments ?? 0),
       }));
-      // Highest priority first, so the board (and the notes that fit on the wall) lead with it.
-      // The sort is stable: within a priority, gh's newest-first order stays.
-      items.sort((a, b) => priorityRank(a.labels) - priorityRank(b.labels));
+      const items = this.relabel('issue', fetched, asked);
       this.issues = { items, fetchedAt: Date.now(), loading: false };
     } catch (err) {
       this.issues = { ...this.issues, loading: false, error: (err as Error).message, fetchedAt: Date.now() };
@@ -334,6 +390,7 @@ export class GitHub {
     if (this.pulls.loading) return;
     this.pulls = { ...this.pulls, loading: true };
     this.onPulls(this.pulls);
+    const asked = Date.now();
     try {
       const fields = 'number,title,state,isDraft,url,author,labels,reviewDecision,headRefName,baseRefName,createdAt,updatedAt,additions,deletions,statusCheckRollup,body,closingIssuesReferences';
       const [open, merged, closed] = await Promise.all([
@@ -344,7 +401,7 @@ export class GitHub {
       // `--state closed` includes merged PRs; keep only the ones closed without merging.
       const seen = new Set<number>();
       const all = [...JSON.parse(open), ...JSON.parse(merged), ...JSON.parse(closed)].filter((p: any) => !seen.has(p.number) && seen.add(p.number));
-      const items: GhPull[] = all.map((p: any) => ({
+      const fetched: GhPull[] = all.map((p: any) => ({
         number: p.number,
         title: p.title,
         state: p.state,
@@ -363,6 +420,7 @@ export class GitHub {
         body: String(p.body ?? '').slice(0, 4000),
         closes: (p.closingIssuesReferences ?? []).map((r: any) => Number(r.number)).filter((n: number) => Number.isInteger(n) && n > 0),
       }));
+      const items = this.relabel('pull', fetched, asked);
       this.pulls = { items, fetchedAt: Date.now(), loading: false };
     } catch (err) {
       this.pulls = { ...this.pulls, loading: false, error: (err as Error).message, fetchedAt: Date.now() };

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, CABINET, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LADDER, LOFT, MACHINE_MONITOR, MEETING_BOARD, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PLANTS, SEATING_BY_ID, SLAB, STAIRS, STATIONS, STATION_AGENT, STOREY, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, streetBelow, type DeskDef, type Opening, type Side, type StationKind } from '../../shared/layout';
+import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, BOOKSHELF, CABINET, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LADDER, LOFT, MACHINE_MONITOR, MEETING_BOARD, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PLANTS, SEATING_BY_ID, SLAB, STAIRS, STATIONS, STATION_AGENT, STOREY, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, streetBelow, type DeskDef, type Opening, type Side, type StationKind } from '../../shared/layout';
 import { wallFacing, type WallId, type WallRect } from '../../shared/decor';
 import { deskPoint } from '../../shared/nav';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
@@ -8,10 +8,14 @@ import { mergeByMaterial, mesh, roundedBox, textPlane, toon, toonUnique } from '
 import { buildElevator, type Elevator } from './elevator';
 import { buildGong, type Gong } from './gong';
 import { buildJukebox, type JukeboxView } from './jukebox';
+import { buildBookshelf } from './bookshelf';
 import { buildCabinet, type CabinetModel } from './cabinet';
 import { buildWhiteboard, type WhiteboardStand } from './whiteboard';
+import { buildGreen, buildTee, type Green, type Tee } from './golf';
 import { buildStack, type Stack } from './stack';
 import { buildTower } from './tower';
+import { buildHoop, type HoopView } from './hoop';
+import { HOOP } from '../../shared/hoop';
 
 export interface Collider {
   minX: number;
@@ -25,7 +29,7 @@ export interface Collider {
   fence?: boolean;
 }
 
-export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'cabinet' | 'ladder' | 'pole' | 'meeting' | 'bar' | 'dj';
+export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'cabinet' | 'ladder' | 'pole' | 'meeting' | 'bar' | 'dj' | 'golf' | 'ball' | 'bookshelf';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -91,6 +95,11 @@ export interface Office {
   cabinet: CabinetModel;
   /** The rolling whiteboard everyone draws on together. */
   whiteboard: WhiteboardStand;
+  /** The golf tee on the balcony, and the hole across the street it's hit at. */
+  tee: Tee;
+  green: Green;
+  /** The basketball hoop on the west wall (the ball is main.ts's: see world/hoop.ts). */
+  hoop: HoopView;
   /** The ceiling, the floor, and the ladder and fire poles between the floors of the building. */
   stack: Stack;
   /** The sign over the elevator doors: which floor you're on. */
@@ -963,6 +972,7 @@ export function buildOffice(): Office {
   doors.push(slider.door);
   fixture(BALCONY_DOOR.wall, BALCONY_DOOR.u, (BALCONY_DOOR.y1 + 0.1) / 2, BALCONY_DOOR.width + 0.2, BALCONY_DOOR.y1 + 0.1);
   buildBalcony(group, colliders, interactables, night);
+  const tee = buildTee(group, colliders, interactables);
 
   // Down to the street, which is the bottom floor's: its exit door and the steps down from it, the
   // posts under its balcony, the garage under it and the street out front. On a floor above it, all
@@ -981,6 +991,7 @@ export function buildOffice(): Office {
   buildGarage(ground, groundColliders);
   // The clouds stay up in the sky, however far down the street is.
   buildStreet(ground, groundColliders, night, group);
+  const green = buildGreen(ground, groundColliders, night);
   group.add(ground);
   colliders.push(...groundColliders);
   const groundBase = groundColliders.map((c) => ({ c, top: c.top, bottom: c.bottom ?? 0 }));
@@ -1155,6 +1166,13 @@ export function buildOffice(): Office {
   interactables.push(cabinet.interactable);
   fixture('east', CABINET.z, CABINET.height / 2, CABINET.width + 0.1, CABINET.height);
 
+  // The bookshelf of the project's docs, on the south wall between the middle window and the balcony doors.
+  const shelf = buildBookshelf();
+  group.add(shelf.group);
+  colliders.push(shelf.collider);
+  interactables.push(shelf.interactable);
+  fixture('south', BOOKSHELF.x, (BOOKSHELF.height + 0.55) / 2, BOOKSHELF.width + 0.2, BOOKSHELF.height + 0.55);
+
   // Kitchen corner: counter + coffee machine + fridge
   const kitchen = new THREE.Group();
   kitchen.add(mesh(box(5, 0.95, 1), toon('#8ecae6'), 0, 0.475, 0));
@@ -1224,6 +1242,12 @@ export function buildOffice(): Office {
   interactables.push(gong.interactable);
   fixture('north', GONG.x, (GONG.height + 0.3) / 2, GONG.width + 1.2, GONG.height + 0.3);
 
+  // The basketball hoop, on the west wall between the exit door and the kitchen.
+  const hoop = buildHoop();
+  group.add(hoop.group);
+  colliders.push(...hoop.colliders);
+  fixture('west', HOOP.z, (HOOP.board.bottom - 0.6 + HOOP.board.top + 0.1) / 2, HOOP.board.width + 0.2, HOOP.board.top - HOOP.board.bottom + 0.7);
+
   // The whiteboard, out on the floor between the desks and the lounge.
   const whiteboard = buildWhiteboard();
   group.add(whiteboard.group);
@@ -1284,9 +1308,11 @@ export function buildOffice(): Office {
     }
     elevator.update(dt);
     gong.update(dt);
+    green.update(t);
+    hoop.update(dt);
   };
 
-  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, elevator, gong, jukebox, cabinet, whiteboard, stack, setProjectName, setLook, setLevel, night, plants, update };
+  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, elevator, gong, jukebox, cabinet, whiteboard, tee, green, hoop, stack, setProjectName, setLook, setLevel, night, plants, update };
 }
 
 /** A chair at the meeting table, with its laptop on the table in front of it. */

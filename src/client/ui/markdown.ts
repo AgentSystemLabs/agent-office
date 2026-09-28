@@ -7,6 +7,7 @@ import { h } from './dom';
 
 // In issue and PR comments GitHub turns a single newline into a line break, unlike in .md files.
 const md = new Marked({ gfm: true, breaks: true });
+const mdFile = new Marked({ gfm: true });
 
 const purify = DOMPurify(window);
 purify.addHook('afterSanitizeAttributes', (node) => {
@@ -83,6 +84,11 @@ function absolutize(root: HTMLElement, itemUrl: string, repoUrl: string) {
   for (const img of root.querySelectorAll('img[src]')) img.setAttribute('src', fix(img.getAttribute('src') ?? '', false));
 }
 
+/** Marked's HTML, sanitized, as nodes to put on the page. */
+function sanitized(html: string): DocumentFragment {
+  return purify.sanitize(html, { RETURN_DOM_FRAGMENT: true, FORBID_TAGS: ['style', 'form', 'button', 'select', 'textarea'], FORBID_ATTR: ['style'] });
+}
+
 /** Renders markdown into a `.md` block. `itemUrl` (the issue or PR on GitHub) anchors its links. */
 export function markdown(src: string, itemUrl?: string): HTMLElement {
   const el = h('div.md');
@@ -90,12 +96,23 @@ export function markdown(src: string, itemUrl?: string): HTMLElement {
     el.append(h('p.none', {}, 'No description provided.'));
     return el;
   }
-  const html = md.parse(src, { async: false }) as string;
-  el.append(purify.sanitize(html, { RETURN_DOM_FRAGMENT: true, FORBID_TAGS: ['style', 'form', 'button', 'select', 'textarea'], FORBID_ATTR: ['style'] }));
+  el.append(sanitized(md.parse(src, { async: false }) as string));
   const repoUrl = itemUrl ? repoUrlOf(itemUrl) : undefined;
   if (itemUrl && repoUrl) absolutize(el, itemUrl, repoUrl);
   alerts(el);
   linkify(el, repoUrl);
+  return el;
+}
+
+/**
+ * Renders a Markdown file from the project into a `.md` block, the way GitHub shows it in the repo:
+ * a lone newline is only a space, and #123 is just text. Its links and pictures are left as written,
+ * for the bookshelf to point at the project (see ui/bookshelf.ts).
+ */
+export function markdownFile(src: string): HTMLElement {
+  const el = h('div.md');
+  el.append(sanitized(mdFile.parse(src, { async: false }) as string));
+  alerts(el);
   return el;
 }
 
