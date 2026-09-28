@@ -10,7 +10,7 @@ agent-office
 
 ## What's inside
 
-- **A floor per project.** The first time the office runs you start inside the elevator, and it asks for your first project: pick one of the repositories your `gh` (GitHub) or `glab` (GitLab) login can see (or type `owner/name`, or paste a GitLab project URL) and the office clones it into `~/.agent-office/projects/<owner>/<repo>` (GitLab projects keep their host and groups: `~/.agent-office/projects/gitlab.com/<group>/<subgroup>/<project>`). To add another project, or go to one, walk into the elevator on the north wall and press **E**. Or click the project name in the top-left corner for the list of floors: pick one and you're there in a blink, standing on the same spot in the office. Each floor has its own desks, workers, issues and PR boards, task queue, services and pictures, and its own wall and floor colors, so you always know where you are. You only see and hear the people on your floor. The elevator panel shows how many workers are busy or waiting on someone on each floor, and you get a heads-up when a worker on another floor starts waiting.
+- **A floor per project.** The first time the office starts in a terminal it walks you through picking your first project (see [Install & run](#install--run)). Otherwise you start inside the elevator, and it asks for one: pick one of the repositories your `gh` (GitHub) or `glab` (GitLab) login can see (or type `owner/name`, or paste a GitLab project URL) and the office clones it into `~/.agent-office/projects/<owner>/<repo>` (GitLab projects keep their host and groups: `~/.agent-office/projects/gitlab.com/<group>/<subgroup>/<project>`), unless an admin picks another workspace folder (**Change folder** right there in the elevator, or ⚙️ Settings). To add another project, or go to one, walk into the elevator on the north wall and press **E**. Or click the project name in the top-left corner for the list of floors: pick one and you're there in a blink, standing on the same spot in the office. Each floor has its own desks, workers, issues and PR boards, task queue, services and pictures, and its own wall and floor colors, so you always know where you are. You only see and hear the people on your floor. The elevator panel shows how many workers are busy or waiting on someone on each floor, and you get a heads-up when a worker on another floor starts waiting. An admin can take a project off the building with the **🗑** beside its floor in the elevator: its workers stop, and everyone on it rides the elevator to another floor. Nothing is deleted. The checkout stays on disk with its workers, queue and pictures, and adding the same repository again moves back into it (as long as the workspace folder hasn't moved since). That goes for the project the office was started in (`agent-office <dir>`) too: it stays off after a restart, and the office keeps its own data in that folder as before.
 - **Walk around.** Use WASD, Space to jump, and drag the mouse to orbit the camera. Everyone in the office sees everyone else move in real time.
 - **A quiet screen.** The office stays in view: the top bar holds just the floor you're on, **🤖 Workers** and the **☰** menu (or **Tab**). The menu opens every window (issues, PRs, the queue, services, the whiteboard, search, voice, screen sharing, settings) and lists what can show on screen: the workers, who's in the office, spend, Claude limits, the chat and the floor details. Turn each one on or off there, or hide a panel with its **✕**. Pin anything you use a lot to the top bar. The choices are kept in your browser. Chat lines fade after a few seconds; hover the chat or press **T** to read back. What needs you shows up on the top bar by itself: the workers waiting on someone (click to go to them, like **N**), the mute button while you're in voice, **Sharing** while you share your screen, and **⬆️ Update** when there's a new version.
 - **Coffee.** Press **E** at the coffee machine in the kitchen for a mug and a minute of quicker walking and higher jumps. A little meter under the project name shows how much buzz is left. Drink a third cup before the last one wears off and you get the jitters for a few seconds.
@@ -81,10 +81,10 @@ One line installs the latest release and starts the office. You don't need to cl
 curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.sh | bash
 ```
 
-Anything after `bash -s --` goes to the office, such as a project directory or a port:
+Anything after `bash -s --` goes to the office, such as a port:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.sh | bash -s -- ~/code/my-project --port 4700
+curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.sh | bash -s -- --port 4700
 ```
 
 The script checks for Node.js 20+ and npm, downloads the newest [release](https://github.com/AgentSystemLabs/agent-office/releases) into `~/.local/share/agent-office` and installs its dependencies there. It also puts an `agent-office` command in `~/.local/bin`, so after the first run `agent-office` on its own starts the office. Run the curl line again to update. Set `AGENT_OFFICE_VERSION=v0.1.68` to install a particular release, or `AGENT_OFFICE_INSTALL_ONLY=1` to install without starting. The other settings are listed at the top of [`install.sh`](install.sh). It runs on macOS and Linux.
@@ -95,10 +95,10 @@ The script checks for Node.js 20+ and npm, downloads the newest [release](https:
 irm https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.ps1 | iex
 ```
 
-To pass the office a project directory or a port, run it as a script block instead:
+To pass the office options, like a port, run it as a script block instead:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.ps1))) C:\code\my-project --port 4700
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.ps1))) --port 4700
 ```
 
 It installs releases into `%LOCALAPPDATA%\agent-office` and puts an `agent-office` command in `%LOCALAPPDATA%\agent-office\bin`, which it adds to your user PATH. Open a new terminal after the first install and `agent-office` starts the office from PowerShell, cmd or Git Bash. Run the irm line again to update. It takes the same settings as `install.sh`, set the PowerShell way (`$env:AGENT_OFFICE_VERSION = 'v0.1.68'` before the irm line), plus `AGENT_OFFICE_NO_MODIFY_PATH=1` to leave your PATH alone, and `AGENT_OFFICE_BIN_DIR=none` skips the command. They're listed at the top of [`install.ps1`](install.ps1). It works in Windows PowerShell 5.1 and PowerShell 7. You can also run `install.sh` inside WSL.
@@ -117,13 +117,21 @@ Then run it, from anywhere:
 agent-office --password 'correct horse battery staple'
 ```
 
-It prints the URLs your teammates can open. If you leave out `--password`, it generates one, saves it in `~/agent-office/.agent-office/config.json` and prints it. Open the office and the elevator asks for your first project.
+The first time it starts in a terminal, it walks you through setting up before it opens:
 
-The office keeps its data in `~/agent-office` (`--home` or `AGENT_OFFICE_HOME` to move it) and clones projects into their own folder, `~/.agent-office/projects/<owner>/<repo>`, so they never land inside a checkout of Agent Office. To clone them somewhere else, like `~/Workspace`, an admin picks the **Workspace folder** in ⚙️ Settings (or start with `--projects` or `AGENT_OFFICE_PROJECTS`). A folder inside a git checkout is refused. Floors you already have stay where they are, and a checkout of the same repository that's already in the new folder is used as it is. The list of floors is `~/agent-office/.agent-office/floors.json`. Each floor keeps its workers, queue, pictures and worktrees in its own checkout's `.agent-office/`.
+1. **Where to clone your projects.** It suggests a code folder you already have (`~/Workspace`, `~/code`, `~/projects`…), else `~/.agent-office/projects`. Each project goes in `<folder>/<owner>/<repo>`, and a GitLab project keeps its host and groups: `<folder>/gitlab.com/<group>/<project>`.
+2. **Signing in.** If neither the GitHub CLI (`gh`) nor the GitLab CLI (`glab`) is signed in, it offers to run `gh auth login` or `glab auth login` for you. Either one is enough.
+3. **Your first project.** It lists the repositories your `gh` and `glab` logins can see, most recently pushed first. Pick one by number, type `owner/name` or paste a GitLab project URL, or type a word to search. The office clones it as the first floor, and you can add more the same way.
+
+Press Enter to skip any step: the elevator in the office asks for your first project too. Run `agent-office setup` to go through it again while the office is stopped, or `agent-office setup --projects ~/Workspace --project owner/repo` to do the same without questions, from a script. When `install.sh` is piped into bash, it hands the office your terminal so the walkthrough can ask its questions.
+
+It prints the URLs your teammates can open. If you leave out `--password`, it generates one, saves it in `~/agent-office/.agent-office/config.json` and prints it.
+
+The office keeps its data in `~/agent-office` (`--home` or `AGENT_OFFICE_HOME` to move it) and clones projects into their own folder, `~/.agent-office/projects/<owner>/<repo>`, so they never land inside a checkout of Agent Office. To clone them somewhere else, like `~/Workspace`, an admin picks the **Workspace folder** in ⚙️ Settings, or with **Change folder** in the elevator's add-a-project panel (or start with `--projects` or `AGENT_OFFICE_PROJECTS`). A folder inside a git checkout is refused. Floors you already have stay where they are, and a checkout of the same repository that's already in the new folder is used as it is. The list of floors is `~/agent-office/.agent-office/floors.json`. Each floor keeps its workers, queue, pictures and worktrees in its own checkout's `.agent-office/`.
 
 Every setting the office and the installers read from the environment is listed, with its default, in [`.env.example`](.env.example). The office doesn't load `.env` files: export the settings in the shell that starts it, or set them as `Environment=` lines in its systemd unit. A command-line flag wins over its environment variable.
 
-To start the office in a project you already have, pass its folder: `agent-office ~/code/my-project`. That project becomes a floor, and the office keeps its data in `~/code/my-project/.agent-office` as it always did. An office that already ran in a project (from before there were floors) carries on in it when you start `agent-office` there again.
+Already have a checkout? Pick its repository anyway: a checkout of it that's already where the workspace folder would clone it is used as it is. You can still start the office in a project, `agent-office ~/code/my-project`: that project becomes a floor, and the office keeps its data in `~/code/my-project/.agent-office` as it did before there were floors. An office that already ran in a project carries on in it when you start `agent-office` there again. An admin can take that project off the building in the elevator like any other floor.
 
 ### Install as an app
 
@@ -167,6 +175,12 @@ agent-office [dir] [options]
       --webhook <url>     Post to this Slack / Discord webhook when a worker needs input or finishes
       --city <name>       Put the office in a real city: its sun and live weather (open-meteo.com)
       --weather <kind>    Pin the weather: clear, cloudy, rain, storm, snow or fog
+
+agent-office setup [--projects <dir>] [--project <repo>]... [--home <dir>]
+
+  The first-start walkthrough again: the workspace folder, the GitHub or GitLab
+  sign-in and repositories to clone as floors. With --projects / --project it
+  asks nothing. Run it while the office is stopped.
 
 agent-office prune [dir] [-n|--dry-run] [-f|--force]
 
@@ -256,9 +270,10 @@ What `up` does, in about 2 minutes:
 1. Creates an SSH key pair (kept in `~/.config/agent-office/aws/<name>/`).
 2. Creates a security group that opens **only SSH (port 22), and only to your current IP**. The office itself is never on the internet.
 3. Gives the machine a fixed Elastic IP and launches a **t3.xlarge** (4 vCPU, 16 GiB) Ubuntu 24.04 instance with a 50 GiB disk.
-4. Installs Node 22, git, the GitHub CLI and **Claude Code**. It clones the latest agent-office from GitHub, runs `npm i`, and clones your project.
+4. Installs Node 22, git, the GitHub CLI and **Claude Code**. It clones the latest agent-office from GitHub and runs `npm i`. The office keeps its data in `~/agent-office` on the machine and clones projects into `~/workspace/<owner>/<repo>`.
 5. Runs the office under systemd with `Restart=always`, so it comes back after a crash or a reboot, and `KillMode=process`, so restarting it leaves the workers running. It listens on `127.0.0.1:4600` on the machine, so the only way in is an SSH tunnel.
 6. Opens an SSH tunnel and your browser at `http://localhost:4600`. **The first page shows the office password once. Write it down.** The server then keeps only a hash, so nobody can display the password again.
+7. The office opens on its elevator with no floors yet. It lists every repository your GitHub token can see: pick one and it becomes the first floor.
 
 Everything goes through SSH, so there are no certificate warnings, and `localhost` counts as a secure origin: voice and screen sharing just work. Keep the terminal open while you use the office; Ctrl-C closes the tunnel. Next time, run `deploy/aws.sh open`. If port 4600 is taken on your machine, it picks the next free one.
 
@@ -308,7 +323,7 @@ An office created before the SSH tunnel served HTTPS on port 443 with a self-sig
 
 Useful options for `up`:
 
-- `--project owner/repo` chooses which GitHub repo the office works on. The default is the GitHub origin of the directory you run it from.
+- `--project owner/repo` also clones that repo as the office's first floor. Without it, you pick projects in the elevator. (Before, the office was started in the GitHub origin of the directory you ran `up` from, which is usually agent-office itself. An office set up that way keeps its data in that checkout after `up`, and you can take agent-office off the building in the elevator.)
 - `--instance-type`, `--disk` and `--region` set the machine size, disk size and region.
 - `--allow <ip>` lets more IPs reach SSH from the start.
 - `--name <name>` runs several offices side by side.
@@ -334,7 +349,7 @@ office.example.com {
 ```
 
 ```bash
-cd /srv/my-project
+agent-office setup --projects ~/workspace --project owner/repo   # once; or pick projects in the office
 agent-office --host 127.0.0.1 --trust-proxy --password "$(openssl rand -base64 18)"
 ```
 
@@ -363,7 +378,7 @@ After=network.target
 
 [Service]
 User=dev
-WorkingDirectory=/srv/my-project
+WorkingDirectory=/home/dev
 # generate with: openssl rand -base64 24
 Environment=AGENT_OFFICE_PASSWORD=<a long random password>
 ExecStart=/usr/bin/env agent-office --host 127.0.0.1 --trust-proxy

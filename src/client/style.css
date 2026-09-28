@@ -1005,6 +1005,9 @@ a.when:hover { text-decoration: underline; }
 .elevator .floor-btn:hover:not(:disabled) { background: var(--surface-hover); }
 .elevator .floor-btn:disabled { cursor: default; }
 .elevator .floor-btn.here { border-color: var(--accent); background: var(--accent-muted); }
+.elevator .floor-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: stretch; }
+.elevator .floor-off { padding: 0 12px; font-size: 14px; }
+.elevator .floor-off:hover { border-color: var(--danger); color: var(--danger); background: rgba(239, 68, 68, .08); }
 .elevator .floor-no { width: 30px; height: 30px; border-radius: var(--radius); display: grid; place-items: center; font: 600 14px var(--font-mono); color: #fff; }
 .elevator .floor-text { display: flex; flex-direction: column; min-width: 0; }
 .elevator .floor-name { font-weight: 600; font-size: 14px; display: flex; gap: 8px; align-items: baseline; }
@@ -1027,6 +1030,8 @@ a.when:hover { text-decoration: underline; }
 .elevator .repo .when { font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
 .elevator .note { margin: 8px 0 0; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
 .elevator .note.busy { color: var(--text); }
+.elevator .dir-change { margin-left: 8px; padding: 3px 8px; font-size: 10px; vertical-align: baseline; }
+.elevator .dir-pick { margin-top: 8px; }
 .elevator .err { margin: 8px 0 0; font-size: 13px; font-weight: 600; color: var(--danger); overflow-wrap: anywhere; }
 
 /* ---------- Whiteboard ---------- */
