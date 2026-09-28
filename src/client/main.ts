@@ -493,6 +493,24 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     ladder: () => climber.grabLadder(),
     // The real E-at-ladder path (refuses with a toast when there's nowhere to climb to).
     ladderE: () => grabLadder(),
+    // Grabs the nearest fire pole (E-at-pole without aiming): slides where it goes down, else twirls.
+    pole: () => {
+      const spots = office.stack.poles();
+      let best = null;
+      let bd = Infinity;
+      for (const s of spots) {
+        const d = Math.hypot(player.pos.x - s.x, player.pos.z - s.z);
+        if (d < bd) {
+          bd = d;
+          best = s;
+        }
+      }
+      if (!best || trip || climber.active) return null;
+      if (office.stack.polesGoDown()) climber.slide(best);
+      else climber.twirl(best);
+      return { x: best.x, z: best.z, down: office.stack.polesGoDown() };
+    },
+    poles: () => office.stack.poles().map((s) => ({ x: s.x, z: s.z })),
     rigged: () => climber.grip ?? null,
     // Rides the elevator (the floors menu's path, without aiming at rows).
     ride: (floorId: string) => ride(floorId),
@@ -3048,9 +3066,10 @@ function frame(ts?: number, xrFrame?: XRFrame) {
   walkTick(now);
   if (inVR) vr.update(dt);
   else player.update(dt);
-  // Walked into a pole's hole: you grab the pole on your way down it.
+  // Walked into a pole's hole: you grab the pole on your way down it. (In VR the keys are
+  // off all session, so the headset counts as having the controls here.)
   const hole = office.stack.polesGoDown() ? office.stack.poles().find((s) => Math.hypot(player.pos.x - s.x, player.pos.z - s.z) < POLE.hole - 0.15) : undefined;
-  if (hole && !climber.active && !trip && !player.seat && player.enabled && player.pos.y > -1.35 && player.pos.y < 0.6) climber.slide(hole);
+  if (hole && !climber.active && !trip && !player.seat && (player.enabled || inVR) && player.pos.y > -1.35 && player.pos.y < 0.6) climber.slide(hole);
   arcade.update(camera, dt);
   cabinet.update(camera, dt);
   me.root.position.copy(player.pos);

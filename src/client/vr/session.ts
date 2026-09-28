@@ -849,10 +849,36 @@ export class VRSession {
     return decodeThumbstick(r?.source?.gamepad?.axes ?? []);
   }
 
-  /** Ladder rungs from the glide stick: push up to climb, down to go back. */
+  /** Ladder rungs from the glide stick: push up to climb, down to go back. Hands pinch instead (see pinchClimb). */
   private climbDir(): number {
     const y = this.moveStick().y;
-    return y < -0.35 ? 1 : y > 0.35 ? -1 : 0;
+    if (y < -0.35) return 1;
+    if (y > 0.35) return -1;
+    return this.pinchClimb(performance.now());
+  }
+  /**
+   * Ladder rungs for hand tracking (no thumbsticks there): hold the right pinch to climb, the
+   * left to go back down. A hold that climbs is consumed, so letting go of the rungs doesn't
+   * also tap E and drop you; quick taps still let go, both hands together still open the menu,
+   * and poles (which slide on their own) ignore this.
+   */
+  private pinchClimb(now: number): number {
+    if (!this.hooks.player.rig) return 0;
+    const held: { st: RayState; dir: number }[] = [];
+    for (const st of this.rays) {
+      if (!st.source?.hand) continue;
+      if (!st.selectHeld && !st.pinchHeld) continue;
+      const dir = st.handed === 'right' ? 1 : st.handed === 'left' ? -1 : 0;
+      if (!dir) continue;
+      held.push({ st, dir });
+    }
+    // None held, or both: the menu gesture owns two hands, not the rungs.
+    if (held.length !== 1) return 0;
+    const [{ st, dir }] = held;
+    const since = st.hold.heldSince;
+    if (since < 0 || now - since < PINCH_HOLD_MS) return 0;
+    st.hold.consume();
+    return dir;
   }
 
   private gamepad(i: number): Gamepad | undefined {

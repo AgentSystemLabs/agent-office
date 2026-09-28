@@ -20,6 +20,7 @@ const HANDS: GestureRow[] = [
   { gesture: '👌 Pinch', does: 'use it (E)' },
   { gesture: '👌… hold', does: 'aim teleport, let go to land' },
   { gesture: '🤏🤏 both', does: 'hold together: ☰ menu' },
+  { gesture: '🪜 Ladder', does: 'hold right climbs · left goes down · tap lets go' },
   { gesture: '🚶 walk', does: 'the room is the room: just walk' },
 ];
 
@@ -28,8 +29,8 @@ const CONTROLLERS: GestureRow[] = [
   { gesture: '🅰️ Hold A', does: 'aim teleport, let go to land' },
   { gesture: '🫳 Squeeze', does: 'cancel / ☰ menu' },
   { gesture: '🅱️ / stick-click', does: 'N: next waiting worker' },
-  { gesture: '🕹️ Sticks', does: 'right turns · left glides*' },
-  { gesture: '🪜 Ladder', does: 'E to grab · left stick climbs' },
+  { gesture: '🕹️ Sticks', does: 'right turns · left glides or aims*' },
+  { gesture: '🪜 Ladder', does: 'E grabs · left stick climbs · E lets go' },
 ];
 
 export class VrControls {
@@ -92,7 +93,8 @@ export class VrControls {
 
     ctx.fillStyle = '#8c8c8c';
     ctx.font = `500 ${Math.round(h * 0.026)}px ${TERM_FONT}`;
-    ctx.fillText('* glide is a ⚙️ Settings toggle; teleport-only by default', w * 0.05, h * 0.83);
+    ctx.fillText('* left stick glides with ⚙️ glide on · aims a teleport with it off', w * 0.05, h * 0.79);
+    ctx.fillText('on a panel: tap clicks · stick or hold-drag scrolls', w * 0.05, h * 0.825);
 
     const hot = state.hoverId === 'gotit' || state.pressedId === 'gotit';
     ctx.fillStyle = hot ? '#ff7a2e' : '#ee6018';
@@ -113,16 +115,16 @@ export class VrControls {
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
     ctx.fillText(title, w * x0, h * 0.245);
-    // Long columns tighten up so the last row lands above the footnote.
-    const step = Math.min(0.115, 0.44 / Math.max(1, rows.length - 1));
+    // Long columns tighten up so the last row lands above the footnotes.
+    const step = Math.min(0.088, 0.36 / Math.max(1, rows.length - 1));
     rows.forEach((row, i) => {
       const y = h * (0.32 + i * step);
       ctx.fillStyle = '#eeeeee';
-      ctx.font = `700 ${Math.round(h * 0.032)}px ${TERM_FONT}`;
+      ctx.font = `700 ${Math.round(h * 0.026)}px ${TERM_FONT}`;
       ctx.fillText(row.gesture, w * x0, y, w * colW);
       ctx.fillStyle = '#bdbdbd';
-      ctx.font = `500 ${Math.round(h * 0.029)}px ${TERM_FONT}`;
-      ctx.fillText(row.does, w * x0, y + h * 0.052, w * colW);
+      ctx.font = `500 ${Math.round(h * 0.023)}px ${TERM_FONT}`;
+      ctx.fillText(row.does, w * x0, y + h * 0.04, w * colW);
     });
   }
 
