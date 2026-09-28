@@ -27,6 +27,7 @@ import { Building, type FloorDef } from './building.js';
 import { Floor, type FloorContext } from './floor.js';
 import { Sky } from './sky.js';
 import { Themes } from './theme.js';
+import { LeaveOnMerge } from './leave-on-merge.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
@@ -369,6 +370,8 @@ export async function startServer(cfg: Config) {
     (state) => broadcast({ t: 'theme', state }),
   );
   themes.start();
+  // Whether a worker whose pull request merged goes home by itself, on every floor (⚙️ Settings).
+  const leaveOnMerge = new LeaveOnMerge(cfg.dataDir, (state) => broadcast({ t: 'leaveOnMerge', state }));
 
   // What the workers spend, all time and today, with the optional daily budget.
   const ledger = new Ledger(cfg.dataDir, { budget: cfg.budget, pauseHiring: cfg.budgetPause }, (state) => broadcast({ t: 'usage', state }), toastAll);
@@ -465,6 +468,7 @@ export async function startServer(cfg: Config) {
       return n;
     },
     peers: (floor) => [...clients.values()].filter((c) => c.peer.floor === floor.id).map((c) => c.peer),
+    leaveOnMerge: () => leaveOnMerge.on,
   };
   const openFloor = (def: FloorDef): Floor | undefined => {
     if (!existsSync(def.dir)) {
@@ -558,8 +562,8 @@ export async function startServer(cfg: Config) {
   const upgrader = new Upgrader(
     (state) => broadcast({ t: 'upgrade', state }),
     () => {
-      // cli.ts shuts down gracefully; systemd (Restart=always) then starts the new version, which
-      // wakes every worker.
+      // cli.ts shuts down gracefully, leaving the workers running in their terminal host; systemd
+      // (Restart=always) then starts the new version, which picks them back up.
       process.kill(process.pid, 'SIGTERM');
     },
   );
@@ -993,6 +997,7 @@ export async function startServer(cfg: Config) {
       proxy: proxy.current,
       sky: sky.state,
       theme: themes.state(),
+      leaveOnMerge: leaveOnMerge.state(),
       ...(onRoof ? roofView() : floorView(floor)),
     });
     screensOf(client, floor);
@@ -1572,6 +1577,15 @@ export async function startServer(cfg: Config) {
       case 'notify.test':
         void webhook.test(who).then((err) => sendTo(c, { t: 'toast', text: err ?? '📣 Sent a test message', level: err ? 'warn' : 'info' }));
         break;
+      case 'leaveOnMerge.set': {
+        const on = msg.on === true;
+        if (on === leaveOnMerge.on) break;
+        leaveOnMerge.set(on, who);
+        toastAll(on ? `🏠 ${who} set workers to go home by themselves once their pull request merges` : `🪑 ${who} set workers whose pull request merged to stay until they're sent home`);
+        // The ones already merged go now.
+        if (on) for (const f of floors.values()) f.sendLandedHome();
+        break;
+      }
       case 'theme.set': {
         if (!isThemePick(msg.pick)) return;
         if (msg.pick === themes.state().pick) break;

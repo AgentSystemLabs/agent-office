@@ -294,6 +294,40 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   });
   limitClear.addEventListener('click', () => net.send({ t: 'machine.limit', limit: null }));
 
+  // Whether a worker whose pull request merged goes home by itself, for everyone.
+  const leaveRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Workers whose pull request merged' });
+  const leaveNote = h('p.setting-note');
+  const paintLeave = () => {
+    const { on, by, at } = store.leaveOnMerge;
+    leaveRow.replaceChildren(
+      ...(
+        [
+          [true, 'Go home by themselves'],
+          [false, 'Stay until sent home'],
+        ] as const
+      ).map(([value, label]) =>
+        h(
+          'button.btn',
+          {
+            type: 'button',
+            role: 'radio',
+            'aria-checked': String(on === value),
+            class: on === value ? 'on' : '',
+            onclick: () => {
+              if (store.leaveOnMerge.on !== value) net.send({ t: 'leaveOnMerge.set', on: value });
+            },
+          },
+          label,
+        ),
+      ),
+    );
+    const now = on
+      ? 'Once a worker’s pull request merges, it goes home as soon as it isn’t working or waiting on you and nobody has its terminal open, and its worktree and branch are deleted. A worktree with uncommitted changes, or commits that aren’t on the remote, is kept.'
+      : 'A worker whose pull request merged stays at its desk, outlined in purple, until someone sends it home. Turned on, the ones already merged go too.';
+    leaveNote.textContent = `${now} It’s the same for everyone in the building${by ? `, set by ${by}${at ? ` ${timeAgo(at)}` : ''}` : ''}.`;
+  };
+  paintLeave();
+
   // Where the elevator clones new projects on the office's machine. Admins move it.
   const dirInput = h('input', { type: 'text', placeholder: '~/Workspace', 'aria-label': 'Workspace folder', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
   const dirSave = h('button.btn.primary', { type: 'button' }, 'Save');
@@ -521,6 +555,9 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       h('label', { style: 'margin-top:18px' }, 'Worker limit'),
       limitRow,
       limitNote,
+      h('label', { style: 'margin-top:18px' }, 'Workers whose pull request merged'),
+      leaveRow,
+      leaveNote,
       h('label', { style: 'margin-top:18px' }, 'Jira'),
       jiraForm,
       jiraActions,
@@ -543,6 +580,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const offNotify = store.on('notify', paintHook);
   const offDog = store.on('dog', paintDog);
   const offTheme = store.on('theme', paintTheme);
+  const offLeave = store.on('leaveOnMerge', paintLeave);
   const offLimit = [store.on('machine', paintLimit), store.on('me', paintLimit)];
   const offDir = [store.on('projectsDir', paintDir), store.on('me', paintDir)];
   const offJira = [store.on('jira', paintJira), store.on('me', paintJira), offSetup];
@@ -552,6 +590,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       offNotify();
       offDog();
       offTheme();
+      offLeave();
       offLimit.forEach((off) => off());
       offDir.forEach((off) => off());
       offJira.forEach((off) => off());

@@ -744,7 +744,7 @@ cmd_resume() {
   ensure_eip "$INSTANCE_ID"
   say "Waiting for the office to answer"
   wait_healthy || die "the office didn't come back — check: deploy/aws.sh logs$NAME_FLAG"
-  ok "Your office is back (workers wake up asleep; press R at a desk to resume them)"
+  ok "Your office is back (workers pick up where they left off)"
   [[ $NO_OPEN -eq 1 ]] && return
   open_office
 }
@@ -759,9 +759,15 @@ cmd_update() {
     git -C /opt/agent-office reset --hard FETCH_HEAD -q
     echo \"   at \$(git -C /opt/agent-office log -1 --format='%h %s')\"
     cd /opt/agent-office && npm install --no-audit --no-fund --loglevel=error >/dev/null
+    # Offices provisioned before KillMode=process: without it the restart stops every worker too.
+    if [ \"\$(systemctl show --property=KillMode --value agent-office)\" != process ]; then
+      sudo mkdir -p /etc/systemd/system/agent-office.service.d
+      printf '[Service]\nKillMode=process\n' | sudo tee /etc/systemd/system/agent-office.service.d/keep-workers.conf >/dev/null
+      sudo systemctl daemon-reload
+    fi
     sudo systemctl restart agent-office" || die "update failed"
   wait_healthy || die "the office didn't come back — check: deploy/aws.sh logs"
-  ok "Updated and restarted (workers wake up asleep; press R at a desk to resume them)"
+  ok "Updated and restarted (workers carry on through it)"
 }
 
 cmd_reset_password() {

@@ -39,7 +39,7 @@ import { HeldObjectView } from './world/held-object';
 import { GRAB_REACH, type Grabbable } from './vr/grab';
 import { MEETING_PATTERNS, defaultMeetingRequest, reviewMeetingRequest } from '../shared/meetings';
 import { cleanDogName } from '../shared/dog';
-import { isAsleep, isBusy } from '../shared/status';
+import { isAsleep, isBusy, workerPr } from '../shared/status';
 import { Net } from './net';
 import { guardLeaving, leaveTo } from './leave';
 import { store, loadProfile, loadSettings, saveSettings, words, workerForPull, type Profile, type Topic } from './state';
@@ -53,7 +53,7 @@ import { Booze, type Stage as Feeling } from './booze';
 import { djFrame, djTime } from './dnb';
 import { openBar } from './ui/bar';
 import { DRINK_BY_ID, ROOF, ROOF_NAME, type Drink, type DrinkId } from '../shared/rooftop';
-import { Person, Worker, type Stage } from './world/character';
+import { Person, type PrBadge, Worker, type Stage } from './world/character';
 import { Hands } from './world/hands';
 import { Smoke } from './world/smoke';
 import { HAZE_MAX, Sky, describeSky } from './world/sky';
@@ -1863,6 +1863,7 @@ function syncWorkers() {
       noOutline(v.model.root);
     }
     v.model.setAction(w.action);
+    v.model.setPr(prBadge(w));
     const engineBadge = w.kind === 'agent' ? modelBadge(w.provider, w.model, w.effort) : undefined;
     v.model.setTask(meetingCard(w) ?? (w.task && w.kind === 'agent' ? { ...w.task, name: engineBadge ? `${engineBadge} · ${w.task.name}` : w.task.name } : w.task));
     const deskDef = DESK_BY_ID.get(w.deskId);
@@ -1932,6 +1933,23 @@ function arrangeSeats() {
 store.on('workers', syncWorkers);
 // A worker at the meeting table shows its role and round over its head (see meetingCard).
 store.on('meeting', syncWorkers);
+
+/** A worker's pull request for its bubble, named the way this floor's forge names it ("🎉 MR !12 merged"). */
+function prBadge(w: WorkerInfo): PrBadge | undefined {
+  const pr = workerPr(w, store.pulls.items, store.queue.tasks);
+  if (!pr) return undefined;
+  const { pr: kind, ref } = words();
+  return { state: pr.state, label: `${pr.state === 'open' ? '🔀' : '🎉'} ${kind} ${ref(pr.number)} ${pr.state}` };
+}
+// A worker's bubble shows whether it has a pull request open (green) or merged (purple: send it home).
+const paintPrs = () => {
+  for (const [id, v] of workerViews) {
+    const w = store.workers.get(id);
+    if (w) v.model.setPr(prBadge(w));
+  }
+};
+store.on('pulls', paintPrs);
+store.on('queue', paintPrs);
 store.on('workers', renderUsage);
 
 /**

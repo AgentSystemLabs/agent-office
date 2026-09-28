@@ -415,7 +415,7 @@ export class GitHub implements Board {
     this.onPulls(this.pulls);
     const asked = Date.now();
     try {
-      const fields = 'number,title,state,isDraft,url,author,labels,reviewDecision,headRefName,baseRefName,createdAt,updatedAt,additions,deletions,statusCheckRollup,body,closingIssuesReferences';
+      const fields = 'number,title,state,isDraft,url,author,labels,reviewDecision,headRefName,headRefOid,baseRefName,createdAt,updatedAt,additions,deletions,statusCheckRollup,body,closingIssuesReferences';
       const [open, merged, closed] = await Promise.all([
         gh(['pr', 'list', '--state', 'open', '--limit', '150', '--json', fields], this.dir),
         gh(['pr', 'list', '--state', 'merged', '--limit', '30', '--json', fields], this.dir),
@@ -434,6 +434,7 @@ export class GitHub implements Board {
         labels: labels(p.labels),
         reviewDecision: p.reviewDecision ?? '',
         headRefName: p.headRefName,
+        headRefOid: typeof p.headRefOid === 'string' ? p.headRefOid : undefined,
         baseRefName: p.baseRefName,
         createdAt: p.createdAt,
         updatedAt: p.updatedAt,

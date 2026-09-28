@@ -69,7 +69,7 @@ const PROJECT_Q = `project(fullPath: $path)`;
 
 const ISSUE_FIELDS = 'iid title state webUrl createdAt updatedAt description userNotesCount author { username } labels { nodes { title color } } assignees { nodes { username } }';
 const MR_FIELDS =
-  'iid title state draft webUrl createdAt updatedAt description sourceBranch targetBranch author { username } labels { nodes { title color } } approvedBy { nodes { username } } approvalsLeft reviewers { nodes { mergeRequestInteraction { reviewState } } } diffStatsSummary { additions deletions } headPipeline { status }';
+  'iid title state draft webUrl createdAt updatedAt description sourceBranch targetBranch diffHeadSha author { username } labels { nodes { title color } } approvedBy { nodes { username } } approvalsLeft reviewers { nodes { mergeRequestInteraction { reviewState } } } diffStatsSummary { additions deletions } headPipeline { status }';
 
 type Node = Record<string, any>;
 
@@ -580,6 +580,7 @@ export class GitLab implements Board {
           labels: labelsOf(p.labels),
           reviewDecision: reviewDecision(p),
           headRefName: p.sourceBranch,
+          headRefOid: typeof p.diffHeadSha === 'string' ? p.diffHeadSha : undefined,
           baseRefName: p.targetBranch,
           createdAt: p.createdAt,
           updatedAt: p.updatedAt,
