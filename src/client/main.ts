@@ -329,7 +329,6 @@ const notifier = new DesktopNotifier(() => settings.notify, (id) => openWorkerTe
 // Everyone's balls, in the air or lying where they stopped.
 const balls = new GolfBalls();
 scene.add(balls.group);
-noOutline(balls.group);
 /** Your closest shot to the pin so far (meters) and how many you've holed in one, kept in this browser. */
 const GOLF_KEY = 'agent-office.golf';
 function golfRecord(): { best: number | null; holes: number } {

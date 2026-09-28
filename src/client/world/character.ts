@@ -799,7 +799,9 @@ export class Person {
   setGolf(on: boolean) {
     if (on === !!this.golf) return;
     if (!on) {
-      this.body.remove(this.golf!.swing);
+      const { swing } = this.golf!;
+      this.body.remove(swing);
+      swing.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
       this.golf = null;
       // The swing turned the arms and legs every which way; standing, they only swing back and forth.
       for (const limb of [this.armL, this.armR, this.legL, this.legR]) limb.rotation.set(0, 0, 0);

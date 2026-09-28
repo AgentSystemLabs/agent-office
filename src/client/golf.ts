@@ -20,6 +20,8 @@ export const LOFT_START = THREE.MathUtils.degToRad(42);
 /** How far off line (radians) and off the power meter (a fraction of it) a shot can come off the club, either way in all. */
 const MISHIT_AIM = THREE.MathUtils.degToRad(1.4);
 const MISHIT_POWER = 0.025;
+/** The office takes one shot from you at a time, this far apart (in ms): no swinging again before then. */
+const BETWEEN_SHOTS = 1000;
 /** Let go with the meter under this and it's a practice swing: nothing happens. */
 const MIN_POWER = 0.03;
 /** How long the camera stays over a ball that's stopped, before going back to the tee. */
@@ -71,6 +73,8 @@ export class Golfer {
   /** The shot on its way down through the ball, and how far into the downswing that is. */
   private shot: Shot | null = null;
   private swingT = 0;
+  /** When the last one was hit (performance.now()). */
+  private hitAt = -Infinity;
   /** The camera's own place and turn, while it's the golf camera. */
   private camPos = new THREE.Vector3();
   private camQuat = new THREE.Quaternion();
@@ -165,6 +169,7 @@ export class Golfer {
     if (this.stage === 'swing') {
       this.swingT += dt;
       if (this.swingT >= IMPACT && this.shot) {
+        this.hitAt = performance.now();
         this.hooks.hit(this.shot);
         this.shot = null;
         this.stage = 'watch';
@@ -191,6 +196,7 @@ export class Golfer {
     if (!this.stage || e.code !== 'Space') return;
     if (down && (e.repeat || isTyping(e) || modalOpen() || e.metaKey || e.ctrlKey || e.altKey)) return;
     if (down && this.stage === 'aim') {
+      if (performance.now() - this.hitAt < BETWEEN_SHOTS) return;
       this.stage = 'charge';
       this.chargeAt = performance.now();
     } else if (down && this.stage === 'watch') this.backToTee();
