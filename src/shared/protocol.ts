@@ -222,6 +222,8 @@ export interface PeerInfo {
   sharing: boolean;
   /** On a smoke break, cigarette in hand. */
   smoking?: boolean;
+  /** At the golf tee on the balcony, club in hand. */
+  golfing?: boolean;
   /** Sitting down: the place they're in (see seatAt in layout), like "couch:1". */
   seat?: string;
   /** An issue card they took off the issues board, on its way to a desk or the queue. */
@@ -906,10 +908,15 @@ export type ClientMsg =
   | { t: 'move'; x: number; y: number; z: number; rotY: number; moving: boolean }
   /**
    * You reached out to use something; everyone else sees your character's arm do it. With `smoke`,
-   * you lit a cigarette (or put it out) on the balcony instead; with `drink`, you took a drink from
-   * the rooftop bar (or finished it, null).
+   * you lit a cigarette (or put it out) on the balcony instead; with `golf`, you took a club out at
+   * the tee (or put it back); with `drink`, you took a drink from the rooftop bar (or finished it, null).
    */
-  | { t: 'act'; smoke?: boolean; drink?: DrinkId | null }
+  | { t: 'act'; smoke?: boolean; golf?: boolean; drink?: DrinkId | null }
+  /**
+   * You hit a golf ball off the tee: its heading (0 is south, toward +x from there), loft (radians)
+   * and power (0–1). Everyone on your floor works out where it goes the same way (world/golf.ts fly).
+   */
+  | { t: 'golf'; yaw: number; loft: number; power: number }
   /** You sat down in a place on a couch, a beanbag, a chair or the bench (see seatAt in layout), or got up again (no seat). */
   | { t: 'sit'; seat?: string }
   /** You picked an issue card up off the board (or put it down again, no issue): everyone sees it in your hands. */
@@ -1088,7 +1095,9 @@ export type ServerMsg =
   | { t: 'peer.update'; peer: PeerInfo }
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }
   | { t: 'peer.leave'; id: string }
-  | { t: 'peer.act'; id: string; smoke?: boolean; drink?: DrinkId | null }
+  | { t: 'peer.act'; id: string; smoke?: boolean; golf?: boolean; drink?: DrinkId | null }
+  /** Someone on your floor hit a golf ball off the tee (see the client's 'golf'). */
+  | { t: 'golf'; id: string; yaw: number; loft: number; power: number }
   | { t: 'peer.emote'; id: string; emote: EmoteId }
   | { t: 'worker.update'; worker: WorkerInfo }
   | { t: 'worker.remove'; workerId: string }

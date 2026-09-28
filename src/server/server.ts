@@ -75,6 +75,8 @@ interface Client {
   lastMoveAt: number;
   lastActAt: number;
   lastGongAt: number;
+  /** When they last hit a golf ball off the balcony. */
+  lastGolfAt: number;
   /** When they last blew the DJ's air horn on the roof. */
   lastHornAt: number;
   emotes: EmoteBucket;
@@ -858,6 +860,7 @@ export async function startServer(cfg: Config) {
       lastMoveAt: 0,
       lastActAt: 0,
       lastGongAt: 0,
+      lastGolfAt: 0,
       lastHornAt: 0,
       // A little more lenient than the page's own, so emotes it let through aren't dropped for arriving bunched up.
       emotes: new EmoteBucket(EMOTE_EVERY * 0.8),
@@ -1036,6 +1039,7 @@ export async function startServer(cfg: Config) {
     const spot = at ?? { ...elevatorSpot(), y: 0, rotY: 0 };
     Object.assign(c.peer, { x: spot.x, y: spot.y, z: spot.z, rotY: spot.rotY, moving: false });
     delete c.peer.seat;
+    delete c.peer.golfing;
     // An issue card belongs to the board it came off, which is on the floor they left; a drink stays at the bar.
     delete c.peer.carrying;
     delete c.peer.drink;
@@ -1097,10 +1101,27 @@ export async function startServer(cfg: Config) {
           broadcast({ t: 'peer.act', id: c.id, smoke: msg.smoke }, c.id, true);
           break;
         }
+        if (typeof msg.golf === 'boolean') {
+          // The tee's on an office floor's balcony; there's none up on the roof.
+          const golf = msg.golf && c.peer.floor !== ROOF;
+          if (golf === !!c.peer.golfing) break;
+          if (golf) c.peer.golfing = true;
+          else delete c.peer.golfing;
+          broadcast({ t: 'peer.act', id: c.id, golf }, c.id, true);
+          break;
+        }
         const now = Date.now();
         if (now - c.lastActAt < 100) break;
         c.lastActAt = now;
         toNeighbors(c, { t: 'peer.act', id: c.id }, true);
+        break;
+      }
+      case 'golf': {
+        const now = Date.now();
+        const [yaw, loft, power] = [num(msg.yaw), num(msg.loft), num(msg.power)];
+        if (!c.peer.golfing || now - c.lastGolfAt < 800 || Math.abs(yaw) > 2 || loft < 0 || loft > 1.6 || power < 0 || power > 1) break;
+        c.lastGolfAt = now;
+        toNeighbors(c, { t: 'golf', id: c.id, yaw, loft, power });
         break;
       }
       case 'emote':
