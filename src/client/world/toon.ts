@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { SANS } from '../fonts';
+import { FACTORY_GLYPH_PATH, FACTORY_GLYPH_VIEWBOX } from './glyph';
 
 let gradient: THREE.DataTexture | null = null;
 
@@ -147,6 +148,55 @@ const CARD_RES = 2;
 const INK = '#2b2d42';
 const FONT = SANS;
 
+/** Stands in for the Factory pinwheel inside card text; a private-use character no real text contains. */
+const GLYPH = '\uE000';
+/** The pinwheel's advance and drawn size, as fractions of the font size. */
+const GLYPH_ADVANCE = 1;
+const GLYPH_SIZE = 0.9;
+
+let glyphPath: Path2D | null = null;
+
+/** Card text with every "DroidProxy" (any case, and a colon right after it) swapped for the pinwheel. */
+export function withGlyph(text: string): string {
+  return text.replace(/droidproxy:?/gi, GLYPH);
+}
+
+/** How wide `text` draws in the current font, with each pinwheel taking `GLYPH_ADVANCE` of `px`. */
+function measure(ctx: CanvasRenderingContext2D, text: string, px: number): number {
+  const parts = text.split(GLYPH);
+  return parts.reduce((w, p) => w + (p ? ctx.measureText(p).width : 0), 0) + (parts.length - 1) * px * GLYPH_ADVANCE;
+}
+
+/** Draws one line centered on `cx`, text in the current font and fill, the pinwheel in the same fill. */
+function fillLine(ctx: CanvasRenderingContext2D, line: string, cx: number, y: number, px: number) {
+  if (!line.includes(GLYPH)) {
+    ctx.fillText(line, cx, y);
+    return;
+  }
+  glyphPath ??= new Path2D(FACTORY_GLYPH_PATH);
+  const [vx, vy, vw, vh] = FACTORY_GLYPH_VIEWBOX;
+  const size = px * GLYPH_SIZE;
+  const scale = size / Math.max(vw, vh);
+  let x = cx - measure(ctx, line, px) / 2;
+  ctx.textAlign = 'left';
+  line.split(GLYPH).forEach((part, i) => {
+    if (i > 0) {
+      ctx.save();
+      ctx.translate(x + (px * GLYPH_ADVANCE - vw * scale) / 2, y - (vh * scale) / 2);
+      ctx.scale(scale, scale);
+      ctx.translate(-vx, -vy);
+      ctx.fill(glyphPath!, 'evenodd');
+      ctx.restore();
+      x += px * GLYPH_ADVANCE;
+    }
+    if (part) {
+      ctx.fillText(part, x, y);
+      x += ctx.measureText(part).width;
+    }
+  });
+  ctx.textAlign = 'center';
+}
+
 /**
  * A speech-bubble card: status pill, bold title (up to 2 lines) and a smaller body (up to 3), with a
  * tail pointing down. Its position is the tip of the tail, so it sits right on top of what it's about.
@@ -159,18 +209,20 @@ export function cardSprite(o: CardOpts): THREE.Sprite {
   const tail = 14 * R;
   const chipFont = `800 ${19 * R}px ${FONT}`;
   const chipH = 30 * R;
-  const titleFont = `800 ${30 * R}px ${FONT}`;
+  const titlePx = 30 * R;
+  const titleFont = `800 ${titlePx}px ${FONT}`;
   const titleLH = 36 * R;
-  const bodyFont = `700 ${23 * R}px ${FONT}`;
+  const bodyPx = 23 * R;
+  const bodyFont = `700 ${bodyPx}px ${FONT}`;
   const bodyLH = 29 * R;
 
   const ctx = document.createElement('canvas').getContext('2d')!;
   ctx.font = titleFont;
-  const title = wrap(ctx, o.title, maxW, 2);
-  const titleW = Math.max(...title.map((l) => ctx.measureText(l).width));
+  const title = wrap(ctx, withGlyph(o.title), maxW, 2, titlePx);
+  const titleW = Math.max(...title.map((l) => measure(ctx, l, titlePx)));
   ctx.font = bodyFont;
-  const body = o.body ? wrap(ctx, o.body, maxW, 3) : [];
-  const bodyW = body.length ? Math.max(...body.map((l) => ctx.measureText(l).width)) : 0;
+  const body = o.body ? wrap(ctx, withGlyph(o.body), maxW, 3, bodyPx) : [];
+  const bodyW = body.length ? Math.max(...body.map((l) => measure(ctx, l, bodyPx))) : 0;
   ctx.font = chipFont;
   const chipW = o.chip ? ctx.measureText(o.chip.text).width + 24 * R : 0;
 
@@ -221,10 +273,10 @@ export function cardSprite(o: CardOpts): THREE.Sprite {
   }
   ctx.font = titleFont;
   ctx.fillStyle = INK;
-  title.forEach((l, i) => ctx.fillText(l, cx, titleY + (i + 0.5) * titleLH));
+  title.forEach((l, i) => fillLine(ctx, l, cx, titleY + (i + 0.5) * titleLH, titlePx));
   ctx.font = bodyFont;
   ctx.fillStyle = '#5c5f77';
-  body.forEach((l, i) => ctx.fillText(l, cx, bodyY + (i + 0.5) * bodyLH));
+  body.forEach((l, i) => fillLine(ctx, l, cx, bodyY + (i + 0.5) * bodyLH, bodyPx));
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -237,8 +289,8 @@ export function cardSprite(o: CardOpts): THREE.Sprite {
 }
 
 /** Greedy word wrap to at most `maxLines`, ending in "…" when the text doesn't fit. */
-function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number, maxLines: number): string[] {
-  const fits = (s: string) => ctx.measureText(s).width <= maxW;
+function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number, maxLines: number, px: number): string[] {
+  const fits = (s: string) => measure(ctx, s, px) <= maxW;
   const lines: string[] = [];
   let line = '';
   for (let word of text.split(/\s+/).filter(Boolean)) {
