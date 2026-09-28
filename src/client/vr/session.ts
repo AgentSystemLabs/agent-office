@@ -541,6 +541,9 @@ export class VRSession {
       st.targetRay.getWorldPosition(origin);
       st.targetRay.getWorldDirection(dir);
       this.raycaster.set(origin, dir);
+      // Sprites (name tags, chat bubbles) need a camera on the raycaster; setFromCamera does
+      // this on desktop, but the VR path builds rays by hand. Without it every frame logs.
+      this.raycaster.camera = this.camera;
       // World-space UI panels eat the ray first; the world only sees rays no panel took.
       if (this.ui) {
         const pressed = buttonDown(this.gamepad(i), XR_BUTTON.TRIGGER) || st.pinchHeld;
