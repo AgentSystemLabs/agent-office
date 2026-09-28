@@ -246,6 +246,8 @@ export interface PeerInfo {
   floor?: string;
   /** What they have open, in their own words: "in Pixel's terminal", "reading PR #12". */
   doing?: string;
+  /** Reading something off the bookshelf: an open book in their hands, its pages turning. */
+  reading?: boolean;
 }
 
 /** A styled run of text on a terminal row: [text, fg, bg, flags]. */
@@ -998,8 +1000,8 @@ export type ClientMsg =
   /** You're typing into that terminal (a keystroke or a paste, not the terminal answering itself); sent about once a second. */
   | { t: 'term.typing'; workerId: string }
   | { t: 'term.resize'; workerId: string; cols: number; rows: number }
-  /** What you have open now (see PeerInfo.doing); none when you're back in the office. */
-  | { t: 'doing'; what?: string }
+  /** What you have open now (see PeerInfo.doing and PeerInfo.reading); none when you're back in the office. */
+  | { t: 'doing'; what?: string; reading?: boolean }
   | { t: 'gh.refresh' }
   /** Merge a pull request; the answer comes back as gh.merged. */
   | { t: 'gh.merge'; number: number; method: GhMergeMethod; deleteBranch: boolean; auto?: boolean }

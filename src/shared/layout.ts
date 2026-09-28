@@ -204,6 +204,13 @@ export const JUKEBOX = { x: FLOOR.maxX - 0.42, y: 0.75, z: 5.4, width: 1.3, dept
 /** The arcade cabinet, against the east wall between the jukebox and the loft, facing into the room. `width` runs along the wall. */
 export const CABINET = { x: FLOOR.maxX - 0.42, z: 7.05, width: 0.8, depth: 0.8, height: 1.9 } as const;
 
+/**
+ * The bookshelf of the project's docs (every Markdown file in it, see shared/docs.ts): against the
+ * south wall between the middle window and the balcony doors, facing into the room (-z). `width`
+ * runs along the wall.
+ */
+export const BOOKSHELF = { x: -6.5, z: FLOOR.maxZ - 0.21, width: 1.7, depth: 0.42, height: 2.3 } as const;
+
 export const SPAWN = { x: 8, z: 7 } as const;
 
 /** The gong: on the north wall just past the elevator from the PR board, facing into the room. It rings when a PR merges. */

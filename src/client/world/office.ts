@@ -5,6 +5,7 @@ import {
   BALCONY_DOOR,
   BEANBAGS,
   BOARDS,
+  BOOKSHELF,
   CABINET,
   DESKS,
   DESK_SIZE,
@@ -50,6 +51,7 @@ import { mergeByMaterial, mesh, roundedBox, textPlane, toon, toonUnique } from '
 import { buildElevator, type Elevator } from './elevator';
 import { buildGong, type Gong } from './gong';
 import { buildJukebox, type JukeboxView } from './jukebox';
+import { buildBookshelf } from './bookshelf';
 import { buildCabinet, type CabinetModel } from './cabinet';
 import { buildWhiteboard, type WhiteboardStand } from './whiteboard';
 import { buildStack, type Stack } from './stack';
@@ -93,7 +95,8 @@ export type InteractKind =
   | 'bar'
   | 'dj'
   /** The refresh button on the machine monitor's DroidProxy limits. */
-  | 'proxy';
+  | 'proxy'
+  | 'bookshelf';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -1252,6 +1255,13 @@ export function buildOffice(): Office {
   colliders.push(cabinet.collider);
   interactables.push(cabinet.interactable);
   fixture('east', CABINET.z, CABINET.height / 2, CABINET.width + 0.1, CABINET.height);
+
+  // The bookshelf of the project's docs, on the south wall between the middle window and the balcony doors.
+  const shelf = buildBookshelf();
+  group.add(shelf.group);
+  colliders.push(shelf.collider);
+  interactables.push(shelf.interactable);
+  fixture('south', BOOKSHELF.x, (BOOKSHELF.height + 0.55) / 2, BOOKSHELF.width + 0.2, BOOKSHELF.height + 0.55);
 
   // Kitchen corner: counter + coffee machine + fridge
   const kitchen = new THREE.Group();
