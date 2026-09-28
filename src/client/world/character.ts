@@ -3,7 +3,7 @@ import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES, type Look } from '../../shared/av
 import { EMOTE_BY_ID, type Emote, type EmoteId } from '../../shared/emotes';
 import type { CarriedIssue, Theme, WorkerAction, WorkerStatus, WorkerTask } from '../../shared/protocol';
 import type { Drink } from '../../shared/rooftop';
-import { isAsleep } from '../../shared/status';
+import { isAsleep, type WorkerPr } from '../../shared/status';
 import { HIPS } from '../player';
 import { OpenBook } from './book';
 import { HeldCard } from './card';
@@ -1061,12 +1061,6 @@ const TASK_CHIP: Record<string, [string, string, string]> = {
   exited: ['💤 ASLEEP', STATUS_BULB.exited, '#ffffff'],
   offline: ['💤 ASLEEP', STATUS_BULB.offline, '#ffffff'],
 };
-
-/** A worker's pull request: still open, or merged (time to send it home). */
-export interface WorkerPr {
-  state: 'open' | 'merged';
-  number: number;
-}
 
 /** The outline of a worker's bubble, and its pill, once it has a pull request: GitHub's open green, or the PR board's merged purple. */
 const PR_INK: Record<WorkerPr['state'], string> = { open: '#2da44e', merged: '#9d4edd' };

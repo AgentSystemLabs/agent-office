@@ -25,6 +25,7 @@ import { Floor, type FloorContext } from './floor.js';
 import { Sky } from './sky.js';
 import { Themes } from './theme.js';
 import { OfficePrompts } from './prompts.js';
+import { LeaveOnMerge } from './leave-on-merge.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
@@ -358,6 +359,8 @@ export async function startServer(cfg: Config) {
   // The prompts the office writes for workers by itself, and the worker everyone starts on (⚙️ Settings).
   const configured = configuredProvider(cfg.agentCmd);
   const prompts = new OfficePrompts(cfg.dataDir, { list: agentProviders(configured), configured }, (state) => broadcast({ t: 'prompts', state }));
+  // Whether a worker whose pull request merged goes home by itself, on every floor (⚙️ Settings).
+  const leaveOnMerge = new LeaveOnMerge(cfg.dataDir, (state) => broadcast({ t: 'leaveOnMerge', state }));
 
   // What the workers spend, all time and today, with the optional daily budget.
   const ledger = new Ledger(
@@ -445,6 +448,7 @@ export async function startServer(cfg: Config) {
       return n;
     },
     peers: (floor) => [...clients.values()].filter((c) => c.peer.floor === floor.id).map((c) => c.peer),
+    leaveOnMerge: () => leaveOnMerge.on,
   };
   const openFloor = (def: FloorDef): Floor | undefined => {
     if (!existsSync(def.dir)) {
@@ -946,6 +950,7 @@ export async function startServer(cfg: Config) {
       sky: sky.state,
       theme: themes.state(),
       prompts: prompts.state(),
+      leaveOnMerge: leaveOnMerge.state(),
       ...(onRoof ? roofView() : floorView(floor)),
     });
     screensOf(client, floor);
@@ -1621,6 +1626,15 @@ export async function startServer(cfg: Config) {
         const err = prompts.setAgent(choice, who);
         if (err) return warn(c, err);
         toastAll(choice ? `🤖 ${who} set the office’s default worker` : `🤖 ${who} put the office’s default worker back to ${path.basename(cfg.agentCmd)}`);
+        break;
+      }
+      case 'leaveOnMerge.set': {
+        const on = msg.on === true;
+        if (on === leaveOnMerge.on) break;
+        leaveOnMerge.set(on, who);
+        toastAll(on ? `🏠 ${who} set workers to go home by themselves once their pull request merges` : `🪑 ${who} set workers whose pull request merged to stay until they're sent home`);
+        // The ones already merged go now.
+        if (on) for (const f of floors.values()) f.sendLandedHome();
         break;
       }
       case 'machine.limit': {

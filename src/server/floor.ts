@@ -19,6 +19,7 @@ import { Jukebox } from './jukebox.js';
 import { Whiteboard } from './whiteboard.js';
 import { MeetingRoom } from './meetings.js';
 import { Worktrees } from './worktrees.js';
+import { landedWorkers } from './leave-on-merge.js';
 import type { Ledger } from './usage.js';
 import type { Capacity } from './machine.js';
 import { officePrompt, type PromptSource } from './prompts.js';
@@ -49,8 +50,12 @@ export interface FloorContext {
   people(floor: Floor): number;
   /** Who's on this floor, and where they stand. */
   peers(floor: Floor): PeerInfo[];
+  /** ⚙️ Settings: a worker whose pull request merged goes home by itself. */
+  leaveOnMerge(): boolean;
 }
 
+/** How long after a PR list or a worker's change the office looks for workers whose PR merged. */
+const LANDED_DELAY_MS = 1500;
 /** Boards on a floor nobody is on, with nothing running, are asked GitHub about this seldom. */
 const IDLE_REFRESH_MS = 10 * 60_000;
 const REFRESH_MS = 90_000;
@@ -103,6 +108,8 @@ export class Floor {
   private timer: NodeJS.Timeout;
   /** Pull requests merging, to ring the gong for. */
   private merges = new MergeWatch();
+  /** A look for workers whose pull request merged, due shortly (see sendLandedHome). */
+  private landedTimer?: NodeJS.Timeout;
 
   constructor(
     readonly def: FloorDef,
@@ -137,6 +144,8 @@ export class Floor {
           this.meetings?.onWorker(worker);
           this.dog.onWorker(worker);
           ctx.workerChanged(this, worker);
+          // Its turn ended, or whoever had its terminal open closed it: it may be free to go now.
+          this.sendLandedHome();
         },
         remove: (workerId) => {
           this.changes?.forget(workerId);
@@ -166,11 +175,16 @@ export class Floor {
           ctx.toast(this, `🎉 PR #${p.number} merged: ${p.title}`);
           this.merged(p.number);
         }
+        this.sendLandedHome();
       },
     );
     // The 📋 task queue seats workers by itself: it watches the workers and links PRs from GitHub.
     this.queue = new TaskQueue(dataDir, this.workers, !!this.project.branch, {
-      update: (state) => ctx.emit(this, { t: 'queue', state }),
+      update: (state) => {
+        ctx.emit(this, { t: 'queue', state });
+        // A task's pull request may just have been linked (or merged).
+        this.sendLandedHome();
+      },
       toast: (text, level) => ctx.toast(this, text, level),
       claimIssue: (issue) => this.github.claim(issue),
       refreshGitHub: () => void this.github.refresh(),
@@ -246,6 +260,28 @@ export class Floor {
     if (this.merges.ring(n)) this.ctx.emit(this, { t: 'gong', why: 'merged', pr: n, by });
   }
 
+  /**
+   * With ⚙️ Settings' *go home once merged* on, sends home every worker whose pull request merged,
+   * once it's at rest and nobody has its terminal open, deleting its worktree and branch unless they
+   * hold work that isn't on GitHub. Called whenever that might have changed; it looks a moment later,
+   * once for a burst of calls, and not from inside the event that prompted it.
+   */
+  sendLandedHome() {
+    if (this.landedTimer || !this.ctx.leaveOnMerge()) return;
+    this.landedTimer = setTimeout(() => {
+      this.landedTimer = undefined;
+      if (!this.ctx.leaveOnMerge()) return;
+      for (const { worker, pr, head } of landedWorkers(this.workers.list(), this.github.pulls.items, this.queue.state().tasks)) {
+        const done = this.workers.kill(worker.id, undefined, head);
+        this.ctx.toast(this, `🏠 ${worker.name} went home: PR #${pr} merged`);
+        void done.then(({ note, error }) => {
+          if (note) this.ctx.toast(this, note);
+          if (error) this.ctx.toast(this, error, 'warn');
+        });
+      }
+    }, LANDED_DELAY_MS);
+  }
+
   /** Someone just walked in: boards that haven't been looked at in a while get fetched again. */
   arrived() {
     if (Date.now() - Math.max(this.github.issues.fetchedAt, this.github.pulls.fetchedAt) > REFRESH_MS) void this.github.refresh();
@@ -275,6 +311,7 @@ export class Floor {
   /** With `keep` (a restart), the workers' terminals keep running for the next office to pick up. */
   shutdown(keep = false) {
     clearInterval(this.timer);
+    clearTimeout(this.landedTimer);
     this.dog.stop();
     this.github.stop();
     this.queue.shutdown();
