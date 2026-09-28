@@ -29,27 +29,6 @@ function labels(raw: any[]): GhLabel[] {
   return (raw ?? []).map((l) => ({ name: String(l.name), color: `#${l.color ?? '888888'}` }));
 }
 
-/**
- * How urgent an issue's labels say it is, 0 (critical) to 3 (low); 4 when it has no priority label.
- * Reads "priority: high", "priority/low", "P1", "critical" and the like.
- */
-export function priorityRank(labels: { name: string }[]): number {
-  let best = 4;
-  for (const { name } of labels) {
-    const n = name.toLowerCase().trim();
-    const p = /^p([0-3])$/.exec(n) ?? /^priority\W*p?([0-3])$/.exec(n);
-    let rank = p ? Number(p[1]) : 4;
-    if (!p && (n.includes('priority') || /^(critical|urgent|blocker)$/.test(n))) {
-      if (/critical|urgent|blocker|highest/.test(n)) rank = 0;
-      else if (/high/.test(n)) rank = 1;
-      else if (/medium|\bmed\b|normal|moderate/.test(n)) rank = 2;
-      else if (/low|minor/.test(n)) rank = 3;
-    }
-    best = Math.min(best, rank);
-  }
-  return best;
-}
-
 function checksOf(rollup: any[]): GhPull['checks'] {
   if (!rollup?.length) return 'none';
   let pending = false;
@@ -335,7 +314,7 @@ export class GitHub {
     const at = Date.now();
     this.relabeled.set(`${kind}:${n}`, { labels: now, at });
     if (kind === 'issue') {
-      this.issues = { ...this.issues, items: this.relabel('issue', this.issues.items, at).sort((a, b) => priorityRank(a.labels) - priorityRank(b.labels)) };
+      this.issues = { ...this.issues, items: this.relabel('issue', this.issues.items, at) };
       this.onIssues(this.issues);
       void this.refreshIssues();
     } else {
@@ -400,9 +379,6 @@ export class GitHub {
         comments: Array.isArray(i.comments) ? i.comments.length : Number(i.comments ?? 0),
       }));
       const items = this.relabel('issue', fetched, asked);
-      // Highest priority first, so the board (and the notes that fit on the wall) lead with it.
-      // The sort is stable: within a priority, gh's newest-first order stays.
-      items.sort((a, b) => priorityRank(a.labels) - priorityRank(b.labels));
       this.issues = { items, fetchedAt: Date.now(), loading: false };
     } catch (err) {
       this.issues = { ...this.issues, loading: false, error: (err as Error).message, fetchedAt: Date.now() };
