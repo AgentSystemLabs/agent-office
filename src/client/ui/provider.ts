@@ -165,6 +165,21 @@ function preferredDroidEffort(key: string): AgentEffort | undefined {
  */
 export function rememberedChoice(project: ProjectInfo | null, key: string): { provider: AgentProvider; model?: string; effort?: AgentEffort } {
   const provider = preferredProvider(supportedProviders(project), resolvedProvider(project?.defaultProvider, project));
+  return choiceForProvider(project, key, provider);
+}
+
+/** Remembers a provider picked without the picker (the VR hire prompt's engine cycler). */
+export function rememberProvider(provider: AgentProvider): void {
+  try {
+    localStorage.setItem(PROVIDER_KEY, provider);
+  } catch {
+    // storage blocked
+  }
+}
+
+/** The remembered model/effort for `provider` at `key` (each desk keeps its own Claude/Droid choice). Falls back to the project's default when `provider` isn't offered. */
+export function choiceForProvider(project: ProjectInfo | null, key: string, provider: AgentProvider): { provider: AgentProvider; model?: string; effort?: AgentEffort } {
+  if (!supportedProviders(project).includes(provider)) provider = supportedProviders(project)[0];
   if (provider === 'claude') return { provider, model: preferredClaudeModel(key), effort: preferredEffort(key) };
   if (provider === 'droid') return { provider, model: preferredDroidModel(key), effort: preferredDroidEffort(key) };
   return { provider };

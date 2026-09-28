@@ -20,7 +20,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { XRControllerModelFactory } from 'three/examples/jsm/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from 'three/examples/jsm/webxr/XRHandModelFactory.js';
-import { STEP } from '../player';
+import { GRAVITY, STEP } from '../player';
 import type { PlayerController } from '../player';
 import type { Settings } from '../state';
 import type { Collider, InteractKind, Interactable } from '../world/office';
@@ -129,8 +129,8 @@ export class PinchHold {
 export interface VRHooks {
   player: PlayerController;
   settings: Settings;
-  /** E on an Interactable: the same `use()` the keyboard calls. Never forked. */
-  useE: (it: Interactable, note: GhIssue | null) => void;
+  /** E on an Interactable: the same `use()` the keyboard calls. Never forked. Null aims at nothing, like the desktop key with no target. */
+  useE: (it: Interactable | null, note: GhIssue | null) => void;
   /** The shared ray picker (office, gallery, dog, or the roof's): ray in, Interactable out. */
   pickFromRay: (ray: THREE.Raycaster, slack: number) => { it: Interactable; near: boolean; hit: THREE.Intersection } | null;
   /** The issue note under an aim on the issues board, if any. */
@@ -661,6 +661,15 @@ export class VRSession {
     // resolves there is nothing left to click here; the world hover is what E is for.
     if (st.uiConsumed) return;
     const hover = st.hover;
+    // On the ladder or a pole, E lets go (and only that): the rungs are in your hands rather
+    // than under the ray, so it fires with nothing in reach — like the desktop key, anywhere
+    // but on a panel.
+    if (this.hooks.player.rig) {
+      this.hooks.reachAnim();
+      this.hooks.useE(hover?.it ?? null, hover ? this.hooks.noteUnder(hover) : null);
+      this.pulse(i, 0.4, 25);
+      return;
+    }
     if (!hover?.near) return;
     this.hooks.reachAnim();
     this.hooks.useE(hover.it, this.hooks.noteUnder(hover));
@@ -706,6 +715,8 @@ export class VRSession {
       player.rig!(dt);
     } else {
       player.climbInput = 0;
+      // Whatever left the avatar airborne (the ladder's drop): fall, like desktop.
+      if (!player.seat) this.applyGravity(dt);
     }
     if (player.seat && !rigged && (this.glideIntent() || this.rays.some((r) => r.teleportHeld) || this.stickAiming)) player.stand();
     this.dolly.updateMatrixWorld(true);
@@ -1071,8 +1082,6 @@ export class VRSession {
     if (_e.length() > 1e-4) {
       // Desktop code moved the player: carry the rig along, head unmoved.
       this.origin.add(_e);
-      this.origin.y = player.pos.y;
-      this.dolly.position.copy(this.origin);
     } else if (!player.seat && !player.rig) {
       // Room-scale: walk the avatar under the head through the usual collision. (Seated, and on
       // the ladder or a pole, the avatar stays where it was put; the rig still rebases below.)
@@ -1084,6 +1093,10 @@ export class VRSession {
         this.snapGround();
       }
     }
+    // The rig stands at the avatar's height, every frame — not only when the XZ carry fires:
+    // climbs and falls move in Y alone (the carry goes quiet once the ladder's rungs center
+    // you), and a stale frame would strand the head while the avatar climbs on.
+    this.origin.y = player.pos.y;
     this.dolly.position.copy(this.origin);
     this.dolly.rotation.y = this.yaw;
     this.lastAvatar.copy(player.pos);
@@ -1099,6 +1112,32 @@ export class VRSession {
     if (!Number.isFinite(g)) return;
     if (g > player.pos.y) player.pos.y = g;
     else if (player.pos.y - g <= STEP + 0.02) player.pos.y = g;
+  }
+
+  /**
+   * Falling in VR (the desktop update that owns gravity never runs while presenting): the
+   * ladder's drop is the usual way up, and without this the avatar would float where E let go
+   * of the rungs. The same constants as player.update, minus the jump.
+   */
+  private applyGravity(dt: number): void {
+    const { player } = this.hooks;
+    // Never below the street: past the edge of the grass there's nothing else to stand on.
+    const g = Math.max(player.groundBelow(player.pos.x, player.pos.z, player.pos.y), player.street);
+    if (!Number.isFinite(g)) return;
+    if (player.grounded && player.pos.y > g && player.pos.y - g <= STEP + 0.02) {
+      // Walking down a stair: stay on your feet rather than falling a step.
+      player.stepOffset += player.pos.y - g;
+      player.pos.y = g;
+    }
+    player.vy -= GRAVITY * dt;
+    player.pos.y += player.vy * dt;
+    if (player.pos.y <= g) {
+      player.pos.y = g;
+      player.vy = 0;
+      player.grounded = true;
+    } else if (player.pos.y > g + 0.02) {
+      player.grounded = false;
+    }
   }
 
   private placeAvatar(at: THREE.Vector3): void {

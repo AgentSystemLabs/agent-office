@@ -58,7 +58,7 @@ import { openSettings } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 import { elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
 import { toggleFloorMenu } from './ui/floormenu';
-import { providerLabel, rememberedChoice, resolvedProvider, modelBadge } from './ui/provider';
+import { providerLabel, rememberedChoice, resolvedProvider, modelBadge, supportedProviders, choiceForProvider, rememberProvider } from './ui/provider';
 import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
 import { renderLimits } from './ui/limits';
 import { MachineTexture, officeFull, pressureNote } from './world/machine';
@@ -334,6 +334,13 @@ const vr = new VRSession(renderer, scene, camera, {
   player,
   settings,
   useE: (it, note) => {
+    // On the ladder, E gets you off it — exactly like the desktop key, before everything else.
+    if (climber.active) {
+      climber.letGo();
+      return;
+    }
+    // Aiming at nothing (the ladder's let-go fires this way too): E lands on nothing, as on desktop.
+    if (!it) return;
     // In VR, modal flows open world-space panels instead of invisible DOM windows. The carried
     // card drops first, exactly as on desktop; what stays physical falls through to use().
     if (vrUi) {
@@ -394,6 +401,7 @@ const vr = new VRSession(renderer, scene, camera, {
       getJukebox: () => store.jukebox,
       onRoof: () => upTop,
       barCutOff: () => booze.cutOff(performance.now() / 1000),
+      getVrSettings: () => settings.vr,
       voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => voice.toggleMute() },
       actions: {
         hire: (deskId) => vrHire(deskId),
@@ -407,6 +415,10 @@ const vr = new VRSession(renderer, scene, camera, {
           if (d) orderDrink(d);
         },
         sendChat: (text) => net.send({ t: 'chat', text }),
+        vrSettings: (patch) => {
+          Object.assign(settings.vr, patch);
+          saveSettings(settings);
+        },
         exitVr: () => void vr.toggle(),
       },
     });
@@ -443,11 +455,22 @@ if (new URLSearchParams(location.search).has('vrtest')) {
       g.getWorldPosition(v);
       return [v.x, v.y, v.z] as [number, number, number];
     },
-    showMenu: (view: 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'assign') => vrUi?.showMenu(view),
+    showMenu: (view: 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'assign' | 'settings') => vrUi?.showMenu(view),
+    // Hides the dash (controls card + menu) so the rays aim at the world, not a panel.
+    hideDash: () => {
+      vrUi?.controls.hide();
+      vrUi?.menu.hide();
+    },
     toast: (text: string) => vrUi?.showToast(text),
     workers: () => [...store.workers.values()].map((w) => ({ id: w.id, name: w.name, desk: w.deskId, status: w.status })),
     openTerminal: (id: string) => vrUi?.openTerminal(id),
     askDemo: () => vrUi?.askText({ title: '✨ Hire at Desk 1', subtitle: 'First task (optional)', placeholder: 'Optional first task…', submitLabel: 'Hire & start', allowEmpty: true, onSubmit: () => {} }),
+    // The real VR hire prompt at a free desk (engine row included), without aiming at it.
+    hireAt: () => {
+      const d = freeDesk();
+      if (d) vrHire(d);
+      return d;
+    },
     // Spawns a shell worker (no agent, no cost) at the nearest free desk, for terminal tests.
     shell: () => {
       const d = freeDesk();
@@ -466,6 +489,22 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     rays: () => vr.debugRays(),
     // Sends test workers home (shells spawned by `shell`).
     kill: (id: string) => net.send({ t: 'worker.kill', workerId: id }),
+    // Grabs the ladder outright (climber-level, skipping the other-floors check), for climb tests.
+    ladder: () => climber.grabLadder(),
+    // The real E-at-ladder path (refuses with a toast when there's nowhere to climb to).
+    ladderE: () => grabLadder(),
+    rigged: () => climber.grip ?? null,
+    // Rides the elevator (the floors menu's path, without aiming at rows).
+    ride: (floorId: string) => ride(floorId),
+    roof: () => ROOF,
+    floors: () => store.floors.map((f) => ({ id: f.id, name: f.name })),
+    floor: () => store.floor,
+    vrSettings: () => ({ ...settings.vr }),
+    // Forces the insecure-origin Enter VR chip (dimmed, with the reason) for UI tests.
+    forceInsecureXR: (on: boolean) => {
+      xrInsecure = on;
+      hud.refresh();
+    },
   };
 }
 const hands = new Hands(store.profile.color, me.skinColor);
@@ -1373,18 +1412,34 @@ function promptAtDesk(deskId: string) {
 }
 
 /** Direct hire from an empty desk, with an optional first prompt and provider choice. */
-/** E at an empty desk in VR: the hire prompt as a world-space panel (the engine and worktree follow the last desktop hire here — there's no picker in the headset). */
+/** E at an empty desk in VR: the hire prompt as a world-space panel. The engine row names the engine (tap it to cycle the project's providers — model and effort follow each provider's last use at this desk, the desktop picker's memory); the worktree follows the last desktop hire. */
 function vrHire(deskId: string) {
   const desk = DESK_BY_ID.get(deskId)!;
   if (officeIsFull() || !vrUi) return;
+  const key = `desk:${deskId}`;
+  const options = supportedProviders(store.project);
+  let provider = rememberedChoice(store.project, key).provider;
+  if (!options.includes(provider)) provider = options[0];
+  const engineLabel = () => {
+    const c = choiceForProvider(store.project, key, provider);
+    const badge = modelBadge(c.provider, c.model, c.effort);
+    return `🤖 ${providerLabel(c.provider, store.project)}${badge ? ` · ${badge}` : ''}${options.length > 1 ? ' · tap to change' : ''}`;
+  };
   vrUi.askText({
     title: `✨ Hire at ${desk.label}`,
-    subtitle: 'First task (optional)',
+    subtitle: `First task (optional) · ${worktreePref() ? 'own worktree' : 'main checkout'}`,
     placeholder: 'Optional first task…',
     submitLabel: 'Hire & start',
     allowEmpty: true,
+    engine: {
+      label: engineLabel,
+      onCycle: () => {
+        provider = options[(options.indexOf(provider) + 1) % options.length];
+        rememberProvider(provider);
+      },
+    },
     onSubmit: (text) => {
-      const c = rememberedChoice(store.project, `desk:${deskId}`);
+      const c = choiceForProvider(store.project, key, provider);
       hire(deskId, text || undefined, worktreePref(), c.provider, c.model, c.effort);
     },
   });
@@ -2828,6 +2883,9 @@ $('project').addEventListener('click', () => {
 // ---- The HUD: a few buttons on the top bar, everything else in the ☰ menu ----------------------------
 const waitingNow = () => waitingInOrder(store.workers.values());
 const noMedia = () => (window.isSecureContext ? undefined : 'Voice and screen sharing need HTTPS or localhost — use a TLS proxy, --self-signed, or an SSH tunnel');
+/** This page came over plain http:// on the LAN: WebXR stays undefined there, so Enter VR shows dimmed with the reason instead of hiding. Set by the probe below. */
+let xrInsecure = false;
+const noXr = () => (xrInsecure ? 'Enter VR needs HTTPS or localhost — reopen this office over https:// (start it with --self-signed), or pair the native app instead' : undefined);
 const hud = mountHud(
   [
     { id: 'issues', icon: '📌', label: 'Issues', section: 'Open', count: () => store.issues.items.filter((i) => i.state === 'OPEN').length, run: () => openBoard('issues', net, boardActions()) },
@@ -2858,8 +2916,10 @@ const hud = mountHud(
     // Up on the top bar, so a headset can be paired without digging through the menu.
     { id: 'vr', icon: '🥽', label: 'Pair a VR headset', section: 'Together', status: () => true, title: () => 'Show a QR code for a VR headset to pair with this office', run: openVrPair },
     // Up on the top bar next to it — but only where this browser can do immersive VR. Elsewhere
-    // (desktop Chrome without XR) the probe says no and the bar stays exactly as it was.
-    { id: 'entervr', icon: () => (vr.active ? '⏻' : '🕶️'), label: () => (vr.active ? 'Exit VR' : 'Enter VR'), section: 'Together', shown: () => vr.available, status: () => vr.available, chip: () => (vr.active ? 'In VR' : 'Enter VR'), on: () => vr.active, title: () => (vr.active ? 'Leave the immersive session' : 'Enter the office in VR, from the headset browser'), run: () => void vr.toggle() },
+    // (desktop Chrome without XR) the probe says no and the bar stays exactly as it was. On an
+    // insecure origin (http:// over the LAN) it shows dimmed with the reason: a headset opening
+    // that address would otherwise find no Enter VR and no word on why.
+    { id: 'entervr', icon: () => (vr.active ? '⏻' : '🕶️'), label: () => (vr.active ? 'Exit VR' : 'Enter VR'), section: 'Together', shown: () => vr.available || xrInsecure, status: () => vr.available || xrInsecure, chip: () => (vr.active ? 'In VR' : 'Enter VR'), on: () => vr.active, blocked: noXr, title: () => (vr.active ? 'Leave the immersive session' : 'Enter the office in VR, from the headset browser'), run: () => { const why = noXr(); if (why) return toast(`🥽 ${why}`, 'warn'); void vr.toggle(); } },
     { id: 'accounts', icon: '🔑', label: 'Accounts', section: 'Together', shown: () => store.me.admin, title: () => 'Invite people, see who has an account, revoke them', run: () => openAccounts(net) },
     { id: 'settings', icon: '⚙️', label: 'Settings', section: 'Office', run: showSettings },
     { id: 'help', icon: '❓', label: 'Controls', section: 'Office', key: 'H', run: openHelp },
@@ -2896,9 +2956,12 @@ const hud = mountHud(
   () => saveSettings(settings),
 );
 // Whether this browser can do immersive VR: when it can, the Enter VR button joins the top bar.
+// Insecure origins keep a dimmed button that says why (see noXr), so the headset browser that
+// opened the http:// address learns the fix instead of finding nothing.
 void probeXRSupport().then((availability) => {
   vr.available = availability === 'supported';
-  if (vr.available) hud.refresh();
+  xrInsecure = availability === 'insecure';
+  if (vr.available || xrInsecure) hud.refresh();
 });
 /** F: hang a picture on a wall of this floor. There are no walls for them up on the roof. */
 function startHanging() {

@@ -142,6 +142,7 @@ const deps: VrUiDeps = {
   getJukebox: () => jukebox,
   onRoof: () => false,
   barCutOff: () => false,
+  getVrSettings: () => ({ glide: false, turn: 'snap', turnSpeed: 90, fade: true }),
   voice: { isMuted: () => muted, inVoice: () => true, toggleMute: () => { muted = !muted; log('mute →', muted); } },
   actions: {
     hire: (deskId) => log('hire at', deskId, '(would open the VR hire prompt)'),
@@ -152,6 +153,7 @@ const deps: VrUiDeps = {
     jukebox: (op, track) => log('jukebox', op, track ?? ''),
     orderDrink: (id) => log('order drink', id),
     sendChat: (text) => log('say', text),
+    vrSettings: (patch) => log('VR settings', JSON.stringify(patch)),
     exitVr: () => log('exit VR (would end the XR session)'),
   },
 };

@@ -7,7 +7,8 @@
  * Views: main (Hire, Next waiting, Queue, Issues/PRs, Floors, Jukebox, Bar, Chat, Mute, Exit VR),
  * hire (free desks), queue (running/queued/done), board (issues/PRs tabs, read + hand-to-worker),
  * a detail view for one issue or PR, floors (ride the elevator), jukebox (tunes), bar (drinks),
- * chat (the floor's chat + say something), and assign (hand an issue to a worker).
+ * chat (the floor's chat + say something), assign (hand an issue to a worker), and settings
+ * (glide, turning, turn speed, teleport fade — the ⚙️ Settings VR section, in the headset).
  */
 
 import type * as THREE from 'three';
@@ -17,6 +18,7 @@ import { DRINKS, ROOF, ROOF_NAME, type Drink } from '../../shared/rooftop';
 import { isAsleep } from '../../shared/status';
 import { TERM_FONT } from '../fonts';
 import { waitingInOrder } from '../nextup';
+import type { VrSettings } from '../state';
 import { clampScroll, type HeadPose, type Rect } from './math';
 import { WorldPanel } from './panel';
 
@@ -37,6 +39,8 @@ export interface VrMenuStores {
   barCutOff: () => boolean;
   isMuted: () => boolean;
   inVoice: () => boolean;
+  /** VR locomotion and comfort (the ⚙️ Settings VR section's values, live). */
+  getVrSettings: () => VrSettings;
 }
 
 export interface VrMenuActions {
@@ -58,11 +62,13 @@ export interface VrMenuActions {
   sendChat: (text: string) => void;
   /** Mutes/unmutes — the DOM M key's function (voice.toggleMute). */
   toggleMute: () => void;
+  /** Patches VR locomotion/comfort — the DOM ⚙️ Settings VR section's function (assign + save). */
+  vrSettings: (patch: Partial<VrSettings>) => void;
   /** Leaves the immersive session — the XR session owner's exit. */
   exitVr: () => void;
 }
 
-export type MenuView = 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'assign';
+export type MenuView = 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'assign' | 'settings';
 
 export interface MenuDetail {
   kind: 'issue' | 'pull';
@@ -246,6 +252,17 @@ export class VrMenu {
     return this.stores.getWorkers().filter((w) => w.kind === 'agent' && !isAsleep(w.status));
   }
 
+  /** The settings view's rows: the ⚙️ Settings VR section as tap-to-toggle rows. */
+  private settingsRows(): { icon: string; title: string; sub: string }[] {
+    const s = this.stores.getVrSettings();
+    return [
+      { icon: '🚶', title: `Stick glide: ${s.glide ? 'on' : 'off'}`, sub: s.glide ? 'the left stick walks you · tap for teleport-only' : 'teleport-only · tap for smooth gliding' },
+      { icon: '🔄', title: `Turning: ${s.turn}`, sub: s.turn === 'snap' ? '45° steps · tap for smooth' : `${s.turnSpeed}°/s · tap for snap steps` },
+      { icon: '🎚️', title: `Turn speed: ${s.turnSpeed}°/s`, sub: 'smooth turning only · tap to step up' },
+      { icon: '🌑', title: `Teleport fade: ${s.fade ? 'on' : 'off'}`, sub: s.fade ? 'through black · tap for instant' : 'instant · tap for the fade' },
+    ];
+  }
+
   // ---- Buttons ----------------------------------------------------------------------------
 
   private mainItems(): MainItem[] {
@@ -269,6 +286,7 @@ export class VrMenu {
         id: 'mute', icon: this.stores.isMuted() ? '🔇' : '🎙️', title: this.stores.isMuted() ? 'Unmute' : 'Mute',
         sub: () => (this.stores.inVoice() ? 'in voice (M)' : 'not in voice'),
       },
+      { id: 'settings', icon: '⚙️', title: 'VR settings', sub: () => 'glide · turning · fade' },
       { id: 'controls', icon: '❓', title: 'VR controls', sub: () => 'pinches, teleports, sticks' },
       { id: 'exit', icon: '🚪', title: 'Exit VR', sub: () => 'back to the flat screen' },
     ];
@@ -360,6 +378,7 @@ export class VrMenu {
     if (this.view === 'bar') return DRINKS.length;
     if (this.view === 'chat') return Math.max(1, this.chatLines().length);
     if (this.view === 'assign') return Math.max(1, this.awakeWorkers().length);
+    if (this.view === 'settings') return this.settingsRows().length;
     // board
     return this.boardTab === 'issues' ? Math.max(1, this.openIssues().length) : Math.max(1, this.openPulls().length);
   }
@@ -375,6 +394,7 @@ export class VrMenu {
       case 'bar': return this.go('bar');
       case 'chat': return this.go('chat');
       case 'mute': return this.actions.toggleMute();
+      case 'settings': return this.go('settings');
       case 'controls': return this.onShowControls?.();
       case 'exit': return this.actions.exitVr();
     }
@@ -414,6 +434,17 @@ export class VrMenu {
       return;
     }
     if (this.view === 'chat') return; // lines are read-only; ✍️ says something
+    if (this.view === 'settings') {
+      const s = this.stores.getVrSettings();
+      if (i === 0) this.actions.vrSettings({ glide: !s.glide });
+      else if (i === 1) this.actions.vrSettings({ turn: s.turn === 'snap' ? 'smooth' : 'snap' });
+      else if (i === 2) {
+        const next = s.turnSpeed + 30;
+        this.actions.vrSettings({ turnSpeed: next > 180 ? 30 : next });
+      } else if (i === 3) this.actions.vrSettings({ fade: !s.fade });
+      this.refresh();
+      return;
+    }
     if (this.view === 'assign') {
       const w = this.awakeWorkers()[i];
       const target = this.assignTarget;
@@ -470,7 +501,7 @@ export class VrMenu {
     ctx.roundRect(0, 0, w, h, Math.round(h * 0.02));
     ctx.clip();
 
-    const title = this.view === 'main' ? '☰ Menu' : this.view === 'hire' ? '✨ Hire worker' : this.view === 'queue' ? '📋 Task queue' : this.view === 'board' ? '📌 Issues / PRs' : this.view === 'floors' ? '🛗 Floors' : this.view === 'jukebox' ? '🎵 Jukebox' : this.view === 'bar' ? '🍸 Sky Bar' : this.view === 'chat' ? '💬 Chat' : this.view === 'assign' ? `🤖 Hand #${this.assignTarget?.number ?? ''} to…` : this.detailTitle();
+    const title = this.view === 'main' ? '☰ Menu' : this.view === 'hire' ? '✨ Hire worker' : this.view === 'queue' ? '📋 Task queue' : this.view === 'board' ? '📌 Issues / PRs' : this.view === 'floors' ? '🛗 Floors' : this.view === 'jukebox' ? '🎵 Jukebox' : this.view === 'bar' ? '🍸 Sky Bar' : this.view === 'chat' ? '💬 Chat' : this.view === 'settings' ? '⚙️ VR settings' : this.view === 'assign' ? `🤖 Hand #${this.assignTarget?.number ?? ''} to…` : this.detailTitle();
     ctx.fillStyle = '#eeeeee';
     ctx.font = `700 ${Math.round(h * 0.042)}px ${TERM_FONT}`;
     ctx.textBaseline = 'middle';
@@ -695,6 +726,12 @@ export class VrMenu {
       const w = this.awakeWorkers()[i];
       if (!w) return;
       this.rowText(ctx, '🤖', w.name, `${statusLabel(w.status)} · tap to hand #${this.assignTarget?.number ?? ''} over`, x, y, bw, rh);
+      return;
+    }
+    if (this.view === 'settings') {
+      const r = this.settingsRows()[i];
+      if (!r) return;
+      this.rowText(ctx, r.icon, r.title, r.sub, x, y, bw, rh);
       return;
     }
     if (this.view === 'queue') {

@@ -61,6 +61,8 @@ export interface VrPromptOpts {
   /** Empty text may be sent (a hire with no first task). */
   allowEmpty?: boolean;
   initial?: string;
+  /** The engine row (VR hire): a tap cycles it, and the label repaints. */
+  engine?: { label: () => string; onCycle: () => void };
   onSubmit: (text: string) => void;
   onCancel?: () => void;
 }
@@ -68,6 +70,9 @@ export interface VrPromptOpts {
 const SEND_BTN: Rect = { x: 0.55, y: 0.82, w: 0.4, h: 0.13 };
 const CANCEL_BTN: Rect = { x: 0.05, y: 0.82, w: 0.44, h: 0.13 };
 const FIELD: Rect = { x: 0.05, y: 0.3, w: 0.9, h: 0.47 };
+/** With the engine row up, the field moves down to make room for it. */
+const ENGINE_BTN: Rect = { x: 0.05, y: 0.265, w: 0.9, h: 0.1 };
+const FIELD_WITH_ENGINE: Rect = { x: 0.05, y: 0.39, w: 0.9, h: 0.4 };
 
 export class VrPromptPanel {
   readonly panel: WorldPanel;
@@ -93,10 +98,15 @@ export class VrPromptPanel {
       this.buffer.text = opts.initial;
       this.buffer.cursor = [...opts.initial].length;
     }
-    this.panel.setButtons([
+    const buttons = [
       { id: 'send', rect: SEND_BTN, onClick: () => this.send() },
       { id: 'cancel', rect: CANCEL_BTN, onClick: () => this.close(false) },
-    ]);
+    ];
+    if (opts.engine) {
+      const engine = opts.engine;
+      buttons.push({ id: 'engine', rect: ENGINE_BTN, onClick: () => { engine.onCycle(); this.panel.markDirty(); } });
+    }
+    this.panel.setButtons(buttons);
     this.panel.setVisible(true);
     this.panel.markDirty();
   }
@@ -125,8 +135,12 @@ export class VrPromptPanel {
     const out = this.buffer.input(data);
     if (out === 'submit') this.send();
     else if (out === 'cancel') this.close(false);
-    else if (out === 'change') this.panel.markDirty(FIELD);
+    else if (out === 'change') this.panel.markDirty(this.fieldRect());
   };
+
+  private fieldRect(): Rect {
+    return this.opts?.engine ? FIELD_WITH_ENGINE : FIELD;
+  }
 
   private paint(ctx: CanvasRenderingContext2D, w: number, h: number, state: { hoverId: string | null; pressedId: string | null; time: number }) {
     const opts = this.opts;
@@ -155,11 +169,13 @@ export class VrPromptPanel {
       ctx.font = `500 ${Math.round(h * 0.052)}px ${TERM_FONT}`;
       ctx.fillText(opts.subtitle, w * 0.05, h * 0.21, w * 0.9);
     }
+    const field = opts.engine ? FIELD_WITH_ENGINE : FIELD;
+    if (opts.engine) this.paintBtn(ctx, w, h, ENGINE_BTN, 'engine', opts.engine.label(), state, false);
     // The text field, wrapped; the cursor blinks where the next key lands.
-    const fx = FIELD.x * w;
-    const fy = FIELD.y * h;
-    const fw = FIELD.w * w;
-    const fh = FIELD.h * h;
+    const fx = field.x * w;
+    const fy = field.y * h;
+    const fw = field.w * w;
+    const fh = field.h * h;
     ctx.fillStyle = 'rgba(255,255,255,0.07)';
     ctx.beginPath();
     ctx.roundRect(fx, fy, fw, fh, fh * 0.08);
@@ -234,7 +250,7 @@ export class VrPromptPanel {
       if (now - this.blinkAt > 530) {
         this.blinkAt = now;
         this.blinkOn = !this.blinkOn;
-        this.panel.markDirty(FIELD);
+        this.panel.markDirty(this.fieldRect());
       }
     }
     this.panel.update(dt, head);

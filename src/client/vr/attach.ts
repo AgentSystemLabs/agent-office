@@ -55,6 +55,7 @@
 import * as THREE from 'three';
 import type { ChatLine, FloorInfo, GhIssue, GhPull, GhState, QueueState, WorkerInfo } from '../../shared/protocol';
 import type { JukeboxState } from '../../shared/jukebox';
+import type { VrSettings } from '../state';
 import type { ScreenState } from '../world/laptop';
 import { setToastMirror } from '../ui/dom';
 import { VrControls } from './controls';
@@ -88,6 +89,7 @@ export interface VrUiDeps {
   getJukebox: () => JukeboxState;
   onRoof: () => boolean;
   barCutOff: () => boolean;
+  getVrSettings: () => VrSettings;
   voice: VrUiVoice;
   actions: Omit<VrMenuActions, 'toggleMute'>;
   /** Panel layout in meters; the defaults suit a seated user. */
@@ -181,6 +183,7 @@ class VrUi implements VrUiHandle {
         getJukebox: deps.getJukebox,
         onRoof: deps.onRoof,
         barCutOff: deps.barCutOff,
+        getVrSettings: deps.getVrSettings,
         isMuted: deps.voice.isMuted,
         inVoice: deps.voice.inVoice,
       },

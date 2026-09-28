@@ -11,7 +11,8 @@ export const STEP = 0.3;
 const WALK = 4.6;
 const RUN = 7.5;
 const JUMP_V = 6.4;
-const GRAVITY = 18;
+/** Gravity, shared with the VR session (whose update replaces player.update while presenting). */
+export const GRAVITY = 18;
 /** Camera height above your feet in first person (the Person's eyes). */
 export const EYE_HEIGHT = 1.4;
 /** The Person's hips above their feet, standing. Sitting puts them on the seat, and your eyes move with them. */

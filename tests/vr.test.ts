@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { describeSessionError, probeXRSupport, requestVRSession, type XrNavigator } from '../src/client/vr/support.js';
 import { MENU_HOLD_MS, PINCH_HOLD_MS, PinchHold, SnapTurn, buttonDown, decodeThumbstick, faceButtons, sampleParabola, xrRayDirection, yawForFacing } from '../src/client/vr/session.js';
 import { PromptBuffer } from '../src/client/vr/prompt.js';
+import { choiceForProvider, rememberedChoice, rememberProvider } from '../src/client/ui/provider.js';
+import type { ProjectInfo } from '../src/shared/protocol.js';
 import { VR_DEFAULTS, loadSettings, saveSettings } from '../src/client/state.js';
 
 function nav(fake: Partial<XRSystem> | undefined): XrNavigator {
@@ -211,4 +213,28 @@ test('VR settings round-trip through the store, clamped and complete', (t) => {
   // An old save from before VR existed grows the section with defaults.
   mem.set('agent-office.settings', JSON.stringify({ view: 'third' }));
   assert.deepEqual(loadSettings().vr, VR_DEFAULTS);
+});
+test('VR hire engine choice: per-provider memory, fallback, and cycling', (t) => {
+  const mem = new Map<string, string>();
+  const storage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) };
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
+  t.after(() => {
+    if (previous) Object.defineProperty(globalThis, 'localStorage', previous);
+    else Reflect.deleteProperty(globalThis, 'localStorage');
+  });
+  const project = { defaultProvider: 'droid', agentProviders: ['droid', 'claude'] } as ProjectInfo;
+  // Nothing picked yet: the default provider, with no model or effort behind it.
+  assert.deepEqual(rememberedChoice(project, 'desk:d1'), { provider: 'droid', model: undefined, effort: undefined });
+  // Each desk keeps its own Claude model: the cycler picks it back up.
+  mem.set('agent-office.claude-model.desk:d1', 'opus');
+  mem.set('agent-office.claude-effort.desk:d1', 'high');
+  assert.deepEqual(choiceForProvider(project, 'desk:d1', 'claude'), { provider: 'claude', model: 'opus', effort: 'high' });
+  // ...and another desk is unaffected.
+  assert.deepEqual(choiceForProvider(project, 'desk:d2', 'claude'), { provider: 'claude', model: undefined, effort: undefined });
+  // A provider the project doesn't offer falls back to the first supported one.
+  assert.deepEqual(choiceForProvider(project, 'desk:d1', 'codex'), { provider: 'droid', model: undefined, effort: undefined });
+  // Cycling in the headset remembers globally, like the desktop picker does.
+  rememberProvider('claude');
+  assert.deepEqual(rememberedChoice(project, 'desk:d1'), { provider: 'claude', model: 'opus', effort: 'high' });
 });
