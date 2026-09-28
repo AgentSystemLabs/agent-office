@@ -8,6 +8,7 @@ export const PROVIDER_LABEL: Record<AgentProvider, string> = {
   claude: 'Claude Code',
   opencode: 'OpenCode',
   codex: 'Codex',
+  dsh: 'DeepSeek Harness',
   custom: 'Custom',
 };
 
@@ -39,7 +40,7 @@ export function modelBadge(provider: AgentProvider | undefined, model: string | 
 
 /** Providers the server says this project can start. */
 export function supportedProviders(project: ProjectInfo | null): AgentProvider[] {
-  const values = project?.agentProviders?.filter((p): p is AgentProvider => p === 'claude' || p === 'opencode' || p === 'codex' || p === 'custom') ?? [];
+  const values = project?.agentProviders?.filter((p): p is AgentProvider => p === 'claude' || p === 'opencode' || p === 'codex' || p === 'dsh' || p === 'custom') ?? [];
   if (values.length) return [...new Set(values)];
   return project?.defaultProvider && PROVIDER_LABEL[project.defaultProvider] ? [project.defaultProvider] : ['claude'];
 }
@@ -59,7 +60,7 @@ export function providerLabel(provider: AgentProvider | undefined, project: Proj
 
 export function providerUsageTracked(provider: AgentProvider | undefined, project: ProjectInfo | null, usage?: Usage): boolean {
   const selected = resolvedProvider(provider, project);
-  return selected === 'claude' || ((selected === 'opencode' || selected === 'codex' || selected === 'custom') && usage !== undefined);
+  return selected === 'claude' || ((selected === 'opencode' || selected === 'codex' || selected === 'dsh' || selected === 'custom') && usage !== undefined);
 }
 
 export type ProviderUsageState = 'tracked' | 'waiting' | 'untracked';
@@ -70,13 +71,26 @@ export function providerUsageState(provider: AgentProvider | undefined, project:
   if (selected === 'claude') return usage ? 'tracked' : 'waiting';
   if (selected === 'opencode') return usage ? 'tracked' : 'waiting';
   if (selected === 'codex') return usage ? 'tracked' : 'waiting';
+  if (selected === 'dsh') return usage ? 'tracked' : 'waiting';
   if (selected === 'custom') return usage ? 'tracked' : 'untracked';
   return 'untracked';
+}
+
+/**
+ * The short "no numbers yet" suffix for a tracked-but-silent provider, shared by the terminal, the
+ * workers list and the queue so all three say the same thing.
+ */
+export function providerWaitingLabel(provider: AgentProvider | undefined, project: ProjectInfo | null): string {
+  const selected = resolvedProvider(provider, project);
+  if (selected === 'opencode') return 'waiting for metrics';
+  if (selected === 'codex' || selected === 'dsh') return 'waiting for first report';
+  return '';
 }
 
 export function providerUsageNote(provider: AgentProvider): string {
   if (provider === 'claude') return 'Office usage and budget track Claude Code.';
   if (provider === 'codex') return 'Review Office hooks in /hooks to enable tracking. Codex reports root-session tokens; subagents are excluded and cost is unavailable.';
+  if (provider === 'dsh') return 'DeepSeek Harness reports context usage over ACP after its first turn; cost may be unavailable.';
   if (provider === 'custom') return 'Usage is untracked unless compatible Claude Code hooks report it.';
   return 'OpenCode reports model/provider estimates; they are not billing, and arrive after the first report.';
 }
@@ -147,6 +161,11 @@ function validModel(value: string): boolean {
   return parts.length >= 2 && /^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/.test(parts[0]) && parts.slice(1).every((part) => part.length > 0);
 }
 
+/** DeepSeek Harness ids are opaque catalog values (see server/agents.ts), so bound length and controls only. */
+function validDshModel(value: string): boolean {
+  return value.length > 0 && value.length <= MODEL_MAX && !/[\p{Cc}\p{Cf}]/u.test(value);
+}
+
 function fetchOpenCodeModels(): Promise<string[]> {
   if (modelList && Date.now() - modelListAt < 60_000) return Promise.resolve(modelList);
   if (modelRequest) return modelRequest;
@@ -189,7 +208,8 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
   }) as HTMLInputElement;
   const modelHint = h('small.provider-model-hint', {}, 'Optional provider/model override; suggestions load when OpenCode is selected.');
   const modelListEl = h('datalist', { id: `${id}-models` });
-  const modelChoice = h('div.provider-model', {}, h('label', { for: `${id}-model` }, 'OpenCode model'), modelInput, modelListEl, modelHint);
+  const modelLabel = h('label', { for: `${id}-model` }, 'OpenCode model');
+  const modelChoice = h('div.provider-model', {}, modelLabel, modelInput, modelListEl, modelHint);
 
   const claudeModelSelect = h('select', { id: `${id}-claude-model`, 'aria-label': 'Claude model' }) as HTMLSelectElement;
   claudeModelSelect.append(h('option', { value: '' }, 'Default (--agent-args)'));
@@ -227,10 +247,21 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
 
   const setModelVisibility = (provider: AgentProvider) => {
     const openCode = provider === 'opencode';
+    const dsh = provider === 'dsh';
     const claude = provider === 'claude';
-    modelChoice.classList.toggle('hidden', !openCode);
-    modelInput.disabled = !openCode;
+    modelChoice.classList.toggle('hidden', !openCode && !dsh);
+    modelInput.disabled = !openCode && !dsh;
     claudeChoice.classList.toggle('hidden', !claude);
+    if (dsh) {
+      modelLabel.textContent = 'DeepSeek Harness model';
+      modelInput.placeholder = 'Default (DSH profile)';
+      modelInput.setAttribute('aria-label', 'DeepSeek Harness model');
+      modelHint.textContent = 'Optional model id from DeepSeek Harness\u2019s catalog; leave empty to use the profile default.';
+      return;
+    }
+    modelLabel.textContent = 'OpenCode model';
+    modelInput.placeholder = 'Default (OpenCode settings)';
+    modelInput.setAttribute('aria-label', 'OpenCode model');
     if (!openCode) return;
     modelHint.textContent = modelList ? 'Optional provider/model override; choose a suggestion or enter one manually.' : 'Loading OpenCode models… You can enter a provider/model manually.';
     void fetchOpenCodeModels()
@@ -262,11 +293,21 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
     effort: () => (select.value === 'claude' && effortSelect.value ? (effortSelect.value as AgentEffort) : undefined),
     model: () => {
       if (select.value === 'claude') return claudeModelSelect.value || undefined;
+      if (select.value === 'dsh') {
+        const value = modelInput.value;
+        return validDshModel(value) ? value : undefined;
+      }
       if (select.value !== 'opencode') return undefined;
       const value = modelInput.value;
       return validModel(value) ? value : undefined;
     },
     valid: () => {
+      if (select.value === 'dsh' && modelInput.value) {
+        const okay = validDshModel(modelInput.value);
+        modelInput.setCustomValidity(okay ? '' : 'Use a DeepSeek Harness catalog model id of up to 256 characters without control characters.');
+        if (!okay) modelInput.reportValidity();
+        return okay;
+      }
       if (select.value !== 'opencode' || !modelInput.value) {
         modelInput.setCustomValidity('');
         return true;

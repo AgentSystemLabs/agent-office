@@ -26,6 +26,8 @@ type ToastLevel = 'info' | 'warn' | 'error';
 export interface FloorContext {
   agentCmd: string;
   agentArgs: string[];
+  /** The DSH profile DeepSeek Harness workers boot (see server/dsh.ts). */
+  dshProfile: string;
   hook: HookEnv;
   /** Spend, across every floor. */
   ledger: Ledger;
@@ -66,7 +68,7 @@ export function projectInfo(dir: string, name: string, agentCmd: string, agentAr
     remote: git(['remote', 'get-url', 'origin']),
     agentCmd: [agentCmd, ...agentArgs].join(' '),
     defaultProvider: configuredProvider(agentCmd),
-    agentProviders: configuredProvider(agentCmd) === 'custom' ? ['claude', 'opencode', 'codex', 'custom'] : ['claude', 'opencode', 'codex'],
+    agentProviders: configuredProvider(agentCmd) === 'custom' ? ['claude', 'opencode', 'codex', 'dsh', 'custom'] : ['claude', 'opencode', 'codex', 'dsh'],
   };
 }
 
@@ -142,6 +144,7 @@ export class Floor {
       },
       ctx.ledger,
       ctx.capacity,
+      ctx.dshProfile,
     );
 
     this.github = new GitHub(

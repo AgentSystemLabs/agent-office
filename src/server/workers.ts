@@ -21,9 +21,10 @@ import { addUsage, newTracker, restoreTracker, scanTracker, trackerUsage, zeroUs
 import { PtyHost, SCROLLBACK, type Adopted, type Pty } from './ptys.js';
 import { codexHookArgs, normalizeCodexHook, writeCodexHook } from './codex.js';
 import { reportedUsage } from './reported-usage.js';
-import { configuredProvider, isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel } from './agents.js';
+import { configuredProvider, isValidDshModel, isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeStatusEvent } from './opencode.js';
 import { ScrollbackStore, searchTerminal, terminalTail } from './history.js';
+import { DSH_PROFILE_DEFAULT, DshSession, dshArgs, writeDshPatch } from './dsh.js';
 import { screenSnapshot } from './screen.js';
 import type { Capacity } from './machine.js';
 
@@ -82,6 +83,11 @@ export interface HookEnv {
 interface Worker {
   info: WorkerInfo;
   pty?: Pty;
+  /**
+   * A DeepSeek Harness worker's ACP connection. It has no PTY: ACP updates are rendered into the
+   * same headless terminal the other providers mirror a process into (see dsh.ts).
+   */
+  dsh?: DshSession;
   term?: HeadlessTerminal;
   ser?: InstanceType<typeof serialize.SerializeAddon>;
   /** The screen so far, for a browser opening the terminal (see screen.ts). */
@@ -162,6 +168,8 @@ export class WorkerManager {
     private ledger: Ledger,
     /** The office's worker limit, across every floor (see machine.ts). */
     private capacity?: Capacity,
+    /** The DSH profile a DeepSeek Harness worker boots (default "acp"). */
+    private dshProfile: string = DSH_PROFILE_DEFAULT,
   ) {
     this.defaultProvider = configuredProvider(agentCmd);
     this.trees = new Worktrees(dir);
@@ -282,8 +290,8 @@ export class WorkerManager {
       id,
       kind,
       provider: selectedProvider,
-      model: selectedProvider === 'opencode' || selectedProvider === 'claude' ? model : undefined,
-      effort: selectedProvider === 'claude' ? effort : undefined,
+      model: selectedProvider === 'opencode' || selectedProvider === 'claude' || selectedProvider === 'dsh' ? model : undefined,
+      effort: selectedProvider === 'claude' || selectedProvider === 'dsh' ? effort : undefined,
       deskId,
       name: kind === 'shell' ? `${name} 🐚` : name,
       color: kind === 'shell' ? '#8d99ae' : agent ? agent.color : COLORS[Math.floor(Math.random() * COLORS.length)],
@@ -313,7 +321,7 @@ export class WorkerManager {
   resume(id: string, prompt?: string): string | undefined {
     const w = this.workers.get(id);
     if (!w) return 'No such worker';
-    if (w.pty) return 'Worker is already running';
+    if (w.pty || w.dsh) return 'Worker is already running';
     w.info.status = 'starting';
     w.info.exitCode = undefined;
     const station = DESK_BY_ID.get(w.info.deskId)?.station;
@@ -356,7 +364,8 @@ export class WorkerManager {
 
   /** Starts every worker that isn't running: nobody should be found asleep at their desk. */
   wakeAll() {
-    for (const w of this.workers.values()) if (!w.pty) this.resume(w.info.id);
+    // A DeepSeek Harness worker has no PTY but is still running: only the ones that are gone wake up.
+    for (const w of this.workers.values()) if (!w.pty && !w.dsh) this.resume(w.info.id);
   }
 
   /**
@@ -372,7 +381,10 @@ export class WorkerManager {
     clearTimeout(w.scanTimer);
     const proc = w.pty;
     w.pty = undefined; // so the exit handler knows this worker is gone and stays quiet
+    const session = w.dsh;
+    w.dsh = undefined;
     try {
+      session?.close();
       proc?.kill();
     } catch {
       // already gone
@@ -444,7 +456,19 @@ export class WorkerManager {
   /** Keystrokes from `by`'s browser. */
   write(id: string, data: string, by: string) {
     const w = this.workers.get(id);
-    if (!w?.pty) return;
+    if (!w) return;
+    if (w.dsh) {
+      // ACP has no terminal: the session buffers these into a line and submits it on Enter.
+      w.dsh.writeInput(data);
+      let changed = this.typed(w, by);
+      if (w.info.status === 'needs_input' && w.info.acked === false) {
+        w.info.acked = true;
+        changed = true;
+      }
+      if (changed) this.emitUpdate(w);
+      return;
+    }
+    if (!w.pty) return;
     w.pty.write(data);
     let changed = this.typed(w, by);
     if (w.info.status === 'needs_input' && w.info.acked === false) {
@@ -470,6 +494,16 @@ export class WorkerManager {
   prompt(id: string, text: string, by?: string): string | undefined {
     const w = this.workers.get(id);
     if (!w) return 'No such worker';
+    if (w.dsh) {
+      const clean = text.replace(/\r\n?/g, '\n').trim();
+      if (!clean) return 'Empty prompt';
+      w.dsh.prompt(clean);
+      w.info.activity = truncate(clean, 80);
+      this.notePrompt(w, clean);
+      if (by) w.info.lastInput = { by, at: Date.now() };
+      this.emitUpdate(w);
+      return undefined;
+    }
     if (!w.pty) return 'Worker is not running';
     const clean = text.replace(/\r\n?/g, '\n').trim();
     if (!clean) return 'Empty prompt';
@@ -836,6 +870,17 @@ export class WorkerManager {
       this.scanUsage(w);
       // Before the process goes, so the next office shows what it was doing, not how it was stopped.
       if (w.unsaved) this.saveScrollback(w);
+      // A DSH child cannot outlive the office the way a hosted PTY can: close its session quiescently,
+      // and let the next office mark it offline and resume it (see docs/dsh-acp-integration.md).
+      if (w.dsh) {
+        const session = w.dsh;
+        w.dsh = undefined;
+        try {
+          session.close();
+        } catch {
+          // already gone
+        }
+      }
       if (keep && w.pty?.id) continue;
       try {
         w.pty?.kill();
@@ -871,6 +916,7 @@ export class WorkerManager {
     const isClaude = !isShell && provider === 'claude';
     const isOpenCode = !isShell && provider === 'opencode';
     const isCodex = !isShell && provider === 'codex';
+    const isDsh = !isShell && provider === 'dsh';
     const configured = !isShell && provider === this.defaultProvider;
     const station = DESK_BY_ID.get(info.deskId)?.station;
     const command = this.command(info);
@@ -922,6 +968,21 @@ export class WorkerManager {
 
     const cwd = this.cwd(info);
     if (isCodex) w.codexHome = codexHome(cwd, env);
+
+    if (isDsh) {
+      // No PTY and no argv for prompts or resume: the office owns an ACP connection instead, and
+      // renders its updates into this same terminal (see dsh.ts).
+      env.AGENT_OFFICE_DSH_PROFILE = this.dshProfile;
+      const patch = writeDshPatch(this.dataDir);
+      const dshArgv = dshArgs({ profile: this.dshProfile, patches: [patch], extra: args });
+      const file = commandPath ?? shell;
+      const dshArgsFinal = commandPath ? dshArgv : shellRun(['exec', command, ...dshArgv].map((a, i) => (i < 2 ? a : shq(a))).join(' '));
+      this.launchDsh(w, term, { file, args: dshArgsFinal, cwd, env, resumeSessionId, prompt });
+      this.emitUpdate(w);
+      this.persist();
+      return;
+    }
+
     // The host keeps its own copy of the screen for the next office: it starts with the same history.
     const where = { cwd, env, cols: info.cols, rows: info.rows, prelude };
     let proc: Pty;
@@ -946,6 +1007,92 @@ export class WorkerManager {
     }
     if (!isClaude && !isCodex) info.status = 'idle';
     this.follow(w, proc, term, resumeSessionId);
+    this.emitUpdate(w);
+    this.persist();
+  }
+
+  /**
+   * Starts (or resumes) a DeepSeek Harness worker over ACP. The session renders its transcript into
+   * the worker's terminal and reports status, acted-out actions, usage and its session id; the
+   * office answers permission requests from whoever is typing (see dsh.ts).
+   */
+  private launchDsh(w: Worker, term: HeadlessTerminal, options: { file: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv; resumeSessionId?: string; prompt?: string }) {
+    const { info } = w;
+    const session = new DshSession(
+      {
+        file: options.file,
+        args: options.args,
+        cwd: options.cwd,
+        env: options.env,
+        model: info.model,
+        effort: info.effort,
+        resumeSessionId: options.resumeSessionId,
+        firstPrompt: options.prompt,
+      },
+      {
+        output: (data) => {
+          if (w.dsh !== session) return;
+          term.write(data);
+          w.screenDirty = true;
+          w.unsaved = true;
+          if (w.viewers.size) this.events.data(info.id, data, [...w.viewers.keys()]);
+        },
+        status: (status) => {
+          if (w.dsh === session) this.setStatus(w, status);
+        },
+        action: (action) => {
+          if (w.dsh !== session || info.action === action) return;
+          info.action = action;
+          this.emitUpdate(w);
+        },
+        usage: (usage) => {
+          if (w.dsh !== session) return;
+          info.usage = usage;
+          this.emitUpdate(w);
+          this.persist();
+        },
+        session: (sessionId) => {
+          if (w.dsh !== session || info.sessionId === sessionId) return;
+          info.sessionId = sessionId;
+          this.emitUpdate(w);
+          this.persist();
+        },
+        prompted: (text) => {
+          // A line typed into the terminal: there are no hooks for DSH, so the card learns from here.
+          if (w.dsh !== session) return;
+          this.notePrompt(w, text);
+          this.emitUpdate(w);
+        },
+        exit: (code, error, quiet) => this.dshExited(w, session, term, code, error, quiet),
+      },
+    );
+    w.dsh = session;
+    session.start();
+  }
+
+  /** A DeepSeek Harness child ended: while the office is up, its desk says so and R resumes it. */
+  private dshExited(w: Worker, session: DshSession, term: HeadlessTerminal, code: number | null, error: string | undefined, quiet: boolean) {
+    const { info } = w;
+    if (w.dsh !== session || this.workers.get(info.id) !== w) return; // sent home: stay quiet
+    w.dsh = undefined;
+    // The office is going down: the next office marks this worker offline and resumes it, so its
+    // status must stay as it was (see the restart difference in docs/dsh-acp-integration.md).
+    if (quiet || this.closing) return;
+    const note = error ? `\r\n\x1b[31m[DeepSeek Harness: ${truncate(error, 300)}]\x1b[0m\r\n` : '';
+    if (note) {
+      term.write(note);
+      if (w.viewers.size) this.events.data(info.id, note, [...w.viewers.keys()]);
+    }
+    // It never got as far as a session: most often `dsh` is missing, or the profile will not boot.
+    if (error && !info.sessionId) this.events.toast(`Could not start ${this.command(info)}: ${truncate(error, 200)}`, 'error');
+    info.exitCode = code ?? -1;
+    info.status = 'exited';
+    const hint = info.sessionId ? ' — press R to resume' : '';
+    const msg = `\r\n\x1b[2m[${info.name} exited with code ${code ?? -1}${hint}]\x1b[0m\r\n`;
+    term.write(msg);
+    if (w.viewers.size) this.events.data(info.id, msg, [...w.viewers.keys()]);
+    w.screenDirty = true;
+    w.unsaved = true;
     this.emitUpdate(w);
     this.persist();
   }
@@ -1146,7 +1293,7 @@ export class WorkerManager {
     } else w.info.acked = true;
     this.emitUpdate(w);
     // What a restarted office picks the worker back up as, should its terminal outlive this one.
-    if (w.pty?.id) this.persist();
+    if (w.pty?.id || w.dsh) this.persist();
   }
 
   private syncViewers(w: Worker): boolean {
@@ -1312,7 +1459,7 @@ process.stdin.on('end', () => {
       pr: info.pr,
       meeting: info.meeting,
       tracker: info.kind === 'agent' ? tracker : undefined,
-      usage: info.provider === 'opencode' || info.provider === 'codex' ? info.usage : undefined,
+      usage: info.provider === 'opencode' || info.provider === 'codex' || info.provider === 'dsh' ? info.usage : undefined,
       codexTranscript: info.provider === 'codex' ? codexTranscript : undefined,
       // A terminal still running in the host, to pick back up after a restart. Its hooks keep the token.
       hookToken,
@@ -1334,7 +1481,7 @@ process.stdin.on('end', () => {
         const tracker = restoreTracker(s.tracker);
         const provider = s.kind === 'shell'
           ? undefined
-          : s.provider === 'claude' || s.provider === 'opencode' || s.provider === 'codex' || s.provider === 'custom'
+          : s.provider === 'claude' || s.provider === 'opencode' || s.provider === 'codex' || s.provider === 'dsh' || s.provider === 'custom'
             ? s.provider
             : tracker.transcript
               ? 'claude'
@@ -1343,8 +1490,8 @@ process.stdin.on('end', () => {
           id: s.id,
           kind: s.kind === 'shell' ? 'shell' : 'agent',
           provider,
-          model: provider === 'opencode' && isValidOpenCodeModel(s.model) ? s.model : provider === 'claude' && isClaudeModel(s.model) ? s.model : undefined,
-          effort: provider === 'claude' && isAgentEffort(s.effort) ? s.effort : undefined,
+          model: provider === 'opencode' && isValidOpenCodeModel(s.model) ? s.model : provider === 'dsh' && isValidDshModel(s.model) ? s.model : provider === 'claude' && isClaudeModel(s.model) ? s.model : undefined,
+          effort: (provider === 'claude' || provider === 'dsh') && isAgentEffort(s.effort) ? s.effort : undefined,
           deskId: s.deskId,
           name: s.name ?? 'Worker',
           color: s.color ?? COLORS[0],
@@ -1359,7 +1506,7 @@ process.stdin.on('end', () => {
           activity: s.activity,
           task: validTask(s.task),
           pr: s.pr && typeof s.pr.number === 'number' && typeof s.pr.url === 'string' ? { number: s.pr.number, url: s.pr.url } : undefined,
-          usage: provider === 'opencode' || provider === 'codex' ? reportedUsage(s.usage) : (provider === 'claude' || provider === 'custom') && tracker.transcript ? trackerUsage(tracker) : undefined,
+          usage: provider === 'opencode' || provider === 'codex' || provider === 'dsh' ? reportedUsage(s.usage) : (provider === 'claude' || provider === 'custom') && tracker.transcript ? trackerUsage(tracker) : undefined,
           cols: 100,
           rows: 30,
           viewers: [],
