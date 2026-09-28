@@ -55,6 +55,7 @@
 import * as THREE from 'three';
 import type { ChatLine, FloorInfo, GhIssue, GhPull, GhState, MeetingState, QueueState, WorkerInfo } from '../../shared/protocol';
 import type { JukeboxState } from '../../shared/jukebox';
+import { isAsleep } from '../../shared/status';
 import type { VrSettings } from '../state';
 import type { ScreenState } from '../world/laptop';
 import { setToastMirror } from '../ui/dom';
@@ -93,6 +94,12 @@ export interface VrUiDeps {
   getVrSettings: () => VrSettings;
   voice: VrUiVoice;
   actions: Omit<VrMenuActions, 'toggleMute'>;
+  /** Worker acts from the terminal header: wake (R), send home (X), and what X would do. */
+  workerActions: {
+    resume: (workerId: string) => void;
+    kill: (workerId: string) => void;
+    killWarning: (workerId: string) => string | null;
+  };
   /** Panel layout in meters; the defaults suit a seated user. */
   layout?: {
     menuDistance?: number;
@@ -218,6 +225,14 @@ class VrUi implements VrUiHandle {
         onSubmit: (text) => deps.send({ t: 'worker.prompt', workerId, prompt: text }),
       });
     };
+    // The terminal's ⏰ button: wake a sleeping worker (the R key's function on desktop).
+    this.terminal.onResume = (workerId) => deps.workerActions.resume(workerId);
+    // The terminal's ⏻ button: the first tap arms it and says what it does, the second (X) sends them home.
+    this.terminal.onKillArm = (workerId) => {
+      const warning = deps.workerActions.killWarning(workerId);
+      if (warning) this.showToast(warning, 'warn');
+    };
+    this.terminal.onKill = (workerId) => deps.workerActions.kill(workerId);
     this.controls = new VrControls();
     this.menu.onShowControls = () => this.controls.show();
     // Head-placed panels draw through the world (a menu sunk in a wall is unreadable and
@@ -270,6 +285,9 @@ class VrUi implements VrUiHandle {
     this.placeBeforeHead(this.terminal.panel.group, 1.15, 0);
     this.placeBeforeHead(this.keyboard.panel.group, 0.95, 0.42);
     this.keyboard.panel.group.rotateX(-0.35); // lookAt above levels it; slope it like a desk keyboard
+    // Opening a sleeping worker's terminal wakes it, like the desktop key (nothing to press first).
+    const w = this.deps.getWorker(workerId);
+    if (w && isAsleep(w.status)) this.deps.workerActions.resume(workerId);
     this.terminal.open(workerId);
     this.keyboard.show();
   };

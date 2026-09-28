@@ -160,6 +160,11 @@ const deps: VrUiDeps = {
     vrSettings: (patch) => log('VR settings', JSON.stringify(patch)),
     exitVr: () => log('exit VR (would end the XR session)'),
   },
+  workerActions: {
+    resume: (workerId) => log('wake', workerId),
+    kill: (workerId) => log('send home', workerId),
+    killWarning: (workerId) => `Tap again to send ${workerId} home`,
+  },
 };
 
 // ---- Scene ----------------------------------------------------------------------------

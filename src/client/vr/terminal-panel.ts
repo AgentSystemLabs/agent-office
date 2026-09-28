@@ -12,6 +12,7 @@
 
 import type * as THREE from 'three';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, type Run, type WorkerInfo } from '../../shared/protocol';
+import { isAsleep } from '../../shared/status';
 import { TERM_FONT } from '../fonts';
 import { TERM_THEME, type ScreenState } from '../world/laptop';
 import { fullPalette, pushHistory, runColor, scrolledOffLines } from './ansi';
@@ -45,6 +46,11 @@ const HEADER_H = 0.11;
 const BODY: Rect = { x: 0.015, y: HEADER_H + 0.015, w: 0.97, h: 1 - HEADER_H - 0.03 };
 const CLOSE_BTN: Rect = { x: 0.93, y: 0.012, w: 0.058, h: 0.086 };
 const ASK_BTN: Rect = { x: 0.845, y: 0.012, w: 0.075, h: 0.086 };
+/** Wake a sleeping worker (the R key's function) and send it home (the X key's, tap twice). */
+const RESUME_BTN: Rect = { x: 0.755, y: 0.012, w: 0.08, h: 0.086 };
+const KILL_BTN: Rect = { x: 0.665, y: 0.012, w: 0.08, h: 0.086 };
+/** The kill button stays armed this long: tap ⏻ twice to send a worker home. */
+const KILL_ARM_MS = 6000;
 const JUMP_BTN: Rect = { x: 0.78, y: 0.895, w: 0.2, h: 0.085 };
 
 export class VrTerminalPanel {
@@ -53,6 +59,11 @@ export class VrTerminalPanel {
   onClose: (() => void) | null = null;
   /** Fires from the ✉ button; attach.ts opens the ask prompt for the focused worker. */
   onAsk: ((workerId: string) => void) | null = null;
+  /** Fires from the ⏰ button; attach.ts wakes the sleeping worker (the R key's function). */
+  onResume: ((workerId: string) => void) | null = null;
+  /** Fires on the first ⏻ tap (attach.ts toasts what it does) and the confirming second. */
+  onKillArm: ((workerId: string) => void) | null = null;
+  onKill: ((workerId: string) => void) | null = null;
   private deps: VrTerminalDeps;
   private workerId: string | null = null;
   private unsubs: (() => void)[] = [];
@@ -69,6 +80,8 @@ export class VrTerminalPanel {
   private lastSentSize = '';
   /** Pinned to the live bottom: new output auto-scrolls until the user drags back. */
   private stickToBottom = true;
+  /** The kill button confirms while now is before this (the first tap arms it). */
+  private killArmedUntil = 0;
 
   constructor(deps: VrTerminalDeps, widthM = 0.92, heightM = 0.6) {
     this.deps = deps;
@@ -106,6 +119,7 @@ export class VrTerminalPanel {
     this.prevCols = 0;
     this.headerKey = '';
     this.lastSentSize = '';
+    this.killArmedUntil = 0;
     this.deps.send({ t: 'worker.attach', workerId });
     this.stickToBottom = true;
     this.panel.setScrollOffset('term', Number.MAX_SAFE_INTEGER);
@@ -202,11 +216,29 @@ export class VrTerminalPanel {
     const buttons = [
       { id: 'close', rect: CLOSE_BTN, onClick: () => this.close() },
       { id: 'ask', rect: ASK_BTN, onClick: () => { if (this.workerId) this.onAsk?.(this.workerId); } },
+      { id: 'kill', rect: KILL_BTN, onClick: () => this.tapKill() },
     ];
+    const w = this.deps.getWorker(this.workerId);
+    if (w && isAsleep(w.status)) {
+      buttons.push({ id: 'resume', rect: RESUME_BTN, onClick: () => { if (this.workerId) this.onResume?.(this.workerId); } });
+    }
     if (s && total > visible && !this.pinned(total, visible)) {
       buttons.push({ id: 'jump', rect: JUMP_BTN, onClick: () => { this.panel.setScrollOffset('term', Number.MAX_SAFE_INTEGER); this.stickToBottom = true; } });
     }
     this.panel.setButtons(buttons);
+  }
+
+  /** The ⏻ tap: the first arms it (the toast says what it does), the second sends them home. */
+  private tapKill() {
+    if (!this.workerId) return;
+    if (performance.now() < this.killArmedUntil) {
+      this.killArmedUntil = 0;
+      this.onKill?.(this.workerId);
+      return;
+    }
+    this.killArmedUntil = performance.now() + KILL_ARM_MS;
+    this.onKillArm?.(this.workerId);
+    this.panel.markDirty();
   }
 
   private paint(ctx: CanvasRenderingContext2D, w: number, h: number, state: { hoverId: string | null; pressedId: string | null; time: number }) {
@@ -237,7 +269,32 @@ export class VrTerminalPanel {
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
       const label = `${worker.name} · ${worker.status}`;
-      ctx.fillText(label, hx + h * 0.055, hy + 1, w * 0.8);
+      ctx.fillText(label, hx + h * 0.055, hy + 1, w * 0.6);
+    }
+    // Wake (asleep only) and send-home buttons.
+    if (worker && isAsleep(worker.status)) {      const r = { x: RESUME_BTN.x * w, y: RESUME_BTN.y * h, w: RESUME_BTN.w * w, h: RESUME_BTN.h * h };
+      const hot = state.hoverId === 'resume' || state.pressedId === 'resume';
+      ctx.fillStyle = hot ? '#ee6018' : 'rgba(255,255,255,0.08)';
+      ctx.beginPath();
+      ctx.roundRect(r.x, r.y, r.w, r.h, r.h * 0.3);
+      ctx.fill();
+      ctx.fillStyle = '#eeeeee';
+      ctx.font = `700 ${Math.round(r.h * 0.55)}px ${TERM_FONT}`;
+      ctx.textAlign = 'center';
+      ctx.fillText('⏰', r.x + r.w / 2, hy + 1);
+    }
+    if (id) {
+      const k = { x: KILL_BTN.x * w, y: KILL_BTN.y * h, w: KILL_BTN.w * w, h: KILL_BTN.h * h };
+      const armed = performance.now() < this.killArmedUntil;
+      const hot = state.hoverId === 'kill' || state.pressedId === 'kill';
+      ctx.fillStyle = armed ? '#ef476f' : hot ? '#ee6018' : 'rgba(255,255,255,0.08)';
+      ctx.beginPath();
+      ctx.roundRect(k.x, k.y, k.w, k.h, k.h * 0.3);
+      ctx.fill();
+      ctx.fillStyle = armed ? '#111' : '#eeeeee';
+      ctx.font = `700 ${Math.round(k.h * 0.55)}px ${TERM_FONT}`;
+      ctx.textAlign = 'center';
+      ctx.fillText(armed ? '⏻?' : '⏻', k.x + k.w / 2, hy + 1);
     }
     // Ask button.
     const a = { x: ASK_BTN.x * w, y: ASK_BTN.y * h, w: ASK_BTN.w * w, h: ASK_BTN.h * h };
@@ -386,6 +443,11 @@ export class VrTerminalPanel {
         this.blinkAt = now;
         this.blinkOn = !this.blinkOn;
         this.panel.markDirty(this.cursorRect ?? BODY);
+      }
+      // The armed kill button cools back down (repaint once, when it lapses).
+      if (this.killArmedUntil && now >= this.killArmedUntil) {
+        this.killArmedUntil = 0;
+        this.panel.markDirty();
       }
     }
     this.panel.update(dt, head);

@@ -428,6 +428,14 @@ const vr = new VRSession(renderer, scene, camera, {
         },
         exitVr: () => void vr.toggle(),
       },
+      workerActions: {
+        resume: (workerId) => {
+          const w = store.workers.get(workerId);
+          if (w) resumeWorker(w);
+        },
+        kill: (workerId) => vrKill(workerId),
+        killWarning: (workerId) => killWarning(workerId),
+      },
     });
     vr.setUi(vrUi);
   },
@@ -495,6 +503,7 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     // Clicks a menu/prompt button by id (the panel's own button registry + onClick).
     mclick: (id: string) => vrUi?.menu.panel.clickButton(id) ?? false,
     promptButton: (id: string) => vrUi?.prompt.panel.clickButton(id) ?? false,
+    tclick: (id: string) => vrUi?.terminal.panel.clickButton(id) ?? false,
     // The menu's current view (E-routing checks read this back).
     menuView: () => vrUi?.menu.currentView() ?? null,
     // E through the session's own dispatch, at a made-up target (E-routing checks).
@@ -1589,6 +1598,24 @@ function killWorker(id: string) {
     ? `This stops its ${session} for everyone, and it forgets what it was asked. The next prompt at the ${where} starts a fresh one.`
     : `This stops the ${session} at ${where} for everyone and frees the desk.`;
   confirmDialog(`Send ${w.name} home?`, body, 'Send home', () => net.send({ t: 'worker.kill', workerId: id }));
+}
+/** What the terminal's ⏻ button says on its arming tap: the desktop send-home dialog, in one line. */
+function killWarning(id: string): string | null {
+  const w = store.workers.get(id);
+  if (!w) return null;
+  const again = `Tap ⏻ again to send ${w.name} home`;
+  if (w.meeting) {
+    const m = store.meeting.current;
+    return m?.id === w.meeting && m.status === 'running' ? `${w.name} is in the meeting on “${m.title}”, which stops without it. ${again}` : `${w.name} leaves the meeting room. ${again}`;
+  }
+  if (w.worktree) return `${again} (the ${w.worktree.branch} worktree stays unless it's empty)`;
+  if (DESK_BY_ID.get(w.deskId)?.station) return `${again} (this stops its session for everyone)`;
+  return `${again} and free the desk`;
+}
+/** The terminal's ⏻ button, confirmed: the X key's send without the dialog (the server keeps a worktree that holds work). */
+function vrKill(id: string) {
+  if (!store.workers.get(id)) return;
+  net.send({ t: 'worker.kill', workerId: id });
 }
 
 /** E at a board-agent kiosk in VR: ask it something (or meet its terminal when it's waiting on an answer). */
