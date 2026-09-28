@@ -44,6 +44,8 @@ export class Building {
   /** Floors being cloned, by lower-cased repo. Not saved until the clone is there. */
   private cloning = new Map<string, FloorDef>();
   private repoCache?: { at: number; repos: Promise<RepoChoice[]> };
+  /** The floor the office was started in (see ensureLocal), which can't be taken off. */
+  private localId?: string;
 
   constructor(
     /** The office's own data folder; `gh` runs there, since the projects folder may not exist yet. */
@@ -107,10 +109,33 @@ export class Building {
   ensureLocal(dir: string, by: string): FloorDef {
     const abs = path.resolve(dir);
     const known = this.defs.find((d) => path.resolve(d.dir) === abs);
-    if (known) return known;
+    if (known) {
+      this.localId = known.id;
+      return known;
+    }
     // Named after its folder, as the office always called it.
     const def = this.newDef(path.basename(abs), originRepo(abs), abs, by);
     this.defs.unshift(def);
+    this.localId = def.id;
+    this.save();
+    return def;
+  }
+
+  /** The office keeps its data in this floor's checkout, and makes it a floor again at every start. */
+  isLocal(id: string): boolean {
+    return id === this.localId;
+  }
+
+  /**
+   * Takes a floor off the building. Its checkout stays where it is, with its workers, queue and
+   * pictures in its .agent-office folder: adding the repository again moves back in, as long as the
+   * checkout is still where the projects folder clones it. Returns the floor, or why it can't.
+   */
+  remove(id: string): FloorDef | string {
+    const def = this.defs.find((d) => d.id === id);
+    if (!def) return [...this.cloning.values()].some((d) => d.id === id) ? "That floor is still being cloned — take it off once it's there" : 'No such floor';
+    if (this.isLocal(id)) return `${def.name} is the project the office was started in, so it's always a floor`;
+    this.defs = this.defs.filter((d) => d !== def);
     this.save();
     return def;
   }
