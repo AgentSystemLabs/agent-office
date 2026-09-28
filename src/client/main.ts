@@ -506,6 +506,7 @@ const vr = new VRSession(renderer, scene, camera, {
       getServices: () => store.services,
       getPeers: () => [...store.peers.values()].filter((p) => p.id !== store.you),
       getDogName: () => store.dog?.name ?? null,
+      getSound: () => ({ volume: settings.volume, muted: settings.muted, music: settings.music, musicMuted: settings.musicMuted }),
       voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => (voice.inVoice ? voice.toggleMute() : void toggleVoice()) },
       actions: {
         hire: (deskId) => vrHire(deskId),
@@ -531,6 +532,17 @@ const vr = new VRSession(renderer, scene, camera, {
         commentOn: (kind, number) => vrComment(kind, number),
         closeItem: (kind, number) => vrClose(kind, number),
         renameDog: () => vrRenameDog(),
+        toggleSound: (kind) => {
+          // The ⚙️ Settings mute buttons: flip it, save it, hear it (levels stay desktop — sliders).
+          if (kind === 'music') {
+            settings.musicMuted = !settings.musicMuted;
+            sound.setMusicVolume(settings.music, settings.musicMuted);
+          } else {
+            settings.muted = !settings.muted;
+            sound.setVolume(settings.volume, settings.muted);
+          }
+          saveSettings(settings);
+        },
         sendChat: (text) => net.send({ t: 'chat', text }),
         vrSettings: (patch) => {
           Object.assign(settings.vr, patch);
@@ -656,6 +668,8 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     dog: () => store.dog?.name ?? null,
     // What's on the jukebox (the stream check reads this back).
     jukebox: () => ({ on: store.jukebox.on, track: store.jukebox.track, url: store.jukebox.url ?? null }),
+    // Your own mute switches (the sound-rows check reads these back).
+    soundMuted: () => ({ music: settings.musicMuted, sounds: settings.muted }),
     // Seeds a fake teammate into this client's peers (solo here; reload clears it).
     seedPeer: (name: string, doing: string) => {
       store.peers.delete('peer-zzz');

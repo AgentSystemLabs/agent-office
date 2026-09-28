@@ -56,6 +56,8 @@ export interface VrMenuStores {
   getPeers: () => PeerInfo[];
   /** The floor dog's name (the ⚙️ Settings office-dog row's value). */
   getDogName: () => string | null;
+  /** Your own sound levels (the ⚙️ Settings volume rows' values, live). */
+  getSound: () => { volume: number; muted: boolean; music: number; musicMuted: boolean };
 }
 
 export interface VrMenuActions {
@@ -83,6 +85,8 @@ export interface VrMenuActions {
   vrSettings: (patch: Partial<VrSettings>) => void;
   /** Renames the floor dog — the DOM ⚙️ Settings office-dog row (main.ts vrRenameDog). */
   renameDog: () => void;
+  /** Mutes/unmutes the jukebox or the office sounds — the DOM ⚙️ Settings mute buttons. */
+  toggleSound: (kind: 'music' | 'sounds') => void;
   /** Calls a meeting with the pattern defaults — the DOM meeting form's send (main.ts vrMeeting). */
   meetingCall: () => void;
   /** Stops the running meeting — the DOM meeting window's stop (meeting.stop). */
@@ -354,16 +358,21 @@ export class VrMenu {
   }
 
   /** The settings view's rows: the ⚙️ Settings VR section as tap-to-toggle rows. */
-  private settingsRows(): { icon: string; title: string; sub: string }[] {
+  private settingsRows(): { id: string; icon: string; title: string; sub: string }[] {
     const s = this.stores.getVrSettings();
+    const sound = this.stores.getSound();
     const rows = [
-      { icon: '🚶', title: `Stick glide: ${s.glide ? 'on' : 'off'}`, sub: s.glide ? 'the left stick walks you · tap for teleport-only' : 'teleport-only · tap for smooth gliding' },
-      { icon: '🔄', title: `Turning: ${s.turn}`, sub: s.turn === 'snap' ? '45° steps · tap for smooth' : `${s.turnSpeed}°/s · tap for snap steps` },
-      { icon: '🎚️', title: `Turn speed: ${s.turnSpeed}°/s`, sub: 'smooth turning only · tap to step up' },
-      { icon: '🌑', title: `Teleport fade: ${s.fade ? 'on' : 'off'}`, sub: s.fade ? 'through black · tap for instant' : 'instant · tap for the fade' },
+      { id: 'glide', icon: '🚶', title: `Stick glide: ${s.glide ? 'on' : 'off'}`, sub: s.glide ? 'the left stick walks you · tap for teleport-only' : 'teleport-only · tap for smooth gliding' },
+      { id: 'turn', icon: '🔄', title: `Turning: ${s.turn}`, sub: s.turn === 'snap' ? '45° steps · tap for smooth' : `${s.turnSpeed}°/s · tap for snap steps` },
+      { id: 'speed', icon: '🎚️', title: `Turn speed: ${s.turnSpeed}°/s`, sub: 'smooth turning only · tap to step up' },
+      { id: 'fade', icon: '🌑', title: `Teleport fade: ${s.fade ? 'on' : 'off'}`, sub: s.fade ? 'through black · tap for instant' : 'instant · tap for the fade' },
     ];
     const dog = this.stores.getDogName();
-    if (dog) rows.push({ icon: '🐶', title: `Office dog: ${dog}`, sub: 'tap to rename for the floor' });
+    if (dog) rows.push({ id: 'dog', icon: '🐶', title: `Office dog: ${dog}`, sub: 'tap to rename for the floor' });
+    rows.push(
+      { id: 'music', icon: sound.musicMuted ? '🔇' : '🎵', title: sound.musicMuted ? 'Jukebox: muted' : `Jukebox: ${Math.round(sound.music * 100)}%`, sub: 'your ears only · tap to mute/unmute' },
+      { id: 'sounds', icon: sound.muted ? '🔇' : '🔊', title: sound.muted ? 'Office sounds: muted' : `Office sounds: ${Math.round(sound.volume * 100)}%`, sub: 'your ears only · tap to mute/unmute' },
+    );
     return rows;
   }
 
@@ -636,13 +645,16 @@ export class VrMenu {
     }
     if (this.view === 'settings') {
       const s = this.stores.getVrSettings();
-      if (i === 0) this.actions.vrSettings({ glide: !s.glide });
-      else if (i === 1) this.actions.vrSettings({ turn: s.turn === 'snap' ? 'smooth' : 'snap' });
-      else if (i === 2) {
+      const id = this.settingsRows()[i]?.id;
+      if (id === 'glide') this.actions.vrSettings({ glide: !s.glide });
+      else if (id === 'turn') this.actions.vrSettings({ turn: s.turn === 'snap' ? 'smooth' : 'snap' });
+      else if (id === 'speed') {
         const next = s.turnSpeed + 30;
         this.actions.vrSettings({ turnSpeed: next > 180 ? 30 : next });
-      } else if (i === 3) this.actions.vrSettings({ fade: !s.fade });
-      else if (i === 4) this.actions.renameDog();
+      } else if (id === 'fade') this.actions.vrSettings({ fade: !s.fade });
+      else if (id === 'dog') this.actions.renameDog();
+      else if (id === 'music') this.actions.toggleSound('music');
+      else if (id === 'sounds') this.actions.toggleSound('sounds');
       this.refresh();
       return;
     }

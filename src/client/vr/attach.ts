@@ -94,6 +94,7 @@ export interface VrUiDeps {
   getServices: () => ServicesState;
   getPeers: () => PeerInfo[];
   getDogName: () => string | null;
+  getSound: () => { volume: number; muted: boolean; music: number; musicMuted: boolean };
   onRoof: () => boolean;
   barCutOff: () => boolean;
   getVrSettings: () => VrSettings;
@@ -214,6 +215,7 @@ class VrUi implements VrUiHandle {
         getServices: deps.getServices,
         getPeers: deps.getPeers,
         getDogName: deps.getDogName,
+        getSound: deps.getSound,
         onRoof: deps.onRoof,
         barCutOff: deps.barCutOff,
         getVrSettings: deps.getVrSettings,
