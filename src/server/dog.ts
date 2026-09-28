@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { DESK_BY_ID, FLOOR, KIOSK, type DeskDef } from '../shared/layout.js';
-import { cleanDogName, dogAt, dogDefaults, legSeconds, type DogAct, type DogState } from '../shared/dog.js';
+import { cleanDogName, dogAt, dogDefaults, legSeconds, type DogAct, type DogBreed, type DogState } from '../shared/dog.js';
 import { deskPoint, nearestWalkable, route, walkable, type Pt } from '../shared/nav.js';
 import type { PeerInfo, WorkerInfo } from '../shared/protocol.js';
 
@@ -42,17 +42,18 @@ export interface DogEnv {
   send(dog: DogState): void;
 }
 
-type Leg = Omit<DogState, 'name' | 'coat' | 'elapsed'> & { start: number };
+type Leg = Omit<DogState, 'name' | 'coat' | 'breed' | 'elapsed'> & { start: number };
 
 /**
  * A floor's dog. It naps under the desks of workers who are busy, trots after people for a while,
  * sniffs around and hangs out on the lounge rug. When a worker needs input it drops everything, runs
  * to that desk and barks (the browsers do the barking; see client/world/dog.ts). Its name is kept
- * in the floor's .agent-office/dog.json.
+ * in the floor's .agent-office/dog.json; its coat and breed come from the floor's id (see dogDefaults).
  */
 export class Dog {
   private name: string;
   private readonly coat: number;
+  private readonly breed: DogBreed;
   private readonly fallbackName: string;
   private readonly file: string;
   private leg: Leg;
@@ -76,6 +77,7 @@ export class Dog {
     const d = dogDefaults(floorId);
     this.fallbackName = d.name;
     this.coat = d.coat;
+    this.breed = d.breed;
     this.file = path.join(dataDir, 'dog.json');
     this.name = this.load() ?? d.name;
     // Lying on the rug when the office opens, and up and about a few seconds later.
@@ -86,7 +88,7 @@ export class Dog {
 
   view(): DogState {
     const { start, ...leg } = this.leg;
-    return { name: this.name, coat: this.coat, ...leg, elapsed: Date.now() - start };
+    return { name: this.name, coat: this.coat, breed: this.breed, ...leg, elapsed: Date.now() - start };
   }
 
   /** Where it is right now. */

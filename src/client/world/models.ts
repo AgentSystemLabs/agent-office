@@ -1,7 +1,11 @@
 import type * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import dogUrl from '../models/dog.glb?url';
+import dogCorgiUrl from '../models/dog-corgi.glb?url';
+import dogDachshundUrl from '../models/dog-dachshund.glb?url';
+import dogPugUrl from '../models/dog-pug.glb?url';
+import dogPupUrl from '../models/dog-pup.glb?url';
+import dogShibaUrl from '../models/dog-shiba.glb?url';
 import { toon } from './toon';
 
 // The things in the world modelled in Blender rather than built in code. Each .glb is exported by a
@@ -9,7 +13,11 @@ import { toon } from './toon';
 // `preload` ones are loaded before the world is built, for builders that take theirs with model();
 // the rest load the first time loadModel() asks for them (a floor's dog is only ever one breed).
 const MODELS = {
-  dog: { url: dogUrl, preload: false },
+  'dog-pup': { url: dogPupUrl, preload: false },
+  'dog-corgi': { url: dogCorgiUrl, preload: false },
+  'dog-dachshund': { url: dogDachshundUrl, preload: false },
+  'dog-pug': { url: dogPugUrl, preload: false },
+  'dog-shiba': { url: dogShibaUrl, preload: false },
 } satisfies Record<string, { url: string; preload: boolean }>;
 
 export type ModelName = keyof typeof MODELS;

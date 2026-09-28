@@ -9,6 +9,8 @@ export interface DogState {
   name: string;
   /** Which of DOG_COATS it wears. */
   coat: number;
+  /** What kind of dog it is (see dogBreed for one the page doesn't know). */
+  breed: DogBreed;
   /** This leg: from where it was when the leg began, on through each point in turn. Never empty. */
   path: [number, number][];
   /** Meters per second along the path. */
@@ -31,6 +33,15 @@ export const DOG_NAME_MAX = 24;
 /** A new floor's dog is called one of these until someone names it in ⚙️ Settings (none is a worker's name). */
 export const DOG_NAMES = ['Biscuit', 'Pancake', 'Peanut', 'Pepper', 'Cookie', 'Bagel', 'Ziggy', 'Pretzel', 'Maple', 'Scout'];
 
+/** A floor's dog is one of these, each its own model (dog-<breed>.glb) with the same rig and clips. */
+export const DOG_BREEDS = ['pup', 'corgi', 'dachshund', 'pug', 'shiba'] as const;
+export type DogBreed = (typeof DOG_BREEDS)[number];
+
+/** A breed as the office sent it, or the pup when there's none (an older office) or it's one this page doesn't know (a newer one). */
+export function dogBreed(breed: unknown): DogBreed {
+  return DOG_BREEDS.find((b) => b === breed) ?? 'pup';
+}
+
 /** Coats: [body, belly and muzzle, ears]. */
 export const DOG_COATS: [string, string, string][] = [
   ['#e0a458', '#fff1d6', '#b36f35'], // golden
@@ -46,11 +57,17 @@ export const BARK_EVERY_S = 14;
 /** ...for this long, then sits there quietly (still pointing) until someone answers. */
 export const BARK_FOR_S = 120;
 
-/** A name for a floor's dog, and a coat, picked from its id so it keeps them. */
-export function dogDefaults(floorId: string): { name: string; coat: number } {
+/**
+ * A name for a floor's dog, a coat and a breed, picked from its id so it keeps them. The name and coat are
+ * picked as they were before there were breeds, so a floor's dog kept them. The breed is picked from the
+ * same hash stirred once more, so it doesn't follow the name, and floors called much alike (a repo and its
+ * "-2", which differ only in the hash's low bits) don't all get the same one.
+ */
+export function dogDefaults(floorId: string): { name: string; coat: number; breed: DogBreed } {
   let h = 0;
   for (const ch of floorId) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return { name: DOG_NAMES[h % DOG_NAMES.length], coat: (h >>> 8) % DOG_COATS.length };
+  const stirred = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;
+  return { name: DOG_NAMES[h % DOG_NAMES.length], coat: (h >>> 8) % DOG_COATS.length, breed: DOG_BREEDS[(stirred >>> 16) % DOG_BREEDS.length] };
 }
 
 /** Takes control characters out and trims to DOG_NAME_MAX; '' when nothing's left. */
