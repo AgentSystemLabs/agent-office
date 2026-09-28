@@ -528,7 +528,7 @@ export class Person {
       disposeSprite(this.label);
     }
     const suffix = muted === null ? '' : muted ? ' 🔇' : ' 🎙️';
-    this.label = textSprite(`${name}${suffix}`, { bg: '#fffaf3', size: 40 });
+    this.label = textSprite(`${name}${suffix}`, { bg: '#0a0a0a', color: '#eeeeee', border: '#2f2f2f', size: 40 });
     this.root.add(this.label);
     this.placeLabels();
   }
@@ -544,7 +544,7 @@ export class Person {
       this.doing = null;
     }
     if (text) {
-      this.doing = textSprite(text, { bg: '#e9ecef', size: 26 });
+      this.doing = textSprite(text, { bg: '#0a0a0a', color: '#eeeeee', border: '#2f2f2f', size: 26 });
       this.doing.position.y = DOING_Y;
       this.doing.visible = this.label?.visible ?? true;
       this.root.add(this.doing);
@@ -842,11 +842,11 @@ export class Person {
 // -----------------------------------------------------------------------------------------------
 
 const STATUS_BULB: Record<string, string> = {
-  starting: '#adb5bd',
-  idle: '#8ecae6',
-  working: '#ffd166',
-  needs_input: '#ef476f',
-  done: '#06d6a0',
+  starting: '#8c8c8c',
+  idle: '#5aa9e6',
+  working: '#f2b84b',
+  needs_input: '#ef4444',
+  done: '#3ccf91',
   exited: '#6c757d',
   offline: '#6c757d',
 };
@@ -1220,7 +1220,7 @@ export class Worker {
       this.root.remove(this.nameTag);
       disposeSprite(this.nameTag);
     }
-    this.nameTag = textSprite(name, { bg: '#2b2d42', color: '#fffaf3', size: 36, border: '#fffaf3' });
+    this.nameTag = textSprite(name, { bg: '#0a0a0a', color: '#eeeeee', size: 36, border: '#2f2f2f' });
     this.nameTag.position.y = 1.55;
     this.root.add(this.nameTag);
   }
@@ -1233,7 +1233,7 @@ export class Worker {
   }
 
   private paintBulb() {
-    const c = STATUS_BULB[this.status] ?? '#adb5bd';
+    const c = STATUS_BULB[this.status] ?? '#8c8c8c';
     this.bulb.color.set(c);
     this.bulb.emissive.set(c).multiplyScalar(0.7);
   }
@@ -1293,7 +1293,7 @@ export class Worker {
     }
     this.bubbleKey = 'leaving';
     this.bubbleIsCard = false;
-    this.bubble = textSprite(farewell, { bg: '#e9ecef', size: 34 });
+    this.bubble = textSprite(farewell, { bg: '#0a0a0a', color: '#eeeeee', border: '#2f2f2f', size: 34 });
     this.root.add(this.bubble);
     // Looking down, brows up in the middle.
     for (const p of this.pupils) p.position.y -= 0.035;
@@ -1317,7 +1317,7 @@ export class Worker {
       this.root.remove(this.bubble);
       disposeSprite(this.bubble);
     }
-    this.bubble = textSprite(text, { bg: '#e9ecef', size: 34 });
+    this.bubble = textSprite(text, { bg: '#0a0a0a', color: '#eeeeee', border: '#2f2f2f', size: 34 });
     this.root.add(this.bubble);
   }
 
@@ -1340,7 +1340,7 @@ export class Worker {
     if (task) {
       const [text, chipBg, color] = TASK_CHIP[status] ?? TASK_CHIP.idle;
       this.bubble = cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: task.summary, bg: isAsleep(status) ? '#e9ecef' : bg });
-    } else if (bubble) this.bubble = textSprite(bubble, { bg, size: 38 });
+    } else if (bubble) this.bubble = textSprite(bubble, { bg: '#0a0a0a', color: '#eeeeee', border: '#2f2f2f', size: 38 });
     if (this.bubble) this.root.add(this.bubble);
   }
 

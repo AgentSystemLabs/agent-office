@@ -313,7 +313,7 @@ export class Dog {
       this.root.remove(this.tag);
       disposeSprite(this.tag);
     }
-    this.tag = textSprite(`🐶 ${name}`, { bg: '#fffaf3', size: 30 });
+    this.tag = textSprite(`🐶 ${name}`, { bg: '#0a0a0a', color: '#eeeeee', border: '#2f2f2f', size: 30 });
     this.tag.position.y = 1.0;
     this.root.add(this.tag);
   }
@@ -325,7 +325,7 @@ export class Dog {
       return;
     }
     this.hush();
-    const sprite = textSprite(text, { bg: kind === 'woof' ? '#ffd6e0' : '#ffffff', size: 34 });
+    const sprite = textSprite(text, { bg: '#0a0a0a', color: kind === 'woof' ? '#f2b84b' : '#eeeeee', border: '#2f2f2f', size: 34 });
     sprite.userData.text = text;
     this.root.add(sprite);
     this.bubble = { sprite, kind, until: this.t + seconds };

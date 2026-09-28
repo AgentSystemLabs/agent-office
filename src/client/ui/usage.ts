@@ -130,7 +130,7 @@ export function renderUsage() {
       h(
         'div.row',
         {},
-        h('span', {}, '💸 Claude Code today'),
+        h('span', {}, 'Claude Code today'),
         h('b', { title: usageTitle(s.today, 'claude') }, displayedCost(s.today)),
         s.budget !== undefined ? h('span.muted', {}, `of ${fmtCost(s.budget)}`) : h('span.muted', {}, `· ${fmtTokens(tokensOf(s.today))} tokens`),
       ),

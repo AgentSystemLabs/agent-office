@@ -3,6 +3,7 @@ import { FRAMES, FRAME_BORDER, WALLS, frameRect, wallPose, wallTop, type Decorat
 import { FLOOR, LOFT } from '../../shared/layout';
 import type { Interactable } from './office';
 import { toon } from './toon';
+import { SANS } from '../fonts';
 
 // ---- Pictures -------------------------------------------------------------------------------------
 
@@ -116,7 +117,7 @@ function notice(text: string, bg: string, fg: string): THREE.CanvasTexture {
   g.fillStyle = fg;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.font = '800 44px Nunito, ui-rounded, system-ui, sans-serif';
+  g.font = `800 44px ${SANS}`;
   g.fillText(text, c.width / 2, c.height / 2);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -125,8 +126,8 @@ function notice(text: string, bg: string, fg: string): THREE.CanvasTexture {
 
 let loadingTex: THREE.CanvasTexture | null = null;
 let brokenTex: THREE.CanvasTexture | null = null;
-const loadingTexture = () => (loadingTex ??= notice('🖼️ Loading…', '#e9ecef', '#7a6f65'));
-export const brokenTexture = () => (brokenTex ??= notice('⚠️ Image unavailable', '#ffd6e0', '#2b2d42'));
+const loadingTexture = () => (loadingTex ??= notice('🖼️ Loading…', '#0a0a0a', '#8c8c8c'));
+export const brokenTexture = () => (brokenTex ??= notice('⚠️ Image unavailable', '#0a0a0a', '#ef4444'));
 
 // ---- Frames ---------------------------------------------------------------------------------------
 
@@ -295,7 +296,7 @@ export class Ghost {
   private key = '';
 
   constructor() {
-    this.halo = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), flat({ color: '#06d6a0', transparent: true, opacity: 0.5, depthWrite: false }));
+    this.halo = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), flat({ color: '#3ccf91', transparent: true, opacity: 0.5, depthWrite: false }));
     this.halo.position.z = -0.002;
     this.group.add(this.halo);
     this.group.visible = false;
@@ -312,7 +313,7 @@ export class Ghost {
       this.key = key;
     }
     this.halo.scale.set(at.w + 2 * FRAME_BORDER + 0.16, at.h + 2 * FRAME_BORDER + 0.16, 1);
-    this.halo.material.color.set(at.ok ? '#06d6a0' : '#ef476f');
+    this.halo.material.color.set(at.ok ? '#3ccf91' : '#ef4444');
     // Where it can't hang it floats out in front, so a board or the TV doesn't hide it.
     placeOnWall(this.group, at.wall, at.u, at.y, at.ok ? 0.005 : 0.32);
     this.group.visible = true;

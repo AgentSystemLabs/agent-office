@@ -75,9 +75,9 @@ export function openTeam(net: Net) {
   let status: HTMLElement | null = null;
   const body = h('div.body.team');
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
-  const copyMsg = copyButton('✉️ Copy invite message', () => (store.team ? inviteMessage(store.team, os) : ''), 'primary');
-  const footer = h('footer', {}, h('span.grow', {}, 'Invited people still need to sign in: the office password, or an account from 🔑 Accounts.'), copyMsg);
-  const el = h('div.modal', { role: 'dialog', 'aria-label': 'Invite teammates', style: 'width:min(680px,100%)' }, h('header', {}, h('h2', {}, '👥 Invite teammates'), close), body, footer);
+  const copyMsg = copyButton('Copy invite message', () => (store.team ? inviteMessage(store.team, os) : ''), 'primary');
+  const footer = h('footer', {}, h('span.grow', {}, 'Invited people still need to sign in: the office password, or an account from Accounts.'), copyMsg);
+  const el = h('div.modal', { role: 'dialog', 'aria-label': 'Invite teammates', style: 'width:min(680px,100%)' }, h('header', {}, h('h2', {}, 'Invite teammates'), close), body, footer);
 
   const input = h('input', { type: 'text', maxlength: 40, placeholder: 'GitHub username', 'aria-label': 'GitHub username', autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
   const inviteBtn = h('button.btn.primary', { type: 'submit' }, 'Invite');

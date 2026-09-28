@@ -25,13 +25,14 @@ import { Smoke } from './world/smoke';
 import { HAZE_MAX, Sky, describeSky } from './world/sky';
 import { Laptop } from './world/laptop';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
+import { loadFonts, MONO } from './fonts';
 import { Gallery } from './world/gallery';
 import { Dog } from './world/dog';
 import { Holiday } from './world/holiday';
 import { Arrivals, Departures } from './world/leaving';
 import { Confetti, type Area } from './world/confetti';
 import { Hanger } from './hanging';
-import { disposeSprite, textSprite } from './world/toon';
+import { disposeSprite, redrawText, textSprite } from './world/toon';
 import { Voice } from './voice';
 import { OfficeSound } from './sound';
 import { DesktopNotifier, askNotifyPermission, notifyPermission, waitingOnSomeone } from './notify';
@@ -186,17 +187,22 @@ store.on('workers', () => {
   renderPullsBoard();
 });
 const servicesTex = new ServicesBoardTexture();
-mountBoard(office.boardMeshes.services, servicesTex.texture, () => servicesTex.render(store.services.items, store.workers), ['services', 'workers']);
+const renderServicesBoard = () => servicesTex.render(store.services.items, store.workers);
+mountBoard(office.boardMeshes.services, servicesTex.texture, renderServicesBoard, ['services', 'workers']);
 const queueTex = new QueueBoardTexture();
-mountBoard(office.boardMeshes.queue, queueTex.texture, () => queueTex.render(store.queue, store.workers), ['queue', 'workers']);
+const renderQueueBoard = () => queueTex.render(store.queue, store.workers);
+mountBoard(office.boardMeshes.queue, queueTex.texture, renderQueueBoard, ['queue', 'workers']);
 // The machine monitor on the west wall.
 const machineTex = new MachineTexture();
-mountBoard(office.machineScreen, machineTex.texture, () => machineTex.render(store.machine), ['machine']);
+const renderMachineBoard = () => machineTex.render(store.machine);
+mountBoard(office.machineScreen, machineTex.texture, renderMachineBoard, ['machine']);
 // The meeting room: its output as it's written on the back wall, and how it's going on the door.
 const meetingBoardTex = new MeetingBoardTexture();
-mountBoard(office.meetingBoard, meetingBoardTex.texture, () => meetingBoardTex.render(store.meeting), ['meeting']);
+const renderMeetingBoard = () => meetingBoardTex.render(store.meeting);
+mountBoard(office.meetingBoard, meetingBoardTex.texture, renderMeetingBoard, ['meeting']);
 const meetingSignTex = new MeetingSignTexture();
-mountBoard(office.meetingSign, meetingSignTex.texture, () => meetingSignTex.render(store.meeting), ['meeting']);
+const renderMeetingSign = () => meetingSignTex.render(store.meeting);
+mountBoard(office.meetingSign, meetingSignTex.texture, renderMeetingSign, ['meeting']);
 
 // Pictures people hung on the walls
 const gallery = new Gallery();
@@ -222,25 +228,45 @@ const tvIdle = (() => {
   c.width = 1280;
   c.height = 720;
   const g = c.getContext('2d')!;
-  const grad = g.createLinearGradient(0, 0, 1280, 720);
-  grad.addColorStop(0, '#3a0ca3');
-  grad.addColorStop(1, '#4cc9f0');
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 1280, 720);
-  g.fillStyle = '#fff';
-  g.textAlign = 'center';
-  g.font = '900 88px Nunito, ui-rounded, system-ui, sans-serif';
-  g.fillText('📺 Office TV', 640, 330);
-  g.font = '700 44px Nunito, ui-rounded, system-ui, sans-serif';
-  g.fillText('Click “Share screen” to put something up here', 640, 420);
+  // A flat dark standby screen with a mono wordmark, the way the HUD's panels look.
+  const draw = () => {
+    g.fillStyle = '#0a0a0a';
+    g.fillRect(0, 0, 1280, 720);
+    g.fillStyle = 'rgba(255, 255, 255, .045)';
+    for (let y = 16; y < 720; y += 32) for (let x = 16; x < 1280; x += 32) g.fillRect(x, y, 2, 2);
+    g.fillStyle = '#ee6018';
+    g.fillRect(80, 316, 10, 80);
+    g.fillStyle = '#eeeeee';
+    g.textAlign = 'left';
+    g.font = `700 72px ${MONO}`;
+    g.fillText('OFFICE TV', 116, 376);
+    g.fillStyle = '#8c8c8c';
+    g.font = `500 30px ${MONO}`;
+    g.fillText('CLICK “SHARE SCREEN” TO PUT SOMETHING UP HERE', 116, 432);
+    t.needsUpdate = true;
+  };
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+  draw();
+  return { tex: t, redraw: draw };
 })();
 const tvMat = office.tvScreen.material as THREE.MeshBasicMaterial;
 tvMat.color.set('#ffffff');
-tvMat.map = tvIdle;
+tvMat.map = tvIdle.tex;
 tvMat.toneMapped = false;
+// The world's canvases drew at boot, before the bundled fonts were necessarily in: repaint them
+// once Geist and Geist Mono are loaded, so nothing is left in a fallback typeface.
+void loadFonts().then(() => {
+  renderIssuesBoard();
+  renderPullsBoard();
+  renderServicesBoard();
+  renderQueueBoard();
+  renderMachineBoard();
+  renderMeetingBoard();
+  renderMeetingSign();
+  tvIdle.redraw();
+  redrawText();
+});
 // The boss's monitor upstairs: Minesweeper, from the boss's chair.
 const arcade = new Arcade(office.bossScreen);
 
@@ -2559,7 +2585,7 @@ function refreshShares() {
     tvStream = stream;
     tvVideo.srcObject = stream;
     if (stream) void tvVideo.play().catch(() => {});
-    tvMat.map = stream ? tvTexture : tvIdle;
+    tvMat.map = stream ? tvTexture : tvIdle.tex;
     tvMat.needsUpdate = true;
   }
   const box = $('shares');

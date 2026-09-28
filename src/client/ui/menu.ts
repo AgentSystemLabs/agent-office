@@ -193,13 +193,14 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
       });
       return item;
     };
-    const section = (name: string, rows: HTMLElement[]) => (rows.length ? [h('div.menu-sec', {}, name), ...rows] : []);
+    // Numbered eyebrows, the way the sidebar's panels have them: the index in orange.
+    const section = (no: string, name: string, rows: HTMLElement[]) => (rows.length ? [h('div.menu-sec', {}, h('span.no', {}, no), name), ...rows] : []);
     const rows = (s: HudAction['section']) => actions.filter((a) => a.section === s && offered(a)).map(row);
     const el = h(
       'div.hud-menu',
       { role: 'menu', 'aria-label': 'Menu' },
-      h('div.menu-col', {}, ...section('Open', rows('Open')), ...section('Together', rows('Together'))),
-      h('div.menu-col', {}, ...section('Show on screen', PANELS.map(toggle)), ...section('Office', rows('Office'))),
+      h('div.menu-col', {}, ...section('01', 'Open', rows('Open')), ...section('02', 'Together', rows('Together'))),
+      h('div.menu-col', {}, ...section('03', 'Show on screen', PANELS.map(toggle)), ...section('04', 'Office', rows('Office'))),
       h('p.menu-foot', {}, 'Pin what you use most to keep it on the top bar. ', h('kbd', {}, 'Tab'), ' opens and closes this menu.'),
     );
     // On the window, so the keys work wherever focus is while the menu is up.

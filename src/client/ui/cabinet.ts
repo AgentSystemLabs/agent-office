@@ -192,7 +192,7 @@ export class Cabinet {
       { role: 'dialog', 'aria-label': GAME },
       h('div.arcade-screen', {}, board),
       call,
-      h('div.arcade-bar', {}, h('span', {}, `🕹️ ${GAME}`), h('span.tip', {}, tip), stop),
+      h('div.arcade-bar', {}, h('span', {}, GAME), h('span.tip', {}, tip), stop),
     );
 
     const fit = () => {
@@ -334,8 +334,8 @@ export class Cabinet {
     const w = this.waiting;
     el.classList.toggle('hidden', !w);
     if (!w) return el.replaceChildren();
-    const go = h('button.btn.primary', { type: 'button' }, '💬 Open its terminal');
-    const back = h('button.btn', { type: 'button' }, '▶ Carry on');
+    const go = h('button.btn.primary', { type: 'button' }, 'Open its terminal');
+    const back = h('button.btn', { type: 'button' }, 'Carry on');
     go.addEventListener('click', () => {
       this.modal?.close();
       this.opts.openTerminal(w.id);

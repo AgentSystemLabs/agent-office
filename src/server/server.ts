@@ -673,6 +673,14 @@ export async function startServer(cfg: Config) {
       if (p === '/claim' || p === '/claim.html') return serveFile(res, path.join(publicDir, 'claim.html'), false);
       if (p === '/join' || p === '/join.html') return serveFile(res, path.join(publicDir, 'join.html'), false);
       if (p === '/favicon.svg') return serveFile(res, path.join(publicDir, 'favicon.svg'), false);
+      // The auth pages' own assets: the brand mark and the bundled fonts, before anyone is logged in.
+      if (p === '/factory-glyph.svg') return serveFile(res, path.join(publicDir, 'factory-glyph.svg'), false);
+      if (p.startsWith('/fonts/')) {
+        const file = publicFile(p);
+        if (file) return serveFile(res, file, false);
+        res.writeHead(404).end();
+        return;
+      }
 
       const session = auth.fromRequest(req);
       if (!session) {

@@ -140,7 +140,7 @@ export function buildGarage(group: THREE.Group, colliders: Collider[]) {
     parts.add(mesh(box(x1 - x0 + 0.02, 0.35, z1 - z0 + 0.02), yellow, (x0 + x1) / 2, G + 1.1, (z0 + z1) / 2, false));
     colliders.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, bottom: G, top: ceiling });
   }
-  const sign = textPlane('🏎️  GARAGE', { bg: '#2b2d42', color: '#ffd166', size: 64, border: '#ffd166' });
+  const sign = textPlane('🏎️  GARAGE', { bg: '#0a0a0a', color: '#eeeeee', size: 64, border: '#2f2f2f' });
   sign.scale.multiplyScalar(1.6);
   sign.position.set(0, G + 2.3, B.minZ + WALL_T + 0.02);
   group.add(sign);

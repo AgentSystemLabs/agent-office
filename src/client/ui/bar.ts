@@ -52,7 +52,7 @@ export function openBar(opts: BarOptions) {
   const el = h(
     'div.modal.jukebox',
     { role: 'dialog', 'aria-label': 'Bar' },
-    h('header', {}, h('h2', {}, '🍸 Sky Bar'), close),
+    h('header', {}, h('h2', {}, 'Sky Bar'), close),
     h(
       'div.body',
       {},

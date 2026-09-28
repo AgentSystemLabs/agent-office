@@ -2,9 +2,12 @@ import * as THREE from 'three';
 import { DESK_BY_ID } from '../../shared/layout';
 import type { GhIssue, GhPull, GhState, QueueState, QueueTask, ServiceInfo, WorkerInfo } from '../../shared/protocol';
 import { workerForPull } from '../state';
+import { SANS, MONO } from '../fonts';
 
-export const NOTE_COLORS = ['#fff7b0', '#ffd6e0', '#caffbf', '#bde0fe', '#ffe5b4'];
-export const PINS = ['#ef476f', '#118ab2', '#06d6a0', '#ffd166'];
+// The Factory-style world surfaces: near-black panels, light text, orange accents (see ui/boards'
+// constants in style.css). The board's cards all read as one family; the marker squares vary.
+export const NOTE_COLORS = ['#161616', '#15181c', '#17151a', '#141618', '#16161a'];
+export const PINS = ['#ee6018', '#5aa9e6', '#3ccf91', '#f2b84b'];
 
 export function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number, maxLines: number): string[] {
   const words = text.split(/\s+/);
@@ -33,7 +36,7 @@ interface DrawnNote {
   tilt: number;
 }
 
-/** Renders a cork board with pinned sticky notes onto a canvas texture. */
+/** Renders a wall display of square task cards onto a canvas texture. */
 export class BoardTexture {
   readonly texture: THREE.CanvasTexture;
   private canvas = document.createElement('canvas');
@@ -88,27 +91,26 @@ export class BoardTexture {
     const g = this.ctx;
     const W = this.canvas.width;
     const H = this.canvas.height;
-    g.fillStyle = '#d8a86a';
+    g.fillStyle = '#0a0a0a';
     g.fillRect(0, 0, W, H);
-    // cork speckles
-    let seed = 7;
-    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-    for (let i = 0; i < 1400; i++) {
-      g.fillStyle = rnd() > 0.5 ? 'rgba(120,70,30,.18)' : 'rgba(255,240,210,.18)';
-      g.fillRect(rnd() * W, rnd() * H, 3, 3);
-    }
+    // A faint dot grid, like the board window's background.
+    g.fillStyle = 'rgba(255, 255, 255, .045)';
+    for (let y = 16; y < H; y += 32) for (let x = 16; x < W; x += 32) g.fillRect(x, y, 2, 2);
     const open = (state.items as (GhIssue | GhPull)[]).filter((i) => i.state === 'OPEN');
     if (!open.length) {
       const note = state.error ? `⚠️ ${state.error}` : state.loading && !state.fetchedAt ? 'Loading…' : this.kind === 'issues' ? 'No open issues 🎉' : 'No open PRs';
-      g.font = '800 40px Nunito, ui-rounded, system-ui, sans-serif';
-      const lines = wrap(g, note.replace(/`/g, ''), 760, 4);
-      const boxH = 60 + lines.length * 50;
-      g.fillStyle = '#fffaf3';
-      g.fillRect(W / 2 - 420, H / 2 - boxH / 2, 840, boxH);
-      g.fillStyle = '#2b2d42';
+      g.font = `700 34px ${MONO}`;
+      const lines = wrap(g, note.replace(/`/g, ''), 820, 4);
+      const boxH = 64 + lines.length * 46;
+      g.fillStyle = '#161616';
+      g.fillRect(W / 2 - 440, H / 2 - boxH / 2, 880, boxH);
+      g.strokeStyle = 'rgba(255, 255, 255, .18)';
+      g.lineWidth = 3;
+      g.strokeRect(W / 2 - 440, H / 2 - boxH / 2, 880, boxH);
+      g.fillStyle = '#eeeeee';
       g.textAlign = 'center';
       g.textBaseline = 'middle';
-      lines.forEach((line, i) => g.fillText(line, W / 2, H / 2 - ((lines.length - 1) * 50) / 2 + i * 50));
+      lines.forEach((line, i) => g.fillText(line, W / 2, H / 2 - ((lines.length - 1) * 46) / 2 + i * 46));
       g.textAlign = 'left';
       g.textBaseline = 'alphabetic';
       this.texture.needsUpdate = true;
@@ -134,25 +136,26 @@ export class BoardTexture {
       g.save();
       g.translate(x + nw / 2, y + nh / 2);
       g.rotate(tilt);
-      // Lifted: a little bigger, with its shadow further off, as if it's coming away from the cork.
+      // Lifted: a little bigger and its shadow further off, as if it's coming away from the board.
       if (lifted) g.scale(1.06, 1.06);
-      g.fillStyle = lifted ? 'rgba(0,0,0,.32)' : 'rgba(0,0,0,.25)';
-      g.fillRect(-nw / 2 + (lifted ? 12 : 5), -nh / 2 + (lifted ? 16 : 7), nw, nh);
+      g.fillStyle = lifted ? 'rgba(0, 0, 0, .5)' : 'rgba(0, 0, 0, .4)';
+      g.fillRect(-nw / 2 + (lifted ? 10 : 4), -nh / 2 + (lifted ? 12 : 6), nw, nh);
       const draft = this.kind === 'pulls' && (it as GhPull).isDraft;
-      g.fillStyle = draft ? '#e9ecef' : NOTE_COLORS[it.number % NOTE_COLORS.length];
+      g.fillStyle = draft ? '#101013' : NOTE_COLORS[it.number % NOTE_COLORS.length];
       g.fillRect(-nw / 2, -nh / 2, nw, nh);
-      if (lifted) {
-        g.lineWidth = 6;
-        g.strokeStyle = '#2b2d42';
-        g.strokeRect(-nw / 2, -nh / 2, nw, nh);
-      }
-      g.fillStyle = '#2b2d42';
+      // A hairline border; the one being lifted lights up orange.
+      g.lineWidth = lifted ? 6 : 3;
+      g.strokeStyle = lifted ? '#ee6018' : 'rgba(255, 255, 255, .18)';
+      g.strokeRect(-nw / 2, -nh / 2, nw, nh);
+      // The index in orange, the title in light text.
       const fs = Math.round(22 * Math.min(scale, nh / 164));
       const w = this.kind === 'pulls' && workers ? workerForPull(workers.values(), it as GhPull) : undefined;
       const footer = w ? fs * 1.3 : 0;
-      g.font = `900 ${Math.round(fs * 1.35)}px Nunito, ui-rounded, system-ui, sans-serif`;
+      g.fillStyle = '#ee6018';
+      g.font = `700 ${Math.round(fs * 1.2)}px ${MONO}`;
       g.fillText(`#${it.number}`, -nw / 2 + 14, -nh / 2 + fs * 2);
-      g.font = `700 ${fs}px Nunito, ui-rounded, system-ui, sans-serif`;
+      g.fillStyle = '#eeeeee';
+      g.font = `600 ${fs}px ${SANS}`;
       wrap(g, it.title, nw - 28, Math.max(2, Math.floor((nh - fs * 3 - footer) / (fs * 1.1)))).forEach((line, li) => g.fillText(line, -nw / 2 + 14, -nh / 2 + fs * 3.4 + li * fs * 1.1));
       if (w) {
         // A dot in the worker's color and its desk, so you can tell whose PR it is from across the room.
@@ -163,24 +166,17 @@ export class BoardTexture {
         g.fillStyle = w.color;
         g.fill();
         g.lineWidth = 2;
-        g.strokeStyle = '#2b2d42';
+        g.strokeStyle = 'rgba(255, 255, 255, .35)';
         g.stroke();
-        g.fillStyle = '#5c5f73';
-        g.font = `800 ${Math.round(fs * 0.78)}px Nunito, ui-rounded, system-ui, sans-serif`;
+        g.fillStyle = '#8c8c8c';
+        g.font = `500 ${Math.round(fs * 0.72)}px ${MONO}`;
         g.fillText(clip(g, `${w.name} · ${DESK_BY_ID.get(w.deskId)?.label ?? 'desk'}`, nw - 28 - r * 2 - 8), -nw / 2 + 14 + r * 2 + 8, y + fs * 0.28);
       }
-      g.beginPath();
-      g.arc(0, -nh / 2 + 10, 11, 0, Math.PI * 2);
-      g.fillStyle = PINS[i % PINS.length];
-      g.fill();
-      g.lineWidth = 3;
-      g.strokeStyle = '#2b2d42';
-      g.stroke();
       g.restore();
     });
     if (open.length > cols * rows) {
-      g.fillStyle = '#2b2d42';
-      g.font = '800 26px Nunito, ui-rounded, system-ui, sans-serif';
+      g.fillStyle = '#8c8c8c';
+      g.font = `500 22px ${MONO}`;
       g.textAlign = 'right';
       g.fillText(`+${open.length - cols * rows} more`, W - 20, H - 16);
       g.textAlign = 'left';
@@ -189,7 +185,7 @@ export class BoardTexture {
   }
 }
 
-/** The services board: a chalkboard listing the web servers workers are running. */
+/** The services board: a wall display listing the web servers workers are running. */
 export class ServicesBoardTexture {
   readonly texture: THREE.CanvasTexture;
   private canvas = document.createElement('canvas');
@@ -217,18 +213,18 @@ export class ServicesBoardTexture {
     const g = this.ctx;
     const W = this.canvas.width;
     const H = this.canvas.height;
-    g.fillStyle = '#23303b';
+    g.fillStyle = '#0a0a0a';
     g.fillRect(0, 0, W, H);
-    // chalk smudges
-    g.fillStyle = 'rgba(255,255,255,.025)';
-    for (let i = 0; i < 18; i++) g.fillRect(((i * 997) % W) - 60, ((i * 613) % H) - 20, 260, 34);
+    // A faint dot grid, like the issues and PRs boards.
+    g.fillStyle = 'rgba(255, 255, 255, .045)';
+    for (let y = 16; y < H; y += 32) for (let x = 16; x < W; x += 32) g.fillRect(x, y, 2, 2);
     if (!rows.length) {
       g.textAlign = 'center';
-      g.fillStyle = '#e9ecef';
-      g.font = '900 52px Nunito, ui-rounded, system-ui, sans-serif';
+      g.fillStyle = '#eeeeee';
+      g.font = `700 44px ${MONO}`;
       g.fillText('No web servers running', W / 2, H / 2 - 20);
-      g.fillStyle = 'rgba(233,236,239,.6)';
-      g.font = '700 32px Nunito, ui-rounded, system-ui, sans-serif';
+      g.fillStyle = 'rgba(140, 140, 140, .9)';
+      g.font = `500 28px ${SANS}`;
       g.fillText('When a worker starts one, it shows up here', W / 2, H / 2 + 36);
       g.textAlign = 'left';
       this.texture.needsUpdate = true;
@@ -239,31 +235,34 @@ export class ServicesBoardTexture {
     const fs = Math.round(rowH * 0.36);
     shown.forEach((r, i) => {
       const y = 20 + i * rowH;
-      g.fillStyle = 'rgba(255,255,255,.06)';
+      g.fillStyle = 'rgba(255, 255, 255, .04)';
       g.fillRect(24, y + 6, W - 48, rowH - 12);
+      g.strokeStyle = 'rgba(255, 255, 255, .12)';
+      g.lineWidth = 2;
+      g.strokeRect(24, y + 6, W - 48, rowH - 12);
       g.beginPath();
       g.arc(70, y + rowH / 2, fs * 0.42, 0, Math.PI * 2);
       g.fillStyle = r.color;
       g.fill();
-      g.lineWidth = 4;
-      g.strokeStyle = '#e9ecef';
+      g.lineWidth = 3;
+      g.strokeStyle = 'rgba(255, 255, 255, .35)';
       g.stroke();
-      g.fillStyle = '#ffd166';
-      g.font = `900 ${fs}px ui-monospace, Menlo, monospace`;
+      g.fillStyle = '#ee6018';
+      g.font = `700 ${fs}px ${MONO}`;
       g.textAlign = 'right';
       g.fillText(`:${r.port}`, W - 50, y + rowH / 2 + fs * 0.35);
       g.textAlign = 'left';
       const textW = W - 120 - 50 - g.measureText(`:${r.port}`).width - 30;
-      g.fillStyle = '#f8f9fa';
-      g.font = `800 ${fs}px Nunito, ui-rounded, system-ui, sans-serif`;
+      g.fillStyle = '#eeeeee';
+      g.font = `600 ${fs}px ${SANS}`;
       g.fillText(clip(g, r.title, textW), 110, y + rowH / 2 - fs * 0.08);
-      g.fillStyle = 'rgba(233,236,239,.65)';
-      g.font = `700 ${Math.round(fs * 0.62)}px Nunito, ui-rounded, system-ui, sans-serif`;
+      g.fillStyle = 'rgba(140, 140, 140, .9)';
+      g.font = `500 ${Math.round(fs * 0.6)}px ${MONO}`;
       g.fillText(clip(g, r.who, textW), 110, y + rowH / 2 + fs * 0.72);
     });
     if (rows.length > shown.length) {
-      g.fillStyle = '#e9ecef';
-      g.font = '800 26px Nunito, ui-rounded, system-ui, sans-serif';
+      g.fillStyle = '#8c8c8c';
+      g.font = `500 22px ${MONO}`;
       g.textAlign = 'right';
       g.fillText(`+${rows.length - shown.length} more`, W - 24, H - 10);
       g.textAlign = 'left';
@@ -272,7 +271,7 @@ export class ServicesBoardTexture {
   }
 }
 
-/** The task queue: a whiteboard with what's waiting, who is on what, and the PRs that came out of it. */
+/** The task queue: a wall display with what's waiting, who is on what, and the PRs that came out of it. */
 export class QueueBoardTexture {
   readonly texture: THREE.CanvasTexture;
   private canvas = document.createElement('canvas');
@@ -314,46 +313,35 @@ export class QueueBoardTexture {
     const g = this.ctx;
     const W = this.canvas.width;
     const H = this.canvas.height;
-    g.fillStyle = '#f7f9fb';
+    g.fillStyle = '#0a0a0a';
     g.fillRect(0, 0, W, H);
-    // A faint sheen and the marker tray along the bottom edge.
-    const sheen = g.createLinearGradient(0, 0, W, H);
-    sheen.addColorStop(0, 'rgba(255,255,255,.6)');
-    sheen.addColorStop(1, 'rgba(200,210,220,.25)');
-    g.fillStyle = sheen;
-    g.fillRect(0, 0, W, H);
-    g.fillStyle = '#c9d1d9';
-    g.fillRect(0, H - 22, W, 22);
-    ['#e63946', '#1f5fbf', '#1e8f4e', '#2b2d42'].forEach((c, i) => {
-      g.fillStyle = c;
-      g.fillRect(W - 300 + i * 62, H - 30, 48, 14);
-    });
-    const font = 'Nunito, ui-rounded, system-ui, sans-serif';
+    // A faint dot grid, like the other boards.
+    g.fillStyle = 'rgba(255, 255, 255, .045)';
+    for (let y = 16; y < H; y += 32) for (let x = 16; x < W; x += 32) g.fillRect(x, y, 2, 2);
     g.textBaseline = 'alphabetic';
     g.textAlign = 'left';
-    g.fillStyle = '#1f5fbf';
-    g.font = `900 52px ${font}`;
-    g.fillText('Task queue', 40, 76);
-    // A hand-drawn underline.
-    g.strokeStyle = '#1f5fbf';
-    g.lineWidth = 5;
-    g.lineCap = 'round';
+    g.fillStyle = '#ee6018';
+    g.font = `700 46px ${MONO}`;
+    g.fillText('TASK QUEUE', 40, 76);
+    // A straight rule under the heading.
+    g.strokeStyle = '#ee6018';
+    g.lineWidth = 4;
     g.beginPath();
     g.moveTo(42, 92);
-    g.quadraticCurveTo(160, 84, 318, 94);
+    g.lineTo(400, 92);
     g.stroke();
     g.textAlign = 'right';
-    g.fillStyle = '#6b7280';
-    g.font = `700 26px ${font}`;
+    g.fillStyle = '#8c8c8c';
+    g.font = `500 24px ${MONO}`;
     g.fillText(summary, W - 40, 72);
     g.textAlign = 'left';
     if (!rows.length) {
       g.textAlign = 'center';
-      g.fillStyle = '#2b2d42';
-      g.font = `900 50px ${font}`;
+      g.fillStyle = '#eeeeee';
+      g.font = `700 46px ${MONO}`;
       g.fillText('Nothing queued', W / 2, H / 2 - 10);
-      g.fillStyle = '#6b7280';
-      g.font = `700 30px ${font}`;
+      g.fillStyle = '#8c8c8c';
+      g.font = `500 28px ${SANS}`;
       g.fillText('Add issues from the 📌 Issues board, or press E here', W / 2, H / 2 + 44);
       g.textAlign = 'left';
       this.texture.needsUpdate = true;
@@ -365,17 +353,19 @@ export class QueueBoardTexture {
     shown.forEach((r, i) => {
       const y = 128 + i * rowH + fs;
       g.fillStyle = r.color;
-      g.font = `800 ${fs}px ${font}`;
+      g.font = `600 ${fs}px ${SANS}`;
       g.fillText(r.icon, 44, y);
       g.textAlign = 'right';
-      g.font = `700 ${Math.round(fs * 0.78)}px ${font}`;
+      g.font = `500 ${Math.round(fs * 0.72)}px ${MONO}`;
       const sideW = g.measureText(r.side).width;
+      g.fillStyle = '#8c8c8c';
       g.fillText(r.side, W - 44, y);
       g.textAlign = 'left';
-      g.font = `800 ${fs}px ${font}`;
+      g.fillStyle = '#eeeeee';
+      g.font = `600 ${fs}px ${SANS}`;
       g.fillText(clip(g, r.text, W - 44 - sideW - 30 - 110), 110, y);
       if (r.color === '#8a8f98') {
-        g.strokeStyle = 'rgba(138,143,152,.7)';
+        g.strokeStyle = 'rgba(140, 140, 140, .7)';
         g.lineWidth = 3;
         g.beginPath();
         g.moveTo(110, y - fs * 0.32);
@@ -384,8 +374,8 @@ export class QueueBoardTexture {
       }
     });
     if (rows.length > shown.length) {
-      g.fillStyle = '#6b7280';
-      g.font = `800 24px ${font}`;
+      g.fillStyle = '#8c8c8c';
+      g.font = `500 22px ${MONO}`;
       g.textAlign = 'right';
       g.fillText(`+${rows.length - shown.length} more`, W - 44, H - 34);
       g.textAlign = 'left';

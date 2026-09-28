@@ -1,12 +1,17 @@
 import * as THREE from 'three';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, type Run } from '../../shared/protocol';
 import { mesh, roundedBox, toon } from './toon';
+import { MONO } from '../fonts';
 
+/**
+ * The terminal's colors: a Factory-dark ground with an orange cursor. The ANSI palette keeps its
+ * distinct hues — agents paint with it, so only the base, cursor and selection are ours to restyle.
+ */
 export const TERM_THEME = {
-  background: '#1e1f2e',
-  foreground: '#e6e6f0',
-  cursor: '#ffd166',
-  selectionBackground: '#44475a',
+  background: '#0a0a0a',
+  foreground: '#eeeeee',
+  cursor: '#ee6018',
+  selectionBackground: '#2a2a2a',
   black: '#282a36',
   red: '#ff5c7a',
   green: '#7cf29a',
@@ -96,7 +101,7 @@ export function paintScreen(ctx: CanvasRenderingContext2D, w: number, h: number,
   ctx.fillRect(0, 0, w, h);
   if (!s) {
     ctx.fillStyle = '#6c7086';
-    ctx.font = `700 ${Math.round(h / 12)}px ui-monospace, Menlo, monospace`;
+    ctx.font = `600 ${Math.round(h / 12)}px ${MONO}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(placeholder ?? 'booting…', w / 2, h / 2);
@@ -138,7 +143,7 @@ export function paintScreen(ctx: CanvasRenderingContext2D, w: number, h: number,
         ctx.fillRect(px, py, len * charW + 0.5, lineH + 0.5);
       }
       if (text.trim()) {
-        ctx.font = `${flags & FLAG_BOLD ? 700 : 400} ${fontSize}px ui-monospace, Menlo, Consolas, monospace`;
+        ctx.font = `${flags & FLAG_BOLD ? 700 : 400} ${fontSize}px ${MONO}`;
         ctx.globalAlpha = flags & FLAG_DIM ? 0.55 : 1;
         ctx.fillStyle = fg;
         ctx.fillText(text, px, py + (lineH - fontSize) / 2);
@@ -185,7 +190,7 @@ export class Laptop {
     screen.position.set(0, 0.25, 0.014);
     this.lid.add(screen);
     // Sticker on the back of the lid
-    const sticker = mesh(new THREE.CircleGeometry(0.07, 20), toon('#ff8a5b'), 0, 0.27, -0.014, false);
+    const sticker = mesh(new THREE.CircleGeometry(0.07, 20), toon('#ee6018'), 0, 0.27, -0.014, false);
     sticker.rotation.y = Math.PI;
     this.lid.add(sticker);
     this.lid.rotation.x = Math.PI / 2; // closed; animates open

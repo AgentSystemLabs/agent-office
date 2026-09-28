@@ -6,16 +6,16 @@ import { closeAllModals, h, openModal, timeAgo, type Modal } from './dom';
 
 const version = (v: VersionInfo) => h('span.version', {}, h('code', {}, v.sha), ' ', v.subject, h('small', {}, ` · ${timeAgo(v.date)}`));
 
-/** The ⬆️ panel: what's running, what's new upstream, and the button to upgrade. */
+/** The upgrade panel: what's running, what's new upstream, and the button to upgrade. */
 export function openUpgrade(net: Net) {
   const body = h('div.body.upgrade');
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
-  const recheck = h('button.btn', { type: 'button', onclick: () => net.send({ t: 'upgrade.check' }) }, '🔄 Check again');
-  const go = h('button.btn.primary', { type: 'button', onclick: () => net.send({ t: 'upgrade.start' }) }, '⬆️ Upgrade now');
+  const recheck = h('button.btn', { type: 'button', onclick: () => net.send({ t: 'upgrade.check' }) }, 'Check again');
+  const go = h('button.btn.primary', { type: 'button', onclick: () => net.send({ t: 'upgrade.start' }) }, 'Upgrade now');
   const el = h(
     'div.modal',
     { role: 'dialog', 'aria-label': 'Upgrade the office', style: 'width:min(620px,100%)' },
-    h('header', {}, h('h2', {}, '⬆️ Upgrade the office'), close),
+    h('header', {}, h('h2', {}, 'Upgrade the office'), close),
     body,
     h('footer', {}, h('span.grow', {}), recheck, go),
   );
@@ -96,7 +96,7 @@ function restartDialog(title: string, ...content: (Node | string)[]) {
 export function showRestarting(u: UpgradeState, net: Net) {
   net.expectRestart();
   restartDialog(
-    '🛠️ Upgrading the office',
+    'Upgrading the office',
     h('div.restart-art', {}, '🏗️'),
     h('p', {}, `${u.by ? `${u.by} is upgrading` : 'Upgrading'} the office${u.latest ? ` to ${u.latest.sha}: “${u.latest.subject}”` : ''}.`),
     h('p.upgrade-status.busy', {}, h('span.spinner'), 'Restarting… you’ll be back in a few seconds. No need to do anything.'),
@@ -116,7 +116,7 @@ export function showUpgraded(u: UpgradeState) {
   clearTimeout(slowTimer);
   const v = u.current;
   restartDialog(
-    '✨ The office has been upgraded',
+    'The office has been upgraded',
     h('div.restart-art', {}, '🎉'),
     v ? h('p', {}, 'Now running ', h('code', {}, v.sha), `: “${v.subject}”`) : h('p', {}, 'A new version is running.'),
     h('p.upgrade-status.ok', {}, h('span.spinner'), 'Loading the new version…'),

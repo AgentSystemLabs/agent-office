@@ -101,18 +101,18 @@ function rectOutline(r: Rect): [number, number][] {
   ];
 }
 
-/** Ceiling tiles: a light grid, one tile per repeat. */
+/** Ceiling tiles: a dark industrial grid, one tile per repeat. */
 function tileTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#fbf7ef';
+  g.fillStyle = '#2e3138';
   g.fillRect(0, 0, 128, 128);
-  g.fillStyle = '#e3dccf';
+  g.fillStyle = '#22252b';
   g.fillRect(0, 0, 128, 5);
   g.fillRect(0, 0, 5, 128);
   // A few speckles, like the mineral fibre in real tiles.
-  g.fillStyle = '#efe8dc';
+  g.fillStyle = '#383d45';
   for (let i = 0; i < 40; i++) g.fillRect(8 + ((i * 53) % 116), 8 + ((i * 97) % 116), 3, 2);
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -129,8 +129,8 @@ function shaft(shape: 'square' | 'round', half: number, from: number, to: number
   const geo = shape === 'round' ? new THREE.CylinderGeometry(half, half, h, 24, 6, true) : new THREE.CylinderGeometry(half * Math.SQRT2, half * Math.SQRT2, h, 4, 6, true).rotateY(Math.PI / 4);
   const pos = geo.getAttribute('position');
   const colors: number[] = [];
-  const near = new THREE.Color('#8d7b6a');
-  const far = new THREE.Color('#141320');
+  const near = new THREE.Color('#4a4e55');
+  const far = new THREE.Color('#0a0a0a');
   const c = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     // 1 at the hole, 0 at the far end.
@@ -166,9 +166,9 @@ function trapdoor(down: boolean): Trapdoor {
   const lid = new THREE.Group();
   const t = 0.06;
   // Flush with the floor (a touch proud of it, so it reads as a hatch), or with the ceiling.
-  lid.add(mesh(new THREE.BoxGeometry(w - 0.02, t, d - 0.02), toon(down ? '#f3eee4' : '#c98b5a'), -w / 2, down ? t / 2 : -t / 2 + 0.012, 0, false));
+  lid.add(mesh(new THREE.BoxGeometry(w - 0.02, t, d - 0.02), toon(down ? '#2e3138' : '#3a3129'), -w / 2, down ? t / 2 : -t / 2 + 0.012, 0, false));
   // A frame round it, and a ring to pull it by, on the side you see.
-  const rim = toon(down ? '#d9cfbe' : '#7a5236');
+  const rim = toon(down ? '#22252b' : '#241f1a');
   const y = down ? -0.012 : 0.022;
   for (const s of [-1, 1]) {
     lid.add(mesh(new THREE.BoxGeometry(w - 0.02, 0.025, 0.05), rim, -w / 2, y, (s * (d - 0.07)) / 2, false));
@@ -247,7 +247,7 @@ export function buildStack(colliders: Collider[], planks: THREE.Material): Stack
   tiles.userData.outlineParameters = { visible: false };
   tiles.map = tileTexture();
   // Lit from below by the room's lamps, not left in the shade the sun would give it.
-  tiles.emissive = new THREE.Color('#6a655d');
+  tiles.emissive = new THREE.Color('#3a3d44');
   tiles.emissiveMap = tiles.map;
   const ceilingMat = tiles;
   const brass = toon('#f2c14e', { emissive: '#3a2a00' });
@@ -470,7 +470,7 @@ export function buildStack(colliders: Collider[], planks: THREE.Material): Stack
       [s.down, '⬇', 0.62],
     ] as const) {
       if (!others || !name) continue;
-      const sign = textPlane(`🪜 ${arrow} ${name.length > 22 ? `${name.slice(0, 21)}…` : name}`, { bg: '#ffd166', size: 44 });
+      const sign = textPlane(`🪜 ${arrow} ${name.length > 22 ? `${name.slice(0, 21)}…` : name}`, { bg: '#0a0a0a', color: '#eeeeee', border: '#2f2f2f', size: 44 });
       sign.scale.multiplyScalar(0.7);
       sign.position.set(FLOOR.minX + 0.02, y, LADDER.z + LADDER.width / 2 + 0.15 + (sign.geometry.parameters.width * 0.7) / 2);
       sign.rotation.y = Math.PI / 2;
@@ -516,7 +516,7 @@ export function buildStack(colliders: Collider[], planks: THREE.Material): Stack
         p.signText = text;
         if (text) {
           // Hung on the rail across from the way in, facing it, beside the pole rather than behind it.
-          const sign = textPlane(text, { bg: '#e63946', color: '#ffffff', size: 40, border: '#ffffff' });
+          const sign = textPlane(text, { bg: '#0a0a0a', color: '#ef4444', size: 40, border: '#2f2f2f' });
           sign.scale.multiplyScalar(0.6);
           const back = POLE.rail + 0.06;
           const side = POLE.rail * 0.5;

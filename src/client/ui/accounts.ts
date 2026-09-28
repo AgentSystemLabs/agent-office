@@ -18,7 +18,7 @@ export function routeAccountsMessage(msg: ServerMsg) {
   if (msg.t === 'accounts.invited') onInvited?.(msg);
 }
 
-/** 🔑 Accounts, for admins: invite people by link, list them, change their role or revoke them. */
+/** Accounts, for admins: invite people by link, list them, change their role or revoke them. */
 export function openAccounts(net: Net) {
   let status: HTMLElement | null = null;
   /** The invite just made, shown big until the next one. */
@@ -29,7 +29,7 @@ export function openAccounts(net: Net) {
   const el = h(
     'div.modal',
     { role: 'dialog', 'aria-label': 'Accounts', style: 'width:min(680px,100%)' },
-    h('header', {}, h('h2', {}, '🔑 Accounts'), close),
+    h('header', {}, h('h2', {}, 'Accounts'), close),
     body,
     h('footer', {}, signedInAs),
   );
@@ -62,7 +62,7 @@ export function openAccounts(net: Net) {
       const v = fresh;
       body.append(h('div.cmd', {}, h('pre', {}, inviteLink(v)), copyButton('Copy', () => inviteLink(v))));
     }
-    if (store.invites) body.append(h('p.note', {}, 'On this office they also need a way in: add their GitHub keys under 👥 Invite.'));
+    if (store.invites) body.append(h('p.note', {}, 'On this office they also need a way in: add their GitHub keys under Invite.'));
 
     const list = h('ul.team-list');
     for (const a of s.accounts) {

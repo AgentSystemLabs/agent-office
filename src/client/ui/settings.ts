@@ -7,11 +7,11 @@ import { DOG_NAME_MAX, cleanDogName } from '../../shared/dog';
 import { h, openModal, timeAgo } from './dom';
 
 const VIEWS: [ViewMode, string, string][] = [
-  ['first', '👀 First person', 'See through your own eyes. Click the office to look around with the mouse and click things to use them. Esc frees the mouse.'],
-  ['third', '🎥 Third person', 'Follow your character from behind. Drag to orbit the camera, scroll to zoom, and click things to use them.'],
+  ['first', 'First person', 'See through your own eyes. Click the office to look around with the mouse and click things to use them. Esc frees the mouse.'],
+  ['third', 'Third person', 'Follow your character from behind. Drag to orbit the camera, scroll to zoom, and click things to use them.'],
 ];
 
-const THEME_LABEL: Record<ThemePick, string> = { auto: '📅 By the calendar', halloween: '🎃 Halloween', christmas: '🎄 Christmas', off: 'Off' };
+const THEME_LABEL: Record<ThemePick, string> = { auto: 'By the calendar', halloween: 'Halloween', christmas: 'Christmas', off: 'Off' };
 
 const WEBHOOK_NAME: Record<WebhookKind, string> = { slack: 'Slack', discord: 'Discord', other: 'a webhook' };
 
@@ -55,7 +55,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       slider.value = String(v);
       slider.style.setProperty('--fill', `${v}%`);
       pct.textContent = settings[muted] ? 'Muted' : `${v}%`;
-      mute.textContent = settings[muted] ? '🔊 Unmute' : '🔇 Mute';
+      mute.textContent = settings[muted] ? 'Unmute' : 'Mute';
       mute.setAttribute('aria-pressed', String(settings[muted]));
       mute.classList.toggle('danger', settings[muted]);
       row.classList.toggle('muted', settings[muted]);
@@ -133,13 +133,13 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
               paintNotify();
             },
           },
-          '🔔 Turn on notifications',
+          'Turn on notifications',
         ),
       );
     } else if (perm === 'granted') {
       for (const [value, label] of [
-        [true, '🔔 On'],
-        [false, '🔕 Off'],
+        [true, 'On'],
+        [false, 'Off'],
       ] as const) {
         notifyRow.append(
           h(
@@ -291,14 +291,14 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   });
 
   const account = store.me.account;
-  const signOut = h('button.btn', { type: 'button' }, '🚪 Sign out');
+  const signOut = h('button.btn', { type: 'button' }, 'Sign out');
   signOut.addEventListener('click', onSignOut);
-  const character = h('button.btn', { type: 'button' }, account ? '🧍 Change your look' : '🧍 Change your look & name');
+  const character = h('button.btn', { type: 'button' }, account ? 'Change your look' : 'Change your look & name');
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const el = h(
     'div.modal',
     { role: 'dialog', 'aria-label': 'Settings' },
-    h('header', {}, h('h2', {}, '⚙️ Settings'), close),
+    h('header', {}, h('h2', {}, 'Settings'), close),
     h(
       'div.body',
       {},
@@ -308,7 +308,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       h('label', { style: 'margin-top:18px' }, 'Office sounds'),
       soundRow,
       h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds and rain outside, the dog, and the ding when a worker is done. Voice chat isn’t affected.'),
-      h('label', { style: 'margin-top:18px' }, '🎵 Jukebox'),
+      h('label', { style: 'margin-top:18px' }, 'Jukebox'),
       musicRow,
       h('p.setting-note', {}, 'The jukebox in the lounge. Everyone on the floor hears the same song, louder the closer they are to it; this is how loud it is for you alone.'),
       ...(outside
@@ -328,10 +328,10 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       h('div.webhook', {}, hookInput, hookSave),
       hookActions,
       hookStatus,
-      h('label', { style: 'margin-top:18px' }, '👷 Worker limit'),
+      h('label', { style: 'margin-top:18px' }, 'Worker limit'),
       limitRow,
       limitNote,
-      h('label', { style: 'margin-top:18px' }, '📁 Workspace folder'),
+      h('label', { style: 'margin-top:18px' }, 'Workspace folder'),
       dirRow,
       dirActions,
       dirNote,

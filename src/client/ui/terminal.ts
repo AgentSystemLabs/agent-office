@@ -9,6 +9,7 @@ import { usageLabel, usageTitle } from './usage';
 import type { ServerMsg, WorkerInfo } from '../../shared/protocol';
 import { isAsleep } from '../../shared/status';
 import { findLine } from '../../shared/search';
+import { MONO } from '../fonts';
 import { providerLabel, providerUsageNote, providerUsageState, resolvedProvider } from './provider';
 
 /** A line to scroll to once the terminal has loaded: a search hit (see search.ts). */
@@ -74,7 +75,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, onChanges ? changesBtn : null, closeBtn), host);
 
   const term = new Terminal({
-    fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+    fontFamily: MONO,
     fontSize: 14,
     lineHeight: 1.1,
     theme: TERM_THEME,

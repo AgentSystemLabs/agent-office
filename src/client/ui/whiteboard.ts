@@ -1,4 +1,4 @@
-// The 📝 whiteboard window, and the drawing on the whiteboard in the office. Excalidraw itself is in
+// The whiteboard window, and the drawing on the whiteboard in the office. Excalidraw itself is in
 // whiteboard-app.ts, loaded the first time either needs it.
 
 import type { ServerMsg } from '../../shared/protocol';
@@ -41,8 +41,8 @@ export function openWhiteboard(net: Net) {
   if (!floor) return toast('Take the elevator to a floor first', 'warn');
   const people = h('div.wb-people');
   const close = h('button.btn.close', { 'aria-label': 'Close', title: 'Close (Esc)' }, '✕');
-  const host = h('div.wb-host', {}, h('div.wb-loading', {}, '✏️ Getting the markers out…'));
-  const el = h('div.wb-window', { role: 'dialog', 'aria-label': 'Whiteboard' }, h('header', {}, h('h2', {}, '📝 Whiteboard'), people, close), host);
+  const host = h('div.wb-host', {}, h('div.wb-loading', {}, 'Getting the markers out…'));
+  const el = h('div.wb-window', { role: 'dialog', 'aria-label': 'Whiteboard' }, h('header', {}, h('h2', {}, 'Whiteboard'), people, close), host);
   // Esc first gets you out of whatever you're doing in Excalidraw (typing, drawing, a menu, a tool),
   // then lets go of what's selected, and once there's nothing left, closes the window.
   const onKey = (e: KeyboardEvent) => {

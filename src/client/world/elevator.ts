@@ -6,8 +6,8 @@ import type { Collider, Interactable } from './office';
 // The elevator: a steel shaft against the north wall, doors facing into the room. Every floor has
 // it in the same place; riding it swaps the floor around you while the doors are shut.
 
-const STEEL = '#b8c1cc';
-const STEEL_DARK = '#8d99ae';
+const STEEL = '#5b6068';
+const STEEL_DARK = '#3f444c';
 const BRASS = '#e9b949';
 
 export interface Elevator {
@@ -141,7 +141,7 @@ export function buildElevator(): Elevator {
       sign.material.dispose();
       sign.geometry.dispose();
     }
-    sign = textPlane(text, { bg: '#2b2d42', color: '#fffaf3', size: 64, border: '#fffaf3' });
+    sign = textPlane(text, { bg: '#0a0a0a', color: '#eeeeee', size: 64, border: '#2f2f2f' });
     const { width: sw } = sign.geometry.parameters;
     // As big as fits over the doors.
     sign.scale.multiplyScalar(Math.min(1.6, (width + 0.6) / sw));

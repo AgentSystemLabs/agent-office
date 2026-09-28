@@ -27,9 +27,6 @@ export function issuePrompt(it: Pick<GhIssue, 'number' | 'title'>): string {
   return `Work on GitHub issue #${it.number}: "${it.title}".\n\nRead it first with \`gh issue view ${it.number} --comments\`. Create a new branch, implement the change, verify it, then open a pull request that closes #${it.number}.`;
 }
 
-const TILTS = ['-1.2deg', '0.8deg', '-0.4deg', '1.4deg', '0deg', '-0.9deg'];
-const NOTE_COLORS = ['#fff7b0', '#ffd6e0', '#caffbf', '#bde0fe', '#ffe5b4'];
-
 interface Column<T> {
   title: string;
   items: T[];
@@ -41,20 +38,20 @@ function issueColumns(items: GhIssue[]): Column<GhIssue>[] {
   const todo = open.filter((i) => !inProgress.includes(i));
   const closed = items.filter((i) => i.state !== 'OPEN').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 40);
   return [
-    { title: '📥 Open', items: todo },
-    { title: '🚧 In progress', items: inProgress },
-    { title: '✅ Closed', items: closed },
+    { title: 'Open', items: todo },
+    { title: 'In progress', items: inProgress },
+    { title: 'Closed', items: closed },
   ];
 }
 
 function pullColumns(items: GhPull[]): Column<GhPull>[] {
   const open = items.filter((p) => p.state === 'OPEN');
   return [
-    { title: '✏️ Draft', items: open.filter((p) => p.isDraft) },
-    { title: '👀 In review', items: open.filter((p) => !p.isDraft && p.reviewDecision !== 'APPROVED') },
-    { title: '👍 Approved', items: open.filter((p) => !p.isDraft && p.reviewDecision === 'APPROVED') },
-    { title: '🎉 Merged', items: items.filter((p) => p.state === 'MERGED').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 30) },
-    { title: '🗑️ Closed', items: items.filter((p) => p.state === 'CLOSED').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 20) },
+    { title: 'Draft', items: open.filter((p) => p.isDraft) },
+    { title: 'In review', items: open.filter((p) => !p.isDraft && p.reviewDecision !== 'APPROVED') },
+    { title: 'Approved', items: open.filter((p) => !p.isDraft && p.reviewDecision === 'APPROVED') },
+    { title: 'Merged', items: items.filter((p) => p.state === 'MERGED').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 30) },
+    { title: 'Closed', items: items.filter((p) => p.state === 'CLOSED').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 20) },
   ];
 }
 
@@ -91,7 +88,7 @@ function queueChip(issue: number): Node | '' {
 function card(n: number, title: string, meta: (Node | string)[], i: number, onclick: () => void) {
   return h(
     'li.card',
-    { style: `--tilt:${TILTS[n % TILTS.length]};background:${NOTE_COLORS[n % NOTE_COLORS.length]};--pin:${['#ef476f', '#118ab2', '#06d6a0', '#ffd166'][i % 4]}`, tabindex: 0, onclick, onkeydown: ((e: KeyboardEvent) => e.key === 'Enter' && onclick()) as EventListener },
+    { tabindex: 0, onclick, onkeydown: ((e: KeyboardEvent) => e.key === 'Enter' && onclick()) as EventListener },
     h('div.num', {}, `#${n}`),
     h('div.ttl', {}, title),
     h('div.meta', {}, ...meta.filter((m) => m !== '').map((m) => (typeof m === 'string' ? h('span', {}, m) : m))),
@@ -101,9 +98,9 @@ function card(n: number, title: string, meta: (Node | string)[], i: number, oncl
 export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActions) {
   const body = h('div.body');
   const status = h('span.board-status');
-  const refresh = h('button.btn', { title: 'Refresh from GitHub', onclick: () => net.send({ t: 'gh.refresh' }) }, '🔄 Refresh');
+  const refresh = h('button.btn', { title: 'Refresh from GitHub', onclick: () => net.send({ t: 'gh.refresh' }) }, 'Refresh');
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
-  const el = h('div.modal.board', { role: 'dialog', 'aria-label': kind === 'issues' ? 'Issues board' : 'Pull requests board' }, h('header', {}, h('h2', {}, kind === 'issues' ? '📌 Issues' : '🔀 Pull Requests'), status, refresh, close), body);
+  const el = h('div.modal.board', { role: 'dialog', 'aria-label': kind === 'issues' ? 'Issues board' : 'Pull requests board' }, h('header', {}, h('h2', {}, kind === 'issues' ? 'Issues' : 'Pull requests'), status, refresh, close), body);
 
   const render = () => {
     const st = kind === 'issues' ? store.issues : store.pulls;
@@ -142,8 +139,8 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
                 `by ${it.author}`,
                 it.reviewDecision === 'CHANGES_REQUESTED' ? '🛠 changes requested' : '',
                 CHECK_ICON[it.checks],
-                h('span', { style: 'color:#2a9d4b' }, `+${it.additions}`),
-                h('span', { style: 'color:#c3423f' }, `-${it.deletions}`),
+                h('span', { style: 'color:var(--success)' }, `+${it.additions}`),
+                h('span', { style: 'color:var(--danger)' }, `-${it.deletions}`),
                 timeAgo(it.updatedAt),
               ],
               i,

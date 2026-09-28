@@ -1,30 +1,61 @@
-:root { --bg: #ffe8cc; --ink: #2b2d42; --card: #fffaf3; --accent: #ff8a5b; --muted: #7a6f65; --border: #2b2d42; }
+/* The auth pages: the same dark Factory tokens as the app (see style.css). */
+:root {
+  --bg: #020202;
+  --surface: #0a0a0a;
+  --surface-raised: #101010;
+  --surface-hover: #151515;
+  --border: rgba(255, 255, 255, .09);
+  --border-strong: rgba(255, 255, 255, .18);
+  --text: #eeeeee;
+  --text-secondary: #8c8c8c;
+  --text-tertiary: rgba(255, 255, 255, .32);
+  --text-inverse: #020202;
+  --accent: #ee6018;
+  --accent-hover: #ef6f2e;
+  --danger: #ef4444;
+  --warning: #f2b84b;
+  --radius: 3px;
+  --radius-lg: 6px;
+  --font-sans: 'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --ease: cubic-bezier(.4, 0, .2, 1);
+  --duration: 150ms;
+  /* legacy name the pages' own inline bits lean on */
+  --muted: var(--text-secondary);
+}
+
+@font-face { font-family: 'Geist'; src: url('/fonts/Geist-Variable.woff2') format('woff2'); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Geist Mono'; src: url('/fonts/GeistMono-Variable.woff2') format('woff2'); font-weight: 100 900; font-style: normal; font-display: swap; }
+
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; }
 body {
-  background: radial-gradient(circle at 20% 20%, #ffd6a5 0, transparent 40%), radial-gradient(circle at 80% 70%, #caffbf 0, transparent 45%), var(--bg);
-  font-family: 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
-  color: var(--ink); display: grid; place-items: center; padding: 16px;
+  background: var(--bg);
+  font-family: var(--font-sans);
+  color: var(--text); display: grid; place-items: center; padding: 16px;
 }
-.card { width: min(380px, 100%); background: var(--card); border: 3px solid var(--border); border-radius: 22px; padding: 28px; box-shadow: 0 8px 0 var(--border); text-align: center; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card { width: min(380px, 100%); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); padding: 28px; text-align: center; }
 .logo { display: grid; place-items: center; }
-h1 { margin: 8px 0 4px; font-size: 28px; }
-.sub { margin: 0 0 20px; color: var(--muted); }
-label { display: block; text-align: left; font-weight: 700; font-size: 14px; }
-input { width: 100%; margin-top: 6px; padding: 12px 14px; font-size: 16px; border: 3px solid var(--border); border-radius: 12px; background: #fff; color: var(--ink); outline: none; }
+h1 { margin: 8px 0 4px; font: 600 16px/1.3 var(--font-mono); text-transform: uppercase; letter-spacing: .1em; }
+.sub { margin: 0 0 20px; font-size: 14px; color: var(--text-secondary); }
+label { display: block; text-align: left; font: 500 10px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--text-secondary); }
+input { width: 100%; margin-top: 6px; padding: 12px 14px; font-size: 16px; font-family: inherit; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface-raised); color: var(--text); outline: none; }
 input:focus { border-color: var(--accent); }
-button { margin-top: 16px; width: 100%; padding: 12px; font-size: 16px; font-weight: 800; border: 3px solid var(--border); border-radius: 12px; background: var(--accent); color: #fff; cursor: pointer; box-shadow: 0 4px 0 var(--border); }
-button:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--border); }
-button:disabled { opacity: .6; cursor: default; }
-.error { min-height: 1.2em; color: #c3423f; font-weight: 700; margin: 12px 0 0; }
-.warn { text-align: left; background: #fff3c4; border: 3px solid var(--border); border-radius: 12px; padding: 10px 12px; margin: 0 0 14px; font-size: 14px; }
-.secret { display: flex; gap: 8px; align-items: center; justify-content: center; background: #fff; border: 3px dashed var(--border); border-radius: 12px; padding: 14px; }
-.secret code { font: 800 26px ui-monospace, Menlo, Consolas, monospace; letter-spacing: .04em; word-break: break-all; }
-button.mini { width: auto; margin: 0; padding: 6px 10px; font-size: 13px; box-shadow: 0 2px 0 var(--border); }
-.check { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 14px; font-weight: 800; }
-.check input { width: auto; margin: 0; }
-a { color: var(--ink); font-weight: 800; }
+button { margin-top: 16px; width: 100%; padding: 12px; font: 500 12px/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; border: 1px solid #eeeeee; border-radius: var(--radius); background: #eeeeee; color: var(--text-inverse); cursor: pointer; transition: background var(--duration) var(--ease); }
+button:hover { background: #ffffff; border-color: #ffffff; }
+button:disabled { opacity: .45; cursor: default; }
+.error { min-height: 1.2em; color: var(--danger); font-size: 13px; margin: 12px 0 0; }
+.warn { text-align: left; color: var(--warning); background: rgba(242, 184, 75, .08); border: 1px solid rgba(242, 184, 75, .45); border-radius: var(--radius); padding: 10px 12px; margin: 0 0 14px; font-size: 14px; }
+.secret { display: flex; gap: 8px; align-items: center; justify-content: center; background: var(--surface-raised); border: 1px dashed var(--border-strong); border-radius: var(--radius); padding: 14px; }
+.secret code { font: 600 24px var(--font-mono); letter-spacing: .04em; word-break: break-all; }
+button.mini { width: auto; margin: 0; padding: 6px 10px; background: var(--surface-raised); border-color: var(--border-strong); color: var(--text); }
+button.mini:hover { background: var(--surface-hover); }
+.check { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 14px; font-size: 14px; color: var(--text); }
+.check input { width: auto; margin: 0; accent-color: var(--accent); }
+a { color: var(--accent); font-weight: 600; text-decoration: none; }
+a:hover { color: var(--accent-hover); text-decoration: underline; }
 label + label { margin-top: 12px; }
-.note { text-align: left; color: var(--muted); font-size: 13px; margin: 8px 0 0; }
-.role { display: inline-block; background: #fff3c4; border: 2px solid var(--border); border-radius: 999px; padding: 0 8px; font-size: 13px; font-weight: 800; }
+.note { text-align: left; color: var(--text-secondary); font-size: 13px; margin: 8px 0 0; }
+.role { display: inline-block; background: var(--surface-raised); border: 1px solid var(--border-strong); border-radius: 2px; padding: 1px 8px; font: 500 11px var(--font-mono); text-transform: uppercase; letter-spacing: .07em; color: var(--text-secondary); }

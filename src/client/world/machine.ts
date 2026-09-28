@@ -1,13 +1,12 @@
 import * as THREE from 'three';
 import type { MachineState } from '../../shared/protocol';
+import { SANS, MONO } from '../fonts';
 
-const FONT = 'Nunito, ui-rounded, system-ui, sans-serif';
-const INK = '#1b1d2e';
-const MUTED = '#9aa0b8';
+const MUTED = '#8c8c8c';
 
 /** Green while there's room, amber when it's getting full, red from where hiring gets a warning. */
 export function loadColor(pct: number): string {
-  return pct >= 90 ? '#ef476f' : pct >= 70 ? '#ffd166' : '#06d6a0';
+  return pct >= 90 ? '#ef4444' : pct >= 70 ? '#f2b84b' : '#3ccf91';
 }
 
 export function fmtGb(bytes: number): string {
@@ -52,23 +51,23 @@ export class MachineTexture {
     const g = this.ctx;
     const W = this.canvas.width;
     const H = this.canvas.height;
-    g.fillStyle = INK;
+    g.fillStyle = '#0a0a0a';
     g.fillRect(0, 0, W, H);
     g.textBaseline = 'alphabetic';
 
     // Header: what this is, and whether there's room for another worker.
     g.textAlign = 'left';
-    g.fillStyle = '#ffffff';
-    g.font = `900 40px ${FONT}`;
-    g.fillText('🖥️ This machine', 30, 62);
+    g.fillStyle = '#eeeeee';
+    g.font = `600 34px ${MONO}`;
+    g.fillText('🖥️ THIS MACHINE', 30, 62);
     const full = officeFull(s);
-    const status = !s.memTotal ? ['…', MUTED] : s.pressure ? ['⚠️ Under pressure', '#ef476f'] : full ? ['🚫 Office full', '#ffd166'] : ['✅ Room to hire', '#06d6a0'];
-    g.font = `800 30px ${FONT}`;
+    const status = !s.memTotal ? ['…', MUTED] : s.pressure ? ['⚠️ UNDER PRESSURE', '#ef4444'] : full ? ['🚫 OFFICE FULL', '#f2b84b'] : ['✅ ROOM TO HIRE', '#3ccf91'];
+    g.font = `600 24px ${MONO}`;
     const tw = g.measureText(status[0]).width;
     g.fillStyle = status[1];
-    roundRect(g, W - 30 - tw - 32, 24, tw + 32, 50, 25);
+    roundRect(g, W - 30 - tw - 32, 24, tw + 32, 50, 3);
     g.fill();
-    g.fillStyle = INK;
+    g.fillStyle = '#0a0a0a';
     g.textAlign = 'center';
     g.fillText(status[0], W - 30 - (tw + 32) / 2, 60);
 
@@ -79,8 +78,8 @@ export class MachineTexture {
     // Footer: the workers, one pip each, against the limit.
     const y = 440;
     g.textAlign = 'left';
-    g.font = `800 32px ${FONT}`;
-    g.fillStyle = '#ffffff';
+    g.font = `500 26px ${SANS}`;
+    g.fillStyle = '#eeeeee';
     const label = s.limit === undefined ? `👷 ${s.workers} worker${s.workers === 1 ? '' : 's'} · no limit` : `👷 ${s.workers} of ${s.limit} workers`;
     g.fillText(label, 30, y + 12);
     if (s.limit !== undefined) {
@@ -88,8 +87,8 @@ export class MachineTexture {
       const room = W - 30 - x0;
       const pip = Math.min(34, room / Math.max(s.limit, s.workers));
       for (let i = 0; i < Math.max(s.limit, s.workers); i++) {
-        g.fillStyle = i >= s.limit ? '#ef476f' : i < s.workers ? (full ? '#ffd166' : '#06d6a0') : '#3a3d55';
-        roundRect(g, x0 + i * pip, y - 14, Math.max(2, pip - 6), 30, Math.min(8, pip / 3));
+        g.fillStyle = i >= s.limit ? '#ef4444' : i < s.workers ? (full ? '#f2b84b' : '#3ccf91') : '#2a2a2a';
+        roundRect(g, x0 + i * pip, y - 14, Math.max(2, pip - 6), 30, Math.min(4, pip / 3));
         g.fill();
       }
     }
@@ -100,18 +99,21 @@ export class MachineTexture {
   private panel(x: number, y: number, w: number, name: string, pct: number, sub: string, history: number[]) {
     const g = this.ctx;
     const color = loadColor(pct);
-    g.fillStyle = '#25283d';
-    roundRect(g, x, y, w, 300, 18);
+    g.fillStyle = '#101010';
+    g.strokeStyle = 'rgba(255, 255, 255, .12)';
+    g.lineWidth = 2;
+    roundRect(g, x, y, w, 300, 6);
     g.fill();
+    g.stroke();
     g.textAlign = 'left';
     g.fillStyle = MUTED;
-    g.font = `800 28px ${FONT}`;
-    g.fillText(name, x + 20, y + 42);
+    g.font = `600 22px ${MONO}`;
+    g.fillText(name.toUpperCase(), x + 20, y + 42);
     g.fillStyle = color;
-    g.font = `900 84px ${FONT}`;
+    g.font = `700 80px ${MONO}`;
     g.fillText(`${pct}%`, x + 20, y + 124);
     g.fillStyle = MUTED;
-    g.font = `700 24px ${FONT}`;
+    g.font = `500 20px ${MONO}`;
     g.fillText(sub, x + 20, y + 160);
     // The graph: 0-100%, the newest reading on the right.
     const gx = x + 20;
@@ -119,7 +121,7 @@ export class MachineTexture {
     const gw = w - 40;
     const gh = 100;
     // The 90% line: past it, hiring comes with a warning.
-    g.strokeStyle = '#3a3d55';
+    g.strokeStyle = 'rgba(255, 255, 255, .14)';
     g.lineWidth = 2;
     g.beginPath();
     g.moveTo(gx, gy + gh * 0.1);

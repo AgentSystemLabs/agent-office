@@ -9,12 +9,12 @@ export function openJukebox(net: Net, openVolume: () => void) {
   const now = h('div.jb-now');
   const list = h('ul.svc-list');
   const url = h('input', { type: 'text', placeholder: 'https://… internet radio, or a link to an .mp3', 'aria-label': 'Stream or audio file link', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
-  const playUrl = h('button.btn.primary', { type: 'button' }, '📻 Play');
-  const volume = h('button.btn', { type: 'button' }, '🔈 Your volume');
+  const playUrl = h('button.btn.primary', { type: 'button' }, 'Play');
+  const volume = h('button.btn', { type: 'button' }, 'Your volume');
   const el = h(
     'div.modal.jukebox',
     { role: 'dialog', 'aria-label': 'Jukebox' },
-    h('header', {}, h('h2', {}, '🎵 Jukebox'), close),
+    h('header', {}, h('h2', {}, 'Jukebox'), close),
     h(
       'div.body',
       {},
@@ -41,8 +41,8 @@ export function openJukebox(net: Net, openVolume: () => void) {
         h('div.svc-title', {}, j.on ? trackTitle(j) : 'The jukebox is off'),
         h('div.svc-meta', {}, j.on ? [stream ? 'a stream' : tuneById(j.track)?.mood, j.by && `put on by ${j.by}`].filter(Boolean).join(' · ') : j.by ? `${j.by} turned it off` : 'Pick a tune to put it on'),
       ),
-      j.on ? button('⏭️ Skip', 'On to the next tune', () => net.send({ t: 'jukebox.skip' })) : button('▶️ Play', `Put ${trackTitle(j)} back on`, () => net.send({ t: 'jukebox.play' }), true),
-      j.on ? button('⏹️ Stop', 'Turn the jukebox off', () => net.send({ t: 'jukebox.stop' })) : '',
+      j.on ? button('Skip', 'On to the next tune', () => net.send({ t: 'jukebox.skip' })) : button('Play', `Put ${trackTitle(j)} back on`, () => net.send({ t: 'jukebox.play' }), true),
+      j.on ? button('Stop', 'Turn the jukebox off', () => net.send({ t: 'jukebox.stop' })) : '',
     );
     list.replaceChildren(
       ...JUKEBOX_TUNES.map((t) => {

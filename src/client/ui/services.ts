@@ -19,7 +19,7 @@ export function serviceTunnel(s: ServicesState, port: number, os: Os): string {
 
 function describe(svc: ServiceInfo): { who: string; color: string; branch?: string } {
   const w = store.workers.get(svc.workerId);
-  return { who: w?.name ?? 'A worker', color: w?.color ?? '#8d99ae', branch: w?.worktree?.branch };
+  return { who: w?.name ?? 'A worker', color: w?.color ?? 'var(--muted)', branch: w?.worktree?.branch };
 }
 
 export function openServices() {
@@ -33,7 +33,7 @@ export function openServices() {
   const el = h(
     'div.modal',
     { role: 'dialog', 'aria-label': 'Services', style: 'width:min(760px,100%)' },
-    h('header', {}, h('h2', {}, '🌐 Services'), tabs, close),
+    h('header', {}, h('h2', {}, 'Services'), tabs, close),
     body,
     footer,
   );

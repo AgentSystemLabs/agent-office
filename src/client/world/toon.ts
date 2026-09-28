@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { SANS } from '../fonts';
 
 let gradient: THREE.DataTexture | null = null;
 
@@ -68,35 +69,48 @@ export function roundedBox(w: number, h: number, d: number, r = 0.06): THREE.Buf
 type TextOpts = { color?: string; bg?: string; size?: number; border?: string };
 const TEXT_SCALE = 0.0055;
 
-/** A pill-shaped text label drawn to a texture; `w`/`h` are the canvas size in pixels. */
+/** Every text label drawn so far, so they can be repainted once the bundled fonts finish loading. */
+const textLabels: (() => void)[] = [];
+
+/** Repaints every text label made by textPlane/textSprite, e.g. after the fonts have loaded. */
+export function redrawText(): void {
+  for (const redraw of textLabels) redraw();
+}
+
+/** A near-square text label drawn to a texture; `w`/`h` are the canvas size in pixels. */
 function textTexture(text: string, opts: TextOpts) {
   const size = opts.size ?? 48;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
-  const font = `800 ${size}px Nunito, ui-rounded, system-ui, sans-serif`;
+  const font = `700 ${size}px ${SANS}`;
   ctx.font = font;
   const w = Math.ceil(ctx.measureText(text).width) + size;
   const h = Math.ceil(size * 1.6);
   canvas.width = w;
   canvas.height = h;
-  ctx.font = font;
-  if (opts.bg) {
-    ctx.fillStyle = opts.bg;
-    const r = h / 2;
-    ctx.beginPath();
-    ctx.roundRect(3, 3, w - 6, h - 6, r - 3);
-    ctx.fill();
-    ctx.lineWidth = 5;
-    ctx.strokeStyle = opts.border ?? '#2b2d42';
-    ctx.stroke();
-  }
-  ctx.fillStyle = opts.color ?? '#2b2d42';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, w / 2, h / 2 + size * 0.05);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
+  const draw = () => {
+    ctx.clearRect(0, 0, w, h);
+    ctx.font = font;
+    if (opts.bg) {
+      ctx.fillStyle = opts.bg;
+      ctx.beginPath();
+      ctx.roundRect(3, 3, w - 6, h - 6, 8);
+      ctx.fill();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = opts.border ?? '#0a0a0a';
+      ctx.stroke();
+    }
+    ctx.fillStyle = opts.color ?? '#2b2d42';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, w / 2, h / 2 + size * 0.05);
+    tex.needsUpdate = true;
+  };
+  draw();
+  textLabels.push(draw);
   return { tex, w, h };
 }
 
@@ -130,7 +144,7 @@ export interface CardOpts {
 /** Cards are drawn at twice the pixels of other labels so their smaller text stays crisp up close. */
 const CARD_RES = 2;
 const INK = '#2b2d42';
-const FONT = 'Nunito, ui-rounded, system-ui, sans-serif';
+const FONT = SANS;
 
 /**
  * A speech-bubble card: status pill, bold title (up to 2 lines) and a smaller body (up to 3), with a

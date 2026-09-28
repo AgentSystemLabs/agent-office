@@ -98,7 +98,7 @@ export class Arcade {
       'div.arcade',
       { role: 'dialog', 'aria-label': 'Minesweeper' },
       h('div.arcade-screen', {}, board),
-      h('div.arcade-bar', {}, h('span', {}, '💣 Minesweeper'), h('span.tip', {}, 'Click to dig · right-click to flag'), stop),
+      h('div.arcade-bar', {}, h('span', {}, 'Minesweeper'), h('span.tip', {}, 'Click to dig · right-click to flag'), stop),
     );
 
     // Where the mouse is, in the game's 960×540.

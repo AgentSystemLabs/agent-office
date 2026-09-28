@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { JUKEBOX } from '../../shared/layout';
 import { mesh, roundedBox, textSprite, toon, toonUnique } from './toon';
+import { MONO } from '../fonts';
 import type { Collider, Interactable } from './office';
 
 // The lounge jukebox: a cherry-red cabinet with a rounded top, a neon tube round its face that
@@ -81,19 +82,19 @@ export function buildJukebox(): JukeboxView {
   const paint = (title: string) => {
     const g = canvas.getContext('2d')!;
     const grad = g.createLinearGradient(0, 0, 0, 256);
-    grad.addColorStop(0, on ? '#3a0ca3' : '#2b2d42');
-    grad.addColorStop(1, on ? '#1b1d2e' : '#1b1d2e');
+    grad.addColorStop(0, on ? '#101010' : '#0a0a0a');
+    grad.addColorStop(1, '#020202');
     g.fillStyle = grad;
     g.fillRect(0, 0, 512, 256);
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillStyle = on ? '#ffd166' : '#8d99ae';
-    g.font = '900 44px Nunito, ui-rounded, system-ui, sans-serif';
+    g.fillStyle = on ? '#ee6018' : '#8c8c8c';
+    g.font = `700 44px ${MONO}`;
     g.fillText(on ? '♪ NOW PLAYING ♪' : 'JUKEBOX', 256, 70);
-    g.fillStyle = on ? '#ffffff' : '#8d99ae';
+    g.fillStyle = on ? '#eeeeee' : '#8c8c8c';
     let size = 58;
     const text = on ? title : 'press E to play';
-    do g.font = `800 ${size--}px Nunito, ui-rounded, system-ui, sans-serif`;
+    do g.font = `600 ${size--}px ${MONO}`;
     while (g.measureText(text).width > 470 && size > 26);
     g.fillText(text, 256, 160);
     tex.needsUpdate = true;

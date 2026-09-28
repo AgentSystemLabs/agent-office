@@ -120,7 +120,7 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void)
   const dot = h('span.dot', { style: `background:${info.color}` });
   const title = h('h2', {}, `${info.name} · changes`);
   const branch = h('span.branch');
-  const terminalBtn = h('button.btn', { type: 'button', title: 'Open the terminal instead' }, '⌨️ Terminal');
+  const terminalBtn = h('button.btn', { type: 'button', title: 'Open the terminal instead' }, 'Terminal');
   const closeBtn = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const filesHead = h('h4', {}, 'Changed files');
   const list = h('ul', { role: 'listbox', 'aria-label': 'Changed files' });
@@ -129,8 +129,8 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void)
   const diffBody = h('div.diff-scroll');
   const diff = h('section.changes-diff', {}, diffHead, diffBody);
   const summary = h('span.grow');
-  const discardBtn = h('button.btn', { type: 'button', title: 'Throw away every uncommitted change in this checkout' }, '🗑️ Discard all');
-  const commitBtn = h('button.btn', { type: 'button', title: 'git add -A && git commit' }, '✅ Commit…');
+  const discardBtn = h('button.btn', { type: 'button', title: 'Throw away every uncommitted change in this checkout' }, 'Discard all');
+  const commitBtn = h('button.btn', { type: 'button', title: 'git add -A && git commit' }, 'Commit…');
   const prSlot = h('span.pr-slot');
   const el = h(
     'div.modal.desk-changes',
@@ -200,7 +200,7 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void)
   const renderDiffHead = () => {
     const f = state?.files.find((x) => x.path === selected);
     if (!f) return diffHead.replaceChildren();
-    const discardOne = h('button.btn', { type: 'button', title: 'Throw away the uncommitted changes to this file' }, '↩︎ Discard');
+    const discardOne = h('button.btn', { type: 'button', title: 'Throw away the uncommitted changes to this file' }, 'Discard');
     discardOne.addEventListener('click', () =>
       confirmDialog(`Discard the changes to ${f.path.split('/').pop()}?`, `This puts ${f.path} back to the last commit in ${where()}. ${f.status === '?' ? 'The file is deleted.' : 'Committed changes stay.'}`, 'Discard', () =>
         net.send({ t: 'changes.discard', workerId, path: f.path }),
@@ -234,17 +234,17 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void)
     }
     discardBtn.disabled = busy || !uncommitted;
     commitBtn.disabled = busy || !uncommitted;
-    commitBtn.textContent = uncommitted ? `✅ Commit ${uncommitted} file${uncommitted > 1 ? 's' : ''}…` : '✅ Commit…';
+    commitBtn.textContent = uncommitted ? `Commit ${uncommitted} file${uncommitted > 1 ? 's' : ''}…` : 'Commit…';
     prSlot.replaceChildren();
     if (!s) return;
-    if (s.pr) prSlot.append(h('a.btn.primary', { href: s.pr.url, target: '_blank', rel: 'noopener', title: 'Open on GitHub' }, `🔀 PR #${s.pr.number} ↗`));
+    if (s.pr) prSlot.append(h('a.btn.primary', { href: s.pr.url, target: '_blank', rel: 'noopener', title: 'Open on GitHub' }, `PR #${s.pr.number} ↗`));
     else if (s.prBase) {
       const why = busy ? '' : uncommitted ? 'Commit first' : !s.ahead ? `Nothing on ${s.branch} that ${s.prBase} lacks yet` : '';
-      const pr = h('button.btn.primary', { type: 'button', title: why || `Push ${s.branch} and open a pull request against ${s.prBase}` }, '🔀 Open PR…');
+      const pr = h('button.btn.primary', { type: 'button', title: why || `Push ${s.branch} and open a pull request against ${s.prBase}` }, 'Open PR…');
       pr.disabled = busy || !!why;
       pr.addEventListener('click', () =>
         openPrompt({
-          title: '🔀 Open a pull request',
+          title: 'Open a pull request',
           subtitle: `Pushes ${s.branch} to origin and opens a PR against ${s.prBase}. The first line is the title; the rest is the description.`,
           initial: s.subject ?? '',
           placeholder: 'Title',
@@ -326,7 +326,7 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void)
   commitBtn.addEventListener('click', () => {
     const n = state?.files.filter((f) => f.uncommitted).length ?? 0;
     openPrompt({
-      title: `✅ Commit ${n} file${n === 1 ? '' : 's'}`,
+      title: `Commit ${n} file${n === 1 ? '' : 's'}`,
       subtitle: `Stages everything in ${where()} and commits it${state?.branch ? ` on ${state.branch}` : ''}.`,
       placeholder: 'What changed, and why',
       submitLabel: 'Commit',

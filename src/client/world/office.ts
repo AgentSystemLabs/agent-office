@@ -128,18 +128,18 @@ const PALETTE = {
   floorAlt: FLOOR_PALETTES[0].floorAlt,
   wall: FLOOR_PALETTES[0].wall,
   wallTrim: FLOOR_PALETTES[0].trim,
-  desk: '#f7f3ea',
-  deskLeg: '#3d405b',
-  wood: '#c98b5a',
-  cork: '#d8a86a',
+  desk: '#e8e2d6',
+  deskLeg: '#23262e',
+  wood: '#3a3129',
+  cork: '#181a1f',
   chairs: ['#ff8a5b', '#5bc0eb', '#9bc53d', '#b388eb', '#ffb400', '#f7aef8'],
   rugs: ['#bde0fe', '#ffd6a5', '#caffbf', '#ffc6ff'],
   plant: '#5fb760',
   plantDark: '#3f8f45',
   pot: '#e76f51',
-  ink: '#2b2d42',
+  ink: '#16181d',
   /** The building's outside paint. */
-  exterior: '#e07a5f',
+  exterior: '#3a3f46',
 };
 
 /** Window glass: faintly blue and see-through. */
@@ -533,7 +533,7 @@ function buildBalcony(group: THREE.Group, colliders: Collider[], interactables: 
   interactables.push(it);
   tray.userData.interact = it;
 
-  const sign = textPlane('🚬 Smoke break', { bg: '#2b2d42', color: '#fffaf3', size: 56, border: '#fffaf3' });
+  const sign = textPlane('🚬 Smoke break', { bg: '#0a0a0a', color: '#eeeeee', border: '#2f2f2f', size: 56 });
   sign.scale.multiplyScalar(0.8);
   sign.position.set(-6.5, 2.2, minZ + 0.02);
   group.add(sign);
@@ -860,7 +860,7 @@ function buildKiosk(def: DeskDef): DeskView {
   group.add(mesh(roundedBox(width - 0.16, height - 0.1, depth - 0.12, 0.06), color, 0, (height - 0.1) / 2 + 0.04, 0));
   group.add(mesh(roundedBox(width - 0.02, 0.06, depth + 0.02, 0.05), toon(PALETTE.ink), 0, 0.03, 0));
   group.add(mesh(roundedBox(width, 0.06, depth, 0.05), toon(PALETTE.desk), 0, height - 0.03, 0));
-  const sign = textPlane(KIOSK_SIGN[kind], { bg: '#fffaf3', size: 56 });
+  const sign = textPlane(KIOSK_SIGN[kind], { bg: '#0a0a0a', color: '#eeeeee', border: '#2f2f2f', size: 56 });
   sign.scale.multiplyScalar(0.62);
   sign.position.set(0, height * 0.55, -(depth - 0.12) / 2 - 0.012);
   sign.rotation.y = Math.PI;
@@ -1071,7 +1071,7 @@ export function buildOffice(): Office {
     bg.rotation.y = b.rotY;
     group.add(bg);
     boardMeshes[key] = face;
-    const label = textPlane(b.label, { bg: '#fffaf3', size: 64 });
+    const label = textPlane(b.label, { bg: '#0a0a0a', color: '#eeeeee', border: '#2f2f2f', size: 64 });
     label.scale.multiplyScalar(1.3);
     label.position.set(b.x + nx * 0.04, b.y + b.height / 2 + 0.5, b.z + nz * 0.04);
     label.rotation.y = b.rotY;
@@ -1389,7 +1389,7 @@ function buildMeetingRoom(group: THREE.Group, colliders: Collider[], interactabl
       for (const [leaf, x0] of leaves) leaf.position.x = x0 + Math.sign(x0 - dx) * e * (half - 0.06);
     },
   });
-  const label = textPlane('🤝 Meeting room', { bg: '#2b2d42', color: '#fffaf3', size: 56, border: '#fffaf3' });
+  const label = textPlane('🤝 Meeting room', { bg: '#0a0a0a', color: '#eeeeee', border: '#2f2f2f', size: 56 });
   label.scale.multiplyScalar(0.62);
   label.position.set(dx, 2.52, R.minZ - 0.07);
   label.rotation.y = Math.PI;
@@ -1641,12 +1641,12 @@ function buildLoft(group: THREE.Group, colliders: Collider[], interactables: Int
   group.add(lamp);
 
   // Signs: one on the back wall inside, one over the glass for everyone downstairs.
-  const inside = textPlane('👑 Boss Office', { bg: '#fffaf3', size: 64 });
+  const inside = textPlane('👑 Boss Office', { bg: '#0a0a0a', color: '#eeeeee', border: '#2f2f2f', size: 64 });
   inside.scale.multiplyScalar(0.8);
   inside.position.set(maxX - 3, floorY + 1.9, maxZ - 0.04);
   inside.rotation.y = Math.PI;
   group.add(inside);
-  const outside = textPlane('👑 Boss Office', { bg: '#2b2d42', color: '#fffaf3', size: 64, border: '#fffaf3' });
+  const outside = textPlane('👑 Boss Office', { bg: '#0a0a0a', color: '#eeeeee', border: '#2f2f2f', size: 64 });
   outside.scale.multiplyScalar(1.4);
   outside.position.set(cx, roofY + 0.2, minZ - 0.02);
   outside.rotation.y = Math.PI;

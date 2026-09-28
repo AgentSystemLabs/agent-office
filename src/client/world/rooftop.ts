@@ -7,6 +7,7 @@ import { buildElevator, type Elevator } from './elevator';
 import type { Collider, Interactable } from './office';
 import { bulb, type NightParts } from './outside';
 import { mergeByMaterial, mesh, roundedBox, toon, toonUnique } from './toon';
+import { SANS } from '../fonts';
 
 // The rooftop bar, on top of the building (see shared/rooftop.ts): a deck with a glass railing round
 // it and the city all around, the elevator's housing where you arrive, a DJ on a stage under a rig
@@ -55,7 +56,7 @@ function sparkle(c: number, r: number, beat: number): number {
 
 /** Sets `g`'s font to `px` pixels, or smaller so `text` fits in `width`. */
 function fitFont(g: CanvasRenderingContext2D, text: string, px: number, width: number) {
-  const font = (n: number) => `900 ${n}px Nunito, ui-rounded, system-ui, sans-serif`;
+  const font = (n: number) => `900 ${n}px ${SANS}`;
   g.font = font(px);
   const w = g.measureText(text).width;
   if (w > width) g.font = font(Math.floor((px * width) / w));
@@ -560,7 +561,7 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
   for (let z = p0.z; z <= p1.z + 0.01; z += 0.55) statics.add(mesh(new THREE.BoxGeometry(p1.x - p0.x + 0.4, 0.08, 0.1), wood, (p0.x + p1.x) / 2, roofY + 0.15, z));
   const neon = canvasTexture(768, 192, (g) => {
     g.clearRect(0, 0, 768, 192);
-    g.font = '900 104px Nunito, ui-rounded, system-ui, sans-serif';
+    g.font = `900 104px ${SANS}`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     for (const [blur, color] of [
