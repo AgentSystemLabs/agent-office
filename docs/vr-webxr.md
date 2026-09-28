@@ -242,48 +242,32 @@ Hands render as the skinned generic-hand mesh (`three`'s `XRHandMeshModel`, vend
 `src/client/public/xr-hands/` so no CDN can break them), with three's joint spheres behind
 as a fallback that hides once the mesh loads.
 
-### xrblocks: what fits, and what doesn't
+### three.js version
 
-`xrblocks@0.21.1` is a dependency (client-bundled, loaded as a lazy chunk only when VR
-starts — never on desktop). Used:
+The client uses upstream `three` (not the `super-three` fork) with `WebGLRenderer`. Keep
+`three` and `@types/three` on the same minor, so typecheck sees the API the browser runs.
+`@iwsdk/core` and `@iwsdk/vite-plugin-dev` pin their own `super-three`; npm nests those
+copies under them, and the emulator's injected bundle carries its own three.js, so neither
+reaches the office bundle.
 
-- **`Hands`** (`new Hands([left, right])`, `getIndexTip`/`getThumbTip`) for the pinch-fallback
-  joint reads. Doc source: `build/xrblocks.d.ts` (the `Hands` class) and
-  `src/input/Hands.ts` in the published package; interaction contract per the `xb-add-interactions`
-  skill (`skills/xb-add-interactions/SKILL.md`: one shared domain method per intent — here,
-  the existing `use()`). Note `Hands` indexes `[left, right]` by handedness while three's
-  hand slots don't promise that order, so the session re-orders the array on every
-  (dis)connect. If the xrblocks chunk fails to load, the poller reads `hand.joints`
-  straight off three's hand spaces instead.
+### xrblocks
 
-Not used, deliberately:
+[XR Blocks](https://github.com/google/xrblocks) (Google XR Labs) targets Chrome on Android
+XR and Galaxy XR, but the office does not depend on it. Its input, interaction, reticle, UI
+and simulator all run inside its `Core` engine: `xb.init()` creates its own
+`WebGLRenderer`, camera, scene and `setAnimationLoop`, and `Input.init` is "Only called by
+Core". Importing the package root constructs that `Core` singleton at load time. The office
+already owns its renderer, dolly rig, outline pass and render loop, so adopting xrblocks
+would mean moving the whole client onto its engine.
 
-- `Input` / `Interaction` / controllers / gestures: engine-coupled (`init` is "Only called by
-  Core", `Script` subclasses run on the xb lifecycle). Adopting them means the xb engine owns
-  the renderer, camera and loop — a renderer rewrite, which is out of scope. Plain three
-  `select`/`squeeze` events + one raycast path cover the same verbs.
-- `Reticle`: declared in xrblocks' typings but **not exported** from the 0.21.1 package root,
-  so the cursor dot is a small custom mesh (~15 lines).
-- Teleport/locomotion: no API in the 0.21.1 typings, so the arc + marker + fade are custom
-  (~100 lines, `session.ts`).
+Its device knowledge is still a useful reference for Galaxy XR:
 
-### Dependency note (three peer range)
-
-`xrblocks@0.21.1` declares `three: ^0.184.0` as a peer, which semver reads as
-`>=0.184.0 <0.185.0` — an install-time conflict with the repo's `three@0.186.1`. It was
-installed with `--legacy-peer-deps` and **three was not downgraded**: xrblocks' own runtime
-check (`src/utils/VersionCheck.ts`) only requires r182+, its README/import map targets
-`three@0.186.0`, and its `Hands` use here touches stable `XRHandSpace.joints` API only.
-Likewise its optional peers (`lit`, `@pmndrs/uikit`, MediaPipe, genai, …) are **not
-installed**: per xrblocks' bundler docs they are marked `external` in `vite.config.ts`, so
-the simulator/UI/AI chunks that reference them stay unloadable-but-unloaded lazy chunks.
-`npm run build` and `npm run typecheck` (`skipLibCheck`, already on) are clean.
-
-Dev-mode note: `vite dev` (unlike the production build) tries to resolve xrblocks' dynamic
-optional imports at serve time and answers 500 for the xrblocks chunk, so `import('xrblocks')`
-rejects under `npm run dev`. The session catches that and the pinch fallback reads
-`hand.joints` straight off three's hand spaces instead — behaviorally identical (`Hands` is a
-thin accessor over those same records). The shipped `dist/` build loads the real `Hands`.
+- `src/input/PinchFilter.ts`: "Temporary class until pinch is fixed at the system level on
+  Galaxy XR". Chrome fires a hand's native `selectstart` at a pinch value of 0.7
+  (google/xrblocks 5dacc9ae), so xrblocks drops native hand select events and makes its own
+  when `gamepad.buttons[0].value` reaches 1.0.
+- `src/core/Options.ts`: hands are the default input on Android XR, and `local-floor`,
+  `bounded-floor` and `unbounded` are requested as optional reference spaces.
 
 ## World-space UI attach points
 
