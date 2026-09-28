@@ -15,6 +15,7 @@ import type {
   Me,
   ProjectInfo,
   ProjectsDirState,
+  PromptsState,
   ProxyState,
   QueueState,
   QueueTask,
@@ -75,6 +76,7 @@ export type Topic =
   | 'cabinet'
   | 'cabinetFrame'
   | 'meeting'
+  | 'prompts'
   | 'jira'
   | 'jiraBoard'
   | 'ball';
@@ -276,6 +278,8 @@ class Store {
   theme: ThemeState = { pick: 'auto', active: null };
   /** Whether workers whose pull request merged go home by themselves (⚙️ Settings). */
   leaveOnMerge: LeaveOnMergeState = { on: false };
+  /** The office's prompts as rewritten in Settings, and the worker a new one starts on when nobody picks: the same on every floor. */
+  prompts: PromptsState = { custom: {} };
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -382,8 +386,9 @@ class Store {
         this.sky = msg.sky;
         this.theme = msg.theme;
         this.leaveOnMerge = msg.leaveOnMerge ?? { on: false };
+        this.prompts = msg.prompts ?? { custom: {} };
         this.enter(msg);
-        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'proxy', 'floors', 'projectsDir', 'sky', 'theme', 'leaveOnMerge'] as Topic[]) this.emit(t);
+        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'proxy', 'floors', 'projectsDir', 'sky', 'theme', 'leaveOnMerge', 'prompts'] as Topic[]) this.emit(t);
         break;
       case 'floor.enter':
         this.peers = new Map(msg.peers.map((p) => [p.id, p]));
@@ -555,6 +560,10 @@ class Store {
       case 'leaveOnMerge':
         this.leaveOnMerge = msg.state;
         this.emit('leaveOnMerge');
+        break;
+      case 'prompts':
+        this.prompts = msg.state;
+        this.emit('prompts');
         break;
       case 'chat':
         this.chat.push(msg);

@@ -1,7 +1,9 @@
 import type { GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhLabel, GhMergeMethod, GhPull, GhPullDetail, GhReviewComment, ServerMsg } from '../../shared/protocol';
 import type { Net } from '../net';
 import { AVATAR_COLORS, store, words, workerForPull } from '../state';
-import { issuePrompt, type BoardActions } from './boards';
+import { issuePrompt, issueVars, type BoardActions } from './boards';
+import { officePrompt } from './prompts';
+import { mergeCommand, pullPromptVars } from '../../shared/prompts';
 import { issueMeeting } from './meeting';
 import { h, openModal, timeAgo, type Modal } from './dom';
 import { markdown, repoUrlOf } from './markdown';
@@ -343,80 +345,38 @@ function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: string, net
 
 // ---- Prompts for workers ------------------------------------------------------------------------
 
+/** What a pull request's prompts fill in on this floor. */
+function pullVars(it: GhPull) {
+  return pullPromptVars(store.project?.forge, it, nameWithOwner(it.url), repoArg(it.url));
+}
+
 function reviewPrompt(it: GhPull) {
-  const w = words();
-  if (w.cli === 'glab')
-    return `Review merge request ${w.ref(it.number)}: "${it.title}".\n\nUse \`glab mr view ${it.number} --comments\` and \`glab mr diff ${it.number}\`. Look for bugs, risky changes and missing tests, then give me a short summary with concrete suggestions. Don't push any commits.`;
-  return `Review pull request #${it.number}: "${it.title}".\n\nUse \`gh pr view ${it.number} --comments\` and \`gh pr diff ${it.number}\`. Look for bugs, risky changes and missing tests, then give me a short summary with concrete suggestions. Don't push any commits.`;
+  return officePrompt('pull.review', pullVars(it));
 }
 
-function checkoutStep(it: GhPull) {
-  const checkout = words().cli === 'glab' ? `glab mr checkout ${it.number}` : `gh pr checkout ${it.number}`;
-  return `Get onto its branch: \`${checkout}\`. If git says \`${it.headRefName}\` is already checked out in another worktree, use \`git fetch origin ${it.headRefName} && git checkout --detach FETCH_HEAD\` instead and push with \`git push origin HEAD:${it.headRefName}\`.`;
-}
-
-function mergeCommand(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
-  if (words().cli === 'glab') return `glab mr merge ${it.number}${method === 'squash' ? ' --squash' : ''}${deleteBranch ? ' --remove-source-branch' : ''} --auto-merge=false --yes --repo ${repoArg(it.url)}`;
-  return `gh pr merge ${it.number} --${method}${deleteBranch ? ' --delete-branch' : ''} --repo ${nameWithOwner(it.url)}`;
-}
-
-/** The forge's commands a worker reads feedback and waits for checks with. */
-function reviewCommands(it: GhPull) {
-  const n = it.number;
-  if (words().cli === 'glab') {
-    return {
-      view: `glab mr view ${n} --comments`,
-      feedback: `\`glab mr view ${n} --comments\`, and the threads on lines of code with \`glab mr note list ${n} --type diff --state unresolved\``,
-      checks: `\`glab ci status --branch ${it.headRefName} --wait\``,
-    };
-  }
-  return {
-    view: `gh pr view ${n}`,
-    feedback: `\`gh pr view ${n} --comments\`, and the comments on lines of code with \`gh api repos/${nameWithOwner(it.url)}/pulls/${n}/comments\``,
-    checks: `\`gh pr checks ${n} --watch\``,
-  };
+function mergeVars(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
+  return { ...pullVars(it), merge: mergeCommand(store.project?.forge, it.number, method, deleteBranch, nameWithOwner(it.url), repoArg(it.url)) };
 }
 
 function fixAndMergePrompt(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
-  const w = words();
-  const c = reviewCommands(it);
-  return [
-    `Get ${w.pull} ${w.ref(it.number)} "${it.title}" (${it.url}) ready and merge it.`,
-    '',
-    `1. ${checkoutStep(it)}`,
-    `2. Read all the feedback: ${c.feedback}.`,
-    `3. Address every review comment that is still open: fix it, or if you disagree, reply on the ${w.pr} saying why. If the branch conflicts with \`${it.baseRefName}\`, merge \`${it.baseRefName}\` in and resolve the conflicts.`,
-    '4. Verify your changes the way this project does (build, typecheck, tests), then commit and push.',
-    `5. Wait for the checks with ${c.checks} and fix anything that fails.`,
-    `6. When the checks pass and no feedback is left, merge it: \`${mergeCommand(it, method, deleteBranch)}\`. If something only a person can decide is in the way, stop and tell me instead of merging.`,
-  ].join('\n');
+  return officePrompt('pull.fixMerge', mergeVars(it, method, deleteBranch));
 }
 
 function fixConflictsPrompt(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
-  const w = words();
-  const c = reviewCommands(it);
-  const base = it.baseRefName;
-  return [
-    `${w.pull[0].toUpperCase()}${w.pull.slice(1)} ${w.ref(it.number)} "${it.title}" (${it.url}) has merge conflicts with \`${base}\`. Resolve them and merge it.`,
-    '',
-    `1. ${checkoutStep(it)}`,
-    `2. Bring in the latest \`${base}\`: \`git fetch origin ${base} && git merge origin/${base}\`.`,
-    `3. Resolve every conflict so both sides' changes survive. Read the ${w.pr} (\`${c.view}\`) and the \`${base}\` commits that touched the same code to see what each side meant; don't just take one side.`,
-    '4. Verify the result the way this project does (build, typecheck, tests), then commit the merge and push.',
-    `5. Wait for the checks with ${c.checks} and fix anything that fails.`,
-    `6. When the checks pass, merge it: \`${mergeCommand(it, method, deleteBranch)}\`. If a conflict needs a decision only a person can make, stop and tell me instead of merging.`,
-  ].join('\n');
+  return officePrompt('pull.fixConflicts', mergeVars(it, method, deleteBranch));
 }
 
 function pullContext(it: GhPull) {
-  const w = words();
-  const read = w.cli === 'glab' ? `\`glab mr view ${it.number} --comments\` and see its changes with \`glab mr diff ${it.number}\`` : `\`gh pr view ${it.number} --comments\` and see its changes with \`gh pr diff ${it.number}\``;
-  return `This is about ${w.pull} ${w.ref(it.number)} "${it.title}" (${it.url}), branch \`${it.headRefName}\` into \`${it.baseRefName}\`. Read it with ${read}.`;
+  return officePrompt('pull.ask', pullVars(it));
 }
 
 function issueContext(it: GhIssue) {
-  const w = words();
-  return `This is about ${w.site} issue #${it.number} "${it.title}" (${it.url}). Read it with \`${w.cli} issue view ${it.number} --comments\`.`;
+  return officePrompt('issue.ask', issueVars(it));
+}
+
+/** What a Review panel about it starts out with. */
+export function reviewPanelPrompt(it: GhPull) {
+  return officePrompt('pull.panel', pullVars(it));
 }
 
 // ---- Merge dialog -------------------------------------------------------------------------------
@@ -835,7 +795,7 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
               {
                 type: 'button',
                 title: 'A few workers review it in the meeting room, each through its own lens, and the office posts one combined review',
-                onclick: () => actions.meeting({ pattern: 'review', pr: it.number, title: `Review of ${pr}`, prompt: `Review ${fw.pull} ${fw.ref(it.number)}: “${it.title}”.` }),
+                onclick: () => actions.meeting({ pattern: 'review', pr: it.number, title: `Review of ${pr}`, prompt: reviewPanelPrompt(it) }),
               },
               'Review panel…',
             )

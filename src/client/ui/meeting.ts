@@ -6,6 +6,8 @@ import { meetingStage } from '../world/meeting';
 import { h, openModal, timeAgo, toast, STATUS_LABEL, type Modal } from './dom';
 import { confirmDialog } from './prompt';
 import { providerPicker } from './provider';
+import { officePrompt } from './prompts';
+import { issueVars } from './boards';
 
 /** What a meeting called from an issue, a PR or a task starts out with. */
 export interface MeetingPreset {
@@ -24,8 +26,7 @@ export interface MeetingActions {
 
 /** A meeting about an issue: the form filled in with it. */
 export function issueMeeting(n: number, title: string): MeetingPreset {
-  const w = words();
-  return { issue: n, title: `#${n} ${title}`, prompt: `${w.site} issue #${n}: “${title}”. Read it first with ${w.cli} issue view ${n} --comments.` };
+  return { issue: n, title: `#${n} ${title}`, prompt: officePrompt('issue.meeting', issueVars({ number: n, title })) };
 }
 
 const PART_LABEL: Record<MeetingTurn['state'], string> = { waiting: 'up next', sent: 'handed over', working: 'on it', done: 'written' };

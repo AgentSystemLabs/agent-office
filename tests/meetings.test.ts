@@ -6,10 +6,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { MeetingRoom, type MeetingWorkers } from '../src/server/meetings.js';
 import { Worktrees } from '../src/server/worktrees.js';
-import type { MeetingRequest, WorkerInfo } from '../src/shared/protocol.js';
+import type { AgentChoice, MeetingRequest, WorkerInfo } from '../src/shared/protocol.js';
 import { MEETING_PATTERN_IDS, isMeetingPattern } from '../src/shared/meetings.js';
+import { PROMPTS, type PromptId } from '../src/shared/prompts.js';
+import type { Forge } from '../src/shared/floors.js';
 
-function fixture(opts: { git?: boolean } = {}) {
+function fixture(opts: { git?: boolean; rewritten?: Partial<Record<PromptId, string>>; officeDefault?: AgentChoice; forge?: Forge } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-meeting-'));
   const dataDir = path.join(dir, '.agent-office');
   mkdirSync(dataDir, { recursive: true });
@@ -31,6 +33,7 @@ function fixture(opts: { git?: boolean } = {}) {
   let ids = 0;
   const manager: MeetingWorkers = {
     defaultProvider: 'claude',
+    officeDefault: opts.officeDefault,
     list: () => workers,
     seat(deskId, by, prompt, provider, model, effort, meeting) {
       if (workers.some((w) => w.deskId === deskId)) return 'taken';
@@ -72,15 +75,23 @@ function fixture(opts: { git?: boolean } = {}) {
       return {};
     },
   };
-  const room: MeetingRoom = new MeetingRoom(dir, dataDir, manager, opts.git ? new Worktrees(dir) : undefined, {
-    update() {},
-    toast: (text) => toasts.push(text),
-    hiringPaused: () => undefined,
-    postReview: async (pr, file) => {
-      reviews.push({ pr, file });
-      return `https://github.com/o/r/pull/${pr}#pullrequestreview-1`;
+  const room: MeetingRoom = new MeetingRoom(
+    dir,
+    dataDir,
+    manager,
+    opts.git ? new Worktrees(dir) : undefined,
+    {
+      update() {},
+      toast: (text) => toasts.push(text),
+      hiringPaused: () => undefined,
+      postReview: async (pr, file) => {
+        reviews.push({ pr, file });
+        return `https://github.com/o/r/pull/${pr}#pullrequestreview-1`;
+      },
+      prompt: (id) => opts.rewritten?.[id] ?? PROMPTS[id].text,
     },
-  });
+    opts.forge,
+  );
   const cwd = () => {
     const wt = room.state().current?.worktree;
     return wt ? path.join(dir, wt.path) : dir;
@@ -376,4 +387,92 @@ test('the VR review button sends a review panel with the pattern defaults', asyn
   assert.equal(req.budget, def.seats.default * TOKENS_PER_SEAT);
   assert.equal(req.provider, 'claude');
   assert.equal(req.model, 'opus');
+});
+
+test('a meeting says what the office’s rewritten prompts say, and seats the default worker when nobody picked one', (t) => {
+  const f = fixture({
+    rewritten: {
+      'meeting.brief': 'You are the {{role}}. Topic: {{about}}{{nothing}}',
+      'meeting.debate.propose': 'Pitch it as the {{role}}, into {{file}}.',
+      'meeting.nudge': 'Still waiting on {{file}}!',
+    },
+    officeDefault: { provider: 'droid', model: 'custom:droidproxy:opus-5-5', effort: 'high' },
+  });
+  t.after(() => f.close());
+  assert.equal(f.start({ rounds: 3, provider: undefined }), undefined);
+  assert.equal(
+    f.prompts[0].text,
+    `You are the Chair. Topic: Which cache should we use?{{nothing}}\n\nRound 1 of 3, proposing. Pitch it as the Chair, into ${path.join(f.cwd(), '.agent-office', 'meetings', f.room.state().current!.id, 'r1-1-chair.md')}.`,
+  );
+  assert.deepEqual(
+    f.workers.map((w) => [w.provider, w.model, w.effort]),
+    Array(3).fill(['droid', 'custom:droidproxy:opus-5-5', 'high']),
+  );
+  // A worker that ends its turn without its part is nudged in the office's words.
+  const w = f.workers[0];
+  w.status = 'working';
+  f.room.onWorker(w);
+  w.status = 'done';
+  f.room.onWorker(w);
+  assert.match(f.prompts.at(-1)!.text, /^Still waiting on \S+r1-1-chair\.md!$/);
+  // Picked, the meeting's own choice wins, Droid model and effort included.
+  const g = fixture({ officeDefault: { provider: 'claude', model: 'sonnet' } });
+  t.after(() => g.close());
+  assert.equal(g.start({ provider: 'droid', model: 'custom:droidproxy:gpt-6-sol', effort: 'low' }), undefined);
+  assert.deepEqual(
+    g.workers.map((x) => [x.provider, x.model, x.effort]),
+    Array(3).fill(['droid', 'custom:droidproxy:gpt-6-sol', 'low']),
+  );
+  // With no default set, nobody picking seats the office's --agent on its own model.
+  const plain = fixture();
+  t.after(() => plain.close());
+  assert.equal(plain.start({}), undefined);
+  assert.deepEqual(
+    plain.workers.map((x) => [x.provider, x.model, x.effort]),
+    Array(3).fill(['claude', undefined, undefined]),
+  );
+});
+
+test('a review panel tells its reviewers what it always did, on GitHub and GitLab floors', (t) => {
+  for (const forge of ['github', 'gitlab'] as const) {
+    const f = fixture({ forge });
+    t.after(() => f.close());
+    assert.equal(f.start({ pattern: 'review', prompt: 'Review it', pr: 42 }), undefined);
+    const m = f.room.state().current!;
+    const cwd = f.cwd();
+    const notes = path.join(cwd, '.agent-office', 'meetings', m.id);
+    const [pull, ref, read] = forge === 'gitlab' ? ['merge request', '!42', 'glab mr view 42 --comments and glab mr diff 42'] : ['pull request', '#42', 'gh pr view 42 and gh pr diff 42'];
+    assert.equal(
+      f.prompts[1].text,
+      [
+        'Review of PR #42',
+        "You're the Security in a Review panel meeting in Agent Office's meeting room, round the table with the Correctness and the Performance & simplicity. Round 1: each reviewer reviews the pull request through their own lens. Round 2: the Correctness merges the reviews into one, which the office posts on the pull request.",
+        'What the meeting is about:\nReview it',
+        `The ${pull} is ${ref}: read it with ${read}.`,
+        `How it runs: the office hands each of you your part of every round in a message like this one. Do just that part, write it to the file it names, and end your turn; the next round starts once every part of this one is written. Your working directory is ${cwd}, and every file of the meeting is in it: the notes go in ${notes}/, which is where you read what the others wrote. The meeting ends when reviews/pr-42.md (${path.join(cwd, 'reviews/pr-42.md')}) is written, and only the part that says so writes it. It has 2 rounds at most and 3.00M tokens between all of you, so keep your notes short: bullets over prose.`,
+        "You're in the project's folder, which other people use too: don't commit, push or switch branches.",
+        `Round 1 of 2, reviewing. Review ${pull} ${ref} through your lens, Security, and nothing else. Read it with ${read}; don't check it out or change any files. Write your findings to ${path.join(notes, 'r1-2-security.md')}, one per bullet: the file:line, what's wrong and what to do about it, the most serious first. If you find nothing, write just NO FINDINGS. Then end your turn.`,
+      ].join('\n\n'),
+    );
+    for (const i of [0, 1, 2]) f.take(i, '- a.ts:1 — something');
+    const all = ['r1-1-correctness.md', 'r1-2-security.md', 'r1-3-performance-simplicity.md'].map((n) => path.join(notes, n)).join(', ');
+    assert.equal(
+      f.prompts.at(-1)!.text,
+      `Round 2 of 2, writing the review. Read every reviewer's findings (${all}). Drop the duplicates, keeping the clearest wording, and write one combined review to ${path.join(cwd, 'reviews/pr-42.md')} in Markdown: a short summary with your verdict first, then the findings, the most serious first, each tagged with the lens it came from in bold brackets like **[Security]**, with its file:line. Don't post it: the office posts it on the ${pull} once the file is written. That file is the meeting's output.`,
+    );
+  }
+});
+
+test('a meeting about an issue names its forge and CLI, and a teammate with no first part is told to wait', (t) => {
+  for (const [forge, site, cli] of [
+    ['github', 'GitHub', 'gh'],
+    ['gitlab', 'GitLab', 'glab'],
+  ] as const) {
+    const f = fixture({ forge });
+    t.after(() => f.close());
+    assert.equal(f.start({ pattern: 'lead', prompt: 'Build it', issue: 7 }), undefined);
+    const text = f.prompts[1].text;
+    assert.ok(text.includes(`\n\nIt comes from ${site} issue #7: ${cli} issue view 7 --comments.\n\n`), forge);
+    assert.ok(text.endsWith("\n\nRound 1 has no part for you. Reply in one line that you're ready and end your turn; your part comes in a later message."), forge);
+  }
 });
