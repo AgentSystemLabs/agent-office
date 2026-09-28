@@ -63,6 +63,9 @@ export interface VRHooks {
   onTarget: (it: Interactable | null, note: GhIssue | null) => void;
   /** Restore the canvas after three sized it for the headset. */
   resize: () => void;
+  /** Fired after a session starts / after it is fully torn down (for UI attach/dispose). */
+  onEnter?: () => void;
+  onEnd?: () => void;
 }
 
 /** A thumbstick from a gamepad's axes: XR Standard puts it at [2,3] (touchpad at [0,1]). */
@@ -121,11 +124,22 @@ interface RayState {
   /** A select event arrived this session: the runtime maps the trigger/pinch itself. */
   selectSeen: boolean;
   hover: { it: Interactable; near: boolean; hit: THREE.Intersection } | null;
+  /** A world-space UI panel owns this ray this frame (world input yields to it). */
+  uiConsumed: boolean;
   pinchHeld: boolean;
   teleportHeld: boolean;
   wasN: boolean;
   line: THREE.Line;
   dot: THREE.Mesh;
+}
+
+/** World-space UI panels (vr/attach.ts): the session routes rays to them first and ticks them. */
+export interface VRUiSink {
+  routeRay: (rayId: number, raycaster: THREE.Raycaster, pressed: boolean) => boolean;
+  stickScroll: (rayId: number, axisY: number, dt: number) => void;
+  update: (dt: number, camera?: THREE.Camera | null) => void;
+  toggleMenu: () => void;
+  openTerminal: (workerId: string) => void;
 }
 
 export class VRSession {
@@ -160,6 +174,8 @@ export class VRSession {
   /** xrblocks Hands, when the lazy chunk loaded: handedness-indexed joint access for the pinch fallback. */
   private xbHands: { getIndexTip(h: number): THREE.Object3D | undefined; getThumbTip(h: number): THREE.Object3D | undefined } | null = null;
   private xbOrdered: THREE.XRHandSpace[] = [];
+  /** World-space UI panels, set by main.ts on session enter and cleared on end. Null on desktop. */
+  private ui: VRUiSink | null = null;
   private onSessionEnd = () => this.restore();
 
   constructor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera, hooks: VRHooks) {
@@ -180,7 +196,7 @@ export class VRSession {
       const dot = new THREE.Mesh(new THREE.SphereGeometry(0.014, 12, 8), new THREE.MeshBasicMaterial({ color: 0x7df9ff, depthTest: false, transparent: true }));
       dot.renderOrder = 9998;
       targetRay.add(line, dot);
-      const st: RayState = { targetRay, grip, hand, source: null, selectSeen: false, hover: null, pinchHeld: false, teleportHeld: false, wasN: false, line, dot };
+      const st: RayState = { targetRay, grip, hand, source: null, selectSeen: false, hover: null, uiConsumed: false, pinchHeld: false, teleportHeld: false, wasN: false, line, dot };
       targetRay.addEventListener('connected', (e) => this.onConnected(i, e.data));
       targetRay.addEventListener('disconnected', () => this.onDisconnected(i));
       targetRay.addEventListener('selectstart', () => this.onSelect(i));
@@ -248,6 +264,7 @@ export class VRSession {
       this.dolly.add(r.targetRay, r.grip, r.hand);
       r.selectSeen = false;
       r.hover = null;
+      r.uiConsumed = false;
     }
     this.cameraParent = this.camera.parent;
     this.dolly.add(this.camera);
@@ -270,6 +287,7 @@ export class VRSession {
     }
     this.active = true;
     this.hooks.hudRefresh();
+    this.hooks.onEnter?.();
     // xrblocks' Hands for the pinch fallback, loaded lazily so a failed chunk never blocks VR.
     void import('xrblocks')
       .then((xb) => {
@@ -297,6 +315,7 @@ export class VRSession {
     for (const r of this.rays) {
       r.source = null;
       r.hover = null;
+      r.uiConsumed = false;
       r.teleportHeld = false;
       r.pinchHeld = false;
       r.wasN = false;
@@ -316,6 +335,12 @@ export class VRSession {
     player.enabled = !this.hooks.modalOpen();
     player.updateCamera(true);
     this.hooks.hudRefresh();
+    this.hooks.onEnd?.();
+  }
+
+  /** World-space UI panels for this session (vr/attach.ts): rays route to them first. */
+  setUi(ui: VRUiSink | null): void {
+    this.ui = ui;
   }
 
   private onConnected(i: number, source: XRInputSource): void {
@@ -350,6 +375,22 @@ export class VRSession {
     if (!this.active) return;
     const st = this.rays[i];
     st.selectSeen = true;
+    if (st.uiConsumed && this.ui) {
+      // A runtime select while a panel owns the ray. Controllers already stream press/release
+      // through routeRay every frame, so only hand-tracked sources (no trigger button) need a
+      // synthesized click here; for the rest this event would double-fire the panel.
+      if (!st.source?.gamepad) {
+        const origin = new THREE.Vector3();
+        const dir = new THREE.Vector3();
+        st.targetRay.getWorldPosition(origin);
+        st.targetRay.getWorldDirection(dir);
+        this.raycaster.set(origin, dir);
+        this.ui.routeRay(i, this.raycaster, true);
+        this.ui.routeRay(i, this.raycaster, false);
+        this.pulse(i, 0.3, 15);
+      }
+      return;
+    }
     const hover = st.hover;
     if (!hover?.near) return;
     this.hooks.reachAnim();
@@ -357,13 +398,16 @@ export class VRSession {
     this.pulse(i, 0.4, 25);
   }
 
-  /** Squeeze: cancel — the card goes back, or the topmost window closes. */
+  /** Squeeze: cancel — the card goes back, the topmost window closes, else the VR menu toggles. */
   private onSqueeze(i: number): void {
     if (!this.active) return;
     if (this.hooks.carrying()) {
       this.hooks.putBack();
       this.pulse(i, 0.3, 20);
     } else if (this.hooks.closeTop()) {
+      this.pulse(i, 0.3, 20);
+    } else if (this.ui) {
+      this.ui.toggleMenu();
       this.pulse(i, 0.3, 20);
     }
   }
@@ -385,6 +429,12 @@ export class VRSession {
     this.dolly.updateMatrixWorld(true);
     this.pollButtons();
     this.updateHover();
+    if (this.ui) {
+      this.ui.update(dt, this.renderer.xr.getCamera());
+      for (let i = 0; i < 2; i++) {
+        if (this.rays[i]?.uiConsumed) this.ui.stickScroll(i, this.stick(i).y, dt);
+      }
+    }
     this.pinchFallback();
     this.updateTeleport();
     this.updateTurn(dt);
@@ -446,13 +496,18 @@ export class VRSession {
       const n = buttonDown(gp, XR_BUTTON.STICK) || buttonDown(gp, XR_BUTTON.B);
       if (n && !st.wasN) this.hooks.nextWaiting();
       st.wasN = n;
-      // Teleport aim lives on A hold; release fires it.
+      // Teleport aim lives on A hold; release fires it. A ray on a UI panel cancels the aim
+      // without firing (that ray's stick scrolls the panel instead).
       const held = buttonDown(gp, XR_BUTTON.A);
-      if (st.teleportHeld && !held) this.fireTeleport();
-      st.teleportHeld = held;
+      if (st.uiConsumed) {
+        st.teleportHeld = false;
+      } else {
+        if (st.teleportHeld && !held) this.fireTeleport();
+        st.teleportHeld = held;
+      }
     }
     // Stick-aimed teleports (glide off): pushing forward aims, release past center fires.
-    if (!this.hooks.settings.vr.glide) {
+    if (!this.hooks.settings.vr.glide && !this.rays[0]?.uiConsumed) {
       const y = this.stick(0).y;
       if (this.stickAiming && y > -STICK_OFF) {
         this.stickAiming = false;
@@ -472,7 +527,9 @@ export class VRSession {
   /** Raycast both rays against the world; park the cursor dots on what they hit. */
   private updateHover(): void {
     const aiming = this.teleportAiming();
-    for (const st of this.rays) {
+    for (let i = 0; i < this.rays.length; i++) {
+      const st = this.rays[i];
+      st.uiConsumed = false;
       if (!st.source || aiming) {
         st.hover = null;
         st.line.visible = !aiming && !!st.source;
@@ -484,6 +541,17 @@ export class VRSession {
       st.targetRay.getWorldPosition(origin);
       st.targetRay.getWorldDirection(dir);
       this.raycaster.set(origin, dir);
+      // World-space UI panels eat the ray first; the world only sees rays no panel took.
+      if (this.ui) {
+        const pressed = buttonDown(this.gamepad(i), XR_BUTTON.TRIGGER) || st.pinchHeld;
+        if (this.ui.routeRay(i, this.raycaster, pressed)) {
+          st.uiConsumed = true;
+          st.hover = null;
+          st.line.visible = true;
+          st.dot.visible = false;
+          continue;
+        }
+      }
       this.raycaster.far = this.hooks.reachOf('tv') + 6;
       const aim = this.hooks.pickFromRay(this.raycaster, 0);
       st.hover = aim;
@@ -622,6 +690,7 @@ export class VRSession {
   private updateGlide(dt: number): void {
     this.glideActive = false;
     if (!this.hooks.settings.vr.glide) return;
+    if (this.rays[0]?.uiConsumed) return; // the stick scrolls the panel under the ray instead
     const { player } = this.hooks;
     if (player.seat) return;
     const s = this.stick(0);

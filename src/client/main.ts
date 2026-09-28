@@ -75,6 +75,7 @@ import { wayTo } from './walkto';
 import { MeetingBoardTexture, MeetingSignTexture, meetingStage } from './world/meeting';
 import { issueMeeting, openMeeting, type MeetingPreset } from './ui/meeting';
 import { VRSession } from './vr/session';
+import { attachVrUi, type VrUiHandle } from './vr/attach';
 import { probeXRSupport } from './vr/support';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
@@ -88,9 +89,9 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 const effect = new OutlineEffect(renderer, { defaultThickness: 0.0032, defaultColor: [0.17, 0.18, 0.26] });
-// Outlines in the headset: VR renders plain and the outlines draw after each XR frame, the recipe
-// from OutlineEffect's own docs (renderOutline is made for this). Idle on desktop.
-let outlining = false;
+// No outline pass in the headset: a nested render inside the XR framebuffer (e.g. via onAfterRender)
+// clears and overwrites each eye's buffer, which shows up as a black screen. VR renders plain;
+// outlines stay a desktop-only effect through `effect.render` below.
 
 const scene = new THREE.Scene();
 // The sky's color and the fog change with the time of day and the weather (world/sky.ts).
@@ -99,12 +100,6 @@ scene.fog = new THREE.Fog('#bfe3ff', 40, 90);
 /** How far the camera sees in the office: as far as the haze ever is, from the top floor. */
 const FAR = HAZE_MAX + 20;
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, FAR);
-scene.onAfterRender = () => {
-  if (!renderer.xr.isPresenting || outlining) return;
-  outlining = true;
-  effect.renderOutline(scene, camera);
-  outlining = false;
-};
 
 const hemi = new THREE.HemisphereLight('#fff5e6', '#c9a27a', 1.5);
 const ambient = new THREE.AmbientLight('#ffffff', 0.5);
@@ -333,10 +328,22 @@ player.view = settings.view;
 // WebXR in the headset browser: the session owns the rig, the rays and locomotion, and drives the
 // same interact dispatch as the keyboard (vr/session.ts). Idle on desktop: no rays, no loop cost,
 // and the Enter VR button stays hidden where XR is unavailable.
+/** World-space VR panels (menu, terminal, keyboard): attached on session enter, disposed on end. Null on desktop. */
+let vrUi: VrUiHandle | null = null;
 const vr = new VRSession(renderer, scene, camera, {
   player,
   settings,
-  useE: (it, note) => use(it, 'E', note),
+  useE: (it, note) => {
+    // In VR an occupied desk opens the world-space terminal, not the DOM window.
+    if (it.kind === 'desk' && it.deskId && vrUi) {
+      const w = store.workerAtDesk(it.deskId);
+      if (w) {
+        vrUi.openTerminal(w.id);
+        return;
+      }
+    }
+    use(it, 'E', note);
+  },
   pickFromRay: (ray, slack) => pickFromRay(ray, slack),
   noteUnder: (aim) => noteUnder(aim),
   nextWaiting: () => goToNextWaiting(),
@@ -353,6 +360,34 @@ const vr = new VRSession(renderer, scene, camera, {
     aimedNote = note;
   },
   resize: () => resize(),
+  onEnter: () => {
+    vrUi = attachVrUi(scene, {
+      send: (msg) => net.send(msg),
+      subscribe: (topic, fn) => store.on(topic, fn),
+      getScreen: (id) => store.screens.get(id),
+      getWorker: (id) => store.workers.get(id),
+      getWorkers: () => [...store.workers.values()],
+      getIssues: () => store.issues,
+      getPulls: () => store.pulls,
+      getQueue: () => store.queue,
+      getFreeDesks: () =>
+        DESKS.filter((d) => !d.station && !d.room && !store.workerAtDesk(d.id)).map((d) => ({ id: d.id, label: d.label })),
+      voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => voice.toggleMute() },
+      actions: {
+        hire: (deskId) => hireAtDesk(deskId),
+        nextWaiting: () => goToNextWaiting(),
+        handToWorker: (n, title) => sendToWorker(`🤖 #${n} ${title}`, { initial: issuePrompt({ number: n, title }) }),
+        queueIssue: (n, title) => net.send({ t: 'queue.add', prompt: issuePrompt({ number: n, title }), title, issue: n }),
+        exitVr: () => void vr.toggle(),
+      },
+    });
+    vr.setUi(vrUi);
+  },
+  onEnd: () => {
+    vr.setUi(null);
+    vrUi?.dispose();
+    vrUi = null;
+  },
 });
 const hands = new Hands(store.profile.color, me.skinColor);
 const caffeine = new Caffeine();
@@ -2968,8 +3003,8 @@ function frame(ts?: number, xrFrame?: XRFrame) {
   if (blurry) drunkVision.begin();
   else if (drunkVisionOn) drunkVision.release();
   drunkVisionOn = blurry;
-  // In VR the outlines come from scene.onAfterRender (OutlineEffect's own VR recipe); on desktop
-  // the effect renders both passes itself, exactly as before.
+  // VR renders plain into the XR framebuffer; on desktop the effect renders both passes itself,
+  // exactly as before.
   if (inVR) renderer.render(scene, camera);
   else effect.render(scene, camera);
   pointToWaiting(now);
