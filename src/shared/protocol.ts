@@ -612,7 +612,7 @@ export interface FloorInfo {
   palette: number;
   /** Being cloned: on the elevator panel, but nobody can go there yet. */
   cloning?: boolean;
-  /** The project the office was started in (`agent-office <dir>`), which keeps its data: always a floor. */
+  /** The project the office was started in (`agent-office <dir>`): the office keeps its own data in its checkout. */
   local?: boolean;
   addedBy: string;
   addedAt: number;
