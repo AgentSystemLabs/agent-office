@@ -23,6 +23,8 @@ import { BACKSWING_TIME, IMPACT, Person, Worker, type Stage } from './world/char
 import { GolfBalls, PIN_DISTANCE, TEE_BALL, fly, lieText, pinText, type Flight, type Hit, type Shot } from './world/golf';
 import { Golfer } from './golf';
 import { Hands } from './world/hands';
+import { Basketball, IN_HANDS } from './world/hoop';
+import { HOOP, SWEET, idealSpeed, lookAtRim, meter, shotSpeed, throwPitch, tossSpeed, underCeiling } from '../shared/hoop';
 import { Smoke } from './world/smoke';
 import { HAZE_MAX, Sky, describeSky } from './world/sky';
 import { Laptop } from './world/laptop';
@@ -617,6 +619,8 @@ net.onMessage((msg) => {
       if (carrying) net.send({ t: 'carry', issue: carrying.issue, title: carrying.title });
       if (shownDrink) net.send({ t: 'act', drink: shownDrink });
       if (golf.active) net.send({ t: 'act', golf: true });
+      // The office let go of the ball for you while you were away.
+      ballNews(false);
       // After a reconnect the server has forgotten which terminal we had open, and what we're doing.
       sendDoing(true);
       const openId = openTerminalFor();
@@ -646,7 +650,13 @@ net.onMessage((msg) => {
         toast(`📌 #${carrying.issue} stayed behind on the other floor's board`);
         setCarrying(null);
       }
+      // So does the ball: it's back under that floor's hoop.
+      if (holdingBall()) toast('🏀 The ball stayed behind, back under the other floor’s hoop');
+      ballNews(false);
       arrive();
+      break;
+    case 'ball':
+      ballNews(true);
       break;
     case 'floors':
       noticeWaiting();
@@ -917,7 +927,7 @@ function setPlace() {
 
 /** What you can use where you are, and what's in the way of looking at it. */
 function usable(): Interactable[][] {
-  return upTop && roof ? [roof.interactables] : [office.interactables, gallery.interactables, dog.interactables];
+  return upTop && roof ? [roof.interactables] : [office.interactables, gallery.interactables, dog.interactables, ball.interactables];
 }
 
 /** You're on a floor (or in the building without one): paint it, and open the doors (or carry on down the pole…). */
@@ -1673,6 +1683,7 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   else if (target.kind === 'bar') showBar();
   else if (target.kind === 'dj') blowHorn();
   else if (target.kind === 'golf') teeOff();
+  else if (target.kind === 'ball') takeBall();
 }
 
 // ---- The rooftop bar ---------------------------------------------------------------------------------
@@ -1800,6 +1811,208 @@ function checkSmokeBreak(now: number) {
   }
 }
 
+// ---- The basketball --------------------------------------------------------------------------------
+/** The floor's basketball, by the hoop on the west wall (see world/hoop.ts). */
+const ball = new Basketball(() => office.colliders);
+office.group.add(ball.group);
+/**
+ * Ball messages of yours the office hasn't answered yet (it answers every one): until it has, what
+ * you did stands, so picking it up and shooting quickly doesn't snap it back into your hands.
+ */
+let ballPending = 0;
+/** The office said where the ball is; `answer` when it's answering one of yours (it may be someone else's news). */
+function ballNews(answer: boolean) {
+  if (!answer) ballPending = 0;
+  else if (ballPending > 0 && --ballPending > 0) return;
+  ball.set(store.ball, performance.now());
+  hintKey = '';
+}
+const holdingBall = () => ball.holder === store.you;
+/** Baskets of yours in a row, and whether your last throw was a shot at the hoop (a miss of a pass or a drop doesn't count). */
+let streak = 0;
+let shooting = false;
+/** When you started winding up a shot (performance.now()), or 0. */
+let windFrom = 0;
+
+/** E at the ball: it's yours, if nobody beats you to it. */
+function takeBall() {
+  if (carrying) return toast('🗂️ Your hands are full: put the card back first (Q)', 'warn');
+  if (ball.holder) return;
+  reach();
+  sound.ball('bounce', ball.at, 1.5);
+  ball.takeNow(store.you);
+  ballPending++;
+  net.send({ t: 'ball.take' });
+  hintKey = '';
+}
+
+/** How a shot of yours goes from where you are: out of your hands, which way (a heading), how steep, and how hard it takes to sink it (null: you're not shooting at the hoop). */
+function shotAim(): { from: THREE.Vector3; heading: number; pitch: number; ideal: number | null } {
+  const rim = HOOP.rim;
+  const first = player.view === 'first';
+  // First person, the ball goes where you look; third, from over your head the way you face.
+  const facing = first ? player.camYaw + Math.PI : player.facing;
+  const from = first ? camera.position.clone() : new THREE.Vector3(player.pos.x, player.pos.y + 1.95, player.pos.z);
+  from.x += Math.sin(facing) * 0.3;
+  from.z += Math.cos(facing) * 0.3;
+  const toRim = Math.atan2(rim.x - from.x, rim.z - from.z);
+  const off = Math.abs(Math.atan2(Math.sin(toRim - facing), Math.cos(toRim - facing)));
+  const far = Math.hypot(rim.x - from.x, rim.z - from.z);
+  const atHoop = off < (first ? 0.35 : 0.6) && far < 16 && far > 0.4;
+  if (first) {
+    const look = throwPitch(player.lookPitch);
+    const pitch = atHoop ? underCeiling(from, look) : look;
+    return { from, heading: facing, pitch, ideal: atHoop ? idealSpeed(from, pitch) : null };
+  }
+  // Facing about the right way, your character squares up to the hoop.
+  if (!atHoop) return { from, heading: facing, pitch: throwPitch(0.15), ideal: null };
+  const pitch = underCeiling(from, throwPitch(lookAtRim(from)));
+  return { from, heading: toRim, pitch, ideal: idealSpeed(from, pitch) };
+}
+
+/** Hold E (or the mouse) with the ball: the meter goes up and down until you let go. */
+function windUp() {
+  if (!holdingBall() || windFrom) return;
+  windFrom = performance.now();
+}
+
+/** Let go: it flies as hard as the meter says (right in the green, it drops in). */
+function letFly() {
+  if (!windFrom) return;
+  const power = meter((performance.now() - windFrom) / 1000);
+  windFrom = 0;
+  if (!holdingBall()) return;
+  const a = shotAim();
+  shooting = a.ideal !== null;
+  release(a.from, a.heading, a.pitch, shooting ? shotSpeed(a.ideal!, power) : tossSpeed(power));
+  if (player.view === 'first') hands.shoot();
+  else me.shoot();
+}
+
+/** Q with the ball: it drops out of your hands in front of you. */
+function dropBall() {
+  if (!holdingBall()) return;
+  windFrom = 0;
+  const f = player.view === 'first' ? player.camYaw + Math.PI : player.facing;
+  const from = handsOf(store.you, new THREE.Vector3()) ?? camera.localToWorld(new THREE.Vector3(0, -0.25, -0.45));
+  shooting = false;
+  release(from, f, 0, 0.25);
+}
+
+function release(from: THREE.Vector3, heading: number, pitch: number, speed: number) {
+  const c = Math.cos(pitch);
+  const s = { x: from.x, y: from.y, z: from.z, vx: Math.sin(heading) * c * speed, vy: Math.sin(pitch) * speed, vz: Math.cos(heading) * c * speed };
+  ball.throwNow({ ...s, by: store.you }, performance.now());
+  ballPending++;
+  net.send({ t: 'ball.throw', ...s });
+  hintKey = '';
+}
+
+/** Where the ball is in `id`'s hands, or null when you can't see it there (your own, in first person, is in your view instead). */
+function handsOf(id: string, out: THREE.Vector3): THREE.Vector3 | null {
+  const who = id === store.you ? (player.view === 'first' ? null : me) : (remotes.get(id)?.person ?? null);
+  if (!who) return null;
+  who.root.updateMatrixWorld();
+  return who.root.localToWorld(out.copy(IN_HANDS));
+}
+
+ball.onHit = (hit, at) => {
+  if (hit.kind === 'score') {
+    office.hoop.swish();
+    sound.ball('score', HOOP.rim, hit.speed);
+  } else if (hit.speed > 0.6) sound.ball(hit.kind, at, hit.speed);
+};
+ball.onThrow = (by) => remotes.get(by)?.person.shoot();
+ball.onMiss = (by) => {
+  if (by === store.you && shooting) streak = 0;
+};
+ball.onBasket = (b) => {
+  const mine = b.by === store.you;
+  const points = b.three ? 3 : 2;
+  const peer = store.peers.get(b.by);
+  const how = b.swish ? 'SWISH! ' : b.bank ? 'BANK! ' : '';
+  popScore(mine ? `${how}+${points}` : `${clip(peer?.name ?? 'Someone', 16)} ${how}+${points}`, mine ? store.profile.color : (peer?.color ?? '#ff6b1a'));
+  if (mine) {
+    streak++;
+    const said = b.swish ? 'Swish!' : b.bank ? 'Off the glass!' : 'In off the rim!';
+    toast(`🏀 ${said} +${points} from ${b.distance.toFixed(1)} m${streak > 1 ? ` · 🔥 ${streak} in a row` : ''}`);
+  }
+  if (b.three || (mine && streak >= 3)) confetti.burst(HOOP.rim.x + 0.3, HOOP.rim.y, HOOP.rim.z, 140, 0.7);
+};
+
+/** Points floating up off the hoop, and fading. */
+const scorePops: { sprite: THREE.Sprite; t: number }[] = [];
+function popScore(text: string, bg: string) {
+  const sprite = textSprite(text, { bg, color: '#ffffff', size: 64, border: '#2b2d42' });
+  sprite.position.set(HOOP.rim.x + 0.4, HOOP.rim.y + 0.9, HOOP.rim.z);
+  office.group.add(sprite);
+  scorePops.push({ sprite, t: 0 });
+}
+function updateScorePops(dt: number) {
+  for (let i = scorePops.length - 1; i >= 0; i--) {
+    const p = scorePops[i];
+    p.t += dt;
+    p.sprite.position.y = HOOP.rim.y + 0.9 + p.t * 0.45;
+    p.sprite.material.opacity = Math.min(1, (2 - p.t) / 0.5);
+    if (p.t < 2) continue;
+    office.group.remove(p.sprite);
+    disposeSprite(p.sprite);
+    scorePops.splice(i, 1);
+  }
+}
+
+/** Every frame: the ball flies on (or goes wherever whoever has it goes), and your hands and everyone's arms hold it. */
+function updateBall(now: number, dt: number) {
+  ball.update(now, handsOf);
+  const mine = holdingBall();
+  if (!mine) windFrom = 0;
+  me.holdBall(mine);
+  hands.holdBall(mine);
+  hands.windUp(windFrom ? meter((now - windFrom) / 1000) : 0);
+  for (const [id, r] of remotes) r.person.holdBall(ball.holder === id);
+  updateScorePops(dt);
+  renderShotMeter(now);
+}
+
+/** The wind-up meter over the hint, while you hold E: a green band where the shot drops in, when you're shooting at the hoop. */
+let meterKey = '';
+function renderShotMeter(now: number) {
+  const on = windFrom > 0 && !modalOpen();
+  const at = on ? meter((now - windFrom) / 1000) : 0;
+  const sweet = on && shotAim().ideal !== null;
+  const k = `${on}|${sweet}|${at.toFixed(3)}`;
+  if (k === meterKey) return;
+  meterKey = k;
+  const el = $('shot-meter');
+  el.classList.toggle('hidden', !on);
+  el.classList.toggle('aimed', sweet);
+  el.style.setProperty('--at', String(at));
+  el.style.setProperty('--sweet', String(SWEET.at));
+  el.style.setProperty('--width', String(SWEET.width));
+}
+
+/** With the ball in your hands: how to shoot, and how to put it down. */
+function ballHint(): Hint {
+  const first = player.view === 'first';
+  return {
+    k: `${streak}|${first}|${!!windFrom}`,
+    parts: [
+      h('span.title', {}, '🏀 Ball in hand'),
+      streak > 1 ? aside(`🔥 ${streak} in a row`) : '',
+      windFrom ? aside('let go in the green!') : key(first ? 'E / Click' : 'E', 'Hold to shoot'),
+      key('Q', 'Drop it'),
+    ],
+  };
+}
+
+/** In first person, a ball at your feet is yours to pick up without looking right at it. */
+function ballAtFeet(): Interactable | null {
+  const it = ball.interactable;
+  if (it.off) return null;
+  const p = ball.at;
+  return Math.hypot(p.x - player.pos.x, p.z - player.pos.z) < 1.1 && p.y - player.pos.y < 1.2 && p.y - player.pos.y > -0.5 ? it : null;
+}
+
 // ---- Carrying an issue card ------------------------------------------------------------------------
 function setCarrying(card: CarriedIssue | null) {
   if ((card?.issue ?? 0) === (carrying?.issue ?? 0)) return;
@@ -1815,6 +2028,7 @@ function setCarrying(card: CarriedIssue | null) {
 /** ✋ in an issue's window, or E at its note on the board: its card comes off the board and into your hands. */
 function pickUp(it: GhIssue) {
   closeAllModals();
+  dropBall();
   if (carrying?.issue === it.number) return;
   if (carrying) toast(`📌 #${carrying.issue} went back on the board`);
   setCarrying({ issue: it.number, title: it.title });
@@ -2079,15 +2293,16 @@ function renderHint() {
   if (hanger.active && !modalOpen()) return renderHangHint(el);
   if (climber.active && !modalOpen()) return renderClimbHint(el);
   if (golf.active && !modalOpen()) return renderGolfHint(el);
-  if ((!target && !carrying) || modalOpen()) {
+  const withBall = holdingBall();
+  if ((!target && !carrying && !withBall) || modalOpen()) {
     if (hintKey) {
       el.classList.add('hidden');
       hintKey = '';
     }
     return;
   }
-  const hint = carrying ? carryHint(carrying, target) : hintFor(target!);
-  const k = `${target?.kind}${target?.deskId ?? ''}|${carrying?.issue ?? ''}|${hint.k}`;
+  const hint = withBall ? ballHint() : carrying ? carryHint(carrying, target) : hintFor(target!);
+  const k = `${withBall ? 'ball!' : `${target?.kind}${target?.deskId ?? ''}`}|${carrying?.issue ?? ''}|${hint.k}`;
   if (k === hintKey) return;
   hintKey = k;
   el.replaceChildren(...hint.parts);
@@ -2203,6 +2418,8 @@ function hintFor(it: Interactable): Hint {
       const what = f.part === 'drop' ? '🔥 the drop' : f.part === 'build' ? 'building up…' : f.part === 'breakdown' ? 'the breakdown' : 'mixing in the next track';
       return { k: what, parts: [title('🎧 DJ Merge Conflict'), aside(`drum & bass · ${what}`), key('E', '📯 Air horn!')] };
     }
+    case 'ball':
+      return { k: String(ball.still), parts: [title('🏀 Basketball'), ball.still ? aside('shoot some hoops') : '', key('E', ball.still ? 'Pick it up' : 'Catch it!')] };
     case 'dog': {
       const doing = dog.doing(
         (id) => store.workers.get(id)?.name,
@@ -2217,6 +2434,7 @@ function hintFor(it: Interactable): Hint {
 function carryHint(card: CarriedIssue, it: Interactable | null): Hint {
   const parts = (...mid: (HTMLElement | string)[]) => [h('span.title', {}, `🗂️ #${card.issue} in hand`), ...mid, key('Q', 'Put it back')];
   if (it?.kind === 'issues') return aimedNote ? { k: String(aimedNote.number), parts: parts(key('E', `Swap it for #${aimedNote.number}`)) } : { k: '', parts: parts(key('E', 'Pin it back up')) };
+  if (it?.kind === 'ball') return { k: 'ball', parts: parts(aside('🏀 hands full')) };
   if (it?.kind === 'queue') {
     const on = onQueue(card.issue);
     return { k: String(on), parts: parts(on ? aside('already on the queue') : key('E', 'Put it on the queue')) };
@@ -2471,11 +2689,24 @@ window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyE') golf.stop();
     return;
   }
+  // With the ball in your hands, E winds up a shot (let go to shoot) and Q drops it.
+  if (holdingBall() && (e.code === 'KeyE' || e.code === 'KeyQ')) {
+    if (e.repeat) return;
+    if (e.code === 'KeyE') windUp();
+    else dropBall();
+    return;
+  }
   if (emoteKey(e)) return;
   if (officeKey(e)) player.clearKeys();
 });
 window.addEventListener('keyup', (e) => {
   if (e.code === 'KeyG') emoteWheel.release();
+  if (e.code === 'KeyE') letFly();
+});
+window.addEventListener('blur', () => (windFrom = 0));
+// First person with the mouse captured, the button winds up a shot like E does (see player.onClick).
+window.addEventListener('pointerup', (e) => {
+  if (e.button === 0 && windFrom && player.locked) letFly();
 });
 // Letting go of V mutes you again, wherever the key comes up: a window or a terminal opened meanwhile,
 // or another app (the browser never says the key came up there).
@@ -2592,6 +2823,7 @@ onModalChange((open) => {
   // Opening something on the way over to someone is stopping there.
   if (open && walkingTo && !trip) stopWalking();
   if (open) {
+    windFrom = 0;
     emoteWheel.close();
     // A phone has no mouse to take back afterwards.
     if (finePointer) player.yieldMouse();
@@ -2623,7 +2855,7 @@ document.addEventListener('pointerlockchange', () => {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */
@@ -2665,6 +2897,12 @@ player.onClick = (ndc) => {
   // At the tee, a click is you steadying the mouse to aim: nothing else is in reach.
   if (modalOpen() || golf.active) return;
   if (emoteWheel.isOpen) return emoteWheel.click();
+  // The ball in your hands: press to wind up, let go (or click again, with no mouse captured) to shoot.
+  if (holdingBall()) {
+    if (windFrom && !player.locked) letFly();
+    else windUp();
+    return;
+  }
   if (hanger.active) {
     reach();
     hanger.place(ndc);
@@ -3046,6 +3284,7 @@ function frame(ts?: number) {
   departures.update(dt, t);
   arrivals.update(dt);
   dog.update(dt);
+  if (!upTop) updateBall(now, dt);
   if (!upTop) {
     office.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions(), ...arrivals.positions()]);
     office.stack.update(dt, [{ x: player.pos.x, y: player.pos.y, z: player.pos.z, grip }, ...[...remotes.values()].map((r) => ({ x: r.person.root.position.x, y: r.person.root.position.y, z: r.person.root.position.z, grip: r.grip }))], camera.position);
@@ -3069,7 +3308,7 @@ function frame(ts?: number) {
   if (modalOpen() || hanger.active || climber.active || golf.active) target = null;
   else if (firstPerson) {
     const aim = aimedAt(CROSSHAIR);
-    target = aim?.near ? aim.it : mySeat();
+    target = aim?.near ? aim.it : (mySeat() ?? ballAtFeet());
     if (aim?.near) aimedNote = noteUnder(aim);
   } else {
     target = mySeat() ?? pickTarget();
@@ -3157,7 +3396,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { roof: () => roof, booze, dj: () => djFrame(djAt()), store, player, caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, golf, balls, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote };
+(window as any).__office = { roof: () => roof, booze, dj: () => djFrame(djAt()), store, player, caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, golf, balls, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote, ball };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

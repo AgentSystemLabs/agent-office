@@ -29,8 +29,16 @@ if ! command -v node >/dev/null 2>&1 || [[ "$(node -v)" != v22* ]]; then
 fi
 
 step "Installing git, GitHub CLI and build tools"
+# gh from GitHub's own apt repo: Ubuntu's archive freezes it at whatever shipped with the release.
+# install upgrades it to the newest on every re-run.
+sudo install -d -m 755 /etc/apt/keyrings
+quiet sudo curl -fsSLo /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg
+sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+  | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
 quiet "${APT[@]}" update
 quiet "${APT[@]}" install git gh curl ca-certificates build-essential python3
+echo "    $(gh --version | head -1)"
 
 if [[ ! -x "$HOME/.local/bin/claude" ]]; then
   step "Installing Claude Code"
