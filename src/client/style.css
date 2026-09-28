@@ -174,6 +174,21 @@ button { font-family: inherit; }
 }
 .hint .title { color: #ffd166; }
 .hint .cost { color: #a5ecfb; font-weight: 700; }
+/* Winding up a shot with the basketball: the marker runs up and down; let go in the green. */
+.shot-meter {
+  position: absolute; left: 50%; bottom: 92px; width: 240px; height: 18px; transform: translateX(-50%);
+  background: var(--ink); border: 3px solid var(--paper); border-radius: 10px; box-shadow: 0 4px 0 rgba(0,0,0,.35);
+  overflow: hidden; pointer-events: none !important;
+}
+.shot-meter .sweet {
+  display: none; position: absolute; top: 0; bottom: 0; left: calc((var(--sweet) - var(--width) / 2) * 100%); width: calc(var(--width) * 100%);
+  background: var(--good);
+}
+.shot-meter.aimed .sweet { display: block; }
+.shot-meter .mark {
+  position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--at) * 100%);
+  background: linear-gradient(90deg, rgba(255,209,102,.25), rgba(255,138,91,.75)); border-right: 4px solid var(--paper);
+}
 
 .crosshair {
   position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px;
@@ -450,6 +465,7 @@ button { font-family: inherit; }
   .side { width: min(250px, calc(100vw - 24px)); max-height: calc(100vh - 290px); }
   .dock-btn .lbl { display: none; }
   .hint { max-width: calc(100vw - 24px); bottom: 190px; }
+  .shot-meter { bottom: 254px; }
   .chat { width: calc(100vw - 24px); }
 }
 
