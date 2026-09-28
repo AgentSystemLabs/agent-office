@@ -20,6 +20,7 @@ import { Jukebox } from './jukebox.js';
 import { Whiteboard } from './whiteboard.js';
 import { MeetingRoom } from './meetings.js';
 import { Worktrees } from './worktrees.js';
+import { FloorJira, type JiraOffice } from './jira.js';
 import type { Ledger } from './usage.js';
 import type { Capacity } from './machine.js';
 
@@ -34,6 +35,8 @@ export interface FloorContext {
   ledger: Ledger;
   /** The office's worker limit, across every floor. */
   capacity: Capacity;
+  /** The office's Jira connection, which every floor's epic goes through. */
+  jira: JiraOffice;
   /** To everyone on this floor. */
   emit(floor: Floor, msg: ServerMsg, droppable?: boolean): void;
   toast(floor: Floor, text: string, level?: ToastLevel): void;
@@ -85,6 +88,8 @@ export class Floor {
   readonly workers: WorkerManager;
   /** The issue and PR boards, on GitHub or GitLab as the floor's repository is. */
   readonly board: Board;
+  /** The floor's Jira epic, as the issue board's Jira tab (see jira.ts). */
+  readonly jira: FloorJira;
   readonly queue: TaskQueue;
   readonly changes: Changes;
   readonly decor: Decor;
@@ -122,6 +127,10 @@ export class Floor {
         this.merged(p.number);
       }
     };
+    this.jira = new FloorJira(dataDir, ctx.jira, {
+      state: (state) => ctx.emit(this, { t: 'jira', state }),
+      board: (state) => ctx.emit(this, { t: 'jira.board', state }),
+    });
     this.board = forge === 'gitlab' && def.repo ? new GitLab(def.dir, def.repo, onIssues, onPulls) : new GitHub(def.dir, onIssues, onPulls);
 
     // Before the workers, so it hears about the ones who wake up needing input.
@@ -225,9 +234,12 @@ export class Floor {
     this.ready = this.workers.start();
 
     void this.board.refresh();
+    void this.jira.refresh();
     // A floor with people on it, or work under way, keeps its boards fresh; the others check in now and then.
     this.timer = setInterval(() => {
-      if (this.active() || Date.now() - this.board.issues.fetchedAt > IDLE_REFRESH_MS) void this.board.refresh();
+      const active = this.active();
+      if (active || Date.now() - this.board.issues.fetchedAt > IDLE_REFRESH_MS) void this.board.refresh();
+      if (active || Date.now() - this.jira.fetchedAt > IDLE_REFRESH_MS) void this.jira.refresh();
     }, REFRESH_MS);
   }
 
@@ -239,6 +251,7 @@ export class Floor {
   /** Someone just walked in: boards that haven't been looked at in a while get fetched again. */
   arrived() {
     if (Date.now() - Math.max(this.board.issues.fetchedAt, this.board.pulls.fetchedAt) > REFRESH_MS) void this.board.refresh();
+    if (Date.now() - this.jira.fetchedAt > REFRESH_MS) void this.jira.refresh();
   }
 
   private active(): boolean {

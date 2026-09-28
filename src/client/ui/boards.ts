@@ -6,6 +6,7 @@ import { h, openModal, timeAgo } from './dom';
 import { labelChip, openIssue, openPull } from './pull';
 import { providerLabel } from './provider';
 import type { MeetingPreset } from './meeting';
+import { renderJiraBoard } from './jira';
 
 export interface BoardActions {
   /** Start a worker on a ready-made prompt (shown for editing first). */
@@ -116,14 +117,49 @@ function card(ref: string, title: string, meta: (Node | string)[], onclick: () =
 export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActions) {
   const body = h('div.body');
   const status = h('span.board-status');
-  const refresh = h('button.btn', { title: `Refresh from ${words().site}`, onclick: () => net.send({ t: 'gh.refresh' }) }, 'Refresh');
+  /** On the issues board of a floor with a Jira epic: which tab is showing. Issues is always where it opens. */
+  let tab: 'issues' | 'jira' = 'issues';
+  const onJira = () => kind === 'issues' && tab === 'jira' && !!store.jiraBoard;
+  const refresh = h('button.btn', { onclick: () => net.send(onJira() ? { t: 'jira.refresh' } : { t: 'gh.refresh' }) }, 'Refresh');
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const pulls = words().cli === 'glab' ? 'Merge requests' : 'Pull requests';
-  const el = h('div.modal.board', { role: 'dialog', 'aria-label': kind === 'issues' ? 'Issues board' : `${pulls} board` }, h('header', {}, h('h2', {}, kind === 'issues' ? 'Issues' : pulls), status, refresh, close), body);
+  const tabIssues = h('button.gh-tab', { type: 'button', role: 'tab' }, 'Issues');
+  const tabJira = h('button.gh-tab', { type: 'button', role: 'tab' });
+  const tabs = h('nav.gh-tabs.board-tabs', { role: 'tablist' }, tabIssues, tabJira);
+  const el = h('div.modal.board', { role: 'dialog', 'aria-label': kind === 'issues' ? 'Issues board' : `${pulls} board` }, h('header', {}, h('h2', {}, kind === 'issues' ? 'Issues' : pulls), status, refresh, close), tabs, body);
+  const setTab = (t: typeof tab) => {
+    if (t === tab) return;
+    tab = t;
+    body.replaceChildren();
+    render();
+  };
+  tabIssues.addEventListener('click', () => setTab('issues'));
+  tabJira.addEventListener('click', () => setTab('jira'));
 
-  const render = () => {
-    const st = kind === 'issues' ? store.issues : store.pulls;
+  const statusText = () => {
+    const st = onJira() ? store.jiraBoard! : kind === 'issues' ? store.issues : store.pulls;
     status.textContent = st.loading ? 'Refreshing…' : st.fetchedAt ? `Updated ${timeAgo(st.fetchedAt)}` : '';
+  };
+  const render = () => {
+    // Floors without a Jira epic have no tabs at all, just as before.
+    const jira = kind === 'issues' ? store.jiraBoard : null;
+    if (!jira && tab === 'jira') tab = 'issues';
+    tabs.classList.toggle('hidden', !jira);
+    tabIssues.classList.toggle('on', tab === 'issues');
+    tabJira.classList.toggle('on', tab === 'jira');
+    tabIssues.setAttribute('aria-selected', String(tab === 'issues'));
+    tabJira.setAttribute('aria-selected', String(tab === 'jira'));
+    tabIssues.textContent = `${words().site} issues`;
+    tabJira.textContent = jira ? `Jira · ${jira.epic}` : 'Jira';
+    refresh.title = onJira() ? 'Refresh from Jira' : `Refresh from ${words().site}`;
+    statusText();
+    if (onJira()) {
+      const { scrollLeft } = body;
+      renderJiraBoard(body, actions);
+      body.scrollLeft = scrollLeft;
+      return;
+    }
+    const st = kind === 'issues' ? store.issues : store.pulls;
     // Every refresh rebuilds the columns, so note how far each was scrolled and put it back afterwards.
     const scrolled = [...body.querySelectorAll('.column > ul')].map((ul) => ul.scrollTop);
     const { scrollLeft, scrollTop } = body;
@@ -179,12 +215,10 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
   };
 
   const unsubs = [store.on(kind, render), store.on('queue', render)];
+  if (kind === 'issues') unsubs.push(store.on('jiraBoard', render));
   // Which desk a PR came from can change (a worker sent home, a PR opened from a desk).
   if (kind === 'pulls') unsubs.push(store.on('workers', render));
-  const timer = setInterval(() => {
-    const st = kind === 'issues' ? store.issues : store.pulls;
-    status.textContent = st.loading ? 'Refreshing…' : st.fetchedAt ? `Updated ${timeAgo(st.fetchedAt)}` : '';
-  }, 15000);
+  const timer = setInterval(statusText, 15000);
   const modal = openModal(el, {
     doing: kind === 'issues' ? '📋 at the issues board' : `🔀 at the ${words().pr} board`,
     onClose: () => {

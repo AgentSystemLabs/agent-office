@@ -75,6 +75,7 @@ import { openSearch, search } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage, worktreePref, setWorktreePref } from './ui/prompt';
 import { issuePrompt, openBoard } from './ui/boards';
+import { routeJiraMessage } from './ui/jira';
 import { mergePref, mergeStatus, onClosed, onCommented, onMerged, openIssue, openPull, pullDetail, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
 import { copy, guessOs, openTeam, routeTeamMessage } from './ui/team';
@@ -1240,6 +1241,7 @@ net.onMessage((msg) => {
   routeTeamMessage(msg);
   routeAccountsMessage(msg);
   routePullMessage(msg);
+  routeJiraMessage(msg);
   routeElevatorMessage(msg);
   routeWhiteboardMessage(msg, net);
   switch (msg.t) {

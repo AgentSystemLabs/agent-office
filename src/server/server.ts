@@ -21,6 +21,7 @@ import { Ledger } from './usage.js';
 import { PlanLimitsReader } from './limits.js';
 import { DROIDPROXY_AUTH_DIR, DroidProxyUsage } from './droidproxy.js';
 import { Webhook } from './webhook.js';
+import { JiraOffice } from './jira.js';
 import { MAX_WORKER_LIMIT, Machine, parseWorkerLimit } from './machine.js';
 import { Building, type FloorDef } from './building.js';
 import { Floor, type FloorContext } from './floor.js';
@@ -391,6 +392,9 @@ export async function startServer(cfg: Config) {
     if (err) console.error(`agent-office: --webhook: ${err}`);
   }
 
+  // The office's one Jira Cloud account, which every floor's epic board reads through (⚙️ Settings, admins).
+  const jira = new JiraOffice(cfg.dataDir);
+
   // The machine's CPU and memory, for the monitor on the wall and a warning before hiring, and the
   // most workers the office runs at once, across every floor (--max-workers, or ⚙️ Settings).
   const machine = new Machine(
@@ -426,6 +430,7 @@ export async function startServer(cfg: Config) {
     hook: { url: `http://127.0.0.1:${hookPort}`, token: '' },
     ledger,
     capacity: machine,
+    jira,
     emit: toFloor,
     toast: toastFloor,
     termData: (workerId, data, viewers) => {
@@ -535,6 +540,8 @@ export async function startServer(cfg: Config) {
     jukebox: floor?.jukebox.state() ?? { on: false, track: JUKEBOX_TUNES[0].id, startedAt: Date.now(), elapsed: 0 },
     whiteboard: { elements: floor?.whiteboard.scene() ?? [], people: floor ? drawing(floor) : [] },
     meeting: floor?.meetings.state() ?? { current: null, past: [] },
+    jira: floor?.jira.state() ?? { connection: jira.connection() },
+    jiraBoard: floor?.jira.board ?? null,
     cabinet: { ...cabinetState(floor), frame: (floor && cabinetPlayer(floor)?.frame) ?? null },
   });
   /** The rooftop bar: nobody works up there, so it has none of a floor's things. */
@@ -786,6 +793,16 @@ export async function startServer(cfg: Config) {
         });
         res.end(r.body);
         return;
+      }
+      if (p === '/api/jira/ticket' && req.method === 'GET') {
+        // What a Jira ticket's window shows beyond its card (see jira.ts). Only the floor's epic's tickets.
+        if (!floor) return send(res, 404, { error: 'No such floor' });
+        try {
+          return send(res, 200, await floor.jira.detail(url.searchParams.get('key') ?? ''));
+        } catch (err) {
+          const status = (err as { status?: number }).status;
+          return send(res, status === 400 || status === 403 || status === 404 ? status : 502, { error: (err as Error).message });
+        }
       }
       if (p === '/api/search' && req.method === 'GET') return send(res, 200, search(url.searchParams.get('q') ?? '', floor));
       if (p.startsWith('/api/gh/') && req.method === 'GET') {
@@ -1062,6 +1079,11 @@ export async function startServer(cfg: Config) {
   const takeIssue = (c: Client, floor: Floor, n: number) => {
     floor.queue.dropIssue(n);
     void floor.board.claim(n).then((err) => warn(c, err && `Couldn't assign issue #${n} on ${forgeWords(floor.board.forge).site}: ${err}`));
+  };
+
+  /** Every floor's Jira tab starts over with the office's new connection (or none). */
+  const jiraConnectionChanged = () => {
+    for (const f of floors.values()) void f.jira.connectionChanged();
   };
 
   const handleMessage = (c: Client, msg: ClientMsg) => {
@@ -1520,6 +1542,46 @@ export async function startServer(cfg: Config) {
         pumpQueues();
         break;
       }
+      case 'jira.connect': {
+        if (!meOf(c.accountId).admin) return sendTo(c, { t: 'jira.setup', step: 'connect', error: 'Only admins can connect the office to Jira' });
+        void jira.connect(str(msg.site, 300), str(msg.email, 254), str(msg.token, 2000), who).then((error) => {
+          sendTo(c, { t: 'jira.setup', step: 'connect', ok: !error, error });
+          if (error) return;
+          console.log(`  ${who} connected the office to Jira at ${jira.connection()?.site}`);
+          toastAll(`🎫 ${who} connected the office to Jira`);
+          jiraConnectionChanged();
+        });
+        break;
+      }
+      case 'jira.disconnect': {
+        if (!meOf(c.accountId).admin) return warn(c, 'Only admins can disconnect the office from Jira');
+        if (!jira.connection()) break;
+        jira.disconnect();
+        console.log(`  ${who} disconnected the office from Jira`);
+        toastAll(`${who} disconnected the office from Jira`);
+        jiraConnectionChanged();
+        break;
+      }
+      case 'jira.epic': {
+        const floor = here();
+        if (!floor) break;
+        if (!meOf(c.accountId).admin) return sendTo(c, { t: 'jira.setup', step: 'epic', error: "Only admins can set a floor's Jira epic" });
+        if (!str(msg.key, 40).trim()) {
+          floor.jira.clearEpic();
+          toastFloor(floor, `${who} took the Jira epic off this floor`);
+          sendTo(c, { t: 'jira.setup', step: 'epic', ok: true });
+          break;
+        }
+        void floor.jira.setEpic(str(msg.key, 40), who).then((r) => {
+          if ('error' in r) return sendTo(c, { t: 'jira.setup', step: 'epic', error: r.error });
+          sendTo(c, { t: 'jira.setup', step: 'epic', ok: true });
+          toastFloor(floor, `🎫 ${who} put Jira epic ${r.epic.key} on this floor's issue board`);
+        });
+        break;
+      }
+      case 'jira.refresh':
+        void floorOf(c)?.jira.refresh(true);
+        break;
       case 'changes.watch': {
         const w = worker(msg.workerId);
         if (w) w.floor.changes.watch(w.wid, c.id);

@@ -6,6 +6,7 @@ import type { CabinetFrame, CabinetState, CabinetView } from './cabinet.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
 import type { EmoteId } from './emotes.js';
+import type { JiraBoardState, JiraFloorState } from './jira.js';
 import type { JukeboxState } from './jukebox.js';
 import type { DrinkId } from './rooftop.js';
 import type { WbElement, WbPointer, WhiteboardView } from './whiteboard.js';
@@ -698,6 +699,10 @@ export interface FloorView {
   whiteboard: WhiteboardView;
   /** The meeting room: who's meeting about what, and the meetings before. */
   meeting: MeetingState;
+  /** The office's Jira connection and this floor's epic. */
+  jira: JiraFloorState;
+  /** The Jira tab of the issue board; null on a floor without an epic. */
+  jiraBoard: JiraBoardState | null;
 }
 
 export type AccountRole = 'admin' | 'member';
@@ -1015,6 +1020,14 @@ export type ClientMsg =
   | { t: 'notify.test' }
   /** Admins: the most workers the office runs at once, across every floor; null takes the limit off. */
   | { t: 'machine.limit'; limit: number | null }
+  /** Admins: connect the office to Jira Cloud with one account's email and API token (read-only is enough); answered with `jira.setup`. */
+  | { t: 'jira.connect'; site: string; email: string; token: string }
+  /** Admins: forget the office's Jira connection. */
+  | { t: 'jira.disconnect' }
+  /** Admins: show a Jira epic on the floor you're on ('' removes it); answered with `jira.setup`. */
+  | { t: 'jira.epic'; key: string }
+  /** Read the floor's Jira tab again now. */
+  | { t: 'jira.refresh' }
   | { t: 'voice'; voice: boolean; muted: boolean; sharing: boolean }
   | { t: 'rtc'; to: string; data: unknown }
   | { t: 'chat'; text: string }
@@ -1180,6 +1193,11 @@ export type ServerMsg =
   | { t: 'queue'; state: QueueState }
   | { t: 'meeting'; state: MeetingState }
   | { t: 'notify'; state: NotifyState }
+  /** The office's Jira connection or this floor's epic changed. */
+  | { t: 'jira'; state: JiraFloorState }
+  | { t: 'jira.board'; state: JiraBoardState | null }
+  /** To the admin setting Jira up: done, or why not. */
+  | { t: 'jira.setup'; step: 'connect' | 'epic'; ok?: boolean; error?: string }
   | { t: 'machine'; state: MachineState }
   | { t: 'proxy'; state: ProxyState }
   | { t: 'sky'; state: SkyState }

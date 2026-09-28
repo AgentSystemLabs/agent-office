@@ -325,9 +325,9 @@ button { font-family: inherit; }
 .modal .body { padding: 16px; overflow: auto; }
 .modal footer { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px; border-top: 1px solid var(--border); background: var(--surface-raised); align-items: center; }
 .modal footer .grow { flex: 1; font: 400 11px/1.5 var(--font-mono); color: var(--text-secondary); }
-.modal textarea, .modal input[type=text] { width: 100%; font: inherit; font-size: 14px; border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 10px 12px; background: var(--surface-raised); color: var(--text); outline: none; resize: vertical; }
-.modal textarea::placeholder, .modal input[type=text]::placeholder { color: var(--text-tertiary); }
-.modal textarea:focus, .modal input[type=text]:focus { border-color: var(--accent); }
+.modal textarea, .modal input[type=text], .modal input[type=email], .modal input[type=password] { width: 100%; font: inherit; font-size: 14px; border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 10px 12px; background: var(--surface-raised); color: var(--text); outline: none; resize: vertical; }
+.modal textarea::placeholder, .modal input[type=text]::placeholder, .modal input[type=email]::placeholder, .modal input[type=password]::placeholder { color: var(--text-tertiary); }
+.modal textarea:focus, .modal input[type=text]:focus, .modal input[type=email]:focus, .modal input[type=password]:focus { border-color: var(--accent); }
 .modal label { font: 500 11px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .07em; color: var(--text-secondary); display: block; margin-bottom: 6px; }
 .close { width: 30px; height: 30px; padding: 0; justify-content: center; }
 /* The ✕ openModal gives a window without a header of its own. */
@@ -497,6 +497,12 @@ button { font-family: inherit; }
 .label { padding: 1px 6px; border-radius: var(--radius-xs); color: inherit; font-size: 10px; font-weight: 600; }
 .board-status { font: 400 10px var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--text-secondary); }
 .board-error { margin: auto; background: var(--surface); border: 1px solid rgba(239, 68, 68, .5); border-radius: var(--radius-lg); padding: 18px 22px; max-width: 520px; text-align: center; }
+.modal.board .board-tabs { padding: 0 12px; }
+.jira-type { padding: 1px 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-xs); font-size: 10px; }
+.card .num a { color: inherit; text-decoration: none; }
+.card .num a:hover { text-decoration: underline; }
+.card .meta .pill { font-size: 9.5px; padding: 1px 6px; }
+.jira-form { display: flex; flex-direction: column; gap: 8px; }
 .detail pre { white-space: pre-wrap; word-break: break-word; font: 13px/1.5 var(--font-mono); background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; max-height: 45vh; overflow: auto; margin: 10px 0 0; }
 .detail .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font: 400 12px var(--font-mono); color: var(--text-secondary); }
 .detail a { color: var(--info); font-weight: 600; }

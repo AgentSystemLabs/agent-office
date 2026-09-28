@@ -36,6 +36,7 @@ import type { DogState } from '../shared/dog';
 import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
 import { forgeWords, type ForgeWords } from '../shared/floors';
+import type { JiraBoardState, JiraFloorState } from '../shared/jira';
 
 export type Topic =
   | 'peers'
@@ -69,7 +70,9 @@ export type Topic =
   | 'drawing'
   | 'cabinet'
   | 'cabinetFrame'
-  | 'meeting';
+  | 'meeting'
+  | 'jira'
+  | 'jiraBoard';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -241,6 +244,10 @@ class Store {
   /** The Claude plan's 5-hour and weekly limits. */
   limits: PlanLimits = { windows: [], at: 0 };
   queue: QueueState = { tasks: [], maxWorkers: 0 };
+  /** The office's Jira connection and this floor's epic. */
+  jira: JiraFloorState = {};
+  /** The Jira tab of the issue board; null on a floor without an epic. */
+  jiraBoard: JiraBoardState | null = null;
   /** The meeting room: the meeting at the table, and the ones before. */
   meeting: MeetingState = { current: null, past: [] };
   /** Who you're signed in as (see /api/whoami). */
@@ -321,6 +328,8 @@ class Store {
     this.pulls = v.pulls;
     this.queue = v.queue;
     this.meeting = v.meeting;
+    this.jira = v.jira ?? {};
+    this.jiraBoard = v.jiraBoard ?? null;
     this.decor = v.decor;
     this.services = v.services;
     this.whiteboard = new Map(v.whiteboard.elements.map((e) => [e.id, e]));
@@ -329,7 +338,7 @@ class Store {
     this.cabinetFrame = v.cabinet.frame;
     this.setDog(v.dog);
     this.setJukebox(v.jukebox);
-    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame'] as Topic[]) this.emit(t);
+    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'jira', 'jiraBoard'] as Topic[]) this.emit(t);
   }
 
   private setDog(dog: DogState | null) {
@@ -499,6 +508,14 @@ class Store {
       case 'notify':
         this.notify = msg.state;
         this.emit('notify');
+        break;
+      case 'jira':
+        this.jira = msg.state;
+        this.emit('jira');
+        break;
+      case 'jira.board':
+        this.jiraBoard = msg.state;
+        this.emit('jiraBoard');
         break;
       case 'machine':
         this.machine = msg.state;
