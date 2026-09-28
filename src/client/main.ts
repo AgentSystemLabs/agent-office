@@ -361,6 +361,20 @@ function vrUseE(it: Interactable | null, note: GhIssue | null) {  // On the ladd
     if (it.kind === 'bar') return vrUi.showMenu('bar');
     if (it.kind === 'meeting') return vrUi.showMenu('meeting');
     if (it.kind === 'services') return vrUi.showMenu('services');
+    // E at the seat you're on: the bar opens its VR menu (the roof's E does the same); the TV
+    // and the boss's Minesweeper stay desktop — sitting down and standing up fall through below.
+    if (it.kind === 'seat' && it.seatId && player.seat?.seatId === it.seatId) {
+      const seat = SEATING_BY_ID.get(it.seatId);
+      if (seat?.bar) return vrUi.showMenu('bar');
+      if (seat?.tv && tvShowing()) {
+        toast("Whoever's sharing is up on the desktop TV — the headset can't watch screens yet", 'warn');
+        return;
+      }
+      if (seat?.game) {
+        toast("The boss's Minesweeper isn't in VR yet — hop on the desktop for that one", 'warn');
+        return;
+      }
+    }
     // The picture is right there on the wall; E says who hung it, and E again takes it down
     // (the DOM dialog's take-down + confirm, without the dialog — move/edit stay desktop).
     if (it.kind === 'decor' && it.decorId) {
@@ -527,7 +541,9 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     // The menu's current view (E-routing checks read this back).
     menuView: () => vrUi?.menu.currentView() ?? null,
     // E through the session's own dispatch, at a made-up target (E-routing checks).
-    tapUse: (kind: string, deskId?: string, decorId?: string) => vrUseE({ kind, deskId, decorId } as Interactable, null),
+    tapUse: (kind: string, deskId?: string, decorId?: string, seatId?: string) => vrUseE({ kind, deskId, decorId, seatId } as Interactable, null),
+    // A DOM modal is up (invisible in the headset — the seat checks assert none opens).
+    modal: () => modalOpen(),
     // The pictures on the walls (the decor E-again check reads this back).
     decor: () => store.decor.map((d) => ({ id: d.id, title: d.title, by: d.by })),
     // What the VR prompt field holds (assert scripts read this back after pressing keys).
