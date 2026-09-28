@@ -10,6 +10,19 @@ const MAX_BACKOFF_MS = 10 * 60_000;
 const MAX_TICKETS = 500;
 /** Atlassian's API gateway: the one place a scoped (read-only) API token works, and a classic token too. */
 const GATEWAY = 'https://api.atlassian.com/ex/jira';
+/**
+ * The language Jira names issue types, statuses and priorities in. Node's fetch sends
+ * `Accept-Language: *`, which Jira answers in whatever language it picks (Chinese, for one site),
+ * so every request names one: the office machine's, then English.
+ */
+export function acceptLanguage(locale: string | undefined = Intl.DateTimeFormat().resolvedOptions().locale): string {
+  const tag = locale && /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(locale) && locale !== 'und' ? locale : '';
+  const base = tag.split('-')[0].toLowerCase();
+  if (!tag || base === 'en') return 'en-US, en;q=0.9';
+  return base === tag ? `${tag}, en;q=0.5` : `${tag}, ${base};q=0.9, en;q=0.5`;
+}
+const LANGUAGE = acceptLanguage();
+
 /** The search that checks a connection: anything that can read issues can run it. */
 export const CHECK_JQL = 'created >= -1d ORDER BY created DESC';
 
@@ -116,7 +129,7 @@ export class JiraApi {
     try {
       res = await this.fetchImpl(`${GATEWAY}/${this.creds.cloudId}${api}`, {
         method,
-        headers: { authorization: this.auth, accept: 'application/json', ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
+        headers: { authorization: this.auth, accept: 'application/json', 'accept-language': LANGUAGE, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
         body: body !== undefined ? JSON.stringify(body) : undefined,
         redirect: 'error',
         signal: AbortSignal.timeout(TIMEOUT_MS),

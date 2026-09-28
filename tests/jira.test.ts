@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { CHECK_JQL, FloorJira, JiraApi, type JiraError, JiraOffice, cloudIdOf, jiraSite, redact, ticketOf } from '../src/server/jira.js';
+import { CHECK_JQL, FloorJira, JiraApi, type JiraError, JiraOffice, acceptLanguage, cloudIdOf, jiraSite, redact, ticketOf } from '../src/server/jira.js';
 import { adfToMarkdown, childrenJql, jiraKey, ticketColumns, ticketPrompt, type JiraBoardState, type JiraTicket } from '../src/shared/jira.js';
 
 const TOKEN = 'ATATT3xFfGF0-secret-token-value';
@@ -15,6 +15,7 @@ interface Call {
   method: string;
   url: string;
   auth: string;
+  lang: string;
   body?: any;
 }
 
@@ -32,6 +33,7 @@ function fakeJira(routes: Record<string, (call: Call) => Answer>) {
       method: init?.method ?? 'GET',
       url: url.href,
       auth: String((init?.headers as Record<string, string>)?.authorization ?? ''),
+      lang: String((init?.headers as Record<string, string>)?.['accept-language'] ?? ''),
       body: init?.body ? JSON.parse(String(init.body)) : undefined,
     };
     calls.push(call);
@@ -70,6 +72,21 @@ test('reads issue keys', () => {
   assert.equal(jiraKey('168'), undefined);
   assert.equal(jiraKey('EDP-12; rm -rf'), undefined);
   assert.equal(jiraKey(12), undefined);
+});
+
+test('asks Jira for a real language, never any language', () => {
+  assert.equal(acceptLanguage('en-US'), 'en-US, en;q=0.9');
+  assert.equal(acceptLanguage('en-GB'), 'en-US, en;q=0.9');
+  assert.equal(acceptLanguage('de-DE'), 'de-DE, de;q=0.9, en;q=0.5');
+  assert.equal(acceptLanguage('fr'), 'fr, en;q=0.5');
+  for (const odd of [undefined, '', 'und', '*', 'C', 'en_US.UTF-8']) assert.equal(acceptLanguage(odd), 'en-US, en;q=0.9');
+});
+
+test('every Jira request names its language', async () => {
+  const jira = fakeJira({ 'GET /rest/api/3/issue/*': () => ({ key: 'EDP-1', fields: {} }) });
+  await new JiraApi({ site: SITE, cloudId: CLOUD, email: 'a@b.co', token: TOKEN }, jira.impl).issue('EDP-1', ['summary']);
+  assert.equal(jira.calls.length, 1);
+  assert.ok(jira.calls[0].lang && !jira.calls[0].lang.includes('*'));
 });
 
 test('only takes Jira Cloud sites', () => {
