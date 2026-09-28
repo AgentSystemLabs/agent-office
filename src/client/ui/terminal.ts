@@ -39,6 +39,8 @@ function initials(name: string): string {
 }
 
 let current: { workerId: string; modal: Modal; find(f: TerminalFind): void } | null = null;
+/** Whether we've said, this page load, that Esc now goes to the terminal and how to leave instead. */
+let escHinted = false;
 const listeners = new Set<(msg: ServerMsg) => void>();
 
 /** Main feeds every server message through here so open terminals can pick theirs. */
@@ -71,7 +73,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   }, '🧠 Models');
   const typed = h('span.typed', {});
   const changesBtn = h('button.btn', { type: 'button', title: 'What this worker changed: files, diff, commit, open a PR (C at the desk)' }, '🌿 Changes');
-  const closeBtn = h('button.btn.close', { title: 'Leave terminal (Esc) · Ctrl+[ sends Esc to the terminal', 'aria-label': 'Close' }, '✕');
+  const closeBtn = h('button.btn.close', { title: 'Leave terminal (Shift+Esc or Ctrl+]) · Esc goes to the terminal', 'aria-label': 'Close' }, '✕');
   const host = h('div.term-host');
   const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, onChanges ? changesBtn : null, closeBtn), host);
 
@@ -259,6 +261,16 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
 
   const modal = openModal(el, {
     backdropCloses: true,
+    // TUIs use Esc to back out of their own menus, so while you're typing in the terminal it goes
+    // to the program. Shift+Esc (or Ctrl+], or Esc once focus is off the terminal) leaves.
+    escCloses: (e) => {
+      if (e.shiftKey || !host.contains(document.activeElement)) return true;
+      if (!escHinted) {
+        escHinted = true;
+        toast('Esc went to the terminal. Shift+Esc or Ctrl+] leaves it');
+      }
+      return false;
+    },
     doing: `💻 in ${info.name}'s terminal`,
     onClose: () => {
       listeners.delete(onMsg);

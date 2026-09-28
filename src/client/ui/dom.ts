@@ -52,18 +52,22 @@ export function doingNow(): string | undefined {
 }
 
 /**
- * Opens a modal. Esc closes it unless `escCloses` is false (for dialogs you mustn't skip), and so
+ * Opens a modal. Esc closes it unless `escCloses` is false (for dialogs you mustn't skip) or a
+ * function that returns false for that keypress (to let Esc through to what has focus), and so
  * does a ✕ in its top right corner unless `closeButton` is false (it follows `escCloses`). `doing`
  * is what teammates see under your name tag while it's open, like "reading PR #12".
  */
-export function openModal(content: HTMLElement, opts: { escCloses?: boolean; onClose?: () => void; backdropCloses?: boolean; closeButton?: boolean; doing?: string } = {}): Modal {
+export function openModal(
+  content: HTMLElement,
+  opts: { escCloses?: boolean | ((e: KeyboardEvent) => boolean); onClose?: () => void; backdropCloses?: boolean; closeButton?: boolean; doing?: string } = {},
+): Modal {
   const backdrop = h('div.backdrop', {}, content);
   const root = document.getElementById('modal-root')!;
   root.append(backdrop);
   let closed = false;
   const onKey = (e: KeyboardEvent) => {
     if (stack[stack.length - 1] !== modal) return;
-    if (e.key === 'Escape' && opts.escCloses !== false) {
+    if (e.key === 'Escape' && (typeof opts.escCloses === 'function' ? opts.escCloses(e) : opts.escCloses !== false)) {
       // Stop it here so the Esc that closes a terminal isn't also typed into it.
       e.preventDefault();
       e.stopPropagation();

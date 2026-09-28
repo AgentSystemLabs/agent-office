@@ -220,8 +220,8 @@ OpenCode metrics come from assistant-message token/cost records exposed by its p
 | / | Search the chat and every terminal on your floor |
 | V / M | Join voice / mute |
 | Tab | The ☰ menu: every window, and what shows on screen |
-| Esc | Close any window (a terminal too) and get back to looking around |
-| Ctrl + [ | Send Esc to a terminal (e.g. to interrupt Claude) |
+| Esc | Close any window and get back to looking around. In a terminal, Esc goes to the program (to back out of a menu or interrupt Claude) |
+| Shift + Esc | Leave a terminal (so does Ctrl + ], the ✕, or Esc after clicking off the terminal) |
 
 You can also click a nearby desk to interact with it, or click a worker in the Workers panel (**🤖 Workers**, top right) to open its terminal.
 
