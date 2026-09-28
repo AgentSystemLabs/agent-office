@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { BARK_EVERY_S, BARK_FOR_S, DOG_COATS, dogAt, legSeconds, type DogAct, type DogState } from '../../shared/dog';
 import type { Theme } from '../../shared/protocol';
 import { dogAntlers, dogBatWings, dogRedNose, dogScarf, dogWitchHat } from './costumes';
+import { loadDog, type Model } from './models';
 import type { Interactable } from './office';
-import { disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
+import { disposeSprite, textSprite, toon, toonUnique } from './toon';
 
 export interface DogSounds {
   bark(x: number, z: number, times: number): void;
@@ -11,58 +12,110 @@ export interface DogSounds {
   yip(x: number, z: number): void;
 }
 
-/** What the body eases toward for each thing it does. */
-interface Pose {
-  /** How far the whole dog sinks toward the floor. */
-  drop: number;
-  /** How far the front end tips up, sitting. */
-  sit: number;
-  /** Front legs swung forward (lying down). */
-  front: number;
-  /** Back legs folded forward under it. */
-  rear: number;
-  /** Head tipped down (+) or up (-). */
-  nod: number;
-  /** Eyes open (1) or shut (0). */
-  eyes: number;
-  /** How far back the tail leans from straight up. */
-  tail: number;
-}
+/** What it's doing, as its clips have it: one of its acts, or on its way there at a trot or, in a hurry, a gallop. */
+type Act = DogAct | 'walk' | 'run';
 
-const POSES: Record<DogAct | 'walk', Pose> = {
-  walk: { drop: 0, sit: 0, front: 0, rear: 0, nod: 0, eyes: 1, tail: 0.8 },
-  stand: { drop: 0, sit: 0, front: 0, rear: 0, nod: 0, eyes: 1, tail: 0.8 },
-  wag: { drop: 0, sit: 0, front: 0, rear: 0, nod: -0.15, eyes: 1, tail: 0.55 },
-  sniff: { drop: 0, sit: 0, front: 0, rear: 0, nod: 0.75, eyes: 1, tail: 0.7 },
-  sit: { drop: 0.13, sit: 0.55, front: 0, rear: 1.35, nod: 0, eyes: 1, tail: 1.5 },
-  bark: { drop: 0.13, sit: 0.55, front: 0, rear: 1.35, nod: -0.3, eyes: 1, tail: 1.1 },
-  lie: { drop: 0.19, sit: 0, front: 1.45, rear: 1.25, nod: 0.1, eyes: 1, tail: 1.45 },
-  nap: { drop: 0.19, sit: 0, front: 1.45, rear: 1.25, nod: 0.45, eyes: 0, tail: 1.6 },
+/**
+ * Meters a second from which it gallops rather than trots. The server trots it at 1.3 and has it keep up
+ * with someone at 1.8 or 2.7, or run at 3.4; trotting at 1.8 its legs would be a blur.
+ */
+const RUN_FROM = 1.6;
+
+/**
+ * Meters a second that the walk and run clips carry it at their own pace (0.4 and 0.944 m a cycle of 0.5 s):
+ * played at its speed over this, its paws keep pace with the floor.
+ */
+const STRIDE_SPEED = { walk: 0.8, run: 1.89 };
+
+/**
+ * How far its head is below where it is standing up, in each of its clips, so its name tag and bubbles
+ * sink with it: it sits up tall, and lies with its head up, or down on its paws asleep.
+ */
+const DROP: Record<Act, number> = { walk: 0, run: 0, stand: 0, wag: 0, sniff: 0.06, sit: 0, bark: 0, lie: 0.21, nap: 0.28 };
+
+/** Seconds it takes to go from one clip to the next. */
+const FADE = 0.4;
+
+/**
+ * What each part of the model is painted with, by its material's name in dog.glb: a coat color (0 body,
+ * 1 belly and muzzle, 2 ears, recolored on sync) or a fixed one. Anything else wears the body's coat.
+ * Only the coat casts a shadow, not the little bits.
+ */
+const PAINT: Record<string, number | string> = {
+  Fur: 0,
+  Light: 1,
+  Ear: 2,
+  Ink: '#1d1d1d',
+  Shine: '#ffffff',
+  Nose: '#1d1d1d',
+  Tongue: '#ff7f9a',
+  Collar: '#ef476f',
+  Tag: '#ffd166',
 };
 
-/** Where the torso hinges (at the back hips), above the floor when standing. */
-const HIP_Y = 0.3;
-const HIP_Z = -0.17;
-/** The front shoulders, from the hinge. */
-const SHOULDER: [number, number] = [-0.02, 0.53];
-const LEG = 0.27;
+type V3 = [number, number, number];
+
+/**
+ * What the mouse picks it by: capsules that move with its bones (each the bone, its radius, and the ends
+ * of its middle, as it stands at rest; +x is its left). Picking its skin itself, three would pose every
+ * vertex in JavaScript for each ray, some 6 ms a ray, and in first person the crosshair casts one every frame.
+ */
+const PICK: [bone: string, radius: number, from: V3, to: V3][] = [
+  ['hips', 0.155, [0, 0.355, -0.12], [0, 0.355, 0]],
+  ['chest', 0.15, [0, 0.36, 0.1], [0, 0.37, 0.17]],
+  ['head', 0.15, [0, 0.575, 0.26], [0, 0.52, 0.39]],
+  ['tail_1', 0.045, [0, 0.4, -0.22], [0, 0.47, -0.29]],
+  ['tail_2', 0.035, [0, 0.47, -0.29], [0, 0.55, -0.325]],
+  ['tail_3', 0.035, [0, 0.55, -0.325], [0, 0.63, -0.33]],
+  ...[1, -1].flatMap((sx): [string, number, V3, V3][] => {
+    const s = sx > 0 ? 'L' : 'R';
+    return [
+      [`front_upper_${s}`, 0.055, [sx * 0.078, 0.31, 0.17], [sx * 0.082, 0.15, 0.194]],
+      [`front_lower_${s}`, 0.05, [sx * 0.082, 0.15, 0.194], [sx * 0.082, 0.05, 0.19]],
+      [`front_paw_${s}`, 0.045, [sx * 0.082, 0.04, 0.17], [sx * 0.082, 0.04, 0.24]],
+      [`back_upper_${s}`, 0.055, [sx * 0.088, 0.3, -0.145], [sx * 0.088, 0.13, -0.195]],
+      [`back_lower_${s}`, 0.05, [sx * 0.088, 0.13, -0.195], [sx * 0.088, 0.05, -0.16]],
+      [`back_paw_${s}`, 0.045, [sx * 0.088, 0.04, -0.165], [sx * 0.088, 0.04, -0.1]],
+    ];
+  }),
+];
+
+/**
+ * The picking capsules' material: never drawn (nor outlined), yet rays still hit them. Hiding the capsules
+ * with `visible = false` instead would get their hits skipped in main.ts.
+ */
+const UNSEEN = new THREE.MeshBasicMaterial({ visible: false });
+
+/** The loaded model's moving parts. */
+interface Rig {
+  mixer: THREE.AnimationMixer;
+  /** Each clip's action and how much of the pose is its: they fade in and out over FADE, adding up to 1. */
+  clips: Map<string, { action: THREE.AnimationAction; w: number }>;
+  /** Bones the clips hold still and the code moves (see animate), with how they sit at rest. */
+  jaw: { bone: THREE.Object3D; rest: THREE.Quaternion };
+  eyes: { bone: THREE.Object3D; rest: THREE.Vector3 }[];
+  /** Where costumes go: on its head, and on its back. */
+  head: THREE.Object3D;
+  back: THREE.Object3D;
+  /** Its own nose, hidden under Rudolph's. */
+  nose: THREE.Object3D[];
+}
 
 /**
  * The office dog, as everyone on the floor sees it: a chunky cartoon pup that walks where the server
  * says (see shared/dog.ts), sits, lies down, naps with its head on its paws, sniffs, barks at a
- * worker that needs input and wags when it's petted. Forward is +z.
+ * worker that needs input and wags when it's petted. Forward is +z. It's modelled and animated in
+ * Blender (dog.glb, see models.ts); the woof, the panting, blinking and dressing up are done here.
  */
 export class Dog {
   readonly root = new THREE.Group();
   readonly interactable: Interactable = { kind: 'dog', x: 0, z: 0, radius: 1.5 };
-  private hips = new THREE.Group();
-  private torso = new THREE.Group();
-  private head = new THREE.Group();
-  private jaw = new THREE.Group();
-  private tail = new THREE.Group();
-  private legs: { front: THREE.Group[]; rear: THREE.Group[] } = { front: [], rear: [] };
-  private ears: THREE.Group[] = [];
-  private eyes: THREE.Mesh[] = [];
+  /** True once the model has loaded and is on, false if it couldn't be loaded. Never rejects. */
+  readonly ready: Promise<boolean>;
+  /** Holds the model, and lifts it off the floor for the little hop it gives with a woof. */
+  private body = new THREE.Group();
+  /** The model, once it's loaded; until then there's only its name tag and bubbles. */
+  private rig: Rig | null = null;
   private coatMats: [THREE.MeshToonMaterial, THREE.MeshToonMaterial, THREE.MeshToonMaterial];
   private coat = -1;
   private tag: THREE.Sprite | null = null;
@@ -75,13 +128,13 @@ export class Dog {
   private arriveAt = 0;
   private nextBark = 0;
   private barks = 0;
-  private pose: Pose = { ...POSES.lie };
-  private phase = 0;
+  /** How far it has sunk toward the floor (see DROP) and how open its eyes are, easing toward what it's doing. */
+  private drop = 0;
+  private eyes = 1;
   /** Seconds since the last woof, for the jaw and the hop. */
   private woofT = 9;
   private t = 0;
   private placed = false;
-  private nose!: THREE.Mesh;
   /** Dressed up for a holiday (see setCostume): what it's wearing, its bat wings, and Rudolph's nose. */
   private costume: Theme | null = null;
   private outfit: THREE.Object3D[] = [];
@@ -94,46 +147,29 @@ export class Dog {
     private hushed: (workerId: string) => boolean,
   ) {
     this.coatMats = [toonUnique(DOG_COATS[0][0]), toonUnique(DOG_COATS[0][1]), toonUnique(DOG_COATS[0][2])];
-    this.build();
+    this.root.add(this.body);
     this.root.visible = false;
     this.root.userData.interact = this.interactable;
+    this.ready = loadDog()
+      .then((m) => this.attach(m))
+      .then(
+        () => true,
+        (err: unknown) => {
+          console.error("The office dog's model didn't load", err);
+          return false;
+        },
+      );
   }
 
   /**
    * Dresses it up for a holiday: bat wings and a little witch's hat for Halloween, reindeer antlers, a
-   * glowing red nose and a scarf for Christmas. Null takes it all off.
+   * glowing red nose and a scarf for Christmas. Null takes it all off. Asked before the model is in, it
+   * puts them on once it is.
    */
   setCostume(theme: Theme | null) {
     if (theme === this.costume) return;
     this.costume = theme;
-    for (const o of this.outfit) {
-      o.removeFromParent();
-      o.traverse((m) => (m as THREE.Mesh).geometry?.dispose());
-    }
-    // The wings' and the red nose's materials are the costume's own; the rest are shared toon ones.
-    for (const w of this.wings) w.traverse((m) => ((m as THREE.Mesh).material as THREE.Material | undefined)?.dispose());
-    this.rudolph?.dispose();
-    this.outfit = [];
-    this.wings = [];
-    this.rudolph = null;
-    const wear = (parent: THREE.Object3D, o: THREE.Object3D) => {
-      o.traverse((m) => ((m as THREE.Mesh).castShadow = true));
-      parent.add(o);
-      this.outfit.push(o);
-    };
-    if (theme === 'halloween') {
-      const bat = dogBatWings();
-      wear(this.torso, bat.group);
-      this.wings = bat.wings;
-      wear(this.head, dogWitchHat());
-    } else if (theme === 'christmas') {
-      wear(this.head, dogAntlers());
-      wear(this.head, dogScarf());
-      const red = dogRedNose();
-      wear(this.head, red.nose);
-      this.rudolph = red.glow;
-    }
-    this.nose.visible = theme !== 'christmas';
+    this.dress();
   }
 
   /** Nothing to pet in a building without floors. */
@@ -205,7 +241,9 @@ export class Dog {
     const now = performance.now();
     const at = dogAt(s, (now - this.start) / 1000);
     const pos = this.root.position;
-    if (!this.placed || Math.hypot(pos.x - at.x, pos.z - at.z) > 3) {
+    // Somewhere new (just synced, or a floor away): straight there, already doing whatever it's doing.
+    const jump = !this.placed || Math.hypot(pos.x - at.x, pos.z - at.z) > 3;
+    if (jump) {
       pos.set(at.x, 0, at.z);
       this.root.rotation.y = at.heading;
       this.placed = true;
@@ -231,80 +269,96 @@ export class Dog {
       this.nextBark = this.arriveAt + this.barks * BARK_EVERY_S * 1000;
     }
     this.woofT += dt;
-    this.animate(dt, at.moving ? 'walk' : s.act, at.moving ? s.speed : 0);
+    this.animate(dt, at.moving ? (s.speed >= RUN_FROM ? 'run' : 'walk') : s.act, at.moving ? s.speed : 0, jump);
   }
 
   // ---- The model ----------------------------------------------------------------------------------
 
-  private build() {
-    const [fur, light, ear] = this.coatMats;
-    const ink = toon('#1d1d1d');
-    this.root.add(this.hips);
-    this.hips.add(this.torso);
-    this.torso.position.set(0, HIP_Y, HIP_Z);
-
-    const body = mesh(new THREE.CapsuleGeometry(0.15, 0.3, 6, 14), fur, 0, 0.05, 0.19);
-    body.rotation.x = Math.PI / 2;
-    this.torso.add(body);
-    const chest = mesh(new THREE.SphereGeometry(0.12, 14, 10), light, 0, 0.0, 0.4);
-    chest.scale.set(1, 1.05, 0.7);
-    this.torso.add(chest);
-
-    // Head, looking down +z: a round head, a long muzzle, floppy ears.
-    this.head.position.set(0, 0.26, 0.46);
-    this.torso.add(this.head);
-    this.head.add(mesh(new THREE.SphereGeometry(0.14, 18, 14), fur));
-    const muzzle = mesh(new THREE.SphereGeometry(0.075, 14, 10), light, 0, -0.035, 0.12);
-    muzzle.scale.set(1, 0.85, 1.35);
-    this.head.add(muzzle);
-    this.nose = mesh(new THREE.SphereGeometry(0.032, 10, 8), ink, 0, -0.005, 0.22, false);
-    this.head.add(this.nose);
-    for (const sx of [-1, 1]) {
-      const eye = mesh(new THREE.SphereGeometry(0.026, 10, 8), ink, sx * 0.062, 0.035, 0.115, false);
-      this.eyes.push(eye);
-      this.head.add(eye);
-      const pivot = new THREE.Group();
-      pivot.position.set(sx * 0.105, 0.08, -0.01);
-      const flap = mesh(new THREE.CapsuleGeometry(0.045, 0.1, 4, 8), ear, 0, -0.08, 0);
-      flap.scale.set(0.55, 1, 1);
-      pivot.add(flap);
-      pivot.rotation.z = sx * 0.3;
-      this.ears.push(pivot);
-      this.head.add(pivot);
-    }
-    // The jaw drops open to bark and to pant; the tongue shows when it's happy.
-    this.jaw.position.set(0, -0.075, 0.07);
-    const chin = mesh(new THREE.SphereGeometry(0.055, 12, 8), light, 0, -0.01, 0.07);
-    chin.scale.set(1, 0.5, 1.3);
-    this.jaw.add(chin);
-    const tongue = mesh(new THREE.SphereGeometry(0.03, 10, 8), toon('#ff7f9a'), 0, 0.005, 0.12, false);
-    tongue.scale.set(1, 0.4, 1.4);
-    this.jaw.add(tongue);
-    this.head.add(this.jaw);
-    const collar = mesh(new THREE.TorusGeometry(0.1, 0.022, 6, 18), toon('#ef476f'), 0, -0.11, -0.05, false);
-    collar.rotation.x = Math.PI / 2 + 0.5;
-    this.head.add(collar);
-
-    // Tail, up and back from the hips.
-    this.tail.position.set(0, 0.13, -0.09);
-    this.tail.add(mesh(new THREE.CapsuleGeometry(0.03, 0.18, 4, 8), fur, 0, 0.11, 0));
-    this.torso.add(this.tail);
-
-    const leg = (parent: THREE.Group, x: number, y: number, z: number, r: number) => {
-      const pivot = new THREE.Group();
-      pivot.position.set(x, y, z);
-      pivot.add(mesh(new THREE.CapsuleGeometry(r, LEG - 2 * r - 0.03, 4, 8), fur, 0, -(LEG - 0.03) / 2, 0));
-      const paw = mesh(new THREE.SphereGeometry(0.052, 10, 8), light, 0, -LEG + 0.03, 0.02);
-      paw.scale.set(1, 0.7, 1.25);
-      pivot.add(paw);
-      parent.add(pivot);
-      return pivot;
+  /** Puts the loaded model on: paints it, finds the bones the code moves and the costume sockets, and dresses it. */
+  private attach({ scene: model, clips }: Model) {
+    const nose: THREE.Object3D[] = [];
+    // The model comes split into one part per material; its materials are only names for what to paint.
+    model.traverse((o) => {
+      const m = o as THREE.SkinnedMesh;
+      if (!m.isMesh) return;
+      const name = (m.material as THREE.Material).name;
+      const paint = PAINT[name] ?? 0;
+      m.material = typeof paint === 'number' ? this.coatMats[paint] : toon(paint);
+      m.castShadow = typeof paint === 'number';
+      m.receiveShadow = true;
+      // Culled by bounds worked out standing, it would vanish lying down at the edge of the screen.
+      m.frustumCulled = false;
+      // Picked by its capsules instead (see PICK).
+      m.raycast = () => {};
+      if (name === 'Nose') nose.push(m);
+    });
+    const part = (name: string) => {
+      const o = model.getObjectByName(name);
+      if (!o) throw new Error(`dog.glb has no ${name}`);
+      return o;
     };
-    for (const sx of [-1, 1]) {
-      this.legs.front.push(leg(this.torso, sx * 0.075, SHOULDER[0], SHOULDER[1] - 0.15, 0.045));
-      this.legs.rear.push(leg(this.hips, sx * 0.095, HIP_Y + SHOULDER[0], HIP_Z, 0.055));
+    // The model is still at rest here, so each capsule goes on its bone where the table has it.
+    const up = new THREE.Vector3(0, 1, 0);
+    for (const [bone, r, from, to] of PICK) {
+      const a = new THREE.Vector3(...from);
+      const b = new THREE.Vector3(...to);
+      const capsule = new THREE.Mesh(new THREE.CapsuleGeometry(r, a.distanceTo(b), 2, 8), UNSEEN);
+      capsule.position.lerpVectors(a, b, 0.5);
+      capsule.quaternion.setFromUnitVectors(up, b.sub(a).normalize());
+      part(bone).attach(capsule);
     }
-    this.root.traverse((o) => ((o as THREE.Mesh).castShadow = true));
+    const mixer = new THREE.AnimationMixer(model);
+    const jaw = part('jaw');
+    const rig: Rig = {
+      mixer,
+      clips: new Map(clips.map((c) => [c.name, { action: mixer.clipAction(c), w: 0 }])),
+      jaw: { bone: jaw, rest: jaw.quaternion.clone() },
+      eyes: ['eye_L', 'eye_R'].map((n) => {
+        const bone = part(n);
+        return { bone, rest: bone.scale.clone() };
+      }),
+      head: part('socket_head'),
+      back: part('socket_back'),
+      nose,
+    };
+    this.body.add(model);
+    this.rig = rig;
+    this.dress();
+  }
+
+  /** Puts on what setCostume last asked for, taking off what it had on. */
+  private dress() {
+    for (const o of this.outfit) {
+      o.removeFromParent();
+      o.traverse((m) => (m as THREE.Mesh).geometry?.dispose());
+    }
+    // The wings' and the red nose's materials are the costume's own; the rest are shared toon ones.
+    for (const w of this.wings) w.traverse((m) => ((m as THREE.Mesh).material as THREE.Material | undefined)?.dispose());
+    this.rudolph?.dispose();
+    this.outfit = [];
+    this.wings = [];
+    this.rudolph = null;
+    const rig = this.rig;
+    if (!rig) return;
+    const theme = this.costume;
+    const wear = (parent: THREE.Object3D, o: THREE.Object3D) => {
+      o.traverse((m) => ((m as THREE.Mesh).castShadow = true));
+      parent.add(o);
+      this.outfit.push(o);
+    };
+    if (theme === 'halloween') {
+      const bat = dogBatWings();
+      wear(rig.back, bat.group);
+      this.wings = bat.wings;
+      wear(rig.head, dogWitchHat());
+    } else if (theme === 'christmas') {
+      wear(rig.head, dogAntlers());
+      wear(rig.head, dogScarf());
+      const red = dogRedNose();
+      wear(rig.head, red.nose);
+      this.rudolph = red.glow;
+    }
+    for (const n of rig.nose) n.visible = theme !== 'christmas';
   }
 
   private setTag(name: string) {
@@ -338,65 +392,33 @@ export class Dog {
     this.bubble = null;
   }
 
-  private animate(dt: number, act: DogAct | 'walk', speed: number) {
-    const target = POSES[act];
-    const k = 1 - Math.exp(-dt * 7);
-    const p = this.pose;
-    for (const key of Object.keys(p) as (keyof Pose)[]) p[key] += (target[key] - p[key]) * k;
+  /** `snap`: it's just been put somewhere, so there's nothing to ease or fade from. */
+  private animate(dt: number, act: Act, speed: number, snap: boolean) {
+    const k = snap ? 1 : 1 - Math.exp(-dt * 7);
+    this.drop += (DROP[act] - this.drop) * k;
+    this.eyes += ((act === 'nap' ? 0 : 1) - this.eyes) * k;
     const t = this.t;
+    const moving = act === 'walk' || act === 'run';
 
-    // Gait: a trot, diagonal legs together, faster the faster it goes.
-    const walking = act === 'walk';
-    if (walking) this.phase += dt * (5 + speed * 4.5);
-    const stride = walking ? Math.min(0.9, 0.35 + speed * 0.18) : 0;
-    const swing = Math.sin(this.phase) * stride;
-    const hop = this.woofT < 0.25 ? Math.sin((this.woofT / 0.25) * Math.PI) * 0.05 : 0;
-    this.hips.position.y = -p.drop + (walking ? Math.abs(Math.sin(this.phase)) * 0.035 : 0) + hop;
-    this.torso.rotation.x = -p.sit + (walking ? Math.sin(this.phase * 2) * 0.03 : 0);
+    // A little hop with each woof.
+    this.body.position.y = this.woofT < 0.25 ? Math.sin((this.woofT / 0.25) * Math.PI) * 0.05 : 0;
+    const rig = this.rig;
+    if (rig) {
+      this.play(rig, dt, act, speed, snap);
+      // The clips hold the jaw and eyes still, and the mixer only writes what changed since the last
+      // frame, so they're set from rest every frame rather than turned from wherever they were.
+      // Jaw: snaps open on a woof, hangs open panting when it's happy or after a run, shut asleep.
+      const woof = this.woofT < 0.35 ? Math.sin((this.woofT / 0.35) * Math.PI) : 0;
+      const pant = act === 'wag' || act === 'sit' || moving ? 0.25 + Math.sin(t * 14) * 0.08 : 0;
+      rig.jaw.bone.quaternion.copy(rig.jaw.rest);
+      rig.jaw.bone.rotateX(Math.max(woof * 0.6, pant));
+      // Eyes shut to nap; otherwise a blink now and then.
+      const blink = this.eyes > 0.5 && t % 4.3 < 0.12 ? 0.1 : this.eyes;
+      for (const e of rig.eyes) e.bone.scale.copy(e.rest).setY(e.rest.y * Math.max(0.12, blink));
+    }
 
-    // Front legs stay upright when it sits (and stretch to reach the floor); lying, they reach forward.
-    const shoulderY = HIP_Y - p.drop + SHOULDER[0] * Math.cos(p.sit) + SHOULDER[1] * Math.sin(p.sit);
-    const reach = THREE.MathUtils.clamp(shoulderY / (HIP_Y + SHOULDER[0]), 0.3, 2);
-    const [fl, fr] = this.legs.front;
-    const [rl, rr] = this.legs.rear;
-    fl.rotation.x = p.sit - p.front + swing;
-    fr.rotation.x = p.sit - p.front - swing;
-    for (const f of this.legs.front) f.scale.y = THREE.MathUtils.lerp(reach, 1, Math.min(1, p.front / POSES.lie.front));
-    rl.rotation.x = -p.rear - swing;
-    rr.rotation.x = -p.rear + swing;
-
-    // Head: level when sitting, down to sniff (with a busy little bob), resting on its paws asleep.
-    const sniffing = act === 'sniff';
-    this.head.rotation.x = p.sit * 0.85 + p.nod + (sniffing ? Math.sin(t * 9) * 0.12 : 0);
-    this.head.position.y = 0.26 - p.nod * 0.08 - (act === 'nap' ? 0.05 : 0);
-    this.head.rotation.y = sniffing ? Math.sin(t * 2.3) * 0.35 : act === 'lie' ? Math.sin(t * 0.4) * 0.4 : 0;
-
-    // Jaw: snaps open on a woof, hangs open panting when it's happy or after a run.
-    const woof = this.woofT < 0.35 ? Math.sin((this.woofT / 0.35) * Math.PI) : 0;
-    const pant = act === 'wag' || (act === 'sit' && speed === 0) || walking ? 0.25 + Math.sin(t * 14) * 0.08 : 0;
-    this.jaw.rotation.x = Math.max(woof * 0.6, pant * (act === 'nap' ? 0 : 1));
-
-    // Ears perk up to bark, flop while trotting.
-    const perk = act === 'bark' ? 0.6 : 0;
-    this.ears.forEach((e, i) => {
-      const sx = i ? 1 : -1;
-      e.rotation.z = sx * (0.3 + perk * 0.5) + (walking ? Math.sin(this.phase + i) * 0.15 * sx : 0);
-      e.rotation.x = perk * 0.5;
-    });
-
-    // Eyes shut to nap; otherwise a blink now and then.
-    const blink = p.eyes > 0.5 && t % 4.3 < 0.12 ? 0.1 : p.eyes;
-    for (const e of this.eyes) e.scale.y = Math.max(0.12, blink);
-
-    // Tail: a lazy sway, a happy wag, a blur when petted, still in its sleep.
-    const wag = act === 'wag' ? [22, 0.75] : act === 'nap' ? [0, 0] : act === 'lie' ? [3, 0.2] : walking ? [12, 0.4] : [8, 0.35];
-    this.tail.rotation.x = -p.tail;
-    this.tail.rotation.z = Math.sin(t * wag[0]) * wag[1];
-    this.hips.rotation.y = act === 'wag' ? Math.sin(t * 11) * 0.1 : 0;
-    // Breathing, asleep.
-    this.torso.scale.setScalar(act === 'nap' ? 1 + Math.sin(t * 2.2) * 0.02 : 1);
     // Bat wings flap (fast when it runs or is happy, folded while it naps); Rudolph's nose glows.
-    const flap = act === 'nap' ? 0 : walking || act === 'wag' || act === 'bark' ? 1 : 0.35;
+    const flap = act === 'nap' ? 0 : moving || act === 'wag' || act === 'bark' ? 1 : 0.35;
     this.wings.forEach((w, i) => {
       const sx = i ? 1 : -1;
       w.rotation.z = sx * (0.75 + (act === 'nap' ? -0.6 : Math.sin(t * (6 + 10 * flap)) * 0.45 * flap));
@@ -411,9 +433,31 @@ export class Dog {
       if ((b.kind === 'nap' && act !== 'nap') || this.t > b.until) this.hush();
       else {
         const rise = b.kind === 'wag' ? (1 - (b.until - this.t) / 2.2) * 0.35 : Math.sin(t * 2) * 0.03;
-        b.sprite.position.y = 1.28 - p.drop + rise;
+        b.sprite.position.y = 1.28 - this.drop + rise;
       }
     }
-    if (this.tag) this.tag.position.y = 1.0 - p.drop * 0.8;
+    if (this.tag) this.tag.position.y = 1.0 - this.drop * 0.8;
+  }
+
+  /** Fades toward the clip for what it's doing (or straight to it with `snap`), then poses the model. */
+  private play(rig: Rig, dt: number, act: Act, speed: number, snap: boolean) {
+    const want = rig.clips.has(act) ? act : 'stand';
+    const step = snap ? 1 : dt / FADE;
+    let total = 0;
+    for (const [name, c] of rig.clips) {
+      const w = THREE.MathUtils.clamp(name === want ? c.w + step : c.w - step, 0, 1);
+      if (w > 0 && c.w === 0) c.action.reset().play();
+      else if (w === 0 && c.w > 0) c.action.stop();
+      c.w = w;
+      total += w;
+    }
+    // Weights short of 1 would blend in the model's rest pose, so a fade cut short by another shares out 1.
+    if (total > 0) for (const c of rig.clips.values()) if (c.w > 0) c.action.setEffectiveWeight(c.w / total);
+    // Its legs keep up with how fast it's going.
+    if (act === 'walk' || act === 'run') {
+      const gait = rig.clips.get(act);
+      if (gait) gait.action.timeScale = speed / STRIDE_SPEED[act];
+    }
+    rig.mixer.update(dt);
   }
 }
