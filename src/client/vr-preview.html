@@ -1,0 +1,40 @@
+<!doctype html>
+<!--
+  VR panel debug preview. DEV ONLY: this file is served by `vite` from the client root but is
+  deliberately NOT in vite.config.ts's rollupOptions.input, so production builds exclude it
+  (and preview.ts with it — nothing else imports that module). Open /vr-preview.html in dev
+  to see every world-space panel on the flat screen without a headset: the mouse is the
+  controller ray (move to hover, press to click, drag to scroll).
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VR panels preview (dev only)</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #101014; color: #eee;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      #app { position: fixed; inset: 0; }
+      canvas { display: block; }
+      #bar { position: fixed; top: 10px; left: 10px; display: flex; gap: 8px; flex-wrap: wrap;
+        background: rgba(10,10,12,.85); border: 1px solid rgba(255,255,255,.15);
+        border-radius: 10px; padding: 8px 10px; font-size: 12px; max-width: min(90vw, 900px); }
+      #bar button { background: #232329; color: #eee; border: 1px solid rgba(255,255,255,.2);
+        border-radius: 6px; padding: 4px 10px; font: inherit; cursor: pointer; }
+      #bar button:hover { background: #ee6018; color: #111; border-color: #ee6018; }
+      #bar button.on { background: #ee6018; color: #111; border-color: #ee6018; }
+      #log { position: fixed; left: 10px; bottom: 10px; width: min(90vw, 560px); max-height: 30vh;
+        overflow: auto; background: rgba(10,10,12,.85); border: 1px solid rgba(255,255,255,.15);
+        border-radius: 10px; padding: 8px 12px; font-size: 12px; white-space: pre-wrap; }
+      #hint { position: fixed; right: 10px; bottom: 10px; background: rgba(10,10,12,.85);
+        border: 1px solid rgba(255,255,255,.15); border-radius: 10px; padding: 8px 12px; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="bar"></div>
+    <div id="log"></div>
+    <div id="hint">mouse = controller ray · drag = scroll · wheel = stick scroll</div>
+    <script type="module" src="./vr/preview.ts"></script>
+  </body>
+</html>
