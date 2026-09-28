@@ -119,7 +119,8 @@ export function openElevator(opts: ElevatorOptions): void {
 
   const renderFloors = () => {
     const floors = store.floors;
-    floorsEl.replaceChildren(...(floors.some((f) => !f.cloning) ? [roofButton()] : []), ...(floors.length ? floors.map(floorButton) : [h('p.empty', {}, 'No floors yet.')]));
+    // Top floor first, the way an elevator's buttons stack, with the roof over them and floor 1 at the bottom.
+    floorsEl.replaceChildren(...(floors.some((f) => !f.cloning) ? [roofButton()] : []), ...(floors.length ? floors.map(floorButton).reverse() : [h('p.empty', {}, 'No floors yet.')]));
   };
 
   const repoRow = (r: RepoChoice) => {
