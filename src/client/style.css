@@ -323,6 +323,14 @@ img.glyph { display: inline-block; width: 1em; height: 1em; vertical-align: -0.1
 .caffeine .left { min-width: 24px; font-variant-numeric: tabular-nums; }
 .caffeine.jittery { animation: jitters .1s steps(2) infinite; }
 .caffeine.jittery .bar span { background: var(--danger); }
+.golf { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); width: min(300px, calc(100vw - 32px)); padding: 8px 12px 9px; display: grid; gap: 6px; color: var(--text); font: 500 11px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; text-align: center; pointer-events: none !important; }
+.golf-title { color: var(--accent); }
+.golf-meter { position: relative; height: 10px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: linear-gradient(90deg, var(--success), #ffd166 70%, var(--danger)); overflow: hidden; }
+/* Covers the part of the meter's colors that isn't filled, from the right. */
+.golf-rest { position: absolute; inset: 0 0 0 auto; width: 100%; background: var(--surface-raised); }
+.golf-last { position: absolute; top: -1px; bottom: -1px; width: 2px; margin-left: -1px; background: var(--text); }
+.golf-info { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+#hud:has(.golf:not(.hidden)) #toasts { translate: 0 48px; }
 @keyframes jitters { 50% { transform: translate(1px, -1px) rotate(-1.5deg); } }
 @media (prefers-reduced-motion: reduce) { .caffeine.jittery { animation: none; } }
 .caffeine:not(.hidden) ~ #shares { top: 120px; }

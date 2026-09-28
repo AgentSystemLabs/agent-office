@@ -137,7 +137,7 @@ export function openHelp() {
     ['Mouse', 'Look around in first person (click to capture the mouse, Esc to free it)'],
     [
       'Click / E',
-      'Use what you look at: hire a worker, open its terminal, read a board, call a meeting in the meeting room, watch the TV, put a song on the jukebox, sit on a couch, a beanbag, a chair or the balcony bench (walk off to get up)',
+      'Use what you look at: hire a worker, open its terminal, read a board, call a meeting in the meeting room, watch the TV, put a song on the jukebox, tee off from the balcony, sit on a couch, a beanbag, a chair or the balcony bench (walk off to get up)',
     ],
     ['👥', 'Click someone under "In the office" to walk over to them (on another floor, you ride the elevator first). The line under their name says what they have open or where they are'],
     ['🛗', 'Every project is a floor: step into the elevator on the north wall and press E (or click the project name, top left) to go to another one or add a project'],
