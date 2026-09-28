@@ -20,7 +20,7 @@
  *   getQueue: () => store.queue,
  *   getFreeDesks: () => DESKS.filter((d) => !d.station && !store.workerAtDesk(d.id))
  *     .map((d) => ({ id: d.id, label: d.label })),
- *   voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => voice.toggleMute() },
+ *   voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => voice.inVoice ? voice.toggleMute() : joinVoice() },
  *   actions: {
  *     hire: (deskId) => hireAtDesk(deskId),          // the DOM hire dialog's function
  *     nextWaiting: () => goToNextWaiting(),          // the DOM N key's function
@@ -71,6 +71,7 @@ import { VrToast } from './toast';
 export interface VrUiVoice {
   isMuted: () => boolean;
   inVoice: () => boolean;
+  /** Mutes/unmutes in voice, or joins it (the menu mute row's tap). */
   toggleMute: () => void;
 }
 

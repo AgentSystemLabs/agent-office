@@ -72,7 +72,7 @@ export interface VrMenuActions {
   orderDrink: (id: Drink['id']) => void;
   /** Says it on the floor's chat — the DOM chat box's function (net chat). */
   sendChat: (text: string) => void;
-  /** Mutes/unmutes — the DOM M key's function (voice.toggleMute). */
+  /** Mutes/unmutes in voice, or joins it — the DOM M/V keys' function (main.ts voice toggle). */
   toggleMute: () => void;
   /** Patches VR locomotion/comfort — the DOM ⚙️ Settings VR section's function (assign + save). */
   vrSettings: (patch: Partial<VrSettings>) => void;
@@ -366,10 +366,16 @@ export class VrMenu {
           return m.status === 'running' ? `🔴 ${m.title}` : `${m.status} · ${m.title}`;
         },
       },
-      {
-        id: 'mute', icon: this.stores.isMuted() ? '🔇' : '🎙️', title: this.stores.isMuted() ? 'Unmute' : 'Mute',
-        sub: () => (this.stores.inVoice() ? 'in voice (M)' : 'not in voice'),
-      },
+      // Out of voice the row joins it (the V key's function); in voice it mutes.
+      ...(this.stores.inVoice()
+        ? [{
+          id: 'mute', icon: this.stores.isMuted() ? '🔇' : '🎙️', title: this.stores.isMuted() ? 'Unmute' : 'Mute',
+          sub: () => 'in voice (M)',
+        }]
+        : [{
+          id: 'mute', icon: '🎙️', title: 'Join voice',
+          sub: () => 'talk to the floor (V)',
+        }]),
       { id: 'settings', icon: '⚙️', title: 'VR settings', sub: () => 'glide · turning · fade' },
       { id: 'controls', icon: '❓', title: 'VR controls', sub: () => 'pinches, teleports, sticks' },
       { id: 'exit', icon: '🚪', title: 'Exit VR', sub: () => 'back to the flat screen' },

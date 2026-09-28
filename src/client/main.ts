@@ -504,7 +504,7 @@ const vr = new VRSession(renderer, scene, camera, {
       getMeeting: () => store.meeting,
       getServices: () => store.services,
       getPeers: () => [...store.peers.values()].filter((p) => p.id !== store.you),
-      voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => voice.toggleMute() },
+      voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => (voice.inVoice ? voice.toggleMute() : void toggleVoice()) },
       actions: {
         hire: (deskId) => vrHire(deskId),
         nextWaiting: () => goToNextWaiting(),
@@ -632,6 +632,8 @@ if (new URLSearchParams(location.search).has('vrtest')) {
       store.issues.items.push({ number, title, state: 'OPEN', url: '', author: 'vrtest', labels: [], assignees: [], createdAt: at, updatedAt: at, body: 'Seeded by the VR comment check.', comments: 0 });
       store.emit('issues');
     },
+    // Whether this client is in voice (the join-voice check reads this back).
+    inVoice: () => voice.inVoice,
     // Seeds a fake teammate into this client's peers (solo here; reload clears it).
     seedPeer: (name: string, doing: string) => {
       store.peers.delete('peer-zzz');
