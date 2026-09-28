@@ -9,7 +9,7 @@
  * a detail view for one issue or PR (hand it over, queue it, comment, close it), floors (ride the elevator), jukebox (tunes + a stream row), bar (drinks),
  * chat (the floor's chat + say something), assign (hand an issue to a worker), meeting (the room's
  * status + call one with the pattern defaults), services (the workers' web servers, tap to copy
- * a tunnel command), people (who else is around, and what they're up to), and settings
+ * a tunnel command), people (who else is around — tap a row to walk over), and settings
  * (glide, turning, turn speed, teleport fade, the dog's name — the ⚙️ Settings VR section
  * plus the office dog, in the headset).
  */
@@ -79,6 +79,8 @@ export interface VrMenuActions {
   orderDrink: (id: Drink['id']) => void;
   /** Says it on the floor's chat — the DOM chat box's function (net chat). */
   sendChat: (text: string) => void;
+  /** Walks over to a teammate — the sidebar people list's click (main.ts vrWalkToPeer). */
+  walkToPeer: (peerId: string) => void;
   /** Mutes/unmutes in voice, or joins it — the DOM M/V keys' function (main.ts voice toggle). */
   toggleMute: () => void;
   /** Patches VR locomotion/comfort — the DOM ⚙️ Settings VR section's function (assign + save). */
@@ -672,7 +674,11 @@ export class VrMenu {
       if (svc) this.actions.copyServiceTunnel(svc.port);
       return;
     }
-    if (this.view === 'people') return; // read-only, like the chat lines
+    if (this.view === 'people') {
+      const p = this.stores.getPeers()[i];
+      if (p) this.actions.walkToPeer(p.id);
+      return;
+    }
     if (this.view === 'board') {
       if (this.boardTab === 'issues') {
         const it = this.openIssues()[i];
@@ -1062,7 +1068,7 @@ export class VrMenu {
       if (!p) return;
       const floor = p.floor ? (this.stores.getFloors().find((f) => f.id === p.floor)?.name ?? null) : null;
       const sub = [whereabouts(p), floor].filter(Boolean).join(' · ') || 'walking around';
-      this.rowText(ctx, p.sharing ? '🖥️' : !p.voice ? '🧑' : p.muted ? '🔇' : '🎙️', p.name, sub, x, y, bw, rh);
+      this.rowText(ctx, p.sharing ? '🖥️' : !p.voice ? '🧑' : p.muted ? '🔇' : '🎙️', p.name, `${sub} · tap to walk over`, x, y, bw, rh);
       return;
     }
     if (this.view === 'queue') {

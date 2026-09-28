@@ -172,6 +172,7 @@ const deps: VrUiDeps = {
     renameDog: () => log('rename the dog (would open the VR name prompt)'),
     toggleSound: (kind) => log('mute toggle', kind),
     sendChat: (text) => log('say', text),
+    walkToPeer: (id) => log('walk over to', id),
     vrSettings: (patch) => log('VR settings', JSON.stringify(patch)),
     exitVr: () => log('exit VR (would end the XR session)'),
   },

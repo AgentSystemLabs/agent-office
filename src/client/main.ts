@@ -544,6 +544,7 @@ const vr = new VRSession(renderer, scene, camera, {
           saveSettings(settings);
         },
         sendChat: (text) => net.send({ t: 'chat', text }),
+        walkToPeer: (peerId) => vrWalkToPeer(peerId),
         vrSettings: (patch) => {
           Object.assign(settings.vr, patch);
           saveSettings(settings);
@@ -671,15 +672,16 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     // Your own mute switches (the sound-rows check reads these back).
     soundMuted: () => ({ music: settings.musicMuted, sounds: settings.muted }),
     // Seeds a fake teammate into this client's peers (solo here; reload clears it).
-    seedPeer: (name: string, doing: string) => {
-      store.peers.delete('peer-zzz');
+    seedPeer: (name: string, doing: string, floor?: string) => {      store.peers.delete('peer-zzz');
       store.peers.set('peer-zzz', {
         id: 'peer-zzz', name, color: '#06d6a0', look: { skin: 0, hair: 0, style: 0 },
         x: 0, y: 0, z: 0, rotY: 0, moving: false, voice: true, muted: false, sharing: false,
-        floor: store.floor ?? undefined, doing,
+        floor: floor ?? store.floor ?? undefined, doing,
       });
       store.emit('peers');
     },
+    // Everyone else around, in people-view order (the walk-over check finds its row).
+    people: () => [...store.peers.values()].filter((p) => p.id !== store.you).map((p) => ({ id: p.id, name: p.name })),
     // The pictures on the walls (the decor E-again check reads this back).
     decor: () => store.decor.map((d) => ({ id: d.id, title: d.title, by: d.by })),
     // What the VR prompt field holds (assert scripts read this back after pressing keys).
@@ -1436,6 +1438,29 @@ function walkTo(id: string) {
   }
 }
 
+/** The VR people view's row tap: over to a teammate (the sidebar click's walk-over, as a blink — the desktop pathing doesn't run in the headset). */
+function vrWalkToPeer(id: string) {
+  const p = store.peers.get(id);
+  if (!p || id === store.you) return;
+  if (!store.onMyFloor(p)) {
+    const floor = (p.floor && store.floors.find((f) => f.id === p.floor)?.name) ?? 'other';
+    toast(`${p.name} is on the ${floor} floor — ride the elevator over`, 'warn');
+    return;
+  }
+  const at = whereIs(p);
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2;
+    const x = at.x + Math.cos(a) * NEAR_ENOUGH;
+    const z = at.z + Math.sin(a) * NEAR_ENOUGH;
+    const g = player.groundBelow(x, z, at.y + 1);
+    if (!Number.isFinite(g) || Math.abs(g - player.pos.y) > 8 || player.blockedAt(x, z, g)) continue;
+    if (player.seat) standUp();
+    vr.teleportTo(new THREE.Vector3(x, g, z));
+    toast(`🚶 Over to ${p.name}`);
+    return;
+  }
+  toast(`🚧 Couldn't find a way over to ${p.name}`, 'warn');
+}
 function stopWalking() {
   walkingTo = null;
   player.stopWalking();

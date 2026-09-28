@@ -1254,6 +1254,17 @@ export class VRSession {
     }
   }
 
+  /** Puts the avatar somewhere on this floor, through the fade when it's on (the people view's walk-over). The caller picked a standable spot. */
+  teleportTo(at: THREE.Vector3): void {
+    if (!this.active) return;
+    if (this.hooks.settings.vr.fade) {
+      this.pendingTeleport = at.clone();
+      this.fade = 'out';
+      this.fadeT = 0;
+    } else {
+      this.placeAvatar(at);
+    }
+  }
   private placeAvatar(at: THREE.Vector3): void {
     const { player } = this.hooks;
     player.pos.set(at.x, at.y, at.z);
