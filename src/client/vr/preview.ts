@@ -164,6 +164,7 @@ const deps: VrUiDeps = {
     addQueueTask: () => log('add a queue task (would open the VR task prompt)'),
     queueLimit: (n) => log('queue width →', n),
     commentOn: (kind, n) => log('comment on', kind, `#${n}`),
+    playStream: () => log('play a stream (would open the VR URL prompt)'),
     renameDog: () => log('rename the dog (would open the VR name prompt)'),
     sendChat: (text) => log('say', text),
     vrSettings: (patch) => log('VR settings', JSON.stringify(patch)),

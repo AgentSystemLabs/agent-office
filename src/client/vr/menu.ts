@@ -6,7 +6,7 @@
  *
  * Views: main (Hire, Next waiting, Queue, Issues/PRs, Floors, Jukebox, Bar, Chat, Mute, Exit VR),
  * hire (free desks), queue (running/queued/done), board (issues/PRs tabs, read + hand-to-worker),
- * a detail view for one issue or PR, floors (ride the elevator), jukebox (tunes), bar (drinks),
+ * a detail view for one issue or PR, floors (ride the elevator), jukebox (tunes + a stream row), bar (drinks),
  * chat (the floor's chat + say something), assign (hand an issue to a worker), meeting (the room's
  * status + call one with the pattern defaults), services (the workers' web servers, tap to copy
  * a tunnel command), people (who else is around, and what they're up to), and settings
@@ -18,7 +18,7 @@ import type * as THREE from 'three';
 import type { ChatLine, FloorInfo, GhIssue, GhPull, GhState, MeetingState, PeerInfo, QueueState, QueueTask, ServicesState, WorkerInfo } from '../../shared/protocol';
 import { fmtTokens } from '../../shared/protocol';
 import { MEETING_PATTERNS, meetingSpend } from '../../shared/meetings';
-import { JUKEBOX_TUNES, trackTitle, type JukeboxState } from '../../shared/jukebox';
+import { JUKEBOX_TUNES, STREAM, trackTitle, type JukeboxState } from '../../shared/jukebox';
 import { DRINKS, ROOF, ROOF_NAME, type Drink } from '../../shared/rooftop';
 import { isAsleep } from '../../shared/status';
 import { TERM_FONT } from '../fonts';
@@ -71,6 +71,8 @@ export interface VrMenuActions {
   ride: (floorId: string) => void;
   /** The jukebox: play a tune (or resume), stop, or skip — the DOM jukebox's messages. */
   jukebox: (op: 'play' | 'stop' | 'skip', track?: string) => void;
+  /** Plays a pasted stream on the jukebox — the DOM jukebox's URL box (main.ts vrJukeboxStream). */
+  playStream: () => void;
   /** Orders a drink — the DOM bar menu's function (main.ts orderDrink). */
   orderDrink: (id: Drink['id']) => void;
   /** Says it on the floor's chat — the DOM chat box's function (net chat). */
@@ -498,7 +500,7 @@ export class VrMenu {
       return l.running.length + l.queued.length + l.done.length;
     }
     if (this.view === 'floors') return this.floorRows().length;
-    if (this.view === 'jukebox') return JUKEBOX_TUNES.length;
+    if (this.view === 'jukebox') return JUKEBOX_TUNES.length + 1;
     if (this.view === 'bar') return DRINKS.length;
     if (this.view === 'chat') return Math.max(1, this.chatLines().length);
     if (this.view === 'assign') return Math.max(1, this.awakeWorkers().length);
@@ -559,6 +561,7 @@ export class VrMenu {
     if (this.view === 'jukebox') {
       const t = JUKEBOX_TUNES[i];
       if (t) this.actions.jukebox('play', t.id);
+      else if (i === JUKEBOX_TUNES.length) this.actions.playStream();
       return;
     }
     if (this.view === 'bar') {
@@ -909,8 +912,12 @@ export class VrMenu {
     }
     if (this.view === 'jukebox') {
       const t = JUKEBOX_TUNES[i];
-      if (!t) return;
       const j = this.stores.getJukebox();
+      if (!t) {
+        const playing = j.on && j.track === STREAM;
+        this.rowText(ctx, playing ? '🔊' : '📻', 'Play a stream…', playing ? `on now${j.by ? ` · put on by ${j.by}` : ''}` : 'internet radio or an .mp3 link', x, y, bw, rh);
+        return;
+      }
       const playing = j.on && j.track === t.id;
       this.rowText(ctx, playing ? '🔊' : '🎵', t.title, playing ? `on now${j.by ? ` · put on by ${j.by}` : ''}` : t.mood, x, y, bw, rh);
       return;

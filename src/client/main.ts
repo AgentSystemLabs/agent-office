@@ -67,7 +67,7 @@ import { mountHud } from './ui/menu';
 import { openJukebox } from './ui/jukebox';
 import { Arcade } from './ui/arcade';
 import { Cabinet } from './ui/cabinet';
-import { trackTitle } from '../shared/jukebox';
+import { trackTitle, checkStreamUrl } from '../shared/jukebox';
 import { GAME, scoreText } from '../shared/cabinet';
 import { EMOTES, EMOTE_BY_ID, EmoteBucket, type EmoteId } from '../shared/emotes';
 import { EmoteWheel } from './ui/emotes';
@@ -514,6 +514,7 @@ const vr = new VRSession(renderer, scene, camera, {
         queueIssue: (n, title) => net.send({ t: 'queue.add', prompt: issuePrompt({ number: n, title }), title, issue: n }),
         ride: (floorId) => ride(floorId),
         jukebox: (op, track) => net.send(op === 'play' ? { t: 'jukebox.play', ...(track ? { track } : {}) } : op === 'stop' ? { t: 'jukebox.stop' } : { t: 'jukebox.skip' }),
+        playStream: () => vrJukeboxStream(),
         orderDrink: (id) => {
           const d = DRINK_BY_ID.get(id);
           if (d) orderDrink(d);
@@ -642,6 +643,8 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     inVoice: () => voice.inVoice,
     // The floor dog's name (the rename check reads this back).
     dog: () => store.dog?.name ?? null,
+    // What's on the jukebox (the stream check reads this back).
+    jukebox: () => ({ on: store.jukebox.on, track: store.jukebox.track, url: store.jukebox.url ?? null }),
     // Seeds a fake teammate into this client's peers (solo here; reload clears it).
     seedPeer: (name: string, doing: string) => {
       store.peers.delete('peer-zzz');
@@ -1762,6 +1765,24 @@ function killWarning(id: string): string | null {
   if (w.worktree) return `${again} (the ${w.worktree.branch} worktree stays unless it's empty)`;
   if (DESK_BY_ID.get(w.deskId)?.station) return `${again} (this stops its session for everyone)`;
   return `${again} and free the desk`;
+}
+/** The VR jukebox view's 📻 row: internet radio or an audio file, for everyone on this floor (the window's URL box — same check, same message). */
+function vrJukeboxStream() {
+  if (!vrUi) return;
+  vrUi.askText({
+    title: '📻 Play a stream',
+    subtitle: 'Internet radio or a link to an .mp3',
+    placeholder: 'https://…',
+    submitLabel: 'Play',
+    onSubmit: (text) => {
+      const u = checkStreamUrl(text);
+      if ('error' in u) {
+        toast(u.error, 'warn');
+        return;
+      }
+      net.send({ t: 'jukebox.play', url: u.url });
+    },
+  });
 }
 /** The VR settings view's 🐶 row: a new name for the floor dog (the ⚙️ Settings office-dog row — for everyone on this floor). */
 function vrRenameDog() {
