@@ -77,6 +77,7 @@ import { issueMeeting, openMeeting, type MeetingPreset } from './ui/meeting';
 import { VRSession } from './vr/session';
 import { attachVrUi, type VrUiHandle } from './vr/attach';
 import type { MenuView, VrMergeInfo, VrSearchState } from './vr/menu';
+import { captureVrKeys } from './vr/physical-keys';
 import { probeXRSupport } from './vr/support';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
@@ -493,6 +494,8 @@ const vr = new VRSession(renderer, scene, camera, {
   aimLabel: (it, note) => vrAimLabel(it, note),
   resize: () => resize(),
   onEnter: () => {
+    // A focused DOM field (the chat box) would take IME text the capture below can't cancel.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     vrUi = attachVrUi(scene, {
       send: (msg) => net.send(msg),
       subscribe: (topic, fn) => store.on(topic, fn),
@@ -628,6 +631,9 @@ const vr = new VRSession(renderer, scene, camera, {
     vrUi = null;
   },
 });
+// A physical keyboard while presenting types into the VR prompt or terminal, and no desktop
+// keybind sees it. Registered at module load, so it's ahead of every later window listener.
+captureVrKeys(window, { active: () => vr.active, onBytes: (bytes) => vrUi?.physicalKey(bytes) });
 // Emulator test hook (?vrtest=1): the XR emulator has no controllers to push, so this drives the
 // live session over DevTools instead. Movement stays client-authoritative, exactly as on desktop.
 if (new URLSearchParams(location.search).has('vrtest')) {
@@ -645,6 +651,7 @@ if (new URLSearchParams(location.search).has('vrtest')) {
       terminal: vrUi.terminal.visible,
       prompt: vrUi.prompt.visible,
       keyboard: vrUi.keyboard.visible,
+      physical: vrUi.physicalTyping,
     }),
     panelPos: (which: 'menu' | 'controls' | 'terminal' | 'prompt' | 'keyboard' | 'toast') => {
       const g = vrUi?.[which]?.panel.group;

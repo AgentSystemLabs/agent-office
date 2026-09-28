@@ -15,7 +15,7 @@ export class PromptBuffer {
   text = '';
   cursor = 0;
 
-  /** Feeds terminal bytes from the VR keyboard; reports what the key meant. */
+  /** Feeds terminal bytes from the VR or a physical keyboard; reports what the key meant. */
   input(data: string): 'submit' | 'cancel' | 'change' | 'noop' {
     if (data === '\r' || data === '\n') return 'submit';
     if (data === '\x1b') return 'cancel';
@@ -29,6 +29,12 @@ export class PromptBuffer {
       this.cursor++;
       return 'change';
     }
+    if (data === '\x1b[H' || data === '\x1b[F') {
+      const to = data === '\x1b[H' ? 0 : [...this.text].length;
+      if (this.cursor === to) return 'noop';
+      this.cursor = to;
+      return 'change';
+    }
     if (data === '\x7f' || data === '\b') {
       if (this.cursor <= 0) return 'noop';
       const chars = [...this.text];
@@ -37,7 +43,17 @@ export class PromptBuffer {
       this.cursor--;
       return 'change';
     }
-    // Printable text only (arrows up/down, tab and ctrl codes have no meaning in a prompt box).
+    if (data === '\x1b[3~') {
+      const chars = [...this.text];
+      if (this.cursor >= chars.length) return 'noop';
+      chars.splice(this.cursor, 1);
+      this.text = chars.join('');
+      return 'change';
+    }
+    // Any other escape sequence (up/down, modified arrows, alt chords) means nothing here, and
+    // its tail is printable: filtered below it would type "[A" into the field.
+    if (data.startsWith('\x1b')) return 'noop';
+    // Printable text only (tab and ctrl codes have no meaning in a prompt box).
     const clean = [...data].filter((c) => c >= ' ' && c !== '\x7f').join('');
     if (!clean) return 'noop';
     const chars = [...this.text];
@@ -79,6 +95,8 @@ const FIELD: Rect = { x: 0.05, y: 0.3, w: 0.9, h: 0.47 };
 /** With the engine row up, the field moves down to make room for it. */
 const ENGINE_BTN: Rect = { x: 0.05, y: 0.265, w: 0.9, h: 0.1 };
 const FIELD_WITH_ENGINE: Rect = { x: 0.05, y: 0.39, w: 0.9, h: 0.4 };
+/** The world-space keyboard on and off, at the title row's end. */
+const KEYS_BTN: Rect = { x: 0.83, y: 0.04, w: 0.12, h: 0.12 };
 
 export class VrPromptPanel {
   readonly panel: WorldPanel;
@@ -86,6 +104,9 @@ export class VrPromptPanel {
   private opts: VrPromptOpts | null = null;
   private blinkOn = true;
   private blinkAt = 0;
+  private keyboardShown = false;
+  /** Fires from the ⌨ button; attach.ts shows or hides the world-space keyboard. */
+  onKeyboard: (() => void) | null = null;
 
   constructor(widthM = 0.56, heightM = 0.4) {
     this.panel = new WorldPanel({ width: widthM, height: heightM, paint: (ctx, w, h, _dirty, state) => this.paint(ctx, w, h, state) });
@@ -116,6 +137,7 @@ export class VrPromptPanel {
     const buttons = [
       { id: 'send', rect: opts.alt ? SEND_ALT : SEND_BTN, onClick: () => this.send() },
       { id: 'cancel', rect: opts.alt ? CANCEL_ALT : CANCEL_BTN, onClick: () => this.close(false) },
+      { id: 'keys', rect: KEYS_BTN, onClick: () => this.onKeyboard?.() },
     ];
     if (opts.engine) {
       const engine = opts.engine;
@@ -126,6 +148,13 @@ export class VrPromptPanel {
     }
     this.panel.setButtons(buttons);
     this.panel.setVisible(true);
+    this.panel.markDirty();
+  }
+
+  /** Whether the world-space keyboard is up (the ⌨ button lights while it is). */
+  setKeyboardShown(shown: boolean) {
+    if (shown === this.keyboardShown) return;
+    this.keyboardShown = shown;
     this.panel.markDirty();
   }
 
@@ -189,7 +218,17 @@ export class VrPromptPanel {
     ctx.font = `700 ${Math.round(h * 0.075)}px ${TERM_FONT}`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    ctx.fillText(opts.title, w * 0.05, h * 0.1, w * 0.9);
+    ctx.fillText(opts.title, w * 0.05, h * 0.1, w * 0.76);
+    const keysHot = state.hoverId === 'keys' || state.pressedId === 'keys';
+    ctx.fillStyle = keysHot ? '#ee6018' : this.keyboardShown ? 'rgba(238,96,24,0.35)' : 'rgba(255,255,255,0.08)';
+    ctx.beginPath();
+    ctx.roundRect(KEYS_BTN.x * w, KEYS_BTN.y * h, KEYS_BTN.w * w, KEYS_BTN.h * h, KEYS_BTN.h * h * 0.3);
+    ctx.fill();
+    ctx.fillStyle = '#eeeeee';
+    ctx.font = `700 ${Math.round(KEYS_BTN.h * h * 0.55)}px ${TERM_FONT}`;
+    ctx.textAlign = 'center';
+    ctx.fillText('⌨', (KEYS_BTN.x + KEYS_BTN.w / 2) * w, (KEYS_BTN.y + KEYS_BTN.h / 2) * h + 1);
+    ctx.textAlign = 'left';
     if (opts.subtitle) {
       ctx.fillStyle = '#8c8c8c';
       ctx.font = `500 ${Math.round(h * 0.052)}px ${TERM_FONT}`;

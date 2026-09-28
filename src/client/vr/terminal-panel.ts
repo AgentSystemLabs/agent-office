@@ -53,6 +53,8 @@ const ASK_BTN: Rect = { x: 0.845, y: 0.012, w: 0.075, h: 0.086 };
 /** Wake a sleeping worker (the R key's function) and send it home (the X key's, tap twice). */
 const RESUME_BTN: Rect = { x: 0.755, y: 0.012, w: 0.08, h: 0.086 };
 const KILL_BTN: Rect = { x: 0.665, y: 0.012, w: 0.08, h: 0.086 };
+/** The world-space keyboard on and off (it tucks away while a physical keyboard types). */
+const KEYS_BTN: Rect = { x: 0.575, y: 0.012, w: 0.08, h: 0.086 };
 /** The kill button stays armed this long: tap ⏻ twice to send a worker home. */
 const KILL_ARM_MS = 6000;
 const JUMP_BTN: Rect = { x: 0.78, y: 0.895, w: 0.2, h: 0.085 };
@@ -70,6 +72,9 @@ export class VrTerminalPanel {
   onKill: ((workerId: string) => void) | null = null;
   /** Fires when a search jump's line isn't in our copy of the terminal (attach.ts toasts it). */
   onFindMiss: (() => void) | null = null;
+  /** Fires from the ⌨ button; attach.ts shows or hides the world-space keyboard. */
+  onKeyboard: (() => void) | null = null;
+  private keyboardShown = false;
   private deps: VrTerminalDeps;
   private workerId: string | null = null;
   private unsubs: (() => void)[] = [];
@@ -195,7 +200,14 @@ export class VrTerminalPanel {
     this.onClose?.();
   }
 
-  /** Feeds keystrokes to the focused terminal (the VR keyboard's target). */
+  /** Whether the world-space keyboard is up (the ⌨ button lights while it is). */
+  setKeyboardShown(shown: boolean) {
+    if (shown === this.keyboardShown) return;
+    this.keyboardShown = shown;
+    this.panel.markDirty();
+  }
+
+  /** Feeds keystrokes to the focused terminal (the VR or a physical keyboard's target). */
   type(data: string) {
     if (!this.workerId) return;
     const w = this.deps.getWorker(this.workerId);
@@ -280,6 +292,7 @@ export class VrTerminalPanel {
       { id: 'close', rect: CLOSE_BTN, onClick: () => this.close() },
       { id: 'ask', rect: ASK_BTN, onClick: () => { if (this.workerId) this.onAsk?.(this.workerId); } },
       { id: 'kill', rect: KILL_BTN, onClick: () => this.tapKill() },
+      { id: 'keys', rect: KEYS_BTN, onClick: () => this.onKeyboard?.() },
     ];
     const w = this.deps.getWorker(this.workerId);
     if (w && isAsleep(w.status)) {
@@ -332,7 +345,19 @@ export class VrTerminalPanel {
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
       const label = `${worker.name} · ${worker.status}`;
-      ctx.fillText(label, hx + h * 0.055, hy + 1, w * 0.6);
+      ctx.fillText(label, hx + h * 0.055, hy + 1, w * 0.5);
+    }
+    if (id) {
+      const k = { x: KEYS_BTN.x * w, y: KEYS_BTN.y * h, w: KEYS_BTN.w * w, h: KEYS_BTN.h * h };
+      const hot = state.hoverId === 'keys' || state.pressedId === 'keys';
+      ctx.fillStyle = hot ? '#ee6018' : this.keyboardShown ? 'rgba(238,96,24,0.35)' : 'rgba(255,255,255,0.08)';
+      ctx.beginPath();
+      ctx.roundRect(k.x, k.y, k.w, k.h, k.h * 0.3);
+      ctx.fill();
+      ctx.fillStyle = '#eeeeee';
+      ctx.font = `700 ${Math.round(k.h * 0.55)}px ${TERM_FONT}`;
+      ctx.textAlign = 'center';
+      ctx.fillText('⌨', k.x + k.w / 2, hy + 1);
     }
     // Wake (asleep only) and send-home buttons.
     if (worker && isAsleep(worker.status)) {      const r = { x: RESUME_BTN.x * w, y: RESUME_BTN.y * h, w: RESUME_BTN.w * w, h: RESUME_BTN.h * h };

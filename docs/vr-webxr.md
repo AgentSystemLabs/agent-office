@@ -50,6 +50,29 @@ frame from the union of the runtime's `select` and three's joint-distance
 see "Input" below. Every VR move goes through the avatar and the normal `move` messages, so
 desktop users see the VR user walk, glide, turn and teleport like anyone else.
 
+### Physical keyboard
+
+A Bluetooth keyboard paired to the headset types while presenting. Keys go to the open
+prompt (hire, ask, chat, search, comment…) first, else to the focused world-space terminal.
+In a prompt, Enter sends, Escape cancels, ←/→/Home/End move and Backspace/Delete edit. In a
+terminal, keys arrive as xterm bytes, including Ctrl chords (Ctrl+C), Alt as meta,
+modified arrows, Home/End, PageUp/PageDown and Shift+Tab. With neither panel open, keys
+type nothing and a toast says where they go.
+
+No key reaches a desktop keybind while presenting: E doesn't interact, N doesn't jump, WASD
+doesn't walk, T/Enter don't open chat, Tab doesn't open ☰. The boundary is one capture-phase
+`keydown`/`keyup` listener on `window` (`src/client/vr/physical-keys.ts`), registered before
+every other key listener. While `vr.active` it stops every key event there. Typeable keys
+also lose their browser default. ⌘/Meta chords, function keys and bare modifiers keep their
+browser behavior. On session enter, the focused DOM element is blurred, so an IME can't
+compose into the chat box behind the headset.
+
+The world-space keyboard is the fallback for hand-only users. It opens with every prompt
+and terminal until a physical key types, then it tucks away and stays hidden for later
+prompts and terminals. The **⌨** button on the terminal header and the prompt's title row
+brings it back (and hides it again). Showing it this way re-arms the virtual keyboard until
+the next physical key.
+
 ## Settings (⚙️ → VR)
 
 | Setting | Default | What it does |
@@ -65,7 +88,7 @@ Persisted in the existing settings store (`Settings.vr`, localStorage) like ever
 
 E in VR opens panels floating in the office, not DOM modals: the ☰ menu (hire, queue,
 board, services, floors, jukebox, bar, chat, people, meeting, settings), worker terminals (ask,
-wake, send-home), the prompt + QWERTY keyboard,
+wake, send-home, ⌨ keyboard toggle), the prompt + QWERTY keyboard,
 the controls card, and a toast mirror. Both rays press independently (two-handed typing),
 held keys repeat like a desktop board, and the prompt + keyboard ride teleports along.
 A strip low in the view names what E would do to the ray's target (the desktop hint
@@ -216,3 +239,6 @@ calling VR done:
 8. In-headset frame rate with the full office (two eye renders × outline pass).
 9. Session edge cases: headset sleep/resume mid-session, controller disconnect/reconnect,
    entering VR while seated/climbing/riding the elevator.
+10. Physical keyboard: a Bluetooth keyboard paired to the headset delivers `keydown` to the
+    page during the immersive session (the emulator run drives Chromium's key input, not a
+    headset's), plus IME and non-US layouts through it.

@@ -158,6 +158,14 @@ export interface VrUiHandle {
   onPanelClick: ((rayId: number) => void) | null;
   /** Redirects the keyboard (default target is the focused VR terminal; null mutes it). */
   setKeyboardTarget: (t: KeyboardTarget | null) => void;
+  /**
+   * Bytes from a physical keyboard (vr/physical-keys.ts): into the open prompt, else the
+   * focused terminal, else nowhere. The first one tucks the world-space keyboard away; the
+   * ⌨ buttons on the terminal and prompt bring it back. False when nothing took them.
+   */
+  physicalKey: (bytes: string) => boolean;
+  /** A physical keyboard has typed this session (the world-space board stays tucked away). */
+  readonly physicalTyping: boolean;
   /** What the prompt field holds now (the emulator hook reads this back for assert scripts). */
   promptText: () => string;
   /** The prompt's engine row label now (null without one — the emulator hook reads it back). */
@@ -197,6 +205,8 @@ class VrUi implements VrUiHandle {
   readonly group = new THREE.Group();
   private rays = new Map<number, RayState>();
   private keyboardExplicit: KeyboardTarget | null | undefined = undefined;
+  private physical = false;
+  private physicalHintAt = 0;
   /** The last head pose update() saw: newly opened panels land in front of it. */
   private headPos: [number, number, number] | null = null;
   private headDir: [number, number, number] | null = null;
@@ -245,8 +255,11 @@ class VrUi implements VrUiHandle {
     this.keyboard.setTarget({ sendText: (text) => this.terminal.type(text) });
     // The terminal's own ✕ button also dismisses the keyboard (unless retargeted).
     this.terminal.onClose = () => {
-      if (this.keyboardExplicit === undefined) this.keyboard.hide();
+      if (this.keyboardExplicit === undefined) this.hideKeyboard();
     };
+    // ⌨ on the terminal header and the prompt: the world-space keyboard on and off.
+    this.terminal.onKeyboard = () => this.toggleKeyboard();
+    this.prompt.onKeyboard = () => this.toggleKeyboard();
     // The terminal's ✉ button: ask the worker something (the P key's function on desktop).
     this.terminal.onAsk = (workerId) => {
       const w = deps.getWorker(workerId);
@@ -331,14 +344,71 @@ class VrUi implements VrUiHandle {
     const w = this.deps.getWorker(workerId);
     if (w && isAsleep(w.status)) this.deps.workerActions.resume(workerId);
     this.terminal.open(workerId, find);
-    this.keyboard.show();
+    this.offerKeyboard();
   };
 
   closeTerminal = () => {
     this.terminal.close();
     // The keyboard stays only while something else wants it.
-    if (this.keyboardExplicit === undefined) this.keyboard.hide();
+    if (this.keyboardExplicit === undefined) this.hideKeyboard();
   };
+
+  /** A text target opened: the world-space keyboard comes up, unless real keys are in use. */
+  private offerKeyboard() {
+    if (this.physical) this.hideKeyboard();
+    else this.showKeyboard();
+  }
+
+  private showKeyboard() {
+    this.keyboard.show();
+    this.syncKeyboardButtons();
+  }
+
+  private hideKeyboard() {
+    this.keyboard.hide();
+    this.syncKeyboardButtons();
+  }
+
+  /** The ⌨ tap: back on screen (until real keys type again), or tucked away. */
+  private toggleKeyboard() {
+    if (this.keyboard.visible) {
+      this.hideKeyboard();
+      return;
+    }
+    this.physical = false;
+    this.showKeyboard();
+  }
+
+  private syncKeyboardButtons() {
+    this.terminal.setKeyboardShown(this.keyboard.visible);
+    this.prompt.setKeyboardShown(this.keyboard.visible);
+  }
+
+  physicalKey = (bytes: string): boolean => {
+    let took = false;
+    if (this.prompt.visible) {
+      this.prompt.sendText(bytes);
+      took = true;
+    } else if (this.terminal.visible && this.terminal.focused()) {
+      this.terminal.type(bytes);
+      took = true;
+    }
+    if (!took) {
+      const now = performance.now();
+      if (now - this.physicalHintAt > 4000) {
+        this.physicalHintAt = now;
+        this.showToast('⌨ Keys type into an open terminal or prompt: E on a desk opens one');
+      }
+      return false;
+    }
+    this.physical = true;
+    if (this.keyboard.visible) this.hideKeyboard();
+    return true;
+  };
+
+  get physicalTyping(): boolean {
+    return this.physical;
+  }
 
   toggleMenu = () => {
     this.menu.toggle();
@@ -398,7 +468,6 @@ class VrUi implements VrUiHandle {
     const target = { sendText: (text: string) => this.prompt.sendText(text) };
     this.keyboardExplicit = target;
     this.keyboard.setTarget(target);
-    this.keyboard.show();
     this.prompt.open({
       ...opts,
       onSubmit: (text) => {
@@ -412,13 +481,16 @@ class VrUi implements VrUiHandle {
       // The alt button takes the prompt down the same way (the keyboard goes home too).
       ...(opts.alt ? { alt: { label: opts.alt.label, onAlt: () => { this.endAskText(); opts.alt!.onAlt(); } } } : {}),
     });
+    // After open: the prompt's ⌨ button paints from the keyboard state this sets.
+    this.offerKeyboard();
   };
 
   /** The prompt is done: the keyboard goes back to the terminal (or away, when none is up). */
   private endAskText() {
     this.keyboard.setTarget({ sendText: (text) => this.terminal.type(text) });
     this.keyboardExplicit = undefined;
-    if (!this.terminal.visible) this.keyboard.hide();
+    if (!this.terminal.visible) this.hideKeyboard();
+    else this.syncKeyboardButtons();
   }
 
   showToast = (text: string, level: 'info' | 'warn' | 'error' = 'info') => {
@@ -439,11 +511,11 @@ class VrUi implements VrUiHandle {
     this.keyboardExplicit = t;
     if (t) {
       this.keyboard.setTarget(t);
-      this.keyboard.show();
+      this.offerKeyboard();
     } else {
       this.keyboard.setTarget({ sendText: (text) => this.terminal.type(text) });
       this.keyboardExplicit = undefined;
-      if (!this.terminal.visible) this.keyboard.hide();
+      if (!this.terminal.visible) this.hideKeyboard();
     }
   };
 
@@ -530,7 +602,8 @@ class VrUi implements VrUiHandle {
   /** A virtual move's delta carries the modal panels along (the terminal and its keyboard stay). */
   carryAlong = (delta: THREE.Vector3): void => {
     if (this.prompt.visible) this.prompt.panel.group.position.add(delta);
-    if (this.keyboard.visible && this.keyboardExplicit !== undefined) {
+    // A tucked-away prompt keyboard rides along too, so ⌨ brings it back under the prompt.
+    if (this.keyboardExplicit !== undefined) {
       this.keyboard.panel.group.position.add(delta);
     }
   };
