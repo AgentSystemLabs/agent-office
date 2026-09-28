@@ -6,11 +6,13 @@ import { toon } from './toon';
 
 // The things in the world modelled in Blender rather than built in code. Each .glb is exported by a
 // script in blender/scripts/ (blender/README.md has the conventions they keep); add it here by name.
-const URLS = {
-  dog: dogUrl,
-};
+// `preload` ones are loaded before the world is built, for builders that take theirs with model();
+// the rest load the first time loadModel() asks for them (a floor's dog is only ever one breed).
+const MODELS = {
+  dog: { url: dogUrl, preload: false },
+} satisfies Record<string, { url: string; preload: boolean }>;
 
-export type ModelName = keyof typeof URLS;
+export type ModelName = keyof typeof MODELS;
 
 export interface Model {
   /** This copy's scene: its own nodes and bones, sharing the geometry and materials with every other copy. */
@@ -26,7 +28,7 @@ const loaded = new Map<ModelName, GLTF>();
 function fetchModel(name: ModelName): Promise<GLTF> {
   let p = loading.get(name);
   if (!p) {
-    p = new GLTFLoader().loadAsync(URLS[name]).then((gltf) => {
+    p = new GLTFLoader().loadAsync(MODELS[name].url).then((gltf) => {
       loaded.set(name, gltf);
       return gltf;
     });
@@ -44,16 +46,15 @@ export async function loadModel(name: ModelName): Promise<Model> {
 }
 
 /**
- * Loads every model, so the world can be built with them straight away (see model()). One that
- * doesn't load is logged and left out: whatever it was for goes missing, the office still opens.
+ * Loads every `preload` model, so the world can be built with them straight away (see model()). One
+ * that doesn't load is logged and left out: whatever it was for goes missing, the office still opens.
  */
 export async function preloadModels(): Promise<void> {
-  await Promise.all(
-    (Object.keys(URLS) as ModelName[]).map((name) => fetchModel(name).catch((err: unknown) => console.error(`${name}.glb didn't load`, err))),
-  );
+  const names = (Object.keys(MODELS) as ModelName[]).filter((name) => MODELS[name].preload);
+  await Promise.all(names.map((name) => fetchModel(name).catch((err: unknown) => console.error(`${name}.glb didn't load`, err))));
 }
 
-/** A copy of a model preloadModels() has loaded, or null if it couldn't be. */
+/** A copy of a `preload` model (see preloadModels()), or null if it couldn't be loaded. */
 export function model(name: ModelName): Model | null {
   const gltf = loaded.get(name);
   return gltf ? copy(gltf) : null;

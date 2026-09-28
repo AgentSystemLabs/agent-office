@@ -10,6 +10,10 @@ changing its script and running it again.
 | `scripts/aokit.py` | The kit every script uses: shapes, one smooth skin, painted patches, rigs and clips, export, review renders |
 | `scripts/build_<name>.py` | One model (or a small set), exported as `src/client/models/<name>.glb` |
 
+A helper only one model needs lives in that model's script. One that several need can join the kit, as a new
+function: the kit's existing functions are what every script already counts on, so change them only with
+every script rebuilt and checked.
+
 ## Running a script
 
 Headless, from the repo root (Blender 5.2, `--factory-startup` so local settings don't matter):
@@ -59,7 +63,8 @@ These are what the office's code counts on. A model that breaks one looks wrong 
 - **Review renders** from the script (`-- --shots`), for shape and proportion.
 - **The lab pages**, which draw a model with the office's own code, lights and outline:
   `src/client/lab/props.html?show=<name>` for props (add yours to `SHOW` in `props.ts`) and
-  `src/client/lab/dog.html` for the dog. They run on the Vite dev server (`npx vite`), and
+  `src/client/lab/dog.html` for the dog. A model the world is built with (read with `model(name)`) is marked
+  `preload` in `world/models.ts`; one only some pages need loads with `loadModel(name)` instead. They run on the Vite dev server (`npx vite`), and
   `node src/client/lab/shot.mjs <url> <out.png>` screenshots one headless and prints what the page found.
 - **A test** per model, `tests/<name>-model.test.ts`, reads the `.glb` with `tests/glb.ts` and checks what
   the code counts on: the node and material names it looks for, and its size and facing.

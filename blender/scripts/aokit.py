@@ -494,7 +494,7 @@ def sheet(name, shots, cell=(420, 330), target=(0, 0, 0.35), dist=1.7):
     for i, (setup, view) in enumerate(shots):
         if setup:
             setup()
-        path = shoot(f"_tile{i}", view, target=target, dist=dist, res=cell)
+        path = shoot(f"_{name}_tile{i}", view, target=target, dist=dist, res=cell)
         img = bpy.data.images.load(path, check_existing=False)
         tiles.append(np.array(img.pixels[:], dtype=np.float32).reshape(cell[1], cell[0], 4))
         bpy.data.images.remove(img)
