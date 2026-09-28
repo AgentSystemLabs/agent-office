@@ -4311,7 +4311,6 @@ function startLoop() {
 
 // ---- Boot ------------------------------------------------------------------------------------------
 function boot() {
-  guardLeaving();
   net.connect();
   startLoop();
 }
@@ -4328,6 +4327,7 @@ async function whoami() {
   }
 }
 
+guardLeaving();
 void whoami().then(() => {
   const saved = loadProfile();
   if (saved && store.me.account) saved.name = store.me.account.name;
