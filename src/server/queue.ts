@@ -33,8 +33,6 @@ export interface QueueEvents {
 export const DEFAULT_MAX_WORKERS = 3;
 const MAX_TASKS = 100;
 const PUMP_MS = 10_000;
-/** A worker in one of these states holds a slot under the worker limit. */
-const BUSY = new Set<WorkerStatus>(['starting', 'idle', 'working', 'needs_input']);
 /** A worker in one of these states is finished with its task (and can make room for the next one). */
 const FINISHED = new Set<WorkerStatus>(['done', 'exited', 'offline']);
 
@@ -42,7 +40,7 @@ const WORKTREE_NOTE = "\n\nYou're in your own git worktree, on a fresh branch ma
 
 /**
  * The 📋 task queue. Tasks (GitHub issues or free text) wait in order; whenever a desk is free and
- * fewer than `maxWorkers` workers are busy, the next one is seated as a worktree worker. A running
+ * fewer than `maxWorkers` of them are running, the next one is seated as a worktree worker. A running
  * task finishes when its worker ends its turn, stops, or is sent home. Finished workers stay at
  * their desks to be looked at, until the queue needs the desk for the next task.
  */
@@ -254,9 +252,13 @@ export class TaskQueue {
     return outcome === 'done';
   }
 
-  /** Agents holding a slot. The board agents don't (they stand by their boards), nor do meetings (they have their own limits). */
+  /**
+   * The queue's own tasks at work: the slots under its limit. Workers hired by hand, board agents and
+   * meetings don't hold one, and nor does a worker left at its prompt after a restart; the office's
+   * worker limit (`room`) is what caps everyone together.
+   */
   private busy(): number {
-    return this.workers.list().filter((w) => w.kind === 'agent' && BUSY.has(w.status) && !DESK_BY_ID.get(w.deskId)?.station && !DESK_BY_ID.get(w.deskId)?.room).length;
+    return this.tasks.filter((t) => t.status === 'running').length;
   }
 
   /** A free desk, else a free bean bag. */

@@ -191,6 +191,25 @@ test('a board agent at work does not hold one of the queue\'s slots', (t) => {
   assert.match(f.workers[1].deskId, /^desk-/);
 });
 
+test('workers hired by hand, or left at their prompt after a restart, do not hold the queue\'s slots', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  // A room full of workers from before the restart, back at their prompts, and a couple at work.
+  for (let i = 1; i <= 6; i++) {
+    f.workers.push({
+      id: `resumed-${i}`, deskId: `desk-${i}`, kind: 'agent', provider: 'claude', name: `Resumed ${i}`,
+      color: '#ffffff', status: i <= 4 ? 'idle' : 'working', acked: true, createdBy: 'Ada', createdAt: Date.now(), cols: 80, rows: 24, viewers: [], viewerIds: [],
+    });
+  }
+  const q = f.open(); q.setLimit(2);
+  q.add('First', 'Tester'); q.add('Second', 'Tester'); q.add('Third', 'Tester');
+  // Only the queue's own tasks count against its limit.
+  assert.deepEqual(q.state().tasks.map((t) => t.status), ['running', 'running', 'queued']);
+  assert.deepEqual(f.workers.slice(6).map((w) => w.deskId), ['desk-7', 'desk-8']);
+  // One of its tasks finishes: the third takes the slot, whatever the other workers are up to.
+  f.workers[6].status = 'done'; q.onWorker(f.workers[6]);
+  assert.deepEqual(q.state().tasks.map((t) => t.status), ['done', 'running', 'running']);
+});
+
 test('an office at its worker limit holds the queue, and a finished queue worker makes room', (t) => {
   const f = fixture(); t.after(() => f.close());
   let limit = 1;
