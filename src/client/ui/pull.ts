@@ -1,8 +1,9 @@
 import type { GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhLabel, GhMergeMethod, GhPull, GhPullDetail, GhReviewComment, ServerMsg } from '../../shared/protocol';
 import type { Net } from '../net';
 import { AVATAR_COLORS, store, workerForPull } from '../state';
-import { issuePrompt, type BoardActions } from './boards';
+import { issuePrompt, issueVars, type BoardActions } from './boards';
 import { issueMeeting } from './meeting';
+import { officePrompt } from './prompts';
 import { h, openModal, timeAgo, type Modal } from './dom';
 import { markdown, repoUrlOf } from './markdown';
 import { buildTree, looksGenerated, parseDiff, renderFileDiff, renderThread, repliesOf, Reviewed, STATUS_WORD, treeOrder, type DiffFile, type TreeDir } from './pulldiff';
@@ -301,54 +302,37 @@ function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: string, net
 
 // ---- Prompts for workers ------------------------------------------------------------------------
 
-function reviewPrompt(it: GhPull) {
-  return `Review pull request #${it.number}: "${it.title}".\n\nUse \`gh pr view ${it.number} --comments\` and \`gh pr diff ${it.number}\`. Look for bugs, risky changes and missing tests, then give me a short summary with concrete suggestions. Don't push any commits.`;
+/** What a pull request's prompts fill in. */
+function pullVars(it: GhPull) {
+  return { number: it.number, title: it.title, url: it.url, branch: it.headRefName, base: it.baseRefName };
 }
 
-function checkoutStep(it: GhPull) {
-  return `Get onto its branch: \`gh pr checkout ${it.number}\`. If git says \`${it.headRefName}\` is already checked out in another worktree, use \`git fetch origin ${it.headRefName} && git checkout --detach FETCH_HEAD\` instead and push with \`git push origin HEAD:${it.headRefName}\`.`;
+function reviewPrompt(it: GhPull) {
+  return officePrompt('pull.review', pullVars(it));
 }
 
 function mergeCommand(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
   return `gh pr merge ${it.number} --${method}${deleteBranch ? ' --delete-branch' : ''} --repo ${nameWithOwner(it.url)}`;
 }
 
+function mergeVars(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
+  return { ...pullVars(it), repo: nameWithOwner(it.url), merge: mergeCommand(it, method, deleteBranch) };
+}
+
 function fixAndMergePrompt(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
-  const n = it.number;
-  const repo = nameWithOwner(it.url);
-  return [
-    `Get pull request #${n} "${it.title}" (${it.url}) ready and merge it.`,
-    '',
-    `1. ${checkoutStep(it)}`,
-    `2. Read all the feedback: \`gh pr view ${n} --comments\`, and the comments on lines of code with \`gh api repos/${repo}/pulls/${n}/comments\`.`,
-    `3. Address every review comment that is still open: fix it, or if you disagree, reply on the PR saying why. If the branch conflicts with \`${it.baseRefName}\`, merge \`${it.baseRefName}\` in and resolve the conflicts.`,
-    '4. Verify your changes the way this project does (build, typecheck, tests), then commit and push.',
-    `5. Wait for the checks with \`gh pr checks ${n} --watch\` and fix anything that fails.`,
-    `6. When the checks pass and no feedback is left, merge it: \`${mergeCommand(it, method, deleteBranch)}\`. If something only a person can decide is in the way, stop and tell me instead of merging.`,
-  ].join('\n');
+  return officePrompt('pull.fixMerge', mergeVars(it, method, deleteBranch));
 }
 
 function fixConflictsPrompt(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
-  const n = it.number;
-  const base = it.baseRefName;
-  return [
-    `Pull request #${n} "${it.title}" (${it.url}) has merge conflicts with \`${base}\`. Resolve them and merge it.`,
-    '',
-    `1. ${checkoutStep(it)}`,
-    `2. Bring in the latest \`${base}\`: \`git fetch origin ${base} && git merge origin/${base}\`.`,
-    `3. Resolve every conflict so both sides' changes survive. Read the PR (\`gh pr view ${n}\`) and the \`${base}\` commits that touched the same code to see what each side meant; don't just take one side.`,
-    '4. Verify the result the way this project does (build, typecheck, tests), then commit the merge and push.',
-    `5. Wait for the checks with \`gh pr checks ${n} --watch\` and fix anything that fails.`,
-    `6. When the checks pass, merge it: \`${mergeCommand(it, method, deleteBranch)}\`. If a conflict needs a decision only a person can make, stop and tell me instead of merging.`,
-  ].join('\n');
+  return officePrompt('pull.fixConflicts', mergeVars(it, method, deleteBranch));
 }
 
 function pullContext(it: GhPull) {
-  return `This is about pull request #${it.number} "${it.title}" (${it.url}), branch \`${it.headRefName}\` into \`${it.baseRefName}\`. Read it with \`gh pr view ${it.number} --comments\` and see its changes with \`gh pr diff ${it.number}\`.`;
+  return officePrompt('pull.ask', pullVars(it));
 }
 
 function issueContext(it: GhIssue) {
-  return `This is about GitHub issue #${it.number} "${it.title}" (${it.url}). Read it with \`gh issue view ${it.number} --comments\`.`;
+  return officePrompt('issue.ask', issueVars(it));
 }
 
 // ---- Merge dialog -------------------------------------------------------------------------------
@@ -743,7 +727,7 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
       h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this PR', onclick: () => actions.ask(pullContext(it), `Ask about PR #${it.number}`) }, '✍️ Ask a worker…'),
       isOpen ? h('button.btn', { type: 'button', onclick: () => actions.assign(reviewPrompt(it), `Review PR #${it.number}`) }, '🔍 Review') : null,
       isOpen
-        ? h('button.btn', { type: 'button', title: 'A few workers review it in the meeting room, each through its own lens, and the office posts one combined review', onclick: () => actions.meeting({ pattern: 'review', pr: it.number, title: `Review of PR #${it.number}`, prompt: `Review pull request #${it.number}: “${it.title}”.` }) }, '🤝 Review panel…')
+        ? h('button.btn', { type: 'button', title: 'A few workers review it in the meeting room, each through its own lens, and the office posts one combined review', onclick: () => actions.meeting({ pattern: 'review', pr: it.number, title: `Review of PR #${it.number}`, prompt: officePrompt('pull.panel', pullVars(it)) }) }, '🤝 Review panel…')
         : null,
       conflicts
         ? h('button.btn.primary', { type: 'button', title: 'A new worker merges the base in, resolves the conflicts, gets the checks green, then merges', onclick: handToWorker }, '✨ Fix conflicts & merge')
@@ -1170,7 +1154,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
   // The footer stays put and renderFrame only shows, hides and relabels, so a board refresh never
   // pulls focus out of the provider picker.
   const closeIssue = h('button.btn', { type: 'button', title: 'Close this issue on GitHub', onclick: () => openClose('issue', it, net, load) }, '✔️ Close issue…');
-  const queueProvider = providerPicker(store.project, `issue-provider-${it.number}`, 'Queue provider');
+  const queueProvider = providerPicker(store.project, `issue-provider-${it.number}`, 'Queue on');
   const addIssueToQueue = () => {
     if (!queueProvider.valid()) return;
     modal.close();

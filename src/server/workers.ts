@@ -7,12 +7,13 @@ import { fileURLToPath } from 'node:url';
 import { CodexUsageReader } from './codex-usage.js';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
-import type { AgentEffort, AgentProvider, Run, TerminalHit, WorkerInfo, WorkerKind, WorkerStatus, WorkerTask } from '../shared/protocol.js';
+import type { AgentChoice, AgentEffort, AgentProvider, Run, TerminalHit, WorkerInfo, WorkerKind, WorkerStatus, WorkerTask } from '../shared/protocol.js';
 import { FAILS_TO_DESPAIR, outputFailed, toolAction } from '../shared/actions.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, isAgentEffort, isClaudeModel } from '../shared/protocol.js';
 import { Worktrees, describeWork, type WorktreeCleanup, type WorktreeState } from './worktrees.js';
 import { DESK_BY_ID, STATION_AGENT } from '../shared/layout.js';
 import { QUEUE_AGENT_DISALLOWED_TOOLS, stationBrief } from './stations.js';
+import { officePrompt, type PromptSource } from './prompts.js';
 import { isBusy } from '../shared/status.js';
 import { gh } from './github.js';
 import type { ServiceOwner } from './services.js';
@@ -162,6 +163,8 @@ export class WorkerManager {
     private ledger: Ledger,
     /** The office's worker limit, across every floor (see machine.ts). */
     private capacity?: Capacity,
+    /** The office's prompts and the worker everyone starts on, as set in ⚙️ Settings (see prompts.ts). */
+    private prompts?: PromptSource,
   ) {
     this.defaultProvider = configuredProvider(agentCmd);
     this.trees = new Worktrees(dir);
@@ -173,7 +176,7 @@ export class WorkerManager {
     this.queueBin = this.writeQueueCommand();
     this.agentPath = resolveCommand(agentCmd);
     const claude = this.defaultProvider === 'claude' ? this.agentPath : resolveCommand('claude');
-    this.namer = new TaskNamer(claude, childEnv(), (id, task, ctx) => {
+    this.namer = new TaskNamer(claude, childEnv(), () => officePrompt(this.prompts, 'office.namer'), (id, task, ctx) => {
       const w = this.workers.get(id);
       if (!w || w.taskEpoch !== ctx.epoch) return;
       w.info.task = task;
@@ -219,6 +222,13 @@ export class WorkerManager {
     return this.agentPath;
   }
 
+  /** What an agent starts on when whoever starts it doesn't pick: the one set in ⚙️ Settings, or the office's --agent. */
+  get officeDefault(): AgentChoice {
+    const picked = this.prompts?.agent();
+    if (picked && (picked.provider !== 'custom' || this.defaultProvider === 'custom')) return picked;
+    return { provider: this.defaultProvider };
+  }
+
   list(): WorkerInfo[] {
     return [...this.workers.values()].map((w) => w.info);
   }
@@ -248,7 +258,9 @@ export class WorkerManager {
    * (see meetings.ts), in the meeting's own worktree, which everyone at the table shares.
    */
   spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }): WorkerInfo | string {
-    const selectedProvider = kind === 'agent' ? provider ?? this.defaultProvider : undefined;
+    // Nobody picked (a board agent, say): the office's default worker, model and effort included.
+    if (kind === 'agent' && provider === undefined) ({ provider, model, effort } = this.officeDefault);
+    const selectedProvider = kind === 'agent' ? provider : undefined;
     const modelError = validateWorkerModel(kind, selectedProvider, model);
     if (modelError) return modelError;
     const effortError = validateWorkerEffort(kind, selectedProvider, effort);
@@ -304,7 +316,7 @@ export class WorkerManager {
     this.workers.set(id, w);
     if (info.prompt) this.notePrompt(w, info.prompt);
     // A board agent is told what it's there for ahead of its first request (which is what shows).
-    this.launch(w, seat.station && info.prompt ? `${stationBrief(seat.station)}\n\n${info.prompt}` : info.prompt, undefined);
+    this.launch(w, seat.station && info.prompt ? `${stationBrief(seat.station, this.prompts)}\n\n${info.prompt}` : info.prompt, undefined);
     this.persist();
     return info;
   }
@@ -318,7 +330,7 @@ export class WorkerManager {
     w.info.exitCode = undefined;
     const station = DESK_BY_ID.get(w.info.deskId)?.station;
     // A board agent with no session to carry on starts over, so it needs telling what it's for again.
-    const first = prompt && station && !w.info.sessionId ? `${stationBrief(station)}\n\n${prompt}` : prompt;
+    const first = prompt && station && !w.info.sessionId ? `${stationBrief(station, this.prompts)}\n\n${prompt}` : prompt;
     if (prompt) {
       w.info.activity = truncate(prompt, 80);
       this.notePrompt(w, prompt);

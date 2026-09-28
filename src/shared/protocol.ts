@@ -7,6 +7,7 @@ import type { DogState } from './dog.js';
 import type { EmoteId } from './emotes.js';
 import type { BallState } from './hoop.js';
 import type { JukeboxState } from './jukebox.js';
+import type { PromptId } from './prompts.js';
 import type { DrinkId } from './rooftop.js';
 import type { WbElement, WbPointer, WhiteboardView } from './whiteboard.js';
 
@@ -45,6 +46,28 @@ export type AgentEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export const AGENT_EFFORTS: readonly AgentEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 export function isAgentEffort(value: unknown): value is AgentEffort {
   return value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' || value === 'max';
+}
+
+/** Which agent a worker runs: its provider, and optionally the model and (Claude only) the reasoning effort. */
+export interface AgentChoice {
+  provider: AgentProvider;
+  /** An OpenCode provider/model id, or a Claude model alias; unset for the provider's own default. */
+  model?: string;
+  effort?: AgentEffort;
+}
+
+/**
+ * The prompts the office writes for workers by itself (shared/prompts.ts) and the worker everyone
+ * starts on, as set in ⚙️ Settings: the same on every floor.
+ */
+export interface PromptsState {
+  /** Prompts someone rewrote, by id; the rest are the defaults. */
+  custom: Partial<Record<PromptId, { text: string; by: string; at: number }>>;
+  /**
+   * What a worker starts on unless whoever starts it picks another. Unset: the agent the office was
+   * started with (--agent), on its own default model.
+   */
+  agent?: AgentChoice & { by: string; at: number };
 }
 
 /** What a worker is on, for the card above its head: "Fix Login Redirect" + what it's doing now. */
@@ -1065,6 +1088,10 @@ export type ClientMsg =
   | { t: 'theme.set'; pick: ThemePick }
   /** Where new floors are cloned from now on (admins only); '' goes back to the default. */
   | { t: 'floor.projectsDir'; dir: string }
+  /** Rewrite one of the office's prompts (admins only); null puts the default back. */
+  | { t: 'prompts.set'; id: PromptId; text: string | null }
+  /** Pick the worker everyone starts on (admins only); null goes back to the office's --agent. */
+  | { t: 'prompts.agent'; choice: AgentChoice | null }
   /** Pick up the floor's basketball (or catch it): yours if nobody else has it. */
   | { t: 'ball.take' }
   /** Throw the basketball in your hands from (x, y, z) at (vx, vy, vz) m/s, or drop it; everyone on the floor sees it fly. */
@@ -1100,6 +1127,8 @@ export type ServerMsg =
       sky: SkyState;
       /** Halloween or Christmas decorations, all over the building, or none. */
       theme: ThemeState;
+      /** The office's prompts and the worker everyone starts on. */
+      prompts: PromptsState;
     } & FloorView)
   /** You arrived on another floor: everything on it, replacing the last one's, and where everyone is now. */
   | ({ t: 'floor.enter'; peers: PeerInfo[] } & FloorView)
@@ -1173,6 +1202,7 @@ export type ServerMsg =
   | { t: 'machine'; state: MachineState }
   | { t: 'sky'; state: SkyState }
   | { t: 'theme'; state: ThemeState }
+  | { t: 'prompts'; state: PromptsState }
   /** Sent to whoever watches that worker's changes, whenever they change. */
   | { t: 'changes'; state: ChangesState }
   | { t: 'changes.diff'; workerId: string; path: string; diff: string; truncated: boolean; error?: string }
