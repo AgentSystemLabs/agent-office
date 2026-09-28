@@ -31,31 +31,71 @@ const TILTS = ['-1.2deg', '0.8deg', '-0.4deg', '1.4deg', '0deg', '-0.9deg'];
 const NOTE_COLORS = ['#fff7b0', '#ffd6e0', '#caffbf', '#bde0fe', '#ffe5b4'];
 
 interface Column<T> {
+  /** Names the column in your saved label filters. */
+  key: string;
   title: string;
   items: T[];
+  /** Shows at most this many (after the label filter). */
+  max?: number;
 }
+
+const byUpdated = (a: { updatedAt: string }, b: { updatedAt: string }) => b.updatedAt.localeCompare(a.updatedAt);
 
 function issueColumns(items: GhIssue[]): Column<GhIssue>[] {
   const open = items.filter((i) => i.state === 'OPEN');
   const inProgress = open.filter((i) => i.assignees.length > 0 || i.labels.some((l) => /progress|doing|wip|started/i.test(l.name)) || store.taskForIssue(i.number)?.status === 'running');
   const todo = open.filter((i) => !inProgress.includes(i));
-  const closed = items.filter((i) => i.state !== 'OPEN').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 40);
   return [
-    { title: '📥 Open', items: todo },
-    { title: '🚧 In progress', items: inProgress },
-    { title: '✅ Closed', items: closed },
+    { key: 'open', title: '📥 Open', items: todo },
+    { key: 'progress', title: '🚧 In progress', items: inProgress },
+    { key: 'closed', title: '✅ Closed', items: items.filter((i) => i.state !== 'OPEN').sort(byUpdated), max: 40 },
   ];
 }
 
 function pullColumns(items: GhPull[]): Column<GhPull>[] {
   const open = items.filter((p) => p.state === 'OPEN');
   return [
-    { title: '✏️ Draft', items: open.filter((p) => p.isDraft) },
-    { title: '👀 In review', items: open.filter((p) => !p.isDraft && p.reviewDecision !== 'APPROVED') },
-    { title: '👍 Approved', items: open.filter((p) => !p.isDraft && p.reviewDecision === 'APPROVED') },
-    { title: '🎉 Merged', items: items.filter((p) => p.state === 'MERGED').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 30) },
-    { title: '🗑️ Closed', items: items.filter((p) => p.state === 'CLOSED').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 20) },
+    { key: 'draft', title: '✏️ Draft', items: open.filter((p) => p.isDraft) },
+    { key: 'review', title: '👀 In review', items: open.filter((p) => !p.isDraft && p.reviewDecision !== 'APPROVED') },
+    { key: 'approved', title: '👍 Approved', items: open.filter((p) => !p.isDraft && p.reviewDecision === 'APPROVED') },
+    { key: 'merged', title: '🎉 Merged', items: items.filter((p) => p.state === 'MERGED').sort(byUpdated), max: 30 },
+    { key: 'closed', title: '🗑️ Closed', items: items.filter((p) => p.state === 'CLOSED').sort(byUpdated), max: 20 },
   ];
+}
+
+/** The labels each column is filtered to (column key → label names), per floor and board, kept in this browser. */
+type LabelFilters = Record<string, string[]>;
+
+function filtersKey(kind: 'issues' | 'pulls'): string {
+  return `agent-office.board-labels.${store.floor ?? store.project?.dir ?? ''}.${kind}`;
+}
+
+function loadFilters(kind: 'issues' | 'pulls'): LabelFilters {
+  const out: LabelFilters = {};
+  try {
+    const saved = JSON.parse(localStorage.getItem(filtersKey(kind)) ?? 'null');
+    if (saved && typeof saved === 'object') {
+      for (const [k, v] of Object.entries(saved)) if (Array.isArray(v) && v.length) out[k] = v.filter((x): x is string => typeof x === 'string');
+    }
+  } catch {
+    // storage blocked or garbled
+  }
+  return out;
+}
+
+function saveFilters(kind: 'issues' | 'pulls', filters: LabelFilters) {
+  try {
+    localStorage.setItem(filtersKey(kind), JSON.stringify(filters));
+  } catch {
+    // storage blocked
+  }
+}
+
+/** Every label on the board's cards, by name, for the column filters. */
+function boardLabels(items: { labels: { name: string; color: string }[] }[]): Map<string, string> {
+  const all = new Map<string, string>();
+  for (const it of items) for (const l of it.labels) if (!all.has(l.name)) all.set(l.name, l.color);
+  return all;
 }
 
 function labelChips(labels: { name: string; color: string }[]) {
@@ -105,35 +145,107 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const el = h('div.modal.board', { role: 'dialog', 'aria-label': kind === 'issues' ? 'Issues board' : 'Pull requests board' }, h('header', {}, h('h2', {}, kind === 'issues' ? '📌 Issues' : '🔀 Pull Requests'), status, refresh, close), body);
 
+  const filters = loadFilters(kind);
+  /** The column whose label picker is open, if any. */
+  let picking: string | null = null;
+  const setFilter = (key: string, labels: string[]) => {
+    if (labels.length) filters[key] = labels;
+    else delete filters[key];
+    saveFilters(kind, filters);
+    render();
+  };
+
+  /** Toggles for every label on the board; the column shows cards with any of the ones picked. */
+  const labelPicker = <T extends GhIssue | GhPull>(col: Column<T>, all: Map<string, string>, picked: string[]) => {
+    const names = [...new Set([...all.keys(), ...picked])].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    const list = h('div.col-labels');
+    for (const name of names) {
+      const on = picked.includes(name);
+      const n = col.items.filter((it) => it.labels.some((l) => l.name === name)).length;
+      list.append(
+        h(
+          'button.label-pick',
+          { type: 'button', 'aria-pressed': String(on), 'data-focus': `${col.key}:${name}`, title: `${n} in ${col.title.replace(/^\S+ /, '')}`, onclick: () => setFilter(col.key, on ? picked.filter((x) => x !== name) : [...picked, name]) },
+          labelChip({ name, color: all.get(name) ?? '#dddddd' }),
+          h('small', {}, String(n)),
+        ),
+      );
+    }
+    if (!names.length) list.append(h('small', {}, 'No labels on this board yet.'));
+    const hint = picked.length ? 'Showing cards with any of these labels' : 'Pick labels to show only their cards';
+    return h('div.col-filter', {}, list, h('div.col-filter-foot', {}, h('small', {}, hint), picked.length ? h('button.btn.small', { type: 'button', onclick: () => setFilter(col.key, []) }, 'Clear') : null));
+  };
+
+  /** A column of cards. Click its header to filter it by label. */
+  const column = <T extends GhIssue | GhPull>(col: Column<T>, all: Map<string, string>, cardOf: (it: T, i: number) => HTMLElement) => {
+    const picked = filters[col.key] ?? [];
+    const matching = picked.length ? col.items.filter((it) => it.labels.some((l) => picked.includes(l.name))) : col.items;
+    const shown = matching.slice(0, col.max);
+    const ul = h('ul');
+    shown.forEach((it, i) => ul.append(cardOf(it, i)));
+    if (!shown.length) ul.append(h('li.empty', {}, picked.length ? 'Nothing here with those labels' : 'Nothing here'));
+    const open = picking === col.key;
+    const count = picked.length ? `${shown.length} / ${col.items.slice(0, col.max).length}` : String(shown.length);
+    const head = h(
+      'button.col-head',
+      {
+        type: 'button',
+        'aria-expanded': String(open),
+        'data-focus': col.key,
+        title: picked.length ? `Only cards labelled ${picked.join(' or ')}. Click to change.` : 'Filter by label',
+        onclick: () => {
+          picking = open ? null : col.key;
+          render();
+        },
+      },
+      h('span', {}, col.title),
+      h('span.col-count', {}, count, h('span.col-caret', { 'aria-hidden': 'true' }, open ? '▴' : '▾')),
+    );
+    const section = h('section.column', { class: picked.length ? 'filtered' : '' }, h('h4', {}, head));
+    if (open) section.append(labelPicker(col, all, picked));
+    else if (picked.length) {
+      section.append(
+        h(
+          'div.col-active',
+          {},
+          ...picked.map((name) => labelChip({ name, color: all.get(name) ?? '#dddddd' })),
+          h('button.col-clear', { type: 'button', 'aria-label': 'Clear label filter', title: 'Show every card', onclick: () => setFilter(col.key, []) }, '✕'),
+        ),
+      );
+    }
+    section.append(ul);
+    return section;
+  };
+
   const render = () => {
     const st = kind === 'issues' ? store.issues : store.pulls;
     status.textContent = st.loading ? 'Refreshing…' : st.fetchedAt ? `Updated ${timeAgo(st.fetchedAt)}` : '';
-    // Every refresh rebuilds the columns, so note how far each was scrolled and put it back afterwards.
+    // Every refresh rebuilds the columns, so note how far each was scrolled and put it back afterwards,
+    // and keep focus on the header or label toggle it was on.
     const scrolled = [...body.querySelectorAll('.column > ul')].map((ul) => ul.scrollTop);
     const { scrollLeft, scrollTop } = body;
+    const active = document.activeElement;
+    const focused = active && body.contains(active) ? active.getAttribute('data-focus') : null;
     body.replaceChildren();
     if (st.error && !st.items.length) {
       body.append(h('div.board-error', {}, `Couldn't load from GitHub: ${st.error}`, h('br'), h('small', {}, 'The server runs `gh` in the project directory — make sure it is installed and authenticated (gh auth login).')));
       return;
     }
+    const all = boardLabels(st.items);
     if (kind === 'issues') {
       for (const col of issueColumns(store.issues.items)) {
-        const ul = h('ul');
-        col.items.forEach((it, i) =>
-          ul.append(
+        body.append(
+          column(col, all, (it, i) =>
             card(it.number, it.title, [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, net, actions)),
           ),
         );
-        if (!col.items.length) ul.append(h('li.empty', {}, 'Nothing here'));
-        body.append(h('section.column', {}, h('h4', {}, col.title, h('span', {}, String(col.items.length))), ul));
       }
     } else {
       for (const col of pullColumns(store.pulls.items)) {
-        const ul = h('ul');
-        col.items.forEach((it, i) => {
-          const w = workerForPull(store.workers.values(), it);
-          ul.append(
-            card(
+        body.append(
+          column(col, all, (it, i) => {
+            const w = workerForPull(store.workers.values(), it);
+            return card(
               it.number,
               it.title,
               [
@@ -148,16 +260,15 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
               ],
               i,
               () => openPull(it, net, actions),
-            ),
-          );
-        });
-        if (!col.items.length) ul.append(h('li.empty', {}, 'Nothing here'));
-        body.append(h('section.column', {}, h('h4', {}, col.title, h('span', {}, String(col.items.length))), ul));
+            );
+          }),
+        );
       }
     }
     body.querySelectorAll('.column > ul').forEach((ul, i) => (ul.scrollTop = scrolled[i] ?? 0));
     body.scrollLeft = scrollLeft;
     body.scrollTop = scrollTop;
+    if (focused !== null) [...body.querySelectorAll<HTMLElement>('[data-focus]')].find((b) => b.dataset.focus === focused)?.focus();
   };
 
   const unsubs = [store.on(kind, render), store.on('queue', render)];
