@@ -134,6 +134,10 @@ hand-tracked pinch resolves per frame from the union of the runtime's `select` a
 joint-distance `pinchstart`/`pinchend` (`PinchHold` in session.ts): a tap is E, a hold past
 450 ms aims a teleport the release fires, and both hands held past 600 ms toggle the menu —
 unless either ray works a panel, so two-handed typing never pops the menu up mid-word.
+A hand already aiming a teleport isn't hijacked: the second hand joining late doesn't menu.
+All four behaviors were driven with real runtime hand input in the emulator (single hold →
+aim → teleport; both together → menu with suppressed aims and consumed releases; late
+second hand → no menu; hand tap on a panel row → click).
 Buttons and sticks follow the XR Standard gamepad mapping (stick at axes [2,3] when present).
 Select/teleport/cancel fire a short haptic pulse where the controller has an actuator.
 
