@@ -526,6 +526,8 @@ const vr = new VRSession(renderer, scene, camera, {
         addFloor: () => vrAddFloor(),
         addQueueTask: () => vrQueueAdd(),
         queueLimit: (maxWorkers) => net.send({ t: 'queue.limit', maxWorkers }),
+        removeQueueTask: (taskId) => net.send({ t: 'queue.remove', taskId }),
+        retryQueueTask: (taskId) => net.send({ t: 'queue.retry', taskId }),
         commentOn: (kind, number) => vrComment(kind, number),
         closeItem: (kind, number) => vrClose(kind, number),
         renameDog: () => vrRenameDog(),
@@ -631,6 +633,14 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     queue: () => ({ max: store.queue.maxWorkers, tasks: store.queue.tasks.map((t) => ({ id: t.id, title: t.title, status: t.status })) }),
     // Drops a queue task the checks added (mirrors the worker `kill` hook).
     queueRemove: (taskId: string) => net.send({ t: 'queue.remove', taskId }),
+    // Sets the queue's width (the checks pause and resume the line through here).
+    queueLimit: (maxWorkers: number) => net.send({ t: 'queue.limit', maxWorkers }),
+    // Seeds a fake finished task into this client's queue (reload clears it).
+    seedQueueTask: (id: string, title: string) => {
+      store.queue.tasks = store.queue.tasks.filter((t) => t.id !== id);
+      store.queue.tasks.push({ id, title, prompt: 'Seeded by the VR queue-row check.', addedBy: 'vrtest', addedAt: Date.now(), status: 'done', outcome: 'done' });
+      store.emit('queue');
+    },
     // One issue or PR in the menu's detail view (the comment check's setup).
     detail: (kind: 'issue' | 'pull', number: number) => vrUi?.openDetail(kind, number),
     // Seeds a fake open issue into this client's board (gh is unreachable here; reload clears it).

@@ -5,7 +5,7 @@
  * no forked logic here. Read-only views render from the same stores the DOM boards read.
  *
  * Views: main (Hire, Next waiting, Queue, Issues/PRs, Floors, Jukebox, Bar, Chat, Mute, Exit VR),
- * hire (free desks), queue (running/queued/done), board (issues/PRs tabs, read + hand-to-worker),
+ * hire (free desks), queue (running/queued/done, with tap-twice remove + requeue), board (issues/PRs tabs, read + hand-to-worker),
  * a detail view for one issue or PR (hand it over, queue it, comment, close it), floors (ride the elevator), jukebox (tunes + a stream row), bar (drinks),
  * chat (the floor's chat + say something), assign (hand an issue to a worker), meeting (the room's
  * status + call one with the pattern defaults), services (the workers' web servers, tap to copy
@@ -94,9 +94,12 @@ export interface VrMenuActions {
   /** Adds a project as a new floor — the elevator panel's add (main.ts vrAddFloor). */
   addFloor: () => void;
   /** Adds a task to the queue — the queue window's form (main.ts vrQueueAdd). */
-  addQueueTask: () => void;
-  /** How many workers the queue keeps busy (0 pauses it) — the queue window's stepper. */
+  addQueueTask: () => void;  /** How many workers the queue keeps busy (0 pauses it) — the queue window's stepper. */
   queueLimit: (maxWorkers: number) => void;
+  /** Takes a queued task off the queue — the window's ✕ (queue.remove). */
+  removeQueueTask: (taskId: string) => void;
+  /** Puts a finished task back on the queue — the window's Requeue (queue.retry). */
+  retryQueueTask: (taskId: string) => void;
   /** Comments on an issue or PR — the board windows' comment box (main.ts vrComment). */
   commentOn: (kind: 'issue' | 'pull', number: number) => void;
   /** Closes an issue or PR — the board windows' close dialog at its defaults (main.ts vrClose). */
@@ -123,8 +126,8 @@ const BODY: Rect = { x: 0.03, y: HEADER_H + 0.02, w: 0.94, h: 1 - HEADER_H - 0.0
 const BACK_BTN: Rect = { x: 0.03, y: 0.015, w: 0.16, h: 0.09 };
 /** Detail view: ✕ Close in the header (tap twice: the first arms it, like the terminal's ⏻). */
 const CLOSE_BTN: Rect = { x: 0.78, y: 0.015, w: 0.19, h: 0.09 };
-/** The close button stays armed this long: tap ✕ twice to close an issue or PR. */
-const CLOSE_ARM_MS = 6000;
+/** A tap-twice arm stays live this long (the detail ✕, the queue rows). */
+const TAP_ARM_MS = 6000;
 const TABS: Rect = { x: 0.55, y: 0.015, w: 0.42, h: 0.09 };
 /** Jukebox transport: play/resume, stop, skip — small round buttons in the header. */
 const JB_PLAY: Rect = { x: 0.58, y: 0.015, w: 0.13, h: 0.09 };
@@ -193,6 +196,9 @@ export class VrMenu {
   private closeArmedUntil = 0;
   /** Which issue or PR the armed ✕ would close ("issue:12"). */
   private closeArmedFor: string | null = null;
+  /** The queue row's arm: the task id tap-twice would remove or requeue, while now is before this. */
+  private queueArmedUntil = 0;
+  private queueArmedFor: string | null = null;
 
   constructor(stores: VrMenuStores, actions: VrMenuActions, widthM = 0.62, heightM = 0.72) {
     this.stores = stores;
@@ -220,6 +226,10 @@ export class VrMenu {
     this.view = view;
     this.detail = view === 'detail' ? this.detail : null;
     this.assignTarget = view === 'assign' ? this.assignTarget : null;
+    this.closeArmedUntil = 0;
+    this.closeArmedFor = null;
+    this.queueArmedUntil = 0;
+    this.queueArmedFor = null;
     this.panel.setScrollOffset('list', 0);
     this.panel.setVisible(true);
     this.refresh();
@@ -231,6 +241,10 @@ export class VrMenu {
     this.assignTarget = { number, title };
     this.view = 'assign';
     this.detail = null;
+    this.closeArmedUntil = 0;
+    this.closeArmedFor = null;
+    this.queueArmedUntil = 0;
+    this.queueArmedFor = null;
     this.panel.setScrollOffset('list', 0);
     this.panel.setVisible(true);
     this.refresh();
@@ -243,6 +257,8 @@ export class VrMenu {
     this.assignTarget = null;
     this.closeArmedUntil = 0;
     this.closeArmedFor = null;
+    this.queueArmedUntil = 0;
+    this.queueArmedFor = null;
     this.panel.setScrollOffset('list', 0);
     this.panel.setVisible(true);
     this.refresh();
@@ -267,6 +283,8 @@ export class VrMenu {
     if (view !== 'assign') this.assignTarget = null;
     this.closeArmedUntil = 0;
     this.closeArmedFor = null;
+    this.queueArmedUntil = 0;
+    this.queueArmedFor = null;
     this.panel.setScrollOffset('list', 0);
     this.refresh();
     this.panel.markDirty();
@@ -559,8 +577,26 @@ export class VrMenu {
       return;
     }
     if (this.view === 'queue') {
-      const w = this.queueWorkerAt(i);
-      if (w) this.onOpenTerminal?.(w);
+      const t = this.queueTaskAt(i);
+      if (!t) return;
+      // Running work opens its terminal (whose ⏻ stops it); queued and done arm tap-twice.
+      if (t.status === 'running') {
+        const w = t.workerId && this.stores.getWorkers().some((x) => x.id === t.workerId) ? t.workerId : null;
+        if (w) this.onOpenTerminal?.(w);
+        return;
+      }
+      if (t.status !== 'queued' && t.status !== 'done') return;
+      if (this.queueArmedFor === t.id && performance.now() < this.queueArmedUntil) {
+        this.queueArmedFor = null;
+        this.queueArmedUntil = 0;
+        if (t.status === 'queued') this.actions.removeQueueTask(t.id);
+        else this.actions.retryQueueTask(t.id);
+        this.panel.markDirty();
+        return;
+      }
+      this.queueArmedFor = t.id;
+      this.queueArmedUntil = performance.now() + TAP_ARM_MS;
+      this.panel.markDirty();
       return;
     }
     if (this.view === 'floors') {
@@ -636,12 +672,14 @@ export class VrMenu {
     }
   }
 
-  private queueWorkerAt(i: number): string | null {
+  private queueTaskAt(i: number): QueueTask | null {
     const l = this.queueLists();
-    const all = [...l.running, ...l.queued, ...l.done];
-    const t = all[i];
-    if (!t?.workerId || !this.stores.getWorkers().some((w) => w.id === t.workerId)) return null;
-    return t.workerId;
+    return [...l.running, ...l.queued, ...l.done][i] ?? null;
+  }
+  /** The queue row's arm: live while the same task id is armed and the window holds. */
+  private queueArmed(i: number): boolean {
+    const t = this.queueTaskAt(i);
+    return !!t && this.queueArmedFor === t.id && performance.now() < this.queueArmedUntil;
   }
 
   private issueTitle(number: number): string {
@@ -727,7 +765,7 @@ export class VrMenu {
       return;
     }
     this.closeArmedFor = key;
-    this.closeArmedUntil = performance.now() + CLOSE_ARM_MS;
+    this.closeArmedUntil = performance.now() + TAP_ARM_MS;
     this.panel.markDirty();
   }
   private paintCloseBtn(ctx: CanvasRenderingContext2D, w: number, h: number, state: { hoverId: string | null; pressedId: string | null }) {
@@ -902,7 +940,8 @@ export class VrMenu {
       const y = by + (i - top) * rowH * h;
       const rh = rowH * h * 0.92;
       const hot = state.hoverId === `row:${i}` || state.pressedId === `row:${i}`;
-      ctx.fillStyle = hot ? 'rgba(238,96,24,0.25)' : 'rgba(255,255,255,0.05)';
+      const armed = this.view === 'queue' && this.queueArmed(i);
+      ctx.fillStyle = armed ? 'rgba(239,71,111,0.3)' : hot ? 'rgba(238,96,24,0.25)' : 'rgba(255,255,255,0.05)';
       ctx.beginPath();
       ctx.roundRect(bx, y, bw, rh, rh * 0.2);
       ctx.fill();
@@ -1015,17 +1054,15 @@ export class VrMenu {
       return;
     }
     if (this.view === 'queue') {
-      const l = this.queueLists();
-      const all: { t: QueueTask; icon: string }[] = [
-        ...l.running.map((t) => ({ t, icon: '🤖' })),
-        ...l.queued.map((t) => ({ t, icon: '⏳' })),
-        ...l.done.map((t) => ({ t, icon: t.outcome === 'done' ? '✅' : '⚠️' })),
-      ];
-      const row = all[i];
-      if (!row) return;
-      const title = row.t.issue !== undefined ? `#${row.t.issue} ${row.t.title}` : row.t.title;
-      const sub = row.t.status === 'running' ? `${row.t.workerName ?? 'a worker'}` : row.t.status === 'queued' ? `queued by ${row.t.addedBy}` : row.t.pr ? `PR #${row.t.pr.number}` : row.t.outcome ?? 'done';
-      this.rowText(ctx, row.icon, title, sub, x, y, bw, rh);
+      const t = this.queueTaskAt(i);
+      if (!t) return;
+      const icon = t.status === 'running' ? '🤖' : t.status === 'queued' ? '⏳' : t.outcome === 'done' ? '✅' : '⚠️';
+      const title = t.issue !== undefined ? `#${t.issue} ${t.title}` : t.title;
+      const armed = this.queueArmed(i);
+      const sub = armed
+        ? t.status === 'queued' ? 'tap again to take it off' : 'tap again to put it back on'
+        : t.status === 'running' ? `${t.workerName ?? 'a worker'}` : t.status === 'queued' ? `queued by ${t.addedBy}` : t.pr ? `PR #${t.pr.number}` : t.outcome ?? 'done';
+      this.rowText(ctx, icon, title, sub, x, y, bw, rh);
       return;
     }
     // board
@@ -1201,6 +1238,12 @@ export class VrMenu {
     if (this.closeArmedUntil && performance.now() >= this.closeArmedUntil) {
       this.closeArmedUntil = 0;
       this.closeArmedFor = null;
+      this.panel.markDirty();
+    }
+    // The armed queue row cools back down too.
+    if (this.queueArmedUntil && performance.now() >= this.queueArmedUntil) {
+      this.queueArmedUntil = 0;
+      this.queueArmedFor = null;
       this.panel.markDirty();
     }
     this.panel.update(dt, head);
