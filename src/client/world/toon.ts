@@ -70,7 +70,7 @@ type TextOpts = { color?: string; bg?: string; size?: number; border?: string };
 const TEXT_SCALE = 0.0055;
 
 /** Every text label drawn so far, so they can be repainted once the bundled fonts finish loading. */
-const textLabels: (() => void)[] = [];
+const textLabels = new Set<() => void>();
 
 /** Repaints every text label made by textPlane/textSprite, e.g. after the fonts have loaded. */
 export function redrawText(): void {
@@ -110,7 +110,8 @@ function textTexture(text: string, opts: TextOpts) {
     tex.needsUpdate = true;
   };
   draw();
-  textLabels.push(draw);
+  textLabels.add(draw);
+  tex.addEventListener('dispose', () => textLabels.delete(draw));
   return { tex, w, h };
 }
 

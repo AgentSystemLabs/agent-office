@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { describeSessionError, probeXRSupport, requestVRSession, type XrNavigator } from '../src/client/vr/support.js';
-import { MENU_HOLD_MS, PINCH_HOLD_MS, PinchHold, SnapTurn, buttonDown, decodeThumbstick, faceButtons, sampleParabola, xrRayDirection, yawForFacing } from '../src/client/vr/session.js';
+import { MENU_HOLD_MS, PINCH_HOLD_MS, PinchHold, SnapTurn, TouchPress, buttonDown, decodeThumbstick, faceButtons, sampleParabola, xrRayDirection, yawForFacing } from '../src/client/vr/session.js';
 import { PromptBuffer } from '../src/client/vr/prompt.js';
 import { choiceForProvider, rememberedChoice, rememberProvider } from '../src/client/ui/provider.js';
 import type { ProjectInfo } from '../src/shared/protocol.js';
@@ -170,6 +170,20 @@ test('a dropped hold without a release still resets', () => {
   assert.equal(hold.update(false, 5100), null);
   assert.equal(hold.release(), null);
   assert.equal(hold.heldSince, -1);
+});
+
+test('hand touch presses once, tolerates tracking jitter, and rearms only after withdrawal', () => {
+  const touch = new TouchPress();
+  assert.equal(touch.update(true, 1000), true);
+  assert.equal(touch.update(true, 2000), false, 'a held finger never repeats');
+  touch.update(false, 2100);
+  assert.equal(touch.update(true, 2150), false, 'a brief gap is not a second press');
+  touch.update(false, 2200);
+  touch.update(false, 2320);
+  assert.equal(touch.active, false);
+  assert.equal(touch.update(true, 2400), true);
+  touch.reset();
+  assert.equal(touch.active, false, 'session end/disconnect clears contact');
 });
 
 test('XR ray direction matches three setFromXRController, not getWorldDirection', () => {

@@ -38,6 +38,8 @@ export interface Interactable {
   deskId?: string;
   decorId?: string;
   seatId?: string;
+  /** A physical cab button's destination (VR only; desktop still opens the floors menu). */
+  floorId?: string;
   /** Which of POLES, for a fire pole. */
   pole?: number;
   /** Put away for now (a bean bag nobody needs yet): can't be used. */

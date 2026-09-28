@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "iwsdk-runtime": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["--no-install", "@iwsdk/cli", "mcp", "stdio", "--workspace", "src/client"],
+      "disabled": false
+    }
+  }
+}

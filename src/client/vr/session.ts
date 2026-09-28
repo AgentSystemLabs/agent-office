@@ -125,6 +125,31 @@ export class PinchHold {
   }
 }
 
+/** One touch per approach; a brief tracking/edge wobble must not press the key again. */
+export class TouchPress {
+  active = false;
+  private awaySince: number | null = null;
+
+  update(touching: boolean, now: number): boolean {
+    if (touching) {
+      this.awaySince = null;
+      if (this.active) return false;
+      this.active = true;
+      return true;
+    }
+    if (this.active) {
+      this.awaySince ??= now;
+      if (now - this.awaySince >= 120) this.reset();
+    }
+    return false;
+  }
+
+  reset(): void {
+    this.active = false;
+    this.awaySince = null;
+  }
+}
+
 /** What the session needs from main.ts, which owns the world, the dispatch, and the HUD. */
 export interface VRHooks {
   player: PlayerController;
@@ -133,6 +158,8 @@ export interface VRHooks {
   useE: (it: Interactable | null, note: GhIssue | null) => void;
   /** The shared ray picker (office, gallery, dog, or the roof's): ray in, Interactable out. */
   pickFromRay: (ray: THREE.Raycaster, slack: number) => { it: Interactable; near: boolean; hit: THREE.Intersection } | null;
+  /** Physical world buttons under a tracked index fingertip; they use the same E dispatch. */
+  touchTarget?: (point: THREE.Vector3) => Interactable | null;
   /** The issue note under an aim on the issues board, if any. */
   noteUnder: (aim: { it: Interactable; hit: THREE.Intersection } | null) => GhIssue | null;
   /** N: the next worker waiting on someone. */
@@ -277,6 +304,7 @@ interface RayState {
   pinchHeld: boolean;
   /** Tap-vs-hold for hand-tracked sources. */
   hold: PinchHold;
+  touch: TouchPress;
   hover: { it: Interactable; near: boolean; hit: THREE.Intersection } | null;
   /** A world-space UI panel owns this ray this frame (world input yields to it). */
   uiConsumed: boolean;
@@ -395,7 +423,7 @@ export class VRSession {
       const dot = new THREE.Mesh(new THREE.SphereGeometry(0.014, 12, 8), new THREE.MeshBasicMaterial({ color: 0x7df9ff, depthTest: false, transparent: true }));
       dot.renderOrder = 9998;
       targetRay.add(line, dot);
-      const st: RayState = { targetRay, grip, hand, source: null, handed: null, selectHeld: false, pinchHeld: false, hold: new PinchHold(), hover: null, uiConsumed: false, teleportHeld: false, wasN: false, line, dot, ctrlModel, fallback };
+      const st: RayState = { targetRay, grip, hand, source: null, handed: null, selectHeld: false, pinchHeld: false, hold: new PinchHold(), touch: new TouchPress(), hover: null, uiConsumed: false, teleportHeld: false, wasN: false, line, dot, ctrlModel, fallback };
       targetRay.addEventListener('connected', (e) => this.onConnected(i, e.data));
       targetRay.addEventListener('disconnected', () => this.onDisconnected(i));
       // Three forwards every session event to all three spaces of a source, so the target-ray
@@ -472,6 +500,7 @@ export class VRSession {
       r.selectHeld = false;
       r.pinchHeld = false;
       r.hold.reset();
+      r.touch.reset();
       r.hover = null;
       r.uiConsumed = false;
     }
@@ -538,6 +567,7 @@ export class VRSession {
       r.selectHeld = false;
       r.pinchHeld = false;
       r.hold.reset();
+      r.touch.reset();
       r.wasN = false;
       r.line.visible = true;
       r.dot.visible = true;
@@ -668,6 +698,7 @@ export class VRSession {
     st.teleportHeld = false;
     st.wasN = false;
     st.hold.reset();
+    st.touch.reset();
     st.line.visible = false;
     st.dot.visible = false;
     // A press in flight dies with the ray (else the panel waits on a release that never comes).
@@ -704,7 +735,7 @@ export class VRSession {
     const st = this.rays[i];
     // Panel presses stream through routeRay's own pointerDown/pointerUp, so by the time a tap
     // resolves there is nothing left to click here; the world hover is what E is for.
-    if (st.uiConsumed) return;
+    if (st.uiConsumed || st.touch.active) return;
     const hover = st.hover;
     // On the ladder or a pole, E lets go (and only that): the rungs are in your hands rather
     // than under the ray, so it fires with nothing in reach — like the desktop key, anywhere
@@ -769,6 +800,7 @@ export class VRSession {
     for (const r of this.rays) r.fallback.visible = !!r.source && !r.source.hand && !!r.source.gamepad && !r.ctrlModel.motionController;
     this.pollButtons();
     this.updateHover();
+    this.updateTouches();
     if (this.ui) {
       // The UI follows the head in world space, from the rig's own math — three's XR camera
       // only holds the headset pose in reference space (see HeadPose), so it can't feed this.
@@ -796,6 +828,22 @@ export class VRSession {
     if (label !== this.aimText) {
       this.aimText = label;
       this.ui?.setAim(label);
+    }
+  }
+
+  /** A fingertip entering a cab key presses it without a pinch. Hidden/stale joints never do. */
+  private updateTouches(): void {
+    const now = performance.now();
+    const blocked = !!this.hooks.player.rig || this.teleportAiming();
+    for (const st of this.rays) {
+      const tip = st.source?.hand && st.hand.visible ? st.hand.joints['index-finger-tip'] : null;
+      const target = !blocked && !st.uiConsumed && tip?.visible ? this.hooks.touchTarget?.(tip.getWorldPosition(_e)) ?? null : null;
+      const pressed = st.touch.update(!!target, now);
+      if (st.touch.active) st.hold.consume();
+      if (pressed && target) {
+        this.hooks.reachAnim();
+        this.hooks.useE(target, null);
+      }
     }
   }
 
@@ -830,6 +878,9 @@ export class VRSession {
       } else if (held) {
         // On a panel a hold drags/scrolls, on the ladder it stays a tap (E lets go): neither aims.
         st.hold.update(true, now, st.uiConsumed || bothHeld || rigged);
+        // A touch owns even a pinch that started on this very frame. Withdrawing and
+        // releasing must not also tap the ray's target or start a teleport.
+        if (st.touch.active) st.hold.consume();
       }
     }
     // Both hands pinching together: the menu, claimed before either hold can aim or tap —
@@ -837,7 +888,7 @@ export class VRSession {
     // mid-word and eat the holds).
     if (bothHeld && this.ui) {
       const [ra, rb] = [this.rays[heldNow[0]], this.rays[heldNow[1]]];
-      if (ra.uiConsumed || rb.uiConsumed) return;
+      if (ra.uiConsumed || rb.uiConsumed || ra.touch.active || rb.touch.active) return;
       const [a, b] = [ra.hold, rb.hold];
       const since = Math.min(a.heldSince, b.heldSince);
       if (since >= 0 && !a.isConsumed && !a.isAiming && !b.isAiming && now - since >= MENU_HOLD_MS) {

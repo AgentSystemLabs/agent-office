@@ -291,6 +291,7 @@ function theRoof(): Rooftop {
     roof.group.visible = false;
     scene.add(roof.group);
     noOutline(roof.group);
+    syncElevatorButtons();
   }
   return roof;
 }
@@ -367,7 +368,14 @@ function vrAimLabel(it: Interactable, note: GhIssue | null): string | null {
       const what = kind === 'pulls' ? 'PRs' : kind === 'queue' ? 'the queue' : 'issues';
       return `E · ask about ${what}`;
     }
-    case 'elevator': return 'E · ride the elevator';
+    case 'elevator': {
+      if (!it.floorId) return 'E · ride the elevator';
+      const floor = store.floors.find((f) => f.id === it.floorId);
+      const name = it.floorId === ROOF ? 'Rooftop bar' : floor?.name;
+      if (!name) return null;
+      if (floor?.cloning) return `${name} · cloning`;
+      return it.floorId === store.floor ? `${name} · you are here` : `E · ride to ${name}`;
+    }
     case 'issues': return 'E · the issues board';
     case 'pulls': return 'E · the pull requests';
     case 'queue': return 'E · the task queue';
@@ -406,6 +414,10 @@ function vrUseE(it: Interactable | null, note: GhIssue | null) {  // On the ladd
   }
   // Aiming at nothing (the ladder's let-go fires this way too): E lands on nothing, as on desktop.
   if (!it) return;
+  if (it.kind === 'elevator' && it.floorId) {
+    if (!trip && lift().pressFloor(it.floorId)) ride(it.floorId);
+    return;
+  }
   if (vrUi) {
     // Carrying + E at the meeting table: the card goes back and the room opens. Desktop's
     // dropCard opens the DOM meeting form with the issue preset — the room opens bare instead
@@ -477,6 +489,7 @@ const vr = new VRSession(renderer, scene, camera, {
   settings,
   useE: vrUseE,
   pickFromRay: (ray, slack) => pickFromRay(ray, slack),
+  touchTarget: (point) => inElevator(player.pos.x, player.pos.z) && !climber.active ? lift().touchTarget(point) : null,
   noteUnder: (aim) => noteUnder(aim),
   nextWaiting: () => goToNextWaiting(),
   putBack: () => putBack(),
@@ -496,6 +509,7 @@ const vr = new VRSession(renderer, scene, camera, {
   onEnter: () => {
     // A focused DOM field (the chat box) would take IME text the capture below can't cancel.
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    syncElevatorButtons();
     vrUi = attachVrUi(scene, {
       send: (msg) => net.send(msg),
       subscribe: (topic, fn) => store.on(topic, fn),
@@ -623,6 +637,7 @@ const vr = new VRSession(renderer, scene, camera, {
     vr.setUi(vrUi);
   },
   onEnd: () => {
+    syncElevatorButtons();
     vr.setUi(null);
     if (vrChangesWorker) net.send({ t: 'changes.unwatch', workerId: vrChangesWorker });
     vrChangesWorker = null;
@@ -1292,6 +1307,16 @@ function lift() {
   return upTop && roof ? roof.elevator : office.elevator;
 }
 
+/** Both cabs follow the live list, including clone completion/removal and a lazily built roof. */
+function syncElevatorButtons() {
+  for (const elevator of [office.elevator, roof?.elevator]) {
+    if (!elevator) continue;
+    elevator.setVR(vr.active);
+    if (vr.active) elevator.setFloors(store.floors, store.floor);
+  }
+}
+store.on('floors', syncElevatorButtons);
+
 /** Rides the elevator to another floor (or up to the roof). From outside the car, you step in while the lights are down. */
 function ride(floorId: string) {
   if (trip || floorId === store.floor) return;
@@ -1425,6 +1450,7 @@ function arrive() {
     clearTimeout(trip.timer);
     trip = null;
   }
+  syncElevatorButtons();
   if (!store.floor) {
     // Nowhere to go yet: the doors stay shut until there's a floor, and the panel says how to add one.
     office.elevator.setOpen(false);
