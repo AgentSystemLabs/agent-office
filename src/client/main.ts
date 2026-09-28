@@ -4,7 +4,7 @@ import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
 import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, LADDER, LOFT, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, STOREY, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, roofDrop, seatAt, seatPlace, streetBelow, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
-import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
+import type { AgentEffort, AgentProvider, CarriedIssue, ChangesState, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
 import { MEETING_PATTERNS, defaultMeetingRequest, reviewMeetingRequest } from '../shared/meetings';
 import { cleanDogName } from '../shared/dog';
 import { isAsleep, isBusy } from '../shared/status';
@@ -77,7 +77,7 @@ import { MeetingBoardTexture, MeetingSignTexture, meetingStage } from './world/m
 import { issueMeeting, openMeeting, type MeetingPreset } from './ui/meeting';
 import { VRSession } from './vr/session';
 import { attachVrUi, type VrUiHandle } from './vr/attach';
-import type { VrMergeInfo, VrSearchState } from './vr/menu';
+import type { MenuView, VrMergeInfo, VrSearchState } from './vr/menu';
 import { probeXRSupport } from './vr/support';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
@@ -336,6 +336,11 @@ let vrUi: VrUiHandle | null = null;
 let vrSearch: VrSearchState | null = null;
 /** The VR merge box's answer for a PR detail (the menu reads it; each open refetches). */
 let vrMerge: VrMergeInfo | null = null;
+/** The menu's current view (the changes watch follows it: leaving the view unwatches). */
+let vrMenuView: MenuView = 'main';
+/** The watched checkout for the VR changes view, and its latest answer (null until it lands). */
+let vrChangesWorker: string | null = null;
+let vrChanges: ChangesState | null = null;
 /** The picture E armed in VR (the terminal ⏻ button's tap-twice, for the walls). */
 let decorArmed = { id: '', until: 0 };
 /** What E would do to the ray's target, in words for the headset's aim bar (null hides it). Mirrors vrUseE branch for branch, minus the keys only the desktop has. */
@@ -515,6 +520,9 @@ const vr = new VRSession(renderer, scene, camera, {
       getWorktree: () => worktreePref(),
       getSearch: () => vrSearch,
       getMerge: () => vrMerge,
+      // The main row follows the focused terminal; the changes view holds its watched worker.
+      getChangesWorker: () => (vrMenuView === 'changes' ? vrChangesWorker : vrUi?.terminal.focused() ?? null),
+      getChanges: () => vrChanges,
       voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => (voice.inVoice ? voice.toggleMute() : void toggleVoice()), leaveVoice: () => voice.leaveVoice() },
       actions: {
         hire: (deskId) => vrHire(deskId),
@@ -542,6 +550,34 @@ const vr = new VRSession(renderer, scene, camera, {
         closeItem: (kind, number) => vrClose(kind, number),
         reviewPanel: (number) => vrReviewPanel(number),
         mergePull: (number) => vrMergeFire(number),
+        openChanges: (workerId) => {
+          if (vrChangesWorker && vrChangesWorker !== workerId) net.send({ t: 'changes.unwatch', workerId: vrChangesWorker });
+          vrChangesWorker = workerId;
+          vrChanges = null;
+          net.send({ t: 'changes.watch', workerId });
+          vrUi?.showMenu('changes');
+        },
+        commitChanges: (workerId) => vrChangesCommit(workerId),
+        discardChangesArm: (workerId) => {
+          // The window's confirm dialog, as a toast (the red Discard? is the confirm).
+          if (vrChanges?.workerId !== workerId) return;
+          const w = store.workers.get(workerId);
+          const n = vrChanges.files.filter((f) => f.uncommitted).length;
+          const where = vrChanges.dir ? vrChanges.dir : 'the project folder';
+          toast(`Discard ${n} file${n === 1 ? '' : 's'} at ${w?.name ?? 'the desk'}? This puts ${where} back to the last commit and deletes new files. Commits stay.${vrChanges.dir ? '' : " That folder is shared: anyone's uncommitted edits there go too."} Tap again to discard.`, 'warn');
+        },
+        discardChanges: (workerId) => net.send({ t: 'changes.discard', workerId }),
+        openChangesPr: (workerId) => vrChangesPr(workerId),
+        copyPrUrl: (url) => void copy(url).then((ok) => toast(ok ? '✅ PR link copied — paste it anywhere' : "Couldn't copy the PR link", ok ? 'info' : 'warn')),
+        viewChanged: (view) => {
+          // Leaving the changes view stops the watch (the office polls the checkout while watched).
+          if (vrMenuView === 'changes' && view !== 'changes' && vrChangesWorker) {
+            net.send({ t: 'changes.unwatch', workerId: vrChangesWorker });
+            vrChangesWorker = null;
+            vrChanges = null;
+          }
+          vrMenuView = view;
+        },
         detailOpened: (kind, number) => {
           // Issues have no merge box; a PR refetches (the loading line paints first).
           if (kind !== 'pull') vrMerge = null;
@@ -585,6 +621,9 @@ const vr = new VRSession(renderer, scene, camera, {
   },
   onEnd: () => {
     vr.setUi(null);
+    if (vrChangesWorker) net.send({ t: 'changes.unwatch', workerId: vrChangesWorker });
+    vrChangesWorker = null;
+    vrChanges = null;
     vrUi?.dispose();
     vrUi = null;
   },
@@ -614,7 +653,7 @@ if (new URLSearchParams(location.search).has('vrtest')) {
       g.getWorldPosition(v);
       return [v.x, v.y, v.z] as [number, number, number];
     },
-    showMenu: (view: 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'search' | 'assign' | 'settings' | 'meeting' | 'services' | 'people') => vrUi?.showMenu(view),
+    showMenu: (view: 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'search' | 'assign' | 'settings' | 'meeting' | 'services' | 'people' | 'changes') => vrUi?.showMenu(view),
     // Hides the dash (controls card + menu) so the rays aim at the world, not a panel.
     hideDash: () => {
       vrUi?.controls.hide();
@@ -739,6 +778,8 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     termFind: () => vrUi?.terminal.findState() ?? null,
     // The VR merge box's answer (the merge check reads the status back).
     merge: () => vrMerge && { number: vrMerge.number, state: vrMerge.state, can: vrMerge.status?.can ?? null, short: vrMerge.status?.short ?? null },
+    // The VR changes view's watch (the changes check reads the files back).
+    changes: () => vrChangesWorker && { worker: vrChangesWorker, files: vrChanges?.files.map((f) => ({ path: f.path, status: f.status, uncommitted: f.uncommitted })) ?? null, ahead: vrChanges?.ahead ?? null, branch: vrChanges?.branch ?? null, prBase: vrChanges?.prBase ?? null, pr: vrChanges?.pr ?? null, error: vrChanges?.error ?? null },
     // Flips this client's VR merge box to mergeable (the merge check fires at a PR GitHub
     // refuses — conflicted — so the send, the waiter and the toast verify with no merge).
     seedMerge: () => {
@@ -1053,6 +1094,11 @@ net.onMessage((msg) => {
   sentHome.clear();
   routeTerminalMessage(msg);
   routeChangesMessage(msg);
+  // The VR changes view follows the watched checkout too (its own copy, repainted in).
+  if (msg.t === 'changes' && msg.state.workerId === vrChangesWorker) {
+    vrChanges = msg.state;
+    vrUi?.menu.refresh();
+  }
   routeTeamMessage(msg);
   routeAccountsMessage(msg);
   routePullMessage(msg);
@@ -1969,6 +2015,54 @@ function vrMergeFire(number: number) {
     toast("No answer from the office — check whether it merged before trying again", 'warn');
   }, 45_000);
   net.send({ t: 'gh.merge', number, method, deleteBranch, auto });
+}
+/** The changes view's ✓ button: what changed, and why (the window's Commit prompt — one line, the prompt has no ⏎ for more). */
+function vrChangesCommit(workerId: string) {
+  if (!vrUi || vrChanges?.workerId !== workerId) return;
+  const n = vrChanges.files.filter((f) => f.uncommitted).length;
+  if (!n) return;
+  const where = vrChanges.dir ? vrChanges.dir : 'the project folder';
+  vrUi.askText({
+    title: `Commit ${n} file${n === 1 ? '' : 's'}`,
+    subtitle: `Stages everything in ${where} and commits it${vrChanges.branch ? ` on ${vrChanges.branch}` : ''}`,
+    placeholder: 'What changed, and why',
+    submitLabel: 'Commit',
+    onSubmit: (text) => {
+      net.send({ t: 'changes.commit', workerId, message: text });
+      // The prompt hides the menu; the view comes back for the answer (the search resend).
+      vrUi?.showMenu('changes');
+    },
+    // Cancelling lands back on the view too (closing the window's dialog does).
+    onCancel: () => vrUi?.showMenu('changes'),
+  });
+}
+/** The changes view's ↗ button: the title, then the description (the window's Open PR prompt — its first line is the title, so VR asks them apart). */
+function vrChangesPr(workerId: string) {
+  if (!vrUi || vrChanges?.workerId !== workerId || !vrChanges.prBase || !vrChanges.ahead) return;
+  const s = vrChanges;
+  vrUi.askText({
+    title: 'Open a pull request',
+    subtitle: `Pushes ${s.branch} to origin and opens a PR against ${s.prBase}`,
+    placeholder: 'Title',
+    initial: s.subject ?? '',
+    submitLabel: 'Next →',
+    onCancel: () => vrUi?.showMenu('changes'),
+    onSubmit: (title) => {
+      vrUi?.askText({
+        title: 'Open a pull request',
+        subtitle: title.length > 42 ? `${title.slice(0, 41)}…` : title,
+        placeholder: 'Description (optional)',
+        submitLabel: 'Open PR ↗',
+        allowEmpty: true,
+        onSubmit: (body) => {
+          net.send({ t: 'changes.pr', workerId, title: title.trim(), body: body.trim() });
+          // The prompt hides the menu; the view comes back for the answer (the search resend).
+          vrUi?.showMenu('changes');
+        },
+        onCancel: () => vrUi?.showMenu('changes'),
+      });
+    },
+  });
 }
 /** The chat view's 🔎 button, submitted: the search window's fetch, answered into the menu's search view. */
 async function vrSearchOffice(query: string) {

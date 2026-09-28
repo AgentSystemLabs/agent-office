@@ -78,7 +78,8 @@ arms red, the second fires. Per view: hire (free desks, worktree toggle, shell s
 queue (add, pause, tap-twice remove + requeue), board detail (hand, queue, comment, close,
 PR review panel, tap-twice ✓ merge at the dialog's defaults), jukebox (tunes + pasted streams), people (tap a row to walk over),
 meeting (call with a pattern picker), settings (locomotion, dog rename, sound mutes),
-chat (🔎 searches the chat and every terminal; a terminal hit opens it at the line).
+chat (🔎 searches the chat and every terminal; a terminal hit opens it at the line),
+changes (a focused terminal's checkout: files, commit, tap-twice discard, open-a-PR).
 
 ## What VR reuses, and what it skips
 

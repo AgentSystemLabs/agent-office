@@ -53,7 +53,7 @@
  */
 
 import * as THREE from 'three';
-import type { ChatLine, FloorInfo, GhIssue, GhPull, GhState, MeetingState, PeerInfo, QueueState, ServicesState, WorkerInfo } from '../../shared/protocol';
+import type { ChangesState, ChatLine, FloorInfo, GhIssue, GhPull, GhState, MeetingState, PeerInfo, QueueState, ServicesState, WorkerInfo } from '../../shared/protocol';
 import type { JukeboxState } from '../../shared/jukebox';
 import { SEARCH_MIN, searchKey } from '../../shared/search';
 import { isAsleep } from '../../shared/status';
@@ -102,6 +102,8 @@ export interface VrUiDeps {
   getWorktree: () => boolean;
   getSearch: () => VrSearchState | null;
   getMerge: () => VrMergeInfo | null;
+  getChangesWorker: () => string | null;
+  getChanges: () => ChangesState | null;
   onRoof: () => boolean;
   barCutOff: () => boolean;
   getVrSettings: () => VrSettings;
@@ -226,6 +228,8 @@ class VrUi implements VrUiHandle {
         getWorktree: deps.getWorktree,
         getSearch: deps.getSearch,
         getMerge: deps.getMerge,
+        getChangesWorker: deps.getChangesWorker,
+        getChanges: deps.getChanges,
         onRoof: deps.onRoof,
         barCutOff: deps.barCutOff,
         getVrSettings: deps.getVrSettings,
@@ -282,6 +286,7 @@ class VrUi implements VrUiHandle {
     // never wired — their taps silently did nothing until the search view needed it too).
     this.menu.onOpenTerminal = (workerId, find) => this.openTerminal(workerId, find);
     this.menu.onDetailOpen = (kind, number) => this.deps.actions.detailOpened(kind, number);
+    this.menu.onViewChange = (view) => this.deps.actions.viewChanged(view);
 
     // Dash layout, facing the user at spawn: terminal center, keyboard below it, menu left.
     const tOff = layout.terminalOffset ?? [0, 1.5, -1.15];

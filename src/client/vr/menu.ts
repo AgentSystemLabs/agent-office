@@ -13,10 +13,14 @@
  * a tunnel command), people (who else is around — tap a row to walk over), and settings
  * (glide, turning, turn speed, teleport fade, the dog's name — the ⚙️ Settings VR section
  * plus the office dog, in the headset).
+ *
+ * A worker's uncommitted work lives in the changes view (the Changes window's file list
+ * with commit / discard / open-a-PR — the diff itself stays in the window, or a `git diff`
+ * in the terminal): the main menu grows a 📝 Changes row while a terminal is focused.
  */
 
 import type * as THREE from 'three';
-import type { ChatLine, FloorInfo, GhIssue, GhMergeMethod, GhPull, GhState, MeetingState, PeerInfo, QueueState, QueueTask, SearchResults, ServicesState, TerminalHit, WorkerInfo } from '../../shared/protocol';
+import type { ChangeStatus, ChangesState, ChatLine, FloorInfo, GhIssue, GhMergeMethod, GhPull, GhState, MeetingState, PeerInfo, QueueState, QueueTask, SearchResults, ServicesState, TerminalHit, WorkerInfo } from '../../shared/protocol';
 import { fmtTokens } from '../../shared/protocol';
 import { MEETING_PATTERNS, meetingSpend } from '../../shared/meetings';
 import { JUKEBOX_TUNES, STREAM, trackTitle, type JukeboxState } from '../../shared/jukebox';
@@ -84,6 +88,10 @@ export interface VrMenuStores {
   getSearch: () => VrSearchState | null;
   /** The merge box's answer for a PR detail (nothing until one opens). */
   getMerge: () => VrMergeInfo | null;
+  /** The worker whose checkout the menu shows: the focused terminal's, or the watched one. */
+  getChangesWorker: () => string | null;
+  /** What that worker changed (nothing until the watch answers). */
+  getChanges: () => ChangesState | null;
 }
 
 export interface VrMenuActions {
@@ -148,11 +156,25 @@ export interface VrMenuActions {
   mergePull: (number: number) => void;
   /** A detail view opened — main.ts fetches what the merge box needs (attach.ts calls this, not the menu). */
   detailOpened: (kind: 'issue' | 'pull', number: number) => void;
+  /** Opens a worker's changes — main.ts watches the checkout, then shows the view. */
+  openChanges: (workerId: string) => void;
+  /** Commits a checkout — the Changes window's Commit button (main.ts vrChangesCommit). */
+  commitChanges: (workerId: string) => void;
+  /** The discard button's arming tap — main.ts toasts the window's confirm words. */
+  discardChangesArm: (workerId: string) => void;
+  /** Discards a checkout's uncommitted work — the window's Discard all, confirmed (main.ts). */
+  discardChanges: (workerId: string) => void;
+  /** Opens a pull request — the window's Open PR button (main.ts vrChangesPr). */
+  openChangesPr: (workerId: string) => void;
+  /** Copies a PR's link — the window's PR button, which the headset can't open (main.ts). */
+  copyPrUrl: (url: string) => void;
+  /** The menu moved to another view — main.ts stops watching the checkout (attach.ts calls this, not the menu). */
+  viewChanged: (view: MenuView) => void;
   /** Leaves the immersive session — the XR session owner's exit. */
   exitVr: () => void;
 }
 
-export type MenuView = 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'search' | 'assign' | 'settings' | 'meeting' | 'services' | 'people';
+export type MenuView = 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'search' | 'assign' | 'settings' | 'meeting' | 'services' | 'people' | 'changes';
 
 export interface MenuDetail {
   kind: 'issue' | 'pull';
@@ -189,6 +211,10 @@ const FLOORS_ADD: Rect = { x: 0.72, y: 0.015, w: 0.25, h: 0.09 };
 /** Queue view: add a task, and pause/unpause the line. */
 const QB_ADD: Rect = { x: 0.60, y: 0.015, w: 0.15, h: 0.09 };
 const QB_TOGGLE: Rect = { x: 0.76, y: 0.015, w: 0.21, h: 0.09 };
+/** Changes view: commit the checkout, discard it all (tap twice), or open its PR. */
+const CH_COMMIT: Rect = { x: 0.60, y: 0.015, w: 0.12, h: 0.09 };
+const CH_DISCARD: Rect = { x: 0.73, y: 0.015, w: 0.12, h: 0.09 };
+const CH_PR: Rect = { x: 0.86, y: 0.015, w: 0.11, h: 0.09 };
 /** Header buttons for the meeting view: call one, stop it, or clear the room. */
 const MTG_CALL: Rect = { x: 0.72, y: 0.015, w: 0.25, h: 0.09 };
 const MTG_STOP: Rect = { x: 0.72, y: 0.015, w: 0.25, h: 0.09 };
@@ -232,6 +258,8 @@ export class VrMenu {
   onChatSearch: (() => void) | null = null;
   /** A detail view opened (wired by attach.ts: main.ts fetches what the merge box needs). */
   onDetailOpen: ((kind: 'issue' | 'pull', number: number) => void) | null = null;
+  /** The menu moved to another view (wired by attach.ts: main.ts stops watching the checkout). */
+  onViewChange: ((view: MenuView) => void) | null = null;
 
   private stores: VrMenuStores;
   private actions: VrMenuActions;
@@ -258,6 +286,9 @@ export class VrMenu {
   /** The PR merge button's arm: the PR number tap-twice would merge. */
   private mergeArmedUntil = 0;
   private mergeArmedFor: number | null = null;
+  /** The changes Discard button's arm: the worker tap-twice would discard for. */
+  private discardArmedUntil = 0;
+  private discardArmedFor: string | null = null;
 
   constructor(stores: VrMenuStores, actions: VrMenuActions, widthM = 0.62, heightM = 0.72) {
     this.stores = stores;
@@ -293,10 +324,13 @@ export class VrMenu {
     this.reviewArmedFor = null;
     this.mergeArmedUntil = 0;
     this.mergeArmedFor = null;
+    this.discardArmedUntil = 0;
+    this.discardArmedFor = null;
     this.panel.setScrollOffset('list', 0);
     this.panel.setVisible(true);
     this.refresh();
     this.panel.markDirty();
+    this.onViewChange?.(view);
   }
 
   /** The assign view for an issue: pick one of the awake workers to hand it to. */
@@ -312,10 +346,13 @@ export class VrMenu {
     this.reviewArmedFor = null;
     this.mergeArmedUntil = 0;
     this.mergeArmedFor = null;
+    this.discardArmedUntil = 0;
+    this.discardArmedFor = null;
     this.panel.setScrollOffset('list', 0);
     this.panel.setVisible(true);
     this.refresh();
     this.panel.markDirty();
+    this.onViewChange?.('assign');
   }
   /** The detail view for one issue or PR (the board rows' tap, callable outright). */
   openDetail(kind: 'issue' | 'pull', number: number) {
@@ -330,11 +367,14 @@ export class VrMenu {
     this.reviewArmedFor = null;
     this.mergeArmedUntil = 0;
     this.mergeArmedFor = null;
+    this.discardArmedUntil = 0;
+    this.discardArmedFor = null;
     this.panel.setScrollOffset('list', 0);
     this.panel.setVisible(true);
     this.refresh();
     this.panel.markDirty();
     this.onDetailOpen?.(kind, number);
+    this.onViewChange?.('detail');
   }
 
   assignFor(): AssignTarget | null {
@@ -361,10 +401,13 @@ export class VrMenu {
     this.reviewArmedFor = null;
     this.mergeArmedUntil = 0;
     this.mergeArmedFor = null;
+    this.discardArmedUntil = 0;
+    this.discardArmedFor = null;
     this.panel.setScrollOffset('list', 0);
     this.refresh();
     this.panel.markDirty();
     if (view === 'detail' && detail) this.onDetailOpen?.(detail.kind, detail.number);
+    this.onViewChange?.(view);
   }
 
   /** Repaints the menu (main.ts calls this when the merge box's fetch lands — no state resets). */
@@ -430,6 +473,24 @@ export class VrMenu {
   private mergeFor(number: number): VrMergeInfo | null {
     const m = this.stores.getMerge();
     return m?.number === number ? m : null;
+  }
+
+  /** The worker whose checkout the menu shows (nothing unless a terminal is focused on one). */
+  private changesTarget(): WorkerInfo | undefined {
+    const id = this.stores.getChangesWorker();
+    return id ? this.stores.getWorkers().find((w) => w.id === id) : undefined;
+  }
+
+  /** What that worker changed, if the watch answered for them (another worker's is stale). */
+  private changesState(): ChangesState | null {
+    const id = this.stores.getChangesWorker();
+    const s = this.stores.getChanges();
+    return id && s?.workerId === id ? s : null;
+  }
+
+  /** The status word a changed file shows (the Changes window's words). */
+  private changeWord(status: ChangeStatus): string {
+    return status === 'M' ? 'modified' : status === 'A' ? 'added' : status === 'D' ? 'deleted' : status === 'R' ? 'renamed' : status === 'T' ? 'type changed' : 'new file';
   }
 
   /** The search view's rows: matching chat lines first, then terminal lines (the search window's order). */
@@ -510,6 +571,20 @@ export class VrMenu {
           return m.status === 'running' ? `🔴 ${m.title}` : `${m.status} · ${m.title}`;
         },
       },
+      // While a terminal is focused: what that worker changed (the Changes window's acts).
+      ...(this.changesTarget()
+        ? [{
+          id: 'changes', icon: '📝', title: 'Changes',
+          sub: () => {
+            const w = this.changesTarget();
+            const s = this.changesState();
+            const name = w?.name ?? 'the worker';
+            if (!s) return `${name} · see what changed`;
+            const n = s.files.length;
+            return n ? `${name} · ${n} file${n > 1 ? 's' : ''} changed` : `${name} · clean`;
+          },
+        }]
+        : []),
       // Out of voice the row joins it (the V key's function); in voice it mutes.
       ...(this.stores.inVoice()
         ? [{
@@ -578,6 +653,22 @@ export class VrMenu {
         { id: 'q:add', rect: QB_ADD, onClick: () => this.actions.addQueueTask() },
         { id: 'q:pause', rect: QB_TOGGLE, onClick: () => this.toggleQueue() },
       );
+    }
+    if (this.view === 'changes') {
+      const t = this.changesTarget();
+      const s = this.changesState();
+      // The window's disabled states, as missing buttons (busy, or nothing to act on).
+      if (t && s && !s.error && !s.busy) {
+        const uncommitted = s.files.filter((f) => f.uncommitted).length;
+        if (uncommitted) {
+          buttons.push(
+            { id: 'ch:commit', rect: CH_COMMIT, onClick: () => this.actions.commitChanges(t.id) },
+            { id: 'ch:discard', rect: CH_DISCARD, onClick: () => this.tapDiscard(t.id) },
+          );
+        }
+        if (s.pr) buttons.push({ id: 'ch:pr', rect: CH_PR, onClick: () => this.actions.copyPrUrl(s.pr!.url) });
+        else if (s.prBase && s.ahead && !uncommitted) buttons.push({ id: 'ch:pr', rect: CH_PR, onClick: () => this.actions.openChangesPr(t.id) });
+      }
     }
     if (this.view === 'hire') {
       buttons.push({ id: 'hire:wt', rect: HIRE_WT, onClick: () => { this.actions.toggleWorktree(); this.panel.markDirty(); } });
@@ -668,6 +759,12 @@ export class VrMenu {
     }
     if (this.view === 'services') return this.stores.getServices().items.length;
     if (this.view === 'people') return this.stores.getPeers().length;
+    if (this.view === 'changes') {
+      if (!this.changesTarget()) return 0;
+      const s = this.changesState();
+      if (!s || s.error) return 0;
+      return s.files.length + (s.more ? 1 : 0);
+    }
     // board
     return this.boardTab === 'issues' ? Math.max(1, this.openIssues().length) : Math.max(1, this.openPulls().length);
   }
@@ -683,6 +780,11 @@ export class VrMenu {
       case 'bar': return this.go('bar');
       case 'chat': return this.go('chat');
       case 'meeting': return this.go('meeting');
+      case 'changes': {
+        const w = this.changesTarget();
+        if (w) this.actions.openChanges(w.id);
+        return;
+      }
       case 'services': return this.go('services');
       case 'people': return this.go('people');
       case 'mute': return this.actions.toggleMute();
@@ -798,6 +900,7 @@ export class VrMenu {
       if (svc) this.actions.copyServiceTunnel(svc.port);
       return;
     }
+    if (this.view === 'changes') return; // files are read-only; the diff lives in the window
     if (this.view === 'people') {
       const p = this.stores.getPeers()[i];
       if (p) this.actions.walkToPeer(p.id);
@@ -852,12 +955,12 @@ export class VrMenu {
     ctx.roundRect(0, 0, w, h, Math.round(h * 0.02));
     ctx.clip();
 
-    const title = this.view === 'main' ? '☰ Menu' : this.view === 'hire' ? '✨ Hire worker' : this.view === 'queue' ? '📋 Task queue' : this.view === 'board' ? '📌 Issues / PRs' : this.view === 'floors' ? '🛗 Floors' : this.view === 'jukebox' ? '🎵 Jukebox' : this.view === 'bar' ? '🍸 Sky Bar' : this.view === 'chat' ? '💬 Chat' : this.view === 'search' ? `🔎 ${this.stores.getSearch()?.query.trim() || 'Search'}` : this.view === 'settings' ? '⚙️ VR settings' : this.view === 'meeting' ? '🤝 Meeting room' : this.view === 'services' ? '🌐 Services' : this.view === 'people' ? '🧑 People' : this.view === 'assign' ? `🤖 Hand #${this.assignTarget?.number ?? ''} to…` : this.detailTitle();
+    const title = this.view === 'main' ? '☰ Menu' : this.view === 'hire' ? '✨ Hire worker' : this.view === 'queue' ? '📋 Task queue' : this.view === 'board' ? '📌 Issues / PRs' : this.view === 'floors' ? '🛗 Floors' : this.view === 'jukebox' ? '🎵 Jukebox' : this.view === 'bar' ? '🍸 Sky Bar' : this.view === 'chat' ? '💬 Chat' : this.view === 'search' ? `🔎 ${this.stores.getSearch()?.query.trim() || 'Search'}` : this.view === 'changes' ? `📝 ${this.changesTarget()?.name ?? 'Changes'}` : this.view === 'settings' ? '⚙️ VR settings' : this.view === 'meeting' ? '🤝 Meeting room' : this.view === 'services' ? '🌐 Services' : this.view === 'people' ? '🧑 People' : this.view === 'assign' ? `🤖 Hand #${this.assignTarget?.number ?? ''} to…` : this.detailTitle();
     ctx.fillStyle = '#eeeeee';
     ctx.font = `700 ${Math.round(h * 0.042)}px ${TERM_FONT}`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    ctx.fillText(title, w * (this.view === 'main' ? 0.05 : 0.22), h * HEADER_H * 0.55, w * (this.view === 'board' ? 0.3 : this.view === 'jukebox' || this.view === 'chat' || this.view === 'meeting' || this.view === 'queue' ? 0.34 : 0.5));
+    ctx.fillText(title, w * (this.view === 'main' ? 0.05 : 0.22), h * HEADER_H * 0.55, w * (this.view === 'board' ? 0.3 : this.view === 'jukebox' || this.view === 'chat' || this.view === 'meeting' || this.view === 'queue' || this.view === 'changes' ? 0.34 : 0.5));
     if (this.view !== 'main') this.paintBack(ctx, w, h, state);
     if (this.view === 'detail') this.paintCloseBtn(ctx, w, h, state);
     if (this.view === 'board') this.paintTabs(ctx, w, h, state);
@@ -865,6 +968,7 @@ export class VrMenu {
     if (this.view === 'chat') this.paintSay(ctx, w, h, state);
     if (this.view === 'floors') this.paintFloorsAdd(ctx, w, h, state);
     if (this.view === 'queue') this.paintQueueBtns(ctx, w, h, state);
+    if (this.view === 'changes') this.paintChangesBtns(ctx, w, h, state);
     if (this.view === 'hire') this.paintHireWt(ctx, w, h, state);
     if (this.view === 'meeting') this.paintMeetingBtns(ctx, w, h, state);
     ctx.strokeStyle = '#ee6018';
@@ -1030,6 +1134,43 @@ export class VrMenu {
     ctx.textBaseline = 'alphabetic';
   }
 
+  /** The changes view's header: commit, tap-twice discard, and the PR (link or opener). */
+  private paintChangesBtns(ctx: CanvasRenderingContext2D, w: number, h: number, state: { hoverId: string | null; pressedId: string | null }) {
+    const t = this.changesTarget();
+    const s = this.changesState();
+    if (!t || !s || s.error || s.busy) return;
+    const uncommitted = s.files.filter((f) => f.uncommitted).length;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    if (uncommitted) {
+      this.pill(ctx, CH_COMMIT, w, h, 'ch:commit', state);
+      ctx.fillStyle = '#eeeeee';
+      ctx.font = `700 ${Math.round(CH_COMMIT.h * h * 0.36)}px ${TERM_FONT}`;
+      ctx.fillText('✓ Commit', (CH_COMMIT.x + CH_COMMIT.w / 2) * w, (CH_COMMIT.y + CH_COMMIT.h / 2) * h);
+      const armed = this.discardArmedFor === t.id && performance.now() < this.discardArmedUntil;
+      const hot = state.hoverId === 'ch:discard' || state.pressedId === 'ch:discard';
+      ctx.fillStyle = armed ? '#ef476f' : hot ? '#ee6018' : 'rgba(255,255,255,0.08)';
+      ctx.beginPath();
+      ctx.roundRect(CH_DISCARD.x * w, CH_DISCARD.y * h, CH_DISCARD.w * w, CH_DISCARD.h * h, CH_DISCARD.h * h * 0.35);
+      ctx.fill();
+      ctx.fillStyle = armed ? '#111' : '#eeeeee';
+      ctx.font = `700 ${Math.round(CH_DISCARD.h * h * 0.36)}px ${TERM_FONT}`;
+      ctx.fillText(armed ? 'Discard?' : '🗑 Discard', (CH_DISCARD.x + CH_DISCARD.w / 2) * w, (CH_DISCARD.y + CH_DISCARD.h / 2) * h);
+    }
+    if (s.pr) {
+      this.pill(ctx, CH_PR, w, h, 'ch:pr', state);
+      ctx.fillStyle = '#eeeeee';
+      ctx.font = `700 ${Math.round(CH_PR.h * h * 0.36)}px ${TERM_FONT}`;
+      ctx.fillText(`PR #${s.pr.number}`, (CH_PR.x + CH_PR.w / 2) * w, (CH_PR.y + CH_PR.h / 2) * h);
+    } else if (s.prBase && s.ahead && !uncommitted) {
+      this.pill(ctx, CH_PR, w, h, 'ch:pr', state);
+      ctx.fillStyle = '#eeeeee';
+      ctx.font = `700 ${Math.round(CH_PR.h * h * 0.36)}px ${TERM_FONT}`;
+      ctx.fillText('↗ PR', (CH_PR.x + CH_PR.w / 2) * w, (CH_PR.y + CH_PR.h / 2) * h);
+    }
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+  }
   private paintMeetingBtns(ctx: CanvasRenderingContext2D, w: number, h: number, state: { hoverId: string | null; pressedId: string | null }) {
     const m = this.stores.getMeeting().current;
     const btns: { id: string; label: string; r: Rect }[] = !m
@@ -1123,6 +1264,16 @@ export class VrMenu {
     if (this.view === 'meeting' && !this.stores.getMeeting().current && !this.stores.getMeeting().past.length) this.centerNote(ctx, w, 'The table is empty — 🤝 call one', h);
     if (this.view === 'services' && !this.stores.getServices().items.length) this.centerNote(ctx, w, 'Nothing running yet', h);
     if (this.view === 'people' && !this.stores.getPeers().length) this.centerNote(ctx, w, 'Just you here', h);
+    if (this.view === 'changes') {
+      const t = this.changesTarget();
+      const s = this.changesState();
+      if (!t) this.centerNote(ctx, w, 'Sent home', h);
+      else if (!s) this.centerNote(ctx, w, 'Asking the checkout…', h);
+      else if (s.error) this.centerNote(ctx, w, `Couldn't read the checkout`, h);
+      else if (!s.files.length) {
+        this.centerNote(ctx, w, s.ahead ? `${s.ahead} commit${s.ahead > 1 ? 's' : ''} on ${s.branch ?? 'its branch'}` : s.base === 'HEAD' ? 'Nothing uncommitted' : `Nothing changed since ${s.base} yet`, h);
+      }
+    }
     ctx.restore();
     // Scrollbar.
     if (count > visible) {
@@ -1221,6 +1372,20 @@ export class VrMenu {
       if (!svc) return;
       const who = this.stores.getWorkers().find((w) => w.id === svc.workerId)?.name ?? 'A worker';
       this.rowText(ctx, '🌐', svc.title || svc.command, `${who} · :${svc.port} · started ${timeAgo(svc.since)}`, x, y, bw, rh);
+      return;
+    }
+    if (this.view === 'changes') {
+      const s = this.changesState();
+      if (!s) return;
+      const f = s.files[i];
+      if (!f) {
+        if (i === s.files.length && s.more) this.rowText(ctx, '…', `and ${s.more} more`, '', x, y, bw, rh);
+        return;
+      }
+      const icon = f.status === 'M' ? '📝' : f.status === 'A' ? '➕' : f.status === 'D' ? '➖' : f.status === 'R' ? '↩️' : f.status === 'T' ? '🔧' : '✨';
+      const title = f.from ? `${f.from} → ${f.path}` : f.path;
+      const sub = `${this.changeWord(f.status)} · +${f.additions}/−${f.deletions}${f.binary ? ' · binary' : ''}${f.uncommitted ? '' : ' · committed'}`;
+      this.rowText(ctx, icon, title, sub, x, y, bw, rh);
       return;
     }
     if (this.view === 'people') {
@@ -1418,6 +1583,25 @@ export class VrMenu {
     this.mergeArmedUntil = performance.now() + TAP_ARM_MS;
     this.panel.markDirty();
   }
+  /** The changes 🗑 tap: the first arms it (red, with a ? — main.ts toasts the window's warning), the second discards. */
+  private tapDiscard(workerId: string) {
+    if (this.view !== 'changes') return;
+    const t = this.changesTarget();
+    const s = this.changesState();
+    if (!t || t.id !== workerId || !s || s.error || s.busy) return;
+    if (!s.files.some((f) => f.uncommitted)) return;
+    if (this.discardArmedFor === workerId && performance.now() < this.discardArmedUntil) {
+      this.discardArmedFor = null;
+      this.discardArmedUntil = 0;
+      this.actions.discardChanges(workerId);
+      this.panel.markDirty();
+      return;
+    }
+    this.discardArmedFor = workerId;
+    this.discardArmedUntil = performance.now() + TAP_ARM_MS;
+    this.actions.discardChangesArm(workerId);
+    this.panel.markDirty();
+  }
   /** The PR merge box: the window's merge status as one line, and a tap-twice ✓ when it can merge. */
   private paintMerge(ctx: CanvasRenderingContext2D, w: number, h: number, state: { hoverId: string | null; pressedId: string | null }, number: number) {
     const m = this.mergeFor(number);
@@ -1498,6 +1682,12 @@ export class VrMenu {
     if (this.mergeArmedUntil && performance.now() >= this.mergeArmedUntil) {
       this.mergeArmedUntil = 0;
       this.mergeArmedFor = null;
+      this.panel.markDirty();
+    }
+    // The armed 🗑 cools back down too.
+    if (this.discardArmedUntil && performance.now() >= this.discardArmedUntil) {
+      this.discardArmedUntil = 0;
+      this.discardArmedFor = null;
       this.panel.markDirty();
     }
     this.panel.update(dt, head);
