@@ -1,6 +1,5 @@
-import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, MachineState, MeetingState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, PromptsState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, ThemeState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
+import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, LeaveOnMergeState, MachineState, MeetingState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, PromptsState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, ThemeState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
-import type { WorkerPr } from './world/character';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
 import { newer, type WbElement } from '../shared/whiteboard';
@@ -9,7 +8,7 @@ import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
 import type { BallState } from '../shared/hoop';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting' | 'prompts' | 'ball';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'leaveOnMerge' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting' | 'prompts' | 'ball';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -121,26 +120,6 @@ export function workerForPull(workers: Iterable<WorkerInfo>, pr: { number: numbe
   return undefined;
 }
 
-/**
- * Where its work stands on GitHub: a pull request from its desk, its worktree branch or its queue
- * task is open (one still open wins, e.g. a follow-up on the same branch), or merged, so it can be
- * sent home. Undefined when it has none, or only closed ones.
- */
-export function workerPr(w: WorkerInfo, pulls: GhPull[], tasks: QueueTask[]): WorkerPr | undefined {
-  const mine = new Set<number>();
-  if (w.pr) mine.add(w.pr.number);
-  for (const t of tasks) if (t.workerId === w.id && t.pr) mine.add(t.pr.number);
-  const seen = pulls.filter((p) => mine.has(p.number) || (w.worktree && w.worktree.branch === p.headRefName)).map((p) => ({ number: p.number, state: p.state }));
-  // Its task's PR can drop off the list GitHub sends (the last 30 merged): keep what the queue saw.
-  for (const t of tasks) if (t.workerId === w.id && t.pr && !seen.some((p) => p.number === t.pr!.number)) seen.push({ number: t.pr.number, state: t.pr.state });
-  // Opened from its desk but not on the list yet (still loading, or no gh to ask): it's open.
-  if (w.pr && !seen.some((p) => p.number === w.pr!.number)) seen.push({ number: w.pr.number, state: 'OPEN' });
-  const open = seen.find((p) => p.state === 'OPEN' || p.state === 'DRAFT');
-  if (open) return { state: 'open', number: open.number };
-  const merged = seen.find((p) => p.state === 'MERGED');
-  return merged && { state: 'merged', number: merged.number };
-}
-
 class Store {
   you = '';
   profile: Profile = { name: 'Guest', color: AVATAR_COLORS[1], look: randomLook() };
@@ -203,6 +182,8 @@ class Store {
   theme: ThemeState = { pick: 'auto', active: null };
   /** The office's prompts as rewritten in ⚙️ Settings, and the worker everyone starts on: the same on every floor. */
   prompts: PromptsState = { custom: {} };
+  /** Whether workers whose pull request merged go home by themselves (⚙️ Settings). */
+  leaveOnMerge: LeaveOnMergeState = { on: false };
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -306,8 +287,9 @@ class Store {
         this.sky = msg.sky;
         this.theme = msg.theme;
         this.prompts = msg.prompts ?? { custom: {} };
+        this.leaveOnMerge = msg.leaveOnMerge ?? { on: false };
         this.enter(msg);
-        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'floors', 'projectsDir', 'sky', 'theme', 'prompts'] as Topic[]) this.emit(t);
+        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'floors', 'projectsDir', 'sky', 'theme', 'prompts', 'leaveOnMerge'] as Topic[]) this.emit(t);
         break;
       case 'floor.enter':
         this.peers = new Map(msg.peers.map((p) => [p.id, p]));
@@ -467,6 +449,10 @@ class Store {
       case 'prompts':
         this.prompts = msg.state;
         this.emit('prompts');
+        break;
+      case 'leaveOnMerge':
+        this.leaveOnMerge = msg.state;
+        this.emit('leaveOnMerge');
         break;
       case 'chat':
         this.chat.push(msg);

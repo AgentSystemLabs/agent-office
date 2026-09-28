@@ -387,10 +387,11 @@ export class WorkerManager {
 
   /**
    * Sends a worker home. For one with its own worktree, `cleanup` says what becomes of it; with no
-   * choice given, the worktree and branch go only when they hold no work. Resolves once that's done,
-   * with a line for the team about the worktree.
+   * choice given, the worktree and branch go only when they hold no work, where `landed` (its merged
+   * pull request's head commit) is work delivered. Resolves once that's done, with a line for the team
+   * about the worktree.
    */
-  async kill(id: string, cleanup?: WorktreeCleanup): Promise<{ note?: string; error?: string }> {
+  async kill(id: string, cleanup?: WorktreeCleanup, landed?: string): Promise<{ note?: string; error?: string }> {
     const w = this.workers.get(id);
     if (!w) return {};
     this.workers.delete(id);
@@ -412,7 +413,7 @@ export class WorkerManager {
     if (!wt || w.info.meeting) return {};
     const name = w.info.name;
     if (!cleanup) {
-      const work = describeWork(await this.trees.inspect(wt));
+      const work = describeWork(await this.trees.inspect(wt, landed));
       if (work) return { note: `Kept ${name}'s worktree and branch ${wt.branch} — it has ${work}` };
       cleanup = 'all';
     }

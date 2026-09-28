@@ -6,9 +6,9 @@ import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, L
 import { floorPalette } from '../shared/floors';
 import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
 import { MEETING_PATTERNS } from '../shared/meetings';
-import { isAsleep, isBusy } from '../shared/status';
+import { isAsleep, isBusy, workerPr } from '../shared/status';
 import { Net } from './net';
-import { store, loadProfile, loadSettings, saveSettings, workerForPull, workerPr, type Profile, type Topic } from './state';
+import { store, loadProfile, loadSettings, saveSettings, workerForPull, type Profile, type Topic } from './state';
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { Climber, gripOf, type Arrival, type Grip, type Way } from './climb';
 import { Caffeine } from './caffeine';
