@@ -40,7 +40,7 @@ import { DesktopNotifier, askNotifyPermission, notifyPermission, waitingOnSomeon
 import { NextUp, waitingInOrder, waitingLabel } from './nextup';
 import { $, h, clip, closeAllModals, closeTopModal, doingNow, modalOpen, onModalChange, openModal, timeAgo, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage, type TerminalFind } from './ui/terminal';
-import { openSearch } from './ui/search';
+import { openSearch, search } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage, worktreePref, setWorktreePref } from './ui/prompt';
 import { issuePrompt, openBoard } from './ui/boards';
@@ -77,6 +77,7 @@ import { MeetingBoardTexture, MeetingSignTexture, meetingStage } from './world/m
 import { issueMeeting, openMeeting, type MeetingPreset } from './ui/meeting';
 import { VRSession } from './vr/session';
 import { attachVrUi, type VrUiHandle } from './vr/attach';
+import type { VrSearchState } from './vr/menu';
 import { probeXRSupport } from './vr/support';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
@@ -331,6 +332,8 @@ player.view = settings.view;
 // and the Enter VR button stays hidden where XR is unavailable.
 /** World-space VR panels (menu, terminal, keyboard): attached on session enter, disposed on end. Null on desktop. */
 let vrUi: VrUiHandle | null = null;
+/** The VR search view's latest answer (the menu reads it; a fetch replaces it, then resends the view). */
+let vrSearch: VrSearchState | null = null;
 /** The picture E armed in VR (the terminal ⏻ button's tap-twice, for the walls). */
 let decorArmed = { id: '', until: 0 };
 /** What E would do to the ray's target, in words for the headset's aim bar (null hides it). Mirrors vrUseE branch for branch, minus the keys only the desktop has. */
@@ -508,6 +511,7 @@ const vr = new VRSession(renderer, scene, camera, {
       getDogName: () => store.dog?.name ?? null,
       getSound: () => ({ volume: settings.volume, muted: settings.muted, music: settings.music, musicMuted: settings.musicMuted }),
       getWorktree: () => worktreePref(),
+      getSearch: () => vrSearch,
       voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => (voice.inVoice ? voice.toggleMute() : void toggleVoice()), leaveVoice: () => voice.leaveVoice() },
       actions: {
         hire: (deskId) => vrHire(deskId),
@@ -547,6 +551,7 @@ const vr = new VRSession(renderer, scene, camera, {
           saveSettings(settings);
         },
         sendChat: (text) => net.send({ t: 'chat', text }),
+        searchOffice: (query) => void vrSearchOffice(query),
         walkToPeer: (peerId) => vrWalkToPeer(peerId),
         vrSettings: (patch) => {
           Object.assign(settings.vr, patch);
@@ -596,7 +601,7 @@ if (new URLSearchParams(location.search).has('vrtest')) {
       g.getWorldPosition(v);
       return [v.x, v.y, v.z] as [number, number, number];
     },
-    showMenu: (view: 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'assign' | 'settings' | 'meeting' | 'services' | 'people') => vrUi?.showMenu(view),
+    showMenu: (view: 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'search' | 'assign' | 'settings' | 'meeting' | 'services' | 'people') => vrUi?.showMenu(view),
     // Hides the dash (controls card + menu) so the rays aim at the world, not a panel.
     hideDash: () => {
       vrUi?.controls.hide();
@@ -715,6 +720,10 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     promptText: () => vrUi?.promptText() ?? null,
     // The VR prompt's engine row label (the meeting-pattern check reads this back).
     promptEngine: () => vrUi?.promptEngine() ?? null,
+    // The VR search view's latest answer (the search check reads the hit counts back).
+    search: () => vrSearch && { query: vrSearch.query, status: vrSearch.status, chat: vrSearch.results?.chat.length ?? 0, terminals: vrSearch.results?.terminals.length ?? 0 },
+    // The VR terminal's search jump target (the search check reads the landed row back).
+    termFind: () => vrUi?.terminal.findState() ?? null,
     // Downs shots for the drunk-in-VR check (strength adds up; water sobers): returns the level.
     drink: (id: 'beer' | 'wine' | 'martini' | 'maitai' | 'shot' | 'mojito' | 'water' = 'shot') => {
       const d = DRINK_BY_ID.get(id);
@@ -1905,6 +1914,17 @@ function vrClose(kind: 'issue' | 'pull', number: number) {
     toast("No answer from the office — check whether it closed before trying again", 'warn');
   }, 45_000);
   net.send({ t: 'gh.close', kind, number });
+}
+/** The chat view's 🔎 button, submitted: the search window's fetch, answered into the menu's search view. */
+async function vrSearchOffice(query: string) {
+  vrSearch = { query, status: 'searching' };
+  try {
+    vrSearch = { query, status: 'done', results: await search(query) };
+  } catch (err) {
+    vrSearch = { query, status: 'error', error: (err as Error).message };
+  }
+  // The fetch lands after the view opened: resend it so the rows repaint (shows it, harmlessly, if it closed).
+  vrUi?.showMenu('search');
 }
 /** The detail view's 💬 button: a line on the issue or PR (the windows' comment box, one line — the prompt has no ⏎ for more). */
 function vrComment(kind: 'issue' | 'pull', number: number) {

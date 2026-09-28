@@ -55,15 +55,17 @@
 import * as THREE from 'three';
 import type { ChatLine, FloorInfo, GhIssue, GhPull, GhState, MeetingState, PeerInfo, QueueState, ServicesState, WorkerInfo } from '../../shared/protocol';
 import type { JukeboxState } from '../../shared/jukebox';
+import { SEARCH_MIN, searchKey } from '../../shared/search';
 import { isAsleep } from '../../shared/status';
 import type { VrSettings } from '../state';
 import type { ScreenState } from '../world/laptop';
 import { setToastMirror } from '../ui/dom';
+import type { TerminalFind } from '../ui/terminal';
 import { VrAim } from './aim';
 import { VrControls } from './controls';
 import { VrKeyboard, type KeyboardTarget } from './keyboard';
 import { followTarget, type HeadPose } from './math';
-import { VrMenu, type VrMenuActions } from './menu';
+import { VrMenu, type VrMenuActions, type VrSearchState } from './menu';
 import { VrPromptPanel, type VrPromptOpts } from './prompt';
 import { VrTerminalPanel, type VrTerminalMsg } from './terminal-panel';
 import { VrToast } from './toast';
@@ -98,6 +100,7 @@ export interface VrUiDeps {
   getDogName: () => string | null;
   getSound: () => { volume: number; muted: boolean; music: number; musicMuted: boolean };
   getWorktree: () => boolean;
+  getSearch: () => VrSearchState | null;
   onRoof: () => boolean;
   barCutOff: () => boolean;
   getVrSettings: () => VrSettings;
@@ -129,7 +132,7 @@ export interface VrUiHandle {
   /** All panels' parent. Added to the scene by attachVrUi. */
   readonly group: THREE.Group;
   /** Opens the world-space terminal for a worker (attaches to its PTY). */
-  openTerminal: (workerId: string) => void;
+  openTerminal: (workerId: string, find?: TerminalFind) => void;
   /** Closes the world-space terminal (detaches from its PTY). */
   closeTerminal: () => void;
   /** Shows/hides the core menu. */
@@ -220,6 +223,7 @@ class VrUi implements VrUiHandle {
         getDogName: deps.getDogName,
         getSound: deps.getSound,
         getWorktree: deps.getWorktree,
+        getSearch: deps.getSearch,
         onRoof: deps.onRoof,
         barCutOff: deps.barCutOff,
         getVrSettings: deps.getVrSettings,
@@ -255,6 +259,8 @@ class VrUi implements VrUiHandle {
       if (warning) this.showToast(warning, 'warn');
     };
     this.terminal.onKill = (workerId) => deps.workerActions.kill(workerId);
+    // A search jump whose line isn't in our copy of the terminal (the DOM terminal's words).
+    this.terminal.onFindMiss = () => this.showToast('That line has scrolled out of the terminal since', 'warn');
     this.controls = new VrControls();
     this.aim = new VrAim();
     this.menu.onShowControls = () => this.controls.show();
@@ -269,6 +275,10 @@ class VrUi implements VrUiHandle {
     this.keyboard.panel.setOnTop(9992);
     this.aim.panel.setOnTop(9991);
     this.menu.onChatSay = () => this.askChat();
+    this.menu.onChatSearch = () => this.askSearch();
+    // The queue rows, meeting seats and detail view open terminals through here (this was
+    // never wired — their taps silently did nothing until the search view needed it too).
+    this.menu.onOpenTerminal = (workerId, find) => this.openTerminal(workerId, find);
 
     // Dash layout, facing the user at spawn: terminal center, keyboard below it, menu left.
     const tOff = layout.terminalOffset ?? [0, 1.5, -1.15];
@@ -301,7 +311,7 @@ class VrUi implements VrUiHandle {
     group.lookAt(this.tmpV.set(...this.headPos));
   }
 
-  openTerminal = (workerId: string) => {
+  openTerminal = (workerId: string, find?: TerminalFind) => {
     // The terminal opens where the user looks, not at the spawn default: the user who asked
     // for it by pointing at a desk is wherever that desk is. The dash steps aside (task focus).
     this.controls.hide();
@@ -312,7 +322,7 @@ class VrUi implements VrUiHandle {
     // Opening a sleeping worker's terminal wakes it, like the desktop key (nothing to press first).
     const w = this.deps.getWorker(workerId);
     if (w && isAsleep(w.status)) this.deps.workerActions.resume(workerId);
-    this.terminal.open(workerId);
+    this.terminal.open(workerId, find);
     this.keyboard.show();
   };
 
@@ -348,6 +358,23 @@ class VrUi implements VrUiHandle {
       placeholder: 'Hi everyone…',
       submitLabel: 'Send',
       onSubmit: (text) => this.deps.actions.sendChat(text),
+    });
+  }
+  /** The chat view's 🔎 button: words in the chat and every worker's terminal. */
+  private askSearch() {
+    this.askText({
+      title: '🔎 Search the office',
+      placeholder: 'words in the chat or a terminal…',
+      submitLabel: 'Search',
+      onSubmit: (text) => {
+        // The search window's two-character floor: shorter matches too much to be useful.
+        if (searchKey(text).length < SEARCH_MIN) {
+          this.showToast('Type at least two characters');
+          return;
+        }
+        this.deps.actions.searchOffice(text);
+        this.menu.show('search');
+      },
     });
   }
 

@@ -12,8 +12,10 @@
 
 import type * as THREE from 'three';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, type Run, type WorkerInfo } from '../../shared/protocol';
+import { findLine, type BufferLike } from '../../shared/search';
 import { isAsleep } from '../../shared/status';
 import { TERM_FONT } from '../fonts';
+import type { TerminalFind } from '../ui/terminal';
 import { TERM_THEME, type ScreenState } from '../world/laptop';
 import { fullPalette, pushHistory, runColor, scrolledOffLines } from './ansi';
 import { clampScroll, gridMetrics, type HeadPose, type Rect } from './math';
@@ -41,6 +43,8 @@ export const VR_TERM_ROWS = 28;
 const HISTORY_CAP = 500;
 /** Rows shown at once: big enough to read at a meter, small enough to leave scrollback. */
 const VISIBLE_ROWS = 26;
+/** How long a search jump's highlight stays on its line (the DOM terminal's eight seconds). */
+const FIND_HL_MS = 8000;
 
 const HEADER_H = 0.11;
 const BODY: Rect = { x: 0.015, y: HEADER_H + 0.015, w: 0.97, h: 1 - HEADER_H - 0.03 };
@@ -64,6 +68,8 @@ export class VrTerminalPanel {
   /** Fires on the first ⏻ tap (attach.ts toasts what it does) and the confirming second. */
   onKillArm: ((workerId: string) => void) | null = null;
   onKill: ((workerId: string) => void) | null = null;
+  /** Fires when a search jump's line isn't in our copy of the terminal (attach.ts toasts it). */
+  onFindMiss: (() => void) | null = null;
   private deps: VrTerminalDeps;
   private workerId: string | null = null;
   private unsubs: (() => void)[] = [];
@@ -82,6 +88,11 @@ export class VrTerminalPanel {
   private stickToBottom = true;
   /** The kill button confirms while now is before this (the first tap arms it). */
   private killArmedUntil = 0;
+  /** A search jump waiting for its first frames (the screen arrives after the attach). */
+  private pendingFind: TerminalFind | null = null;
+  /** The jumped-to line and its highlight's expiry (a search jump paints it amber). */
+  private findRow = -1;
+  private findUntil = 0;
 
   constructor(deps: VrTerminalDeps, widthM = 0.92, heightM = 0.6) {
     this.deps = deps;
@@ -105,10 +116,11 @@ export class VrTerminalPanel {
   }
 
   /** Opens the terminal for a worker, attaching to its PTY (switches focus when another is up). */
-  open(workerId: string) {
+  open(workerId: string, find?: TerminalFind) {
     if (this.workerId === workerId) {
       this.panel.setVisible(true);
-      this.panel.markDirty();
+      if (find) this.jumpToFind(find);
+      else this.panel.markDirty();
       return;
     }
     this.detach();
@@ -120,11 +132,57 @@ export class VrTerminalPanel {
     this.headerKey = '';
     this.lastSentSize = '';
     this.killArmedUntil = 0;
+    this.pendingFind = find ?? null;
+    this.findRow = -1;
+    this.findUntil = 0;
     this.deps.send({ t: 'worker.attach', workerId });
     this.stickToBottom = true;
     this.panel.setScrollOffset('term', Number.MAX_SAFE_INTEGER);
     this.panel.setVisible(true);
     this.refresh();
+    this.panel.markDirty();
+  }
+
+  /** The search jump's target, for the emulator hooks (null when no jump is showing). */
+  findState(): { workerId: string; row: number } | null {
+    if (!this.workerId || this.findRow < 0 || performance.now() >= this.findUntil) return null;
+    return { workerId: this.workerId, row: this.findRow };
+  }
+
+  /** Jumps to a search hit's line in our copy of the terminal, highlighting it for a while. */
+  private jumpToFind(find: TerminalFind) {
+    const s = this.workerId ? this.deps.getScreen(this.workerId) : undefined;
+    const rows = this.rows(s);
+    if (!rows.length) {
+      this.pendingFind = find;
+      return;
+    }
+    const buf: BufferLike = {
+      length: rows.length,
+      // Wrapped lines paint as separate rows here (the grid has no wrap flags), so each
+      // row is its own line — a wrapped match still lands, just on its own row.
+      getLine: (y) => {
+        const r = rows[y];
+        if (!r) return undefined;
+        const text = r.map(([t]) => t).join('');
+        return { isWrapped: false, translateToString: () => text };
+      },
+    };
+    const row = findLine(buf, find.needle, find.fromEnd);
+    if (row === undefined) {
+      this.findRow = -1;
+      this.findUntil = 0;
+      this.onFindMiss?.();
+      this.panel.markDirty();
+      return;
+    }
+    this.findRow = row;
+    this.findUntil = performance.now() + FIND_HL_MS;
+    // The line lands a few rows down, with its context above it (unpinned — new output
+    // stays at the bottom, and ↓ live is right there).
+    this.panel.setScrollOffset('term', Math.max(0, row - 4));
+    this.stickToBottom = false; // after: setScrollOffset's onScroll unsticks first
+    this.syncButtons();
     this.panel.markDirty();
   }
 
@@ -185,6 +243,11 @@ export class VrTerminalPanel {
       this.prevGrid = (s.lines as Run[][]).map((runs) => (runs ? runs.map((r): Run => [r[0], r[1], r[2], r[3]]) : []));
     }
     if (headerKey !== this.headerKey) this.headerKey = headerKey;
+    if (this.pendingFind) {
+      const find = this.pendingFind;
+      this.pendingFind = null;
+      this.jumpToFind(find); // re-queues itself while the frames haven't arrived
+    }
     this.panel.markDirty();
     this.syncButtons();
   }
@@ -367,6 +430,10 @@ export class VrTerminalPanel {
       if (!runs) continue;
       let x = 0;
       const py = topPx + v * lineH;
+      if (top + v === this.findRow && state.time < this.findUntil) {
+        ctx.fillStyle = 'rgba(255,180,0,0.28)';
+        ctx.fillRect(bx, py, bw, lineH + 0.5);
+      }
       for (const [text, fgc, bgc, flags] of runs) {
         const len = [...text].length;
         if (x >= cols) break;
@@ -447,6 +514,12 @@ export class VrTerminalPanel {
       // The armed kill button cools back down (repaint once, when it lapses).
       if (this.killArmedUntil && now >= this.killArmedUntil) {
         this.killArmedUntil = 0;
+        this.panel.markDirty();
+      }
+      // The search jump's highlight cools back down (repaint once, when it lapses).
+      if (this.findUntil && now >= this.findUntil) {
+        this.findUntil = 0;
+        this.findRow = -1;
         this.panel.markDirty();
       }
     }

@@ -77,7 +77,8 @@ Destructive acts confirm with tap-twice (detail ✕, queue rows, PR review): the
 arms red, the second fires. Per view: hire (free desks, worktree toggle, shell shortcut),
 queue (add, pause, tap-twice remove + requeue), board detail (hand, queue, comment, close,
 PR review panel), jukebox (tunes + pasted streams), people (tap a row to walk over),
-meeting (call with a pattern picker), settings (locomotion, dog rename, sound mutes).
+meeting (call with a pattern picker), settings (locomotion, dog rename, sound mutes),
+chat (🔎 searches the chat and every terminal; a terminal hit opens it at the line).
 
 ## What VR reuses, and what it skips
 

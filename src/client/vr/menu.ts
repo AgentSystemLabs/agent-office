@@ -7,7 +7,8 @@
  * Views: main (Hire, Next waiting, Queue, Issues/PRs, Floors, Jukebox, Bar, Chat, Mute, Leave voice, Exit VR),
  * hire (free desks, with the worktree toggle), queue (running/queued/done, with tap-twice remove + requeue), board (issues/PRs tabs, read + hand-to-worker),
  * a detail view for one issue or PR (hand it over, queue it, comment, close it, review a PR), floors (ride the elevator), jukebox (tunes + a stream row), bar (drinks),
- * chat (the floor's chat + say something), assign (hand an issue to a worker), meeting (the room's
+ * chat (the floor's chat + say something + search it), search (the search hits — chat lines and
+ * terminal lines, tap one to open its terminal at the line), assign (hand an issue to a worker), meeting (the room's
  * status + call one with the pattern defaults, and the earlier meetings), services (the workers' web servers, tap to copy
  * a tunnel command), people (who else is around — tap a row to walk over), and settings
  * (glide, turning, turn speed, teleport fade, the dog's name — the ⚙️ Settings VR section
@@ -15,19 +16,29 @@
  */
 
 import type * as THREE from 'three';
-import type { ChatLine, FloorInfo, GhIssue, GhPull, GhState, MeetingState, PeerInfo, QueueState, QueueTask, ServicesState, WorkerInfo } from '../../shared/protocol';
+import type { ChatLine, FloorInfo, GhIssue, GhPull, GhState, MeetingState, PeerInfo, QueueState, QueueTask, SearchResults, ServicesState, TerminalHit, WorkerInfo } from '../../shared/protocol';
 import { fmtTokens } from '../../shared/protocol';
 import { MEETING_PATTERNS, meetingSpend } from '../../shared/meetings';
 import { JUKEBOX_TUNES, STREAM, trackTitle, type JukeboxState } from '../../shared/jukebox';
 import { DRINKS, ROOF, ROOF_NAME, type Drink } from '../../shared/rooftop';
+import { searchKey } from '../../shared/search';
 import { isAsleep } from '../../shared/status';
 import { TERM_FONT } from '../fonts';
 import { waitingInOrder } from '../nextup';
 import type { VrSettings } from '../state';
 import { timeAgo } from '../ui/dom';
+import type { TerminalFind } from '../ui/terminal';
 import { whereabouts } from '../ui/whereabouts';
 import { clampScroll, type HeadPose, type Rect } from './math';
 import { WorldPanel } from './panel';
+
+/** The office search's latest answer, for the menu's search view (main.ts runs the fetch). */
+export interface VrSearchState {
+  query: string;
+  status: 'searching' | 'done' | 'error';
+  results?: SearchResults;
+  error?: string;
+}
 
 export interface VrMenuStores {
   subscribe: (topic: 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services' | 'peers' | 'dog', fn: () => void) => () => void;
@@ -60,6 +71,8 @@ export interface VrMenuStores {
   getSound: () => { volume: number; muted: boolean; music: number; musicMuted: boolean };
   /** Whether the next hire gets its own git worktree (the hire dialog checkbox's memory). */
   getWorktree: () => boolean;
+  /** The office search's latest answer (nothing until the first search runs). */
+  getSearch: () => VrSearchState | null;
 }
 
 export interface VrMenuActions {
@@ -83,6 +96,8 @@ export interface VrMenuActions {
   orderDrink: (id: Drink['id']) => void;
   /** Says it on the floor's chat — the DOM chat box's function (net chat). */
   sendChat: (text: string) => void;
+  /** Searches the chat and every worker's terminal — the DOM search window's fetch (main.ts vrSearchOffice). */
+  searchOffice: (query: string) => void;
   /** Walks over to a teammate — the sidebar people list's click (main.ts vrWalkToPeer). */
   walkToPeer: (peerId: string) => void;
   /** Mutes/unmutes in voice, or joins it — the DOM M/V keys' function (main.ts voice toggle). */
@@ -122,7 +137,7 @@ export interface VrMenuActions {
   exitVr: () => void;
 }
 
-export type MenuView = 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'assign' | 'settings' | 'meeting' | 'services' | 'people';
+export type MenuView = 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'search' | 'assign' | 'settings' | 'meeting' | 'services' | 'people';
 
 export interface MenuDetail {
   kind: 'issue' | 'pull';
@@ -149,8 +164,9 @@ const TABS: Rect = { x: 0.55, y: 0.015, w: 0.42, h: 0.09 };
 const JB_PLAY: Rect = { x: 0.58, y: 0.015, w: 0.13, h: 0.09 };
 const JB_STOP: Rect = { x: 0.72, y: 0.015, w: 0.13, h: 0.09 };
 const JB_SKIP: Rect = { x: 0.86, y: 0.015, w: 0.11, h: 0.09 };
-/** Chat view: the "say something" button in the header. */
-const SAY_BTN: Rect = { x: 0.72, y: 0.015, w: 0.25, h: 0.09 };
+/** Chat view: the "say something" and "search the office" buttons in the header. */
+const SAY_BTN: Rect = { x: 0.60, y: 0.015, w: 0.16, h: 0.09 };
+const CHAT_FIND: Rect = { x: 0.77, y: 0.015, w: 0.20, h: 0.09 };
 /** Floors view: the "add a project" button in the header. */
 const FLOORS_ADD: Rect = { x: 0.72, y: 0.015, w: 0.25, h: 0.09 };
 /** Queue view: add a task, and pause/unpause the line. */
@@ -190,11 +206,13 @@ const DETAIL_BODY_MAX = 900;
 export class VrMenu {
   readonly panel: WorldPanel;
   /** Opening a worker's terminal from a queue row (wired by attach.ts to the VR terminal panel). */
-  onOpenTerminal: ((workerId: string) => void) | null = null;
+  onOpenTerminal: ((workerId: string, find?: TerminalFind) => void) | null = null;
   /** Opening the controls card from the ❓ row (wired by attach.ts to the VR controls panel). */
   onShowControls: (() => void) | null = null;
   /** Opening the chat prompt from the ✍️ button (wired by attach.ts to the VR prompt panel). */
   onChatSay: (() => void) | null = null;
+  /** Opening the search prompt from the 🔎 button (wired by attach.ts to the VR prompt panel). */
+  onChatSearch: (() => void) | null = null;
 
   private stores: VrMenuStores;
   private actions: VrMenuActions;
@@ -375,6 +393,19 @@ export class VrMenu {
     return this.stores.getChat().slice(-40);
   }
 
+  /** The search view's rows: matching chat lines first, then terminal lines (the search window's order). */
+  private searchRows(): ({ kind: 'chat'; chat: ChatLine } | { kind: 'term'; hit: TerminalHit })[] {
+    const s = this.stores.getSearch();
+    if (!s || s.status !== 'done' || !s.results) return [];
+    const rows: ({ kind: 'chat'; chat: ChatLine } | { kind: 'term'; hit: TerminalHit })[] = s.results.chat.map((chat) => ({ kind: 'chat' as const, chat }));
+    // Workers sent home since the search ran have nothing left to open (the search window's rule).
+    for (const hit of s.results.terminals) {
+      if (!this.stores.getWorkers().some((w) => w.id === hit.workerId)) continue;
+      rows.push({ kind: 'term', hit });
+    }
+    return rows;
+  }
+
   /** Awake agents, for the assign view (the DOM Ask window's worker list). */
   private awakeWorkers(): WorkerInfo[] {
     return this.stores.getWorkers().filter((w) => w.kind === 'agent' && !isAsleep(w.status));
@@ -495,7 +526,10 @@ export class VrMenu {
       );
     }
     if (this.view === 'chat') {
-      buttons.push({ id: 'say', rect: SAY_BTN, onClick: () => this.onChatSay?.() });
+      buttons.push(
+        { id: 'say', rect: SAY_BTN, onClick: () => this.onChatSay?.() },
+        { id: 'find', rect: CHAT_FIND, onClick: () => this.onChatSearch?.() },
+      );
     }
     if (this.view === 'floors') {
       buttons.push({ id: 'add', rect: FLOORS_ADD, onClick: () => this.actions.addFloor() });
@@ -582,6 +616,7 @@ export class VrMenu {
     if (this.view === 'jukebox') return JUKEBOX_TUNES.length + 1;
     if (this.view === 'bar') return DRINKS.length;
     if (this.view === 'chat') return Math.max(1, this.chatLines().length);
+    if (this.view === 'search') return this.searchRows().length;
     if (this.view === 'assign') return Math.max(1, this.awakeWorkers().length);
     if (this.view === 'settings') return this.settingsRows().length;
     if (this.view === 'meeting') {
@@ -668,6 +703,16 @@ export class VrMenu {
       return;
     }
     if (this.view === 'chat') return; // lines are read-only; ✍️ says something
+    if (this.view === 'search') {
+      const s = this.stores.getSearch();
+      const row = this.searchRows()[i];
+      // A terminal line opens that terminal right at it (the search window's jump); chat lines
+      // are read-only — they're already in the chat view.
+      if (s?.results && row?.kind === 'term') {
+        this.onOpenTerminal?.(row.hit.workerId, { needle: searchKey(s.results.q), fromEnd: row.hit.rows - row.hit.row });
+      }
+      return;
+    }
     if (this.view === 'meeting') {
       // Row 0 is the summary (tap it to call another once the room is free); a seat opens
       // its worker's terminal, like the queue rows.
@@ -764,7 +809,7 @@ export class VrMenu {
     ctx.roundRect(0, 0, w, h, Math.round(h * 0.02));
     ctx.clip();
 
-    const title = this.view === 'main' ? '☰ Menu' : this.view === 'hire' ? '✨ Hire worker' : this.view === 'queue' ? '📋 Task queue' : this.view === 'board' ? '📌 Issues / PRs' : this.view === 'floors' ? '🛗 Floors' : this.view === 'jukebox' ? '🎵 Jukebox' : this.view === 'bar' ? '🍸 Sky Bar' : this.view === 'chat' ? '💬 Chat' : this.view === 'settings' ? '⚙️ VR settings' : this.view === 'meeting' ? '🤝 Meeting room' : this.view === 'services' ? '🌐 Services' : this.view === 'people' ? '🧑 People' : this.view === 'assign' ? `🤖 Hand #${this.assignTarget?.number ?? ''} to…` : this.detailTitle();
+    const title = this.view === 'main' ? '☰ Menu' : this.view === 'hire' ? '✨ Hire worker' : this.view === 'queue' ? '📋 Task queue' : this.view === 'board' ? '📌 Issues / PRs' : this.view === 'floors' ? '🛗 Floors' : this.view === 'jukebox' ? '🎵 Jukebox' : this.view === 'bar' ? '🍸 Sky Bar' : this.view === 'chat' ? '💬 Chat' : this.view === 'search' ? `🔎 ${this.stores.getSearch()?.query.trim() || 'Search'}` : this.view === 'settings' ? '⚙️ VR settings' : this.view === 'meeting' ? '🤝 Meeting room' : this.view === 'services' ? '🌐 Services' : this.view === 'people' ? '🧑 People' : this.view === 'assign' ? `🤖 Hand #${this.assignTarget?.number ?? ''} to…` : this.detailTitle();
     ctx.fillStyle = '#eeeeee';
     ctx.font = `700 ${Math.round(h * 0.042)}px ${TERM_FONT}`;
     ctx.textBaseline = 'middle';
@@ -905,6 +950,10 @@ export class VrMenu {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('✍️ say', (SAY_BTN.x + SAY_BTN.w / 2) * w, (SAY_BTN.y + SAY_BTN.h / 2) * h);
+    this.pill(ctx, CHAT_FIND, w, h, 'find', state);
+    ctx.fillStyle = '#eeeeee';
+    ctx.font = `700 ${Math.round(CHAT_FIND.h * h * 0.38)}px ${TERM_FONT}`;
+    ctx.fillText('🔎 find', (CHAT_FIND.x + CHAT_FIND.w / 2) * w, (CHAT_FIND.y + CHAT_FIND.h / 2) * h);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
   }
@@ -1021,6 +1070,12 @@ export class VrMenu {
     if (this.view === 'board' && this.boardTab === 'pulls' && !this.openPulls().length) this.centerNote(ctx, w, 'No open PRs', h);
     if (this.view === 'queue' && count === 0) this.centerNote(ctx, w, 'Nothing on the queue', h);
     if (this.view === 'chat' && !this.chatLines().length) this.centerNote(ctx, w, 'Quiet on this floor — say hi ✍️', h);
+    if (this.view === 'search') {
+      const s = this.stores.getSearch();
+      if (s?.status === 'searching') this.centerNote(ctx, w, 'Searching…', h);
+      else if (s?.status === 'error') this.centerNote(ctx, w, 'The search failed — try again', h);
+      else if (s && !this.searchRows().length) this.centerNote(ctx, w, `Nothing matches “${s.query.trim().slice(0, 24)}”`, h);
+    }
     if (this.view === 'assign' && !this.awakeWorkers().length) this.centerNote(ctx, w, 'Nobody awake — hire a worker first', h);
     if (this.view === 'meeting' && !this.stores.getMeeting().current && !this.stores.getMeeting().past.length) this.centerNote(ctx, w, 'The table is empty — 🤝 call one', h);
     if (this.view === 'services' && !this.stores.getServices().items.length) this.centerNote(ctx, w, 'Nothing running yet', h);
@@ -1088,6 +1143,18 @@ export class VrMenu {
       if (!c) return;
       const when = new Date(c.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       this.rowText(ctx, '💬', `${c.name}: ${c.text}`, when, x, y, bw, rh);
+      return;
+    }
+    if (this.view === 'search') {
+      const row = this.searchRows()[i];
+      if (!row) return;
+      if (row.kind === 'chat') {
+        const when = new Date(row.chat.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        this.rowText(ctx, '💬', `${row.chat.name}: ${row.chat.text}`, when, x, y, bw, rh);
+        return;
+      }
+      const who = this.stores.getWorkers().find((w) => w.id === row.hit.workerId)?.name ?? 'A worker';
+      this.rowText(ctx, '💻', who, row.hit.text, x, y, bw, rh);
       return;
     }
     if (this.view === 'assign') {
