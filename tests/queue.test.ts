@@ -56,6 +56,22 @@ test('queue seats the selected provider and preserves it through completion and 
   assert.equal(f.workers[1].provider, 'opencode');
 });
 
+test('Droid tasks retain their provider through retry and restart', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open();
+  assert.equal(q.add('First', 'Tester', undefined, undefined, 'droid'), undefined);
+  assert.equal(f.workers[0].provider, 'droid');
+  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  q.retry(q.state().tasks[0].id);
+  assert.equal(f.workers[1].provider, 'droid');
+  q.setLimit(0);
+  q.add('Later', 'Tester', undefined, undefined, 'droid');
+  q.shutdown();
+  const restored = f.open();
+  restored.setLimit(3);
+  assert.equal(f.workers[2].provider, 'droid');
+});
+
 test('queued provider survives restart even when the configured default differs', (t) => {
   const f = fixture(); t.after(() => f.close());
   const q = f.open(); q.setLimit(0);

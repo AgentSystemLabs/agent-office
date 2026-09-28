@@ -26,10 +26,10 @@ export type WorkerKind = 'agent' | 'shell';
  */
 export type WorkerAction = 'read' | 'edit' | 'test' | 'web' | 'failing';
 
-export type AgentProvider = 'claude' | 'opencode' | 'codex' | 'custom';
+export type AgentProvider = 'claude' | 'opencode' | 'codex' | 'droid' | 'custom';
 
 export function isAgentProvider(value: unknown): value is AgentProvider {
-  return value === 'claude' || value === 'opencode' || value === 'codex' || value === 'custom';
+  return value === 'claude' || value === 'opencode' || value === 'codex' || value === 'droid' || value === 'custom';
 }
 
 /** A Claude model alias the hire dialog and queue can request explicitly (see server/agents.ts). */

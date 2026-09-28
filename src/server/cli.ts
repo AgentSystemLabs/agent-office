@@ -57,7 +57,7 @@ console.log(`
 
   password: ${passwordLine()}
   default agent: ${[agent ?? `${cfg.agentCmd} (via login shell)`, ...cfg.agentArgs].join(' ')}
-  choose Claude Code or OpenCode when hiring or queueing a task
+  choose Claude Code, OpenCode, Codex or Droid when hiring or queueing a task
 ${cfg.tls ? '' : '\n  tip: voice & screen share need https off localhost — use a reverse proxy or --self-signed\n'}`);
 
 let closing = false;

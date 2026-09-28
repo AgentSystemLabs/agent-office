@@ -8,6 +8,7 @@ export const PROVIDER_LABEL: Record<AgentProvider, string> = {
   claude: 'Claude Code',
   opencode: 'OpenCode',
   codex: 'Codex',
+  droid: 'Droid',
   custom: 'Custom',
 };
 
@@ -39,7 +40,7 @@ export function modelBadge(provider: AgentProvider | undefined, model: string | 
 
 /** Providers the server says this project can start. */
 export function supportedProviders(project: ProjectInfo | null): AgentProvider[] {
-  const values = project?.agentProviders?.filter((p): p is AgentProvider => p === 'claude' || p === 'opencode' || p === 'codex' || p === 'custom') ?? [];
+  const values = project?.agentProviders?.filter((p): p is AgentProvider => p === 'claude' || p === 'opencode' || p === 'codex' || p === 'droid' || p === 'custom') ?? [];
   if (values.length) return [...new Set(values)];
   return project?.defaultProvider && PROVIDER_LABEL[project.defaultProvider] ? [project.defaultProvider] : ['claude'];
 }
@@ -70,6 +71,7 @@ export function providerUsageState(provider: AgentProvider | undefined, project:
   if (selected === 'claude') return usage ? 'tracked' : 'waiting';
   if (selected === 'opencode') return usage ? 'tracked' : 'waiting';
   if (selected === 'codex') return usage ? 'tracked' : 'waiting';
+  if (selected === 'droid') return 'untracked';
   if (selected === 'custom') return usage ? 'tracked' : 'untracked';
   return 'untracked';
 }
@@ -77,6 +79,7 @@ export function providerUsageState(provider: AgentProvider | undefined, project:
 export function providerUsageNote(provider: AgentProvider): string {
   if (provider === 'claude') return 'Office usage and budget track Claude Code.';
   if (provider === 'codex') return 'Review Office hooks in /hooks to enable tracking. Codex reports root-session tokens; subagents are excluded and cost is unavailable.';
+  if (provider === 'droid') return 'Droid status is tracked with hooks; tokens and cost are not yet reported to the Office budget.';
   if (provider === 'custom') return 'Usage is untracked unless compatible Claude Code hooks report it.';
   return 'OpenCode reports model/provider estimates; they are not billing, and arrive after the first report.';
 }

@@ -134,6 +134,7 @@ export class WorkerManager {
   private workers = new Map<string, Worker>();
   private statePath: string;
   private settingsPath: string;
+  private droidSettingsPath: string;
   private trees: Worktrees;
   private agentPath: string | null = null;
   readonly defaultProvider: AgentProvider;
@@ -167,6 +168,7 @@ export class WorkerManager {
     this.trees = new Worktrees(dir);
     this.statePath = path.join(dataDir, 'workers.json');
     this.settingsPath = path.join(dataDir, 'claude-hooks.json');
+    this.droidSettingsPath = path.join(dataDir, 'droid-hooks.json');
     this.writeHookSettings();
     this.openCodePlugin = writeOpenCodePlugin(dataDir);
     this.codexHook = writeCodexHook(dataDir);
@@ -635,6 +637,51 @@ export class WorkerManager {
     return true;
   }
 
+  /** Droid lifecycle hooks do not use Claude's transcript or spend ledger. */
+  handleDroidHook(workerId: string, token: string, event: string, payload: unknown): boolean {
+    const w = this.workers.get(workerId);
+    if (!w || !w.pty || w.info.kind !== 'agent' || w.info.provider !== 'droid' || !safeEq(token, w.hookToken)) return false;
+    if (!payload || typeof payload !== 'object') return false;
+    const report = payload as Record<string, unknown>;
+    if (report.hook_event_name !== event || typeof report.session_id !== 'string' || !report.session_id) return false;
+    if (!['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Notification', 'Stop'].includes(event)) return false;
+    if (event !== 'SessionStart' && w.info.sessionId && report.session_id !== w.info.sessionId) return false;
+    if (event === 'SessionStart') {
+      if ((w.info.sessionId && w.info.sessionId !== report.session_id) || report.source === 'clear') this.clearTask(w);
+      w.info.sessionId = report.session_id;
+      w.bootBlocked = false;
+      w.info.activity = undefined;
+      this.setStatus(w, 'idle');
+    } else if (event === 'UserPromptSubmit') {
+      w.bootBlocked = false;
+      w.info.action = undefined;
+      if (typeof report.prompt === 'string') {
+        w.info.activity = truncate(report.prompt, 80);
+        this.notePrompt(w, report.prompt);
+      }
+      this.setStatus(w, 'working');
+    } else if (event === 'PreToolUse') {
+      const tool = report.tool_name;
+      if (tool === 'AskUserQuestion' || tool === 'request_user_input') this.setStatus(w, 'needs_input');
+      else {
+        w.info.activity = describeTool(report);
+        w.info.action = toolAction(tool, report.tool_input);
+        this.setStatus(w, 'working');
+      }
+    } else if (event === 'PostToolUse') {
+      this.noteOutcome(w, report, false);
+      if (w.info.status === 'needs_input' && (report.tool_name === 'AskUserQuestion' || report.tool_name === 'request_user_input')) this.setStatus(w, 'working');
+    } else if (event === 'Notification') {
+      if (report.notification_type === 'permission_prompt' || report.notification_type === 'elicitation_dialog') {
+        w.info.activity = typeof report.message === 'string' ? truncate(report.message, 80) : 'Waiting for input';
+        this.setStatus(w, 'needs_input');
+      } else if (report.notification_type === 'idle_prompt' && w.info.status === 'working') this.setStatus(w, 'done');
+    } else if (event === 'Stop') this.setStatus(w, 'done');
+    this.emitUpdate(w);
+    this.persist();
+    return true;
+  }
+
   /** Native Codex lifecycle hooks register the root rollout for bounded metric reads. */
   handleCodexHook(workerId: string, token: string, event: string, payload: unknown): boolean {
     const w = this.workers.get(workerId);
@@ -871,6 +918,7 @@ export class WorkerManager {
     const isClaude = !isShell && provider === 'claude';
     const isOpenCode = !isShell && provider === 'opencode';
     const isCodex = !isShell && provider === 'codex';
+    const isDroid = !isShell && provider === 'droid';
     const configured = !isShell && provider === this.defaultProvider;
     const station = DESK_BY_ID.get(info.deskId)?.station;
     const command = this.command(info);
@@ -895,13 +943,17 @@ export class WorkerManager {
       args.push(...codexHookArgs(this.codexHook), '--no-alt-screen');
       if (resumeSessionId) args.push('resume', resumeSessionId);
       if (prompt) args.push('--', prompt);
+    } else if (isDroid) {
+      args.unshift('--settings', this.droidSettingsPath);
+      if (resumeSessionId) args.push('--resume', resumeSessionId);
+      if (prompt) args.push('--', prompt);
     }
     if (isCodex) {
       w.codexTools.clear();
       w.codexPending.clear();
       w.codexPermissionUnknown = false;
     }
-    if (isOpenCode || isCodex) {
+    if (isOpenCode || isCodex || isDroid) {
       w.hookToken = randomBytes(16).toString('hex');
       w.openCodeError = false;
     }
@@ -944,7 +996,7 @@ export class WorkerManager {
       this.startFailed(w, (err as Error).message);
       return;
     }
-    if (!isClaude && !isCodex) info.status = 'idle';
+    if (!isClaude && !isCodex && !isDroid) info.status = 'idle';
     this.follow(w, proc, term, resumeSessionId);
     this.emitUpdate(w);
     this.persist();
@@ -1056,10 +1108,12 @@ export class WorkerManager {
     // blocked on a human: folder trust dialog, login, first-run onboarding. Flag it so it jumps.
     setTimeout(() => {
       if (info.status !== 'starting' || w.pty !== proc) return;
-      if (isClaude || isCodex) {
+      if (isClaude || isCodex || info.provider === 'droid') {
         w.bootBlocked = true;
         info.activity = isCodex
           ? 'Open the terminal: complete login and review Office hooks in /hooks'
+          : info.provider === 'droid'
+            ? 'Waiting on Droid setup or hooks — open the terminal'
           : 'Waiting on a setup prompt (trust / login) — open the terminal';
         this.setStatus(w, 'needs_input');
       } else this.setStatus(w, 'idle');
@@ -1233,11 +1287,11 @@ export class WorkerManager {
     writeFileSync(
       nodeHook,
       `const http = require('http');
-const [event] = process.argv.slice(2);
+const [provider, event] = process.argv.slice(2);
 let body = '';
 process.stdin.on('data', (c) => (body += c));
 process.stdin.on('end', () => {
-  const url = new URL(process.env.AGENT_OFFICE_HOOK_URL + '/hooks/claude');
+  const url = new URL(process.env.AGENT_OFFICE_HOOK_URL + '/hooks/' + provider);
   url.searchParams.set('worker', process.env.AGENT_OFFICE_WORKER_ID);
   url.searchParams.set('event', event);
   const send = (tries) => {
@@ -1253,18 +1307,26 @@ process.stdin.on('end', () => {
 `,
       { mode: 0o600 },
     );
-    const hooks: Record<string, unknown[]> = {};
-    for (const [event, matcher] of events) {
+    const commandFor = (provider: 'claude' | 'droid', event: string) => {
       const curl =
         `curl -sS -m 3 --retry ${HOOK_TRIES - 1} --retry-delay 1 --retry-connrefused -X POST -H "Authorization: Bearer $AGENT_OFFICE_HOOK_TOKEN" -H "Content-Type: application/json" ` +
-        `--data-binary @- "$AGENT_OFFICE_HOOK_URL/hooks/claude?worker=$AGENT_OFFICE_WORKER_ID&event=${event}"`;
-      const command =
+        `--data-binary @- \"$AGENT_OFFICE_HOOK_URL/hooks/${provider}?worker=$AGENT_OFFICE_WORKER_ID&event=${event}\"`;
+      return (
         `if [ -z "$AGENT_OFFICE_WORKER_ID" ] || [ -z "$AGENT_OFFICE_HOOK_URL" ]; then exit 0; fi; ` +
         `if command -v curl >/dev/null 2>&1; then ${curl} >/dev/null 2>&1; ` +
-        `else ${shq(process.execPath)} ${shq(nodeHook)} ${event} >/dev/null 2>&1; fi; true`;
-      hooks[event] = [{ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command }] }];
+        `else ${shq(process.execPath)} ${shq(nodeHook)} ${provider} ${event} >/dev/null 2>&1; fi; true`
+      );
+    };
+    const hooks: Record<string, unknown[]> = {};
+    for (const [event, matcher] of events) {
+      hooks[event] = [{ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command: commandFor('claude', event) }] }];
     }
     writeFileSync(this.settingsPath, JSON.stringify({ hooks }, null, 2), { mode: 0o600 });
+    const droidHooks: Record<string, unknown[]> = {};
+    for (const event of ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Notification', 'Stop']) {
+      droidHooks[event] = [{ hooks: [{ type: 'command', command: commandFor('droid', event) }] }];
+    }
+    writeFileSync(this.droidSettingsPath, JSON.stringify({ hooks: droidHooks }, null, 2), { mode: 0o600 });
   }
 
   /**
@@ -1334,7 +1396,7 @@ process.stdin.on('end', () => {
         const tracker = restoreTracker(s.tracker);
         const provider = s.kind === 'shell'
           ? undefined
-          : s.provider === 'claude' || s.provider === 'opencode' || s.provider === 'codex' || s.provider === 'custom'
+          : s.provider === 'claude' || s.provider === 'opencode' || s.provider === 'codex' || s.provider === 'droid' || s.provider === 'custom'
             ? s.provider
             : tracker.transcript
               ? 'claude'

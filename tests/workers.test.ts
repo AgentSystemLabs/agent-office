@@ -28,6 +28,7 @@ type Fixture = {
   claude: string;
   opencode: string;
   codex: string;
+  droid: string;
   custom: string;
   read(): Invocation[];
   close(): void;
@@ -121,12 +122,14 @@ function fixture(): Fixture {
   const opencode = path.join(bin, 'opencode');
   const custom = path.join(bin, 'custom-agent');
   const codex = path.join(bin, 'codex');
+  const droid = path.join(bin, 'droid');
   mkdirSync(data, { recursive: true });
   mkdirSync(bin, { recursive: true });
   writeFileSync(claude, fakeAgent, { mode: 0o700 });
   writeFileSync(opencode, fakeAgent, { mode: 0o700 });
   writeFileSync(custom, fakeAgent, { mode: 0o700 });
   writeFileSync(codex, fakeAgent, { mode: 0o700 });
+  writeFileSync(droid, fakeAgent, { mode: 0o700 });
   chmodSync(claude, 0o700);
   chmodSync(opencode, 0o700);
   chmodSync(custom, 0o700);
@@ -138,6 +141,7 @@ function fixture(): Fixture {
     claude,
     opencode,
     codex,
+    droid,
     custom,
     read() {
       if (!existsSync(log)) return [];
@@ -323,6 +327,76 @@ test('OpenCode workers use OpenCode-only hooks/config, never invoke Claude namin
   assert.ok(restoredInvocation.args.includes('oc-child'));
   assert.ok(restored.get(worker.id)?.status === 'idle' || restored.get(worker.id)?.status === 'exited' || restored.get(worker.id)?.status === 'done');
   assert.equal(f.read().filter((r) => r.kind === 'claude').length, 0, 'OpenCode must never invoke Claude task naming');
+});
+
+test('Droid workers launch with their own hook overlay and resume the correct session', async (t) => {
+  const f = fixture();
+  const updates: WorkerInfo[] = [];
+  isolateProviderEnvironment(f, t);
+  const previousExit = process.env.FAKE_AGENT_EXIT_MS;
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_EXIT_MS = '180';
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousExit === undefined) delete process.env.FAKE_AGENT_EXIT_MS;
+    else process.env.FAKE_AGENT_EXIT_MS = previousExit;
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+
+  const workers = manager(f, f.droid, updates);
+  t.after(() => workers.shutdown());
+  assert.equal(workers.defaultProvider, 'droid');
+  const worker = workers.spawn('desk-2', 'test', '- inspect this code');
+  assert.equal(typeof worker, 'object');
+  if (typeof worker === 'string') return;
+  const first = (await waitFor(() => f.read(), (records) => records.some((r) => r.kind === 'droid'))).find((r) => r.kind === 'droid')!;
+  assert.deepEqual(first.args.slice(0, 3), ['--settings', path.join(f.data, 'droid-hooks.json'), '--from-test']);
+  assert.deepEqual(first.args.slice(-2), ['--', '- inspect this code']);
+  assert.equal(first.env.workerId, worker.id);
+  assert.ok(first.env.hookToken);
+  assert.equal(f.read().filter((r) => r.kind === 'claude').length, 0, 'Droid must not run the Claude task namer');
+  const settings = JSON.parse(readFileSync(path.join(f.data, 'droid-hooks.json'), 'utf8'));
+  assert.match(settings.hooks.SessionStart[0].hooks[0].command, /\/hooks\/droid/);
+  assert.ok(!settings.hooks.PermissionRequest, 'Droid only receives supported hook events');
+
+  const hook = (event: string, data: Record<string, unknown>, token = first.env.hookToken!) =>
+    workers.handleDroidHook(worker.id, token, event, { session_id: 'droid-1', hook_event_name: event, ...data });
+  assert.equal(hook('SessionStart', { source: 'startup' }, 'wrong-token'), false);
+  assert.equal(hook('SessionStart', { source: 'startup' }), true);
+  assert.equal(workers.get(worker.id)?.status, 'idle');
+  assert.equal(hook('UserPromptSubmit', { prompt: 'inspect this code' }), true);
+  assert.equal(workers.get(worker.id)?.status, 'working');
+  assert.equal(hook('PreToolUse', { tool_name: 'Read', tool_input: { file_path: 'src/main.ts' } }), true);
+  assert.equal(workers.get(worker.id)?.action, 'read');
+  assert.equal(hook('Notification', { notification_type: 'permission_prompt' }), true);
+  assert.equal(workers.get(worker.id)?.status, 'needs_input');
+  assert.equal(hook('PostToolUse', { tool_name: 'Read' }), true);
+  assert.equal(workers.get(worker.id)?.status, 'needs_input', 'unrelated tools cannot dismiss a permission prompt');
+  assert.equal(hook('UserPromptSubmit', { prompt: 'continue' }), true);
+  assert.equal(hook('Stop', {}), true);
+  assert.equal(workers.get(worker.id)?.status, 'done');
+  assert.equal(workers.get(worker.id)?.usage, undefined, 'Droid must not read Claude usage');
+  assert.equal(workers.handleHook(worker.id, first.env.hookToken!, 'Stop', { session_id: 'droid-1' }), false);
+  assert.equal(workers.handleDroidHook(worker.id, first.env.hookToken!, 'Stop', { session_id: 'other', hook_event_name: 'Stop' }), false);
+
+  await waitFor(() => workers.get(worker.id)?.status, (status) => status === 'exited');
+  assert.equal(workers.resume(worker.id), undefined);
+  const second = (await waitFor(() => f.read(), (records) => records.filter((r) => r.kind === 'droid').length >= 2)).filter((r) => r.kind === 'droid')[1];
+  assert.deepEqual(second.args.slice(-2), ['--resume', 'droid-1']);
+  assert.notEqual(second.env.hookToken, first.env.hookToken);
+  assert.equal(hook('Stop', {}), false, 'hooks from the old process must not control a resumed worker');
+  assert.equal(hook('SessionStart', { source: 'resume' }, second.env.hookToken!), true);
+
+  workers.shutdown();
+  const restored = manager(f, f.droid, []);
+  t.after(() => restored.shutdown());
+  await restored.start();
+  assert.equal(restored.get(worker.id)?.provider, 'droid');
+  assert.equal(restored.get(worker.id)?.sessionId, 'droid-1');
+  const third = (await waitFor(() => f.read(), (records) => records.filter((r) => r.kind === 'droid').length >= 3)).filter((r) => r.kind === 'droid')[2];
+  assert.deepEqual(third.args.slice(-2), ['--resume', 'droid-1']);
 });
 
 test('OpenCode model overrides configured model flags on first launch and is omitted on resume', async (t) => {
