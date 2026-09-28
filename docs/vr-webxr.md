@@ -235,7 +235,14 @@ A hand already aiming a teleport isn't hijacked: the second hand joining late do
 All four behaviors were driven with real runtime hand input in the emulator (single hold →
 aim → teleport; both together → menu with suppressed aims and consumed releases; late
 second hand → no menu; hand tap on a panel row → click).
-Buttons and sticks follow the XR Standard gamepad mapping (stick at axes [2,3] when present).
+Controller buttons and sticks follow the XR Standard gamepad mapping. On Galaxy XR, Chromium
+builds the controller gamepad as `[trigger, squeeze, placeholder, thumbstick, X/A, Y/B,
+thumbrest]` with the stick on axes `[2, 3]` (`device/vr/openxr/openxr_controller.cc`,
+matching the `samsung-galaxyxr` input profile). Tracked hands also get a gamepad,
+`[pinch, placeholder, placeholder, placeholder, grasp]` with no axes, so a source counts as a
+hand when `inputSource.hand` is set, whatever its gamepad looks like. Sticks and face buttons
+are read only from controllers (`controllerPad` in `session.ts`), so a hand's grasp at `[4]`
+is never read as B.
 Select/teleport/cancel fire a short haptic pulse where the controller has an actuator.
 
 Hands render as the skinned generic-hand mesh (`three`'s `XRHandMeshModel`, vendored under
