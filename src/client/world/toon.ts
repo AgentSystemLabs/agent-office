@@ -139,6 +139,8 @@ export interface CardOpts {
   title: string;
   body?: string;
   bg: string;
+  /** The outline's color, when it isn't the usual ink. */
+  border?: string;
   /** Widest a line of text may get, in textSprite `size` pixels. */
   maxWidth?: number;
 }
@@ -206,7 +208,7 @@ export function cardSprite(o: CardOpts): THREE.Sprite {
   ctx.fill();
   ctx.lineWidth = lw;
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = INK;
+  ctx.strokeStyle = o.border ?? INK;
   ctx.stroke();
 
   ctx.textAlign = 'center';

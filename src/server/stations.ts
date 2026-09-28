@@ -1,15 +1,13 @@
 // What the board agents are told when they're hired: the agents standing by the Issues board, the PR
 // board and the task queue (STATIONS in shared/layout.ts). Whoever walks up types them a request; the
-// first one follows this brief in the same prompt.
+// first one follows this brief in the same prompt. The briefs themselves are prompts the office can
+// rewrite in Settings (shared/prompts.ts); what each agent looks after, which differs between GitHub
+// and GitLab floors, is their {{job}}.
 
-import { STATION_AGENT, type StationKind } from '../shared/layout.js';
+import type { StationKind } from '../shared/layout.js';
 import type { Forge } from '../shared/floors.js';
-
-const BOARD: Record<StationKind, string> = {
-  issues: 'the 📌 Issues board',
-  pulls: 'the 🔀 Pull Requests board',
-  queue: 'the 📋 task queue',
-};
+import { forgeVars } from '../shared/prompts.js';
+import { officePrompt, type PromptSource } from './prompts.js';
 
 const JOB: Record<Forge, Record<StationKind, string>> = {
   github: {
@@ -24,28 +22,8 @@ const JOB: Record<Forge, Record<StationKind, string>> = {
   },
 };
 
-/** How a board agent reaches the queue: the office-queue command, which the office puts on its PATH. */
-function queueApi(forge: Forge): string {
-  const [pull, site] = forge === 'gitlab' ? ['merge request', 'GitLab'] : ['pull request', 'GitHub'];
-  return `The task queue gives each task a fresh worker in its own git worktree, a few at a time; a task usually ends with a ${pull}. Use it with the office-queue command, which is on your PATH (it knows who you are, so don't call the office's HTTP API yourself):
-- See it: office-queue list (each task's id, status, title, worker and ${pull})
-- Add a task: office-queue add --title "Short title" [--issue <number>], with the task's prompt on stdin in a quoted heredoc so nothing in it gets expanded. It prints the new task's id. With --issue the task is linked to that ${site} issue, which is assigned when the task starts.
-  office-queue add --title "Fix the login redirect" <<'EOF'
-  …the full prompt…
-  EOF
-- Take a waiting task off: office-queue remove <id>`;
-}
-
-export function stationBrief(kind: StationKind, forge: Forge = 'github'): string {
-  const queue = kind === 'queue';
-  return [
-    `You're the ${STATION_AGENT[kind].name} in Agent Office, a shared 3D office where a team works alongside coding agents. You stand at a kiosk by ${BOARD[kind]}, and whoever walks up types you a request. The first one is at the end of this message.`,
-    JOB[forge][kind],
-    `You're in the project's main checkout, which other people and workers use too: don't switch branches, commit, or leave edits in it. Work that needs code changed goes on the task queue, ${queue ? 'always' : 'unless the person asks you for something else'}.`,
-    queueApi(forge),
-    `${queue ? "When you've queued it, say in a few lines what you queued: each task's id and title." : "When you've done what was asked, say in a few lines what you did, with links."} Then wait: the next request may come from someone else.`,
-    `The request:`,
-  ].join('\n\n');
+export function stationBrief(kind: StationKind, forge: Forge = 'github', prompts?: PromptSource): string {
+  return officePrompt(prompts, `station.${kind}`, { ...forgeVars(forge), job: JOB[forge][kind] });
 }
 
 /** Claude Code tools the queue agent is launched without, so it can't edit the checkout even by mistake. */

@@ -38,16 +38,13 @@ export function openUpgrade(net: Net) {
       body.append(h('label', { style: 'margin-top:14px' }, `New: ${n >= 50 ? '50+' : n} change${n === 1 ? '' : 's'}`), h('ul.changes', {}, ...(u.changes ?? []).map((c) => h('li', {}, h('code', {}, c.sha), ' ', c.subject))));
       if (n > shown) body.append(h('p.note', {}, `…and ${n >= 50 ? 'more' : `${n - shown} more`}`));
       if (!busy) {
-        const awake = [...store.workers.values()].filter((w) => !isAsleep(w.status));
-        const working = awake.filter((w) => w.status === 'working' || w.status === 'needs_input');
+        const awake = [...store.workers.values()].some((w) => !isAsleep(w.status));
         body.append(
           h(
             'p.note',
             {},
             'Upgrading builds the new version while the office keeps running, then restarts it. Everyone reconnects on the new version automatically. ',
-            awake.length
-              ? `Workers who are awake wake back up by themselves afterwards${working.length ? `, but ${working.map((w) => w.name).join(', ')} ${working.length === 1 ? 'is' : 'are'} in the middle of something that will be interrupted` : ''}.`
-              : '',
+            awake ? 'Workers keep working through the restart, and whatever they were in the middle of carries on.' : '',
           ),
         );
       }

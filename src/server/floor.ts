@@ -6,23 +6,27 @@ import { isBusy } from '../shared/status.js';
 import { DESK_BY_ID } from '../shared/layout.js';
 import type { FloorDef } from './building.js';
 import { excludeFromGit } from './config.js';
-import { configuredProvider } from './agents.js';
+import { agentProviders, configuredProvider } from './agents.js';
 import { WorkerManager, type HookEnv } from './workers.js';
 import { GitHub, MergeWatch } from './github.js';
 import { GitLab } from './gitlab.js';
 import type { Board } from './forge.js';
-import { forgeOf, forgeWords, type Forge } from '../shared/floors.js';
+import { forgeOf, forgeWords, type Forge, type ForgeWords } from '../shared/floors.js';
 import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { Decor } from './decor.js';
+import { Docs } from './docs.js';
 import { Dog } from './dog.js';
+import { Court } from './court.js';
 import { Jukebox } from './jukebox.js';
 import { Whiteboard } from './whiteboard.js';
 import { MeetingRoom } from './meetings.js';
 import { Worktrees } from './worktrees.js';
 import { FloorJira, type JiraOffice } from './jira.js';
+import { landedWorkers } from './leave-on-merge.js';
 import type { Ledger } from './usage.js';
 import type { Capacity } from './machine.js';
+import { officePrompt, type PromptSource } from './prompts.js';
 
 type ToastLevel = 'info' | 'warn' | 'error';
 
@@ -37,6 +41,8 @@ export interface FloorContext {
   capacity: Capacity;
   /** The office's Jira connection, which every floor's epic goes through. */
   jira: JiraOffice;
+  /** The office's prompts and the worker a new one starts on when nobody picks, as set in Settings. */
+  prompts: PromptSource;
   /** To everyone on this floor. */
   emit(floor: Floor, msg: ServerMsg, droppable?: boolean): void;
   toast(floor: Floor, text: string, level?: ToastLevel): void;
@@ -50,8 +56,12 @@ export interface FloorContext {
   people(floor: Floor): number;
   /** Who's on this floor, and where they stand. */
   peers(floor: Floor): PeerInfo[];
+  /** ⚙️ Settings: a worker whose pull request merged goes home by itself. */
+  leaveOnMerge(): boolean;
 }
 
+/** How long after a PR list or a worker's change the office looks for workers whose PR merged. */
+const LANDED_DELAY_MS = 1500;
 /** Boards on a floor nobody is on, with nothing running, are asked GitHub or GitLab about this seldom. */
 const IDLE_REFRESH_MS = 10 * 60_000;
 const REFRESH_MS = 90_000;
@@ -73,7 +83,7 @@ export function projectInfo(dir: string, name: string, agentCmd: string, agentAr
     forge,
     agentCmd: [agentCmd, ...agentArgs].join(' '),
     defaultProvider: configuredProvider(agentCmd),
-    agentProviders: configuredProvider(agentCmd) === 'custom' ? ['droid', 'claude', 'opencode', 'codex', 'custom'] : ['droid', 'claude', 'opencode', 'codex'],
+    agentProviders: agentProviders(configuredProvider(agentCmd)),
   };
 }
 
@@ -98,12 +108,20 @@ export class Floor {
   readonly whiteboard: Whiteboard;
   /** The meeting room, where workers work through a question together (see meetings.ts). */
   readonly meetings: MeetingRoom;
+  /** The bookshelf: the project's Markdown files (see docs.ts). */
+  readonly docs: Docs;
   /** Settles once the workers whose terminals outlived the last office are picked back up, and the rest woken. */
   readonly ready: Promise<void>;
   readonly dog: Dog;
+  /** The basketball by the hoop: who has it, or how it was last thrown. */
+  readonly court = new Court();
   private timer: NodeJS.Timeout;
   /** Pull requests merging, to ring the gong for. */
   private merges = new MergeWatch();
+  /** A look for workers whose pull request merged, due shortly (see sendLandedHome). */
+  private landedTimer?: NodeJS.Timeout;
+  /** How this floor's forge names things: PR #n on GitHub, MR !n on GitLab. */
+  private words: ForgeWords;
 
   constructor(
     readonly def: FloorDef,
@@ -116,7 +134,9 @@ export class Floor {
     excludeFromGit(def.dir);
     const forge = forgeOf(def.repo) ?? 'github';
     const words = forgeWords(forge);
+    this.words = words;
     this.project = projectInfo(def.dir, def.name, ctx.agentCmd, ctx.agentArgs, forge);
+    this.docs = new Docs(def.dir);
     const onIssues = (state: Board['issues']) => ctx.emit(this, { t: 'gh.issues', state });
     const onPulls = (state: Board['pulls']) => {
       ctx.emit(this, { t: 'gh.pulls', state });
@@ -126,6 +146,7 @@ export class Floor {
         ctx.toast(this, `🎉 ${words.pr} ${words.ref(p.number)} merged: ${p.title}`);
         this.merged(p.number);
       }
+      this.sendLandedHome();
     };
     this.jira = new FloorJira(dataDir, ctx.jira, {
       state: (state) => ctx.emit(this, { t: 'jira', state }),
@@ -154,6 +175,8 @@ export class Floor {
           this.meetings?.onWorker(worker);
           this.dog.onWorker(worker);
           ctx.workerChanged(this, worker);
+          // Its turn ended, or whoever had its terminal open closed it: it may be free to go now.
+          this.sendLandedHome();
         },
         remove: (workerId) => {
           this.changes?.forget(workerId);
@@ -170,11 +193,16 @@ export class Floor {
       ctx.ledger,
       ctx.capacity,
       this.board,
+      ctx.prompts,
     );
 
     // The 📋 task queue seats workers by itself: it watches the workers and links PRs from GitHub.
     this.queue = new TaskQueue(dataDir, this.workers, !!this.project.branch, {
-      update: (state) => ctx.emit(this, { t: 'queue', state }),
+      update: (state) => {
+        ctx.emit(this, { t: 'queue', state });
+        // A task's pull request may just have been linked (or merged).
+        this.sendLandedHome();
+      },
       toast: (text, level) => ctx.toast(this, text, level),
       claimIssue: (issue) => this.board.claim(issue),
       refreshGitHub: () => void this.board.refresh(),
@@ -184,14 +212,19 @@ export class Floor {
         ctx.toast(this, '📋 The queue is empty: every task is done 🎉');
         ctx.emit(this, { t: 'gong', why: 'queue' });
       },
+      worktreeNote: () => officePrompt(ctx.prompts, 'queue.worktree'),
     });
 
     // Meetings seat their own workers round the meeting room's table and run them round by round.
+    const workers = this.workers;
     this.meetings = new MeetingRoom(
       def.dir,
       dataDir,
       {
         defaultProvider: this.workers.defaultProvider,
+        get officeDefault() {
+          return workers.officeDefault;
+        },
         list: () => this.workers.list(),
         seat: (deskId, by, prompt, provider, model, effort, meeting) => this.workers.spawn(deskId, by, prompt, false, 'agent', provider, model, effort, meeting),
         prompt: (id, text, by) => this.workers.prompt(id, text, by),
@@ -204,6 +237,7 @@ export class Floor {
         toast: (text, level) => ctx.toast(this, text, level),
         hiringPaused: () => ctx.ledger.hiringPaused,
         postReview: (pr, file) => this.board.review(pr, file),
+        prompt: (id) => ctx.prompts.text(id),
       },
       forge,
     );
@@ -248,6 +282,28 @@ export class Floor {
     if (this.merges.ring(n)) this.ctx.emit(this, { t: 'gong', why: 'merged', pr: n, by });
   }
 
+  /**
+   * With ⚙️ Settings' *go home once merged* on, sends home every worker whose pull request merged,
+   * once it's at rest and nobody has its terminal open, deleting its worktree and branch unless they
+   * hold work that isn't on the remote. Called whenever that might have changed; it looks a moment
+   * later, once for a burst of calls, and not from inside the event that prompted it.
+   */
+  sendLandedHome() {
+    if (this.landedTimer || !this.ctx.leaveOnMerge()) return;
+    this.landedTimer = setTimeout(() => {
+      this.landedTimer = undefined;
+      if (!this.ctx.leaveOnMerge()) return;
+      for (const { worker, pr, head } of landedWorkers(this.workers.list(), this.board.pulls.items, this.queue.state().tasks)) {
+        const done = this.workers.kill(worker.id, undefined, head);
+        this.ctx.toast(this, `🏠 ${worker.name} went home: ${this.words.pr} ${this.words.ref(pr)} merged`);
+        void done.then(({ note, error }) => {
+          if (note) this.ctx.toast(this, note);
+          if (error) this.ctx.toast(this, error, 'warn');
+        });
+      }
+    }, LANDED_DELAY_MS);
+  }
+
   /** Someone just walked in: boards that haven't been looked at in a while get fetched again. */
   arrived() {
     if (Date.now() - Math.max(this.board.issues.fetchedAt, this.board.pulls.fetchedAt) > REFRESH_MS) void this.board.refresh();
@@ -278,6 +334,7 @@ export class Floor {
   /** With `keep` (a restart), the workers' terminals keep running for the next office to pick up. */
   shutdown(keep = false) {
     clearInterval(this.timer);
+    clearTimeout(this.landedTimer);
     this.dog.stop();
     this.board.stop();
     this.queue.shutdown();

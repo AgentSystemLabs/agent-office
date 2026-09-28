@@ -8,12 +8,13 @@ import { CodexUsageReader } from './codex-usage.js';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
 import unicode11 from '@xterm/addon-unicode11';
-import type { AgentEffort, AgentProvider, Run, TerminalHit, WorkerInfo, WorkerKind, WorkerStatus, WorkerTask } from '../shared/protocol.js';
+import type { AgentChoice, AgentEffort, AgentProvider, Run, TerminalHit, WorkerInfo, WorkerKind, WorkerStatus, WorkerTask } from '../shared/protocol.js';
 import { FAILS_TO_DESPAIR, outputFailed, toolAction } from '../shared/actions.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, isAgentEffort, isClaudeModel } from '../shared/protocol.js';
 import { Worktrees, describeWork, type WorktreeCleanup, type WorktreeState } from './worktrees.js';
 import { DESK_BY_ID, STATION_AGENT } from '../shared/layout.js';
 import { QUEUE_AGENT_DISALLOWED_TOOLS, stationBrief } from './stations.js';
+import { officePrompt, type PromptSource } from './prompts.js';
 import { isBusy } from '../shared/status.js';
 import { githubPulls } from './github.js';
 import type { PullHost } from './forge.js';
@@ -111,6 +112,12 @@ const USAGE_SCAN_MS = 10_000;
 const SAVE_SCROLLBACK_MS = 15_000;
 /** Between a worker's saved scrollback and what it prints after the office restarted. */
 const RESTORED_NOTE = '\x1b[2m──── the office restarted · earlier output above ────\x1b[0m\r\n';
+/**
+ * What a worker whose terminal didn't make it through a restart (the machine rebooted, the terminal
+ * host was replaced or died) is resumed with when it was in the middle of something, so it carries on
+ * by itself instead of waiting at every desk for someone to type "continue".
+ */
+export const CARRY_ON_PROMPT = 'continue — the office restarted and interrupted you. Pick up where you left off; if you were waiting on an answer or a permission, ask again.';
 
 export interface HookEnv {
   url: string;
@@ -154,6 +161,8 @@ interface Worker {
   scanTimer?: NodeJS.Timeout;
   /** Its terminal in the host as of the last save, and how it was doing, to pick back up after a restart. */
   saved?: { ptyId: string; status: WorkerStatus; acked: boolean; waitingSince?: number };
+  /** Its process went away mid-turn with the office or the terminal host: its next start carries on (CARRY_ON_PROMPT). */
+  interrupted?: boolean;
   /** Output since its scrollback was last saved to disk. */
   unsaved?: boolean;
   /** Where this run's own output starts, below the scrollback carried over from before. */
@@ -189,6 +198,8 @@ export class WorkerManager {
   private screenTimer: NodeJS.Timeout;
   /** The office is shutting down: workers exiting now are being stopped, not failing to resume. */
   private closing = false;
+  /** Closing for good (Ctrl+C), not restarting: whatever the workers were doing is stopped on purpose. */
+  private stopping = false;
   private namer: TaskNamer;
   private usageTimer: NodeJS.Timeout;
   /** Runs the workers' terminals outside the office, so they outlive a restart of it (see ptys.ts). */
@@ -209,6 +220,8 @@ export class WorkerManager {
     private capacity?: Capacity,
     /** Where workers' pull requests are opened: GitHub, or the floor's GitLab project. */
     private pulls: PullHost & { forge?: Forge } = githubPulls,
+    /** The office's prompts and the worker a new one starts on when nobody picks, as set in Settings (see prompts.ts). */
+    private prompts?: PromptSource,
   ) {
     this.defaultProvider = configuredProvider(agentCmd);
     this.trees = new Worktrees(dir);
@@ -221,13 +234,18 @@ export class WorkerManager {
     this.queueBin = this.writeQueueCommand();
     this.agentPath = resolveCommand(agentCmd);
     const claude = this.defaultProvider === 'claude' ? this.agentPath : resolveCommand('claude');
-    this.namer = new TaskNamer(claude, childEnv(), (id, task, ctx) => {
-      const w = this.workers.get(id);
-      if (!w || w.taskEpoch !== ctx.epoch) return;
-      w.info.task = task;
-      this.emitUpdate(w);
-      this.persist();
-    });
+    this.namer = new TaskNamer(
+      claude,
+      childEnv(),
+      () => officePrompt(this.prompts, 'office.namer'),
+      (id, task, ctx) => {
+        const w = this.workers.get(id);
+        if (!w || w.taskEpoch !== ctx.epoch) return;
+        w.info.task = task;
+        this.emitUpdate(w);
+        this.persist();
+      },
+    );
     this.host = new PtyHost(dataDir, () => this.events.toast("The workers' terminal host stopped — resuming them", 'warn'));
     this.scrollback = new ScrollbackStore(dataDir);
     this.restore();
@@ -246,7 +264,8 @@ export class WorkerManager {
   /**
    * Picks every worker whose terminal outlived the last office (a dev-server reload, an upgrade)
    * back up where it is, mid-turn or not. Whoever else was at a desk when the office stopped (a
-   * restart, a crash) gets straight back to work. Call once, before anyone can walk in.
+   * restart, a crash) gets straight back to work, carrying on with whatever it was in the middle of.
+   * Call once, before anyone can walk in.
    */
   async start() {
     await this.host.connect();
@@ -265,6 +284,12 @@ export class WorkerManager {
 
   get resolvedAgent(): string | null {
     return this.agentPath;
+  }
+
+  /** What an agent starts on when whoever starts it doesn't pick, when an admin set one in Settings (else the office's --agent). */
+  get officeDefault(): AgentChoice | undefined {
+    const picked = this.prompts?.agent();
+    return picked && (picked.provider !== 'custom' || this.defaultProvider === 'custom') ? picked : undefined;
   }
 
   list(): WorkerInfo[] {
@@ -306,6 +331,9 @@ export class WorkerManager {
     effort?: AgentEffort,
     meeting?: { id: string; worktree?: WorkerInfo['worktree'] },
   ): WorkerInfo | string {
+    // Nobody picked (a board agent, say): the office's default worker, model and effort included.
+    const picked = kind === 'agent' && provider === undefined ? this.officeDefault : undefined;
+    if (picked) ({ provider, model, effort } = picked);
     const selectedProvider = kind === 'agent' ? (provider ?? this.defaultProvider) : undefined;
     const modelError = validateWorkerModel(kind, selectedProvider, model);
     if (modelError) return modelError;
@@ -362,7 +390,7 @@ export class WorkerManager {
     this.workers.set(id, w);
     if (info.prompt) this.notePrompt(w, info.prompt);
     // A board agent is told what it's there for ahead of its first request (which is what shows).
-    this.launch(w, seat.station && info.prompt ? `${stationBrief(seat.station, this.forge)}\n\n${info.prompt}` : info.prompt, undefined);
+    this.launch(w, seat.station && info.prompt ? `${stationBrief(seat.station, this.forge, this.prompts)}\n\n${info.prompt}` : info.prompt, undefined);
     this.persist();
     return info;
   }
@@ -376,12 +404,15 @@ export class WorkerManager {
     w.info.exitCode = undefined;
     const station = DESK_BY_ID.get(w.info.deskId)?.station;
     // A board agent with no session to carry on starts over, so it needs telling what it's for again.
-    const first = prompt && station && !w.info.sessionId ? `${stationBrief(station, this.forge)}\n\n${prompt}` : prompt;
+    const first = prompt && station && !w.info.sessionId ? `${stationBrief(station, this.forge, this.prompts)}\n\n${prompt}` : prompt;
     if (prompt) {
       w.info.activity = truncate(prompt, 80);
       this.notePrompt(w, prompt);
     }
-    this.launch(w, first, w.info.sessionId);
+    // Cut off mid-turn by a restart: it gets on with it, as whoever was watching would have told it to.
+    const carryOn = !prompt && w.interrupted && w.info.kind === 'agent' && !!w.info.sessionId;
+    w.interrupted = false;
+    this.launch(w, carryOn ? CARRY_ON_PROMPT : first, w.info.sessionId);
     return undefined;
   }
 
@@ -419,10 +450,11 @@ export class WorkerManager {
 
   /**
    * Sends a worker home. For one with its own worktree, `cleanup` says what becomes of it; with no
-   * choice given, the worktree and branch go only when they hold no work. Resolves once that's done,
-   * with a line for the team about the worktree.
+   * choice given, the worktree and branch go only when they hold no work, where `landed` (its merged
+   * pull request's head commit) is work delivered. Resolves once that's done, with a line for the team
+   * about the worktree.
    */
-  async kill(id: string, cleanup?: WorktreeCleanup): Promise<{ note?: string; error?: string }> {
+  async kill(id: string, cleanup?: WorktreeCleanup, landed?: string): Promise<{ note?: string; error?: string }> {
     const w = this.workers.get(id);
     if (!w) return {};
     this.workers.delete(id);
@@ -451,7 +483,7 @@ export class WorkerManager {
     if (!wt || w.info.meeting) return {};
     const name = w.info.name;
     if (!cleanup) {
-      const work = describeWork(await this.trees.inspect(wt));
+      const work = describeWork(await this.trees.inspect(wt, landed));
       if (work) return { note: `Kept ${name}'s worktree and branch ${wt.branch} — it has ${work}` };
       cleanup = 'all';
     }
@@ -877,8 +909,8 @@ export class WorkerManager {
   private notePrompt(w: Worker, prompt: string) {
     if (w.info.kind !== 'agent') return;
     const clean = prompt.replace(/\s+/g, ' ').trim();
-    // Bare slash commands (/model, /compact) and repeats aren't new work.
-    if (!clean || /^\/\S+$/.test(clean) || w.prompts.at(-1) === clean) return;
+    // Bare slash commands (/model, /compact), repeats and the office's own carry-on aren't new work.
+    if (!clean || /^\/\S+$/.test(clean) || w.prompts.at(-1) === clean || clean === CARRY_ON_PROMPT) return;
     w.prompts = [...w.prompts, clean].slice(-TASK_PROMPTS);
     const hadTask = !!w.info.task;
     if (!hadTask) w.info.task = fallbackTask(clean);
@@ -939,6 +971,7 @@ export class WorkerManager {
    */
   shutdown(keep = false) {
     this.closing = true;
+    this.stopping = !keep;
     clearInterval(this.screenTimer);
     clearInterval(this.usageTimer);
     clearInterval(this.saveTimer);
@@ -948,6 +981,8 @@ export class WorkerManager {
       // Before the process goes, so the next office shows what it was doing, not how it was stopped.
       if (w.unsaved) this.saveScrollback(w);
       if (keep && w.pty?.id) continue;
+      // A restart only takes this one down because it runs in-process: the next office carries on its turn.
+      if (keep && midTurn(w)) w.interrupted = true;
       try {
         w.pty?.kill();
       } catch {
@@ -1070,6 +1105,8 @@ export class WorkerManager {
   /** Takes back a terminal the host kept running while the office was down. */
   private adopt(w: Worker, adopted: Adopted, saved: NonNullable<Worker['saved']>) {
     const { info } = w;
+    // It kept working through the restart: nothing to carry on.
+    w.interrupted = false;
     info.cols = adopted.cols;
     info.rows = adopted.rows;
     const term = this.newTerm(w);
@@ -1151,6 +1188,7 @@ export class WorkerManager {
       }
       // The terminal host died and took the process with it: nothing the worker did.
       if (lost && !this.closing) {
+        if (midTurn(w)) w.interrupted = true;
         this.resume(info.id);
         return;
       }
@@ -1438,7 +1476,7 @@ process.stdin.on('end', () => {
   }
 
   private persist() {
-    const saved = [...this.workers.values()].map(({ info, tracker, codexTranscript, hookToken, pty }) => ({
+    const saved = [...this.workers.values()].map(({ info, tracker, codexTranscript, hookToken, pty, bootBlocked, interrupted }) => ({
       id: info.id,
       kind: info.kind,
       provider: info.provider,
@@ -1463,6 +1501,8 @@ process.stdin.on('end', () => {
       // A terminal still running in the host, to pick back up after a restart. Its hooks keep the token.
       hookToken,
       pty: pty?.id ? { id: pty.id, status: info.status, acked: info.acked, waitingSince: info.waitingSince } : undefined,
+      // In the middle of something: if its terminal doesn't make it through a restart, it carries on after.
+      midTurn: !this.stopping && (!!interrupted || midTurn({ info, bootBlocked })),
     }));
     try {
       writeFileSync(this.statePath, JSON.stringify(saved, null, 2), { mode: 0o600 });
@@ -1474,7 +1514,7 @@ process.stdin.on('end', () => {
   private restore() {
     if (!existsSync(this.statePath)) return;
     try {
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { tracker?: unknown; codexTranscript?: unknown; hookToken?: unknown; pty?: any })[];
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { tracker?: unknown; codexTranscript?: unknown; hookToken?: unknown; pty?: any; midTurn?: unknown })[];
       for (const s of saved) {
         if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || this.deskOccupied(s.deskId)) continue;
         const tracker = restoreTracker(s.tracker);
@@ -1520,6 +1560,9 @@ process.stdin.on('end', () => {
           const status: WorkerStatus = RUNNING.has(s.pty.status) ? s.pty.status : 'idle';
           w.saved = { ptyId: s.pty.id, status, acked: s.pty.acked !== false, waitingSince: typeof s.pty.waitingSince === 'number' ? s.pty.waitingSince : undefined };
         }
+        // Mid-turn as the office went down: cut off, unless its terminal is picked back up still
+        // running (adopt). An office from before midTurn only said so for a terminal in the host.
+        w.interrupted = typeof s.midTurn === 'boolean' ? s.midTurn : s.pty?.status === 'working' || s.pty?.status === 'needs_input';
         if (info.prompt) w.prompts = [info.prompt.replace(/\s+/g, ' ').trim()];
         this.workers.set(info.id, w);
       }
@@ -1530,6 +1573,11 @@ process.stdin.on('end', () => {
 }
 
 // ---------------------------------------------------------------------------
+
+/** In the middle of a turn: working, or asking something (not stuck on a trust or login screen). */
+function midTurn({ info, bootBlocked }: Pick<Worker, 'info' | 'bootBlocked'>): boolean {
+  return info.kind === 'agent' && (info.status === 'working' || (info.status === 'needs_input' && !bootBlocked));
+}
 
 function newWorker(info: WorkerInfo, tracker: UsageTracker, hookToken = randomBytes(16).toString('hex')): Worker {
   return {

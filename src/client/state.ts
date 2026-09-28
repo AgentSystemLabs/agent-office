@@ -6,6 +6,7 @@ import type {
   GhIssue,
   GhPull,
   GhState,
+  LeaveOnMergeState,
   MachineState,
   MeetingState,
   NotifyState,
@@ -14,6 +15,7 @@ import type {
   Me,
   ProjectInfo,
   ProjectsDirState,
+  PromptsState,
   ProxyState,
   QueueState,
   QueueTask,
@@ -37,6 +39,7 @@ import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
 import { forgeWords, type ForgeWords } from '../shared/floors';
 import type { JiraBoardState, JiraFloorState } from '../shared/jira';
+import type { BallState } from '../shared/hoop';
 
 export type Topic =
   | 'peers'
@@ -67,13 +70,16 @@ export type Topic =
   | 'jukebox'
   | 'sky'
   | 'theme'
+  | 'leaveOnMerge'
   | 'whiteboard'
   | 'drawing'
   | 'cabinet'
   | 'cabinetFrame'
   | 'meeting'
+  | 'prompts'
   | 'jira'
-  | 'jiraBoard';
+  | 'jiraBoard'
+  | 'ball';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -264,10 +270,16 @@ class Store {
   /** The dog on your floor, and when (performance.now()) the leg it's on began. */
   dog: DogState | null = null;
   dogStart = 0;
+  /** The basketball on this floor, as the office last said (see world/hoop.ts). */
+  ball: BallState = {};
   /** Outside the windows; null until the server says. */
   sky: SkyState | null = null;
   /** The building's holiday decorations: the same on every floor. */
   theme: ThemeState = { pick: 'auto', active: null };
+  /** Whether workers whose pull request merged go home by themselves (⚙️ Settings). */
+  leaveOnMerge: LeaveOnMergeState = { on: false };
+  /** The office's prompts as rewritten in Settings, and the worker a new one starts on when nobody picks: the same on every floor. */
+  prompts: PromptsState = { custom: {} };
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -339,7 +351,8 @@ class Store {
     this.cabinetFrame = v.cabinet.frame;
     this.setDog(v.dog);
     this.setJukebox(v.jukebox);
-    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'jira', 'jiraBoard'] as Topic[]) this.emit(t);
+    this.ball = v.ball ?? {};
+    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'jira', 'jiraBoard', 'ball'] as Topic[]) this.emit(t);
   }
 
   private setDog(dog: DogState | null) {
@@ -372,8 +385,10 @@ class Store {
         this.clock = undefined; // compared again, in case it's another office (or the same one, restarted)
         this.sky = msg.sky;
         this.theme = msg.theme;
+        this.leaveOnMerge = msg.leaveOnMerge ?? { on: false };
+        this.prompts = msg.prompts ?? { custom: {} };
         this.enter(msg);
-        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'proxy', 'floors', 'projectsDir', 'sky', 'theme'] as Topic[]) this.emit(t);
+        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'proxy', 'floors', 'projectsDir', 'sky', 'theme', 'leaveOnMerge', 'prompts'] as Topic[]) this.emit(t);
         break;
       case 'floor.enter':
         this.peers = new Map(msg.peers.map((p) => [p.id, p]));
@@ -530,6 +545,10 @@ class Store {
         this.setDog(msg.dog);
         this.emit('dog');
         break;
+      case 'ball':
+        this.ball = msg.ball;
+        this.emit('ball');
+        break;
       case 'sky':
         this.sky = msg.state;
         this.emit('sky');
@@ -537,6 +556,14 @@ class Store {
       case 'theme':
         this.theme = msg.state;
         this.emit('theme');
+        break;
+      case 'leaveOnMerge':
+        this.leaveOnMerge = msg.state;
+        this.emit('leaveOnMerge');
+        break;
+      case 'prompts':
+        this.prompts = msg.state;
+        this.emit('prompts');
         break;
       case 'chat':
         this.chat.push(msg);

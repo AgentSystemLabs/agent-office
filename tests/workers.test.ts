@@ -5,8 +5,10 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Ledger } from '../src/server/usage.js';
-import { WorkerManager, type WorkerEvents } from '../src/server/workers.js';
-import type { AgentProvider, WorkerInfo } from '../src/shared/protocol.js';
+import { CARRY_ON_PROMPT, WorkerManager, type WorkerEvents } from '../src/server/workers.js';
+import type { PromptSource } from '../src/server/prompts.js';
+import { PROMPTS } from '../src/shared/prompts.js';
+import type { AgentChoice, AgentProvider, WorkerInfo } from '../src/shared/protocol.js';
 
 type Invocation = {
   kind: string;
@@ -522,6 +524,50 @@ test('board agents are hired with the requested provider, model, and effort', as
   assert.equal(workers.get(r.info.id)?.provider, 'droid');
 });
 
+test('a worker nobody picked for starts on the office default worker, told its board brief in the office’s words', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+  let agent: AgentChoice | undefined = { provider: 'droid', model: 'custom:droidproxy:opus-5-5', effort: 'high' };
+  const prompts: PromptSource = { text: (id) => (id === 'station.pulls' ? 'You review {{pullName}}s on {{site}}. The request:' : PROMPTS[id].text), agent: () => agent };
+  const workers = new WorkerManager(f.root, f.data, f.claude, [], { url: 'http://127.0.0.1:1', token: '' }, events([]), ledger(f.data), undefined, undefined, prompts);
+  t.after(() => workers.shutdown());
+  assert.deepEqual(workers.officeDefault, agent);
+
+  const r = workers.station('station-pulls', 'Ada', 'Sum up the open PRs');
+  if (typeof r === 'string') return assert.fail(r);
+  assert.deepEqual([r.info.provider, r.info.model, r.info.effort], ['droid', 'custom:droidproxy:opus-5-5', 'high']);
+  const launch = (
+    await waitFor(
+      () => f.read(),
+      (records) => records.some((x) => x.kind === 'droid'),
+    )
+  ).find((x) => x.kind === 'droid')!;
+  assert.ok(hasPrompt(launch, 'You review pull requests on GitHub. The request:\n\nSum up the open PRs'));
+  const overlay = JSON.parse(readFileSync(path.join(f.data, `droid-${r.info.id}.json`), 'utf8'));
+  assert.equal(overlay.sessionDefaultSettings.model, 'custom:droidproxy:opus-5-5');
+  assert.equal(overlay.sessionDefaultSettings.reasoningEffort, 'high');
+
+  // A picked provider wins, and a shell is never given one.
+  const picked = workers.spawn('desk-1', 'Ada', 'fix it', false, 'agent', 'claude');
+  if (typeof picked === 'string') return assert.fail(picked);
+  assert.deepEqual([picked.provider, picked.model, picked.effort], ['claude', undefined, undefined]);
+  const shell = workers.spawn('desk-2', 'Ada', undefined, false, 'shell');
+  if (typeof shell === 'string') return assert.fail(shell);
+  assert.equal(shell.provider, undefined);
+  // Unset, it's the office's --agent as before.
+  agent = undefined;
+  const plain = workers.spawn('desk-3', 'Ada', 'fix that');
+  if (typeof plain === 'string') return assert.fail(plain);
+  assert.deepEqual([plain.provider, plain.model, plain.effort], ['claude', undefined, undefined]);
+});
+
 test('OpenCode model overrides configured model flags on first launch and is omitted on resume', async (t) => {
   const f = fixture();
   const updates: WorkerInfo[] = [];
@@ -657,11 +703,13 @@ test('an explicit Claude model/effort overrides --agent-args and persists across
   if (typeof worker === 'string') return;
   assert.equal(workers.get(worker.id)?.model, 'haiku');
   assert.equal(workers.get(worker.id)?.effort, 'high');
+  // The task namer's one-shot `claude -p` can land in the log before or between the worker's launches.
+  const launches = (records: Invocation[]) => records.filter((r) => r.kind === 'claude' && !r.args.includes('-p'));
   const first = await waitFor(
     () => f.read(),
-    (records) => records.some((r) => r.kind === 'claude'),
+    (records) => launches(records).length >= 1,
   );
-  const firstInvocation = first.find((r) => r.kind === 'claude')!;
+  const firstInvocation = launches(first)[0];
   // The per-worker choice is appended after --agent-args, so it wins even though "opus" also appears.
   assert.deepEqual(firstInvocation.args.slice(firstInvocation.args.indexOf('--model')), ['--model', 'opus', '--model', 'haiku', '--effort', 'high', '--', 'haiku task']);
 
@@ -673,9 +721,9 @@ test('an explicit Claude model/effort overrides --agent-args and persists across
   assert.equal(workers.resume(worker.id), undefined);
   const resumed = await waitFor(
     () => f.read(),
-    (records) => records.filter((r) => r.kind === 'claude').length >= 2,
+    (records) => launches(records).length >= 2,
   );
-  const secondInvocation = resumed.filter((r) => r.kind === 'claude')[1];
+  const secondInvocation = launches(resumed)[1];
   assert.ok(secondInvocation.args.includes('--model'));
   assert.ok(secondInvocation.args.includes('haiku'));
   assert.ok(secondInvocation.args.includes('--effort'));
@@ -1209,4 +1257,167 @@ test('a worker is stamped with when it started waiting on someone, afresh each t
   hook('Stop');
   assert.equal(worker.status, 'done');
   assert.ok(worker.waitingSince! > asked, 'finishing is a new wait');
+});
+
+/** Each worker launch of `kind` so far (not the task namer's calls, nor what was typed into it), oldest first. */
+const launchesOf = (f: Fixture, kind = 'claude') => f.read().filter((r) => r.kind === kind && r.args.includes('--settings') && r.stdin === undefined);
+/** What a launch was told to do: the prompt after `--`, if any. */
+const promptOf = (r: Invocation) => (r.args.includes('--') ? r.args[r.args.indexOf('--') + 1] : undefined);
+
+function carryOnFixture(t: { after(fn: () => void): void }) {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const oldLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = oldLog;
+    f.close();
+  });
+  return f;
+}
+
+/** Hires a Claude worker and puts its session in `state`: mid-turn ('working', 'needs_input') or finished ('done'). */
+async function hireInState(f: Fixture, workers: WorkerManager, deskId: string, session: string, state: 'working' | 'needs_input' | 'done') {
+  const before = launchesOf(f).length;
+  const worker = workers.spawn(deskId, 'test', `task for ${session}`);
+  assert.notEqual(typeof worker, 'string');
+  if (typeof worker === 'string') throw new Error(worker);
+  const token = (
+    await waitFor(
+      () => launchesOf(f),
+      (x) => x.length > before,
+    )
+  ).at(-1)?.env.hookToken as string;
+  const hook = (event: string, extra = {}) => assert.equal(workers.handleHook(worker.id, token, event, { session_id: session, ...extra }), true);
+  hook('SessionStart');
+  hook('UserPromptSubmit', { prompt: `task for ${session}` });
+  if (state === 'needs_input') hook('PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'npm test' } });
+  if (state === 'done') hook('Stop');
+  assert.equal(workers.get(worker.id)?.status, state);
+  return worker;
+}
+
+test('a restart that takes a mid-turn worker down resumes it with continue; a finished one just wakes up', async (t) => {
+  const f = carryOnFixture(t);
+  const before = manager(f, f.claude, []);
+  // Never started, so its terminals run in-process and go down with it.
+  await hireInState(f, before, 'desk-1', 'mid-turn', 'working');
+  await hireInState(f, before, 'desk-2', 'asking', 'needs_input');
+  await hireInState(f, before, 'desk-3', 'finished', 'done');
+  before.shutdown(true);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  const after = manager(f, f.claude, []);
+  t.after(() => after.shutdown());
+  await after.start();
+  const resumed = (
+    await waitFor(
+      () => launchesOf(f),
+      (x) => x.length >= 6,
+    )
+  ).slice(3);
+  const of = (session: string) => resumed.find((r) => r.args.includes(session));
+  for (const session of ['mid-turn', 'asking']) {
+    assert.ok(of(session)?.args.includes('--resume'));
+    assert.equal(promptOf(of(session) as Invocation), CARRY_ON_PROMPT);
+  }
+  assert.ok(of('finished')?.args.includes('--resume'));
+  assert.equal(promptOf(of('finished') as Invocation), undefined);
+});
+
+test('a worker whose terminal outlives the office is picked back up mid-turn, not relaunched or told to continue', async (t) => {
+  const f = carryOnFixture(t);
+  const before = manager(f, f.claude, []);
+  await before.start();
+  const worker = await hireInState(f, before, 'desk-1', 'kept', 'working');
+  before.shutdown(true);
+
+  const after = manager(f, f.claude, []);
+  t.after(() => after.shutdown());
+  await after.start();
+  assert.equal(after.get(worker.id)?.status, 'working');
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(launchesOf(f).length, 1);
+});
+
+test('a worker whose terminal was in the host when an older office went down carries on if the host is gone', async (t) => {
+  const f = carryOnFixture(t);
+  // workers.json as the office before midTurn left it: only the host terminal's status says it was mid-turn.
+  const saved = (id: string, deskId: string, sessionId: string, status: string) => ({
+    id,
+    kind: 'agent',
+    provider: 'claude',
+    deskId,
+    name: id,
+    sessionId,
+    hookToken: `${id}-token`,
+    pty: { id: `${id}-pty`, status, acked: true },
+  });
+  writeFileSync(path.join(f.data, 'workers.json'), JSON.stringify([saved('upgraded', 'desk-1', 'was-working', 'working'), saved('idle', 'desk-2', 'was-done', 'done')]));
+  const workers = manager(f, f.claude, []);
+  t.after(() => workers.shutdown());
+  await workers.start();
+  const resumed = await waitFor(
+    () => launchesOf(f),
+    (x) => x.length >= 2,
+  );
+  assert.equal(promptOf(resumed.find((r) => r.args.includes('was-working')) as Invocation), CARRY_ON_PROMPT);
+  assert.equal(promptOf(resumed.find((r) => r.args.includes('was-done')) as Invocation), undefined);
+});
+
+test('a Droid worker cut off mid-turn carries on after the restart too', async (t) => {
+  const f = carryOnFixture(t);
+  const before = manager(f, f.droid, []);
+  const worker = before.spawn('desk-1', 'test', 'task for droid');
+  if (typeof worker === 'string') throw new Error(worker);
+  const token = (
+    await waitFor(
+      () => launchesOf(f, 'droid'),
+      (x) => x.length > 0,
+    )
+  )[0].env.hookToken as string;
+  const hook = (event: string, data: Record<string, unknown> = {}) => assert.equal(before.handleDroidHook(worker.id, token, event, { session_id: 'droid-mid', hook_event_name: event, ...data }), true);
+  hook('SessionStart', { source: 'startup' });
+  hook('UserPromptSubmit', { prompt: 'task for droid' });
+  assert.equal(before.get(worker.id)?.status, 'working');
+  before.shutdown(true);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  const after = manager(f, f.droid, []);
+  t.after(() => after.shutdown());
+  await after.start();
+  const resumed = (
+    await waitFor(
+      () => launchesOf(f, 'droid'),
+      (x) => x.length >= 2,
+    )
+  )[1];
+  assert.ok(resumed.args.includes('--resume'));
+  assert.ok(resumed.args.includes('droid-mid'));
+  assert.equal(promptOf(resumed), CARRY_ON_PROMPT);
+  // The office's own nudge isn't new work: the task keeps its name.
+  assert.equal(after.get(worker.id)?.prompt, 'task for droid');
+});
+
+test('stopping the office on purpose (Ctrl+C) leaves nothing to carry on', async (t) => {
+  const f = carryOnFixture(t);
+  const before = manager(f, f.claude, []);
+  // Its terminals run in the host, which ends them without telling the office they exited.
+  await before.start();
+  await hireInState(f, before, 'desk-1', 'stopped', 'working');
+  before.shutdown(false);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  const after = manager(f, f.claude, []);
+  t.after(() => after.shutdown());
+  await after.start();
+  const resumed = (
+    await waitFor(
+      () => launchesOf(f),
+      (x) => x.length >= 2,
+    )
+  )[1];
+  assert.ok(resumed.args.includes('stopped'));
+  assert.equal(promptOf(resumed), undefined);
 });

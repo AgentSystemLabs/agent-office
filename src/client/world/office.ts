@@ -5,6 +5,7 @@ import {
   BALCONY_DOOR,
   BEANBAGS,
   BOARDS,
+  BOOKSHELF,
   CABINET,
   DESKS,
   DESK_SIZE,
@@ -50,11 +51,15 @@ import { mergeByMaterial, mesh, roundedBox, textPlane, toon, toonUnique } from '
 import { buildElevator, type Elevator } from './elevator';
 import { buildGong, type Gong } from './gong';
 import { buildJukebox, type JukeboxView } from './jukebox';
+import { buildBookshelf } from './bookshelf';
 import { buildCabinet, type CabinetModel } from './cabinet';
 import { buildWhiteboard, type WhiteboardStand } from './whiteboard';
 import { buildStack, type Stack } from './stack';
 import { buildTower } from './tower';
 import { buildCoffeeMachine } from './coffee';
+import { buildHoop, type HoopView } from './hoop';
+import { buildGreen, buildTee, type Green, type Tee } from './golf';
+import { HOOP } from '../../shared/hoop';
 import type { TouchVolume } from './touch';
 
 export interface Collider {
@@ -93,7 +98,10 @@ export type InteractKind =
   | 'bar'
   | 'dj'
   /** The refresh button on the machine monitor's DroidProxy limits. */
-  | 'proxy';
+  | 'proxy'
+  | 'bookshelf'
+  | 'golf'
+  | 'ball';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -167,6 +175,11 @@ export interface Office {
   cabinet: CabinetModel;
   /** The rolling whiteboard everyone draws on together. */
   whiteboard: WhiteboardStand;
+  /** The golf tee on the balcony, and the hole across the street it's hit at. */
+  tee: Tee;
+  green: Green;
+  /** The basketball hoop on the west wall (the ball is main.ts's: see world/hoop.ts). */
+  hoop: HoopView;
   /** The ceiling, the floor, and the ladder and fire poles between the floors of the building. */
   stack: Stack;
   /** The sign over the elevator doors: which floor you're on. */
@@ -1039,6 +1052,7 @@ export function buildOffice(): Office {
   doors.push(slider.door);
   fixture(BALCONY_DOOR.wall, BALCONY_DOOR.u, (BALCONY_DOOR.y1 + 0.1) / 2, BALCONY_DOOR.width + 0.2, BALCONY_DOOR.y1 + 0.1);
   buildBalcony(group, colliders, interactables, night);
+  const tee = buildTee(group, colliders, interactables);
 
   // Down to the street, which is the bottom floor's: its exit door and the steps down from it, the
   // posts under its balcony, the garage under it and the street out front. On a floor above it, all
@@ -1057,6 +1071,7 @@ export function buildOffice(): Office {
   buildGarage(ground, groundColliders);
   // The clouds stay up in the sky, however far down the street is.
   buildStreet(ground, groundColliders, night, group);
+  const green = buildGreen(ground, groundColliders, night);
   group.add(ground);
   colliders.push(...groundColliders);
   const groundBase = groundColliders.map((c) => ({ c, top: c.top, bottom: c.bottom ?? 0 }));
@@ -1253,6 +1268,13 @@ export function buildOffice(): Office {
   interactables.push(cabinet.interactable);
   fixture('east', CABINET.z, CABINET.height / 2, CABINET.width + 0.1, CABINET.height);
 
+  // The bookshelf of the project's docs, on the south wall between the middle window and the balcony doors.
+  const shelf = buildBookshelf();
+  group.add(shelf.group);
+  colliders.push(shelf.collider);
+  interactables.push(shelf.interactable);
+  fixture('south', BOOKSHELF.x, (BOOKSHELF.height + 0.55) / 2, BOOKSHELF.width + 0.2, BOOKSHELF.height + 0.55);
+
   // Kitchen corner: counter + coffee machine + fridge
   const kitchen = new THREE.Group();
   kitchen.add(mesh(box(5, 0.95, 1), toon('#8ecae6'), 0, 0.475, 0));
@@ -1319,6 +1341,12 @@ export function buildOffice(): Office {
   interactables.push(gong.interactable);
   fixture('north', GONG.x, (GONG.height + 0.3) / 2, GONG.width + 1.2, GONG.height + 0.3);
 
+  // The basketball hoop, on the west wall between the exit door and the kitchen.
+  const hoop = buildHoop();
+  group.add(hoop.group);
+  colliders.push(...hoop.colliders);
+  fixture('west', HOOP.z, (HOOP.board.bottom - 0.6 + HOOP.board.top + 0.1) / 2, HOOP.board.width + 0.2, HOOP.board.top - HOOP.board.bottom + 0.7);
+
   // The whiteboard, out on the floor between the desks and the lounge.
   const whiteboard = buildWhiteboard();
   group.add(whiteboard.group);
@@ -1379,6 +1407,8 @@ export function buildOffice(): Office {
     }
     elevator.update(dt);
     gong.update(dt);
+    green.update(t);
+    hoop.update(dt);
   };
 
   return {
@@ -1401,6 +1431,9 @@ export function buildOffice(): Office {
     jukebox,
     cabinet,
     whiteboard,
+    tee,
+    green,
+    hoop,
     stack,
     setProjectName,
     setLook,
