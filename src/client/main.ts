@@ -503,6 +503,7 @@ const vr = new VRSession(renderer, scene, camera, {
       getVrSettings: () => settings.vr,
       getMeeting: () => store.meeting,
       getServices: () => store.services,
+      getPeers: () => [...store.peers.values()].filter((p) => p.id !== store.you),
       voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => voice.toggleMute() },
       actions: {
         hire: (deskId) => vrHire(deskId),
@@ -572,7 +573,7 @@ if (new URLSearchParams(location.search).has('vrtest')) {
       g.getWorldPosition(v);
       return [v.x, v.y, v.z] as [number, number, number];
     },
-    showMenu: (view: 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'assign' | 'settings' | 'meeting' | 'services') => vrUi?.showMenu(view),
+    showMenu: (view: 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'assign' | 'settings' | 'meeting' | 'services' | 'people') => vrUi?.showMenu(view),
     // Hides the dash (controls card + menu) so the rays aim at the world, not a panel.
     hideDash: () => {
       vrUi?.controls.hide();
@@ -630,6 +631,16 @@ if (new URLSearchParams(location.search).has('vrtest')) {
       const at = new Date().toISOString();
       store.issues.items.push({ number, title, state: 'OPEN', url: '', author: 'vrtest', labels: [], assignees: [], createdAt: at, updatedAt: at, body: 'Seeded by the VR comment check.', comments: 0 });
       store.emit('issues');
+    },
+    // Seeds a fake teammate into this client's peers (solo here; reload clears it).
+    seedPeer: (name: string, doing: string) => {
+      store.peers.delete('peer-zzz');
+      store.peers.set('peer-zzz', {
+        id: 'peer-zzz', name, color: '#06d6a0', look: { skin: 0, hair: 0, style: 0 },
+        x: 0, y: 0, z: 0, rotY: 0, moving: false, voice: true, muted: false, sharing: false,
+        floor: store.floor ?? undefined, doing,
+      });
+      store.emit('peers');
     },
     // The pictures on the walls (the decor E-again check reads this back).
     decor: () => store.decor.map((d) => ({ id: d.id, title: d.title, by: d.by })),

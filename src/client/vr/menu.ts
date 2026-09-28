@@ -9,12 +9,12 @@
  * a detail view for one issue or PR, floors (ride the elevator), jukebox (tunes), bar (drinks),
  * chat (the floor's chat + say something), assign (hand an issue to a worker), meeting (the room's
  * status + call one with the pattern defaults), services (the workers' web servers, tap to copy
- * a tunnel command), and settings
+ * a tunnel command), people (who else is around, and what they're up to), and settings
  * (glide, turning, turn speed, teleport fade — the ⚙️ Settings VR section, in the headset).
  */
 
 import type * as THREE from 'three';
-import type { ChatLine, FloorInfo, GhIssue, GhPull, GhState, MeetingState, QueueState, QueueTask, ServicesState, WorkerInfo } from '../../shared/protocol';
+import type { ChatLine, FloorInfo, GhIssue, GhPull, GhState, MeetingState, PeerInfo, QueueState, QueueTask, ServicesState, WorkerInfo } from '../../shared/protocol';
 import { fmtTokens } from '../../shared/protocol';
 import { MEETING_PATTERNS, meetingSpend } from '../../shared/meetings';
 import { JUKEBOX_TUNES, trackTitle, type JukeboxState } from '../../shared/jukebox';
@@ -24,11 +24,12 @@ import { TERM_FONT } from '../fonts';
 import { waitingInOrder } from '../nextup';
 import type { VrSettings } from '../state';
 import { timeAgo } from '../ui/dom';
+import { whereabouts } from '../ui/whereabouts';
 import { clampScroll, type HeadPose, type Rect } from './math';
 import { WorldPanel } from './panel';
 
 export interface VrMenuStores {
-  subscribe: (topic: 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services', fn: () => void) => () => void;
+  subscribe: (topic: 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services' | 'peers', fn: () => void) => () => void;
   getWorkers: () => WorkerInfo[];
   getIssues: () => GhState<GhIssue>;
   getPulls: () => GhState<GhPull>;
@@ -50,6 +51,8 @@ export interface VrMenuStores {
   getMeeting: () => MeetingState;
   /** Web servers the workers are running (the 🌐 Services board's list). */
   getServices: () => ServicesState;
+  /** Everyone else around (the sidebar's people, without you). */
+  getPeers: () => PeerInfo[];
 }
 
 export interface VrMenuActions {
@@ -93,7 +96,7 @@ export interface VrMenuActions {
   exitVr: () => void;
 }
 
-export type MenuView = 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'assign' | 'settings' | 'meeting' | 'services';
+export type MenuView = 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'assign' | 'settings' | 'meeting' | 'services' | 'people';
 
 export interface MenuDetail {
   kind: 'issue' | 'pull';
@@ -180,7 +183,7 @@ export class VrMenu {
     this.panel = new WorldPanel({ width: widthM, height: heightM, paint: (ctx, w, h, _dirty, state) => this.paint(ctx, w, h, state) });
     this.panel.setScrollRegion('list', BODY);
     this.panel.setVisible(false);
-    this.unsubs = (['workers', 'issues', 'pulls', 'queue', 'chat', 'floors', 'floor', 'jukebox', 'meeting', 'services'] as const).map((t) => stores.subscribe(t, () => this.refresh()));
+    this.unsubs = (['workers', 'issues', 'pulls', 'queue', 'chat', 'floors', 'floor', 'jukebox', 'meeting', 'services', 'peers'] as const).map((t) => stores.subscribe(t, () => this.refresh()));
     this.syncButtons();
   }
 
@@ -349,6 +352,13 @@ export class VrMenu {
       { id: 'jukebox', icon: '🎵', title: 'Jukebox', sub: () => (j.on ? trackTitle(j) : 'off — pick a tune') },
       { id: 'chat', icon: '💬', title: 'Chat', sub: () => { const c = this.chatLines(); return c.length ? `${c[c.length - 1].name}: ${c[c.length - 1].text.slice(0, 24)}` : 'say hi to the floor'; } },
       {
+        id: 'people', icon: '🧑', title: 'People',
+        sub: () => {
+          const n = this.stores.getPeers().length;
+          return n ? `${n === 1 ? 'one more here' : `${n} around`} · what they're up to` : 'just you here';
+        },
+      },
+      {
         id: 'meeting', icon: '🤝', title: 'Meeting room',
         sub: () => {
           const m = this.stores.getMeeting().current;
@@ -484,6 +494,7 @@ export class VrMenu {
       return m ? m.seats.length + 1 : 0;
     }
     if (this.view === 'services') return this.stores.getServices().items.length;
+    if (this.view === 'people') return this.stores.getPeers().length;
     // board
     return this.boardTab === 'issues' ? Math.max(1, this.openIssues().length) : Math.max(1, this.openPulls().length);
   }
@@ -500,6 +511,7 @@ export class VrMenu {
       case 'chat': return this.go('chat');
       case 'meeting': return this.go('meeting');
       case 'services': return this.go('services');
+      case 'people': return this.go('people');
       case 'mute': return this.actions.toggleMute();
       case 'settings': return this.go('settings');
       case 'controls': return this.onShowControls?.();
@@ -579,6 +591,7 @@ export class VrMenu {
       if (svc) this.actions.copyServiceTunnel(svc.port);
       return;
     }
+    if (this.view === 'people') return; // read-only, like the chat lines
     if (this.view === 'board') {
       if (this.boardTab === 'issues') {
         const it = this.openIssues()[i];
@@ -626,7 +639,7 @@ export class VrMenu {
     ctx.roundRect(0, 0, w, h, Math.round(h * 0.02));
     ctx.clip();
 
-    const title = this.view === 'main' ? '☰ Menu' : this.view === 'hire' ? '✨ Hire worker' : this.view === 'queue' ? '📋 Task queue' : this.view === 'board' ? '📌 Issues / PRs' : this.view === 'floors' ? '🛗 Floors' : this.view === 'jukebox' ? '🎵 Jukebox' : this.view === 'bar' ? '🍸 Sky Bar' : this.view === 'chat' ? '💬 Chat' : this.view === 'settings' ? '⚙️ VR settings' : this.view === 'meeting' ? '🤝 Meeting room' : this.view === 'services' ? '🌐 Services' : this.view === 'assign' ? `🤖 Hand #${this.assignTarget?.number ?? ''} to…` : this.detailTitle();
+    const title = this.view === 'main' ? '☰ Menu' : this.view === 'hire' ? '✨ Hire worker' : this.view === 'queue' ? '📋 Task queue' : this.view === 'board' ? '📌 Issues / PRs' : this.view === 'floors' ? '🛗 Floors' : this.view === 'jukebox' ? '🎵 Jukebox' : this.view === 'bar' ? '🍸 Sky Bar' : this.view === 'chat' ? '💬 Chat' : this.view === 'settings' ? '⚙️ VR settings' : this.view === 'meeting' ? '🤝 Meeting room' : this.view === 'services' ? '🌐 Services' : this.view === 'people' ? '🧑 People' : this.view === 'assign' ? `🤖 Hand #${this.assignTarget?.number ?? ''} to…` : this.detailTitle();
     ctx.fillStyle = '#eeeeee';
     ctx.font = `700 ${Math.round(h * 0.042)}px ${TERM_FONT}`;
     ctx.textBaseline = 'middle';
@@ -839,6 +852,7 @@ export class VrMenu {
     if (this.view === 'assign' && !this.awakeWorkers().length) this.centerNote(ctx, w, 'Nobody awake — hire a worker first', h);
     if (this.view === 'meeting' && !this.stores.getMeeting().current) this.centerNote(ctx, w, 'The table is empty — 🤝 call one', h);
     if (this.view === 'services' && !this.stores.getServices().items.length) this.centerNote(ctx, w, 'Nothing running yet', h);
+    if (this.view === 'people' && !this.stores.getPeers().length) this.centerNote(ctx, w, 'Just you here', h);
     ctx.restore();
     // Scrollbar.
     if (count > visible) {
@@ -921,6 +935,14 @@ export class VrMenu {
       if (!svc) return;
       const who = this.stores.getWorkers().find((w) => w.id === svc.workerId)?.name ?? 'A worker';
       this.rowText(ctx, '🌐', svc.title || svc.command, `${who} · :${svc.port} · started ${timeAgo(svc.since)}`, x, y, bw, rh);
+      return;
+    }
+    if (this.view === 'people') {
+      const p = this.stores.getPeers()[i];
+      if (!p) return;
+      const floor = p.floor ? (this.stores.getFloors().find((f) => f.id === p.floor)?.name ?? null) : null;
+      const sub = [whereabouts(p), floor].filter(Boolean).join(' · ') || 'walking around';
+      this.rowText(ctx, p.sharing ? '🖥️' : !p.voice ? '🧑' : p.muted ? '🔇' : '🎙️', p.name, sub, x, y, bw, rh);
       return;
     }
     if (this.view === 'queue') {

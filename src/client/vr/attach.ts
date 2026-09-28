@@ -53,7 +53,7 @@
  */
 
 import * as THREE from 'three';
-import type { ChatLine, FloorInfo, GhIssue, GhPull, GhState, MeetingState, QueueState, ServicesState, WorkerInfo } from '../../shared/protocol';
+import type { ChatLine, FloorInfo, GhIssue, GhPull, GhState, MeetingState, PeerInfo, QueueState, ServicesState, WorkerInfo } from '../../shared/protocol';
 import type { JukeboxState } from '../../shared/jukebox';
 import { isAsleep } from '../../shared/status';
 import type { VrSettings } from '../state';
@@ -77,7 +77,7 @@ export interface VrUiVoice {
 /** Everything the VR UI needs from the office: stores, clients and DOM-shared actions. No globals. */
 export interface VrUiDeps {
   send: (msg: VrTerminalMsg) => void;
-  subscribe: (topic: 'screens' | 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services', fn: () => void) => () => void;
+  subscribe: (topic: 'screens' | 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services' | 'peers', fn: () => void) => () => void;
   getScreen: (workerId: string) => ScreenState | undefined;
   getWorker: (workerId: string) => WorkerInfo | undefined;
   getWorkers: () => WorkerInfo[];
@@ -91,6 +91,7 @@ export interface VrUiDeps {
   getJukebox: () => JukeboxState;
   getMeeting: () => MeetingState;
   getServices: () => ServicesState;
+  getPeers: () => PeerInfo[];
   onRoof: () => boolean;
   barCutOff: () => boolean;
   getVrSettings: () => VrSettings;
@@ -207,6 +208,7 @@ class VrUi implements VrUiHandle {
         getJukebox: deps.getJukebox,
         getMeeting: deps.getMeeting,
         getServices: deps.getServices,
+        getPeers: deps.getPeers,
         onRoof: deps.onRoof,
         barCutOff: deps.barCutOff,
         getVrSettings: deps.getVrSettings,
