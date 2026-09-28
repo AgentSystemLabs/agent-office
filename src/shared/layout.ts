@@ -300,6 +300,18 @@ export const BALCONY = { minX: -10.5, maxX: 2.5, minZ: FLOOR.maxZ + WALL_T, maxZ
 /** The ashtray on the balcony, where a smoke break starts. */
 export const ASHTRAY = { x: -8.2, z: BALCONY.maxZ - 0.55 } as const;
 /**
+ * The golf tee on the balcony, between the ashtray and the doors: a square of turf `size` across,
+ * with the ball teed up at `ball`, hit out over the railing at the hole across the street
+ * (GOLF_HOLE). The golf bag leans on the wall behind it at `bag`, just short of the doors.
+ */
+export const GOLF_TEE = { x: -6.75, z: 14.75, size: 1.5, ball: { x: -6.95, z: 14.75 }, bag: { x: -5.8, z: BALCONY.minZ + 0.28 } } as const;
+/**
+ * The hole across the street, out past the far sidewalk where the neighbours leave a gap: its pin,
+ * the green round it (`green` its radius) and the fairway leading up to it (x `fairway` wide, from
+ * the sidewalk to the green). Down on the street, so it's further down the higher your floor is.
+ */
+export const GOLF_HOLE = { x: -5, z: 58, green: 5.5, fairway: [-11, 0] } as const;
+/**
  * Leaving a floor above the bottom one, with no exit door: out through the balcony doors to the
  * railing straight ahead (`jump`), up onto its top (`railTop` high), and over it by parachute. The
  * chute circles down onto the lot in front of the garage: `out` further from the building than it

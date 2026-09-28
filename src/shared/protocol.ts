@@ -6,6 +6,7 @@ import type { CabinetFrame, CabinetState, CabinetView } from './cabinet.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
 import type { EmoteId } from './emotes.js';
+import type { BallState } from './hoop.js';
 import type { JiraBoardState, JiraFloorState } from './jira.js';
 import type { JukeboxState } from './jukebox.js';
 import type { DrinkId } from './rooftop.js';
@@ -234,6 +235,8 @@ export interface PeerInfo {
   sharing: boolean;
   /** On a smoke break, cigarette in hand. */
   smoking?: boolean;
+  /** At the golf tee on the balcony, club in hand. */
+  golfing?: boolean;
   /** Sitting down: the place they're in (see seatAt in layout), like "couch:1". */
   seat?: string;
   /** Desktop issue card, or a physically held/placed VR object. Uses the same carry channel. */
@@ -731,6 +734,8 @@ export interface FloorView {
   jira: JiraFloorState;
   /** The Jira tab of the issue board; null on a floor without an epic. */
   jiraBoard: JiraBoardState | null;
+  /** The basketball by the hoop: who has it, or how it was last thrown. */
+  ball: BallState;
 }
 
 export type AccountRole = 'admin' | 'member';
@@ -992,10 +997,15 @@ export type ClientMsg =
   | { t: 'move'; x: number; y: number; z: number; rotY: number; moving: boolean }
   /**
    * You reached out to use something; everyone else sees your character's arm do it. With `smoke`,
-   * you lit a cigarette (or put it out) on the balcony instead; with `drink`, you took a drink from
-   * the rooftop bar (or finished it, null).
+   * you lit a cigarette (or put it out) on the balcony instead; with `golf`, you took a club out at
+   * the tee (or put it back); with `drink`, you took a drink from the rooftop bar (or finished it, null).
    */
-  | { t: 'act'; smoke?: boolean; drink?: DrinkId | null }
+  | { t: 'act'; smoke?: boolean; golf?: boolean; drink?: DrinkId | null }
+  /**
+   * You hit a golf ball off the tee: its heading (0 is south, toward +x from there), loft (radians)
+   * and power (0–1). Everyone on your floor works out where it goes the same way (world/golf.ts fly).
+   */
+  | { t: 'golf'; yaw: number; loft: number; power: number }
   /** You sat down in a place on a couch, a beanbag, a chair or the bench (see seatAt in layout), or got up again (no seat). */
   | { t: 'sit'; seat?: string }
   /** You picked an issue card up off the board (or put it down again, no issue): everyone sees it in your hands. */
@@ -1142,6 +1152,10 @@ export type ClientMsg =
   | { t: 'leaveOnMerge.set'; on: boolean }
   /** Where new floors are cloned from now on (admins only); '' goes back to the default. */
   | { t: 'floor.projectsDir'; dir: string }
+  /** Pick up the floor's basketball (or catch it): yours if nobody else has it. */
+  | { t: 'ball.take' }
+  /** Throw the basketball in your hands from (x, y, z) at (vx, vy, vz) m/s, or drop it; everyone on the floor sees it fly. */
+  | { t: 'ball.throw'; x: number; y: number; z: number; vx: number; vy: number; vz: number }
   /** Give the dog on your floor a pat; it has to be within reach. */
   | { t: 'dog.pet' }
   /** Name the dog on your floor ('' gives it back its first name). */
@@ -1191,7 +1205,9 @@ export type ServerMsg =
   | { t: 'peer.update'; peer: PeerInfo; carryOnly?: boolean }
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }
   | { t: 'peer.leave'; id: string }
-  | { t: 'peer.act'; id: string; smoke?: boolean; drink?: DrinkId | null }
+  | { t: 'peer.act'; id: string; smoke?: boolean; golf?: boolean; drink?: DrinkId | null }
+  /** Someone on your floor hit a golf ball off the tee (see the client's 'golf'). */
+  | { t: 'golf'; id: string; yaw: number; loft: number; power: number }
   | { t: 'peer.emote'; id: string; emote: EmoteId }
   | { t: 'worker.update'; worker: WorkerInfo }
   | { t: 'worker.remove'; workerId: string }
@@ -1227,6 +1243,8 @@ export type ServerMsg =
   | { t: 'decor'; items: Decoration[] }
   /** What the dog on your floor is up to now: sent at the start of each leg of its day. */
   | { t: 'dog'; dog: DogState }
+  /** The basketball on your floor was picked up, thrown, or put back under the hoop. */
+  | { t: 'ball'; ball: BallState }
   | { t: 'jukebox'; state: JukeboxState }
   /** Who's at the arcade cabinet on your floor now, and the building's high scores. */
   | { t: 'cabinet'; state: CabinetState }

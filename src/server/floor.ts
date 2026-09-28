@@ -17,6 +17,7 @@ import { Changes } from './changes.js';
 import { Decor } from './decor.js';
 import { Docs } from './docs.js';
 import { Dog } from './dog.js';
+import { Court } from './court.js';
 import { Jukebox } from './jukebox.js';
 import { Whiteboard } from './whiteboard.js';
 import { MeetingRoom } from './meetings.js';
@@ -109,6 +110,8 @@ export class Floor {
   /** Settles once the workers whose terminals outlived the last office are picked back up, and the rest woken. */
   readonly ready: Promise<void>;
   readonly dog: Dog;
+  /** The basketball by the hoop: who has it, or how it was last thrown. */
+  readonly court = new Court();
   private timer: NodeJS.Timeout;
   /** Pull requests merging, to ring the gong for. */
   private merges = new MergeWatch();
