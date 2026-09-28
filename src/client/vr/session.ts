@@ -293,6 +293,8 @@ export interface VRUiSink {
   /** Where a routed ray lands on a panel (world), for the cursor dot; null when it lands on none. */
   panelHit: (rayId: number) => THREE.Vector3 | null;
   stickScroll: (rayId: number, axisY: number, dt: number) => void;
+  /** Cancels a ray's in-flight press without clicking (disconnect, session end). */
+  cancelRay: (rayId: number) => void;
   update: (dt: number, head?: HeadPose | null) => void;
   toggleMenu: () => void;
   openTerminal: (workerId: string) => void;
@@ -307,6 +309,12 @@ export class VRSession {
   active = false;
   /** The rig: the camera hangs under this at the avatar's feet while presenting. */
   readonly dolly = new THREE.Group();
+  /**
+   * How drunk the rig sways (main.ts feeds player.drunk each frame): the drunk-vision shader
+   * can't run in XR (no post on the headset framebuffer), so the rig rolls and pitches with
+   * the same wobble the desktop camera shakes with instead. 0 sober (or reduce-motion).
+   */
+  sway = 0;
 
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
@@ -502,6 +510,8 @@ export class VRSession {
     this.pendingTeleport = null;
     this.stickAiming = false;
     this.glideActive = false;
+    this.sway = 0;
+    this.dolly.rotation.set(0, 0, 0);
     player.climbInput = 0;
     this.arc.visible = false;
     this.marker.visible = false;
@@ -524,6 +534,10 @@ export class VRSession {
       r.grip.removeFromParent();
       r.hand.removeFromParent();
     }
+    // Any press in flight dies with the session (the UI disposes next, but cancel first so
+    // nothing clicks on the way out).
+    this.ui?.cancelRay(0);
+    this.ui?.cancelRay(1);
     if (this.cameraParent) this.cameraParent.add(this.camera);
     else this.camera.removeFromParent();
     this.dolly.visible = false;
@@ -627,6 +641,8 @@ export class VRSession {
     st.hold.reset();
     st.line.visible = false;
     st.dot.visible = false;
+    // A press in flight dies with the ray (else the panel waits on a release that never comes).
+    this.ui?.cancelRay(i);
   }
 
   /**
@@ -1085,8 +1101,19 @@ export class VRSession {
     _f.normalize();
     _l.set(-_f.z, 0, _f.x);
     const speed = 4.6 * player.speedBoost;
-    const dx = (_l.x * s.x - _f.x * s.y) * speed * dt;
-    const dz = (_l.z * s.x - _f.z * s.y) * speed * dt;
+    let dx = (_l.x * s.x - _f.x * s.y) * speed * dt;
+    let dz = (_l.z * s.x - _f.z * s.y) * speed * dt;
+    // Drunk, the feet wander off to one side and then the other (the desktop stagger's own
+    // wobble, on the glide heading instead of the camera yaw).
+    const staggerT = performance.now() / 1000;
+    const stagger = this.sway * (0.4 * Math.sin(staggerT * 1.6) + 0.22 * Math.sin(staggerT * 3.7 + 1));
+    if (stagger !== 0) {
+      const c = Math.cos(stagger);
+      const s2 = Math.sin(stagger);
+      const rx = dx * c - dz * s2;
+      dz = dx * s2 + dz * c;
+      dx = rx;
+    }
     // In small steps, so a fast glide can't tunnel through a desk.
     const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / 0.1));
     for (let i = 0; i < steps; i++) player.stepTo(player.pos.x + dx / steps, player.pos.z + dz / steps);
@@ -1125,6 +1152,13 @@ export class VRSession {
     this.origin.y = player.pos.y;
     this.dolly.position.copy(this.origin);
     this.dolly.rotation.y = this.yaw;
+    // Drunk in the headset: the rig rolls and pitches with the desktop shake's own wobble
+    // (see PlayerController.shake). Roll and pitch leave the head's XZ heading alone, so the
+    // avatar's facing and the room-scale carry never notice; the horizon does.
+    const t = performance.now() / 1000;
+    const d = this.sway;
+    this.dolly.rotation.z = d > 0 ? d * (0.07 * Math.sin(t * 0.9) + 0.025 * Math.sin(t * 2.3 + 1)) : 0;
+    this.dolly.rotation.x = d > 0 ? d * 0.03 * Math.sin(t * 0.7 + 2) : 0;
     this.lastAvatar.copy(player.pos);
     player.moving = this.glideActive || roomMoved || _e.length() > 1e-4 || this.fade !== 'idle';
     player.facing = this.headFacing();

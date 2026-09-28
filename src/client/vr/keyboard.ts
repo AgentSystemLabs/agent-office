@@ -49,6 +49,14 @@ export function keyboardRows(): KeyDef[][] {
 
 /** Double-tap window (ms) that turns shift from one-shot into caps lock. */
 const SHIFT_LOCK_MS = 450;
+/** Held-key repeat: the first repeat after this long, then this often (backspace, arrows, chars). */
+const REPEAT_DELAY_MS = 450;
+const REPEAT_EVERY_MS = 50;
+/** Keys that repeat while held (enter/esc/tab/shift/ctrl fire once, on release like every button). */
+function repeats(id: string): boolean {
+  if (id === 'fn:back' || id === 'fn:left' || id === 'fn:up' || id === 'fn:down' || id === 'fn:right') return true;
+  return id.startsWith('k:');
+}
 
 export class VrKeyboard {
   readonly panel: WorldPanel;
@@ -60,6 +68,8 @@ export class VrKeyboard {
   private ctrlLatched = false;
   private pressedKey: string | null = null;
   private pressedAt = 0;
+  /** Repeatable keys currently held, each with its next repeat at (ms). */
+  private held = new Map<string, number>();
 
   constructor(widthM = 0.7, heightM = 0.27) {
     this.panel = new WorldPanel({ width: widthM, height: heightM, paint: (ctx, w, h, _dirty, state) => this.paint(ctx, w, h, state) });
@@ -207,7 +217,34 @@ export class VrKeyboard {
       const r = this.keyRectOf(id);
       this.panel.markDirty(r);
     }
+    this.repeatKeys();
     this.panel.update(dt, head);
+  }
+
+  /** Held keys repeat like a desktop keyboard (holding ⌫ deletes the word, not one letter). */
+  private repeatKeys() {
+    if (!this.panel.visible || !this.target) {
+      if (this.held.size) this.held.clear();
+      return;
+    }
+    const now = performance.now();
+    for (const k of this.keys) {
+      if (!repeats(k.id)) continue;
+      if (!this.panel.isPressed(k.id)) {
+        this.held.delete(k.id);
+        continue;
+      }
+      const next = this.held.get(k.id);
+      if (next === undefined) {
+        this.held.set(k.id, now + REPEAT_DELAY_MS);
+        continue;
+      }
+      if (now >= next) {
+        this.tap(k.id);
+        this.held.set(k.id, now + REPEAT_EVERY_MS);
+        this.panel.markDirty(k.rect);
+      }
+    }
   }
 
   dispose() {

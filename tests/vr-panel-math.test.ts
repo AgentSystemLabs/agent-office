@@ -191,3 +191,43 @@ test('pushHistory caps the buffer, oldest first', () => {
   pushHistory(h, [[run('a')], [run('b')], [run('c')]], 2);
   assert.deepEqual(h, [[run('b')], [run('c')]]);
 });
+
+test('two rays hold two buttons without stealing each other', async () => {
+  const { PressTracker } = await import('../src/client/vr/panel.js');
+  const t = new PressTracker();
+  t.down(0, { kind: 'button', id: 'k:a', armed: true });
+  t.down(1, { kind: 'button', id: 'k:b', armed: true });
+  assert.deepEqual(t.heldButtons(), ['k:a', 'k:b']);
+  assert.equal(t.isHeld('k:a'), true);
+  // Each release takes only its own ray's press; the other types on.
+  assert.deepEqual(t.up(0), { kind: 'button', id: 'k:a', armed: true });
+  assert.equal(t.isHeld('k:a'), false);
+  assert.deepEqual(t.heldButtons(), ['k:b']);
+  assert.deepEqual(t.up(1), { kind: 'button', id: 'k:b', armed: true });
+  assert.deepEqual(t.heldButtons(), []);
+  assert.equal(t.up(1), undefined);
+});
+
+test('a disarmed press (slid off) neither paints nor repeats', async () => {
+  const { PressTracker } = await import('../src/client/vr/panel.js');
+  const t = new PressTracker();
+  t.down(0, { kind: 'button', id: 'k:a', armed: true });
+  t.move(0)!.armed = false; // the ray slid off the key
+  assert.equal(t.isHeld('k:a'), false);
+  assert.deepEqual(t.heldButtons(), []);
+  t.move(0)!.armed = true; // ...and back on: re-armed
+  assert.equal(t.isHeld('k:a'), true);
+});
+
+test('a scroll drag coexists with button presses; cancel drops one ray or all', async () => {
+  const { PressTracker } = await import('../src/client/vr/panel.js');
+  const t = new PressTracker();
+  t.down(0, { kind: 'scroll', id: 'term', startOffset: 0, startY: 0.5, unitsPerY: 10 });
+  t.down(1, { kind: 'button', id: 'k:a', armed: true });
+  assert.deepEqual(t.heldButtons(), ['k:a']); // scrolls aren't buttons
+  t.cancel(0);
+  assert.deepEqual(t.move(0), undefined);
+  assert.equal(t.isHeld('k:a'), true); // the other ray's press survives
+  t.cancel();
+  assert.deepEqual(t.heldButtons(), []);
+});

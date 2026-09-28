@@ -128,6 +128,8 @@ export interface VrUiHandle {
   setCarrying: (card: { issue: number; title: string } | null) => void;
   /** Redirects the keyboard (default target is the focused VR terminal; null mutes it). */
   setKeyboardTarget: (t: KeyboardTarget | null) => void;
+  /** What the prompt field holds now (the emulator hook reads this back for assert scripts). */
+  promptText: () => string;
   /**
    * Routes one controller's ray to the topmost panel under it. Call every frame per
    * controller with its raycaster and trigger state; returns true when a panel took it.
@@ -137,6 +139,8 @@ export interface VrUiHandle {
   panelHit: (rayId: number) => THREE.Vector3 | null;
   /** Scrolls the list under a ray (thumbstick y, positive down). */
   stickScroll: (rayId: number, axisY: number, dt: number) => void;
+  /** Cancels a ray's in-flight press without clicking (disconnect, session end). */
+  cancelRay: (rayId: number) => void;
   /** Repaints, cursor blink, menu follow. Pass the head pose for follow mode. */
   update: (dt: number, head?: HeadPose | null) => void;
   dispose: () => void;
@@ -210,6 +214,15 @@ class VrUi implements VrUiHandle {
     };
     this.controls = new VrControls();
     this.menu.onShowControls = () => this.controls.show();
+    // Head-placed panels draw through the world (a menu sunk in a wall is unreadable and
+    // looks broken); the terminal stays depth-tested furniture you can walk away from. Orders
+    // match the ray-pick priority in ordered() (the transient toast floats above all of them),
+    // under the ray dots (9998) and fade (9999).
+    this.prompt.panel.setOnTop(9995);
+    this.toast.panel.setOnTop(9996);
+    this.controls.panel.setOnTop(9994);
+    this.menu.panel.setOnTop(9993);
+    this.keyboard.panel.setOnTop(9992);
     this.menu.onChatSay = () => this.askChat();
 
     // Dash layout, facing the user at spawn: terminal center, keyboard below it, menu left.
@@ -326,6 +339,7 @@ class VrUi implements VrUiHandle {
   setCarrying = (card: { issue: number; title: string } | null) => {
     this.toast.setSticky(card ? `✋ Carrying #${card.issue} — E at a desk, a worker or the queue · squeeze puts it back` : null);
   };
+  promptText = () => this.prompt.text;
 
   setKeyboardTarget = (t: KeyboardTarget | null) => {
     this.keyboardExplicit = t;
@@ -356,9 +370,9 @@ class VrUi implements VrUiHandle {
     // A press in progress stays with its panel until release (dragging off still scrolls).
     if (st.pressed && st.panel) {
       const uv = st.panel.panel.raycast(raycaster);
-      st.panel.panel.pointerMove(uv);
+      st.panel.panel.pointerMove(rayId, uv);
       if (!pressed) {
-        st.panel.panel.pointerUp(uv);
+        st.panel.panel.pointerUp(rayId, uv);
         st.pressed = false;
         st.panel = null;
       }
@@ -370,18 +384,18 @@ class VrUi implements VrUiHandle {
       if (!ui.panel.visible) continue;
       const uv = ui.panel.raycast(raycaster);
       if (!uv) continue;
-      if (st.panel && st.panel !== ui) st.panel.panel.pointerMove(null);
+      if (st.panel && st.panel !== ui) st.panel.panel.pointerMove(rayId, null);
       st.panel = ui;
       st.uv = uv;
-      ui.panel.pointerMove(uv);
+      ui.panel.pointerMove(rayId, uv);
       if (pressed && !st.pressed) {
         st.pressed = true;
-        ui.panel.pointerDown(uv);
+        ui.panel.pointerDown(rayId, uv);
       }
       return true;
     }
     if (st.panel) {
-      st.panel.panel.pointerMove(null);
+      st.panel.panel.pointerMove(rayId, null);
       st.panel = null;
       st.uv = null;
     }
@@ -405,6 +419,17 @@ class VrUi implements VrUiHandle {
     const entry = this.ordered().find((e) => e.ui === st.panel);
     if (!entry || !entry.scrollId) return;
     st.panel.panel.scrollStick(entry.scrollId, axisY, dt, 12);
+  };
+
+  /** A ray's press ends without clicking (its controller disconnected mid-press). */
+  cancelRay = (rayId: number): void => {
+    const st = this.rays.get(rayId);
+    if (st?.panel) st.panel.panel.pointerCancel(rayId);
+    if (st) {
+      st.panel = null;
+      st.uv = null;
+      st.pressed = false;
+    }
   };
 
   update = (dt: number, head?: HeadPose | null) => {

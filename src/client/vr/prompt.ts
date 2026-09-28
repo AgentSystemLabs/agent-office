@@ -90,6 +90,11 @@ export class VrPromptPanel {
     return this.panel.visible;
   }
 
+  /** What the field holds now (the emulator hook reads this back for assert scripts). */
+  get text(): string {
+    return this.buffer.text;
+  }
+
   /** Shows the prompt; attach.ts aims it, shows the keyboard, and retargets the keys here. */
   open(opts: VrPromptOpts) {
     this.opts = opts;

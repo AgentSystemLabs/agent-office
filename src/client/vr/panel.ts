@@ -51,7 +51,50 @@ export interface WorldPanelOpts {
   paint: PanelPainter;
 }
 
-type Press = { kind: 'button'; id: string } | { kind: 'scroll'; id: string; startOffset: number; startY: number; unitsPerY: number } | null;
+type Press = { kind: 'button'; id: string; armed: boolean } | { kind: 'scroll'; id: string; startOffset: number; startY: number; unitsPerY: number };
+
+/**
+ * In-flight presses, one slot per ray: two rays can hold two keys at once (two-handed
+ * typing), and a second press never steals or drops the first. Pure (no scene), so the
+ * host tests drive the arbitration directly.
+ */
+export class PressTracker {
+  private presses = new Map<number, Press>();
+
+  down(rayId: number, press: Press): void {
+    this.presses.set(rayId, press);
+  }
+
+  move(rayId: number): Press | undefined {
+    return this.presses.get(rayId);
+  }
+
+  /** Takes a ray's press (trigger released); undefined when it holds nothing. */
+  up(rayId: number): Press | undefined {
+    const p = this.presses.get(rayId);
+    this.presses.delete(rayId);
+    return p;
+  }
+
+  /** Drops one ray's press (or every press, for a disconnect or session end). */
+  cancel(rayId?: number): void {
+    if (rayId === undefined) this.presses.clear();
+    else this.presses.delete(rayId);
+  }
+
+  /** Ids of buttons currently held and armed, most recent last (paint highlights the last). */
+  heldButtons(): string[] {
+    const out: string[] = [];
+    for (const p of this.presses.values()) if (p.kind === 'button' && p.armed) out.push(p.id);
+    return out;
+  }
+
+  /** Whether any ray holds this button down (the keyboard's key repeat polls this). */
+  isHeld(id: string): boolean {
+    for (const p of this.presses.values()) if (p.kind === 'button' && p.armed && p.id === id) return true;
+    return false;
+  }
+}
 
 export class WorldPanel {
   /** Add this to the scene (or to a controller grip for a wrist menu). */
@@ -72,7 +115,8 @@ export class WorldPanel {
   private full = true;
   private hoverId: string | null = null;
   private pressedId: string | null = null;
-  private press: Press = null;
+  private presses = new PressTracker();
+  private mat: THREE.MeshBasicMaterial;
   private follow = false;
   private followDistance = 1.1;
   private followDrop = 0.12;
@@ -93,6 +137,7 @@ export class WorldPanel {
     this.texture.anisotropy = 4;
     const geo = new THREE.PlaneGeometry(opts.width, opts.height);
     const mat = new THREE.MeshBasicMaterial({ map: this.texture, transparent: true, toneMapped: false });
+    this.mat = mat;
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.userData.panel = this;
     this.group.add(this.mesh);
@@ -197,27 +242,29 @@ export class WorldPanel {
   }
 
   /** Hover update; pass null when the ray points elsewhere. Returns the hovered button, if any. */
-  pointerMove(uv: { u: number; v: number } | null): PanelButton | null {
-    if (this.press?.kind === 'scroll') {
+  pointerMove(rayId: number, uv: { u: number; v: number } | null): PanelButton | null {
+    const press = this.presses.move(rayId);
+    if (press?.kind === 'scroll') {
       if (!uv) return null;
-      const s = this.scrolls.get(this.press.id);
+      const s = this.scrolls.get(press.id);
       if (s) {
         const p = uvToPanel(uv.u, uv.v);
-        const next = clampScroll(scrollByDrag(this.press.startOffset, this.press.startY, p.y, this.press.unitsPerY), s.contentH, s.viewH);
+        const next = clampScroll(scrollByDrag(press.startOffset, press.startY, p.y, press.unitsPerY), s.contentH, s.viewH);
         if (next !== s.offset) {
           s.offset = next;
-          this.onScroll?.(this.press.id, next);
+          this.onScroll?.(press.id, next);
           this.markDirty(s.rect);
         }
       }
       return null;
     }
-    if (this.press?.kind === 'button') {
-      // Slide off the button and the press cancels (slide back on and it re-arms).
+    if (press?.kind === 'button') {
+      // Slide off the button and the press disarms (slide back on and it re-arms).
       const id = uv ? (hitTest(this.buttons, uvToPanel(uv.u, uv.v))?.id ?? null) : null;
-      const armed = id === this.press.id ? id : null;
-      if (armed !== this.pressedId) {
-        this.pressedId = armed;
+      const armed = id === press.id;
+      if (armed !== press.armed) {
+        press.armed = armed;
+        this.syncPressed();
         this.markDirty();
       }
       return uv ? this.buttonAt(uv) : null;
@@ -231,7 +278,7 @@ export class WorldPanel {
   }
 
   /** Trigger pressed with the ray at uv. Returns true when the press landed on the panel. */
-  pointerDown(uv: { u: number; v: number }): boolean {
+  pointerDown(rayId: number, uv: { u: number; v: number }): boolean {
     const p = uvToPanel(uv.u, uv.v);
     // Buttons draw above scroll regions, and hitTest lets the last entry win.
     const regions = [...this.scrolls].map(([id, s]) => ({ id, rect: s.rect, scroll: true as const }));
@@ -241,20 +288,19 @@ export class WorldPanel {
     if (s) {
       // Dragging the region's height scrolls one viewport.
       const unitsPerY = s.viewH > 0 ? s.viewH / Math.max(0.001, s.rect.h) : 0;
-      this.press = { kind: 'scroll', id: hit.id, startOffset: s.offset, startY: p.y, unitsPerY };
+      this.presses.down(rayId, { kind: 'scroll', id: hit.id, startOffset: s.offset, startY: p.y, unitsPerY });
       return true;
     }
-    this.press = { kind: 'button', id: hit.id };
-    this.pressedId = hit.id;
+    this.presses.down(rayId, { kind: 'button', id: hit.id, armed: true });
+    this.syncPressed();
     this.markDirty();
     return true;
   }
 
   /** Trigger released; clicks the armed button when the ray is still on it. */
-  pointerUp(uv: { u: number; v: number } | null): PanelButton | null {
-    const press = this.press;
-    this.press = null;
-    this.pressedId = null;
+  pointerUp(rayId: number, uv: { u: number; v: number } | null): PanelButton | null {
+    const press = this.presses.up(rayId);
+    this.syncPressed();
     if (press?.kind !== 'button') {
       this.markDirty();
       return null;
@@ -268,12 +314,36 @@ export class WorldPanel {
     return null;
   }
 
-  /** The ray left the panel mid-press (or the controller disconnected): cancel it quietly. */
-  pointerCancel() {
-    this.press = null;
-    this.pressedId = null;
-    this.hoverId = null;
+  /**
+   * A ray's press ends without clicking (it left the panel mid-press, its controller
+   * disconnected, or the session ended): cancel it quietly. No ray id clears every press.
+   */
+  pointerCancel(rayId?: number) {
+    this.presses.cancel(rayId);
+    if (rayId === undefined) this.hoverId = null;
+    this.syncPressed();
     this.markDirty();
+  }
+
+  /** The press highlight follows the most recently pressed button still held. */
+  private syncPressed() {
+    const held = this.presses.heldButtons();
+    this.pressedId = held.length ? held[held.length - 1] : null;
+  }
+
+  /** Whether any ray holds this button down (the keyboard's key repeat polls this). */
+  isPressed(id: string): boolean {
+    return this.presses.isHeld(id);
+  }
+
+  /**
+   * Draws above the world (through walls) at this render order, or back to depth-tested
+   * with null. Head-placed panels use this (a menu sunk in a wall is unreadable); the
+   * orders below the ray dots (9998) and the fade quad (9999) keep both of those on top.
+   */
+  setOnTop(order: number | null) {
+    this.mat.depthTest = order === null;
+    this.mesh.renderOrder = order ?? 0;
   }
 
   // ---- Frame ----------------------------------------------------------------------------------

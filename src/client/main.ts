@@ -485,6 +485,41 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     },
     // Types into the focused VR terminal (the VR keyboard's path, without aiming at keys).
     type: (text: string) => vrUi?.terminal.type(text),
+    // What the VR prompt field holds (assert scripts read this back after pressing keys).
+    promptText: () => vrUi?.promptText() ?? null,
+    // Downs shots for the drunk-in-VR check (strength adds up; water sobers): returns the level.
+    drink: (id: 'beer' | 'wine' | 'martini' | 'maitai' | 'shot' | 'mojito' | 'water' = 'shot') => {
+      const d = DRINK_BY_ID.get(id);
+      if (d) booze.drink(d, performance.now() / 1000);
+      return { drunk: player.drunk, sway: vr.sway };
+    },
+    // The rig's roll now (the drunk-sway check reads the wobble back).
+    rigRoll: () => (vr.active ? vr.dolly.rotation.z : null),
+    // Per-panel draw order + depth test (the wall-clipping check reads these back).
+    panelFlags: () => {
+      if (!vrUi) return null;
+      const out: Record<string, { depthTest: boolean; renderOrder: number }> = {};
+      for (const k of ['menu', 'controls', 'terminal', 'prompt', 'keyboard', 'toast'] as const) {
+        const m = vrUi[k].panel.mesh;
+        out[k] = { depthTest: (m.material as THREE.MeshBasicMaterial).depthTest, renderOrder: m.renderOrder };
+      }
+      return out;
+    },
+    // Presses a VR keyboard key through the panel's own per-ray press path:
+    // key(0, 'k:a', true) holds, (…, false) lets go (and types, when still on the key).
+    key: (rayId: number, keyId: string, down: boolean) => {
+      const kb = vrUi?.keyboard;
+      const r = kb?.keyRectOf(keyId);
+      if (!kb || !r) return false;
+      const uv = { u: r.x + r.w / 2, v: 1 - (r.y + r.h / 2) };
+      if (down) {
+        kb.panel.pointerMove(rayId, uv);
+        return kb.panel.pointerDown(rayId, uv);
+      }
+      kb.panel.pointerMove(rayId, uv);
+      kb.panel.pointerUp(rayId, uv);
+      return true;
+    },
     // Per-ray input state (controller vs hand, holds, aims).
     rays: () => vr.debugRays(),
     // Sends test workers home (shells spawned by `shell`).
@@ -3062,6 +3097,7 @@ function frame(ts?: number, xrFrame?: XRFrame) {
   renderCaffeine(caffeine, secs);
   // Drinks from the rooftop bar: a glass in hand, and the world swaying.
   const drunk = drinking(now);
+  vr.sway = inVR ? player.drunk : 0;
 
   walkTick(now);
   if (inVR) vr.update(dt);
