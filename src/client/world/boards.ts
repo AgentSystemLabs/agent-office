@@ -130,7 +130,7 @@ export class BoardTexture {
       const r = Math.floor(i / cols);
       const x = gx + c * (nw + gx);
       const y = gy + r * (nh + gy);
-      const tilt = ((it.number * 37) % 7 - 3) * 0.012;
+      const tilt = (((it.number * 37) % 7) - 3) * 0.012;
       this.notes.push({ number: it.number, x: x + nw / 2, y: y + nh / 2, w: nw, h: nh, tilt });
       const lifted = it.number === this.lifted;
       g.save();
@@ -291,7 +291,10 @@ export class QueueBoardTexture {
     const name = (t: QueueTask) => (t.issue !== undefined ? `#${t.issue}  ${t.title.replace(new RegExp(`^#${t.issue}\\s*`), '')}` : t.title);
     const running = state.tasks.filter((t) => t.status === 'running');
     const queued = state.tasks.filter((t) => t.status === 'queued');
-    const done = state.tasks.filter((t) => t.status === 'done').slice(-3).reverse();
+    const done = state.tasks
+      .filter((t) => t.status === 'done')
+      .slice(-3)
+      .reverse();
     const rows = [
       ...running.map((t) => {
         const w = t.workerId ? workers.get(t.workerId) : undefined;

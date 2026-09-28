@@ -19,7 +19,6 @@
  * in the terminal): the main menu grows a 📝 Changes row while a terminal is focused.
  */
 
-import type * as THREE from 'three';
 import type { ChangeStatus, ChangesState, ChatLine, FloorInfo, GhIssue, GhMergeMethod, GhPull, GhState, MeetingState, PeerInfo, QueueState, QueueTask, SearchResults, ServicesState, TerminalHit, WorkerInfo } from '../../shared/protocol';
 import { fmtTokens } from '../../shared/protocol';
 import { MEETING_PATTERNS, meetingSpend } from '../../shared/meetings';
@@ -140,7 +139,7 @@ export interface VrMenuActions {
   /** Adds a project as a new floor — the elevator panel's add (main.ts vrAddFloor). */
   addFloor: () => void;
   /** Adds a task to the queue — the queue window's form (main.ts vrQueueAdd). */
-  addQueueTask: () => void;  /** How many workers the queue keeps busy (0 pauses it) — the queue window's stepper. */
+  addQueueTask: () => void /** How many workers the queue keeps busy (0 pauses it) — the queue window's stepper. */;
   queueLimit: (maxWorkers: number) => void;
   /** Takes a queued task off the queue — the window's ✕ (queue.remove). */
   removeQueueTask: (taskId: string) => void;
@@ -206,15 +205,15 @@ const JB_PLAY: Rect = { x: 0.58, y: 0.015, w: 0.13, h: 0.09 };
 const JB_STOP: Rect = { x: 0.72, y: 0.015, w: 0.13, h: 0.09 };
 const JB_SKIP: Rect = { x: 0.86, y: 0.015, w: 0.11, h: 0.09 };
 /** Chat view: the "say something" and "search the office" buttons in the header. */
-const SAY_BTN: Rect = { x: 0.60, y: 0.015, w: 0.16, h: 0.09 };
-const CHAT_FIND: Rect = { x: 0.77, y: 0.015, w: 0.20, h: 0.09 };
+const SAY_BTN: Rect = { x: 0.6, y: 0.015, w: 0.16, h: 0.09 };
+const CHAT_FIND: Rect = { x: 0.77, y: 0.015, w: 0.2, h: 0.09 };
 /** Floors view: the "add a project" button in the header. */
 const FLOORS_ADD: Rect = { x: 0.72, y: 0.015, w: 0.25, h: 0.09 };
 /** Queue view: add a task, and pause/unpause the line. */
-const QB_ADD: Rect = { x: 0.60, y: 0.015, w: 0.15, h: 0.09 };
+const QB_ADD: Rect = { x: 0.6, y: 0.015, w: 0.15, h: 0.09 };
 const QB_TOGGLE: Rect = { x: 0.76, y: 0.015, w: 0.21, h: 0.09 };
 /** Changes view: commit the checkout, discard it all (tap twice), or open its PR. */
-const CH_COMMIT: Rect = { x: 0.60, y: 0.015, w: 0.12, h: 0.09 };
+const CH_COMMIT: Rect = { x: 0.6, y: 0.015, w: 0.12, h: 0.09 };
 const CH_DISCARD: Rect = { x: 0.73, y: 0.015, w: 0.12, h: 0.09 };
 const CH_PR: Rect = { x: 0.86, y: 0.015, w: 0.11, h: 0.09 };
 /** Header buttons for the meeting view: call one, stop it, or clear the room. */
@@ -448,7 +447,10 @@ export class VrMenu {
     return {
       running: tasks.filter((t) => t.status === 'running'),
       queued: tasks.filter((t) => t.status === 'queued'),
-      done: tasks.filter((t) => t.status === 'done').slice(-8).reverse(),
+      done: tasks
+        .filter((t) => t.status === 'done')
+        .slice(-8)
+        .reverse(),
     };
   }
 
@@ -498,7 +500,7 @@ export class VrMenu {
   /** The search view's rows: matching chat lines first, then terminal lines (the search window's order). */
   private searchRows(): ({ kind: 'chat'; chat: ChatLine } | { kind: 'term'; hit: TerminalHit })[] {
     const s = this.stores.getSearch();
-    if (!s || s.status !== 'done' || !s.results) return [];
+    if (s?.status !== 'done' || !s.results) return [];
     const rows: ({ kind: 'chat'; chat: ChatLine } | { kind: 'term'; hit: TerminalHit })[] = s.results.chat.map((chat) => ({ kind: 'chat' as const, chat }));
     // Workers sent home since the search ran have nothing left to open (the search window's rule).
     for (const hit of s.results.terminals) {
@@ -543,13 +545,17 @@ export class VrMenu {
     const items: MainItem[] = [
       { id: 'hire', icon: '✨', title: 'Hire worker', sub: () => `${this.stores.getFreeDesks().length} free desks` },
       {
-        id: 'next', icon: needs ? '🙋' : '✅', title: 'Next waiting worker',
+        id: 'next',
+        icon: needs ? '🙋' : '✅',
+        title: 'Next waiting worker',
         sub: () => (waiting.length ? `${waiting[0].name}${waiting.length > 1 ? ` +${waiting.length - 1} more` : ''} (N)` : 'nobody waiting (N)'),
       },
       { id: 'queue', icon: '📋', title: 'Task queue', sub: () => (q.maxWorkers === 0 ? `paused · ${activeQueue} tasks` : `${activeQueue} active · ${q.maxWorkers} at once`) },
       { id: 'board', icon: '📌', title: 'Issues / PRs', sub: () => `${this.openIssues().length} issues · ${this.openPulls().length} PRs` },
       {
-        id: 'services', icon: '🌐', title: 'Services',
+        id: 'services',
+        icon: '🌐',
+        title: 'Services',
         sub: () => {
           const n = this.stores.getServices().items.length;
           return n ? `${n} running · tap one to copy its tunnel` : 'nothing running yet';
@@ -557,16 +563,28 @@ export class VrMenu {
       },
       { id: 'floors', icon: '🛗', title: 'Floors', sub: () => `${this.stores.getFloors().length} floors · ride the elevator` },
       { id: 'jukebox', icon: '🎵', title: 'Jukebox', sub: () => (j.on ? trackTitle(j) : 'off — pick a tune') },
-      { id: 'chat', icon: '💬', title: 'Chat', sub: () => { const c = this.chatLines(); return c.length ? `${c[c.length - 1].name}: ${c[c.length - 1].text.slice(0, 24)}` : 'say hi to the floor'; } },
       {
-        id: 'people', icon: '🧑', title: 'People',
+        id: 'chat',
+        icon: '💬',
+        title: 'Chat',
+        sub: () => {
+          const c = this.chatLines();
+          return c.length ? `${c[c.length - 1].name}: ${c[c.length - 1].text.slice(0, 24)}` : 'say hi to the floor';
+        },
+      },
+      {
+        id: 'people',
+        icon: '🧑',
+        title: 'People',
         sub: () => {
           const n = this.stores.getPeers().length;
           return n ? `${n === 1 ? 'one more here' : `${n} around`} · what they're up to` : 'just you here';
         },
       },
       {
-        id: 'meeting', icon: '🤝', title: 'Meeting room',
+        id: 'meeting',
+        icon: '🤝',
+        title: 'Meeting room',
         sub: () => {
           const m = this.stores.getMeeting().current;
           if (!m) return 'the table is empty · call one';
@@ -575,32 +593,46 @@ export class VrMenu {
       },
       // While a terminal is focused: what that worker changed (the Changes window's acts).
       ...(this.changesTarget()
-        ? [{
-          id: 'changes', icon: '📝', title: 'Changes',
-          sub: () => {
-            const w = this.changesTarget();
-            const s = this.changesState();
-            const name = w?.name ?? 'the worker';
-            if (!s) return `${name} · see what changed`;
-            const n = s.files.length;
-            return n ? `${name} · ${n} file${n > 1 ? 's' : ''} changed` : `${name} · clean`;
-          },
-        }]
+        ? [
+            {
+              id: 'changes',
+              icon: '📝',
+              title: 'Changes',
+              sub: () => {
+                const w = this.changesTarget();
+                const s = this.changesState();
+                const name = w?.name ?? 'the worker';
+                if (!s) return `${name} · see what changed`;
+                const n = s.files.length;
+                return n ? `${name} · ${n} file${n > 1 ? 's' : ''} changed` : `${name} · clean`;
+              },
+            },
+          ]
         : []),
       // Out of voice the row joins it (the V key's function); in voice it mutes.
       ...(this.stores.inVoice()
-        ? [{
-          id: 'mute', icon: this.stores.isMuted() ? '🔇' : '🎙️', title: this.stores.isMuted() ? 'Unmute' : 'Mute',
-          sub: () => 'in voice (M)',
-        },
-        {
-          id: 'leave', icon: '📞', title: 'Leave voice',
-          sub: () => 'back to silence (V)',
-        }]
-        : [{
-          id: 'mute', icon: '🎙️', title: 'Join voice',
-          sub: () => 'talk to the floor (V)',
-        }]),
+        ? [
+            {
+              id: 'mute',
+              icon: this.stores.isMuted() ? '🔇' : '🎙️',
+              title: this.stores.isMuted() ? 'Unmute' : 'Mute',
+              sub: () => 'in voice (M)',
+            },
+            {
+              id: 'leave',
+              icon: '📞',
+              title: 'Leave voice',
+              sub: () => 'back to silence (V)',
+            },
+          ]
+        : [
+            {
+              id: 'mute',
+              icon: '🎙️',
+              title: 'Join voice',
+              sub: () => 'talk to the floor (V)',
+            },
+          ]),
       { id: 'settings', icon: '⚙️', title: 'VR settings', sub: () => 'glide · turning · fade' },
       { id: 'controls', icon: '❓', title: 'VR controls', sub: () => 'pinches, teleports, sticks' },
       { id: 'exit', icon: '🚪', title: 'Exit VR', sub: () => 'back to the flat screen' },
@@ -626,8 +658,24 @@ export class VrMenu {
     const buttons: { id: string; rect: Rect; onClick: () => void }[] = [{ id: 'back', rect: BACK_BTN, onClick: () => this.go('main') }];
     if (this.view === 'board') {
       buttons.push(
-        { id: 'tab:issues', rect: { x: TABS.x, y: TABS.y, w: TABS.w / 2, h: TABS.h }, onClick: () => { this.boardTab = 'issues'; this.panel.setScrollOffset('list', 0); this.refresh(); } },
-        { id: 'tab:pulls', rect: { x: TABS.x + TABS.w / 2, y: TABS.y, w: TABS.w / 2, h: TABS.h }, onClick: () => { this.boardTab = 'pulls'; this.panel.setScrollOffset('list', 0); this.refresh(); } },
+        {
+          id: 'tab:issues',
+          rect: { x: TABS.x, y: TABS.y, w: TABS.w / 2, h: TABS.h },
+          onClick: () => {
+            this.boardTab = 'issues';
+            this.panel.setScrollOffset('list', 0);
+            this.refresh();
+          },
+        },
+        {
+          id: 'tab:pulls',
+          rect: { x: TABS.x + TABS.w / 2, y: TABS.y, w: TABS.w / 2, h: TABS.h },
+          onClick: () => {
+            this.boardTab = 'pulls';
+            this.panel.setScrollOffset('list', 0);
+            this.refresh();
+          },
+        },
       );
     }
     if (this.view === 'jukebox') {
@@ -642,19 +690,13 @@ export class VrMenu {
       );
     }
     if (this.view === 'chat') {
-      buttons.push(
-        { id: 'say', rect: SAY_BTN, onClick: () => this.onChatSay?.() },
-        { id: 'find', rect: CHAT_FIND, onClick: () => this.onChatSearch?.() },
-      );
+      buttons.push({ id: 'say', rect: SAY_BTN, onClick: () => this.onChatSay?.() }, { id: 'find', rect: CHAT_FIND, onClick: () => this.onChatSearch?.() });
     }
     if (this.view === 'floors') {
       buttons.push({ id: 'add', rect: FLOORS_ADD, onClick: () => this.actions.addFloor() });
     }
     if (this.view === 'queue') {
-      buttons.push(
-        { id: 'q:add', rect: QB_ADD, onClick: () => this.actions.addQueueTask() },
-        { id: 'q:pause', rect: QB_TOGGLE, onClick: () => this.toggleQueue() },
-      );
+      buttons.push({ id: 'q:add', rect: QB_ADD, onClick: () => this.actions.addQueueTask() }, { id: 'q:pause', rect: QB_TOGGLE, onClick: () => this.toggleQueue() });
     }
     if (this.view === 'changes') {
       const t = this.changesTarget();
@@ -663,17 +705,21 @@ export class VrMenu {
       if (t && s && !s.error && !s.busy) {
         const uncommitted = s.files.filter((f) => f.uncommitted).length;
         if (uncommitted) {
-          buttons.push(
-            { id: 'ch:commit', rect: CH_COMMIT, onClick: () => this.actions.commitChanges(t.id) },
-            { id: 'ch:discard', rect: CH_DISCARD, onClick: () => this.tapDiscard(t.id) },
-          );
+          buttons.push({ id: 'ch:commit', rect: CH_COMMIT, onClick: () => this.actions.commitChanges(t.id) }, { id: 'ch:discard', rect: CH_DISCARD, onClick: () => this.tapDiscard(t.id) });
         }
         if (s.pr) buttons.push({ id: 'ch:pr', rect: CH_PR, onClick: () => this.actions.copyPrUrl(s.pr!.url) });
         else if (s.prBase && s.ahead && !uncommitted) buttons.push({ id: 'ch:pr', rect: CH_PR, onClick: () => this.actions.openChangesPr(t.id) });
       }
     }
     if (this.view === 'hire') {
-      buttons.push({ id: 'hire:wt', rect: HIRE_WT, onClick: () => { this.actions.toggleWorktree(); this.panel.markDirty(); } });
+      buttons.push({
+        id: 'hire:wt',
+        rect: HIRE_WT,
+        onClick: () => {
+          this.actions.toggleWorktree();
+          this.panel.markDirty();
+        },
+      });
     }
     if (this.view === 'meeting') {
       const m = this.stores.getMeeting().current;
@@ -684,9 +730,7 @@ export class VrMenu {
     }
     if (this.view === 'detail' && this.detail) {
       const d = this.detail;
-      const item = d.kind === 'issue'
-        ? this.stores.getIssues().items.find((i) => i.number === d.number)
-        : this.stores.getPulls().items.find((p) => p.number === d.number);
+      const item = d.kind === 'issue' ? this.stores.getIssues().items.find((i) => i.number === d.number) : this.stores.getPulls().items.find((p) => p.number === d.number);
       // Gone from the board: back only (no invisible buttons under the note).
       if (!item) {
         this.panel.setButtons(buttons);
@@ -704,9 +748,7 @@ export class VrMenu {
         const w = this.pullWorker(d.number);
         const open = (item as { state?: string }).state === 'OPEN';
         const termR = { x: 0.05, y: 0.82, w: open ? 0.42 : 0.55, h: 0.12 };
-        const commentR = w
-          ? (open ? { x: 0.49, y: 0.82, w: 0.24, h: 0.12 } : { x: 0.62, y: 0.82, w: 0.33, h: 0.12 })
-          : (open ? { x: 0.05, y: 0.82, w: 0.44, h: 0.12 } : { x: 0.05, y: 0.82, w: 0.9, h: 0.12 });
+        const commentR = w ? (open ? { x: 0.49, y: 0.82, w: 0.24, h: 0.12 } : { x: 0.62, y: 0.82, w: 0.33, h: 0.12 }) : open ? { x: 0.05, y: 0.82, w: 0.44, h: 0.12 } : { x: 0.05, y: 0.82, w: 0.9, h: 0.12 };
         const reviewR = w ? { x: 0.75, y: 0.82, w: 0.2, h: 0.12 } : { x: 0.51, y: 0.82, w: 0.44, h: 0.12 };
         if (w) buttons.push({ id: 'act:term', rect: termR, onClick: () => this.onOpenTerminal?.(w) });
         buttons.push({ id: 'act:comment', rect: commentR, onClick: () => this.actions.commentOn('pull', d.number) });
@@ -773,27 +815,43 @@ export class VrMenu {
 
   private mainClick(id: string) {
     switch (id) {
-      case 'hire': return this.go('hire');
-      case 'next': return this.actions.nextWaiting();
-      case 'queue': return this.go('queue');
-      case 'board': return this.go('board');
-      case 'floors': return this.go('floors');
-      case 'jukebox': return this.go('jukebox');
-      case 'bar': return this.go('bar');
-      case 'chat': return this.go('chat');
-      case 'meeting': return this.go('meeting');
+      case 'hire':
+        return this.go('hire');
+      case 'next':
+        return this.actions.nextWaiting();
+      case 'queue':
+        return this.go('queue');
+      case 'board':
+        return this.go('board');
+      case 'floors':
+        return this.go('floors');
+      case 'jukebox':
+        return this.go('jukebox');
+      case 'bar':
+        return this.go('bar');
+      case 'chat':
+        return this.go('chat');
+      case 'meeting':
+        return this.go('meeting');
       case 'changes': {
         const w = this.changesTarget();
         if (w) this.actions.openChanges(w.id);
         return;
       }
-      case 'services': return this.go('services');
-      case 'people': return this.go('people');
-      case 'mute': return this.actions.toggleMute();
-      case 'leave': return this.actions.leaveVoice();
-      case 'settings': return this.go('settings');
-      case 'controls': return this.onShowControls?.();
-      case 'exit': return this.actions.exitVr();
+      case 'services':
+        return this.go('services');
+      case 'people':
+        return this.go('people');
+      case 'mute':
+        return this.actions.toggleMute();
+      case 'leave':
+        return this.actions.leaveVoice();
+      case 'settings':
+        return this.go('settings');
+      case 'controls':
+        return this.onShowControls?.();
+      case 'exit':
+        return this.actions.exitVr();
     }
   }
 
@@ -980,12 +1038,48 @@ export class VrMenu {
     ctx.roundRect(0, 0, w, h, Math.round(h * 0.02));
     ctx.clip();
 
-    const title = this.view === 'main' ? '☰ Menu' : this.view === 'hire' ? '✨ Hire worker' : this.view === 'queue' ? '📋 Task queue' : this.view === 'board' ? '📌 Issues / PRs' : this.view === 'floors' ? '🛗 Floors' : this.view === 'jukebox' ? '🎵 Jukebox' : this.view === 'bar' ? '🍸 Sky Bar' : this.view === 'chat' ? '💬 Chat' : this.view === 'search' ? `🔎 ${this.stores.getSearch()?.query.trim() || 'Search'}` : this.view === 'changes' ? `📝 ${this.changesTarget()?.name ?? 'Changes'}` : this.view === 'settings' ? '⚙️ VR settings' : this.view === 'meeting' ? '🤝 Meeting room' : this.view === 'services' ? '🌐 Services' : this.view === 'people' ? '🧑 People' : this.view === 'assign' ? `🤖 Hand #${this.assignTarget?.number ?? ''} to…` : this.detailTitle();
+    const title =
+      this.view === 'main'
+        ? '☰ Menu'
+        : this.view === 'hire'
+          ? '✨ Hire worker'
+          : this.view === 'queue'
+            ? '📋 Task queue'
+            : this.view === 'board'
+              ? '📌 Issues / PRs'
+              : this.view === 'floors'
+                ? '🛗 Floors'
+                : this.view === 'jukebox'
+                  ? '🎵 Jukebox'
+                  : this.view === 'bar'
+                    ? '🍸 Sky Bar'
+                    : this.view === 'chat'
+                      ? '💬 Chat'
+                      : this.view === 'search'
+                        ? `🔎 ${this.stores.getSearch()?.query.trim() || 'Search'}`
+                        : this.view === 'changes'
+                          ? `📝 ${this.changesTarget()?.name ?? 'Changes'}`
+                          : this.view === 'settings'
+                            ? '⚙️ VR settings'
+                            : this.view === 'meeting'
+                              ? '🤝 Meeting room'
+                              : this.view === 'services'
+                                ? '🌐 Services'
+                                : this.view === 'people'
+                                  ? '🧑 People'
+                                  : this.view === 'assign'
+                                    ? `🤖 Hand #${this.assignTarget?.number ?? ''} to…`
+                                    : this.detailTitle();
     ctx.fillStyle = '#eeeeee';
     ctx.font = `700 ${Math.round(h * 0.042)}px ${TERM_FONT}`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    ctx.fillText(title, w * (this.view === 'main' ? 0.05 : 0.22), h * HEADER_H * 0.55, w * (this.view === 'board' ? 0.3 : this.view === 'jukebox' || this.view === 'chat' || this.view === 'meeting' || this.view === 'queue' || this.view === 'changes' ? 0.34 : 0.5));
+    ctx.fillText(
+      title,
+      w * (this.view === 'main' ? 0.05 : 0.22),
+      h * HEADER_H * 0.55,
+      w * (this.view === 'board' ? 0.3 : this.view === 'jukebox' || this.view === 'chat' || this.view === 'meeting' || this.view === 'queue' || this.view === 'changes' ? 0.34 : 0.5),
+    );
     if (this.view !== 'main') this.paintBack(ctx, w, h, state);
     if (this.view === 'detail') this.paintCloseBtn(ctx, w, h, state);
     if (this.view === 'board') this.paintTabs(ctx, w, h, state);
@@ -1101,7 +1195,10 @@ export class VrMenu {
   private paintTransport(ctx: CanvasRenderingContext2D, w: number, h: number, state: { hoverId: string | null; pressedId: string | null }) {
     const on = this.stores.getJukebox().on;
     const btns: { id: string; label: string; r: Rect }[] = on
-      ? [{ id: 'jb:stop', label: '⏹', r: JB_STOP }, { id: 'jb:skip', label: '⏭', r: JB_SKIP }]
+      ? [
+          { id: 'jb:stop', label: '⏹', r: JB_STOP },
+          { id: 'jb:skip', label: '⏭', r: JB_SKIP },
+        ]
       : [{ id: 'jb:play', label: '▶', r: JB_PLAY }];
     for (const b of btns) {
       this.pill(ctx, b.r, w, h, b.id, state);
@@ -1436,8 +1533,16 @@ export class VrMenu {
       const title = t.issue !== undefined ? `#${t.issue} ${t.title}` : t.title;
       const armed = this.queueArmed(i);
       const sub = armed
-        ? t.status === 'queued' ? 'tap again to take it off' : 'tap again to put it back on'
-        : t.status === 'running' ? `${t.workerName ?? 'a worker'}` : t.status === 'queued' ? `queued by ${t.addedBy}` : t.pr ? `PR #${t.pr.number}` : t.outcome ?? 'done';
+        ? t.status === 'queued'
+          ? 'tap again to take it off'
+          : 'tap again to put it back on'
+        : t.status === 'running'
+          ? `${t.workerName ?? 'a worker'}`
+          : t.status === 'queued'
+            ? `queued by ${t.addedBy}`
+            : t.pr
+              ? `PR #${t.pr.number}`
+              : (t.outcome ?? 'done');
       this.rowText(ctx, icon, title, sub, x, y, bw, rh);
       return;
     }
@@ -1469,11 +1574,12 @@ export class VrMenu {
     if (i === 0) {
       const title = m.status === 'running' ? `${p.icon} ${m.title}` : m.status === 'done' ? `✅ ${m.title}` : `⛔ ${m.title}`;
       const doing = [...new Set(m.turns.filter((t) => t.state !== 'done').map((t) => t.doing))].join(', ');
-      const sub = m.status === 'running'
-        ? `Round ${m.round} of ${m.rounds}${doing ? ` · ${doing}` : ''} · ${meetingSpend(m)} of ${fmtTokens(m.budget)}`
-        : m.status === 'done'
-          ? `Wrote ${m.output} in ${m.round} round${m.round === 1 ? '' : 's'} · tap to call another`
-          : `Stopped in round ${m.round} · tap to call another`;
+      const sub =
+        m.status === 'running'
+          ? `Round ${m.round} of ${m.rounds}${doing ? ` · ${doing}` : ''} · ${meetingSpend(m)} of ${fmtTokens(m.budget)}`
+          : m.status === 'done'
+            ? `Wrote ${m.output} in ${m.round} round${m.round === 1 ? '' : 's'} · tap to call another`
+            : `Stopped in round ${m.round} · tap to call another`;
       this.rowText(ctx, '🤝', title, sub, x, y, bw, rh);
       return;
     }
@@ -1508,9 +1614,7 @@ export class VrMenu {
   private paintDetail(ctx: CanvasRenderingContext2D, w: number, h: number, state: { hoverId: string | null; pressedId: string | null }) {
     const d = this.detail;
     if (!d) return;
-    const item = d.kind === 'issue'
-      ? this.stores.getIssues().items.find((i) => i.number === d.number)
-      : this.stores.getPulls().items.find((p) => p.number === d.number);
+    const item = d.kind === 'issue' ? this.stores.getIssues().items.find((i) => i.number === d.number) : this.stores.getPulls().items.find((p) => p.number === d.number);
     if (!item) {
       this.centerNote(ctx, w, 'Gone from the board', h);
       return;
@@ -1529,9 +1633,10 @@ export class VrMenu {
     y += h * 0.005;
     ctx.fillStyle = '#8c8c8c';
     ctx.font = `500 ${Math.round(h * 0.024)}px ${TERM_FONT}`;
-    const meta = d.kind === 'issue'
-      ? `by ${(item as GhIssue).author} · 💬 ${(item as GhIssue).comments}`
-      : `by ${(item as GhPull).author} · ${(item as GhPull).isDraft ? 'draft' : 'in review'} · +${(item as GhPull).additions}/-${(item as GhPull).deletions}`;
+    const meta =
+      d.kind === 'issue'
+        ? `by ${(item as GhIssue).author} · 💬 ${(item as GhIssue).comments}`
+        : `by ${(item as GhPull).author} · ${(item as GhPull).isDraft ? 'draft' : 'in review'} · +${(item as GhPull).additions}/-${(item as GhPull).deletions}`;
     ctx.fillText(meta, bx, y);
     y += h * 0.045;
     const labels = item.labels.slice(0, 4);
@@ -1572,9 +1677,7 @@ export class VrMenu {
       const name = workerId ? (this.stores.getWorkers().find((x) => x.id === workerId)?.name ?? '') : '';
       const open = (item as { state?: string }).state === 'OPEN';
       const termR = { x: 0.05, y: 0.82, w: open ? 0.42 : 0.55, h: 0.12 };
-      const commentR = workerId
-        ? (open ? { x: 0.49, y: 0.82, w: 0.24, h: 0.12 } : { x: 0.62, y: 0.82, w: 0.33, h: 0.12 })
-        : (open ? { x: 0.05, y: 0.82, w: 0.44, h: 0.12 } : { x: 0.05, y: 0.82, w: 0.9, h: 0.12 });
+      const commentR = workerId ? (open ? { x: 0.49, y: 0.82, w: 0.24, h: 0.12 } : { x: 0.62, y: 0.82, w: 0.33, h: 0.12 }) : open ? { x: 0.05, y: 0.82, w: 0.44, h: 0.12 } : { x: 0.05, y: 0.82, w: 0.9, h: 0.12 };
       const reviewR = workerId ? { x: 0.75, y: 0.82, w: 0.2, h: 0.12 } : { x: 0.51, y: 0.82, w: 0.44, h: 0.12 };
       if (workerId) this.actionBtn(ctx, w, h, termR, 'act:term', `💻 ${name}`, state, true);
       this.actionBtn(ctx, w, h, commentR, 'act:comment', '💬 Comment', state, !workerId);
@@ -1604,7 +1707,7 @@ export class VrMenu {
     const d = this.detail;
     if (!d || this.view !== 'detail' || d.kind !== 'pull' || d.number !== number) return;
     const m = this.mergeFor(number);
-    if (!m || m.state !== 'ready' || !m.status?.can) return;
+    if (m?.state !== 'ready' || !m.status?.can) return;
     if (this.mergeArmedFor === number && performance.now() < this.mergeArmedUntil) {
       this.mergeArmedFor = null;
       this.mergeArmedUntil = 0;

@@ -10,7 +10,6 @@
  * terminal can encode Ctrl+Enter and Shift+Enter for workers that bind them.
  */
 
-import type * as THREE from 'three';
 import { TERM_FONT } from '../fonts';
 import type { KeyMods } from '../term-keys';
 import { keyRects, type HeadPose, type KeyDef, type KeyRect, type Rect } from './math';
@@ -25,8 +24,26 @@ export interface KeyboardTarget {
 
 /** US shift symbols for the digit and punctuation rows. */
 const SHIFTED: Record<string, string> = {
-  '1': '!', '2': '@', '3': '#', '4': '$', '5': '%', '6': '^', '7': '&', '8': '*', '9': '(', '0': ')',
-  '-': '_', '=': '+', '[': '{', ']': '}', '\\': '|', ';': ':', "'": '"', ',': '<', '.': '>', '/': '?',
+  '1': '!',
+  '2': '@',
+  '3': '#',
+  '4': '$',
+  '5': '%',
+  '6': '^',
+  '7': '&',
+  '8': '*',
+  '9': '(',
+  '0': ')',
+  '-': '_',
+  '=': '+',
+  '[': '{',
+  ']': '}',
+  '\\': '|',
+  ';': ':',
+  "'": '"',
+  ',': '<',
+  '.': '>',
+  '/': '?',
 };
 
 const ARROWS: Record<string, string> = { left: '\x1b[D', up: '\x1b[A', down: '\x1b[B', right: '\x1b[C' };
@@ -34,7 +51,7 @@ const ARROWS: Record<string, string> = { left: '\x1b[D', up: '\x1b[A', down: '\x
 function row(keys: (string | { id: string; label: string; w?: number })[], fn?: (id: string) => boolean): KeyDef[] {
   return keys.map((k) => {
     const def = typeof k === 'string' ? { id: `k:${k}`, label: k } : { id: k.id, label: k.label, w: k.w };
-    return { ...def, kind: (fn?.(def.id) ?? def.id.startsWith('fn:')) ? 'fn' as const : 'char' as const };
+    return { ...def, kind: (fn?.(def.id) ?? def.id.startsWith('fn:')) ? ('fn' as const) : ('char' as const) };
   });
 }
 
@@ -46,8 +63,12 @@ export function keyboardRows(): KeyDef[][] {
     row([{ id: 'fn:ctrl', label: 'ctrl', w: 1.6 }, 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', "'", { id: 'fn:enter2', label: '⏎', w: 1.8 }]),
     row([{ id: 'fn:shift', label: '⇧', w: 2.2 }, 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', { id: 'fn:shift2', label: '⇧', w: 2.2 }]),
     row([
-      { id: 'fn:esc2', label: 'esc', w: 1.2 }, { id: 'k: ', label: 'space', w: 7 },
-      { id: 'fn:left', label: '←', w: 1 }, { id: 'fn:up', label: '↑', w: 1 }, { id: 'fn:down', label: '↓', w: 1 }, { id: 'fn:right', label: '→', w: 1 },
+      { id: 'fn:esc2', label: 'esc', w: 1.2 },
+      { id: 'k: ', label: 'space', w: 7 },
+      { id: 'fn:left', label: '←', w: 1 },
+      { id: 'fn:up', label: '↑', w: 1 },
+      { id: 'fn:down', label: '↓', w: 1 },
+      { id: 'fn:right', label: '→', w: 1 },
     ]),
   ];
 }

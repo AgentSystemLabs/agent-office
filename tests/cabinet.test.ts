@@ -79,14 +79,7 @@ test('a broken or tampered table file is read as far as it makes sense', (t) => 
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   writeFileSync(
     path.join(dir, 'arcade.json'),
-    JSON.stringify([
-      { ...entry(1, 300), at: 1 },
-      { ...entry(2, 700), color: 'red; x', at: 2 },
-      { ...entry(3, 900), score: 'lots', at: 3 },
-      null,
-      { ...entry(4, 100), name: '', at: 4 },
-      entry(5, 800),
-    ]),
+    JSON.stringify([{ ...entry(1, 300), at: 1 }, { ...entry(2, 700), color: 'red; x', at: 2 }, { ...entry(3, 900), score: 'lots', at: 3 }, null, { ...entry(4, 100), name: '', at: 4 }, entry(5, 800)]),
   );
   const table = new HighScores(dir);
   assert.deepEqual(
@@ -139,7 +132,15 @@ test('dropping an I into a four-deep gap clears four lines', () => {
   // 17 rows down at 2 points a row, and 800 for four lines at level 1.
   assert.equal(g.score, 17 * 2 + 800);
   assert.equal(g.pieces, 1);
-  assert.ok(!/[1-7]/.test(g.frame().cells.slice(-4 * WELL_COLS).replace(/8/g, '0')), 'the bottom four rows are empty again');
+  assert.ok(
+    !/[1-7]/.test(
+      g
+        .frame()
+        .cells.slice(-4 * WELL_COLS)
+        .replace(/8/g, '0'),
+    ),
+    'the bottom four rows are empty again',
+  );
 });
 
 test('a piece turned against the wall is kicked out from it', () => {
@@ -310,7 +311,11 @@ test('a forged score never makes the table', (t) => {
   // Lines cleared one at a time, scored as if they'd all gone at once.
   const linus: Player = { owner: 'name:Linus', name: 'Linus', color: '#ffd166' };
   const singles = arcade.start(linus);
-  for (const [pieces, lines] of [[3, 1], [6, 2], [9, 3]]) {
+  for (const [pieces, lines] of [
+    [3, 1],
+    [6, 2],
+    [9, 3],
+  ]) {
     assert.equal(arcade.frame(singles, frame({ pieces, lines, score: DROP_POINTS * (pieces + 1) + 100 * lines }), 'f1'), 'ok');
   }
   assert.equal(arcade.frame(singles, frame({ pieces: 10, lines: 4, score: DROP_POINTS * 11 + 800 }), 'f1'), 'void');
@@ -432,10 +437,7 @@ test('new games started one after another stop going on the table, until they sl
     assert.equal(arcade.frame(id, frame({ pieces: 1, score: 30, state: 'over' }), 'f1'), 'ok');
     return counts;
   };
-  assert.deepEqual(
-    Array.from({ length: GAME_BURST + 2 }, quickGame),
-    [...new Array(GAME_BURST).fill(true), false, false],
-  );
+  assert.deepEqual(Array.from({ length: GAME_BURST + 2 }, quickGame), [...new Array(GAME_BURST).fill(true), false, false]);
   tick(GAME_EVERY);
   assert.equal(quickGame(), true);
   // Coming back to a game that's waiting for you isn't starting a new one.

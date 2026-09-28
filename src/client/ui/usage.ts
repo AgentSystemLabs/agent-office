@@ -11,22 +11,14 @@ function displayedCost(u: Usage): string {
 
 /** e.g. "$0.42 · 38k tokens"; OpenCode's amount is explicitly an estimate. */
 export function usageLabel(u: Usage, provider: AgentProvider = 'claude'): string {
-  const money = provider === 'codex' && u.costKnown !== true
-    ? 'cost unavailable'
-    : u.costKnown === false
-      ? 'cost unavailable'
-      : `${fmtCost(u.cost)}${provider === 'opencode' ? ' reported' : ''}`;
-  return `${u.incomplete ? "Partial: " : ""}${money} · ${fmtTokens(tokensOf(u))} tokens`;
+  const money = provider === 'codex' && u.costKnown !== true ? 'cost unavailable' : u.costKnown === false ? 'cost unavailable' : `${fmtCost(u.cost)}${provider === 'opencode' ? ' reported' : ''}`;
+  return `${u.incomplete ? 'Partial: ' : ''}${money} · ${fmtTokens(tokensOf(u))} tokens`;
 }
 
 /** The breakdown behind a figure, for a tooltip. */
 export function usageTitle(u: Usage, provider: AgentProvider = 'claude'): string {
   const money = provider === 'codex' && u.costKnown !== true ? 'cost unavailable' : u.costKnown === false ? 'cost unavailable' : fmtCost(u.cost);
-  const calls = provider === 'codex' || u.callsKnown === false
-    ? 'API call count unavailable'
-    : provider === 'opencode'
-      ? `${u.calls} reported call${u.calls === 1 ? '' : 's'}`
-      : `${u.calls} API call${u.calls === 1 ? '' : 's'}`;
+  const calls = provider === 'codex' || u.callsKnown === false ? 'API call count unavailable' : provider === 'opencode' ? `${u.calls} reported call${u.calls === 1 ? '' : 's'}` : `${u.calls} API call${u.calls === 1 ? '' : 's'}`;
   return [
     ...(u.incomplete ? ['Partial metrics: some session history is still loading or unavailable.'] : []),
     provider === 'codex'
@@ -155,7 +147,7 @@ export function renderUsage() {
             `cache write ${fmtTokens(currentOpenCodeCacheWrite)} · cache read ${fmtTokens(currentOpenCodeCacheRead)}`,
           ].join('\n'),
         },
-        `OpenCode ${currentOpenCodeIncomplete ? "partial" : "current desks"} ${amount} · ${fmtTokens(currentOpenCodeTokens)} tokens`,
+        `OpenCode ${currentOpenCodeIncomplete ? 'partial' : 'current desks'} ${amount} · ${fmtTokens(currentOpenCodeTokens)} tokens`,
       ),
     );
   }

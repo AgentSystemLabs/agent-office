@@ -62,7 +62,10 @@ function stitches(g: THREE.Group, from: [number, number], to: [number, number], 
     const k = (i + 0.5) / crossings;
     const at = curve.getPointAt(k);
     const along = curve.getTangentAt(k);
-    const normal = at.clone().setY(at.y - THREE.MathUtils.clamp(at.y, BEAN.y - BEAN.half, BEAN.y + BEAN.half)).normalize();
+    const normal = at
+      .clone()
+      .setY(at.y - THREE.MathUtils.clamp(at.y, BEAN.y - BEAN.half, BEAN.y + BEAN.half))
+      .normalize();
     const across = new THREE.Vector3().crossVectors(normal, along).normalize();
     const up = new THREE.Vector3().crossVectors(normal, across).normalize();
     const s = mesh(stitch, thread, at.x, at.y, at.z, false);

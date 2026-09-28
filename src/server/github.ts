@@ -323,10 +323,7 @@ export class GitHub implements Board {
     try {
       // Open and closed separately, so old open issues are never crowded out by recent closed ones.
       const fields = 'number,title,state,url,author,labels,assignees,createdAt,updatedAt,body,comments';
-      const [open, closed] = await Promise.all([
-        gh(['issue', 'list', '--state', 'open', '--limit', '300', '--json', fields], this.dir),
-        gh(['issue', 'list', '--state', 'closed', '--limit', '40', '--json', fields], this.dir),
-      ]);
+      const [open, closed] = await Promise.all([gh(['issue', 'list', '--state', 'open', '--limit', '300', '--json', fields], this.dir), gh(['issue', 'list', '--state', 'closed', '--limit', '40', '--json', fields], this.dir)]);
       const items: GhIssue[] = [...JSON.parse(open), ...JSON.parse(closed)].map((i: any) => ({
         number: i.number,
         title: i.title,

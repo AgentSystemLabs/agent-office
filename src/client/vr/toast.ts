@@ -4,7 +4,6 @@
  * latest for a few seconds. A sticky line (the issue card in hand) stays up until cleared.
  */
 
-import type * as THREE from 'three';
 import { TERM_FONT } from '../fonts';
 import type { HeadPose } from './math';
 import { WorldPanel } from './panel';

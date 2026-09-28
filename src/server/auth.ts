@@ -118,7 +118,9 @@ export class Auth {
   }
 
   private sign(payload: string, account: boolean): string {
-    return createHmac('sha256', account ? this.accountKey : this.key).update(payload).digest('base64url');
+    return createHmac('sha256', account ? this.accountKey : this.key)
+      .update(payload)
+      .digest('base64url');
   }
 }
 

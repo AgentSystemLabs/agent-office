@@ -39,25 +39,45 @@ const GROK = {
 
 test('Claude: session, week, per-model weeks, and extra usage when it is on', () => {
   const r = parseClaude(CLAUDE);
-  assert.deepEqual(r.windows.map((w) => [w.label, w.pct]), [['5h', 24], ['Week', 71], ['Fable wk', 43], ['Extra', 87.18]]);
+  assert.deepEqual(
+    r.windows.map((w) => [w.label, w.pct]),
+    [
+      ['5h', 24],
+      ['Week', 71],
+      ['Fable wk', 43],
+      ['Extra', 87.18],
+    ],
+  );
   assert.equal(r.windows[0].resetsAt, Date.parse('2026-09-28T18:20:00.422294+00:00'));
   assert.equal(r.windows[3].resetsAt, undefined);
   assert.equal(r.limited, undefined);
   assert.equal(parseClaude({ ...CLAUDE, five_hour: { utilization: 100 } }).limited, true);
   // Extra usage switched off, and no per-model list: the old per-model buckets.
   const old = parseClaude({ five_hour: { utilization: 5 }, seven_day_opus: { utilization: 12 }, extra_usage: { is_enabled: false, utilization: 50 } });
-  assert.deepEqual(old.windows.map((w) => w.label), ['5h', 'Opus wk']);
+  assert.deepEqual(
+    old.windows.map((w) => w.label),
+    ['5h', 'Opus wk'],
+  );
   assert.deepEqual(parseClaude(null).windows, []);
 });
 
 test('Codex: windows named by their length, the plan, and a used-up limit', () => {
   const r = parseCodex(CODEX_PLUS);
-  assert.deepEqual(r.windows.map((w) => [w.label, w.pct, w.resetsAt]), [['5h', 100, 1790623713000], ['Week', 16, 1791210513000]]);
+  assert.deepEqual(
+    r.windows.map((w) => [w.label, w.pct, w.resetsAt]),
+    [
+      ['5h', 100, 1790623713000],
+      ['Week', 16, 1791210513000],
+    ],
+  );
   assert.equal(r.plan, 'plus');
   assert.equal(r.limited, true);
   // A plan with only a monthly limit reports it as the primary window.
   const monthly = parseCodex({ rate_limit: { primary_window: { used_percent: 3, limit_window_seconds: 30 * 86400 } } });
-  assert.deepEqual(monthly.windows.map((w) => w.label), ['Month']);
+  assert.deepEqual(
+    monthly.windows.map((w) => w.label),
+    ['Month'],
+  );
   assert.deepEqual(parseCodex({}).windows, []);
 });
 
@@ -65,7 +85,10 @@ test('Grok: one credit window for the billing period', () => {
   const r = parseGrok(GROK);
   assert.deepEqual(r.windows, [{ label: 'Week', pct: 38, resetsAt: Date.parse('2026-10-04T05:44:46.220789+00:00') }]);
   const capped = parseGrok({ config: { onDemandCap: { val: 200 }, onDemandUsed: { val: 50 } } });
-  assert.deepEqual(capped.windows.map((w) => [w.label, w.pct]), [['Credits', 25]]);
+  assert.deepEqual(
+    capped.windows.map((w) => [w.label, w.pct]),
+    [['Credits', 25]],
+  );
   assert.deepEqual(parseGrok({ config: {} }).windows, []);
 });
 
@@ -87,7 +110,14 @@ test('reads only enabled Claude, Codex and Grok sign-ins, Claude first', (t) => 
   });
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const creds = readCredentials(dir)!;
-  assert.deepEqual(creds.map((c) => [c.provider, c.file]), [['claude', 'claude-a.json'], ['codex', 'codex-a.json'], ['grok', 'grok-cli.json']]);
+  assert.deepEqual(
+    creds.map((c) => [c.provider, c.file]),
+    [
+      ['claude', 'claude-a.json'],
+      ['codex', 'codex-a.json'],
+      ['grok', 'grok-cli.json'],
+    ],
+  );
   assert.equal(creds[1].accountId, 'acct');
   assert.equal(creds[2].expires, 4_000_000_000_000);
   assert.equal(readCredentials(path.join(dir, 'missing')), null);
@@ -107,10 +137,19 @@ test('asks each provider, never passes on emails or tokens, and says why an acco
     const body = url.includes('anthropic') ? CLAUDE : url.includes('chatgpt') ? CODEX_PLUS : url.includes('grok') ? GROK : {};
     return { status: url.includes('grok') ? 401 : 200, json: async () => body };
   };
-  const reader = new DroidProxyUsage(dir, () => true, () => {}, fetcher, 'http://health');
+  const reader = new DroidProxyUsage(
+    dir,
+    () => true,
+    () => {},
+    fetcher,
+    'http://health',
+  );
   const s = await reader.read();
   assert.equal(s.running, true);
-  assert.deepEqual(s.accounts.map((a) => a.label), ['Claude', 'Codex 1', 'Codex 2', 'Grok']);
+  assert.deepEqual(
+    s.accounts.map((a) => a.label),
+    ['Claude', 'Codex 1', 'Codex 2', 'Grok'],
+  );
   assert.equal(s.accounts[1].plan, 'plus');
   assert.equal(s.accounts[1].limited, true);
   assert.match(s.accounts[2].error ?? '', /expired/);
@@ -127,10 +166,15 @@ test('asks each provider, never passes on emails or tokens, and says why an acco
 
 test('no DroidProxy folder: no accounts, and nothing is fetched', async () => {
   let fetched = 0;
-  const reader = new DroidProxyUsage(path.join(tmpdir(), 'no-such-droidproxy'), () => true, () => {}, async () => {
-    fetched++;
-    return { status: 200, json: async () => ({}) };
-  });
+  const reader = new DroidProxyUsage(
+    path.join(tmpdir(), 'no-such-droidproxy'),
+    () => true,
+    () => {},
+    async () => {
+      fetched++;
+      return { status: 200, json: async () => ({}) };
+    },
+  );
   const s = await reader.read();
   assert.deepEqual(s.accounts, []);
   assert.equal(s.running, undefined);

@@ -14,11 +14,13 @@ const iwsdk = process.env.IWSDK
 function iwsdkTestShim(): Plugin {
   return {
     name: 'iwsdk-test-shim',
-    transformIndexHtml: () => [{
-      tag: 'script',
-      injectTo: 'body',
-      children: `window.FRAMEWORK_MCP_RUNTIME={handles:()=>false};for(const t of[0,500,2000])setTimeout(()=>window.dispatchEvent(new Event('iwsdk:mcp-runtime-ready')),t);`,
-    }],
+    transformIndexHtml: () => [
+      {
+        tag: 'script',
+        injectTo: 'body',
+        children: `window.FRAMEWORK_MCP_RUNTIME={handles:()=>false};for(const t of[0,500,2000])setTimeout(()=>window.dispatchEvent(new Event('iwsdk:mcp-runtime-ready')),t);`,
+      },
+    ],
   };
 }
 // The whiteboard's fonts (Excalidraw's hand-drawn Virgil/Excalifont and friends), served by the
@@ -83,8 +85,7 @@ export default defineConfig({
       // xrblocks' simulator, spatial-UI, AI and vision chunks import these, but only from lazy
       // chunks the office never loads (it uses Hands alone, see vr/session.ts). Per xrblocks'
       // own docs, they stay external instead of installed; three and its addons still bundle.
-      external: (id) =>
-        /^(lit|lit-html|@pmndrs\/uikit|@preact\/signals-core|@sparkjsdev\/spark|openai|three-mesh-bvh|three-pathfinding|@google\/genai|@huggingface\/transformers|@mediapipe\/tasks-(audio|vision))($|\/)/.test(id),
+      external: (id) => /^(lit|lit-html|@pmndrs\/uikit|@preact\/signals-core|@sparkjsdev\/spark|openai|three-mesh-bvh|three-pathfinding|@google\/genai|@huggingface\/transformers|@mediapipe\/tasks-(audio|vision))($|\/)/.test(id),
       onwarn(warning, warn) {
         // Excalidraw's Radix UI parts start with "use client", which means nothing outside React Server Components.
         if (warning.code === 'MODULE_LEVEL_DIRECTIVE') return;

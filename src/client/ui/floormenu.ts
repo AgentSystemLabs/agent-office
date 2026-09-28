@@ -29,7 +29,10 @@ export function closeFloorMenu() {
 
 /** Opens the floor list under `anchor`, or closes it if it's open. */
 export function toggleFloorMenu(anchor: HTMLElement, opts: FloorMenuOptions): void {
-  if (current) return current.close();
+  if (current) {
+    current.close();
+    return;
+  }
   const el = h('div.floor-menu.panel', { role: 'menu', 'aria-label': 'Floors' });
 
   const item = (f: FloorInfo, i: number, here: number) => {
@@ -63,7 +66,12 @@ export function toggleFloorMenu(anchor: HTMLElement, opts: FloorMenuOptions): vo
   const render = () => {
     const floors = store.floors;
     const here = floors.findIndex((f) => f.id === store.floor);
-    const add = h('button.floor-item.add', { type: 'button', role: 'menuitem', title: 'The elevator: add another project as a floor' }, h('span.floor-no', {}, '🛗'), h('span.floor-text', {}, h('span.floor-name', {}, 'Elevator'), h('span.floor-sub', {}, 'Add a project…')));
+    const add = h(
+      'button.floor-item.add',
+      { type: 'button', role: 'menuitem', title: 'The elevator: add another project as a floor' },
+      h('span.floor-no', {}, '🛗'),
+      h('span.floor-text', {}, h('span.floor-name', {}, 'Elevator'), h('span.floor-sub', {}, 'Add a project…')),
+    );
     add.addEventListener('click', () => {
       close();
       opts.elevator();

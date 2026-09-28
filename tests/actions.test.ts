@@ -57,8 +57,7 @@ test('shell commands that only look at things', () => {
 
 test('other shell commands are just typing', () => {
   // A test file named in a read, a script called "test" echoed: neither runs tests.
-  for (const cmd of ['git add -A && git commit -m "Add tests"', 'npm install', 'mkdir -p tests', 'echo "npm test"', 'rm -f build.log', 'git push origin HEAD'])
-    assert.equal(commandAction(cmd), undefined, cmd);
+  for (const cmd of ['git add -A && git commit -m "Add tests"', 'npm install', 'mkdir -p tests', 'echo "npm test"', 'rm -f build.log', 'git push origin HEAD']) assert.equal(commandAction(cmd), undefined, cmd);
   assert.equal(commandAction('cat tests/actions.test.ts'), 'read');
 });
 

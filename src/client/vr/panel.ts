@@ -10,10 +10,7 @@
  */
 
 import * as THREE from 'three';
-import {
-  canvasSize, clampScroll, followStep, followTarget, hitTest, isOnPanel, rectToPx, scrollByDrag, scrollByStick, unionRect, uvToPanel,
-  type HeadPose, type Point, type Rect,
-} from './math';
+import { canvasSize, clampScroll, followStep, followTarget, hitTest, isOnPanel, rectToPx, scrollByDrag, scrollByStick, unionRect, uvToPanel, type HeadPose, type Point, type Rect } from './math';
 
 /** What a painter needs to draw hover, press and blink states. */
 export interface PanelPaintState {
@@ -126,7 +123,7 @@ export class WorldPanel {
     this.width = opts.width;
     this.height = opts.height;
     this.painter = opts.paint;
-    const dpr = typeof window === 'undefined' ? 1 : (window.devicePixelRatio || 1);
+    const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
     const { w, h } = canvasSize(opts.width, opts.height, dpr, opts.pxPerMeter);
     this.canvas = document.createElement('canvas');
     this.canvas.width = w;

@@ -119,6 +119,8 @@ It prints the URLs your teammates can open. If you leave out `--password`, it ge
 
 The office keeps its data in `~/agent-office` (`--home` or `AGENT_OFFICE_HOME` to move it) and clones projects into their own folder, `~/.agent-office/projects/<owner>/<repo>`, so they never land inside a checkout of Agent Office. To clone them somewhere else, like `~/Workspace`, an admin picks the **Workspace folder** in ⚙️ Settings (or start with `--projects` or `AGENT_OFFICE_PROJECTS`). A folder inside a git checkout is refused. Floors you already have stay where they are, and a checkout of the same repository that's already in the new folder is used as it is. The list of floors is `~/agent-office/.agent-office/floors.json`. Each floor keeps its workers, queue, pictures and worktrees in its own checkout's `.agent-office/`.
 
+Every setting the office and the installers read from the environment is listed, with its default, in [`.env.example`](.env.example). The office doesn't load `.env` files: export the settings in the shell that starts it, or set them as `Environment=` lines in its systemd unit. A command-line flag wins over its environment variable.
+
 To start the office in a project you already have, pass its folder: `agent-office ~/code/my-project`. That project becomes a floor, and the office keeps its data in `~/code/my-project/.agent-office` as it always did. An office that already ran in a project (from before there were floors) carries on in it when you start `agent-office` there again.
 
 ### Accounts
@@ -421,16 +423,27 @@ Anyone who can sign in can drive Claude Code, OpenCode, Codex or Droid in that d
 ## Development
 
 ```bash
-npm install
+npm install          # also builds, and installs the pre-commit hook
 npm run build        # vite (client) + tsc (server)
+npm run lint         # Biome: lint and formatting check, fails on any warning
+npm run format       # Biome: rewrite the files in the house format
 npm run typecheck
-npm test             # provider, event bridge, queue and PTY integration tests
+npm test             # provider, event bridge, queue and PTY integration tests, and .env.example in sync
+npm run test:coverage  # the same tests with a coverage report; needs Node 22.8+
 node bin/agent-office.js /path/to/project --password dev
 ```
 
-`npm run dev` runs Vite with hot reload on :5173 and proxies to the server on :4600. Server edits restart the server, not the workers. The PTY host keeps running its old code, though: after changing `ptyhost.ts`, bump `PTY_PROTOCOL` in `ptys.ts` and the next server replaces the host (its workers resume their sessions).
+**Lint and format.** [Biome](https://biomejs.dev) lints and formats every `.js`, `.mjs` and `.ts` file outside `dist/`, with the settings in [`biome.jsonc`](biome.jsonc): two-space indents, single quotes, semicolons, trailing commas and 240-column lines. `npm run format` fixes the formatting.
 
-**Releases.** Every change to the app that lands on `main` is published as a GitHub release by [`.github/workflows/release.yml`](.github/workflows/release.yml), and `install.sh` installs the newest one. The workflow builds and typechecks the office, runs the tests, packs the release with an `npm-shrinkwrap.json` so every install gets the tested dependency versions, then installs the pack through `install.sh` and starts it before publishing. Pull requests run the same steps but publish nothing. A release is named after `package.json`'s major.minor and the number of commits on `main` (`v0.1.68`), so bump `package.json` to start a new minor version.
+**Pre-commit hook.** `npm install` in a clone points git at [`.husky/`](.husky) (through the `prepare` script), and every commit then runs [lint-staged](https://github.com/lint-staged/lint-staged) and `npm run typecheck`. lint-staged runs `biome check --write` on the staged files, so formatting is fixed and added to the commit, and a lint finding stops it. The hook is a convenience; CI runs the same `npm run lint` and `npm run typecheck`. `git commit --no-verify` skips it, and `HUSKY=0` skips installing it. It isn't installed in CI (`CI=true`) or where dev dependencies aren't, like the packed release.
+
+`npm run test:coverage` fails when line or function coverage of `src/` and `bin/` drops below the thresholds in its `package.json` script, and CI runs it in place of `npm test`. `npm test` still runs on Node 20.
+
+`npm run dev` runs Vite with hot reload on :5173 and proxies to the server on :4600. Server edits restart the server, not the workers.
+
+Rules for changing the code, such as what to bump when the PTY host changes, are in [`AGENTS.md`](AGENTS.md) and the `AGENTS.md` files in [`src/server`](src/server/AGENTS.md), [`src/client`](src/client/AGENTS.md) and [`src/shared`](src/shared/AGENTS.md).
+
+**Releases.** Every change to the app that lands on `main` is published as a GitHub release by [`.github/workflows/release.yml`](.github/workflows/release.yml), and `install.sh` installs the newest one. The workflow builds, lints and typechecks the office, runs the tests with the coverage thresholds, packs the release with an `npm-shrinkwrap.json` so every install gets the tested dependency versions, then installs the pack through `install.sh` and starts it before publishing. Pull requests run the same steps but publish nothing. A release is named after `package.json`'s major.minor and the number of commits on `main` (`v0.1.68`), so bump `package.json` to start a new minor version.
 
 ## License
 

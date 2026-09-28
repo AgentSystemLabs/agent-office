@@ -8,12 +8,16 @@ function worker(id: string, status: WorkerStatus, waitingSince?: number, acked =
 }
 
 test('three workers waiting: N three times visits each of them, oldest first, then starts over', () => {
-  const workers = new Map(
-    [worker('b', 'needs_input', 200), worker('busy', 'working'), worker('a', 'done', 100), worker('c', 'needs_input', 300), worker('seen', 'done', 50, true)].map((w) => [w.id, w]),
+  const workers = new Map([worker('b', 'needs_input', 200), worker('busy', 'working'), worker('a', 'done', 100), worker('c', 'needs_input', 300), worker('seen', 'done', 50, true)].map((w) => [w.id, w]));
+  assert.deepEqual(
+    waitingInOrder(workers.values()).map((w) => w.id),
+    ['a', 'b', 'c'],
   );
-  assert.deepEqual(waitingInOrder(workers.values()).map((w) => w.id), ['a', 'b', 'c']);
   const n = new NextUp();
-  assert.deepEqual([1, 2, 3, 4].map(() => n.next(workers.values())?.id), ['a', 'b', 'c', 'a']);
+  assert.deepEqual(
+    [1, 2, 3, 4].map(() => n.next(workers.values())?.id),
+    ['a', 'b', 'c', 'a'],
+  );
 });
 
 test('a worker someone got to drops out, and one that starts waiting again is new to the round', () => {
@@ -39,7 +43,10 @@ test("N skips the worker you're standing at, unless it's the only one waiting", 
 test('an office from before waitingSince goes by who was hired first', () => {
   const old = { ...worker('old', 'done'), createdAt: 10 };
   const young = { ...worker('young', 'done'), createdAt: 20 };
-  assert.deepEqual(waitingInOrder([young, old]).map((w) => w.id), ['old', 'young']);
+  assert.deepEqual(
+    waitingInOrder([young, old]).map((w) => w.id),
+    ['old', 'young'],
+  );
 });
 
 test('the Workers panel counts who needs input and who is done', () => {

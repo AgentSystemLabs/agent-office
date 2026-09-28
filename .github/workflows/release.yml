@@ -13,21 +13,33 @@ on:
     paths:
       - 'src/**'
       - 'bin/**'
+      - 'tests/**'
+      - '.husky/**'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig*.json'
       - 'vite.config.ts'
+      - 'biome.jsonc'
+      - 'install.sh'
+      - 'install.ps1'
+      - '.env.example'
+      - '.gitignore'
       - '.github/workflows/release.yml'
   pull_request:
     paths:
       - 'src/**'
       - 'bin/**'
       - 'tests/**'
+      - '.husky/**'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig*.json'
       - 'vite.config.ts'
+      - 'biome.jsonc'
       - 'install.sh'
+      - 'install.ps1'
+      - '.env.example'
+      - '.gitignore'
       - '.github/workflows/release.yml'
   workflow_dispatch:
 
@@ -56,9 +68,12 @@ jobs:
       - name: Install and build
         run: npm ci # its prepare script builds the client and the server
 
+      - run: npm run lint
+
       - run: npm run typecheck
 
-      - run: npm test
+      - name: Test with coverage
+        run: npm run test:coverage # fails below the line and function thresholds in package.json
 
       - name: Pack the release
         id: pack

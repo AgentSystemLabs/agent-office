@@ -4,6 +4,10 @@ dist
 *.log
 .DS_Store
 pw.txt
+# Local environment files hold secrets; .env.example lists the settings.
+.env
+.env.*
+!.env.example
 # IWSDK XR test runtime state (session, owner socket records, dev cert).
 .iwsdk/
 src/client/.iwsdk/

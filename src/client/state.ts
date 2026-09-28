@@ -1,4 +1,33 @@
-import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, MachineState, MeetingState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, ProxyState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, ThemeState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
+import type {
+  AccountsState,
+  ChatLine,
+  FloorInfo,
+  FloorView,
+  GhIssue,
+  GhPull,
+  GhState,
+  MachineState,
+  MeetingState,
+  NotifyState,
+  PeerInfo,
+  PlanLimits,
+  Me,
+  ProjectInfo,
+  ProjectsDirState,
+  ProxyState,
+  QueueState,
+  QueueTask,
+  RepoChoice,
+  ServerMsg,
+  ServicesState,
+  SkyState,
+  TeamState,
+  ThemeState,
+  UpgradeState,
+  Usage,
+  UsageState,
+  WorkerInfo,
+} from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
@@ -8,7 +37,39 @@ import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
 import { forgeWords, type ForgeWords } from '../shared/floors';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'machine' | 'proxy' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting';
+export type Topic =
+  | 'peers'
+  | 'workers'
+  | 'issues'
+  | 'pulls'
+  | 'chat'
+  | 'project'
+  | 'screens'
+  | 'team'
+  | 'upgrade'
+  | 'services'
+  | 'decor'
+  | 'usage'
+  | 'limits'
+  | 'queue'
+  | 'me'
+  | 'accounts'
+  | 'notify'
+  | 'machine'
+  | 'proxy'
+  | 'floors'
+  | 'floor'
+  | 'projectsDir'
+  | 'repos'
+  | 'dog'
+  | 'jukebox'
+  | 'sky'
+  | 'theme'
+  | 'whiteboard'
+  | 'drawing'
+  | 'cabinet'
+  | 'cabinetFrame'
+  | 'meeting';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 

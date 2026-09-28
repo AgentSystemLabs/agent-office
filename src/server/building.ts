@@ -187,7 +187,12 @@ export class Building {
 
   private newDef(name: string, repo: string | undefined, dir: string, by: string): FloorDef {
     const taken = new Set([...this.defs, ...this.cloning.values()].map((d) => d.id));
-    const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) || 'floor';
+    const base =
+      name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 32) || 'floor';
     let id = base;
     for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
     // The first look nobody has, so floors side by side never match; then round again.
@@ -318,7 +323,12 @@ async function cloneInto(repo: string, dest: string): Promise<string | undefined
   return new Promise((resolve) => {
     execFile(cmd, args, { cwd: path.dirname(dest), env, timeout: CLONE_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 }, (err, _out, stderr) => {
       if (!err) return resolve(undefined);
-      const why = String(stderr || err.message).trim().split('\n').filter(Boolean).slice(-2).join(' ');
+      const why = String(stderr || err.message)
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .slice(-2)
+        .join(' ');
       resolve(`Couldn't clone ${repo}: ${why || `${cmd} failed`}`);
     });
   });
@@ -367,13 +377,7 @@ async function listGitlabRepos(host: string, cwd: string): Promise<RepoChoice[]>
 
 async function listRepos(cwd: string): Promise<RepoChoice[]> {
   const out = await gh(
-    [
-      'api',
-      '--paginate',
-      'user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member',
-      '--jq',
-      '.[] | {name: .full_name, description: (.description // ""), private: .private, pushedAt: .pushed_at}',
-    ],
+    ['api', '--paginate', 'user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member', '--jq', '.[] | {name: .full_name, description: (.description // ""), private: .private, pushedAt: .pushed_at}'],
     cwd,
     90_000,
   );

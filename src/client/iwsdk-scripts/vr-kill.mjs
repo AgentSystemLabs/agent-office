@@ -13,10 +13,13 @@ export default async function run({ frame }) {
   const stillThere = await frame.evaluate((wid) => (window.__vrtest?.workers?.() ?? []).some((w) => w.id === wid), id);
   const confirm = await frame.evaluate(() => window.__vrtest?.tclick?.('kill'));
   await frame.waitForTimeout(2500);
-  const end = await frame.evaluate((wid) => ({
-    gone: !(window.__vrtest?.workers?.() ?? []).some((w) => w.id === wid),
-    ui: window.__vrtest?.ui?.() ?? null,
-  }), id);
+  const end = await frame.evaluate(
+    (wid) => ({
+      gone: !(window.__vrtest?.workers?.() ?? []).some((w) => w.id === wid),
+      ui: window.__vrtest?.ui?.() ?? null,
+    }),
+    id,
+  );
   console.log('KILL:', JSON.stringify({ desk, id, arm, stillThere, confirm, end }));
   const ok = arm === true && stillThere === true && confirm === true && end.gone === true && end.ui.terminal === false;
   return { ok };

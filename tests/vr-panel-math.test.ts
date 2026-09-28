@@ -1,18 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  canvasSize, clampScroll, followStep, followTarget, gridMetrics, hitTest, isOnPanel, keyRects, panelToPx,
-  pointInRect, rectToPx, scrollByDrag, scrollByStick, unionRect, uvToPanel,
-} from '../src/client/vr/math.js';
+import { canvasSize, clampScroll, followStep, followTarget, gridMetrics, hitTest, isOnPanel, keyRects, panelToPx, pointInRect, rectToPx, scrollByDrag, scrollByStick, unionRect, uvToPanel } from '../src/client/vr/math.js';
 import { base16, fullPalette, pushHistory, runColor, runsEqual, scrolledOffLines } from '../src/client/vr/ansi.js';
 import { RGB_FLAG, type Run } from '../src/shared/protocol.js';
 
 const THEME = {
-  background: '#0a0a0a', foreground: '#eeeeee',
-  black: '#282a36', red: '#ff5c7a', green: '#7cf29a', yellow: '#ffd166',
-  blue: '#6cb6ff', magenta: '#d69cff', cyan: '#72ddf7', white: '#e6e6f0',
-  brightBlack: '#6c7086', brightRed: '#ff8fa3', brightGreen: '#a6f4b8', brightYellow: '#ffe29a',
-  brightBlue: '#9ccfff', brightMagenta: '#e5c1ff', brightCyan: '#a5ecfb', brightWhite: '#ffffff',
+  background: '#0a0a0a',
+  foreground: '#eeeeee',
+  black: '#282a36',
+  red: '#ff5c7a',
+  green: '#7cf29a',
+  yellow: '#ffd166',
+  blue: '#6cb6ff',
+  magenta: '#d69cff',
+  cyan: '#72ddf7',
+  white: '#e6e6f0',
+  brightBlack: '#6c7086',
+  brightRed: '#ff8fa3',
+  brightGreen: '#a6f4b8',
+  brightYellow: '#ffe29a',
+  brightBlue: '#9ccfff',
+  brightMagenta: '#e5c1ff',
+  brightCyan: '#a5ecfb',
+  brightWhite: '#ffffff',
 };
 
 test('uvToPanel flips the ray UV into top-left panel coordinates', () => {
@@ -103,8 +113,15 @@ test('followTarget sits a fixed distance along the camera ray, dropped a little'
 
 test('keyRects stretch every row across the panel without overlaps', () => {
   const rows = [
-    [{ id: 'a', label: 'a' }, { id: 'space', label: 'space', w: 5 }, { id: 'b', label: 'b' }],
-    [{ id: 'c', label: 'c', w: 2 }, { id: 'd', label: 'd', w: 2 }],
+    [
+      { id: 'a', label: 'a' },
+      { id: 'space', label: 'space', w: 5 },
+      { id: 'b', label: 'b' },
+    ],
+    [
+      { id: 'c', label: 'c', w: 2 },
+      { id: 'd', label: 'd', w: 2 },
+    ],
   ];
   const keys = keyRects(rows, { gapX: 0.01, gapY: 0.02, padX: 0.02, padY: 0.04 });
   assert.equal(keys.length, 5);

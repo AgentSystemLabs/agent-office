@@ -21,11 +21,16 @@ function fixture(t: { after(fn: () => void): void }) {
   git('add', '.');
   git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init');
   const target: ChangesTarget = { name: 'Worker 1', cwd: dir, rel: '' };
-  const changes = new Changes(dir, 'main', (id) => (id === 'w1' ? target : undefined), () => undefined, {
-    state() {},
-    toast() {},
-    refreshGitHub() {},
-  });
+  const changes = new Changes(
+    'main',
+    (id) => (id === 'w1' ? target : undefined),
+    () => undefined,
+    {
+      state() {},
+      toast() {},
+      refreshGitHub() {},
+    },
+  );
   t.after(() => changes.stop());
   return { root, dir, changes };
 }
@@ -71,14 +76,14 @@ test('the preview serves both sides of a changed picture, and nothing outside th
   assert.deepEqual(await text('old', 'assets/logo.png'), { type: 'image/png', body: 'old picture' });
   assert.deepEqual(await text('new', 'assets/logo.png'), { type: 'image/png', body: 'new picture' });
   assert.deepEqual(await text('new', 'assets/hero.webp'), { type: 'image/webp', body: 'added picture' });
-  assert.equal((await text('old', 'assets/hero.webp') as { status: number }).status, 404);
+  assert.equal(((await text('old', 'assets/hero.webp')) as { status: number }).status, 404);
   assert.deepEqual(await text('old', 'assets/gone.gif'), { type: 'image/gif', body: 'deleted picture' });
-  assert.equal((await text('new', 'assets/gone.gif') as { status: number }).status, 404);
+  assert.equal(((await text('new', 'assets/gone.gif')) as { status: number }).status, 404);
 
   // Not a picture, not changed, not in the checkout, no such worker.
-  assert.equal((await text('new', 'notes.txt') as { status: number }).status, 415);
+  assert.equal(((await text('new', 'notes.txt')) as { status: number }).status, 415);
   writeFileSync(path.join(root, 'secret.png'), 'secret');
-  for (const p of ['README.png', '../secret.png', path.join(root, 'secret.png')]) assert.equal((await text('new', p) as { status: number }).status, 404, p);
+  for (const p of ['README.png', '../secret.png', path.join(root, 'secret.png')]) assert.equal(((await text('new', p)) as { status: number }).status, 404, p);
   assert.equal(((await changes.file('nobody', 'assets/logo.png', 'new')) as { status: number }).status, 404);
 });
 

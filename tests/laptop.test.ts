@@ -12,8 +12,12 @@ function canvasSpy() {
     textAlign: 'left',
     textBaseline: 'top',
     globalAlpha: 1,
-    fillRect(...args: unknown[]) { ops.push({ kind: 'fillRect', args }); },
-    fillText(...args: unknown[]) { ops.push({ kind: 'fillText', args }); },
+    fillRect(...args: unknown[]) {
+      ops.push({ kind: 'fillRect', args });
+    },
+    fillText(...args: unknown[]) {
+      ops.push({ kind: 'fillText', args });
+    },
   } as unknown as CanvasRenderingContext2D;
   return { ctx, ops };
 }

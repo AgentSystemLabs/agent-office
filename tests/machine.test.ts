@@ -10,7 +10,13 @@ function fixture(ceiling?: number) {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-machine-'));
   let workers = 0;
   const told: MachineState[] = [];
-  const open = () => new Machine(dir, ceiling, () => workers, (s) => told.push(s));
+  const open = () =>
+    new Machine(
+      dir,
+      ceiling,
+      () => workers,
+      (s) => told.push(s),
+    );
   return { open, told, hire: (n = 1) => (workers += n), close: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
@@ -21,7 +27,8 @@ test('worker limits are whole numbers from 1 up', () => {
 });
 
 test('no limit until one is set; then hiring past it is refused, across restarts', (t) => {
-  const f = fixture(); t.after(() => f.close());
+  const f = fixture();
+  t.after(() => f.close());
   const m = f.open();
   f.hire(5);
   assert.equal(m.limit, undefined);
@@ -40,7 +47,8 @@ test('no limit until one is set; then hiring past it is refused, across restarts
 });
 
 test('--max-workers is a ceiling the office can go under but not over', (t) => {
-  const f = fixture(4); t.after(() => f.close());
+  const f = fixture(4);
+  t.after(() => f.close());
   const m = f.open();
   assert.equal(m.limit, 4);
   f.hire(3);
@@ -58,7 +66,8 @@ test('--max-workers is a ceiling the office can go under but not over', (t) => {
 });
 
 test('everyone hears when the worker count moves, and only then', (t) => {
-  const f = fixture(); t.after(() => f.close());
+  const f = fixture();
+  t.after(() => f.close());
   const m = f.open();
   m.workersChanged();
   const n = f.told.length;

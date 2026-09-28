@@ -1,0 +1,116 @@
+name: Bug report
+description: Something in the office isn't working.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Remove passwords, tokens and private repository names from anything you paste.
+
+  - type: input
+    id: version
+    attributes:
+      label: agent-office version or commit
+      description: For an install from `install.sh`, run `cat ~/.local/share/agent-office/current`. For a checkout, run `git rev-parse --short HEAD`.
+      placeholder: v0.1.68 or 35c4b32
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: The OS of the machine that runs the office.
+      placeholder: macOS 15.5, Ubuntu 24.04, Windows 11
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      description: Output of `node --version` on the machine that runs the office.
+      placeholder: v22.12.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      description: The agent the affected workers run.
+      multiple: true
+      options:
+        - claude (Claude Code)
+        - opencode (OpenCode)
+        - codex (Codex CLI)
+        - droid (Droid CLI)
+        - Not related to a provider
+    validations:
+      required: true
+
+  - type: dropdown
+    id: floor
+    attributes:
+      label: Floor type
+      description: Where the affected floor's project is hosted.
+      multiple: true
+      options:
+        - GitHub
+        - GitLab
+        - Not related to a floor
+    validations:
+      required: true
+
+  - type: dropdown
+    id: client
+    attributes:
+      label: Client
+      description: How you were using the office when it happened.
+      multiple: true
+      options:
+        - Desktop browser
+        - WebXR headset
+    validations:
+      required: true
+
+  - type: input
+    id: client-details
+    attributes:
+      label: Browser or headset
+      description: The browser and version, or the headset and its browser.
+      placeholder: Chrome 140, Meta Quest 3 with Meta Quest Browser
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest set of steps that shows the bug.
+      placeholder: |
+        1. Hire a worker at a desk
+        2. Open its terminal
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead. Screenshots and browser console errors help.
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Office log excerpt
+      description: The office's terminal output (what `agent-office` prints) around the time of the bug. For terminal problems, also include `.agent-office/pty-host.log` from the affected floor's checkout.
+      render: text

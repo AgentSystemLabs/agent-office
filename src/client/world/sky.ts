@@ -174,7 +174,7 @@ const HAZE = /* glsl */ `
 // Everything with fog gets the haze above; every lit material also gets the lines before that,
 // sharing one set of uniforms. Nothing else in the office uses onBeforeCompile, so this is its
 // default; unlit ones (glass, signs, outlines) only get the haze.
-THREE.Material.prototype.onBeforeCompile = function (shader) {
+THREE.Material.prototype.onBeforeCompile = (shader) => {
   if (shader.fragmentShader.includes('#include <fog_fragment>')) {
     shader.uniforms.skyStreet = uniforms.skyStreet;
     shader.vertexShader = shader.vertexShader.replace('#include <fog_pars_vertex>', `#include <fog_pars_vertex>\n${HAZE_PARS_VERTEX}`).replace('#include <fog_vertex>', `#include <fog_vertex>\n${HAZE_VERTEX}`);
@@ -651,8 +651,14 @@ export class Sky {
     const ambI = lerp(0.12, 0.5, day);
     const { sun, hemi, ambient } = this.lights;
     hemi.intensity = hemiI + flash * 3;
-    hemi.color.copy(C.hemiSkyNight).lerp(C.hemiSky, day).lerp(SPOOKY.hemiSky, sp * 0.5);
-    hemi.groundColor.copy(C.hemiGroundNight).lerp(C.hemiGround, day).lerp(SPOOKY.hemiGround, sp * 0.5);
+    hemi.color
+      .copy(C.hemiSkyNight)
+      .lerp(C.hemiSky, day)
+      .lerp(SPOOKY.hemiSky, sp * 0.5);
+    hemi.groundColor
+      .copy(C.hemiGroundNight)
+      .lerp(C.hemiGround, day)
+      .lerp(SPOOKY.hemiGround, sp * 0.5);
     ambient.intensity = ambI + flash;
     ambient.color.copy(C.ambientNight).lerp(C.white, day);
     // A cartoon sun: never so low its shadows fill the room. At night the moon lights things, from across the sky.
@@ -663,13 +669,20 @@ export class Sky {
     sun.position.copy(sun.target.position).addScaledVector(this.dir, 45);
     sun.intensity = moonlit ? moonI : sunI;
     if (moonlit) sun.color.copy(C.moon).lerp(SPOOKY.moonLight, sp);
-    else sun.color.copy(C.sunLow).lerp(C.sunHigh, smooth(0, 25, elD)).lerp(SPOOKY.sun, sp);
+    else
+      sun.color
+        .copy(C.sunLow)
+        .lerp(C.sunHigh, smooth(0, 25, elD))
+        .lerp(SPOOKY.sun, sp);
     this.level = clamp01((hemiI + ambI + 0.6 * (sunI + moonI)) / FULL_DAY);
 
     // Lamps come on as it gets dark: the office's and the garage's, and the ones outside.
     const need = 1 - this.level;
     this.lampsOn = smooth(0.45, 0.62, need);
-    uniforms.skyOffice.value.copy(C.office).lerp(C.officeNight, 1 - day).multiplyScalar(need * 3.2);
+    uniforms.skyOffice.value
+      .copy(C.office)
+      .lerp(C.officeNight, 1 - day)
+      .multiplyScalar(need * 3.2);
     uniforms.skyGarage.value.copy(C.garage).multiplyScalar(need * 2);
     const lamps = Math.min(this.night.lamps.length, MAX_LAMPS);
     uniforms.skyLampCount.value = this.lampsOn > 0.005 && !this.roof ? lamps : 0;
@@ -710,7 +723,10 @@ export class Sky {
     if (this.spookyDome.visible) {
       u.opacity.value = sp;
       u.horizon.value.copy(sky);
-      u.top.value.copy(SPOOKY.zenithNight).lerp(SPOOKY.zenithDay, Math.min(1, day / 0.4)).lerp(sky, this.fog * 0.6 + flash * 0.5);
+      u.top.value
+        .copy(SPOOKY.zenithNight)
+        .lerp(SPOOKY.zenithDay, Math.min(1, day / 0.4))
+        .lerp(sky, this.fog * 0.6 + flash * 0.5);
       u.glow.value.copy(SPOOKY.glow);
       u.glowK.value = 0.55 * (1 - this.fog * 0.6) * (1 - this.cover * 0.5);
       u.moonGlow.value.copy(SPOOKY.moon).multiplyScalar(0.55 * (1 - this.cover * 0.6));
@@ -734,7 +750,10 @@ export class Sky {
     skyward(SPOOKY_MOON.el, SPOOKY_MOON.az, this.moonTo);
     u.moonDir.value.copy(this.moonTo);
     this.moonAt.lerp(this.moonTo, sp);
-    this.moonDisc.position.copy(this.moonAt.lengthSq() > 1e-6 ? this.moonAt : this.moonTo).normalize().multiplyScalar(160);
+    this.moonDisc.position
+      .copy(this.moonAt.lengthSq() > 1e-6 ? this.moonAt : this.moonTo)
+      .normalize()
+      .multiplyScalar(160);
     this.moonDisc.scale.setScalar(1 + 2.2 * sp);
     this.moonDisc.material.color.copy(C.white).lerp(SPOOKY.moon, sp);
     this.moonDisc.material.opacity = Math.max(smooth(2, -2, elD) * clear, sp * (1 - 0.5 * this.cover));

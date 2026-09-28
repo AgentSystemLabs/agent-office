@@ -26,13 +26,7 @@ export function openAccounts(net: Net) {
   const body = h('div.body.team.accounts');
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const signedInAs = h('span.grow');
-  const el = h(
-    'div.modal',
-    { role: 'dialog', 'aria-label': 'Accounts', style: 'width:min(680px,100%)' },
-    h('header', {}, h('h2', {}, 'Accounts'), close),
-    body,
-    h('footer', {}, signedInAs),
-  );
+  const el = h('div.modal', { role: 'dialog', 'aria-label': 'Accounts', style: 'width:min(680px,100%)' }, h('header', {}, h('h2', {}, 'Accounts'), close), body, h('footer', {}, signedInAs));
 
   const nameInput = h('input', { type: 'text', maxlength: 24, placeholder: 'Their name (optional)', 'aria-label': 'Their name', autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
   const roleSelect = h('select', { 'aria-label': 'Role' }, h('option', { value: 'member' }, 'Member'), h('option', { value: 'admin' }, 'Admin')) as HTMLSelectElement;
@@ -52,15 +46,18 @@ export function openAccounts(net: Net) {
     body.replaceChildren();
     if (!s) return body.append(h('p.empty', {}, 'Loading…'));
 
-    body.append(
-      h('label', {}, 'Invite someone'),
-      form,
-      h('p.note', {}, 'You get a link that makes one account, with its own name and password. It works once and expires after 7 days. Leave the name empty and they pick their own.'),
-    );
+    body.append(h('label', {}, 'Invite someone'), form, h('p.note', {}, 'You get a link that makes one account, with its own name and password. It works once and expires after 7 days. Leave the name empty and they pick their own.'));
     if (status) body.append(status);
     if (fresh) {
       const v = fresh;
-      body.append(h('div.cmd', {}, h('pre', {}, inviteLink(v)), copyButton('Copy', () => inviteLink(v))));
+      body.append(
+        h(
+          'div.cmd',
+          {},
+          h('pre', {}, inviteLink(v)),
+          copyButton('Copy', () => inviteLink(v)),
+        ),
+      );
     }
     if (store.invites) body.append(h('p.note', {}, 'On this office they also need a way in: add their GitHub keys under Invite.'));
 
@@ -124,11 +121,8 @@ export function openAccounts(net: Net) {
     if (s.sharedPassword && !canSwitchOff) toggle.setAttribute('disabled', '');
     toggle.addEventListener('click', () => {
       if (!s.sharedPassword) return net.send({ t: 'accounts.shared', on: true });
-      confirmDialog(
-        'Switch off the shared password?',
-        'From now on only people with an account of their own can sign in. Everyone who came in with the shared password is signed out right away.',
-        'Switch it off',
-        () => net.send({ t: 'accounts.shared', on: false }),
+      confirmDialog('Switch off the shared password?', 'From now on only people with an account of their own can sign in. Everyone who came in with the shared password is signed out right away.', 'Switch it off', () =>
+        net.send({ t: 'accounts.shared', on: false }),
       );
     });
     body.append(

@@ -43,10 +43,23 @@ export default async function run({ page, frame }) {
   await frame.evaluate(() => window.__vrtest?.detail?.('pull', 999999));
   const bogus = await waitMerge(999999);
   console.log('MERGE:', JSON.stringify({ real, realBtn, seeded, armBtn, armToast, armView, fireBtn, refused, merged, mergedBtn, bogus }));
-  const ok = real?.state === 'ready' && real.can === false && real.short === 'Conflicts' && realBtn === false &&
-    seeded?.can === true && armBtn === true && armToast === null && armView === 'detail' && fireBtn === true &&
-    typeof refused === 'string' && refused.length > 0 && refused !== 'Merging…' &&
-    merged?.state === 'ready' && merged.can === false && merged.short === 'Merged' && mergedBtn === false &&
+  const ok =
+    real?.state === 'ready' &&
+    real.can === false &&
+    real.short === 'Conflicts' &&
+    realBtn === false &&
+    seeded?.can === true &&
+    armBtn === true &&
+    armToast === null &&
+    armView === 'detail' &&
+    fireBtn === true &&
+    typeof refused === 'string' &&
+    refused.length > 0 &&
+    refused !== 'Merging…' &&
+    merged?.state === 'ready' &&
+    merged.can === false &&
+    merged.short === 'Merged' &&
+    mergedBtn === false &&
     bogus?.state === 'error';
   return { ok };
 }

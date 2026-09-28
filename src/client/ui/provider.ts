@@ -254,7 +254,11 @@ function fetchDroidModels(): Promise<DroidModelOption[]> {
 export function droidDisplayName(id: string): string {
   const known = droidList?.find((m) => m.id === id)?.displayName;
   if (known) return known;
-  return id.replace(/^custom:/, '').replace(/^droidproxy:/, '').replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return id
+    .replace(/^custom:/, '')
+    .replace(/^droidproxy:/, '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /**
@@ -324,15 +328,7 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
   for (const e of AGENT_EFFORTS) droidEffortSelect.append(h('option', { value: e }, EFFORT_LABEL[e]));
   droidEffortSelect.value = preferredDroidEffort(key) ?? '';
   const droidHint = h('small.provider-model-hint', {}, 'Overrides the office default for this worker; pinned in its Droid settings overlay.');
-  const droidChoice = h(
-    'div.provider-model.droid-model',
-    {},
-    h('label', { for: `${id}-droid-model` }, 'Model'),
-    droidModelSelect,
-    h('label', { for: `${id}-droid-effort` }, 'Effort'),
-    droidEffortSelect,
-    droidHint,
-  );
+  const droidChoice = h('div.provider-model.droid-model', {}, h('label', { for: `${id}-droid-model` }, 'Model'), droidModelSelect, h('label', { for: `${id}-droid-effort` }, 'Effort'), droidEffortSelect, droidHint);
   const rememberDroid = (kind: 'model' | 'effort', value: string) => {
     try {
       if (value) localStorage.setItem(droidChoiceKey(kind, key), value);
@@ -348,18 +344,13 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
     droidHint.textContent = droidList ? 'Overrides the office default for this worker; pinned in its Droid settings overlay.' : 'Loading Droid models…';
     void fetchDroidModels()
       .then((models) => {
-        droidModelSelect.replaceChildren(
-          h('option', { value: '' }, droidDefault ? `Default (${droidDisplayName(droidDefault)})` : 'Default (Droid settings)'),
-          ...models.map((m) => h('option', { value: m.id }, m.displayName)),
-        );
+        droidModelSelect.replaceChildren(h('option', { value: '' }, droidDefault ? `Default (${droidDisplayName(droidDefault)})` : 'Default (Droid settings)'), ...models.map((m) => h('option', { value: m.id }, m.displayName)));
         // A remembered id the catalogue no longer lists is still offered, so the choice isn't silently dropped.
         if (remembered && !models.some((m) => m.id === remembered)) {
           droidModelSelect.append(h('option', { value: remembered }, `${droidDisplayName(remembered)} (unavailable)`));
         }
         droidModelSelect.value = remembered ?? '';
-        droidHint.textContent = models.length
-          ? 'Overrides the office default for this worker; pinned in its Droid settings overlay.'
-          : 'No Droid models found in the office settings — the worker runs the global default.';
+        droidHint.textContent = models.length ? 'Overrides the office default for this worker; pinned in its Droid settings overlay.' : 'No Droid models found in the office settings — the worker runs the global default.';
       })
       .catch(() => {
         droidModelSelect.replaceChildren(h('option', { value: '' }, 'Default (Droid settings)'));

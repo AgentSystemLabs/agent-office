@@ -222,11 +222,12 @@ class VrUi implements VrUiHandle {
   private tmpV = new THREE.Vector3();
   private tmpHit = new THREE.Vector3();
 
-  constructor(private scene: THREE.Scene, private deps: VrUiDeps) {
+  constructor(
+    private scene: THREE.Scene,
+    private deps: VrUiDeps,
+  ) {
     const layout = deps.layout ?? {};
-    this.terminal = new VrTerminalPanel(
-      { send: deps.send, subscribe: deps.subscribe, getScreen: deps.getScreen, getWorker: deps.getWorker, providerOf: deps.providerOf },
-    );
+    this.terminal = new VrTerminalPanel({ send: deps.send, subscribe: deps.subscribe, getScreen: deps.getScreen, getWorker: deps.getWorker, providerOf: deps.providerOf });
     this.menu = new VrMenu(
       {
         subscribe: deps.subscribe,
@@ -492,7 +493,17 @@ class VrUi implements VrUiHandle {
         opts.onCancel?.();
       },
       // The alt button takes the prompt down the same way (the keyboard goes home too).
-      ...(opts.alt ? { alt: { label: opts.alt.label, onAlt: () => { this.endAskText(); opts.alt!.onAlt(); } } } : {}),
+      ...(opts.alt
+        ? {
+            alt: {
+              label: opts.alt.label,
+              onAlt: () => {
+                this.endAskText();
+                opts.alt!.onAlt();
+              },
+            },
+          }
+        : {}),
     });
     // After open: the prompt's ⌨ button paints from the keyboard state this sets.
     this.offerKeyboard();
@@ -597,7 +608,7 @@ class VrUi implements VrUiHandle {
     const st = this.rays.get(rayId);
     if (!st?.panel) return;
     const entry = this.ordered().find((e) => e.ui === st.panel);
-    if (!entry || !entry.scrollId) return;
+    if (!entry?.scrollId) return;
     st.panel.panel.scrollStick(entry.scrollId, axisY, dt, 12);
   };
 

@@ -104,42 +104,34 @@ export function openTeam(net: Net) {
     footer.classList.toggle('hidden', !!t.unavailable);
     if (t.unavailable) return body.append(h('p', { style: 'margin:0;font-weight:700' }, t.unavailable));
 
-    body.append(
-      h('label', {}, 'Invite someone by their GitHub username'),
-      form,
-      h('p.note', {}, 'Their SSH keys from github.com/<username>.keys can open a tunnel to this office — nothing else: no shell on the machine, no other ports.'),
-    );
+    body.append(h('label', {}, 'Invite someone by their GitHub username'), form, h('p.note', {}, 'Their SSH keys from github.com/<username>.keys can open a tunnel to this office — nothing else: no shell on the machine, no other ports.'));
     if (status) body.append(status);
     if (t.error) body.append(h('p.team-status.error', {}, t.error));
 
-    const tabs = h(
-      'div.os-tabs',
-      {},
-      ...(Object.keys(OS_LABEL) as Os[]).map((o) =>
-        h('button.btn', { type: 'button', class: o === os ? 'on' : '', onclick: () => ((os = o), render()) }, OS_LABEL[o]),
-      ),
-    );
+    const tabs = h('div.os-tabs', {}, ...(Object.keys(OS_LABEL) as Os[]).map((o) => h('button.btn', { type: 'button', class: o === os ? 'on' : '', onclick: () => ((os = o), render()) }, OS_LABEL[o])));
     body.append(
       h('div.team-head', {}, h('h4', {}, 'Then send them this'), tabs),
-      h('div.cmd', {}, h('pre', {}, tunnelCommand(t, os)), copyButton('Copy', () => tunnelCommand(t, os))),
+      h(
+        'div.cmd',
+        {},
+        h('pre', {}, tunnelCommand(t, os)),
+        copyButton('Copy', () => tunnelCommand(t, os)),
+      ),
       h(
         'p.note',
         {},
         `It opens the tunnel and http://localhost:${t.port} in their browser. They keep the terminal open while they're in. `,
         t.fingerprint ? h('span', {}, 'The first time, ssh asks whether to trust the server: the fingerprint must be ', h('code', {}, t.fingerprint), '.') : null,
       ),
-      h('p.note', {}, 'SSH only answers IP addresses you allowed. If theirs isn\'t, run ', h('code', {}, 'deploy/aws.sh allow <their-ip>'), ' (or ', h('code', {}, 'allow anywhere'), ') on your machine.'),
+      h('p.note', {}, "SSH only answers IP addresses you allowed. If theirs isn't, run ", h('code', {}, 'deploy/aws.sh allow <their-ip>'), ' (or ', h('code', {}, 'allow anywhere'), ') on your machine.'),
     );
 
     const list = h('ul.team-list');
     for (const m of t.members) {
       const remove = h('button.btn', { type: 'button', title: `Remove ${m.name}'s access` }, 'Remove');
       remove.addEventListener('click', () =>
-        confirmDialog(
-          `Remove ${m.name}?`,
-          `Their keys stop working right away. Every open tunnel drops for a moment too (other teammates just re-run their command). ${m.name} still knows the office password.`,
-          'Remove',
-          () => net.send({ t: 'team.remove', name: m.name }),
+        confirmDialog(`Remove ${m.name}?`, `Their keys stop working right away. Every open tunnel drops for a moment too (other teammates just re-run their command). ${m.name} still knows the office password.`, 'Remove', () =>
+          net.send({ t: 'team.remove', name: m.name }),
         ),
       );
       list.append(h('li', {}, h('span.name', {}, m.name), h('span.keys', {}, `${m.keys} key${m.keys === 1 ? '' : 's'}`), remove));

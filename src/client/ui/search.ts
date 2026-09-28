@@ -48,12 +48,7 @@ export function openSearch(openTerminal: (workerId: string, find: TerminalFind) 
   const status = h('p.note.search-status');
   const results = h('div.search-results');
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
-  const el = h(
-    'div.modal.search',
-    { role: 'dialog', 'aria-label': 'Search' },
-    h('header', {}, h('h2', {}, 'Search'), close),
-    h('div.body', {}, input, status, results),
-  );
+  const el = h('div.modal.search', { role: 'dialog', 'aria-label': 'Search' }, h('header', {}, h('h2', {}, 'Search'), close), h('div.body', {}, input, status, results));
 
   let found: SearchResults | null = null;
   let error = '';
@@ -88,13 +83,7 @@ export function openSearch(openTerminal: (workerId: string, find: TerminalFind) 
     openTerminal(hit.workerId, { needle, fromEnd: hit.rows - hit.row });
   };
 
-  const chatRow = (c: ChatLine, needle: string) =>
-    h(
-      'li.search-hit',
-      {},
-      h('div.search-meta', {}, h('b', { style: `color:${c.color}` }, c.name), h('span', {}, timeAgo(c.at))),
-      h('div.search-text', {}, ...highlight(c.text, needle)),
-    );
+  const chatRow = (c: ChatLine, needle: string) => h('li.search-hit', {}, h('div.search-meta', {}, h('b', { style: `color:${c.color}` }, c.name), h('span', {}, timeAgo(c.at))), h('div.search-text', {}, ...highlight(c.text, needle)));
 
   const termRow = (hit: TerminalHit, needle: string) => {
     const li = h('li.search-hit.term', { tabindex: 0, role: 'button', title: 'Open the terminal at this line' }, h('code', {}, ...highlight(hit.text, needle)));
@@ -137,12 +126,7 @@ export function openSearch(openTerminal: (workerId: string, find: TerminalFind) 
     for (const [workerId, hits] of byWorker) {
       const w = store.workers.get(workerId)!;
       groups.push(
-        h(
-          'section.search-group',
-          {},
-          h('h4', {}, h('span.dot', { style: `background:${w.color}` }), [w.name, w.worktree && `🌿 ${w.worktree.branch}`].filter(Boolean).join(' · ')),
-          h('ul', {}, ...hits.map((hit) => termRow(hit, needle))),
-        ),
+        h('section.search-group', {}, h('h4', {}, h('span.dot', { style: `background:${w.color}` }), [w.name, w.worktree && `🌿 ${w.worktree.branch}`].filter(Boolean).join(' · ')), h('ul', {}, ...hits.map((hit) => termRow(hit, needle)))),
       );
     }
     results.replaceChildren(...groups);

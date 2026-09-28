@@ -5,7 +5,6 @@
  * teleport being aimed). The session feeds it the same target the flat mirror's hint shows.
  */
 
-import type * as THREE from 'three';
 import { TERM_FONT } from '../fonts';
 import type { HeadPose } from './math';
 import { WorldPanel } from './panel';

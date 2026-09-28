@@ -53,12 +53,7 @@ export function openBar(opts: BarOptions) {
     'div.modal.jukebox',
     { role: 'dialog', 'aria-label': 'Bar' },
     h('header', {}, h('h2', {}, 'Sky Bar'), close),
-    h(
-      'div.body',
-      {},
-      opts.cutOff ? h('p.setting-note', { style: 'margin:0 0 12px;font-weight:800' }, "🙅 The bartender thinks you've had enough. Water's on the house.") : null,
-      list,
-    ),
+    h('div.body', {}, opts.cutOff ? h('p.setting-note', { style: 'margin:0 0 12px;font-weight:800' }, "🙅 The bartender thinks you've had enough. Water's on the house.") : null, list),
     h('footer', {}, h('span.grow', {}, 'Drinks go to your head for a minute or so, and the view goes with them. Everything is on the house.')),
   );
   const modal = openModal(el);

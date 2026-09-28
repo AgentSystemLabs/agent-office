@@ -57,10 +57,7 @@ export function doingNow(): string | undefined {
  * does a ✕ in its top right corner unless `closeButton` is false (it follows `escCloses`). `doing`
  * is what teammates see under your name tag while it's open, like "reading PR #12".
  */
-export function openModal(
-  content: HTMLElement,
-  opts: { escCloses?: boolean | ((e: KeyboardEvent) => boolean); onClose?: () => void; backdropCloses?: boolean; closeButton?: boolean; doing?: string } = {},
-): Modal {
+export function openModal(content: HTMLElement, opts: { escCloses?: boolean | ((e: KeyboardEvent) => boolean); onClose?: () => void; backdropCloses?: boolean; closeButton?: boolean; doing?: string } = {}): Modal {
   const backdrop = h('div.backdrop', {}, content);
   const root = document.getElementById('modal-root')!;
   root.append(backdrop);

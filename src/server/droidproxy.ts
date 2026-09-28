@@ -135,7 +135,9 @@ export function readCredentials(dir: string): Credential[] | null {
   let names: string[];
   try {
     if (!statSync(dir).isDirectory()) return null;
-    names = readdirSync(dir).filter((n) => n.endsWith('.json')).sort();
+    names = readdirSync(dir)
+      .filter((n) => n.endsWith('.json'))
+      .sort();
   } catch {
     return null;
   }
@@ -234,7 +236,10 @@ export function parseCodex(body: unknown): Parsed {
   const rl = b?.rate_limit;
   if (!rl || typeof rl !== 'object') return { windows: [] };
   const windows: ProxyWindow[] = [];
-  for (const [w, fallback] of [[rl.primary_window, '5h'], [rl.secondary_window, 'Week']] as const) {
+  for (const [w, fallback] of [
+    [rl.primary_window, '5h'],
+    [rl.secondary_window, 'Week'],
+  ] as const) {
     const used = num(w?.used_percent);
     if (used === undefined) continue;
     const resetAt = num(w.reset_at);

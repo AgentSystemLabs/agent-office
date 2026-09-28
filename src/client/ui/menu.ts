@@ -68,7 +68,11 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
   const pinned = (a: HudAction) => settings.pins.includes(a.id);
   let menu: Modal | null = null;
 
-  const menuBtn = h('button.btn.dock-btn.dock-menu', { type: 'button', 'aria-label': 'Menu', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Menu: everything else, and what shows on screen (Tab)' }, h('span.burger', { 'aria-hidden': 'true' }, h('i'), h('i'), h('i')));
+  const menuBtn = h(
+    'button.btn.dock-btn.dock-menu',
+    { type: 'button', 'aria-label': 'Menu', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Menu: everything else, and what shows on screen (Tab)' },
+    h('span.burger', { 'aria-hidden': 'true' }, h('i'), h('i'), h('i')),
+  );
   menuBtn.addEventListener('click', () => toggleMenu());
 
   function applyPanels() {
@@ -134,7 +138,14 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
     items.push(panelChip('workers', '🤖', 'Workers', hired, workersTitle));
     // Redrawn only when it looks different, so a busy worker's updates don't swap a button out from under a click.
     const next = h('div', {}, ...items);
-    if (next.innerHTML !== [...dock.children].filter((c) => c !== menuBtn).map((c) => c.outerHTML).join('')) dock.replaceChildren(...items, menuBtn);
+    if (
+      next.innerHTML !==
+      [...dock.children]
+        .filter((c) => c !== menuBtn)
+        .map((c) => c.outerHTML)
+        .join('')
+    )
+      dock.replaceChildren(...items, menuBtn);
     else if (!menuBtn.isConnected) dock.append(menuBtn);
   }
 
@@ -178,13 +189,7 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
       return h('div.menu-row', {}, item, pin);
     };
     const toggle = (p: (typeof PANELS)[number]) => {
-      const item = h(
-        'button.menu-item.menu-toggle',
-        { type: 'button', role: 'menuitemcheckbox' },
-        h('span.mi-icon', {}, p.icon),
-        h('span.mi-label', {}, p.label, h('small', {}, p.what)),
-        h('span.switch', { 'aria-hidden': 'true' }),
-      );
+      const item = h('button.menu-item.menu-toggle', { type: 'button', role: 'menuitemcheckbox' }, h('span.mi-icon', {}, p.icon), h('span.mi-label', {}, p.label, h('small', {}, p.what)), h('span.switch', { 'aria-hidden': 'true' }));
       const paint = () => item.setAttribute('aria-checked', String(settings.hud[p.id]));
       paint();
       item.addEventListener('click', () => {

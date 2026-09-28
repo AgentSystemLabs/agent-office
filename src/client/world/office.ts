@@ -1,5 +1,46 @@
 import * as THREE from 'three';
-import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, CABINET, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LADDER, LOFT, MACHINE_MONITOR, MEETING_BOARD, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PLANTS, SEATING_BY_ID, SLAB, STAIRS, STATIONS, STATION_AGENT, STOREY, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, deskSeat, streetBelow, type DeskDef, type Opening, type Side, type StationKind } from '../../shared/layout';
+import {
+  ASHTRAY,
+  BALCONY,
+  BALCONY_DOOR,
+  BEANBAGS,
+  BOARDS,
+  CABINET,
+  DESKS,
+  DESK_SIZE,
+  ELEVATOR,
+  EXIT_DOOR,
+  EXIT_STAIRS,
+  FLOOR,
+  GONG,
+  JUKEBOX,
+  KIOSK,
+  LADDER,
+  LOFT,
+  MACHINE_MONITOR,
+  MEETING_BOARD,
+  MEETING_ROOM,
+  MEETING_SEATS,
+  MEETING_TABLE,
+  PLANTS,
+  SEATING_BY_ID,
+  SLAB,
+  STAIRS,
+  STATIONS,
+  STATION_AGENT,
+  STOREY,
+  STREET_Y,
+  TV,
+  WALL_HEIGHT,
+  WALL_T,
+  WINDOWS,
+  deskSeat,
+  streetBelow,
+  type DeskDef,
+  type Opening,
+  type Side,
+  type StationKind,
+} from '../../shared/layout';
 import { wallFacing, type WallId, type WallRect } from '../../shared/decor';
 import { deskPoint } from '../../shared/nav';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
@@ -25,7 +66,29 @@ export interface Collider {
   fence?: boolean;
 }
 
-export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'cabinet' | 'ladder' | 'pole' | 'meeting' | 'bar' | 'dj';
+export type InteractKind =
+  | 'desk'
+  | 'station'
+  | 'issues'
+  | 'pulls'
+  | 'services'
+  | 'queue'
+  | 'tv'
+  | 'coffee'
+  | 'decor'
+  | 'smoke'
+  | 'elevator'
+  | 'gong'
+  | 'dog'
+  | 'jukebox'
+  | 'seat'
+  | 'whiteboard'
+  | 'cabinet'
+  | 'ladder'
+  | 'pole'
+  | 'meeting'
+  | 'bar'
+  | 'dj';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -1301,7 +1364,33 @@ export function buildOffice(): Office {
     gong.update(dt);
   };
 
-  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, setMachineTall, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, elevator, gong, jukebox, cabinet, whiteboard, stack, setProjectName, setLook, setLevel, night, plants, update };
+  return {
+    group,
+    colliders,
+    interactables,
+    desks,
+    setBeanbags,
+    boardMeshes,
+    tvScreen,
+    bossScreen,
+    machineScreen,
+    setMachineTall,
+    meetingBoard: meeting.board,
+    meetingSign: meeting.sign,
+    fixtures: () => fixtures,
+    elevator,
+    gong,
+    jukebox,
+    cabinet,
+    whiteboard,
+    stack,
+    setProjectName,
+    setLook,
+    setLevel,
+    night,
+    plants,
+    update,
+  };
 }
 
 /** A chair at the meeting table, with its laptop on the table in front of it. */

@@ -11,7 +11,10 @@ const officeFloor: Collider = { ...FLOOR, bottom: -SLAB, top: 0 };
 function controller(t: TestContext, colliders: Collider[]) {
   const win = new EventTarget();
   const doc = new EventTarget();
-  for (const [name, value] of [['window', win], ['document', doc]] as const) {
+  for (const [name, value] of [
+    ['window', win],
+    ['document', doc],
+  ] as const) {
     const previous = Object.getOwnPropertyDescriptor(globalThis, name);
     Object.defineProperty(globalThis, name, { configurable: true, value });
     t.after(() => {
@@ -82,8 +85,11 @@ test('escaping one collider cannot move deeper into an adjacent collider', (t) =
 
 test('walks up and down the office stairs without jumping', (t) => {
   const colliders: Collider[] = Array.from({ length: STAIRS.steps }, (_, i) => ({
-    minX: STAIRS.fromX + i * 0.4, maxX: STAIRS.fromX + (i + 1) * 0.4,
-    minZ: STAIRS.minZ, maxZ: STAIRS.maxZ, top: (i + 1) * 0.2,
+    minX: STAIRS.fromX + i * 0.4,
+    maxX: STAIRS.fromX + (i + 1) * 0.4,
+    minZ: STAIRS.minZ,
+    maxZ: STAIRS.maxZ,
+    top: (i + 1) * 0.2,
   }));
   colliders.push({ minX: LOFT.minX, maxX: LOFT.maxX, minZ: LOFT.minZ, maxZ: LOFT.maxZ, bottom: 2.75, top: 3 });
   const { player, keys, frames } = controller(t, colliders);

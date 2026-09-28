@@ -89,24 +89,34 @@ export function openQueue(net: Net, actions: QueueActions) {
     const model = badge ? ` · initial: ${badge}` : '';
     const usageSuffix = (provider: AgentProvider | undefined, usage?: Usage) => {
       const state = providerUsageState(provider, store.project, usage);
-      return state === 'untracked' ? ' · usage untracked' : state === 'waiting' && resolvedProvider(provider, store.project) === 'opencode' ? ' · waiting for metrics' : state === 'waiting' && resolvedProvider(provider, store.project) === 'codex' ? ' · waiting for first report' : '';
+      return state === 'untracked'
+        ? ' · usage untracked'
+        : state === 'waiting' && resolvedProvider(provider, store.project) === 'opencode'
+          ? ' · waiting for metrics'
+          : state === 'waiting' && resolvedProvider(provider, store.project) === 'codex'
+            ? ' · waiting for first report'
+            : '';
     };
     let pos: string | null = null;
     if (t.status === 'running') {
       const selectedProvider = providerLabel(t.provider ?? w?.provider, store.project);
       meta.push(`⚙️ ${selectedProvider}${model}${usageSuffix(t.provider ?? w?.provider, w?.usage)}`);
-      meta.push(`${t.workerName ?? 'a worker'} · ${w ? STATUS_LABEL[w.status] ?? w.status : 'gone'}`);
+      meta.push(`${t.workerName ?? 'a worker'} · ${w ? (STATUS_LABEL[w.status] ?? w.status) : 'gone'}`);
       if (t.branch) meta.push(`🌿 ${t.branch}`);
       if (t.startedAt) meta.push(`started ${timeAgo(t.startedAt)}`);
       meta.push(`by ${t.addedBy}`);
       if (w) {
         buttons.push(h('button.btn', { type: 'button', onclick: () => actions.openTerminal(w.id) }, 'Terminal'));
         buttons.push(
-          h('button.btn', {
-            type: 'button',
-            title: 'Send the worker home; the task counts as stopped',
-            onclick: () => confirmDialog(`Stop ${w.name}?`, `This sends ${w.name} home and stops the task. You can requeue it afterwards.`, 'Stop', () => net.send({ t: 'worker.kill', workerId: w.id })),
-          }, 'Stop'),
+          h(
+            'button.btn',
+            {
+              type: 'button',
+              title: 'Send the worker home; the task counts as stopped',
+              onclick: () => confirmDialog(`Stop ${w.name}?`, `This sends ${w.name} home and stops the task. You can requeue it afterwards.`, 'Stop', () => net.send({ t: 'worker.kill', workerId: w.id })),
+            },
+            'Stop',
+          ),
         );
       }
     } else if (t.status === 'queued') {
@@ -129,13 +139,7 @@ export function openQueue(net: Net, actions: QueueActions) {
       buttons.push(h('button.btn', { type: 'button', title: 'Put it back on the queue', onclick: () => net.send({ t: 'queue.retry', taskId: t.id }) }, 'Requeue'));
       buttons.push(h('button.btn', { type: 'button', title: 'Forget it', 'aria-label': 'Remove', onclick: () => net.send({ t: 'queue.remove', taskId: t.id }) }, '✕'));
     }
-    return h(
-      'li',
-      { class: t.status },
-      pos ? h('span.pos', {}, pos) : null,
-      h('div.queue-main', {}, taskTitle(t), h('div.queue-meta', {}, meta.join(' · '))),
-      h('div.queue-actions', {}, ...buttons),
-    );
+    return h('li', { class: t.status }, pos ? h('span.pos', {}, pos) : null, h('div.queue-main', {}, taskTitle(t), h('div.queue-meta', {}, meta.join(' · '))), h('div.queue-actions', {}, ...buttons));
   };
 
   // The form stays put and only the list below it re-renders, so worker updates don't pull focus out of the textarea.
@@ -148,7 +152,10 @@ export function openQueue(net: Net, actions: QueueActions) {
     minus.toggleAttribute('disabled', q.maxWorkers <= 0);
     const running = q.tasks.filter((t) => t.status === 'running');
     const queued = q.tasks.filter((t) => t.status === 'queued');
-    const done = q.tasks.filter((t) => t.status === 'done').slice().reverse();
+    const done = q.tasks
+      .filter((t) => t.status === 'done')
+      .slice()
+      .reverse();
     const m = store.machine;
     const parts: (HTMLElement | null)[] = [
       h(

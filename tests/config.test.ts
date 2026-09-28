@@ -55,4 +55,3 @@ test('the default agent is droid', (t) => {
   });
   assert.equal(load(t).agentCmd, 'droid');
 });
-

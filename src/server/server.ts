@@ -2,7 +2,6 @@ import http from 'node:http';
 import https from 'node:https';
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import type { Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
@@ -201,10 +200,7 @@ export async function startServer(cfg: Config) {
   /** What the office is called where it has no project of its own to go by (webhooks, invites). */
   const officeName = cfg.project ? path.basename(cfg.project) : 'the office';
   const modelCommand = configuredProvider(cfg.agentCmd) === 'opencode' ? cfg.agentCmd : 'opencode';
-  const openCodeModels = createOpenCodeModelCatalogue(
-    modelCommand.includes('/') ? path.resolve(modelCommand) : modelCommand,
-    cfg.dir,
-  );
+  const openCodeModels = createOpenCodeModelCatalogue(modelCommand.includes('/') ? path.resolve(modelCommand) : modelCommand, cfg.dir);
   // Droid's selectable models come from its own settings, on this machine.
   const droidModels = createDroidModelCatalogue();
 
@@ -291,13 +287,14 @@ export async function startServer(cfg: Config) {
     const workerId = url.searchParams.get('worker') ?? '';
     const workers = workerFloor(workerId)?.workers;
     if (!workers) return send(res, 401, {});
-    const ok = url.pathname === '/hooks/opencode'
-      ? workers.handleOpenCodeHook(workerId, token, payload)
-      : url.pathname === '/hooks/codex'
-        ? workers.handleCodexHook(workerId, token, url.searchParams.get('event') ?? '', payload)
-        : url.pathname === '/hooks/droid'
-          ? workers.handleDroidHook(workerId, token, url.searchParams.get('event') ?? '', payload)
-        : workers.handleHook(workerId, token, url.searchParams.get('event') ?? '', payload);
+    const ok =
+      url.pathname === '/hooks/opencode'
+        ? workers.handleOpenCodeHook(workerId, token, payload)
+        : url.pathname === '/hooks/codex'
+          ? workers.handleCodexHook(workerId, token, url.searchParams.get('event') ?? '', payload)
+          : url.pathname === '/hooks/droid'
+            ? workers.handleDroidHook(workerId, token, url.searchParams.get('event') ?? '', payload)
+            : workers.handleHook(workerId, token, url.searchParams.get('event') ?? '', payload);
     send(res, ok ? 200 : 401, {});
   });
   /**
@@ -363,16 +360,15 @@ export async function startServer(cfg: Config) {
   sky.start();
   // Halloween or Christmas all over the building, the same for everyone (⚙️ Settings). On 'auto' it
   // goes by the calendar at the office, the sky's clock.
-  const themes = new Themes(cfg.dataDir, () => sky.state.utcOffset, (state) => broadcast({ t: 'theme', state }));
+  const themes = new Themes(
+    cfg.dataDir,
+    () => sky.state.utcOffset,
+    (state) => broadcast({ t: 'theme', state }),
+  );
   themes.start();
 
   // What the workers spend, all time and today, with the optional daily budget.
-  const ledger = new Ledger(
-    cfg.dataDir,
-    { budget: cfg.budget, pauseHiring: cfg.budgetPause },
-    (state) => broadcast({ t: 'usage', state }),
-    toastAll,
-  );
+  const ledger = new Ledger(cfg.dataDir, { budget: cfg.budget, pauseHiring: cfg.budgetPause }, (state) => broadcast({ t: 'usage', state }), toastAll);
 
   // The Claude plan's 5-hour and weekly limits, for the meter under the workers: one account for
   // every floor.
@@ -384,7 +380,11 @@ export async function startServer(cfg: Config) {
   );
 
   // Slack / Discord pings for workers that need input or finish (set from ⚙️ Settings or --webhook).
-  webhook = new Webhook(cfg.dataDir, (workerId) => (workerId && workerFloor(workerId)?.def.name) || officeName, (state) => broadcast({ t: 'notify', state }));
+  webhook = new Webhook(
+    cfg.dataDir,
+    (workerId) => (workerId && workerFloor(workerId)?.def.name) || officeName,
+    (state) => broadcast({ t: 'notify', state }),
+  );
   if (cfg.webhook !== undefined) {
     const err = webhook.set(cfg.webhook, 'the command line');
     if (err) console.error(`agent-office: --webhook: ${err}`);
@@ -404,7 +404,11 @@ export async function startServer(cfg: Config) {
   );
   machine.start();
   // The limits of the accounts DroidProxy serves on this machine, under the CPU and memory.
-  const proxy = new DroidProxyUsage(DROIDPROXY_AUTH_DIR, () => clients.size > 0, (state) => broadcast({ t: 'proxy', state }));
+  const proxy = new DroidProxyUsage(
+    DROIDPROXY_AUTH_DIR,
+    () => clients.size > 0,
+    (state) => broadcast({ t: 'proxy', state }),
+  );
   proxy.start();
   /** Queues everywhere may be waiting for room under the worker limit: let them look again. */
   const pumpQueues = (except?: Floor) => {
@@ -1644,7 +1648,12 @@ export async function startServer(cfg: Config) {
         const now = Date.now();
         if (!c.whiteboard || now - c.lastWbPointerAt < 25) break;
         c.lastWbPointerAt = now;
-        const selected = Array.isArray(msg.selected) ? msg.selected.filter((s): s is string => typeof s === 'string').slice(0, 200).map((s) => s.slice(0, 100)) : undefined;
+        const selected = Array.isArray(msg.selected)
+          ? msg.selected
+              .filter((s): s is string => typeof s === 'string')
+              .slice(0, 200)
+              .map((s) => s.slice(0, 100))
+          : undefined;
         const pointer: ServerMsg = { t: 'wb.pointer', id: c.id, x: num(msg.x), y: num(msg.y), tool: msg.tool === 'laser' ? 'laser' : 'pointer', button: msg.button === 'down' ? 'down' : 'up', selected };
         const json = JSON.stringify(pointer);
         for (const o of clients.values()) {
@@ -1707,7 +1716,7 @@ export async function startServer(cfg: Config) {
       }
       case 'jukebox.stop': {
         const floor = here();
-        if (!floor || !floor.jukebox.stop(who)) break;
+        if (!floor?.jukebox.stop(who)) break;
         jukeboxChanged(floor);
         toastFloor(floor, `🔇 ${who} turned the jukebox off`);
         break;

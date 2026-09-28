@@ -117,12 +117,16 @@ function toWindow(label: string, w: any): PlanWindow | null {
 function ask(claude: string, env: Record<string, string>): Promise<any> {
   const args = [
     '-p',
-    '--input-format', 'stream-json',
-    '--output-format', 'stream-json',
+    '--input-format',
+    'stream-json',
+    '--output-format',
+    'stream-json',
     '--verbose',
-    '--tools', '',
+    '--tools',
+    '',
     // Not the user's or the project's settings: no hooks, no MCP servers, no plugins, no transcript.
-    '--setting-sources', '',
+    '--setting-sources',
+    '',
     '--strict-mcp-config',
     '--disable-slash-commands',
     '--no-session-persistence',
@@ -161,6 +165,6 @@ function ask(claude: string, env: Record<string, string>): Promise<any> {
     child.on('error', () => finish(null));
     child.on('close', () => finish(null));
     child.stdin.on('error', () => {});
-    child.stdin.write(JSON.stringify({ type: 'control_request', request_id: 'usage', request: { subtype: 'get_usage', skip_behaviors: true } }) + '\n');
+    child.stdin.write(`${JSON.stringify({ type: 'control_request', request_id: 'usage', request: { subtype: 'get_usage', skip_behaviors: true } })}\n`);
   });
 }

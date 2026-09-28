@@ -31,8 +31,22 @@ export const TERM_THEME = {
 };
 
 const BASE16 = [
-  TERM_THEME.black, TERM_THEME.red, TERM_THEME.green, TERM_THEME.yellow, TERM_THEME.blue, TERM_THEME.magenta, TERM_THEME.cyan, TERM_THEME.white,
-  TERM_THEME.brightBlack, TERM_THEME.brightRed, TERM_THEME.brightGreen, TERM_THEME.brightYellow, TERM_THEME.brightBlue, TERM_THEME.brightMagenta, TERM_THEME.brightCyan, TERM_THEME.brightWhite,
+  TERM_THEME.black,
+  TERM_THEME.red,
+  TERM_THEME.green,
+  TERM_THEME.yellow,
+  TERM_THEME.blue,
+  TERM_THEME.magenta,
+  TERM_THEME.cyan,
+  TERM_THEME.white,
+  TERM_THEME.brightBlack,
+  TERM_THEME.brightRed,
+  TERM_THEME.brightGreen,
+  TERM_THEME.brightYellow,
+  TERM_THEME.brightBlue,
+  TERM_THEME.brightMagenta,
+  TERM_THEME.brightCyan,
+  TERM_THEME.brightWhite,
 ];
 
 const PALETTE: string[] = (() => {
@@ -109,9 +123,7 @@ export function paintScreen(ctx: CanvasRenderingContext2D, w: number, h: number,
     return;
   }
   const pad = w * 0.02;
-  const win = zoomRows
-    ? activeWindow(s, w - pad * 2, h - pad * 2, zoomRows)
-    : { top: 0, rows: s.rows, cols: s.cols, first: 0, last: s.rows - 1 };
+  const win = zoomRows ? activeWindow(s, w - pad * 2, h - pad * 2, zoomRows) : { top: 0, rows: s.rows, cols: s.cols, first: 0, last: s.rows - 1 };
   const cellW = (w - pad * 2) / win.cols;
   const cellH = (h - pad * 2) / win.rows;
   const fontSize = Math.max(4, Math.min(cellW / CHAR_WIDTH, cellH / LINE_HEIGHT));
@@ -226,7 +238,7 @@ export class Laptop {
 
   private setLid(open: number) {
     this.openT = open;
-    const e = 1 - Math.pow(1 - open, 3);
+    const e = 1 - (1 - open) ** 3;
     this.lid.rotation.x = Math.PI / 2 - e * (Math.PI / 2 + 0.22);
   }
 

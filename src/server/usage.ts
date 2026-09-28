@@ -103,8 +103,7 @@ export function trackerUsage(t: UsageTracker): Usage {
   return addUsage(base, t.since);
 }
 
-const asUsage = (v: any): Usage | undefined =>
-  v && typeof v === 'object' ? { input: num(v.input), output: num(v.output), cacheWrite: num(v.cacheWrite), cacheRead: num(v.cacheRead), cost: num(v.cost), calls: num(v.calls) } : undefined;
+const asUsage = (v: any): Usage | undefined => (v && typeof v === 'object' ? { input: num(v.input), output: num(v.output), cacheWrite: num(v.cacheWrite), cacheRead: num(v.cacheRead), cost: num(v.cost), calls: num(v.calls) } : undefined);
 
 /** Rebuilds a tracker saved by a previous run; anything odd falls back to starting over. */
 export function restoreTracker(saved: any): UsageTracker {

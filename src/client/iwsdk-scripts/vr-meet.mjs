@@ -24,8 +24,6 @@ export default async function run({ frame }) {
   await frame.waitForTimeout(800);
   const end = await frame.evaluate(() => window.__vrtest?.ui?.());
   console.log('MEET:', JSON.stringify({ call, asked, typed, titled, cancelled, end }));
-  const ok = call === true && asked.prompt === true && typed === 'test' &&
-    titled.prompt === true && titled.keyboard === true &&
-    cancelled === true && end.prompt === false;
+  const ok = call === true && asked.prompt === true && typed === 'test' && titled.prompt === true && titled.keyboard === true && cancelled === true && end.prompt === false;
   return { ok };
 }

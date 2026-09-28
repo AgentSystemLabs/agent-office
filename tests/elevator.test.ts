@@ -12,11 +12,18 @@ function rig(t: TestContext) {
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'document');
   const doc = {
     createElement: () => ({
-      width: 0, height: 0,
+      width: 0,
+      height: 0,
       getContext: () => ({
-        font: '', fillStyle: '', textAlign: '', textBaseline: '',
+        font: '',
+        fillStyle: '',
+        textAlign: '',
+        textBaseline: '',
         measureText: (text: string) => ({ width: text.length * 26 }),
-        clearRect() {}, fillText(text: string) { labels.push(text); },
+        clearRect() {},
+        fillText(text: string) {
+          labels.push(text);
+        },
       }),
     }),
   };
@@ -33,7 +40,10 @@ function rig(t: TestContext) {
   return { elevator, panel, button, tip, labels };
 }
 
-const floors = [{ id: 'alpha', name: 'Alpha' }, { id: 'beta', name: 'Beta' }];
+const floors = [
+  { id: 'alpha', name: 'Alpha' },
+  { id: 'beta', name: 'Beta' },
+];
 
 test('VR has a labeled, ray-pickable and touchable button for every floor and the roof', (t) => {
   const { elevator, panel, button, tip, labels } = rig(t);
@@ -73,10 +83,19 @@ test('live floor changes replace labels and targets, dispose old resources, and 
   cap.geometry.addEventListener('dispose', () => disposed++);
   (cap.material as THREE.Material).addEventListener('dispose', () => disposed++);
   label.material.map!.addEventListener('dispose', () => disposed++);
-  elevator.setFloors(floors.map((f) => ({ ...f })), 'beta');
+  elevator.setFloors(
+    floors.map((f) => ({ ...f })),
+    'beta',
+  );
   assert.equal(button('beta'), old, 'same list does not rebuild meshes on a stats broadcast');
   assert.equal(elevator.pressFloor('beta'), false, 'current floor is inactive');
-  elevator.setFloors([{ id: 'alpha', name: 'Renamed' }, { id: 'gamma', name: 'Gamma', cloning: true }], 'alpha');
+  elevator.setFloors(
+    [
+      { id: 'alpha', name: 'Renamed' },
+      { id: 'gamma', name: 'Gamma', cloning: true },
+    ],
+    'alpha',
+  );
   assert.equal(panel.getObjectByName('elevator-floor:beta'), undefined);
   assert.equal(elevator.pressFloor('beta'), false, 'cached rays cannot activate removed destinations');
   assert.equal(disposed, 3);

@@ -95,7 +95,7 @@ function renderPreview(workerId: string, f: ChangedFile): HTMLElement {
       const label = side === 'old' ? 'Before' : 'After';
       const size = h('span.size');
       const frame = h('div.img-frame');
-      const img = h('img', { src: imageUrl(workerId, f, side), alt: `${side === 'old' ? f.from ?? f.path : f.path} (${label.toLowerCase()})` });
+      const img = h('img', { src: imageUrl(workerId, f, side), alt: `${side === 'old' ? (f.from ?? f.path) : f.path} (${label.toLowerCase()})` });
       img.addEventListener('load', () => (size.textContent = `${img.naturalWidth} × ${img.naturalHeight}`));
       img.addEventListener('error', () => frame.replaceChildren(h('p', {}, `Couldn't load the picture ${side === 'old' ? 'from before' : 'as it is now'}.`)));
       frame.append(img);

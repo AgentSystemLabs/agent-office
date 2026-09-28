@@ -67,11 +67,15 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   const pill = h('span.pill', {}, '');
   const cost = h('span.cost', {});
   const viewers = h('div.viewers', {});
-  const modelsBtn = h('button.btn', {
-    type: 'button',
-    title: 'OpenCode models: Ctrl+X then M (use /models if custom bindings override it)',
-    'aria-label': 'OpenCode models',
-  }, '🧠 Models');
+  const modelsBtn = h(
+    'button.btn',
+    {
+      type: 'button',
+      title: 'OpenCode models: Ctrl+X then M (use /models if custom bindings override it)',
+      'aria-label': 'OpenCode models',
+    },
+    '🧠 Models',
+  );
   const typed = h('span.typed', {});
   const changesBtn = h('button.btn', { type: 'button', title: 'What this worker changed: files, diff, commit, open a PR (C at the desk)' }, '🌿 Changes');
   const closeBtn = h('button.btn.close', { title: 'Leave terminal (Shift+Esc or Ctrl+]) · Esc goes to the terminal', 'aria-label': 'Close' }, '✕');
@@ -131,15 +135,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
     const now = Date.now();
     for (const [id, until] of typing) if (until <= now || !w.viewerIds.includes(id)) typing.delete(id);
     const people = viewersOf(w);
-    viewers.replaceChildren(
-      ...people.map((v) =>
-        h(
-          'span.avatar',
-          { class: v.typing ? 'typing' : '', style: `background:${v.color}`, title: `${v.name}${v.you ? ' (you)' : ''}${v.typing ? ' · typing' : ''}` },
-          initials(v.name),
-        ),
-      ),
-    );
+    viewers.replaceChildren(...people.map((v) => h('span.avatar', { class: v.typing ? 'typing' : '', style: `background:${v.color}`, title: `${v.name}${v.you ? ' (you)' : ''}${v.typing ? ' · typing' : ''}` }, initials(v.name))));
     viewers.title = people.length ? `In this terminal: ${people.map((v) => (v.you ? `${v.name} (you)` : v.name)).join(', ')}` : '';
     const typists = people.filter((v) => v.typing && !v.you).map((v) => v.name);
     typed.classList.toggle('now', typists.length > 0);
@@ -189,7 +185,18 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
     pill.textContent = STATUS_LABEL[w.status] ?? w.status;
     const workerProvider = w.kind === 'agent' ? resolvedProvider(w.provider, store.project) : undefined;
     const usageState = w.kind === 'agent' ? providerUsageState(w.provider, store.project, w.usage) : undefined;
-    cost.textContent = w.kind !== 'agent' ? '' : usageState === 'tracked' && w.usage ? usageLabel(w.usage, workerProvider) : workerProvider === 'opencode' && usageState === 'waiting' ? 'waiting for metrics' : workerProvider === 'codex' && usageState === 'waiting' ? 'waiting for first report' : usageState === 'untracked' ? 'usage untracked' : '';
+    cost.textContent =
+      w.kind !== 'agent'
+        ? ''
+        : usageState === 'tracked' && w.usage
+          ? usageLabel(w.usage, workerProvider)
+          : workerProvider === 'opencode' && usageState === 'waiting'
+            ? 'waiting for metrics'
+            : workerProvider === 'codex' && usageState === 'waiting'
+              ? 'waiting for first report'
+              : usageState === 'untracked'
+                ? 'usage untracked'
+                : '';
     cost.title = w.kind === 'agent' && w.usage ? usageTitle(w.usage, workerProvider) : w.kind === 'agent' ? providerUsageNote(workerProvider!) : '';
     renderPresence(w);
     const openCode = w.kind === 'agent' && resolvedProvider(w.provider, store.project) === 'opencode';

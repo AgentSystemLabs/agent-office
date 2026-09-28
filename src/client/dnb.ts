@@ -487,7 +487,10 @@ export class DjPlayer {
     o.start(when);
     o.stop(when + 0.4);
     // The beater's click.
-    this.noiseAt(when, when + 0.02).connect(biquad(ctx, 'highpass', 2500, 0.7)).connect(this.env(when, 0.25 * vel, 0.001, 0.012)).connect(this.drums);
+    this.noiseAt(when, when + 0.02)
+      .connect(biquad(ctx, 'highpass', 2500, 0.7))
+      .connect(this.env(when, 0.25 * vel, 0.001, 0.012))
+      .connect(this.drums);
     // Everything else ducks out of its way.
     this.duck.gain.setValueAtTime(0.35, when);
     this.duck.gain.setTargetAtTime(1, when + 0.02, 0.07);
@@ -497,7 +500,10 @@ export class DjPlayer {
   private snare(when: number, vel: number) {
     const ctx = this.ctx;
     const g = this.env(when, 0.55 * vel, 0.002, 0.17);
-    this.noiseAt(when, when + 0.22).connect(biquad(ctx, 'highpass', 900, 0.7)).connect(biquad(ctx, 'peaking', 2400, 1)).connect(g);
+    this.noiseAt(when, when + 0.22)
+      .connect(biquad(ctx, 'highpass', 900, 0.7))
+      .connect(biquad(ctx, 'peaking', 2400, 1))
+      .connect(g);
     const o = ctx.createOscillator();
     o.type = 'triangle';
     o.frequency.setValueAtTime(230, when);
@@ -608,7 +614,10 @@ export class DjPlayer {
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.02 + 0.3 * from * from, when);
     g.gain.linearRampToValueAtTime(to >= 1 ? 0 : 0.02 + 0.3 * to * to, when + BAR);
-    this.noiseAt(when, when + BAR + 0.01).connect(bp).connect(g).connect(this.master);
+    this.noiseAt(when, when + BAR + 0.01)
+      .connect(bp)
+      .connect(g)
+      .connect(this.master);
     g.connect(this.reverb);
   }
 
@@ -616,7 +625,10 @@ export class DjPlayer {
   private impact(when: number) {
     const ctx = this.ctx;
     const crash = this.env(when, 0.3, 0.004, 2);
-    this.noiseAt(when, when + 2.2).connect(biquad(ctx, 'highpass', 4500, 0.6)).connect(crash).connect(this.master);
+    this.noiseAt(when, when + 2.2)
+      .connect(biquad(ctx, 'highpass', 4500, 0.6))
+      .connect(crash)
+      .connect(this.master);
     crash.connect(this.reverb);
     const o = ctx.createOscillator();
     o.frequency.setValueAtTime(95, when);

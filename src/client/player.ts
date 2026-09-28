@@ -466,11 +466,7 @@ export class PlayerController {
       return;
     }
     const target = new THREE.Vector3(this.pos.x, this.pos.y + this.stepOffset + this.lift + 1.3, this.pos.z);
-    const off = new THREE.Vector3(
-      Math.sin(this.camYaw) * Math.cos(this.camPitch),
-      Math.sin(this.camPitch),
-      Math.cos(this.camYaw) * Math.cos(this.camPitch),
-    ).multiplyScalar(this.camDist);
+    const off = new THREE.Vector3(Math.sin(this.camYaw) * Math.cos(this.camPitch), Math.sin(this.camPitch), Math.cos(this.camYaw) * Math.cos(this.camPitch)).multiplyScalar(this.camDist);
     const cam = target.clone().add(off);
     // Keep the camera on your side of the outside walls, so they never block the view: inside the
     // room while you're in the office, out of the building while you're outside or on the balcony.
@@ -603,8 +599,7 @@ function escapes(c: Collider, fromX: number, fromZ: number, x: number, z: number
   // Inside the footprint, head toward a nearest face. An endpoint with less
   // overlap alone is insufficient: a long step could cross a thin wall first.
   const nearest = Math.min(fromX - c.minX, c.maxX - fromX, fromZ - c.minZ, c.maxZ - fromZ);
-  return (nearest === fromX - c.minX && x < fromX) || (nearest === c.maxX - fromX && x > fromX)
-    || (nearest === fromZ - c.minZ && z < fromZ) || (nearest === c.maxZ - fromZ && z > fromZ);
+  return (nearest === fromX - c.minX && x < fromX) || (nearest === c.maxX - fromX && x > fromX) || (nearest === fromZ - c.minZ && z < fromZ) || (nearest === c.maxZ - fromZ && z > fromZ);
 }
 
 /** Signed overlap depth, including when the center is inside the footprint. */

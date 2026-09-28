@@ -23,13 +23,7 @@ function windowRow(w: PlanWindow, now: number): HTMLElement[] {
   const scope = w.label === 'Week' ? ' (all models)' : '';
   const title = `${w.label}${scope}: ${pct}% used${when ? `\nStarts over ${when}` : ''}`;
   return [
-    h(
-      'div.row',
-      { title },
-      h('span.what', {}, w.label),
-      h('b', { class: level(w.pct) }, `${pct}%`),
-      w.resetsAt ? h('span.reset', {}, `resets ${fmtReset(w.resetsAt, now)}`) : null,
-    ),
+    h('div.row', { title }, h('span.what', {}, w.label), h('b', { class: level(w.pct) }, `${pct}%`), w.resetsAt ? h('span.reset', {}, `resets ${fmtReset(w.resetsAt, now)}`) : null),
     h('div.meter', { class: level(w.pct), title, role: 'progressbar', 'aria-label': w.label, 'aria-valuenow': pct }, h('div.fill', { style: `width:${w.pct}%` })),
   ];
 }

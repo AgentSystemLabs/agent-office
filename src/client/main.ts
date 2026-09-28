@@ -2,7 +2,37 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, LADDER, LOFT, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, STOREY, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, roofDrop, seatAt, seatPlace, streetBelow, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import {
+  BALCONY,
+  DESK_BY_ID,
+  DESKS,
+  ELEVATOR,
+  ELEVATOR_CAR,
+  FLOOR,
+  LADDER,
+  LOFT,
+  POLE,
+  POLES,
+  SEATING_BY_ID,
+  SLAB,
+  STATIONS,
+  STATION_AGENT,
+  STOREY,
+  WALL_HEIGHT,
+  beanbagsOut,
+  deskSeat,
+  inElevator,
+  nextFreeSeat,
+  roofDrop,
+  seatAt,
+  seatPlace,
+  streetBelow,
+  vacantSeats,
+  type DeskDef,
+  type SeatDef,
+  type SeatPlace,
+  type StationKind,
+} from '../shared/layout';
 import { floorPalette } from '../shared/floors';
 import type { AgentEffort, AgentProvider, CarriedIssue, ChangesState, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
 import { MEETING_PATTERNS, defaultMeetingRequest, reviewMeetingRequest } from '../shared/meetings';
@@ -376,17 +406,28 @@ function vrAimLabel(it: Interactable, note: GhIssue | null): string | null {
       if (floor?.cloning) return `${name} · cloning`;
       return it.floorId === store.floor ? `${name} · you are here` : `E · ride to ${name}`;
     }
-    case 'issues': return 'E · the issues board';
-    case 'pulls': return 'E · the pull requests';
-    case 'queue': return 'E · the task queue';
-    case 'jukebox': return store.jukebox.on ? 'E · change the song' : 'E · put on a song';
-    case 'bar': return 'E · order a drink';
-    case 'meeting': return 'E · the meeting room';
-    case 'services': return 'E · running servers';
-    case 'whiteboard': return '📝 Whiteboard · desktop only';
-    case 'tv': return '📺 TV · desktop only';
-    case 'cabinet': return '🕹️ Arcade · desktop only';
-    case 'decor': return it.decorId ? 'E · about this picture' : null;
+    case 'issues':
+      return 'E · the issues board';
+    case 'pulls':
+      return 'E · the pull requests';
+    case 'queue':
+      return 'E · the task queue';
+    case 'jukebox':
+      return store.jukebox.on ? 'E · change the song' : 'E · put on a song';
+    case 'bar':
+      return 'E · order a drink';
+    case 'meeting':
+      return 'E · the meeting room';
+    case 'services':
+      return 'E · running servers';
+    case 'whiteboard':
+      return '📝 Whiteboard · desktop only';
+    case 'tv':
+      return '📺 TV · desktop only';
+    case 'cabinet':
+      return '🕹️ Arcade · desktop only';
+    case 'decor':
+      return it.decorId ? 'E · about this picture' : null;
     case 'seat': {
       if (!it.seatId) return null;
       if (player.seat?.seatId !== it.seatId) return 'E · sit down';
@@ -396,18 +437,27 @@ function vrAimLabel(it: Interactable, note: GhIssue | null): string | null {
       if (seat?.game) return '💣 Minesweeper · desktop only';
       return 'E · stand up';
     }
-    case 'dog': return 'E · pet the dog';
-    case 'coffee': return caffeine.buzzed(performance.now() / 1000) ? 'E · another cup' : 'E · grab a cup';
-    case 'smoke': return smokeBreakUntil ? 'E · stub it out' : 'E · smoke break';
-    case 'gong': return 'E · bang the gong';
-    case 'ladder': return climber.active ? null : 'E · climb';
-    case 'pole': return office.stack.polesGoDown() ? 'E · slide down' : 'E · spin round it';
-    case 'dj': return 'E · the air horn';
-    default: return null;
+    case 'dog':
+      return 'E · pet the dog';
+    case 'coffee':
+      return caffeine.buzzed(performance.now() / 1000) ? 'E · another cup' : 'E · grab a cup';
+    case 'smoke':
+      return smokeBreakUntil ? 'E · stub it out' : 'E · smoke break';
+    case 'gong':
+      return 'E · bang the gong';
+    case 'ladder':
+      return climber.active ? null : 'E · climb';
+    case 'pole':
+      return office.stack.polesGoDown() ? 'E · slide down' : 'E · spin round it';
+    case 'dj':
+      return 'E · the air horn';
+    default:
+      return null;
   }
 }
 /** E in VR: modal flows open world-space panels instead of invisible DOM windows. The carried card drops first, exactly as on desktop; what stays physical falls through to use(). */
-function vrUseE(it: Interactable | null, note: GhIssue | null) {  // On the ladder, E gets you off it — exactly like the desktop key, before everything else.
+function vrUseE(it: Interactable | null, note: GhIssue | null) {
+  // On the ladder, E gets you off it — exactly like the desktop key, before everything else.
   if (climber.active) {
     climber.letGo();
     return;
@@ -489,7 +539,7 @@ const vr = new VRSession(renderer, scene, camera, {
   settings,
   useE: vrUseE,
   pickFromRay: (ray, slack) => pickFromRay(ray, slack),
-  touchTarget: (point) => inElevator(player.pos.x, player.pos.z) && !climber.active ? lift().touchTarget(point) : null,
+  touchTarget: (point) => (inElevator(player.pos.x, player.pos.z) && !climber.active ? lift().touchTarget(point) : null),
   noteUnder: (aim) => noteUnder(aim),
   nextWaiting: () => goToNextWaiting(),
   putBack: () => putBack(),
@@ -520,8 +570,7 @@ const vr = new VRSession(renderer, scene, camera, {
       getIssues: () => store.issues,
       getPulls: () => store.pulls,
       getQueue: () => store.queue,
-      getFreeDesks: () =>
-        DESKS.filter((d) => !d.station && !d.room && !store.workerAtDesk(d.id)).map((d) => ({ id: d.id, label: d.label })),
+      getFreeDesks: () => DESKS.filter((d) => !d.station && !d.room && !store.workerAtDesk(d.id)).map((d) => ({ id: d.id, label: d.label })),
       getChat: () => store.chat,
       getFloors: () => store.floors,
       currentFloor: () => store.floor,
@@ -538,7 +587,7 @@ const vr = new VRSession(renderer, scene, camera, {
       getSearch: () => vrSearch,
       getMerge: () => vrMerge,
       // The main row follows the focused terminal; the changes view holds its watched worker.
-      getChangesWorker: () => (vrMenuView === 'changes' ? vrChangesWorker : vrUi?.terminal.focused() ?? null),
+      getChangesWorker: () => (vrMenuView === 'changes' ? vrChangesWorker : (vrUi?.terminal.focused() ?? null)),
       getChanges: () => vrChanges,
       voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => (voice.inVoice ? voice.toggleMute() : void toggleVoice()), leaveVoice: () => voice.leaveVoice() },
       actions: {
@@ -582,7 +631,10 @@ const vr = new VRSession(renderer, scene, camera, {
           const w = store.workers.get(workerId);
           const n = vrChanges.files.filter((f) => f.uncommitted).length;
           const where = vrChanges.dir ? vrChanges.dir : 'the project folder';
-          toast(`Discard ${n} file${n === 1 ? '' : 's'} at ${w?.name ?? 'the desk'}? This puts ${where} back to the last commit and deletes new files. Commits stay.${vrChanges.dir ? '' : " That folder is shared: anyone's uncommitted edits there go too."} Tap again to discard.`, 'warn');
+          toast(
+            `Discard ${n} file${n === 1 ? '' : 's'} at ${w?.name ?? 'the desk'}? This puts ${where} back to the last commit and deletes new files. Commits stay.${vrChanges.dir ? '' : " That folder is shared: anyone's uncommitted edits there go too."} Tap again to discard.`,
+            'warn',
+          );
         },
         discardChanges: (workerId) => net.send({ t: 'changes.discard', workerId }),
         openChangesPr: (workerId) => vrChangesPr(workerId),
@@ -661,14 +713,17 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     turn: (rad: number) => vr.debugTurn(rad),
     // The world-space UI: which panels are up, where they are (for aiming the emulated
     // rays at them), and a way to walk every menu view without precise aiming.
-    ui: () => (!vrUi ? null : {
-      menu: vrUi.menu.visible,
-      controls: vrUi.controls.visible,
-      terminal: vrUi.terminal.visible,
-      prompt: vrUi.prompt.visible,
-      keyboard: vrUi.keyboard.visible,
-      physical: vrUi.physicalTyping,
-    }),
+    ui: () =>
+      !vrUi
+        ? null
+        : {
+            menu: vrUi.menu.visible,
+            controls: vrUi.controls.visible,
+            terminal: vrUi.terminal.visible,
+            prompt: vrUi.prompt.visible,
+            keyboard: vrUi.keyboard.visible,
+            physical: vrUi.physicalTyping,
+          },
     panelPos: (which: 'menu' | 'controls' | 'terminal' | 'prompt' | 'keyboard' | 'toast') => {
       const g = vrUi?.[which]?.panel.group;
       if (!g) return null;
@@ -750,15 +805,48 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     seedPull: (number: number, title: string) => {
       store.pulls.items = store.pulls.items.filter((p) => p.number !== number);
       const at = new Date().toISOString();
-      store.pulls.items.push({ number, title, state: 'OPEN', isDraft: false, url: '', author: 'vrtest', labels: [], reviewDecision: '', headRefName: 'zzz', baseRefName: 'main', createdAt: at, updatedAt: at, additions: 1, deletions: 0, checks: 'none', body: 'Seeded by the VR review check.', closes: [] });
+      store.pulls.items.push({
+        number,
+        title,
+        state: 'OPEN',
+        isDraft: false,
+        url: '',
+        author: 'vrtest',
+        labels: [],
+        reviewDecision: '',
+        headRefName: 'zzz',
+        baseRefName: 'main',
+        createdAt: at,
+        updatedAt: at,
+        additions: 1,
+        deletions: 0,
+        checks: 'none',
+        body: 'Seeded by the VR review check.',
+        closes: [],
+      });
       store.emit('pulls');
     },
     // Seeds a fake running meeting into this client's room (reload clears it).
     seedMeetingBusy: (title: string) => {
       store.meeting.current = {
-        id: 'zzz-meeting', pattern: 'debate', title, prompt: 'Seeded by the VR review check.', output: 'docs/zzz.md',
-        seats: [], rounds: 3, round: 1, step: 1, turns: [], budget: 1000000, tokens: 0, cost: 0, costKnown: true,
-        status: 'running', calledBy: 'vrtest', startedAt: Date.now(), notes: '.meeting',
+        id: 'zzz-meeting',
+        pattern: 'debate',
+        title,
+        prompt: 'Seeded by the VR review check.',
+        output: 'docs/zzz.md',
+        seats: [],
+        rounds: 3,
+        round: 1,
+        step: 1,
+        turns: [],
+        budget: 1000000,
+        tokens: 0,
+        cost: 0,
+        costKnown: true,
+        status: 'running',
+        calledBy: 'vrtest',
+        startedAt: Date.now(),
+        notes: '.meeting',
       };
       store.emit('meeting');
     },
@@ -779,11 +867,23 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     // Whether the next hire gets its own worktree (the hire-toggle check reads this back).
     worktree: () => worktreePref(),
     // Seeds a fake teammate into this client's peers (solo here; reload clears it).
-    seedPeer: (name: string, doing: string, floor?: string) => {      store.peers.delete('peer-zzz');
+    seedPeer: (name: string, doing: string, floor?: string) => {
+      store.peers.delete('peer-zzz');
       store.peers.set('peer-zzz', {
-        id: 'peer-zzz', name, color: '#06d6a0', look: { skin: 0, hair: 0, style: 0 },
-        x: 0, y: 0, z: 0, rotY: 0, moving: false, voice: true, muted: false, sharing: false,
-        floor: floor ?? store.floor ?? undefined, doing,
+        id: 'peer-zzz',
+        name,
+        color: '#06d6a0',
+        look: { skin: 0, hair: 0, style: 0 },
+        x: 0,
+        y: 0,
+        z: 0,
+        rotY: 0,
+        moving: false,
+        voice: true,
+        muted: false,
+        sharing: false,
+        floor: floor ?? store.floor ?? undefined,
+        doing,
       });
       store.emit('peers');
     },
@@ -802,11 +902,20 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     // The VR merge box's answer (the merge check reads the status back).
     merge: () => vrMerge && { number: vrMerge.number, state: vrMerge.state, can: vrMerge.status?.can ?? null, short: vrMerge.status?.short ?? null },
     // The VR changes view's watch (the changes check reads the files back).
-    changes: () => vrChangesWorker && { worker: vrChangesWorker, files: vrChanges?.files.map((f) => ({ path: f.path, status: f.status, uncommitted: f.uncommitted })) ?? null, ahead: vrChanges?.ahead ?? null, branch: vrChanges?.branch ?? null, prBase: vrChanges?.prBase ?? null, pr: vrChanges?.pr ?? null, error: vrChanges?.error ?? null },
+    changes: () =>
+      vrChangesWorker && {
+        worker: vrChangesWorker,
+        files: vrChanges?.files.map((f) => ({ path: f.path, status: f.status, uncommitted: f.uncommitted })) ?? null,
+        ahead: vrChanges?.ahead ?? null,
+        branch: vrChanges?.branch ?? null,
+        prBase: vrChanges?.prBase ?? null,
+        pr: vrChanges?.pr ?? null,
+        error: vrChanges?.error ?? null,
+      },
     // Flips this client's VR merge box to mergeable (the merge check fires at a PR GitHub
     // refuses — conflicted — so the send, the waiter and the toast verify with no merge).
     seedMerge: () => {
-      if (!vrMerge || vrMerge.state !== 'ready' || !vrMerge.status) return null;
+      if (vrMerge?.state !== 'ready' || !vrMerge.status) return null;
       vrMerge = { ...vrMerge, status: { ...vrMerge.status, icon: '✅', short: 'Ready to merge', cls: 'ok', can: true, auto: false } };
       vrUi?.menu.refresh();
       return vrMerge.number;
@@ -948,7 +1057,10 @@ store.on('jukebox', () => {
 });
 // The arcade cabinet next to it: BLOCKFALL up close, and on its screen for everyone else on the floor.
 const cabinet = new Cabinet(office.cabinet.screen, net, { openTerminal: (id) => openWorkerTerminal(id), sound: (kind, lines) => sound.arcade(kind, lines) });
-const notifier = new DesktopNotifier(() => settings.notify, (id) => openWorkerTerminal(id));
+const notifier = new DesktopNotifier(
+  () => settings.notify,
+  (id) => openWorkerTerminal(id),
+);
 sky.onThunder = (delay, loud) => sound.thunder(delay, loud);
 const hanger = new Hanger(net, camera, canvas, player, office, gallery);
 scene.add(hanger.ghost.group);
@@ -1092,10 +1204,7 @@ const departures = new Departures(
   () => office.stack.state.index > 0,
 );
 // Workers called to a meeting, walking in from the elevator to the meeting table.
-const arrivals = new Arrivals(
-  scene,
-  (x, z, y) => groundAt(office.colliders, x, z, y),
-);
+const arrivals = new Arrivals(scene, (x, z, y) => groundAt(office.colliders, x, z, y));
 /** Set while a floor's workers arrive with it (a welcome, an elevator ride): they're in their seats already. */
 let seatedAlready = false;
 let firstWelcome = true;
@@ -2014,7 +2123,7 @@ function vrClose(kind: 'issue' | 'pull', number: number) {
   // The office drops messages while it's disconnected, and then no answer comes.
   const timer = window.setTimeout(() => {
     off();
-    toast("No answer from the office — check whether it closed before trying again", 'warn');
+    toast('No answer from the office — check whether it closed before trying again', 'warn');
   }, 45_000);
   net.send({ t: 'gh.close', kind, number });
 }
@@ -2046,7 +2155,7 @@ function vrMergeFire(number: number) {
   // The office drops messages while it's disconnected, and then no answer comes.
   const timer = window.setTimeout(() => {
     off();
-    toast("No answer from the office — check whether it merged before trying again", 'warn');
+    toast('No answer from the office — check whether it merged before trying again', 'warn');
   }, 45_000);
   net.send({ t: 'gh.merge', number, method, deleteBranch, auto });
 }
@@ -2127,7 +2236,7 @@ function vrComment(kind: 'issue' | 'pull', number: number) {
       // The office drops messages while it's disconnected, and then no answer comes.
       const timer = window.setTimeout(() => {
         off();
-        toast("No answer from the office — check whether it went through before posting again", 'warn');
+        toast('No answer from the office — check whether it went through before posting again', 'warn');
       }, 45_000);
       net.send({ t: 'gh.comment', kind, number, body: text });
     },
@@ -2380,7 +2489,10 @@ function renderWaiting() {
   const waiting = waitingInOrder(store.workers.values());
   const el = $('waiting');
   el.classList.toggle('hidden', !waiting.length);
-  el.classList.toggle('all-done', waiting.every((w) => w.status === 'done'));
+  el.classList.toggle(
+    'all-done',
+    waiting.every((w) => w.status === 'done'),
+  );
   if (waiting.length) el.replaceChildren(h('span', {}, waitingLabel(waiting)), h('span.key', {}, 'N'));
 }
 $('waiting').addEventListener('click', () => goToNextWaiting());
@@ -3158,11 +3270,7 @@ function stationHint(deskId: string): Hint {
     const full = officeFull(m);
     return {
       k: `${full}|${m.workers}|${m.limit}`,
-      parts: [
-        h('span.title', {}, `${info.icon} ${STATION_AGENT[kind].name}`),
-        aside(info.offer.replace(/^Ask me /, '')),
-        full ? h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`) : key('E', 'Prompt'),
-      ],
+      parts: [h('span.title', {}, `${info.icon} ${STATION_AGENT[kind].name}`), aside(info.offer.replace(/^Ask me /, '')), full ? h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`) : key('E', 'Prompt')],
     };
   }
   const doing = w.activity ? clip(w.activity, 48) : '';
@@ -3193,9 +3301,7 @@ function renderClimbHint(el: HTMLElement) {
     const atFloor = l.y < 0.4 && l.y > -0.05;
     const busy = l.waiting || l.auto;
     k = `ladder|${up}|${down}|${atFloor}|${busy}`;
-    parts = busy
-      ? [title('🪜 Climbing…')]
-      : [title('🪜 On the ladder'), up ? key('W', `Up to ${up}`) : aside('top floor'), key('S', down ? `Down to ${down}` : atFloor ? 'Step off' : 'Down'), key('E', atFloor ? 'Step off' : 'Let go')];
+    parts = busy ? [title('🪜 Climbing…')] : [title('🪜 On the ladder'), up ? key('W', `Up to ${up}`) : aside('top floor'), key('S', down ? `Down to ${down}` : atFloor ? 'Step off' : 'Down'), key('E', atFloor ? 'Step off' : 'Let go')];
   } else {
     const how = climber.sliding;
     k = `pole|${how}`;
@@ -3461,7 +3567,30 @@ document.addEventListener('pointerlockchange', () => {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6 };
+const REACH: Record<InteractKind, number> = {
+  desk: 4.5,
+  station: 4.5,
+  coffee: 3,
+  issues: 9,
+  pulls: 9,
+  services: 9,
+  queue: 9,
+  tv: 10,
+  decor: 9,
+  smoke: 3,
+  elevator: 4.5,
+  gong: 3.5,
+  dog: 3.2,
+  jukebox: 4,
+  seat: 3,
+  whiteboard: 7,
+  cabinet: 4,
+  ladder: 3,
+  pole: 4,
+  meeting: 7,
+  bar: 3.5,
+  dj: 6,
+};
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */
@@ -3647,15 +3776,62 @@ const hud = mountHud(
     { id: 'roof', icon: '🍸', label: 'Rooftop bar', section: 'Open', shown: () => !upTop && builtFloors().length > 0, title: () => 'Ride the elevator up to the roof: a DJ, drinks and the city', run: () => ride(ROOF) },
     { id: 'voice', icon: '🎙️', label: () => (voice.inVoice ? 'Leave voice' : 'Join voice'), section: 'Together', key: 'V', on: () => voice.inVoice, blocked: noMedia, run: () => void toggleVoice() },
     // While you're in voice, the top bar keeps the mute button handy.
-    { id: 'mute', icon: () => (voice.muted ? '🔇' : '🎙️'), label: () => (voice.muted ? 'Unmute' : 'Mute'), section: 'Together', key: 'M', shown: () => voice.inVoice, status: () => voice.inVoice, on: () => voice.inVoice, tone: () => (voice.muted ? 'danger' : undefined), title: () => (voice.muted ? 'Unmute (M)' : 'Mute (M)'), run: () => voice.toggleMute() },
-    { id: 'share', icon: '🖥️', label: () => (voice.sharing ? 'Stop sharing' : 'Share screen'), section: 'Together', on: () => voice.sharing, status: () => voice.sharing, chip: () => 'Sharing', blocked: noMedia, run: () => void toggleShare() },
-    { id: 'decor', icon: '🖼️', label: () => (hanger.active ? 'Stop hanging the picture' : 'Hang a picture'), section: 'Together', key: 'F', on: () => hanger.active, status: () => hanger.active, run: () => (hanger.active ? hanger.cancel() : startHanging()) },
+    {
+      id: 'mute',
+      icon: () => (voice.muted ? '🔇' : '🎙️'),
+      label: () => (voice.muted ? 'Unmute' : 'Mute'),
+      section: 'Together',
+      key: 'M',
+      shown: () => voice.inVoice,
+      status: () => voice.inVoice,
+      on: () => voice.inVoice,
+      tone: () => (voice.muted ? 'danger' : undefined),
+      title: () => (voice.muted ? 'Unmute (M)' : 'Mute (M)'),
+      run: () => voice.toggleMute(),
+    },
+    {
+      id: 'share',
+      icon: '🖥️',
+      label: () => (voice.sharing ? 'Stop sharing' : 'Share screen'),
+      section: 'Together',
+      on: () => voice.sharing,
+      status: () => voice.sharing,
+      chip: () => 'Sharing',
+      blocked: noMedia,
+      run: () => void toggleShare(),
+    },
+    {
+      id: 'decor',
+      icon: '🖼️',
+      label: () => (hanger.active ? 'Stop hanging the picture' : 'Hang a picture'),
+      section: 'Together',
+      key: 'F',
+      on: () => hanger.active,
+      status: () => hanger.active,
+      run: () => (hanger.active ? hanger.cancel() : startHanging()),
+    },
     { id: 'team', icon: '👥', label: 'Invite teammates', section: 'Together', shown: () => store.invites, run: () => openTeam(net) },
     // Up on the top bar — but only where this browser can do immersive VR. Elsewhere
     // (desktop Chrome without XR) the probe says no and the bar stays exactly as it was. On an
     // insecure origin (http:// over the LAN) it shows dimmed with the reason: a headset opening
     // that address would otherwise find no Enter VR and no word on why.
-    { id: 'entervr', icon: () => (vr.active ? '⏻' : '🕶️'), label: () => (vr.active ? 'Exit VR' : 'Enter VR'), section: 'Together', shown: () => vr.available || xrInsecure, status: () => vr.available || xrInsecure, chip: () => (vr.active ? 'In VR' : 'Enter VR'), on: () => vr.active, blocked: noXr, title: () => (vr.active ? 'Leave the immersive session' : 'Enter the office in VR, from the headset browser'), run: () => { const why = noXr(); if (why) return toast(`🥽 ${why}`, 'warn'); void vr.toggle(); } },
+    {
+      id: 'entervr',
+      icon: () => (vr.active ? '⏻' : '🕶️'),
+      label: () => (vr.active ? 'Exit VR' : 'Enter VR'),
+      section: 'Together',
+      shown: () => vr.available || xrInsecure,
+      status: () => vr.available || xrInsecure,
+      chip: () => (vr.active ? 'In VR' : 'Enter VR'),
+      on: () => vr.active,
+      blocked: noXr,
+      title: () => (vr.active ? 'Leave the immersive session' : 'Enter the office in VR, from the headset browser'),
+      run: () => {
+        const why = noXr();
+        if (why) return toast(`🥽 ${why}`, 'warn');
+        void vr.toggle();
+      },
+    },
     { id: 'accounts', icon: '🔑', label: 'Accounts', section: 'Together', shown: () => store.me.admin, title: () => 'Invite people, see who has an account, revoke them', run: () => openAccounts(net) },
     { id: 'settings', icon: '⚙️', label: 'Settings', section: 'Office', run: showSettings },
     { id: 'help', icon: '❓', label: 'Controls', section: 'Office', key: 'H', run: openHelp },
@@ -3871,7 +4047,11 @@ function frame(ts?: number, xrFrame?: XRFrame) {
   dog.update(dt);
   if (!upTop) {
     office.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions(), ...arrivals.positions()]);
-    office.stack.update(dt, [{ x: player.pos.x, y: player.pos.y, z: player.pos.z, grip }, ...[...remotes.values()].map((r) => ({ x: r.person.root.position.x, y: r.person.root.position.y, z: r.person.root.position.z, grip: r.grip }))], camera.position);
+    office.stack.update(
+      dt,
+      [{ x: player.pos.x, y: player.pos.y, z: player.pos.z, grip }, ...[...remotes.values()].map((r) => ({ x: r.person.root.position.x, y: r.person.root.position.y, z: r.person.root.position.z, grip: r.grip }))],
+      camera.position,
+    );
     office.jukebox.update(t, dt, sound.beat());
   }
   checkSmokeBreak(now);
@@ -3996,7 +4176,42 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { roof: () => roof, booze, dj: () => djFrame(djAt()), store, player, caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote, vr };
+(window as any).__office = {
+  roof: () => roof,
+  booze,
+  dj: () => djFrame(djAt()),
+  store,
+  player,
+  caffeine,
+  camera,
+  arcade,
+  cabinet,
+  workerViews,
+  departures,
+  arrivals,
+  scene,
+  net,
+  renderer,
+  hands,
+  me,
+  remotes,
+  settings,
+  gallery,
+  hanger,
+  office,
+  ride,
+  switchFloor,
+  climber,
+  elevatorPanelOpen,
+  confetti,
+  dog,
+  sky,
+  holiday,
+  carried: () => carrying,
+  emoteWheel,
+  emote,
+  vr,
+};
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

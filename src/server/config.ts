@@ -216,7 +216,7 @@ export function loadConfig(argv: string[]): Config {
       case '-h':
       case '--help':
         process.stdout.write(HELP);
-        process.exit(0);
+        return process.exit(0);
       case '-p':
       case '--port':
         port = Number(takeValue(argv, i++, a));
@@ -416,7 +416,8 @@ export function loadConfig(argv: string[]): Config {
   };
 }
 
-export async function ensureSelfSigned(cfg: Config): Promise<void> {  if (!cfg.tls || cfg.tls.cert) return;
+export async function ensureSelfSigned(cfg: Config): Promise<void> {
+  if (!cfg.tls || cfg.tls.cert) return;
   const certPath = path.join(cfg.dataDir, 'tls-cert.pem');
   const keyPath = path.join(cfg.dataDir, 'tls-key.pem');
   if (existsSync(certPath) && existsSync(keyPath)) {

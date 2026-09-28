@@ -72,10 +72,7 @@ export function parseArgs(argv) {
 export function officeEnv(env) {
   const missing = ENV.filter((k) => !env[k]);
   if (missing.length) {
-    throw new Error(
-      `${missing.join(', ')} ${missing.length === 1 ? "isn't" : "aren't"} set. office-queue only works inside Agent Office, ` +
-        'from the terminal of an agent standing by one of the boards.',
-    );
+    throw new Error(`${missing.join(', ')} ${missing.length === 1 ? "isn't" : "aren't"} set. office-queue only works inside Agent Office, from the terminal of an agent standing by one of the boards.`);
   }
   return { url: env.AGENT_OFFICE_HOOK_URL.replace(/\/+$/, ''), worker: env.AGENT_OFFICE_WORKER_ID, token: env.AGENT_OFFICE_HOOK_TOKEN };
 }
@@ -179,8 +176,8 @@ export async function main(argv, io = {}) {
   const env = io.env ?? process.env;
   const stdin = io.stdin ?? process.stdin;
   const fetchImpl = io.fetch ?? fetch;
-  const out = io.out ?? ((s) => process.stdout.write(s + '\n'));
-  const err = io.err ?? ((s) => process.stderr.write(s + '\n'));
+  const out = io.out ?? ((s) => process.stdout.write(`${s}\n`));
+  const err = io.err ?? ((s) => process.stderr.write(`${s}\n`));
   try {
     const cmd = parseArgs(argv);
     if (cmd.cmd === 'help') {

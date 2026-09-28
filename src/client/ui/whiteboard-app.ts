@@ -143,7 +143,7 @@ function tintedId(peerId: string, color: string): string {
   let best = Infinity;
   for (let n = 0; n < 80 && best > 5; n++) {
     const candidate = `${peerId}~${n}`;
-    const off = Math.abs(((Math.abs(hashToInteger(candidate)) % 37) * 10) - want);
+    const off = Math.abs((Math.abs(hashToInteger(candidate)) % 37) * 10 - want);
     const d = Math.min(off, 360 - off);
     if (d < best) {
       best = d;

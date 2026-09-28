@@ -84,7 +84,10 @@ export function normalizeRepo(value: unknown): string | undefined {
 function gitlabRepo(host: string, rest: string): string | undefined {
   if (!HOST.test(host)) return undefined;
   // Pages of a project (…/project/-/merge_requests/12) sit after its /-/.
-  const parts = rest.replace(/\/-(?:\/.*)?$/, '').replace(/\.git$/i, '').split('/');
+  const parts = rest
+    .replace(/\/-(?:\/.*)?$/, '')
+    .replace(/\.git$/i, '')
+    .split('/');
   if (parts.length < 2 || parts.length > GL_MAX_SEGMENTS) return undefined;
   if (!parts.every((p) => GL_SEGMENT.test(p) && !/\.(?:git|atom)$/i.test(p))) return undefined;
   return `${host}/${parts.join('/')}`;

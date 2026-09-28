@@ -94,12 +94,7 @@ export class Arcade {
     if (game.state === 'won' || game.state === 'lost') game.reset();
     const board = h('canvas', { 'aria-label': 'Minesweeper board' });
     const stop = h('button.btn', { type: 'button' }, '✕ Stop playing');
-    const box = h(
-      'div.arcade',
-      { role: 'dialog', 'aria-label': 'Minesweeper' },
-      h('div.arcade-screen', {}, board),
-      h('div.arcade-bar', {}, h('span', {}, 'Minesweeper'), h('span.tip', {}, 'Click to dig · right-click to flag'), stop),
-    );
+    const box = h('div.arcade', { role: 'dialog', 'aria-label': 'Minesweeper' }, h('div.arcade-screen', {}, board), h('div.arcade-bar', {}, h('span', {}, 'Minesweeper'), h('span.tip', {}, 'Click to dig · right-click to flag'), stop));
 
     // Where the mouse is, in the game's 960×540.
     const spot = (e: MouseEvent) => ({ x: (e.offsetX * W) / board.clientWidth, y: (e.offsetY * H) / board.clientHeight });

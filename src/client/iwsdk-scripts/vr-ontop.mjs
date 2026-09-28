@@ -10,9 +10,13 @@ export default async function run({ frame }) {
   console.log('FLAGS:', JSON.stringify(flags));
   const ok =
     !!flags &&
-    flags.menu.depthTest === false && flags.menu.renderOrder === 9993 &&
-    flags.keyboard.depthTest === false && flags.prompt.depthTest === false &&
-    flags.toast.depthTest === false && flags.controls.depthTest === false &&
-    flags.terminal.depthTest === true && flags.terminal.renderOrder === 0;
+    flags.menu.depthTest === false &&
+    flags.menu.renderOrder === 9993 &&
+    flags.keyboard.depthTest === false &&
+    flags.prompt.depthTest === false &&
+    flags.toast.depthTest === false &&
+    flags.controls.depthTest === false &&
+    flags.terminal.depthTest === true &&
+    flags.terminal.renderOrder === 0;
   return { ok, flags };
 }

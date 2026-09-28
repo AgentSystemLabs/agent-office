@@ -12,14 +12,20 @@
   ],
   "scripts": {
     "test": "node --import tsx --test tests/*.test.ts",
+    "test:coverage": "node --import tsx --test --experimental-test-coverage --test-coverage-lines=78 --test-coverage-functions=61 --test-coverage-exclude='tests/**' tests/*.test.ts",
     "dev": "concurrently -k \"vite\" \"tsx watch src/server/cli.ts --port 4600 --password dev\"",
     "dev:runtime": "npm --prefix src/client run dev:runtime",
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "lint": "biome check --error-on-warnings .",
+    "format": "biome format --write .",
     "start": "node bin/agent-office.js",
-    "prepare": "npm run build"
+    "prepare": "node .husky/install.mjs && npm run build"
+  },
+  "lint-staged": {
+    "*.{js,mjs,cjs,ts,mts,cts}": "biome check --write --error-on-warnings --no-errors-on-unmatched"
   },
   "engines": {
     "node": ">=20"
@@ -36,6 +42,7 @@
     "xrblocks": "^0.21.1"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
     "@excalidraw/excalidraw": "^0.18.1",
     "@iwsdk/cli": "^1.0.0-rc.2",
     "@iwsdk/vite-plugin-dev": "^1.0.0-rc.2",
@@ -49,6 +56,8 @@
     "@xterm/xterm": "^6.0.0",
     "concurrently": "^10.0.5",
     "dompurify": "^3.4.16",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
     "marked": "^18.0.14",
     "playwright-core": "^1.63.0",
     "react": "^18.3.1",

@@ -24,7 +24,10 @@ test('a worker sent home walks round the furniture, out the exit door and off al
     // Through the doorway, not the wall beside it.
     for (const [, z] of [way[out - 1], way[out]]) assert.ok(Math.abs(z - EXIT_DOOR.u) < EXIT_DOOR.width / 2 - 0.2, `${seat.id} goes through the door`);
     // Down the steps outside, then away along the sidewalk.
-    assert.ok(way.slice(out).every(([x, z]) => x < EXIT_STAIRS.minX + 1 || z > ROAD.minZ - 2.1), `${seat.id} stays off the building`);
+    assert.ok(
+      way.slice(out).every(([x, z]) => x < EXIT_STAIRS.minX + 1 || z > ROAD.minZ - 2.1),
+      `${seat.id} stays off the building`,
+    );
     const [ex, ez] = way[way.length - 1];
     assert.ok(ez > ROAD.minZ - 2 && ez < ROAD.minZ && ex < EXIT_STAIRS.minX - 10, `${seat.id} ends up down the sidewalk`);
   }

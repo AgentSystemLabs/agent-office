@@ -84,8 +84,14 @@ test('discussions split into comments, approvals and threads on lines of code', 
     ],
     url,
   );
-  assert.deepEqual(d.comments.map((c) => [c.id, c.author, c.url]), [['1', 'ada', `${url}#note_1`]]);
-  assert.deepEqual(d.reviews.map((r) => [r.author, r.state]), [['grace', 'APPROVED']]);
+  assert.deepEqual(
+    d.comments.map((c) => [c.id, c.author, c.url]),
+    [['1', 'ada', `${url}#note_1`]],
+  );
+  assert.deepEqual(
+    d.reviews.map((r) => [r.author, r.state]),
+    [['grace', 'APPROVED']],
+  );
   assert.deepEqual(
     d.reviewComments.map((c) => [c.id, c.replyTo, c.path, c.line, c.side]),
     [

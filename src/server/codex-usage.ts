@@ -13,12 +13,15 @@ export function codexTokenUsage(value: unknown): Usage | undefined {
   const { input_tokens: input, output_tokens: output, cached_input_tokens: cache, reasoning_output_tokens: reasoning, total_tokens: total } = v;
   const cacheWrite = v.cache_write_input_tokens ?? 0;
   if (![input, output, cache, reasoning, total, cacheWrite].every(count)) return;
-  const i = input as number, o = output as number, c = cache as number, r = reasoning as number, cw = cacheWrite as number;
+  const i = input as number,
+    o = output as number,
+    c = cache as number,
+    r = reasoning as number,
+    cw = cacheWrite as number;
   if (c > i || r > o || !Number.isSafeInteger(i + o)) return;
   // Codex can emit synthetic context-window-only snapshots on error. Keep their reported
   // total, but make the incomplete breakdown explicit instead of treating it as billed usage.
-  return { input: i - c, output: o - r, reasoning: r, cacheRead: c, cacheWrite: cw, totalTokens: total as number,
-    cost: 0, costKnown: false, calls: 0, callsKnown: false, ...(total !== i + o ? { incomplete: true } : {}) };
+  return { input: i - c, output: o - r, reasoning: r, cacheRead: c, cacheWrite: cw, totalTokens: total as number, cost: 0, costKnown: false, calls: 0, callsKnown: false, ...(total !== i + o ? { incomplete: true } : {}) };
 }
 
 /**
@@ -57,8 +60,12 @@ export class CodexUsageReader {
       if (start) lines.shift();
       for (let i = lines.length - 1; i >= 0; i--) {
         if (!lines[i].includes('"token_count"')) continue;
-        let row;
-        try { row = JSON.parse(lines[i]); } catch { continue; }
+        let row: { type?: string; payload?: { type?: string; info?: { total_token_usage?: unknown } } };
+        try {
+          row = JSON.parse(lines[i]);
+        } catch {
+          continue;
+        }
         if (row.type !== 'event_msg' || row.payload?.type !== 'token_count') continue;
         const usage = codexTokenUsage(row.payload.info?.total_token_usage);
         if (!usage) continue;

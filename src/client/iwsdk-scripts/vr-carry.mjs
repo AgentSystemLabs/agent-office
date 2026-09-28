@@ -22,8 +22,6 @@ export default async function run({ frame }) {
   const d = (a, b) => [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
   const close = (u, v) => Math.hypot(u[0] - v[0], u[1] - v[1], u[2] - v[2]) < 0.05;
   const avatar = d(before.pos, after.pos);
-  const ok = after.ui.prompt && after.ui.keyboard &&
-    close(d(before.prompt, after.prompt), avatar) &&
-    close(d(before.keyboard, after.keyboard), avatar);
+  const ok = after.ui.prompt && after.ui.keyboard && close(d(before.prompt, after.prompt), avatar) && close(d(before.keyboard, after.keyboard), avatar);
   return { ok, avatar };
 }

@@ -39,7 +39,10 @@ function issueColumns(items: GhIssue[]): Column<GhIssue>[] {
   const open = items.filter((i) => i.state === 'OPEN');
   const inProgress = open.filter((i) => i.assignees.length > 0 || i.labels.some((l) => /progress|doing|wip|started/i.test(l.name)) || store.taskForIssue(i.number)?.status === 'running');
   const todo = open.filter((i) => !inProgress.includes(i));
-  const closed = items.filter((i) => i.state !== 'OPEN').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 40);
+  const closed = items
+    .filter((i) => i.state !== 'OPEN')
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, 40);
   return [
     { title: 'Open', items: todo },
     { title: 'In progress', items: inProgress },
@@ -53,8 +56,20 @@ function pullColumns(items: GhPull[]): Column<GhPull>[] {
     { title: 'Draft', items: open.filter((p) => p.isDraft) },
     { title: 'In review', items: open.filter((p) => !p.isDraft && p.reviewDecision !== 'APPROVED') },
     { title: 'Approved', items: open.filter((p) => !p.isDraft && p.reviewDecision === 'APPROVED') },
-    { title: 'Merged', items: items.filter((p) => p.state === 'MERGED').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 30) },
-    { title: 'Closed', items: items.filter((p) => p.state === 'CLOSED').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 20) },
+    {
+      title: 'Merged',
+      items: items
+        .filter((p) => p.state === 'MERGED')
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, 30),
+    },
+    {
+      title: 'Closed',
+      items: items
+        .filter((p) => p.state === 'CLOSED')
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, 20),
+    },
   ];
 }
 
@@ -88,7 +103,7 @@ function queueChip(issue: number): Node | '' {
   return t.pr ? h('span.qchip.done', {}, `🔀 ${words().pr} ${words().ref(t.pr.number)} · ${provider}`) : '';
 }
 
-function card(ref: string, title: string, meta: (Node | string)[], i: number, onclick: () => void) {
+function card(ref: string, title: string, meta: (Node | string)[], onclick: () => void) {
   return h(
     'li.card',
     { tabindex: 0, onclick, onkeydown: ((e: KeyboardEvent) => e.key === 'Enter' && onclick()) as EventListener },
@@ -121,9 +136,11 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
     if (kind === 'issues') {
       for (const col of issueColumns(store.issues.items)) {
         const ul = h('ul');
-        col.items.forEach((it, i) =>
+        col.items.forEach((it) =>
           ul.append(
-            card(`#${it.number}`, it.title, [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, net, actions)),
+            card(`#${it.number}`, it.title, [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], () =>
+              openIssue(it, net, actions),
+            ),
           ),
         );
         if (!col.items.length) ul.append(h('li.empty', {}, 'Nothing here'));
@@ -132,7 +149,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
     } else {
       for (const col of pullColumns(store.pulls.items)) {
         const ul = h('ul');
-        col.items.forEach((it, i) => {
+        col.items.forEach((it) => {
           const w = workerForPull(store.workers.values(), it);
           ul.append(
             card(
@@ -148,7 +165,6 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
                 h('span', { style: 'color:var(--danger)' }, `-${it.deletions}`),
                 timeAgo(it.updatedAt),
               ],
-              i,
               () => openPull(it, net, actions),
             ),
           );

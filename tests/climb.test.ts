@@ -13,7 +13,10 @@ const officeFloor: Collider = { ...FLOOR, bottom: -SLAB, top: 0 };
 function rig(t: TestContext, floors: { up?: string; down?: string }) {
   const win = new EventTarget();
   const doc = new EventTarget();
-  for (const [name, value] of [['window', win], ['document', doc]] as const) {
+  for (const [name, value] of [
+    ['window', win],
+    ['document', doc],
+  ] as const) {
     const previous = Object.getOwnPropertyDescriptor(globalThis, name);
     Object.defineProperty(globalThis, name, { configurable: true, value });
     t.after(() => {

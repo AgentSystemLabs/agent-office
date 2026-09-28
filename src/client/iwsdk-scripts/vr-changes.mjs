@@ -24,8 +24,6 @@ async function waitChanges(frame, pred, tries = 25) {
 }
 export default async function run({ frame }) {
   let shell = null;
-  let committed = false;
-  let undoneOk = false;
   const out = {};
   try {
     const beforeIds = new Set((await frame.evaluate(() => window.__vrtest?.workers?.() ?? [])).map((w) => w.id));
@@ -48,7 +46,7 @@ export default async function run({ frame }) {
     const listed = await waitChanges(frame, (c) => Array.isArray(c.files) && c.files.length > 0);
     out.listed = listed?.files ?? null;
     // Only our probe: anything else is someone's work — abort before touching it.
-    if (!listed || listed.files.length !== 1 || !listed.files[0].path.endsWith(PROBE)) {
+    if (listed?.files.length !== 1 || !listed.files[0].path.endsWith(PROBE)) {
       out.abort = 'checkout not clean';
       return { ok: false, why: 'checkout not clean', out };
     }
@@ -60,7 +58,6 @@ export default async function run({ frame }) {
     await frame.evaluate(() => window.__vrtest?.promptButton?.('send'));
     const done = await waitChanges(frame, (c) => Array.isArray(c.files) && c.files.every((f) => !f.uncommitted));
     out.committed = done ? { files: done.files.length, ahead: done.ahead, prBase: done.prBase } : null;
-    committed = !!done && done.files.every((f) => !f.uncommitted);
     // The PR prompt opens with the subject, then cancels: no PR opens.
     out.prBtn = await frame.evaluate(() => window.__vrtest?.mclick?.('ch:pr') ?? false);
     await frame.waitForTimeout(600);
@@ -76,12 +73,6 @@ export default async function run({ frame }) {
     await frame.evaluate(([b, p]) => window.__vrtest?.type?.(`git reset --soft HEAD~1 && git reset HEAD -q -- ${p} && rm ${p} && git checkout -q main && git branch -q -D ${b}\n`), [BRANCH, PROBE]);
     const undone = await waitChanges(frame, (c) => Array.isArray(c.files) && c.files.length === 0);
     out.undone = !!undone;
-    // The inline undo already reset: the finally must not reset a second time (it would
-    // eat the checkout's own top commit — ours is gone, the next one down isn't ours).
-    if (undone) {
-      committed = false;
-      undoneOk = true;
-    }
     // The probe returns on main (untracked again); tap-twice discard deletes it.
     await frame.evaluate((p) => window.__vrtest?.type?.(`echo probe > ${p}\n`), PROBE);
     const relisted = await waitChanges(frame, (c) => Array.isArray(c.files) && c.files.length === 1);
@@ -106,11 +97,25 @@ export default async function run({ frame }) {
   }
   const workers = await frame.evaluate(() => window.__vrtest?.workers?.() ?? []);
   console.log('CHANGES:', JSON.stringify({ ...out, shellGone: !workers.some((w) => w.id === shell) }));
-  const ok = out.rowBtn === true && out.view === 'changes' &&
-    out.commitBtn === true && out.commitAsked?.prompt === true && out.committed?.ahead === 1 &&
-    out.prBtn === true && out.prTitle === 'zzz probe commit' && out.prBodyAsked?.prompt === true && out.noPr === null &&
-    out.undone === true && out.relisted?.length === 1 && out.relisted[0].uncommitted === true &&
-    out.discardBtn === true && typeof out.armToast === 'string' && out.armToast.includes('back to the last commit') && out.armView === 'changes' &&
-    out.fireBtn === true && out.discarded === true && !workers.some((w) => w.id === shell);
+  const ok =
+    out.rowBtn === true &&
+    out.view === 'changes' &&
+    out.commitBtn === true &&
+    out.commitAsked?.prompt === true &&
+    out.committed?.ahead === 1 &&
+    out.prBtn === true &&
+    out.prTitle === 'zzz probe commit' &&
+    out.prBodyAsked?.prompt === true &&
+    out.noPr === null &&
+    out.undone === true &&
+    out.relisted?.length === 1 &&
+    out.relisted[0].uncommitted === true &&
+    out.discardBtn === true &&
+    typeof out.armToast === 'string' &&
+    out.armToast.includes('back to the last commit') &&
+    out.armView === 'changes' &&
+    out.fireBtn === true &&
+    out.discarded === true &&
+    !workers.some((w) => w.id === shell);
   return { ok };
 }

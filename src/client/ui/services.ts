@@ -30,13 +30,7 @@ export function openServices() {
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const tabs = h('div.os-tabs');
   const footer = h('footer', {}, h('span.grow', {}, 'Tunnels go through the office, so the office password still guards every page. Keep the terminal open while you look.'));
-  const el = h(
-    'div.modal',
-    { role: 'dialog', 'aria-label': 'Services', style: 'width:min(760px,100%)' },
-    h('header', {}, h('h2', {}, 'Services'), tabs, close),
-    body,
-    footer,
-  );
+  const el = h('div.modal', { role: 'dialog', 'aria-label': 'Services', style: 'width:min(760px,100%)' }, h('header', {}, h('h2', {}, 'Services'), tabs, close), body, footer);
 
   const pick = async (svc: ServiceInfo) => {
     picked = svc.port;
@@ -46,19 +40,23 @@ export function openServices() {
 
   const render = () => {
     const s = store.services;
-    tabs.replaceChildren(
-      ...(Object.keys(OS_LABEL) as Os[]).map((o) => h('button.btn', { type: 'button', class: o === os ? 'on' : '', onclick: () => ((os = o), (copied = null), render()) }, OS_LABEL[o])),
-    );
-    body.replaceChildren(
-      h('p.note', { style: 'margin:0 0 12px' }, 'Web servers the workers are running. Click one to copy a command that opens it on your computer — run it in a terminal and the page opens by itself.'),
-    );
+    tabs.replaceChildren(...(Object.keys(OS_LABEL) as Os[]).map((o) => h('button.btn', { type: 'button', class: o === os ? 'on' : '', onclick: () => ((os = o), (copied = null), render()) }, OS_LABEL[o])));
+    body.replaceChildren(h('p.note', { style: 'margin:0 0 12px' }, 'Web servers the workers are running. Click one to copy a command that opens it on your computer — run it in a terminal and the page opens by itself.'));
     if (!s.items.length) {
       body.append(
         h(
           'div.svc-empty',
           {},
           h('p', {}, 'Nothing running yet.'),
-          h('p.note', {}, 'When a worker starts a web server — ', h('code', {}, 'npm run dev'), ', a preview build, ', h('code', {}, 'python -m http.server'), ' — it shows up here within a few seconds. Try prompting: “start the dev server in the background so we can review it”.'),
+          h(
+            'p.note',
+            {},
+            'When a worker starts a web server — ',
+            h('code', {}, 'npm run dev'),
+            ', a preview build, ',
+            h('code', {}, 'python -m http.server'),
+            ' — it shows up here within a few seconds. Try prompting: “start the dev server in the background so we can review it”.',
+          ),
         ),
       );
       return;
@@ -73,12 +71,7 @@ export function openServices() {
         'li',
         { class: on ? 'on' : '', tabindex: 0, role: 'button', title: 'Copy the tunnel command' },
         h('span.dot', { style: `background:${color}` }),
-        h(
-          'div.svc-main',
-          {},
-          h('div.svc-title', {}, svc.title || svc.command),
-          h('div.svc-meta', {}, [who, branch ? `🌿 ${branch}` : '', svc.title ? svc.command : '', `started ${timeAgo(svc.since)}`].filter(Boolean).join(' · ')),
-        ),
+        h('div.svc-main', {}, h('div.svc-title', {}, svc.title || svc.command), h('div.svc-meta', {}, [who, branch ? `🌿 ${branch}` : '', svc.title ? svc.command : '', `started ${timeAgo(svc.since)}`].filter(Boolean).join(' · '))),
         h('span.svc-port', {}, `:${svc.port}`),
         open,
       );
@@ -100,7 +93,12 @@ export function openServices() {
         copied === svc.port
           ? h('p.team-status.ok', {}, `✅ Copied. Paste it in a terminal: it opens ${serviceUrl(svc.port)} once the tunnel is up.`)
           : h('p.team-status', {}, `The command for :${svc.port} — run it in a terminal, and it opens ${serviceUrl(svc.port)}.`),
-        h('div.cmd', {}, h('pre', {}, cmd), copyButton('Copy', () => cmd)),
+        h(
+          'div.cmd',
+          {},
+          h('pre', {}, cmd),
+          copyButton('Copy', () => cmd),
+        ),
       );
     } else if (picked !== null) {
       body.append(h('p.team-status.error', {}, `The server on :${picked} stopped.`));
@@ -108,7 +106,7 @@ export function openServices() {
     body.append(
       s.ssh
         ? h('p.note', {}, 'It uses the same SSH access as the office. Not invited yourself (you set the office up)? Run ', h('code', {}, 'deploy/aws.sh service <port>'), ' instead.')
-        : h('p.note', {}, 'Replace ', h('code', {}, 'you@your-server'), ' with how you SSH to the office\'s machine. If the office runs on this computer, just click Open.'),
+        : h('p.note', {}, 'Replace ', h('code', {}, 'you@your-server'), " with how you SSH to the office's machine. If the office runs on this computer, just click Open."),
     );
   };
 

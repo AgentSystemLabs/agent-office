@@ -478,14 +478,7 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
   }
   tiles.receiveShadow = false;
   group.add(tiles);
-  const underFloor = mesh(
-    new THREE.PlaneGeometry(cols, rows).rotateX(-Math.PI / 2),
-    toon('#15141c'),
-    (DANCE_FLOOR.minX + DANCE_FLOOR.maxX) / 2,
-    0.008,
-    (DANCE_FLOOR.minZ + DANCE_FLOOR.maxZ) / 2,
-    false,
-  );
+  const underFloor = mesh(new THREE.PlaneGeometry(cols, rows).rotateX(-Math.PI / 2), toon('#15141c'), (DANCE_FLOOR.minX + DANCE_FLOOR.maxX) / 2, 0.008, (DANCE_FLOOR.minZ + DANCE_FLOOR.maxZ) / 2, false);
   group.add(underFloor);
 
   // Colored washes over the dance floor.
@@ -803,7 +796,7 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
       const speed = 60 + 420 * f.rise;
       for (let y = -40; y < H; y += 40) {
         g.fillStyle = `hsla(${(base + y) % 360}, 90%, 55%, ${0.25 + 0.5 * f.rise})`;
-        g.fillRect(0, (y + ((t * speed) % 40) + H) % (H + 40) - 40, W, 14);
+        g.fillRect(0, ((y + ((t * speed) % 40) + H) % (H + 40)) - 40, W, 14);
       }
       g.fillStyle = '#ffffff';
       g.fillRect(40, H - 34, (W - 80) * f.rise, 12);

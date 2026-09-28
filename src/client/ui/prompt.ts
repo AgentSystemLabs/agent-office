@@ -51,7 +51,7 @@ export function openPrompt(opts: PromptOptions) {
         { for: 'wt-toggle', style: 'display:flex;gap:8px;align-items:center;margin:10px 0 0;font-weight:700;cursor:pointer', title: 'Isolate this worker on its own branch so parallel workers never collide' },
         wtBox,
         '🌿 Work in its own git worktree & branch',
-    )
+      )
     : null;
   const provider: ProviderPicker | null = opts.providerOption ? providerPicker(store.project, 'prompt-provider', 'Worker provider', opts.deskId ? `desk:${opts.deskId}` : 'prompt-provider') : null;
   const submit = h('button.btn.primary', { type: 'submit' }, opts.submitLabel ?? 'Send');
@@ -60,7 +60,15 @@ export function openPrompt(opts: PromptOptions) {
     'form.modal',
     { role: 'dialog', 'aria-label': opts.title },
     h('header', {}, h('h2', {}, opts.title)),
-    h('div.body', {}, opts.warning ? h('p.setting-note.bad', { style: 'margin:0 0 10px', role: 'alert' }, opts.warning) : null, opts.subtitle ? h('p', { style: 'margin:0 0 10px;font-weight:700;color:var(--muted)' }, opts.subtitle) : null, ta, provider?.element ?? null, wtRow),
+    h(
+      'div.body',
+      {},
+      opts.warning ? h('p.setting-note.bad', { style: 'margin:0 0 10px', role: 'alert' }, opts.warning) : null,
+      opts.subtitle ? h('p', { style: 'margin:0 0 10px;font-weight:700;color:var(--muted)' }, opts.subtitle) : null,
+      ta,
+      provider?.element ?? null,
+      wtRow,
+    ),
     h('footer', {}, h('span.grow', {}, 'Enter to send · Shift+Enter for a new line'), cancel, submit),
   ) as HTMLFormElement;
   form.noValidate = true;
@@ -187,13 +195,7 @@ export function sendHomeDialog(opts: SendHomeOptions) {
     'form.modal',
     { role: 'dialog', 'aria-label': `Send ${opts.name} home?` },
     h('header', {}, h('h2', {}, `Send ${opts.name} home?`)),
-    h(
-      'div.body',
-      {},
-      h('p', { style: 'margin:0 0 12px;font-weight:700' }, `This stops the session at ${opts.where} for everyone and frees the desk. ${opts.name} worked in its own worktree on 🌿 ${branch}:`),
-      list,
-      status,
-    ),
+    h('div.body', {}, h('p', { style: 'margin:0 0 12px;font-weight:700' }, `This stops the session at ${opts.where} for everyone and frees the desk. ${opts.name} worked in its own worktree on 🌿 ${branch}:`), list, status),
     h('footer', {}, no, yes),
   ) as HTMLFormElement;
   pick('keep');

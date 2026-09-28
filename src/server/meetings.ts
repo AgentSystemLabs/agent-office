@@ -5,7 +5,21 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { MEETING_SEATS } from '../shared/layout.js';
 import { MAX_MEETING_BUDGET, MEETING_NOTES_DIR, MEETING_PATTERNS, TOKENS_PER_SEAT, isMeetingPattern, meetingRecord, outputProblem, slugify } from '../shared/meetings.js';
-import { fmtTokens, isAgentEffort, isAgentProvider, tokensOf, type AgentEffort, type AgentProvider, type Meeting, type MeetingRecord, type MeetingRequest, type MeetingState, type MeetingTurn, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
+import {
+  fmtTokens,
+  isAgentEffort,
+  isAgentProvider,
+  tokensOf,
+  type AgentEffort,
+  type AgentProvider,
+  type Meeting,
+  type MeetingRecord,
+  type MeetingRequest,
+  type MeetingState,
+  type MeetingTurn,
+  type WorkerInfo,
+  type WorkerStatus,
+} from '../shared/protocol.js';
 import { validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { gitError, type WorktreeRef, type WorktreeState } from './worktrees.js';
 import type { Forge } from '../shared/floors.js';
@@ -118,7 +132,10 @@ export class MeetingRoom {
     const pattern = MEETING_PATTERNS[req.pattern];
     const paused = this.events.hiringPaused();
     if (paused) return paused;
-    const prompt = String(req.prompt ?? '').replace(/\r\n?/g, '\n').trim().slice(0, PROMPT_MAX);
+    const prompt = String(req.prompt ?? '')
+      .replace(/\r\n?/g, '\n')
+      .trim()
+      .slice(0, PROMPT_MAX);
     if (!prompt) return 'Say what the meeting is about';
     const provider = req.provider ?? this.workers.defaultProvider;
     if (!isAgentProvider(provider) || (provider === 'custom' && this.workers.defaultProvider !== 'custom')) return 'Unknown agent provider';
@@ -127,7 +144,14 @@ export class MeetingRoom {
     const bad = validateWorkerModel('agent', provider, model) ?? validateWorkerEffort('agent', provider, effort);
     if (bad) return bad;
 
-    const given = Array.isArray(req.roles) ? req.roles.map((r) => String(r ?? '').replace(/\s+/g, ' ').trim().slice(0, ROLE_MAX)) : [];
+    const given = Array.isArray(req.roles)
+      ? req.roles.map((r) =>
+          String(r ?? '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, ROLE_MAX),
+        )
+      : [];
     const count = given.length || pattern.seats.default;
     if (count < pattern.seats.min || count > Math.min(pattern.seats.max, MEETING_SEATS.length)) {
       return pattern.seats.min === pattern.seats.max ? `A ${pattern.label} meeting seats ${pattern.seats.min} workers` : `A ${pattern.label} meeting seats ${pattern.seats.min} to ${pattern.seats.max} workers`;
@@ -136,12 +160,19 @@ export class MeetingRoom {
 
     const pr = Number.isInteger(req.pr) && (req.pr as number) > 0 ? (req.pr as number) : undefined;
     if (pattern.needs === 'pr' && pr === undefined) return 'A review panel needs a pull request to review';
-    const parts = (Array.isArray(req.parts) ? req.parts : []).map((p) => String(p ?? '').trim()).filter(Boolean).slice(0, PARTS_MAX);
+    const parts = (Array.isArray(req.parts) ? req.parts : [])
+      .map((p) => String(p ?? '').trim())
+      .filter(Boolean)
+      .slice(0, PARTS_MAX);
     if (pattern.needs === 'parts' && parts.length < count - 1) return `List at least ${count - 1} part${count === 2 ? '' : 's'} for the mappers, one per line (or seat fewer workers)`;
     const issue = Number.isInteger(req.issue) && (req.issue as number) > 0 ? (req.issue as number) : undefined;
     const rounds = clamp(Math.floor(Number(req.rounds) || pattern.rounds.default), pattern.rounds.min, pattern.rounds.max);
     const budget = clamp(Math.floor(Number(req.budget) || count * TOKENS_PER_SEAT), 50_000, MAX_MEETING_BUDGET);
-    const title = (String(req.title ?? '').replace(/\s+/g, ' ').trim() || (pr !== undefined && req.pattern === 'review' ? `Review of PR #${pr}` : firstLine(prompt))).slice(0, 100);
+    const title = (
+      String(req.title ?? '')
+        .replace(/\s+/g, ' ')
+        .trim() || (pr !== undefined && req.pattern === 'review' ? `Review of PR #${pr}` : firstLine(prompt))
+    ).slice(0, 100);
     const id = randomBytes(4).toString('hex');
     const slug = slugify(title, 32);
     const output = String(req.output ?? '').trim() || pattern.output(slug, pr);
@@ -214,7 +245,7 @@ export class MeetingRoom {
   /** Stops the meeting that's running. Its workers stay at the table. */
   stop(by: string): string | undefined {
     const m = this.current;
-    if (!m || m.status !== 'running') return 'No meeting is on';
+    if (m?.status !== 'running') return 'No meeting is on';
     this.halt(m, `stopped by ${by}`);
     return undefined;
   }
@@ -356,7 +387,10 @@ export class MeetingRoom {
         }
         if (t.retried) {
           const last = this.isLast(m, m.round);
-          this.halt(m, last && t.file === m.output ? `reached its round limit without writing ${m.output}: the ${seat.role} ended the last round without it` : `the ${seat.role} (${seat.workerName}) ended round ${m.round} without writing ${t.file}`);
+          this.halt(
+            m,
+            last && t.file === m.output ? `reached its round limit without writing ${m.output}: the ${seat.role} ended the last round without it` : `the ${seat.role} (${seat.workerName}) ended round ${m.round} without writing ${t.file}`,
+          );
           return true;
         }
         retry();
@@ -432,7 +466,12 @@ export class MeetingRoom {
     m.status = 'stopped';
     m.reason = reason;
     m.finishedAt = Date.now();
-    const busy = new Set(this.workers.list().filter((w) => w.status === 'working' || w.status === 'needs_input').map((w) => w.id));
+    const busy = new Set(
+      this.workers
+        .list()
+        .filter((w) => w.status === 'working' || w.status === 'needs_input')
+        .map((w) => w.id),
+    );
     for (const s of m.seats) if (s.workerId && busy.has(s.workerId)) this.workers.write(s.workerId, '\x1b', BY);
     this.readPreview(m);
     this.keepNotes(m);
@@ -457,7 +496,7 @@ export class MeetingRoom {
     const own = path.resolve(this.dir, '.agent-office', 'worktrees') + path.sep;
     for (const leftover of [m.notes, m.pattern === 'review' ? m.output : undefined]) {
       const abs = leftover && path.resolve(cwd, leftover);
-      if (abs && abs.startsWith(own)) rmSync(abs, { recursive: true, force: true });
+      if (abs?.startsWith(own)) rmSync(abs, { recursive: true, force: true });
     }
     const state = await this.trees.inspect(wt);
     if (state.error || state.dirty) {
@@ -551,7 +590,6 @@ export class MeetingRoom {
 
   /** The parts of step `step` of round `round`, or null when that round has no such step. */
   private plan(m: Meeting, round: number, step: number): Part[] | null {
-    const n = m.seats.length;
     // Parts name their files by full path: a worktree sits inside the project's own folder, and an
     // agent can take a relative path to be the project's (and then it's asked about writing outside).
     const A = (rel: string) => path.join(this.cwd(m), rel);
@@ -564,14 +602,30 @@ export class MeetingRoom {
       case 'debate': {
         if (step > 1) return null;
         if (last) {
-          return [{ seat: 0, doing: 'writing the decision', file: m.output, ask: `Read every note in ${A(m.notes)}/ (the last round's are ${notes(round - 1, all)}). Weigh the proposals and critiques, and write the decision to ${A(m.output)}: what was decided and why, the options that lost and why, and what's still open. ${out}` }];
+          return [
+            {
+              seat: 0,
+              doing: 'writing the decision',
+              file: m.output,
+              ask: `Read every note in ${A(m.notes)}/ (the last round's are ${notes(round - 1, all)}). Weigh the proposals and critiques, and write the decision to ${A(m.output)}: what was decided and why, the options that lost and why, and what's still open. ${out}`,
+            },
+          ];
         }
-        if (round === 1) return all.map((i) => ({ seat: i, doing: 'proposing', file: note(1, i), ask: `Propose your answer, from where you stand as the ${m.seats[i].role}: what you'd do, why, and what it costs. Write it to ${A(note(1, i))}, then end your turn.` }));
+        if (round === 1)
+          return all.map((i) => ({
+            seat: i,
+            doing: 'proposing',
+            file: note(1, i),
+            ask: `Propose your answer, from where you stand as the ${m.seats[i].role}: what you'd do, why, and what it costs. Write it to ${A(note(1, i))}, then end your turn.`,
+          }));
         return all.map((i) => ({
           seat: i,
           doing: 'critiquing',
           file: note(round, i),
-          ask: `Read the others' notes from round ${round - 1}: ${notes(round - 1, all.filter((j) => j !== i))}. Say where they're wrong or miss something, then give your revised proposal. Write it to ${A(note(round, i))}, then end your turn.`,
+          ask: `Read the others' notes from round ${round - 1}: ${notes(
+            round - 1,
+            all.filter((j) => j !== i),
+          )}. Say where they're wrong or miss something, then give your revised proposal. Write it to ${A(note(round, i))}, then end your turn.`,
         }));
       }
       case 'lead': {
@@ -579,12 +633,31 @@ export class MeetingRoom {
         if (step > 1) return null;
         const plan = `${m.notes}/plan.md`;
         if (round === 1) {
-          return [{ seat: 0, doing: 'planning', file: plan, ask: `Read the task and the code it touches, and split the work into ${team.length} part${team.length === 1 ? '' : 's'}, one each for ${list(team.map((i) => `the ${m.seats[i].role}`))}. Write the plan to ${A(plan)}: a section for each of them headed with their role (like "## ${m.seats[team[0]].role}"), saying what to do and which files they own, so that no two of them touch the same file. Don't make the changes yourself. Then end your turn.` }];
+          return [
+            {
+              seat: 0,
+              doing: 'planning',
+              file: plan,
+              ask: `Read the task and the code it touches, and split the work into ${team.length} part${team.length === 1 ? '' : 's'}, one each for ${list(team.map((i) => `the ${m.seats[i].role}`))}. Write the plan to ${A(plan)}: a section for each of them headed with their role (like "## ${m.seats[team[0]].role}"), saying what to do and which files they own, so that no two of them touch the same file. Don't make the changes yourself. Then end your turn.`,
+            },
+          ];
         }
         if (round === 2) {
-          return team.map((i) => ({ seat: i, doing: 'doing their part', file: note(2, i), ask: `Read ${A(plan)} and do your part, the section headed "## ${m.seats[i].role}". Change only the files it gives you, and don't commit. When you're done, write what you did and what the ${m.seats[0].role} should know (what you couldn't do, how you checked it) to ${A(note(2, i))}, then end your turn.` }));
+          return team.map((i) => ({
+            seat: i,
+            doing: 'doing their part',
+            file: note(2, i),
+            ask: `Read ${A(plan)} and do your part, the section headed "## ${m.seats[i].role}". Change only the files it gives you, and don't commit. When you're done, write what you did and what the ${m.seats[0].role} should know (what you couldn't do, how you checked it) to ${A(note(2, i))}, then end your turn.`,
+          }));
         }
-        return [{ seat: 0, doing: 'merging the work', file: m.output, ask: `Read the team's reports (${notes(2, team)}) and look at their changes (git status, git diff). Fix whatever doesn't fit together and check that it works (build it, run the tests). Then write ${A(m.output)}: what was done, by whom, and how it was checked. ${out} Don't commit.` }];
+        return [
+          {
+            seat: 0,
+            doing: 'merging the work',
+            file: m.output,
+            ask: `Read the team's reports (${notes(2, team)}) and look at their changes (git status, git diff). Fix whatever doesn't fit together and check that it works (build it, run the tests). Then write ${A(m.output)}: what was done, by whom, and how it was checked. ${out} Don't commit.`,
+          },
+        ];
       }
       case 'mapreduce': {
         if (step > 1) return null;
@@ -592,7 +665,12 @@ export class MeetingRoom {
         if (round === 1) {
           return mappers.map((i, k) => {
             const mine = (m.parts ?? []).filter((_, j) => j % mappers.length === k);
-            return { seat: i, doing: 'mapping', file: note(1, i), ask: `Do the task for your parts, and only those:\n${mine.map((x) => `- ${x}`).join('\n')}\nWrite what you found or did to ${A(note(1, i))}, a section per part, then end your turn.` };
+            return {
+              seat: i,
+              doing: 'mapping',
+              file: note(1, i),
+              ask: `Do the task for your parts, and only those:\n${mine.map((x) => `- ${x}`).join('\n')}\nWrite what you found or did to ${A(note(1, i))}, a section per part, then end your turn.`,
+            };
           });
         }
         return [{ seat: 0, doing: 'reducing', file: m.output, ask: `Read the mappers' results (${notes(1, mappers)}) and combine them into ${A(m.output)}: one result that reads as a whole, not a pile of sections. ${out}` }];
@@ -603,14 +681,35 @@ export class MeetingRoom {
         const blueNote = `${m.notes}/r${round}-blue.md`;
         if (step === 1) {
           const before = round > 1 ? ` The Blue team's fixes from round ${round - 1} are in ${A(`${m.notes}/r${round - 1}-blue.md`)}: check them first, then keep looking.` : '';
-          return [{ seat: red, doing: 'attacking', file: redNote, ask: `Attack the change the meeting is about like an adversary would: bugs, security holes, unhandled edge cases, broken error handling. Read the code; don't change it.${before} List each finding in ${A(redNote)} with its file:line, what goes wrong and how to make it happen, the most serious first. If you find nothing worth fixing, write just NO FINDINGS. Then end your turn.` }];
+          return [
+            {
+              seat: red,
+              doing: 'attacking',
+              file: redNote,
+              ask: `Attack the change the meeting is about like an adversary would: bugs, security holes, unhandled edge cases, broken error handling. Read the code; don't change it.${before} List each finding in ${A(redNote)} with its file:line, what goes wrong and how to make it happen, the most serious first. If you find nothing worth fixing, write just NO FINDINGS. Then end your turn.`,
+            },
+          ];
         }
         if (step > 2) return null;
         if (m.lastRound === round) {
-          return [{ seat: blue, doing: 'writing it up', file: m.output, ask: `The Red team found nothing more in ${A(redNote)}. Write ${A(m.output)}: every finding from every round (${A(m.notes)}/), what was fixed and how, and what's still open. ${out} Don't commit.` }];
+          return [
+            {
+              seat: blue,
+              doing: 'writing it up',
+              file: m.output,
+              ask: `The Red team found nothing more in ${A(redNote)}. Write ${A(m.output)}: every finding from every round (${A(m.notes)}/), what was fixed and how, and what's still open. ${out} Don't commit.`,
+            },
+          ];
         }
         const wrap = last ? ` This is the last round: once you've fixed things, also write ${A(m.output)}: every finding from every round (${A(m.notes)}/), what was fixed and how, and what's still open. ${out}` : '';
-        return [{ seat: blue, doing: last ? 'fixing and writing it up' : 'fixing', file: last ? m.output : blueNote, ask: `Read the Red team's findings in ${A(redNote)} and fix each one that's real, in the checkout (don't commit). For each, say in ${A(blueNote)} what you did, or why it isn't a problem.${wrap} Then end your turn.` }];
+        return [
+          {
+            seat: blue,
+            doing: last ? 'fixing and writing it up' : 'fixing',
+            file: last ? m.output : blueNote,
+            ask: `Read the Red team's findings in ${A(redNote)} and fix each one that's real, in the checkout (don't commit). For each, say in ${A(blueNote)} what you did, or why it isn't a problem.${wrap} Then end your turn.`,
+          },
+        ];
       }
       case 'review': {
         if (step > 1) return null;
@@ -622,7 +721,14 @@ export class MeetingRoom {
             ask: `Review ${this.pullName()} ${this.pullRef(m.pr!)} through your lens, ${m.seats[i].role}, and nothing else. Read it with ${this.readPull(m.pr!)}; don't check it out or change any files. Write your findings to ${A(note(1, i))}, one per bullet: the file:line, what's wrong and what to do about it, the most serious first. If you find nothing, write just NO FINDINGS. Then end your turn.`,
           }));
         }
-        return [{ seat: 0, doing: 'writing the review', file: m.output, ask: `Read every reviewer's findings (${notes(1, all)}). Drop the duplicates, keeping the clearest wording, and write one combined review to ${A(m.output)} in Markdown: a short summary with your verdict first, then the findings, the most serious first, each tagged with the lens it came from in bold brackets like **[${m.seats[1]?.role ?? 'Security'}]**, with its file:line. Don't post it: the office posts it on the ${this.pullName()} once the file is written. ${out}` }];
+        return [
+          {
+            seat: 0,
+            doing: 'writing the review',
+            file: m.output,
+            ask: `Read every reviewer's findings (${notes(1, all)}). Drop the duplicates, keeping the clearest wording, and write one combined review to ${A(m.output)} in Markdown: a short summary with your verdict first, then the findings, the most serious first, each tagged with the lens it came from in bold brackets like **[${m.seats[1]?.role ?? 'Security'}]**, with its file:line. Don't post it: the office posts it on the ${this.pullName()} once the file is written. ${out}`,
+          },
+        ];
       }
     }
   }
@@ -647,7 +753,11 @@ export class MeetingRoom {
   private head(m: Meeting, file: string | undefined): string {
     if (!file) return '';
     try {
-      return readStart(path.join(this.cwd(m), file), 400).split('\n').find((l) => l.trim()) ?? '';
+      return (
+        readStart(path.join(this.cwd(m), file), 400)
+          .split('\n')
+          .find((l) => l.trim()) ?? ''
+      );
     } catch {
       return '';
     }
@@ -751,7 +861,12 @@ function list(xs: string[]): string {
 }
 
 function firstLine(s: string): string {
-  return s.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
+  return (
+    s
+      .split('\n')
+      .map((l) => l.trim())
+      .find(Boolean) ?? ''
+  );
 }
 
 function clamp(v: number, lo: number, hi: number) {

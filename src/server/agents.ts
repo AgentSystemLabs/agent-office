@@ -10,7 +10,10 @@ export const DROID_MODEL_MAX = 256;
  * while the office itself is running under a POSIX shell.
  */
 export function configuredProvider(command: string): AgentProvider {
-  const base = path.basename(command.replaceAll('\\', '/')).toLowerCase().replace(/\.exe$/, '');
+  const base = path
+    .basename(command.replaceAll('\\', '/'))
+    .toLowerCase()
+    .replace(/\.exe$/, '');
   if (base === 'claude') return 'claude';
   if (base === 'opencode') return 'opencode';
   if (base === 'codex') return 'codex';

@@ -31,7 +31,6 @@ export default async function run({ page, frame }) {
   const fireView = await frame.evaluate(() => window.__vrtest?.menuView?.() ?? null);
   console.log('QCLEAR:', JSON.stringify({ emptyBefore, noRow, clearIdx, armBtn, stillThere: afterArm?.tasks?.length, armView, fireBtn, afterFire: afterFire?.tasks?.length, fireView }));
   // The seeds are client-local (reload clears them); the fire is a safe server no-op here.
-  const ok = (emptyBefore ? noRow === false : true) && armBtn === true && afterArm?.tasks?.length === tasks.length && armView === 'queue' &&
-    fireBtn === true && afterFire?.tasks?.length === tasks.length && fireView === 'queue';
+  const ok = (emptyBefore ? noRow === false : true) && armBtn === true && afterArm?.tasks?.length === tasks.length && armView === 'queue' && fireBtn === true && afterFire?.tasks?.length === tasks.length && fireView === 'queue';
   return { ok };
 }

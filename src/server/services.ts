@@ -241,7 +241,8 @@ export class Services {
       for (let p = l.pid, i = 0; p > 1 && i < 64; p = procs.get(p)?.ppid ?? 0, i++) {
         owner = byPty.get(p);
         if (owner) {
-          if (p === l.pid && owner.agent) owner = undefined; // Claude's own port
+          if (p === l.pid && owner.agent)
+            owner = undefined; // Claude's own port
           else break;
         }
         if (p === process.pid) {

@@ -156,7 +156,13 @@ export function describeWork(s: WorktreeState): string {
 /** The last line git printed, which is the one that says what's wrong. */
 export function gitError(err: unknown): string {
   const e = err as { stderr?: string; message?: string };
-  return String(e.stderr || e.message || err).trim().split('\n').filter(Boolean).pop() ?? 'git failed';
+  return (
+    String(e.stderr || e.message || err)
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .pop() ?? 'git failed'
+  );
 }
 
 function real(p: string): string {

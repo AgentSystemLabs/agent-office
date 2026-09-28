@@ -49,10 +49,19 @@ test('Droid catalogue caches briefly', async (t) => {
   const file = settingsFile(t, { customModels: [{ id: 'custom:a', displayName: 'A' }] });
   let now = 1000;
   const catalogue = createDroidModelCatalogue(file, () => now);
-  assert.deepEqual((await catalogue.get()).models.map((m) => m.id), ['custom:a']);
+  assert.deepEqual(
+    (await catalogue.get()).models.map((m) => m.id),
+    ['custom:a'],
+  );
   writeFileSync(file, JSON.stringify({ customModels: [{ id: 'custom:b', displayName: 'B' }] }));
   now += 59_999;
-  assert.deepEqual((await catalogue.get()).models.map((m) => m.id), ['custom:a']);
+  assert.deepEqual(
+    (await catalogue.get()).models.map((m) => m.id),
+    ['custom:a'],
+  );
   now += 2;
-  assert.deepEqual((await catalogue.get()).models.map((m) => m.id), ['custom:b']);
+  assert.deepEqual(
+    (await catalogue.get()).models.map((m) => m.id),
+    ['custom:b'],
+  );
 });

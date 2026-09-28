@@ -16,7 +16,6 @@ export default async function run({ frame }) {
     ui: window.__vrtest?.ui?.() ?? null,
   }));
   console.log('HSHELL:', JSON.stringify({ before, asked, chose, after }));
-  const ok = asked.tapped === true && asked.ui.prompt === true && chose === true
-    && after.workers.length === before + 1 && after.ui.prompt === false && after.ui.keyboard === false;
+  const ok = asked.tapped === true && asked.ui.prompt === true && chose === true && after.workers.length === before + 1 && after.ui.prompt === false && after.ui.keyboard === false;
   return { ok };
 }

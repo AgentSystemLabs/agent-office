@@ -176,7 +176,7 @@ export class MeetingSignTexture {
     g.font = `700 34px ${SANS}`;
     g.fillText(label, pad, 53);
     if (!m) {
-      let y = lines('🤝 Meeting room', `700 46px ${SANS}`, '#eeeeee', 160, 2, 58);
+      const y = lines('🤝 Meeting room', `700 46px ${SANS}`, '#eeeeee', 160, 2, 58);
       lines('Press E at the table to call a meeting: a debate, lead & team, map-reduce, red / blue or a review panel.', `500 30px ${SANS}`, '#c9c9c9', y + 30, 8, 42);
       this.texture.needsUpdate = true;
       return;

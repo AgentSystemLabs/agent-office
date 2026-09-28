@@ -145,7 +145,10 @@ function fixture(): Fixture {
     custom,
     read() {
       if (!existsSync(log)) return [];
-      return readFileSync(log, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as Invocation);
+      return readFileSync(log, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as Invocation);
     },
     close() {
       rmSync(root, { recursive: true, force: true });
@@ -164,7 +167,12 @@ function events(updates: WorkerInfo[]): WorkerEvents {
 }
 
 function ledger(data: string): Ledger {
-  return new Ledger(data, { pauseHiring: false }, () => {}, () => {});
+  return new Ledger(
+    data,
+    { pauseHiring: false },
+    () => {},
+    () => {},
+  );
 }
 
 function manager(f: Fixture, cmd: string, updates: WorkerInfo[], args = ['--from-test']) {
@@ -207,7 +215,10 @@ test('Claude workers use the configured executable, pass prompts and resume ids,
   const worker = workers.spawn('desk-1', 'test', 'initial Claude prompt');
   assert.equal(typeof worker, 'object');
   if (typeof worker === 'string') return;
-  const first = await waitFor(() => f.read(), (records) => records.some((r) => r.kind === 'claude' && r.args.includes('--settings')));
+  const first = await waitFor(
+    () => f.read(),
+    (records) => records.some((r) => r.kind === 'claude' && r.args.includes('--settings')),
+  );
   const firstWorker = first.find((r) => r.kind === 'claude' && r.args.includes('--settings'))!;
   assert.ok(firstWorker.args.includes('--from-test'));
   assert.ok(hasPrompt(firstWorker, 'initial Claude prompt'));
@@ -216,9 +227,15 @@ test('Claude workers use the configured executable, pass prompts and resume ids,
 
   assert.equal(workers.handleHook(worker.id, firstWorker.env.hookToken!, 'SessionStart', { session_id: 'claude-session-1' }), true);
   assert.equal(workers.get(worker.id)?.status, 'idle');
-  await waitFor(() => workers.get(worker.id)?.status, (status) => status === 'exited');
+  await waitFor(
+    () => workers.get(worker.id)?.status,
+    (status) => status === 'exited',
+  );
   assert.equal(workers.resume(worker.id), undefined);
-  const resumed = await waitFor(() => f.read(), (records) => records.filter((r) => r.kind === 'claude' && r.args.includes('--settings')).length >= 2);
+  const resumed = await waitFor(
+    () => f.read(),
+    (records) => records.filter((r) => r.kind === 'claude' && r.args.includes('--settings')).length >= 2,
+  );
   const secondWorker = resumed.filter((r) => r.kind === 'claude' && r.args.includes('--settings'))[1];
   assert.ok(secondWorker.args.includes('--resume'));
   assert.ok(secondWorker.args.includes('claude-session-1'));
@@ -232,7 +249,10 @@ test('Claude workers use the configured executable, pass prompts and resume ids,
   const alternate = workers.spawn('desk-4', 'test', 'alternate provider prompt', false, 'agent', 'opencode');
   assert.equal(typeof alternate, 'object');
   if (typeof alternate !== 'string') {
-    const alternateRecords = await waitFor(() => f.read(), (records) => records.some((r) => r.kind === 'opencode'));
+    const alternateRecords = await waitFor(
+      () => f.read(),
+      (records) => records.some((r) => r.kind === 'opencode'),
+    );
     const alternateInvocation = alternateRecords.find((r) => r.kind === 'opencode')!;
     assert.equal(alternateInvocation.args.includes('--from-test'), false);
     assert.equal(alternateInvocation.args.includes('--settings'), false);
@@ -264,7 +284,10 @@ test('OpenCode workers use OpenCode-only hooks/config, never invoke Claude namin
   assert.equal(typeof worker, 'object');
   if (typeof worker === 'string') return;
 
-  const first = await waitFor(() => f.read(), (records) => records.some((r) => r.kind === 'opencode'));
+  const first = await waitFor(
+    () => f.read(),
+    (records) => records.some((r) => r.kind === 'opencode'),
+  );
   const firstWorker = first.find((r) => r.kind === 'opencode')!;
   assert.ok(firstWorker.args.includes('--from-test'));
   assert.ok(hasPrompt(firstWorker, 'initial OpenCode prompt'));
@@ -277,7 +300,7 @@ test('OpenCode workers use OpenCode-only hooks/config, never invoke Claude namin
   assert.equal(first.filter((r) => r.kind === 'claude').length, 0, 'OpenCode must not launch the Claude task namer');
 
   const transcript = path.join(f.root, 'must-not-be-read.jsonl');
-  writeFileSync(transcript, JSON.stringify({ type: 'assistant', message: { id: 'x', model: 'opus', usage: { input_tokens: 9000, output_tokens: 1000 } } }) + '\n');
+  writeFileSync(transcript, `${JSON.stringify({ type: 'assistant', message: { id: 'x', model: 'opus', usage: { input_tokens: 9000, output_tokens: 1000 } } })}\n`);
   assert.equal(workers.handleOpenCodeHook(worker.id, 'wrong-token', { type: 'session', sessionId: 'oc-1', status: 'starting' }), false);
   assert.equal(workers.handleOpenCodeHook(worker.id, firstWorker.env.hookToken!, { type: 'session', sessionId: 'oc-1', status: 'starting', transcript_path: transcript }), true);
   assert.equal(workers.get(worker.id)?.status, 'idle');
@@ -300,9 +323,15 @@ test('OpenCode workers use OpenCode-only hooks/config, never invoke Claude namin
   assert.equal(workers.get(worker.id)?.usage, undefined, 'OpenCode must not run Claude transcript usage parsing');
   assert.equal(workers.handleOpenCodeHook(worker.id, firstWorker.env.hookToken!, { type: 'session', sessionId: 'oc-child', status: 'done' }), true);
 
-  await waitFor(() => workers.get(worker.id)?.status, (status) => status === 'exited');
+  await waitFor(
+    () => workers.get(worker.id)?.status,
+    (status) => status === 'exited',
+  );
   assert.equal(workers.resume(worker.id), undefined);
-  const resumed = await waitFor(() => f.read(), (records) => records.filter((r) => r.kind === 'opencode').length >= 2);
+  const resumed = await waitFor(
+    () => f.read(),
+    (records) => records.filter((r) => r.kind === 'opencode').length >= 2,
+  );
   const secondWorker = resumed.filter((r) => r.kind === 'opencode')[1];
   assert.ok(secondWorker.args.includes('--session') || secondWorker.args.includes('-s'));
   assert.ok(secondWorker.args.includes('oc-child'));
@@ -321,7 +350,10 @@ test('OpenCode workers use OpenCode-only hooks/config, never invoke Claude namin
   assert.equal(restored.get(worker.id)?.provider, 'opencode');
   assert.equal(restored.get(worker.id)?.prompt, 'initial OpenCode prompt');
   assert.equal(restored.get(worker.id)?.sessionId, 'oc-child');
-  await waitFor(() => f.read(), (records) => records.filter((r) => r.kind === 'opencode').length >= 3);
+  await waitFor(
+    () => f.read(),
+    (records) => records.filter((r) => r.kind === 'opencode').length >= 3,
+  );
   const restoredInvocation = f.read().filter((r) => r.kind === 'opencode')[2];
   assert.ok(restoredInvocation.args.includes('--session') || restoredInvocation.args.includes('-s'));
   assert.ok(restoredInvocation.args.includes('oc-child'));
@@ -351,7 +383,12 @@ test('Droid workers launch with their own hook overlay and resume the correct se
   const worker = workers.spawn('desk-2', 'test', '- inspect this code');
   assert.equal(typeof worker, 'object');
   if (typeof worker === 'string') return;
-  const first = (await waitFor(() => f.read(), (records) => records.some((r) => r.kind === 'droid'))).find((r) => r.kind === 'droid')!;
+  const first = (
+    await waitFor(
+      () => f.read(),
+      (records) => records.some((r) => r.kind === 'droid'),
+    )
+  ).find((r) => r.kind === 'droid')!;
   assert.deepEqual(first.args.slice(0, 3), ['--settings', path.join(f.data, 'droid-hooks.json'), '--from-test']);
   assert.deepEqual(first.args.slice(-2), ['--', '- inspect this code']);
   assert.equal(first.env.workerId, worker.id);
@@ -361,8 +398,7 @@ test('Droid workers launch with their own hook overlay and resume the correct se
   assert.match(settings.hooks.SessionStart[0].hooks[0].command, /\/hooks\/droid/);
   assert.ok(!settings.hooks.PermissionRequest, 'Droid only receives supported hook events');
 
-  const hook = (event: string, data: Record<string, unknown>, token = first.env.hookToken!) =>
-    workers.handleDroidHook(worker.id, token, event, { session_id: 'droid-1', hook_event_name: event, ...data });
+  const hook = (event: string, data: Record<string, unknown>, token = first.env.hookToken!) => workers.handleDroidHook(worker.id, token, event, { session_id: 'droid-1', hook_event_name: event, ...data });
   assert.equal(hook('SessionStart', { source: 'startup' }, 'wrong-token'), false);
   assert.equal(hook('SessionStart', { source: 'startup' }), true);
   assert.equal(workers.get(worker.id)?.status, 'idle');
@@ -381,22 +417,39 @@ test('Droid workers launch with their own hook overlay and resume the correct se
   assert.equal(workers.handleHook(worker.id, first.env.hookToken!, 'Stop', { session_id: 'droid-1' }), false);
   assert.equal(workers.handleDroidHook(worker.id, first.env.hookToken!, 'Stop', { session_id: 'other', hook_event_name: 'Stop' }), false);
 
-  await waitFor(() => workers.get(worker.id)?.status, (status) => status === 'exited');
+  await waitFor(
+    () => workers.get(worker.id)?.status,
+    (status) => status === 'exited',
+  );
   assert.equal(workers.resume(worker.id), undefined);
-  const second = (await waitFor(() => f.read(), (records) => records.filter((r) => r.kind === 'droid').length >= 2)).filter((r) => r.kind === 'droid')[1];
+  const second = (
+    await waitFor(
+      () => f.read(),
+      (records) => records.filter((r) => r.kind === 'droid').length >= 2,
+    )
+  ).filter((r) => r.kind === 'droid')[1];
   assert.deepEqual(second.args.slice(-2), ['--resume', 'droid-1']);
   assert.notEqual(second.env.hookToken, first.env.hookToken);
   assert.equal(hook('Stop', {}), false, 'hooks from the old process must not control a resumed worker');
   assert.equal(hook('SessionStart', { source: 'resume' }, second.env.hookToken!), true);
 
-  await waitFor(() => workers.get(worker.id)?.task?.name, (name) => name === 'Fake Task', 8000);
+  await waitFor(
+    () => workers.get(worker.id)?.task?.name,
+    (name) => name === 'Fake Task',
+    8000,
+  );
   workers.shutdown();
   const restored = manager(f, f.droid, []);
   t.after(() => restored.shutdown());
   await restored.start();
   assert.equal(restored.get(worker.id)?.provider, 'droid');
   assert.equal(restored.get(worker.id)?.sessionId, 'droid-1');
-  const third = (await waitFor(() => f.read(), (records) => records.filter((r) => r.kind === 'droid').length >= 3)).filter((r) => r.kind === 'droid')[2];
+  const third = (
+    await waitFor(
+      () => f.read(),
+      (records) => records.filter((r) => r.kind === 'droid').length >= 3,
+    )
+  ).filter((r) => r.kind === 'droid')[2];
   assert.deepEqual(third.args.slice(-2), ['--resume', 'droid-1']);
 });
 test('Droid workers pin their model and effort in a per-worker settings overlay', async (t) => {
@@ -418,7 +471,12 @@ test('Droid workers pin their model and effort in a per-worker settings overlay'
   if (typeof worker === 'string') return;
   assert.equal(worker.model, 'custom:droidproxy:gpt-6-sol');
   assert.equal(worker.effort, 'high');
-  const launch = (await waitFor(() => f.read(), (records) => records.some((r) => r.kind === 'droid'))).find((r) => r.kind === 'droid')!;
+  const launch = (
+    await waitFor(
+      () => f.read(),
+      (records) => records.some((r) => r.kind === 'droid'),
+    )
+  ).find((r) => r.kind === 'droid')!;
   const overlayPath = path.join(f.data, `droid-${worker.id}.json`);
   assert.deepEqual(launch.args.slice(0, 2), ['--settings', overlayPath]);
   const overlay = JSON.parse(readFileSync(overlayPath, 'utf8'));
@@ -452,7 +510,10 @@ test('board agents are hired with the requested provider, model, and effort', as
   assert.equal(r.info.provider, 'droid');
   assert.equal(r.info.model, 'custom:droidproxy:gpt-6-sol');
   assert.equal(r.info.effort, 'low');
-  await waitFor(() => f.read(), (records) => records.some((x) => x.kind === 'droid'));
+  await waitFor(
+    () => f.read(),
+    (records) => records.some((x) => x.kind === 'droid'),
+  );
   // An agent that's already there keeps its engine; the prompt just goes to its session.
   const again = workers.station('station-queue', 'test', 'and this', 'claude', 'haiku', 'max');
   assert.equal(typeof again, 'object');
@@ -482,15 +543,24 @@ test('OpenCode model overrides configured model flags on first launch and is omi
   const worker = workers.spawn('desk-1', 'test', 'modelled prompt', false, 'agent', 'opencode', 'openai/gpt-5/nested');
   assert.equal(typeof worker, 'object');
   if (typeof worker === 'string') return;
-  const first = await waitFor(() => f.read(), (records) => records.some((r) => r.kind === 'opencode'));
+  const first = await waitFor(
+    () => f.read(),
+    (records) => records.some((r) => r.kind === 'opencode'),
+  );
   const firstInvocation = first.find((r) => r.kind === 'opencode')!;
   assert.deepEqual(firstInvocation.args, ['--keep', 'yes', '--model', 'openai/gpt-5/nested', '--prompt', 'modelled prompt']);
   assert.equal(workers.get(worker.id)?.model, 'openai/gpt-5/nested');
 
   assert.equal(workers.handleOpenCodeHook(worker.id, firstInvocation.env.hookToken!, { type: 'session', sessionId: 'oc-model', status: 'starting' }), true);
-  await waitFor(() => workers.get(worker.id)?.status, (status) => status === 'exited');
+  await waitFor(
+    () => workers.get(worker.id)?.status,
+    (status) => status === 'exited',
+  );
   assert.equal(workers.resume(worker.id), undefined);
-  const all = await waitFor(() => f.read(), (records) => records.filter((r) => r.kind === 'opencode').length >= 2);
+  const all = await waitFor(
+    () => f.read(),
+    (records) => records.filter((r) => r.kind === 'opencode').length >= 2,
+  );
   const resumed = all.filter((r) => r.kind === 'opencode')[1];
   assert.ok(resumed.args.includes('--session'));
   assert.ok(resumed.args.includes('oc-model'));
@@ -519,14 +589,23 @@ test('OpenCode keeps configured model flags when no explicit model is selected, 
   const worker = workers.spawn('desk-1', 'test', 'configured prompt');
   assert.equal(typeof worker, 'object');
   if (typeof worker === 'string') return;
-  const first = await waitFor(() => f.read(), (records) => records.some((r) => r.kind === 'opencode'));
+  const first = await waitFor(
+    () => f.read(),
+    (records) => records.some((r) => r.kind === 'opencode'),
+  );
   const firstInvocation = first.find((r) => r.kind === 'opencode')!;
   assert.ok(firstInvocation.args.includes('--model'));
   assert.ok(firstInvocation.args.includes('configured/model'));
   assert.equal(workers.handleOpenCodeHook(worker.id, firstInvocation.env.hookToken!, { type: 'session', sessionId: 'oc-configured', status: 'starting' }), true);
-  await waitFor(() => workers.get(worker.id)?.status, (status) => status === 'exited');
+  await waitFor(
+    () => workers.get(worker.id)?.status,
+    (status) => status === 'exited',
+  );
   assert.equal(workers.resume(worker.id), undefined);
-  const all = await waitFor(() => f.read(), (records) => records.filter((r) => r.kind === 'opencode').length >= 2);
+  const all = await waitFor(
+    () => f.read(),
+    (records) => records.filter((r) => r.kind === 'opencode').length >= 2,
+  );
   const resumed = all.filter((r) => r.kind === 'opencode')[1];
   assert.ok(resumed.args.includes('--session'));
   assert.equal(resumed.args.includes('--model'), false);
@@ -578,15 +657,24 @@ test('an explicit Claude model/effort overrides --agent-args and persists across
   if (typeof worker === 'string') return;
   assert.equal(workers.get(worker.id)?.model, 'haiku');
   assert.equal(workers.get(worker.id)?.effort, 'high');
-  const first = await waitFor(() => f.read(), (records) => records.some((r) => r.kind === 'claude'));
+  const first = await waitFor(
+    () => f.read(),
+    (records) => records.some((r) => r.kind === 'claude'),
+  );
   const firstInvocation = first.find((r) => r.kind === 'claude')!;
   // The per-worker choice is appended after --agent-args, so it wins even though "opus" also appears.
   assert.deepEqual(firstInvocation.args.slice(firstInvocation.args.indexOf('--model')), ['--model', 'opus', '--model', 'haiku', '--effort', 'high', '--', 'haiku task']);
 
   assert.equal(workers.handleHook(worker.id, firstInvocation.env.hookToken!, 'SessionStart', { session_id: 'claude-model-1' }), true);
-  await waitFor(() => workers.get(worker.id)?.status, (status) => status === 'exited');
+  await waitFor(
+    () => workers.get(worker.id)?.status,
+    (status) => status === 'exited',
+  );
   assert.equal(workers.resume(worker.id), undefined);
-  const resumed = await waitFor(() => f.read(), (records) => records.filter((r) => r.kind === 'claude').length >= 2);
+  const resumed = await waitFor(
+    () => f.read(),
+    (records) => records.filter((r) => r.kind === 'claude').length >= 2,
+  );
   const secondInvocation = resumed.filter((r) => r.kind === 'claude')[1];
   assert.ok(secondInvocation.args.includes('--model'));
   assert.ok(secondInvocation.args.includes('haiku'));
@@ -619,7 +707,10 @@ test('a worker hired on Fable launches with --model fable and keeps it across a 
   const worker = workers.spawn('desk-1', 'test', 'fable task', false, 'agent', 'claude', 'fable');
   assert.equal(typeof worker, 'object');
   if (typeof worker === 'string') return;
-  const records = await waitFor(() => f.read(), (rs) => rs.some((r) => r.kind === 'claude'));
+  const records = await waitFor(
+    () => f.read(),
+    (rs) => rs.some((r) => r.kind === 'claude'),
+  );
   const launch = records.find((r) => r.kind === 'claude')!;
   assert.deepEqual(launch.args.slice(launch.args.indexOf('--model')), ['--model', 'opus', '--model', 'fable', '--', 'fable task']);
 
@@ -667,7 +758,10 @@ test('provider and hook boundaries reject invalid combinations', async (t) => {
   const custom = customWorkers.spawn('desk-4', 'test', 'custom wrapper task');
   assert.equal(typeof custom, 'object');
   if (typeof custom !== 'string') {
-    const invocation = await waitFor(() => customFixture.read(), (records) => records.some((r) => r.kind === 'custom-agent'));
+    const invocation = await waitFor(
+      () => customFixture.read(),
+      (records) => records.some((r) => r.kind === 'custom-agent'),
+    );
     const token = invocation.find((r) => r.kind === 'custom-agent')?.env.hookToken;
     assert.ok(token);
     assert.equal(customWorkers.handleHook(custom.id, token!, 'SessionStart', { session_id: 'custom-session' }), true);
@@ -679,14 +773,19 @@ test('OpenCode usage snapshots replace totals, persist across restart, and never
   isolateProviderEnvironment(f, t);
   const oldLog = process.env.FAKE_AGENT_LOG;
   process.env.FAKE_AGENT_LOG = f.log;
-  t.after(() => { if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG; else process.env.FAKE_AGENT_LOG = oldLog; f.close(); });
+  t.after(() => {
+    if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = oldLog;
+    f.close();
+  });
   const book = ledger(f.data);
   const workers = new WorkerManager(f.root, f.data, f.opencode, [], { url: 'http://127.0.0.1:1', token: '' }, events([]), book);
   t.after(() => workers.shutdown());
   const worker = workers.spawn('desk-1', 'test');
-  assert.notEqual(typeof worker, 'string'); if (typeof worker === 'string') return;
-  const invocations = await waitFor(f.read, x => x.some(r => r.kind === 'opencode'));
-  const token = invocations.find(r => r.kind === 'opencode')!.env.hookToken!;
+  assert.notEqual(typeof worker, 'string');
+  if (typeof worker === 'string') return;
+  const invocations = await waitFor(f.read, (x) => x.some((r) => r.kind === 'opencode'));
+  const token = invocations.find((r) => r.kind === 'opencode')!.env.hookToken!;
   workers.handleOpenCodeHook(worker.id, token, { type: 'session', sessionId: 'usage-root', status: 'starting' });
   workers.handleOpenCodeHook(worker.id, token, { type: 'permission', sessionId: 'usage-root', status: 'needs_input' });
   const usage = { input: 20, output: 8, reasoning: 4, cacheRead: 6, cacheWrite: 2, cost: 0.003, calls: 1, costKnown: true };
@@ -697,7 +796,11 @@ test('OpenCode usage snapshots replace totals, persist across restart, and never
   assert.equal(workers.get(worker.id)?.status, 'needs_input');
   assert.equal(book.state().total.calls, 0);
   assert.equal(book.state().total.cost, 0);
-  for (const bad of [{ ...usage, input: -1 }, { ...usage, cost: Infinity }, { ...usage, calls: '1' }]) {
+  for (const bad of [
+    { ...usage, input: -1 },
+    { ...usage, cost: Infinity },
+    { ...usage, calls: '1' },
+  ]) {
     assert.equal(workers.handleOpenCodeHook(worker.id, token, { ...report, usage: bad }), false);
   }
   assert.equal(workers.handleOpenCodeHook(worker.id, 'wrong', report), false);
@@ -708,33 +811,43 @@ test('OpenCode usage snapshots replace totals, persist across restart, and never
   // Wakes the workers from before the restart (see WorkerManager.start).
   await restored.start();
   assert.deepEqual(restored.get(worker.id)?.usage, usage);
-  const calls = await waitFor(f.read, x => x.filter(r => r.kind === 'opencode' && !r.stdin).length >= 2);
-  const nextToken = calls.filter(r => r.kind === 'opencode' && !r.stdin).at(-1)!.env.hookToken!;
+  const calls = await waitFor(f.read, (x) => x.filter((r) => r.kind === 'opencode' && !r.stdin).length >= 2);
+  const nextToken = calls.filter((r) => r.kind === 'opencode' && !r.stdin).at(-1)!.env.hookToken!;
   restored.handleOpenCodeHook(worker.id, nextToken, { type: 'session', sessionId: 'next-root', status: 'starting' });
   assert.equal(restored.get(worker.id)?.usage, undefined);
 });
-
 
 test('Codex workers preserve native approvals, follow authenticated root hooks, and resume their provider session', async (t) => {
   const f = fixture();
   isolateProviderEnvironment(f, t);
   const oldLog = process.env.FAKE_AGENT_LOG;
   process.env.FAKE_AGENT_LOG = f.log;
-  t.after(() => { if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG; else process.env.FAKE_AGENT_LOG = oldLog; f.close(); });
+  t.after(() => {
+    if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = oldLog;
+    f.close();
+  });
   const book = ledger(f.data);
   const workers = new WorkerManager(f.root, f.data, f.claude, ['--claude-only'], { url: 'http://127.0.0.1:1', token: '' }, events([]), book);
   t.after(() => workers.shutdown());
   const worker = workers.spawn('desk-1', 'test', '- fix the login', false, 'agent', 'codex');
-  assert.notEqual(typeof worker, 'string'); if (typeof worker === 'string') return;
-  const calls = await waitFor(f.read, x => x.some(r => r.kind === 'codex'));
-  const first = calls.find(r => r.kind === 'codex')!;
+  assert.notEqual(typeof worker, 'string');
+  if (typeof worker === 'string') return;
+  const calls = await waitFor(f.read, (x) => x.some((r) => r.kind === 'codex'));
+  const first = calls.find((r) => r.kind === 'codex')!;
   const token = first.env.hookToken!;
   assert.equal(worker.status, 'starting');
   assert.ok(first.args.includes('--no-alt-screen'));
   assert.deepEqual(first.args.slice(-2), ['--', '- fix the login']);
-  assert.equal(first.args.some(a => /bypass|--yolo|--claude-only|--settings/.test(a)), false);
-  assert.equal(first.args.filter(a => a.startsWith('hooks.')).length, 7);
-  assert.equal(calls.some(r => r.kind === 'claude'), false);
+  assert.equal(
+    first.args.some((a) => /bypass|--yolo|--claude-only|--settings/.test(a)),
+    false,
+  );
+  assert.equal(first.args.filter((a) => a.startsWith('hooks.')).length, 7);
+  assert.equal(
+    calls.some((r) => r.kind === 'claude'),
+    false,
+  );
   const hook = (event: string, extra = {}) => workers.handleCodexHook(worker.id, token, event, { session_id: 'codex-root', ...extra });
   assert.equal(workers.handleCodexHook(worker.id, 'wrong', 'SessionStart', { session_id: 'codex-root' }), false);
   assert.equal(hook('SessionStart', { source: 'startup' }), true);
@@ -763,8 +876,8 @@ test('Codex workers preserve native approvals, follow authenticated root hooks, 
   t.after(() => restored.shutdown());
   // Wakes the workers from before the restart (see WorkerManager.start).
   await restored.start();
-  const nextCalls = await waitFor(f.read, x => x.filter(r => r.kind === 'codex' && !r.stdin).length >= 2);
-  const next = nextCalls.filter(r => r.kind === 'codex' && !r.stdin).at(-1)!;
+  const nextCalls = await waitFor(f.read, (x) => x.filter((r) => r.kind === 'codex' && !r.stdin).length >= 2);
+  const next = nextCalls.filter((r) => r.kind === 'codex' && !r.stdin).at(-1)!;
   assert.deepEqual(next.args.slice(-2), ['resume', 'codex-root']);
   assert.notEqual(next.env.hookToken, token);
   assert.equal(restored.get(worker.id)?.provider, 'codex');
@@ -773,33 +886,53 @@ test('Codex workers preserve native approvals, follow authenticated root hooks, 
   assert.equal(restored.get(worker.id)?.status, 'idle');
 });
 
-
 test('Codex token snapshots survive restart, preserve permissions, and stay outside Claude spend', async (t) => {
   const f = fixture();
   isolateProviderEnvironment(f, t);
   process.env.CODEX_HOME = 'relative-codex-home';
   const oldLog = process.env.FAKE_AGENT_LOG;
   process.env.FAKE_AGENT_LOG = f.log;
-  t.after(() => { if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG; else process.env.FAKE_AGENT_LOG = oldLog; f.close(); });
+  t.after(() => {
+    if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = oldLog;
+    f.close();
+  });
   const book = ledger(f.data);
   const workers = new WorkerManager(f.root, f.data, f.codex, [], { url: 'http://127.0.0.1:1', token: '' }, events([]), book);
   t.after(() => workers.shutdown());
   const worker = workers.spawn('desk-1', 'test');
-  assert.notEqual(typeof worker, 'string'); if (typeof worker === 'string') return;
-  const calls = await waitFor(f.read, x => x.some(r => r.kind === 'codex'));
-  const token = calls.find(r => r.kind === 'codex')!.env.hookToken!;
+  assert.notEqual(typeof worker, 'string');
+  if (typeof worker === 'string') return;
+  const calls = await waitFor(f.read, (x) => x.some((r) => r.kind === 'codex'));
+  const token = calls.find((r) => r.kind === 'codex')!.env.hookToken!;
   const dir = path.join(f.root, process.env.CODEX_HOME!, 'sessions', '2026', '09', '26');
   mkdirSync(dir, { recursive: true });
   const transcript = path.join(dir, 'rollout-fixture-metrics-root.jsonl');
-  const metric = (input: number) => JSON.stringify({ type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: {
-    input_tokens: input, cached_input_tokens: 20, output_tokens: 30, reasoning_output_tokens: 10, total_tokens: input + 30,
-  } } } }) + '\n';
-  writeFileSync(transcript, JSON.stringify({ type: 'session_meta', payload: { id: 'metrics-root' } }) + '\n' + metric(120));
+  const metric = (input: number) =>
+    `${JSON.stringify({
+      type: 'event_msg',
+      payload: {
+        type: 'token_count',
+        info: {
+          total_token_usage: {
+            input_tokens: input,
+            cached_input_tokens: 20,
+            output_tokens: 30,
+            reasoning_output_tokens: 10,
+            total_tokens: input + 30,
+          },
+        },
+      },
+    })}\n`;
+  writeFileSync(transcript, `${JSON.stringify({ type: 'session_meta', payload: { id: 'metrics-root' } })}\n${metric(120)}`);
   assert.equal(workers.handleCodexHook(worker.id, 'wrong', 'SessionStart', { session_id: 'metrics-root', transcript_path: transcript }), false);
   assert.equal(worker.usage, undefined);
   workers.handleCodexHook(worker.id, token, 'SessionStart', { session_id: 'metrics-root', transcript_path: transcript });
   workers.handleCodexHook(worker.id, token, 'PermissionRequest', { session_id: 'metrics-root', tool_name: 'Bash' });
-  await waitFor(() => worker.usage, u => u?.input === 100);
+  await waitFor(
+    () => worker.usage,
+    (u) => u?.input === 100,
+  );
   assert.equal(worker.status, 'needs_input');
   assert.equal(worker.usage?.output, 20);
   assert.equal(worker.usage?.reasoning, 10);
@@ -809,7 +942,10 @@ test('Codex token snapshots survive restart, preserve permissions, and stay outs
   assert.equal('codexTranscript' in worker, false);
   appendFileSync(transcript, metric(120) + metric(240));
   workers.handleCodexHook(worker.id, token, 'Stop', { session_id: 'metrics-root' });
-  await waitFor(() => worker.usage, u => u?.input === 220);
+  await waitFor(
+    () => worker.usage,
+    (u) => u?.input === 220,
+  );
   assert.equal(book.state().total.calls, 0);
   assert.equal(book.state().total.cost, 0);
   workers.shutdown();
@@ -818,11 +954,14 @@ test('Codex token snapshots survive restart, preserve permissions, and stay outs
   // Wakes the workers from before the restart (see WorkerManager.start).
   await restored.start();
   assert.deepEqual(restored.get(worker.id)?.usage, worker.usage);
-  const nextCalls = await waitFor(f.read, x => x.filter(r => r.kind === 'codex' && !r.stdin).length >= 2);
-  const next = nextCalls.filter(r => r.kind === 'codex' && !r.stdin).at(-1)!;
+  const nextCalls = await waitFor(f.read, (x) => x.filter((r) => r.kind === 'codex' && !r.stdin).length >= 2);
+  const next = nextCalls.filter((r) => r.kind === 'codex' && !r.stdin).at(-1)!;
   appendFileSync(transcript, metric(300));
   restored.handleCodexHook(worker.id, next.env.hookToken!, 'SessionStart', { session_id: 'metrics-root', transcript_path: transcript });
-  await waitFor(() => restored.get(worker.id)?.usage, u => u?.input === 280);
+  await waitFor(
+    () => restored.get(worker.id)?.usage,
+    (u) => u?.input === 280,
+  );
   restored.handleCodexHook(worker.id, next.env.hookToken!, 'SessionStart', { session_id: 'new-root', source: 'clear' });
   assert.equal(restored.get(worker.id)?.usage, undefined);
 });
@@ -871,7 +1010,10 @@ test('a board agent is hired with its brief on the first prompt, then prompted, 
   // The same agent takes the next request in its session.
   const again = workers.station('station-issues', 'Grace', 'Label it as a bug');
   assert.deepEqual(typeof again === 'object' && [again.hired, again.info.id], [false, id]);
-  await waitFor(() => f.read(), (records) => records.some((r) => r.stdin?.includes('Label it as a bug')));
+  await waitFor(
+    () => f.read(),
+    (records) => records.some((r) => r.stdin?.includes('Label it as a bug')),
+  );
 
   // Waiting on an answer, a prompt would answer the question, so it's refused.
   assert.equal(workers.handleHook(id, first.env.hookToken!, 'SessionStart', { session_id: 'issues-session' }), true);
@@ -885,7 +1027,10 @@ test('a board agent is hired with its brief on the first prompt, then prompted, 
   assert.equal(workers.authenticate(id, ''), undefined);
 
   // Asleep, a request wakes it up carrying on its session, without the brief again.
-  await waitFor(() => workers.get(id)?.status, (s) => s === 'exited');
+  await waitFor(
+    () => workers.get(id)?.status,
+    (s) => s === 'exited',
+  );
   assert.equal(workers.authenticate(id, first.env.hookToken!), undefined);
   const woken = workers.station('station-issues', 'Ada', 'Close the duplicates');
   assert.deepEqual(typeof woken === 'object' && [woken.hired, woken.info.id], [false, id]);
@@ -927,7 +1072,10 @@ test('the queue agent is launched without file-editing tools, and board agents g
   assert.equal(typeof hired, 'object');
   if (typeof hired === 'string') return;
   const id = hired.info.id;
-  const [first] = await waitFor(() => launches(id), (l) => l.length === 1);
+  const [first] = await waitFor(
+    () => launches(id),
+    (l) => l.length === 1,
+  );
   assert.deepEqual(denied(first.args), ['Edit', 'Write', 'NotebookEdit']);
   assert.ok(first.args.indexOf('--disallowedTools') < first.args.indexOf('--'), 'the tools come before the prompt');
   assert.ok(first.args.at(-1)!.endsWith('Fix the typo in the README'));
@@ -935,9 +1083,15 @@ test('the queue agent is launched without file-editing tools, and board agents g
 
   // Woken up carrying on its session, it's still without them.
   assert.equal(workers.handleHook(id, first.env.hookToken!, 'SessionStart', { session_id: 'queue-session' }), true);
-  await waitFor(() => workers.get(id)?.status, (s) => s === 'exited');
+  await waitFor(
+    () => workers.get(id)?.status,
+    (s) => s === 'exited',
+  );
   workers.station('station-queue', 'Grace', 'Also bump the version');
-  const [, second] = await waitFor(() => launches(id), (l) => l.length === 2);
+  const [, second] = await waitFor(
+    () => launches(id),
+    (l) => l.length === 2,
+  );
   assert.ok(second.args.includes('--resume') && second.args.includes('queue-session'));
   assert.deepEqual(denied(second.args), ['Edit', 'Write', 'NotebookEdit']);
   assert.equal(second.args.at(-1), 'Also bump the version');
@@ -948,8 +1102,14 @@ test('the queue agent is launched without file-editing tools, and board agents g
   const desk = workers.spawn('desk-2', 'Ada', 'Fix login');
   assert.ok(typeof pulls === 'object' && typeof desk === 'object');
   if (typeof pulls !== 'object' || typeof desk !== 'object') return;
-  const [pullsLaunch] = await waitFor(() => launches(pulls.info.id), (l) => l.length === 1);
-  const [deskLaunch] = await waitFor(() => launches(desk.id), (l) => l.length === 1);
+  const [pullsLaunch] = await waitFor(
+    () => launches(pulls.info.id),
+    (l) => l.length === 1,
+  );
+  const [deskLaunch] = await waitFor(
+    () => launches(desk.id),
+    (l) => l.length === 1,
+  );
   assert.equal(denied(pullsLaunch.args), undefined);
   assert.ok(onPath(pullsLaunch));
   assert.equal(denied(deskLaunch.args), undefined);
@@ -974,7 +1134,10 @@ test('a Claude worker acts out its latest tool call, and puts its head in its ha
   t.after(() => workers.shutdown());
   const worker = workers.spawn('desk-1', 'test', 'make the tests pass');
   if (typeof worker === 'string') return assert.fail(worker);
-  const [launch] = await waitFor(() => f.read().filter((r) => r.kind === 'claude' && r.args.includes('--settings')), (l) => l.length === 1);
+  const [launch] = await waitFor(
+    () => f.read().filter((r) => r.kind === 'claude' && r.args.includes('--settings')),
+    (l) => l.length === 1,
+  );
   const settings = JSON.parse(readFileSync(launch.args[launch.args.indexOf('--settings') + 1], 'utf8'));
   assert.ok(settings.hooks.PostToolUseFailure, 'failed tool calls are reported');
 
@@ -1019,11 +1182,16 @@ test('a worker is stamped with when it started waiting on someone, afresh each t
   isolateProviderEnvironment(f, t);
   const oldLog = process.env.FAKE_AGENT_LOG;
   process.env.FAKE_AGENT_LOG = f.log;
-  t.after(() => { if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG; else process.env.FAKE_AGENT_LOG = oldLog; f.close(); });
+  t.after(() => {
+    if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = oldLog;
+    f.close();
+  });
   const workers = manager(f, f.claude, []);
   t.after(() => workers.shutdown());
   const worker = workers.spawn('desk-1', 'test', 'fix the login');
-  assert.notEqual(typeof worker, 'string'); if (typeof worker === 'string') return;
+  assert.notEqual(typeof worker, 'string');
+  if (typeof worker === 'string') return;
   const calls = await waitFor(f.read, (x) => x.some((r) => r.kind === 'claude' && r.args.includes('--settings')));
   const token = calls.find((r) => r.kind === 'claude' && r.args.includes('--settings'))!.env.hookToken!;
   const hook = (event: string, extra = {}) => workers.handleHook(worker.id, token, event, { session_id: 'waiting', ...extra });

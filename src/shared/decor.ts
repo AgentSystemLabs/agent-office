@@ -211,8 +211,14 @@ export function sanitizePlacement(x: unknown): DecorPlacement | string {
   if ([w, h, u, y].some(Number.isNaN) || w <= 0 || h <= 0) return 'That picture has no size';
   ({ w, h } = pictureSize(Math.max(w, h), w / h));
   const at = clampToWall(wall, u, y, w, h);
-  if (!at) return "That picture is too big for the wall";
-  const title = typeof o.title === 'string' ? o.title.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 80) : '';
+  if (!at) return 'That picture is too big for the wall';
+  const title =
+    typeof o.title === 'string'
+      ? o.title
+          .replace(/[\u0000-\u001f\u007f]/g, ' ')
+          .trim()
+          .slice(0, 80)
+      : '';
   const frame = Number.isInteger(o.frame) && (o.frame as number) >= 0 && (o.frame as number) < FRAMES.length ? (o.frame as number) : 0;
   const round = (v: number) => Math.round(v * 1000) / 1000;
   return { url: url.url, ...(title ? { title } : {}), wall, u: round(at.u), y: round(at.y), w: round(w), h: round(h), frame };

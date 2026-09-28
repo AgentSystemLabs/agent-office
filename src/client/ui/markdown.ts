@@ -66,15 +66,7 @@ function linkify(root: HTMLElement, repoUrl?: string) {
     let at = 0;
     for (let m = REF_RE.exec(s); m; m = REF_RE.exec(s)) {
       const start = m.index + m[1].length;
-      const href = m[3]
-        ? repoUrl
-          ? `${repoUrl}${gitlab ? '/-' : ''}/issues/${m[3]}`
-          : ''
-        : m[4]
-          ? gitlab && repoUrl
-            ? `${repoUrl}/-/merge_requests/${m[4]}`
-            : ''
-          : `${site}/${m[5]}`;
+      const href = m[3] ? (repoUrl ? `${repoUrl}${gitlab ? '/-' : ''}/issues/${m[3]}` : '') : m[4] ? (gitlab && repoUrl ? `${repoUrl}/-/merge_requests/${m[4]}` : '') : `${site}/${m[5]}`;
       if (!href) continue;
       frag.append(s.slice(at, start), h('a', { href, target: '_blank', rel: 'noopener noreferrer', class: m[5] ? 'mention' : 'ref' }, m[2]));
       at = start + m[2].length;

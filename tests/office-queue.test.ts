@@ -41,7 +41,12 @@ test('says what is wrong with a bad command line', () => {
     [['add', '--title', 'T', '--model', 'x'], /Unknown option for add: --model/],
     [['add', 'Fix', 'login'], /Unexpected argument: Fix/],
   ];
-  for (const [argv, message] of bad) assert.throws(() => parseArgs(argv), (e: Error) => e instanceof UsageError && message.test(e.message), argv.join(' '));
+  for (const [argv, message] of bad)
+    assert.throws(
+      () => parseArgs(argv),
+      (e: Error) => e instanceof UsageError && message.test(e.message),
+      argv.join(' '),
+    );
 });
 
 test('needs the office address, its worker id and its token from the environment', () => {
@@ -53,10 +58,14 @@ test('needs the office address, its worker id and its token from the environment
 test('builds the /office/queue requests', () => {
   const auth = { authorization: 'Bearer tok' };
   assert.deepEqual(buildRequest({ cmd: 'list' }, { ...OFFICE, worker: 'w1 &x' }), {
-    method: 'GET', url: 'http://127.0.0.1:4455/office/queue?worker=w1+%26x', headers: auth,
+    method: 'GET',
+    url: 'http://127.0.0.1:4455/office/queue?worker=w1+%26x',
+    headers: auth,
   });
   assert.deepEqual(buildRequest({ cmd: 'remove', id: 'abc/123' }, OFFICE), {
-    method: 'DELETE', url: 'http://127.0.0.1:4455/office/queue?worker=w1&task=abc%2F123', headers: auth,
+    method: 'DELETE',
+    url: 'http://127.0.0.1:4455/office/queue?worker=w1&task=abc%2F123',
+    headers: auth,
   });
   const add = buildRequest({ cmd: 'add', title: 'Fix login', issue: 12 }, OFFICE, 'Fix the redirect in src/login.ts.\r\nThen open a PR.\n');
   assert.equal(add.method, 'POST');
@@ -80,13 +89,16 @@ test('lists the queue readably: id, status, title, worker and PR', () => {
       { id: 'ddd444', title: 'Broken', status: 'done', outcome: 'failed', error: 'no desk' },
     ],
   });
-  assert.equal(text, [
-    '4 tasks · up to 2 at a time',
-    'aaa111  running        Fix login (issue #12) · worker Pixel on office/pixel-1a2b',
-    'bbb222  queued         Dark mode',
-    'ccc333  done           Rename the dog · worker Byte · PR #9 open https://github.com/o/r/pull/9',
-    'ddd444  done (failed)  Broken · error: no desk',
-  ].join('\n'));
+  assert.equal(
+    text,
+    [
+      '4 tasks · up to 2 at a time',
+      'aaa111  running        Fix login (issue #12) · worker Pixel on office/pixel-1a2b',
+      'bbb222  queued         Dark mode',
+      'ccc333  done           Rename the dog · worker Byte · PR #9 open https://github.com/o/r/pull/9',
+      'ddd444  done (failed)  Broken · error: no desk',
+    ].join('\n'),
+  );
 });
 
 /** Runs main() against a fake fetch; returns what it printed and what it sent. */
@@ -155,7 +167,7 @@ test('list and remove print what the office sent back', async () => {
   assert.equal(removed.out, 'Took abc123 off the queue.');
 });
 
-test('runs as a command: a heredoc prompt goes over HTTP with the agent\'s own token', async (t) => {
+test("runs as a command: a heredoc prompt goes over HTTP with the agent's own token", async (t) => {
   const seen: { method?: string; url?: string; auth?: string; body: string }[] = [];
   const server = http.createServer((req, res) => {
     let body = '';
@@ -172,8 +184,7 @@ test('runs as a command: a heredoc prompt goes over HTTP with the agent\'s own t
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const cli = (env: Record<string, string>, input: string) =>
     new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
-      const child = execFile(process.execPath, [SCRIPT, 'add', '--title', 'Fix login'], { env: { PATH: process.env.PATH ?? '', ...env } }, (error, stdout, stderr) =>
-        resolve({ code: error ? Number(error.code) : 0, stdout, stderr }));
+      const child = execFile(process.execPath, [SCRIPT, 'add', '--title', 'Fix login'], { env: { PATH: process.env.PATH ?? '', ...env } }, (error, stdout, stderr) => resolve({ code: error ? Number(error.code) : 0, stdout, stderr }));
       child.stdin!.end(input);
     });
 
@@ -181,7 +192,9 @@ test('runs as a command: a heredoc prompt goes over HTTP with the agent\'s own t
   assert.equal(ok.code, 0, ok.stderr);
   assert.equal(ok.stdout, 'f00d\n');
   assert.deepEqual(seen[0], {
-    method: 'POST', url: '/office/queue?worker=w1', auth: 'Bearer tok',
+    method: 'POST',
+    url: '/office/queue?worker=w1',
+    auth: 'Bearer tok',
     body: JSON.stringify({ title: 'Fix login', prompt: "Don't expand $HOME or `this`." }),
   });
 

@@ -18,13 +18,48 @@ const GHOST = 8;
 /** I, O, T, S, Z, J, L: where each piece's blocks are in its box, turned the way it comes in. */
 const SHAPES: readonly (readonly [number, number][])[] = [
   [],
-  [[0, 1], [1, 1], [2, 1], [3, 1]],
-  [[0, 0], [1, 0], [0, 1], [1, 1]],
-  [[1, 0], [0, 1], [1, 1], [2, 1]],
-  [[1, 0], [2, 0], [0, 1], [1, 1]],
-  [[0, 0], [1, 0], [1, 1], [2, 1]],
-  [[0, 0], [0, 1], [1, 1], [2, 1]],
-  [[2, 0], [0, 1], [1, 1], [2, 1]],
+  [
+    [0, 1],
+    [1, 1],
+    [2, 1],
+    [3, 1],
+  ],
+  [
+    [0, 0],
+    [1, 0],
+    [0, 1],
+    [1, 1],
+  ],
+  [
+    [1, 0],
+    [0, 1],
+    [1, 1],
+    [2, 1],
+  ],
+  [
+    [1, 0],
+    [2, 0],
+    [0, 1],
+    [1, 1],
+  ],
+  [
+    [0, 0],
+    [1, 0],
+    [1, 1],
+    [2, 1],
+  ],
+  [
+    [0, 0],
+    [0, 1],
+    [1, 1],
+    [2, 1],
+  ],
+  [
+    [2, 0],
+    [0, 1],
+    [1, 1],
+    [2, 1],
+  ],
 ];
 const BOX = [0, 4, 2, 3, 3, 3, 3, 3];
 /** Each piece's color, and a ghost's. */
@@ -35,16 +70,64 @@ export const COLORS = ['', '#4cc9f0', '#ffd166', '#b388eb', '#06d6a0', '#ef476f'
  * (x right, y up, as they're usually written). Turning back the other way tries them reversed.
  */
 const KICKS: readonly (readonly [number, number][])[] = [
-  [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],
-  [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]],
-  [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]],
-  [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]],
+  [
+    [0, 0],
+    [-1, 0],
+    [-1, 1],
+    [0, -2],
+    [-1, -2],
+  ],
+  [
+    [0, 0],
+    [1, 0],
+    [1, -1],
+    [0, 2],
+    [1, 2],
+  ],
+  [
+    [0, 0],
+    [1, 0],
+    [1, 1],
+    [0, -2],
+    [1, -2],
+  ],
+  [
+    [0, 0],
+    [-1, 0],
+    [-1, -1],
+    [0, 2],
+    [-1, 2],
+  ],
 ];
 const I_KICKS: readonly (readonly [number, number][])[] = [
-  [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]],
-  [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]],
-  [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]],
-  [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]],
+  [
+    [0, 0],
+    [-2, 0],
+    [1, 0],
+    [-2, -1],
+    [1, 2],
+  ],
+  [
+    [0, 0],
+    [-1, 0],
+    [2, 0],
+    [-1, 2],
+    [2, -1],
+  ],
+  [
+    [0, 0],
+    [2, 0],
+    [-1, 0],
+    [2, 1],
+    [-1, -2],
+  ],
+  [
+    [0, 0],
+    [1, 0],
+    [-2, 0],
+    [1, -2],
+    [-2, 1],
+  ],
 ];
 
 /** How long a piece sits on something before it sticks, and how many moves can put that off. */
@@ -74,7 +157,7 @@ function blocks(kind: number, rot: number): [number, number][] {
 
 /** Seconds per row at a level: a second at 1, quicker and quicker after. */
 function gravity(level: number): number {
-  return Math.pow(0.8 - (level - 1) * 0.007, level - 1);
+  return (0.8 - (level - 1) * 0.007) ** (level - 1);
 }
 
 export class Blocks {

@@ -187,13 +187,7 @@ export class Cabinet {
     const stop = h('button.btn', { type: 'button' }, mode === 'play' ? '✕ Stop playing' : '✕ Stop watching');
     const tip = mode === 'play' ? '← → move · ↑ turn · ↓ faster · Space drop · C hold · P pause' : `👀 Watching ${this.watching}`;
     const call = h('div.cabinet-call.hidden', { role: 'status' });
-    const box = h(
-      'div.arcade.cabinet',
-      { role: 'dialog', 'aria-label': GAME },
-      h('div.arcade-screen', {}, board),
-      call,
-      h('div.arcade-bar', {}, h('span', {}, GAME), h('span.tip', {}, tip), stop),
-    );
+    const box = h('div.arcade.cabinet', { role: 'dialog', 'aria-label': GAME }, h('div.arcade-screen', {}, board), call, h('div.arcade-bar', {}, h('span', {}, GAME), h('span.tip', {}, tip), stop));
 
     const fit = () => {
       const { width, height } = this.view.box();

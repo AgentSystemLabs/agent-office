@@ -93,12 +93,24 @@ export default async function run({ frame }) {
   await frame.waitForTimeout(1500);
   const workers = await frame.evaluate(() => window.__vrtest?.workers?.() ?? []);
   console.log('SEARCH:', JSON.stringify({ sayBtn, shortToast, shortView, findBtn, asked: asked?.prompt ?? null, found, view, chatTap, afterChatTap, jumped, jumpedUi, empty, workersLeft: workers.length }));
-  const ok = sayBtn === true && shortToast === 'Type at least two characters' && shortView === 'chat' &&
-    findBtn === true && asked?.prompt === true && found?.status === 'done' && view === 'search' &&
-    found.chat >= 1 && found.terminals >= 1 &&
-    afterChatTap.view === 'search' && afterChatTap.ui.terminal === false &&
-    jumped?.workerId === shell && jumped.row >= 0 && jumpedUi.terminal === true &&
-    empty?.status === 'done' && empty.chat === 0 && empty.terminals === 0 &&
+  const ok =
+    sayBtn === true &&
+    shortToast === 'Type at least two characters' &&
+    shortView === 'chat' &&
+    findBtn === true &&
+    asked?.prompt === true &&
+    found?.status === 'done' &&
+    view === 'search' &&
+    found.chat >= 1 &&
+    found.terminals >= 1 &&
+    afterChatTap.view === 'search' &&
+    afterChatTap.ui.terminal === false &&
+    jumped?.workerId === shell &&
+    jumped.row >= 0 &&
+    jumpedUi.terminal === true &&
+    empty?.status === 'done' &&
+    empty.chat === 0 &&
+    empty.terminals === 0 &&
     !workers.some((w) => w.id === shell);
   return { ok };
 }

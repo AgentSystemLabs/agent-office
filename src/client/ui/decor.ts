@@ -40,18 +40,7 @@ export function openHangDialog(opts: { initial?: Decoration; onDone(choice: Hang
     'form.modal.hang',
     { role: 'dialog', 'aria-label': init ? 'Edit picture' : 'Hang a picture' },
     h('header', {}, h('h2', {}, init ? 'Edit picture' : 'Hang a picture'), close),
-    h(
-      'div.body',
-      {},
-      h('label', {}, 'Image link'),
-      urlIn,
-      h('label', { style: 'margin-top:12px' }, 'Title'),
-      titleIn,
-      h('label', { style: 'margin-top:12px' }, 'Frame'),
-      frames,
-      preview,
-      status,
-    ),
+    h('div.body', {}, h('label', {}, 'Image link'), urlIn, h('label', { style: 'margin-top:12px' }, 'Title'), titleIn, h('label', { style: 'margin-top:12px' }, 'Frame'), frames, preview, status),
     h('footer', {}, h('span.grow', {}, init ? '' : 'Then aim at a wall and click.'), cancel, submit),
   ) as HTMLFormElement;
 
@@ -65,12 +54,7 @@ export function openHangDialog(opts: { initial?: Decoration; onDone(choice: Hang
   const paintFrames = () => {
     frames.replaceChildren(
       ...FRAMES.map((f, i) =>
-        h(
-          'button.btn',
-          { type: 'button', role: 'radio', 'aria-checked': String(i === frame), class: i === frame ? 'on' : '', onclick: () => ((frame = i), paintFrames()) },
-          h('span.dot', { style: `background:${f.color}` }),
-          f.name,
-        ),
+        h('button.btn', { type: 'button', role: 'radio', 'aria-checked': String(i === frame), class: i === frame ? 'on' : '', onclick: () => ((frame = i), paintFrames()) }, h('span.dot', { style: `background:${f.color}` }), f.name),
       ),
     );
     preview.style.setProperty('--frame', FRAMES[frame].color);

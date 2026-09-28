@@ -1,8 +1,36 @@
 // Getting around the office floor downstairs (no stairs, no loft, no elevator), round the furniture
 // on a coarse grid: the dog's walks (server/dog.ts), and a worker's way out when it's sent home.
 
-import { BALCONY, BALCONY_DOOR, BEANBAGS, CABINET, DESK_SIZE, DESKS, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LADDER, LOFT, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PARACHUTE, PLANTS, POLE, POLES, ROAD, STAIRS, STATIONS, WHITEBOARD, type DeskDef } from './layout.js';
-
+import {
+  BALCONY,
+  BALCONY_DOOR,
+  BEANBAGS,
+  CABINET,
+  DESK_SIZE,
+  DESKS,
+  ELEVATOR,
+  ELEVATOR_FRONT,
+  EXIT_DOOR,
+  EXIT_STAIRS,
+  FLOOR,
+  GONG,
+  JUKEBOX,
+  KIOSK,
+  LADDER,
+  LOFT,
+  MEETING_ROOM,
+  MEETING_SEATS,
+  MEETING_TABLE,
+  PARACHUTE,
+  PLANTS,
+  POLE,
+  POLES,
+  ROAD,
+  STAIRS,
+  STATIONS,
+  WHITEBOARD,
+  type DeskDef,
+} from './layout.js';
 
 export type Pt = [number, number];
 
@@ -263,7 +291,6 @@ class Heap {
     return top;
   }
 }
-
 
 // ---- Sent home ----------------------------------------------------------------------------------
 

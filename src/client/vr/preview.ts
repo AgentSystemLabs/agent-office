@@ -31,9 +31,21 @@ let screenVersion = 1;
 
 function worker(id: string, name: string, color: string, status: WorkerInfo['status'], extra: Partial<WorkerInfo> = {}): WorkerInfo {
   return {
-    id, kind: 'agent', provider: 'claude', deskId: `desk-${id}`, name, color, status,
-    acked: status !== 'needs_input' && status !== 'done', createdBy: 'preview', createdAt: now - 3600_000,
-    viewers: [], viewerIds: [], cols: 96, rows: 28, ...extra,
+    id,
+    kind: 'agent',
+    provider: 'claude',
+    deskId: `desk-${id}`,
+    name,
+    color,
+    status,
+    acked: status !== 'needs_input' && status !== 'done',
+    createdBy: 'preview',
+    createdAt: now - 3600_000,
+    viewers: [],
+    viewerIds: [],
+    cols: 96,
+    rows: 28,
+    ...extra,
   } as WorkerInfo;
 }
 
@@ -54,12 +66,21 @@ function demoScreen(seed: number): ScreenState {
   lines.push(gridLine(''));
   for (let i = 0; i < 20; i++) {
     const fg = rainbow[(i + seed) % rainbow.length];
-    lines.push([[`[${String(i + seed).padStart(3, '0')}] `, 8, -1, 0], [`building module-${i} … `, -1, -1, 0], [i % 4 === 3 ? 'FAIL' : 'ok', i % 4 === 3 ? 1 : 2, -1, 1], [` ${fg}`, fg, -1, 0]]);
+    lines.push([
+      [`[${String(i + seed).padStart(3, '0')}] `, 8, -1, 0],
+      [`building module-${i} … `, -1, -1, 0],
+      [i % 4 === 3 ? 'FAIL' : 'ok', i % 4 === 3 ? 1 : 2, -1, 1],
+      [` ${fg}`, fg, -1, 0],
+    ]);
   }
   lines.push(gridLine(''));
   lines.push(gridLine('Inv_days… inverse video test', -1, 4, 2));
   lines.push(gridLine('dimmed detail line (dim flag)', -1, -1, 4));
-  lines.push([[`truecolor `, -1, -1, 0], ['▓▓▓', 0x1000000 | 0xee6018, -1, 0], [' office orange', -1, -1, 0]]);
+  lines.push([
+    [`truecolor `, -1, -1, 0],
+    ['▓▓▓', 0x1000000 | 0xee6018, -1, 0],
+    [' office orange', -1, -1, 0],
+  ]);
   lines.push(gridLine(`$ cursor on row ${rows - 1} — type on the keyboard below`, 2));
   while (lines.length < rows) lines.push(gridLine(''));
   return { cols, rows, lines: lines.slice(0, rows), cursor: [2, rows - 1], version: screenVersion };
@@ -70,19 +91,90 @@ screens.set('w2', demoScreen(40));
 screens.set('w3', demoScreen(80));
 
 const issues: GhIssue[] = [
-  { number: 101, title: 'Dog walks through the jukebox on floor 2', state: 'OPEN', url: '#', author: 'nik', labels: [{ name: 'bug', color: 'ee6018' }], assignees: [], createdAt: '', updatedAt: '', body: 'Steps to reproduce: hire a worker, wait for the dog. The good boy phases straight through the jukebox cabinet. Expected: collision. Actual: ghost dog.', comments: 4 },
-  { number: 102, title: 'Add rooftop bar drink: espresso martini', state: 'OPEN', url: '#', author: 'ada', labels: [{ name: 'feature', color: '06d6a0' }], assignees: ['nik'], createdAt: '', updatedAt: '', body: 'The people demand it. Shaken, not stirred, served at the DJ booth.', comments: 12 },
+  {
+    number: 101,
+    title: 'Dog walks through the jukebox on floor 2',
+    state: 'OPEN',
+    url: '#',
+    author: 'nik',
+    labels: [{ name: 'bug', color: 'ee6018' }],
+    assignees: [],
+    createdAt: '',
+    updatedAt: '',
+    body: 'Steps to reproduce: hire a worker, wait for the dog. The good boy phases straight through the jukebox cabinet. Expected: collision. Actual: ghost dog.',
+    comments: 4,
+  },
+  {
+    number: 102,
+    title: 'Add rooftop bar drink: espresso martini',
+    state: 'OPEN',
+    url: '#',
+    author: 'ada',
+    labels: [{ name: 'feature', color: '06d6a0' }],
+    assignees: ['nik'],
+    createdAt: '',
+    updatedAt: '',
+    body: 'The people demand it. Shaken, not stirred, served at the DJ booth.',
+    comments: 12,
+  },
   { number: 103, title: 'Laptop screens flicker at midnight (sky bug?)', state: 'CLOSED', url: '#', author: 'sam', labels: [], assignees: [], createdAt: '', updatedAt: '', body: '', comments: 0 },
 ];
 const pulls: GhPull[] = [
-  { number: 42, title: 'Fix ghost dog collision', state: 'OPEN', isDraft: false, url: '#', author: 'grace', labels: [], reviewDecision: '', headRefName: 'fix/ghost-dog', baseRefName: 'main', createdAt: '', updatedAt: '', additions: 120, deletions: 30, checks: 'pass', body: 'Collider added to the jukebox. The dog now walks around it, disappointed.', closes: [101] },
-  { number: 43, title: 'WIP: espresso martini', state: 'OPEN', isDraft: true, url: '#', author: 'ada', labels: [], reviewDecision: '', headRefName: 'feat/espresso-martini', baseRefName: 'main', createdAt: '', updatedAt: '', additions: 5, deletions: 1, checks: 'pending', body: 'Do not merge yet. Glassware pending.', closes: [] },
+  {
+    number: 42,
+    title: 'Fix ghost dog collision',
+    state: 'OPEN',
+    isDraft: false,
+    url: '#',
+    author: 'grace',
+    labels: [],
+    reviewDecision: '',
+    headRefName: 'fix/ghost-dog',
+    baseRefName: 'main',
+    createdAt: '',
+    updatedAt: '',
+    additions: 120,
+    deletions: 30,
+    checks: 'pass',
+    body: 'Collider added to the jukebox. The dog now walks around it, disappointed.',
+    closes: [101],
+  },
+  {
+    number: 43,
+    title: 'WIP: espresso martini',
+    state: 'OPEN',
+    isDraft: true,
+    url: '#',
+    author: 'ada',
+    labels: [],
+    reviewDecision: '',
+    headRefName: 'feat/espresso-martini',
+    baseRefName: 'main',
+    createdAt: '',
+    updatedAt: '',
+    additions: 5,
+    deletions: 1,
+    checks: 'pending',
+    body: 'Do not merge yet. Glassware pending.',
+    closes: [],
+  },
 ];
 const tasks: QueueTask[] = [
   { id: 't1', title: '#101 ghost dog', prompt: 'fix the dog', addedBy: 'nik', addedAt: now - 5000, status: 'running', issue: 101, workerId: 'w2', workerName: 'Grace', branch: 'fix/ghost-dog' },
   { id: 't2', title: '#102 espresso martini', prompt: 'mix drinks', addedBy: 'ada', addedAt: now - 60000, status: 'queued', issue: 102 },
   { id: 't3', title: 'Refactor confetti physics', prompt: 'confetti', addedBy: 'sam', addedAt: now - 90000, status: 'queued' },
-  { id: 't4', title: 'Old task with a PR', prompt: 'old', addedBy: 'nik', addedAt: now - 8000000, status: 'done', finishedAt: now - 7000000, outcome: 'done', workerName: 'Sam', pr: { number: 42, url: '#', title: 'Fix ghost dog collision', state: 'OPEN' } },
+  {
+    id: 't4',
+    title: 'Old task with a PR',
+    prompt: 'old',
+    addedBy: 'nik',
+    addedAt: now - 8000000,
+    status: 'done',
+    finishedAt: now - 7000000,
+    outcome: 'done',
+    workerName: 'Sam',
+    pr: { number: 42, url: '#', title: 'Fix ghost dog collision', state: 'OPEN' },
+  },
 ];
 
 type Topic = 'screens' | 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services' | 'peers' | 'dog';
@@ -149,11 +241,33 @@ const deps: VrUiDeps = {
   getSearch: () => ({ query: 'bean bag', status: 'done', results: { q: 'bean bag', chat: [chat[0]], terminals: [{ workerId: 'w2', text: 'sitting on the bean bag, feeling guilty', row: 30, rows: 40 }], more: false } }),
   getMerge: () => ({ number: 42, state: 'ready', status: { icon: '✅', text: 'Ready to merge.', short: 'Ready to merge', cls: 'ok', can: true, auto: false }, methods: ['squash', 'merge', 'rebase'] }),
   getChangesWorker: () => 'w2',
-  getChanges: () => ({ workerId: 'w2', dir: 'w/grace', branch: 'feat/bean-bag', base: 'main', ahead: 1, subject: 'stash the bean bag', files: [{ path: 'src/ui.ts', status: 'M', additions: 12, deletions: 3, binary: false, uncommitted: true, sig: '1' }, { path: 'notes.txt', status: '?', additions: 5, deletions: 0, binary: false, uncommitted: true, sig: '2' }], more: 0, prBase: 'main', at: now }),
+  getChanges: () => ({
+    workerId: 'w2',
+    dir: 'w/grace',
+    branch: 'feat/bean-bag',
+    base: 'main',
+    ahead: 1,
+    subject: 'stash the bean bag',
+    files: [
+      { path: 'src/ui.ts', status: 'M', additions: 12, deletions: 3, binary: false, uncommitted: true, sig: '1' },
+      { path: 'notes.txt', status: '?', additions: 5, deletions: 0, binary: false, uncommitted: true, sig: '2' },
+    ],
+    more: 0,
+    prBase: 'main',
+    at: now,
+  }),
   onRoof: () => false,
   barCutOff: () => false,
   getVrSettings: () => ({ glide: false, turn: 'snap', turnSpeed: 90, fade: true }),
-  voice: { isMuted: () => muted, inVoice: () => true, toggleMute: () => { muted = !muted; log('mute →', muted); }, leaveVoice: () => log('leave voice') },
+  voice: {
+    isMuted: () => muted,
+    inVoice: () => true,
+    toggleMute: () => {
+      muted = !muted;
+      log('mute →', muted);
+    },
+    leaveVoice: () => log('leave voice'),
+  },
   actions: {
     hire: (deskId) => log('hire at', deskId, '(would open the VR hire prompt)'),
     toggleWorktree: () => log('worktree toggle (would flip the next hire)'),
@@ -178,7 +292,7 @@ const deps: VrUiDeps = {
     reviewPanel: (n) => log('review panel for PR', `#${n}`),
     mergePull: (n) => log('merge PR', `#${n}`),
     detailOpened: (kind, n) => log('detail opened', kind, `#${n}`),
-    openChanges: (id) => log("watching changes for", id),
+    openChanges: (id) => log('watching changes for', id),
     commitChanges: (id) => log('commit for', id, '(would open the VR message prompt)'),
     discardChangesArm: (id) => log('discard armed for', id),
     discardChanges: (id) => log('discard for', id),
@@ -294,26 +408,34 @@ button('terminal: Grace', () => vrUi.openTerminal('w2'));
 button('terminal: Sam', () => vrUi.openTerminal('w3'));
 button('terminal: close', () => vrUi.closeTerminal());
 const menuAnchor = vrUi.menu.panel.group.position.clone();
-button('follow: on', (function () {
-  let on = true;
-  return function (this: HTMLButtonElement) {
-    on = !on;
-    vrUi.menu.panel.setFollow(on);
-    if (!on) {
-      vrUi.menu.panel.group.position.copy(menuAnchor);
-      vrUi.menu.panel.group.lookAt(camera.position);
-    }
-    this.textContent = `follow: ${on ? 'on' : 'off'}`;
-    this.classList.toggle('on', on);
-    log('menu follow →', on);
-  };
-})());
+button(
+  'follow: on',
+  (() => {
+    let on = true;
+    return function (this: HTMLButtonElement) {
+      on = !on;
+      vrUi.menu.panel.setFollow(on);
+      if (!on) {
+        vrUi.menu.panel.group.position.copy(menuAnchor);
+        vrUi.menu.panel.group.lookAt(camera.position);
+      }
+      this.textContent = `follow: ${on ? 'on' : 'off'}`;
+      this.classList.toggle('on', on);
+      log('menu follow →', on);
+    };
+  })(),
+);
 function focus(pos: [number, number, number], look: [number, number, number]) {
   camera.position.set(pos[0], pos[1], pos[2]);
   camera.lookAt(look[0], look[1], look[2]);
 }
 button('focus: all', () => focus([0, 1.5, 0.9], [0, 1.3, -1.1]));
-button('focus: menu', () => { vrUi.menu.panel.setFollow(false); vrUi.menu.panel.group.position.copy(menuAnchor); vrUi.menu.panel.group.lookAt(camera.position); focus([-0.75, 1.35, 0.1], [-0.75, 1.35, -0.95]); });
+button('focus: menu', () => {
+  vrUi.menu.panel.setFollow(false);
+  vrUi.menu.panel.group.position.copy(menuAnchor);
+  vrUi.menu.panel.group.lookAt(camera.position);
+  focus([-0.75, 1.35, 0.1], [-0.75, 1.35, -0.95]);
+});
 button('focus: terminal', () => focus([0, 1.5, -0.25], [0, 1.5, -1.15]));
 button('focus: keyboard', () => focus([0, 1.45, -0.25], [0, 1.0, -0.95]));
 
@@ -343,9 +465,13 @@ window.addEventListener('pointerup', (e) => {
   cast(e);
   vrUi.routeRay(0, raycaster, false);
 });
-renderer.domElement.addEventListener('wheel', (e) => {
-  vrUi.stickScroll(0, Math.sign(e.deltaY) * 0.8, 1 / 60);
-}, { passive: true });
+renderer.domElement.addEventListener(
+  'wheel',
+  (e) => {
+    vrUi.stickScroll(0, Math.sign(e.deltaY) * 0.8, 1 / 60);
+  },
+  { passive: true },
+);
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;

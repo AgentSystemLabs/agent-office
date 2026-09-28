@@ -246,7 +246,10 @@ export class TunePlayer {
     comp.release.value = 0.2;
     this.dry = ctx.createGain();
     this.dry.gain.value = 0.8;
-    this.dry.connect(biquad(ctx, 'lowpass', 5200, 0.5)).connect(comp).connect(this.fade);
+    this.dry
+      .connect(biquad(ctx, 'lowpass', 5200, 0.5))
+      .connect(comp)
+      .connect(this.fade);
 
     const conv = ctx.createConvolver();
     conv.buffer = b.room;
@@ -282,7 +285,10 @@ export class TunePlayer {
     crackle.loop = true;
     const crackleG = ctx.createGain();
     crackleG.gain.value = 0.05;
-    crackle.connect(biquad(ctx, 'highpass', 900, 0.7)).connect(crackleG).connect(this.fade);
+    crackle
+      .connect(biquad(ctx, 'highpass', 900, 0.7))
+      .connect(crackleG)
+      .connect(this.fade);
     crackle.start();
     this.loops.push(crackle);
   }

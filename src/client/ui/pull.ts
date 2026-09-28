@@ -203,11 +203,21 @@ export function mergeStatus(d: GhPullDetail): MergeStatus {
   if (d.state === 'MERGED') return { icon: '🎉', text: 'Merged.', short: 'Merged', cls: 'ok', can: false, auto: false };
   if (d.state === 'CLOSED') return { icon: '🗑️', text: 'Closed without merging.', short: 'Closed', cls: 'muted', can: false, auto: false };
   if (d.isDraft) return { icon: '📝', text: `This is still a draft. Mark it ready for review on ${words().site} before merging.`, short: 'Draft', cls: 'muted', can: false, auto: false };
-  if (conflicted(d))
-    return { icon: '⚠️', text: `This branch has conflicts with ${d.baseRefName} that must be resolved first.`, short: 'Conflicts', cls: 'bad', can: false, auto: false };
+  if (conflicted(d)) return { icon: '⚠️', text: `This branch has conflicts with ${d.baseRefName} that must be resolved first.`, short: 'Conflicts', cls: 'bad', can: false, auto: false };
   if (d.mergeStateStatus === 'BEHIND') return { icon: '⤵️', text: `The branch is behind ${d.baseRefName}, and this repo wants it up to date before merging.`, short: 'Behind base', cls: 'warn', can: true, auto: true };
   if (d.mergeStateStatus === 'BLOCKED') {
-    const why = d.reviewDecision === 'CHANGES_REQUESTED' ? 'changes were requested' : d.reviewDecision === 'REVIEW_REQUIRED' ? 'it needs an approving review' : d.blocked ? d.blocked : failing ? `${failing} check${failing > 1 ? 's are' : ' is'} failing` : pending ? 'required checks are still running' : 'a branch rule is not met yet';
+    const why =
+      d.reviewDecision === 'CHANGES_REQUESTED'
+        ? 'changes were requested'
+        : d.reviewDecision === 'REVIEW_REQUIRED'
+          ? 'it needs an approving review'
+          : d.blocked
+            ? d.blocked
+            : failing
+              ? `${failing} check${failing > 1 ? 's are' : ' is'} failing`
+              : pending
+                ? 'required checks are still running'
+                : 'a branch rule is not met yet';
     return { icon: '🚫', text: `Merging is blocked: ${why}.`, short: 'Blocked', cls: 'bad', can: true, auto: true };
   }
   if (failing) return { icon: '❌', text: `${failing} check${failing > 1 ? 's' : ''} failing. It can still be merged.`, short: 'Checks failing', cls: 'warn', can: true, auto: false };
@@ -219,11 +229,7 @@ export function mergeStatus(d: GhPullDetail): MergeStatus {
 function checksList(checks: GhCheck[]) {
   const order: GhCheck['state'][] = ['fail', 'pending', 'pass', 'skip'];
   const sorted = [...checks].sort((a, b) => order.indexOf(a.state) - order.indexOf(b.state));
-  return h(
-    'ul.gh-checks',
-    {},
-    ...sorted.map((c) => h('li', {}, h('span', { 'aria-label': c.state }, CHECK_ICON[c.state]), c.url ? h('a', { href: c.url, target: '_blank', rel: 'noopener noreferrer' }, c.name) : h('span', {}, c.name))),
-  );
+  return h('ul.gh-checks', {}, ...sorted.map((c) => h('li', {}, h('span', { 'aria-label': c.state }, CHECK_ICON[c.state]), c.url ? h('a', { href: c.url, target: '_blank', rel: 'noopener noreferrer' }, c.name) : h('span', {}, c.name))));
 }
 
 // ---- Comment box --------------------------------------------------------------------------------
@@ -254,14 +260,7 @@ function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: string, net
   const who = h('span.grow', {}, `Posts to ${words().site} as the office's ${words().cli} account`);
   const post = h('button.btn.primary', { type: 'button' }, 'Comment');
   const result = h('div.gh-merge-result.error.hidden');
-  const el = h(
-    'article.gh-card.gh-compose',
-    {},
-    h('header', {}, h('b', {}, 'Add a comment'), h('span.grow'), h('div.seg', {}, write, preview)),
-    h('div.gh-compose-body', {}, ta, shown),
-    result,
-    h('div.gh-compose-foot', {}, who, post),
-  );
+  const el = h('article.gh-card.gh-compose', {}, h('header', {}, h('b', {}, 'Add a comment'), h('span.grow'), h('div.seg', {}, write, preview)), h('div.gh-compose-body', {}, ta, shown), result, h('div.gh-compose-foot', {}, who, post));
 
   const sync = () => {
     post.disabled = busy || !ta.value.trim();
@@ -343,7 +342,8 @@ function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: string, net
 
 function reviewPrompt(it: GhPull) {
   const w = words();
-  if (w.cli === 'glab') return `Review merge request ${w.ref(it.number)}: "${it.title}".\n\nUse \`glab mr view ${it.number} --comments\` and \`glab mr diff ${it.number}\`. Look for bugs, risky changes and missing tests, then give me a short summary with concrete suggestions. Don't push any commits.`;
+  if (w.cli === 'glab')
+    return `Review merge request ${w.ref(it.number)}: "${it.title}".\n\nUse \`glab mr view ${it.number} --comments\` and \`glab mr diff ${it.number}\`. Look for bugs, risky changes and missing tests, then give me a short summary with concrete suggestions. Don't push any commits.`;
   return `Review pull request #${it.number}: "${it.title}".\n\nUse \`gh pr view ${it.number} --comments\` and \`gh pr diff ${it.number}\`. Look for bugs, risky changes and missing tests, then give me a short summary with concrete suggestions. Don't push any commits.`;
 }
 
@@ -429,11 +429,7 @@ function openMerge(it: GhPull, d: GhPullDetail, net: Net, handToWorker: () => vo
   const auto = h('input', { type: 'checkbox', id: 'merge-auto' }) as HTMLInputElement;
   auto.checked = st.auto && st.cls !== 'ok';
   const renderMethods = () => {
-    methodBtns.replaceChildren(
-      ...methods.map((m) =>
-        h('button.btn', { type: 'button', class: m === method ? 'on' : '', onclick: () => ((method = m), savePref(MERGE_KEY, { method, deleteBranch }), renderMethods()) }, methodLabel(m)),
-      ),
-    );
+    methodBtns.replaceChildren(...methods.map((m) => h('button.btn', { type: 'button', class: m === method ? 'on' : '', onclick: () => ((method = m), savePref(MERGE_KEY, { method, deleteBranch }), renderMethods()) }, methodLabel(m))));
     go.textContent = auto.checked ? 'Merge when ready' : methodLabel(method);
   };
   auto.addEventListener('change', renderMethods);
@@ -463,7 +459,14 @@ function openMerge(it: GhPull, d: GhPullDetail, net: Net, handToWorker: () => vo
       h('label', { style: 'margin-top:14px' }, 'How'),
       methodBtns,
       h('label.gh-check', { for: 'merge-del' }, del, `Delete ${it.headRefName} after merging`),
-      st.auto ? h('label.gh-check', { for: 'merge-auto', title: words().cli === 'glab' ? 'GitLab auto-merge: it merges once its pipeline and merge checks pass' : 'gh pr merge --auto (the repo must allow auto-merge)' }, auto, 'Merge automatically once the requirements pass') : null,
+      st.auto
+        ? h(
+            'label.gh-check',
+            { for: 'merge-auto', title: words().cli === 'glab' ? 'GitLab auto-merge: it merges once its pipeline and merge checks pass' : 'gh pr merge --auto (the repo must allow auto-merge)' },
+            auto,
+            'Merge automatically once the requirements pass',
+          )
+        : null,
       result,
     ),
     h('footer', {}, st.can || conflicted(d) ? null : worker, h('span.grow'), cancel, conflicted(d) ? worker : go),
@@ -535,11 +538,7 @@ function openClose(kind: 'issue' | 'pull', it: GhIssue | GhPull, net: Net, onClo
       'div.body',
       {},
       h('p.gh-merge-title', {}, it.title, pull ? h('small', {}, `${pull.headRefName} → ${pull.baseRefName}`) : null),
-      pull
-        ? h('div.gh-status.muted', {}, h('span', {}, 'ℹ️'), `It won't be merged, and can be reopened on ${words().site} later.${w ? ` ${w.name} is still at a desk working on its branch.` : ''}`)
-        : askWhy
-          ? h('label', {}, 'Why')
-          : null,
+      pull ? h('div.gh-status.muted', {}, h('span', {}, 'ℹ️'), `It won't be merged, and can be reopened on ${words().site} later.${w ? ` ${w.name} is still at a desk working on its branch.` : ''}`) : askWhy ? h('label', {}, 'Why') : null,
       pull ? h('label.gh-check', { for: 'close-del' }, del, `Delete ${pull.headRefName} too`) : askWhy ? reasons : null,
       comment,
       result,
@@ -640,15 +639,17 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
     const commits = detail ? `${detail.commits} commit${detail.commits === 1 ? '' : 's'}` : 'its commits';
     meta.replaceChildren(
       ...nodes(
-      avatar(it.author),
-      h('b', {}, it.author),
-      h('span', {}, it.state === 'MERGED' ? `merged ${commits} into` : `wants to merge ${commits} into`),
-      h('code', {}, it.baseRefName),
-      h('span', {}, 'from'),
-      h('code', {}, it.headRefName),
-      h('span.gh-pm', {}, h('span.add', {}, `+${it.additions}`), ' ', h('span.del', {}, `−${it.deletions}`)),
-      ...it.labels.slice(0, 5).map(labelChip),
-      it.reviewDecision ? h('span.gh-badge', { class: REVIEW_BADGE[it.reviewDecision]?.[1] ?? '' }, it.reviewDecision === 'REVIEW_REQUIRED' ? 'review required' : (REVIEW_BADGE[it.reviewDecision]?.[0] ?? it.reviewDecision.toLowerCase())) : null,
+        avatar(it.author),
+        h('b', {}, it.author),
+        h('span', {}, it.state === 'MERGED' ? `merged ${commits} into` : `wants to merge ${commits} into`),
+        h('code', {}, it.baseRefName),
+        h('span', {}, 'from'),
+        h('code', {}, it.headRefName),
+        h('span.gh-pm', {}, h('span.add', {}, `+${it.additions}`), ' ', h('span.del', {}, `−${it.deletions}`)),
+        ...it.labels.slice(0, 5).map(labelChip),
+        it.reviewDecision
+          ? h('span.gh-badge', { class: REVIEW_BADGE[it.reviewDecision]?.[1] ?? '' }, it.reviewDecision === 'REVIEW_REQUIRED' ? 'review required' : (REVIEW_BADGE[it.reviewDecision]?.[0] ?? it.reviewDecision.toLowerCase()))
+          : null,
       ),
     );
     const done = files ? files.filter((f) => reviewed.mark(f) === 'reviewed').length : 0;
@@ -670,19 +671,27 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
     const w = workerForPull(store.workers.values(), it);
     footBtns.replaceChildren(
       ...nodes(
-      w ? h('button.btn', { type: 'button', onclick: () => actions.goToDesk(w.deskId) }, `Go to ${w.name}'s desk`) : null,
-      h('button.btn', { type: 'button', title: `Send a worker your own prompt about this ${fw.pr}`, onclick: () => actions.ask(pullContext(it), `Ask about ${pr}`) }, 'Ask a worker…'),
-      isOpen ? h('button.btn', { type: 'button', onclick: () => actions.assign(reviewPrompt(it), `Review ${pr}`) }, 'Review') : null,
-      isOpen
-        ? h('button.btn', { type: 'button', title: 'A few workers review it in the meeting room, each through its own lens, and the office posts one combined review', onclick: () => actions.meeting({ pattern: 'review', pr: it.number, title: `Review of ${pr}`, prompt: `Review ${fw.pull} ${fw.ref(it.number)}: “${it.title}”.` }) }, 'Review panel…')
-        : null,
-      conflicts
-        ? h('button.btn.primary', { type: 'button', title: 'A new worker merges the base in, resolves the conflicts, gets the checks green, then merges', onclick: handToWorker }, 'Fix conflicts & merge')
-        : isOpen
-          ? h('button.btn', { type: 'button', title: 'A worker addresses the review comments, gets the checks green, then merges', onclick: handToWorker }, 'Fix comments & merge')
+        w ? h('button.btn', { type: 'button', onclick: () => actions.goToDesk(w.deskId) }, `Go to ${w.name}'s desk`) : null,
+        h('button.btn', { type: 'button', title: `Send a worker your own prompt about this ${fw.pr}`, onclick: () => actions.ask(pullContext(it), `Ask about ${pr}`) }, 'Ask a worker…'),
+        isOpen ? h('button.btn', { type: 'button', onclick: () => actions.assign(reviewPrompt(it), `Review ${pr}`) }, 'Review') : null,
+        isOpen
+          ? h(
+              'button.btn',
+              {
+                type: 'button',
+                title: 'A few workers review it in the meeting room, each through its own lens, and the office posts one combined review',
+                onclick: () => actions.meeting({ pattern: 'review', pr: it.number, title: `Review of ${pr}`, prompt: `Review ${fw.pull} ${fw.ref(it.number)}: “${it.title}”.` }),
+              },
+              'Review panel…',
+            )
           : null,
-      isOpen ? h('button.btn', { type: 'button', title: `Close this ${fw.pull} without merging it`, onclick: () => openClose('pull', it, net, loadAll) }, `Close ${fw.pr}…`) : null,
-      isOpen ? merge : null,
+        conflicts
+          ? h('button.btn.primary', { type: 'button', title: 'A new worker merges the base in, resolves the conflicts, gets the checks green, then merges', onclick: handToWorker }, 'Fix conflicts & merge')
+          : isOpen
+            ? h('button.btn', { type: 'button', title: 'A worker addresses the review comments, gets the checks green, then merges', onclick: handToWorker }, 'Fix comments & merge')
+            : null,
+        isOpen ? h('button.btn', { type: 'button', title: `Close this ${fw.pull} without merging it`, onclick: () => openClose('pull', it, net, loadAll) }, `Close ${fw.pr}…`) : null,
+        isOpen ? merge : null,
       ),
     );
   };
@@ -764,7 +773,12 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
     // Big files and lock files wait for a click, so a huge PR doesn't lock up the window.
     if (s.big && !open.get(f.path)) {
       s.body.replaceChildren(
-        h('div.pd-big', {}, looksGenerated(f.path) ? 'Generated or lock file — not shown by default.' : `Large diff (${f.lines.length} lines) — not shown by default.`, h('button.btn', { type: 'button', onclick: () => (open.set(f.path, true), buildBody(f)) }, 'Show diff')),
+        h(
+          'div.pd-big',
+          {},
+          looksGenerated(f.path) ? 'Generated or lock file — not shown by default.' : `Large diff (${f.lines.length} lines) — not shown by default.`,
+          h('button.btn', { type: 'button', onclick: () => (open.set(f.path, true), buildBody(f)) }, 'Show diff'),
+        ),
       );
       return;
     }

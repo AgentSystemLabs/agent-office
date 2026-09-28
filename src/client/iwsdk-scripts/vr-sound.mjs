@@ -18,8 +18,7 @@ export default async function run({ frame }) {
   await frame.waitForTimeout(500);
   const after = await frame.evaluate(() => window.__vrtest?.soundMuted?.() ?? null);
   console.log('SOUND:', JSON.stringify({ before, base, musicOff, bothOff, after }));
-  const ok = before !== null && musicOff?.music === !before.music && musicOff?.sounds === before.sounds &&
-    bothOff?.music === !before.music && bothOff?.sounds === !before.sounds &&
-    after?.music === before.music && after?.sounds === before.sounds;
+  const ok =
+    before !== null && musicOff?.music === !before.music && musicOff?.sounds === before.sounds && bothOff?.music === !before.music && bothOff?.sounds === !before.sounds && after?.music === before.music && after?.sounds === before.sounds;
   return { ok };
 }

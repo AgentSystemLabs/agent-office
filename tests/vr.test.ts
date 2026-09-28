@@ -17,7 +17,17 @@ test('probe hides Enter VR without XR, and says why on insecure origins', async 
   assert.equal(await probeXRSupport(nav(undefined), false), 'insecure');
   assert.equal(await probeXRSupport(nav({ isSessionSupported: async () => true }), true), 'supported');
   assert.equal(await probeXRSupport(nav({ isSessionSupported: async () => false }), true), 'unsupported');
-  assert.equal(await probeXRSupport(nav({ isSessionSupported: async () => { throw new Error('denied'); } }), true), 'unsupported');
+  assert.equal(
+    await probeXRSupport(
+      nav({
+        isSessionSupported: async () => {
+          throw new Error('denied');
+        },
+      }),
+      true,
+    ),
+    'unsupported',
+  );
 });
 
 test('session request prefers local-floor, then bounded-floor, then anything', async () => {

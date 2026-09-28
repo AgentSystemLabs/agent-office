@@ -1,0 +1,54 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": ["**", "!!**/dist", "!**/*.json", "!**/*.jsonc", "!**/*.css", "!**/*.html", "!**/*.svg"]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    // The code keeps short statements on one line; a narrower width would rewrap most files.
+    "lineWidth": 240
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "always",
+      "trailingCommas": "all",
+      "arrowParentheses": "always"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      // Idioms this code base uses on purpose, which the recommended preset flags.
+      "style": {
+        // `map.get(k)!` after a check the compiler can't follow; strict TypeScript already covers the rest.
+        "noNonNullAssertion": "off"
+      },
+      "suspicious": {
+        // Untyped JSON from gh, glab and provider CLIs, and `window` debug handles.
+        "noExplicitAny": "off",
+        // `list.forEach((f) => f())` with an expression body.
+        "useIterableCallbackReturn": "off",
+        // `(cache ??= new Thing()).use()` and `return void (x = null)`.
+        "noAssignInExpressions": "off",
+        // The regexes that match control characters are there to strip or reject them.
+        "noControlCharactersInRegex": "off"
+      },
+      "complexity": {
+        // `onclick: () => ((choice = c), render())` in the UI's element builders.
+        "noCommaOperator": "off"
+      }
+    }
+  },
+  "assist": {
+    "enabled": false
+  }
+}

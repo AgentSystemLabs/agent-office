@@ -509,11 +509,7 @@ export class GitLab implements Board {
     this.pulls = { ...this.pulls, loading: true };
     this.onPulls(this.pulls);
     try {
-      const [open, merged, closed] = await Promise.all([
-        this.list('mergeRequests', 'opened', 'CREATED_DESC', 150),
-        this.list('mergeRequests', 'merged', 'MERGED_AT_DESC', 30),
-        this.list('mergeRequests', 'closed', 'UPDATED_DESC', 40),
-      ]);
+      const [open, merged, closed] = await Promise.all([this.list('mergeRequests', 'opened', 'CREATED_DESC', 150), this.list('mergeRequests', 'merged', 'MERGED_AT_DESC', 30), this.list('mergeRequests', 'closed', 'UPDATED_DESC', 40)]);
       const items: GhPull[] = [...open, ...merged, ...closed].map((p) => {
         const body = String(p.description ?? '');
         return {

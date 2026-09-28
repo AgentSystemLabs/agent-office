@@ -97,8 +97,24 @@ export class MachineTexture {
     g.fillText(status[0], W - 30 - (tw + 32) / 2, 60);
 
     const memPct = s.memTotal ? Math.round((s.memUsed / s.memTotal) * 100) : 0;
-    this.panel(30, 100, 415, 'CPU', s.cpu, s.cores ? `${s.cores} core${s.cores === 1 ? '' : 's'}` : '', s.history.map(([c]) => c));
-    this.panel(475, 100, 415, 'Memory', memPct, s.memTotal ? `${fmtGb(s.memUsed)} of ${fmtGb(s.memTotal)}` : '', s.history.map(([, m]) => m));
+    this.panel(
+      30,
+      100,
+      415,
+      'CPU',
+      s.cpu,
+      s.cores ? `${s.cores} core${s.cores === 1 ? '' : 's'}` : '',
+      s.history.map(([c]) => c),
+    );
+    this.panel(
+      475,
+      100,
+      415,
+      'Memory',
+      memPct,
+      s.memTotal ? `${fmtGb(s.memUsed)} of ${fmtGb(s.memTotal)}` : '',
+      s.history.map(([, m]) => m),
+    );
 
     // Footer: the workers, one pip each, against the limit.
     const y = 440;

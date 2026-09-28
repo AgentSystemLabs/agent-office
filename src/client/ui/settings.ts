@@ -383,7 +383,13 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
         ? [
             h('label', { style: 'margin-top:18px' }, 'Outside'),
             h('p.outside-now', {}, outside.now),
-            h('p.setting-note', {}, outside.live ? 'Everyone sees the same sky: the office’s clock and the live weather where it is.' : 'Everyone sees the same sky: the office’s clock, and weather that comes and goes. Start the office with --city to use a real city’s forecast.'),
+            h(
+              'p.setting-note',
+              {},
+              outside.live
+                ? 'Everyone sees the same sky: the office’s clock and the live weather where it is.'
+                : 'Everyone sees the same sky: the office’s clock, and weather that comes and goes. Start the office with --city to use a real city’s forecast.',
+            ),
           ]
         : []),
       h('label', { style: 'margin-top:18px' }, 'Holiday theme'),

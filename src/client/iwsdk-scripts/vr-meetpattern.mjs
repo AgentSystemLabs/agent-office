@@ -19,10 +19,13 @@ export default async function run({ frame }) {
   await frame.waitForTimeout(800);
   const end = await frame.evaluate(() => window.__vrtest?.ui?.() ?? null);
   console.log('MEETPAT:', JSON.stringify({ call, first, second, third, wrapped, cancelled, end }));
-  const ok = call === true &&
+  const ok =
+    call === true &&
     first === '🗣️ Debate · 3 workers · tap to change' &&
     second === '🧭 Lead & team · 3 workers · tap to change' &&
     third === '🛡️ Red / blue · 2 workers · tap to change' &&
-    wrapped === first && cancelled === true && end?.prompt === false;
+    wrapped === first &&
+    cancelled === true &&
+    end?.prompt === false;
   return { ok };
 }

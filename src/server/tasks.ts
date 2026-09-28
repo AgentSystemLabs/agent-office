@@ -118,7 +118,10 @@ export class TaskNamer {
 export function fallbackTask(prompt: string): WorkerTask {
   const one = prompt.replace(/\s+/g, ' ').trim();
   const words = one.replace(/^(please|can you|could you|hey|ok|so)\b[\s,]*/i, '').split(' ');
-  const name = words.slice(0, 4).join(' ').replace(/[\s,.;:!?-]+$/, '');
+  const name = words
+    .slice(0, 4)
+    .join(' ')
+    .replace(/[\s,.;:!?-]+$/, '');
   return { name: cap(clip(name, NAME_MAX)), summary: cap(clip(one, SUMMARY_MAX)) };
 }
 
@@ -133,13 +136,19 @@ function describe(ctx: TaskContext): string {
 function run(claude: string, env: Record<string, string>, input: string): Promise<string | null> {
   const args = [
     '-p',
-    '--model', 'haiku',
-    '--output-format', 'json',
-    '--json-schema', SCHEMA,
-    '--system-prompt', SYSTEM,
-    '--tools', '',
+    '--model',
+    'haiku',
+    '--output-format',
+    'json',
+    '--json-schema',
+    SCHEMA,
+    '--system-prompt',
+    SYSTEM,
+    '--tools',
+    '',
     // Not the user's or the project's settings: no hooks, no MCP servers, no plugins, no transcript.
-    '--setting-sources', '',
+    '--setting-sources',
+    '',
     '--strict-mcp-config',
     '--disable-slash-commands',
     '--no-session-persistence',
@@ -179,7 +188,12 @@ function parse(out: string): WorkerTask | null {
     let v = res?.structured_output;
     if (!v && typeof res?.result === 'string') v = JSON.parse(res.result.replace(/^```(json)?|```$/g, ''));
     const name = clip(String(v?.name ?? '').replace(/^["'\s]+|["'.\s]+$/g, ''), NAME_MAX);
-    const summary = clip(String(v?.summary ?? '').replace(/^["'\s]+|["'\s]+$/g, '').replace(/\.$/, ''), SUMMARY_MAX);
+    const summary = clip(
+      String(v?.summary ?? '')
+        .replace(/^["'\s]+|["'\s]+$/g, '')
+        .replace(/\.$/, ''),
+      SUMMARY_MAX,
+    );
     return name && summary ? { name, summary } : null;
   } catch {
     return null;

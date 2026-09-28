@@ -10,16 +10,25 @@ export default async function run({ frame }) {
   const rowIndex = (tasks, id) => {
     const running = tasks.filter((t) => t.status === 'running');
     const queued = tasks.filter((t) => t.status === 'queued');
-    const done = tasks.filter((t) => t.status === 'done').slice(-8).reverse();
+    const done = tasks
+      .filter((t) => t.status === 'done')
+      .slice(-8)
+      .reverse();
     return [...running, ...queued, ...done].findIndex((t) => t.id === id);
   };
   const max0 = await frame.evaluate(() => window.__vrtest?.queue?.().max ?? null);
   if (max0 !== 0) {
-    await frame.evaluate(() => { window.__vrtest?.showMenu?.('queue'); window.__vrtest?.mclick?.('q:pause'); });
+    await frame.evaluate(() => {
+      window.__vrtest?.showMenu?.('queue');
+      window.__vrtest?.mclick?.('q:pause');
+    });
     await frame.waitForTimeout(2000);
   }
   const paused = await frame.evaluate(() => window.__vrtest?.queue?.().max ?? null);
-  await frame.evaluate(() => { window.__vrtest?.showMenu?.('queue'); window.__vrtest?.mclick?.('q:add'); });
+  await frame.evaluate(() => {
+    window.__vrtest?.showMenu?.('queue');
+    window.__vrtest?.mclick?.('q:add');
+  });
   await frame.waitForTimeout(600);
   for (const ch of title) {
     await frame.evaluate((c) => window.__vrtest?.key?.(0, `k:${c}`, true), ch);
@@ -78,7 +87,10 @@ export default async function run({ frame }) {
     retry = `${still}>${back}`;
   }
   if (max0 !== 0) {
-    await frame.evaluate(() => { window.__vrtest?.showMenu?.('queue'); window.__vrtest?.mclick?.('q:pause'); });
+    await frame.evaluate(() => {
+      window.__vrtest?.showMenu?.('queue');
+      window.__vrtest?.mclick?.('q:pause');
+    });
     await frame.waitForTimeout(2000);
   }
   const max1 = await frame.evaluate(() => window.__vrtest?.queue?.().max ?? null);

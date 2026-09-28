@@ -58,7 +58,9 @@ export function openAsk(opts: AskOptions) {
   };
   if (opts.newDesk) choices.append(h('button.btn', { type: 'button', 'data-to': '', onclick: () => pick(null) }, `New worker · ${opts.newDesk}`));
   for (const w of opts.workers) {
-    choices.append(h('button.btn', { type: 'button', 'data-to': w.id, title: `Type it into ${w.name}'s prompt`, onclick: () => pick(w.id) }, h('span.dot', { style: `background:${w.color}` }), w.name, h('small', {}, STATUS_LABEL[w.status] ?? w.status)));
+    choices.append(
+      h('button.btn', { type: 'button', 'data-to': w.id, title: `Type it into ${w.name}'s prompt`, onclick: () => pick(w.id) }, h('span.dot', { style: `background:${w.color}` }), w.name, h('small', {}, STATUS_LABEL[w.status] ?? w.status)),
+    );
   }
 
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
@@ -99,14 +101,7 @@ export function openAsk(opts: AskOptions) {
         // storage blocked
       }
     }
-    opts.onSubmit(
-      opts.context ? `${opts.context}\n\n${text}` : text,
-      to,
-      !to && opts.worktreeOption && wtBox.checked,
-      !to ? provider?.value() : undefined,
-      !to ? provider?.model() : undefined,
-      !to ? provider?.effort() : undefined,
-    );
+    opts.onSubmit(opts.context ? `${opts.context}\n\n${text}` : text, to, !to && opts.worktreeOption && wtBox.checked, !to ? provider?.value() : undefined, !to ? provider?.model() : undefined, !to ? provider?.effort() : undefined);
   };
   form.addEventListener('submit', (e) => {
     e.preventDefault();

@@ -19,12 +19,18 @@ interface Rect {
 
 /** `r` less the `holes` in it, as a few rectangles: rows of the grid the holes' edges make, stacked where they line up. */
 export function cutRect(r: Rect, holes: Rect[]): Rect[] {
-  const hs = holes
-    .map((h) => ({ minX: Math.max(r.minX, h.minX), maxX: Math.min(r.maxX, h.maxX), minZ: Math.max(r.minZ, h.minZ), maxZ: Math.min(r.maxZ, h.maxZ) }))
-    .filter((h) => h.maxX > h.minX && h.maxZ > h.minZ);
+  const hs = holes.map((h) => ({ minX: Math.max(r.minX, h.minX), maxX: Math.min(r.maxX, h.maxX), minZ: Math.max(r.minZ, h.minZ), maxZ: Math.min(r.maxZ, h.maxZ) })).filter((h) => h.maxX > h.minX && h.maxZ > h.minZ);
   const edges = (lo: number, hi: number, more: number[]) => [...new Set([lo, hi, ...more])].sort((a, b) => a - b);
-  const xs = edges(r.minX, r.maxX, hs.flatMap((h) => [h.minX, h.maxX]));
-  const zs = edges(r.minZ, r.maxZ, hs.flatMap((h) => [h.minZ, h.maxZ]));
+  const xs = edges(
+    r.minX,
+    r.maxX,
+    hs.flatMap((h) => [h.minX, h.maxX]),
+  );
+  const zs = edges(
+    r.minZ,
+    r.maxZ,
+    hs.flatMap((h) => [h.minZ, h.maxZ]),
+  );
   const out: Rect[] = [];
   for (let j = 0; j < zs.length - 1; j++) {
     const zm = (zs[j] + zs[j + 1]) / 2;
@@ -135,7 +141,7 @@ function shaft(shape: 'square' | 'round', half: number, from: number, to: number
   for (let i = 0; i < pos.count; i++) {
     // 1 at the hole, 0 at the far end.
     const k = to > from ? 0.5 - pos.getY(i) / h : 0.5 + pos.getY(i) / h;
-    c.copy(near).lerp(far, Math.min(1, Math.pow(1 - k, 0.7)));
+    c.copy(near).lerp(far, Math.min(1, (1 - k) ** 0.7));
     colors.push(c.r, c.g, c.b);
   }
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));

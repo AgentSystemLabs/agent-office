@@ -120,8 +120,12 @@ export function buildElevator(): Elevator {
   floorPanel.visible = false;
   group.add(floorPanel);
   const buttons: {
-    id: string; cloning: boolean; group: THREE.Group; material: THREE.MeshToonMaterial;
-    interactable: Interactable; pressed: number;
+    id: string;
+    cloning: boolean;
+    group: THREE.Group;
+    material: THREE.MeshToonMaterial;
+    interactable: Interactable;
+    pressed: number;
   }[] = [];
   let floorKey = '';
   let currentFloor: string | null = null;
@@ -157,7 +161,7 @@ export function buildElevator(): Elevator {
         entries.forEach((f, i) => {
           const keycap = new THREE.Group();
           keycap.name = `elevator-floor:${f.id}`;
-          keycap.position.set((i % columns - (columns - 1) / 2) * 0.52, ((rows - 1) / 2 - Math.floor(i / columns)) * 0.16, 0.045);
+          keycap.position.set(((i % columns) - (columns - 1) / 2) * 0.52, ((rows - 1) / 2 - Math.floor(i / columns)) * 0.16, 0.045);
           const material = toonUnique('#fff7d6');
           keycap.add(mesh(roundedBox(0.46, 0.12, 0.034, 0.015), material, 0, 0, 0, false));
           // Keep long repository names legible at arm's length; the aim hint has the full name.

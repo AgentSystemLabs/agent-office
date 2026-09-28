@@ -22,7 +22,6 @@ export default async function run({ frame }) {
     keyboard: window.__vrtest?.panelPos?.('keyboard'),
   }));
   console.log('FALL:', JSON.stringify({ y0, mid, end }));
-  const ok = mid.prompt[1] > y0 + 2 && Math.abs(end.prompt[1] - y0) < 0.3 &&
-    Math.abs(end.keyboard[1] - (y0 - 0.44)) < 0.3 && end.pos[1] === 0;
+  const ok = mid.prompt[1] > y0 + 2 && Math.abs(end.prompt[1] - y0) < 0.3 && Math.abs(end.keyboard[1] - (y0 - 0.44)) < 0.3 && end.pos[1] === 0;
   return { ok };
 }

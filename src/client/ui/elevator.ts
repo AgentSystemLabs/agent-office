@@ -119,10 +119,7 @@ export function openElevator(opts: ElevatorOptions): void {
 
   const renderFloors = () => {
     const floors = store.floors;
-    floorsEl.replaceChildren(
-      ...(floors.some((f) => !f.cloning) ? [roofButton()] : []),
-      ...(floors.length ? floors.map(floorButton) : [h('p.empty', {}, 'No floors yet.')]),
-    );
+    floorsEl.replaceChildren(...(floors.some((f) => !f.cloning) ? [roofButton()] : []), ...(floors.length ? floors.map(floorButton) : [h('p.empty', {}, 'No floors yet.')]));
   };
 
   const repoRow = (r: RepoChoice) => {
@@ -177,7 +174,14 @@ export function openElevator(opts: ElevatorOptions): void {
     // A repository that isn't in the list (someone else's public one): offer it anyway.
     if (typed && !r.list.some((x) => sameRepo(x.name, typed))) rows.push(repoRow({ name: typed, forge: forgeOf(typed) ?? 'github', private: false, description: 'Not in your list — the office will try to clone it' }));
     rows.push(...matches.slice(0, SHOWN).map(repoRow));
-    if (!rows.length) rows.push(h('p.empty', { style: 'padding:10px' }, r.loading ? 'Asking GitHub and GitLab for your repositories…' : r.error ? '' : q ? 'Nothing matches. Type owner/name (GitHub), or paste a GitLab project URL, to clone any repository.' : 'No repositories.'));
+    if (!rows.length)
+      rows.push(
+        h(
+          'p.empty',
+          { style: 'padding:10px' },
+          r.loading ? 'Asking GitHub and GitLab for your repositories…' : r.error ? '' : q ? 'Nothing matches. Type owner/name (GitHub), or paste a GitLab project URL, to clone any repository.' : 'No repositories.',
+        ),
+      );
     if (matches.length > SHOWN) rows.push(h('p.empty', { style: 'padding:8px 10px' }, `…and ${matches.length - SHOWN} more — type to narrow it down`));
     listEl.replaceChildren(...rows);
     const pick = choice();
@@ -194,12 +198,7 @@ export function openElevator(opts: ElevatorOptions): void {
     input.disabled = !!adding;
     if (!built) {
       built = true;
-      addEl.replaceChildren(
-        h('h3', {}, setup && !store.floors.length ? 'Pick your first project' : '➕ Add a project'),
-        h('div.repo-search', {}, input, refreshBtn),
-        listEl,
-        statusEl,
-      );
+      addEl.replaceChildren(h('h3', {}, setup && !store.floors.length ? 'Pick your first project' : '➕ Add a project'), h('div.repo-search', {}, input, refreshBtn), listEl, statusEl);
     }
   };
 

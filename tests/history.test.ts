@@ -45,9 +45,18 @@ test('chat search matches text or sender, any case and spacing, newest first', (
   log.add(line('the  deploy TIMED out'));
   log.add(line('lunch?', 'Robin'));
   log.add(line('deploy is green now'));
-  assert.deepEqual(log.search(searchKey('Deploy'), 10).hits.map((l) => l.text), ['deploy is green now', 'the  deploy TIMED out']);
-  assert.deepEqual(log.search(searchKey('deploy timed'), 10).hits.map((l) => l.text), ['the  deploy TIMED out']);
-  assert.deepEqual(log.search(searchKey('robin: lunch'), 10).hits.map((l) => l.text), ['lunch?']);
+  assert.deepEqual(
+    log.search(searchKey('Deploy'), 10).hits.map((l) => l.text),
+    ['deploy is green now', 'the  deploy TIMED out'],
+  );
+  assert.deepEqual(
+    log.search(searchKey('deploy timed'), 10).hits.map((l) => l.text),
+    ['the  deploy TIMED out'],
+  );
+  assert.deepEqual(
+    log.search(searchKey('robin: lunch'), 10).hits.map((l) => l.text),
+    ['lunch?'],
+  );
   const capped = log.search(searchKey('deploy'), 1);
   assert.equal(capped.hits.length, 1);
   assert.equal(capped.more, true);
@@ -79,8 +88,14 @@ test('terminal search shows each distinct line once, newest first, and says wher
   const { term, write } = terminal();
   await write('status: building\r\nError: disk full\r\nstatus: building\r\nerror: DISK full again\r\n');
   const found = searchTerminal(term, searchKey('disk full'), 10);
-  assert.deepEqual(found.hits.map((h) => h.text), ['error: DISK full again', 'Error: disk full']);
-  assert.deepEqual(searchTerminal(term, searchKey('status'), 10).hits.map((h) => h.text), ['status: building']);
+  assert.deepEqual(
+    found.hits.map((h) => h.text),
+    ['error: DISK full again', 'Error: disk full'],
+  );
+  assert.deepEqual(
+    searchTerminal(term, searchKey('status'), 10).hits.map((h) => h.text),
+    ['status: building'],
+  );
   // The row is where the browser's copy of the terminal looks for it again.
   const hit = found.hits[1];
   assert.equal(findLine(term.buffer.active, searchKey('disk full'), hit.rows - hit.row), hit.row);

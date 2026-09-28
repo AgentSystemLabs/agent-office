@@ -16,9 +16,23 @@ function fixture(defaultProvider: AgentProvider = 'claude') {
     deskOccupied: (desk) => workers.some((w) => w.deskId === desk),
     spawn(deskId, by, prompt, _worktree, kind, provider, model, effort) {
       const worker: WorkerInfo = {
-        id: `worker-${hired++}`, deskId, kind, provider, model, effort, prompt, name: 'Test',
-        color: '#ffffff', status: 'working', acked: false, createdBy: by,
-        createdAt: Date.now(), cols: 80, rows: 24, viewers: [], viewerIds: [],
+        id: `worker-${hired++}`,
+        deskId,
+        kind,
+        provider,
+        model,
+        effort,
+        prompt,
+        name: 'Test',
+        color: '#ffffff',
+        status: 'working',
+        acked: false,
+        createdBy: by,
+        createdAt: Date.now(),
+        cols: 80,
+        rows: 24,
+        viewers: [],
+        viewerIds: [],
       };
       workers.push(worker);
       return worker;
@@ -34,34 +48,53 @@ function fixture(defaultProvider: AgentProvider = 'claude') {
   let emptied = 0;
   const open = (room?: () => number) => {
     const queue = new TaskQueue(dir, manager, false, {
-      update() {}, toast() {}, claimIssue: async () => undefined,
-      refreshGitHub() {}, hiringPaused: () => undefined, emptied: () => emptied++, room,
+      update() {},
+      toast() {},
+      claimIssue: async () => undefined,
+      refreshGitHub() {},
+      hiringPaused: () => undefined,
+      emptied: () => emptied++,
+      room,
     });
     queues.push(queue);
     return queue;
   };
-  return { dir, workers, open, emptied: () => emptied, close() { queues.forEach((q) => q.shutdown()); rmSync(dir, { recursive: true, force: true }); } };
+  return {
+    dir,
+    workers,
+    open,
+    emptied: () => emptied,
+    close() {
+      queues.forEach((q) => q.shutdown());
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
 }
 
 test('queue seats the selected provider and preserves it through completion and retry', (t) => {
-  const f = fixture(); t.after(() => f.close());
+  const f = fixture();
+  t.after(() => f.close());
   const q = f.open();
   assert.equal(q.add('Fix login', 'Tester', undefined, undefined, 'opencode'), undefined);
   assert.equal(f.workers[0].provider, 'opencode');
-  f.workers[0].status = 'needs_input'; q.onWorker(f.workers[0]);
+  f.workers[0].status = 'needs_input';
+  q.onWorker(f.workers[0]);
   assert.equal(q.state().tasks[0].status, 'running');
-  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  f.workers[0].status = 'done';
+  q.onWorker(f.workers[0]);
   assert.equal(q.state().tasks[0].outcome, 'done');
   q.retry(q.state().tasks[0].id);
   assert.equal(f.workers[1].provider, 'opencode');
 });
 
 test('Droid tasks retain their provider through retry and restart', (t) => {
-  const f = fixture(); t.after(() => f.close());
+  const f = fixture();
+  t.after(() => f.close());
   const q = f.open();
   assert.equal(q.add('First', 'Tester', undefined, undefined, 'droid'), undefined);
   assert.equal(f.workers[0].provider, 'droid');
-  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  f.workers[0].status = 'done';
+  q.onWorker(f.workers[0]);
   q.retry(q.state().tasks[0].id);
   assert.equal(f.workers[1].provider, 'droid');
   q.setLimit(0);
@@ -73,25 +106,33 @@ test('Droid tasks retain their provider through retry and restart', (t) => {
 });
 
 test('queued provider survives restart even when the configured default differs', (t) => {
-  const f = fixture(); t.after(() => f.close());
-  const q = f.open(); q.setLimit(0);
-  q.add('Fix login', 'Tester', undefined, undefined, 'opencode'); q.shutdown();
-  const restored = f.open(); restored.setLimit(1);
+  const f = fixture();
+  t.after(() => f.close());
+  const q = f.open();
+  q.setLimit(0);
+  q.add('Fix login', 'Tester', undefined, undefined, 'opencode');
+  q.shutdown();
+  const restored = f.open();
+  restored.setLimit(1);
   assert.equal(f.workers[0].provider, 'opencode');
 });
 
 test('new and legacy tasks without a provider use the configured agent', (t) => {
-  const f = fixture('custom'); t.after(() => f.close());
-  writeFileSync(path.join(f.dir, 'queue.json'), JSON.stringify({ maxWorkers: 0, tasks: [
-    { id: 'legacy', title: 'Legacy', prompt: 'Legacy task', status: 'queued' },
-  ] }));
+  const f = fixture('custom');
+  t.after(() => f.close());
+  writeFileSync(path.join(f.dir, 'queue.json'), JSON.stringify({ maxWorkers: 0, tasks: [{ id: 'legacy', title: 'Legacy', prompt: 'Legacy task', status: 'queued' }] }));
   const q = f.open();
-  q.add('New task', 'Tester'); q.setLimit(2);
-  assert.deepEqual(f.workers.map((w) => w.provider), ['custom', 'custom']);
+  q.add('New task', 'Tester');
+  q.setLimit(2);
+  assert.deepEqual(
+    f.workers.map((w) => w.provider),
+    ['custom', 'custom'],
+  );
 });
 
 test('invalid or unavailable providers are rejected before a task is queued', (t) => {
-  const f = fixture(); t.after(() => f.close());
+  const f = fixture();
+  t.after(() => f.close());
   const q = f.open();
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'bad' as AgentProvider) ?? '', /provider/i);
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'custom') ?? '', /provider/i);
@@ -99,12 +140,14 @@ test('invalid or unavailable providers are rejected before a task is queued', (t
 });
 
 test('queue preserves the selected OpenCode model through seating, retry, and restart', (t) => {
-  const f = fixture(); t.after(() => f.close());
+  const f = fixture();
+  t.after(() => f.close());
   const q = f.open();
   assert.equal(q.add('Fix login', 'Tester', undefined, undefined, 'opencode', 'openai/gpt-5/nested'), undefined);
   assert.equal(f.workers[0].model, 'openai/gpt-5/nested');
   assert.equal(q.state().tasks[0].model, 'openai/gpt-5/nested');
-  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  f.workers[0].status = 'done';
+  q.onWorker(f.workers[0]);
   q.retry(q.state().tasks[0].id);
   assert.equal(f.workers[1].model, 'openai/gpt-5/nested');
 
@@ -117,7 +160,8 @@ test('queue preserves the selected OpenCode model through seating, retry, and re
 });
 
 test('queue rejects models unless they are valid Claude aliases, OpenCode model ids, or Droid model ids', (t) => {
-  const f = fixture(); t.after(() => f.close());
+  const f = fixture();
+  t.after(() => f.close());
   const q = f.open();
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'claude', 'openai/gpt-5') ?? '', /model/i);
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', 'gpt-5') ?? '', /model|format|provider/i);
@@ -127,7 +171,8 @@ test('queue rejects models unless they are valid Claude aliases, OpenCode model 
 });
 
 test('queue rejects reasoning effort unless the task is Claude or Droid and the level is known', (t) => {
-  const f = fixture(); t.after(() => f.close());
+  const f = fixture();
+  t.after(() => f.close());
   const q = f.open();
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', undefined, 'high' as AgentEffort) ?? '', /effort|Claude/i);
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'claude', undefined, 'overdrive' as AgentEffort) ?? '', /effort/i);
@@ -136,14 +181,16 @@ test('queue rejects reasoning effort unless the task is Claude or Droid and the 
 });
 
 test('queue preserves a Droid model and effort through seating, retry, and restart', (t) => {
-  const f = fixture(); t.after(() => f.close());
+  const f = fixture();
+  t.after(() => f.close());
   const q = f.open();
   assert.equal(q.add('Fix login', 'Tester', undefined, undefined, 'droid', 'custom:droidproxy:gpt-6-sol', 'high'), undefined);
   assert.equal(f.workers[0].model, 'custom:droidproxy:gpt-6-sol');
   assert.equal(f.workers[0].effort, 'high');
   assert.equal(q.state().tasks[0].model, 'custom:droidproxy:gpt-6-sol');
   assert.equal(q.state().tasks[0].effort, 'high');
-  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  f.workers[0].status = 'done';
+  q.onWorker(f.workers[0]);
   q.retry(q.state().tasks[0].id);
   assert.equal(f.workers[1].model, 'custom:droidproxy:gpt-6-sol');
   assert.equal(f.workers[1].effort, 'high');
@@ -158,14 +205,16 @@ test('queue preserves a Droid model and effort through seating, retry, and resta
 });
 
 test('queue preserves a Claude model and effort through seating, retry, and restart', (t) => {
-  const f = fixture(); t.after(() => f.close());
+  const f = fixture();
+  t.after(() => f.close());
   const q = f.open();
   assert.equal(q.add('Fix login', 'Tester', undefined, undefined, 'claude', 'haiku', 'low'), undefined);
   assert.equal(f.workers[0].model, 'haiku');
   assert.equal(f.workers[0].effort, 'low');
   assert.equal(q.state().tasks[0].model, 'haiku');
   assert.equal(q.state().tasks[0].effort, 'low');
-  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  f.workers[0].status = 'done';
+  q.onWorker(f.workers[0]);
   q.retry(q.state().tasks[0].id);
   assert.equal(f.workers[1].model, 'haiku');
   assert.equal(f.workers[1].effort, 'low');
@@ -180,7 +229,8 @@ test('queue preserves a Claude model and effort through seating, retry, and rest
 });
 
 test('queue takes Fable and restores it from queue.json', (t) => {
-  const f = fixture(); t.after(() => f.close());
+  const f = fixture();
+  t.after(() => f.close());
   const q = f.open();
   q.setLimit(0);
   assert.equal(q.add('Big task', 'Tester', undefined, undefined, 'claude', 'fable', 'xhigh'), undefined);
@@ -195,22 +245,29 @@ test('queue takes Fable and restores it from queue.json', (t) => {
 });
 
 test('the queue says it emptied once, when its last task gets done', (t) => {
-  const f = fixture(); t.after(() => f.close());
+  const f = fixture();
+  t.after(() => f.close());
   const q = f.open();
-  q.add('First', 'Tester'); q.add('Second', 'Tester');
-  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  q.add('First', 'Tester');
+  q.add('Second', 'Tester');
+  f.workers[0].status = 'done';
+  q.onWorker(f.workers[0]);
   assert.equal(f.emptied(), 0, 'the second task is still running');
-  f.workers[1].status = 'done'; q.onWorker(f.workers[1]);
+  f.workers[1].status = 'done';
+  q.onWorker(f.workers[1]);
   assert.equal(f.emptied(), 1);
-  q.onWorker({ ...f.workers[1], status: 'idle' }); q.onWorker(f.workers[1]);
+  q.onWorker({ ...f.workers[1], status: 'idle' });
+  q.onWorker(f.workers[1]);
   assert.equal(f.emptied(), 1, 'finished tasks never empty it again');
 });
 
 test('the queue does not celebrate a task that stopped short, or one taken off it', (t) => {
-  const f = fixture(); t.after(() => f.close());
+  const f = fixture();
+  t.after(() => f.close());
   const q = f.open();
   q.add('Crashes', 'Tester');
-  f.workers[0].status = 'exited'; q.onWorker(f.workers[0]);
+  f.workers[0].status = 'exited';
+  q.onWorker(f.workers[0]);
   assert.equal(q.state().tasks[0].outcome, 'exited');
   q.setLimit(0);
   q.add('Never starts', 'Tester');
@@ -218,13 +275,27 @@ test('the queue does not celebrate a task that stopped short, or one taken off i
   assert.equal(f.emptied(), 0);
 });
 
-test('a board agent at work does not hold one of the queue\'s slots', (t) => {
-  const f = fixture(); t.after(() => f.close());
+test("a board agent at work does not hold one of the queue's slots", (t) => {
+  const f = fixture();
+  t.after(() => f.close());
   f.workers.push({
-    id: 'issues-agent', deskId: 'station-issues', kind: 'agent', provider: 'claude', name: 'Issues agent',
-    color: '#ef476f', status: 'working', acked: true, createdBy: 'Ada', createdAt: Date.now(), cols: 80, rows: 24, viewers: [], viewerIds: [],
+    id: 'issues-agent',
+    deskId: 'station-issues',
+    kind: 'agent',
+    provider: 'claude',
+    name: 'Issues agent',
+    color: '#ef476f',
+    status: 'working',
+    acked: true,
+    createdBy: 'Ada',
+    createdAt: Date.now(),
+    cols: 80,
+    rows: 24,
+    viewers: [],
+    viewerIds: [],
   });
-  const q = f.open(); q.setLimit(1);
+  const q = f.open();
+  q.setLimit(1);
   q.add('Fix login', 'Tester');
   assert.equal(q.state().tasks[0].status, 'running');
   // Its seat is a desk, never the kiosk.
@@ -232,23 +303,44 @@ test('a board agent at work does not hold one of the queue\'s slots', (t) => {
 });
 
 test('an office at its worker limit holds the queue, and a finished queue worker makes room', (t) => {
-  const f = fixture(); t.after(() => f.close());
+  const f = fixture();
+  t.after(() => f.close());
   let limit = 1;
   const q = f.open(() => limit - f.workers.length);
-  q.add('First', 'Tester'); q.add('Second', 'Tester');
-  assert.deepEqual(q.state().tasks.map((t) => t.status), ['running', 'queued']);
+  q.add('First', 'Tester');
+  q.add('Second', 'Tester');
+  assert.deepEqual(
+    q.state().tasks.map((t) => t.status),
+    ['running', 'queued'],
+  );
   assert.equal(f.workers.length, 1);
   // The first finishes: its worker goes home to make room, and the second task gets the seat.
-  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
-  assert.deepEqual(q.state().tasks.map((t) => t.status), ['done', 'running']);
-  assert.deepEqual(f.workers.map((w) => w.id), ['worker-1']);
+  f.workers[0].status = 'done';
+  q.onWorker(f.workers[0]);
+  assert.deepEqual(
+    q.state().tasks.map((t) => t.status),
+    ['done', 'running'],
+  );
+  assert.deepEqual(
+    f.workers.map((w) => w.id),
+    ['worker-1'],
+  );
   // The limit lowered past who's there: nobody is sent home and nothing fails, the queue just waits.
   q.add('Third', 'Tester');
   limit = 0;
-  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
-  assert.deepEqual(q.state().tasks.map((t) => [t.status, t.outcome]), [['done', 'done'], ['done', 'done'], ['queued', undefined]]);
+  f.workers[0].status = 'done';
+  q.onWorker(f.workers[0]);
+  assert.deepEqual(
+    q.state().tasks.map((t) => [t.status, t.outcome]),
+    [
+      ['done', 'done'],
+      ['done', 'done'],
+      ['queued', undefined],
+    ],
+  );
   assert.equal(f.workers.length, 1);
   // Room again: it carries on.
-  limit = 2; q.pump();
+  limit = 2;
+  q.pump();
   assert.equal(q.state().tasks[2].status, 'running');
 });

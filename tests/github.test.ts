@@ -4,9 +4,23 @@ import { MergeWatch } from '../src/server/github.js';
 import type { GhPull } from '../src/shared/protocol.js';
 
 const pull = (number: number, state: string): GhPull => ({
-  number, title: `PR ${number}`, state, isDraft: false, url: '', author: '', labels: [], reviewDecision: '',
-  headRefName: `b${number}`, baseRefName: 'main', createdAt: '', updatedAt: '', additions: 0, deletions: 0,
-  checks: 'none', body: '', closes: [],
+  number,
+  title: `PR ${number}`,
+  state,
+  isDraft: false,
+  url: '',
+  author: '',
+  labels: [],
+  reviewDecision: '',
+  headRefName: `b${number}`,
+  baseRefName: 'main',
+  createdAt: '',
+  updatedAt: '',
+  additions: 0,
+  deletions: 0,
+  checks: 'none',
+  body: '',
+  closes: [],
 });
 const numbers = (ps: GhPull[]) => ps.map((p) => p.number);
 

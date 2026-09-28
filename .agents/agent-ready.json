@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-28T16:02:14.439Z",
-  "commit": "b20f38312ab59694437f6f825b25f94740bc84ea",
+  "generatedAt": "2026-09-28T17:29:31.000Z",
+  "commit": "27d5da8b9b56ab1b3d9114de361931d2f2779139",
   "agent": {
     "harness": "droid",
     "model": "Opus 5.5",
     "reasoningEffort": "default"
   },
-  "verdict": "not_ready",
-  "score": 50,
-  "grade": "F",
-  "summary": "typescript, javascript npm package (Node server + Vite client). 7 criterion(s) need work: agents_md, lint_format, env_example, lockfile, templates, precommit, coverage.",
+  "verdict": "ready",
+  "score": 100,
+  "grade": "A+",
+  "summary": "typescript, javascript npm package (Node server + Vite client). All 13 criteria pass.",
   "stack": {
     "languages": [
       "typescript",
@@ -24,8 +24,11 @@
   "criteria": [
     {
       "id": "lint_format",
-      "status": "fail",
-      "notes": "No lint or format tooling: no eslint/prettier/biome config is tracked, and package.json has no lint or format script. 193 .ts and 77 .mjs files (src/server, src/client, src/shared, src/client/iwsdk-scripts, bin/) are unchecked for style."
+      "status": "pass",
+      "notes": "Biome lints and formats every .js, .mjs and .ts file outside dist/ (biome.jsonc tracked); package.json has \"lint\" (biome check --error-on-warnings .) and \"format\" scripts. 284 files pass with no suppression comments.",
+      "measurement": {
+        "command": "npm run lint"
+      }
     },
     {
       "id": "typecheck",
@@ -38,7 +41,7 @@
     {
       "id": "tests",
       "status": "pass",
-      "notes": "31 test files under tests/*.test.ts, run by node:test through tsx.",
+      "notes": "37 test files under tests/*.test.ts (268 tests), run by node:test through tsx.",
       "measurement": {
         "command": "npm test"
       }
@@ -54,53 +57,56 @@
     {
       "id": "setup",
       "status": "pass",
-      "notes": "README.md \"Development\" section documents npm install, build, typecheck, test and running bin/agent-office.js; \"dev\" and \"start\" scripts exist.",
+      "notes": "AGENTS.md \"Commands\" and README.md \"Development\" document npm ci / npm install, build, lint, typecheck, tests and running bin/agent-office.js; \"dev\" and \"start\" scripts exist.",
       "measurement": {
-        "command": "npm install && npm run dev"
+        "command": "npm ci && npm run dev"
       }
     },
     {
       "id": "agents_md",
-      "status": "fail",
-      "notes": "No root AGENTS.md (and no CLAUDE.md to convert). Agent-critical facts live only in README.md, e.g. the rule to bump PTY_PROTOCOL in src/server/ptys.ts after changing src/server/ptyhost.ts."
+      "status": "pass",
+      "notes": "Root AGENTS.md plus nested src/server/AGENTS.md, src/client/AGENTS.md and src/shared/AGENTS.md. No CLAUDE.md adapters; Claude Code loads AGENTS.md natively."
     },
     {
       "id": "env_example",
-      "status": "fail",
-      "notes": "README.md documents env vars (AGENT_OFFICE_PASSWORD, AGENT_OFFICE_BUDGET, AGENT_OFFICE_CITY, AGENT_OFFICE_VERSION, ...) and src/server/config.ts:192-210 reads about 12 more, but no .env.example exists."
+      "status": "pass",
+      "notes": ".env.example lists every AGENT_OFFICE_* and PORT setting the office and installers read; tests/env-example.test.ts keeps it in sync with the code, and .gitignore ignores .env and .env.* except .env.example."
     },
     {
       "id": "ci_parity",
       "status": "pass",
-      "notes": ".github/workflows/release.yml runs npm ci (its prepare script builds), npm run typecheck and npm test on PRs and main. No lint step, because no lint command exists yet.",
+      "notes": ".github/workflows/release.yml runs npm ci (prepare builds), npm run lint, npm run typecheck and npm run test:coverage on pull requests and main, then packs and install-smokes the release. No continue-on-error.",
       "measurement": {
-        "command": "npm ci && npm run typecheck && npm test"
+        "command": "npm ci && npm run lint && npm run typecheck && npm run test:coverage"
       }
     },
     {
       "id": "templates",
-      "status": "fail",
-      "notes": "GitHub-hosted (origin nikships/agent-office, upstream AgentSystemLabs/agent-office), but .github/ has only workflows/: no ISSUE_TEMPLATE/ and no pull_request_template.md."
+      "status": "pass",
+      "notes": ".github/ISSUE_TEMPLATE/ (bug_report.yml, feature_request.yml, config.yml) and .github/pull_request_template.md are tracked."
     },
     {
       "id": "precommit",
-      "status": "fail",
-      "notes": "No .husky/, .pre-commit-config.yaml, .githooks/ or lefthook.yml."
+      "status": "pass",
+      "notes": ".husky/pre-commit runs lint-staged (biome check --write on staged files) and npm run typecheck; prepare installs it through .husky/install.mjs, skipped in CI and installs without dev dependencies."
     },
     {
       "id": "coverage",
-      "status": "fail",
-      "notes": "Tests exist (31 files) but coverage is not measured or enforced: no --coverage flag in scripts, no c8/istanbul config, nothing in release.yml."
+      "status": "pass",
+      "notes": "package.json \"test:coverage\" runs node:test with --experimental-test-coverage and --test-coverage-lines=78 / --test-coverage-functions=61; release.yml runs it. Measured on Node 22: 80.22% lines, 71.95% functions.",
+      "measurement": {
+        "command": "npm run test:coverage"
+      }
     },
     {
       "id": "lockfile",
-      "status": "fail",
-      "notes": "Root package.json has package-lock.json tracked, but the nested manifest src/client/package.json (devDependency @iwsdk/cli 1.0.0-rc.2) has no tracked lockfile."
+      "status": "pass",
+      "notes": "package-lock.json is tracked for the root package.json, and src/client/package-lock.json for the src/client IWSDK shim; tests/iwsdk-shim.test.ts checks the shim pin matches the root lockfile."
     },
     {
       "id": "gitignore_hygiene",
       "status": "pass",
-      "notes": "Root .gitignore ignores node_modules and dist; no generated directories or env files are tracked."
+      "notes": "Root .gitignore ignores node_modules, dist, .env files and IWSDK runtime state; no generated directories or env files are tracked."
     }
   ]
 }

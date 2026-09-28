@@ -12,13 +12,7 @@ export function openUpgrade(net: Net) {
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const recheck = h('button.btn', { type: 'button', onclick: () => net.send({ t: 'upgrade.check' }) }, 'Check again');
   const go = h('button.btn.primary', { type: 'button', onclick: () => net.send({ t: 'upgrade.start' }) }, 'Upgrade now');
-  const el = h(
-    'div.modal',
-    { role: 'dialog', 'aria-label': 'Upgrade the office', style: 'width:min(620px,100%)' },
-    h('header', {}, h('h2', {}, 'Upgrade the office'), close),
-    body,
-    h('footer', {}, h('span.grow', {}), recheck, go),
-  );
+  const el = h('div.modal', { role: 'dialog', 'aria-label': 'Upgrade the office', style: 'width:min(620px,100%)' }, h('header', {}, h('h2', {}, 'Upgrade the office'), close), body, h('footer', {}, h('span.grow', {}), recheck, go));
 
   const render = () => {
     const u = store.upgrade;
@@ -40,10 +34,7 @@ export function openUpgrade(net: Net) {
     if (u.latest) {
       const n = u.behind ?? u.changes?.length ?? 0;
       const shown = u.changes?.length ?? 0;
-      body.append(
-        h('label', { style: 'margin-top:14px' }, `New: ${n >= 50 ? '50+' : n} change${n === 1 ? '' : 's'}`),
-        h('ul.changes', {}, ...(u.changes ?? []).map((c) => h('li', {}, h('code', {}, c.sha), ' ', c.subject))),
-      );
+      body.append(h('label', { style: 'margin-top:14px' }, `New: ${n >= 50 ? '50+' : n} change${n === 1 ? '' : 's'}`), h('ul.changes', {}, ...(u.changes ?? []).map((c) => h('li', {}, h('code', {}, c.sha), ' ', c.subject))));
       if (n > shown) body.append(h('p.note', {}, `…and ${n >= 50 ? 'more' : `${n - shown} more`}`));
       if (!busy) {
         const awake = [...store.workers.values()].filter((w) => !isAsleep(w.status));
@@ -53,7 +44,9 @@ export function openUpgrade(net: Net) {
             'p.note',
             {},
             'Upgrading builds the new version while the office keeps running, then restarts it. Everyone reconnects on the new version automatically. ',
-            awake.length ? `Workers who are awake wake back up by themselves afterwards${working.length ? `, but ${working.map((w) => w.name).join(', ')} ${working.length === 1 ? 'is' : 'are'} in the middle of something that will be interrupted` : ''}.` : '',
+            awake.length
+              ? `Workers who are awake wake back up by themselves afterwards${working.length ? `, but ${working.map((w) => w.name).join(', ')} ${working.length === 1 ? 'is' : 'are'} in the middle of something that will be interrupted` : ''}.`
+              : '',
           ),
         );
       }
@@ -102,13 +95,7 @@ export function showRestarting(u: UpgradeState, net: Net) {
     h('p.upgrade-status.busy', {}, h('span.spinner'), 'Restarting… you’ll be back in a few seconds. No need to do anything.'),
   );
   clearTimeout(slowTimer);
-  slowTimer = setTimeout(
-    () =>
-      restartBody?.append(
-        h('p.note', {}, 'This is taking longer than usual. ', h('button.btn', { type: 'button', onclick: () => location.reload() }, 'Try reloading')),
-      ),
-    3 * 60_000,
-  );
+  slowTimer = setTimeout(() => restartBody?.append(h('p.note', {}, 'This is taking longer than usual. ', h('button.btn', { type: 'button', onclick: () => location.reload() }, 'Try reloading'))), 3 * 60_000);
 }
 
 /** Reconnected to a different version than this page was loaded from: load the new client. */

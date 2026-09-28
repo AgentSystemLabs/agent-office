@@ -5,24 +5,36 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import {
-  CODEX_HOOK_EVENTS,
-  codexHookArgs,
-  normalizeCodexHook,
-  validateCodexHook,
-  writeCodexHook,
-} from '../src/server/codex.js';
+import { CODEX_HOOK_EVENTS, codexHookArgs, normalizeCodexHook, validateCodexHook, writeCodexHook } from '../src/server/codex.js';
 
 test('normalizes bounded root Codex hook payloads and passes only the metric reader path', () => {
-  assert.deepEqual(normalizeCodexHook('SessionStart', {
-    session_id: 'thread-1', source: 'startup', transcript_path: '/private/transcript.jsonl', turn_id: 'turn-1',
-  }), { sessionId: 'thread-1', event: 'SessionStart', source: 'startup', turnId: 'turn-1', transcriptPath: '/private/transcript.jsonl' });
-  assert.deepEqual(normalizeCodexHook('UserPromptSubmit', {
-    session_id: 'thread-1', prompt: '  fix the login  ', turn_id: 'turn-2', model: 'secret-model',
-  }), { sessionId: 'thread-1', event: 'UserPromptSubmit', prompt: 'fix the login', turnId: 'turn-2' });
-  assert.deepEqual(normalizeCodexHook('PermissionRequest', {
-    session_id: 'thread-1', tool_name: 'Bash', tool_use_id: 'tool-1', tool_input: { command: 'secret' },
-  }), { sessionId: 'thread-1', event: 'PermissionRequest', tool: 'Bash', toolUseId: 'tool-1' });
+  assert.deepEqual(
+    normalizeCodexHook('SessionStart', {
+      session_id: 'thread-1',
+      source: 'startup',
+      transcript_path: '/private/transcript.jsonl',
+      turn_id: 'turn-1',
+    }),
+    { sessionId: 'thread-1', event: 'SessionStart', source: 'startup', turnId: 'turn-1', transcriptPath: '/private/transcript.jsonl' },
+  );
+  assert.deepEqual(
+    normalizeCodexHook('UserPromptSubmit', {
+      session_id: 'thread-1',
+      prompt: '  fix the login  ',
+      turn_id: 'turn-2',
+      model: 'secret-model',
+    }),
+    { sessionId: 'thread-1', event: 'UserPromptSubmit', prompt: 'fix the login', turnId: 'turn-2' },
+  );
+  assert.deepEqual(
+    normalizeCodexHook('PermissionRequest', {
+      session_id: 'thread-1',
+      tool_name: 'Bash',
+      tool_use_id: 'tool-1',
+      tool_input: { command: 'secret' },
+    }),
+    { sessionId: 'thread-1', event: 'PermissionRequest', tool: 'Bash', toolUseId: 'tool-1' },
+  );
 });
 
 test('rejects unknown, malformed, empty, oversized, and child-scoped events', () => {
@@ -90,20 +102,31 @@ test('helper forwards only the bounded root event fields to the authenticated br
     });
     const stdout = await new Promise<string>((resolve, reject) => {
       let output = '';
-      child.stdout.on('data', (chunk) => { output += chunk; });
+      child.stdout.on('data', (chunk) => {
+        output += chunk;
+      });
       child.on('error', reject);
       child.on('close', () => resolve(output));
-      child.stdin.end(JSON.stringify({
-        session_id: 'thread-1', prompt: 'fix it', turn_id: 'turn-1',
-        transcript_path: '/private/transcript.jsonl', model: 'private-model',
-        tool_input: { command: 'private' }, hook_event_name: 'forged',
-      }));
+      child.stdin.end(
+        JSON.stringify({
+          session_id: 'thread-1',
+          prompt: 'fix it',
+          turn_id: 'turn-1',
+          transcript_path: '/private/transcript.jsonl',
+          model: 'private-model',
+          tool_input: { command: 'private' },
+          hook_event_name: 'forged',
+        }),
+      );
     });
     assert.equal(stdout, '{}');
     assert.equal(received.authorization, 'Bearer hook-token');
     assert.equal(received.url, '/hooks/codex?worker=worker-1&event=UserPromptSubmit');
     assert.deepEqual(received.body, {
-      session_id: 'thread-1', hook_event_name: 'UserPromptSubmit', prompt: 'fix it', turn_id: 'turn-1',
+      session_id: 'thread-1',
+      hook_event_name: 'UserPromptSubmit',
+      prompt: 'fix it',
+      turn_id: 'turn-1',
       transcript_path: '/private/transcript.jsonl',
     });
   } finally {

@@ -85,7 +85,11 @@ function runBytes(cmd: string, args: string[], cwd: string, maxBytes: number, ti
 
 /** The line of stderr worth showing a person: git's "fatal:"/"error:" line, else the last one. */
 function reason(r: Result, fallback: string): string {
-  const lines = r.err.trim().split('\n').map((l) => l.trim()).filter(Boolean);
+  const lines = r.err
+    .trim()
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
   const line = lines.find((l) => /^(fatal|error):/i.test(l)) ?? lines[lines.length - 1];
   return line ? line.replace(/^(fatal|error):\s*/i, '') : fallback;
 }
@@ -158,7 +162,6 @@ export class Changes {
   private opened = new Map<string, { number: number; url: string }>();
 
   constructor(
-    private dir: string,
     /** The branch the office was opened on: what diffs are taken against and what PRs target. */
     private baseBranch: string | undefined,
     private target: (workerId: string) => ChangesTarget | undefined,
@@ -243,7 +246,7 @@ export class Changes {
     const file = await this.changedFile(workerId, t, filePath);
     if (typeof file === 'string') return { status: 404, error: file };
     // A renamed file was something else before; its old side is only a picture if that name was one.
-    const name = side === 'old' ? file.from ?? file.path : file.path;
+    const name = side === 'old' ? (file.from ?? file.path) : file.path;
     const type = changedImageType(name);
     if (!type) return { status: 415, error: 'Only pictures can be previewed' };
     try {
@@ -417,11 +420,7 @@ export class Changes {
   private async compute(workerId: string, t: ChangesTarget): Promise<ChangesState> {
     try {
       const base = await this.baseCommit(t);
-      const [numstat, names, status] = await Promise.all([
-        git(['diff', '--numstat', '-M', '-z', base.commit], t.cwd),
-        git(['diff', '--name-status', '-M', '-z', base.commit], t.cwd),
-        git(['status', '--porcelain=v1', '-z', '-uall'], t.cwd),
-      ]);
+      const [numstat, names, status] = await Promise.all([git(['diff', '--numstat', '-M', '-z', base.commit], t.cwd), git(['diff', '--name-status', '-M', '-z', base.commit], t.cwd), git(['status', '--porcelain=v1', '-z', '-uall'], t.cwd)]);
       const files = new Map<string, ChangedFile>();
       // `--name-status -z`: "M\0path\0", renames "R100\0old\0new\0".
       const ns = fields(names);
@@ -482,7 +481,7 @@ export class Changes {
       );
       const ahead = Number(await gitMaybe(['rev-list', '--count', `${base.commit}..HEAD`], t.cwd)) || 0;
       const subject = ahead ? await gitMaybe(['log', '-1', '--format=%s'], t.cwd) : undefined;
-      const pr = base.branch ? this.opened.get(base.branch) ?? this.openPull(base.branch) : undefined;
+      const pr = base.branch ? (this.opened.get(base.branch) ?? this.openPull(base.branch)) : undefined;
       return { workerId, dir: t.rel, branch: base.branch ?? 'HEAD', base: base.label, ahead, subject, files: list, more: all.length - list.length, prBase: base.prBase, pr, at: Date.now() };
     } catch (err) {
       return errorState(workerId, t.rel, err instanceof GitError ? err.message : String((err as Error).message ?? err));

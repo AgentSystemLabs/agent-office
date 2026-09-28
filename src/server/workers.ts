@@ -33,9 +33,34 @@ import type { Capacity } from './machine.js';
 type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
 
 const NAMES = [
-  'Pixel', 'Byte', 'Nibble', 'Sprocket', 'Widget', 'Gizmo', 'Bolt', 'Cosmo', 'Dot', 'Echo',
-  'Fizz', 'Glitch', 'Hopper', 'Jinx', 'Kilo', 'Lumen', 'Mochi', 'Noodle', 'Orbit', 'Pip',
-  'Quark', 'Rivet', 'Sparky', 'Tofu', 'Uno', 'Volt', 'Waffle', 'Zippy',
+  'Pixel',
+  'Byte',
+  'Nibble',
+  'Sprocket',
+  'Widget',
+  'Gizmo',
+  'Bolt',
+  'Cosmo',
+  'Dot',
+  'Echo',
+  'Fizz',
+  'Glitch',
+  'Hopper',
+  'Jinx',
+  'Kilo',
+  'Lumen',
+  'Mochi',
+  'Noodle',
+  'Orbit',
+  'Pip',
+  'Quark',
+  'Rivet',
+  'Sparky',
+  'Tofu',
+  'Uno',
+  'Volt',
+  'Waffle',
+  'Zippy',
 ];
 const COLORS = ['#ff8a5b', '#5bc0eb', '#9bc53d', '#fde74c', '#c3423f', '#b388eb', '#f7aef8', '#72ddf7', '#ffb400', '#00a6a6'];
 
@@ -43,9 +68,19 @@ const COLORS = ['#ff8a5b', '#5bc0eb', '#9bc53d', '#fde74c', '#c3423f', '#b388eb'
 // would make a worker think it is a child session — that silently turns off transcript saving,
 // which breaks resume.
 const SCRUB_ENV = new Set([
-  'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_CODE_EXECPATH', 'CLAUDE_PID', 'CLAUDE_EFFORT',
-  'CODEX_THREAD_ID', 'CODEX_INTERNAL_ORIGINATOR_OVERRIDE',
-  'NO_COLOR', 'FORCE_COLOR', 'VSCODE_INJECTION', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION',
+  'CLAUDECODE',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'CLAUDE_CODE_SSE_PORT',
+  'CLAUDE_CODE_EXECPATH',
+  'CLAUDE_PID',
+  'CLAUDE_EFFORT',
+  'CODEX_THREAD_ID',
+  'CODEX_INTERNAL_ORIGINATOR_OVERRIDE',
+  'NO_COLOR',
+  'FORCE_COLOR',
+  'VSCODE_INJECTION',
+  'TERM_PROGRAM',
+  'TERM_PROGRAM_VERSION',
 ]);
 const SCRUB_PREFIXES = ['CLAUDE_CODE_SESSION', 'CLAUDE_CODE_CHILD', 'CLAUDE_CODE_MESSAGING', 'NEBULA_', 'AGENT_OFFICE_'];
 const scrubbed = (k: string) => SCRUB_ENV.has(k) || SCRUB_PREFIXES.some((p) => k.startsWith(p));
@@ -260,8 +295,18 @@ export class WorkerManager {
    * Hires a worker at a desk. `meeting` seats one at the meeting room's table instead, for that meeting
    * (see meetings.ts), in the meeting's own worktree, which everyone at the table shares.
    */
-  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }): WorkerInfo | string {
-    const selectedProvider = kind === 'agent' ? provider ?? this.defaultProvider : undefined;
+  spawn(
+    deskId: string,
+    by: string,
+    prompt?: string,
+    worktree = false,
+    kind: WorkerKind = 'agent',
+    provider?: AgentProvider,
+    model?: string,
+    effort?: AgentEffort,
+    meeting?: { id: string; worktree?: WorkerInfo['worktree'] },
+  ): WorkerInfo | string {
+    const selectedProvider = kind === 'agent' ? (provider ?? this.defaultProvider) : undefined;
     const modelError = validateWorkerModel(kind, selectedProvider, model);
     if (modelError) return modelError;
     const effortError = validateWorkerEffort(kind, selectedProvider, effort);
@@ -586,7 +631,7 @@ export class WorkerManager {
   /** Claude Code hook callback. */
   handleHook(workerId: string, token: string, event: string, payload: any): boolean {
     const w = this.workers.get(workerId);
-    if (!w || !w.pty || w.info.kind !== 'agent' || (w.info.provider !== 'claude' && w.info.provider !== 'custom') || !safeEq(token, w.hookToken)) return false;
+    if (!w?.pty || w.info.kind !== 'agent' || (w.info.provider !== 'claude' && w.info.provider !== 'custom') || !safeEq(token, w.hookToken)) return false;
     const now = Date.now();
     if (payload?.session_id && typeof payload.session_id === 'string' && payload.session_id !== w.info.sessionId) {
       w.info.sessionId = payload.session_id;
@@ -657,7 +702,7 @@ export class WorkerManager {
   /** Droid lifecycle hooks do not use Claude's transcript or spend ledger. */
   handleDroidHook(workerId: string, token: string, event: string, payload: unknown): boolean {
     const w = this.workers.get(workerId);
-    if (!w || !w.pty || w.info.kind !== 'agent' || w.info.provider !== 'droid' || !safeEq(token, w.hookToken)) return false;
+    if (!w?.pty || w.info.kind !== 'agent' || w.info.provider !== 'droid' || !safeEq(token, w.hookToken)) return false;
     if (!payload || typeof payload !== 'object') return false;
     const report = payload as Record<string, unknown>;
     if (report.hook_event_name !== event || typeof report.session_id !== 'string' || !report.session_id) return false;
@@ -703,7 +748,7 @@ export class WorkerManager {
   /** Native Codex lifecycle hooks register the root rollout for bounded metric reads. */
   handleCodexHook(workerId: string, token: string, event: string, payload: unknown): boolean {
     const w = this.workers.get(workerId);
-    if (!w || !w.pty || w.info.kind !== 'agent' || w.info.provider !== 'codex' || !safeEq(token, w.hookToken)) return false;
+    if (!w?.pty || w.info.kind !== 'agent' || w.info.provider !== 'codex' || !safeEq(token, w.hookToken)) return false;
     const report = normalizeCodexHook(event, payload);
     if (!report) return false;
     if (w.info.sessionId && w.info.sessionId !== report.sessionId && event !== 'SessionStart') return false;
@@ -752,7 +797,7 @@ export class WorkerManager {
         }
         busy();
         break;
-      case 'PermissionRequest':
+      case 'PermissionRequest': {
         w.info.activity = `Wants permission: ${truncate(report.tool ?? 'tool', 80)}`;
         // PermissionRequest has no tool_use_id in the native schema. Keep every matching
         // active call pending so an unrelated parallel tool cannot dismiss the prompt.
@@ -761,6 +806,7 @@ export class WorkerManager {
         for (const [id] of candidates) w.codexPending.add(id);
         this.setStatus(w, 'needs_input');
         break;
+      }
       case 'PostToolUse':
         if (report.toolUseId) {
           w.codexTools.delete(report.toolUseId);
@@ -782,7 +828,7 @@ export class WorkerManager {
   /** OpenCode plugin callback. The plugin has already filtered child sessions before this bridge. */
   handleOpenCodeHook(workerId: string, token: string, payload: unknown): boolean {
     const w = this.workers.get(workerId);
-    if (!w || !w.pty || w.info.kind !== 'agent' || w.info.provider !== 'opencode' || !safeEq(token, w.hookToken)) return false;
+    if (!w?.pty || w.info.kind !== 'agent' || w.info.provider !== 'opencode' || !safeEq(token, w.hookToken)) return false;
     if (payload && typeof payload === 'object' && 'type' in payload && payload.type === 'usage') {
       const report = payload as { sessionId?: unknown; usage?: unknown };
       const usage = reportedUsage(report.usage);
@@ -1137,7 +1183,7 @@ export class WorkerManager {
           ? 'Open the terminal: complete login and review Office hooks in /hooks'
           : info.provider === 'droid'
             ? 'Waiting on Droid setup or hooks — open the terminal'
-          : 'Waiting on a setup prompt (trust / login) — open the terminal';
+            : 'Waiting on a setup prompt (trust / login) — open the terminal';
         this.setStatus(w, 'needs_input');
       } else this.setStatus(w, 'idle');
     }, 12000);
@@ -1159,7 +1205,7 @@ export class WorkerManager {
   /** What a worker's terminal runs: the shell, the configured agent command, or another provider's CLI. */
   private command(info: WorkerInfo): string {
     if (info.kind === 'shell') return defaultShell();
-    return info.provider === this.defaultProvider ? this.agentCmd : info.provider ?? this.agentCmd;
+    return info.provider === this.defaultProvider ? this.agentCmd : (info.provider ?? this.agentCmd);
   }
 
   private cwd(info: WorkerInfo): string {
@@ -1283,9 +1329,7 @@ export class WorkerManager {
     const blocked = loggedOut || (SETUP_PROMPT.test(text) && (s === 'starting' || w.bootBlocked));
     if (blocked && s !== 'needs_input') {
       w.bootBlocked = true;
-      w.info.activity = loggedOut
-        ? "Claude isn't signed in on this machine — open the terminal and type /login"
-        : 'Waiting on a setup prompt (trust / login) — open the terminal';
+      w.info.activity = loggedOut ? "Claude isn't signed in on this machine — open the terminal and type /login" : 'Waiting on a setup prompt (trust / login) — open the terminal';
       this.setStatus(w, 'needs_input');
     } else if (!blocked && w.bootBlocked && s === 'needs_input') {
       w.bootBlocked = false;
@@ -1333,7 +1377,7 @@ process.stdin.on('end', () => {
     const commandFor = (provider: 'claude' | 'droid', event: string) => {
       const curl =
         `curl -sS -m 3 --retry ${HOOK_TRIES - 1} --retry-delay 1 --retry-connrefused -X POST -H "Authorization: Bearer $AGENT_OFFICE_HOOK_TOKEN" -H "Content-Type: application/json" ` +
-        `--data-binary @- \"$AGENT_OFFICE_HOOK_URL/hooks/${provider}?worker=$AGENT_OFFICE_WORKER_ID&event=${event}\"`;
+        `--data-binary @- "$AGENT_OFFICE_HOOK_URL/hooks/${provider}?worker=$AGENT_OFFICE_WORKER_ID&event=${event}"`;
       return (
         `if [ -z "$AGENT_OFFICE_WORKER_ID" ] || [ -z "$AGENT_OFFICE_HOOK_URL" ]; then exit 0; fi; ` +
         `if command -v curl >/dev/null 2>&1; then ${curl} >/dev/null 2>&1; ` +
@@ -1434,13 +1478,14 @@ process.stdin.on('end', () => {
       for (const s of saved) {
         if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || this.deskOccupied(s.deskId)) continue;
         const tracker = restoreTracker(s.tracker);
-        const provider = s.kind === 'shell'
-          ? undefined
-          : s.provider === 'claude' || s.provider === 'opencode' || s.provider === 'codex' || s.provider === 'droid' || s.provider === 'custom'
-            ? s.provider
-            : tracker.transcript
-              ? 'claude'
-              : this.defaultProvider;
+        const provider =
+          s.kind === 'shell'
+            ? undefined
+            : s.provider === 'claude' || s.provider === 'opencode' || s.provider === 'codex' || s.provider === 'droid' || s.provider === 'custom'
+              ? s.provider
+              : tracker.transcript
+                ? 'claude'
+                : this.defaultProvider;
         const info: WorkerInfo = {
           id: s.id,
           kind: s.kind === 'shell' ? 'shell' : 'agent',
@@ -1542,12 +1587,17 @@ function validTask(t: unknown): WorkerTask | undefined {
 function isOpenCodeHookEvent(value: unknown): value is OpenCodeStatusEvent {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
-  return typeof v.type === 'string' && ['session', 'prompt', 'tool', 'permission', 'question', 'error'].includes(v.type)
-    && typeof v.sessionId === 'string' && v.sessionId.length > 0
-    && typeof v.status === 'string' && ['starting', 'working', 'needs_input', 'done'].includes(v.status)
-    && (v.prompt === undefined || typeof v.prompt === 'string')
-    && (v.tool === undefined || typeof v.tool === 'string')
-    && (v.detail === undefined || typeof v.detail === 'string');
+  return (
+    typeof v.type === 'string' &&
+    ['session', 'prompt', 'tool', 'permission', 'question', 'error'].includes(v.type) &&
+    typeof v.sessionId === 'string' &&
+    v.sessionId.length > 0 &&
+    typeof v.status === 'string' &&
+    ['starting', 'working', 'needs_input', 'done'].includes(v.status) &&
+    (v.prompt === undefined || typeof v.prompt === 'string') &&
+    (v.tool === undefined || typeof v.tool === 'string') &&
+    (v.detail === undefined || typeof v.detail === 'string')
+  );
 }
 
 function snapshotScreen(term: HeadlessTerminal, last: string[]) {
@@ -1665,7 +1715,7 @@ export function resolveCommand(cmd: string): string | null {
       .trim()
       .split('\n')
       .pop();
-    if (found && found.startsWith('/')) return found;
+    if (found?.startsWith('/')) return found;
   } catch {
     // fall through
   }
@@ -1701,7 +1751,11 @@ function run(cmd: string, args: string[], cwd: string, timeout = 30_000): Promis
  */
 function draftPr(info: WorkerInfo, commits: string[], by: string): { title: string; body: string } {
   const task = (info.prompt ?? '').replace(/\r\n?/g, '\n').trim();
-  const firstLine = task.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
+  const firstLine =
+    task
+      .split('\n')
+      .map((l) => l.trim())
+      .find(Boolean) ?? '';
   // The issues board hands work over as: Work on GitHub issue #12: "Title" (or GitLab issue).
   const issue = /\bissue #(\d+):\s*["“](.+?)["”]\.?\s*$/i.exec(firstLine);
   const title = truncate(issue?.[2] || firstLine.replace(/[.:;,]+$/, '') || commits[0]?.replace(/^\S+\s+/, '') || info.worktree?.branch || info.name, PR_TITLE_MAX);

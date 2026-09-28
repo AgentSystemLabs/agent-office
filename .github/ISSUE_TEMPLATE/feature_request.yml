@@ -1,0 +1,48 @@
+name: Feature request
+description: Suggest something new for the office, or a change to how it works.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you are trying to do, and what gets in the way today.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What you would like the office to do. Describe how it looks and behaves for the people using it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other ways to solve the problem, including workarounds you use now.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Areas
+      description: The parts of the office this touches.
+      multiple: true
+      options:
+        - Workers and terminals
+        - Providers (claude, opencode, codex, droid)
+        - Floors (GitHub or GitLab projects)
+        - Issues, PR and queue boards
+        - Voice, chat and screen sharing
+        - The 3D office and its furniture
+        - WebXR headset
+        - Install, upgrade and deployment
+        - Other
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Screenshots, sketches, links or anything else that helps.

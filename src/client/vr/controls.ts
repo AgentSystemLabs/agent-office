@@ -4,7 +4,6 @@
  * side, a GOT IT button to dismiss it, and a `show()` the ☰ menu's ❓ row calls back to.
  */
 
-import type * as THREE from 'three';
 import { TERM_FONT } from '../fonts';
 import type { HeadPose, Rect } from './math';
 import { WorldPanel } from './panel';

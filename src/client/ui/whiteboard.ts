@@ -147,7 +147,7 @@ export function mirrorWhiteboard(show: (drawing: HTMLCanvasElement | null) => vo
     }
   };
   const soon = (ms: number) => {
-    if (!open) timer ||= window.setTimeout(() => void draw(), ms);
+    if (!open && !timer) timer = window.setTimeout(() => void draw(), ms);
   };
   redrawBoard = () => soon(300);
   store.on('whiteboard', () => soon(300));

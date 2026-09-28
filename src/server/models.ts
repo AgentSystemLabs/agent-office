@@ -11,18 +11,15 @@ export interface ModelCommandOptions {
   maxBuffer: number;
 }
 
-export type ModelCommandRunner = (
-  file: string,
-  args: string[],
-  options: ModelCommandOptions,
-) => Promise<{ stdout: string; stderr: string }>;
+export type ModelCommandRunner = (file: string, args: string[], options: ModelCommandOptions) => Promise<{ stdout: string; stderr: string }>;
 
-const runModelCommand: ModelCommandRunner = (file, args, options) => new Promise((resolve, reject) => {
-  nodeExecFile(file, args, { ...options, encoding: 'utf8' }, (error, stdout, stderr) => {
-    if (error) return reject(error);
-    resolve({ stdout: String(stdout), stderr: String(stderr) });
+const runModelCommand: ModelCommandRunner = (file, args, options) =>
+  new Promise((resolve, reject) => {
+    nodeExecFile(file, args, { ...options, encoding: 'utf8' }, (error, stdout, stderr) => {
+      if (error) return reject(error);
+      resolve({ stdout: String(stdout), stderr: String(stderr) });
+    });
   });
-});
 
 /** Run `opencode models` without a shell and return only safe, model-shaped lines. */
 export async function fetchOpenCodeModels(command: string, cwd: string, runner: ModelCommandRunner = runModelCommand): Promise<string[]> {
@@ -34,7 +31,7 @@ export async function fetchOpenCodeModels(command: string, cwd: string, runner: 
     });
     const models: string[] = [];
     const seen = new Set<string>();
-    for (const raw of result.stdout.replace(/\x1b\[[0-?]*[ -\/]*[@-~]/g, '').split(/\r?\n/)) {
+    for (const raw of result.stdout.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').split(/\r?\n/)) {
       const model = raw.trim().replace(/^[-*]\s+/, '');
       if (isValidOpenCodeModel(model) && !seen.has(model)) {
         seen.add(model);
@@ -51,12 +48,7 @@ export interface OpenCodeModelCatalogue {
   get(): Promise<string[]>;
 }
 
-export function createOpenCodeModelCatalogue(
-  command: string,
-  cwd: string,
-  runner: ModelCommandRunner = runModelCommand,
-  now: () => number = Date.now,
-): OpenCodeModelCatalogue {
+export function createOpenCodeModelCatalogue(command: string, cwd: string, runner: ModelCommandRunner = runModelCommand, now: () => number = Date.now): OpenCodeModelCatalogue {
   let cached: { models: string[]; expiresAt: number } | undefined;
   let pending: Promise<string[]> | undefined;
   return {
@@ -64,12 +56,14 @@ export function createOpenCodeModelCatalogue(
       const current = now();
       if (cached && current < cached.expiresAt) return Promise.resolve([...cached.models]);
       if (pending) return pending;
-      pending = fetchOpenCodeModels(command, cwd, runner).then((models) => {
-        cached = { models, expiresAt: now() + MODEL_CACHE_TTL_MS };
-        return [...models];
-      }).finally(() => {
-        pending = undefined;
-      });
+      pending = fetchOpenCodeModels(command, cwd, runner)
+        .then((models) => {
+          cached = { models, expiresAt: now() + MODEL_CACHE_TTL_MS };
+          return [...models];
+        })
+        .finally(() => {
+          pending = undefined;
+        });
       return pending;
     },
   };

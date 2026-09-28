@@ -201,7 +201,6 @@ export class Floor {
 
     // What each worker changed, for the Changes window at its desk (see changes.ts).
     this.changes = new Changes(
-      def.dir,
       this.project.branch,
       (workerId) => {
         const w = this.workers.get(workerId);
