@@ -1,0 +1,18 @@
+[
+  {
+    "generatedAt": "2026-09-28T16:02:14.439Z",
+    "commit": "b20f383",
+    "verdict": "not_ready",
+    "score": 50,
+    "grade": "F",
+    "failing": [
+      "agents_md",
+      "lint_format",
+      "env_example",
+      "lockfile",
+      "templates",
+      "precommit",
+      "coverage"
+    ]
+  }
+]
