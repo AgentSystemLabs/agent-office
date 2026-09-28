@@ -53,6 +53,8 @@ import { buildCabinet, type CabinetModel } from './cabinet';
 import { buildWhiteboard, type WhiteboardStand } from './whiteboard';
 import { buildStack, type Stack } from './stack';
 import { buildTower } from './tower';
+import { buildCoffeeMachine } from './coffee';
+import type { TouchVolume } from './touch';
 
 export interface Collider {
   minX: number;
@@ -107,6 +109,8 @@ export interface Interactable {
   pole?: number;
   /** Put away for now (a bean bag nobody needs yet): can't be used. */
   off?: boolean;
+  /** VR hand contact zones, independent of desktop/ray reach. Absent means ray/keyboard only. */
+  touch?: readonly TouchVolume[];
 }
 
 /** A desk, a bean bag, a board agent's kiosk or a chair at the meeting table: somewhere a worker sits (or stands). */
@@ -1237,10 +1241,8 @@ export function buildOffice(): Office {
   const kitchen = new THREE.Group();
   kitchen.add(mesh(box(5, 0.95, 1), toon('#8ecae6'), 0, 0.475, 0));
   kitchen.add(mesh(box(5.1, 0.08, 1.1), toon(PALETTE.desk), 0, 0.99, 0));
-  const coffee = new THREE.Group();
-  coffee.add(mesh(roundedBox(0.6, 0.7, 0.5, 0.08), toon('#343a40'), 0, 0.35, 0));
-  coffee.add(mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.14, 10), toon('#ffffff'), 0, 0.1, 0.12));
-  coffee.add(mesh(new THREE.SphereGeometry(0.05, 8, 8), toon('#ef476f', { emissive: '#ef476f' }), 0.18, 0.55, 0.26));
+  const cup: Interactable = { kind: 'coffee', x: -15.7, z: 10.9, radius: 1.4 };
+  const coffee = buildCoffeeMachine(cup);
   coffee.position.set(-1.2, 1.03, 0);
   kitchen.add(coffee);
   kitchen.add(mesh(roundedBox(1.1, 2.2, 1, 0.1), toon('#f8f9fa'), 3.2, 1.1, 0));
@@ -1249,9 +1251,7 @@ export function buildOffice(): Office {
   group.add(kitchen);
   colliders.push({ minX: -17, maxX: -12, minZ: 11.7, maxZ: 12.7, top: 1.03 });
   colliders.push({ minX: -11.85, maxX: -10.75, minZ: 11.7, maxZ: 12.7, top: 2.2 });
-  const cup: Interactable = { kind: 'coffee', x: -15.7, z: 10.9, radius: 1.4 };
   interactables.push(cup);
-  coffee.userData.interact = cup;
   // Counter, coffee machine and fridge, in front of the south wall.
   fixture('south', -14.5, 0.55, 5.1, 1.1);
   fixture('south', -15.7, 0.9, 0.6, 1.8);

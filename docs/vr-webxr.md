@@ -33,6 +33,7 @@ menu's ❓ row brings it back).
 |---|---|
 | Trigger / pinch tap | **E** on whatever the ray points at (desks, boards, elevator, gong, dog, seats…) |
 | Touch a cab floor button with an index fingertip | Ride to that floor, without pinching |
+| Touch the dog, gong disc, or coffee machine with a tracked hand | Pet, ring, or drink, without pinching |
 | Pinch hold (hands) | Aim a teleport arc; release to go (green lands, red doesn't) |
 | Both hands pinch-hold, rays off the panels | Toggle the ☰ menu (the hands' squeeze) |
 | Squeeze | Cancel: the carried issue card goes back, else the topmost window closes, else ☰ |
@@ -89,6 +90,22 @@ Touch fires once until the finger withdraws, with a short release margin for tra
 A touch consumes that hand's pinch so its release cannot also select or teleport. Without hand
 tracking, ray taps still work. The **☰ → Floors** menu and tapping the elevator housing remain
 fallbacks, including from outside the cab. Desktop retains its decorative cab panel and E/menu flow.
+
+### Physical hand contact
+
+Reach out to pet the dog's head or back, tap the gong disc, or touch the coffee machine.
+Fingertips and palm joints can activate these objects. Their contact zones follow the visible
+geometry with only a few centimeters of tolerance, not the much larger desktop walk-up radius.
+The dog's zones follow its pose; the gong's zone stays at the resting disc so its swing cannot
+ring it again against a stationary hand. Nearby furniture, the gong frame, and walking past
+without touching do nothing. Seats, ladders, poles and other physical kinds remain ray-only
+to avoid accidental locomotion or toggles.
+
+Contact fires the same E action as a ray tap. Both hands on one object count as one contact.
+Withdraw both hands for at least 120 ms to rearm; tracking loss alone does not rearm it.
+A touch consumes that hand's pinch until release, preventing an extra ray click or teleport.
+Panels, climbing and teleport aiming/fades take priority over contact. Ray taps keep their
+existing reach limits for hands and controllers; desktop controls are unchanged.
 
 ## Settings (⚙️ → VR)
 
@@ -282,6 +299,11 @@ calling VR done:
     reach while standing/seated, live floor additions/removals/clone completion, and the
     floors-menu fallback. This physical-headset check is still pending; automated tests or
     IWSDK emulation do not satisfy it.
+12. Galaxy XR physical contact: pet the dog standing, sitting and lying down; touch the gong
+    and coffee machine with either hand. Hold contact (including both hands), withdraw, and
+    re-touch. Walk past without reaching out, briefly lose tracking, and check pinch/ray and
+    controller fallbacks. This physical-headset check is pending; automated checks do not
+    satisfy issue #4's hardware acceptance criterion.
 
 The cab's geometry, picking, press animation, list updates and touch debounce have Node tests
 in `tests/elevator.test.ts` and `tests/vr.test.ts`. In an active IWSDK session, after visiting

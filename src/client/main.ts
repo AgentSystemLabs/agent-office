@@ -59,6 +59,7 @@ import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/b
 import { loadFonts, MONO } from './fonts';
 import { Gallery } from './world/gallery';
 import { Dog } from './world/dog';
+import { pickTouchTarget } from './world/touch';
 import { Holiday } from './world/holiday';
 import { Arrivals, Departures } from './world/leaving';
 import { Confetti, type Area } from './world/confetti';
@@ -539,7 +540,12 @@ const vr = new VRSession(renderer, scene, camera, {
   settings,
   useE: vrUseE,
   pickFromRay: (ray, slack) => pickFromRay(ray, slack),
-  touchTarget: (point) => (inElevator(player.pos.x, player.pos.z) && !climber.active ? lift().touchTarget(point) : null),
+  touchTarget: (point, indexTip) => {
+    if (climber.active || trip) return null;
+    const it = (indexTip && inElevator(player.pos.x, player.pos.z) ? lift().touchTarget(point) : null) ?? pickTouchTarget(point, usable());
+    eye.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
+    return it && point.distanceTo(eye) <= REACH[it.kind] ? it : null;
+  },
   noteUnder: (aim) => noteUnder(aim),
   nextWaiting: () => goToNextWaiting(),
   putBack: () => putBack(),

@@ -97,6 +97,11 @@ export class Dog {
     this.build();
     this.root.visible = false;
     this.root.userData.interact = this.interactable;
+    this.interactable.touch = [
+      { object: this.head, containsPoint: (p) => p.lengthSq() <= 0.18 ** 2 },
+      // The body's capsule follows the shoulders, sitting and lying down with the dog.
+      { object: this.torso, containsPoint: (p) => p.x ** 2 + (p.y - 0.05) ** 2 + (p.z - THREE.MathUtils.clamp(p.z, 0.04, 0.34)) ** 2 <= 0.185 ** 2 },
+    ];
   }
 
   /**

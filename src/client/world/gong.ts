@@ -89,6 +89,9 @@ export function buildGong(): Gong {
 
   const colliders: Collider[] = [{ minX: x - half - 0.12, maxX: x + half + 0.3, minZ: z - 0.3, maxZ: z + 0.3, top: height + 0.1 }];
   const interactable: Interactable = { kind: 'gong', x, z: z + 1.3, radius: 1.5 };
+  // The disc at rest, not the frame or walk-up point. Its swing must not rearm a held hand.
+  const discY = pivot.position.y - drop;
+  interactable.touch = [{ object: group, containsPoint: (p) => p.x ** 2 + (p.y - discY) ** 2 <= (R + 0.035) ** 2 && p.z >= -0.06 && p.z <= 0.12 }];
   group.userData.interact = interactable;
 
   let swing = 0;

@@ -49,6 +49,19 @@ export const MENU_HOLD_MS = 600;
  * the whole perf cost (flat rendering in the same browser is fine), and 0.8² of the pixels
  * buys the frame budget back with no visible blur. Restored on session end. */
 const XR_FRAMEBUFFER_SCALE = 0.8;
+/** Fingertips for pokes; knuckles and wrist for an open-handed pat. No aim/grip proxy poses. */
+const TOUCH_JOINTS: readonly XRHandJoint[] = [
+  'index-finger-tip',
+  'thumb-tip',
+  'middle-finger-tip',
+  'ring-finger-tip',
+  'pinky-finger-tip',
+  'index-finger-metacarpal',
+  'middle-finger-metacarpal',
+  'ring-finger-metacarpal',
+  'pinky-finger-metacarpal',
+  'wrist',
+];
 
 /**
  * One hand's pinch, read as tap-vs-hold: fed the live held state plus a clock, it reports
@@ -158,8 +171,8 @@ export interface VRHooks {
   useE: (it: Interactable | null, note: GhIssue | null) => void;
   /** The shared ray picker (office, gallery, dog, or the roof's): ray in, Interactable out. */
   pickFromRay: (ray: THREE.Raycaster, slack: number) => { it: Interactable; near: boolean; hit: THREE.Intersection } | null;
-  /** Physical world buttons under a tracked index fingertip; they use the same E dispatch. */
-  touchTarget?: (point: THREE.Vector3) => Interactable | null;
+  /** Physical contact at a tracked joint; cab keys accept only the index fingertip. */
+  touchTarget?: (point: THREE.Vector3, indexTip: boolean) => Interactable | null;
   /** The issue note under an aim on the issues board, if any. */
   noteUnder: (aim: { it: Interactable; hit: THREE.Intersection } | null) => GhIssue | null;
   /** N: the next worker waiting on someone. */
@@ -305,6 +318,8 @@ interface RayState {
   /** Tap-vs-hold for hand-tracked sources. */
   hold: PinchHold;
   touch: TouchPress;
+  touchTarget: Interactable | null;
+  touchJoint: XRHandJoint | null;
   hover: { it: Interactable; near: boolean; hit: THREE.Intersection } | null;
   /** A world-space UI panel owns this ray this frame (world input yields to it). */
   uiConsumed: boolean;
@@ -363,6 +378,8 @@ export class VRSession {
   private yaw = 0;
   private lastAvatar = new THREE.Vector3();
   private rays: RayState[] = [];
+  /** Both hands on one object still count as one contact, until both withdraw. */
+  private contacts = new Map<Interactable, TouchPress>();
   private raycaster = new THREE.Raycaster();
   private arc: THREE.Line;
   private marker: THREE.Mesh;
@@ -431,6 +448,8 @@ export class VRSession {
         pinchHeld: false,
         hold: new PinchHold(),
         touch: new TouchPress(),
+        touchTarget: null,
+        touchJoint: null,
         hover: null,
         uiConsumed: false,
         teleportHeld: false,
@@ -505,12 +524,15 @@ export class VRSession {
     this.dolly.position.copy(this.origin);
     this.dolly.rotation.set(0, this.yaw, 0);
     this.dolly.visible = true;
+    this.contacts.clear();
     for (const r of this.rays) {
       this.dolly.add(r.targetRay, r.grip, r.hand);
       r.selectHeld = false;
       r.pinchHeld = false;
       r.hold.reset();
       r.touch.reset();
+      r.touchTarget = null;
+      r.touchJoint = null;
       r.hover = null;
       r.uiConsumed = false;
     }
@@ -561,6 +583,7 @@ export class VRSession {
     this.stickAiming = false;
     this.glideActive = false;
     this.sway = 0;
+    this.contacts.clear();
     this.dolly.rotation.set(0, 0, 0);
     player.climbInput = 0;
     this.arc.visible = false;
@@ -578,6 +601,8 @@ export class VRSession {
       r.pinchHeld = false;
       r.hold.reset();
       r.touch.reset();
+      r.touchTarget = null;
+      r.touchJoint = null;
       r.wasN = false;
       r.line.visible = true;
       r.dot.visible = true;
@@ -709,6 +734,8 @@ export class VRSession {
     st.wasN = false;
     st.hold.reset();
     st.touch.reset();
+    st.touchTarget = null;
+    st.touchJoint = null;
     st.line.visible = false;
     st.dot.visible = false;
     // A press in flight dies with the ray (else the panel waits on a release that never comes).
@@ -845,19 +872,44 @@ export class VRSession {
     }
   }
 
-  /** A fingertip entering a cab key presses it without a pinch. Hidden/stale joints never do. */
+  /** Contact uses live fingertips and palm joints, without requiring a pinch or a ray aim. */
   private updateTouches(): void {
     const now = performance.now();
-    const blocked = !!this.hooks.player.rig || this.teleportAiming();
+    const blocked = !!this.hooks.player.rig || this.teleportAiming() || this.fade !== 'idle';
     for (const st of this.rays) {
-      const tip = st.source?.hand && st.hand.visible ? st.hand.joints['index-finger-tip'] : null;
-      const target = !blocked && !st.uiConsumed && tip?.visible ? (this.hooks.touchTarget?.(tip.getWorldPosition(_e)) ?? null) : null;
-      const pressed = st.touch.update(!!target, now);
+      let target: Interactable | null = null;
+      let touchingJoint: XRHandJoint | null = null;
+      let tracked = false;
+      if (st.source?.hand && st.hand.visible) {
+        for (const name of TOUCH_JOINTS) {
+          const joint = st.hand.joints[name];
+          if (!joint?.visible) continue;
+          tracked = true;
+          target = this.hooks.touchTarget?.(joint.getWorldPosition(_e), name === 'index-finger-tip') ?? null;
+          if (target) {
+            touchingJoint = name;
+            break;
+          }
+        }
+      }
+      // Tracking loss is not a withdrawal: keep the latch, but never fire from stale poses.
+      if (!tracked || (!target && st.touchJoint && !st.hand.joints[st.touchJoint]?.visible)) continue;
+      st.touchTarget = target;
+      st.touchJoint = touchingJoint;
+      st.touch.update(!!target, now);
       if (st.touch.active) st.hold.consume();
-      if (pressed && target) {
+      if (target && !this.contacts.has(target)) this.contacts.set(target, new TouchPress());
+    }
+    for (const [target, contact] of this.contacts) {
+      const pressed = contact.update(
+        this.rays.some((st) => st.touchTarget === target),
+        now,
+      );
+      if (pressed && !blocked && this.rays.some((st) => st.touchTarget === target && !st.uiConsumed)) {
         this.hooks.reachAnim();
         this.hooks.useE(target, null);
       }
+      if (!contact.active) this.contacts.delete(target);
     }
   }
 
@@ -1086,7 +1138,7 @@ export class VRSession {
       // World-space UI panels eat the ray first; the world only sees rays no panel took.
       if (this.ui) {
         const gp = this.gamepad(i);
-        const pressed = buttonDown(gp, XR_BUTTON.TRIGGER) || st.selectHeld || st.pinchHeld;
+        const pressed = !st.touch.active && !st.hold.isConsumed && (buttonDown(gp, XR_BUTTON.TRIGGER) || st.selectHeld || st.pinchHeld);
         if (this.ui.routeRay(i, this.raycaster, pressed)) {
           st.uiConsumed = true;
           st.hover = null;
