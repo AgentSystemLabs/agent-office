@@ -10,7 +10,7 @@
 
 import type * as THREE from 'three';
 import { TERM_FONT } from '../fonts';
-import { keyRects, type KeyDef, type KeyRect, type Rect } from './math';
+import { keyRects, type HeadPose, type KeyDef, type KeyRect, type Rect } from './math';
 import { WorldPanel } from './panel';
 
 /** Where keystrokes go: the focused terminal panel, or any VR text field. */
@@ -200,14 +200,14 @@ export class VrKeyboard {
     ctx.textAlign = 'left';
   }
 
-  update(dt: number, camera?: THREE.Camera | null) {
+  update(dt: number, head?: HeadPose | null) {
     if (this.pressedKey && performance.now() - this.pressedAt > 160) {
       const id = this.pressedKey;
       this.pressedKey = null;
       const r = this.keyRectOf(id);
       this.panel.markDirty(r);
     }
-    this.panel.update(dt, camera);
+    this.panel.update(dt, head);
   }
 
   dispose() {

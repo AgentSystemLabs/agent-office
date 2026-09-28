@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { describeSessionError, probeXRSupport, requestVRSession, type XrNavigator } from '../src/client/vr/support.js';
-import { MENU_HOLD_MS, PINCH_HOLD_MS, PinchHold, SnapTurn, buttonDown, decodeThumbstick, sampleParabola, xrRayDirection, yawForFacing } from '../src/client/vr/session.js';
+import { MENU_HOLD_MS, PINCH_HOLD_MS, PinchHold, SnapTurn, buttonDown, decodeThumbstick, faceButtons, sampleParabola, xrRayDirection, yawForFacing } from '../src/client/vr/session.js';
+import { PromptBuffer } from '../src/client/vr/prompt.js';
 import { VR_DEFAULTS, loadSettings, saveSettings } from '../src/client/state.js';
 
 function nav(fake: Partial<XRSystem> | undefined): XrNavigator {
@@ -81,6 +82,29 @@ test('button reads tolerate missing gamepads and buttons', () => {
   assert.equal(buttonDown(undefined, 4), false);
   assert.equal(buttonDown({ buttons: [{ pressed: true }] } as unknown as Gamepad, 4), false);
   assert.equal(buttonDown({ buttons: [{ pressed: false }, { pressed: false }, { pressed: false }, { pressed: false }, { pressed: true }] } as unknown as Gamepad, 4), true);
+});
+
+test('face buttons follow the padded layout on hardware, the compact one in emulators', () => {
+  // Real Quest / Galaxy XR: touchpad slot padded (four axes), stick at 3, A/B at 4/5.
+  assert.deepEqual(faceButtons({ axes: [0, 0, 0, 0] } as Gamepad), { stick: 3, a: 4, b: 5 });
+  // Compact emulators (IWSDK Quest profile): two axes, stick at 2, A/B at 3/4.
+  assert.deepEqual(faceButtons({ axes: [0, 0] } as Gamepad), { stick: 2, a: 3, b: 4 });
+  assert.deepEqual(faceButtons(undefined), { stick: 2, a: 3, b: 4 });
+});
+
+test('VR prompt buffer edits a line from terminal bytes', () => {
+  const b = new PromptBuffer();
+  assert.equal(b.input('h'), 'change');
+  assert.equal(b.input('i'), 'change');
+  assert.equal(b.text, 'hi');
+  assert.equal(b.input('\x1b[D'), 'change');
+  assert.equal(b.input('a'), 'change');
+  assert.equal(b.text, 'hai');
+  assert.equal(b.input('\x7f'), 'change');
+  assert.equal(b.text, 'hi');
+  assert.equal(b.input('\r'), 'submit');
+  assert.equal(new PromptBuffer().input('\x1b'), 'cancel');
+  assert.equal(new PromptBuffer().input('\x7f'), 'noop');
 });
 
 test('teleport arc leaves the hand along the ray and falls with gravity', () => {

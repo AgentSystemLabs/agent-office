@@ -53,13 +53,17 @@
  */
 
 import * as THREE from 'three';
-import type { GhIssue, GhPull, GhState, QueueState, WorkerInfo } from '../../shared/protocol';
+import type { ChatLine, FloorInfo, GhIssue, GhPull, GhState, QueueState, WorkerInfo } from '../../shared/protocol';
+import type { JukeboxState } from '../../shared/jukebox';
 import type { ScreenState } from '../world/laptop';
+import { setToastMirror } from '../ui/dom';
 import { VrControls } from './controls';
 import { VrKeyboard, type KeyboardTarget } from './keyboard';
-import { followTarget } from './math';
+import { followTarget, type HeadPose } from './math';
 import { VrMenu, type VrMenuActions } from './menu';
+import { VrPromptPanel, type VrPromptOpts } from './prompt';
 import { VrTerminalPanel, type VrTerminalMsg } from './terminal-panel';
+import { VrToast } from './toast';
 
 export interface VrUiVoice {
   isMuted: () => boolean;
@@ -70,7 +74,7 @@ export interface VrUiVoice {
 /** Everything the VR UI needs from the office: stores, clients and DOM-shared actions. No globals. */
 export interface VrUiDeps {
   send: (msg: VrTerminalMsg) => void;
-  subscribe: (topic: 'screens' | 'workers' | 'issues' | 'pulls' | 'queue', fn: () => void) => () => void;
+  subscribe: (topic: 'screens' | 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox', fn: () => void) => () => void;
   getScreen: (workerId: string) => ScreenState | undefined;
   getWorker: (workerId: string) => WorkerInfo | undefined;
   getWorkers: () => WorkerInfo[];
@@ -78,6 +82,12 @@ export interface VrUiDeps {
   getPulls: () => GhState<GhPull>;
   getQueue: () => QueueState;
   getFreeDesks: () => { id: string; label: string }[];
+  getChat: () => ChatLine[];
+  getFloors: () => FloorInfo[];
+  currentFloor: () => string | null;
+  getJukebox: () => JukeboxState;
+  onRoof: () => boolean;
+  barCutOff: () => boolean;
   voice: VrUiVoice;
   actions: Omit<VrMenuActions, 'toggleMute'>;
   /** Panel layout in meters; the defaults suit a seated user. */
@@ -89,12 +99,14 @@ export interface VrUiDeps {
 }
 
 export interface VrUiHandle {
-  /** The terminal, menu, keyboard and controls panels (for wrist-mounting or custom placement). */
+  /** The terminal, menu, keyboard, prompt, toast and controls panels (for wrist-mounting or custom placement). */
   readonly terminal: VrTerminalPanel;
   readonly menu: VrMenu;
   readonly keyboard: VrKeyboard;
+  readonly prompt: VrPromptPanel;
+  readonly toast: VrToast;
   readonly controls: VrControls;
-  /** All four panels' parent. Added to the scene by attachVrUi. */
+  /** All panels' parent. Added to the scene by attachVrUi. */
   readonly group: THREE.Group;
   /** Opens the world-space terminal for a worker (attaches to its PTY). */
   openTerminal: (workerId: string) => void;
@@ -102,8 +114,16 @@ export interface VrUiHandle {
   closeTerminal: () => void;
   /** Shows/hides the core menu. */
   toggleMenu: () => void;
+  /** Shows the menu at a view (floors, jukebox, bar, chat…): the VR way into modal flows. */
+  showMenu: (view: Parameters<VrMenu['show']>[0]) => void;
   /** Shows the controls card (the menu's ❓ row; also shown on session enter). */
   showControls: () => void;
+  /** Asks for a line of text (hire prompt, board-agent question, chat): prompt panel + keyboard. */
+  askText: (opts: Omit<VrPromptOpts, 'onCancel'> & { onCancel?: () => void }) => void;
+  /** A DOM-toast mirror for the headset (level colors the strip's edge). */
+  showToast: (text: string, level?: 'info' | 'warn' | 'error') => void;
+  /** The issue card in hand, if any: a sticky hint while one is carried. */
+  setCarrying: (card: { issue: number; title: string } | null) => void;
   /** Redirects the keyboard (default target is the focused VR terminal; null mutes it). */
   setKeyboardTarget: (t: KeyboardTarget | null) => void;
   /**
@@ -111,15 +131,17 @@ export interface VrUiHandle {
    * controller with its raycaster and trigger state; returns true when a panel took it.
    */
   routeRay: (rayId: number, raycaster: THREE.Raycaster, pressed: boolean) => boolean;
+  /** Where a routed ray lands on a panel (world), for the cursor dot; null when it lands on none. */
+  panelHit: (rayId: number) => THREE.Vector3 | null;
   /** Scrolls the list under a ray (thumbstick y, positive down). */
   stickScroll: (rayId: number, axisY: number, dt: number) => void;
-  /** Repaints, cursor blink, menu follow. Pass the active camera for follow mode. */
-  update: (dt: number, camera?: THREE.Camera | null) => void;
+  /** Repaints, cursor blink, menu follow. Pass the head pose for follow mode. */
+  update: (dt: number, head?: HeadPose | null) => void;
   dispose: () => void;
 }
 
 interface RayState {
-  panel: VrTerminalPanel | VrMenu | VrKeyboard | VrControls | null;
+  panel: VrTerminalPanel | VrMenu | VrKeyboard | VrPromptPanel | VrControls | null;
   uv: { u: number; v: number } | null;
   pressed: boolean;
 }
@@ -128,6 +150,8 @@ class VrUi implements VrUiHandle {
   readonly terminal: VrTerminalPanel;
   readonly menu: VrMenu;
   readonly keyboard: VrKeyboard;
+  readonly prompt: VrPromptPanel;
+  readonly toast: VrToast;
   readonly controls: VrControls;
   readonly group = new THREE.Group();
   private rays = new Map<number, RayState>();
@@ -136,7 +160,7 @@ class VrUi implements VrUiHandle {
   private headPos: [number, number, number] | null = null;
   private headDir: [number, number, number] | null = null;
   private tmpV = new THREE.Vector3();
-  private tmpD = new THREE.Vector3();
+  private tmpHit = new THREE.Vector3();
 
   constructor(private scene: THREE.Scene, private deps: VrUiDeps) {
     const layout = deps.layout ?? {};
@@ -151,20 +175,39 @@ class VrUi implements VrUiHandle {
         getPulls: deps.getPulls,
         getQueue: deps.getQueue,
         getFreeDesks: deps.getFreeDesks,
+        getChat: deps.getChat,
+        getFloors: deps.getFloors,
+        currentFloor: deps.currentFloor,
+        getJukebox: deps.getJukebox,
+        onRoof: deps.onRoof,
+        barCutOff: deps.barCutOff,
         isMuted: deps.voice.isMuted,
         inVoice: deps.voice.inVoice,
       },
       { ...deps.actions, toggleMute: deps.voice.toggleMute },
     );
     this.keyboard = new VrKeyboard();
+    this.prompt = new VrPromptPanel();
+    this.toast = new VrToast();
     // The keyboard feeds the focused terminal unless redirected (see setKeyboardTarget).
     this.keyboard.setTarget({ sendText: (text) => this.terminal.type(text) });
     // The terminal's own ✕ button also dismisses the keyboard (unless retargeted).
     this.terminal.onClose = () => {
       if (this.keyboardExplicit === undefined) this.keyboard.hide();
     };
+    // The terminal's ✉ button: ask the worker something (the P key's function on desktop).
+    this.terminal.onAsk = (workerId) => {
+      const w = deps.getWorker(workerId);
+      this.askText({
+        title: `✉ Ask ${w?.name ?? 'the worker'}`,
+        placeholder: 'What should it do?',
+        submitLabel: 'Send ✨',
+        onSubmit: (text) => deps.send({ t: 'worker.prompt', workerId, prompt: text }),
+      });
+    };
     this.controls = new VrControls();
     this.menu.onShowControls = () => this.controls.show();
+    this.menu.onChatSay = () => this.askChat();
 
     // Dash layout, facing the user at spawn: terminal center, keyboard below it, menu left.
     const tOff = layout.terminalOffset ?? [0, 1.5, -1.15];
@@ -173,14 +216,19 @@ class VrUi implements VrUiHandle {
     this.keyboard.panel.group.position.set(kOff[0], kOff[1], kOff[2]);
     this.keyboard.panel.group.rotation.x = -0.35;
     this.menu.panel.group.position.set(-0.75, 1.35, -0.95);
-    this.group.add(this.terminal.panel.group, this.keyboard.panel.group, this.menu.panel.group, this.controls.panel.group);
+    this.group.add(this.terminal.panel.group, this.keyboard.panel.group, this.menu.panel.group, this.prompt.panel.group, this.toast.panel.group, this.controls.panel.group);
     this.scene.add(this.group);
     // The menu is a dash that glides after the camera; terminal and keyboard stay put so the
     // user can lean in to read and type. The session owner can wrist-mount the menu instead
     // (see this file's kdoc).
     this.menu.panel.setFollow(true, layout.menuDistance ?? 1.05, 0.18);
-    this.menu.show();
-    // The controls card opens with the session: nobody reads the docs from in a headset.
+    // The controls card opens with the session (nobody reads the docs from in a headset), and
+    // the menu follows once it's dismissed — both ride the same dash spot, so never together.
+    this.controls.onHide = () => {
+      if (!this.menu.visible) this.menu.show();
+    };
+    // DOM toasts mirror into the headset while the session lives (see ui/dom.ts).
+    setToastMirror((text, level) => this.toast.show(text, level));
     this.controls.show();
   }
 
@@ -194,9 +242,12 @@ class VrUi implements VrUiHandle {
 
   openTerminal = (workerId: string) => {
     // The terminal opens where the user looks, not at the spawn default: the user who asked
-    // for it by pointing at a desk is wherever that desk is.
+    // for it by pointing at a desk is wherever that desk is. The dash steps aside (task focus).
+    this.controls.hide();
+    this.menu.hide();
     this.placeBeforeHead(this.terminal.panel.group, 1.15, 0);
     this.placeBeforeHead(this.keyboard.panel.group, 0.95, 0.42);
+    this.keyboard.panel.group.rotateX(-0.35); // lookAt above levels it; slope it like a desk keyboard
     this.terminal.open(workerId);
     this.keyboard.show();
   };
@@ -211,8 +262,66 @@ class VrUi implements VrUiHandle {
     this.menu.toggle();
   };
 
+  showMenu: VrUiHandle['showMenu'] = (view) => {
+    this.controls.hide();
+    this.menu.show(view);
+  };
+
   showControls = () => {
+    // A modal: it owns the dash while up (GOT IT hands the dash back to the menu).
+    this.menu.hide();
     this.controls.show();
+  };
+
+  /** The chat view's ✍️ button: a line for the floor. */
+  private askChat() {
+    this.askText({
+      title: '💬 Say it on this floor',
+      placeholder: 'Hi everyone…',
+      submitLabel: 'Send',
+      onSubmit: (text) => this.deps.actions.sendChat(text),
+    });
+  }
+
+  askText: VrUiHandle['askText'] = (opts) => {
+    // The prompt lands where the user looks, the keyboard below it; the dash steps aside so the
+    // prompt owns the rays (the terminal stays — the question is usually about what's on it).
+    this.controls.hide();
+    this.menu.hide();
+    this.placeBeforeHead(this.prompt.panel.group, 1.0, 0.02);
+    this.prompt.panel.group.rotateX(-0.08);
+    this.placeBeforeHead(this.keyboard.panel.group, 0.82, 0.46);
+    this.keyboard.panel.group.rotateX(-0.35);
+    const target = { sendText: (text: string) => this.prompt.sendText(text) };
+    this.keyboardExplicit = target;
+    this.keyboard.setTarget(target);
+    this.keyboard.show();
+    this.prompt.open({
+      ...opts,
+      onSubmit: (text) => {
+        this.endAskText();
+        opts.onSubmit(text);
+      },
+      onCancel: () => {
+        this.endAskText();
+        opts.onCancel?.();
+      },
+    });
+  };
+
+  /** The prompt is done: the keyboard goes back to the terminal (or away, when none is up). */
+  private endAskText() {
+    this.keyboard.setTarget({ sendText: (text) => this.terminal.type(text) });
+    this.keyboardExplicit = undefined;
+    if (!this.terminal.visible) this.keyboard.hide();
+  }
+
+  showToast = (text: string, level: 'info' | 'warn' | 'error' = 'info') => {
+    this.toast.show(text, level);
+  };
+
+  setCarrying = (card: { issue: number; title: string } | null) => {
+    this.toast.setSticky(card ? `✋ Carrying #${card.issue} — E at a desk, a worker or the queue · squeeze puts it back` : null);
   };
 
   setKeyboardTarget = (t: KeyboardTarget | null) => {
@@ -227,9 +336,10 @@ class VrUi implements VrUiHandle {
     }
   };
 
-  /** Panels front to back for ray routing (controls card nearest, then menu, keyboard lowest). */
-  private ordered(): { ui: VrTerminalPanel | VrMenu | VrKeyboard | VrControls; scrollId: string }[] {
+  /** Panels front to back for ray routing (the prompt owns the rays while it's up). */
+  private ordered(): { ui: VrTerminalPanel | VrMenu | VrKeyboard | VrPromptPanel | VrControls; scrollId: string }[] {
     return [
+      { ui: this.prompt, scrollId: '' },
       { ui: this.controls, scrollId: '' },
       { ui: this.menu, scrollId: 'list' },
       { ui: this.keyboard, scrollId: '' },
@@ -276,6 +386,16 @@ class VrUi implements VrUiHandle {
     return false;
   };
 
+  panelHit = (rayId: number): THREE.Vector3 | null => {
+    const st = this.rays.get(rayId);
+    if (!st?.panel || !st.uv) return null;
+    const { panel } = st.panel;
+    if (!panel.visible) return null;
+    // UV (bottom-left origin) to panel-local meters, then out to the world.
+    this.tmpHit.set((st.uv.u - 0.5) * panel.width, (st.uv.v - 0.5) * panel.height, 0);
+    return panel.mesh.localToWorld(this.tmpHit);
+  };
+
   stickScroll = (rayId: number, axisY: number, dt: number) => {
     const st = this.rays.get(rayId);
     if (!st?.panel) return;
@@ -284,23 +404,26 @@ class VrUi implements VrUiHandle {
     st.panel.panel.scrollStick(entry.scrollId, axisY, dt, 12);
   };
 
-  update = (dt: number, camera?: THREE.Camera | null) => {
-    if (camera) {
-      camera.getWorldPosition(this.tmpV);
-      camera.getWorldDirection(this.tmpD);
-      this.headPos = [this.tmpV.x, this.tmpV.y, this.tmpV.z];
-      this.headDir = [this.tmpD.x, this.tmpD.y, this.tmpD.z];
+  update = (dt: number, head?: HeadPose | null) => {
+    if (head) {
+      this.headPos = head.pos;
+      this.headDir = head.dir;
     }
-    this.menu.update(dt, camera);
-    this.terminal.update(dt, camera);
-    this.keyboard.update(dt, camera);
-    this.controls.update(dt, camera);
+    this.menu.update(dt, head);
+    this.terminal.update(dt, head);
+    this.keyboard.update(dt, head);
+    this.prompt.update(dt, head);
+    this.toast.update(dt, head);
+    this.controls.update(dt, head);
   };
 
   dispose = () => {
+    setToastMirror(null);
     this.terminal.dispose();
     this.menu.dispose();
     this.keyboard.dispose();
+    this.prompt.dispose();
+    this.toast.dispose();
     this.controls.dispose();
     this.scene.remove(this.group);
   };

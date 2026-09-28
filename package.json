@@ -13,6 +13,7 @@
   "scripts": {
     "test": "node --import tsx --test tests/*.test.ts",
     "dev": "concurrently -k \"vite\" \"tsx watch src/server/cli.ts --port 4600 --password dev\"",
+    "dev:runtime": "npm --prefix src/client run dev:runtime",
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
@@ -25,6 +26,7 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@iwsdk/core": "^1.0.0-rc.2",
     "@lydell/node-pty": "^1.2.0-beta.15",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/addon-unicode11": "^0.9.0",
@@ -35,6 +37,8 @@
   },
   "devDependencies": {
     "@excalidraw/excalidraw": "^0.18.1",
+    "@iwsdk/cli": "^1.0.0-rc.2",
+    "@iwsdk/vite-plugin-dev": "^1.0.0-rc.2",
     "@types/node": "^26.6.3",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
@@ -49,7 +53,7 @@
     "playwright-core": "^1.63.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "three": "^0.186.1",
+    "three": "npm:super-three@^0.181.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.1"

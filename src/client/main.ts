@@ -334,11 +334,27 @@ const vr = new VRSession(renderer, scene, camera, {
   player,
   settings,
   useE: (it, note) => {
-    // In VR an occupied desk opens the world-space terminal, not the DOM window.
-    if (it.kind === 'desk' && it.deskId && vrUi) {
-      const w = store.workerAtDesk(it.deskId);
-      if (w) {
-        vrUi.openTerminal(w.id);
+    // In VR, modal flows open world-space panels instead of invisible DOM windows. The carried
+    // card drops first, exactly as on desktop; what stays physical falls through to use().
+    if (vrUi) {
+      if (carrying && dropCard(it, carrying, note)) return;
+      if (it.kind === 'desk' && it.deskId) {
+        const w = store.workerAtDesk(it.deskId);
+        if (w) vrUi.openTerminal(w.id);
+        else vrHire(it.deskId);
+        return;
+      }
+      if (it.kind === 'station' && it.deskId) {
+        vrAskStation(it.deskId);
+        return;
+      }
+      if (it.kind === 'elevator') return vrUi.showMenu('floors');
+      if (it.kind === 'issues' || it.kind === 'pulls') return vrUi.showMenu('board');
+      if (it.kind === 'queue') return vrUi.showMenu('queue');
+      if (it.kind === 'jukebox') return vrUi.showMenu('jukebox');
+      if (it.kind === 'bar') return vrUi.showMenu('bar');
+      if (it.kind === 'meeting' || it.kind === 'whiteboard' || it.kind === 'services' || it.kind === 'tv' || it.kind === 'decor' || it.kind === 'cabinet') {
+        toast(`The ${it.kind} isn't in VR yet — hop on the desktop for that one`, 'warn');
         return;
       }
     }
@@ -372,12 +388,25 @@ const vr = new VRSession(renderer, scene, camera, {
       getQueue: () => store.queue,
       getFreeDesks: () =>
         DESKS.filter((d) => !d.station && !d.room && !store.workerAtDesk(d.id)).map((d) => ({ id: d.id, label: d.label })),
+      getChat: () => store.chat,
+      getFloors: () => store.floors,
+      currentFloor: () => store.floor,
+      getJukebox: () => store.jukebox,
+      onRoof: () => upTop,
+      barCutOff: () => booze.cutOff(performance.now() / 1000),
       voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => voice.toggleMute() },
       actions: {
-        hire: (deskId) => hireAtDesk(deskId),
+        hire: (deskId) => vrHire(deskId),
         nextWaiting: () => goToNextWaiting(),
-        handToWorker: (n, title) => sendToWorker(`🤖 #${n} ${title}`, { initial: issuePrompt({ number: n, title }) }),
+        promptWorker: (workerId, n, title) => net.send({ t: 'worker.prompt', workerId, prompt: issuePrompt({ number: n, title }) }),
         queueIssue: (n, title) => net.send({ t: 'queue.add', prompt: issuePrompt({ number: n, title }), title, issue: n }),
+        ride: (floorId) => ride(floorId),
+        jukebox: (op, track) => net.send(op === 'play' ? { t: 'jukebox.play', ...(track ? { track } : {}) } : op === 'stop' ? { t: 'jukebox.stop' } : { t: 'jukebox.skip' }),
+        orderDrink: (id) => {
+          const d = DRINK_BY_ID.get(id);
+          if (d) orderDrink(d);
+        },
+        sendChat: (text) => net.send({ t: 'chat', text }),
         exitVr: () => void vr.toggle(),
       },
     });
@@ -398,6 +427,45 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     facing: () => player.facing,
     teleport: (x: number, y: number, z: number) => vr.debugTeleport(x, y, z),
     turn: (rad: number) => vr.debugTurn(rad),
+    // The world-space UI: which panels are up, where they are (for aiming the emulated
+    // rays at them), and a way to walk every menu view without precise aiming.
+    ui: () => (!vrUi ? null : {
+      menu: vrUi.menu.visible,
+      controls: vrUi.controls.visible,
+      terminal: vrUi.terminal.visible,
+      prompt: vrUi.prompt.visible,
+      keyboard: vrUi.keyboard.visible,
+    }),
+    panelPos: (which: 'menu' | 'controls' | 'terminal' | 'prompt' | 'keyboard' | 'toast') => {
+      const g = vrUi?.[which]?.panel.group;
+      if (!g) return null;
+      const v = new THREE.Vector3();
+      g.getWorldPosition(v);
+      return [v.x, v.y, v.z] as [number, number, number];
+    },
+    showMenu: (view: 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'assign') => vrUi?.showMenu(view),
+    toast: (text: string) => vrUi?.showToast(text),
+    workers: () => [...store.workers.values()].map((w) => ({ id: w.id, name: w.name, desk: w.deskId, status: w.status })),
+    openTerminal: (id: string) => vrUi?.openTerminal(id),
+    askDemo: () => vrUi?.askText({ title: '✨ Hire at Desk 1', subtitle: 'First task (optional)', placeholder: 'Optional first task…', submitLabel: 'Hire & start', allowEmpty: true, onSubmit: () => {} }),
+    // Spawns a shell worker (no agent, no cost) at the nearest free desk, for terminal tests.
+    shell: () => {
+      const d = freeDesk();
+      if (d) net.send({ t: 'worker.spawn', deskId: d, kind: 'shell' });
+      return d;
+    },
+    screen: (id: string) => {
+      const s = store.screens.get(id);
+      if (!s) return null;
+      const sample = s.lines.slice(0, 6).map((runs) => (runs ?? []).map((r) => r[0]).join(''));
+      return { cols: s.cols, rows: s.rows, lines: s.lines.length, version: s.version, cursor: s.cursor, sample };
+    },
+    // Types into the focused VR terminal (the VR keyboard's path, without aiming at keys).
+    type: (text: string) => vrUi?.terminal.type(text),
+    // Per-ray input state (controller vs hand, holds, aims).
+    rays: () => vr.debugRays(),
+    // Sends test workers home (shells spawned by `shell`).
+    kill: (id: string) => net.send({ t: 'worker.kill', workerId: id }),
   };
 }
 const hands = new Hands(store.profile.color, me.skinColor);
@@ -762,6 +830,12 @@ function placeInCar(at?: { x: number; z: number }) {
 function fade(on: boolean, quick = false) {
   $('fade').classList.toggle('quick', quick);
   $('fade').classList.toggle('on', on);
+  // The DOM overlay is invisible in the headset: the session fades its own quad (trips hold
+  // the black until the far side arrives; teleports fade straight back on their own).
+  if (vr.active) {
+    if (on) vr.fadeOut();
+    else vr.fadeIn();
+  }
 }
 
 /** How you're going to another floor: by elevator, straight there from the floor list, or by the ladder or a pole. */
@@ -920,6 +994,8 @@ function arrive() {
     return;
   }
   fade(false);
+  // The rig rebases itself onto the new spot (followHead); face where the avatar faces.
+  if (vr.active) vr.faceAvatar();
   if (how !== 'elevator') {
     player.enabled = !modalOpen() && !vr.active;
     if (how === 'switch') unstick();
@@ -1297,6 +1373,23 @@ function promptAtDesk(deskId: string) {
 }
 
 /** Direct hire from an empty desk, with an optional first prompt and provider choice. */
+/** E at an empty desk in VR: the hire prompt as a world-space panel (the engine and worktree follow the last desktop hire here — there's no picker in the headset). */
+function vrHire(deskId: string) {
+  const desk = DESK_BY_ID.get(deskId)!;
+  if (officeIsFull() || !vrUi) return;
+  vrUi.askText({
+    title: `✨ Hire at ${desk.label}`,
+    subtitle: 'First task (optional)',
+    placeholder: 'Optional first task…',
+    submitLabel: 'Hire & start',
+    allowEmpty: true,
+    onSubmit: (text) => {
+      const c = rememberedChoice(store.project, `desk:${deskId}`);
+      hire(deskId, text || undefined, worktreePref(), c.provider, c.model, c.effort);
+    },
+  });
+}
+
 function hireAtDesk(deskId: string) {
   const desk = DESK_BY_ID.get(deskId)!;
   if (officeIsFull()) return;
@@ -1342,6 +1435,29 @@ function killWorker(id: string) {
     ? `This stops its ${session} for everyone, and it forgets what it was asked. The next prompt at the ${where} starts a fresh one.`
     : `This stops the ${session} at ${where} for everyone and frees the desk.`;
   confirmDialog(`Send ${w.name} home?`, body, 'Send home', () => net.send({ t: 'worker.kill', workerId: id }));
+}
+
+/** E at a board-agent kiosk in VR: ask it something (or meet its terminal when it's waiting on an answer). */
+function vrAskStation(deskId: string) {
+  const kind = DESK_BY_ID.get(deskId)?.station;
+  if (!kind || !vrUi) return;
+  const w = store.workerAtDesk(deskId);
+  const name = STATION_AGENT[kind].name;
+  if (w?.status === 'needs_input') {
+    toast(`The ${name} is waiting on an answer — here's its terminal`, 'warn');
+    vrUi.openTerminal(w.id);
+    return;
+  }
+  if (!w && officeIsFull()) return;
+  vrUi.askText({
+    title: `${name}: ask away`,
+    placeholder: 'What should it do?',
+    submitLabel: 'Send ✨',
+    onSubmit: (text) => {
+      const c = rememberedChoice(store.project, `desk:${deskId}`);
+      net.send({ t: 'station.prompt', deskId, prompt: text, provider: c.provider, model: c.model, effort: c.effort });
+    },
+  });
 }
 
 /** E at a board agent: type it a request. It's hired with it when nobody is there yet. */
@@ -1445,6 +1561,7 @@ function goToNextWaiting() {
   }
   closeAllModals();
   standAt(desk);
+  if (vr.active) vr.faceAvatar();
   const waiting = waitingInOrder(store.workers.values());
   const of = waiting.length > 1 ? ` (${waiting.findIndex((x) => x.id === w.id) + 1} of ${waiting.length})` : '';
   nextToast = toast(`${w.status === 'needs_input' ? `🙋 ${w.name} needs input` : `✅ ${w.name} is done`}${of}. E opens its terminal`);

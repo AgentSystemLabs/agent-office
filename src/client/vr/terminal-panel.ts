@@ -15,12 +15,13 @@ import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, type Run, type WorkerInfo } from '..
 import { TERM_FONT } from '../fonts';
 import { TERM_THEME, type ScreenState } from '../world/laptop';
 import { fullPalette, pushHistory, runColor, scrolledOffLines } from './ansi';
-import { clampScroll, gridMetrics, type Rect } from './math';
+import { clampScroll, gridMetrics, type HeadPose, type Rect } from './math';
 import { WorldPanel } from './panel';
 
 export type VrTerminalMsg =
   | { t: 'worker.attach'; workerId: string }
   | { t: 'worker.detach'; workerId: string }
+  | { t: 'worker.prompt'; workerId: string; prompt: string }
   | { t: 'term.input'; workerId: string; data: string }
   | { t: 'term.typing'; workerId: string }
   | { t: 'term.resize'; workerId: string; cols: number; rows: number };
@@ -43,12 +44,15 @@ const VISIBLE_ROWS = 26;
 const HEADER_H = 0.11;
 const BODY: Rect = { x: 0.015, y: HEADER_H + 0.015, w: 0.97, h: 1 - HEADER_H - 0.03 };
 const CLOSE_BTN: Rect = { x: 0.93, y: 0.012, w: 0.058, h: 0.086 };
+const ASK_BTN: Rect = { x: 0.845, y: 0.012, w: 0.075, h: 0.086 };
 const JUMP_BTN: Rect = { x: 0.78, y: 0.895, w: 0.2, h: 0.085 };
 
 export class VrTerminalPanel {
   readonly panel: WorldPanel;
   /** Fires when the panel closes itself (its ✕ button); attach.ts hides the keyboard here. */
   onClose: (() => void) | null = null;
+  /** Fires from the ✉ button; attach.ts opens the ask prompt for the focused worker. */
+  onAsk: ((workerId: string) => void) | null = null;
   private deps: VrTerminalDeps;
   private workerId: string | null = null;
   private unsubs: (() => void)[] = [];
@@ -195,7 +199,10 @@ export class VrTerminalPanel {
     const s = this.deps.getScreen(this.workerId);
     const total = this.rows(s).length;
     const visible = Math.min(total || VISIBLE_ROWS, VISIBLE_ROWS);
-    const buttons = [{ id: 'close', rect: CLOSE_BTN, onClick: () => this.close() }];
+    const buttons = [
+      { id: 'close', rect: CLOSE_BTN, onClick: () => this.close() },
+      { id: 'ask', rect: ASK_BTN, onClick: () => { if (this.workerId) this.onAsk?.(this.workerId); } },
+    ];
     if (s && total > visible && !this.pinned(total, visible)) {
       buttons.push({ id: 'jump', rect: JUMP_BTN, onClick: () => { this.panel.setScrollOffset('term', Number.MAX_SAFE_INTEGER); this.stickToBottom = true; } });
     }
@@ -232,6 +239,17 @@ export class VrTerminalPanel {
       const label = `${worker.name} · ${worker.status}`;
       ctx.fillText(label, hx + h * 0.055, hy + 1, w * 0.8);
     }
+    // Ask button.
+    const a = { x: ASK_BTN.x * w, y: ASK_BTN.y * h, w: ASK_BTN.w * w, h: ASK_BTN.h * h };
+    const askHot = state.hoverId === 'ask' || state.pressedId === 'ask';
+    ctx.fillStyle = askHot ? '#ee6018' : 'rgba(255,255,255,0.08)';
+    ctx.beginPath();
+    ctx.roundRect(a.x, a.y, a.w, a.h, a.h * 0.3);
+    ctx.fill();
+    ctx.fillStyle = '#eeeeee';
+    ctx.font = `700 ${Math.round(a.h * 0.55)}px ${TERM_FONT}`;
+    ctx.textAlign = 'center';
+    ctx.fillText('✉', a.x + a.w / 2, hy + 1);
     // Close button.
     const c = { x: CLOSE_BTN.x * w, y: CLOSE_BTN.y * h, w: CLOSE_BTN.w * w, h: CLOSE_BTN.h * h };
     const closeHot = state.hoverId === 'close' || state.pressedId === 'close';
@@ -361,7 +379,7 @@ export class VrTerminalPanel {
     ctx.restore();
   }
 
-  update(dt: number, camera?: THREE.Camera | null) {
+  update(dt: number, head?: HeadPose | null) {
     if (this.panel.visible) {
       const now = performance.now();
       if (now - this.blinkAt > 530) {
@@ -370,7 +388,7 @@ export class VrTerminalPanel {
         this.panel.markDirty(this.cursorRect ?? BODY);
       }
     }
-    this.panel.update(dt, camera);
+    this.panel.update(dt, head);
   }
 
   dispose() {

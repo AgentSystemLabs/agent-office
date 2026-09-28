@@ -67,6 +67,11 @@ export class PlayerController {
    */
   rig: ((dt: number) => void) | null = null;
   /**
+   * VR ladder climbing: the headset has no W/S keys, so the XR session drives the rungs from a
+   * thumbstick through this instead (-1 down, 0 still, 1 up). OR'd into holding() below.
+   */
+  climbInput = 0;
+  /**
    * A click (not a drag) on the scene, in normalized device coordinates.
    * In first person it is always the crosshair, (0, 0).
    */
@@ -231,6 +236,9 @@ export class PlayerController {
 
   /** Whether any of these keys is held down (and you have the controls). */
   holding(...codes: string[]): boolean {
+    // The VR thumbstick climbs the ladder through climbInput, with no keys behind it.
+    if (this.climbInput > 0 && codes.some((c) => c === 'KeyW' || c === 'ArrowUp')) return true;
+    if (this.climbInput < 0 && codes.some((c) => c === 'KeyS' || c === 'ArrowDown')) return true;
     return this.enabled && codes.some((c) => this.keys.has(c));
   }
 

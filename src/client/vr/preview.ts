@@ -9,7 +9,8 @@
  */
 
 import * as THREE from 'three';
-import type { GhIssue, GhPull, QueueTask, Run, WorkerInfo } from '../../shared/protocol';
+import type { ChatLine, FloorInfo, GhIssue, GhPull, QueueTask, Run, WorkerInfo } from '../../shared/protocol';
+import type { JukeboxState } from '../../shared/jukebox';
 import type { ScreenState } from '../world/laptop';
 import { attachVrUi, type VrUiDeps } from './attach';
 
@@ -84,11 +85,21 @@ const tasks: QueueTask[] = [
   { id: 't4', title: 'Old task with a PR', prompt: 'old', addedBy: 'nik', addedAt: now - 8000000, status: 'done', finishedAt: now - 7000000, outcome: 'done', workerName: 'Sam', pr: { number: 42, url: '#', title: 'Fix ghost dog collision', state: 'OPEN' } },
 ];
 
-type Topic = 'screens' | 'workers' | 'issues' | 'pulls' | 'queue';
+type Topic = 'screens' | 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox';
 const subs = new Map<Topic, Set<() => void>>();
 function emit(t: Topic) {
   subs.get(t)?.forEach((fn) => fn());
 }
+
+const chat: ChatLine[] = [
+  { from: 'nik', name: 'Nik', color: '#ee6018', text: 'who took my bean bag', at: now - 90000 },
+  { from: 'ada', name: 'Ada', color: '#4f86f7', text: 'the dog did. he looked guilty', at: now - 60000 },
+];
+const floors: FloorInfo[] = [
+  { id: 'f1', name: 'agent-office', repo: 'nik/agent-office', dir: '/tmp/f1', palette: 0, addedBy: 'nik', addedAt: now - 8000000, workers: 3, busy: 1, waiting: 1, people: 1 },
+  { id: 'f2', name: 'droidproxy', dir: '/tmp/f2', palette: 2, addedBy: 'nik', addedAt: now - 7000000, workers: 1, busy: 0, waiting: 0, people: 0 },
+];
+const jukebox: JukeboxState = { on: true, track: 'coffee-break', by: 'Ada', startedAt: now - 45000, elapsed: 0 };
 
 let muted = false;
 const deps: VrUiDeps = {
@@ -125,12 +136,22 @@ const deps: VrUiDeps = {
     { id: 'd5', label: 'Desk 5' },
     { id: 'lounge-beanbag', label: '🫘 Lounge bean bag' },
   ],
+  getChat: () => chat,
+  getFloors: () => floors,
+  currentFloor: () => 'f1',
+  getJukebox: () => jukebox,
+  onRoof: () => false,
+  barCutOff: () => false,
   voice: { isMuted: () => muted, inVoice: () => true, toggleMute: () => { muted = !muted; log('mute →', muted); } },
   actions: {
-    hire: (deskId) => log('hire at', deskId, '(would open the DOM hire dialog)'),
+    hire: (deskId) => log('hire at', deskId, '(would open the VR hire prompt)'),
     nextWaiting: () => log('next waiting (would walk to Grace)'),
-    handToWorker: (n, title) => log('hand to worker', `#${n}`, title),
+    promptWorker: (workerId, n, title) => log('prompt worker', workerId, `#${n}`, title),
     queueIssue: (n, title) => log('queue issue', `#${n}`, title),
+    ride: (floorId) => log('ride to', floorId),
+    jukebox: (op, track) => log('jukebox', op, track ?? ''),
+    orderDrink: (id) => log('order drink', id),
+    sendChat: (text) => log('say', text),
     exitVr: () => log('exit VR (would end the XR session)'),
   },
 };
@@ -299,10 +320,15 @@ setInterval(() => {
 }, 2500);
 
 let last = performance.now();
+const pv = new THREE.Vector3();
+const pd = new THREE.Vector3();
 renderer.setAnimationLoop(() => {
   const nowMs = performance.now();
   const dt = Math.min(0.1, (nowMs - last) / 1000);
   last = nowMs;
-  vrUi.update(dt, camera);
+  // The flat preview's camera is a plain world-space camera, so its pose is the head pose.
+  camera.getWorldPosition(pv);
+  camera.getWorldDirection(pd);
+  vrUi.update(dt, { pos: [pv.x, pv.y, pv.z], dir: [pd.x, pd.y, pd.z] });
   renderer.render(scene, camera);
 });

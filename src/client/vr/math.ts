@@ -103,6 +103,17 @@ export function followStep(current: readonly [number, number, number], target: r
   return [current[0] + (target[0] - current[0]) * t, current[1] + (target[1] - current[1]) * t, current[2] + (target[2] - current[2]) * t];
 }
 
+/**
+ * The head in world space, for following panels. The session builds this from its own rig
+ * math (headWorld/lookDir) — three's XR camera only holds the headset pose in reference
+ * space, which sits near the origin no matter where the avatar is, so following panels fed
+ * from its matrixWorld would pile up in the middle of the room instead of coming along.
+ */
+export interface HeadPose {
+  pos: [number, number, number];
+  dir: [number, number, number];
+}
+
 /** Where a following panel wants to be: a fixed distance along the camera ray, dropped a little so it doesn't cover the face. */
 export function followTarget(camPos: readonly [number, number, number], camDir: readonly [number, number, number], distance: number, dropM: number): [number, number, number] {
   return [camPos[0] + camDir[0] * distance, camPos[1] + camDir[1] * distance - dropM, camPos[2] + camDir[2] * distance];

@@ -6,7 +6,7 @@
 
 import type * as THREE from 'three';
 import { TERM_FONT } from '../fonts';
-import type { Rect } from './math';
+import type { HeadPose, Rect } from './math';
 import { WorldPanel } from './panel';
 
 const DISMISS: Rect = { x: 0.31, y: 0.87, w: 0.38, h: 0.1 };
@@ -27,13 +27,17 @@ const CONTROLLERS: GestureRow[] = [
   { gesture: '🔫 Trigger', does: 'use it (E)' },
   { gesture: '🅰️ Hold A', does: 'aim teleport, let go to land' },
   { gesture: '🫳 Squeeze', does: 'cancel / ☰ menu' },
+  { gesture: '🅱️ / stick-click', does: 'N: next waiting worker' },
   { gesture: '🕹️ Sticks', does: 'right turns · left glides*' },
+  { gesture: '🪜 Ladder', does: 'E to grab · left stick climbs' },
 ];
 
 export class VrControls {
   readonly panel: WorldPanel;
+  /** Fires when the card dismisses (attach.ts shows the menu here on session enter). */
+  onHide: (() => void) | null = null;
 
-  constructor(widthM = 0.74, heightM = 0.6) {
+  constructor(widthM = 0.74, heightM = 0.66) {
     this.panel = new WorldPanel({ width: widthM, height: heightM, paint: (ctx, w, h, _dirty, state) => this.paint(ctx, w, h, state) });
     this.panel.setButtons([{ id: 'gotit', rect: DISMISS, onClick: () => this.hide() }]);
     this.panel.setFollow(true, 1.0, 0.1);
@@ -50,7 +54,9 @@ export class VrControls {
   }
 
   hide() {
+    if (!this.panel.visible) return;
     this.panel.setVisible(false);
+    this.onHide?.();
   }
 
   private paint(ctx: CanvasRenderingContext2D, w: number, h: number, state: { hoverId: string | null; pressedId: string | null; time: number }) {
@@ -107,8 +113,10 @@ export class VrControls {
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
     ctx.fillText(title, w * x0, h * 0.245);
+    // Long columns tighten up so the last row lands above the footnote.
+    const step = Math.min(0.115, 0.44 / Math.max(1, rows.length - 1));
     rows.forEach((row, i) => {
-      const y = h * (0.32 + i * 0.115);
+      const y = h * (0.32 + i * step);
       ctx.fillStyle = '#eeeeee';
       ctx.font = `700 ${Math.round(h * 0.032)}px ${TERM_FONT}`;
       ctx.fillText(row.gesture, w * x0, y, w * colW);
@@ -118,8 +126,8 @@ export class VrControls {
     });
   }
 
-  update(dt: number, camera?: THREE.Camera | null) {
-    this.panel.update(dt, camera);
+  update(dt: number, head?: HeadPose | null) {
+    this.panel.update(dt, head);
   }
 
   dispose() {

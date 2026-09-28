@@ -12,7 +12,7 @@
 import * as THREE from 'three';
 import {
   canvasSize, clampScroll, followStep, followTarget, hitTest, isOnPanel, rectToPx, scrollByDrag, scrollByStick, unionRect, uvToPanel,
-  type Point, type Rect,
+  type HeadPose, type Point, type Rect,
 } from './math';
 
 /** What a painter needs to draw hover, press and blink states. */
@@ -77,7 +77,6 @@ export class WorldPanel {
   private followDistance = 1.1;
   private followDrop = 0.12;
   private tmpV = new THREE.Vector3();
-  private tmpD = new THREE.Vector3();
 
   constructor(opts: WorldPanelOpts) {
     this.width = opts.width;
@@ -319,16 +318,14 @@ export class WorldPanel {
     this.texture.needsUpdate = true;
   }
 
-  update(dt: number, camera?: THREE.Camera | null) {
+  update(dt: number, head?: HeadPose | null) {
     if (this.full || this.dirty) this.repaintNow();
-    if (!this.follow || !camera) return;
-    camera.getWorldPosition(this.tmpV);
-    camera.getWorldDirection(this.tmpD);
-    const target = followTarget([this.tmpV.x, this.tmpV.y, this.tmpV.z], [this.tmpD.x, this.tmpD.y, this.tmpD.z], this.followDistance, this.followDrop);
+    if (!this.follow || !head) return;
+    const target = followTarget(head.pos, head.dir, this.followDistance, this.followDrop);
     const p = this.group.position;
     const next = followStep([p.x, p.y, p.z], target, 1 - Math.exp(-dt * 4));
     p.set(next[0], next[1], next[2]);
-    this.group.lookAt(this.tmpV);
+    this.group.lookAt(this.tmpV.set(head.pos[0], head.pos[1], head.pos[2]));
   }
 
   dispose() {

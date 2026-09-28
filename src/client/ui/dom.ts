@@ -117,9 +117,16 @@ export function closeTopModal(): boolean {
   return true;
 }
 
+/** A headset mirror for toasts: the VR UI sets it on session enter so nothing desktop-side whispers past the headset, and clears it on end. */
+let toastMirror: ((text: string, level: 'info' | 'warn' | 'error') => void) | null = null;
+export function setToastMirror(fn: ((text: string, level: 'info' | 'warn' | 'error') => void) | null) {
+  toastMirror = fn;
+}
+
 export function toast(text: string, level: 'info' | 'warn' | 'error' = 'info'): HTMLElement {
   const el = h('div.toast', { class: level }, text);
   document.getElementById('toasts')!.append(el);
+  toastMirror?.(text, level);
   setTimeout(() => {
     el.style.transition = 'opacity .3s';
     el.style.opacity = '0';

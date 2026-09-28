@@ -4,7 +4,11 @@
 // Hands speak pinch: three forwards the runtime's select events plus its own joint-distance
 // pinchstart/pinchend to the target-ray spaces, and the session reads their union as one
 // held state per hand — a tap is E, a hold is a teleport aim, both hands together open the
-// menu. Controllers keep their instant trigger (they have A for teleport, squeeze for menu).
+// menu (both-held suppresses aiming, so the menu gesture stays reachable). Controllers keep
+// their instant trigger (they have A for teleport, squeeze for menu).
+//
+// The ladder and the poles work too: the desktop update that steps them never runs in VR, so
+// the session steps the rig itself, with the glide stick working the rungs and E letting go.
 //
 // The rig is the standard three dolly: the desktop camera is reparented under a Group at the
 // avatar's feet while presenting, and three composes the headset pose with it
@@ -13,6 +17,7 @@
 // and anything desktop-side that moves the player (N, the elevator, ladders) rebases the rig.
 
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { XRControllerModelFactory } from 'three/examples/jsm/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from 'three/examples/jsm/webxr/XRHandModelFactory.js';
 import { STEP } from '../player';
@@ -20,9 +25,10 @@ import type { PlayerController } from '../player';
 import type { Settings } from '../state';
 import type { Collider, InteractKind, Interactable } from '../world/office';
 import type { CarriedIssue, GhIssue } from '../../shared/protocol';
+import type { HeadPose } from './math';
 import { describeSessionError, requestVRSession, type VrReferenceSpace } from './support';
 
-/** Standard WebXR gamepad buttons (OpenXR / XR Standard mapping). */
+/** Standard WebXR gamepad buttons (OpenXR / XR Standard mapping). Trigger and squeeze sit at 0/1 in every layout; the face buttons move (see faceButtons). */
 export const XR_BUTTON = { TRIGGER: 0, SQUEEZE: 1, STICK: 3, A: 4, B: 5 } as const;
 /** Snap-turn step. */
 export const SNAP_ANGLE = Math.PI / 4;
@@ -175,6 +181,39 @@ export function buttonDown(gamepad: Gamepad | undefined, index: number): boolean
   return !!gamepad?.buttons[index]?.pressed;
 }
 
+/**
+ * Face-button indices for one gamepad. XR Standard pads the touchpad slot (buttons[2],
+ * axes[0,1]) even where no touchpad exists — real Quest and Galaxy XR controllers look
+ * like that, with the stick at [3] and A/B at [4,5]. Emulators that compact the slot away
+ * (the IWSDK Quest profile: stick at [2], A/B at [3,4]) also compact the axes to two, so
+ * the axes length tells the layouts apart — the padding decision covers both arrays.
+ */
+export function faceButtons(gamepad: Gamepad | undefined): { stick: number; a: number; b: number } {
+  return (gamepad?.axes.length ?? 0) >= 4 ? { stick: XR_BUTTON.STICK, a: XR_BUTTON.A, b: XR_BUTTON.B } : { stick: 2, a: 3, b: 4 };
+}
+
+/**
+ * A procedural controller stand-in (grip + tracking ring + trigger nub, office orange): what a
+ * controller looks like until its input-profile model loads from the CDN — and what it keeps
+ * looking like where the headset can't reach the net. Lives in grip space, meters.
+ */
+export function buildFallbackGrip(): THREE.Group {
+  const g = new THREE.Group();
+  const dark = new THREE.MeshStandardMaterial({ color: 0x2a2a30, roughness: 0.6 });
+  const accent = new THREE.MeshStandardMaterial({ color: 0xee6018, roughness: 0.5, emissive: 0xee6018, emissiveIntensity: 0.35 });
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.11, 0.05), dark);
+  grip.position.y = -0.05;
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.008, 10, 24), dark);
+  ring.position.set(0, 0.03, -0.045);
+  const nub = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.03, 0.025), accent);
+  nub.position.set(0, 0.005, -0.035);
+  nub.rotation.x = 0.3;
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.008, 10, 8), accent);
+  dot.position.set(0, 0.02, 0.028);
+  g.add(grip, ring, nub, dot);
+  return g;
+}
+
 /** Sampled points of a teleport arc: a throw out of the hand under gravity. */
 export function sampleParabola(origin: THREE.Vector3, dir: THREE.Vector3, steps = ARC_STEPS, dt = ARC_DT): THREE.Vector3[] {
   const pts: THREE.Vector3[] = [];
@@ -219,12 +258,16 @@ const _e = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _f = new THREE.Vector3();
 const _m = new THREE.Matrix4();
+/** Reused head pose for the UI tick (HeadPose is plain tuples, allocated once here). */
+const _head: HeadPose = { pos: [0, 0, 0], dir: [0, 0, -1] };
 
 interface RayState {
   targetRay: THREE.XRTargetRaySpace;
   grip: THREE.XRGripSpace;
   hand: THREE.XRHandSpace;
   source: XRInputSource | null;
+  /** Which hand this ray is, when the runtime says (slot order is no guide: one controller may sit in either). */
+  handed: 'left' | 'right' | null;
   /** The runtime's select is down (controllers: fires E at once; hands: feeds the hold). */
   selectHeld: boolean;
   /** three's joint-distance pinch is down (hand-tracked sources only). */
@@ -238,15 +281,23 @@ interface RayState {
   wasN: boolean;
   line: THREE.Line;
   dot: THREE.Mesh;
+  /** The input-profile controller model (CDN): null-motionController until it loads, if it ever does. */
+  ctrlModel: THREE.Object3D & { motionController?: unknown };
+  /** Procedural grip shown until (or when) the profile model loads: controllers stay visible offline. */
+  fallback: THREE.Group;
 }
 
 /** World-space UI panels (vr/attach.ts): the session routes rays to them first and ticks them. */
 export interface VRUiSink {
   routeRay: (rayId: number, raycaster: THREE.Raycaster, pressed: boolean) => boolean;
+  /** Where a routed ray lands on a panel (world), for the cursor dot; null when it lands on none. */
+  panelHit: (rayId: number) => THREE.Vector3 | null;
   stickScroll: (rayId: number, axisY: number, dt: number) => void;
-  update: (dt: number, camera?: THREE.Camera | null) => void;
+  update: (dt: number, head?: HeadPose | null) => void;
   toggleMenu: () => void;
   openTerminal: (workerId: string) => void;
+  /** The issue card in hand, if any: the UI keeps a sticky hint up while one is carried. */
+  setCarrying: (card: { issue: number; title: string } | null) => void;
 }
 
 export class VRSession {
@@ -274,6 +325,8 @@ export class VRSession {
   private fadeMesh: THREE.Mesh;
   private fade: 'idle' | 'out' | 'in' = 'idle';
   private fadeT = 0;
+  /** Elevator/ladder trips hold the black until the far side fades back in (teleports never hold). */
+  private fadeHold = false;
   private pendingTeleport: THREE.Vector3 | null = null;
   private snap = new SnapTurn();
   private stickAiming = false;
@@ -295,15 +348,23 @@ export class VRSession {
     // Tracked hands and controllers: the real devices' poses drive these models. Hands get
     // the skinned generic-hand mesh (vendored under /xr-hands so no CDN can break them), with
     // three's joint spheres behind as a fallback that hides once the mesh loads; controllers
-    // get their input-profile models. They hang under the grip/hand spaces, which join the rig
-    // on session enter, and show/hide themselves off the runtime's connected events. The
-    // desktop cartoon hands sit out in VR.
-    const controllerModelFactory = new XRControllerModelFactory();
+    // get their input-profile models (GLTFLoader included: without one the factory throws and
+    // nothing renders), with a procedural grip behind that hides once the profile loads. They
+    // hang under the grip/hand spaces, which join the rig on session enter, and show/hide
+    // themselves off the runtime's connected events. The desktop cartoon hands sit out in VR.
+    // (The factory skips hand-tracked sources on its own, and the fallback only shows for
+    // gamepad sources, so hands never wear a controller.)
+    const controllerModelFactory = new XRControllerModelFactory(new GLTFLoader());
     for (let i = 0; i < 2; i++) {
       const targetRay = renderer.xr.getController(i);
       const grip = renderer.xr.getControllerGrip(i);
       const hand = renderer.xr.getHand(i);
-      grip.add(controllerModelFactory.createControllerModel(grip));
+      const ctrlModel = controllerModelFactory.createControllerModel(grip) as unknown as THREE.Object3D & { motionController?: unknown };
+      grip.add(ctrlModel);
+      // The profile models above come from a CDN, which a LAN-only headset can't reach: a
+      // procedural grip stands in until the real one loads (the per-frame update hides it then).
+      const fallback = buildFallbackGrip();
+      grip.add(fallback);
       const beads = new XRHandModelFactory().createHandModel(hand);
       const skinned = new XRHandModelFactory(null, () => {
         beads.visible = false;
@@ -315,7 +376,7 @@ export class VRSession {
       const dot = new THREE.Mesh(new THREE.SphereGeometry(0.014, 12, 8), new THREE.MeshBasicMaterial({ color: 0x7df9ff, depthTest: false, transparent: true }));
       dot.renderOrder = 9998;
       targetRay.add(line, dot);
-      const st: RayState = { targetRay, grip, hand, source: null, selectHeld: false, pinchHeld: false, hold: new PinchHold(), hover: null, uiConsumed: false, teleportHeld: false, wasN: false, line, dot };
+      const st: RayState = { targetRay, grip, hand, source: null, handed: null, selectHeld: false, pinchHeld: false, hold: new PinchHold(), hover: null, uiConsumed: false, teleportHeld: false, wasN: false, line, dot, ctrlModel, fallback };
       targetRay.addEventListener('connected', (e) => this.onConnected(i, e.data));
       targetRay.addEventListener('disconnected', () => this.onDisconnected(i));
       // Three forwards every session event to all three spaces of a source, so the target-ray
@@ -403,22 +464,24 @@ export class VRSession {
     player.clearKeys();
     player.enabled = false;
     this.renderer.xr.setReferenceSpaceType(referenceSpace);
+    // Both of these only take before the session starts: three warns and ignores them after.
+    this.renderer.xr.setFramebufferScaleFactor(XR_FRAMEBUFFER_SCALE);
     this.session = session;
-    session.addEventListener('end', this.onSessionEnd);
     try {
       await this.renderer.xr.setSession(session);
     } catch (err) {
-      session.removeEventListener('end', this.onSessionEnd);
       this.session = null;
       this.restore();
       this.hooks.toast(describeSessionError(err), 'error');
       return;
     }
+    // After setSession, so three's own end handler runs first: restore() sizes the canvas
+    // back, which three refuses while it still thinks it's presenting.
+    session.addEventListener('end', this.onSessionEnd);
     this.active = true;
     // Stereo at headset resolution is the whole VR perf cost, so the session renders smaller
-    // and bakes the shadows once instead of every frame (the sun barely moves in a visit).
-    // Foveation is already at three's maximum default.
-    this.renderer.xr.setFramebufferScaleFactor(XR_FRAMEBUFFER_SCALE);
+    // (set above, before three built the framebuffer) and bakes the shadows once instead of
+    // every frame (the sun barely moves in a visit). Foveation is already at three's maximum default.
     this.renderer.shadowMap.autoUpdate = false;
     this.renderer.shadowMap.needsUpdate = true;
     this.hooks.hudRefresh();
@@ -434,10 +497,12 @@ export class VRSession {
     }
     this.active = false;
     this.fade = 'idle';
+    this.fadeHold = false;
     this.fadeMesh.visible = false;
     this.pendingTeleport = null;
     this.stickAiming = false;
     this.glideActive = false;
+    player.climbInput = 0;
     this.arc.visible = false;
     this.marker.visible = false;
     this.renderer.xr.setFramebufferScaleFactor(1);
@@ -445,6 +510,7 @@ export class VRSession {
     this.renderer.shadowMap.needsUpdate = true;
     for (const r of this.rays) {
       r.source = null;
+      r.handed = null;
       r.hover = null;
       r.uiConsumed = false;
       r.teleportHeld = false;
@@ -485,9 +551,33 @@ export class VRSession {
   /** Emulator test hook (?vrtest=1): the same yaw step the snap turn takes. */
   debugTurn(dYaw: number): void {
     if (!this.active) return;
+    this.setYaw(this.yaw + dYaw);
+  }
+
+  /** Emulator test hook (?vrtest=1): per-ray input state, for verifying holds and aims. */
+  debugRays(): { handed: string | null; controller: boolean; selectHeld: boolean; pinchHeld: boolean; aiming: boolean; teleportHeld: boolean }[] {
+    return this.rays.map((r) => ({
+      handed: r.handed,
+      controller: !!r.source && !r.source.hand,
+      selectHeld: r.selectHeld,
+      pinchHeld: r.pinchHeld,
+      aiming: r.hold.isAiming,
+      teleportHeld: r.teleportHeld,
+    }));
+  }
+
+  /** Faces the avatar's heading with the head straight: N (and the elevator) rebase the rig here. */
+  faceAvatar(): void {
+    if (!this.active) return;
+    this.setYaw(yawForFacing(this.hooks.player.facing));
+  }
+
+  /** Turns the rig to a yaw around the head, so turning never translates the avatar. */
+  private setYaw(yaw: number): void {
     this.headWorld(_h);
-    this.yaw += dYaw;
+    this.yaw = yaw;
     this.dolly.rotation.y = this.yaw;
+    // …around the head: the feet stay where they were, only the heading changes.
     this.headLocal(_l);
     _l.y = 0;
     _l.applyAxisAngle(UP, this.yaw);
@@ -495,9 +585,32 @@ export class VRSession {
     this.dolly.position.copy(this.origin);
   }
 
+  /**
+   * Elevator and ladder trips fade in the headset (the DOM #fade is invisible there): out at the
+   * trip's start, held black across the floor change, back in when the far side arrives.
+   */
+  fadeOut(): void {
+    if (!this.active) return;
+    this.pendingTeleport = null;
+    this.fade = 'out';
+    this.fadeT = 0;
+    this.fadeHold = true;
+  }
+
+  fadeIn(): void {
+    if (!this.active) return;
+    this.fadeHold = false;
+    if (this.fade === 'out' && this.fadeT >= 1) {
+      this.fade = 'in';
+      this.fadeT = 0;
+    }
+    // Mid-fade-out, the finish below flips to 'in' by itself; idle needs nothing.
+  }
+
   private onConnected(i: number, source: XRInputSource): void {
     const st = this.rays[i];
     st.source = source;
+    st.handed = source.handedness === 'left' || source.handedness === 'right' ? source.handedness : null;
     st.line.visible = true;
     st.dot.visible = true;
   }
@@ -505,9 +618,12 @@ export class VRSession {
   private onDisconnected(i: number): void {
     const st = this.rays[i];
     st.source = null;
+    st.handed = null;
     st.hover = null;
     st.selectHeld = false;
     st.pinchHeld = false;
+    st.teleportHeld = false;
+    st.wasN = false;
     st.hold.reset();
     st.line.visible = false;
     st.dot.visible = false;
@@ -521,7 +637,12 @@ export class VRSession {
   private onSelectStart(i: number): void {
     if (!this.active) return;
     const st = this.rays[i];
-    if (st.source?.gamepad) {
+    // Hands pinch-hold (per-frame, below); controllers click at once. The test is the hand
+    // joints, not the gamepad: some runtimes also expose a (dead) gamepad on hand sources.
+    if (!st.source?.hand) {
+      // Buttons mean a controller: the trigger clicks at once, with a light tick for the press
+      // itself (hands have no haptics, and their holds resolve per frame below instead).
+      this.pulse(i, 0.15, 10);
       this.tapE(i);
       return;
     }
@@ -543,6 +664,7 @@ export class VRSession {
     if (!hover?.near) return;
     this.hooks.reachAnim();
     this.hooks.useE(hover.it, this.hooks.noteUnder(hover));
+    this.ui?.setCarrying(this.hooks.carrying());
     this.pulse(i, 0.4, 25);
   }
 
@@ -551,6 +673,7 @@ export class VRSession {
     if (!this.active) return;
     if (this.hooks.carrying()) {
       this.hooks.putBack();
+      this.ui?.setCarrying(this.hooks.carrying());
       this.pulse(i, 0.3, 20);
     } else if (this.hooks.closeTop()) {
       this.pulse(i, 0.3, 20);
@@ -574,12 +697,30 @@ export class VRSession {
     if (!this.active) return;
     const { player } = this.hooks;
     this.frame++;
-    if (player.seat && (this.glideIntent() || this.rays.some((r) => r.teleportHeld) || this.stickAiming)) player.stand();
+    const rigged = !!player.rig;
+    if (rigged) {
+      // The ladder or a pole has hold of the avatar: the desktop update that normally steps the
+      // rig never runs in VR, so the session steps it here. The glide stick works the rungs (poles
+      // ignore it and slide on their own); teleports, glides and room-scale wait until it's done.
+      player.climbInput = this.climbDir();
+      player.rig!(dt);
+    } else {
+      player.climbInput = 0;
+    }
+    if (player.seat && !rigged && (this.glideIntent() || this.rays.some((r) => r.teleportHeld) || this.stickAiming)) player.stand();
     this.dolly.updateMatrixWorld(true);
+    // Procedural grips stand in until each controller's profile model loads (or all session, offline).
+    for (const r of this.rays) r.fallback.visible = !!r.source && !r.source.hand && !!r.source.gamepad && !r.ctrlModel.motionController;
     this.pollButtons();
     this.updateHover();
     if (this.ui) {
-      this.ui.update(dt, this.renderer.xr.getCamera());
+      // The UI follows the head in world space, from the rig's own math — three's XR camera
+      // only holds the headset pose in reference space (see HeadPose), so it can't feed this.
+      this.headWorld(_h);
+      this.lookDir(_d);
+      _head.pos[0] = _h.x; _head.pos[1] = _h.y; _head.pos[2] = _h.z;
+      _head.dir[0] = _d.x; _head.dir[1] = _d.y; _head.dir[2] = _d.z;
+      this.ui.update(dt, _head);
       for (let i = 0; i < 2; i++) {
         if (this.rays[i]?.uiConsumed) this.ui.stickScroll(i, this.stick(i).y, dt);
       }
@@ -587,11 +728,11 @@ export class VRSession {
     this.updateHolds();
     this.updateTeleport();
     this.updateTurn(dt);
-    this.updateGlide(dt);
+    if (!rigged) this.updateGlide(dt);
     this.followHead();
     this.updateFade(dt);
     // What the flat mirror's hint bar shows: the right ray's target, else the left's.
-    const aim = this.rays[1]?.hover ?? this.rays[0]?.hover ?? null;
+    const aim = this.rayFor('right')?.hover ?? this.rayFor('left')?.hover ?? null;
     this.hooks.onTarget(aim?.near ? aim.it : null, aim?.near ? this.hooks.noteUnder(aim) : null);
   }
 
@@ -604,10 +745,18 @@ export class VRSession {
    */
   private updateHolds(): void {
     const now = performance.now();
+    const rigged = !!this.hooks.player.rig;
     const hands = [0, 1].filter((i) => {
       const st = this.rays[i];
-      return st?.source && !st.source.gamepad;
+      return st?.source && !!st.source.hand;
     });
+    const heldNow = hands.filter((i) => {
+      const st = this.rays[i];
+      return st.selectHeld || st.pinchHeld;
+    });
+    // Both hands down together: the menu gesture owns both holds, so neither may start aiming
+    // (without this each crosses the aim threshold first and the menu never fires).
+    const bothHeld = heldNow.length === 2;
     for (const i of hands) {
       const st = this.rays[i];
       const held = st.selectHeld || st.pinchHeld;
@@ -616,18 +765,19 @@ export class VRSession {
         if (out === 'teleport') this.fireTeleport(i);
         else if (out === 'select') this.tapE(i);
       } else if (held) {
-        st.hold.update(true, now, st.uiConsumed);
+        // On a panel a hold drags/scrolls, on the ladder it stays a tap (E lets go): neither aims.
+        st.hold.update(true, now, st.uiConsumed || bothHeld || rigged);
       }
     }
     // Both hands pinching together: the menu, claimed before either hold can aim or tap.
-    if (hands.length === 2 && this.ui) {
-      const [a, b] = [this.rays[hands[0]].hold, this.rays[hands[1]].hold];
+    if (bothHeld && this.ui) {
+      const [a, b] = [this.rays[heldNow[0]].hold, this.rays[heldNow[1]].hold];
       const since = Math.min(a.heldSince, b.heldSince);
       if (since >= 0 && !a.isConsumed && !a.isAiming && !b.isAiming && now - since >= MENU_HOLD_MS) {
         a.consume();
         b.consume();
         this.ui.toggleMenu();
-        this.pulse(hands[0], 0.3, 20);
+        this.pulse(heldNow[0], 0.3, 20);
       }
     }
   }
@@ -663,6 +813,37 @@ export class VRSession {
     return decodeThumbstick(this.rays[i]?.source?.gamepad?.axes ?? []);
   }
 
+  /**
+   * The ray for a hand. By handedness when the runtime reports it; else by slot (0 left, 1
+   * right) — but only while neither ray claims a hand, so a lone right controller never also
+   * reads as the left stick.
+   */
+  private rayFor(hand: 'left' | 'right'): RayState | undefined {
+    const known = this.rays.find((r) => r.source && r.handed === hand);
+    if (known) return known;
+    if (this.rays.some((r) => r.source && r.handed)) return undefined;
+    const slot = this.rays[hand === 'left' ? 0 : 1];
+    return slot?.source ? slot : undefined;
+  }
+
+  /** The glide/climb stick: the left controller's, else the right's when it flies solo. */
+  private moveStick(): { x: number; y: number } {
+    const r = this.rayFor('left') ?? this.rayFor('right');
+    return decodeThumbstick(r?.source?.gamepad?.axes ?? []);
+  }
+
+  /** The turn stick: the right controller's, else the left's when it flies solo. */
+  private turnStick(): { x: number; y: number } {
+    const r = this.rayFor('right') ?? this.rayFor('left');
+    return decodeThumbstick(r?.source?.gamepad?.axes ?? []);
+  }
+
+  /** Ladder rungs from the glide stick: push up to climb, down to go back. */
+  private climbDir(): number {
+    const y = this.moveStick().y;
+    return y < -0.35 ? 1 : y > 0.35 ? -1 : 0;
+  }
+
   private gamepad(i: number): Gamepad | undefined {
     return this.rays[i]?.source?.gamepad ?? undefined;
   }
@@ -679,21 +860,23 @@ export class VRSession {
   /** Glide intent this frame (also what stands the avatar up first). */
   private glideIntent(): boolean {
     if (!this.hooks.settings.vr.glide) return false;
-    const s = this.stick(0);
+    const s = this.moveStick();
     return Math.hypot(s.x, s.y) > STICK_ON;
   }
 
   /** Edge-triggered buttons: B/Y or stick-click is N; A hold (or stick-forward) aims a teleport. */
   private pollButtons(): void {
+    const rigged = !!this.hooks.player.rig;
     for (let i = 0; i < 2; i++) {
       const st = this.rays[i];
       const gp = this.gamepad(i);
-      const n = buttonDown(gp, XR_BUTTON.STICK) || buttonDown(gp, XR_BUTTON.B);
+      const face = faceButtons(gp);
+      const n = buttonDown(gp, face.stick) || buttonDown(gp, face.b);
       if (n && !st.wasN) this.hooks.nextWaiting();
       st.wasN = n;
       // Teleport aim lives on A hold; release fires it. A ray on a UI panel cancels the aim
-      // without firing (that ray's stick scrolls the panel instead).
-      const held = buttonDown(gp, XR_BUTTON.A);
+      // without firing (that ray's stick scrolls the panel instead), as does the ladder or a pole.
+      const held = !rigged && buttonDown(gp, face.a);
       if (st.uiConsumed) {
         st.teleportHeld = false;
       } else {
@@ -702,8 +885,10 @@ export class VRSession {
       }
     }
     // Stick-aimed teleports (glide off): pushing forward aims, release past center fires.
-    if (!this.hooks.settings.vr.glide && !this.rays[0]?.uiConsumed) {
-      const y = this.stick(0).y;
+    const moveRay = this.rayFor('left') ?? this.rayFor('right');
+    const moveIdx = moveRay ? this.rays.indexOf(moveRay) : -1;
+    if (!rigged && !this.hooks.settings.vr.glide && moveIdx >= 0 && !this.rays[moveIdx]?.uiConsumed) {
+      const y = this.stick(moveIdx).y;
       if (this.stickAiming && y > -STICK_OFF) {
         this.stickAiming = false;
         this.fireTeleport();
@@ -748,7 +933,14 @@ export class VRSession {
           st.uiConsumed = true;
           st.hover = null;
           st.line.visible = true;
-          st.dot.visible = false;
+          // The cursor dot parks on the panel, so presses land where the eye says they will.
+          const p = this.ui.panelHit(i);
+          st.dot.visible = !!p;
+          if (p) {
+            st.dot.position.copy(st.targetRay.worldToLocal(_e.copy(p)));
+            st.dot.scale.setScalar(1);
+            (st.dot.material as THREE.MeshBasicMaterial).color.set(0xee6018);
+          }
           continue;
         }
       }
@@ -832,31 +1024,23 @@ export class VRSession {
   /** Snap- or smooth-turn the rig around the head, so turning never translates the avatar. */
   private updateTurn(dt: number): void {
     const { settings } = this.hooks;
-    let axisX = this.stick(1).x;
-    if (axisX === 0 && !settings.vr.glide) axisX = this.stick(0).x;
+    const axisX = this.turnStick().x;
     let dYaw = 0;
     if (settings.vr.turn === 'snap') dYaw = this.snap.update(axisX);
     else if (Math.abs(axisX) > 0.15) dYaw = -axisX * THREE.MathUtils.degToRad(settings.vr.turnSpeed) * dt;
     if (dYaw === 0) return;
-    this.headWorld(_h);
-    this.yaw += dYaw;
-    this.dolly.rotation.y = this.yaw;
-    // …around the head: the feet stay where they were, only the heading changes.
-    this.headLocal(_l);
-    _l.y = 0;
-    _l.applyAxisAngle(UP, this.yaw);
-    this.origin.set(_h.x - _l.x, this.origin.y, _h.z - _l.z);
-    this.dolly.position.copy(this.origin);
+    this.setYaw(this.yaw + dYaw);
   }
 
   /** Smooth stick glide (a Settings toggle, default off): the avatar walks the stick direction. */
   private updateGlide(dt: number): void {
     this.glideActive = false;
     if (!this.hooks.settings.vr.glide) return;
-    if (this.rays[0]?.uiConsumed) return; // the stick scrolls the panel under the ray instead
+    const moveRay = this.rayFor('left') ?? this.rayFor('right');
+    if (moveRay?.uiConsumed) return; // the stick scrolls the panel under the ray instead
     const { player } = this.hooks;
     if (player.seat) return;
-    const s = this.stick(0);
+    const s = this.moveStick();
     if (Math.hypot(s.x, s.y) < 0.15) return;
     _f.set(0, 0, -1).applyQuaternion(this.headQuat(_q));
     _f.y = 0;
@@ -889,8 +1073,9 @@ export class VRSession {
       this.origin.add(_e);
       this.origin.y = player.pos.y;
       this.dolly.position.copy(this.origin);
-    } else if (!player.seat) {
-      // Room-scale: walk the avatar under the head through the usual collision.
+    } else if (!player.seat && !player.rig) {
+      // Room-scale: walk the avatar under the head through the usual collision. (Seated, and on
+      // the ladder or a pole, the avatar stays where it was put; the rig still rebases below.)
       const dx = _h.x - player.pos.x;
       const dz = _h.z - player.pos.z;
       if (Math.hypot(dx, dz) > 1e-4) {
@@ -936,8 +1121,13 @@ export class VRSession {
           this.placeAvatar(this.pendingTeleport);
           this.pendingTeleport = null;
         }
-        this.fade = 'in';
-        this.fadeT = 0;
+        // Trips hold the black until the far side calls fadeIn; teleports fade straight back.
+        if (this.fadeHold) {
+          m.opacity = 1;
+        } else {
+          this.fade = 'in';
+          this.fadeT = 0;
+        }
       }
     } else {
       this.fadeT += dt / 0.14;
