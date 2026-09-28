@@ -4,7 +4,7 @@
  * arrives through VrMenuActions (see attach.ts for the exact main.ts snippet), so there is
  * no forked logic here. Read-only views render from the same stores the DOM boards read.
  *
- * Views: main (Hire, Next waiting, Queue, Issues/PRs, Floors, Jukebox, Bar, Chat, Mute, Exit VR),
+ * Views: main (Hire, Next waiting, Queue, Issues/PRs, Floors, Jukebox, Bar, Chat, Mute, Leave voice, Exit VR),
  * hire (free desks), queue (running/queued/done, with tap-twice remove + requeue), board (issues/PRs tabs, read + hand-to-worker),
  * a detail view for one issue or PR (hand it over, queue it, comment, close it, review a PR), floors (ride the elevator), jukebox (tunes + a stream row), bar (drinks),
  * chat (the floor's chat + say something), assign (hand an issue to a worker), meeting (the room's
@@ -83,6 +83,8 @@ export interface VrMenuActions {
   walkToPeer: (peerId: string) => void;
   /** Mutes/unmutes in voice, or joins it — the DOM M/V keys' function (main.ts voice toggle). */
   toggleMute: () => void;
+  /** Leaves voice — the DOM V key's function while in it (main.ts voice leave). */
+  leaveVoice: () => void;
   /** Patches VR locomotion/comfort — the DOM ⚙️ Settings VR section's function (assign + save). */
   vrSettings: (patch: Partial<VrSettings>) => void;
   /** Renames the floor dog — the DOM ⚙️ Settings office-dog row (main.ts vrRenameDog). */
@@ -437,6 +439,10 @@ export class VrMenu {
         ? [{
           id: 'mute', icon: this.stores.isMuted() ? '🔇' : '🎙️', title: this.stores.isMuted() ? 'Unmute' : 'Mute',
           sub: () => 'in voice (M)',
+        },
+        {
+          id: 'leave', icon: '📞', title: 'Leave voice',
+          sub: () => 'back to silence (V)',
         }]
         : [{
           id: 'mute', icon: '🎙️', title: 'Join voice',
@@ -593,6 +599,7 @@ export class VrMenu {
       case 'services': return this.go('services');
       case 'people': return this.go('people');
       case 'mute': return this.actions.toggleMute();
+      case 'leave': return this.actions.leaveVoice();
       case 'settings': return this.go('settings');
       case 'controls': return this.onShowControls?.();
       case 'exit': return this.actions.exitVr();

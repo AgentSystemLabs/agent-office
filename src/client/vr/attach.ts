@@ -20,7 +20,7 @@
  *   getQueue: () => store.queue,
  *   getFreeDesks: () => DESKS.filter((d) => !d.station && !store.workerAtDesk(d.id))
  *     .map((d) => ({ id: d.id, label: d.label })),
- *   voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => voice.inVoice ? voice.toggleMute() : joinVoice() },
+ *   voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => voice.inVoice ? voice.toggleMute() : joinVoice(), leaveVoice: () => voice.leaveVoice() },
  *   actions: {
  *     hire: (deskId) => hireAtDesk(deskId),          // the DOM hire dialog's function
  *     nextWaiting: () => goToNextWaiting(),          // the DOM N key's function
@@ -73,6 +73,8 @@ export interface VrUiVoice {
   inVoice: () => boolean;
   /** Mutes/unmutes in voice, or joins it (the menu mute row's tap). */
   toggleMute: () => void;
+  /** Leaves voice (the menu leave row's tap). */
+  leaveVoice: () => void;
 }
 
 /** Everything the VR UI needs from the office: stores, clients and DOM-shared actions. No globals. */
@@ -99,7 +101,7 @@ export interface VrUiDeps {
   barCutOff: () => boolean;
   getVrSettings: () => VrSettings;
   voice: VrUiVoice;
-  actions: Omit<VrMenuActions, 'toggleMute'>;
+  actions: Omit<VrMenuActions, 'toggleMute' | 'leaveVoice'>;
   /** Worker acts from the terminal header: wake (R), send home (X), and what X would do. */
   workerActions: {
     resume: (workerId: string) => void;
@@ -222,7 +224,7 @@ class VrUi implements VrUiHandle {
         isMuted: deps.voice.isMuted,
         inVoice: deps.voice.inVoice,
       },
-      { ...deps.actions, toggleMute: deps.voice.toggleMute },
+      { ...deps.actions, toggleMute: deps.voice.toggleMute, leaveVoice: deps.voice.leaveVoice },
     );
     this.keyboard = new VrKeyboard();
     this.prompt = new VrPromptPanel();

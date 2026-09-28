@@ -148,7 +148,7 @@ const deps: VrUiDeps = {
   onRoof: () => false,
   barCutOff: () => false,
   getVrSettings: () => ({ glide: false, turn: 'snap', turnSpeed: 90, fade: true }),
-  voice: { isMuted: () => muted, inVoice: () => true, toggleMute: () => { muted = !muted; log('mute →', muted); } },
+  voice: { isMuted: () => muted, inVoice: () => true, toggleMute: () => { muted = !muted; log('mute →', muted); }, leaveVoice: () => log('leave voice') },
   actions: {
     hire: (deskId) => log('hire at', deskId, '(would open the VR hire prompt)'),
     nextWaiting: () => log('next waiting (would walk to Grace)'),

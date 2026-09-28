@@ -507,7 +507,7 @@ const vr = new VRSession(renderer, scene, camera, {
       getPeers: () => [...store.peers.values()].filter((p) => p.id !== store.you),
       getDogName: () => store.dog?.name ?? null,
       getSound: () => ({ volume: settings.volume, muted: settings.muted, music: settings.music, musicMuted: settings.musicMuted }),
-      voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => (voice.inVoice ? voice.toggleMute() : void toggleVoice()) },
+      voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => (voice.inVoice ? voice.toggleMute() : void toggleVoice()), leaveVoice: () => voice.leaveVoice() },
       actions: {
         hire: (deskId) => vrHire(deskId),
         nextWaiting: () => goToNextWaiting(),
