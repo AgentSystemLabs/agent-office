@@ -52,9 +52,36 @@ function parseVersion(line: string | undefined): VersionInfo | undefined {
 const VERSION_FORMAT = '--format=%h%x00%s%x00%cI';
 
 /**
+ * systemd's default KillMode stops everything in the service once the office exits: the workers'
+ * terminal host too (see ptys.ts), so every worker would be cut off mid-turn by an upgrade. Offices
+ * provisioned before deploy/provision.sh set KillMode=process get it from a drop-in here; the
+ * install's user has passwordless sudo. Best effort: without it, workers are resumed and carry on.
+ */
+async function keepWorkersThroughRestart() {
+  if (process.platform !== 'linux') return;
+  let cgroup: string;
+  try {
+    cgroup = readFileSync('/proc/self/cgroup', 'utf8');
+  } catch {
+    return;
+  }
+  const unit = /:\/system\.slice\/([^/\n]+\.service)$/m.exec(cgroup)?.[1];
+  if (!unit || (await run('systemctl', ['show', '--property=KillMode', '--value', unit])) === 'process') return;
+  await run('sudo', [
+    '-n',
+    'sh',
+    '-c',
+    'mkdir -p "$1" && printf "[Service]\\nKillMode=process\\n" > "$1/keep-workers.conf" && systemctl daemon-reload',
+    'sh',
+    `/etc/systemd/system/${unit}.d`,
+  ]);
+}
+
+/**
  * Lets an office installed by deploy/aws.sh upgrade itself from the UI. The new version is
  * built next to the running one (the office keeps working meanwhile, and a failed build changes
- * nothing), swapped in, and then the process exits so systemd starts the new version.
+ * nothing), swapped in, and then the process exits so systemd starts the new version. Workers keep
+ * running through it in their terminal host, which the new version picks back up.
  */
 export class Upgrader {
   readonly state: UpgradeState;
@@ -183,6 +210,7 @@ export class Upgrader {
       return;
     }
     this.set({ phase: 'restarting' });
+    await keepWorkersThroughRestart().catch((err) => console.warn(`agent-office: workers will be resumed after the restart, not kept running: ${(err as Error).message}`));
     // Give every browser a moment to hear about it, then hand over to the new version.
     setTimeout(this.restart, 1500);
   }
