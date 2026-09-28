@@ -49,6 +49,14 @@ export function onCommented(kind: 'issue' | 'pull', number: number, fn: (msg: Ex
     if (commentWaiters.get(key) === fn) commentWaiters.delete(key);
   };
 }
+/** Hears the next gh.closed for the item (the VR close flow's ears); returns the unlisten. */
+export function onClosed(kind: 'issue' | 'pull', number: number, fn: (msg: Extract<ServerMsg, { t: 'gh.closed' }>) => void): () => void {
+  const key = `${kind}:${number}`;
+  closeWaiters.set(key, fn);
+  return () => {
+    if (closeWaiters.get(key) === fn) closeWaiters.delete(key);
+  };
+}
 
 function pref<T>(key: string, fallback: T): T {
   try {

@@ -6,7 +6,7 @@
  *
  * Views: main (Hire, Next waiting, Queue, Issues/PRs, Floors, Jukebox, Bar, Chat, Mute, Exit VR),
  * hire (free desks), queue (running/queued/done), board (issues/PRs tabs, read + hand-to-worker),
- * a detail view for one issue or PR, floors (ride the elevator), jukebox (tunes + a stream row), bar (drinks),
+ * a detail view for one issue or PR (hand it over, queue it, comment, close it), floors (ride the elevator), jukebox (tunes + a stream row), bar (drinks),
  * chat (the floor's chat + say something), assign (hand an issue to a worker), meeting (the room's
  * status + call one with the pattern defaults), services (the workers' web servers, tap to copy
  * a tunnel command), people (who else is around, and what they're up to), and settings
@@ -99,6 +99,8 @@ export interface VrMenuActions {
   queueLimit: (maxWorkers: number) => void;
   /** Comments on an issue or PR — the board windows' comment box (main.ts vrComment). */
   commentOn: (kind: 'issue' | 'pull', number: number) => void;
+  /** Closes an issue or PR — the board windows' close dialog at its defaults (main.ts vrClose). */
+  closeItem: (kind: 'issue' | 'pull', number: number) => void;
   /** Leaves the immersive session — the XR session owner's exit. */
   exitVr: () => void;
 }
@@ -119,6 +121,10 @@ export interface AssignTarget {
 const HEADER_H = 0.12;
 const BODY: Rect = { x: 0.03, y: HEADER_H + 0.02, w: 0.94, h: 1 - HEADER_H - 0.05 };
 const BACK_BTN: Rect = { x: 0.03, y: 0.015, w: 0.16, h: 0.09 };
+/** Detail view: ✕ Close in the header (tap twice: the first arms it, like the terminal's ⏻). */
+const CLOSE_BTN: Rect = { x: 0.78, y: 0.015, w: 0.19, h: 0.09 };
+/** The close button stays armed this long: tap ✕ twice to close an issue or PR. */
+const CLOSE_ARM_MS = 6000;
 const TABS: Rect = { x: 0.55, y: 0.015, w: 0.42, h: 0.09 };
 /** Jukebox transport: play/resume, stop, skip — small round buttons in the header. */
 const JB_PLAY: Rect = { x: 0.58, y: 0.015, w: 0.13, h: 0.09 };
@@ -183,6 +189,10 @@ export class VrMenu {
   private lastMuted = '';
   /** The queue's last unpaused width: the ⏸ toggle goes back to it. */
   private lastLimit = 2;
+  /** The detail ✕ confirms while now is before this (the first tap arms it). */
+  private closeArmedUntil = 0;
+  /** Which issue or PR the armed ✕ would close ("issue:12"). */
+  private closeArmedFor: string | null = null;
 
   constructor(stores: VrMenuStores, actions: VrMenuActions, widthM = 0.62, heightM = 0.72) {
     this.stores = stores;
@@ -231,6 +241,8 @@ export class VrMenu {
     this.detail = { kind, number };
     this.view = 'detail';
     this.assignTarget = null;
+    this.closeArmedUntil = 0;
+    this.closeArmedFor = null;
     this.panel.setScrollOffset('list', 0);
     this.panel.setVisible(true);
     this.refresh();
@@ -253,6 +265,8 @@ export class VrMenu {
     this.view = view;
     this.detail = detail;
     if (view !== 'assign') this.assignTarget = null;
+    this.closeArmedUntil = 0;
+    this.closeArmedFor = null;
     this.panel.setScrollOffset('list', 0);
     this.refresh();
     this.panel.markDirty();
@@ -455,6 +469,7 @@ export class VrMenu {
         this.panel.setButtons(buttons);
         return;
       }
+      buttons.push({ id: 'act:close', rect: CLOSE_BTN, onClick: () => this.tapClose() });
       if (d.kind === 'issue') {
         buttons.push(
           { id: 'act:hand', rect: { x: 0.05, y: 0.82, w: 0.28, h: 0.12 }, onClick: () => this.openAssign(d.number, this.issueTitle(d.number)) },
@@ -664,6 +679,7 @@ export class VrMenu {
     ctx.textAlign = 'left';
     ctx.fillText(title, w * (this.view === 'main' ? 0.05 : 0.22), h * HEADER_H * 0.55, w * (this.view === 'board' ? 0.3 : this.view === 'jukebox' || this.view === 'chat' || this.view === 'meeting' || this.view === 'queue' ? 0.34 : 0.5));
     if (this.view !== 'main') this.paintBack(ctx, w, h, state);
+    if (this.view === 'detail') this.paintCloseBtn(ctx, w, h, state);
     if (this.view === 'board') this.paintTabs(ctx, w, h, state);
     if (this.view === 'jukebox') this.paintTransport(ctx, w, h, state);
     if (this.view === 'chat') this.paintSay(ctx, w, h, state);
@@ -698,6 +714,37 @@ export class VrMenu {
     ctx.fill();
   }
 
+  /** The detail ✕ tap: the first arms it (red, with a ?), the second closes the issue or PR. */
+  private tapClose() {
+    const d = this.detail;
+    if (!d || this.view !== 'detail') return;
+    const key = `${d.kind}:${d.number}`;
+    if (this.closeArmedFor === key && performance.now() < this.closeArmedUntil) {
+      this.closeArmedUntil = 0;
+      this.closeArmedFor = null;
+      this.actions.closeItem(d.kind, d.number);
+      this.panel.markDirty();
+      return;
+    }
+    this.closeArmedFor = key;
+    this.closeArmedUntil = performance.now() + CLOSE_ARM_MS;
+    this.panel.markDirty();
+  }
+  private paintCloseBtn(ctx: CanvasRenderingContext2D, w: number, h: number, state: { hoverId: string | null; pressedId: string | null }) {
+    const d = this.detail;
+    if (!d) return;
+    const armed = this.closeArmedFor === `${d.kind}:${d.number}` && performance.now() < this.closeArmedUntil;
+    const hot = state.hoverId === 'act:close' || state.pressedId === 'act:close';
+    ctx.fillStyle = armed ? '#ef476f' : hot ? '#ee6018' : 'rgba(255,255,255,0.08)';
+    ctx.beginPath();
+    ctx.roundRect(CLOSE_BTN.x * w, CLOSE_BTN.y * h, CLOSE_BTN.w * w, CLOSE_BTN.h * h, CLOSE_BTN.h * h * 0.35);
+    ctx.fill();
+    ctx.fillStyle = armed ? '#111' : '#eeeeee';
+    ctx.font = `700 ${Math.round(CLOSE_BTN.h * h * 0.42)}px ${TERM_FONT}`;
+    ctx.textAlign = 'center';
+    ctx.fillText(armed ? '✕ Close?' : '✕ Close', (CLOSE_BTN.x + CLOSE_BTN.w / 2) * w, (CLOSE_BTN.y + CLOSE_BTN.h / 2) * h);
+    ctx.textAlign = 'left';
+  }
   private paintBack(ctx: CanvasRenderingContext2D, w: number, h: number, state: { hoverId: string | null; pressedId: string | null }) {
     this.pill(ctx, BACK_BTN, w, h, 'back', state);
     ctx.fillStyle = '#eeeeee';
@@ -1149,6 +1196,12 @@ export class VrMenu {
     // Row buttons track the list's scroll offset.
     if (this.panel.visible && this.view !== 'main' && this.view !== 'detail') {
       this.syncRowsIfMoved();
+    }
+    // The armed ✕ cools back down (repaint once, when it lapses).
+    if (this.closeArmedUntil && performance.now() >= this.closeArmedUntil) {
+      this.closeArmedUntil = 0;
+      this.closeArmedFor = null;
+      this.panel.markDirty();
     }
     this.panel.update(dt, head);
   }

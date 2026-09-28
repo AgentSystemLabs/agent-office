@@ -44,7 +44,7 @@ import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage, worktreePref } from './ui/prompt';
 import { issuePrompt, openBoard } from './ui/boards';
-import { onCommented, openIssue, openPull, routePullMessage } from './ui/pull';
+import { onClosed, onCommented, openIssue, openPull, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
 import { copy, guessOs, openTeam, routeTeamMessage } from './ui/team';
 import { openVrPair } from './ui/vr';
@@ -527,6 +527,7 @@ const vr = new VRSession(renderer, scene, camera, {
         addQueueTask: () => vrQueueAdd(),
         queueLimit: (maxWorkers) => net.send({ t: 'queue.limit', maxWorkers }),
         commentOn: (kind, number) => vrComment(kind, number),
+        closeItem: (kind, number) => vrClose(kind, number),
         renameDog: () => vrRenameDog(),
         sendChat: (text) => net.send({ t: 'chat', text }),
         vrSettings: (patch) => {
@@ -1800,6 +1801,22 @@ function vrRenameDog() {
       if (name) net.send({ t: 'dog.name', name });
     },
   });
+}
+/** The detail view's ✕ button, confirmed: close the issue or PR at the dialog's defaults (completed, no branch delete, no comment — the close dialog with nothing changed). */
+function vrClose(kind: 'issue' | 'pull', number: number) {
+  toast(`Closing #${number}…`);
+  const off = onClosed(kind, number, (msg) => {
+    clearTimeout(timer);
+    off();
+    if (!msg.error) toast(`Closed #${number}`);
+    else toast(msg.error, 'warn');
+  });
+  // The office drops messages while it's disconnected, and then no answer comes.
+  const timer = window.setTimeout(() => {
+    off();
+    toast("No answer from the office — check whether it closed before trying again", 'warn');
+  }, 45_000);
+  net.send({ t: 'gh.close', kind, number });
 }
 /** The detail view's 💬 button: a line on the issue or PR (the windows' comment box, one line — the prompt has no ⏎ for more). */
 function vrComment(kind: 'issue' | 'pull', number: number) {
