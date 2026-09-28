@@ -26,10 +26,15 @@ session running, or immersive VR unsupported. See `describeSessionError` in
 
 ## Controls
 
+A controls card opens in front of you on every session enter (GOT IT dismisses it; the ☰
+menu's ❓ row brings it back).
+
 | Input | Action |
 |---|---|
-| Trigger / pinch | **E** on whatever the ray points at (desks, boards, elevator, gong, dog, seats…) |
-| Squeeze | Cancel: the carried issue card goes back, else the topmost window closes |
+| Trigger / pinch tap | **E** on whatever the ray points at (desks, boards, elevator, gong, dog, seats…) |
+| Pinch hold (hands) | Aim a teleport arc; release to go (green lands, red doesn't) |
+| Both hands pinch-hold | Toggle the ☰ menu (the hands' squeeze) |
+| Squeeze | Cancel: the carried issue card goes back, else the topmost window closes, else ☰ |
 | B / Y, or stick click | **N**: go to the next worker waiting on someone |
 | Hold A / X | Aim a teleport arc; release to go (green lands, red doesn't) |
 | Left stick forward (glide off) | Same teleport aim; release past center to go |
@@ -38,9 +43,10 @@ session running, or immersive VR unsupported. See `describeSessionError` in
 | Left stick sideways (glide off) | Snap-/smooth-turn, for single-stick headsets |
 | Walk around the room | Room-scale: the avatar follows the headset through the usual collision |
 
-Trigger is the controller `select` event; on hand-tracking-only runs it's the pinch (the
-runtime's own `select`, else three's `pinchstart`, else a thumb-to-index fallback poll — see
-"Input" below). Every VR move goes through the avatar and the normal `move` messages, so
+Trigger is the controller `select` event, fired at once; a hand-tracked pinch resolves per
+frame from the union of the runtime's `select` and three's joint-distance
+`pinchstart`/`pinchend`, so runtimes that fire both for one pinch still read as one hold —
+see "Input" below. Every VR move goes through the avatar and the normal `move` messages, so
 desktop users see the VR user walk, glide, turn and teleport like anyone else.
 
 ## Settings (⚙️ → VR)
@@ -73,8 +79,8 @@ Known gaps (world-space UI arrives separately — see below):
   mirror and after you exit VR; they are **not visible in the headset yet**.
 - The arcade/cabinet zoom cameras and Minesweeper assume a flat screen.
 - Elevator floor changes cut without a visible in-headset fade.
-- Pure hand tracking (no controllers) can point and pinch but not teleport, glide or turn:
-  there are no sticks or buttons to drive them.
+- Pure hand tracking (no controllers) can point, pinch, teleport and open the menu, but not
+  glide or turn: there are no sticks to drive them.
 - Sitting: E sits the avatar down, but eye height stays physical — stand or sit to match.
 
 ## Architecture
@@ -100,13 +106,18 @@ size and pixel ratio restored, and `player.updateCamera(true)` snaps the view ba
 ### Input
 
 Each input source gets its target-ray space parented under the dolly, with a ray line and a
-cursor dot (green within reach, cyan beyond it). `selectstart` is E, `squeezestart` is cancel,
-B/Y/stick-click edges are N. Hands drive the same target-ray spaces three updates from the
-hand aim pose, so one raycast path covers controllers and hands. Pinch falls back through
-three's built-in `pinchstart`/`pinchend` to a per-frame thumb-to-index measurement that only
-runs until the first real `select` event. Buttons and sticks follow the XR Standard gamepad
-mapping (stick at axes [2,3] when present). Select/teleport/cancel fire a short haptic pulse
-where the controller has an actuator.
+cursor dot (green within reach, cyan beyond it). Controller `selectstart` is E at once;
+`squeezestart` is cancel, B/Y/stick-click edges are N. Hands drive the same target-ray spaces
+three updates from the hand aim pose, so one raycast path covers controllers and hands. A
+hand-tracked pinch resolves per frame from the union of the runtime's `select` and three's
+joint-distance `pinchstart`/`pinchend` (`PinchHold` in session.ts): a tap is E, a hold past
+450 ms aims a teleport the release fires, and both hands held past 600 ms toggle the menu.
+Buttons and sticks follow the XR Standard gamepad mapping (stick at axes [2,3] when present).
+Select/teleport/cancel fire a short haptic pulse where the controller has an actuator.
+
+Hands render as the skinned generic-hand mesh (`three`'s `XRHandMeshModel`, vendored under
+`src/client/public/xr-hands/` so no CDN can break them), with three's joint spheres behind
+as a fallback that hides once the mesh loads.
 
 ### xrblocks: what fits, and what doesn't
 

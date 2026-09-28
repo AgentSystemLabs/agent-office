@@ -67,6 +67,8 @@ export class VrMenu {
   readonly panel: WorldPanel;
   /** Opening a worker's terminal from a queue row (wired by attach.ts to the VR terminal panel). */
   onOpenTerminal: ((workerId: string) => void) | null = null;
+  /** Opening the controls card from the ❓ row (wired by attach.ts to the VR controls panel). */
+  onShowControls: (() => void) | null = null;
 
   private stores: VrMenuStores;
   private actions: VrMenuActions;
@@ -175,6 +177,7 @@ export class VrMenu {
         id: 'mute', icon: this.stores.isMuted() ? '🔇' : '🎙️', title: this.stores.isMuted() ? 'Unmute' : 'Mute',
         sub: () => (this.stores.inVoice() ? 'in voice (M)' : 'not in voice'),
       },
+      { id: 'controls', icon: '❓', title: 'VR controls', sub: () => 'pinches, teleports, sticks' },
       { id: 'exit', icon: '🚪', title: 'Exit VR', sub: () => 'back to the flat screen' },
     ];
   }
@@ -254,6 +257,7 @@ export class VrMenu {
       case 'queue': return this.go('queue');
       case 'board': return this.go('board');
       case 'mute': return this.actions.toggleMute();
+      case 'controls': return this.onShowControls?.();
       case 'exit': return this.actions.exitVr();
     }
   }

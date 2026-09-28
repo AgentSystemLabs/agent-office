@@ -1,8 +1,10 @@
 // The WebXR session: rig, controller/hand input, and locomotion for the headset browser.
-// Plain Three.js WebXR (renderer.xr + setAnimationLoop), plus xrblocks' `Hands` joint accessor
-// for the pinch fallback (see pinchFallback below). Everything else xrblocks offers for input —
-// its Input/Interaction pipeline, gestures, UI — needs the xb engine to own the renderer and the
-// loop, which would be a renderer rewrite; the office keeps its own (docs/vr-webxr.md says why).
+// Plain Three.js WebXR (renderer.xr + setAnimationLoop).
+//
+// Hands speak pinch: three forwards the runtime's select events plus its own joint-distance
+// pinchstart/pinchend to the target-ray spaces, and the session reads their union as one
+// held state per hand — a tap is E, a hold is a teleport aim, both hands together open the
+// menu. Controllers keep their instant trigger (they have A for teleport, squeeze for menu).
 //
 // The rig is the standard three dolly: the desktop camera is reparented under a Group at the
 // avatar's feet while presenting, and three composes the headset pose with it
@@ -33,9 +35,89 @@ const ARC_SPEED = 6;
 const ARC_GRAVITY = 9.8;
 const ARC_STEPS = 24;
 const ARC_DT = 1 / 30;
-/** Pinch counts below this thumb-to-index distance (meters), matching three's own 0.02/0.005. */
-const PINCH_ON = 0.015;
-const PINCH_OFF = 0.025;
+/** A pinch held past this long becomes a teleport aim (hands; controllers use A). */
+export const PINCH_HOLD_MS = 450;
+/** Both hands pinched past this long toggles the menu (hands; controllers squeeze). */
+export const MENU_HOLD_MS = 600;
+/** The XR framebuffer renders below native while presenting: stereo at headset resolution is
+ * the whole perf cost (flat rendering in the same browser is fine), and 0.8² of the pixels
+ * buys the frame budget back with no visible blur. Restored on session end. */
+const XR_FRAMEBUFFER_SCALE = 0.8;
+
+/**
+ * One hand's pinch, read as tap-vs-hold: fed the live held state plus a clock, it reports
+ * the moment a hold becomes a teleport aim, and what a release means. The session ORs the
+ * runtime's select events with three's pinchstart/pinchend into `held`, so runtimes that
+ * fire both for one pinch still produce a single tap.
+ */
+export class PinchHold {
+  private held = false;
+  private t0 = 0;
+  private aiming = false;
+  private consumed = false;
+
+  /** When the current hold started (ms); -1 when nothing is held. */
+  get heldSince(): number {
+    return this.held ? this.t0 : -1;
+  }
+  get isHeld(): boolean {
+    return this.held;
+  }
+  get isAiming(): boolean {
+    return this.held && this.aiming;
+  }
+  get isConsumed(): boolean {
+    return this.consumed;
+  }
+
+  /** The menu gesture claims a hold wholesale: its release then means nothing. */
+  consume(): void {
+    this.consumed = true;
+    this.aiming = false;
+  }
+
+  /**
+   * Feed the live held state. Returns 'aim' once, on the frame the hold crosses the
+   * teleport threshold — unless the menu gesture already consumed it, or `uiOwned` says
+   * the ray is working a panel (a hold there drags/scrolls, never teleports).
+   */
+  update(held: boolean, now: number, uiOwned = false): 'aim' | null {
+    if (!held) {
+      // Releases resolve through release(), but a drop without one still resets.
+      this.held = false;
+      this.aiming = false;
+      return null;
+    }
+    if (!this.held) {
+      this.held = true;
+      this.t0 = now;
+      this.aiming = false;
+      this.consumed = false;
+      return null;
+    }
+    if (!this.aiming && !this.consumed && !uiOwned && now - this.t0 >= PINCH_HOLD_MS) {
+      this.aiming = true;
+      return 'aim';
+    }
+    return null;
+  }
+
+  /** What a release means: the teleport it aimed, the tap's select, or nothing. */
+  release(): 'teleport' | 'select' | null {
+    const out = !this.held ? null : this.consumed ? null : this.aiming ? 'teleport' : 'select';
+    this.held = false;
+    this.aiming = false;
+    this.consumed = false;
+    return out;
+  }
+
+  reset(): void {
+    this.held = false;
+    this.aiming = false;
+    this.consumed = false;
+    this.t0 = 0;
+  }
+}
 
 /** What the session needs from main.ts, which owns the world, the dispatch, and the HUD. */
 export interface VRHooks {
@@ -117,18 +199,29 @@ export function yawForFacing(facing: number): number {
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
+// Scratch for the per-frame input math: the VR hot path allocates nothing.
+const _o = new THREE.Vector3();
+const _d = new THREE.Vector3();
+const _h = new THREE.Vector3();
+const _l = new THREE.Vector3();
+const _e = new THREE.Vector3();
+const _q = new THREE.Quaternion();
+const _f = new THREE.Vector3();
 
 interface RayState {
   targetRay: THREE.XRTargetRaySpace;
   grip: THREE.XRGripSpace;
   hand: THREE.XRHandSpace;
   source: XRInputSource | null;
-  /** A select event arrived this session: the runtime maps the trigger/pinch itself. */
-  selectSeen: boolean;
+  /** The runtime's select is down (controllers: fires E at once; hands: feeds the hold). */
+  selectHeld: boolean;
+  /** three's joint-distance pinch is down (hand-tracked sources only). */
+  pinchHeld: boolean;
+  /** Tap-vs-hold for hand-tracked sources. */
+  hold: PinchHold;
   hover: { it: Interactable; near: boolean; hit: THREE.Intersection } | null;
   /** A world-space UI panel owns this ray this frame (world input yields to it). */
   uiConsumed: boolean;
-  pinchHeld: boolean;
   teleportHeld: boolean;
   wasN: boolean;
   line: THREE.Line;
@@ -173,9 +266,8 @@ export class VRSession {
   private snap = new SnapTurn();
   private stickAiming = false;
   private glideActive = false;
-  /** xrblocks Hands, when the lazy chunk loaded: handedness-indexed joint access for the pinch fallback. */
-  private xbHands: { getIndexTip(h: number): THREE.Object3D | undefined; getThumbTip(h: number): THREE.Object3D | undefined } | null = null;
-  private xbOrdered: THREE.XRHandSpace[] = [];
+  /** Alternating frames halve the world-hover raycasts (each ray refreshes every 2nd frame). */
+  private frame = 0;
   /** World-space UI panels, set by main.ts on session enter and cleared on end. Null on desktop. */
   private ui: VRUiSink | null = null;
   private onSessionEnd = () => this.restore();
@@ -188,30 +280,43 @@ export class VRSession {
     this.dolly.visible = false;
     scene.add(this.dolly);
 
-    // Tracked hands and controllers: the real devices' poses drive these models (three's own
-    // factories — controller profiles for wands, joint spheres for hand tracking). They hang
-    // under the grip/hand spaces, which join the rig on session enter, and show/hide
-    // themselves off the runtime's connected events. The desktop cartoon hands sit out in VR.
+    // Tracked hands and controllers: the real devices' poses drive these models. Hands get
+    // the skinned generic-hand mesh (vendored under /xr-hands so no CDN can break them), with
+    // three's joint spheres behind as a fallback that hides once the mesh loads; controllers
+    // get their input-profile models. They hang under the grip/hand spaces, which join the rig
+    // on session enter, and show/hide themselves off the runtime's connected events. The
+    // desktop cartoon hands sit out in VR.
     const controllerModelFactory = new XRControllerModelFactory();
-    const handModelFactory = new XRHandModelFactory();
     for (let i = 0; i < 2; i++) {
       const targetRay = renderer.xr.getController(i);
       const grip = renderer.xr.getControllerGrip(i);
       const hand = renderer.xr.getHand(i);
       grip.add(controllerModelFactory.createControllerModel(grip));
-      hand.add(handModelFactory.createHandModel(hand));
+      const beads = new XRHandModelFactory().createHandModel(hand);
+      const skinned = new XRHandModelFactory(null, () => {
+        beads.visible = false;
+      }).setPath('/xr-hands/');
+      hand.add(beads, skinned.createHandModel(hand, 'mesh'));
       const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -5)]);
       const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45 }));
       line.frustumCulled = false;
       const dot = new THREE.Mesh(new THREE.SphereGeometry(0.014, 12, 8), new THREE.MeshBasicMaterial({ color: 0x7df9ff, depthTest: false, transparent: true }));
       dot.renderOrder = 9998;
       targetRay.add(line, dot);
-      const st: RayState = { targetRay, grip, hand, source: null, selectSeen: false, hover: null, uiConsumed: false, pinchHeld: false, teleportHeld: false, wasN: false, line, dot };
+      const st: RayState = { targetRay, grip, hand, source: null, selectHeld: false, pinchHeld: false, hold: new PinchHold(), hover: null, uiConsumed: false, teleportHeld: false, wasN: false, line, dot };
       targetRay.addEventListener('connected', (e) => this.onConnected(i, e.data));
       targetRay.addEventListener('disconnected', () => this.onDisconnected(i));
-      targetRay.addEventListener('selectstart', () => this.onSelect(i));
+      // Three forwards every session event to all three spaces of a source, so the target-ray
+      // space alone hears everything: listening on the hand too would fire every pinch twice.
+      targetRay.addEventListener('selectstart', () => this.onSelectStart(i));
+      targetRay.addEventListener('selectend', () => this.onSelectEnd(i));
+      targetRay.addEventListener('pinchstart', () => {
+        this.rays[i].pinchHeld = true;
+      });
+      targetRay.addEventListener('pinchend', () => {
+        this.rays[i].pinchHeld = false;
+      });
       targetRay.addEventListener('squeezestart', () => this.onSqueeze(i));
-      hand.addEventListener('selectstart', () => this.onSelect(i));
       this.rays.push(st);
     }
     // Parabolic arc + landing marker, drawn while a teleport is aimed.
@@ -272,7 +377,9 @@ export class VRSession {
     this.dolly.visible = true;
     for (const r of this.rays) {
       this.dolly.add(r.targetRay, r.grip, r.hand);
-      r.selectSeen = false;
+      r.selectHeld = false;
+      r.pinchHeld = false;
+      r.hold.reset();
       r.hover = null;
       r.uiConsumed = false;
     }
@@ -296,15 +403,14 @@ export class VRSession {
       return;
     }
     this.active = true;
+    // Stereo at headset resolution is the whole VR perf cost, so the session renders smaller
+    // and bakes the shadows once instead of every frame (the sun barely moves in a visit).
+    // Foveation is already at three's maximum default.
+    this.renderer.xr.setFramebufferScaleFactor(XR_FRAMEBUFFER_SCALE);
+    this.renderer.shadowMap.autoUpdate = false;
+    this.renderer.shadowMap.needsUpdate = true;
     this.hooks.hudRefresh();
     this.hooks.onEnter?.();
-    // xrblocks' Hands for the pinch fallback, loaded lazily so a failed chunk never blocks VR.
-    void import('xrblocks')
-      .then((xb) => {
-        this.orderXbHands();
-        this.xbHands = new xb.Hands(this.xbOrdered);
-      })
-      .catch(() => (this.xbHands = null));
   }
 
   /** Back to the desktop camera and controls, exactly as they were. */
@@ -322,12 +428,17 @@ export class VRSession {
     this.glideActive = false;
     this.arc.visible = false;
     this.marker.visible = false;
+    this.renderer.xr.setFramebufferScaleFactor(1);
+    this.renderer.shadowMap.autoUpdate = true;
+    this.renderer.shadowMap.needsUpdate = true;
     for (const r of this.rays) {
       r.source = null;
       r.hover = null;
       r.uiConsumed = false;
       r.teleportHeld = false;
+      r.selectHeld = false;
       r.pinchHeld = false;
+      r.hold.reset();
       r.wasN = false;
       r.line.visible = true;
       r.dot.visible = true;
@@ -362,13 +473,13 @@ export class VRSession {
   /** Emulator test hook (?vrtest=1): the same yaw step the snap turn takes. */
   debugTurn(dYaw: number): void {
     if (!this.active) return;
-    const head = this.headWorld(new THREE.Vector3());
+    this.headWorld(_h);
     this.yaw += dYaw;
     this.dolly.rotation.y = this.yaw;
-    const local = this.headLocal(new THREE.Vector3());
-    local.y = 0;
-    local.applyAxisAngle(UP, this.yaw);
-    this.origin.set(head.x - local.x, this.origin.y, head.z - local.z);
+    this.headLocal(_l);
+    _l.y = 0;
+    _l.applyAxisAngle(UP, this.yaw);
+    this.origin.set(_h.x - _l.x, this.origin.y, _h.z - _l.z);
     this.dolly.position.copy(this.origin);
   }
 
@@ -377,49 +488,45 @@ export class VRSession {
     st.source = source;
     st.line.visible = true;
     st.dot.visible = true;
-    this.orderXbHands();
   }
 
   private onDisconnected(i: number): void {
     const st = this.rays[i];
     st.source = null;
     st.hover = null;
+    st.selectHeld = false;
+    st.pinchHeld = false;
+    st.hold.reset();
     st.line.visible = false;
     st.dot.visible = false;
-    this.orderXbHands();
   }
 
-  /** xrblocks Hands indexes [left, right] by handedness; three's slots don't promise that order. */
-  private orderXbHands(): void {
-    const handed = (i: number) => this.rays[i]?.source?.handedness;
-    const left = this.rays.find((_, i) => handed(i) === 'left')?.hand ?? this.rays[0]?.hand;
-    const right = this.rays.find((_, i) => handed(i) === 'right')?.hand ?? this.rays[1]?.hand ?? this.rays[0]?.hand;
-    this.xbOrdered = [left, right].filter(Boolean) as THREE.XRHandSpace[];
-    // Hands holds the array by reference, but a fresh order after (dis)connects is safest.
-    if (this.xbHands && 'hands' in this.xbHands) (this.xbHands as unknown as { hands: THREE.XRHandSpace[] }).hands = this.xbOrdered;
-  }
-
-  /** Trigger / pinch: E on whatever that ray hovers, through the shared dispatch. */
-  private onSelect(i: number): void {
+  /**
+   * Trigger down / pinch down. Controllers fire E at once (they aim teleports with A); a
+   * hand-tracked pinch only marks the hold — the per-frame update decides tap (E), hold
+   * (teleport aim), or both-hands (menu) on the union of this and three's pinch events.
+   */
+  private onSelectStart(i: number): void {
     if (!this.active) return;
     const st = this.rays[i];
-    st.selectSeen = true;
-    if (st.uiConsumed && this.ui) {
-      // A runtime select while a panel owns the ray. Controllers already stream press/release
-      // through routeRay every frame, so only hand-tracked sources (no trigger button) need a
-      // synthesized click here; for the rest this event would double-fire the panel.
-      if (!st.source?.gamepad) {
-        const origin = new THREE.Vector3();
-        const dir = new THREE.Vector3();
-        st.targetRay.getWorldPosition(origin);
-        st.targetRay.getWorldDirection(dir);
-        this.raycaster.set(origin, dir);
-        this.ui.routeRay(i, this.raycaster, true);
-        this.ui.routeRay(i, this.raycaster, false);
-        this.pulse(i, 0.3, 15);
-      }
+    if (st.source?.gamepad) {
+      this.tapE(i);
       return;
     }
+    st.selectHeld = true;
+  }
+
+  private onSelectEnd(i: number): void {
+    this.rays[i].selectHeld = false;
+  }
+
+  /** The tap itself: E on whatever that ray hovers, through the shared dispatch. */
+  private tapE(i: number): void {
+    if (!this.active) return;
+    const st = this.rays[i];
+    // Panel presses stream through routeRay's own pointerDown/pointerUp, so by the time a tap
+    // resolves there is nothing left to click here; the world hover is what E is for.
+    if (st.uiConsumed) return;
     const hover = st.hover;
     if (!hover?.near) return;
     this.hooks.reachAnim();
@@ -454,6 +561,7 @@ export class VRSession {
   update(dt: number): void {
     if (!this.active) return;
     const { player } = this.hooks;
+    this.frame++;
     if (player.seat && (this.glideIntent() || this.rays.some((r) => r.teleportHeld) || this.stickAiming)) player.stand();
     this.dolly.updateMatrixWorld(true);
     this.pollButtons();
@@ -464,7 +572,7 @@ export class VRSession {
         if (this.rays[i]?.uiConsumed) this.ui.stickScroll(i, this.stick(i).y, dt);
       }
     }
-    this.pinchFallback();
+    this.updateHolds();
     this.updateTeleport();
     this.updateTurn(dt);
     this.updateGlide(dt);
@@ -475,6 +583,43 @@ export class VRSession {
     this.hooks.onTarget(aim?.near ? aim.it : null, aim?.near ? this.hooks.noteUnder(aim) : null);
   }
 
+  /**
+   * Hand-tracked pinches, resolved per frame from the union of the runtime's select events and
+   * three's joint-distance pinch events (runtimes that fire both for one pinch still read as
+   * one hold): a tap is E, a hold aims a teleport the release fires, and both hands together
+   * toggle the menu. Controllers never reach here — their trigger fires E at once, with A for
+   * teleports and squeeze for the menu.
+   */
+  private updateHolds(): void {
+    const now = performance.now();
+    const hands = [0, 1].filter((i) => {
+      const st = this.rays[i];
+      return st?.source && !st.source.gamepad;
+    });
+    for (const i of hands) {
+      const st = this.rays[i];
+      const held = st.selectHeld || st.pinchHeld;
+      if (!held && st.hold.isHeld) {
+        const out = st.hold.release();
+        if (out === 'teleport') this.fireTeleport(i);
+        else if (out === 'select') this.tapE(i);
+      } else if (held) {
+        st.hold.update(true, now, st.uiConsumed);
+      }
+    }
+    // Both hands pinching together: the menu, claimed before either hold can aim or tap.
+    if (hands.length === 2 && this.ui) {
+      const [a, b] = [this.rays[hands[0]].hold, this.rays[hands[1]].hold];
+      const since = Math.min(a.heldSince, b.heldSince);
+      if (since >= 0 && !a.isConsumed && !a.isAiming && !b.isAiming && now - since >= MENU_HOLD_MS) {
+        a.consume();
+        b.consume();
+        this.ui.toggleMenu();
+        this.pulse(hands[0], 0.3, 20);
+      }
+    }
+  }
+
   /** Head pose in rig space (three's XR camera is the headset, parented under the dolly). */
   private headLocal(out: THREE.Vector3): THREE.Vector3 {
     return out.copy(this.renderer.xr.getCamera().position);
@@ -482,7 +627,7 @@ export class VRSession {
 
   /** The head in the world, through the rig. */
   private headWorld(out: THREE.Vector3): THREE.Vector3 {
-    return out.copy(this.headLocal(out)).applyAxisAngle(UP, this.yaw).add(this.origin);
+    return out.copy(this.headLocal(_l)).applyAxisAngle(UP, this.yaw).add(this.origin);
   }
 
   /** The head's orientation in the world: the rig's yaw composed with the headset's own. */
@@ -492,13 +637,13 @@ export class VRSession {
 
   /** Head look direction in the world, for the ears (the camera's own direction is the rig's). */
   lookDir(out: THREE.Vector3): THREE.Vector3 {
-    return out.set(0, 0, -1).applyQuaternion(this.headQuat(new THREE.Quaternion()));
+    return out.set(0, 0, -1).applyQuaternion(this.headQuat(_q));
   }
 
   /** Which way the head looks, on the XZ plane, in avatar-facing convention. */
   private headFacing(): number {
-    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.headQuat(new THREE.Quaternion()));
-    return Math.atan2(fwd.x, fwd.z);
+    _f.set(0, 0, -1).applyQuaternion(this.headQuat(_q));
+    return Math.atan2(_f.x, _f.z);
   }
 
   /** Stick deflection for a ray's gamepad. */
@@ -550,10 +695,14 @@ export class VRSession {
   }
 
   private teleportAiming(): boolean {
-    return this.rays.some((r) => r.teleportHeld) || this.stickAiming;
+    return this.rays.some((r) => r.teleportHeld) || this.rays.some((r) => r.hold.isAiming) || this.stickAiming;
   }
 
-  /** Raycast both rays against the world; park the cursor dots on what they hit. */
+  /**
+   * Raycast both rays against the panels every frame (clicks must feel instant) and against
+   * the world on alternating frames (each ray's hover refreshes every 2nd frame — the full
+   * office intersect is the dearest raycast here). Parks the cursor dots on what they hit.
+   */
   private updateHover(): void {
     const aiming = this.teleportAiming();
     for (let i = 0; i < this.rays.length; i++) {
@@ -565,17 +714,16 @@ export class VRSession {
         st.dot.visible = false;
         continue;
       }
-      const origin = new THREE.Vector3();
-      const dir = new THREE.Vector3();
-      st.targetRay.getWorldPosition(origin);
-      st.targetRay.getWorldDirection(dir);
-      this.raycaster.set(origin, dir);
+      st.targetRay.getWorldPosition(_o);
+      st.targetRay.getWorldDirection(_d);
+      this.raycaster.set(_o, _d);
       // Sprites (name tags, chat bubbles) need a camera on the raycaster; setFromCamera does
       // this on desktop, but the VR path builds rays by hand. Without it every frame logs.
       this.raycaster.camera = this.camera;
       // World-space UI panels eat the ray first; the world only sees rays no panel took.
       if (this.ui) {
-        const pressed = buttonDown(this.gamepad(i), XR_BUTTON.TRIGGER) || st.pinchHeld;
+        const gp = this.gamepad(i);
+        const pressed = buttonDown(gp, XR_BUTTON.TRIGGER) || st.selectHeld || st.pinchHeld;
         if (this.ui.routeRay(i, this.raycaster, pressed)) {
           st.uiConsumed = true;
           st.hover = null;
@@ -584,6 +732,7 @@ export class VRSession {
           continue;
         }
       }
+      if ((this.frame + i) & 1) continue; // this ray's world hover refreshes next frame
       this.raycaster.far = this.hooks.reachOf('tv') + 6;
       const aim = this.hooks.pickFromRay(this.raycaster, 0);
       st.hover = aim;
@@ -598,44 +747,6 @@ export class VRSession {
     }
   }
 
-  /**
-   * Pinch without a runtime select event: some headsets track hands but never fire select or
-   * pinchstart for them. Thumb-to-index distance through xrblocks' Hands (getIndexTip/getThumbTip
-   * per handedness; src/input/Hands.ts), falling back to joint records straight off three's hand
-   * spaces when the xrblocks chunk didn't load. Only runs until the first real select event.
-   */
-  private pinchFallback(): void {
-    for (let i = 0; i < 2; i++) {
-      const st = this.rays[i];
-      if (!st.source?.hand || st.selectSeen || !st.hand.joints) {
-        st.pinchHeld = false;
-        continue;
-      }
-      const dist = this.pinchDistance(i);
-      if (dist === null) continue;
-      if (!st.pinchHeld && dist <= PINCH_ON) {
-        st.pinchHeld = true;
-        this.onSelect(i);
-      } else if (st.pinchHeld && dist >= PINCH_OFF) {
-        st.pinchHeld = false;
-      }
-    }
-  }
-
-  private pinchDistance(i: number): number | null {
-    // Handedness.LEFT = 0, RIGHT = 1 in xrblocks; orderXbHands keeps the array matching.
-    const handedness = this.rays[i]?.source?.handedness === 'left' ? 0 : 1;
-    const joints = this.rays[i].hand.joints;
-    const index = this.xbHands ? this.xbHands.getIndexTip(handedness) : joints['index-finger-tip'];
-    const thumb = this.xbHands ? this.xbHands.getThumbTip(handedness) : joints['thumb-tip'];
-    if (!index || !thumb) return null;
-    const a = new THREE.Vector3();
-    const b = new THREE.Vector3();
-    index.getWorldPosition(a);
-    thumb.getWorldPosition(b);
-    return a.distanceTo(b);
-  }
-
   /** Parabolic teleport: draw the arc and landing marker while aimed; release fires it. */
   private updateTeleport(): void {
     if (!this.teleportAiming()) {
@@ -643,17 +754,15 @@ export class VRSession {
       this.marker.visible = false;
       return;
     }
-    const st = this.rays[0]?.source ? this.rays[0] : this.rays[1];
+    const st = this.aimingRay();
     if (!st?.source) {
       this.arc.visible = false;
       this.marker.visible = false;
       return;
     }
-    const origin = new THREE.Vector3();
-    const dir = new THREE.Vector3();
-    st.targetRay.getWorldPosition(origin);
-    st.targetRay.getWorldDirection(dir);
-    const pts = sampleParabola(origin, dir);
+    st.targetRay.getWorldPosition(_o);
+    st.targetRay.getWorldDirection(_d);
+    const pts = sampleParabola(_o, _d);
     const pos = this.arc.geometry.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < ARC_STEPS; i++) pos.setXYZ(i, pts[i].x, pts[i].y, pts[i].z);
     pos.needsUpdate = true;
@@ -665,17 +774,21 @@ export class VRSession {
     this.marker.visible = true;
   }
 
+  /** The hand holding (or that held) the teleport aim: a pinching hand wins over A. */
+  private aimingRay(): RayState | undefined {
+    return this.rays.find((r) => r.source && r.hold.isAiming) ?? this.rays.find((r) => r.source && r.teleportHeld) ?? this.rays.find((r) => r.source);
+  }
+
   /** Fire the aimed teleport: through the fade when it's on, straight there when it's off. */
-  private fireTeleport(): void {
-    const st = this.rays[0]?.source ? this.rays[0] : this.rays[1];
+  private fireTeleport(from?: number): void {
+    // A released pinch already reset its aim flag, so the caller names the hand it came from.
+    const st = from !== undefined ? this.rays[from] : this.aimingRay();
     if (!st?.source) return;
-    const origin = new THREE.Vector3();
-    const dir = new THREE.Vector3();
-    st.targetRay.getWorldPosition(origin);
-    st.targetRay.getWorldDirection(dir);
-    const landing = this.findLanding(sampleParabola(origin, dir));
+    st.targetRay.getWorldPosition(_o);
+    st.targetRay.getWorldDirection(_d);
+    const landing = this.findLanding(sampleParabola(_o, _d));
     if (!landing) return;
-    this.pulse(0, 0.5, 30);
+    this.pulse(from ?? 0, 0.5, 30);
     if (this.hooks.settings.vr.fade) {
       this.pendingTeleport = landing;
       this.fade = 'out';
@@ -707,14 +820,14 @@ export class VRSession {
     if (settings.vr.turn === 'snap') dYaw = this.snap.update(axisX);
     else if (Math.abs(axisX) > 0.15) dYaw = -axisX * THREE.MathUtils.degToRad(settings.vr.turnSpeed) * dt;
     if (dYaw === 0) return;
-    const head = this.headWorld(new THREE.Vector3());
+    this.headWorld(_h);
     this.yaw += dYaw;
     this.dolly.rotation.y = this.yaw;
     // …around the head: the feet stay where they were, only the heading changes.
-    const local = this.headLocal(new THREE.Vector3());
-    local.y = 0;
-    local.applyAxisAngle(UP, this.yaw);
-    this.origin.set(head.x - local.x, this.origin.y, head.z - local.z);
+    this.headLocal(_l);
+    _l.y = 0;
+    _l.applyAxisAngle(UP, this.yaw);
+    this.origin.set(_h.x - _l.x, this.origin.y, _h.z - _l.z);
     this.dolly.position.copy(this.origin);
   }
 
@@ -727,14 +840,14 @@ export class VRSession {
     if (player.seat) return;
     const s = this.stick(0);
     if (Math.hypot(s.x, s.y) < 0.15) return;
-    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.headQuat(new THREE.Quaternion()));
-    fwd.y = 0;
-    if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
-    fwd.normalize();
-    const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
+    _f.set(0, 0, -1).applyQuaternion(this.headQuat(_q));
+    _f.y = 0;
+    if (_f.lengthSq() < 1e-6) _f.set(0, 0, -1);
+    _f.normalize();
+    _l.set(-_f.z, 0, _f.x);
     const speed = 4.6 * player.speedBoost;
-    const dx = (right.x * s.x - fwd.x * s.y) * speed * dt;
-    const dz = (right.z * s.x - fwd.z * s.y) * speed * dt;
+    const dx = (_l.x * s.x - _f.x * s.y) * speed * dt;
+    const dz = (_l.z * s.x - _f.z * s.y) * speed * dt;
     // In small steps, so a fast glide can't tunnel through a desk.
     const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / 0.1));
     for (let i = 0; i < steps; i++) player.stepTo(player.pos.x + dx / steps, player.pos.z + dz / steps);
@@ -749,29 +862,29 @@ export class VRSession {
    */
   private followHead(): void {
     const { player } = this.hooks;
-    const head = this.headWorld(new THREE.Vector3());
-    const external = new THREE.Vector3().subVectors(player.pos, this.lastAvatar);
-    external.y = 0;
+    this.headWorld(_h);
+    _e.subVectors(player.pos, this.lastAvatar);
+    _e.y = 0;
     let roomMoved = false;
-    if (external.length() > 1e-4) {
+    if (_e.length() > 1e-4) {
       // Desktop code moved the player: carry the rig along, head unmoved.
-      this.origin.add(external);
+      this.origin.add(_e);
       this.origin.y = player.pos.y;
       this.dolly.position.copy(this.origin);
     } else if (!player.seat) {
       // Room-scale: walk the avatar under the head through the usual collision.
-      const dx = head.x - player.pos.x;
-      const dz = head.z - player.pos.z;
+      const dx = _h.x - player.pos.x;
+      const dz = _h.z - player.pos.z;
       if (Math.hypot(dx, dz) > 1e-4) {
         roomMoved = true;
-        player.stepTo(head.x, head.z);
+        player.stepTo(_h.x, _h.z);
         this.snapGround();
       }
     }
     this.dolly.position.copy(this.origin);
     this.dolly.rotation.y = this.yaw;
     this.lastAvatar.copy(player.pos);
-    player.moving = this.glideActive || roomMoved || external.length() > 1e-4 || this.fade !== 'idle';
+    player.moving = this.glideActive || roomMoved || _e.length() > 1e-4 || this.fade !== 'idle';
     player.facing = this.headFacing();
     player.camYaw = player.facing - Math.PI;
   }

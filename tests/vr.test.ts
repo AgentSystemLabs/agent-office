@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { describeSessionError, probeXRSupport, requestVRSession, type XrNavigator } from '../src/client/vr/support.js';
-import { SnapTurn, buttonDown, decodeThumbstick, sampleParabola, yawForFacing } from '../src/client/vr/session.js';
+import { MENU_HOLD_MS, PINCH_HOLD_MS, PinchHold, SnapTurn, buttonDown, decodeThumbstick, sampleParabola, yawForFacing } from '../src/client/vr/session.js';
 import { VR_DEFAULTS, loadSettings, saveSettings } from '../src/client/state.js';
 
 function nav(fake: Partial<XRSystem> | undefined): XrNavigator {
@@ -98,6 +98,52 @@ test('rig yaw faces the avatar direction with the head straight', () => {
     assert.ok(Math.abs(dir.x - Math.sin(facing)) < 1e-6, `x for ${facing}`);
     assert.ok(Math.abs(dir.z - Math.cos(facing)) < 1e-6, `z for ${facing}`);
   }
+});
+
+test('a quick pinch releases as a select tap', () => {
+  const hold = new PinchHold();
+  assert.equal(hold.update(true, 1000), null); // rising edge
+  assert.equal(hold.update(true, 1000 + PINCH_HOLD_MS - 1), null); // still a tap
+  assert.equal(hold.heldSince, 1000);
+  assert.equal(hold.isAiming, false);
+  assert.equal(hold.release(), 'select');
+  assert.equal(hold.heldSince, -1);
+});
+
+test('a pinch held past the threshold aims, and its release teleports', () => {
+  const hold = new PinchHold();
+  assert.equal(hold.update(true, 2000), null);
+  assert.equal(hold.update(true, 2000 + PINCH_HOLD_MS), 'aim'); // crosses once
+  assert.equal(hold.update(true, 2000 + PINCH_HOLD_MS + 500), null); // held: no repeat
+  assert.equal(hold.isAiming, true);
+  assert.equal(hold.release(), 'teleport');
+  // …and the next pinch starts over as a tap.
+  assert.equal(hold.update(true, 9000), null);
+  assert.equal(hold.release(), 'select');
+});
+
+test('a hold on a UI panel never becomes a teleport aim', () => {
+  const hold = new PinchHold();
+  assert.equal(hold.update(true, 3000, true), null);
+  assert.equal(hold.update(true, 3000 + PINCH_HOLD_MS + 1000, true), null);
+  assert.equal(hold.isAiming, false);
+  assert.equal(hold.release(), 'select'); // the panel press resolves through routeRay instead
+});
+
+test('a consumed hold (both-hands menu) releases to nothing', () => {
+  const hold = new PinchHold();
+  assert.equal(hold.update(true, 4000), null);
+  hold.consume();
+  assert.equal(hold.update(true, 4000 + MENU_HOLD_MS + 1000), null); // never aims once claimed
+  assert.equal(hold.release(), null);
+});
+
+test('a dropped hold without a release still resets', () => {
+  const hold = new PinchHold();
+  assert.equal(hold.update(true, 5000), null);
+  assert.equal(hold.update(false, 5100), null);
+  assert.equal(hold.release(), null);
+  assert.equal(hold.heldSince, -1);
 });
 
 test('VR settings default to comfort and survive a save with no VR section', () => {

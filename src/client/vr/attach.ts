@@ -55,7 +55,9 @@
 import * as THREE from 'three';
 import type { GhIssue, GhPull, GhState, QueueState, WorkerInfo } from '../../shared/protocol';
 import type { ScreenState } from '../world/laptop';
+import { VrControls } from './controls';
 import { VrKeyboard, type KeyboardTarget } from './keyboard';
+import { followTarget } from './math';
 import { VrMenu, type VrMenuActions } from './menu';
 import { VrTerminalPanel, type VrTerminalMsg } from './terminal-panel';
 
@@ -87,11 +89,12 @@ export interface VrUiDeps {
 }
 
 export interface VrUiHandle {
-  /** The terminal, menu and keyboard panels (for wrist-mounting or custom placement). */
+  /** The terminal, menu, keyboard and controls panels (for wrist-mounting or custom placement). */
   readonly terminal: VrTerminalPanel;
   readonly menu: VrMenu;
   readonly keyboard: VrKeyboard;
-  /** All three panels' parent. Added to the scene by attachVrUi. */
+  readonly controls: VrControls;
+  /** All four panels' parent. Added to the scene by attachVrUi. */
   readonly group: THREE.Group;
   /** Opens the world-space terminal for a worker (attaches to its PTY). */
   openTerminal: (workerId: string) => void;
@@ -99,6 +102,8 @@ export interface VrUiHandle {
   closeTerminal: () => void;
   /** Shows/hides the core menu. */
   toggleMenu: () => void;
+  /** Shows the controls card (the menu's ❓ row; also shown on session enter). */
+  showControls: () => void;
   /** Redirects the keyboard (default target is the focused VR terminal; null mutes it). */
   setKeyboardTarget: (t: KeyboardTarget | null) => void;
   /**
@@ -114,7 +119,7 @@ export interface VrUiHandle {
 }
 
 interface RayState {
-  panel: VrTerminalPanel | VrMenu | VrKeyboard | null;
+  panel: VrTerminalPanel | VrMenu | VrKeyboard | VrControls | null;
   uv: { u: number; v: number } | null;
   pressed: boolean;
 }
@@ -123,9 +128,15 @@ class VrUi implements VrUiHandle {
   readonly terminal: VrTerminalPanel;
   readonly menu: VrMenu;
   readonly keyboard: VrKeyboard;
+  readonly controls: VrControls;
   readonly group = new THREE.Group();
   private rays = new Map<number, RayState>();
   private keyboardExplicit: KeyboardTarget | null | undefined = undefined;
+  /** The last head pose update() saw: newly opened panels land in front of it. */
+  private headPos: [number, number, number] | null = null;
+  private headDir: [number, number, number] | null = null;
+  private tmpV = new THREE.Vector3();
+  private tmpD = new THREE.Vector3();
 
   constructor(private scene: THREE.Scene, private deps: VrUiDeps) {
     const layout = deps.layout ?? {};
@@ -152,6 +163,8 @@ class VrUi implements VrUiHandle {
     this.terminal.onClose = () => {
       if (this.keyboardExplicit === undefined) this.keyboard.hide();
     };
+    this.controls = new VrControls();
+    this.menu.onShowControls = () => this.controls.show();
 
     // Dash layout, facing the user at spawn: terminal center, keyboard below it, menu left.
     const tOff = layout.terminalOffset ?? [0, 1.5, -1.15];
@@ -160,16 +173,30 @@ class VrUi implements VrUiHandle {
     this.keyboard.panel.group.position.set(kOff[0], kOff[1], kOff[2]);
     this.keyboard.panel.group.rotation.x = -0.35;
     this.menu.panel.group.position.set(-0.75, 1.35, -0.95);
-    this.group.add(this.terminal.panel.group, this.keyboard.panel.group, this.menu.panel.group);
+    this.group.add(this.terminal.panel.group, this.keyboard.panel.group, this.menu.panel.group, this.controls.panel.group);
     this.scene.add(this.group);
     // The menu is a dash that glides after the camera; terminal and keyboard stay put so the
     // user can lean in to read and type. The session owner can wrist-mount the menu instead
     // (see this file's kdoc).
     this.menu.panel.setFollow(true, layout.menuDistance ?? 1.05, 0.18);
     this.menu.show();
+    // The controls card opens with the session: nobody reads the docs from in a headset.
+    this.controls.show();
+  }
+
+  /** In front of the head, at the menu's dash distance: where on-demand panels open. */
+  private placeBeforeHead(group: THREE.Group, distance: number, drop: number) {
+    if (!this.headPos || !this.headDir) return;
+    const [x, y, z] = followTarget(this.headPos, this.headDir, distance, drop);
+    group.position.set(x, y, z);
+    group.lookAt(this.tmpV.set(...this.headPos));
   }
 
   openTerminal = (workerId: string) => {
+    // The terminal opens where the user looks, not at the spawn default: the user who asked
+    // for it by pointing at a desk is wherever that desk is.
+    this.placeBeforeHead(this.terminal.panel.group, 1.15, 0);
+    this.placeBeforeHead(this.keyboard.panel.group, 0.95, 0.42);
     this.terminal.open(workerId);
     this.keyboard.show();
   };
@@ -184,6 +211,10 @@ class VrUi implements VrUiHandle {
     this.menu.toggle();
   };
 
+  showControls = () => {
+    this.controls.show();
+  };
+
   setKeyboardTarget = (t: KeyboardTarget | null) => {
     this.keyboardExplicit = t;
     if (t) {
@@ -196,9 +227,10 @@ class VrUi implements VrUiHandle {
     }
   };
 
-  /** Panels front to back for ray routing (menu floats nearest, keyboard lowest). */
-  private ordered(): { ui: VrTerminalPanel | VrMenu | VrKeyboard; scrollId: string }[] {
+  /** Panels front to back for ray routing (controls card nearest, then menu, keyboard lowest). */
+  private ordered(): { ui: VrTerminalPanel | VrMenu | VrKeyboard | VrControls; scrollId: string }[] {
     return [
+      { ui: this.controls, scrollId: '' },
       { ui: this.menu, scrollId: 'list' },
       { ui: this.keyboard, scrollId: '' },
       { ui: this.terminal, scrollId: 'term' },
@@ -253,20 +285,28 @@ class VrUi implements VrUiHandle {
   };
 
   update = (dt: number, camera?: THREE.Camera | null) => {
+    if (camera) {
+      camera.getWorldPosition(this.tmpV);
+      camera.getWorldDirection(this.tmpD);
+      this.headPos = [this.tmpV.x, this.tmpV.y, this.tmpV.z];
+      this.headDir = [this.tmpD.x, this.tmpD.y, this.tmpD.z];
+    }
     this.menu.update(dt, camera);
     this.terminal.update(dt, camera);
     this.keyboard.update(dt, camera);
+    this.controls.update(dt, camera);
   };
 
   dispose = () => {
     this.terminal.dispose();
     this.menu.dispose();
     this.keyboard.dispose();
+    this.controls.dispose();
     this.scene.remove(this.group);
   };
 }
 
-/** Builds the world-space VR UI (menu, terminal, keyboard) and adds it to the scene. */
+/** Builds the world-space VR UI (menu, terminal, keyboard, controls card) and adds it to the scene. */
 export function attachVrUi(scene: THREE.Scene, deps: VrUiDeps): VrUiHandle {
   return new VrUi(scene, deps);
 }
