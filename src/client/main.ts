@@ -206,8 +206,8 @@ const renderQueueBoard = () => queueTex.render(store.queue, store.workers);
 mountBoard(office.boardMeshes.queue, queueTex.texture, renderQueueBoard, ['queue', 'workers']);
 // The machine monitor on the west wall.
 const machineTex = new MachineTexture();
-const renderMachineBoard = () => machineTex.render(store.machine);
-mountBoard(office.machineScreen, machineTex.texture, renderMachineBoard, ['machine']);
+const renderMachineBoard = () => office.setMachineTall(machineTex.render(store.machine, store.proxy));
+mountBoard(office.machineScreen, machineTex.texture, renderMachineBoard, ['machine', 'proxy']);
 // The meeting room: its output as it's written on the back wall, and how it's going on the door.
 const meetingBoardTex = new MeetingBoardTexture();
 const renderMeetingBoard = () => meetingBoardTex.render(store.meeting);

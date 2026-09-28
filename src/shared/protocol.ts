@@ -486,6 +486,44 @@ export interface MachineState {
   set?: { limit: number; by: string; at: number };
 }
 
+export type ProxyProvider = 'claude' | 'codex' | 'grok';
+
+/** One of an account's limits: how much of it is used, and when it starts over. */
+export interface ProxyWindow {
+  /** Short: '5h', 'Week', 'Fable wk', 'Extra'… */
+  label: string;
+  /** 0-100. */
+  pct: number;
+  /** ms since epoch, when known. */
+  resetsAt?: number;
+}
+
+/** One account DroidProxy serves. Never its email or tokens: this goes to everyone in the office. */
+export interface ProxyAccount {
+  provider: ProxyProvider;
+  /** 'Claude', 'Grok', or 'Codex 1', 'Codex 2'… when a provider has more than one. */
+  label: string;
+  /** 'plus', 'team'…, when the provider says. */
+  plan?: string;
+  windows: ProxyWindow[];
+  /** A limit is used up, so DroidProxy has to fail over to another account or wait. */
+  limited?: boolean;
+  /** Why there are no numbers for it. */
+  error?: string;
+}
+
+/**
+ * The subscription limits of the accounts DroidProxy serves on the office's machine (see
+ * server/droidproxy.ts), for the machine monitor. No accounts when DroidProxy isn't set up.
+ */
+export interface ProxyState {
+  /** Whether DroidProxy's proxy answered; missing before the first read. */
+  running?: boolean;
+  accounts: ProxyAccount[];
+  /** When the numbers were read (ms since epoch); 0 before the first read. */
+  at: number;
+}
+
 export interface GhState<T> {
   items: T[];
   error?: string;
@@ -1073,6 +1111,7 @@ export type ServerMsg =
       me: Me;
       notify: NotifyState;
       machine: MachineState;
+      proxy: ProxyState;
       /** Outside the windows: the same on every floor. */
       sky: SkyState;
       /** Halloween or Christmas decorations, all over the building, or none. */
@@ -1142,6 +1181,7 @@ export type ServerMsg =
   | { t: 'meeting'; state: MeetingState }
   | { t: 'notify'; state: NotifyState }
   | { t: 'machine'; state: MachineState }
+  | { t: 'proxy'; state: ProxyState }
   | { t: 'sky'; state: SkyState }
   | { t: 'theme'; state: ThemeState }
   /** Sent to whoever watches that worker's changes, whenever they change. */

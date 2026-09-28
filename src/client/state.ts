@@ -1,4 +1,4 @@
-import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, MachineState, MeetingState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, ThemeState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
+import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, MachineState, MeetingState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, ProxyState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, ThemeState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
@@ -8,7 +8,7 @@ import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
 import { forgeWords, type ForgeWords } from '../shared/floors';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'machine' | 'proxy' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -190,6 +190,8 @@ class Store {
   notify: NotifyState = {};
   /** How busy the office's machine is, and its worker limit. */
   machine: MachineState = { cpu: 0, cores: 0, memUsed: 0, memTotal: 0, history: [], workers: 0 };
+  /** The limits of the accounts DroidProxy serves on the office's machine. */
+  proxy: ProxyState = { accounts: [], at: 0 };
   /** The dog on your floor, and when (performance.now()) the leg it's on began. */
   dog: DogState | null = null;
   dogStart = 0;
@@ -295,11 +297,12 @@ class Store {
         this.me = msg.me;
         this.notify = msg.notify;
         this.machine = msg.machine;
+        this.proxy = msg.proxy ?? { accounts: [], at: 0 };
         this.clock = undefined; // compared again, in case it's another office (or the same one, restarted)
         this.sky = msg.sky;
         this.theme = msg.theme;
         this.enter(msg);
-        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'floors', 'projectsDir', 'sky', 'theme'] as Topic[]) this.emit(t);
+        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'proxy', 'floors', 'projectsDir', 'sky', 'theme'] as Topic[]) this.emit(t);
         break;
       case 'floor.enter':
         this.peers = new Map(msg.peers.map((p) => [p.id, p]));
@@ -439,6 +442,10 @@ class Store {
       case 'machine':
         this.machine = msg.state;
         this.emit('machine');
+        break;
+      case 'proxy':
+        this.proxy = msg.state;
+        this.emit('proxy');
         break;
       case 'dog':
         this.setDog(msg.dog);

@@ -78,6 +78,8 @@ export interface Office {
   bossScreen: THREE.Mesh;
   /** The monitor on the west wall showing how busy the office's machine is (world/machine.ts). */
   machineScreen: THREE.Mesh;
+  /** Grows the machine monitor to MACHINE_MONITOR.tallHeight, for DroidProxy's limits, or shrinks it back. */
+  setMachineTall(tall: boolean): void;
   /** The meeting room's board, showing the meeting's output as it's written, and the sign by its door. */
   meetingBoard: THREE.Mesh;
   meetingSign: THREE.Mesh;
@@ -1111,7 +1113,18 @@ export function buildOffice(): Office {
   monitor.position.set(MACHINE_MONITOR.x + 0.07, MACHINE_MONITOR.y, MACHINE_MONITOR.z);
   monitor.rotation.y = Math.PI / 2;
   group.add(monitor);
-  fixture('west', MACHINE_MONITOR.z, MACHINE_MONITOR.y, MACHINE_MONITOR.width + 0.2, MACHINE_MONITOR.height + 0.2);
+  // Pictures keep clear of the tall monitor, so growing it never covers one.
+  fixture('west', MACHINE_MONITOR.z, MACHINE_MONITOR.y, MACHINE_MONITOR.width + 0.2, MACHINE_MONITOR.tallHeight + 0.2);
+  let machineTall = false;
+  const setMachineTall = (tall: boolean) => {
+    if (tall === machineTall) return;
+    machineTall = tall;
+    const height = tall ? MACHINE_MONITOR.tallHeight : MACHINE_MONITOR.height;
+    bezel.geometry.dispose();
+    bezel.geometry = roundedBox(MACHINE_MONITOR.width + 0.16, 0.1, height + 0.16, 0.06);
+    machineScreen.geometry.dispose();
+    machineScreen.geometry = new THREE.PlaneGeometry(MACHINE_MONITOR.width, height);
+  };
 
   const couch = new THREE.Group();
   const couchMat = toon('#5b8def');
@@ -1286,7 +1299,7 @@ export function buildOffice(): Office {
     gong.update(dt);
   };
 
-  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, elevator, gong, jukebox, cabinet, whiteboard, stack, setProjectName, setLook, setLevel, night, plants, update };
+  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, setMachineTall, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, elevator, gong, jukebox, cabinet, whiteboard, stack, setProjectName, setLook, setLevel, night, plants, update };
 }
 
 /** A chair at the meeting table, with its laptop on the table in front of it. */

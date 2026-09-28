@@ -193,9 +193,10 @@ export const TV = { x: FLOOR.maxX - 0.1, y: 2.2, z: 0, width: 6.4, height: 3.6 }
 /**
  * The monitor on the west wall, between the first two windows from the north (the ladder has the
  * span between the middle two) and facing the desks: how busy the office's machine is, and how many
- * workers it runs of the most it takes.
+ * workers it runs of the most it takes. With DroidProxy on the machine it grows to `tallHeight`, a
+ * little past the windows beside it, to show its accounts' limits too.
  */
-export const MACHINE_MONITOR = { x: FLOOR.minX, y: 2.2, z: -6, width: 2.3, height: 1.3 } as const;
+export const MACHINE_MONITOR = { x: FLOOR.minX, y: 2.2, z: -6, width: 2.3, height: 1.3, tallHeight: 2.5 } as const;
 /** The lounge jukebox, against the east wall south of the TV, facing into the room. `y` is its speaker. */
 export const JUKEBOX = { x: FLOOR.maxX - 0.42, y: 0.75, z: 5.4, width: 1.3, depth: 0.72, height: 1.85 } as const;
 /** The arcade cabinet, against the east wall between the jukebox and the loft, facing into the room. `width` runs along the wall. */

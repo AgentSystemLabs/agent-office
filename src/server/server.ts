@@ -20,6 +20,7 @@ import { Services } from './services.js';
 import { ImageProxy } from './decor.js';
 import { Ledger } from './usage.js';
 import { PlanLimitsReader } from './limits.js';
+import { DROIDPROXY_AUTH_DIR, DroidProxyUsage } from './droidproxy.js';
 import { Webhook } from './webhook.js';
 import { MAX_WORKER_LIMIT, Machine, parseWorkerLimit } from './machine.js';
 import { Building, type FloorDef } from './building.js';
@@ -402,6 +403,9 @@ export async function startServer(cfg: Config) {
     (state) => broadcast({ t: 'machine', state }),
   );
   machine.start();
+  // The limits of the accounts DroidProxy serves on this machine, under the CPU and memory.
+  const proxy = new DroidProxyUsage(DROIDPROXY_AUTH_DIR, () => clients.size > 0, (state) => broadcast({ t: 'proxy', state }));
+  proxy.start();
   /** Queues everywhere may be waiting for room under the worker limit: let them look again. */
   const pumpQueues = (except?: Floor) => {
     if (machine.limit === undefined) return;
@@ -935,6 +939,7 @@ export async function startServer(cfg: Config) {
       me,
       notify: webhook.state(),
       machine: machine.state(),
+      proxy: proxy.current,
       sky: sky.state,
       theme: themes.state(),
       ...(onRoof ? roofView() : floorView(floor)),
@@ -949,6 +954,7 @@ export async function startServer(cfg: Config) {
       floor.workers.wakeAll();
     }
     limits.refresh();
+    proxy.refresh();
 
     ws.on('message', (raw) => {
       let msg: ClientMsg;
@@ -1810,6 +1816,7 @@ export async function startServer(cfg: Config) {
     for (const f of floors.values()) f.shutdown(keep);
     ledger.flush();
     limits.close();
+    proxy.close();
     for (const c of clients.values()) c.ws.close();
     server.close();
     hookServer.close();
