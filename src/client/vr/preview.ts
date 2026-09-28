@@ -85,7 +85,7 @@ const tasks: QueueTask[] = [
   { id: 't4', title: 'Old task with a PR', prompt: 'old', addedBy: 'nik', addedAt: now - 8000000, status: 'done', finishedAt: now - 7000000, outcome: 'done', workerName: 'Sam', pr: { number: 42, url: '#', title: 'Fix ghost dog collision', state: 'OPEN' } },
 ];
 
-type Topic = 'screens' | 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services' | 'peers';
+type Topic = 'screens' | 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services' | 'peers' | 'dog';
 const subs = new Map<Topic, Set<() => void>>();
 function emit(t: Topic) {
   subs.get(t)?.forEach((fn) => fn());
@@ -143,6 +143,7 @@ const deps: VrUiDeps = {
   getMeeting: () => ({ current: null, past: [] }),
   getServices: () => ({ items: [], port: 4600 }),
   getPeers: () => [],
+  getDogName: () => 'Biscuit',
   onRoof: () => false,
   barCutOff: () => false,
   getVrSettings: () => ({ glide: false, turn: 'snap', turnSpeed: 90, fade: true }),
@@ -163,6 +164,7 @@ const deps: VrUiDeps = {
     addQueueTask: () => log('add a queue task (would open the VR task prompt)'),
     queueLimit: (n) => log('queue width →', n),
     commentOn: (kind, n) => log('comment on', kind, `#${n}`),
+    renameDog: () => log('rename the dog (would open the VR name prompt)'),
     sendChat: (text) => log('say', text),
     vrSettings: (patch) => log('VR settings', JSON.stringify(patch)),
     exitVr: () => log('exit VR (would end the XR session)'),

@@ -78,7 +78,7 @@ export interface VrUiVoice {
 /** Everything the VR UI needs from the office: stores, clients and DOM-shared actions. No globals. */
 export interface VrUiDeps {
   send: (msg: VrTerminalMsg) => void;
-  subscribe: (topic: 'screens' | 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services' | 'peers', fn: () => void) => () => void;
+  subscribe: (topic: 'screens' | 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services' | 'peers' | 'dog', fn: () => void) => () => void;
   getScreen: (workerId: string) => ScreenState | undefined;
   getWorker: (workerId: string) => WorkerInfo | undefined;
   getWorkers: () => WorkerInfo[];
@@ -93,6 +93,7 @@ export interface VrUiDeps {
   getMeeting: () => MeetingState;
   getServices: () => ServicesState;
   getPeers: () => PeerInfo[];
+  getDogName: () => string | null;
   onRoof: () => boolean;
   barCutOff: () => boolean;
   getVrSettings: () => VrSettings;
@@ -210,6 +211,7 @@ class VrUi implements VrUiHandle {
         getMeeting: deps.getMeeting,
         getServices: deps.getServices,
         getPeers: deps.getPeers,
+        getDogName: deps.getDogName,
         onRoof: deps.onRoof,
         barCutOff: deps.barCutOff,
         getVrSettings: deps.getVrSettings,

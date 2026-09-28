@@ -6,6 +6,7 @@ import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, LADDER, LOFT
 import { floorPalette } from '../shared/floors';
 import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
 import { MEETING_PATTERNS, defaultMeetingRequest } from '../shared/meetings';
+import { cleanDogName } from '../shared/dog';
 import { isAsleep, isBusy } from '../shared/status';
 import { Net } from './net';
 import { store, loadProfile, loadSettings, saveSettings, workerForPull, type Profile, type Topic } from './state';
@@ -504,6 +505,7 @@ const vr = new VRSession(renderer, scene, camera, {
       getMeeting: () => store.meeting,
       getServices: () => store.services,
       getPeers: () => [...store.peers.values()].filter((p) => p.id !== store.you),
+      getDogName: () => store.dog?.name ?? null,
       voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => (voice.inVoice ? voice.toggleMute() : void toggleVoice()) },
       actions: {
         hire: (deskId) => vrHire(deskId),
@@ -524,6 +526,7 @@ const vr = new VRSession(renderer, scene, camera, {
         addQueueTask: () => vrQueueAdd(),
         queueLimit: (maxWorkers) => net.send({ t: 'queue.limit', maxWorkers }),
         commentOn: (kind, number) => vrComment(kind, number),
+        renameDog: () => vrRenameDog(),
         sendChat: (text) => net.send({ t: 'chat', text }),
         vrSettings: (patch) => {
           Object.assign(settings.vr, patch);
@@ -637,6 +640,8 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     },
     // Whether this client is in voice (the join-voice check reads this back).
     inVoice: () => voice.inVoice,
+    // The floor dog's name (the rename check reads this back).
+    dog: () => store.dog?.name ?? null,
     // Seeds a fake teammate into this client's peers (solo here; reload clears it).
     seedPeer: (name: string, doing: string) => {
       store.peers.delete('peer-zzz');
@@ -1757,6 +1762,21 @@ function killWarning(id: string): string | null {
   if (w.worktree) return `${again} (the ${w.worktree.branch} worktree stays unless it's empty)`;
   if (DESK_BY_ID.get(w.deskId)?.station) return `${again} (this stops its session for everyone)`;
   return `${again} and free the desk`;
+}
+/** The VR settings view's 🐶 row: a new name for the floor dog (the ⚙️ Settings office-dog row — for everyone on this floor). */
+function vrRenameDog() {
+  if (!vrUi) return;
+  const now = store.dog?.name ?? 'The dog';
+  vrUi.askText({
+    title: '🐶 Office dog',
+    subtitle: `${now} lives on this floor — a new name is for everyone here`,
+    placeholder: now,
+    submitLabel: 'Rename',
+    onSubmit: (text) => {
+      const name = cleanDogName(text);
+      if (name) net.send({ t: 'dog.name', name });
+    },
+  });
 }
 /** The detail view's 💬 button: a line on the issue or PR (the windows' comment box, one line — the prompt has no ⏎ for more). */
 function vrComment(kind: 'issue' | 'pull', number: number) {

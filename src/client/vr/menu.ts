@@ -10,7 +10,8 @@
  * chat (the floor's chat + say something), assign (hand an issue to a worker), meeting (the room's
  * status + call one with the pattern defaults), services (the workers' web servers, tap to copy
  * a tunnel command), people (who else is around, and what they're up to), and settings
- * (glide, turning, turn speed, teleport fade — the ⚙️ Settings VR section, in the headset).
+ * (glide, turning, turn speed, teleport fade, the dog's name — the ⚙️ Settings VR section
+ * plus the office dog, in the headset).
  */
 
 import type * as THREE from 'three';
@@ -29,7 +30,7 @@ import { clampScroll, type HeadPose, type Rect } from './math';
 import { WorldPanel } from './panel';
 
 export interface VrMenuStores {
-  subscribe: (topic: 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services' | 'peers', fn: () => void) => () => void;
+  subscribe: (topic: 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services' | 'peers' | 'dog', fn: () => void) => () => void;
   getWorkers: () => WorkerInfo[];
   getIssues: () => GhState<GhIssue>;
   getPulls: () => GhState<GhPull>;
@@ -53,6 +54,8 @@ export interface VrMenuStores {
   getServices: () => ServicesState;
   /** Everyone else around (the sidebar's people, without you). */
   getPeers: () => PeerInfo[];
+  /** The floor dog's name (the ⚙️ Settings office-dog row's value). */
+  getDogName: () => string | null;
 }
 
 export interface VrMenuActions {
@@ -76,6 +79,8 @@ export interface VrMenuActions {
   toggleMute: () => void;
   /** Patches VR locomotion/comfort — the DOM ⚙️ Settings VR section's function (assign + save). */
   vrSettings: (patch: Partial<VrSettings>) => void;
+  /** Renames the floor dog — the DOM ⚙️ Settings office-dog row (main.ts vrRenameDog). */
+  renameDog: () => void;
   /** Calls a meeting with the pattern defaults — the DOM meeting form's send (main.ts vrMeeting). */
   meetingCall: () => void;
   /** Stops the running meeting — the DOM meeting window's stop (meeting.stop). */
@@ -183,7 +188,7 @@ export class VrMenu {
     this.panel = new WorldPanel({ width: widthM, height: heightM, paint: (ctx, w, h, _dirty, state) => this.paint(ctx, w, h, state) });
     this.panel.setScrollRegion('list', BODY);
     this.panel.setVisible(false);
-    this.unsubs = (['workers', 'issues', 'pulls', 'queue', 'chat', 'floors', 'floor', 'jukebox', 'meeting', 'services', 'peers'] as const).map((t) => stores.subscribe(t, () => this.refresh()));
+    this.unsubs = (['workers', 'issues', 'pulls', 'queue', 'chat', 'floors', 'floor', 'jukebox', 'meeting', 'services', 'peers', 'dog'] as const).map((t) => stores.subscribe(t, () => this.refresh()));
     this.syncButtons();
   }
 
@@ -317,12 +322,15 @@ export class VrMenu {
   /** The settings view's rows: the ⚙️ Settings VR section as tap-to-toggle rows. */
   private settingsRows(): { icon: string; title: string; sub: string }[] {
     const s = this.stores.getVrSettings();
-    return [
+    const rows = [
       { icon: '🚶', title: `Stick glide: ${s.glide ? 'on' : 'off'}`, sub: s.glide ? 'the left stick walks you · tap for teleport-only' : 'teleport-only · tap for smooth gliding' },
       { icon: '🔄', title: `Turning: ${s.turn}`, sub: s.turn === 'snap' ? '45° steps · tap for smooth' : `${s.turnSpeed}°/s · tap for snap steps` },
       { icon: '🎚️', title: `Turn speed: ${s.turnSpeed}°/s`, sub: 'smooth turning only · tap to step up' },
       { icon: '🌑', title: `Teleport fade: ${s.fade ? 'on' : 'off'}`, sub: s.fade ? 'through black · tap for instant' : 'instant · tap for the fade' },
     ];
+    const dog = this.stores.getDogName();
+    if (dog) rows.push({ icon: '🐶', title: `Office dog: ${dog}`, sub: 'tap to rename for the floor' });
+    return rows;
   }
 
   // ---- Buttons ----------------------------------------------------------------------------
@@ -580,6 +588,7 @@ export class VrMenu {
         const next = s.turnSpeed + 30;
         this.actions.vrSettings({ turnSpeed: next > 180 ? 30 : next });
       } else if (i === 3) this.actions.vrSettings({ fade: !s.fade });
+      else if (i === 4) this.actions.renameDog();
       this.refresh();
       return;
     }
