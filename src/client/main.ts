@@ -43,7 +43,7 @@ import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage, worktreePref } from './ui/prompt';
 import { issuePrompt, openBoard } from './ui/boards';
-import { openIssue, openPull, routePullMessage } from './ui/pull';
+import { onCommented, openIssue, openPull, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
 import { copy, guessOs, openTeam, routeTeamMessage } from './ui/team';
 import { openVrPair } from './ui/vr';
@@ -522,6 +522,7 @@ const vr = new VRSession(renderer, scene, camera, {
         addFloor: () => vrAddFloor(),
         addQueueTask: () => vrQueueAdd(),
         queueLimit: (maxWorkers) => net.send({ t: 'queue.limit', maxWorkers }),
+        commentOn: (kind, number) => vrComment(kind, number),
         sendChat: (text) => net.send({ t: 'chat', text }),
         vrSettings: (patch) => {
           Object.assign(settings.vr, patch);
@@ -621,6 +622,15 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     queue: () => ({ max: store.queue.maxWorkers, tasks: store.queue.tasks.map((t) => ({ id: t.id, title: t.title, status: t.status })) }),
     // Drops a queue task the checks added (mirrors the worker `kill` hook).
     queueRemove: (taskId: string) => net.send({ t: 'queue.remove', taskId }),
+    // One issue or PR in the menu's detail view (the comment check's setup).
+    detail: (kind: 'issue' | 'pull', number: number) => vrUi?.openDetail(kind, number),
+    // Seeds a fake open issue into this client's board (gh is unreachable here; reload clears it).
+    seedIssue: (number: number, title: string) => {
+      store.issues.items = store.issues.items.filter((i) => i.number !== number);
+      const at = new Date().toISOString();
+      store.issues.items.push({ number, title, state: 'OPEN', url: '', author: 'vrtest', labels: [], assignees: [], createdAt: at, updatedAt: at, body: 'Seeded by the VR comment check.', comments: 0 });
+      store.emit('issues');
+    },
     // The pictures on the walls (the decor E-again check reads this back).
     decor: () => store.decor.map((d) => ({ id: d.id, title: d.title, by: d.by })),
     // What the VR prompt field holds (assert scripts read this back after pressing keys).
@@ -1728,6 +1738,30 @@ function killWarning(id: string): string | null {
   if (w.worktree) return `${again} (the ${w.worktree.branch} worktree stays unless it's empty)`;
   if (DESK_BY_ID.get(w.deskId)?.station) return `${again} (this stops its session for everyone)`;
   return `${again} and free the desk`;
+}
+/** The detail view's 💬 button: a line on the issue or PR (the windows' comment box, one line — the prompt has no ⏎ for more). */
+function vrComment(kind: 'issue' | 'pull', number: number) {
+  if (!vrUi) return;
+  vrUi.askText({
+    title: `💬 Comment on #${number}`,
+    placeholder: 'Markdown works…',
+    submitLabel: 'Post',
+    onSubmit: (text) => {
+      toast('💬 Posting…');
+      const off = onCommented(kind, number, (msg) => {
+        clearTimeout(timer);
+        off();
+        if (msg.comment) toast(`💬 Posted on #${number}`);
+        else toast(msg.error ?? 'GitHub did not take the comment', 'warn');
+      });
+      // The office drops messages while it's disconnected, and then no answer comes.
+      const timer = window.setTimeout(() => {
+        off();
+        toast("No answer from the office — check whether it went through before posting again", 'warn');
+      }, 45_000);
+      net.send({ t: 'gh.comment', kind, number, body: text });
+    },
+  });
 }
 /** The VR queue view's ➕ button: describe a task; a fresh worker picks it up when a desk is free (the window's form, minus the provider picker — it remembers the queue's). */
 function vrQueueAdd() {

@@ -41,6 +41,15 @@ export function routePullMessage(msg: ServerMsg) {
   if (msg.t === 'gh.closed') closeWaiters.get(`${msg.kind}:${msg.number}`)?.(msg);
 }
 
+/** Hears the next gh.commented for the item (the VR comment flow's ears); returns the unlisten. */
+export function onCommented(kind: 'issue' | 'pull', number: number, fn: (msg: Extract<ServerMsg, { t: 'gh.commented' }>) => void): () => void {
+  const key = `${kind}#${number}`;
+  commentWaiters.set(key, fn);
+  return () => {
+    if (commentWaiters.get(key) === fn) commentWaiters.delete(key);
+  };
+}
+
 function pref<T>(key: string, fallback: T): T {
   try {
     return (JSON.parse(localStorage.getItem(key) ?? 'null') as T) ?? fallback;

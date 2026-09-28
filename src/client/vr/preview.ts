@@ -161,6 +161,7 @@ const deps: VrUiDeps = {
     addFloor: () => log('add a project (would open the VR repo prompt)'),
     addQueueTask: () => log('add a queue task (would open the VR task prompt)'),
     queueLimit: (n) => log('queue width →', n),
+    commentOn: (kind, n) => log('comment on', kind, `#${n}`),
     sendChat: (text) => log('say', text),
     vrSettings: (patch) => log('VR settings', JSON.stringify(patch)),
     exitVr: () => log('exit VR (would end the XR session)'),

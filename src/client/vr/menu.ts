@@ -87,6 +87,8 @@ export interface VrMenuActions {
   addQueueTask: () => void;
   /** How many workers the queue keeps busy (0 pauses it) — the queue window's stepper. */
   queueLimit: (maxWorkers: number) => void;
+  /** Comments on an issue or PR — the board windows' comment box (main.ts vrComment). */
+  commentOn: (kind: 'issue' | 'pull', number: number) => void;
   /** Leaves the immersive session — the XR session owner's exit. */
   exitVr: () => void;
 }
@@ -209,6 +211,16 @@ export class VrMenu {
     this.assignTarget = { number, title };
     this.view = 'assign';
     this.detail = null;
+    this.panel.setScrollOffset('list', 0);
+    this.panel.setVisible(true);
+    this.refresh();
+    this.panel.markDirty();
+  }
+  /** The detail view for one issue or PR (the board rows' tap, callable outright). */
+  openDetail(kind: 'issue' | 'pull', number: number) {
+    this.detail = { kind, number };
+    this.view = 'detail';
+    this.assignTarget = null;
     this.panel.setScrollOffset('list', 0);
     this.panel.setVisible(true);
     this.refresh();
@@ -409,15 +421,25 @@ export class VrMenu {
     }
     if (this.view === 'detail' && this.detail) {
       const d = this.detail;
+      const item = d.kind === 'issue'
+        ? this.stores.getIssues().items.find((i) => i.number === d.number)
+        : this.stores.getPulls().items.find((p) => p.number === d.number);
+      // Gone from the board: back only (no invisible buttons under the note).
+      if (!item) {
+        this.panel.setButtons(buttons);
+        return;
+      }
       if (d.kind === 'issue') {
         buttons.push(
-          { id: 'act:hand', rect: { x: 0.05, y: 0.82, w: 0.42, h: 0.12 }, onClick: () => this.openAssign(d.number, this.issueTitle(d.number)) },
-          { id: 'act:queue', rect: { x: 0.53, y: 0.82, w: 0.42, h: 0.12 }, onClick: () => this.actions.queueIssue(d.number, this.issueTitle(d.number)) },
+          { id: 'act:hand', rect: { x: 0.05, y: 0.82, w: 0.28, h: 0.12 }, onClick: () => this.openAssign(d.number, this.issueTitle(d.number)) },
+          { id: 'act:queue', rect: { x: 0.36, y: 0.82, w: 0.28, h: 0.12 }, onClick: () => this.actions.queueIssue(d.number, this.issueTitle(d.number)) },
+          { id: 'act:comment', rect: { x: 0.67, y: 0.82, w: 0.28, h: 0.12 }, onClick: () => this.actions.commentOn('issue', d.number) },
         );
       }
       if (d.kind === 'pull') {
         const w = this.pullWorker(d.number);
-        if (w) buttons.push({ id: 'act:term', rect: { x: 0.05, y: 0.82, w: 0.9, h: 0.12 }, onClick: () => this.onOpenTerminal?.(w) });
+        if (w) buttons.push({ id: 'act:term', rect: { x: 0.05, y: 0.82, w: 0.55, h: 0.12 }, onClick: () => this.onOpenTerminal?.(w) });
+        buttons.push({ id: 'act:comment', rect: w ? { x: 0.62, y: 0.82, w: 0.33, h: 0.12 } : { x: 0.05, y: 0.82, w: 0.9, h: 0.12 }, onClick: () => this.actions.commentOn('pull', d.number) });
       }
       this.panel.setButtons(buttons);
       return;
@@ -1030,12 +1052,14 @@ export class VrMenu {
     }
     // Actions.
     if (d.kind === 'issue') {
-      this.actionBtn(ctx, w, h, { x: 0.05, y: 0.82, w: 0.42, h: 0.12 }, 'act:hand', '🤖 Hand to worker', state, true);
-      this.actionBtn(ctx, w, h, { x: 0.53, y: 0.82, w: 0.42, h: 0.12 }, 'act:queue', '📋 Queue it', state, false);
+      this.actionBtn(ctx, w, h, { x: 0.05, y: 0.82, w: 0.28, h: 0.12 }, 'act:hand', '🤖 Hand', state, true);
+      this.actionBtn(ctx, w, h, { x: 0.36, y: 0.82, w: 0.28, h: 0.12 }, 'act:queue', '📋 Queue', state, false);
+      this.actionBtn(ctx, w, h, { x: 0.67, y: 0.82, w: 0.28, h: 0.12 }, 'act:comment', '💬 Comment', state, false);
     } else {
       const workerId = this.pullWorker(d.number);
       const name = workerId ? (this.stores.getWorkers().find((x) => x.id === workerId)?.name ?? '') : '';
-      this.actionBtn(ctx, w, h, { x: 0.05, y: 0.82, w: 0.9, h: 0.12 }, 'act:term', workerId ? `💻 ${name}'s terminal` : 'No desk for this PR', state, !!workerId);
+      if (workerId) this.actionBtn(ctx, w, h, { x: 0.05, y: 0.82, w: 0.55, h: 0.12 }, 'act:term', `💻 ${name}`, state, true);
+      this.actionBtn(ctx, w, h, workerId ? { x: 0.62, y: 0.82, w: 0.33, h: 0.12 } : { x: 0.05, y: 0.82, w: 0.9, h: 0.12 }, 'act:comment', '💬 Comment', state, !workerId);
     }
   }
 
@@ -1049,7 +1073,8 @@ export class VrMenu {
     ctx.font = `700 ${Math.round(r.h * h * 0.3)}px ${TERM_FONT}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(label, (r.x + r.w / 2) * w, (r.y + r.h / 2) * h);
+    // Worker names shrink to fit their narrower button rather than bleeding out.
+    ctx.fillText(label, (r.x + r.w / 2) * w, (r.y + r.h / 2) * h, r.w * w * 0.9);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
   }

@@ -129,6 +129,8 @@ export interface VrUiHandle {
   toggleMenu: () => void;
   /** Shows the menu at a view (floors, jukebox, bar, chat…): the VR way into modal flows. */
   showMenu: (view: Parameters<VrMenu['show']>[0]) => void;
+  /** Opens one issue or PR in the menu's detail view (the board rows' tap, callable outright). */
+  openDetail: (kind: 'issue' | 'pull', number: number) => void;
   /** Shows the controls card (the menu's ❓ row; also shown on session enter). */
   showControls: () => void;
   /** Asks for a line of text (hire prompt, board-agent question, chat): prompt panel + keyboard. */
@@ -314,6 +316,10 @@ class VrUi implements VrUiHandle {
   showMenu: VrUiHandle['showMenu'] = (view) => {
     this.controls.hide();
     this.menu.show(view);
+  };
+  openDetail = (kind: 'issue' | 'pull', number: number) => {
+    this.controls.hide();
+    this.menu.openDetail(kind, number);
   };
 
   showControls = () => {
