@@ -15,12 +15,11 @@
 // Once it has drawn, window.__ready holds what it found in the model, to check against the contract.
 
 import * as THREE from 'three';
-import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import type { DogState } from '../../shared/dog';
 import type { Theme } from '../../shared/protocol';
 import { Dog } from '../world/dog';
-import { loadDog } from '../world/models';
-import { toon } from '../world/toon';
+import { loadModel } from '../world/models';
+import { stage } from './stage';
 
 const ACTS = ['stand', 'walk', 'run', 'wag', 'sniff', 'sit', 'bark', 'lie', 'nap'] as const;
 type Act = (typeof ACTS)[number];
@@ -43,38 +42,8 @@ const roam = q.get('roam') === '1' && (only === 'walk' || only === 'run');
 const cycle = Number(q.get('cycle') ?? 0);
 const stepTo = q.has('t') ? Number(q.get('t')) : null;
 
-// ---- Like the office (see main.ts) --------------------------------------------------------------
-const canvas = document.getElementById('c') as HTMLCanvasElement;
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setSize(innerWidth, innerHeight, false);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFShadowMap;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-const effect = new OutlineEffect(renderer, { defaultThickness: 0.0032, defaultColor: [0.17, 0.18, 0.26] });
-
-const scene = new THREE.Scene();
-scene.background = new THREE.Color('#bfe3ff');
-scene.add(new THREE.HemisphereLight('#fff5e6', '#c9a27a', 1.5), new THREE.AmbientLight('#ffffff', 0.5));
-const sun = new THREE.DirectionalLight('#fff1d6', 2.2);
-sun.position.set(-8, 18, 10);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -7, right: 7, top: 7, bottom: -7, near: 1, far: 50 });
-sun.shadow.bias = -0.0008;
-sun.shadow.normalBias = 0.03;
-scene.add(sun);
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), toon('#e8d3b0'));
-floor.rotation.x = -Math.PI / 2;
-floor.receiveShadow = true;
-floor.visible = q.get('floor') !== '0';
-scene.add(floor);
-// A half-meter grid, to judge whether its paws slide.
-const grid = new THREE.GridHelper(200, 400, '#dcc39c', '#dcc39c');
-grid.position.y = 0.002;
-scene.add(grid);
-
-const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.05, 200);
+// ---- Like the office (see stage.ts) ------------------------------------------------------------
+const { effect, scene, camera } = stage(document.getElementById('c') as HTMLCanvasElement, q.get('floor') !== '0');
 /** Where the camera looks from and at, beside wherever `at` is. */
 function aim(at = new THREE.Vector3()) {
   camera.aspect = innerWidth / innerHeight;
@@ -87,10 +56,7 @@ function aim(at = new THREE.Vector3()) {
   camera.updateProjectionMatrix();
 }
 aim();
-addEventListener('resize', () => {
-  renderer.setSize(innerWidth, innerHeight, false);
-  aim();
-});
+addEventListener('resize', () => aim());
 
 // ---- The dogs -----------------------------------------------------------------------------------
 const report: Record<string, unknown> = { coat, theme, cycle, roam, t: stepTo };
@@ -203,7 +169,7 @@ function pick(dog: Dog, x: number, z: number): number | null {
 }
 
 try {
-  const probe = await loadDog();
+  const probe = await loadModel('dog');
   Object.assign(report, inspect(probe.scene, probe.clips));
   const began = performance.now();
   const sounds = { bark() {}, yip() {} };
