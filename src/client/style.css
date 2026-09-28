@@ -110,6 +110,7 @@ button { font-family: inherit; }
 .topbar > * { pointer-events: auto; }
 .project { padding: 8px 14px; min-width: 0; max-width: 40vw; cursor: pointer; }
 .project-name { display: flex; align-items: center; }
+img.glyph { display: inline-block; width: 1em; height: 1em; vertical-align: -0.15em; }
 .project-name .glyph { flex: none; width: 15px; height: 15px; margin-right: 8px; }
 .project-name #project-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .project:hover { background: var(--surface-hover); }

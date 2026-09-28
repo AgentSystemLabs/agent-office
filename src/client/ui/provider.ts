@@ -1,5 +1,6 @@
 import type { AgentEffort, AgentProvider, ClaudeModel, ProjectInfo, Usage } from '../../shared/protocol';
 import { AGENT_EFFORTS, CLAUDE_MODELS } from '../../shared/protocol';
+import { withoutGlyph } from '../world/glyph';
 import { h } from './dom';
 
 const PROVIDER_KEY = 'agent-office.provider';
@@ -250,15 +251,22 @@ function fetchDroidModels(): Promise<DroidModelOption[]> {
   return droidRequest;
 }
 
-/** A Droid model id as the hire dialog shows it: its display name when the catalogue has loaded, else the id tidied up. */
+/**
+ * A Droid model id as the office shows it: its display name when the catalogue has loaded, else the id
+ * tidied up ("custom:droidproxy:opus-5-5" is "DroidProxy: Opus 5.5"). The "DroidProxy" stays in so
+ * cards and lists can draw it as the Factory pinwheel (see world/glyph.ts).
+ */
 export function droidDisplayName(id: string): string {
   const known = droidList?.find((m) => m.id === id)?.displayName;
   if (known) return known;
-  return id
+  const proxied = /^(custom:)?droidproxy:/i.test(id);
+  const name = id
     .replace(/^custom:/, '')
-    .replace(/^droidproxy:/, '')
+    .replace(/^droidproxy:/i, '')
     .replace(/[-_]+/g, ' ')
+    .replace(/(\d) (?=\d)/g, '$1.')
     .replace(/\b\w/g, (c) => c.toUpperCase());
+  return proxied ? `DroidProxy: ${name}` : name;
 }
 
 /**
@@ -344,10 +352,13 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
     droidHint.textContent = droidList ? 'Overrides the office default for this worker; pinned in its Droid settings overlay.' : 'Loading Droid models…';
     void fetchDroidModels()
       .then((models) => {
-        droidModelSelect.replaceChildren(h('option', { value: '' }, droidDefault ? `Default (${droidDisplayName(droidDefault)})` : 'Default (Droid settings)'), ...models.map((m) => h('option', { value: m.id }, m.displayName)));
+        droidModelSelect.replaceChildren(
+          h('option', { value: '' }, droidDefault ? `Default (${withoutGlyph(droidDisplayName(droidDefault))})` : 'Default (Droid settings)'),
+          ...models.map((m) => h('option', { value: m.id }, withoutGlyph(m.displayName))),
+        );
         // A remembered id the catalogue no longer lists is still offered, so the choice isn't silently dropped.
         if (remembered && !models.some((m) => m.id === remembered)) {
-          droidModelSelect.append(h('option', { value: remembered }, `${droidDisplayName(remembered)} (unavailable)`));
+          droidModelSelect.append(h('option', { value: remembered }, `${withoutGlyph(droidDisplayName(remembered))} (unavailable)`));
         }
         droidModelSelect.value = remembered ?? '';
         droidHint.textContent = models.length ? 'Overrides the office default for this worker; pinned in its Droid settings overlay.' : 'No Droid models found in the office settings — the worker runs the global default.';
@@ -355,7 +366,7 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
       .catch(() => {
         droidModelSelect.replaceChildren(h('option', { value: '' }, 'Default (Droid settings)'));
         if (remembered) {
-          droidModelSelect.append(h('option', { value: remembered }, droidDisplayName(remembered)));
+          droidModelSelect.append(h('option', { value: remembered }, withoutGlyph(droidDisplayName(remembered))));
           droidModelSelect.value = remembered;
         }
         droidHint.textContent = 'Model suggestions unavailable; the worker runs the global default unless a remembered model is kept.';

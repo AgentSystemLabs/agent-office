@@ -18,6 +18,14 @@ export function h<K extends keyof HTMLElementTagNameMap>(tag: K | `${K}.${string
   return el;
 }
 
+/** `text` as DOM children with every "DroidProxy" (and a colon right after it) drawn as the Factory pinwheel. */
+export function glyphText(text: string): (string | HTMLElement)[] {
+  return text
+    .split(/droidproxy:?/i)
+    .flatMap((part, i) => (i ? [h('img.glyph', { src: '/factory-glyph.svg', alt: '', 'aria-hidden': 'true' }), part] : [part]))
+    .filter((c) => c !== '');
+}
+
 export function $(id: string): HTMLElement {
   const el = document.getElementById(id);
   if (!el) throw new Error(`#${id} missing`);

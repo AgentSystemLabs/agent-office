@@ -6,6 +6,7 @@
  */
 
 import { TERM_FONT } from '../fonts';
+import { fillGlyphText } from '../world/glyph';
 import type { HeadPose, Rect } from './math';
 import { WorldPanel } from './panel';
 
@@ -309,11 +310,12 @@ export class VrPromptPanel {
     ctx.roundRect(r.x * w, r.y * h, r.w * w, r.h * h, r.h * h * 0.3);
     ctx.fill();
     ctx.fillStyle = primary ? '#111' : '#eeeeee';
-    ctx.font = `700 ${Math.round(r.h * h * 0.34)}px ${TERM_FONT}`;
+    const px = Math.round(r.h * h * 0.34);
+    ctx.font = `700 ${px}px ${TERM_FONT}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     // Three-wide labels shrink to fit rather than bleeding into their neighbors.
-    ctx.fillText(label, (r.x + r.w / 2) * w, (r.y + r.h / 2) * h, r.w * w * 0.9);
+    fillGlyphText(ctx, label, (r.x + r.w / 2) * w, (r.y + r.h / 2) * h, px, r.w * w * 0.9);
     ctx.textAlign = 'left';
   }
 

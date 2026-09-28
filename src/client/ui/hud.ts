@@ -3,7 +3,7 @@ import { ROOF, ROOF_NAME } from '../../shared/rooftop';
 import { store } from '../state';
 import type { Voice } from '../voice';
 import type { ChatLine } from '../../shared/protocol';
-import { $, h, openModal, STATUS_LABEL } from './dom';
+import { $, glyphText, h, openModal, STATUS_LABEL } from './dom';
 import { usageLabel, usageTitle } from './usage';
 import { providerLabel, providerUsageState, resolvedProvider, modelBadge } from './provider';
 import { whereabouts } from './whereabouts';
@@ -73,7 +73,7 @@ export function renderWorkers(onOpen: (id: string) => void) {
         'li',
         { onclick: () => onOpen(w.id), title: `Open ${w.name}'s terminal` },
         h('span.dot', { style: `background:${w.color}` }),
-        h('span.name', {}, w.name, sub ? h('span.sub', {}, sub) : null, usageState === 'tracked' && w.usage ? h('span.cost', { title: usageTitle(w.usage, providerKind) }, usageLabel(w.usage, providerKind)) : null),
+        h('span.name', {}, w.name, sub ? h('span.sub', {}, ...glyphText(sub)) : null, usageState === 'tracked' && w.usage ? h('span.cost', { title: usageTitle(w.usage, providerKind) }, usageLabel(w.usage, providerKind)) : null),
         h('span.pill', { class: w.status }, STATUS_LABEL[w.status] ?? w.status),
       ),
     );

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { MachineState, ProxyProvider, ProxyState } from '../../shared/protocol';
 import { MACHINE_MONITOR } from '../../shared/layout';
 import { SANS, MONO } from '../fonts';
+import { fillGlyphText } from './glyph';
 
 const MUTED = '#8c8c8c';
 
@@ -151,7 +152,7 @@ export class MachineTexture {
     g.textAlign = 'left';
     g.fillStyle = '#eeeeee';
     g.font = `600 30px ${MONO}`;
-    g.fillText('⚡ DROIDPROXY LIMITS', 30, top + 52);
+    fillGlyphText(g, 'DroidProxy LIMITS', 30, top + 52, 30);
     const status = p.running === undefined ? ['…', MUTED] : p.running ? ['● RUNNING', '#3ccf91'] : ['● NOT RUNNING', '#ef4444'];
     g.font = `600 22px ${MONO}`;
     g.textAlign = 'right';
@@ -181,7 +182,7 @@ export class MachineTexture {
       if (!a.windows.length) {
         g.fillStyle = MUTED;
         g.font = `500 20px ${SANS}`;
-        g.fillText(a.error ?? 'No limits reported', 30 + nameW, y + 42, W - 60 - nameW);
+        fillGlyphText(g, a.error ?? 'No limits reported', 30 + nameW, y + 42, 20, W - 60 - nameW);
         return;
       }
       a.windows.forEach((w, j) => {
