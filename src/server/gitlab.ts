@@ -44,6 +44,11 @@ export function gitlabHosts(): string[] {
   return hosts;
 }
 
+/** Asks glab for its instances again next time: someone just ran `glab auth login`. */
+export function forgetGitlabHosts() {
+  hosts = undefined;
+}
+
 function parseHosts(out: string): string[] {
   return out
     .split('\n')

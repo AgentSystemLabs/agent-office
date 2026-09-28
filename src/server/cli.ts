@@ -1,6 +1,8 @@
 import os from 'node:os';
+import path from 'node:path';
 import { loadConfig, ensureSelfSigned } from './config.js';
 import { startServer } from './server.js';
+import { tildify } from './building.js';
 
 const argv = process.argv.slice(2);
 if (argv[0] === 'prune') {
@@ -11,9 +13,18 @@ if (argv[0] === 'accounts') {
   const { accountsCommand } = await import('./accounts.js');
   process.exit(accountsCommand(argv.slice(1)));
 }
+if (argv[0] === 'setup') {
+  const { setupCommand } = await import('./setup.js');
+  process.exit(await setupCommand(argv.slice(1)));
+}
 
 const cfg = loadConfig(argv);
 await ensureSelfSigned(cfg);
+// A new office started in a terminal: where projects go, GitHub or GitLab, and the first floor, before it opens.
+if (!cfg.project) {
+  const { interactive, welcome } = await import('./setup.js');
+  if (interactive()) await welcome(cfg);
+}
 
 let office: Awaited<ReturnType<typeof startServer>>;
 try {
@@ -36,7 +47,7 @@ if (cfg.host === '0.0.0.0' || cfg.host === '::') {
 const agent = office.resolvedAgent;
 function floorsLine() {
   const floors = office.floors();
-  const where = `new ones are cloned into ${office.projectsDir()}`;
+  const where = `new ones are cloned into ${tildify(office.projectsDir())}`;
   if (!floors.length) return `🛗 no floors yet — ride the elevator in the office to add a project (${where})`;
   return `🛗 ${floors.length} floor${floors.length === 1 ? '' : 's'}: ${floors.map((f) => f.def.name).join(', ')} (${where})`;
 }
@@ -48,8 +59,10 @@ function passwordLine() {
   if (cfg.claimed || !cfg.password) return '(already claimed — never shown again; reset with --reset-password)';
   return cfg.password;
 }
+// Started in a project that's still one of the floors (it can be taken off like any other).
+const local = cfg.project && office.floors().some((f) => path.resolve(f.def.dir) === cfg.project);
 console.log(`
-  🏢  agent-office is open${cfg.project ? ` for ${cfg.project}` : ''}
+  🏢  agent-office is open${local ? ` for ${cfg.project}` : ''}
 
   ${floorsLine()}
 

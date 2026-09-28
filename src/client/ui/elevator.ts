@@ -64,6 +64,31 @@ export function openElevator(opts: ElevatorOptions): void {
   const refreshBtn = h('button.btn', { type: 'button', title: 'Ask GitHub and GitLab for the list again' }, '↻');
   const close = setup ? null : h('button.btn.close', { 'aria-label': 'Close' }, '✕');
 
+  // Where clones go. Admins can move it right here: a new office's elevator can't be closed to reach
+  // ⚙️ Settings until it has a floor, and the first project is when it matters.
+  const dirInput = h('input', { type: 'text', placeholder: '~/Workspace', 'aria-label': 'Workspace folder', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
+  const dirSave = h('button.btn.primary', { type: 'button' }, 'Save');
+  const dirCancel = h('button.btn', { type: 'button' }, 'Cancel');
+  const dirEl = h('div.webhook.dir-pick.hidden', {}, dirInput, dirSave, dirCancel);
+  const editDir = (on: boolean) => {
+    dirEl.classList.toggle('hidden', !on);
+    if (!on) return;
+    dirInput.value = store.projectsDir.dir;
+    setTimeout(() => dirInput.focus(), 0);
+  };
+  const saveDir = () => {
+    const dir = dirInput.value.trim();
+    if (!dir) return dirInput.focus();
+    // The server says why it can't, if it can't; the folder moving closes this.
+    if (dir === store.projectsDir.dir) editDir(false);
+    else net.send({ t: 'floor.projectsDir', dir });
+  };
+  dirSave.addEventListener('click', saveDir);
+  dirCancel.addEventListener('click', () => editDir(false));
+  dirInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing) saveDir();
+  });
+
   const needRepos = () => {
     const r = store.repos;
     if (r.loading || (r.at && Date.now() - r.at < REPOS_STALE_MS && !r.error)) return;
@@ -103,7 +128,7 @@ export function openElevator(opts: ElevatorOptions): void {
   /** The floor's button, with a 🗑 beside it for admins to take it off the building. */
   const floorRow = (f: FloorInfo, i: number) => {
     const btn = floorButton(f, i);
-    if (!store.me.admin || f.cloning || f.local) return btn;
+    if (!store.me.admin || f.cloning) return btn;
     const off = h('button.btn.floor-off', { type: 'button', title: `Take ${f.name} off the building`, 'aria-label': `Remove ${f.name}` }, '🗑');
     off.addEventListener('click', () => confirmRemove(f));
     return h('div.floor-row', {}, btn, off);
@@ -113,7 +138,9 @@ export function openElevator(opts: ElevatorOptions): void {
     const next = store.floors.find((o) => o.id !== f.id && !o.cloning);
     const workers = f.workers ? `Its ${f.workers} worker${f.workers === 1 ? '' : 's'} stop${f.workers === 1 ? 's' : ''}. ` : '';
     const people = f.people ? `Everyone on it rides the elevator to ${next ? next.name : 'the lobby'}. ` : '';
-    confirmDialog(`Take ${f.name} off the building?`, `${workers}${people}Nothing is deleted: its checkout stays in ${f.dir}, .agent-office folder and all.`, 'Remove floor', () => net.send({ t: 'floor.remove', floor: f.id }));
+    // The office was started in it: its accounts, password and chat live in that .agent-office too, and stay.
+    const own = f.local ? ' The office keeps its own settings there too, so it carries on as before, just without this floor.' : '';
+    confirmDialog(`Take ${f.name} off the building?`, `${workers}${people}Nothing is deleted: its checkout stays in ${f.dir}, .agent-office folder and all.${own}`, 'Remove floor', () => net.send({ t: 'floor.remove', floor: f.id }));
   };
 
   /** The roof, over every floor: the rooftop bar. */
@@ -205,10 +232,12 @@ export function openElevator(opts: ElevatorOptions): void {
     const pick = choice();
     const dest = pick ? `${store.projectsDir.dir}/${pick}` : `${store.projectsDir.dir}/<owner>/<repo>`;
     const cli = pick ? (forgeOf(pick) === 'gitlab' ? 'glab' : 'gh') : 'gh or glab';
+    const change = store.me.admin ? h('button.btn.dir-change', { type: 'button', title: 'Clone new projects into another folder on the office’s machine' }, 'Change folder') : null;
+    change?.addEventListener('click', () => editDir(true));
     statusEl.replaceChildren(
       adding
         ? h('p.note.busy', {}, `⏳ Cloning ${adding} into ${store.projectsDir.dir}/${adding}… A big repository can take a minute.`)
-        : h('p.note', {}, `Cloned into ${dest} with this machine's ${cli} login. Everything on the new floor works in that checkout.${store.me.admin ? ' Pick another folder in ⚙️ Settings.' : ''}`),
+        : h('p.note', {}, `Cloned into ${dest} with this machine's ${cli} login. Everything on the new floor works in that checkout.${store.me.admin ? ' Pick another folder here or in ⚙️ Settings.' : ''}`, change),
       ...[r.error, error].filter(Boolean).map((e) => h('p.err', {}, e)),
     );
     addBtn.disabled = !!adding || !pick || store.floors.some((f) => sameRepo(f.repo, pick));
@@ -216,7 +245,7 @@ export function openElevator(opts: ElevatorOptions): void {
     input.disabled = !!adding;
     if (!built) {
       built = true;
-      addEl.replaceChildren(h('h3', {}, setup && !store.floors.length ? 'Pick your first project' : '➕ Add a project'), h('div.repo-search', {}, input, refreshBtn), listEl, statusEl);
+      addEl.replaceChildren(h('h3', {}, setup && !store.floors.length ? 'Pick your first project' : '➕ Add a project'), h('div.repo-search', {}, input, refreshBtn), listEl, statusEl, dirEl);
     }
   };
 
@@ -281,7 +310,14 @@ export function openElevator(opts: ElevatorOptions): void {
     h('div.body', {}, intro, floorsEl, addEl),
     h('footer', {}, h('span.grow', {}, setup ? 'Your office, one floor per project' : 'Pick a floor · Esc to stay here'), addBtn),
   );
-  const unsubs = [store.on('floors', () => (renderFloors(), renderAdd())), store.on('repos', renderAdd), store.on('projectsDir', renderAdd), store.on('floor', renderFloors), store.on('peers', renderFloors), store.on('me', renderFloors)];
+  const unsubs = [
+    store.on('floors', () => (renderFloors(), renderAdd())),
+    store.on('repos', renderAdd),
+    store.on('projectsDir', () => (editDir(false), renderAdd())),
+    store.on('floor', renderFloors),
+    store.on('peers', renderFloors),
+    store.on('me', () => (renderFloors(), renderAdd())),
+  ];
   const modal = openModal(el, {
     doing: '🛗 at the elevator',
     escCloses: !setup,

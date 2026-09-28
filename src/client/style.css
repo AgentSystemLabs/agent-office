@@ -940,6 +940,8 @@ a.when:hover { text-decoration: underline; }
 .elevator .repo .when { font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
 .elevator .note { margin: 8px 0 0; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
 .elevator .note.busy { color: var(--text); }
+.elevator .dir-change { margin-left: 8px; padding: 3px 8px; font-size: 10px; vertical-align: baseline; }
+.elevator .dir-pick { margin-top: 8px; }
 .elevator .err { margin: 8px 0 0; font-size: 13px; font-weight: 600; color: var(--danger); overflow-wrap: anywhere; }
 
 /* ---------- Whiteboard ---------- */
