@@ -485,6 +485,27 @@ img.glyph { display: inline-block; width: 1em; height: 1em; vertical-align: -0.1
 .modal.board .body { flex: 1; display: flex; gap: 10px; padding: 12px; background: var(--bg); background-image: radial-gradient(rgba(255, 255, 255, .04) 1px, transparent 1.5px); background-size: 16px 16px; }
 .column { flex: 1; min-width: 220px; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .column h4 { margin: 0; padding: 8px 12px; font: 500 10px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .1em; color: var(--text-secondary); background: var(--surface-raised); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+/* Click a forge column's header to filter it by label (the Jira tab's headers stay plain). */
+.column h4.col-h { padding: 0; }
+.col-head { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; cursor: pointer; transition: background var(--duration) var(--ease), color var(--duration) var(--ease); }
+.col-head:hover, .col-head[aria-expanded="true"] { background: var(--surface-hover); color: var(--text); }
+.col-head:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--accent); }
+.col-count { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.col-caret { font-size: 10px; color: var(--text-tertiary); }
+.col-head:hover .col-caret, .col-head[aria-expanded="true"] .col-caret { color: var(--accent); }
+.column.filtered h4 { color: var(--accent); }
+.col-active, .col-filter { background: var(--surface-raised); border-bottom: 1px solid var(--border); padding: 7px 10px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.col-clear { margin-left: auto; border: 0; background: none; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; padding: 0 2px; }
+.col-clear:hover { color: var(--accent); }
+.col-filter { flex-direction: column; align-items: stretch; gap: 8px; max-height: 45%; flex-shrink: 0; }
+.col-labels { display: flex; flex-wrap: wrap; gap: 5px; overflow: auto; min-height: 0; }
+.col-labels > small { color: var(--text-secondary); font-size: 11px; }
+.label-pick { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px 2px 2px; border: 1px solid transparent; border-radius: var(--radius-xs); background: none; color: var(--text-secondary); font: 500 10px var(--font-mono); cursor: pointer; opacity: .55; transition: opacity var(--duration) var(--ease), border-color var(--duration) var(--ease); }
+.label-pick:hover { opacity: 1; }
+.label-pick[aria-pressed="true"] { opacity: 1; border-color: var(--accent); background: var(--accent-muted); color: var(--text); }
+.label-pick:focus-visible { outline: none; opacity: 1; box-shadow: 0 0 0 1px var(--accent); }
+.col-filter-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: 400 10px var(--font-mono); color: var(--text-secondary); }
+.col-filter-foot .btn.small { padding: 2px 8px; font-size: 10px; }
 .column ul { list-style: none; margin: 0; padding: 10px; display: flex; flex-direction: column; gap: 8px; overflow: auto; flex: 1; }
 .card { background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 10px 8px; cursor: pointer; position: relative; transition: border-color var(--duration) var(--ease); }
 .card:hover { border-color: var(--accent); }
