@@ -83,6 +83,10 @@ export interface VrMenuActions {
   copyServiceTunnel: (port: number) => void;
   /** Adds a project as a new floor — the elevator panel's add (main.ts vrAddFloor). */
   addFloor: () => void;
+  /** Adds a task to the queue — the queue window's form (main.ts vrQueueAdd). */
+  addQueueTask: () => void;
+  /** How many workers the queue keeps busy (0 pauses it) — the queue window's stepper. */
+  queueLimit: (maxWorkers: number) => void;
   /** Leaves the immersive session — the XR session owner's exit. */
   exitVr: () => void;
 }
@@ -112,6 +116,9 @@ const JB_SKIP: Rect = { x: 0.86, y: 0.015, w: 0.11, h: 0.09 };
 const SAY_BTN: Rect = { x: 0.72, y: 0.015, w: 0.25, h: 0.09 };
 /** Floors view: the "add a project" button in the header. */
 const FLOORS_ADD: Rect = { x: 0.72, y: 0.015, w: 0.25, h: 0.09 };
+/** Queue view: add a task, and pause/unpause the line. */
+const QB_ADD: Rect = { x: 0.60, y: 0.015, w: 0.15, h: 0.09 };
+const QB_TOGGLE: Rect = { x: 0.76, y: 0.015, w: 0.21, h: 0.09 };
 /** Header buttons for the meeting view: call one, stop it, or clear the room. */
 const MTG_CALL: Rect = { x: 0.72, y: 0.015, w: 0.25, h: 0.09 };
 const MTG_STOP: Rect = { x: 0.72, y: 0.015, w: 0.25, h: 0.09 };
@@ -162,6 +169,8 @@ export class VrMenu {
   /** Scroll offset (and list identity) the row buttons were last synced to. */
   private rowSyncKey = '';
   private lastMuted = '';
+  /** The queue's last unpaused width: the ⏸ toggle goes back to it. */
+  private lastLimit = 2;
 
   constructor(stores: VrMenuStores, actions: VrMenuActions, widthM = 0.62, heightM = 0.72) {
     this.stores = stores;
@@ -231,8 +240,16 @@ export class VrMenu {
     if (!this.panel.visible) return;
     const muted = `${this.stores.isMuted()}|${this.stores.inVoice()}`;
     if (muted !== this.lastMuted) this.lastMuted = muted;
+    const limit = this.stores.getQueue().maxWorkers;
+    if (limit > 0) this.lastLimit = limit;
     this.syncButtons();
     this.panel.markDirty();
+  }
+
+  /** The queue's ⏸/▶ toggle: pause the line, or run it at its old width again. */
+  private toggleQueue() {
+    const at = this.stores.getQueue().maxWorkers;
+    this.actions.queueLimit(at > 0 ? 0 : this.lastLimit);
   }
 
   // ---- Data -------------------------------------------------------------------------------
@@ -376,6 +393,12 @@ export class VrMenu {
     }
     if (this.view === 'floors') {
       buttons.push({ id: 'add', rect: FLOORS_ADD, onClick: () => this.actions.addFloor() });
+    }
+    if (this.view === 'queue') {
+      buttons.push(
+        { id: 'q:add', rect: QB_ADD, onClick: () => this.actions.addQueueTask() },
+        { id: 'q:pause', rect: QB_TOGGLE, onClick: () => this.toggleQueue() },
+      );
     }
     if (this.view === 'meeting') {
       const m = this.stores.getMeeting().current;
@@ -586,12 +609,13 @@ export class VrMenu {
     ctx.font = `700 ${Math.round(h * 0.042)}px ${TERM_FONT}`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    ctx.fillText(title, w * (this.view === 'main' ? 0.05 : 0.22), h * HEADER_H * 0.55, w * (this.view === 'board' ? 0.3 : this.view === 'jukebox' || this.view === 'chat' || this.view === 'meeting' ? 0.34 : 0.5));
+    ctx.fillText(title, w * (this.view === 'main' ? 0.05 : 0.22), h * HEADER_H * 0.55, w * (this.view === 'board' ? 0.3 : this.view === 'jukebox' || this.view === 'chat' || this.view === 'meeting' || this.view === 'queue' ? 0.34 : 0.5));
     if (this.view !== 'main') this.paintBack(ctx, w, h, state);
     if (this.view === 'board') this.paintTabs(ctx, w, h, state);
     if (this.view === 'jukebox') this.paintTransport(ctx, w, h, state);
     if (this.view === 'chat') this.paintSay(ctx, w, h, state);
     if (this.view === 'floors') this.paintFloorsAdd(ctx, w, h, state);
+    if (this.view === 'queue') this.paintQueueBtns(ctx, w, h, state);
     if (this.view === 'meeting') this.paintMeetingBtns(ctx, w, h, state);
     ctx.strokeStyle = '#ee6018';
     ctx.lineWidth = Math.max(2, h * 0.004);
@@ -686,6 +710,24 @@ export class VrMenu {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('➕ add', (FLOORS_ADD.x + FLOORS_ADD.w / 2) * w, (FLOORS_ADD.y + FLOORS_ADD.h / 2) * h);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  private paintQueueBtns(ctx: CanvasRenderingContext2D, w: number, h: number, state: { hoverId: string | null; pressedId: string | null }) {
+    const paused = this.stores.getQueue().maxWorkers === 0;
+    const btns: { id: string; label: string; r: Rect }[] = [
+      { id: 'q:add', label: '➕', r: QB_ADD },
+      { id: 'q:pause', label: paused ? '▶ run' : '⏸ pause', r: QB_TOGGLE },
+    ];
+    for (const b of btns) {
+      this.pill(ctx, b.r, w, h, b.id, state);
+      ctx.fillStyle = '#eeeeee';
+      ctx.font = `700 ${Math.round(b.r.h * h * 0.36)}px ${TERM_FONT}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(b.label, (b.r.x + b.r.w / 2) * w, (b.r.y + b.r.h / 2) * h);
+    }
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
   }

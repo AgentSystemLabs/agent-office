@@ -520,6 +520,8 @@ const vr = new VRSession(renderer, scene, camera, {
         meetingClear: () => net.send({ t: 'meeting.clear' }),
         copyServiceTunnel: (port) => void copyServiceTunnel(port),
         addFloor: () => vrAddFloor(),
+        addQueueTask: () => vrQueueAdd(),
+        queueLimit: (maxWorkers) => net.send({ t: 'queue.limit', maxWorkers }),
         sendChat: (text) => net.send({ t: 'chat', text }),
         vrSettings: (patch) => {
           Object.assign(settings.vr, patch);
@@ -615,6 +617,10 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     carry: (issue: number, title: string) => setCarrying({ issue, title }),
     // The fresh VR toast's words, while one is up.
     toastText: () => vrUi?.toast.current ?? null,
+    // The task queue's width and tasks (the queue checks read this back).
+    queue: () => ({ max: store.queue.maxWorkers, tasks: store.queue.tasks.map((t) => ({ id: t.id, title: t.title, status: t.status })) }),
+    // Drops a queue task the checks added (mirrors the worker `kill` hook).
+    queueRemove: (taskId: string) => net.send({ t: 'queue.remove', taskId }),
     // The pictures on the walls (the decor E-again check reads this back).
     decor: () => store.decor.map((d) => ({ id: d.id, title: d.title, by: d.by })),
     // What the VR prompt field holds (assert scripts read this back after pressing keys).
@@ -1722,6 +1728,20 @@ function killWarning(id: string): string | null {
   if (w.worktree) return `${again} (the ${w.worktree.branch} worktree stays unless it's empty)`;
   if (DESK_BY_ID.get(w.deskId)?.station) return `${again} (this stops its session for everyone)`;
   return `${again} and free the desk`;
+}
+/** The VR queue view's ➕ button: describe a task; a fresh worker picks it up when a desk is free (the window's form, minus the provider picker — it remembers the queue's). */
+function vrQueueAdd() {
+  if (!vrUi) return;
+  vrUi.askText({
+    title: '📋 Add to the queue',
+    subtitle: 'A fresh worker picks it up when a desk is free',
+    placeholder: 'Describe the task…',
+    submitLabel: 'Add to queue',
+    onSubmit: (text) => {
+      const { provider, model, effort } = rememberedChoice(store.project, 'queue');
+      net.send({ t: 'queue.add', prompt: text, provider, model, effort });
+    },
+  });
 }
 /** The VR floors view's ➕ button: name a repository; the office clones it into a new floor and the elevator rides there (the panel's add, minus the browsing). */
 function vrAddFloor() {
