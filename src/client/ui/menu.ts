@@ -10,8 +10,8 @@ export interface HudAction {
   icon: string | (() => string);
   label: string | (() => string);
   section: 'Open' | 'Together' | 'Office';
-  /** Its keyboard shortcut, if it has one. */
-  key?: string;
+  /** Its keyboard shortcut, if it has one (now). */
+  key?: string | (() => string | undefined);
   /** A number worth knowing before you open it: open issues, tasks waiting… */
   count?: () => number;
   /** Pressed, like voice while you're in it. */
@@ -63,6 +63,7 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
   const dock = $('dock');
   const labelOf = (a: HudAction) => (typeof a.label === 'string' ? a.label : a.label());
   const iconOf = (a: HudAction) => (typeof a.icon === 'string' ? a.icon : a.icon());
+  const keyOf = (a: HudAction) => (typeof a.key === 'function' ? a.key() : a.key);
   const classOf = (a: HudAction, blocked?: string) => [a.on?.() && 'on', a.tone?.(), blocked && 'dim'].filter(Boolean).join(' ');
   const offered = (a: HudAction) => a.shown?.() ?? true;
   const pinned = (a: HudAction) => settings.pins.includes(a.id);
@@ -100,7 +101,7 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
         type: 'button',
         class: classOf(a, blocked),
         'aria-label': labelOf(a),
-        title: blocked ?? a.title?.() ?? `${labelOf(a)}${a.key ? ` (${a.key})` : ''}`,
+        title: blocked ?? a.title?.() ?? `${labelOf(a)}${keyOf(a) ? ` (${keyOf(a)})` : ''}`,
         onclick: () => a.run(),
       },
       iconOf(a),
@@ -161,7 +162,7 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
         h('span.mi-icon', {}, iconOf(a)),
         h('span.mi-label', {}, labelOf(a)),
         badge(a.count?.()),
-        a.key ? h('kbd.mi-key', {}, a.key) : null,
+        keyOf(a) ? h('kbd.mi-key', {}, keyOf(a)!) : null,
       );
       const pin = h('button.menu-pin', { type: 'button' });
       pin.innerHTML = PIN_SVG;
