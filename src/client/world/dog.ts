@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { BARK_EVERY_S, BARK_FOR_S, DOG_COATS, dogAt, legSeconds, type DogAct, type DogState } from '../../shared/dog';
 import type { Theme } from '../../shared/protocol';
 import { dogAntlers, dogBatWings, dogRedNose, dogScarf, dogWitchHat } from './costumes';
-import { loadDog, type Model } from './models';
+import { loadModel, type Model } from './models';
 import type { Interactable } from './office';
 import { disposeSprite, textSprite, toon, toonUnique } from './toon';
 
@@ -150,7 +150,7 @@ export class Dog {
     this.root.add(this.body);
     this.root.visible = false;
     this.root.userData.interact = this.interactable;
-    this.ready = loadDog()
+    this.ready = loadModel('dog')
       .then((m) => this.attach(m))
       .then(
         () => true,

@@ -1,10 +1,16 @@
 import type * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import dogUrl from '../models/dog.glb?url';
+import { toon } from './toon';
 
-// The few things in the world modelled in Blender rather than built in code (see blender/scripts/).
-// Each file loads once, the first time something asks for it; everyone who asks gets a copy of their own.
+// The things in the world modelled in Blender rather than built in code. Each .glb is exported by a
+// script in blender/scripts/ (blender/README.md has the conventions they keep); add it here by name.
+const URLS = {
+  dog: dogUrl,
+};
+
+export type ModelName = keyof typeof URLS;
 
 export interface Model {
   /** This copy's scene: its own nodes and bones, sharing the geometry and materials with every other copy. */
@@ -13,11 +19,64 @@ export interface Model {
   clips: THREE.AnimationClip[];
 }
 
-let dog: ReturnType<GLTFLoader['loadAsync']> | null = null;
+const loading = new Map<ModelName, Promise<GLTF>>();
+const loaded = new Map<ModelName, GLTF>();
 
-/** A copy of the office dog (dog.glb, exported by blender/scripts/build_dog.py), to pose and dress on its own. */
-export async function loadDog(): Promise<Model> {
-  const gltf = await (dog ??= new GLTFLoader().loadAsync(dogUrl));
-  // A plain clone() would leave the copy's skin bound to the original's bones.
-  return { scene: clone(gltf.scene), clips: gltf.animations };
+/** Each file loads once, the first time something asks for it. */
+function fetchModel(name: ModelName): Promise<GLTF> {
+  let p = loading.get(name);
+  if (!p) {
+    p = new GLTFLoader().loadAsync(URLS[name]).then((gltf) => {
+      loaded.set(name, gltf);
+      return gltf;
+    });
+    loading.set(name, p);
+  }
+  return p;
+}
+
+// A plain clone() would leave a copy's skin bound to the original's bones.
+const copy = (gltf: GLTF): Model => ({ scene: clone(gltf.scene), clips: gltf.animations });
+
+/** A copy of a model to pose and dress on its own, once it has loaded. */
+export async function loadModel(name: ModelName): Promise<Model> {
+  return copy(await fetchModel(name));
+}
+
+/**
+ * Loads every model, so the world can be built with them straight away (see model()). One that
+ * doesn't load is logged and left out: whatever it was for goes missing, the office still opens.
+ */
+export async function preloadModels(): Promise<void> {
+  await Promise.all(
+    (Object.keys(URLS) as ModelName[]).map((name) => fetchModel(name).catch((err: unknown) => console.error(`${name}.glb didn't load`, err))),
+  );
+}
+
+/** A copy of a model preloadModels() has loaded, or null if it couldn't be. */
+export function model(name: ModelName): Model | null {
+  const gltf = loaded.get(name);
+  return gltf ? copy(gltf) : null;
+}
+
+/**
+ * Paints a model the office's way: every material it came with is only a name (see blender/README.md),
+ * and `paint` gives the material to use for each. Meshes cast and take shadows like mesh()'s do.
+ */
+export function paintModel(root: THREE.Object3D, paint: (name: string) => THREE.Material, castShadow = true) {
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    m.material = paint((m.material as THREE.Material).name);
+    m.castShadow = castShadow;
+    m.receiveShadow = true;
+  });
+}
+
+/**
+ * The usual `paint`: a toon material of the palette's color for each name. A name the palette has no
+ * color for comes out magenta, so a part the script and the code disagree on shows at a glance.
+ */
+export function palette(colors: Record<string, string>): (name: string) => THREE.Material {
+  return (name) => toon(colors[name] ?? '#ff00ff');
 }
