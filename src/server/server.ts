@@ -1255,7 +1255,7 @@ export async function startServer(cfg: Config) {
         // Everyone's workers on it stop: admins do it.
         if (!meOf(c.accountId).admin) return warn(c, 'Only admins can take a floor off the building');
         const id = str(msg.floor, 64);
-        const r = building.remove(id);
+        const r = building.remove(id, who);
         if (typeof r === 'string') return warn(c, r);
         console.log(`  ${who} took the ${r.name} floor off the building (${r.dir} stays where it is)`);
         const floor = floors.get(id);

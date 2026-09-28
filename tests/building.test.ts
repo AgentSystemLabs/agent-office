@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -37,14 +38,48 @@ test('a floor comes off the building and stays off, with its checkout left where
   assert.deepEqual(new Building(dataDir, root).list().map((d) => d.id), ['api', 'docs']);
 });
 
-test("the floor the office was started in, and floors that aren't there, can't be taken off", (t) => {
-  const { root, dataDir, defs } = office(t);
+test("floors that aren't there can't be taken off", (t) => {
+  const { root, dataDir } = office(t);
   const building = new Building(dataDir, root);
-  building.ensureLocal(defs[0].dir, 'the office');
 
-  assert.match(building.remove('api') as string, /started in/);
   assert.equal(building.remove('nope'), 'No such floor');
   assert.deepEqual(saved(dataDir), ['api', 'web', 'docs']);
+});
+
+test('the floor the office was started in comes off too, stays off after a restart, and moves back in when its repository is added again', async (t) => {
+  const { root, dataDir, defs } = office(t);
+  // The office's own checkout, with its GitHub origin (how it's recognised once it's no longer a floor).
+  execFileSync('git', ['init', '-q', defs[0].dir]);
+  execFileSync('git', ['-C', defs[0].dir, 'remote', 'add', 'origin', 'https://github.com/acme/api.git']);
+  const building = new Building(dataDir, root);
+  building.ensureLocal(defs[0].dir, 'the office');
   assert.ok(building.isLocal('api'));
   assert.ok(!building.isLocal('web'));
+
+  const r = building.remove('api', 'Sam');
+  assert.equal((r as FloorDef).id, 'api');
+  assert.ok(!building.isLocal('api'));
+  assert.deepEqual(saved(dataDir), ['web', 'docs']);
+  assert.ok(existsSync(defs[0].dir), 'the checkout stays on disk');
+
+  // The next start doesn't put it back.
+  const again = new Building(dataDir, root);
+  assert.equal(again.ensureLocal(defs[0].dir, 'the office'), undefined);
+  assert.deepEqual(again.list().map((d) => d.id), ['web', 'docs']);
+  assert.deepEqual(saved(dataDir), ['web', 'docs']);
+
+  // Adding acme/api again uses the checkout it always was (no clone, no GitHub needed).
+  const started: string[] = [];
+  const back = await again.add('https://github.com/acme/api', 'Sam', (d) => started.push(d.dir));
+  assert.equal(typeof back, 'object', String(back));
+  assert.equal((back as FloorDef).dir, defs[0].dir);
+  assert.deepEqual(started, [defs[0].dir]);
+  assert.ok(again.isLocal((back as FloorDef).id));
+  assert.deepEqual(saved(dataDir), ['web', 'docs', 'api']);
+  assert.ok(!existsSync(path.join(dataDir, 'local-floor.json')));
+
+  // ...and it's a floor again at the next start.
+  const third = new Building(dataDir, root);
+  assert.equal(third.ensureLocal(defs[0].dir, 'the office')?.id, 'api');
+  assert.deepEqual(third.list().map((d) => d.id), ['web', 'docs', 'api']);
 });

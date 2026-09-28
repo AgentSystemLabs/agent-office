@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs ON the EC2 instance (piped over ssh by deploy/aws.sh). Idempotent: safe to re-run.
-# Expects these to be exported by the caller: APP_REPO APP_REF PROJECT_REPO PROJECT_NAME
+# Expects these to be exported by the caller: APP_REPO APP_REF PROJECT_REPO (optional)
 # CLAIM_TOKEN PUBLIC_HOST GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY GIT_NAME GIT_EMAIL
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
@@ -85,30 +85,52 @@ echo "    at $(git -C /opt/agent-office log -1 --format='%h %s')"
 step "npm install (builds the office)"
 (cd /opt/agent-office && quiet npm install --no-audit --no-fund)
 
-WORKDIR="$HOME/workspace/$PROJECT_NAME"
-mkdir -p "$HOME/workspace"
-if [[ ! -d "$WORKDIR" ]]; then
-  if [[ -n "$PROJECT_REPO" ]]; then
-    step "Cloning your project $PROJECT_REPO"
-    quiet git clone "$PROJECT_REPO" "$WORKDIR"
-  else
-    step "Creating an empty project at $WORKDIR"
-    mkdir -p "$WORKDIR"
-    git -C "$WORKDIR" init -q
-  fi
+# The office keeps its data (password, accounts, the list of floors) in ~/agent-office and clones
+# projects into ~/workspace/<owner>/<repo>. It starts with no project: its elevator lists every
+# repository the GitHub token can see, and cloning one makes it the first floor.
+OFFICE_HOME="$HOME/agent-office"
+WORKSPACE="$HOME/workspace"
+mkdir -p "$WORKSPACE"
+# Offices provisioned before that ran in one project's checkout, with their data in it: they carry
+# on there, so nobody loses their account. That project can be taken off in the elevator.
+LEGACY_DIR=""
+if [[ -f /etc/agent-office/dir ]]; then
+  legacy=$(cat /etc/agent-office/dir)
+  [[ -f "$legacy/.agent-office/config.json" ]] && LEGACY_DIR="$legacy"
 fi
-echo "$WORKDIR" | sudo tee /etc/agent-office/dir >/dev/null
+if [[ -n "$LEGACY_DIR" ]]; then
+  step "Keeping the office in $LEGACY_DIR (its accounts and floors are there)"
+  RUN_DIR="$LEGACY_DIR"
+  OFFICE_ARGS="$LEGACY_DIR "
+else
+  RUN_DIR="$HOME"
+  OFFICE_ARGS=""
+  setup_args=()
+  # Once: after that, the folder is the admins' to move in ⚙️ Settings.
+  [[ -f "$OFFICE_HOME/.agent-office/projects-folder.json" ]] || setup_args+=(--projects "$WORKSPACE")
+  [[ -n "${PROJECT_REPO:-}" ]] && setup_args+=(--project "$PROJECT_REPO")
+  if [[ ${#setup_args[@]} -gt 0 ]]; then
+    step "Setting up the office${PROJECT_REPO:+: cloning $PROJECT_REPO as a floor}"
+    # It won't touch a running office's floors (the service restarts below anyway).
+    sudo systemctl stop agent-office >/dev/null 2>&1 || true
+    node /opt/agent-office/bin/agent-office.js setup "${setup_args[@]}" </dev/null ||
+      echo "    (carrying on: add projects from the office's elevator)"
+  fi
+  sudo rm -f /etc/agent-office/dir
+fi
+echo "$OFFICE_HOME" | sudo tee /etc/agent-office/home >/dev/null
+[[ -n "$LEGACY_DIR" ]] && echo "$LEGACY_DIR" | sudo tee /etc/agent-office/dir >/dev/null
 
 step "Pre-accepting Claude Code onboarding and folder trust"
-node - "$WORKDIR" <<'NODE'
+# The workspace (every project is cloned under it), and an older office's own project.
+node - "$WORKSPACE" ${LEGACY_DIR:+"$LEGACY_DIR"} <<'NODE'
 const fs = require('fs');
 const file = `${process.env.HOME}/.claude.json`;
 let c = {};
 try { c = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
 c.hasCompletedOnboarding = true;
 c.projects = c.projects || {};
-const dir = process.argv[2];
-c.projects[dir] = { ...(c.projects[dir] || {}), hasTrustDialogAccepted: true };
+for (const dir of process.argv.slice(2)) c.projects[dir] = { ...(c.projects[dir] || {}), hasTrustDialogAccepted: true };
 const key = process.env.ANTHROPIC_API_KEY;
 if (key) {
   c.customApiKeyResponses = c.customApiKeyResponses || { approved: [], rejected: [] };
@@ -211,16 +233,17 @@ StartLimitIntervalSec=0
 Type=simple
 User=$USER
 Group=$USER
-WorkingDirectory=$WORKDIR
+WorkingDirectory=$RUN_DIR
 EnvironmentFile=/etc/agent-office/env
 Environment=HOME=$HOME
+Environment=AGENT_OFFICE_HOME=$OFFICE_HOME
 Environment=SHELL=/bin/bash
 Environment=PATH=$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Lets the office upgrade itself from its UI: it builds the new version, then exits, and
 # Restart=always brings it back up on that version.
 Environment=AGENT_OFFICE_SELF_UPDATE=1
 # Loopback only: the office is reached through an SSH tunnel, never from the internet.
-ExecStart=/usr/bin/node /opt/agent-office/bin/agent-office.js $WORKDIR --host 127.0.0.1 --port 4600
+ExecStart=/usr/bin/node /opt/agent-office/bin/agent-office.js ${OFFICE_ARGS}--host 127.0.0.1 --port 4600
 Restart=always
 RestartSec=3
 LimitNOFILE=65536

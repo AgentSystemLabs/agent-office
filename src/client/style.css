@@ -992,6 +992,8 @@ a.when:hover { text-decoration: underline; }
 .elevator .repo .when { font-size: 11px; color: var(--muted); white-space: nowrap; }
 .elevator .note { margin: 8px 0 0; font-size: 12px; font-weight: 700; color: var(--muted); overflow-wrap: anywhere; }
 .elevator .note.busy { color: var(--ink); }
+.elevator .dir-change { margin-left: 6px; padding: 1px 8px; font-size: 12px; border-width: 2px; border-radius: 9px; box-shadow: 0 2px 0 var(--ink); vertical-align: baseline; }
+.elevator .dir-pick { margin-top: 8px; }
 .elevator .err { margin: 8px 0 0; font-size: 13px; font-weight: 800; color: var(--bad); overflow-wrap: anywhere; }
 
 /* ---------- Whiteboard ---------- */
