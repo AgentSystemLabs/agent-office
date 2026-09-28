@@ -168,6 +168,7 @@ const deps: VrUiDeps = {
     retryQueueTask: (id) => log('requeue task', id),
     commentOn: (kind, n) => log('comment on', kind, `#${n}`),
     closeItem: (kind, n) => log('close', kind, `#${n}`),
+    reviewPanel: (n) => log('review panel for PR', `#${n}`),
     playStream: () => log('play a stream (would open the VR URL prompt)'),
     renameDog: () => log('rename the dog (would open the VR name prompt)'),
     toggleSound: (kind) => log('mute toggle', kind),

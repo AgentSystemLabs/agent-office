@@ -151,6 +151,28 @@ export function meetingRecord(m: Meeting): MeetingRecord {
 }
 
 /**
+ * A review panel for a pull request with everything defaulted: the pattern's seats, rounds
+ * and output, a per-seat token budget, and the caller's engine. The desktop Review panel
+ * button fills its form with these words; the VR detail button sends them after tap-twice.
+ */
+export function reviewMeetingRequest(pr: { number: number; title: string }, engine: { provider: AgentProvider; model?: string; effort?: AgentEffort }): MeetingRequest {
+  const def = MEETING_PATTERNS.review;
+  const roles = def.roles.slice(0, def.seats.default);
+  return {
+    pattern: 'review',
+    prompt: `Review pull request #${pr.number}: “${pr.title}”.`,
+    title: `Review of PR #${pr.number}`,
+    output: def.output('', pr.number),
+    pr: pr.number,
+    roles: [...roles],
+    rounds: def.rounds.default,
+    budget: roles.length * TOKENS_PER_SEAT,
+    provider: engine.provider,
+    model: engine.model,
+    effort: engine.effort,
+  };
+}
+/**
  * A meeting with everything the form would default to: the pattern's default seats,
  * rounds and output, a per-seat token budget, and the caller's engine. The VR call flow
  * sends this (two prompts, one pattern row); the desktop form sends the same shape with

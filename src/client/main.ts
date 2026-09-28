@@ -5,7 +5,7 @@ import { sameLook } from '../shared/avatar';
 import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, LADDER, LOFT, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, STOREY, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, roofDrop, seatAt, seatPlace, streetBelow, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
 import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
-import { MEETING_PATTERNS, defaultMeetingRequest } from '../shared/meetings';
+import { MEETING_PATTERNS, defaultMeetingRequest, reviewMeetingRequest } from '../shared/meetings';
 import { cleanDogName } from '../shared/dog';
 import { isAsleep, isBusy } from '../shared/status';
 import { Net } from './net';
@@ -531,6 +531,7 @@ const vr = new VRSession(renderer, scene, camera, {
         retryQueueTask: (taskId) => net.send({ t: 'queue.retry', taskId }),
         commentOn: (kind, number) => vrComment(kind, number),
         closeItem: (kind, number) => vrClose(kind, number),
+        reviewPanel: (number) => vrReviewPanel(number),
         renameDog: () => vrRenameDog(),
         toggleSound: (kind) => {
           // The ⚙️ Settings mute buttons: flip it, save it, hear it (levels stay desktop — sliders).
@@ -662,6 +663,22 @@ if (new URLSearchParams(location.search).has('vrtest')) {
       const at = new Date().toISOString();
       store.issues.items.push({ number, title, state: 'OPEN', url: '', author: 'vrtest', labels: [], assignees: [], createdAt: at, updatedAt: at, body: 'Seeded by the VR comment check.', comments: 0 });
       store.emit('issues');
+    },
+    // Seeds a fake open PR into this client's board (reload clears it).
+    seedPull: (number: number, title: string) => {
+      store.pulls.items = store.pulls.items.filter((p) => p.number !== number);
+      const at = new Date().toISOString();
+      store.pulls.items.push({ number, title, state: 'OPEN', isDraft: false, url: '', author: 'vrtest', labels: [], reviewDecision: '', headRefName: 'zzz', baseRefName: 'main', createdAt: at, updatedAt: at, additions: 1, deletions: 0, checks: 'none', body: 'Seeded by the VR review check.', closes: [] });
+      store.emit('pulls');
+    },
+    // Seeds a fake running meeting into this client's room (reload clears it).
+    seedMeetingBusy: (title: string) => {
+      store.meeting.current = {
+        id: 'zzz-meeting', pattern: 'debate', title, prompt: 'Seeded by the VR review check.', output: 'docs/zzz.md',
+        seats: [], rounds: 3, round: 1, step: 1, turns: [], budget: 1000000, tokens: 0, cost: 0, costKnown: true,
+        status: 'running', calledBy: 'vrtest', startedAt: Date.now(), notes: '.meeting',
+      };
+      store.emit('meeting');
     },
     // Whether this client is in voice (the join-voice check reads this back).
     inVoice: () => voice.inVoice,
@@ -1850,6 +1867,18 @@ function vrRenameDog() {
       if (name) net.send({ t: 'dog.name', name });
     },
   });
+}
+/** The PR detail view's 🔍 button, confirmed: a review panel with the pattern defaults on the meeting engine (the window's Review panel button — its form's confirm is the tap-twice). */
+function vrReviewPanel(number: number) {
+  const pr = store.pulls.items.find((p) => p.number === number);
+  if (!pr) return;
+  if (store.meeting.current?.status === 'running') {
+    toast(`The room is busy with “${store.meeting.current.title}” until it ends or someone stops it`, 'warn');
+    return;
+  }
+  const c = rememberedChoice(store.project, 'meeting');
+  net.send({ t: 'meeting.start', ...reviewMeetingRequest(pr, c) });
+  toast(`🔍 Calling the Review panel for PR #${number}: the reviewers are heading for the meeting room`);
 }
 /** The detail view's ✕ button, confirmed: close the issue or PR at the dialog's defaults (completed, no branch delete, no comment — the close dialog with nothing changed). */
 function vrClose(kind: 'issue' | 'pull', number: number) {

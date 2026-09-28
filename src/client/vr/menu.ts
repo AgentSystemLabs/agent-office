@@ -6,7 +6,7 @@
  *
  * Views: main (Hire, Next waiting, Queue, Issues/PRs, Floors, Jukebox, Bar, Chat, Mute, Exit VR),
  * hire (free desks), queue (running/queued/done, with tap-twice remove + requeue), board (issues/PRs tabs, read + hand-to-worker),
- * a detail view for one issue or PR (hand it over, queue it, comment, close it), floors (ride the elevator), jukebox (tunes + a stream row), bar (drinks),
+ * a detail view for one issue or PR (hand it over, queue it, comment, close it, review a PR), floors (ride the elevator), jukebox (tunes + a stream row), bar (drinks),
  * chat (the floor's chat + say something), assign (hand an issue to a worker), meeting (the room's
  * status + call one with the pattern defaults), services (the workers' web servers, tap to copy
  * a tunnel command), people (who else is around — tap a row to walk over), and settings
@@ -110,6 +110,8 @@ export interface VrMenuActions {
   commentOn: (kind: 'issue' | 'pull', number: number) => void;
   /** Closes an issue or PR — the board windows' close dialog at its defaults (main.ts vrClose). */
   closeItem: (kind: 'issue' | 'pull', number: number) => void;
+  /** Reviews a PR in the meeting room — the PR window's Review panel button (main.ts vrReviewPanel). */
+  reviewPanel: (number: number) => void;
   /** Leaves the immersive session — the XR session owner's exit. */
   exitVr: () => void;
 }
@@ -205,6 +207,9 @@ export class VrMenu {
   /** The queue row's arm: the task id tap-twice would remove or requeue, while now is before this. */
   private queueArmedUntil = 0;
   private queueArmedFor: string | null = null;
+  /** The PR review button's arm: the PR number tap-twice would call a panel for. */
+  private reviewArmedUntil = 0;
+  private reviewArmedFor: number | null = null;
 
   constructor(stores: VrMenuStores, actions: VrMenuActions, widthM = 0.62, heightM = 0.72) {
     this.stores = stores;
@@ -236,6 +241,8 @@ export class VrMenu {
     this.closeArmedFor = null;
     this.queueArmedUntil = 0;
     this.queueArmedFor = null;
+    this.reviewArmedUntil = 0;
+    this.reviewArmedFor = null;
     this.panel.setScrollOffset('list', 0);
     this.panel.setVisible(true);
     this.refresh();
@@ -251,6 +258,8 @@ export class VrMenu {
     this.closeArmedFor = null;
     this.queueArmedUntil = 0;
     this.queueArmedFor = null;
+    this.reviewArmedUntil = 0;
+    this.reviewArmedFor = null;
     this.panel.setScrollOffset('list', 0);
     this.panel.setVisible(true);
     this.refresh();
@@ -265,6 +274,8 @@ export class VrMenu {
     this.closeArmedFor = null;
     this.queueArmedUntil = 0;
     this.queueArmedFor = null;
+    this.reviewArmedUntil = 0;
+    this.reviewArmedFor = null;
     this.panel.setScrollOffset('list', 0);
     this.panel.setVisible(true);
     this.refresh();
@@ -291,6 +302,8 @@ export class VrMenu {
     this.closeArmedFor = null;
     this.queueArmedUntil = 0;
     this.queueArmedFor = null;
+    this.reviewArmedUntil = 0;
+    this.reviewArmedFor = null;
     this.panel.setScrollOffset('list', 0);
     this.refresh();
     this.panel.markDirty();
@@ -508,8 +521,15 @@ export class VrMenu {
       }
       if (d.kind === 'pull') {
         const w = this.pullWorker(d.number);
-        if (w) buttons.push({ id: 'act:term', rect: { x: 0.05, y: 0.82, w: 0.55, h: 0.12 }, onClick: () => this.onOpenTerminal?.(w) });
-        buttons.push({ id: 'act:comment', rect: w ? { x: 0.62, y: 0.82, w: 0.33, h: 0.12 } : { x: 0.05, y: 0.82, w: 0.9, h: 0.12 }, onClick: () => this.actions.commentOn('pull', d.number) });
+        const open = (item as { state?: string }).state === 'OPEN';
+        const termR = { x: 0.05, y: 0.82, w: open ? 0.42 : 0.55, h: 0.12 };
+        const commentR = w
+          ? (open ? { x: 0.49, y: 0.82, w: 0.24, h: 0.12 } : { x: 0.62, y: 0.82, w: 0.33, h: 0.12 })
+          : (open ? { x: 0.05, y: 0.82, w: 0.44, h: 0.12 } : { x: 0.05, y: 0.82, w: 0.9, h: 0.12 });
+        const reviewR = w ? { x: 0.75, y: 0.82, w: 0.2, h: 0.12 } : { x: 0.51, y: 0.82, w: 0.44, h: 0.12 };
+        if (w) buttons.push({ id: 'act:term', rect: termR, onClick: () => this.onOpenTerminal?.(w) });
+        buttons.push({ id: 'act:comment', rect: commentR, onClick: () => this.actions.commentOn('pull', d.number) });
+        if (open) buttons.push({ id: 'act:review', rect: reviewR, onClick: () => this.tapReview(d.number) });
       }
       this.panel.setButtons(buttons);
       return;
@@ -1204,18 +1224,43 @@ export class VrMenu {
     } else {
       const workerId = this.pullWorker(d.number);
       const name = workerId ? (this.stores.getWorkers().find((x) => x.id === workerId)?.name ?? '') : '';
-      if (workerId) this.actionBtn(ctx, w, h, { x: 0.05, y: 0.82, w: 0.55, h: 0.12 }, 'act:term', `💻 ${name}`, state, true);
-      this.actionBtn(ctx, w, h, workerId ? { x: 0.62, y: 0.82, w: 0.33, h: 0.12 } : { x: 0.05, y: 0.82, w: 0.9, h: 0.12 }, 'act:comment', '💬 Comment', state, !workerId);
+      const open = (item as { state?: string }).state === 'OPEN';
+      const termR = { x: 0.05, y: 0.82, w: open ? 0.42 : 0.55, h: 0.12 };
+      const commentR = workerId
+        ? (open ? { x: 0.49, y: 0.82, w: 0.24, h: 0.12 } : { x: 0.62, y: 0.82, w: 0.33, h: 0.12 })
+        : (open ? { x: 0.05, y: 0.82, w: 0.44, h: 0.12 } : { x: 0.05, y: 0.82, w: 0.9, h: 0.12 });
+      const reviewR = workerId ? { x: 0.75, y: 0.82, w: 0.2, h: 0.12 } : { x: 0.51, y: 0.82, w: 0.44, h: 0.12 };
+      if (workerId) this.actionBtn(ctx, w, h, termR, 'act:term', `💻 ${name}`, state, true);
+      this.actionBtn(ctx, w, h, commentR, 'act:comment', '💬 Comment', state, !workerId);
+      if (open) {
+        const armed = this.reviewArmedFor === d.number && performance.now() < this.reviewArmedUntil;
+        this.actionBtn(ctx, w, h, reviewR, 'act:review', armed ? '🔍 Sure?' : '🔍 Review', state, false, armed);
+      }
     }
   }
+  /** The PR 🔍 tap: the first arms it (red, with a ? — a panel seats three workers), the second calls it. */
+  private tapReview(number: number) {
+    const d = this.detail;
+    if (!d || this.view !== 'detail' || d.kind !== 'pull' || d.number !== number) return;
+    if (this.reviewArmedFor === number && performance.now() < this.reviewArmedUntil) {
+      this.reviewArmedFor = null;
+      this.reviewArmedUntil = 0;
+      this.actions.reviewPanel(number);
+      this.panel.markDirty();
+      return;
+    }
+    this.reviewArmedFor = number;
+    this.reviewArmedUntil = performance.now() + TAP_ARM_MS;
+    this.panel.markDirty();
+  }
 
-  private actionBtn(ctx: CanvasRenderingContext2D, w: number, h: number, r: Rect, id: string, label: string, state: { hoverId: string | null; pressedId: string | null }, primary: boolean) {
+  private actionBtn(ctx: CanvasRenderingContext2D, w: number, h: number, r: Rect, id: string, label: string, state: { hoverId: string | null; pressedId: string | null }, primary: boolean, armed = false) {
     const hot = state.hoverId === id || state.pressedId === id;
-    ctx.fillStyle = primary ? (hot ? '#ff7a2e' : '#ee6018') : hot ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.08)';
+    ctx.fillStyle = armed ? '#ef476f' : primary ? (hot ? '#ff7a2e' : '#ee6018') : hot ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.08)';
     ctx.beginPath();
     ctx.roundRect(r.x * w, r.y * h, r.w * w, r.h * h, r.h * h * 0.3);
     ctx.fill();
-    ctx.fillStyle = primary ? '#111' : '#eeeeee';
+    ctx.fillStyle = armed || primary ? '#111' : '#eeeeee';
     ctx.font = `700 ${Math.round(r.h * h * 0.3)}px ${TERM_FONT}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -1262,6 +1307,12 @@ export class VrMenu {
     if (this.queueArmedUntil && performance.now() >= this.queueArmedUntil) {
       this.queueArmedUntil = 0;
       this.queueArmedFor = null;
+      this.panel.markDirty();
+    }
+    // The armed 🔍 cools back down too.
+    if (this.reviewArmedUntil && performance.now() >= this.reviewArmedUntil) {
+      this.reviewArmedUntil = 0;
+      this.reviewArmedFor = null;
       this.panel.markDirty();
     }
     this.panel.update(dt, head);

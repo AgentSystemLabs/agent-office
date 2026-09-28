@@ -309,3 +309,19 @@ test('the VR call flow sends the picked pattern with its own defaults', async ()
   assert.equal(req.budget, def.seats.default * TOKENS_PER_SEAT);
   assert.equal(req.output, def.output('the-login-change'));
 });
+
+test('the VR review button sends a review panel with the pattern defaults', async () => {
+  const { reviewMeetingRequest, MEETING_PATTERNS, TOKENS_PER_SEAT } = await import('../src/shared/meetings.js');
+  const req = reviewMeetingRequest({ number: 42, title: 'Fix the login' }, { provider: 'claude', model: 'opus' });
+  const def = MEETING_PATTERNS.review;
+  assert.equal(req.pattern, 'review');
+  assert.equal(req.pr, 42);
+  assert.equal(req.title, 'Review of PR #42');
+  assert.equal(req.prompt, 'Review pull request #42: “Fix the login”.');
+  assert.equal(req.output, 'reviews/pr-42.md');
+  assert.deepEqual(req.roles, def.roles.slice(0, def.seats.default));
+  assert.equal(req.rounds, def.rounds.default);
+  assert.equal(req.budget, def.seats.default * TOKENS_PER_SEAT);
+  assert.equal(req.provider, 'claude');
+  assert.equal(req.model, 'opus');
+});
