@@ -184,14 +184,10 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     h('small.provider-model-hint', {}, 'The cost panel tracks each model separately.'),
   );
 
-  const setModelVisibility = (provider: AgentProvider) => {
-    const openCode = provider === 'opencode';
-    const claude = provider === 'claude';
-    note.textContent = providerUsageNote(provider);
-    modelChoice.classList.toggle('hidden', !openCode);
-    modelInput.disabled = !openCode;
-    claudeChoice.classList.toggle('hidden', !claude);
-    if (!openCode) return;
+  const element = h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice, claudeChoice);
+  /** OpenCode's model suggestions, asked for only once someone can see the field. */
+  const loadModels = () => {
+    if (select.value !== 'opencode' || !element.isConnected || element.closest('.hidden')) return;
     modelHint.textContent = modelList ? 'Optional provider/model override; choose a suggestion or enter one manually.' : 'Loading OpenCode models… You can enter a provider/model manually.';
     void fetchOpenCodeModels()
       .then((models) => {
@@ -201,6 +197,14 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
       .catch(() => {
         modelHint.textContent = 'Model suggestions unavailable; enter a provider/model manually if needed.';
       });
+  };
+  const setModelVisibility = (provider: AgentProvider) => {
+    const openCode = provider === 'opencode';
+    note.textContent = providerUsageNote(provider);
+    modelChoice.classList.toggle('hidden', !openCode);
+    modelInput.disabled = !openCode;
+    claudeChoice.classList.toggle('hidden', provider !== 'claude');
+    loadModels();
   };
   const set = (c: AgentChoice) => {
     select.value = options.includes(c.provider) ? c.provider : options.includes(fallback) ? fallback : options[0];
@@ -213,6 +217,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
   };
   set(initial);
   select.addEventListener('change', () => setModelVisibility(select.value as AgentProvider));
+  modelInput.addEventListener('focus', loadModels);
   modelInput.addEventListener('input', () => modelInput.setCustomValidity(''));
   const value = () => (options.includes(select.value as AgentProvider) ? (select.value as AgentProvider) : fallback);
   const effort = () => (select.value === 'claude' && effortSelect.value ? (effortSelect.value as AgentEffort) : undefined);
@@ -223,7 +228,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     return validModel(v) ? v : undefined;
   };
   return {
-    element: h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice, claudeChoice),
+    element,
     value,
     effort,
     model,
@@ -262,12 +267,14 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
     edit.title = editing ? `Back to ${choiceLabel(def)}` : 'Pick another provider, model or effort for this one';
     edit.setAttribute('aria-expanded', String(editing));
     fields.element.classList.toggle('hidden', !editing);
-    if (!editing) fields.set(def);
   };
   edit.addEventListener('click', () => {
     editing = !editing;
     paint();
-    if (editing) (fields.element.querySelector('select') as HTMLSelectElement | null)?.focus();
+    // They open on the default as it is now.
+    if (!editing) return;
+    fields.set(officeChoice(project));
+    (fields.element.querySelector('select') as HTMLSelectElement | null)?.focus();
   });
   paint();
   // The default can change while this is open; it goes once its window has closed.
