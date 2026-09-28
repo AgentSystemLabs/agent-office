@@ -298,3 +298,14 @@ test('the VR call flow sends a debate with the pattern defaults', async () => {
   assert.equal(titled.output, def.output('pick-a-cache'));
   assert.equal(titled.model, 'opus');
 });
+
+test('the VR call flow sends the picked pattern with its own defaults', async () => {
+  const { defaultMeetingRequest, MEETING_PATTERNS, TOKENS_PER_SEAT } = await import('../src/shared/meetings.js');
+  const req = defaultMeetingRequest('The login change', undefined, { provider: 'droid' }, 'redblue');
+  const def = MEETING_PATTERNS.redblue;
+  assert.equal(req.pattern, 'redblue');
+  assert.deepEqual(req.roles, def.roles.slice(0, def.seats.default));
+  assert.equal(req.rounds, def.rounds.default);
+  assert.equal(req.budget, def.seats.default * TOKENS_PER_SEAT);
+  assert.equal(req.output, def.output('the-login-change'));
+});

@@ -150,6 +150,8 @@ export interface VrUiHandle {
   setKeyboardTarget: (t: KeyboardTarget | null) => void;
   /** What the prompt field holds now (the emulator hook reads this back for assert scripts). */
   promptText: () => string;
+  /** The prompt's engine row label now (null without one — the emulator hook reads it back). */
+  promptEngine: () => string | null;
   /**
    * Routes one controller's ray to the topmost panel under it. Call every frame per
    * controller with its raycaster and trigger state; returns true when a panel took it.
@@ -390,6 +392,7 @@ class VrUi implements VrUiHandle {
   };
   onPanelClick: ((rayId: number) => void) | null = null;
   promptText = () => this.prompt.text;
+  promptEngine = () => this.prompt.engineLabel();
 
   setKeyboardTarget = (t: KeyboardTarget | null) => {
     this.keyboardExplicit = t;

@@ -151,16 +151,18 @@ export function meetingRecord(m: Meeting): MeetingRecord {
 }
 
 /**
- * A meeting with everything the form would default to: a debate, the pattern's default seats,
- * rounds and output, a per-seat token budget, and the caller's engine. The VR call flow sends
- * this (two prompts, no knobs); the desktop form sends the same shape with chosen values.
+ * A meeting with everything the form would default to: the pattern's default seats,
+ * rounds and output, a per-seat token budget, and the caller's engine. The VR call flow
+ * sends this (two prompts, one pattern row); the desktop form sends the same shape with
+ * chosen values. Only patterns that run from a bare question take the default seat here —
+ * map-reduce needs its parts and the review panel needs its PR (the desktop form asks).
  */
-export function defaultMeetingRequest(prompt: string, title: string | undefined, engine: { provider: AgentProvider; model?: string; effort?: AgentEffort }): MeetingRequest {
-  const def = MEETING_PATTERNS.debate;
+export function defaultMeetingRequest(prompt: string, title: string | undefined, engine: { provider: AgentProvider; model?: string; effort?: AgentEffort }, pattern: MeetingPattern = 'debate'): MeetingRequest {
+  const def = MEETING_PATTERNS[pattern];
   const roles = def.roles.slice(0, def.seats.default);
   const slug = slugify(title?.trim() || prompt.trim().split('\n')[0] || 'meeting', 32);
   return {
-    pattern: 'debate',
+    pattern,
     prompt,
     title: title?.trim() || undefined,
     output: def.output(slug),

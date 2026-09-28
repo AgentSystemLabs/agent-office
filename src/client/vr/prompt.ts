@@ -100,6 +100,10 @@ export class VrPromptPanel {
   get text(): string {
     return this.buffer.text;
   }
+  /** The engine row's label now (null without one — the emulator hook reads it back). */
+  engineLabel(): string | null {
+    return this.opts?.engine?.label() ?? null;
+  }
 
   /** Shows the prompt; attach.ts aims it, shows the keyboard, and retargets the keys here. */
   open(opts: VrPromptOpts) {

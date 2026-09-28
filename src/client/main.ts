@@ -659,6 +659,8 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     decor: () => store.decor.map((d) => ({ id: d.id, title: d.title, by: d.by })),
     // What the VR prompt field holds (assert scripts read this back after pressing keys).
     promptText: () => vrUi?.promptText() ?? null,
+    // The VR prompt's engine row label (the meeting-pattern check reads this back).
+    promptEngine: () => vrUi?.promptEngine() ?? null,
     // Downs shots for the drunk-in-VR check (strength adds up; water sobers): returns the level.
     drink: (id: 'beer' | 'wine' | 'martini' | 'maitai' | 'shot' | 'mojito' | 'water' = 'shot') => {
       const d = DRINK_BY_ID.get(id);
@@ -1898,18 +1900,30 @@ function vrAskStation(deskId: string) {
     },
   });
 }
-/** The meeting view's 🤝 call in VR: what's it about, an optional title, then a debate with the pattern defaults (seats, rounds, output, budget) on the meeting engine. */
+/** The VR meeting view's 🤝 call in VR: what's it about, an optional title, then a meeting with the pattern defaults (seats, rounds, output, budget) on the meeting engine. The pattern row cycles the three that run from a bare question — the review panel needs its PR and map-reduce needs its parts (the desktop form asks for those). */
 function vrMeeting() {
   if (!vrUi) return;
   if (store.meeting.current?.status === 'running') {
     toast(`The room is busy with “${store.meeting.current.title}” until it ends or someone stops it`, 'warn');
     return;
   }
+  const options = ['debate', 'lead', 'redblue'] as const;
+  let pattern: (typeof options)[number] = 'debate';
+  const patternLabel = () => {
+    const p = MEETING_PATTERNS[pattern];
+    return `${p.icon} ${p.label} · ${p.seats.default} workers · tap to change`;
+  };
   vrUi.askText({
     title: '🤝 Call a meeting',
-    subtitle: '🗣️ Debate · 3 workers · a decision doc at the end',
+    subtitle: 'The workers head for the meeting room',
     placeholder: 'The question to settle…',
     submitLabel: 'Next →',
+    engine: {
+      label: patternLabel,
+      onCycle: () => {
+        pattern = options[(options.indexOf(pattern) + 1) % options.length];
+      },
+    },
     onSubmit: (about) => {
       vrUi?.askText({
         title: '🤝 Call a meeting',
@@ -1923,8 +1937,8 @@ function vrMeeting() {
             return;
           }
           const c = rememberedChoice(store.project, 'meeting');
-          net.send({ t: 'meeting.start', ...defaultMeetingRequest(about, title || undefined, c) });
-          toast('🤝 Calling the Debate meeting: the workers are heading for the meeting room');
+          net.send({ t: 'meeting.start', ...defaultMeetingRequest(about, title || undefined, c, pattern) });
+          toast(`🤝 Calling the ${MEETING_PATTERNS[pattern].label} meeting: the workers are heading for the meeting room`);
         },
       });
     },
