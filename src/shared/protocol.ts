@@ -280,6 +280,8 @@ export interface GhPull {
   labels: { name: string; color: string }[];
   reviewDecision: string;
   headRefName: string;
+  /** The commit its branch is at on the forge (for a merged PR, the last one merged). */
+  headRefOid?: string;
   baseRefName: string;
   createdAt: string;
   updatedAt: string;
@@ -929,6 +931,17 @@ export interface ThemeState {
   at?: number;
 }
 
+/**
+ * Whether a worker whose pull request merged goes home by itself (⚙️ Settings), for every floor:
+ * once it's at rest and nobody has its terminal open, it leaves and its worktree and branch are deleted.
+ */
+export interface LeaveOnMergeState {
+  on: boolean;
+  /** Who set it, and when. Unset for the default (off). */
+  by?: string;
+  at?: number;
+}
+
 export interface ChatLine {
   from: string;
   name: string;
@@ -1107,6 +1120,8 @@ export type ClientMsg =
   | { t: 'floor.add'; repo: string }
   /** Dress the building up for a holiday, take the decorations down ('off'), or follow the calendar ('auto'). */
   | { t: 'theme.set'; pick: ThemePick }
+  /** Workers whose pull request merged go home by themselves (true), or wait to be sent home. */
+  | { t: 'leaveOnMerge.set'; on: boolean }
   /** Where new floors are cloned from now on (admins only); '' goes back to the default. */
   | { t: 'floor.projectsDir'; dir: string }
   /** Give the dog on your floor a pat; it has to be within reach. */
@@ -1143,6 +1158,7 @@ export type ServerMsg =
       sky: SkyState;
       /** Halloween or Christmas decorations, all over the building, or none. */
       theme: ThemeState;
+      leaveOnMerge: LeaveOnMergeState;
     } & FloorView)
   /** You arrived on another floor: everything on it, replacing the last one's, and where everyone is now. */
   | ({ t: 'floor.enter'; peers: PeerInfo[] } & FloorView)
@@ -1216,6 +1232,7 @@ export type ServerMsg =
   | { t: 'proxy'; state: ProxyState }
   | { t: 'sky'; state: SkyState }
   | { t: 'theme'; state: ThemeState }
+  | { t: 'leaveOnMerge'; state: LeaveOnMergeState }
   /** Sent to whoever watches that worker's changes, whenever they change. */
   | { t: 'changes'; state: ChangesState }
   | { t: 'changes.diff'; workerId: string; path: string; diff: string; truncated: boolean; error?: string }

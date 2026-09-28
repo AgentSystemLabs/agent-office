@@ -6,6 +6,7 @@ import type {
   GhIssue,
   GhPull,
   GhState,
+  LeaveOnMergeState,
   MachineState,
   MeetingState,
   NotifyState,
@@ -67,6 +68,7 @@ export type Topic =
   | 'jukebox'
   | 'sky'
   | 'theme'
+  | 'leaveOnMerge'
   | 'whiteboard'
   | 'drawing'
   | 'cabinet'
@@ -268,6 +270,8 @@ class Store {
   sky: SkyState | null = null;
   /** The building's holiday decorations: the same on every floor. */
   theme: ThemeState = { pick: 'auto', active: null };
+  /** Whether workers whose pull request merged go home by themselves (⚙️ Settings). */
+  leaveOnMerge: LeaveOnMergeState = { on: false };
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -372,8 +376,9 @@ class Store {
         this.clock = undefined; // compared again, in case it's another office (or the same one, restarted)
         this.sky = msg.sky;
         this.theme = msg.theme;
+        this.leaveOnMerge = msg.leaveOnMerge ?? { on: false };
         this.enter(msg);
-        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'proxy', 'floors', 'projectsDir', 'sky', 'theme'] as Topic[]) this.emit(t);
+        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'proxy', 'floors', 'projectsDir', 'sky', 'theme', 'leaveOnMerge'] as Topic[]) this.emit(t);
         break;
       case 'floor.enter':
         this.peers = new Map(msg.peers.map((p) => [p.id, p]));
@@ -537,6 +542,10 @@ class Store {
       case 'theme':
         this.theme = msg.state;
         this.emit('theme');
+        break;
+      case 'leaveOnMerge':
+        this.leaveOnMerge = msg.state;
+        this.emit('leaveOnMerge');
         break;
       case 'chat':
         this.chat.push(msg);
