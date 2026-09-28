@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Ledger } from '../src/server/usage.js';
-import { WorkerManager, type WorkerEvents } from '../src/server/workers.js';
+import { CARRY_ON_PROMPT, WorkerManager, type WorkerEvents } from '../src/server/workers.js';
 import type { AgentProvider, WorkerInfo } from '../src/shared/protocol.js';
 import type { PromptSource } from '../src/server/prompts.js';
 import { PROMPTS } from '../src/shared/prompts.js';
@@ -943,4 +943,115 @@ test('a worker is stamped with when it started waiting on someone, afresh each t
   hook('Stop');
   assert.equal(worker.status, 'done');
   assert.ok(worker.waitingSince! > asked, 'finishing is a new wait');
+});
+
+/** Each Claude worker launch so far (not the task namer's calls), oldest first. */
+const launches = (f: Fixture) => f.read().filter((r) => r.kind === 'claude' && r.args.includes('--settings'));
+/** What a launch was told to do: the prompt after `--`, if any. */
+const promptOf = (r: Invocation) => (r.args.includes('--') ? r.args[r.args.indexOf('--') + 1] : undefined);
+
+function carryOnFixture(t: { after(fn: () => void): void }) {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const oldLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = oldLog;
+    f.close();
+  });
+  return f;
+}
+
+/** Hires a Claude worker and puts its session in `state`: mid-turn ('working', 'needs_input') or finished ('done'). */
+async function hireInState(f: Fixture, workers: WorkerManager, deskId: string, session: string, state: 'working' | 'needs_input' | 'done') {
+  const before = launches(f).length;
+  const worker = workers.spawn(deskId, 'test', `task for ${session}`);
+  assert.notEqual(typeof worker, 'string');
+  if (typeof worker === 'string') throw new Error(worker);
+  const token = (await waitFor(() => launches(f), (x) => x.length > before)).at(-1)!.env.hookToken!;
+  const hook = (event: string, extra = {}) => assert.equal(workers.handleHook(worker.id, token, event, { session_id: session, ...extra }), true);
+  hook('SessionStart');
+  hook('UserPromptSubmit', { prompt: `task for ${session}` });
+  if (state === 'needs_input') hook('PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'npm test' } });
+  if (state === 'done') hook('Stop');
+  assert.equal(workers.get(worker.id)?.status, state);
+  return worker;
+}
+
+test('a restart that takes a mid-turn worker down resumes it with continue; a finished one just wakes up', async (t) => {
+  const f = carryOnFixture(t);
+  const before = manager(f, f.claude, []);
+  // Never started, so its terminals run in-process and go down with it.
+  await hireInState(f, before, 'desk-1', 'mid-turn', 'working');
+  await hireInState(f, before, 'desk-2', 'asking', 'needs_input');
+  await hireInState(f, before, 'desk-3', 'finished', 'done');
+  before.shutdown(true);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  const after = manager(f, f.claude, []);
+  t.after(() => after.shutdown());
+  await after.start();
+  const resumed = (await waitFor(() => launches(f), (x) => x.length >= 6)).slice(3);
+  const of = (session: string) => resumed.find((r) => r.args.includes(session))!;
+  for (const session of ['mid-turn', 'asking']) {
+    assert.ok(of(session).args.includes('--resume'));
+    assert.equal(promptOf(of(session)), CARRY_ON_PROMPT);
+  }
+  assert.ok(of('finished').args.includes('--resume'));
+  assert.equal(promptOf(of('finished')), undefined);
+});
+
+test('a worker whose terminal outlives the office is picked back up mid-turn, not relaunched or told to continue', async (t) => {
+  const f = carryOnFixture(t);
+  const before = manager(f, f.claude, []);
+  await before.start();
+  const worker = await hireInState(f, before, 'desk-1', 'kept', 'working');
+  before.shutdown(true);
+
+  const after = manager(f, f.claude, []);
+  t.after(() => after.shutdown());
+  await after.start();
+  assert.equal(after.get(worker.id)?.status, 'working');
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(launches(f).length, 1);
+});
+
+test('a worker whose terminal was in the host when an older office went down carries on if the host is gone', async (t) => {
+  const f = carryOnFixture(t);
+  // workers.json as the office before midTurn left it: only the host terminal's status says it was mid-turn.
+  const saved = (id: string, deskId: string, sessionId: string, status: string) => ({
+    id,
+    kind: 'agent',
+    provider: 'claude',
+    deskId,
+    name: id,
+    sessionId,
+    hookToken: `${id}-token`,
+    pty: { id: `${id}-pty`, status, acked: true },
+  });
+  writeFileSync(path.join(f.data, 'workers.json'), JSON.stringify([saved('upgraded', 'desk-1', 'was-working', 'working'), saved('idle', 'desk-2', 'was-done', 'done')]));
+  const workers = manager(f, f.claude, []);
+  t.after(() => workers.shutdown());
+  await workers.start();
+  const resumed = await waitFor(() => launches(f), (x) => x.length >= 2);
+  assert.equal(promptOf(resumed.find((r) => r.args.includes('was-working'))!), CARRY_ON_PROMPT);
+  assert.equal(promptOf(resumed.find((r) => r.args.includes('was-done'))!), undefined);
+});
+
+test('stopping the office on purpose (Ctrl+C) leaves nothing to carry on', async (t) => {
+  const f = carryOnFixture(t);
+  const before = manager(f, f.claude, []);
+  // Its terminals run in the host, which ends them without telling the office they exited.
+  await before.start();
+  await hireInState(f, before, 'desk-1', 'stopped', 'working');
+  before.shutdown(false);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  const after = manager(f, f.claude, []);
+  t.after(() => after.shutdown());
+  await after.start();
+  const resumed = (await waitFor(() => launches(f), (x) => x.length >= 2))[1];
+  assert.ok(resumed.args.includes('stopped'));
+  assert.equal(promptOf(resumed), undefined);
 });

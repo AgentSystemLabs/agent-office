@@ -537,8 +537,8 @@ export async function startServer(cfg: Config) {
   const upgrader = new Upgrader(
     (state) => broadcast({ t: 'upgrade', state }),
     () => {
-      // cli.ts shuts down gracefully; systemd (Restart=always) then starts the new version, which
-      // wakes every worker.
+      // cli.ts shuts down gracefully, leaving the workers running in their terminal host; systemd
+      // (Restart=always) then starts the new version, which picks them back up.
       process.kill(process.pid, 'SIGTERM');
     },
   );

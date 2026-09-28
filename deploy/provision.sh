@@ -246,6 +246,10 @@ Environment=AGENT_OFFICE_SELF_UPDATE=1
 ExecStart=/usr/bin/node /opt/agent-office/bin/agent-office.js ${OFFICE_ARGS}--host 127.0.0.1 --port 4600
 Restart=always
 RestartSec=3
+# Stopping or restarting the office stops the office, not its workers: their terminals run in a
+# process of their own that the next office picks back up. The default, control-group, would stop
+# every worker mid-task on each upgrade.
+KillMode=process
 LimitNOFILE=65536
 
 [Install]
