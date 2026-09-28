@@ -60,6 +60,7 @@ const MIME: Record<string, string> = {
   '.wasm': 'application/wasm',
   '.mp3': 'audio/mpeg',
   '.ogg': 'audio/ogg',
+  '.glb': 'model/gltf-binary',
 };
 
 const CLEANUPS = new Set(['keep', 'worktree', 'all']);
