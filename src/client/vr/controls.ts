@@ -19,7 +19,7 @@ interface GestureRow {
 const HANDS: GestureRow[] = [
   { gesture: '👌 Pinch', does: 'use it (E)' },
   { gesture: '👌… hold', does: 'aim teleport, let go to land' },
-  { gesture: '🤏🤏 both', does: 'hold together: ☰ menu' },
+  { gesture: '🤏🤏 both', does: 'hold together, rays off the panels: ☰ menu' },
   { gesture: '🪜 Ladder', does: 'hold right climbs · left goes down · tap lets go' },
   { gesture: '🚶 walk', does: 'the room is the room: just walk' },
 ];
