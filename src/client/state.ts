@@ -116,6 +116,20 @@ export function workerForPull(workers: Iterable<WorkerInfo>, pr: { number: numbe
   return undefined;
 }
 
+/**
+ * Its work has landed: a pull request from its branch, its desk or its queue task merged, and it
+ * has none still open (a follow-up on the same branch), so it can be sent home.
+ */
+export function prMerged(w: WorkerInfo, pulls: GhPull[], tasks: QueueTask[]): boolean {
+  const mine = new Set<number>();
+  if (w.pr) mine.add(w.pr.number);
+  for (const t of tasks) if (t.workerId === w.id && t.pr) mine.add(t.pr.number);
+  const states = pulls.filter((p) => mine.has(p.number) || (w.worktree && w.worktree.branch === p.headRefName)).map((p) => p.state);
+  // Its task's PR can drop off the list GitHub sends (the last 30 merged): keep what the queue saw.
+  for (const t of tasks) if (t.workerId === w.id && t.pr && !pulls.some((p) => p.number === t.pr!.number)) states.push(t.pr.state);
+  return states.includes('MERGED') && !states.some((s) => s === 'OPEN' || s === 'DRAFT');
+}
+
 class Store {
   you = '';
   profile: Profile = { name: 'Guest', color: AVATAR_COLORS[1], look: randomLook() };
