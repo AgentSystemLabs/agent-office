@@ -1,0 +1,63 @@
+# Versions copied verbatim from the vr-xrref BUILD section (orbXR
+# ghosttyxr/android/gradle/libs.versions.toml), pruned to what this app uses
+# (no Firebase, billing, or window-mirror). code-scanner comes from the vr-docs
+# Q3 finding (Google code scanner 16.1.0).
+[versions]
+# AGP 9 ships built-in Kotlin, so the kotlin-android plugin is gone.
+agp = "9.4.1"
+kotlin = "2.4.20"
+coreKtx = "1.19.0"
+lifecycle = "2.11.0"
+activityCompose = "1.13.0"
+composeBom = "2026.09.00"
+# Jetpack XR — scenecore/runtime/arcore are rc01 (API frozen); compose trails at alpha17.
+xrCompose = "1.0.0-alpha17"
+xrSceneCore = "1.0.0-rc01"
+xrRuntime = "1.0.0-rc01"
+xrArcore = "1.0.0-rc01"
+# Stub API needed on the compile classpath (R8/runtime split); compileOnly.
+extensionsXr = "1.4.0"
+camerax = "1.6.2"
+mlkitBarcode = "17.3.0"
+codeScanner = "16.1.0"
+securityCrypto = "1.1.0"
+okhttp = "5.5.0"
+json = "20260814"
+coroutines = "1.11.0"
+junit = "4.13.2"
+
+[libraries]
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
+androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
+androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-xr-compose = { group = "androidx.xr.compose", name = "compose", version.ref = "xrCompose" }
+androidx-xr-scenecore = { group = "androidx.xr.scenecore", name = "scenecore", version.ref = "xrSceneCore" }
+androidx-xr-runtime = { group = "androidx.xr.runtime", name = "runtime", version.ref = "xrRuntime" }
+androidx-xr-arcore = { group = "androidx.xr.arcore", name = "arcore", version.ref = "xrArcore" }
+androidx-xr-extensions = { group = "com.android.extensions.xr", name = "extensions-xr", version.ref = "extensionsXr" }
+androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
+androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkitBarcode" }
+play-services-code-scanner = { group = "com.google.android.gms", name = "play-services-code-scanner", version.ref = "codeScanner" }
+androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+okhttp-bom = { group = "com.squareup.okhttp3", name = "okhttp-bom", version.ref = "okhttp" }
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp" }
+# Real org.json impl for host-JVM unit tests; the android.jar stub returns
+# default values, which would make response-parsing tests meaningless.
+json = { group = "org.json", name = "json", version.ref = "json" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Cleartext policy for the LAN-paired office server.
+
+    LIMITATION (documented choice, vr-docs Q4): cleartext is permitted for all
+    destinations, not just the paired host. A per-host <domain-config> cannot
+    cover our case because the paired host is dynamic — it arrives inside the QR
+    payload at runtime (often a bare IP literal like 192.168.1.10, which is a
+    poor fit for this file). The QR still pins the exact ws:// URL we connect
+    to; this config only lifts the platform block. Revisit with per-host rules
+    (or wss-only) once the server ships TLS + token auth.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
