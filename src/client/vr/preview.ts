@@ -172,6 +172,7 @@ const deps: VrUiDeps = {
     queueLimit: (n) => log('queue width →', n),
     removeQueueTask: (id) => log('remove queue task', id),
     retryQueueTask: (id) => log('requeue task', id),
+    clearQueue: () => log('clear finished tasks'),
     commentOn: (kind, n) => log('comment on', kind, `#${n}`),
     closeItem: (kind, n) => log('close', kind, `#${n}`),
     reviewPanel: (n) => log('review panel for PR', `#${n}`),

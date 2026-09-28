@@ -546,6 +546,7 @@ const vr = new VRSession(renderer, scene, camera, {
         queueLimit: (maxWorkers) => net.send({ t: 'queue.limit', maxWorkers }),
         removeQueueTask: (taskId) => net.send({ t: 'queue.remove', taskId }),
         retryQueueTask: (taskId) => net.send({ t: 'queue.retry', taskId }),
+        clearQueue: () => net.send({ t: 'queue.clear' }),
         commentOn: (kind, number) => vrComment(kind, number),
         closeItem: (kind, number) => vrClose(kind, number),
         reviewPanel: (number) => vrReviewPanel(number),

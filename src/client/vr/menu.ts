@@ -146,6 +146,8 @@ export interface VrMenuActions {
   removeQueueTask: (taskId: string) => void;
   /** Puts a finished task back on the queue — the window's Requeue (queue.retry). */
   retryQueueTask: (taskId: string) => void;
+  /** Forgets the finished tasks — the window's Clear (queue.clear). */
+  clearQueue: () => void;
   /** Comments on an issue or PR — the board windows' comment box (main.ts vrComment). */
   commentOn: (kind: 'issue' | 'pull', number: number) => void;
   /** Closes an issue or PR — the board windows' close dialog at its defaults (main.ts vrClose). */
@@ -744,7 +746,7 @@ export class VrMenu {
     if (this.view === 'hire') return Math.max(1, this.stores.getFreeDesks().length);
     if (this.view === 'queue') {
       const l = this.queueLists();
-      return l.running.length + l.queued.length + l.done.length;
+      return l.running.length + l.queued.length + l.done.length + (l.done.length ? 1 : 0);
     }
     if (this.view === 'floors') return this.floorRows().length;
     if (this.view === 'jukebox') return JUKEBOX_TUNES.length + 1;
@@ -804,6 +806,23 @@ export class VrMenu {
       return;
     }
     if (this.view === 'queue') {
+      const l = this.queueLists();
+      const total = l.running.length + l.queued.length + l.done.length;
+      // The trailing clear row: tap-twice forgets the finished ones (the window's Clear
+      // asks nothing — the headset keeps its destructive grammar anyway).
+      if (i === total && l.done.length) {
+        if (this.queueArmedFor === 'clear' && performance.now() < this.queueArmedUntil) {
+          this.queueArmedFor = null;
+          this.queueArmedUntil = 0;
+          this.actions.clearQueue();
+          this.panel.markDirty();
+          return;
+        }
+        this.queueArmedFor = 'clear';
+        this.queueArmedUntil = performance.now() + TAP_ARM_MS;
+        this.panel.markDirty();
+        return;
+      }
       const t = this.queueTaskAt(i);
       if (!t) return;
       // Running work opens its terminal (whose ⏻ stops it); queued and done arm tap-twice.
@@ -923,8 +942,14 @@ export class VrMenu {
   }
   /** The queue row's arm: live while the same task id is armed and the window holds. */
   private queueArmed(i: number): boolean {
+    if (performance.now() >= this.queueArmedUntil) return false;
     const t = this.queueTaskAt(i);
-    return !!t && this.queueArmedFor === t.id && performance.now() < this.queueArmedUntil;
+    // Past the tasks sits the trailing clear row (its sentinel arms it).
+    if (!t) {
+      const l = this.queueLists();
+      return i === l.running.length + l.queued.length + l.done.length && !!l.done.length && this.queueArmedFor === 'clear';
+    }
+    return this.queueArmedFor === t.id;
   }
 
   private issueTitle(number: number): string {
@@ -1398,7 +1423,15 @@ export class VrMenu {
     }
     if (this.view === 'queue') {
       const t = this.queueTaskAt(i);
-      if (!t) return;
+      if (!t) {
+        // The trailing clear row (the Clear forgets every finished task, not just the eight shown).
+        const l = this.queueLists();
+        const n = this.stores.getQueue().tasks.filter((x) => x.status === 'done').length;
+        if (i === l.running.length + l.queued.length + l.done.length && l.done.length) {
+          this.rowText(ctx, '🧹', 'Clear finished', this.queueArmed(i) ? 'tap again to forget them' : `${n} finished`, x, y, bw, rh);
+        }
+        return;
+      }
       const icon = t.status === 'running' ? '🤖' : t.status === 'queued' ? '⏳' : t.outcome === 'done' ? '✅' : '⚠️';
       const title = t.issue !== undefined ? `#${t.issue} ${t.title}` : t.title;
       const armed = this.queueArmed(i);
