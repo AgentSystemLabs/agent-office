@@ -123,6 +123,10 @@ Every setting the office and the installers read from the environment is listed,
 
 To start the office in a project you already have, pass its folder: `agent-office ~/code/my-project`. That project becomes a floor, and the office keeps its data in `~/code/my-project/.agent-office` as it always did. An office that already ran in a project (from before there were floors) carries on in it when you start `agent-office` there again.
 
+### Install as an app
+
+In Chrome or Edge, open the office and choose **Install** in the address bar, or **⋮ → Cast, save and share → Install page as app**. Agent Office opens in its own window, with its own icon in your Dock, taskbar or app launcher. This needs HTTPS with a certificate your browser trusts, or `localhost` (including an SSH tunnel). The office server and any tunnel still need to be running; the app has no offline mode.
+
 ### Accounts
 
 The office password gets you in until everyone has an account, and whoever signs in with it is an admin. Open **🔑 Accounts** and make an invite link for each person. Give the invite a name, or leave it empty and they pick their own, and make them a *Member* or an *Admin*. Send them the link: it works once, for 7 days, and they choose their own password. Make one for yourself too, as an admin.
