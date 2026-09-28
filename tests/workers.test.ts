@@ -657,11 +657,13 @@ test('an explicit Claude model/effort overrides --agent-args and persists across
   if (typeof worker === 'string') return;
   assert.equal(workers.get(worker.id)?.model, 'haiku');
   assert.equal(workers.get(worker.id)?.effort, 'high');
+  // The task namer's one-shot `claude -p` can land in the log before or between the worker's launches.
+  const launches = (records: Invocation[]) => records.filter((r) => r.kind === 'claude' && !r.args.includes('-p'));
   const first = await waitFor(
     () => f.read(),
-    (records) => records.some((r) => r.kind === 'claude'),
+    (records) => launches(records).length >= 1,
   );
-  const firstInvocation = first.find((r) => r.kind === 'claude')!;
+  const firstInvocation = launches(first)[0];
   // The per-worker choice is appended after --agent-args, so it wins even though "opus" also appears.
   assert.deepEqual(firstInvocation.args.slice(firstInvocation.args.indexOf('--model')), ['--model', 'opus', '--model', 'haiku', '--effort', 'high', '--', 'haiku task']);
 
@@ -673,9 +675,9 @@ test('an explicit Claude model/effort overrides --agent-args and persists across
   assert.equal(workers.resume(worker.id), undefined);
   const resumed = await waitFor(
     () => f.read(),
-    (records) => records.filter((r) => r.kind === 'claude').length >= 2,
+    (records) => launches(records).length >= 2,
   );
-  const secondInvocation = resumed.filter((r) => r.kind === 'claude')[1];
+  const secondInvocation = launches(resumed)[1];
   assert.ok(secondInvocation.args.includes('--model'));
   assert.ok(secondInvocation.args.includes('haiku'));
   assert.ok(secondInvocation.args.includes('--effort'));
