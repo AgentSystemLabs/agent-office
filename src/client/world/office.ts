@@ -15,6 +15,7 @@ import { buildGreen, buildTee, type Green, type Tee } from './golf';
 import { buildStack, type Stack } from './stack';
 import { buildTower } from './tower';
 import { buildHoop, type HoopView } from './hoop';
+import { buildKitchen } from './kitchen';
 import { HOOP } from '../../shared/hoop';
 
 export interface Collider {
@@ -1176,32 +1177,10 @@ export function buildOffice(): Office {
   fixture('south', BOOKSHELF.x, (BOOKSHELF.height + 0.55) / 2, BOOKSHELF.width + 0.2, BOOKSHELF.height + 0.55);
 
   // Kitchen corner: counter + coffee machine + fridge
-  const kitchen = new THREE.Group();
-  kitchen.add(mesh(box(5, 0.95, 1), toon('#8ecae6'), 0, 0.475, 0));
-  kitchen.add(mesh(box(5.1, 0.08, 1.1), toon(PALETTE.desk), 0, 0.99, 0));
-  const coffee = new THREE.Group();
-  coffee.add(mesh(roundedBox(0.6, 0.7, 0.5, 0.08), toon('#343a40'), 0, 0.35, 0));
-  coffee.add(mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.14, 10), toon('#ffffff'), 0, 0.1, 0.12));
-  coffee.add(mesh(new THREE.SphereGeometry(0.05, 8, 8), toon('#ef476f', { emissive: '#ef476f' }), 0.18, 0.55, 0.26));
-  coffee.position.set(-1.2, 1.03, 0);
-  kitchen.add(coffee);
-  const fridge = new THREE.Group();
-  fridge.add(mesh(roundedBox(1.1, 2.2, 1, 0.1), toon('#e9ecef'), 0, 1.1, 0));
-  // The doors and handles sit on the room-facing side (-z); +z is tight against the south wall.
-  fridge.add(mesh(roundedBox(1, 1.25, 0.05, 0.06), toon('#f8f9fa'), 0, 1.49, -0.5));
-  fridge.add(mesh(roundedBox(1, 0.73, 0.05, 0.06), toon('#f1f3f5'), 0, 0.45, -0.5));
-  fridge.add(mesh(box(0.94, 0.035, 0.025), toon('#adb5bd'), 0, 0.84, -0.535));
-  fridge.add(mesh(roundedBox(0.09, 0.43, 0.09, 0.025), toon('#6c757d'), -0.35, 1.26, -0.57));
-  fridge.add(mesh(roundedBox(0.09, 0.3, 0.09, 0.025), toon('#6c757d'), -0.35, 0.62, -0.57));
-  fridge.position.x = 3.2;
-  kitchen.add(fridge);
-  kitchen.position.set(-14.5, 0, 12.2);
-  group.add(kitchen);
-  colliders.push({ minX: -17, maxX: -12, minZ: 11.7, maxZ: 12.7, top: 1.03 });
-  colliders.push({ minX: -11.85, maxX: -10.75, minZ: 11.7, maxZ: 12.7, top: 2.2 });
-  const cup: Interactable = { kind: 'coffee', x: -15.7, z: 10.9, radius: 1.4 };
-  interactables.push(cup);
-  coffee.userData.interact = cup;
+  const kitchen = buildKitchen();
+  group.add(kitchen.group);
+  colliders.push(...kitchen.colliders);
+  interactables.push(kitchen.interactable);
   // Counter, coffee machine and fridge, in front of the south wall.
   fixture('south', -14.5, 0.55, 5.1, 1.1);
   fixture('south', -15.7, 0.9, 0.6, 1.8);

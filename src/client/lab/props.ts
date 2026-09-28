@@ -15,6 +15,7 @@ import { buildCabinet } from '../world/cabinet';
 import { supercar } from '../world/cars';
 import { buildGong } from '../world/gong';
 import { buildJukebox } from '../world/jukebox';
+import { buildKitchen } from '../world/kitchen';
 import { preloadModels } from '../world/models';
 import { ready, stage } from './stage';
 
@@ -37,6 +38,7 @@ const SHOW: Record<string, () => Shown> = {
     return { object: g.group, update: (dt) => g.update(dt) };
   },
   cabinet: () => ({ object: buildCabinet().group }),
+  kitchen: () => ({ object: buildKitchen().group }),
   lambo: () => ({ object: supercar('lambo', '#ffd166') }),
   ferrari: () => ({ object: supercar('ferrari', '#ef476f') }),
 };
