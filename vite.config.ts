@@ -46,6 +46,11 @@ export default defineConfig({
     emptyOutDir: true,
     chunkSizeWarningLimit: 2000,
     rollupOptions: {
+      // xrblocks' simulator, spatial-UI, AI and vision chunks import these, but only from lazy
+      // chunks the office never loads (it uses Hands alone, see vr/session.ts). Per xrblocks'
+      // own docs, they stay external instead of installed; three and its addons still bundle.
+      external: (id) =>
+        /^(lit|lit-html|@pmndrs\/uikit|@preact\/signals-core|@sparkjsdev\/spark|openai|three-mesh-bvh|three-pathfinding|@google\/genai|@huggingface\/transformers|@mediapipe\/tasks-(audio|vision))($|\/)/.test(id),
       onwarn(warning, warn) {
         // Excalidraw's Radix UI parts start with "use client", which means nothing outside React Server Components.
         if (warning.code === 'MODULE_LEVEL_DIRECTIVE') return;

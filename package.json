@@ -30,7 +30,8 @@
     "@xterm/addon-unicode11": "^0.9.0",
     "@xterm/headless": "^6.0.0",
     "selfsigned": "^5.5.0",
-    "ws": "^8.21.3"
+    "ws": "^8.21.3",
+    "xrblocks": "^0.21.1"
   },
   "devDependencies": {
     "@excalidraw/excalidraw": "^0.18.1",

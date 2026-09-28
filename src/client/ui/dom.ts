@@ -109,6 +109,14 @@ export function closeAllModals() {
   while (stack.length) stack[stack.length - 1].close();
 }
 
+/** Closes the topmost window, like Esc. False when none is open. */
+export function closeTopModal(): boolean {
+  const top = stack[stack.length - 1];
+  if (!top) return false;
+  top.close();
+  return true;
+}
+
 export function toast(text: string, level: 'info' | 'warn' | 'error' = 'info'): HTMLElement {
   const el = h('div.toast', { class: level }, text);
   document.getElementById('toasts')!.append(el);
