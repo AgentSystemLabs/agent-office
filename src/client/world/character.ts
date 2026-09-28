@@ -5,6 +5,7 @@ import type { CarriedIssue, Theme, WorkerAction, WorkerStatus, WorkerTask } from
 import type { Drink } from '../../shared/rooftop';
 import { isAsleep } from '../../shared/status';
 import { HIPS } from '../player';
+import { OpenBook } from './book';
 import { HeldCard } from './card';
 import { UNDEAD_SKIN, elfBoot, elfHat, elfWorker, santaHat, warlockHat, zombieWorker } from './costumes';
 import { cardSprite, disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
@@ -296,6 +297,10 @@ export class Person {
   private glass: { id: string; group: THREE.Group } | null = null;
   /** An issue card off the board, held out in front in both hands. */
   private card: HeldCard;
+  private cardHolder = new THREE.Group();
+  /** A book off the bookshelf, open in both hands while they read (see read). */
+  private book: OpenBook | null = null;
+  private bookHolder = new THREE.Group();
   pose: Pose = 'stand';
   private cig: THREE.Group;
   private ember: THREE.MeshToonMaterial;
@@ -392,11 +397,17 @@ export class Person {
     this.cig.visible = false;
     this.armL.add(this.cig);
     // Between the hands when both arms are out in front (see update), its front to whoever they walk up to.
-    const holder = new THREE.Group();
+    const holder = this.cardHolder;
     holder.position.set(0, 0.8, 0.36);
     holder.rotation.x = -0.1;
     this.body.add(holder);
     this.card = new HeldCard(holder, 0.46);
+    // Held out at chest height, turned round and tipped up so the pages face their eyes, top edge
+    // away from them, with the hands on its bottom corners.
+    this.bookHolder.position.set(0, 1, 0.48);
+    this.bookHolder.rotation.set(0.85, Math.PI, 0);
+    this.bookHolder.scale.setScalar(1.25);
+    this.body.add(this.bookHolder);
     // Along the arm (the fist's -y) the finger points; the thumb sticks out of the front of the fist,
     // which is up once the arm is out in front.
     this.thumb = mesh(new THREE.CapsuleGeometry(0.035, 0.07, 4, 8).rotateX(Math.PI / 2), skin, 0, -0.38, 0.1, false);
@@ -585,7 +596,7 @@ export class Person {
   holdMug(on: boolean) {
     this.wantsMug = on;
     this.cup.visible = !this.glass;
-    this.mug.visible = (on || !!this.glass) && !this.card.held;
+    this.mug.visible = (on || !!this.glass) && !this.card.held && !this.book;
   }
 
   /** A drink from the rooftop bar in the left hand (in place of a mug), or none (null). */
@@ -608,6 +619,26 @@ export class Person {
   carry(card: CarriedIssue | null | undefined) {
     this.card.set(card);
     this.holdMug(this.wantsMug);
+  }
+
+  /** Opens a book in both hands and reads it, turning the pages (or closes it). A card they carry waits. */
+  read(on: boolean) {
+    if (on === !!this.book) return;
+    if (on) {
+      this.book = new OpenBook();
+      this.bookHolder.add(this.book.group);
+    } else {
+      this.bookHolder.remove(this.book!.group);
+      this.book!.dispose();
+      this.book = null;
+    }
+    this.cardHolder.visible = !on;
+    this.holdMug(this.wantsMug);
+  }
+
+  /** Turns a page of the book they're reading now. */
+  turnPage() {
+    this.book?.turn();
   }
 
   /** Waves, gives a thumbs up, claps…: the gesture, with its emoji popping up over their head. */
@@ -787,7 +818,12 @@ export class Person {
       for (const arm of [this.armL, this.armR]) arm.rotation.x = THREE.MathUtils.lerp(arm.rotation.x, -0.55, sit);
     }
     if (this.smokeT >= 0) this.smokeStep(dt, moving, airborne);
-    if (this.card.held) {
+    if (this.book) {
+      // Both arms out in front, hands under the book's bottom corners.
+      this.armL.rotation.set(-1.5, 0, 0.32);
+      this.armR.rotation.set(-1.5, 0, -0.32);
+      this.book.update(dt);
+    } else if (this.card.held) {
       // Both arms out in front, hands on the card's edges: it doesn't swing while they walk.
       this.armL.rotation.set(-1.25, 0, 0.3);
       this.armR.rotation.set(-1.25, 0, -0.3);
@@ -832,7 +868,8 @@ export class Person {
     this.smile.visible = !talking;
     this.mouth.visible = talking;
     if (talking) this.mouth.scale.set(0.07 * (1 - this.mouthOpen * 0.2), 0.01 + this.mouthOpen * 0.045, 0.05);
-    this.head.rotation.x = -this.mouthOpen * 0.08;
+    // Reading, they look down into the book.
+    this.head.rotation.x = -this.mouthOpen * 0.08 + (this.book ? 0.32 : 0);
     this.head.rotation.y = this.head.rotation.z = 0;
     this.body.rotation.y = this.body.rotation.z = 0;
     if (this.emoting) this.emoteStep(dt, moving || airborne ? 0 : 1 - sit);

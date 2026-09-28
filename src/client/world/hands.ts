@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { EMOTE_BY_ID, type Emote, type EmoteId } from '../../shared/emotes';
 import type { CarriedIssue, Theme } from '../../shared/protocol';
 import type { Drink } from '../../shared/rooftop';
+import { OpenBook } from './book';
 import { HeldCard } from './card';
 import { REACH_TIME, SMOKE_CYCLE, cigarette, coffeeMug, dragCurve, drinkGlass, emoteEnvelope, putDownGlass, reachCurve } from './character';
 import { UNDEAD_SKIN, raggedCuff, warlockHand, witchFire } from './costumes';
@@ -56,7 +57,10 @@ export class Hands {
   /** An issue card off the board, held low in front of you in both hands. */
   private holder = new THREE.Group();
   private card: HeldCard;
-  /** 0 → 1 as the card comes up into view and the hands close in on it. */
+  /** A book off the bookshelf, open in both hands while you read (see read). */
+  private bookHolder = new THREE.Group();
+  private book: OpenBook | null = null;
+  /** 0 → 1 as the card (or the book) comes up into view and the hands close in on it. */
   private carryK = 0;
   /** Seconds into a sip (negative while it waits for the reach to finish), or null. */
   private sipT: number | null = null;
@@ -121,6 +125,10 @@ export class Hands {
     this.holder.rotation.x = -0.35;
     this.scene.add(this.holder);
     this.card = new HeldCard(this.holder, 0.24);
+    // Tipped further back than a card, so you look down into its pages.
+    this.bookHolder.rotation.x = -0.8;
+    this.bookHolder.scale.setScalar(0.7);
+    this.scene.add(this.bookHolder);
   }
 
   /** Puts a lit cigarette in your right hand, or takes it away. */
@@ -206,8 +214,9 @@ export class Hands {
   /** A mug of coffee in the left hand, or not. */
   holdMug(on: boolean) {
     this.wantsMug = on;
-    this.mug.visible = on && !this.card.held && !this.glass;
-    if (this.glass) this.glass.group.visible = !this.card.held;
+    const full = this.card.held || !!this.book;
+    this.mug.visible = on && !full && !this.glass;
+    if (this.glass) this.glass.group.visible = !full;
   }
 
   /** A drink from the rooftop bar in the left hand, or none (null). */
@@ -233,6 +242,27 @@ export class Hands {
     this.card.set(card);
     if (!was) this.carryK = 0;
     this.holdMug(this.wantsMug);
+  }
+
+  /** An open book in both hands, its pages turning, or none. A card you carry waits. */
+  read(on: boolean) {
+    if (on === !!this.book) return;
+    if (on) {
+      this.book = new OpenBook();
+      this.bookHolder.add(this.book.group);
+      this.carryK = 0;
+    } else {
+      this.bookHolder.remove(this.book!.group);
+      this.book!.dispose();
+      this.book = null;
+    }
+    this.holder.visible = !on;
+    this.holdMug(this.wantsMug);
+  }
+
+  /** Turns a page of the book you're reading now. */
+  turnPage() {
+    this.book?.turn();
   }
 
   /** Your hands' half of an emote: a wave, a thumbs up, a clap… in front of your eyes. */
@@ -320,7 +350,7 @@ export class Hands {
       if (this.sipT >= SIP_TIME) this.sipT = null;
     }
     const shake = s.jitter * 0.004;
-    this.carryK += ((this.card.held ? 1 : 0) - this.carryK) * Math.min(1, dt * 7);
+    this.carryK += ((this.card.held || this.book ? 1 : 0) - this.carryK) * Math.min(1, dt * 7);
     const carry = this.carryK;
 
     for (const [arm, side] of [
@@ -362,8 +392,12 @@ export class Hands {
       g.rotation.x += (side > 0 ? 0.45 : 0.25) * pk;
       g.rotation.y += (side > 0 ? 0.55 : 0) * pk;
     }
-    // The card rides along with the hands, coming up from below as you take it.
+    // The card rides along with the hands, coming up from below as you take it; so does the book.
     this.holder.position.set(this.sway.x + step * 0.008, this.sway.y + breathe + bounce + this.air * 0.05 - 0.115 - 0.3 * (1 - carry), -0.5);
+    if (this.book) {
+      this.bookHolder.position.set(this.holder.position.x, this.holder.position.y, -0.48);
+      this.book.update(dt);
+    }
     // The reach: the right hand jabs out toward the crosshair, the left pulls back a little.
     const r = this.right.group;
     r.position.x -= 0.16 * k;

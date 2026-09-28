@@ -36,7 +36,7 @@ import { Voice } from './voice';
 import { OfficeSound } from './sound';
 import { DesktopNotifier, askNotifyPermission, notifyPermission, waitingOnSomeone } from './notify';
 import { NextUp, waitingInOrder, waitingLabel } from './nextup';
-import { $, h, clip, closeAllModals, doingNow, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
+import { $, h, clip, closeAllModals, doingNow, modalOpen, onDoingChange, onModalChange, openModal, readingNow, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage, type TerminalFind } from './ui/terminal';
 import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
@@ -62,6 +62,7 @@ import { renderLimits } from './ui/limits';
 import { MachineTexture, officeFull, pressureNote } from './world/machine';
 import { mountHud } from './ui/menu';
 import { openJukebox } from './ui/jukebox';
+import { openBookshelf } from './ui/bookshelf';
 import { Arcade } from './ui/arcade';
 import { Cabinet } from './ui/cabinet';
 import { trackTitle } from '../shared/jukebox';
@@ -887,6 +888,7 @@ function syncPeers() {
     r.person.setSmoking(!!peer.smoking);
     r.person.holdDrink(peer.drink ? (DRINK_BY_ID.get(peer.drink) ?? null) : null);
     r.person.carry(peer.carrying);
+    r.person.read(!!peer.reading);
     r.person.sit(peer.seat ? (seatAt(peer.seat)?.hips ?? null) : null);
     r.person.setDoing(whereabouts(peer));
   }
@@ -1444,6 +1446,28 @@ function showJukebox() {
   openJukebox(net, showSettings);
 }
 
+/** The project on GitHub, from the floor's origin remote, when that's where it is. */
+function githubUrl(remote?: string): string | undefined {
+  const m = /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/.exec(remote ?? '');
+  return m ? `https://github.com/${m[1]}` : undefined;
+}
+
+function showBookshelf() {
+  if (!store.floor) return toast('Take the elevator to a floor first');
+  openBookshelf({ floor: store.floor, project: store.project?.name, repoUrl: githubUrl(store.project?.remote), onTurn: turnPage });
+}
+
+/** When a page last rustled, so a quick scroll through a doc isn't one long rustle. */
+let rustledAt = 0;
+/** You turned a page on the bookshelf: so does the book in your hands, for everyone watching it too. */
+function turnPage() {
+  me.turnPage();
+  hands.turnPage();
+  const now = performance.now();
+  if (now - rustledAt > 400) sound.paper();
+  rustledAt = now;
+}
+
 /** A prompt from the boards goes to a new worker at a free desk, or to one already at a desk. */
 function sendToWorker(title: string, text: { context?: string; initial?: string }) {
   const desk = freeDesk();
@@ -1528,6 +1552,7 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   else if (target.kind === 'queue') showQueue();
   else if (target.kind === 'tv') watchShare();
   else if (target.kind === 'jukebox') showJukebox();
+  else if (target.kind === 'bookshelf') showBookshelf();
   else if (target.kind === 'decor' && target.decorId) hanger.view(target.decorId);
   else if (target.kind === 'seat' && target.seatId) useSeat(target.seatId);
   else if (target.kind === 'dog') net.send({ t: 'dog.pet' });
@@ -2017,6 +2042,10 @@ function hintFor(it: Interactable): Hint {
       const about = left !== null ? `your game's paused at ${scoreText(left)}` : best ? `🏆 ${clip(best.name, 24)} · ${scoreText(best.score)}` : 'no high score yet';
       return { k: `${left}|${best?.name}|${best?.score}`, parts: [title(`🕹️ ${GAME}`), aside(about), key('E', left !== null ? 'Carry on' : 'Play')] };
     }
+    case 'bookshelf': {
+      const names = [...store.peers.values()].filter((p) => p.reading && p.id !== store.you && store.onMyFloor(p)).map((p) => p.name).join(', ');
+      return { k: names, parts: [title('📚 Bookshelf'), aside(names ? `📖 ${clip(names, 40)} reading` : "the project's docs"), key('E', 'Read the docs')] };
+    }
     case 'whiteboard': {
       const names = store.drawing.flatMap((id) => (id === store.you ? [] : (store.peers.get(id)?.name ?? []))).join(', ');
       return { k: names, parts: [title('📝 Whiteboard'), aside(names ? `✏️ ${clip(names, 40)} drawing` : 'draw together, live'), key('E', names ? 'Join in' : 'Draw')] };
@@ -2405,11 +2434,16 @@ function hangingKey(code: string): boolean {
   return false;
 }
 
-/** What you last told the office you have open (see PeerInfo.doing). */
+/** What you last told the office you have open (see PeerInfo.doing), and whether you're reading. */
 let doingSent: string | undefined;
+let readingSent = false;
 /** Tells everyone what you have open now, for the line under your name tag. A reconnected office has forgotten. */
 function sendDoing(reconnected = false) {
-  if (reconnected) doingSent = undefined;
+  if (reconnected) {
+    doingSent = undefined;
+    readingSent = false;
+  }
+  const reading = readingNow();
   let what = doingNow();
   // The office keeps 60 UTF-16 units of it: cut it short here instead, between whole characters.
   if (what && what.length > 60) {
@@ -2420,10 +2454,12 @@ function sendDoing(reconnected = false) {
     }
     what = `${cut}…`;
   }
-  if (what === doingSent) return;
+  if (what === doingSent && reading === readingSent) return;
   doingSent = what;
-  net.send({ t: 'doing', what });
+  readingSent = reading;
+  net.send({ t: 'doing', what, reading });
 }
+onDoingChange(() => sendDoing());
 
 /**
  * Set when closing the last window may not have given you the mouse back, so the next key you press
@@ -2434,6 +2470,10 @@ onModalChange((open) => {
   player.enabled = !open;
   player.clearKeys();
   sendDoing();
+  // Reading off the bookshelf: an open book in your hands, and your character's.
+  const reading = readingNow();
+  me.read(reading);
+  hands.read(reading);
   // Opening something on the way over to someone is stopping there.
   if (open && walkingTo && !trip) stopWalking();
   if (open) {
@@ -2468,7 +2508,7 @@ document.addEventListener('pointerlockchange', () => {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, bookshelf: 4 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */
