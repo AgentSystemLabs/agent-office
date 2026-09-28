@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { describeSessionError, probeXRSupport, requestVRSession, type XrNavigator } from '../src/client/vr/support.js';
-import { MENU_HOLD_MS, PINCH_HOLD_MS, PinchHold, SnapTurn, buttonDown, decodeThumbstick, sampleParabola, yawForFacing } from '../src/client/vr/session.js';
+import { MENU_HOLD_MS, PINCH_HOLD_MS, PinchHold, SnapTurn, buttonDown, decodeThumbstick, sampleParabola, xrRayDirection, yawForFacing } from '../src/client/vr/session.js';
 import { VR_DEFAULTS, loadSettings, saveSettings } from '../src/client/state.js';
 
 function nav(fake: Partial<XRSystem> | undefined): XrNavigator {
@@ -144,6 +144,20 @@ test('a dropped hold without a release still resets', () => {
   assert.equal(hold.update(false, 5100), null);
   assert.equal(hold.release(), null);
   assert.equal(hold.heldSince, -1);
+});
+
+test('XR ray direction matches three setFromXRController, not getWorldDirection', () => {
+  const space = new THREE.Object3D();
+  space.position.set(1, 1.5, 2);
+  space.rotation.set(0.3, -0.7, 0.1);
+  space.updateMatrixWorld(true);
+  const ref = new THREE.Raycaster();
+  // setFromXRController takes a WebXRController, but only reads matrixWorld — an Object3D suffices.
+  ref.setFromXRController(space as unknown as Parameters<THREE.Raycaster['setFromXRController']>[0]);
+  const dir = xrRayDirection(space, new THREE.Vector3());
+  assert.ok(dir.distanceTo(ref.ray.direction) < 1e-6, `matches three: ${dir.toArray()} vs ${ref.ray.direction.toArray()}`);
+  const wrong = space.getWorldDirection(new THREE.Vector3());
+  assert.ok(dir.dot(wrong) < -0.99, 'getWorldDirection points the opposite way (the old bug)');
 });
 
 test('VR settings default to comfort and survive a save with no VR section', () => {

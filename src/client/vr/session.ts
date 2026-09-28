@@ -159,6 +159,17 @@ export function decodeThumbstick(axes: readonly number[]): { x: number; y: numbe
   return { x: 0, y: 0 };
 }
 
+/**
+ * The ray direction out of an XR target-ray space: -Z of its world matrix, exactly what
+ * three's own Raycaster.setFromXRController computes. getWorldDirection is +Z on non-camera
+ * objects — precisely backwards — and every ray in the session funnels through here so the
+ * visible line, the picking, and the teleport arc always agree.
+ */
+export function xrRayDirection(space: THREE.Object3D, out: THREE.Vector3): THREE.Vector3 {
+  _m.identity().extractRotation(space.matrixWorld);
+  return out.set(0, 0, -1).applyMatrix4(_m);
+}
+
 /** Whether a button index is held, against a possibly missing gamepad. */
 export function buttonDown(gamepad: Gamepad | undefined, index: number): boolean {
   return !!gamepad?.buttons[index]?.pressed;
@@ -207,6 +218,7 @@ const _l = new THREE.Vector3();
 const _e = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _f = new THREE.Vector3();
+const _m = new THREE.Matrix4();
 
 interface RayState {
   targetRay: THREE.XRTargetRaySpace;
@@ -655,6 +667,15 @@ export class VRSession {
     return this.rays[i]?.source?.gamepad ?? undefined;
   }
 
+  /**
+   * The ray out of a target-ray space, into _o (origin) and _d (direction). See
+   * xrRayDirection for why this is -Z and not getWorldDirection.
+   */
+  private rayOut(st: RayState): void {
+    _o.setFromMatrixPosition(st.targetRay.matrixWorld);
+    xrRayDirection(st.targetRay, _d);
+  }
+
   /** Glide intent this frame (also what stands the avatar up first). */
   private glideIntent(): boolean {
     if (!this.hooks.settings.vr.glide) return false;
@@ -714,8 +735,7 @@ export class VRSession {
         st.dot.visible = false;
         continue;
       }
-      st.targetRay.getWorldPosition(_o);
-      st.targetRay.getWorldDirection(_d);
+      this.rayOut(st);
       this.raycaster.set(_o, _d);
       // Sprites (name tags, chat bubbles) need a camera on the raycaster; setFromCamera does
       // this on desktop, but the VR path builds rays by hand. Without it every frame logs.
@@ -760,8 +780,7 @@ export class VRSession {
       this.marker.visible = false;
       return;
     }
-    st.targetRay.getWorldPosition(_o);
-    st.targetRay.getWorldDirection(_d);
+    this.rayOut(st);
     const pts = sampleParabola(_o, _d);
     const pos = this.arc.geometry.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < ARC_STEPS; i++) pos.setXYZ(i, pts[i].x, pts[i].y, pts[i].z);
@@ -784,8 +803,7 @@ export class VRSession {
     // A released pinch already reset its aim flag, so the caller names the hand it came from.
     const st = from !== undefined ? this.rays[from] : this.aimingRay();
     if (!st?.source) return;
-    st.targetRay.getWorldPosition(_o);
-    st.targetRay.getWorldDirection(_d);
+    this.rayOut(st);
     const landing = this.findLanding(sampleParabola(_o, _d));
     if (!landing) return;
     this.pulse(from ?? 0, 0.5, 30);
