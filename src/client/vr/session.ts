@@ -42,7 +42,10 @@ import { GRAB_HOLD_MS, VRGrab, type GrabAim, type GrabHooks } from './grab';
  * thumbstick, x|a, y|b, thumbrest] with axes [placeholder, placeholder, stick x, stick y].
  * The official profile (webxr-input-profiles packages/registry/profiles/samsung/
  * samsung-galaxyxr.json) agrees, and also lists a left "menu" at [7], which Chromium does not
- * put on the gamepad. The placeholders stand for the touchpad the controller doesn't have,
+ * put on the gamepad: a menu press is Chromium's exit gesture and ends the WebXR session
+ * (device/vr/openxr/openxr_input_helper.cc, "Pressing a menu buttons is treated as a signal to
+ * exit the WebXR session"). Never map an office action to it; the page can't see it anyway.
+ * The placeholders stand for the touchpad the controller doesn't have,
  * which is why the stick is at [3] and A/B at [4]/[5]. Do not "fix" STICK to 2 or A/B to 3/4
  * for Galaxy XR; see faceButtons for the one case where those indices move.
  *
@@ -86,8 +89,9 @@ const TOUCH_JOINTS: readonly XRHandJoint[] = [
 /**
  * One hand's pinch, read as tap-vs-hold: fed the live held state plus a clock, it reports
  * the moment a hold becomes a teleport aim, and what a release means. The session ORs the
- * runtime's select events with three's pinchstart/pinchend into `held`, so runtimes that
- * fire both for one pinch still produce a single tap.
+ * hand's select state (a full pinch value, see FULL_PINCH; native select events only for hands
+ * without one) with three's pinchstart/pinchend into `held`, so a pinch that both signals see
+ * still produces a single tap.
  */
 export class PinchHold {
   private held = false;
@@ -275,11 +279,46 @@ export function faceButtons(gamepad: Gamepad | undefined): { stick: number; a: n
  * Reading that like a controller goes wrong: faceButtons sees no axes and picks the compact
  * layout, so grasp at [4] reads as B and a closed fist fires N (jump to the next waiting worker).
  *
+ * Runtimes that expose hands through XR_FB_hand_tracking_aim instead get a one-button gamepad,
+ * [pinch] (device/vr/openxr/fb/openxr_hand_tracker_fb.cc). Either way [0] is the pinch.
+ *
  * A source with `hand` set is a hand, whatever its gamepad looks like. Hand input goes through
- * select/pinch events and joints (updateHolds, updateTouches), never through this gamepad.
+ * the pinch (handPinchDown, select/pinch events) and joints (updateHolds, updateTouches), never
+ * through this function.
  */
 export function controllerPad(source: XRInputSource | null | undefined): Gamepad | undefined {
   return source && !source.hand ? (source.gamepad ?? undefined) : undefined;
+}
+
+/**
+ * The pinch value at which a hand counts as pinching: a full pinch, 1.0.
+ *
+ * Galaxy XR fires a hand's native `selectstart` early, at a pinch value of 0.7, so a relaxed or
+ * half-closed hand selects. Google's XR Blocks works around exactly this (google/xrblocks
+ * 5dacc9ae, src/input/PinchFilter.ts, "Temporary class until pinch is fixed at the system level
+ * on Galaxy XR"): it drops native select events for hands that have a gamepad and makes its own
+ * when `gamepad.buttons[0].value` reaches 1.0, releasing below it. Chromium adds no threshold
+ * of its own: the EXT hand profile binds both the select press and the gamepad value to the
+ * runtime's `/input/pinch_ext/value` (device/vr/openxr/openxr_interaction_profiles.cc), so the
+ * 0.7 is the runtime's and the value in buttons[0] is the raw pinch. Do not lower this to
+ * "make pinching easier" or switch back to native select for hands: partial pinches then tap E
+ * and start teleport aims and grabs.
+ *
+ * three's joint-distance pinch (pinchstart/pinchend: thumb and index tips within about 1.5 cm,
+ * WebXRController.js) stays ORed in as a second signal, so a runtime whose pinch value never
+ * quite reaches 1.0 still pinches when the fingertips meet.
+ */
+export const FULL_PINCH = 1;
+
+/**
+ * Whether a hand is pinching, read from its gamepad's pinch value (buttons[0], see
+ * controllerPad); null when the source is not a hand or reports no pinch value, in which case
+ * the native select events stand in (onSelectStart). See FULL_PINCH for why native select is
+ * ignored otherwise.
+ */
+export function handPinchDown(source: XRInputSource | null | undefined): boolean | null {
+  const pinch = source?.hand ? source.gamepad?.buttons[0] : undefined;
+  return pinch ? pinch.value >= FULL_PINCH : null;
 }
 
 /**
@@ -616,7 +655,11 @@ export class VRSession {
     this.active = true;
     // Stereo at headset resolution is the whole VR perf cost, so the session renders smaller
     // (set above, before three built the framebuffer) and bakes the shadows once instead of
-    // every frame (the sun barely moves in a visit). Foveation is already at three's maximum default.
+    // every frame (the sun barely moves in a visit). Do not count on foveation for frame time:
+    // Chrome stores XRProjectionLayer.fixedFoveation but nothing in Blink's xr module or
+    // device/vr/openxr reads it (xr_projection_layer.cc), so three's foveation setting does
+    // nothing on Galaxy XR. The framebuffer scale is honoured (xr_webgl_binding.cc clamps it to
+    // [0.2, max(native, 1)]), which is why XR_FRAMEBUFFER_SCALE carries the frame budget.
     this.renderer.shadowMap.autoUpdate = false;
     this.renderer.shadowMap.needsUpdate = true;
     this.hooks.hudRefresh();
@@ -825,11 +868,27 @@ export class VRSession {
       this.tapE(i);
       return;
     }
+    // A hand with a pinch value is read per frame at FULL_PINCH (readHandPinches); its native
+    // select fires early on Galaxy XR and must not start a hold.
+    if (handPinchDown(st.source) !== null) return;
     st.selectHeld = true;
   }
 
   private onSelectEnd(i: number): void {
+    if (handPinchDown(this.rays[i].source) !== null) return;
     this.rays[i].selectHeld = false;
+  }
+
+  /**
+   * Hands that report a pinch value hold select at a full pinch (FULL_PINCH), not at the
+   * runtime's early native select. Runs first in the frame: the ladder climb, panel presses and
+   * updateHolds all read selectHeld.
+   */
+  private readHandPinches(): void {
+    for (const st of this.rays) {
+      const down = handPinchDown(st.source);
+      if (down !== null) st.selectHeld = down;
+    }
   }
 
   /** The tap itself: E on whatever that ray hovers, through the shared dispatch. */
@@ -861,7 +920,9 @@ export class VRSession {
   private onSqueeze(i: number): void {
     if (!this.active) return;
     const st = this.rays[i];
-    // Some hand runtimes also emit squeeze: the pinch arbiter owns hand input exclusively.
+    // Chromium never fires squeeze for hands (its hand profiles bind no squeeze, only pinch and
+    // grasp; device/vr/openxr/openxr_input_helper.cc reads squeeze from kSqueeze alone), but
+    // other runtimes may: the pinch arbiter owns hand input exclusively either way.
     if (st.source?.hand) return;
     if (this.grab?.held) return;
     const anchor = this.grabAnchor(st);
@@ -902,12 +963,26 @@ export class VRSession {
     return st.pinchAnchor;
   }
 
+  /**
+   * A short controller rumble, where the browser offers one. On Chrome (Galaxy XR included)
+   * this is currently a no-op: XRInputSource returns no vibration actuator for XR gamepads
+   * (third_party/blink/renderer/modules/xr/xr_input_source.h, GetVibrationActuatorForGamepad
+   * returns nullptr, crbug.com/955097), so `gamepad.vibrationActuator` is null, and Blink never
+   * had the older `hapticActuators`. The standard `vibrationActuator.playEffect` is tried first
+   * so haptics start working the day Chrome implements it; `hapticActuators[0].pulse` covers
+   * browsers that still ship the old API. Feedback that matters must not rely on this.
+   */
   private pulse(i: number, strength: number, ms: number): void {
+    const gp = controllerPad(this.rays[i]?.source) as (Gamepad & { hapticActuators?: readonly { pulse?: (s: number, ms: number) => Promise<unknown> }[] }) | undefined;
+    if (!gp) return;
     try {
-      const actuator = (this.rays[i]?.source?.gamepad as (Gamepad & { hapticActuators?: { pulse?: (s: number, ms: number) => Promise<unknown> }[] }) | undefined)?.hapticActuators?.[0];
-      void actuator?.pulse?.(strength, ms)?.catch(() => {});
+      if (gp.vibrationActuator) {
+        void gp.vibrationActuator.playEffect('dual-rumble', { duration: ms, strongMagnitude: strength, weakMagnitude: strength }).catch(() => {});
+        return;
+      }
+      void gp.hapticActuators?.[0]?.pulse?.(strength, ms)?.catch(() => {});
     } catch {
-      // no haptics on this controller
+      // A browser that exposes an actuator but rejects the effect: no haptics on this controller.
     }
   }
 
@@ -916,6 +991,7 @@ export class VRSession {
     if (!this.active) return;
     const { player } = this.hooks;
     this.frame++;
+    this.readHandPinches();
     const rigged = !!player.rig;
     if (rigged) {
       // The ladder or a pole has hold of the avatar: the desktop update that normally steps the
@@ -1021,9 +1097,9 @@ export class VRSession {
   }
 
   /**
-   * Hand-tracked pinches, resolved per frame from the union of the runtime's select events and
-   * three's joint-distance pinch events (runtimes that fire both for one pinch still read as
-   * one hold): a tap is E, a hold aims a teleport the release fires, and both hands together
+   * Hand-tracked pinches, resolved per frame from the union of the hand's select state (a full
+   * pinch value, see FULL_PINCH) and three's joint-distance pinch events (one pinch both
+   * signals see still reads as one hold): a tap is E, a hold aims a teleport the release fires, and both hands together
    * toggle the menu. Controllers never reach here — their trigger fires E at once, with A for
    * teleports and squeeze for grabbing/cancel.
    */

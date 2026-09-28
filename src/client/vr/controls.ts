@@ -34,6 +34,8 @@ const CONTROLLERS: GestureRow[] = [
   { gesture: '🅱️ / stick-click', does: 'N: next waiting worker' },
   { gesture: '🕹️ Sticks', does: 'right turns · left glides or aims*' },
   { gesture: '🪜 Ladder', does: 'E grabs · left stick climbs · E lets go' },
+  // Chromium ends the session on this button (see XR_BUTTON in session.ts); the page never sees it.
+  { gesture: '≡ Left menu', does: 'leaves VR' },
 ];
 
 export class VrControls {

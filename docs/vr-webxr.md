@@ -47,11 +47,10 @@ menu's ❓ row brings it back).
 | Left stick sideways (glide off) | Snap-/smooth-turn, for single-stick headsets |
 | On a ladder: stick up/down, or pinch-hold right/left | Climb up / back down (E, or a quick pinch tap, lets go) |
 | Walk around the room | Room-scale: the avatar follows the headset through the usual collision |
+| ≡ on the left controller | Leaves VR. Chrome treats it as its exit gesture, and the office never sees the press |
 
-Trigger is the controller `select` event, fired at once; a hand-tracked pinch resolves per
-frame from the union of the runtime's `select` and three's joint-distance
-`pinchstart`/`pinchend`, so runtimes that fire both for one pinch still read as one hold —
-see "Input" below. Every VR move goes through the avatar and the normal `move` messages, so
+Trigger is the controller `select` event, fired at once. A hand-tracked pinch counts only at
+a full pinch (see "Input" below) and resolves per frame into tap, hold or menu. Every VR move goes through the avatar and the normal `move` messages, so
 desktop users see the VR user walk, glide, turn and teleport like anyone else.
 
 ### Held coffee and issue cards
@@ -224,9 +223,15 @@ Each input source gets its target-ray space parented under the dolly, with a ray
 cursor dot (green within reach, cyan beyond it). Controller `selectstart` is E at once;
 `squeezestart` grabs nearby opted-in objects (otherwise cancel), and `squeezeend` releases.
 B/Y/stick-click edges are N. Hands drive the same target-ray spaces
-three updates from the hand aim pose, so one raycast path covers controllers and hands. A
-hand-tracked pinch resolves per frame from the union of the runtime's `select` and three's
-joint-distance `pinchstart`/`pinchend` (`PinchHold` in session.ts): a tap is E, a hold past
+three updates from the hand aim pose, so one raycast path covers controllers and hands.
+A hand is pinching when its gamepad's `buttons[0].value` reaches 1.0 (`FULL_PINCH` in
+session.ts), or when three's joint-distance `pinchstart` fires (thumb and index tips within
+about 1.5 cm). The runtime's native `selectstart` for a hand is ignored whenever the hand
+reports a pinch value, because Galaxy XR fires it early, at a pinch value of 0.7, so a
+half-closed hand would select. Chromium binds both the hand's select and `buttons[0]` to the
+runtime's `/input/pinch_ext/value` and adds no threshold of its own, so the early threshold
+comes from the runtime. Native select events stand in only for a hand with no gamepad.
+The pinch resolves per frame (`PinchHold` in session.ts): a tap is E, a hold past
 450 ms aims a teleport the release fires, and both hands held past 600 ms toggle the menu —
 unless either ray works a panel, so two-handed typing never pops the menu up mid-word.
 A nearby object claims a pinch at 180 ms, before teleport can aim. Its release cannot click
@@ -239,11 +244,19 @@ Controller buttons and sticks follow the XR Standard gamepad mapping. On Galaxy 
 builds the controller gamepad as `[trigger, squeeze, placeholder, thumbstick, X/A, Y/B,
 thumbrest]` with the stick on axes `[2, 3]` (`device/vr/openxr/openxr_controller.cc`,
 matching the `samsung-galaxyxr` input profile). Tracked hands also get a gamepad,
-`[pinch, placeholder, placeholder, placeholder, grasp]` with no axes, so a source counts as a
-hand when `inputSource.hand` is set, whatever its gamepad looks like. Sticks and face buttons
-are read only from controllers (`controllerPad` in `session.ts`), so a hand's grasp at `[4]`
-is never read as B.
-Select/teleport/cancel fire a short haptic pulse where the controller has an actuator.
+`[pinch, placeholder, placeholder, placeholder, grasp]` with no axes (or just `[pinch]` on
+runtimes that use XR_FB_hand_tracking_aim), so a source counts as a hand when
+`inputSource.hand` is set, whatever its gamepad looks like. Sticks and face buttons are read
+only from controllers (`controllerPad` in `session.ts`), so a hand's grasp at `[4]` is never
+read as B. Chromium never fires `squeeze` events for hands.
+The left controller's menu button is not on the gamepad: Chromium ends the WebXR session
+when it is pressed (`openxr_input_helper.cc`).
+Select, teleport and cancel request a short haptic pulse through
+`gamepad.vibrationActuator` (then the older `hapticActuators`). Chrome currently returns no
+actuator for XR gamepads (`xr_input_source.h`, crbug.com/955097), so Galaxy XR controllers do
+not vibrate, and no feedback depends on it.
+Chrome also ignores `XRProjectionLayer.fixedFoveation`, so three's foveation setting does
+nothing there. The framebuffer scale (0.8 while presenting) is what trims the render cost.
 
 Hands render as the skinned generic-hand mesh (`three`'s `XRHandMeshModel`, vendored under
 `src/client/public/xr-hands/` so no CDN can break them), with three's joint spheres behind
@@ -270,9 +283,10 @@ would mean moving the whole client onto its engine.
 Its device knowledge is still a useful reference for Galaxy XR:
 
 - `src/input/PinchFilter.ts`: "Temporary class until pinch is fixed at the system level on
-  Galaxy XR". Chrome fires a hand's native `selectstart` at a pinch value of 0.7
-  (google/xrblocks 5dacc9ae), so xrblocks drops native hand select events and makes its own
-  when `gamepad.buttons[0].value` reaches 1.0.
+  Galaxy XR". The Galaxy XR runtime fires a hand's native `selectstart` at a pinch value of
+  0.7 (google/xrblocks 5dacc9ae), so xrblocks drops native hand select events and makes its
+  own when `gamepad.buttons[0].value` reaches 1.0. The office applies the same rule
+  (`FULL_PINCH`, see "Input").
 - `src/core/Options.ts`: hands are the default input on Android XR, and `local-floor`,
   `bounded-floor` and `unbounded` are requested as optional reference spaces.
 
@@ -314,10 +328,23 @@ calling VR done:
 2. The outline pass in-headset (`renderOutline` per XR frame): look and frame cost.
 3. Controller ray feel, cursor-dot legibility, and reach gating at real room scale.
 4. Trigger/squeeze/button/stick mapping on a real controller (mapping varies by headset).
-5. Hand tracking: aim-pose rays and pinch (all three fallback layers).
+   On Galaxy XR, B/Y fires N once per press, A/X aims a teleport, the stick glides and turns,
+   and the left ≡ button leaves VR. Log `inputSource.profiles` once: Chromium builds with the
+   Galaxy XR mapping report `samsung-galaxyxr` first (older builds report `oculus-touch`),
+   and the controller model should load instead of the orange stand-in.
+5. Hand tracking: aim-pose rays and pinch. A pinch should take effect only when thumb and
+   index fully meet, never on a half-closed or relaxed hand. A closed fist must not fire N or
+   aim a teleport. Log a hand's `gamepad.buttons` once to confirm the
+   `[pinch, -, -, -, grasp]` layout and that a full pinch reaches `value` 1.0. If it never
+   does, three's joint-distance pinch still has to trigger it.
+   Also switch between controllers and hands mid-session (put the controllers down, pick them
+   back up) and confirm rays, holds and the hand mesh follow.
 6. Teleport arc readability, landing validation, and fade comfort.
 7. Snap- vs smooth-turn comfort, turn-speed range, glide comfort and collision at glide speed.
-8. In-headset frame rate with the full office (two eye renders × outline pass).
+8. In-headset frame rate with the full office (two eye renders × outline pass). Foveation
+   does nothing in Chrome, so the 0.8 framebuffer scale is the only render-size saving.
+   After leaving VR, the desktop camera's field of view and canvas size must be back to
+   normal.
 9. Session edge cases: headset sleep/resume mid-session, controller disconnect/reconnect,
    entering VR while seated/climbing/riding the elevator.
 10. Physical keyboard: a Bluetooth keyboard paired to the headset delivers `keydown` to the
