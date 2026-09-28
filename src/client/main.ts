@@ -332,6 +332,61 @@ player.view = settings.view;
 let vrUi: VrUiHandle | null = null;
 /** The picture E armed in VR (the terminal ⏻ button's tap-twice, for the walls). */
 let decorArmed = { id: '', until: 0 };
+/** What E would do to the ray's target, in words for the headset's aim bar (null hides it). Mirrors vrUseE branch for branch, minus the keys only the desktop has. */
+function vrAimLabel(it: Interactable, note: GhIssue | null): string | null {
+  // A card in hand changes what E means (the desktop carryHint's lines, shortened).
+  if (carrying) {
+    if (note) return `E · swap for #${note.number}`;
+    if (it.kind === 'issues') return `E · pin #${carrying.issue} back`;
+    if (it.kind === 'queue') return `E · queue #${carrying.issue}`;
+    if (it.kind === 'meeting') return `E · meet about #${carrying.issue}`;
+  }
+  const roomDesk = it.kind === 'desk' && it.deskId && DESK_BY_ID.get(it.deskId)?.room && !store.workerAtDesk(it.deskId);
+  if (carrying && roomDesk) return `E · meet about #${carrying.issue}`;
+  switch (it.kind) {
+    case 'desk': {
+      if (!it.deskId) return null;
+      if (roomDesk) return 'E · the meeting room';
+      const w = store.workerAtDesk(it.deskId);
+      if (carrying) return w ? `E · hand #${carrying.issue} to ${w.name}` : `E · hire for #${carrying.issue}`;
+      return w ? `E · ${w.name}'s terminal` : 'E · hire here';
+    }
+    case 'station': {
+      const kind = (it.deskId && DESK_BY_ID.get(it.deskId)?.station) || null;
+      const what = kind === 'pulls' ? 'PRs' : kind === 'queue' ? 'the queue' : 'issues';
+      return `E · ask about ${what}`;
+    }
+    case 'elevator': return 'E · ride the elevator';
+    case 'issues': return 'E · the issues board';
+    case 'pulls': return 'E · the pull requests';
+    case 'queue': return 'E · the task queue';
+    case 'jukebox': return store.jukebox.on ? 'E · change the song' : 'E · put on a song';
+    case 'bar': return 'E · order a drink';
+    case 'meeting': return 'E · the meeting room';
+    case 'services': return 'E · running servers';
+    case 'whiteboard': return '📝 Whiteboard · desktop only';
+    case 'tv': return '📺 TV · desktop only';
+    case 'cabinet': return '🕹️ Arcade · desktop only';
+    case 'decor': return it.decorId ? 'E · about this picture' : null;
+    case 'seat': {
+      if (!it.seatId) return null;
+      if (player.seat?.seatId !== it.seatId) return 'E · sit down';
+      const seat = SEATING_BY_ID.get(it.seatId);
+      if (seat?.bar) return 'E · order a drink';
+      if (seat?.tv && tvShowing()) return '📺 TV · desktop only';
+      if (seat?.game) return '💣 Minesweeper · desktop only';
+      return 'E · stand up';
+    }
+    case 'dog': return 'E · pet the dog';
+    case 'coffee': return caffeine.buzzed(performance.now() / 1000) ? 'E · another cup' : 'E · grab a cup';
+    case 'smoke': return smokeBreakUntil ? 'E · stub it out' : 'E · smoke break';
+    case 'gong': return 'E · bang the gong';
+    case 'ladder': return climber.active ? null : 'E · climb';
+    case 'pole': return office.stack.polesGoDown() ? 'E · slide down' : 'E · spin round it';
+    case 'dj': return 'E · the air horn';
+    default: return null;
+  }
+}
 /** E in VR: modal flows open world-space panels instead of invisible DOM windows. The carried card drops first, exactly as on desktop; what stays physical falls through to use(). */
 function vrUseE(it: Interactable | null, note: GhIssue | null) {  // On the ladder, E gets you off it — exactly like the desktop key, before everything else.
   if (climber.active) {
@@ -341,6 +396,14 @@ function vrUseE(it: Interactable | null, note: GhIssue | null) {  // On the ladd
   // Aiming at nothing (the ladder's let-go fires this way too): E lands on nothing, as on desktop.
   if (!it) return;
   if (vrUi) {
+    // Carrying + E at the meeting table: the card goes back and the room opens. Desktop's
+    // dropCard opens the DOM meeting form with the issue preset — the room opens bare instead
+    // (an invisible dialog in the headset would be worse than no preset).
+    if (carrying && (it.kind === 'meeting' || (it.kind === 'desk' && it.deskId && DESK_BY_ID.get(it.deskId)?.room && !store.workerAtDesk(it.deskId)))) {
+      putBack();
+      vrUi.showMenu('meeting');
+      return;
+    }
     if (carrying && dropCard(it, carrying, note)) return;
     if (it.kind === 'desk' && it.deskId) {
       const w = store.workerAtDesk(it.deskId);
@@ -417,6 +480,7 @@ const vr = new VRSession(renderer, scene, camera, {
     target = it;
     aimedNote = note;
   },
+  aimLabel: (it, note) => vrAimLabel(it, note),
   resize: () => resize(),
   onEnter: () => {
     vrUi = attachVrUi(scene, {
@@ -544,6 +608,10 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     tapUse: (kind: string, deskId?: string, decorId?: string, seatId?: string) => vrUseE({ kind, deskId, decorId, seatId } as Interactable, null),
     // A DOM modal is up (invisible in the headset — the seat checks assert none opens).
     modal: () => modalOpen(),
+    // What the headset's aim bar says (null while it hides).
+    aim: () => vr.debugAim(),
+    // Takes an issue card into hand (the meeting-carry check's setup).
+    carry: (issue: number, title: string) => setCarrying({ issue, title }),
     // The pictures on the walls (the decor E-again check reads this back).
     decor: () => store.decor.map((d) => ({ id: d.id, title: d.title, by: d.by })),
     // What the VR prompt field holds (assert scripts read this back after pressing keys).

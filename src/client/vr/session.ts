@@ -151,6 +151,8 @@ export interface VRHooks {
   reachAnim: () => void;
   /** Mirror the controller's target into the desktop hint state (for the flat mirror). */
   onTarget: (it: Interactable | null, note: GhIssue | null) => void;
+  /** What E would do to the target, in words for the headset's aim bar (null: nothing). */
+  aimLabel: (it: Interactable, note: GhIssue | null) => string | null;
   /** Restore the canvas after three sized it for the headset. */
   resize: () => void;
   /** Fired after a session starts / after it is fully torn down (for UI attach/dispose). */
@@ -303,6 +305,8 @@ export interface VRUiSink {
   openTerminal: (workerId: string) => void;
   /** The issue card in hand, if any: the UI keeps a sticky hint up while one is carried. */
   setCarrying: (card: { issue: number; title: string } | null) => void;
+  /** What E would do to the ray's target, for the headset's aim bar (null hides it). */
+  setAim: (text: string | null) => void;
   /** Fires when a ray's release clicks a panel button (the session ticks the controller). */
   onPanelClick: ((rayId: number) => void) | null;
 }
@@ -342,6 +346,8 @@ export class VRSession {
   private fadeHold = false;
   private pendingTeleport: THREE.Vector3 | null = null;
   private snap = new SnapTurn();
+  /** The aim bar's words (repainted only when the target's meaning changes). */
+  private aimText: string | null = null;
   private stickAiming = false;
   private glideActive = false;
   /** Alternating frames halve the world-hover raycasts (each ray refreshes every 2nd frame). */
@@ -575,6 +581,10 @@ export class VRSession {
     this.setYaw(this.yaw + dYaw);
   }
 
+  /** Emulator test hook (?vrtest=1): what the aim bar says (null while it hides). */
+  debugAim(): string | null {
+    return this.aimText;
+  }
   /** Emulator test hook (?vrtest=1): per-ray input state, for verifying holds and aims. */
   debugRays(): { handed: string | null; controller: boolean; selectHeld: boolean; pinchHeld: boolean; aiming: boolean; teleportHeld: boolean; ui: boolean }[] {
     return this.rays.map((r) => ({
@@ -778,8 +788,15 @@ export class VRSession {
     this.followHead();
     this.updateFade(dt);
     // What the flat mirror's hint bar shows: the right ray's target, else the left's.
+    // The headset's aim bar names what E would do to the same target (quiet while climbing).
     const aim = this.rayFor('right')?.hover ?? this.rayFor('left')?.hover ?? null;
-    this.hooks.onTarget(aim?.near ? aim.it : null, aim?.near ? this.hooks.noteUnder(aim) : null);
+    const note = aim?.near ? this.hooks.noteUnder(aim) : null;
+    this.hooks.onTarget(aim?.near ? aim.it : null, note);
+    const label = !rigged && aim?.near ? this.hooks.aimLabel(aim.it, note) : null;
+    if (label !== this.aimText) {
+      this.aimText = label;
+      this.ui?.setAim(label);
+    }
   }
 
   /**

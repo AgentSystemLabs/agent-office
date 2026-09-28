@@ -59,6 +59,7 @@ import { isAsleep } from '../../shared/status';
 import type { VrSettings } from '../state';
 import type { ScreenState } from '../world/laptop';
 import { setToastMirror } from '../ui/dom';
+import { VrAim } from './aim';
 import { VrControls } from './controls';
 import { VrKeyboard, type KeyboardTarget } from './keyboard';
 import { followTarget, type HeadPose } from './math';
@@ -110,13 +111,14 @@ export interface VrUiDeps {
 }
 
 export interface VrUiHandle {
-  /** The terminal, menu, keyboard, prompt, toast and controls panels (for wrist-mounting or custom placement). */
+  /** The terminal, menu, keyboard, prompt, toast, controls and aim panels (for wrist-mounting or custom placement). */
   readonly terminal: VrTerminalPanel;
   readonly menu: VrMenu;
   readonly keyboard: VrKeyboard;
   readonly prompt: VrPromptPanel;
   readonly toast: VrToast;
   readonly controls: VrControls;
+  readonly aim: VrAim;
   /** All panels' parent. Added to the scene by attachVrUi. */
   readonly group: THREE.Group;
   /** Opens the world-space terminal for a worker (attaches to its PTY). */
@@ -135,6 +137,8 @@ export interface VrUiHandle {
   showToast: (text: string, level?: 'info' | 'warn' | 'error') => void;
   /** The issue card in hand, if any: a sticky hint while one is carried. */
   setCarrying: (card: { issue: number; title: string } | null) => void;
+  /** What E would do to the ray's target, for the headset's aim bar (null hides it). */
+  setAim: (text: string | null) => void;
   /** Fires when a ray's release clicks a panel button (the session ticks the controller). */
   onPanelClick: ((rayId: number) => void) | null;
   /** Redirects the keyboard (default target is the focused VR terminal; null mutes it). */
@@ -172,6 +176,7 @@ class VrUi implements VrUiHandle {
   readonly prompt: VrPromptPanel;
   readonly toast: VrToast;
   readonly controls: VrControls;
+  readonly aim: VrAim;
   readonly group = new THREE.Group();
   private rays = new Map<number, RayState>();
   private keyboardExplicit: KeyboardTarget | null | undefined = undefined;
@@ -236,16 +241,18 @@ class VrUi implements VrUiHandle {
     };
     this.terminal.onKill = (workerId) => deps.workerActions.kill(workerId);
     this.controls = new VrControls();
+    this.aim = new VrAim();
     this.menu.onShowControls = () => this.controls.show();
     // Head-placed panels draw through the world (a menu sunk in a wall is unreadable and
     // looks broken); the terminal stays depth-tested furniture you can walk away from. Orders
     // match the ray-pick priority in ordered() (the transient toast floats above all of them),
-    // under the ray dots (9998) and fade (9999).
+    // under the ray dots (9998) and fade (9999). The aim strip sits below the panels.
     this.prompt.panel.setOnTop(9995);
     this.toast.panel.setOnTop(9996);
     this.controls.panel.setOnTop(9994);
     this.menu.panel.setOnTop(9993);
     this.keyboard.panel.setOnTop(9992);
+    this.aim.panel.setOnTop(9991);
     this.menu.onChatSay = () => this.askChat();
 
     // Dash layout, facing the user at spawn: terminal center, keyboard below it, menu left.
@@ -255,7 +262,7 @@ class VrUi implements VrUiHandle {
     this.keyboard.panel.group.position.set(kOff[0], kOff[1], kOff[2]);
     this.keyboard.panel.group.rotation.x = -0.35;
     this.menu.panel.group.position.set(-0.75, 1.35, -0.95);
-    this.group.add(this.terminal.panel.group, this.keyboard.panel.group, this.menu.panel.group, this.prompt.panel.group, this.toast.panel.group, this.controls.panel.group);
+    this.group.add(this.terminal.panel.group, this.keyboard.panel.group, this.menu.panel.group, this.prompt.panel.group, this.toast.panel.group, this.controls.panel.group, this.aim.panel.group);
     this.scene.add(this.group);
     // The menu is a dash that glides after the camera; terminal and keyboard stay put so the
     // user can lean in to read and type. The session owner can wrist-mount the menu instead
@@ -366,6 +373,9 @@ class VrUi implements VrUiHandle {
 
   setCarrying = (card: { issue: number; title: string } | null) => {
     this.toast.setSticky(card ? `✋ Carrying #${card.issue} — E at a desk, a worker or the queue · squeeze puts it back` : null);
+  };
+  setAim = (text: string | null) => {
+    this.aim.set(text);
   };
   onPanelClick: ((rayId: number) => void) | null = null;
   promptText = () => this.prompt.text;
@@ -481,6 +491,7 @@ class VrUi implements VrUiHandle {
     this.prompt.update(dt, head);
     this.toast.update(dt, head);
     this.controls.update(dt, head);
+    this.aim.update(dt, head);
   };
 
   dispose = () => {
@@ -491,6 +502,7 @@ class VrUi implements VrUiHandle {
     this.prompt.dispose();
     this.toast.dispose();
     this.controls.dispose();
+    this.aim.dispose();
     this.scene.remove(this.group);
   };
 }
