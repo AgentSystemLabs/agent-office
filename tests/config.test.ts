@@ -40,3 +40,12 @@ test('--agent-args with nothing after it still needs a value', (t) => {
 test('other flags still treat a leading -- as a missing value', (t) => {
   assert.throws(() => load(t, '--agent', '--agent-args', 'x'), /exit 2: agent-office: --agent needs a value/);
 });
+
+test('the default agent is droid', (t) => {
+  const previous = process.env.AGENT_OFFICE_AGENT;
+  delete process.env.AGENT_OFFICE_AGENT;
+  t.after(() => {
+    if (previous !== undefined) process.env.AGENT_OFFICE_AGENT = previous;
+  });
+  assert.equal(load(t).agentCmd, 'droid');
+});

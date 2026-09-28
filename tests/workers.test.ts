@@ -356,7 +356,7 @@ test('Droid workers launch with their own hook overlay and resume the correct se
   assert.deepEqual(first.args.slice(-2), ['--', '- inspect this code']);
   assert.equal(first.env.workerId, worker.id);
   assert.ok(first.env.hookToken);
-  assert.equal(f.read().filter((r) => r.kind === 'claude').length, 0, 'Droid must not run the Claude task namer');
+  // Droid workers get task labels from the same small-model namer; only Claude usage stays Claude-only.
   const settings = JSON.parse(readFileSync(path.join(f.data, 'droid-hooks.json'), 'utf8'));
   assert.match(settings.hooks.SessionStart[0].hooks[0].command, /\/hooks\/droid/);
   assert.ok(!settings.hooks.PermissionRequest, 'Droid only receives supported hook events');
@@ -389,6 +389,7 @@ test('Droid workers launch with their own hook overlay and resume the correct se
   assert.equal(hook('Stop', {}), false, 'hooks from the old process must not control a resumed worker');
   assert.equal(hook('SessionStart', { source: 'resume' }, second.env.hookToken!), true);
 
+  await waitFor(() => workers.get(worker.id)?.task?.name, (name) => name === 'Fake Task', 8000);
   workers.shutdown();
   const restored = manager(f, f.droid, []);
   t.after(() => restored.shutdown());
@@ -397,6 +398,67 @@ test('Droid workers launch with their own hook overlay and resume the correct se
   assert.equal(restored.get(worker.id)?.sessionId, 'droid-1');
   const third = (await waitFor(() => f.read(), (records) => records.filter((r) => r.kind === 'droid').length >= 3)).filter((r) => r.kind === 'droid')[2];
   assert.deepEqual(third.args.slice(-2), ['--resume', 'droid-1']);
+});
+test('Droid workers pin their model and effort in a per-worker settings overlay', async (t) => {
+  const f = fixture();
+  const updates: WorkerInfo[] = [];
+  isolateProviderEnvironment(f, t);
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+  const workers = manager(f, f.droid, updates);
+  t.after(() => workers.shutdown());
+  assert.match(workers.spawn('desk-4', 'test', 'bad', false, 'agent', 'droid', 'has a space') as string, /Droid model/i);
+  const worker = workers.spawn('desk-3', 'test', 'do the thing', false, 'agent', 'droid', 'custom:droidproxy:gpt-6-sol', 'high');
+  assert.equal(typeof worker, 'object');
+  if (typeof worker === 'string') return;
+  assert.equal(worker.model, 'custom:droidproxy:gpt-6-sol');
+  assert.equal(worker.effort, 'high');
+  const launch = (await waitFor(() => f.read(), (records) => records.some((r) => r.kind === 'droid'))).find((r) => r.kind === 'droid')!;
+  const overlayPath = path.join(f.data, `droid-${worker.id}.json`);
+  assert.deepEqual(launch.args.slice(0, 2), ['--settings', overlayPath]);
+  const overlay = JSON.parse(readFileSync(overlayPath, 'utf8'));
+  assert.equal(overlay.sessionDefaultSettings.model, 'custom:droidproxy:gpt-6-sol');
+  assert.equal(overlay.sessionDefaultSettings.reasoningEffort, 'high');
+  assert.match(overlay.hooks.SessionStart[0].hooks[0].command, /\/hooks\/droid/);
+  // The shared hooks file stays model-free for workers without an override.
+  const shared = JSON.parse(readFileSync(path.join(f.data, 'droid-hooks.json'), 'utf8'));
+  assert.equal(shared.sessionDefaultSettings, undefined);
+  await workers.kill(worker.id);
+  assert.equal(existsSync(overlayPath), false, 'a worker going home takes its overlay with it');
+});
+test('board agents are hired with the requested provider, model, and effort', async (t) => {
+  const f = fixture();
+  const updates: WorkerInfo[] = [];
+  isolateProviderEnvironment(f, t);
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+  const workers = manager(f, f.droid, updates);
+  t.after(() => workers.shutdown());
+  assert.match(workers.station('station-queue', 'test', 'queue this', 'droid', 'has a space') as string, /Droid model/i);
+  const r = workers.station('station-queue', 'test', 'queue this', 'droid', 'custom:droidproxy:gpt-6-sol', 'low');
+  assert.equal(typeof r, 'object');
+  if (typeof r === 'string') return;
+  assert.equal(r.hired, true);
+  assert.equal(r.info.provider, 'droid');
+  assert.equal(r.info.model, 'custom:droidproxy:gpt-6-sol');
+  assert.equal(r.info.effort, 'low');
+  await waitFor(() => f.read(), (records) => records.some((x) => x.kind === 'droid'));
+  // An agent that's already there keeps its engine; the prompt just goes to its session.
+  const again = workers.station('station-queue', 'test', 'and this', 'claude', 'haiku', 'max');
+  assert.equal(typeof again, 'object');
+  if (typeof again === 'string') return;
+  assert.equal(again.hired, false);
+  assert.equal(workers.get(r.info.id)?.provider, 'droid');
 });
 
 test('OpenCode model overrides configured model flags on first launch and is omitted on resume', async (t) => {

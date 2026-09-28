@@ -66,7 +66,7 @@ export function projectInfo(dir: string, name: string, agentCmd: string, agentAr
     remote: git(['remote', 'get-url', 'origin']),
     agentCmd: [agentCmd, ...agentArgs].join(' '),
     defaultProvider: configuredProvider(agentCmd),
-    agentProviders: configuredProvider(agentCmd) === 'custom' ? ['claude', 'opencode', 'codex', 'droid', 'custom'] : ['claude', 'opencode', 'codex', 'droid'],
+    agentProviders: configuredProvider(agentCmd) === 'custom' ? ['droid', 'claude', 'opencode', 'codex', 'custom'] : ['droid', 'claude', 'opencode', 'codex'],
   };
 }
 

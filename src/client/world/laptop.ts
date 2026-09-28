@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, type Run } from '../../shared/protocol';
 import { mesh, roundedBox, toon } from './toon';
-import { MONO } from '../fonts';
+import { TERM_FONT } from '../fonts';
 
 /**
  * The terminal's colors: a Factory-dark ground with an orange cursor. The ANSI palette keeps its
@@ -101,7 +101,7 @@ export function paintScreen(ctx: CanvasRenderingContext2D, w: number, h: number,
   ctx.fillRect(0, 0, w, h);
   if (!s) {
     ctx.fillStyle = '#6c7086';
-    ctx.font = `600 ${Math.round(h / 12)}px ${MONO}`;
+    ctx.font = `600 ${Math.round(h / 12)}px ${TERM_FONT}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(placeholder ?? 'booting…', w / 2, h / 2);
@@ -143,7 +143,7 @@ export function paintScreen(ctx: CanvasRenderingContext2D, w: number, h: number,
         ctx.fillRect(px, py, len * charW + 0.5, lineH + 0.5);
       }
       if (text.trim()) {
-        ctx.font = `${flags & FLAG_BOLD ? 700 : 400} ${fontSize}px ${MONO}`;
+        ctx.font = `${flags & FLAG_BOLD ? 700 : 400} ${fontSize}px ${TERM_FONT}`;
         ctx.globalAlpha = flags & FLAG_DIM ? 0.55 : 1;
         ctx.fillStyle = fg;
         ctx.fillText(text, px, py + (lineH - fontSize) / 2);

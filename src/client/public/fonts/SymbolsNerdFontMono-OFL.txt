@@ -1,0 +1,8 @@
+Symbols Nerd Font Mono (SymbolsNerdFontMono-Regular.woff2 in this folder) is
+Copyright (c) Nerd Fonts contributors and licensed under the SIL Open Font
+License, Version 1.1 (see OFL-LICENSE.txt in this folder).
+
+Source: https://github.com/ryanoasis/nerd-fonts (release 3.4.0,
+NerdFontsSymbolsOnly.zip). The bundled file is subset to the icon ranges
+(U+E000–F8FF, U+F0000–F0FFF) and converted to WOFF2; it is a Modified
+Version under the OFL, distributed under the same license.

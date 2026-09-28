@@ -39,7 +39,7 @@ export function isClaudeModel(value: unknown): value is ClaudeModel {
   return value === 'fable' || value === 'opus' || value === 'sonnet' || value === 'haiku';
 }
 
-/** Claude Code's `--effort` levels, from fastest/cheapest to most thorough. */
+/** Reasoning effort levels, from fastest/cheapest to most thorough. Claude Code takes them as `--effort`; Droid as `reasoningEffort`. */
 export type AgentEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export const AGENT_EFFORTS: readonly AgentEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 export function isAgentEffort(value: unknown): value is AgentEffort {
@@ -57,9 +57,9 @@ export interface WorkerInfo {
   /** 'agent' runs the selected provider; 'shell' is a plain shared login shell. */
   kind: WorkerKind;
   provider?: AgentProvider;
-  /** Model requested for this worker, instead of the office's configured default: an OpenCode provider/model id, or a Claude model alias. */
+  /** Model requested for this worker, instead of the office's configured default: an OpenCode provider/model id, a Droid model id, or a Claude model alias. */
   model?: string;
-  /** Reasoning effort requested for this worker, when one was chosen (Claude only). */
+  /** Reasoning effort requested for this worker, when one was chosen (Claude and Droid only). */
   effort?: AgentEffort;
   deskId: string;
   name: string;
@@ -285,9 +285,9 @@ export type TaskStatus = 'queued' | 'running' | 'done';
 export interface QueueTask {
   id: string;
   provider?: AgentProvider;
-  /** Model requested for this task, instead of the office's configured default: an OpenCode provider/model id, or a Claude model alias. */
+  /** Model requested for this task, instead of the office's configured default: an OpenCode provider/model id, a Droid model id, or a Claude model alias. */
   model?: string;
-  /** Reasoning effort requested for this task, when one was chosen (Claude only). */
+  /** Reasoning effort requested for this task, when one was chosen (Claude and Droid only). */
   effort?: AgentEffort;
   /** The GitHub issue it came from, when it did. */
   issue?: number;
@@ -928,8 +928,9 @@ export type ClientMsg =
   /**
    * A prompt for the agent standing by a board (`deskId` is its kiosk, see STATIONS in layout). It's
    * typed into its session, which is woken up first if it's asleep, or hired there when nobody is.
+   * `provider`/`model`/`effort` pick its engine when it's hired; an agent that's already there keeps its own.
    */
-  | { t: 'station.prompt'; deskId: string; prompt: string }
+  | { t: 'station.prompt'; deskId: string; prompt: string; provider?: AgentProvider; model?: string; effort?: AgentEffort }
   /** Push a worktree worker's branch and open a pull request for it, drafted from its task. */
   | { t: 'worker.pr'; workerId: string }
   | { t: 'term.input'; workerId: string; data: string }

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync, accessSync, chmodSync, mkdirSync, constants } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, accessSync, chmodSync, mkdirSync, rmSync, constants } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { homedir } from 'node:os';
@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { CodexUsageReader } from './codex-usage.js';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
+import unicode11 from '@xterm/addon-unicode11';
 import type { AgentEffort, AgentProvider, Run, TerminalHit, WorkerInfo, WorkerKind, WorkerStatus, WorkerTask } from '../shared/protocol.js';
 import { FAILS_TO_DESPAIR, outputFailed, toolAction } from '../shared/actions.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, isAgentEffort, isClaudeModel } from '../shared/protocol.js';
@@ -21,7 +22,7 @@ import { addUsage, newTracker, restoreTracker, scanTracker, trackerUsage, zeroUs
 import { PtyHost, SCROLLBACK, type Adopted, type Pty } from './ptys.js';
 import { codexHookArgs, normalizeCodexHook, writeCodexHook } from './codex.js';
 import { reportedUsage } from './reported-usage.js';
-import { configuredProvider, isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel } from './agents.js';
+import { configuredProvider, isValidDroidModel, isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeStatusEvent } from './opencode.js';
 import { ScrollbackStore, searchTerminal, terminalTail } from './history.js';
 import { screenSnapshot } from './screen.js';
@@ -135,6 +136,8 @@ export class WorkerManager {
   private statePath: string;
   private settingsPath: string;
   private droidSettingsPath: string;
+  /** The Droid hook commands, reused for per-worker model overlays (see droidSettings). */
+  private droidHooks: Record<string, unknown[]> = {};
   private trees: Worktrees;
   private agentPath: string | null = null;
   readonly defaultProvider: AgentProvider;
@@ -284,8 +287,8 @@ export class WorkerManager {
       id,
       kind,
       provider: selectedProvider,
-      model: selectedProvider === 'opencode' || selectedProvider === 'claude' ? model : undefined,
-      effort: selectedProvider === 'claude' ? effort : undefined,
+      model: selectedProvider === 'opencode' || selectedProvider === 'claude' || selectedProvider === 'droid' ? model : undefined,
+      effort: selectedProvider === 'claude' || selectedProvider === 'droid' ? effort : undefined,
       deskId,
       name: kind === 'shell' ? `${name} 🐚` : name,
       color: kind === 'shell' ? '#8d99ae' : agent ? agent.color : COLORS[Math.floor(Math.random() * COLORS.length)],
@@ -334,13 +337,13 @@ export class WorkerManager {
    * up with it if it's asleep, or it's hired there with it when nobody is. Returns what went wrong, or
    * the agent and whether it was just hired.
    */
-  station(deskId: string, by: string, text: string): { info: WorkerInfo; hired: boolean } | string {
+  station(deskId: string, by: string, text: string, provider?: AgentProvider, model?: string, effort?: AgentEffort): { info: WorkerInfo; hired: boolean } | string {
     if (!DESK_BY_ID.get(deskId)?.station) return 'There is no agent to ask there';
     const clean = text.replace(/\r\n?/g, '\n').trim();
     if (!clean) return 'Empty prompt';
     const w = [...this.workers.values()].find((x) => x.info.deskId === deskId);
     if (!w) {
-      const info = this.spawn(deskId, by, clean);
+      const info = this.spawn(deskId, by, clean, false, 'agent', provider, model, effort);
       return typeof info === 'string' ? info : { info, hired: true };
     }
     // Typed into the question it's asking, the prompt would answer it.
@@ -381,6 +384,13 @@ export class WorkerManager {
     }
     w.term?.dispose();
     this.scrollback.remove(id);
+    if (w.info.provider === 'droid' && (w.info.model !== undefined || w.info.effort !== undefined)) {
+      try {
+        rmSync(path.join(this.dataDir, `droid-${id}.json`), { force: true });
+      } catch {
+        // a leftover overlay is harmless: the next launch rewrites it
+      }
+    }
     this.events.remove(id);
     this.persist();
     const wt = w.info.worktree;
@@ -666,6 +676,7 @@ export class WorkerManager {
       else {
         w.info.activity = describeTool(report);
         w.info.action = toolAction(tool, report.tool_input);
+        this.noteTool(w, w.info.activity);
         this.setStatus(w, 'working');
       }
     } else if (event === 'PostToolUse') {
@@ -818,14 +829,14 @@ export class WorkerManager {
     w.prompts = [...w.prompts, clean].slice(-TASK_PROMPTS);
     const hadTask = !!w.info.task;
     if (!hadTask) w.info.task = fallbackTask(clean);
-    if (w.info.provider !== 'claude' && w.info.provider !== 'custom') return;
+    if (w.info.provider !== 'claude' && w.info.provider !== 'custom' && w.info.provider !== 'droid') return;
     // "yes", "go ahead", "2": a reply within the same task, not worth a new name.
     if (hadTask && clean.length < 16) return;
     this.nameTask(w);
   }
 
   private noteTool(w: Worker, tool: string) {
-    if (w.info.provider !== 'claude' && w.info.provider !== 'custom') return;
+    if (w.info.provider !== 'claude' && w.info.provider !== 'custom' && w.info.provider !== 'droid') return;
     w.tools = [...w.tools, tool].slice(-TASK_TOOLS);
     w.toolsSinceNamed++;
     if (w.info.task && w.toolsSinceNamed >= TASK_REFRESH_TOOLS && Date.now() - w.namedAt > TASK_REFRESH_MS) this.nameTask(w);
@@ -850,7 +861,7 @@ export class WorkerManager {
   }
 
   private nameTask(w: Worker) {
-    if (w.info.provider !== 'claude' && w.info.provider !== 'custom') return;
+    if (w.info.provider !== 'claude' && w.info.provider !== 'custom' && w.info.provider !== 'droid') return;
     w.toolsSinceNamed = 0;
     w.namedAt = Date.now();
     const previous = w.info.task && w.prompts.length > 1 ? w.info.task : undefined;
@@ -944,7 +955,8 @@ export class WorkerManager {
       if (resumeSessionId) args.push('resume', resumeSessionId);
       if (prompt) args.push('--', prompt);
     } else if (isDroid) {
-      args.unshift('--settings', this.droidSettingsPath);
+      // Interactive droid takes no --model flag: the model is pinned in its settings overlay.
+      args.unshift('--settings', this.droidSettings(info));
       if (resumeSessionId) args.push('--resume', resumeSessionId);
       if (prompt) args.push('--', prompt);
     }
@@ -1033,6 +1045,10 @@ export class WorkerManager {
     const term = new headless.Terminal({ cols: w.info.cols, rows: w.info.rows, scrollback: SCROLLBACK, allowProposedApi: true });
     const ser = new serialize.SerializeAddon();
     term.loadAddon(ser as any);
+    // Unicode 11 widths, matching the browser terminals: powerline glyphs, emoji, CJK and
+    // combining marks wrap and serialize at the right cells.
+    term.loadAddon(new unicode11.Unicode11Addon() as any);
+    term.unicode.activeVersion = '11';
     // OSC 9;4 progress (Claude Code emits it): 0 = idle, anything else = busy. Catches Esc-cancel,
     // which fires no Stop hook.
     if (w.info.provider === 'claude') {
@@ -1326,7 +1342,24 @@ process.stdin.on('end', () => {
     for (const event of ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Notification', 'Stop']) {
       droidHooks[event] = [{ hooks: [{ type: 'command', command: commandFor('droid', event) }] }];
     }
+    this.droidHooks = droidHooks;
     writeFileSync(this.droidSettingsPath, JSON.stringify({ hooks: droidHooks }, null, 2), { mode: 0o600 });
+  }
+
+  /**
+   * The settings file a Droid worker launches with. Interactive droid has no --model flag: a
+   * worker with a model or effort pinned gets its own overlay with the office hooks and a
+   * sessionDefaultSettings override, merged for that process only, so the global default is
+   * untouched. Rewritten on every launch, so a resume pins the same model again.
+   */
+  private droidSettings(info: WorkerInfo): string {
+    if (info.model === undefined && info.effort === undefined) return this.droidSettingsPath;
+    const file = path.join(this.dataDir, `droid-${info.id}.json`);
+    const sessionDefaultSettings: Record<string, string> = {};
+    if (info.model !== undefined) sessionDefaultSettings.model = info.model;
+    if (info.effort !== undefined) sessionDefaultSettings.reasoningEffort = info.effort;
+    writeFileSync(file, JSON.stringify({ hooks: this.droidHooks, sessionDefaultSettings }, null, 2), { mode: 0o600 });
+    return file;
   }
 
   /**
@@ -1405,8 +1438,8 @@ process.stdin.on('end', () => {
           id: s.id,
           kind: s.kind === 'shell' ? 'shell' : 'agent',
           provider,
-          model: provider === 'opencode' && isValidOpenCodeModel(s.model) ? s.model : provider === 'claude' && isClaudeModel(s.model) ? s.model : undefined,
-          effort: provider === 'claude' && isAgentEffort(s.effort) ? s.effort : undefined,
+          model: provider === 'opencode' && isValidOpenCodeModel(s.model) ? s.model : provider === 'claude' && isClaudeModel(s.model) ? s.model : provider === 'droid' && isValidDroidModel(s.model) ? s.model : undefined,
+          effort: (provider === 'claude' || provider === 'droid') && isAgentEffort(s.effort) ? s.effort : undefined,
           deskId: s.deskId,
           name: s.name ?? 'Worker',
           color: s.color ?? COLORS[0],

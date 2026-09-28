@@ -1,6 +1,7 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
 import type { Net } from '../net';
 import { store } from '../state';
 import { TERM_THEME } from '../world/laptop';
@@ -9,7 +10,7 @@ import { usageLabel, usageTitle } from './usage';
 import type { ServerMsg, WorkerInfo } from '../../shared/protocol';
 import { isAsleep } from '../../shared/status';
 import { findLine } from '../../shared/search';
-import { MONO } from '../fonts';
+import { TERM_FONT } from '../fonts';
 import { providerLabel, providerUsageNote, providerUsageState, resolvedProvider } from './provider';
 
 /** A line to scroll to once the terminal has loaded: a search hit (see search.ts). */
@@ -75,7 +76,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, onChanges ? changesBtn : null, closeBtn), host);
 
   const term = new Terminal({
-    fontFamily: MONO,
+    fontFamily: TERM_FONT,
     fontSize: 14,
     lineHeight: 1.1,
     theme: TERM_THEME,
@@ -87,6 +88,11 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   const fit = new FitAddon();
   term.loadAddon(fit);
   term.loadAddon(new WebLinksAddon());
+  // Unicode 11 widths, so powerline glyphs, emoji, CJK and combining marks take the cells
+  // they should instead of overlapping or leaving gaps (oh-my-zsh, agnoster…).
+  const unicode = new Unicode11Addon();
+  term.loadAddon(unicode);
+  term.unicode.activeVersion = '11';
 
   let ready = false;
   let lastSentSize = '';

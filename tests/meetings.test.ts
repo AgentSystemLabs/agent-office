@@ -226,6 +226,27 @@ test('bad requests are turned away before anyone sits down', (t) => {
   assert.match(f.start({}) ?? '', /busy/);
 });
 
+test('meetings seat Droid workers with the requested model and effort', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  assert.match(f.start({ provider: 'droid', model: 'has a space' }) ?? '', /Droid model/);
+  assert.equal(f.start({ provider: 'droid', model: 'custom:droidproxy:gpt-6-sol', effort: 'high' }), undefined);
+  assert.ok(f.workers.length > 0);
+  assert.ok(f.workers.every((w) => w.provider === 'droid' && w.model === 'custom:droidproxy:gpt-6-sol' && w.effort === 'high'));
+  const m = f.room.state().current!;
+  assert.equal(m.provider, 'droid');
+  assert.equal(m.model, 'custom:droidproxy:gpt-6-sol');
+  assert.equal(m.effort, 'high');
+});
+
+test('meetings drop the model and effort for providers that take none', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({ provider: 'codex', model: 'gpt-5', effort: 'high' }), undefined);
+  const m = f.room.state().current!;
+  assert.equal(m.provider, 'codex');
+  assert.equal(m.model, undefined);
+  assert.equal(m.effort, undefined);
+});
+
 test('in a git project the output is committed on the meeting branch, which outlives the room being cleared', async (t) => {
   const f = fixture({ git: true }); t.after(() => f.close());
   assert.equal(f.start({ rounds: 2, output: 'docs/decision.md', title: 'Pick a cache' }), undefined);

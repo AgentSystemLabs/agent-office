@@ -116,21 +116,45 @@ test('queue preserves the selected OpenCode model through seating, retry, and re
   assert.equal(f.workers[2].model, 'anthropic/claude-sonnet-4');
 });
 
-test('queue rejects models unless they are valid Claude aliases or OpenCode model ids', (t) => {
+test('queue rejects models unless they are valid Claude aliases, OpenCode model ids, or Droid model ids', (t) => {
   const f = fixture(); t.after(() => f.close());
   const q = f.open();
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'claude', 'openai/gpt-5') ?? '', /model/i);
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', 'gpt-5') ?? '', /model|format|provider/i);
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', 'openai/gpt 5') ?? '', /model|format|whitespace/i);
+  assert.match(q.add('Task', 'Tester', undefined, undefined, 'droid', 'custom:droidproxy:gpt 6') ?? '', /model|whitespace/i);
   assert.equal(q.state().tasks.length, 0);
 });
 
-test('queue rejects reasoning effort unless the task is Claude and the level is known', (t) => {
+test('queue rejects reasoning effort unless the task is Claude or Droid and the level is known', (t) => {
   const f = fixture(); t.after(() => f.close());
   const q = f.open();
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', undefined, 'high' as AgentEffort) ?? '', /effort|Claude/i);
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'claude', undefined, 'overdrive' as AgentEffort) ?? '', /effort/i);
-  assert.equal(q.state().tasks.length, 0);
+  assert.equal(q.add('Task', 'Tester', undefined, undefined, 'droid', 'custom:droidproxy:gpt-6-sol', 'high'), undefined);
+  assert.equal(q.state().tasks.length, 1);
+});
+
+test('queue preserves a Droid model and effort through seating, retry, and restart', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open();
+  assert.equal(q.add('Fix login', 'Tester', undefined, undefined, 'droid', 'custom:droidproxy:gpt-6-sol', 'high'), undefined);
+  assert.equal(f.workers[0].model, 'custom:droidproxy:gpt-6-sol');
+  assert.equal(f.workers[0].effort, 'high');
+  assert.equal(q.state().tasks[0].model, 'custom:droidproxy:gpt-6-sol');
+  assert.equal(q.state().tasks[0].effort, 'high');
+  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  q.retry(q.state().tasks[0].id);
+  assert.equal(f.workers[1].model, 'custom:droidproxy:gpt-6-sol');
+  assert.equal(f.workers[1].effort, 'high');
+
+  q.setLimit(0);
+  q.add('Queued', 'Tester', undefined, undefined, 'droid', 'glm-5.3-flash', 'max');
+  q.shutdown();
+  const restored = f.open();
+  restored.setLimit(2);
+  assert.equal(f.workers[2].model, 'glm-5.3-flash');
+  assert.equal(f.workers[2].effort, 'max');
 });
 
 test('queue preserves a Claude model and effort through seating, retry, and restart', (t) => {

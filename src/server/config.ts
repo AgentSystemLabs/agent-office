@@ -57,7 +57,7 @@ export interface RTCIceServerLike {
   credential?: string;
 }
 
-const HELP = `agent-office — a 3D office for your team and its Claude Code / OpenCode / Codex / Droid workers
+const HELP = `agent-office — a 3D office for your team and its Droid / Claude Code / OpenCode / Codex workers
 
 Usage:
   agent-office [options]
@@ -97,9 +97,9 @@ Options:
                           is kept and the password is never displayed again.
       --reset-password    Forget the generated password (a new one is made on the
                           next start) and exit
-      --agent <cmd>       Default agent command (default "claude", env AGENT_OFFICE_AGENT)
+      --agent <cmd>       Default agent command (default "droid", env AGENT_OFFICE_AGENT)
       --agent-args <str>  Extra args for the configured agent, e.g. "--model opus"
-                          Workers can also select Claude Code, OpenCode, Codex or Droid in the UI
+                          Workers can also select Droid, Claude Code, OpenCode or Codex in the UI
       --tls-cert <file>   Serve HTTPS with this certificate (PEM)
       --tls-key <file>    ...and this private key (PEM)
       --self-signed       Serve HTTPS with a generated self-signed certificate
@@ -183,7 +183,7 @@ export function loadConfig(argv: string[]): Config {
   let port = Number(process.env.PORT) || 4600;
   let host = '0.0.0.0';
   let password = process.env.AGENT_OFFICE_PASSWORD || '';
-  let agentCmd = process.env.AGENT_OFFICE_AGENT || 'claude';
+  let agentCmd = process.env.AGENT_OFFICE_AGENT || 'droid';
   let agentArgs: string[] = splitArgs(process.env.AGENT_OFFICE_AGENT_ARGS || '');
   let tlsCert = '';
   let tlsKey = '';

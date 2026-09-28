@@ -119,8 +119,8 @@ export class MeetingRoom {
     if (!prompt) return 'Say what the meeting is about';
     const provider = req.provider ?? this.workers.defaultProvider;
     if (!isAgentProvider(provider) || (provider === 'custom' && this.workers.defaultProvider !== 'custom')) return 'Unknown agent provider';
-    const model = provider === 'claude' || provider === 'opencode' ? req.model || undefined : undefined;
-    const effort = provider === 'claude' && isAgentEffort(req.effort) ? req.effort : undefined;
+    const model = provider === 'claude' || provider === 'opencode' || provider === 'droid' ? req.model || undefined : undefined;
+    const effort = (provider === 'claude' || provider === 'droid') && isAgentEffort(req.effort) ? req.effort : undefined;
     const bad = validateWorkerModel('agent', provider, model) ?? validateWorkerEffort('agent', provider, effort);
     if (bad) return bad;
 

@@ -35,6 +35,10 @@ export function modelBadge(provider: AgentProvider | undefined, model: string | 
     const parts = [label, effort ? EFFORT_LABEL[effort] : undefined].filter((v): v is string => !!v);
     return parts.length ? parts.join(' · ') : undefined;
   }
+  if (provider === 'droid') {
+    const parts = [model ? droidDisplayName(model) : undefined, effort ? EFFORT_LABEL[effort] : undefined].filter((v): v is string => !!v);
+    return parts.length ? parts.join(' · ') : undefined;
+  }
   return model;
 }
 
@@ -42,7 +46,7 @@ export function modelBadge(provider: AgentProvider | undefined, model: string | 
 export function supportedProviders(project: ProjectInfo | null): AgentProvider[] {
   const values = project?.agentProviders?.filter((p): p is AgentProvider => p === 'claude' || p === 'opencode' || p === 'codex' || p === 'droid' || p === 'custom') ?? [];
   if (values.length) return [...new Set(values)];
-  return project?.defaultProvider && PROVIDER_LABEL[project.defaultProvider] ? [project.defaultProvider] : ['claude'];
+  return project?.defaultProvider && PROVIDER_LABEL[project.defaultProvider] ? [project.defaultProvider] : ['droid'];
 }
 
 /** Resolve old workers/tasks that have no provider metadata to the configured default. */
@@ -97,9 +101,9 @@ function preferredProvider(options: AgentProvider[], fallback: AgentProvider): A
 export interface ProviderPicker {
   element: HTMLElement;
   value(): AgentProvider;
-  /** The optional initial model override: an OpenCode provider/model id, or a Claude model alias. */
+  /** The optional initial model override: an OpenCode provider/model id, a Droid model id, or a Claude model alias. */
   model(): string | undefined;
-  /** The optional Claude reasoning effort. */
+  /** The optional reasoning effort (Claude and Droid). */
   effort(): AgentEffort | undefined;
   /** Reports a visible field error for an invalid nonempty OpenCode model. */
   valid(): boolean;
@@ -108,6 +112,11 @@ export interface ProviderPicker {
 /** Remembers the last Claude model/effort chosen at this picker's key (a desk, or the queue). */
 function claudeChoiceKey(kind: 'model' | 'effort', key: string): string {
   return `agent-office.claude-${kind}.${key}`;
+}
+
+/** Remembers the last Droid model/effort chosen at this picker's key. */
+function droidChoiceKey(kind: 'model' | 'effort', key: string): string {
+  return `agent-office.droid-${kind}.${key}`;
 }
 
 function preferredClaudeModel(key: string): ClaudeModel | undefined {
@@ -130,13 +139,35 @@ function preferredEffort(key: string): AgentEffort | undefined {
   return undefined;
 }
 
+function preferredDroidModel(key: string): string | undefined {
+  try {
+    const saved = localStorage.getItem(droidChoiceKey('model', key));
+    if (saved && !/[\s\p{Cc}\p{Cf}]/u.test(saved)) return saved;
+  } catch {
+    // storage blocked
+  }
+  return undefined;
+}
+
+function preferredDroidEffort(key: string): AgentEffort | undefined {
+  try {
+    const saved = localStorage.getItem(droidChoiceKey('effort', key));
+    if (saved && (AGENT_EFFORTS as readonly string[]).includes(saved)) return saved as AgentEffort;
+  } catch {
+    // storage blocked
+  }
+  return undefined;
+}
+
 /**
  * What a picker remembered at `key` starts on, for hiring without showing one (an issue card
- * dropped on a desk): the provider last picked anywhere, and that key's Claude model and effort.
+ * dropped on a desk): the provider last picked anywhere, and that key's Claude/Droid model and effort.
  */
 export function rememberedChoice(project: ProjectInfo | null, key: string): { provider: AgentProvider; model?: string; effort?: AgentEffort } {
   const provider = preferredProvider(supportedProviders(project), resolvedProvider(project?.defaultProvider, project));
-  return provider === 'claude' ? { provider, model: preferredClaudeModel(key), effort: preferredEffort(key) } : { provider };
+  if (provider === 'claude') return { provider, model: preferredClaudeModel(key), effort: preferredEffort(key) };
+  if (provider === 'droid') return { provider, model: preferredDroidModel(key), effort: preferredDroidEffort(key) };
+  return { provider };
 }
 
 const MODEL_MAX = 256;
@@ -168,9 +199,52 @@ function fetchOpenCodeModels(): Promise<string[]> {
   return modelRequest;
 }
 
+export interface DroidModelOption {
+  id: string;
+  displayName: string;
+}
+
+let droidList: DroidModelOption[] | null = null;
+let droidListAt = 0;
+let droidRequest: Promise<DroidModelOption[]> | null = null;
+let droidDefault = '';
+
+function fetchDroidModels(): Promise<DroidModelOption[]> {
+  if (droidList && Date.now() - droidListAt < 60_000) return Promise.resolve(droidList);
+  if (droidRequest) return droidRequest;
+  droidRequest = fetch('/api/agents/droid/models', { credentials: 'same-origin', cache: 'no-store' })
+    .then(async (res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = (await res.json()) as { models?: unknown; defaultModel?: unknown };
+      const models = Array.isArray(body.models)
+        ? body.models.flatMap((m): DroidModelOption[] => {
+            if (!m || typeof m !== 'object') return [];
+            const { id, displayName } = m as { id?: unknown; displayName?: unknown };
+            if (typeof id !== 'string' || !id || id.length > MODEL_MAX || /[\s\p{Cc}\p{Cf}]/u.test(id)) return [];
+            return [{ id, displayName: typeof displayName === 'string' && displayName ? displayName : id }];
+          })
+        : [];
+      droidList = models;
+      droidListAt = Date.now();
+      droidDefault = typeof body.defaultModel === 'string' ? body.defaultModel : '';
+      return droidList;
+    })
+    .finally(() => {
+      droidRequest = null;
+    });
+  return droidRequest;
+}
+
+/** A Droid model id as the hire dialog shows it: its display name when the catalogue has loaded, else the id tidied up. */
+export function droidDisplayName(id: string): string {
+  const known = droidList?.find((m) => m.id === id)?.displayName;
+  if (known) return known;
+  return id.replace(/^custom:/, '').replace(/^droidproxy:/, '').replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 /**
  * A provider selector that never offers a provider outside the server's metadata, with a model
- * (and, for Claude, reasoning effort) picker underneath. `key` scopes what gets remembered between
+ * (and, for Claude and Droid, reasoning effort) picker underneath. `key` scopes what gets remembered between
  * hires — a desk id for the hire dialog, or a fixed key like "queue" for the queue's add form —
  * so a desk that always got Haiku offers Haiku again next time, without one hire changing another's.
  */
@@ -228,12 +302,69 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
     }
   });
 
+  const droidModelSelect = h('select', { id: `${id}-droid-model`, 'aria-label': 'Droid model' }) as HTMLSelectElement;
+  droidModelSelect.append(h('option', { value: '' }, 'Default (Droid settings)'));
+  const droidEffortSelect = h('select', { id: `${id}-droid-effort`, 'aria-label': 'Droid reasoning effort' }) as HTMLSelectElement;
+  droidEffortSelect.append(h('option', { value: '' }, 'Default'));
+  for (const e of AGENT_EFFORTS) droidEffortSelect.append(h('option', { value: e }, EFFORT_LABEL[e]));
+  droidEffortSelect.value = preferredDroidEffort(key) ?? '';
+  const droidHint = h('small.provider-model-hint', {}, 'Overrides the office default for this worker; pinned in its Droid settings overlay.');
+  const droidChoice = h(
+    'div.provider-model.droid-model',
+    {},
+    h('label', { for: `${id}-droid-model` }, 'Model'),
+    droidModelSelect,
+    h('label', { for: `${id}-droid-effort` }, 'Effort'),
+    droidEffortSelect,
+    droidHint,
+  );
+  const rememberDroid = (kind: 'model' | 'effort', value: string) => {
+    try {
+      if (value) localStorage.setItem(droidChoiceKey(kind, key), value);
+      else localStorage.removeItem(droidChoiceKey(kind, key));
+    } catch {
+      // storage blocked
+    }
+  };
+  droidModelSelect.addEventListener('change', () => rememberDroid('model', droidModelSelect.value));
+  droidEffortSelect.addEventListener('change', () => rememberDroid('effort', droidEffortSelect.value));
+  const fillDroidModels = () => {
+    const remembered = preferredDroidModel(key);
+    droidHint.textContent = droidList ? 'Overrides the office default for this worker; pinned in its Droid settings overlay.' : 'Loading Droid models…';
+    void fetchDroidModels()
+      .then((models) => {
+        droidModelSelect.replaceChildren(
+          h('option', { value: '' }, droidDefault ? `Default (${droidDisplayName(droidDefault)})` : 'Default (Droid settings)'),
+          ...models.map((m) => h('option', { value: m.id }, m.displayName)),
+        );
+        // A remembered id the catalogue no longer lists is still offered, so the choice isn't silently dropped.
+        if (remembered && !models.some((m) => m.id === remembered)) {
+          droidModelSelect.append(h('option', { value: remembered }, `${droidDisplayName(remembered)} (unavailable)`));
+        }
+        droidModelSelect.value = remembered ?? '';
+        droidHint.textContent = models.length
+          ? 'Overrides the office default for this worker; pinned in its Droid settings overlay.'
+          : 'No Droid models found in the office settings — the worker runs the global default.';
+      })
+      .catch(() => {
+        droidModelSelect.replaceChildren(h('option', { value: '' }, 'Default (Droid settings)'));
+        if (remembered) {
+          droidModelSelect.append(h('option', { value: remembered }, droidDisplayName(remembered)));
+          droidModelSelect.value = remembered;
+        }
+        droidHint.textContent = 'Model suggestions unavailable; the worker runs the global default unless a remembered model is kept.';
+      });
+  };
+
   const setModelVisibility = (provider: AgentProvider) => {
     const openCode = provider === 'opencode';
     const claude = provider === 'claude';
+    const droid = provider === 'droid';
     modelChoice.classList.toggle('hidden', !openCode);
     modelInput.disabled = !openCode;
     claudeChoice.classList.toggle('hidden', !claude);
+    droidChoice.classList.toggle('hidden', !droid);
+    if (droid) fillDroidModels();
     if (!openCode) return;
     modelHint.textContent = modelList ? 'Optional provider/model override; choose a suggestion or enter one manually.' : 'Loading OpenCode models… You can enter a provider/model manually.';
     void fetchOpenCodeModels()
@@ -260,11 +391,16 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
   });
   modelInput.addEventListener('input', () => modelInput.setCustomValidity(''));
   return {
-    element: h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice, claudeChoice),
+    element: h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice, claudeChoice, droidChoice),
     value: () => (options.includes(select.value as AgentProvider) ? (select.value as AgentProvider) : fallback),
-    effort: () => (select.value === 'claude' && effortSelect.value ? (effortSelect.value as AgentEffort) : undefined),
+    effort: () => {
+      if (select.value === 'claude') return effortSelect.value ? (effortSelect.value as AgentEffort) : undefined;
+      if (select.value === 'droid') return droidEffortSelect.value ? (droidEffortSelect.value as AgentEffort) : undefined;
+      return undefined;
+    },
     model: () => {
       if (select.value === 'claude') return claudeModelSelect.value || undefined;
+      if (select.value === 'droid') return droidModelSelect.value || undefined;
       if (select.value !== 'opencode') return undefined;
       const value = modelInput.value;
       return validModel(value) ? value : undefined;

@@ -115,8 +115,6 @@ interface Leaver {
   seat: THREE.Vector3;
   /** The way it's walking (rotation around y; 0 is +z). */
   heading: number;
-  /** Seconds until its next footstep. */
-  stepIn: number;
   /** The desk chair it got up from, spinning after it (null for a bean bag, or once someone new sits there). */
   chair: THREE.Object3D | null;
   spin: number;
@@ -152,7 +150,6 @@ export class Departures {
     private parent: THREE.Object3D,
     /** The top of whatever is underfoot at (x, z) for feet at `y`: the floor, a step, the street. */
     private ground: (x: number, z: number, y: number) => number,
-    private footstep: (x: number, y: number, z: number) => void,
     /** It has got up from `deskId`, so the seat is free to see. */
     private onUp: (deskId: string) => void,
     /** Whether this floor is above the bottom one, with no exit door: the way out is off the balcony. */
@@ -175,7 +172,7 @@ export class Departures {
     const up = this.upstairs();
     const chute: Chute | null = up ? { phase: 'walk', t: 0, color: pick(CANOPIES), canopy: null, from: new THREE.Vector3(), vel: new THREE.Vector3(), land: new THREE.Vector3(), angle: 0, radius: 0, height: 1 } : null;
     const way = up ? wayToBalcony(desk.def) : wayHome(desk.def);
-    this.leavers.push({ model, deskId: desk.def.id, way, next: 0, t: 0, seat, heading: model.root.rotation.y, stepIn: 0, chair, spin: 0, scale, gone: 0, chute });
+    this.leavers.push({ model, deskId: desk.def.id, way, next: 0, t: 0, seat, heading: model.root.rotation.y, chair, spin: 0, scale, gone: 0, chute });
     this.laptops.push({ laptop, deskId: desk.def.id, gone: 0 });
   }
 
@@ -280,11 +277,6 @@ export class Departures {
     root.rotation.y += wrap(l.heading - root.rotation.y) * Math.min(1, dt * 8);
     if (l.next < l.way.length) {
       l.model.walking = true;
-      l.stepIn -= dt;
-      if (l.stepIn <= 0) {
-        l.stepIn += Math.PI / 9;
-        this.footstep(pos.x, pos.y, pos.z);
-      }
       return true;
     }
     if (c?.phase === 'walk') {
@@ -376,10 +368,9 @@ export class Departures {
       if (Math.hypot(dx, dz) > 1e-4) l.heading = Math.atan2(dx, dz);
       turn(l.heading, 3);
       if (pos.y > c.land.y) return true;
-      // Down, with a thump.
+      // Down.
       pos.y = c.land.y;
       root.rotation.x = 0;
-      this.footstep(pos.x, pos.y, pos.z);
       c.phase = 'down';
       c.t = 0;
       return true;
@@ -426,7 +417,6 @@ interface Arriver {
   /** Seconds before it steps out of the elevator (they come out one after another), then seconds walking. */
   t: number;
   heading: number;
-  stepIn: number;
   /** Where the hop up onto its chair starts, once it's beside it. */
   from?: THREE.Vector3;
   hop: number;
@@ -451,7 +441,6 @@ export class Arrivals {
     private parent: THREE.Object3D,
     /** The top of whatever is underfoot at (x, z) for feet at `y`. */
     private ground: (x: number, z: number, y: number) => number,
-    private footstep: (x: number, y: number, z: number) => void,
   ) {}
 
   /** Walks `model` in to its seat at `desk`, a moment after whoever stepped out of the elevator last. */
@@ -466,7 +455,7 @@ export class Arrivals {
     model.root.rotation.set(0, 0, 0);
     model.root.scale.setScalar(desk.seatAnchor.getWorldScale(new THREE.Vector3()).x);
     model.root.visible = delay <= 0;
-    this.walkers.push({ model, desk, way, next: 1, t: -delay, heading: 0, stepIn: 0, hop: 0 });
+    this.walkers.push({ model, desk, way, next: 1, t: -delay, heading: 0, hop: 0 });
   }
 
   /** Stops walking `model` in: it was sent home before it sat down, or it's gone. */
@@ -534,13 +523,7 @@ export class Arrivals {
     pos.y += (g - pos.y) * Math.min(1, dt * 14);
     root.rotation.y += wrap(w.heading - root.rotation.y) * Math.min(1, dt * 8);
     w.model.walking = w.next < w.way.length;
-    if (w.model.walking) {
-      w.stepIn -= dt;
-      if (w.stepIn <= 0) {
-        w.stepIn += Math.PI / 9;
-        this.footstep(pos.x, pos.y, pos.z);
-      }
-    } else w.from = pos.clone();
+    if (!w.model.walking) w.from = pos.clone();
     return true;
   }
 

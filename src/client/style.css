@@ -15,6 +15,16 @@
   font-style: normal;
   font-display: swap;
 }
+/* Powerline, Nerd Font icons and other PUA symbols for the terminals (oh-my-zsh, agnoster…).
+   unicode-range keeps it lazy: the browser only fetches it once such a glyph renders. */
+@font-face {
+  font-family: 'Symbols Nerd Font Mono';
+  src: url('/fonts/SymbolsNerdFontMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+E000-F8FF, U+F0000-F0FFF;
+}
 
 :root {
   --bg: #020202;
@@ -332,10 +342,10 @@ button { font-family: inherit; }
 .provider-model input { width: 100%; padding: 6px 9px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface-raised); color: var(--text); font: inherit; font-size: 13px; }
 .provider-model input:invalid { border-color: var(--danger); }
 .provider-model-hint { color: var(--text-secondary); font-size: 11px; line-height: 1.25; }
-.provider-model.claude-model { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 8px; }
-.provider-model.claude-model label { white-space: nowrap; }
-.provider-model.claude-model select { width: 100%; padding: 6px 9px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface-raised); color: var(--text); font: inherit; font-size: 13px; }
-.provider-model.claude-model .provider-model-hint { grid-column: 1 / -1; }
+.provider-model.claude-model, .provider-model.droid-model { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 8px; }
+.provider-model.claude-model label, .provider-model.droid-model label { white-space: nowrap; }
+.provider-model.claude-model select, .provider-model.droid-model select { width: 100%; padding: 6px 9px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface-raised); color: var(--text); font: inherit; font-size: 13px; }
+.provider-model.claude-model .provider-model-hint, .provider-model.droid-model .provider-model-hint { grid-column: 1 / -1; }
 .queue-add .provider-choice { flex-direction: column; align-items: flex-start; gap: 2px; margin: 0; flex: none; }
 .queue-add .provider-choice label { font-size: 10px; }
 .queue-add .provider-note { flex: 0 1 auto; max-width: 155px; }

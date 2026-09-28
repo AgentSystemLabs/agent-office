@@ -10,7 +10,8 @@ import type { Config } from './config.js';
 import { Auth, type Session } from './auth.js';
 import { Accounts } from './accounts.js';
 import { childEnv, resolveCommand } from './workers.js';
-import { configuredProvider, OPEN_CODE_MODEL_MAX } from './agents.js';
+import { configuredProvider, DROID_MODEL_MAX, OPEN_CODE_MODEL_MAX } from './agents.js';
+import { createDroidModelCatalogue } from './droid-models.js';
 import { createOpenCodeModelCatalogue } from './models.js';
 import { Team } from './team.js';
 import { Upgrader } from './upgrade.js';
@@ -56,6 +57,9 @@ const MIME: Record<string, string> = {
 };
 
 const CLEANUPS = new Set(['keep', 'worktree', 'all']);
+
+/** The longest model id any provider takes, so an overlong one fails validation instead of being clipped. */
+const MODEL_MAX = Math.max(OPEN_CODE_MODEL_MAX, DROID_MODEL_MAX);
 
 type ToastLevel = Extract<ServerMsg, { t: 'toast' }>['level'];
 
@@ -195,6 +199,8 @@ export async function startServer(cfg: Config) {
     modelCommand.includes('/') ? path.resolve(modelCommand) : modelCommand,
     cfg.dir,
   );
+  // Droid's selectable models come from its own settings, on this machine.
+  const droidModels = createDroidModelCatalogue();
 
   const sendTo = (c: Client, msg: ServerMsg) => {
     if (c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify(msg));
@@ -698,6 +704,14 @@ export async function startServer(cfg: Config) {
           return send(res, 502, { error: 'Could not load OpenCode models' });
         }
       }
+      if (p === '/api/agents/droid/models' && req.method === 'GET') {
+        try {
+          const catalogue = await droidModels.get();
+          return send(res, 200, { models: catalogue.models, defaultModel: catalogue.defaultModel, defaultReasoningEffort: catalogue.defaultReasoningEffort });
+        } catch {
+          return send(res, 502, { error: 'Could not load Droid models' });
+        }
+      }
       if (p === '/api/image' && req.method === 'GET') {
         // A picture on the wall, fetched by the office so the 3D view can draw it (see decor.ts).
         const r = await images.get(url.searchParams.get('url') ?? '');
@@ -1193,7 +1207,7 @@ export async function startServer(cfg: Config) {
           warn(c, 'Unknown agent provider');
           break;
         }
-        const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
+        const model = msg.model === undefined ? undefined : str(msg.model, MODEL_MAX + 1);
         const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
         const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort);
         const issue = kind === 'agent' ? issueNumber(msg.issue) : undefined;
@@ -1258,7 +1272,13 @@ export async function startServer(cfg: Config) {
       case 'station.prompt': {
         const floor = here();
         if (!floor) break;
-        const r = floor.workers.station(str(msg.deskId, 32), who, str(msg.prompt, 20000));
+        if (msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider))) {
+          warn(c, 'Unknown agent provider');
+          break;
+        }
+        const model = msg.model === undefined ? undefined : str(msg.model, MODEL_MAX + 1);
+        const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
+        const r = floor.workers.station(str(msg.deskId, 32), who, str(msg.prompt, 20000), msg.provider, model, effort);
         if (typeof r === 'string') warn(c, r);
         else if (r.hired) toastFloor(floor, `${who} asked the ${r.info.name} something`);
         break;
@@ -1380,7 +1400,7 @@ export async function startServer(cfg: Config) {
           break;
         }
         const issue = Number.isInteger(msg.issue) && (msg.issue as number) > 0 ? (msg.issue as number) : undefined;
-        const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
+        const model = msg.model === undefined ? undefined : str(msg.model, MODEL_MAX + 1);
         const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
         const err = floor.queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model, effort);
         if (err) warn(c, err);
@@ -1426,7 +1446,7 @@ export async function startServer(cfg: Config) {
           rounds: count(msg.rounds),
           budget: count(msg.budget),
           provider: msg.provider,
-          model: msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1),
+          model: msg.model === undefined ? undefined : str(msg.model, MODEL_MAX + 1),
           effort: isAgentEffort(msg.effort) ? msg.effort : undefined,
         };
         warn(c, floor.meetings.start(request, who));

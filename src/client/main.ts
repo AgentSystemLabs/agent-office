@@ -468,8 +468,6 @@ interface RemotePeer {
   label: string;
   look: PeerInfo['look'];
   bubble?: { sprite: THREE.Sprite; until: number };
-  /** Seconds walked since their last footstep. */
-  stepT: number;
   /** On the ladder or a pole, going by where they are. */
   grip: Grip | null;
 }
@@ -489,7 +487,6 @@ const sentHome = new Set<string>();
 const departures = new Departures(
   scene,
   (x, z, y) => groundAt(office.colliders, x, z, y),
-  (x, y, z) => sound.stepAt(x, z, y),
   () => arrangeSeats(),
   () => office.stack.state.index > 0,
 );
@@ -497,7 +494,6 @@ const departures = new Departures(
 const arrivals = new Arrivals(
   scene,
   (x, z, y) => groundAt(office.colliders, x, z, y),
-  (x, y, z) => sound.stepAt(x, z, y),
 );
 /** Set while a floor's workers arrive with it (a welcome, an elevator ride): they're in their seats already. */
 let seatedAlready = false;
@@ -803,7 +799,6 @@ function setPlace() {
   if (r) r.group.visible = up;
   player.colliders = up ? r!.colliders : office.colliders;
   sky.setRoof(up, roofDrop(roofFloors()));
-  sound.setOutdoors(up);
   sound.setDj(up ? djAt : null);
   // You can see the whole city from up there (and its clouds); from the top floors, as far as the haze.
   camera.far = up ? 700 : FAR;
@@ -887,7 +882,7 @@ function syncPeers() {
       person.root.position.set(peer.x, peer.y, peer.z);
       scene.add(person.root);
       noOutline(person.root);
-      r = { person, target: new THREE.Vector3(peer.x, peer.y, peer.z), rotY: peer.rotY, moving: false, label: '', look: { ...peer.look }, stepT: 0, grip: null };
+      r = { person, target: new THREE.Vector3(peer.x, peer.y, peer.z), rotY: peer.rotY, moving: false, label: '', look: { ...peer.look }, grip: null };
       remotes.set(id, r);
     }
     const label = `${peer.name}|${peer.voice ? (peer.muted ? 'm' : 'v') : '-'}|${peer.color}`;
@@ -1291,12 +1286,14 @@ function askStation(deskId: string) {
     placeholder: `e.g. ${info.example}`,
     submitLabel: 'Send ✨',
     warning: w ? undefined : pressureNote(store.machine),
-    onSubmit: (text) => net.send({ t: 'station.prompt', deskId, prompt: text }),
+    providerOption: !w,
+    deskId,
+    onSubmit: (text, o) => net.send({ t: 'station.prompt', deskId, prompt: text, provider: o.provider, model: o.model, effort: o.effort }),
   });
 }
 
 function resumeWorker(w: WorkerInfo) {
-  if (!w.sessionId && w.kind !== 'shell') toast(`${w.name} has no saved Claude session — starting a fresh one`, 'warn');
+  if (!w.sessionId && w.kind !== 'shell') toast(`${w.name} has no saved ${providerLabel(w.provider, store.project)} session — starting a fresh one`, 'warn');
   net.send({ t: 'worker.resume', workerId: w.id });
 }
 
@@ -2733,10 +2730,6 @@ resize();
 const timer = new THREE.Timer();
 let lastSent = { x: 0, y: 0, z: 0, rotY: 0, moving: false, at: 0 };
 let speakTick = 0;
-/** Which half-stride your walk is on, so each one plays a footstep. */
-let stride = 0;
-/** How fast you were falling, so landing a jump thumps but stepping down a stair doesn't. */
-let fallV = 0;
 const lookDir = new THREE.Vector3();
 const workerPos = new THREE.Vector3();
 const headPos = new THREE.Vector3();
@@ -2792,16 +2785,6 @@ function frame(ts?: number) {
   // Your ears are in your head, facing wherever the camera looks.
   camera.getWorldDirection(lookDir);
   sound.update({ x: player.pos.x, y: player.pos.y + EYE_HEIGHT, z: player.pos.z, fx: lookDir.x, fz: lookDir.z });
-  const s = Math.floor(player.walkPhase / Math.PI);
-  if (s !== stride) {
-    stride = s;
-    if (player.moving && player.grounded) sound.step();
-  }
-  if (!player.grounded) fallV = Math.min(fallV, player.vy);
-  else {
-    if (fallV < -4) sound.step('land');
-    fallV = 0;
-  }
 
   const moved = Math.abs(player.pos.x - lastSent.x) + Math.abs(player.pos.y - lastSent.y) + Math.abs(player.pos.z - lastSent.z) > 0.01 || Math.abs(player.facing - lastSent.rotY) > 0.02;
   if ((moved || player.moving !== lastSent.moving) && now - lastSent.at > 66) {
@@ -2831,12 +2814,6 @@ function frame(ts?: number) {
     r.person.setGrip(holding);
     const walking = !sat && p.moving && !airborne;
     r.person.update(dt, t, walking || (holding === 'ladder' && p.moving), airborne && !holding && Math.abs(pos.y - r.target.y) > 0.01);
-    // Their walk cycle takes a step every π/11 seconds.
-    r.stepT = walking ? r.stepT + dt : 0.2;
-    if (r.stepT >= Math.PI / 11) {
-      r.stepT -= Math.PI / 11;
-      sound.stepAt(pos.x, pos.z);
-    }
     r.person.setVoiceLevel(p.voice && !p.muted ? voice.levelOf(id) : 0);
     r.person.emojiLift = r.bubble ? 0.45 : 0;
     if (r.bubble && now > r.bubble.until) {
@@ -2873,7 +2850,6 @@ function frame(ts?: number) {
   hanger.update();
   sky.update(dt, t, camera);
   if (!upTop) holiday.update(t, sky.lampsOn, camera);
-  sound.setWeather(sky.rain, 1 - sky.daylight);
   if (upTop && roof) {
     // Everything up there moves to the DJ's set; strobes flash the whole roof as a drop lands.
     const strobe = roof.update(t, dt, djFrame(djAt()), { dark: sky.lampsOn, motion: !reduceMotion.matches });

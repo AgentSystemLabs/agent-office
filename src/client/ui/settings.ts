@@ -307,7 +307,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       note,
       h('label', { style: 'margin-top:18px' }, 'Office sounds'),
       soundRow,
-      h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds and rain outside, the dog, and the ding when a worker is done. Voice chat isn’t affected.'),
+      h('p.setting-note', {}, 'Workers typing, the coffee machine, thunder, the dog, and the ding when a worker is done. Voice chat isn’t affected.'),
       h('label', { style: 'margin-top:18px' }, 'Jukebox'),
       musicRow,
       h('p.setting-note', {}, 'The jukebox in the lounge. Everyone on the floor hears the same song, louder the closer they are to it; this is how loud it is for you alone.'),

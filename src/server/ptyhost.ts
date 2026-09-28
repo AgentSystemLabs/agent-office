@@ -11,6 +11,7 @@ import net from 'node:net';
 import * as pty from '@lydell/node-pty';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
+import unicode11 from '@xterm/addon-unicode11';
 import { PTY_PROTOCOL, SCROLLBACK, readMessages, type FromHost, type SpawnOpts, type ToHost } from './ptys.js';
 import { screenSnapshot } from './screen.js';
 
@@ -96,6 +97,10 @@ function spawn(id: string, opts: SpawnOpts) {
   const term = new headless.Terminal({ cols: opts.cols, rows: opts.rows, scrollback: SCROLLBACK, allowProposedApi: true });
   const ser = new serialize.SerializeAddon();
   term.loadAddon(ser as any);
+  // Unicode 11 widths, matching the browser terminals: powerline glyphs, emoji, CJK and
+  // combining marks wrap and serialize at the right cells.
+  term.loadAddon(new unicode11.Unicode11Addon() as any);
+  term.unicode.activeVersion = '11';
   const snapshot = screenSnapshot(term, ser);
   if (opts.prelude) term.write(opts.prelude);
   const s: Session = { id, proc, term, snapshot, cols: opts.cols, rows: opts.rows, busy: false, title: '', attached: true };

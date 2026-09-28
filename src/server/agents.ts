@@ -2,6 +2,7 @@ import path from 'node:path';
 import { isAgentEffort, isClaudeModel, type AgentProvider } from '../shared/protocol.js';
 
 export const OPEN_CODE_MODEL_MAX = 256;
+export const DROID_MODEL_MAX = 256;
 
 /**
  * Finds the provider represented by the configured executable.  Keep this deliberately based on
@@ -25,19 +26,27 @@ export function isValidOpenCodeModel(value: unknown): value is string {
   return parts.length >= 2 && /^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/.test(parts[0]) && parts.slice(1).every((part) => part.length > 0);
 }
 
+/** Droid model ids are settings values, so reject anything that could be ambiguous or unsafe. */
+export function isValidDroidModel(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > DROID_MODEL_MAX) return false;
+  if (/[\s\p{Cc}\p{Cf}]/u.test(value)) return false;
+  return true;
+}
+
 export function validateWorkerModel(kind: 'agent' | 'shell', provider: AgentProvider | undefined, model: unknown): string | undefined {
   if (model === undefined) return undefined;
   if (kind === 'shell') return 'Shell workers do not have an agent model';
   if (provider === 'claude') return isClaudeModel(model) ? undefined : 'Invalid Claude model (expected fable, opus, sonnet or haiku)';
-  if (provider !== 'opencode') return 'Models can only be selected for Claude Code or OpenCode workers';
+  if (provider === 'droid') return isValidDroidModel(model) ? undefined : 'Invalid Droid model (expected a model id without whitespace)';
+  if (provider !== 'opencode') return 'Models can only be selected for Claude Code, OpenCode or Droid workers';
   if (!isValidOpenCodeModel(model)) return 'Invalid OpenCode model (expected provider/model without whitespace)';
   return undefined;
 }
 
-/** Claude Code's own `--effort` flag; no other provider this office launches supports one yet. */
+/** Claude Code's and Droid's `--effort`/`reasoningEffort` levels; no other provider this office launches supports one yet. */
 export function validateWorkerEffort(kind: 'agent' | 'shell', provider: AgentProvider | undefined, effort: unknown): string | undefined {
   if (effort === undefined) return undefined;
   if (kind === 'shell') return 'Shell workers do not have a reasoning effort';
-  if (provider !== 'claude') return 'Reasoning effort can only be selected for Claude Code workers';
+  if (provider !== 'claude' && provider !== 'droid') return 'Reasoning effort can only be selected for Claude Code or Droid workers';
   return isAgentEffort(effort) ? undefined : 'Invalid effort (expected low, medium, high, xhigh or max)';
 }
