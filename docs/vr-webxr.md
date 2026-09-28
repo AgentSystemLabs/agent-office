@@ -76,7 +76,7 @@ terminal, prompt and keyboard stay where they opened so you can lean in.
 Destructive acts confirm with tap-twice (detail ✕, queue rows, PR review): the first tap
 arms red, the second fires. Per view: hire (free desks, worktree toggle, shell shortcut),
 queue (add, pause, tap-twice remove + requeue), board detail (hand, queue, comment, close,
-PR review panel), jukebox (tunes + pasted streams), people (tap a row to walk over),
+PR review panel, tap-twice ✓ merge at the dialog's defaults), jukebox (tunes + pasted streams), people (tap a row to walk over),
 meeting (call with a pattern picker), settings (locomotion, dog rename, sound mutes),
 chat (🔎 searches the chat and every terminal; a terminal hit opens it at the line).
 

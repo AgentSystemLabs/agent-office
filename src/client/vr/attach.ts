@@ -65,7 +65,7 @@ import { VrAim } from './aim';
 import { VrControls } from './controls';
 import { VrKeyboard, type KeyboardTarget } from './keyboard';
 import { followTarget, type HeadPose } from './math';
-import { VrMenu, type VrMenuActions, type VrSearchState } from './menu';
+import { VrMenu, type VrMenuActions, type VrMergeInfo, type VrSearchState } from './menu';
 import { VrPromptPanel, type VrPromptOpts } from './prompt';
 import { VrTerminalPanel, type VrTerminalMsg } from './terminal-panel';
 import { VrToast } from './toast';
@@ -101,6 +101,7 @@ export interface VrUiDeps {
   getSound: () => { volume: number; muted: boolean; music: number; musicMuted: boolean };
   getWorktree: () => boolean;
   getSearch: () => VrSearchState | null;
+  getMerge: () => VrMergeInfo | null;
   onRoof: () => boolean;
   barCutOff: () => boolean;
   getVrSettings: () => VrSettings;
@@ -224,6 +225,7 @@ class VrUi implements VrUiHandle {
         getSound: deps.getSound,
         getWorktree: deps.getWorktree,
         getSearch: deps.getSearch,
+        getMerge: deps.getMerge,
         onRoof: deps.onRoof,
         barCutOff: deps.barCutOff,
         getVrSettings: deps.getVrSettings,
@@ -279,6 +281,7 @@ class VrUi implements VrUiHandle {
     // The queue rows, meeting seats and detail view open terminals through here (this was
     // never wired — their taps silently did nothing until the search view needed it too).
     this.menu.onOpenTerminal = (workerId, find) => this.openTerminal(workerId, find);
+    this.menu.onDetailOpen = (kind, number) => this.deps.actions.detailOpened(kind, number);
 
     // Dash layout, facing the user at spawn: terminal center, keyboard below it, menu left.
     const tOff = layout.terminalOffset ?? [0, 1.5, -1.15];

@@ -44,7 +44,7 @@ import { openSearch, search } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage, worktreePref, setWorktreePref } from './ui/prompt';
 import { issuePrompt, openBoard } from './ui/boards';
-import { onClosed, onCommented, openIssue, openPull, routePullMessage } from './ui/pull';
+import { mergePref, mergeStatus, onClosed, onCommented, onMerged, openIssue, openPull, pullDetail, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
 import { copy, guessOs, openTeam, routeTeamMessage } from './ui/team';
 import { openVrPair } from './ui/vr';
@@ -77,7 +77,7 @@ import { MeetingBoardTexture, MeetingSignTexture, meetingStage } from './world/m
 import { issueMeeting, openMeeting, type MeetingPreset } from './ui/meeting';
 import { VRSession } from './vr/session';
 import { attachVrUi, type VrUiHandle } from './vr/attach';
-import type { VrSearchState } from './vr/menu';
+import type { VrMergeInfo, VrSearchState } from './vr/menu';
 import { probeXRSupport } from './vr/support';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
@@ -334,6 +334,8 @@ player.view = settings.view;
 let vrUi: VrUiHandle | null = null;
 /** The VR search view's latest answer (the menu reads it; a fetch replaces it, then resends the view). */
 let vrSearch: VrSearchState | null = null;
+/** The VR merge box's answer for a PR detail (the menu reads it; each open refetches). */
+let vrMerge: VrMergeInfo | null = null;
 /** The picture E armed in VR (the terminal ⏻ button's tap-twice, for the walls). */
 let decorArmed = { id: '', until: 0 };
 /** What E would do to the ray's target, in words for the headset's aim bar (null hides it). Mirrors vrUseE branch for branch, minus the keys only the desktop has. */
@@ -512,6 +514,7 @@ const vr = new VRSession(renderer, scene, camera, {
       getSound: () => ({ volume: settings.volume, muted: settings.muted, music: settings.music, musicMuted: settings.musicMuted }),
       getWorktree: () => worktreePref(),
       getSearch: () => vrSearch,
+      getMerge: () => vrMerge,
       voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => (voice.inVoice ? voice.toggleMute() : void toggleVoice()), leaveVoice: () => voice.leaveVoice() },
       actions: {
         hire: (deskId) => vrHire(deskId),
@@ -538,6 +541,16 @@ const vr = new VRSession(renderer, scene, camera, {
         commentOn: (kind, number) => vrComment(kind, number),
         closeItem: (kind, number) => vrClose(kind, number),
         reviewPanel: (number) => vrReviewPanel(number),
+        mergePull: (number) => vrMergeFire(number),
+        detailOpened: (kind, number) => {
+          // Issues have no merge box; a PR refetches (the loading line paints first).
+          if (kind !== 'pull') vrMerge = null;
+          else {
+            vrMerge = { number, state: 'loading' };
+            vrUi?.menu.refresh();
+            void vrMergeFetch(number);
+          }
+        },
         renameDog: () => vrRenameDog(),
         toggleSound: (kind) => {
           // The ⚙️ Settings mute buttons: flip it, save it, hear it (levels stay desktop — sliders).
@@ -724,6 +737,16 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     search: () => vrSearch && { query: vrSearch.query, status: vrSearch.status, chat: vrSearch.results?.chat.length ?? 0, terminals: vrSearch.results?.terminals.length ?? 0 },
     // The VR terminal's search jump target (the search check reads the landed row back).
     termFind: () => vrUi?.terminal.findState() ?? null,
+    // The VR merge box's answer (the merge check reads the status back).
+    merge: () => vrMerge && { number: vrMerge.number, state: vrMerge.state, can: vrMerge.status?.can ?? null, short: vrMerge.status?.short ?? null },
+    // Flips this client's VR merge box to mergeable (the merge check fires at a PR GitHub
+    // refuses — conflicted — so the send, the waiter and the toast verify with no merge).
+    seedMerge: () => {
+      if (!vrMerge || vrMerge.state !== 'ready' || !vrMerge.status) return null;
+      vrMerge = { ...vrMerge, status: { ...vrMerge.status, icon: '✅', short: 'Ready to merge', cls: 'ok', can: true, auto: false } };
+      vrUi?.menu.refresh();
+      return vrMerge.number;
+    },
     // Downs shots for the drunk-in-VR check (strength adds up; water sobers): returns the level.
     drink: (id: 'beer' | 'wine' | 'martini' | 'maitai' | 'shot' | 'mojito' | 'water' = 'shot') => {
       const d = DRINK_BY_ID.get(id);
@@ -1914,6 +1937,38 @@ function vrClose(kind: 'issue' | 'pull', number: number) {
     toast("No answer from the office — check whether it closed before trying again", 'warn');
   }, 45_000);
   net.send({ t: 'gh.close', kind, number });
+}
+/** A PR detail opened in VR: the PR window's detail fetch, answered into the menu's merge box. */
+async function vrMergeFetch(number: number) {
+  try {
+    const d = await pullDetail(number);
+    if (vrMerge?.number !== number) return;
+    vrMerge = { number, state: 'ready', status: mergeStatus(d), methods: d.repo.methods };
+  } catch {
+    if (vrMerge?.number !== number) return;
+    vrMerge = { number, state: 'error' };
+  }
+  vrUi?.menu.refresh();
+}
+/** The detail view's ✓ button, confirmed: the merge dialog's Merge button at its defaults (remembered method, delete the branch, auto-merge when the dialog would tick it). */
+function vrMergeFire(number: number) {
+  const info = vrMerge;
+  if (!info || info.number !== number || info.state !== 'ready' || !info.status?.can || !info.methods) return;
+  const { method, deleteBranch } = mergePref(info.methods);
+  const auto = info.status.auto && info.status.cls !== 'ok';
+  toast(auto ? 'Asking GitHub to merge it when ready…' : 'Merging…');
+  const off = onMerged(number, (msg) => {
+    clearTimeout(timer);
+    off();
+    if (!msg.error) toast(`Merged #${number} 🎉`);
+    else toast(msg.error, 'warn');
+  });
+  // The office drops messages while it's disconnected, and then no answer comes.
+  const timer = window.setTimeout(() => {
+    off();
+    toast("No answer from the office — check whether it merged before trying again", 'warn');
+  }, 45_000);
+  net.send({ t: 'gh.merge', number, method, deleteBranch, auto });
 }
 /** The chat view's 🔎 button, submitted: the search window's fetch, answered into the menu's search view. */
 async function vrSearchOffice(query: string) {

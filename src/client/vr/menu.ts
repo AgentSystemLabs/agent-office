@@ -16,7 +16,7 @@
  */
 
 import type * as THREE from 'three';
-import type { ChatLine, FloorInfo, GhIssue, GhPull, GhState, MeetingState, PeerInfo, QueueState, QueueTask, SearchResults, ServicesState, TerminalHit, WorkerInfo } from '../../shared/protocol';
+import type { ChatLine, FloorInfo, GhIssue, GhMergeMethod, GhPull, GhState, MeetingState, PeerInfo, QueueState, QueueTask, SearchResults, ServicesState, TerminalHit, WorkerInfo } from '../../shared/protocol';
 import { fmtTokens } from '../../shared/protocol';
 import { MEETING_PATTERNS, meetingSpend } from '../../shared/meetings';
 import { JUKEBOX_TUNES, STREAM, trackTitle, type JukeboxState } from '../../shared/jukebox';
@@ -27,6 +27,7 @@ import { TERM_FONT } from '../fonts';
 import { waitingInOrder } from '../nextup';
 import type { VrSettings } from '../state';
 import { timeAgo } from '../ui/dom';
+import type { MergeStatus } from '../ui/pull';
 import type { TerminalFind } from '../ui/terminal';
 import { whereabouts } from '../ui/whereabouts';
 import { clampScroll, type HeadPose, type Rect } from './math';
@@ -38,6 +39,14 @@ export interface VrSearchState {
   status: 'searching' | 'done' | 'error';
   results?: SearchResults;
   error?: string;
+}
+/** The merge box's answer for a PR detail (main.ts fetches the PR window's detail). */
+export interface VrMergeInfo {
+  number: number;
+  state: 'loading' | 'ready' | 'error';
+  status?: MergeStatus;
+  /** How the repo lets PRs merge (the fire reads the dialog's remembered defaults over these). */
+  methods?: GhMergeMethod[];
 }
 
 export interface VrMenuStores {
@@ -73,6 +82,8 @@ export interface VrMenuStores {
   getWorktree: () => boolean;
   /** The office search's latest answer (nothing until the first search runs). */
   getSearch: () => VrSearchState | null;
+  /** The merge box's answer for a PR detail (nothing until one opens). */
+  getMerge: () => VrMergeInfo | null;
 }
 
 export interface VrMenuActions {
@@ -133,6 +144,10 @@ export interface VrMenuActions {
   closeItem: (kind: 'issue' | 'pull', number: number) => void;
   /** Reviews a PR in the meeting room — the PR window's Review panel button (main.ts vrReviewPanel). */
   reviewPanel: (number: number) => void;
+  /** Merges a PR at the merge dialog's defaults — the dialog's Merge button (main.ts vrMergeFire). */
+  mergePull: (number: number) => void;
+  /** A detail view opened — main.ts fetches what the merge box needs (attach.ts calls this, not the menu). */
+  detailOpened: (kind: 'issue' | 'pull', number: number) => void;
   /** Leaves the immersive session — the XR session owner's exit. */
   exitVr: () => void;
 }
@@ -153,6 +168,8 @@ export interface AssignTarget {
 const HEADER_H = 0.12;
 const BODY: Rect = { x: 0.03, y: HEADER_H + 0.02, w: 0.94, h: 1 - HEADER_H - 0.05 };
 const BACK_BTN: Rect = { x: 0.03, y: 0.015, w: 0.16, h: 0.09 };
+/** Detail view: the ✓ Merge button above the actions (tap twice: the first arms it, like 🔍). */
+const MERGE_BTN: Rect = { x: 0.05, y: 0.68, w: 0.9, h: 0.12 };
 /** Detail view: ✕ Close in the header (tap twice: the first arms it, like the terminal's ⏻). */
 const CLOSE_BTN: Rect = { x: 0.78, y: 0.015, w: 0.19, h: 0.09 };
 /** Hire view: the next hire's worktree choice, as a header toggle. */
@@ -213,6 +230,8 @@ export class VrMenu {
   onChatSay: (() => void) | null = null;
   /** Opening the search prompt from the 🔎 button (wired by attach.ts to the VR prompt panel). */
   onChatSearch: (() => void) | null = null;
+  /** A detail view opened (wired by attach.ts: main.ts fetches what the merge box needs). */
+  onDetailOpen: ((kind: 'issue' | 'pull', number: number) => void) | null = null;
 
   private stores: VrMenuStores;
   private actions: VrMenuActions;
@@ -236,6 +255,9 @@ export class VrMenu {
   /** The PR review button's arm: the PR number tap-twice would call a panel for. */
   private reviewArmedUntil = 0;
   private reviewArmedFor: number | null = null;
+  /** The PR merge button's arm: the PR number tap-twice would merge. */
+  private mergeArmedUntil = 0;
+  private mergeArmedFor: number | null = null;
 
   constructor(stores: VrMenuStores, actions: VrMenuActions, widthM = 0.62, heightM = 0.72) {
     this.stores = stores;
@@ -269,6 +291,8 @@ export class VrMenu {
     this.queueArmedFor = null;
     this.reviewArmedUntil = 0;
     this.reviewArmedFor = null;
+    this.mergeArmedUntil = 0;
+    this.mergeArmedFor = null;
     this.panel.setScrollOffset('list', 0);
     this.panel.setVisible(true);
     this.refresh();
@@ -286,6 +310,8 @@ export class VrMenu {
     this.queueArmedFor = null;
     this.reviewArmedUntil = 0;
     this.reviewArmedFor = null;
+    this.mergeArmedUntil = 0;
+    this.mergeArmedFor = null;
     this.panel.setScrollOffset('list', 0);
     this.panel.setVisible(true);
     this.refresh();
@@ -302,10 +328,13 @@ export class VrMenu {
     this.queueArmedFor = null;
     this.reviewArmedUntil = 0;
     this.reviewArmedFor = null;
+    this.mergeArmedUntil = 0;
+    this.mergeArmedFor = null;
     this.panel.setScrollOffset('list', 0);
     this.panel.setVisible(true);
     this.refresh();
     this.panel.markDirty();
+    this.onDetailOpen?.(kind, number);
   }
 
   assignFor(): AssignTarget | null {
@@ -330,12 +359,16 @@ export class VrMenu {
     this.queueArmedFor = null;
     this.reviewArmedUntil = 0;
     this.reviewArmedFor = null;
+    this.mergeArmedUntil = 0;
+    this.mergeArmedFor = null;
     this.panel.setScrollOffset('list', 0);
     this.refresh();
     this.panel.markDirty();
+    if (view === 'detail' && detail) this.onDetailOpen?.(detail.kind, detail.number);
   }
 
-  private refresh() {
+  /** Repaints the menu (main.ts calls this when the merge box's fetch lands — no state resets). */
+  refresh() {
     if (!this.panel.visible) return;
     const muted = `${this.stores.isMuted()}|${this.stores.inVoice()}`;
     if (muted !== this.lastMuted) this.lastMuted = muted;
@@ -391,6 +424,12 @@ export class VrMenu {
 
   private chatLines(): ChatLine[] {
     return this.stores.getChat().slice(-40);
+  }
+
+  /** The merge box's answer for a PR, if it's this PR's (a fetch for another is stale). */
+  private mergeFor(number: number): VrMergeInfo | null {
+    const m = this.stores.getMerge();
+    return m?.number === number ? m : null;
   }
 
   /** The search view's rows: matching chat lines first, then terminal lines (the search window's order). */
@@ -579,6 +618,10 @@ export class VrMenu {
         if (w) buttons.push({ id: 'act:term', rect: termR, onClick: () => this.onOpenTerminal?.(w) });
         buttons.push({ id: 'act:comment', rect: commentR, onClick: () => this.actions.commentOn('pull', d.number) });
         if (open) buttons.push({ id: 'act:review', rect: reviewR, onClick: () => this.tapReview(d.number) });
+        const mi = this.mergeFor(d.number);
+        if (open && mi?.state === 'ready' && mi.status?.can) {
+          buttons.push({ id: 'act:merge', rect: MERGE_BTN, onClick: () => this.tapMerge(d.number) });
+        }
       }
       this.panel.setButtons(buttons);
       return;
@@ -1310,8 +1353,8 @@ export class VrMenu {
       }
       y += h * 0.05;
     }
-    // Body, clipped to the space above the action buttons.
-    const bottom = h * 0.8;
+    // Body, clipped to the space above the merge box (PRs) or the action buttons.
+    const bottom = d.kind === 'pull' ? h * 0.62 : h * 0.8;
     ctx.fillStyle = '#cfcfcf';
     ctx.font = `400 ${Math.round(h * 0.023)}px ${TERM_FONT}`;
     const body = (item.body || 'No description.').replace(/\s+/g, ' ').slice(0, DETAIL_BODY_MAX);
@@ -1320,6 +1363,7 @@ export class VrMenu {
       ctx.fillText(line, bx, y);
       y += h * 0.03;
     }
+    if (d.kind === 'pull') this.paintMerge(ctx, w, h, state, d.number);
     // Actions.
     if (d.kind === 'issue') {
       this.actionBtn(ctx, w, h, { x: 0.05, y: 0.82, w: 0.28, h: 0.12 }, 'act:hand', '🤖 Hand', state, true);
@@ -1356,6 +1400,37 @@ export class VrMenu {
     this.reviewArmedFor = number;
     this.reviewArmedUntil = performance.now() + TAP_ARM_MS;
     this.panel.markDirty();
+  }
+  /** The PR ✓ tap: the first arms it (red, with a ? — merging rewrites the repo), the second merges. */
+  private tapMerge(number: number) {
+    const d = this.detail;
+    if (!d || this.view !== 'detail' || d.kind !== 'pull' || d.number !== number) return;
+    const m = this.mergeFor(number);
+    if (!m || m.state !== 'ready' || !m.status?.can) return;
+    if (this.mergeArmedFor === number && performance.now() < this.mergeArmedUntil) {
+      this.mergeArmedFor = null;
+      this.mergeArmedUntil = 0;
+      this.actions.mergePull(number);
+      this.panel.markDirty();
+      return;
+    }
+    this.mergeArmedFor = number;
+    this.mergeArmedUntil = performance.now() + TAP_ARM_MS;
+    this.panel.markDirty();
+  }
+  /** The PR merge box: the window's merge status as one line, and a tap-twice ✓ when it can merge. */
+  private paintMerge(ctx: CanvasRenderingContext2D, w: number, h: number, state: { hoverId: string | null; pressedId: string | null }, number: number) {
+    const m = this.mergeFor(number);
+    ctx.fillStyle = '#8c8c8c';
+    ctx.font = `500 ${Math.round(h * 0.024)}px ${TERM_FONT}`;
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
+    const line = !m || m.state === 'loading' ? '⤵️ asking GitHub whether this merges…' : m.state === 'error' ? '⚠️ merge status unavailable' : `${m.status!.icon} ${m.status!.short}`;
+    ctx.fillText(line, BODY.x * w, h * 0.632);
+    if (m?.state === 'ready' && m.status?.can) {
+      const armed = this.mergeArmedFor === number && performance.now() < this.mergeArmedUntil;
+      this.actionBtn(ctx, w, h, MERGE_BTN, 'act:merge', armed ? '✓ Merge?' : '✓ Merge', state, true, armed);
+    }
   }
 
   private actionBtn(ctx: CanvasRenderingContext2D, w: number, h: number, r: Rect, id: string, label: string, state: { hoverId: string | null; pressedId: string | null }, primary: boolean, armed = false) {
@@ -1417,6 +1492,12 @@ export class VrMenu {
     if (this.reviewArmedUntil && performance.now() >= this.reviewArmedUntil) {
       this.reviewArmedUntil = 0;
       this.reviewArmedFor = null;
+      this.panel.markDirty();
+    }
+    // The armed ✓ cools back down too.
+    if (this.mergeArmedUntil && performance.now() >= this.mergeArmedUntil) {
+      this.mergeArmedUntil = 0;
+      this.mergeArmedFor = null;
       this.panel.markDirty();
     }
     this.panel.update(dt, head);

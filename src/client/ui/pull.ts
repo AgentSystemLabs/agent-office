@@ -57,6 +57,13 @@ export function onClosed(kind: 'issue' | 'pull', number: number, fn: (msg: Extra
     if (closeWaiters.get(key) === fn) closeWaiters.delete(key);
   };
 }
+/** Hears the next gh.merged for the PR (the VR merge flow's ears); returns the unlisten. */
+export function onMerged(number: number, fn: (msg: Extract<ServerMsg, { t: 'gh.merged' }>) => void): () => void {
+  mergeWaiters.set(number, fn);
+  return () => {
+    if (mergeWaiters.get(number) === fn) mergeWaiters.delete(number);
+  };
+}
 
 function pref<T>(key: string, fallback: T): T {
   try {
@@ -87,7 +94,8 @@ interface MergePref {
 
 const METHOD_LABEL: Record<GhMergeMethod, string> = { squash: 'Squash and merge', merge: 'Create a merge commit', rebase: 'Rebase and merge' };
 
-function mergePref(methods: GhMergeMethod[]): { method: GhMergeMethod; deleteBranch: boolean } {
+/** The merge dialog's remembered defaults (the VR merge fires with the same ones). */
+export function mergePref(methods: GhMergeMethod[]): { method: GhMergeMethod; deleteBranch: boolean } {
   const p = pref<MergePref>(MERGE_KEY, {});
   return { method: p.method && methods.includes(p.method) ? p.method : methods[0], deleteBranch: p.deleteBranch ?? true };
 }
@@ -156,14 +164,20 @@ function stateOf(it: { state: string; isDraft?: boolean }): [string, string] {
 
 // ---- Whether a PR can merge ---------------------------------------------------------------------
 
-interface MergeStatus {
+export interface MergeStatus {
   icon: string;
   text: string;
+  /** The status in two words, for the VR merge box (the window shows `text`). */
+  short: string;
   cls: 'ok' | 'warn' | 'bad' | 'muted';
   /** False when merging can't work at all (draft, conflicts, already merged). */
   can: boolean;
   /** GitHub could merge it on its own once the requirements pass. */
   auto: boolean;
+}
+/** The PR window's detail fetch (main.ts runs the same fetch for the VR merge box). */
+export function pullDetail(number: number): Promise<GhPullDetail> {
+  return getJson<GhPullDetail>(`/api/gh/pull?number=${number}`);
 }
 
 /** An open PR whose branch can't merge until someone resolves conflicts with the base. */
@@ -171,23 +185,24 @@ function conflicted(d: GhPullDetail) {
   return d.state === 'OPEN' && !d.isDraft && (d.mergeable === 'CONFLICTING' || d.mergeStateStatus === 'DIRTY');
 }
 
-function mergeStatus(d: GhPullDetail): MergeStatus {
+/** Whether a PR can merge, and what the merge box says (the VR merge box reads the same). */
+export function mergeStatus(d: GhPullDetail): MergeStatus {
   const failing = d.checks.filter((c) => c.state === 'fail').length;
   const pending = d.checks.filter((c) => c.state === 'pending').length;
-  if (d.state === 'MERGED') return { icon: '🎉', text: 'Merged.', cls: 'ok', can: false, auto: false };
-  if (d.state === 'CLOSED') return { icon: '🗑️', text: 'Closed without merging.', cls: 'muted', can: false, auto: false };
-  if (d.isDraft) return { icon: '📝', text: 'This is still a draft. Mark it ready for review on GitHub before merging.', cls: 'muted', can: false, auto: false };
+  if (d.state === 'MERGED') return { icon: '🎉', text: 'Merged.', short: 'Merged', cls: 'ok', can: false, auto: false };
+  if (d.state === 'CLOSED') return { icon: '🗑️', text: 'Closed without merging.', short: 'Closed', cls: 'muted', can: false, auto: false };
+  if (d.isDraft) return { icon: '📝', text: 'This is still a draft. Mark it ready for review on GitHub before merging.', short: 'Draft', cls: 'muted', can: false, auto: false };
   if (conflicted(d))
-    return { icon: '⚠️', text: `This branch has conflicts with ${d.baseRefName} that must be resolved first.`, cls: 'bad', can: false, auto: false };
-  if (d.mergeStateStatus === 'BEHIND') return { icon: '⤵️', text: `The branch is behind ${d.baseRefName}, and this repo wants it up to date before merging.`, cls: 'warn', can: true, auto: true };
+    return { icon: '⚠️', text: `This branch has conflicts with ${d.baseRefName} that must be resolved first.`, short: 'Conflicts', cls: 'bad', can: false, auto: false };
+  if (d.mergeStateStatus === 'BEHIND') return { icon: '⤵️', text: `The branch is behind ${d.baseRefName}, and this repo wants it up to date before merging.`, short: 'Behind base', cls: 'warn', can: true, auto: true };
   if (d.mergeStateStatus === 'BLOCKED') {
     const why = d.reviewDecision === 'CHANGES_REQUESTED' ? 'changes were requested' : d.reviewDecision === 'REVIEW_REQUIRED' ? 'it needs an approving review' : failing ? `${failing} check${failing > 1 ? 's are' : ' is'} failing` : pending ? 'required checks are still running' : 'a branch rule is not met yet';
-    return { icon: '🚫', text: `Merging is blocked: ${why}.`, cls: 'bad', can: true, auto: true };
+    return { icon: '🚫', text: `Merging is blocked: ${why}.`, short: 'Blocked', cls: 'bad', can: true, auto: true };
   }
-  if (failing) return { icon: '❌', text: `${failing} check${failing > 1 ? 's' : ''} failing. It can still be merged.`, cls: 'warn', can: true, auto: false };
-  if (pending || d.mergeStateStatus === 'UNSTABLE') return { icon: '🟡', text: 'Checks are still running. It can be merged now, or once they pass.', cls: 'warn', can: true, auto: true };
-  if (d.mergeStateStatus === 'UNKNOWN' || d.mergeable === 'UNKNOWN') return { icon: '⏳', text: 'GitHub is still working out whether this can merge. Refresh in a moment.', cls: 'muted', can: true, auto: false };
-  return { icon: '✅', text: `Ready to merge: no conflicts with ${d.baseRefName}${d.checks.length ? ' and all checks passed' : ''}.`, cls: 'ok', can: true, auto: false };
+  if (failing) return { icon: '❌', text: `${failing} check${failing > 1 ? 's' : ''} failing. It can still be merged.`, short: 'Checks failing', cls: 'warn', can: true, auto: false };
+  if (pending || d.mergeStateStatus === 'UNSTABLE') return { icon: '🟡', text: 'Checks are still running. It can be merged now, or once they pass.', short: 'Checks running', cls: 'warn', can: true, auto: true };
+  if (d.mergeStateStatus === 'UNKNOWN' || d.mergeable === 'UNKNOWN') return { icon: '⏳', text: 'GitHub is still working out whether this can merge. Refresh in a moment.', short: 'Checking…', cls: 'muted', can: true, auto: false };
+  return { icon: '✅', text: `Ready to merge: no conflicts with ${d.baseRefName}${d.checks.length ? ' and all checks passed' : ''}.`, short: 'Ready to merge', cls: 'ok', can: true, auto: false };
 }
 
 function checksList(checks: GhCheck[]) {
