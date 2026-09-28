@@ -496,6 +496,11 @@ img.glyph { display: inline-block; width: 1em; height: 1em; vertical-align: -0.1
 .desk-link { display: inline-flex; align-items: center; gap: 5px; padding: 1px 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-xs); background: var(--surface); color: var(--text); font-weight: 500; font-size: 10px; white-space: nowrap; }
 .desk-link::before { content: ''; width: 6px; height: 6px; border-radius: 1px; background: var(--dot, var(--accent)); flex: none; }
 .label { padding: 1px 6px; border-radius: var(--radius-xs); color: inherit; font-size: 10px; font-weight: 600; }
+/* A card's label picker button shows on hover or focus; touch screens always show it. */
+.card-labels { position: absolute; top: 6px; right: 6px; padding: 2px 6px; font: 500 9.5px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .07em; color: var(--text-secondary); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-xs); cursor: pointer; opacity: 0; transition: opacity var(--duration) var(--ease), border-color var(--duration) var(--ease), color var(--duration) var(--ease); }
+.card:hover .card-labels, .card:focus-within .card-labels { opacity: 1; }
+.card-labels:hover { border-color: var(--accent); color: var(--accent); }
+@media (hover: none) { .card-labels { opacity: 1; } }
 .board-status { font: 400 10px var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--text-secondary); }
 .board-error { margin: auto; background: var(--surface); border: 1px solid rgba(239, 68, 68, .5); border-radius: var(--radius-lg); padding: 18px 22px; max-width: 520px; text-align: center; }
 .modal.board .board-tabs { padding: 0 12px; }
@@ -717,6 +722,18 @@ a.when:hover { text-decoration: underline; }
 .gh-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 .gh-merge-result { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border: 1px solid rgba(60, 207, 145, .4); border-radius: var(--radius); background: rgba(60, 207, 145, .06); color: var(--success); }
 .gh-merge-result.error { display: block; border-color: rgba(239, 68, 68, .45); background: rgba(239, 68, 68, .08); color: var(--danger); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+/* The label picker (openLabels) */
+.gh-label-edit { padding: 2px 8px; font-size: 10px; }
+.gh-labeler .body { min-height: 0; }
+.gh-labels { list-style: none; margin: 0; padding: 4px; max-height: min(420px, 50vh); overflow: auto; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface-raised); }
+.gh-labels li + li { border-top: 1px solid var(--border); }
+.modal .gh-labels label.gh-check { padding: 7px 8px; border-radius: var(--radius-xs); flex-wrap: wrap; }
+.gh-labels label.gh-check:hover { background: var(--surface-hover); }
+.gh-labels .label { font-size: 12px; }
+.gh-labels small { flex-basis: 100%; padding-left: 24px; color: var(--text-secondary); font-size: 12px; }
+.gh-labels .gh-error { margin: 8px auto; }
+.gh-labeler footer .grow { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gh-labeler .gh-quiet a { color: var(--info); font-weight: 600; }
 
 /* Send a prompt to a worker (ui/ask.ts) */
 .modal.ask { width: min(660px, 100%); }

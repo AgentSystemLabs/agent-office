@@ -1,9 +1,9 @@
 import { DESK_BY_ID } from '../../shared/layout';
-import type { AgentEffort, AgentProvider, GhIssue, GhPull, WorkerInfo } from '../../shared/protocol';
+import type { AgentEffort, AgentProvider, GhIssue, GhLabel, GhPull, WorkerInfo } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store, words, workerForPull } from '../state';
 import { h, openModal, timeAgo } from './dom';
-import { labelChip, openIssue, openPull } from './pull';
+import { labelChip, openIssue, openLabels, openPull } from './pull';
 import { providerLabel } from './provider';
 import type { MeetingPreset } from './meeting';
 import { renderJiraBoard } from './jira';
@@ -74,7 +74,7 @@ function pullColumns(items: GhPull[]): Column<GhPull>[] {
   ];
 }
 
-function labelChips(labels: { name: string; color: string }[]) {
+function labelChips(labels: GhLabel[]) {
   return labels.slice(0, 4).map(labelChip);
 }
 
@@ -104,10 +104,11 @@ function queueChip(issue: number): Node | '' {
   return t.pr ? h('span.qchip.done', {}, `🔀 ${words().pr} ${words().ref(t.pr.number)} · ${provider}`) : '';
 }
 
-function card(ref: string, title: string, meta: (Node | string)[], onclick: () => void) {
+function card(ref: string, title: string, meta: (Node | string)[], onclick: () => void, onLabels: () => void) {
   return h(
     'li.card',
-    { tabindex: 0, onclick, onkeydown: ((e: KeyboardEvent) => e.key === 'Enter' && onclick()) as EventListener },
+    { tabindex: 0, onclick, onkeydown: ((e: KeyboardEvent) => e.key === 'Enter' && e.target === e.currentTarget && onclick()) as EventListener },
+    h('button.card-labels', { type: 'button', title: 'Change the labels', 'aria-label': `Change the labels on ${ref}`, onclick: ((e: Event) => (e.stopPropagation(), onLabels())) as EventListener }, 'Labels'),
     h('div.num', {}, ref),
     h('div.ttl', {}, title),
     h('div.meta', {}, ...meta.filter((m) => m !== '').map((m) => (typeof m === 'string' ? h('span', {}, m) : m))),
@@ -175,8 +176,12 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
         const ul = h('ul');
         col.items.forEach((it) =>
           ul.append(
-            card(`#${it.number}`, it.title, [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], () =>
-              openIssue(it, net, actions),
+            card(
+              `#${it.number}`,
+              it.title,
+              [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)],
+              () => openIssue(it, net, actions),
+              () => openLabels('issue', it, net),
             ),
           ),
         );
@@ -203,6 +208,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
                 timeAgo(it.updatedAt),
               ],
               () => openPull(it, net, actions),
+              () => openLabels('pull', it, net),
             ),
           );
         });

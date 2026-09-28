@@ -31,7 +31,7 @@ import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunne
 import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
-import { GH_COMMENT_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
+import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import { DESK_BY_ID, elevatorSpot, seatHere, streetBelow } from '../shared/layout.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
@@ -809,10 +809,12 @@ export async function startServer(cfg: Config) {
       if (p.startsWith('/api/gh/') && req.method === 'GET') {
         // What the issue and PR windows show beyond the board cards (see github.ts and gitlab.ts).
         const n = Number(url.searchParams.get('number'));
-        if (!Number.isSafeInteger(n) || n <= 0) return send(res, 400, { error: 'Bad number' });
+        // The repo's labels (for the label picker) are the one thing not about a single issue or PR.
+        if (p !== '/api/gh/labels' && (!Number.isSafeInteger(n) || n <= 0)) return send(res, 400, { error: 'Bad number' });
         if (!floor) return send(res, 404, { error: 'No such floor' });
         const board = floor.board;
         try {
+          if (p === '/api/gh/labels') return send(res, 200, await board.repoLabels());
           if (p === '/api/gh/pull') return send(res, 200, await board.pullDetail(n));
           if (p === '/api/gh/issue') return send(res, 200, await board.issueDetail(n));
           if (p === '/api/gh/pull/diff') {
@@ -1439,6 +1441,25 @@ export async function startServer(cfg: Config) {
           // Nobody should be seated for an issue that's closed.
           const dropped = floor.queue.dropIssue(n);
           toastFloor(floor, `${who} closed issue #${n}${reason === 'not planned' ? ' as not planned' : ''}${dropped ? ' and took it off the queue' : ''}`);
+        });
+        break;
+      }
+      case 'gh.labels': {
+        const floor = here();
+        const n = num(msg.number);
+        const kind = msg.kind === 'issue' || msg.kind === 'pull' ? msg.kind : undefined;
+        if (!floor || !Number.isSafeInteger(n) || n <= 0 || !kind) break;
+        const names = (v: unknown) => [...new Set((Array.isArray(v) ? v : []).map((l) => str(l, GH_LABEL_MAX + 1)).filter((l) => l && l.length <= GH_LABEL_MAX))].slice(0, 100);
+        const add = names(msg.add);
+        const remove = names(msg.remove).filter((l) => !add.includes(l));
+        if (!add.length && !remove.length) {
+          sendTo(c, { t: 'gh.labeled', kind, number: n, error: 'No labels to change' });
+          break;
+        }
+        void floor.board.setLabels(kind, n, add, remove).then((r) => {
+          sendTo(c, { t: 'gh.labeled', kind, number: n, ...r });
+          const w = forgeWords(floor.board.forge);
+          if (r.labels) toastFloor(floor, `${who} labeled ${kind === 'pull' ? `${w.pr} ${w.ref(n)}` : `issue #${n}`}: ${[...add.map((l) => `+${l}`), ...remove.map((l) => `−${l}`)].join(' ')}`);
         });
         break;
       }
