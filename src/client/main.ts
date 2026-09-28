@@ -515,6 +515,7 @@ const vr = new VRSession(renderer, scene, camera, {
       subscribe: (topic, fn) => store.on(topic, fn),
       getScreen: (id) => store.screens.get(id),
       getWorker: (id) => store.workers.get(id),
+      providerOf: (w) => resolvedProvider(w.provider, store.project),
       getWorkers: () => [...store.workers.values()],
       getIssues: () => store.issues,
       getPulls: () => store.pulls,
@@ -648,7 +649,7 @@ const vr = new VRSession(renderer, scene, camera, {
 });
 // A physical keyboard while presenting types into the VR prompt or terminal, and no desktop
 // keybind sees it. Registered at module load, so it's ahead of every later window listener.
-captureVrKeys(window, { active: () => vr.active, onBytes: (bytes) => vrUi?.physicalKey(bytes) });
+captureVrKeys(window, { active: () => vr.active, onBytes: (bytes, key) => vrUi?.physicalKey(bytes, key) });
 // Emulator test hook (?vrtest=1): the XR emulator has no controllers to push, so this drives the
 // live session over DevTools instead. Movement stays client-authoritative, exactly as on desktop.
 if (new URLSearchParams(location.search).has('vrtest')) {

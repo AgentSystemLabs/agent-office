@@ -11,10 +11,11 @@
  */
 
 import type * as THREE from 'three';
-import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, type Run, type WorkerInfo } from '../../shared/protocol';
+import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, type AgentProvider, type Run, type WorkerInfo } from '../../shared/protocol';
 import { findLine, type BufferLike } from '../../shared/search';
 import { isAsleep } from '../../shared/status';
 import { TERM_FONT } from '../fonts';
+import { modifiedEnter, wantsCsiEnter, type KeyMods } from '../term-keys';
 import type { TerminalFind } from '../ui/terminal';
 import { TERM_THEME, type ScreenState } from '../world/laptop';
 import { fullPalette, pushHistory, runColor, scrolledOffLines } from './ansi';
@@ -34,6 +35,8 @@ export interface VrTerminalDeps {
   subscribe: (topic: 'screens' | 'workers', fn: () => void) => () => void;
   getScreen: (workerId: string) => ScreenState | undefined;
   getWorker: (workerId: string) => WorkerInfo | undefined;
+  /** A worker's provider after the office default fills in a missing one (defaults to the stored provider). */
+  providerOf?: (w: WorkerInfo) => AgentProvider | undefined;
 }
 
 /** Grid size the VR terminal claims while typing (latest typist wins, like the DOM terminal). */
@@ -231,6 +234,17 @@ export class VrTerminalPanel {
       this.panel.setScrollOffset('term', Number.MAX_SAFE_INTEGER);
       this.stickToBottom = true; // after: setScrollOffset's onScroll unsticks first
     }
+  }
+
+  /**
+   * Enter with modifiers (the VR keyboard's latches, or a physical key), encoded the way the
+   * focused worker expects; `fallback` is what it types when the worker wants the default.
+   */
+  typeEnter(mods: KeyMods, fallback = '\r') {
+    if (!this.workerId) return;
+    const w = this.deps.getWorker(this.workerId);
+    const provider = w && (this.deps.providerOf ? this.deps.providerOf(w) : w.provider);
+    this.type(modifiedEnter(wantsCsiEnter(w?.kind, provider), mods) ?? fallback);
   }
 
   /** Folds new screen frames into scrollback; repaints when something visible changed. */

@@ -6,16 +6,21 @@
  *
  * Output is terminal bytes: letters (shift-cased), digits with US shift symbols, space,
  * backspace as DEL, enter as CR, esc, tab, arrows as CSI, and ctrl+letter as control codes.
+ * A target with sendEnter gets Enter with the latched ctrl / one-shot shift instead, so the
+ * terminal can encode Ctrl+Enter and Shift+Enter for workers that bind them.
  */
 
 import type * as THREE from 'three';
 import { TERM_FONT } from '../fonts';
+import type { KeyMods } from '../term-keys';
 import { keyRects, type HeadPose, type KeyDef, type KeyRect, type Rect } from './math';
 import { WorldPanel } from './panel';
 
 /** Where keystrokes go: the focused terminal panel, or any VR text field. */
 export interface KeyboardTarget {
   sendText: (text: string) => void;
+  /** Enter with the latched modifiers; targets without it get a plain CR. */
+  sendEnter?: (mods: KeyMods) => void;
 }
 
 /** US shift symbols for the digit and punctuation rows. */
@@ -135,8 +140,12 @@ export class VrKeyboard {
       this.panel.markDirty();
       return;
     }
-    const out = this.output(id);
-    this.target?.sendText(out);
+    if ((id === 'fn:enter' || id === 'fn:enter2') && this.target?.sendEnter) {
+      // One-shot shift only: with caps lock on, Enter still has to submit.
+      this.target.sendEnter({ ctrl: this.ctrlLatched, shift: this.shiftArmed });
+    } else {
+      this.target?.sendText(this.output(id));
+    }
     if (this.shiftArmed) {
       this.shiftArmed = false; // one-shot
       this.panel.markDirty();

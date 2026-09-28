@@ -95,8 +95,11 @@ function keyLike(e: KeyboardEvent): KeyLike {
 export interface VrKeyCapture {
   /** True while the session presents: every key event stops at the capture listener. */
   active: () => boolean;
-  /** A typed key's bytes, for the focused VR input (it may have none: then they drop). */
-  onBytes: (bytes: string) => void;
+  /**
+   * A typed key's bytes, for the focused VR input (it may have none: then they drop). The key
+   * rides along so a terminal can re-encode modified Enter for its worker (term-keys.ts).
+   */
+  onBytes: (bytes: string, key: KeyLike) => void;
 }
 
 /** Installs the presenting-time key boundary on window (or any EventTarget, for tests), for the page's life. */
@@ -104,10 +107,11 @@ export function captureVrKeys(target: EventTarget, opts: VrKeyCapture): void {
   const down = (ev: Event) => {
     if (!opts.active()) return;
     ev.stopImmediatePropagation();
-    const bytes = keyBytes(keyLike(ev as KeyboardEvent));
+    const key = keyLike(ev as KeyboardEvent);
+    const bytes = keyBytes(key);
     if (bytes === null) return;
     ev.preventDefault();
-    opts.onBytes(bytes);
+    opts.onBytes(bytes, key);
   };
   // Key-up listeners (emote wheel release, walking) would act on a press they never saw.
   const up = (ev: Event) => {

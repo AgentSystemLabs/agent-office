@@ -57,7 +57,9 @@ A Bluetooth keyboard paired to the headset types while presenting. Keys go to th
 prompt (hire, ask, chat, search, comment…) first, else to the focused world-space terminal.
 In a prompt, Enter sends, Escape cancels, ←/→/Home/End move and Backspace/Delete edit. In a
 terminal, keys arrive as xterm bytes, including Ctrl chords (Ctrl+C), Alt as meta,
-modified arrows, Home/End, PageUp/PageDown and Shift+Tab. With neither panel open, keys
+modified arrows, Home/End, PageUp/PageDown and Shift+Tab. In a Droid worker's terminal,
+Ctrl+Enter queues and Shift+Enter adds a newline, the same as the desktop terminal
+(`src/client/term-keys.ts`). With neither panel open, keys
 type nothing and a toast says where they go.
 
 No key reaches a desktop keybind while presenting: E doesn't interact, N doesn't jump, WASD

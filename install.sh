@@ -94,7 +94,8 @@ install_release() {
   if [ ! -f "$dest/.installed" ]; then
     step "Installing Agent Office $tag"
     # Exactly the dependency versions the release was tested with (its npm-shrinkwrap.json).
-    (cd "$STAGE/package" && npm ci --omit=dev --no-audit --no-fund --loglevel=error >&2) ||
+    # The repo's .npmrc (legacy-peer-deps) isn't in the tarball, so its peer policy is passed here.
+    (cd "$STAGE/package" && npm ci --omit=dev --legacy-peer-deps --no-audit --no-fund --loglevel=error >&2) ||
       die "npm couldn't install Agent Office's dependencies (see above)"
     touch "$STAGE/package/.installed"
     # Another run may have installed the same version meanwhile; either copy will do.

@@ -53,7 +53,7 @@
  */
 
 import * as THREE from 'three';
-import type { ChangesState, ChatLine, FloorInfo, GhIssue, GhPull, GhState, MeetingState, PeerInfo, QueueState, ServicesState, WorkerInfo } from '../../shared/protocol';
+import type { AgentProvider, ChangesState, ChatLine, FloorInfo, GhIssue, GhPull, GhState, MeetingState, PeerInfo, QueueState, ServicesState, WorkerInfo } from '../../shared/protocol';
 import type { JukeboxState } from '../../shared/jukebox';
 import { SEARCH_MIN, searchKey } from '../../shared/search';
 import { isAsleep } from '../../shared/status';
@@ -65,6 +65,7 @@ import { VrAim } from './aim';
 import { VrControls } from './controls';
 import { VrKeyboard, type KeyboardTarget } from './keyboard';
 import { followTarget, type HeadPose } from './math';
+import type { KeyLike } from './physical-keys';
 import { VrMenu, type VrMenuActions, type VrMergeInfo, type VrSearchState } from './menu';
 import { VrPromptPanel, type VrPromptOpts } from './prompt';
 import { VrTerminalPanel, type VrTerminalMsg } from './terminal-panel';
@@ -85,6 +86,8 @@ export interface VrUiDeps {
   subscribe: (topic: 'screens' | 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services' | 'peers' | 'dog', fn: () => void) => () => void;
   getScreen: (workerId: string) => ScreenState | undefined;
   getWorker: (workerId: string) => WorkerInfo | undefined;
+  /** A worker's provider after the office default fills in a missing one (the store's resolvedProvider). */
+  providerOf?: (w: WorkerInfo) => AgentProvider | undefined;
   getWorkers: () => WorkerInfo[];
   getIssues: () => GhState<GhIssue>;
   getPulls: () => GhState<GhPull>;
@@ -162,8 +165,9 @@ export interface VrUiHandle {
    * Bytes from a physical keyboard (vr/physical-keys.ts): into the open prompt, else the
    * focused terminal, else nowhere. The first one tucks the world-space keyboard away; the
    * ⌨ buttons on the terminal and prompt bring it back. False when nothing took them.
+   * With `key`, Enter into the terminal is re-encoded for its worker (Ctrl+Enter queues in Droid).
    */
-  physicalKey: (bytes: string) => boolean;
+  physicalKey: (bytes: string, key?: KeyLike) => boolean;
   /** A physical keyboard has typed this session (the world-space board stays tucked away). */
   readonly physicalTyping: boolean;
   /** What the prompt field holds now (the emulator hook reads this back for assert scripts). */
@@ -205,6 +209,11 @@ class VrUi implements VrUiHandle {
   readonly group = new THREE.Group();
   private rays = new Map<number, RayState>();
   private keyboardExplicit: KeyboardTarget | null | undefined = undefined;
+  /** The keyboard's default target: the focused terminal. */
+  private terminalTarget: KeyboardTarget = {
+    sendText: (text) => this.terminal.type(text),
+    sendEnter: (mods) => this.terminal.typeEnter(mods),
+  };
   private physical = false;
   private physicalHintAt = 0;
   /** The last head pose update() saw: newly opened panels land in front of it. */
@@ -216,7 +225,7 @@ class VrUi implements VrUiHandle {
   constructor(private scene: THREE.Scene, private deps: VrUiDeps) {
     const layout = deps.layout ?? {};
     this.terminal = new VrTerminalPanel(
-      { send: deps.send, subscribe: deps.subscribe, getScreen: deps.getScreen, getWorker: deps.getWorker },
+      { send: deps.send, subscribe: deps.subscribe, getScreen: deps.getScreen, getWorker: deps.getWorker, providerOf: deps.providerOf },
     );
     this.menu = new VrMenu(
       {
@@ -252,7 +261,7 @@ class VrUi implements VrUiHandle {
     this.prompt = new VrPromptPanel();
     this.toast = new VrToast();
     // The keyboard feeds the focused terminal unless redirected (see setKeyboardTarget).
-    this.keyboard.setTarget({ sendText: (text) => this.terminal.type(text) });
+    this.keyboard.setTarget(this.terminalTarget);
     // The terminal's own ✕ button also dismisses the keyboard (unless retargeted).
     this.terminal.onClose = () => {
       if (this.keyboardExplicit === undefined) this.hideKeyboard();
@@ -384,13 +393,17 @@ class VrUi implements VrUiHandle {
     this.prompt.setKeyboardShown(this.keyboard.visible);
   }
 
-  physicalKey = (bytes: string): boolean => {
+  physicalKey = (bytes: string, key?: KeyLike): boolean => {
     let took = false;
     if (this.prompt.visible) {
       this.prompt.sendText(bytes);
       took = true;
     } else if (this.terminal.visible && this.terminal.focused()) {
-      this.terminal.type(bytes);
+      if (key?.key === 'Enter') {
+        this.terminal.typeEnter({ ctrl: key.ctrlKey, shift: key.shiftKey, alt: key.altKey, meta: key.metaKey }, bytes);
+      } else {
+        this.terminal.type(bytes);
+      }
       took = true;
     }
     if (!took) {
@@ -487,7 +500,7 @@ class VrUi implements VrUiHandle {
 
   /** The prompt is done: the keyboard goes back to the terminal (or away, when none is up). */
   private endAskText() {
-    this.keyboard.setTarget({ sendText: (text) => this.terminal.type(text) });
+    this.keyboard.setTarget(this.terminalTarget);
     this.keyboardExplicit = undefined;
     if (!this.terminal.visible) this.hideKeyboard();
     else this.syncKeyboardButtons();
@@ -513,7 +526,7 @@ class VrUi implements VrUiHandle {
       this.keyboard.setTarget(t);
       this.offerKeyboard();
     } else {
-      this.keyboard.setTarget({ sendText: (text) => this.terminal.type(text) });
+      this.keyboard.setTarget(this.terminalTarget);
       this.keyboardExplicit = undefined;
       if (!this.terminal.visible) this.hideKeyboard();
     }

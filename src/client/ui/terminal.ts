@@ -12,6 +12,7 @@ import { isAsleep } from '../../shared/status';
 import { findLine } from '../../shared/search';
 import { TERM_FONT } from '../fonts';
 import { providerLabel, providerUsageNote, providerUsageState, resolvedProvider } from './provider';
+import { enterKeyAction, wantsCsiEnter } from '../term-keys';
 
 /** A line to scroll to once the terminal has loaded: a search hit (see search.ts). */
 export interface TerminalFind {
@@ -303,7 +304,15 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
       modal.close();
       return false;
     }
-    return true;
+    const w = store.workers.get(workerId);
+    const enter = enterKeyAction(wantsCsiEnter(w?.kind, w && resolvedProvider(w.provider, store.project)), e);
+    if (enter.do === 'default') return true;
+    if (enter.do === 'send') {
+      e.preventDefault();
+      term.input(enter.data);
+      sayTyping();
+    }
+    return false;
   });
   term.onData((data) => {
     sendSize(true);

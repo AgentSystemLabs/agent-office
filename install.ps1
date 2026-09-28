@@ -121,9 +121,10 @@
           if (Test-Path -LiteralPath $dest) { throw "$dest is in the way; remove it and run this again" }
           Step "Installing Agent Office $tag"
           # Exactly the dependency versions the release was tested with (its npm-shrinkwrap.json).
+          # The repo's .npmrc (legacy-peer-deps) isn't in the tarball, so its peer policy is passed here.
           Push-Location -LiteralPath $pkg
           # Out-Host, or npm's output would become part of this function's return value.
-          try { & $npm ci --omit=dev --no-audit --no-fund --loglevel=error | Out-Host } finally { Pop-Location }
+          try { & $npm ci --omit=dev --legacy-peer-deps --no-audit --no-fund --loglevel=error | Out-Host } finally { Pop-Location }
           if ($LASTEXITCODE -ne 0) { throw "npm couldn't install Agent Office's dependencies (see above)" }
           [IO.File]::WriteAllText((Join-Path $pkg '.installed'), '')
           # Another run may have installed the same version meanwhile; either copy will do.
