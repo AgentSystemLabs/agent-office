@@ -37,6 +37,7 @@ import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
 import { forgeWords, type ForgeWords } from '../shared/floors';
 import type { JiraBoardState, JiraFloorState } from '../shared/jira';
+import type { BallState } from '../shared/hoop';
 
 export type Topic =
   | 'peers'
@@ -73,7 +74,8 @@ export type Topic =
   | 'cabinetFrame'
   | 'meeting'
   | 'jira'
-  | 'jiraBoard';
+  | 'jiraBoard'
+  | 'ball';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -264,6 +266,8 @@ class Store {
   /** The dog on your floor, and when (performance.now()) the leg it's on began. */
   dog: DogState | null = null;
   dogStart = 0;
+  /** The basketball on this floor, as the office last said (see world/hoop.ts). */
+  ball: BallState = {};
   /** Outside the windows; null until the server says. */
   sky: SkyState | null = null;
   /** The building's holiday decorations: the same on every floor. */
@@ -339,7 +343,8 @@ class Store {
     this.cabinetFrame = v.cabinet.frame;
     this.setDog(v.dog);
     this.setJukebox(v.jukebox);
-    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'jira', 'jiraBoard'] as Topic[]) this.emit(t);
+    this.ball = v.ball ?? {};
+    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'jira', 'jiraBoard', 'ball'] as Topic[]) this.emit(t);
   }
 
   private setDog(dog: DogState | null) {
@@ -529,6 +534,10 @@ class Store {
       case 'dog':
         this.setDog(msg.dog);
         this.emit('dog');
+        break;
+      case 'ball':
+        this.ball = msg.ball;
+        this.emit('ball');
         break;
       case 'sky':
         this.sky = msg.state;

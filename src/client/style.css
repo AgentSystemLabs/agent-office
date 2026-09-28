@@ -243,6 +243,21 @@ img.glyph { display: inline-block; width: 1em; height: 1em; vertical-align: -0.1
 }
 .hint .title { color: var(--accent); }
 .hint .cost { color: var(--info); }
+/* Winding up a shot with the basketball: the marker runs up and down; let go in the green. */
+.shot-meter {
+  position: absolute; left: 50%; bottom: 84px; width: 240px; height: 12px; transform: translateX(-50%);
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  overflow: hidden; pointer-events: none !important;
+}
+.shot-meter .sweet {
+  display: none; position: absolute; top: 0; bottom: 0; left: calc((var(--sweet) - var(--width) / 2) * 100%); width: calc(var(--width) * 100%);
+  background: var(--success); opacity: .55;
+}
+.shot-meter.aimed .sweet { display: block; }
+.shot-meter .mark {
+  position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--at) * 100%);
+  background: rgba(238, 96, 24, .35); border-right: 2px solid var(--accent);
+}
 
 .crosshair {
   position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px;
@@ -528,6 +543,7 @@ img.glyph { display: inline-block; width: 1em; height: 1em; vertical-align: -0.1
   .side { width: min(250px, calc(100vw - 24px)); max-height: calc(100vh - 290px); }
   .dock-btn .lbl { display: none; }
   .hint { max-width: calc(100vw - 24px); bottom: 190px; }
+  .shot-meter { bottom: 246px; }
   .chat { width: calc(100vw - 24px); }
 }
 
