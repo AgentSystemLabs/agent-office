@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { BALCONY, FLOOR, GOLF_HOLE, GOLF_TEE, ROAD, SLAB, STOREY, STREET_Y, WALL_HEIGHT, WALL_T } from '../../shared/layout';
 import type { Collider, Interactable } from './office';
-import { neighbourBoxes, tree } from './outside';
+import { bulb, neighbourBoxes, streetLamp, tree, type NightParts } from './outside';
 import { disposeSprite, mergeByMaterial, mesh, textPlane, textSprite, toon } from './toon';
 
 // Golf off the balcony: the tee out there (a square of turf, a ball on a tee, a bag of clubs), the
@@ -194,9 +194,10 @@ export interface Green {
 
 /**
  * The hole across the street, in `ground` (with its colliders): a mown fairway from the far sidewalk
- * up to a round green with the cup and the flag in it, bunkers either side, trees behind, and a sign.
+ * up to a round green with the cup and the flag in it, bunkers either side, trees behind, a lamp
+ * that lights it at night, and a sign.
  */
-export function buildGreen(ground: THREE.Group, colliders: Collider[]): Green {
+export function buildGreen(ground: THREE.Group, colliders: Collider[], night: NightParts): Green {
   const G = STREET_Y;
   const { x: px, z: pz } = GOLF_HOLE;
   const [fx0, fx1] = GOLF_HOLE.fairway;
@@ -233,6 +234,8 @@ export function buildGreen(ground: THREE.Group, colliders: Collider[]): Green {
     parts.add(t);
     colliders.push({ minX: tx - 0.3 * s, maxX: tx + 0.3 * s, minZ: tz - 0.3 * s, maxZ: tz + 0.3 * s, bottom: G, top: G + 2.2 * s });
   }
+  // A street lamp behind the green, reaching out over it, so the hole's there to aim at after dark.
+  streetLamp(parts, night, bulb(night, '#fff3d6'), colliders, px + 1.5, pz + 6.8, -1);
   // A sign where the fairway starts, facing the office: which hole it is.
   const sx = fx1 + 1.8;
   const sz = FAIRWAY_Z0 + 0.6;

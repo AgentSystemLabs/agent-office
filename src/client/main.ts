@@ -2934,7 +2934,8 @@ function frame(ts?: number) {
   thud = Math.max(0, thud - dt * 2.5);
   player.jitter = reduceMotion.matches ? 0 : Math.max(caffeine.jitter(secs), thud);
   const mug = caffeine.buzzed(secs);
-  me.holdMug(mug);
+  // Both hands are on the club at the tee.
+  me.holdMug(mug && !golf.active);
   hands.holdMug(mug);
   renderCaffeine(caffeine, secs);
   // Drinks from the rooftop bar: a glass in hand, and the world swaying.

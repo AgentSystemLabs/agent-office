@@ -986,7 +986,7 @@ export function buildOffice(): Office {
   buildGarage(ground, groundColliders);
   // The clouds stay up in the sky, however far down the street is.
   buildStreet(ground, groundColliders, night, group);
-  const green = buildGreen(ground, groundColliders);
+  const green = buildGreen(ground, groundColliders, night);
   group.add(ground);
   colliders.push(...groundColliders);
   const groundBase = groundColliders.map((c) => ({ c, top: c.top, bottom: c.bottom ?? 0 }));

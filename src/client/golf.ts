@@ -139,6 +139,8 @@ export class Golfer {
     const p = this.player;
     p.rig = null;
     p.lookPitch = -0.08;
+    // In third person, the camera goes round behind you, looking along the balcony.
+    if (p.view === 'third') p.camYaw = p.facing + Math.PI;
     this.me.setGolf(false);
     this.hooks.holding(false);
     this.panel.classList.add('hidden');

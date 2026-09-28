@@ -257,7 +257,7 @@ function building(w: number, h: number, d: number, color: string, lit: THREE.Mes
 }
 
 /** A street lamp on the sidewalk at (x, z), its arm reaching out over the road toward `toward` (±1 in z). */
-function streetLamp(parts: THREE.Group, night: NightParts, glass: THREE.MeshToonMaterial, colliders: Collider[], x: number, z: number, toward: number) {
+export function streetLamp(parts: THREE.Group, night: NightParts, glass: THREE.MeshToonMaterial, colliders: Collider[], x: number, z: number, toward: number) {
   const ink = toon('#3d405b');
   const H = 5;
   parts.add(mesh(new THREE.CylinderGeometry(0.2, 0.24, 0.5, 10), ink, x, G + 0.25, z));
