@@ -1,4 +1,4 @@
-import { createHash, randomBytes, scryptSync } from 'node:crypto';
+import { randomBytes, scryptSync } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -37,8 +37,6 @@ export interface Config {
   iceServers: RTCIceServerLike[];
   /** Address teammates SSH-tunnel to (set by deploy/aws.sh); enables invites from the office. */
   publicHost?: string;
-  /** The office's own URL as the outside world reaches it (--public-url): what the VR pairing QR shows. */
-  publicUrl?: string;
   /** Daily tracked Claude Code spend budget, USD. Other providers' spend is excluded. */
   budget?: number;
   /** Refuse new hires for the rest of the day once the budget is spent. */
@@ -127,10 +125,6 @@ Options:
                           machine's clock and the weather is made up
       --weather <kind>    Pin the weather: clear, cloudy, rain, storm, snow or
                           fog (env AGENT_OFFICE_WEATHER)
-      --public-url <url>  The office's URL as the outside world reaches it,
-                          e.g. https://office.example.com (env
-                          AGENT_OFFICE_PUBLIC_URL). The VR pairing QR shows
-                          this; without it the server's LAN address is used
   -h, --help              Show this help
 
 Voice and screen sharing need a secure context: use https (a reverse proxy,
@@ -203,7 +197,6 @@ export function loadConfig(argv: string[]): Config {
   let webhook = process.env.AGENT_OFFICE_WEBHOOK;
   let city = process.env.AGENT_OFFICE_CITY || '';
   let weather = process.env.AGENT_OFFICE_WEATHER || '';
-  let publicUrl = process.env.AGENT_OFFICE_PUBLIC_URL || '';
   const iceServers: RTCIceServerLike[] = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 
   for (let i = 0; i < argv.length; i++) {
@@ -278,9 +271,6 @@ export function loadConfig(argv: string[]): Config {
       case '--weather':
         weather = takeValue(argv, i++, a);
         break;
-      case '--public-url':
-        publicUrl = takeValue(argv, i++, a);
-        break;
       default:
         if (a.startsWith('-')) {
           console.error(`agent-office: unknown option ${a}\n`);
@@ -319,11 +309,6 @@ export function loadConfig(argv: string[]): Config {
   weather = weather.trim().toLowerCase();
   if (weather && !(WEATHERS as readonly string[]).includes(weather)) {
     console.error(`agent-office: --weather is one of ${WEATHERS.join(', ')}`);
-    process.exit(2);
-  }
-  publicUrl = publicUrl.trim().replace(/\/+$/, '');
-  if (publicUrl && !/^https?:\/\/[^/]+(:\d+)?$/.test(publicUrl)) {
-    console.error('agent-office: --public-url is the office URL, e.g. --public-url https://office.example.com');
     process.exit(2);
   }
 
@@ -412,7 +397,6 @@ export function loadConfig(argv: string[]): Config {
     trustProxy,
     iceServers,
     publicHost: process.env.AGENT_OFFICE_PUBLIC_HOST || undefined,
-    publicUrl: publicUrl || undefined,
     budget: budgetUsd,
     budgetPause,
     maxWorkers: workerLimit,
@@ -420,21 +404,6 @@ export function loadConfig(argv: string[]): Config {
     city: city.trim() || undefined,
     weather: (weather as Weather) || undefined,
   };
-}
-
-/**
- * OkHttp-style pin (`sha256/<base64>`) for a PEM certificate: SHA-256 over the DER bytes of the
- * first certificate block (the leaf the handshake serves; a bundled chain's intermediates are
- * ignored). The VR pairing QR carries this so the native headset app can pin a self-signed office
- * instead of failing TLS against the system trust store. Undefined when the PEM holds no
- * certificate. Pure: unit-tested with a canned cert.
- */
-export function tlsFingerprintPem(pem: string): string | undefined {
-  const block = pem.match(/-----BEGIN CERTIFICATE-----([\s\S]*?)-----END CERTIFICATE-----/);
-  if (!block) return undefined;
-  const der = Buffer.from(block[1].replace(/\s+/g, ''), 'base64');
-  if (!der.length) return undefined;
-  return `sha256/${createHash('sha256').update(der).digest('base64')}`;
 }
 
 export async function ensureSelfSigned(cfg: Config): Promise<void> {  if (!cfg.tls || cfg.tls.cert) return;

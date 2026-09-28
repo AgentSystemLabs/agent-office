@@ -1,13 +1,5 @@
 // Wire protocol between browser and server. Every WebSocket frame is one JSON object.
 
-/**
- * The wire protocol's major version, sent as `welcome.protocolVersion`. Native clients must fail
- * loudly on an unknown major version (show "update the app / the office" and stop), rather than
- * mis-render messages whose shape has changed under them. Minor additions (a new `t` value, an
- * optional field) never bump this; removing or re-shaping anything does.
- */
-export const PROTOCOL_VERSION = 1;
-
 import type { Look } from './avatar.js';
 import type { CabinetFrame, CabinetState, CabinetView } from './cabinet.js';
 import type { DecorPlacement, Decoration } from './decor.js';
@@ -945,12 +937,6 @@ export type ClientMsg =
   /** You're typing into that terminal (a keystroke or a paste, not the terminal answering itself); sent about once a second. */
   | { t: 'term.typing'; workerId: string }
   | { t: 'term.resize'; workerId: string; cols: number; rows: number }
-  /**
-   * Stop sending this connection `screen` frames (the in-world laptop displays), e.g. a headset on
-   * a constrained link that shows full terminals instead. `off: false` turns them back on. Terminals
-   * still stream via `term.data` either way.
-   */
-  | { t: 'screens.off'; off: boolean }
   /** What you have open now (see PeerInfo.doing); none when you're back in the office. */
   | { t: 'doing'; what?: string }
   | { t: 'gh.refresh' }
@@ -1075,8 +1061,6 @@ export type ServerMsg =
       invites: boolean;
       /** The running server's version; a change after a reconnect means the office was upgraded. */
       version: string;
-      /** The wire protocol's major version (see PROTOCOL_VERSION): fail loudly on an unknown one. */
-      protocolVersion: number;
       upgrade: UpgradeState;
       usage: UsageState;
       limits: PlanLimits;

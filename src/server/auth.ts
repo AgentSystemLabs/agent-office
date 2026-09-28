@@ -11,11 +11,6 @@ const WINDOW_MS = 5 * 60_000;
 /** A signed-in browser: with its own account, or (no account) with the shared office password. */
 export interface Session {
   account?: Account;
-  /**
-   * A paired device (a VR headset) signed in with its bearer token instead of a cookie. The device
-   * keeps its claimed name: it can't take someone else's, the way an account's name is its own.
-   */
-  device?: { id: string; name: string };
 }
 
 export class Auth {

@@ -15,7 +15,7 @@ is unchanged — where WebXR is unavailable the client is pixel-identical, down 
 ## How to enter
 
 1. Open the office URL in the headset browser and join as usual.
-2. Press **🕶️ Enter VR** on the top bar, next to 🥽. The button only exists where
+2. Press **🕶️ Enter VR** on the top bar. The button only exists where
    `navigator.xr` exists and `isSessionSupported('immersive-vr')` resolves true.
 3. You spawn at your avatar's feet, facing your current view direction. Press **⏻ Exit VR**
    (same button) to leave; the desktop camera and controls come back exactly as they were.

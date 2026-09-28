@@ -47,7 +47,6 @@ import { issuePrompt, openBoard } from './ui/boards';
 import { mergePref, mergeStatus, onClosed, onCommented, onMerged, openIssue, openPull, pullDetail, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
 import { copy, guessOs, openTeam, routeTeamMessage } from './ui/team';
-import { openVrPair } from './ui/vr';
 import { openAccounts, routeAccountsMessage } from './ui/accounts';
 import { openServices, serviceTunnel } from './ui/services';
 import { openQueue } from './ui/queue';
@@ -3590,7 +3589,7 @@ const waitingNow = () => waitingInOrder(store.workers.values());
 const noMedia = () => (window.isSecureContext ? undefined : 'Voice and screen sharing need HTTPS or localhost — use a TLS proxy, --self-signed, or an SSH tunnel');
 /** This page came over plain http:// on the LAN: WebXR stays undefined there, so Enter VR shows dimmed with the reason instead of hiding. Set by the probe below. */
 let xrInsecure = false;
-const noXr = () => (xrInsecure ? 'Enter VR needs HTTPS or localhost — reopen this office over https:// (start it with --self-signed), or pair the native app instead' : undefined);
+const noXr = () => (xrInsecure ? 'Enter VR needs HTTPS or localhost — reopen this office over https:// (start it with --self-signed)' : undefined);
 const hud = mountHud(
   [
     { id: 'issues', icon: '📌', label: 'Issues', section: 'Open', count: () => store.issues.items.filter((i) => i.state === 'OPEN').length, run: () => openBoard('issues', net, boardActions()) },
@@ -3618,9 +3617,7 @@ const hud = mountHud(
     { id: 'share', icon: '🖥️', label: () => (voice.sharing ? 'Stop sharing' : 'Share screen'), section: 'Together', on: () => voice.sharing, status: () => voice.sharing, chip: () => 'Sharing', blocked: noMedia, run: () => void toggleShare() },
     { id: 'decor', icon: '🖼️', label: () => (hanger.active ? 'Stop hanging the picture' : 'Hang a picture'), section: 'Together', key: 'F', on: () => hanger.active, status: () => hanger.active, run: () => (hanger.active ? hanger.cancel() : startHanging()) },
     { id: 'team', icon: '👥', label: 'Invite teammates', section: 'Together', shown: () => store.invites, run: () => openTeam(net) },
-    // Up on the top bar, so a headset can be paired without digging through the menu.
-    { id: 'vr', icon: '🥽', label: 'Pair a VR headset', section: 'Together', status: () => true, title: () => 'Show a QR code for a VR headset to pair with this office', run: openVrPair },
-    // Up on the top bar next to it — but only where this browser can do immersive VR. Elsewhere
+    // Up on the top bar — but only where this browser can do immersive VR. Elsewhere
     // (desktop Chrome without XR) the probe says no and the bar stays exactly as it was. On an
     // insecure origin (http:// over the LAN) it shows dimmed with the reason: a headset opening
     // that address would otherwise find no Enter VR and no word on why.

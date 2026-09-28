@@ -8,10 +8,8 @@ import type { Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Config } from './config.js';
-import { tlsFingerprintPem } from './config.js';
 import { Auth, type Session } from './auth.js';
 import { Accounts } from './accounts.js';
-import { Devices, bearerToken } from './devices.js';
 import { childEnv, resolveCommand } from './workers.js';
 import { configuredProvider, DROID_MODEL_MAX, OPEN_CODE_MODEL_MAX } from './agents.js';
 import { createDroidModelCatalogue } from './droid-models.js';
@@ -32,7 +30,7 @@ import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunne
 import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
-import { GH_COMMENT_MAX, PROTOCOL_VERSION, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
+import { GH_COMMENT_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import { DESK_BY_ID, elevatorSpot, seatHere, streetBelow } from '../shared/layout.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
@@ -72,10 +70,6 @@ interface Client {
   peer: PeerInfo;
   /** Signed in with this account; none means the shared office password. */
   accountId?: string;
-  /** A paired device (a VR headset) signed in with its bearer token; it keeps its claimed name. */
-  deviceId?: string;
-  /** Asked for no `screen` frames (see 'screens.off'): terminals still stream via term.data. */
-  screensOff: boolean;
   /** Whether this person was last told they're an admin (see `me`). */
   admin: boolean;
   /** Signed out while connected; whatever it still sends is dropped until the socket closes. */
@@ -146,8 +140,6 @@ function readBody(req: http.IncomingMessage, limit = 1024 * 1024): Promise<strin
 
 /**
  * Whether the page asking is the office itself, so another site can't open a socket with a visitor's cookie.
- * Native clients (a VR headset) send no Origin at all; they authenticate with a bearer token instead,
- * which a third-party page can't know, so the upgrade lets a valid bearer token in without an Origin.
  * Cookie-authed upgrades always need the Origin to match: relaxing that would let any site a visitor
  * has open ride their session.
  */
@@ -195,16 +187,6 @@ export async function startServer(cfg: Config) {
   const publicDir = findPublicDir();
   const accounts = new Accounts(cfg.dataDir);
   const auth = new Auth(cfg.verifier, cfg.salt, cfg.secret, accounts);
-  /** The paired headsets (see devices.ts): bearer tokens that sign in as a device, no cookie needed. */
-  const devices = new Devices(cfg.dataDir);
-  /**
-   * Who a bearer token signs in, if anyone: a paired device, under its claimed name. The cookie
-   * session is always tried first; this is only for native clients that have no cookie jar.
-   */
-  const sessionFromBearer = (req: http.IncomingMessage): Session | undefined => {
-    const d = devices.verify(bearerToken(req.headers.authorization));
-    return d ? { device: { id: d.id, name: d.name } } : undefined;
-  };
   const clients = new Map<string, Client>();
   // Kept on disk, so a restart doesn't wipe it.
   const chat = new ChatLog(cfg.dataDir);
@@ -253,11 +235,9 @@ export async function startServer(cfg: Config) {
   };
   /** To everyone on one floor. */
   const toFloor = (floor: Floor, msg: ServerMsg, droppable = false) => {
-    const screensOff = msg.t === 'screen';
     const json = JSON.stringify(msg);
     for (const c of clients.values()) {
       if (c.peer.floor !== floor.id || c.ws.readyState !== WebSocket.OPEN) continue;
-      if (screensOff && c.screensOff) continue;
       if (droppable && c.ws.bufferedAmount > 4 * 1024 * 1024) continue;
       c.ws.send(json);
     }
@@ -551,7 +531,6 @@ export async function startServer(cfg: Config) {
   /** The rooftop bar: nobody works up there, so it has none of a floor's things. */
   const roofView = (): FloorView => ({ ...floorView(undefined), floor: ROOF });
   const screensOf = (c: Client, floor: Floor | undefined) => {
-    if (c.screensOff) return;
     for (const { workerId, frame } of floor?.workers.fullScreens() ?? []) sendTo(c, { t: 'screen', workerId, ...frame, full: true });
   };
   /** Where someone arriving goes: the floor they asked for, else the first one there is. */
@@ -646,29 +625,6 @@ export async function startServer(cfg: Config) {
     return send(res, 200, { ok: true, name: r.name }, signedIn(req, r.id));
   };
 
-  /**
-   * The office's URL as a headset on the LAN reaches it: the explicit --public-url when one is set,
-   * else the server's first LAN address with this port and scheme (never localhost, which is the
-   * headset's own loopback, not the office's).
-   */
-  const serverUrl = (req: http.IncomingMessage): string => {
-    if (cfg.publicUrl) return cfg.publicUrl;
-    const scheme = isSecure(req, cfg) ? 'https' : 'http';
-    let lan: string | undefined;
-    for (const list of Object.values(os.networkInterfaces())) {
-      for (const ni of list ?? []) {
-        if (ni.family === 'IPv4' && !ni.internal) {
-          lan = ni.address;
-          // Prefer a private LAN address over whatever else the machine has.
-          if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(lan)) break;
-        }
-      }
-      if (lan && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(lan)) break;
-    }
-    const host = lan ?? req.headers.host ?? `localhost:${cfg.port}`;
-    return lan ? `${scheme}://${lan}:${cfg.port}` : `${scheme}://${host}`;
-  };
-
   /** The 🔎 search: chat lines, and lines of the terminals of every worker on that floor, with the words in them. */
   const search = (q: string, floor: Floor | undefined): SearchResults => {
     q = q.slice(0, SEARCH_MAX);
@@ -719,18 +675,6 @@ export async function startServer(cfg: Config) {
         return send(res, 200, { ok: true }, { 'set-cookie': auth.clearCookie(req) });
       }
       if (p === '/api/health') return send(res, 200, { ok: true });
-      if (p === '/api/pair/claim' && req.method === 'POST') {
-        // The headset trades the code from the laptop's QR for its long-lived token. No session:
-        // this is how it gets one. Counted like a password guess, since the code is one.
-        const guess = await readGuess(req, res);
-        if (!guess) return;
-        const claimed = devices.claim(str(guess.body.code, 32), str(guess.body.name, 64));
-        // Wrong, used or expired: one answer for all three, so codes can't be enumerated.
-        if (!claimed) return send(res, 404, { error: 'No pairing with that code. Ask the laptop for a new one.' });
-        auth.recordSuccess(guess.ip);
-        console.log(`  paired ${claimed.device.name} (a headset claimed its code)`);
-        return send(res, 200, { token: claimed.token, name: claimed.device.name });
-      }
 
       if (p.startsWith('/assets/')) {
         const file = publicFile(p);
@@ -751,39 +695,13 @@ export async function startServer(cfg: Config) {
         return;
       }
 
-      const session = auth.fromRequest(req) ?? sessionFromBearer(req);
+      const session = auth.fromRequest(req);
       if (!session) {
         if (p.startsWith('/api/')) return send(res, 401, { error: 'Not logged in' });
         res.writeHead(302, { location: '/login' }).end();
         return;
       }
       if (p === '/api/whoami') return send(res, 200, { ok: true, me: meOf(session.account?.id) });
-      if (p === '/api/pair/start' && req.method === 'POST') {
-        // The logged-in laptop asks for a code to show (as a QR) for a headset to claim.
-        const ip = clientIp(req, cfg.trustProxy);
-        if (!auth.allowAttempt(ip)) return send(res, 429, { error: TOO_MANY_ATTEMPTS });
-        return send(res, 200, devices.start());
-      }
-      if (p === '/api/pair/list' && req.method === 'GET') return send(res, 200, { devices: devices.list() });
-      if (p === '/api/pair/revoke' && req.method === 'POST') {
-        let body: { tokenId?: unknown };
-        try {
-          body = JSON.parse(await readBody(req, 4096));
-        } catch {
-          return send(res, 400, { error: 'Bad request' });
-        }
-        const revoked = devices.revoke(str(body?.tokenId, 64));
-        if (!revoked) return send(res, 404, { error: 'No such device' });
-        // Signed out at once, like a revoked account.
-        for (const c of clients.values()) if (c.deviceId === revoked.id) signOut(c);
-        return send(res, 200, { ok: true });
-      }
-      if (p === '/api/server-url' && req.method === 'GET') {
-        // Pin the TLS the QR points at so a self-signed office verifies on the headset — but only
-        // when we serve it ourselves: a --public-url may terminate at a proxy whose cert we don't know.
-        const fingerprint = !cfg.publicUrl && cfg.tls?.cert ? tlsFingerprintPem(cfg.tls.cert) : undefined;
-        return send(res, 200, { url: serverUrl(req), ...(fingerprint ? { fingerprint } : {}) });
-      }
       if (p === '/api/agents/opencode/models' && req.method === 'GET') {
         try {
           return send(res, 200, { models: await openCodeModels.get() });
@@ -910,14 +828,8 @@ export async function startServer(cfg: Config) {
       socket.destroy();
       return;
     }
-    // A paired device signs in with its bearer token (or ?token=, since some native WebSocket stacks
-    // can't set headers). It sends no Origin, so it skips the same-origin check — but only with a
-    // valid token; cookie-authed upgrades always need the Origin to match (see sameOrigin).
-    const deviceToken = bearerToken(req.headers.authorization) ?? url.searchParams.get('token') ?? undefined;
-    const deviceSession = deviceToken ? devices.verify(deviceToken) : undefined;
-    const cookieSession = url.pathname === '/ws' && sameOrigin(req, cfg) ? auth.fromRequest(req) : undefined;
-    const device = deviceSession ? { device: { id: deviceSession.id, name: deviceSession.name } } : undefined;
-    const session = url.pathname === '/ws' ? (cookieSession ?? device) : undefined;
+    // The socket is the office page's own: cookie session plus a matching Origin (see sameOrigin).
+    const session = url.pathname === '/ws' && sameOrigin(req, cfg) ? auth.fromRequest(req) : undefined;
     if (!session) return refuseUpgrade(socket);
     wss.handleUpgrade(req, socket, head, (ws) => onConnection(ws, url, session));
   });
@@ -928,7 +840,7 @@ export async function startServer(cfg: Config) {
     return a ? { account: { name: a.name, role: a.role }, admin: a.role === 'admin' } : { admin: !accountId };
   };
   /** Still signed in: the account wasn't revoked, and the shared password wasn't switched off. */
-  const stillIn = (c: Client) => (c.deviceId ? devices.has(c.deviceId) : c.accountId ? !!accounts.get(c.accountId) : accounts.sharedPassword);
+  const stillIn = (c: Client) => (c.accountId ? !!accounts.get(c.accountId) : accounts.sharedPassword);
   const signOut = (c: Client) => {
     c.out = true;
     c.ws.close(SIGNED_OUT, 'Signed out');
@@ -961,8 +873,8 @@ export async function startServer(cfg: Config) {
     const floor = onRoof ? undefined : arrivalFloor(wanted);
     const spot = elevatorSpot();
     const account = session.account;
-    // An account's name is its own, and so is a paired device's claimed one; on the shared password people pick one.
-    const name = account?.name ?? session.device?.name ?? (str(url.searchParams.get('name'), 24).trim() || `Guest ${id.slice(0, 3)}`);
+    // An account's name is its own; on the shared password people pick one.
+    const name = account?.name ?? (str(url.searchParams.get('name'), 24).trim() || `Guest ${id.slice(0, 3)}`);
     const colorParam = url.searchParams.get('color') ?? '';
     const intParam = (k: string) => (url.searchParams.get(k) ? Number(url.searchParams.get(k)) : undefined);
     const me = meOf(account?.id);
@@ -970,9 +882,7 @@ export async function startServer(cfg: Config) {
       id,
       ws,
       accountId: account?.id,
-      deviceId: session.device?.id,
       admin: me.admin,
-      screensOff: false,
       attached: new Set(),
       stale: new Set(),
       lastMoveAt: 0,
@@ -1019,7 +929,6 @@ export async function startServer(cfg: Config) {
       chat: chat.recent(50),
       invites: team.available,
       version: upgrader.version,
-      protocolVersion: PROTOCOL_VERSION,
       upgrade: upgrader.state,
       usage: ledger.state(),
       limits: limits.state,
@@ -1216,7 +1125,7 @@ export async function startServer(cfg: Config) {
       }
       case 'profile': {
         const name = str(msg.name, 24).trim();
-        if (name && !c.accountId && !c.deviceId) c.peer.name = name;
+        if (name && !c.accountId) c.peer.name = name;
         if (COLOR_RE.test(msg.color)) c.peer.color = msg.color;
         c.peer.look = sanitizeLook(msg.look, c.peer.look);
         broadcast({ t: 'peer.update', peer: c.peer });
@@ -1422,11 +1331,6 @@ export async function startServer(cfg: Config) {
       }
       case 'term.resize':
         if (c.attached.has(msg.workerId)) workerFloor(msg.workerId)?.workers.resize(msg.workerId, num(msg.cols), num(msg.rows));
-        break;
-      case 'screens.off':
-        c.screensOff = !!msg.off;
-        // Turning them back on re-sends every screen whole, so nothing is missed in between.
-        if (!c.screensOff) screensOf(c, floorOf(c));
         break;
       case 'gh.refresh':
         void floorOf(c)?.github.refresh();
