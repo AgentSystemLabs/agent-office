@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { DESK_BY_ID } from '../../shared/layout';
 import type { GhIssue, GhPull, GhState, QueueState, QueueTask, ServiceInfo, WorkerInfo } from '../../shared/protocol';
-import { workerForPull } from '../state';
+import { ticketColumns, type JiraBoardState, type JiraCategory } from '../../shared/jira';
+import { words, workerForPull } from '../state';
 import { SANS, MONO } from '../fonts';
+import { TAB_H, inRect, jiraLayout, tabRects, type BoardSpot, type Rect, type WallTab } from './board-layout';
 
 // The Factory-style world surfaces: near-black panels, light text, orange accents (see ui/boards'
 // constants in style.css). The board's cards all read as one family; the marker squares vary.
@@ -36,14 +38,30 @@ interface DrawnNote {
   tilt: number;
 }
 
-/** Renders a wall display of square task cards onto a canvas texture. */
+const CATEGORY_COLOR: Record<JiraCategory, string> = { new: '#8c8c8c', indeterminate: '#5aa9e6', done: '#3ccf91' };
+
+function spotKey(spot: BoardSpot | null): string {
+  return !spot ? '' : spot.kind === 'tab' ? `tab:${spot.tab}` : `ticket:${spot.key}`;
+}
+
+/**
+ * Renders a wall display of square task cards onto a canvas texture. The issues board of a floor
+ * with a Jira epic also draws a tab strip across its top, and on its Jira tab the epic's tickets
+ * in To Do, In Progress and Done.
+ */
 export class BoardTexture {
   readonly texture: THREE.CanvasTexture;
   private canvas = document.createElement('canvas');
   private ctx: CanvasRenderingContext2D;
   private notes: DrawnNote[] = [];
+  /** The tabs and Jira cards as they were last drawn, for pointing at. */
+  private spots: { spot: BoardSpot; rect: Rect }[] = [];
   /** The note being reached for, drawn lifted off the cork (see lift). */
   private lifted: number | null = null;
+  /** The tab or Jira card being pointed at, drawn outlined (see hover). */
+  private hovered = '';
+  private jira: JiraBoardState | null = null;
+  private shown: WallTab = 'issues';
   private last: [GhState<GhIssue> | GhState<GhPull>, Map<string, WorkerInfo> | undefined] | null = null;
 
   constructor(private kind: 'issues' | 'pulls') {
@@ -84,10 +102,42 @@ export class BoardTexture {
     if (this.last) this.render(...this.last);
   }
 
+  /** Outlines the tab or Jira card being pointed at (null for none). */
+  hover(spot: BoardSpot | null) {
+    const k = spotKey(spot);
+    if (k === this.hovered) return;
+    this.hovered = k;
+    if (this.last) this.render(...this.last);
+  }
+
+  /** The tab or Jira card at a point on the board's face (its uv), or undefined. */
+  spotAt(uv: THREE.Vector2): BoardSpot | undefined {
+    const px = uv.x * this.canvas.width;
+    const py = (1 - uv.y) * this.canvas.height;
+    return this.spots.find((s) => inRect(s.rect, px, py))?.spot;
+  }
+
+  /** Which view is up: the forge's issues, or the Jira epic's tickets. */
+  get tab(): WallTab {
+    return this.shown;
+  }
+
+  /** Takes effect on the next render. The Jira tab needs a Jira board (see setJira). */
+  setTab(tab: WallTab) {
+    this.shown = tab === 'jira' && this.jira ? 'jira' : 'issues';
+  }
+
+  /** The floor's Jira board, or null for none (no tabs then). Takes effect on the next render. */
+  setJira(jira: JiraBoardState | null) {
+    this.jira = jira;
+    if (!jira) this.shown = 'issues';
+  }
+
   /** `workers` lets PR notes name the desk they came from. */
   render(state: GhState<GhIssue> | GhState<GhPull>, workers?: Map<string, WorkerInfo>) {
     this.last = [state, workers];
     this.notes = [];
+    this.spots = [];
     const g = this.ctx;
     const W = this.canvas.width;
     const H = this.canvas.height;
@@ -97,39 +147,34 @@ export class BoardTexture {
     g.fillStyle = 'rgba(255, 255, 255, .045)';
     for (let y = 16; y < H; y += 32) for (let x = 16; x < W; x += 32) g.fillRect(x, y, 2, 2);
     const open = (state.items as (GhIssue | GhPull)[]).filter((i) => i.state === 'OPEN');
+    const jira = this.kind === 'issues' ? this.jira : null;
+    const top = jira ? TAB_H : 0;
+    if (jira) this.drawTabs(jira, open.length);
+    if (jira && this.shown === 'jira') {
+      this.drawJira(jira, top);
+      this.texture.needsUpdate = true;
+      return;
+    }
     if (!open.length) {
-      const note = state.error ? `⚠️ ${state.error}` : state.loading && !state.fetchedAt ? 'Loading…' : this.kind === 'issues' ? 'No open issues 🎉' : 'No open PRs';
-      g.font = `700 34px ${MONO}`;
-      const lines = wrap(g, note.replace(/`/g, ''), 820, 4);
-      const boxH = 64 + lines.length * 46;
-      g.fillStyle = '#161616';
-      g.fillRect(W / 2 - 440, H / 2 - boxH / 2, 880, boxH);
-      g.strokeStyle = 'rgba(255, 255, 255, .18)';
-      g.lineWidth = 3;
-      g.strokeRect(W / 2 - 440, H / 2 - boxH / 2, 880, boxH);
-      g.fillStyle = '#eeeeee';
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
-      lines.forEach((line, i) => g.fillText(line, W / 2, H / 2 - ((lines.length - 1) * 46) / 2 + i * 46));
-      g.textAlign = 'left';
-      g.textBaseline = 'alphabetic';
+      this.centerNote(state.error ? `⚠️ ${state.error}` : state.loading && !state.fetchedAt ? 'Loading…' : this.kind === 'issues' ? 'No open issues 🎉' : 'No open PRs', top);
       this.texture.needsUpdate = true;
       return;
     }
     // Fewer notes -> bigger notes, so a quiet board is still readable from across the room.
+    const AH = H - top;
     const n = Math.min(open.length, 15);
     const cols = n <= 2 ? n : n <= 4 ? 2 : n <= 6 ? 3 : n <= 8 ? 4 : 5;
     const rows = Math.min(3, Math.ceil(n / cols));
     const scale = Math.min(2, Math.max(1, 3 / Math.max(cols, rows * 1.3)));
     const nw = Math.min(208 * scale, (W - 40) / cols - 30);
-    const nh = Math.min(164 * scale, (H - 40) / rows - 30);
+    const nh = Math.min(164 * scale, (AH - 40) / rows - 30);
     const gx = (W - cols * nw) / (cols + 1);
-    const gy = (H - rows * nh) / (rows + 1);
+    const gy = (AH - rows * nh) / (rows + 1);
     open.slice(0, cols * rows).forEach((it, i) => {
       const c = i % cols;
       const r = Math.floor(i / cols);
       const x = gx + c * (nw + gx);
-      const y = gy + r * (nh + gy);
+      const y = top + gy + r * (nh + gy);
       const tilt = (((it.number * 37) % 7) - 3) * 0.012;
       this.notes.push({ number: it.number, x: x + nw / 2, y: y + nh / 2, w: nw, h: nh, tilt });
       const lifted = it.number === this.lifted;
@@ -182,6 +227,123 @@ export class BoardTexture {
       g.textAlign = 'left';
     }
     this.texture.needsUpdate = true;
+  }
+
+  /** A message in a box in the middle of the space below `top`. */
+  private centerNote(note: string, top: number) {
+    const g = this.ctx;
+    const W = this.canvas.width;
+    const cy = (top + this.canvas.height) / 2;
+    g.font = `700 34px ${MONO}`;
+    const lines = wrap(g, note.replace(/`/g, ''), 820, 4);
+    const boxH = 64 + lines.length * 46;
+    g.fillStyle = '#161616';
+    g.fillRect(W / 2 - 440, cy - boxH / 2, 880, boxH);
+    g.strokeStyle = 'rgba(255, 255, 255, .18)';
+    g.lineWidth = 3;
+    g.strokeRect(W / 2 - 440, cy - boxH / 2, 880, boxH);
+    g.fillStyle = '#eeeeee';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    lines.forEach((line, i) => g.fillText(line, W / 2, cy - ((lines.length - 1) * 46) / 2 + i * 46));
+    g.textAlign = 'left';
+    g.textBaseline = 'alphabetic';
+  }
+
+  /** The tab strip: the forge's issues and the Jira epic, the one showing lit orange. */
+  private drawTabs(jira: JiraBoardState, openIssues: number) {
+    const g = this.ctx;
+    const rects = tabRects();
+    const labels: Record<WallTab, string> = { issues: `${words().site} issues · ${openIssues}`, jira: `Jira · ${jira.epic} · ${jira.items.length}` };
+    for (const tab of ['issues', 'jira'] as WallTab[]) {
+      const r = rects[tab];
+      const on = this.shown === tab;
+      const hot = this.hovered === `tab:${tab}`;
+      this.spots.push({ spot: { kind: 'tab', tab }, rect: r });
+      g.fillStyle = on ? '#ee6018' : hot ? '#262626' : '#161616';
+      g.fillRect(r.x, r.y, r.w, r.h);
+      g.lineWidth = hot ? 4 : 2;
+      g.strokeStyle = hot ? '#ee6018' : on ? '#ee6018' : 'rgba(255, 255, 255, .18)';
+      g.strokeRect(r.x, r.y, r.w, r.h);
+      g.fillStyle = on ? '#0a0a0a' : '#eeeeee';
+      g.font = `700 24px ${MONO}`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(clip(g, labels[tab], r.w - 24), r.x + r.w / 2, r.y + r.h / 2 + 1);
+    }
+    g.textAlign = 'right';
+    g.textBaseline = 'middle';
+    g.fillStyle = '#8c8c8c';
+    g.font = `500 20px ${MONO}`;
+    g.fillText('point at a tab to switch', this.canvas.width - 24, rects.issues.y + rects.issues.h / 2);
+    g.textAlign = 'left';
+    g.textBaseline = 'alphabetic';
+  }
+
+  /** The Jira tab: the epic's tickets in To Do, In Progress and Done, like the board window's. */
+  private drawJira(jira: JiraBoardState, top: number) {
+    if (jira.error && !jira.items.length) return this.centerNote(`⚠️ Couldn't load ${jira.epic} from Jira: ${jira.error}`, top);
+    if (!jira.fetchedAt) return this.centerNote(`Loading ${jira.epic} from Jira…`, top);
+    const g = this.ctx;
+    const cols = ticketColumns(jira.items);
+    const layout = jiraLayout(
+      cols.map((c) => c.items.length),
+      this.canvas.width,
+      this.canvas.height,
+      top + 6,
+    );
+    cols.forEach((col, i) => {
+      const { rect, cards, hidden } = layout.columns[i];
+      g.fillStyle = 'rgba(255, 255, 255, .03)';
+      g.fillRect(rect.x, rect.y, rect.w, rect.h);
+      g.strokeStyle = 'rgba(255, 255, 255, .12)';
+      g.lineWidth = 2;
+      g.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      g.fillStyle = '#eeeeee';
+      g.font = `700 26px ${MONO}`;
+      g.fillText(col.name.toUpperCase(), rect.x + 14, rect.y + 34);
+      g.fillStyle = '#8c8c8c';
+      g.textAlign = 'right';
+      g.fillText(String(col.items.length), rect.x + rect.w - 14, rect.y + 34);
+      g.textAlign = 'left';
+      if (!col.items.length) {
+        g.fillStyle = '#5c5c5c';
+        g.font = `500 22px ${SANS}`;
+        g.fillText('Nothing here', rect.x + 14, rect.y + 84);
+      }
+      cards.forEach((r, j) => {
+        const t = col.items[j];
+        const hot = this.hovered === `ticket:${t.key}`;
+        this.spots.push({ spot: { kind: 'ticket', key: t.key }, rect: r });
+        g.fillStyle = hot ? '#1f1f1f' : NOTE_COLORS[j % NOTE_COLORS.length];
+        g.fillRect(r.x, r.y, r.w, r.h);
+        g.lineWidth = hot ? 5 : 2;
+        g.strokeStyle = hot ? '#ee6018' : 'rgba(255, 255, 255, .18)';
+        g.strokeRect(r.x, r.y, r.w, r.h);
+        g.fillStyle = CATEGORY_COLOR[t.category];
+        g.fillRect(r.x, r.y, 6, r.h);
+        g.fillStyle = '#ee6018';
+        g.font = `700 20px ${MONO}`;
+        g.fillText(t.key, r.x + 16, r.y + 26);
+        const keyW = g.measureText(t.key).width;
+        const side = [t.type, t.assignee ?? 'unassigned'].filter(Boolean).join(' · ');
+        g.fillStyle = '#8c8c8c';
+        g.font = `500 16px ${MONO}`;
+        g.textAlign = 'right';
+        g.fillText(clip(g, side, r.w - keyW - 44), r.x + r.w - 12, r.y + 26);
+        g.textAlign = 'left';
+        g.fillStyle = '#eeeeee';
+        g.font = `600 20px ${SANS}`;
+        wrap(g, t.summary, r.w - 30, 2).forEach((line, li) => g.fillText(line, r.x + 16, r.y + 54 + li * 24));
+      });
+      if (hidden > 0) {
+        g.fillStyle = '#8c8c8c';
+        g.font = `500 20px ${MONO}`;
+        g.textAlign = 'right';
+        g.fillText(`+${hidden} more`, rect.x + rect.w - 14, rect.y + rect.h - 12);
+        g.textAlign = 'left';
+      }
+    });
   }
 }
 

@@ -58,6 +58,7 @@ import { Smoke } from './world/smoke';
 import { HAZE_MAX, Sky, describeSky } from './world/sky';
 import { Laptop } from './world/laptop';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
+import type { BoardSpot } from './world/board-layout';
 import { loadFonts, MONO } from './fonts';
 import { Gallery } from './world/gallery';
 import { Dog } from './world/dog';
@@ -77,7 +78,7 @@ import { openSearch, search } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage, worktreePref, setWorktreePref } from './ui/prompt';
 import { issuePrompt, openBoard } from './ui/boards';
-import { routeJiraMessage } from './ui/jira';
+import { openTicket, routeJiraMessage } from './ui/jira';
 import { mergePref, mergeStatus, onClosed, onCommented, onMerged, openIssue, openPull, pullDetail, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
 import { copy, guessOs, openTeam, routeTeamMessage } from './ui/team';
@@ -212,9 +213,10 @@ function offBoard(): Set<number> {
 const issuesTex = new BoardTexture('issues');
 const renderIssuesBoard = () => {
   const off = offBoard();
+  issuesTex.setJira(store.jiraBoard);
   issuesTex.render(off.size ? { ...store.issues, items: store.issues.items.filter((i) => !off.has(i.number)) } : store.issues);
 };
-mountBoard(office.boardMeshes.issues, issuesTex.texture, renderIssuesBoard, ['issues']);
+mountBoard(office.boardMeshes.issues, issuesTex.texture, renderIssuesBoard, ['issues', 'jiraBoard']);
 let carriedOff = '';
 store.on('peers', () => {
   const k = [...offBoard()].join(',');
@@ -380,7 +382,7 @@ let vrChanges: ChangesState | null = null;
 /** The picture E armed in VR (the terminal ⏻ button's tap-twice, for the walls). */
 let decorArmed = { id: '', until: 0 };
 /** What E would do to the ray's target, in words for the headset's aim bar (null hides it). Mirrors vrUseE branch for branch, minus the keys only the desktop has. */
-function vrAimLabel(it: Interactable, note: GhIssue | null): string | null {
+function vrAimLabel(it: Interactable, note: GhIssue | null, spot: BoardSpot | null = null): string | null {
   // A card in hand changes what E means (the desktop carryHint's lines, shortened).
   if (carrying) {
     if (note && !physicalCarry?.pose) return `E · swap for #${note.number}`;
@@ -412,6 +414,8 @@ function vrAimLabel(it: Interactable, note: GhIssue | null): string | null {
       return it.floorId === store.floor ? `${name} · you are here` : `E · ride to ${name}`;
     }
     case 'issues':
+      if (spot?.kind === 'tab') return issuesTex.tab === spot.tab ? null : spot.tab === 'jira' ? 'E · show the Jira epic' : `E · show ${words().site} issues`;
+      if (spot?.kind === 'ticket') return `E · about ${spot.key}`;
       return note ? `Squeeze / pinch-hold near #${note.number} · grab` : 'E · the issues board';
     case 'pulls':
       return 'E · the pull requests';
@@ -463,7 +467,7 @@ function vrAimLabel(it: Interactable, note: GhIssue | null): string | null {
   }
 }
 /** E in VR: modal flows open world-space panels instead of invisible DOM windows. The carried card drops first, exactly as on desktop; what stays physical falls through to use(). */
-function vrUseE(it: Interactable | null, note: GhIssue | null) {
+function vrUseE(it: Interactable | null, note: GhIssue | null, spot: BoardSpot | null = null) {
   // On the ladder, E gets you off it — exactly like the desktop key, before everything else.
   if (climber.active) {
     climber.letGo();
@@ -500,6 +504,7 @@ function vrUseE(it: Interactable | null, note: GhIssue | null) {
       vrAskStation(it.deskId);
       return;
     }
+    if (it.kind === 'issues' && !carrying && useSpot(spot, 'E')) return;
     if (it.kind === 'elevator') return vrUi.showMenu('floors');
     if (it.kind === 'issues' || it.kind === 'pulls') return vrUi.showMenu('board');
     if (it.kind === 'queue') return vrUi.showMenu('queue');
@@ -542,7 +547,7 @@ function vrUseE(it: Interactable | null, note: GhIssue | null) {
       return;
     }
   }
-  use(it, 'E', note);
+  use(it, 'E', note, spot);
 }
 const vr = new VRSession(renderer, scene, camera, {
   player,
@@ -556,6 +561,7 @@ const vr = new VRSession(renderer, scene, camera, {
     return it && point.distanceTo(eye) <= REACH[it.kind] ? it : null;
   },
   noteUnder: (aim) => noteUnder(aim),
+  spotUnder: (aim) => spotUnder(aim),
   nextWaiting: () => goToNextWaiting(),
   putBack: () => putBack(),
   carrying: () => carrying,
@@ -576,11 +582,12 @@ const vr = new VRSession(renderer, scene, camera, {
   hudRefresh: () => hud.refresh(),
   reachOf: (kind) => REACH[kind],
   reachAnim: () => reach(),
-  onTarget: (it, note) => {
+  onTarget: (it, note, spot) => {
     target = it;
     aimedNote = note;
+    aimedSpot = spot ?? null;
   },
-  aimLabel: (it, note) => vrAimLabel(it, note),
+  aimLabel: (it, note) => vrAimLabel(it, note, aimedSpot),
   resize: () => resize(),
   onEnter: () => {
     // A desktop card has no grabbing hand. Put it back before physical input takes over.
@@ -2653,11 +2660,15 @@ function watchShare() {
   close.addEventListener('click', () => modal.close());
 }
 
-/** `note` is the issue note you're pointing at on the issues board, if any (see aimedNote). */
-function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
+/** `note` is the issue note you're pointing at on the issues board, if any (see aimedNote); `spot` the tab or Jira card (see aimedSpot). */
+function interact(target: Interactable | null, key: DeskKey, note = aimedNote, spot = aimedSpot) {
   if (!target) return;
-  if (target.kind !== 'issues') note = null;
+  if (target.kind !== 'issues') {
+    note = null;
+    spot = null;
+  }
   if (key === 'E' && carrying && dropCard(target, carrying, note)) return;
+  if (useSpot(spot, key)) return;
   if (target.kind === 'desk' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
     // Nobody is hired at the meeting table: a meeting seats its own workers there.
@@ -2683,7 +2694,8 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   if (note && key === 'O') return openIssue(note, net, boardActions());
   if (key !== 'E') return;
   if (target.kind === 'elevator') showElevator();
-  else if (target.kind === 'issues' || target.kind === 'pulls') openBoard(target.kind, net, boardActions());
+  else if (target.kind === 'issues') openBoard('issues', net, boardActions(), issuesTex.tab);
+  else if (target.kind === 'pulls') openBoard('pulls', net, boardActions());
   else if (target.kind === 'services') openServices();
   else if (target.kind === 'queue') showQueue();
   else if (target.kind === 'tv') watchShare();
@@ -3198,6 +3210,16 @@ function hintFor(it: Interactable): Hint {
     case 'station':
       return it.deskId ? stationHint(it.deskId) : { k: '', parts: [] };
     case 'issues':
+      if (aimedSpot?.kind === 'tab') {
+        const label = aimedSpot.tab === 'jira' ? `🎫 Jira · ${store.jiraBoard?.epic ?? 'epic'}` : `📌 ${words().site} issues`;
+        return { k: `tab:${aimedSpot.tab}:${issuesTex.tab}`, parts: issuesTex.tab === aimedSpot.tab ? [title(label), aside('showing')] : [title(label), key('E', 'Show it')] };
+      }
+      if (aimedSpot?.kind === 'ticket') {
+        const ticketKey = aimedSpot.key;
+        const t = store.jiraBoard?.items.find((x) => x.key === ticketKey);
+        return { k: `ticket:${ticketKey}`, parts: [title(clip(`🎫 ${ticketKey} ${t?.summary ?? ''}`, 60)), key('E', 'Read it')] };
+      }
+      if (issuesTex.tab === 'jira') return board(`🎫 Jira · ${store.jiraBoard?.epic ?? 'epic'}`);
       if (aimedNote) return { k: String(aimedNote.number), parts: [title(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', 'Take it'), key('O', 'Read it')] };
       return issuesTex.hasNotes ? { k: 'notes', parts: [title('📌 Issues board'), key('E', 'Open'), aside('or point at a note to take it')] } : board('📌 Issues board');
     case 'pulls':
@@ -3516,10 +3538,10 @@ function emoteKey(e: KeyboardEvent): boolean {
 const DESK_KEYS = { KeyE: 'E', KeyP: 'P', KeyR: 'R', KeyX: 'X', KeyB: 'B', KeyC: 'C', KeyO: 'O' } as const;
 type DeskKey = (typeof DESK_KEYS)[keyof typeof DESK_KEYS];
 
-function use(it: Interactable | null, key: DeskKey, note = aimedNote) {
+function use(it: Interactable | null, key: DeskKey, note = aimedNote, spot = aimedSpot) {
   if (!it) return;
   reach();
-  interact(it, key, note);
+  interact(it, key, note, spot);
 }
 
 // ---- Input ----------------------------------------------------------------------------------------
@@ -3741,8 +3763,35 @@ function noteUnder(aim: { it: Interactable; hit: THREE.Intersection } | null): G
   return n === undefined ? null : (store.issues.items.find((i) => i.number === n) ?? null);
 }
 
+/** The tab or Jira card on the issues board an aim lands on, or null. */
+function spotUnder(aim: { it: Interactable; hit: THREE.Intersection } | null): BoardSpot | null {
+  if (aim?.it.kind !== 'issues' || aim.hit.object !== office.boardMeshes.issues || !aim.hit.uv) return null;
+  return issuesTex.spotAt(aim.hit.uv) ?? null;
+}
+
+/** E on a tab or Jira card on the issues board: switch to the tab, or open the ticket. False for anything else. */
+function useSpot(spot: BoardSpot | null, key: DeskKey): boolean {
+  if (!spot || (key !== 'E' && key !== 'O')) return false;
+  if (spot.kind === 'tab') {
+    if (key !== 'E') return false;
+    if (issuesTex.tab !== spot.tab) {
+      issuesTex.setTab(spot.tab);
+      renderIssuesBoard();
+      sound.paper();
+    }
+    return true;
+  }
+  const t = store.jiraBoard?.items.find((x) => x.key === spot.key);
+  if (!t) return false;
+  if (vr.active) toast(`🎫 ${t.key} ${t.summary} · ${t.status} · ${t.assignee ?? 'unassigned'}. Open it on the desktop to read it or hand it to a worker.`);
+  else openTicket(t, boardActions());
+  return true;
+}
+
 /** The note on the issues board under the crosshair (or, in third person, the mouse), which E takes. */
 let aimedNote: GhIssue | null = null;
+/** The tab or Jira card on the issues board under the crosshair, the mouse or the VR ray. */
+let aimedSpot: BoardSpot | null = null;
 /** Where the mouse is over the scene, for pointing at notes in third person; null when it's off it. */
 let pointer: THREE.Vector2 | null = null;
 canvas.addEventListener('pointermove', (e) => {
@@ -3771,7 +3820,7 @@ player.onClick = (ndc) => {
     toast('Walk closer to that first');
     return;
   }
-  use(aim.it, 'E', noteUnder(aim));
+  use(aim.it, 'E', noteUnder(aim), spotUnder(aim));
 };
 
 // Chat
@@ -4186,24 +4235,33 @@ function frame(ts?: number, xrFrame?: XRFrame) {
     if (modalOpen() || hanger.active || climber.active) {
       target = null;
       aimedNote = null;
+      aimedSpot = null;
     }
   } else {
     aimedNote = null;
+    aimedSpot = null;
     if (modalOpen() || hanger.active || climber.active) target = null;
     else if (firstPerson) {
       const aim = aimedAt(CROSSHAIR);
       target = aim?.near ? aim.it : mySeat();
-      if (aim?.near) aimedNote = noteUnder(aim);
+      if (aim?.near) {
+        aimedNote = noteUnder(aim);
+        aimedSpot = spotUnder(aim);
+      }
     } else {
       target = mySeat() ?? pickTarget();
-      // By the issues board, the mouse points at the note you'd take.
+      // By the issues board, the mouse points at the note you'd take, a tab or a Jira card.
       if (target?.kind === 'issues' && pointer) {
         const aim = aimedAt(pointer, 2.5);
-        if (aim?.near) aimedNote = noteUnder(aim);
+        if (aim?.near) {
+          aimedNote = noteUnder(aim);
+          aimedSpot = spotUnder(aim);
+        }
       }
     }
   }
   issuesTex.lift(aimedNote?.number ?? null);
+  issuesTex.hover(aimedSpot);
   renderHint();
   renderCrosshair();
 

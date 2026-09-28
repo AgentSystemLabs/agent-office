@@ -114,11 +114,12 @@ function card(ref: string, title: string, meta: (Node | string)[], onclick: () =
   );
 }
 
-export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActions) {
+/** `startTab` is the tab the issues board opens on: the one the wall board is showing. */
+export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActions, startTab: 'issues' | 'jira' = 'issues') {
   const body = h('div.body');
   const status = h('span.board-status');
-  /** On the issues board of a floor with a Jira epic: which tab is showing. Issues is always where it opens. */
-  let tab: 'issues' | 'jira' = 'issues';
+  /** On the issues board of a floor with a Jira epic: which tab is showing. */
+  let tab: 'issues' | 'jira' = kind === 'issues' ? startTab : 'issues';
   const onJira = () => kind === 'issues' && tab === 'jira' && !!store.jiraBoard;
   const refresh = h('button.btn', { onclick: () => net.send(onJira() ? { t: 'jira.refresh' } : { t: 'gh.refresh' }) }, 'Refresh');
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');

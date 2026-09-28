@@ -25,6 +25,7 @@ import { GRAVITY, STEP } from '../player';
 import type { PlayerController } from '../player';
 import type { Settings } from '../state';
 import type { InteractKind, Interactable } from '../world/office';
+import type { BoardSpot } from '../world/board-layout';
 import type { CarriedIssue, GhIssue } from '../../shared/protocol';
 import type { HeadPose } from './math';
 import { describeSessionError, requestVRSession, type VrReferenceSpace } from './support';
@@ -192,13 +193,15 @@ export interface VRHooks {
   player: PlayerController;
   settings: Settings;
   /** E on an Interactable: the same `use()` the keyboard calls. Never forked. Null aims at nothing, like the desktop key with no target. */
-  useE: (it: Interactable | null, note: GhIssue | null) => void;
+  useE: (it: Interactable | null, note: GhIssue | null, spot?: BoardSpot | null) => void;
   /** The shared ray picker (office, gallery, dog, or the roof's): ray in, Interactable out. */
   pickFromRay: (ray: THREE.Raycaster, slack: number) => { it: Interactable; near: boolean; hit: THREE.Intersection } | null;
   /** Physical contact at a tracked joint; cab keys accept only the index fingertip. */
   touchTarget?: (point: THREE.Vector3, indexTip: boolean) => Interactable | null;
   /** The issue note under an aim on the issues board, if any. */
   noteUnder: (aim: { it: Interactable; hit: THREE.Intersection } | null) => GhIssue | null;
+  /** The tab or Jira card under an aim on the issues board, if any. */
+  spotUnder?: (aim: { it: Interactable; hit: THREE.Intersection } | null) => BoardSpot | null;
   /** N: the next worker waiting on someone. */
   nextWaiting: () => void;
   /** Q with a card in hand: pin it back up. */
@@ -215,7 +218,7 @@ export interface VRHooks {
   /** The reach-out animation + 'act' message, so everyone sees the arm. */
   reachAnim: () => void;
   /** Mirror the controller's target into the desktop hint state (for the flat mirror). */
-  onTarget: (it: Interactable | null, note: GhIssue | null) => void;
+  onTarget: (it: Interactable | null, note: GhIssue | null, spot?: BoardSpot | null) => void;
   /** What E would do to the target, in words for the headset's aim bar (null: nothing). */
   aimLabel: (it: Interactable, note: GhIssue | null) => string | null;
   /** Restore the canvas after three sized it for the headset. */
@@ -911,7 +914,7 @@ export class VRSession {
     }
     if (!hover?.near) return;
     this.hooks.reachAnim();
-    this.hooks.useE(hover.it, this.hooks.noteUnder(hover));
+    this.hooks.useE(hover.it, this.hooks.noteUnder(hover), this.hooks.spotUnder?.(hover) ?? null);
     this.ui?.setCarrying(this.hooks.carrying());
     this.pulse(i, 0.4, 25);
   }
@@ -1044,7 +1047,8 @@ export class VRSession {
     // The headset's aim bar names what E would do to the same target (quiet while climbing).
     const aim = this.rayFor('right')?.hover ?? this.rayFor('left')?.hover ?? null;
     const note = aim?.near ? this.hooks.noteUnder(aim) : null;
-    this.hooks.onTarget(aim?.near ? aim.it : null, note);
+    const spot = aim?.near ? (this.hooks.spotUnder?.(aim) ?? null) : null;
+    this.hooks.onTarget(aim?.near ? aim.it : null, note, spot);
     const label = !rigged && aim?.near ? this.hooks.aimLabel(aim.it, note) : null;
     if (label !== this.aimText) {
       this.aimText = label;
