@@ -6,7 +6,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Ledger } from '../src/server/usage.js';
 import { WorkerManager, type WorkerEvents } from '../src/server/workers.js';
-import type { AgentProvider, WorkerInfo } from '../src/shared/protocol.js';
+import type { PromptSource } from '../src/server/prompts.js';
+import { PROMPTS } from '../src/shared/prompts.js';
+import type { AgentChoice, AgentProvider, WorkerInfo } from '../src/shared/protocol.js';
 
 type Invocation = {
   kind: string;
@@ -520,6 +522,50 @@ test('board agents are hired with the requested provider, model, and effort', as
   if (typeof again === 'string') return;
   assert.equal(again.hired, false);
   assert.equal(workers.get(r.info.id)?.provider, 'droid');
+});
+
+test('a worker nobody picked for starts on the office default worker, told its board brief in the office’s words', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+  let agent: AgentChoice | undefined = { provider: 'droid', model: 'custom:droidproxy:opus-5-5', effort: 'high' };
+  const prompts: PromptSource = { text: (id) => (id === 'station.pulls' ? 'You review {{pullName}}s on {{site}}. The request:' : PROMPTS[id].text), agent: () => agent };
+  const workers = new WorkerManager(f.root, f.data, f.claude, [], { url: 'http://127.0.0.1:1', token: '' }, events([]), ledger(f.data), undefined, undefined, prompts);
+  t.after(() => workers.shutdown());
+  assert.deepEqual(workers.officeDefault, agent);
+
+  const r = workers.station('station-pulls', 'Ada', 'Sum up the open PRs');
+  if (typeof r === 'string') return assert.fail(r);
+  assert.deepEqual([r.info.provider, r.info.model, r.info.effort], ['droid', 'custom:droidproxy:opus-5-5', 'high']);
+  const launch = (
+    await waitFor(
+      () => f.read(),
+      (records) => records.some((x) => x.kind === 'droid'),
+    )
+  ).find((x) => x.kind === 'droid')!;
+  assert.ok(hasPrompt(launch, 'You review pull requests on GitHub. The request:\n\nSum up the open PRs'));
+  const overlay = JSON.parse(readFileSync(path.join(f.data, `droid-${r.info.id}.json`), 'utf8'));
+  assert.equal(overlay.sessionDefaultSettings.model, 'custom:droidproxy:opus-5-5');
+  assert.equal(overlay.sessionDefaultSettings.reasoningEffort, 'high');
+
+  // A picked provider wins, and a shell is never given one.
+  const picked = workers.spawn('desk-1', 'Ada', 'fix it', false, 'agent', 'claude');
+  if (typeof picked === 'string') return assert.fail(picked);
+  assert.deepEqual([picked.provider, picked.model, picked.effort], ['claude', undefined, undefined]);
+  const shell = workers.spawn('desk-2', 'Ada', undefined, false, 'shell');
+  if (typeof shell === 'string') return assert.fail(shell);
+  assert.equal(shell.provider, undefined);
+  // Unset, it's the office's --agent as before.
+  agent = undefined;
+  const plain = workers.spawn('desk-3', 'Ada', 'fix that');
+  if (typeof plain === 'string') return assert.fail(plain);
+  assert.deepEqual([plain.provider, plain.model, plain.effort], ['claude', undefined, undefined]);
 });
 
 test('OpenCode model overrides configured model flags on first launch and is omitted on resume', async (t) => {

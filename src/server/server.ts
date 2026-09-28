@@ -10,7 +10,7 @@ import type { Config } from './config.js';
 import { Auth, type Session } from './auth.js';
 import { Accounts } from './accounts.js';
 import { childEnv, resolveCommand } from './workers.js';
-import { configuredProvider, DROID_MODEL_MAX, OPEN_CODE_MODEL_MAX } from './agents.js';
+import { agentProviders, configuredProvider, DROID_MODEL_MAX, OPEN_CODE_MODEL_MAX } from './agents.js';
 import { createDroidModelCatalogue } from './droid-models.js';
 import { createOpenCodeModelCatalogue } from './models.js';
 import { Team } from './team.js';
@@ -27,6 +27,7 @@ import { Building, type FloorDef } from './building.js';
 import { Floor, type FloorContext } from './floor.js';
 import { Sky } from './sky.js';
 import { Themes } from './theme.js';
+import { OfficePrompts } from './prompts.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
@@ -41,6 +42,7 @@ import { MAX_FLOORS, forgeWords } from '../shared/floors.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
 import { isThemePick } from '../shared/theme.js';
+import { PROMPTS, PROMPT_MAX, isPromptId } from '../shared/prompts.js';
 import { ROOF, isDrink } from '../shared/rooftop.js';
 import { readCarry, sameCarry } from '../shared/carry.js';
 
@@ -369,6 +371,9 @@ export async function startServer(cfg: Config) {
     (state) => broadcast({ t: 'theme', state }),
   );
   themes.start();
+  // The prompts the office writes for workers by itself, and the worker a new one starts on when nobody picks (Settings).
+  const configured = configuredProvider(cfg.agentCmd);
+  const prompts = new OfficePrompts(cfg.dataDir, { list: agentProviders(configured), configured }, (state) => broadcast({ t: 'prompts', state }));
 
   // What the workers spend, all time and today, with the optional daily budget.
   const ledger = new Ledger(cfg.dataDir, { budget: cfg.budget, pauseHiring: cfg.budgetPause }, (state) => broadcast({ t: 'usage', state }), toastAll);
@@ -432,6 +437,7 @@ export async function startServer(cfg: Config) {
     ledger,
     capacity: machine,
     jira,
+    prompts,
     emit: toFloor,
     toast: toastFloor,
     termData: (workerId, data, viewers) => {
@@ -965,6 +971,7 @@ export async function startServer(cfg: Config) {
       proxy: proxy.current,
       sky: sky.state,
       theme: themes.state(),
+      prompts: prompts.state(),
       ...(onRoof ? roofView() : floorView(floor)),
     });
     screensOf(client, floor);
@@ -1536,6 +1543,32 @@ export async function startServer(cfg: Config) {
                 ? `${who} took the holiday decorations down`
                 : `📅 ${who} set the decorations to follow the calendar${now ? ` (it's ${now === 'halloween' ? 'Halloween 🎃' : 'Christmas 🎄'} season)` : ''}`,
         );
+        break;
+      }
+      case 'prompts.set': {
+        if (!meOf(c.accountId).admin) return warn(c, 'Only admins can change the office’s prompts');
+        if (!isPromptId(msg.id) || (msg.text !== null && typeof msg.text !== 'string')) return;
+        const was = !!prompts.state().custom[msg.id];
+        const err = prompts.setPrompt(msg.id, msg.text === null ? null : str(msg.text, PROMPT_MAX + 1), who);
+        if (err) return warn(c, err);
+        const now = !!prompts.state().custom[msg.id];
+        const { label } = PROMPTS[msg.id];
+        if (now) toastAll(`📝 ${who} rewrote the “${label}” prompt`);
+        else if (was) toastAll(`📝 ${who} put the default “${label}” prompt back`);
+        break;
+      }
+      case 'prompts.agent': {
+        if (!meOf(c.accountId).admin) return warn(c, 'Only admins can pick the office’s default worker');
+        const ch = msg.choice;
+        if (ch !== null && (!ch || typeof ch !== 'object')) return;
+        const choice = ch && {
+          provider: ch.provider,
+          model: ch.model === undefined || ch.model === '' ? undefined : str(ch.model, MODEL_MAX + 1),
+          effort: ch.effort === undefined ? undefined : ch.effort,
+        };
+        const err = prompts.setAgent(choice, who);
+        if (err) return warn(c, err);
+        toastAll(choice ? `🤖 ${who} set the office’s default worker` : `🤖 ${who} put the office’s default worker back to ${path.basename(cfg.agentCmd)}`);
         break;
       }
       case 'machine.limit': {

@@ -1,6 +1,7 @@
-import type { AgentEffort, AgentProvider, ClaudeModel, ProjectInfo, Usage } from '../../shared/protocol';
+import type { AgentChoice, AgentEffort, AgentProvider, ClaudeModel, ProjectInfo, Usage } from '../../shared/protocol';
 import { AGENT_EFFORTS, CLAUDE_MODELS } from '../../shared/protocol';
 import { withoutGlyph } from '../world/glyph';
+import { store } from '../state';
 import { h } from './dom';
 
 const PROVIDER_KEY = 'agent-office.provider';
@@ -108,6 +109,31 @@ export interface ProviderPicker {
   effort(): AgentEffort | undefined;
   /** Reports a visible field error for an invalid nonempty OpenCode model. */
   valid(): boolean;
+}
+
+export interface AgentFields extends ProviderPicker {
+  /** Puts the fields on this provider, model and effort. */
+  set(choice: AgentChoice): void;
+  /** What they're on now. */
+  choice(): AgentChoice;
+}
+
+/**
+ * The office's default worker as an admin set it in Settings, or the office's --agent on its own
+ * default model. The server starts it wherever a worker is started without a provider.
+ */
+export function officeChoice(project: ProjectInfo | null): AgentChoice {
+  const picked = store.prompts.agent;
+  if (picked && supportedProviders(project).includes(picked.provider)) {
+    return { provider: picked.provider, ...(picked.model ? { model: picked.model } : {}), ...(picked.effort ? { effort: picked.effort } : {}) };
+  }
+  return { provider: resolvedProvider(project?.defaultProvider, project) };
+}
+
+/** "Claude Code · Opus · High", "Droid", "OpenCode · anthropic/claude-sonnet-4". */
+export function choiceLabel(choice: AgentChoice): string {
+  const badge = modelBadge(choice.provider, choice.model, choice.effort);
+  return badge ? `${PROVIDER_LABEL[choice.provider]} · ${badge}` : PROVIDER_LABEL[choice.provider];
 }
 
 /** Remembers the last Claude model/effort chosen at this picker's key (a desk, or the queue). */
@@ -276,11 +302,26 @@ export function droidDisplayName(id: string): string {
  * so a desk that always got Haiku offers Haiku again next time, without one hire changing another's.
  */
 export function providerPicker(project: ProjectInfo | null, id: string, label = 'Worker provider', key = id): ProviderPicker {
+  return buildFields(project, id, label, key);
+}
+
+/**
+ * The same provider, model and effort fields, started on `initial` and remembering nothing: for
+ * picking the office's default worker in Settings.
+ */
+export function agentFields(project: ProjectInfo | null, id: string, initial: AgentChoice, label = 'Provider'): AgentFields {
+  const fields = buildFields(project, id, label, undefined);
+  fields.set(initial);
+  return fields;
+}
+
+/** The picker's fields. With a `key`, what's picked is remembered there and offered again next time. */
+function buildFields(project: ProjectInfo | null, id: string, label: string, key: string | undefined): AgentFields {
   const options = supportedProviders(project);
   const fallback = resolvedProvider(project?.defaultProvider, project);
   const select = h('select.provider-select', { id, 'aria-label': 'Worker provider' }) as HTMLSelectElement;
   for (const provider of options) select.append(h('option', { value: provider }, PROVIDER_LABEL[provider]));
-  select.value = preferredProvider(options, fallback);
+  select.value = key !== undefined ? preferredProvider(options, fallback) : options.includes(fallback) ? fallback : options[0];
   const note = h('small.provider-note', {}, providerUsageNote(select.value as AgentProvider));
   const modelInput = h('input', {
     type: 'text',
@@ -298,11 +339,11 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
   const claudeModelSelect = h('select', { id: `${id}-claude-model`, 'aria-label': 'Claude model' }) as HTMLSelectElement;
   claudeModelSelect.append(h('option', { value: '' }, 'Default (--agent-args)'));
   for (const m of CLAUDE_MODELS) claudeModelSelect.append(h('option', { value: m }, CLAUDE_MODEL_LABEL[m]));
-  claudeModelSelect.value = preferredClaudeModel(key) ?? '';
+  claudeModelSelect.value = (key !== undefined && preferredClaudeModel(key)) || '';
   const effortSelect = h('select', { id: `${id}-effort`, 'aria-label': 'Reasoning effort' }) as HTMLSelectElement;
   effortSelect.append(h('option', { value: '' }, 'Default'));
   for (const e of AGENT_EFFORTS) effortSelect.append(h('option', { value: e }, EFFORT_LABEL[e]));
-  effortSelect.value = preferredEffort(key) ?? '';
+  effortSelect.value = (key !== undefined && preferredEffort(key)) || '';
   const claudeChoice = h(
     'div.provider-model.claude-model',
     {},
@@ -313,6 +354,7 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
     h('small.provider-model-hint', {}, 'Overrides the office default for this worker; the cost panel tracks each model separately.'),
   );
   claudeModelSelect.addEventListener('change', () => {
+    if (key === undefined) return;
     try {
       if (claudeModelSelect.value) localStorage.setItem(claudeChoiceKey('model', key), claudeModelSelect.value);
       else localStorage.removeItem(claudeChoiceKey('model', key));
@@ -321,6 +363,7 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
     }
   });
   effortSelect.addEventListener('change', () => {
+    if (key === undefined) return;
     try {
       if (effortSelect.value) localStorage.setItem(claudeChoiceKey('effort', key), effortSelect.value);
       else localStorage.removeItem(claudeChoiceKey('effort', key));
@@ -334,10 +377,14 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
   const droidEffortSelect = h('select', { id: `${id}-droid-effort`, 'aria-label': 'Droid reasoning effort' }) as HTMLSelectElement;
   droidEffortSelect.append(h('option', { value: '' }, 'Default'));
   for (const e of AGENT_EFFORTS) droidEffortSelect.append(h('option', { value: e }, EFFORT_LABEL[e]));
-  droidEffortSelect.value = preferredDroidEffort(key) ?? '';
+  droidEffortSelect.value = (key !== undefined && preferredDroidEffort(key)) || '';
+  /** The Droid model the fields are on without a `key` to remember it at. */
+  let droidPick: string | undefined;
   const droidHint = h('small.provider-model-hint', {}, 'Overrides the office default for this worker; pinned in its Droid settings overlay.');
   const droidChoice = h('div.provider-model.droid-model', {}, h('label', { for: `${id}-droid-model` }, 'Model'), droidModelSelect, h('label', { for: `${id}-droid-effort` }, 'Effort'), droidEffortSelect, droidHint);
   const rememberDroid = (kind: 'model' | 'effort', value: string) => {
+    if (kind === 'model') droidPick = value || undefined;
+    if (key === undefined) return;
     try {
       if (value) localStorage.setItem(droidChoiceKey(kind, key), value);
       else localStorage.removeItem(droidChoiceKey(kind, key));
@@ -348,7 +395,7 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
   droidModelSelect.addEventListener('change', () => rememberDroid('model', droidModelSelect.value));
   droidEffortSelect.addEventListener('change', () => rememberDroid('effort', droidEffortSelect.value));
   const fillDroidModels = () => {
-    const remembered = preferredDroidModel(key);
+    const remembered = key !== undefined ? preferredDroidModel(key) : droidPick;
     droidHint.textContent = droidList ? 'Overrides the office default for this worker; pinned in its Droid settings overlay.' : 'Loading Droid models…';
     void fetchDroidModels()
       .then((models) => {
@@ -398,7 +445,7 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
     const provider = select.value as AgentProvider;
     note.textContent = providerUsageNote(provider);
     setModelVisibility(provider);
-    if (options.includes(provider)) {
+    if (key !== undefined && options.includes(provider)) {
       try {
         localStorage.setItem(PROVIDER_KEY, provider);
       } catch {
@@ -407,20 +454,40 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
     }
   });
   modelInput.addEventListener('input', () => modelInput.setCustomValidity(''));
+  const value = () => (options.includes(select.value as AgentProvider) ? (select.value as AgentProvider) : fallback);
+  const effort = () => {
+    if (select.value === 'claude') return effortSelect.value ? (effortSelect.value as AgentEffort) : undefined;
+    if (select.value === 'droid') return droidEffortSelect.value ? (droidEffortSelect.value as AgentEffort) : undefined;
+    return undefined;
+  };
+  const model = () => {
+    if (select.value === 'claude') return claudeModelSelect.value || undefined;
+    if (select.value === 'droid') return droidModelSelect.value || undefined;
+    if (select.value !== 'opencode') return undefined;
+    return validModel(modelInput.value) ? modelInput.value : undefined;
+  };
+  const set = (c: AgentChoice) => {
+    select.value = options.includes(c.provider) ? c.provider : options.includes(fallback) ? fallback : options[0];
+    const on = select.value as AgentProvider;
+    claudeModelSelect.value = on === 'claude' && c.model && (CLAUDE_MODELS as readonly string[]).includes(c.model) ? c.model : '';
+    effortSelect.value = on === 'claude' && c.effort ? c.effort : '';
+    droidPick = on === 'droid' ? c.model : undefined;
+    droidEffortSelect.value = on === 'droid' && c.effort ? c.effort : '';
+    modelInput.value = on === 'opencode' && c.model ? c.model : '';
+    modelInput.setCustomValidity('');
+    note.textContent = providerUsageNote(on);
+    setModelVisibility(on);
+  };
   return {
     element: h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice, claudeChoice, droidChoice),
-    value: () => (options.includes(select.value as AgentProvider) ? (select.value as AgentProvider) : fallback),
-    effort: () => {
-      if (select.value === 'claude') return effortSelect.value ? (effortSelect.value as AgentEffort) : undefined;
-      if (select.value === 'droid') return droidEffortSelect.value ? (droidEffortSelect.value as AgentEffort) : undefined;
-      return undefined;
-    },
-    model: () => {
-      if (select.value === 'claude') return claudeModelSelect.value || undefined;
-      if (select.value === 'droid') return droidModelSelect.value || undefined;
-      if (select.value !== 'opencode') return undefined;
-      const value = modelInput.value;
-      return validModel(value) ? value : undefined;
+    value,
+    effort,
+    model,
+    set,
+    choice: () => {
+      const m = model();
+      const e = effort();
+      return { provider: value(), ...(m ? { model: m } : {}), ...(e ? { effort: e } : {}) };
     },
     valid: () => {
       if (select.value !== 'opencode' || !modelInput.value) {

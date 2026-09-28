@@ -7,6 +7,8 @@ import { labelChip, openIssue, openPull } from './pull';
 import { providerLabel } from './provider';
 import type { MeetingPreset } from './meeting';
 import { renderJiraBoard } from './jira';
+import { officePrompt } from './prompts';
+import { issuePromptVars } from '../../shared/prompts';
 
 export interface BoardActions {
   /** Start a worker on a ready-made prompt (shown for editing first). */
@@ -23,12 +25,14 @@ export interface BoardActions {
   meeting(preset: MeetingPreset): void;
 }
 
-/** The task a worker gets for an issue, from the board, a carried card or the queue. */
-export function issuePrompt(it: Pick<GhIssue, 'number' | 'title'>): string {
-  if (words().cli === 'glab') {
-    return `Work on GitLab issue #${it.number}: "${it.title}".\n\nRead it first with \`glab issue view ${it.number} --comments\`. Create a new branch, implement the change, verify it, then open a merge request with \`glab mr create\` whose description says "Closes #${it.number}".`;
-  }
-  return `Work on GitHub issue #${it.number}: "${it.title}".\n\nRead it first with \`gh issue view ${it.number} --comments\`. Create a new branch, implement the change, verify it, then open a pull request that closes #${it.number}.`;
+/** The task a worker gets for an issue, from the board, a carried card or the queue (the 'issue.work' prompt). */
+export function issuePrompt(it: Pick<GhIssue, 'number' | 'title'> & { url?: string }): string {
+  return officePrompt('issue.work', issueVars(it));
+}
+
+/** What an issue's prompts fill in on this floor. A carried card has no URL, but the board usually knows it. */
+export function issueVars(it: Pick<GhIssue, 'number' | 'title'> & { url?: string }) {
+  return issuePromptVars(store.project?.forge, { ...it, url: it.url ?? store.issues.items.find((i) => i.number === it.number)?.url ?? '' });
 }
 
 interface Column<T> {

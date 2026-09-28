@@ -14,6 +14,7 @@ import type {
   Me,
   ProjectInfo,
   ProjectsDirState,
+  PromptsState,
   ProxyState,
   QueueState,
   QueueTask,
@@ -72,6 +73,7 @@ export type Topic =
   | 'cabinet'
   | 'cabinetFrame'
   | 'meeting'
+  | 'prompts'
   | 'jira'
   | 'jiraBoard';
 
@@ -268,6 +270,8 @@ class Store {
   sky: SkyState | null = null;
   /** The building's holiday decorations: the same on every floor. */
   theme: ThemeState = { pick: 'auto', active: null };
+  /** The office's prompts as rewritten in Settings, and the worker a new one starts on when nobody picks: the same on every floor. */
+  prompts: PromptsState = { custom: {} };
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -372,8 +376,9 @@ class Store {
         this.clock = undefined; // compared again, in case it's another office (or the same one, restarted)
         this.sky = msg.sky;
         this.theme = msg.theme;
+        this.prompts = msg.prompts ?? { custom: {} };
         this.enter(msg);
-        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'proxy', 'floors', 'projectsDir', 'sky', 'theme'] as Topic[]) this.emit(t);
+        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'proxy', 'floors', 'projectsDir', 'sky', 'theme', 'prompts'] as Topic[]) this.emit(t);
         break;
       case 'floor.enter':
         this.peers = new Map(msg.peers.map((p) => [p.id, p]));
@@ -537,6 +542,10 @@ class Store {
       case 'theme':
         this.theme = msg.state;
         this.emit('theme');
+        break;
+      case 'prompts':
+        this.prompts = msg.state;
+        this.emit('prompts');
         break;
       case 'chat':
         this.chat.push(msg);
