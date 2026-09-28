@@ -8,7 +8,7 @@ import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, Gong
 import { MEETING_PATTERNS } from '../shared/meetings';
 import { isAsleep, isBusy } from '../shared/status';
 import { Net } from './net';
-import { store, loadProfile, loadSettings, saveSettings, workerForPull, type Profile, type Topic } from './state';
+import { store, loadProfile, loadSettings, saveSettings, workerForPull, workerPr, type Profile, type Topic } from './state';
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { Climber, gripOf, type Arrival, type Grip, type Way } from './climb';
 import { Caffeine } from './caffeine';
@@ -1024,6 +1024,7 @@ function syncWorkers() {
       noOutline(v.model.root);
     }
     v.model.setAction(w.action);
+    v.model.setPr(workerPr(w, store.pulls.items, store.queue.tasks));
     const engineBadge = w.kind === 'agent' ? modelBadge(w.provider, w.model, w.effort) : undefined;
     v.model.setTask(meetingCard(w) ?? (w.task && w.kind === 'agent' ? { ...w.task, name: `${providerLabel(w.provider, store.project)}${engineBadge ? ` · ${engineBadge}` : ''} · ${w.task.name}` } : w.task));
     const deskDef = DESK_BY_ID.get(w.deskId);
@@ -1093,6 +1094,15 @@ function arrangeSeats() {
 store.on('workers', syncWorkers);
 // A worker at the meeting table shows its role and round over its head (see meetingCard).
 store.on('meeting', syncWorkers);
+// A worker's bubble shows whether it has a pull request open (green) or merged (purple: send it home).
+const paintPrs = () => {
+  for (const [id, v] of workerViews) {
+    const w = store.workers.get(id);
+    if (w) v.model.setPr(workerPr(w, store.pulls.items, store.queue.tasks));
+  }
+};
+store.on('pulls', paintPrs);
+store.on('queue', paintPrs);
 store.on('workers', renderUsage);
 
 /**
