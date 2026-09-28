@@ -389,6 +389,17 @@ const vr = new VRSession(renderer, scene, camera, {
     vrUi = null;
   },
 });
+// Emulator test hook (?vrtest=1): the XR emulator has no controllers to push, so this drives the
+// live session over DevTools instead. Movement stays client-authoritative, exactly as on desktop.
+if (new URLSearchParams(location.search).has('vrtest')) {
+  (window as unknown as { __vrtest?: unknown }).__vrtest = {
+    inVR: () => vr.active,
+    pos: () => [player.pos.x, player.pos.y, player.pos.z],
+    facing: () => player.facing,
+    teleport: (x: number, y: number, z: number) => vr.debugTeleport(x, y, z),
+    turn: (rad: number) => vr.debugTurn(rad),
+  };
+}
 const hands = new Hands(store.profile.color, me.skinColor);
 const caffeine = new Caffeine();
 /** No shaking the view for the coffee jitters when the system asks for less motion. */

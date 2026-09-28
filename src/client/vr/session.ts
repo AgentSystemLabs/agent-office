@@ -11,6 +11,8 @@
 // and anything desktop-side that moves the player (N, the elevator, ladders) rebases the rig.
 
 import * as THREE from 'three';
+import { XRControllerModelFactory } from 'three/examples/jsm/webxr/XRControllerModelFactory.js';
+import { XRHandModelFactory } from 'three/examples/jsm/webxr/XRHandModelFactory.js';
 import { STEP } from '../player';
 import type { PlayerController } from '../player';
 import type { Settings } from '../state';
@@ -186,10 +188,18 @@ export class VRSession {
     this.dolly.visible = false;
     scene.add(this.dolly);
 
+    // Tracked hands and controllers: the real devices' poses drive these models (three's own
+    // factories — controller profiles for wands, joint spheres for hand tracking). They hang
+    // under the grip/hand spaces, which join the rig on session enter, and show/hide
+    // themselves off the runtime's connected events. The desktop cartoon hands sit out in VR.
+    const controllerModelFactory = new XRControllerModelFactory();
+    const handModelFactory = new XRHandModelFactory();
     for (let i = 0; i < 2; i++) {
       const targetRay = renderer.xr.getController(i);
       const grip = renderer.xr.getControllerGrip(i);
       const hand = renderer.xr.getHand(i);
+      grip.add(controllerModelFactory.createControllerModel(grip));
+      hand.add(handModelFactory.createHandModel(hand));
       const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -5)]);
       const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45 }));
       line.frustumCulled = false;
@@ -341,6 +351,25 @@ export class VRSession {
   /** World-space UI panels for this session (vr/attach.ts): rays route to them first. */
   setUi(ui: VRUiSink | null): void {
     this.ui = ui;
+  }
+
+  /** Emulator test hook (?vrtest=1): the same landing a real teleport fire would take. */
+  debugTeleport(x: number, y: number, z: number): void {
+    if (!this.active) return;
+    this.placeAvatar(new THREE.Vector3(x, y, z));
+  }
+
+  /** Emulator test hook (?vrtest=1): the same yaw step the snap turn takes. */
+  debugTurn(dYaw: number): void {
+    if (!this.active) return;
+    const head = this.headWorld(new THREE.Vector3());
+    this.yaw += dYaw;
+    this.dolly.rotation.y = this.yaw;
+    const local = this.headLocal(new THREE.Vector3());
+    local.y = 0;
+    local.applyAxisAngle(UP, this.yaw);
+    this.origin.set(head.x - local.x, this.origin.y, head.z - local.z);
+    this.dolly.position.copy(this.origin);
   }
 
   private onConnected(i: number, source: XRInputSource): void {
