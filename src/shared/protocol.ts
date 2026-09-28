@@ -5,6 +5,7 @@ import type { CabinetFrame, CabinetState, CabinetView } from './cabinet.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
 import type { EmoteId } from './emotes.js';
+import type { BallState } from './hoop.js';
 import type { JukeboxState } from './jukebox.js';
 import type { DrinkId } from './rooftop.js';
 import type { WbElement, WbPointer, WhiteboardView } from './whiteboard.js';
@@ -666,6 +667,8 @@ export interface FloorView {
   whiteboard: WhiteboardView;
   /** The meeting room: who's meeting about what, and the meetings before. */
   meeting: MeetingState;
+  /** The basketball by the hoop: who has it, or how it was last thrown. */
+  ball: BallState;
 }
 
 export type AccountRole = 'admin' | 'member';
@@ -1055,6 +1058,10 @@ export type ClientMsg =
   | { t: 'theme.set'; pick: ThemePick }
   /** Where new floors are cloned from now on (admins only); '' goes back to the default. */
   | { t: 'floor.projectsDir'; dir: string }
+  /** Pick up the floor's basketball (or catch it): yours if nobody else has it. */
+  | { t: 'ball.take' }
+  /** Throw the basketball in your hands from (x, y, z) at (vx, vy, vz) m/s, or drop it; everyone on the floor sees it fly. */
+  | { t: 'ball.throw'; x: number; y: number; z: number; vx: number; vy: number; vz: number }
   /** Give the dog on your floor a pat; it has to be within reach. */
   | { t: 'dog.pet' }
   /** Name the dog on your floor ('' gives it back its first name). */
@@ -1136,6 +1143,8 @@ export type ServerMsg =
   | { t: 'decor'; items: Decoration[] }
   /** What the dog on your floor is up to now: sent at the start of each leg of its day. */
   | { t: 'dog'; dog: DogState }
+  /** The basketball on your floor was picked up, thrown, or put back under the hoop. */
+  | { t: 'ball'; ball: BallState }
   | { t: 'jukebox'; state: JukeboxState }
   /** Who's at the arcade cabinet on your floor now, and the building's high scores. */
   | { t: 'cabinet'; state: CabinetState }

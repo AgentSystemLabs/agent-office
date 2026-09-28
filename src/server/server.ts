@@ -510,6 +510,7 @@ export async function startServer(cfg: Config) {
     decor: floor?.decor.list() ?? [],
     services: servicesState(floor),
     dog: floor?.dog.view() ?? null,
+    ball: floor?.court.state() ?? {},
     jukebox: floor?.jukebox.state() ?? { on: false, track: JUKEBOX_TUNES[0].id, startedAt: Date.now(), elapsed: 0 },
     whiteboard: { elements: floor?.whiteboard.scene() ?? [], people: floor ? drawing(floor) : [] },
     meeting: floor?.meetings.state() ?? { current: null, past: [] },
@@ -939,6 +940,7 @@ export async function startServer(cfg: Config) {
       for (const f of floors.values()) {
         f.workers.detachAll(id);
         f.changes.unwatchAll(id);
+        if (f.court.left(id)) ballChanged(f);
       }
       broadcast({ t: 'peer.leave', id });
       if (account) accountsChanged();
@@ -948,6 +950,7 @@ export async function startServer(cfg: Config) {
   };
 
   const decorChanged = (floor: Floor) => toFloor(floor, { t: 'decor', items: floor.decor.list() });
+  const ballChanged = (floor: Floor) => toFloor(floor, { t: 'ball', ball: floor.court.state() });
   const jukeboxChanged = (floor: Floor) => toFloor(floor, { t: 'jukebox', state: floor.jukebox.state() });
   const teamChanged = async () => broadcast({ t: 'team', state: await team.state() });
 
@@ -1028,6 +1031,9 @@ export async function startServer(cfg: Config) {
       was.workers.detachAll(c.id);
       was.changes.unwatchAll(c.id);
     }
+    // The ball stays on its floor, back under the hoop. That floor hears so once they're off it (see
+    // arrived), or their own page would put it down before it knew they'd gone.
+    const ballLeft = !!was?.court.left(c.id);
     c.attached.clear();
     c.typingAt.clear();
     c.stale.clear();
@@ -1041,12 +1047,13 @@ export async function startServer(cfg: Config) {
     // An issue card belongs to the board it came off, which is on the floor they left; a drink stays at the bar.
     delete c.peer.carrying;
     delete c.peer.drink;
-    return { was, wasDrawing };
+    return { was, wasDrawing, ballLeft };
   };
 
   const arrived = (c: Client, left: ReturnType<typeof leave>) => {
     broadcast({ t: 'peer.update', peer: c.peer }, c.id);
     if (left.wasDrawing) drawingChanged(left.was);
+    if (left.ballLeft && left.was) ballChanged(left.was);
   };
 
   /**
@@ -1210,6 +1217,16 @@ export async function startServer(cfg: Config) {
         const state = building.projectsDirState();
         broadcast({ t: 'projectsDir', state });
         toastAll(state.custom ? `📁 ${who} moved the workspace folder to ${state.dir}` : `📁 ${who} put the workspace folder back to ${state.dir}`);
+        break;
+      }
+      case 'ball.take':
+      case 'ball.throw': {
+        const floor = floorOf(c);
+        if (!floor) break;
+        const changed = msg.t === 'ball.take' ? floor.court.take(c.id) : floor.court.throw(c.id, { x: num(msg.x), y: num(msg.y), z: num(msg.z), vx: num(msg.vx), vy: num(msg.vy), vz: num(msg.vz) });
+        // Whoever didn't get it (someone else caught it first) is told where it really is.
+        if (changed) ballChanged(floor);
+        else sendTo(c, { t: 'ball', ball: floor.court.state() });
         break;
       }
       case 'dog.pet':
