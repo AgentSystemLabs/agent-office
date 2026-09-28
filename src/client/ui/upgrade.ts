@@ -3,6 +3,7 @@ import type { Net } from '../net';
 import { isAsleep } from '../../shared/status';
 import { store } from '../state';
 import { closeAllModals, h, openModal, timeAgo, type Modal } from './dom';
+import { reloadPage } from '../leave';
 
 const version = (v: VersionInfo) => h('span.version', {}, h('code', {}, v.sha), ' ', v.subject, h('small', {}, ` · ${timeAgo(v.date)}`));
 
@@ -95,7 +96,7 @@ export function showRestarting(u: UpgradeState, net: Net) {
     h('p.upgrade-status.busy', {}, h('span.spinner'), 'Restarting… you’ll be back in a few seconds. No need to do anything.'),
   );
   clearTimeout(slowTimer);
-  slowTimer = setTimeout(() => restartBody?.append(h('p.note', {}, 'This is taking longer than usual. ', h('button.btn', { type: 'button', onclick: () => location.reload() }, 'Try reloading'))), 3 * 60_000);
+  slowTimer = setTimeout(() => restartBody?.append(h('p.note', {}, 'This is taking longer than usual. ', h('button.btn', { type: 'button', onclick: () => reloadPage() }, 'Try reloading'))), 3 * 60_000);
 }
 
 /** Reconnected to a different version than this page was loaded from: load the new client. */
@@ -108,5 +109,5 @@ export function showUpgraded(u: UpgradeState) {
     v ? h('p', {}, 'Now running ', h('code', {}, v.sha), `: “${v.subject}”`) : h('p', {}, 'A new version is running.'),
     h('p.upgrade-status.ok', {}, h('span.spinner'), 'Loading the new version…'),
   );
-  setTimeout(() => location.reload(), 2500);
+  setTimeout(() => reloadPage(), 2500);
 }

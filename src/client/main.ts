@@ -41,6 +41,7 @@ import { MEETING_PATTERNS, defaultMeetingRequest, reviewMeetingRequest } from '.
 import { cleanDogName } from '../shared/dog';
 import { isAsleep, isBusy } from '../shared/status';
 import { Net } from './net';
+import { guardLeaving, leaveTo } from './leave';
 import { store, loadProfile, loadSettings, saveSettings, words, workerForPull, type Profile, type Topic } from './state';
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { Climber, gripOf, type Arrival, type Grip, type Way } from './climb';
@@ -4064,7 +4065,7 @@ function showSettings() {
 
 async function signOut() {
   await fetch('/api/logout', { method: 'POST' }).catch(() => {});
-  location.href = '/login';
+  leaveTo('/login');
 }
 
 function editProfile() {
@@ -4310,6 +4311,7 @@ function startLoop() {
 
 // ---- Boot ------------------------------------------------------------------------------------------
 function boot() {
+  guardLeaving();
   net.connect();
   startLoop();
 }
@@ -4318,7 +4320,7 @@ function boot() {
 async function whoami() {
   try {
     const res = await fetch('/api/whoami', { cache: 'no-store' });
-    if (res.status === 401) location.href = '/login';
+    if (res.status === 401) leaveTo('/login');
     const { me } = (await res.json()) as { me?: typeof store.me };
     if (me) store.me = me;
   } catch {

@@ -1,5 +1,6 @@
 import type { CarriedObject, ClientMsg, ServerMsg } from '../shared/protocol';
 import { lastFloor, store, type Profile } from './state';
+import { leaveTo } from './leave';
 
 type Handler = (msg: ServerMsg) => void;
 
@@ -55,7 +56,7 @@ export class Net {
       try {
         const res = await fetch('/api/whoami', { cache: 'no-store' });
         if (res.status === 401) {
-          location.href = '/login';
+          leaveTo('/login');
           return;
         }
       } catch {
