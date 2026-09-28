@@ -5,7 +5,7 @@
  * no forked logic here. Read-only views render from the same stores the DOM boards read.
  *
  * Views: main (Hire, Next waiting, Queue, Issues/PRs, Floors, Jukebox, Bar, Chat, Mute, Leave voice, Exit VR),
- * hire (free desks), queue (running/queued/done, with tap-twice remove + requeue), board (issues/PRs tabs, read + hand-to-worker),
+ * hire (free desks, with the worktree toggle), queue (running/queued/done, with tap-twice remove + requeue), board (issues/PRs tabs, read + hand-to-worker),
  * a detail view for one issue or PR (hand it over, queue it, comment, close it, review a PR), floors (ride the elevator), jukebox (tunes + a stream row), bar (drinks),
  * chat (the floor's chat + say something), assign (hand an issue to a worker), meeting (the room's
  * status + call one with the pattern defaults), services (the workers' web servers, tap to copy
@@ -58,11 +58,15 @@ export interface VrMenuStores {
   getDogName: () => string | null;
   /** Your own sound levels (the ⚙️ Settings volume rows' values, live). */
   getSound: () => { volume: number; muted: boolean; music: number; musicMuted: boolean };
+  /** Whether the next hire gets its own git worktree (the hire dialog checkbox's memory). */
+  getWorktree: () => boolean;
 }
 
 export interface VrMenuActions {
   /** Opens the hire choices for a desk — the DOM hire dialog's function (main.ts hireAtDesk). */
   hire: (deskId: string) => void;
+  /** Flips the next hire's worktree choice — the DOM hire dialog's checkbox. */
+  toggleWorktree: () => void;
   /** To the longest-waiting worker — the DOM N key's function (main.ts goToNextWaiting). */
   nextWaiting: () => void;
   /** Hands an issue to a worker — the DOM board's assign path (issuePrompt + worker.prompt). */
@@ -136,6 +140,8 @@ const BODY: Rect = { x: 0.03, y: HEADER_H + 0.02, w: 0.94, h: 1 - HEADER_H - 0.0
 const BACK_BTN: Rect = { x: 0.03, y: 0.015, w: 0.16, h: 0.09 };
 /** Detail view: ✕ Close in the header (tap twice: the first arms it, like the terminal's ⏻). */
 const CLOSE_BTN: Rect = { x: 0.78, y: 0.015, w: 0.19, h: 0.09 };
+/** Hire view: the next hire's worktree choice, as a header toggle. */
+const HIRE_WT: Rect = { x: 0.76, y: 0.015, w: 0.21, h: 0.09 };
 /** A tap-twice arm stays live this long (the detail ✕, the queue rows). */
 const TAP_ARM_MS = 6000;
 const TABS: Rect = { x: 0.55, y: 0.015, w: 0.42, h: 0.09 };
@@ -500,6 +506,9 @@ export class VrMenu {
         { id: 'q:pause', rect: QB_TOGGLE, onClick: () => this.toggleQueue() },
       );
     }
+    if (this.view === 'hire') {
+      buttons.push({ id: 'hire:wt', rect: HIRE_WT, onClick: () => { this.actions.toggleWorktree(); this.panel.markDirty(); } });
+    }
     if (this.view === 'meeting') {
       const m = this.stores.getMeeting().current;
       // One header button, whatever the state: the ended summary row taps to call another.
@@ -768,6 +777,7 @@ export class VrMenu {
     if (this.view === 'chat') this.paintSay(ctx, w, h, state);
     if (this.view === 'floors') this.paintFloorsAdd(ctx, w, h, state);
     if (this.view === 'queue') this.paintQueueBtns(ctx, w, h, state);
+    if (this.view === 'hire') this.paintHireWt(ctx, w, h, state);
     if (this.view === 'meeting') this.paintMeetingBtns(ctx, w, h, state);
     ctx.strokeStyle = '#ee6018';
     ctx.lineWidth = Math.max(2, h * 0.004);
@@ -826,6 +836,19 @@ export class VrMenu {
     ctx.font = `700 ${Math.round(CLOSE_BTN.h * h * 0.42)}px ${TERM_FONT}`;
     ctx.textAlign = 'center';
     ctx.fillText(armed ? '✕ Close?' : '✕ Close', (CLOSE_BTN.x + CLOSE_BTN.w / 2) * w, (CLOSE_BTN.y + CLOSE_BTN.h / 2) * h);
+    ctx.textAlign = 'left';
+  }
+  private paintHireWt(ctx: CanvasRenderingContext2D, w: number, h: number, state: { hoverId: string | null; pressedId: string | null }) {
+    const on = this.stores.getWorktree();
+    const hot = state.hoverId === 'hire:wt' || state.pressedId === 'hire:wt';
+    ctx.fillStyle = on ? (hot ? '#ff7a2e' : '#ee6018') : hot ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.08)';
+    ctx.beginPath();
+    ctx.roundRect(HIRE_WT.x * w, HIRE_WT.y * h, HIRE_WT.w * w, HIRE_WT.h * h, HIRE_WT.h * h * 0.35);
+    ctx.fill();
+    ctx.fillStyle = on ? '#111' : '#eeeeee';
+    ctx.font = `700 ${Math.round(HIRE_WT.h * h * 0.42)}px ${TERM_FONT}`;
+    ctx.textAlign = 'center';
+    ctx.fillText(on ? '🌿 on' : '🌿 off', (HIRE_WT.x + HIRE_WT.w / 2) * w, (HIRE_WT.y + HIRE_WT.h / 2) * h);
     ctx.textAlign = 'left';
   }
   private paintBack(ctx: CanvasRenderingContext2D, w: number, h: number, state: { hoverId: string | null; pressedId: string | null }) {

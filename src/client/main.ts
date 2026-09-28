@@ -42,7 +42,7 @@ import { $, h, clip, closeAllModals, closeTopModal, doingNow, modalOpen, onModal
 import { openTerminal, openTerminalFor, routeTerminalMessage, type TerminalFind } from './ui/terminal';
 import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
-import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage, worktreePref } from './ui/prompt';
+import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage, worktreePref, setWorktreePref } from './ui/prompt';
 import { issuePrompt, openBoard } from './ui/boards';
 import { onClosed, onCommented, openIssue, openPull, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
@@ -507,9 +507,11 @@ const vr = new VRSession(renderer, scene, camera, {
       getPeers: () => [...store.peers.values()].filter((p) => p.id !== store.you),
       getDogName: () => store.dog?.name ?? null,
       getSound: () => ({ volume: settings.volume, muted: settings.muted, music: settings.music, musicMuted: settings.musicMuted }),
+      getWorktree: () => worktreePref(),
       voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => (voice.inVoice ? voice.toggleMute() : void toggleVoice()), leaveVoice: () => voice.leaveVoice() },
       actions: {
         hire: (deskId) => vrHire(deskId),
+        toggleWorktree: () => setWorktreePref(!worktreePref()),
         nextWaiting: () => goToNextWaiting(),
         promptWorker: (workerId, n, title) => net.send({ t: 'worker.prompt', workerId, prompt: issuePrompt({ number: n, title }) }),
         queueIssue: (n, title) => net.send({ t: 'queue.add', prompt: issuePrompt({ number: n, title }), title, issue: n }),
@@ -688,6 +690,8 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     jukebox: () => ({ on: store.jukebox.on, track: store.jukebox.track, url: store.jukebox.url ?? null }),
     // Your own mute switches (the sound-rows check reads these back).
     soundMuted: () => ({ music: settings.musicMuted, sounds: settings.muted }),
+    // Whether the next hire gets its own worktree (the hire-toggle check reads this back).
+    worktree: () => worktreePref(),
     // Seeds a fake teammate into this client's peers (solo here; reload clears it).
     seedPeer: (name: string, doing: string, floor?: string) => {      store.peers.delete('peer-zzz');
       store.peers.set('peer-zzz', {

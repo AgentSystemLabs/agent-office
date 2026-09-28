@@ -31,6 +31,14 @@ export function worktreePref(): boolean {
     return false;
   }
 }
+/** Remembers the worktree choice without hiring (the VR hire view's toggle). */
+export function setWorktreePref(worktree: boolean) {
+  try {
+    localStorage.setItem(WT_KEY, worktree ? '1' : '0');
+  } catch {
+    // storage blocked
+  }
+}
 
 export function openPrompt(opts: PromptOptions) {
   const ta = h('textarea', { rows: 7, placeholder: opts.placeholder ?? 'What should the worker work on?', 'aria-label': 'Prompt' }) as HTMLTextAreaElement;
@@ -67,13 +75,7 @@ export function openPrompt(opts: PromptOptions) {
     }
     if (provider && !provider.valid()) return;
     modal.close();
-    if (opts.worktreeOption) {
-      try {
-        localStorage.setItem(WT_KEY, wtBox.checked ? '1' : '0');
-      } catch {
-        // storage blocked
-      }
-    }
+    if (opts.worktreeOption) setWorktreePref(wtBox.checked);
     opts.onSubmit(text, { worktree: !!opts.worktreeOption && wtBox.checked, provider: provider?.value(), model: provider?.model(), effort: provider?.effort() });
   };
   form.addEventListener('submit', (e) => {
