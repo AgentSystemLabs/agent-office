@@ -48,6 +48,22 @@ export type HudPanel = 'workers' | 'people' | 'spend' | 'limits' | 'chat' | 'flo
 /** Out of the way by default: only the chat shows until you turn the rest on. */
 export const HUD_DEFAULTS: Record<HudPanel, boolean> = { workers: false, people: false, spend: false, limits: false, chat: true, floor: false };
 
+/** How turning works with a thumbstick in VR. */
+export type VrTurn = 'snap' | 'smooth';
+
+export interface VrSettings {
+  /** Thumbstick gliding on top of teleport. Off by default: teleport-only is the comfortable default. */
+  glide: boolean;
+  /** Snap-turn in fixed steps, or smooth turning at `turnSpeed`. */
+  turn: VrTurn;
+  /** Smooth-turn speed, degrees per second (30–180). Snap turns are always 45°. */
+  turnSpeed: number;
+  /** Fade through black on teleport. */
+  fade: boolean;
+}
+
+export const VR_DEFAULTS: VrSettings = { glide: false, turn: 'snap', turnSpeed: 90, fade: true };
+
 export interface Settings {
   view: ViewMode;
   /** Office sounds, 0–1. */
@@ -62,6 +78,8 @@ export interface Settings {
   hud: Record<HudPanel, boolean>;
   /** The ☰ menu's actions you pinned to the top bar, by id. */
   pins: string[];
+  /** WebXR locomotion and comfort, from the VR section of ⚙️ Settings. */
+  vr: VrSettings;
 }
 
 const SETTINGS_KEY = 'agent-office.settings';
@@ -85,7 +103,7 @@ function rememberFloor(id: string | null) {
 }
 
 export function loadSettings(): Settings {
-  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, notify: true, hud: { ...HUD_DEFAULTS }, pins: [] };
+  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, notify: true, hud: { ...HUD_DEFAULTS }, pins: [], vr: { ...VR_DEFAULTS } };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
     if (saved?.view === 'first' || saved?.view === 'third') s.view = saved.view;
@@ -96,6 +114,10 @@ export function loadSettings(): Settings {
     if (typeof saved?.notify === 'boolean') s.notify = saved.notify;
     for (const k of Object.keys(s.hud) as HudPanel[]) if (typeof saved?.hud?.[k] === 'boolean') s.hud[k] = saved.hud[k];
     if (Array.isArray(saved?.pins)) s.pins = saved.pins.filter((p: unknown): p is string => typeof p === 'string').slice(0, 30);
+    if (typeof saved?.vr?.glide === 'boolean') s.vr.glide = saved.vr.glide;
+    if (saved?.vr?.turn === 'snap' || saved?.vr?.turn === 'smooth') s.vr.turn = saved.vr.turn;
+    if (typeof saved?.vr?.turnSpeed === 'number' && Number.isFinite(saved.vr.turnSpeed)) s.vr.turnSpeed = Math.max(30, Math.min(180, saved.vr.turnSpeed));
+    if (typeof saved?.vr?.fade === 'boolean') s.vr.fade = saved.vr.fade;
   } catch {
     // storage blocked
   }

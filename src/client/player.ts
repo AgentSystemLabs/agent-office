@@ -7,7 +7,7 @@ const RADIUS = 0.32;
 /** Top of your head above your feet, for walking under the loft. */
 const HEIGHT = 1.7;
 /** The tallest ledge you walk up (or down) without jumping, like a stair. */
-const STEP = 0.3;
+export const STEP = 0.3;
 const WALK = 4.6;
 const RUN = 7.5;
 const JUMP_V = 6.4;
@@ -518,6 +518,25 @@ export class PlayerController {
   /** Unit vector the character is facing, on the XZ plane. */
   forward(): THREE.Vector2 {
     return new THREE.Vector2(Math.sin(this.facing), Math.cos(this.facing));
+  }
+
+  /**
+   * A step toward (x, z) that bumps into things exactly like walking does: stairs step up, walls
+   * slide. For VR locomotion, which steers the same body without the keyboard.
+   */
+  stepTo(x: number, z: number) {
+    this.tryMove(x, this.pos.z);
+    this.tryMove(this.pos.x, z);
+  }
+
+  /** Whether standing with your feet at `y` at (x, z) would be inside something solid. */
+  blockedAt(x: number, z: number, y: number): boolean {
+    return this.blocker(x, z, y) !== null;
+  }
+
+  /** The floor under (x, z) for feet at `y`, or -Infinity past the edge of everything. */
+  groundBelow(x: number, z: number, y: number): number {
+    return groundAt(this.colliders, x, z, y);
   }
 
   /** What stands in your way at (x, z) with your feet at `y`, or null. */

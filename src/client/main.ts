@@ -37,7 +37,7 @@ import { Voice } from './voice';
 import { OfficeSound } from './sound';
 import { DesktopNotifier, askNotifyPermission, notifyPermission, waitingOnSomeone } from './notify';
 import { NextUp, waitingInOrder, waitingLabel } from './nextup';
-import { $, h, clip, closeAllModals, doingNow, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
+import { $, h, clip, closeAllModals, closeTopModal, doingNow, modalOpen, onModalChange, openModal, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage, type TerminalFind } from './ui/terminal';
 import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
@@ -74,15 +74,23 @@ import { whereabouts } from './ui/whereabouts';
 import { wayTo } from './walkto';
 import { MeetingBoardTexture, MeetingSignTexture, meetingStage } from './world/meeting';
 import { issueMeeting, openMeeting, type MeetingPreset } from './ui/meeting';
+import { VRSession } from './vr/session';
+import { probeXRSupport } from './vr/support';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+// On from boot so an immersive session can take over the loop; every XR branch in the renderer is
+// gated on isPresenting, so the desktop picture is unchanged.
+renderer.xr.enabled = true;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 const effect = new OutlineEffect(renderer, { defaultThickness: 0.0032, defaultColor: [0.17, 0.18, 0.26] });
+// Outlines in the headset: VR renders plain and the outlines draw after each XR frame, the recipe
+// from OutlineEffect's own docs (renderOutline is made for this). Idle on desktop.
+let outlining = false;
 
 const scene = new THREE.Scene();
 // The sky's color and the fog change with the time of day and the weather (world/sky.ts).
@@ -91,6 +99,12 @@ scene.fog = new THREE.Fog('#bfe3ff', 40, 90);
 /** How far the camera sees in the office: as far as the haze ever is, from the top floor. */
 const FAR = HAZE_MAX + 20;
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, FAR);
+scene.onAfterRender = () => {
+  if (!renderer.xr.isPresenting || outlining) return;
+  outlining = true;
+  effect.renderOutline(scene, camera);
+  outlining = false;
+};
 
 const hemi = new THREE.HemisphereLight('#fff5e6', '#c9a27a', 1.5);
 const ambient = new THREE.AmbientLight('#ffffff', 0.5);
@@ -316,6 +330,30 @@ const player = new PlayerController(camera, canvas, office.colliders);
 // Everyone arrives by elevator (the welcome says exactly where).
 placeInCar();
 player.view = settings.view;
+// WebXR in the headset browser: the session owns the rig, the rays and locomotion, and drives the
+// same interact dispatch as the keyboard (vr/session.ts). Idle on desktop: no rays, no loop cost,
+// and the Enter VR button stays hidden where XR is unavailable.
+const vr = new VRSession(renderer, scene, camera, {
+  player,
+  settings,
+  useE: (it, note) => use(it, 'E', note),
+  pickFromRay: (ray, slack) => pickFromRay(ray, slack),
+  noteUnder: (aim) => noteUnder(aim),
+  nextWaiting: () => goToNextWaiting(),
+  putBack: () => putBack(),
+  carrying: () => carrying,
+  closeTop: () => closeTopModal(),
+  modalOpen: () => modalOpen(),
+  toast: (text, level) => toast(text, level),
+  hudRefresh: () => hud.refresh(),
+  reachOf: (kind) => REACH[kind],
+  reachAnim: () => reach(),
+  onTarget: (it, note) => {
+    target = it;
+    aimedNote = note;
+  },
+  resize: () => resize(),
+});
 const hands = new Hands(store.profile.color, me.skinColor);
 const caffeine = new Caffeine();
 /** No shaking the view for the coffee jitters when the system asks for less motion. */
@@ -761,7 +799,7 @@ function tripFailed() {
   fade(false);
   if (t.how === 'elevator') lift().setOpen(!!store.floor);
   if (t.how === 'ladder' || t.how === 'pole') climber.abort();
-  player.enabled = !modalOpen();
+  player.enabled = !modalOpen() && !vr.active;
 }
 
 /** Arrived in a spot that's a pole's hole on this floor: step out of it, the way in. */
@@ -831,13 +869,13 @@ function arrive() {
     // Nowhere to go yet: the doors stay shut until there's a floor, and the panel says how to add one.
     office.elevator.setOpen(false);
     fade(false);
-    player.enabled = !modalOpen();
+    player.enabled = !modalOpen() && !vr.active;
     showElevator();
     return;
   }
   fade(false);
   if (how !== 'elevator') {
-    player.enabled = !modalOpen();
+    player.enabled = !modalOpen() && !vr.active;
     if (how === 'switch') unstick();
     else climber.arrived();
     return;
@@ -845,7 +883,7 @@ function arrive() {
   setTimeout(() => {
     lift().setOpen(true);
     sound.ding('done');
-    player.enabled = !modalOpen();
+    player.enabled = !modalOpen() && !vr.active;
   }, 450);
 }
 
@@ -2430,7 +2468,7 @@ function sendDoing(reconnected = false) {
  */
 let relookOnKey = false;
 onModalChange((open) => {
-  player.enabled = !open;
+  player.enabled = !open && !vr.active;
   player.clearKeys();
   sendDoing();
   // Opening something on the way over to someone is stopping there.
@@ -2473,8 +2511,17 @@ const eye = new THREE.Vector3();
 /** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */
 function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boolean; hit: THREE.Intersection } | null {
   raycaster.setFromCamera(ndc, camera);
+  return pickFromRay(raycaster, slack);
+}
+
+/**
+ * What a ray lands on first, whether it is within reach (plus `slack` meters), and where it hit.
+ * The mouse aims the shared raycaster through the camera; VR hands its own raycasters from the
+ * controller poses. One picker, one notion of reach, both paths.
+ */
+function pickFromRay(ray: THREE.Raycaster, slack = 0): { it: Interactable; near: boolean; hit: THREE.Intersection } | null {
   eye.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
-  for (const hit of raycaster.intersectObjects(upTop && roof ? roof.pickables : [office.group, dog.root], true)) {
+  for (const hit of ray.intersectObjects(upTop && roof ? roof.pickables : [office.group, dog.root], true)) {
     let it: Interactable | undefined;
     let shown = true;
     for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) {
@@ -2647,6 +2694,9 @@ const hud = mountHud(
     { id: 'team', icon: '👥', label: 'Invite teammates', section: 'Together', shown: () => store.invites, run: () => openTeam(net) },
     // Up on the top bar, so a headset can be paired without digging through the menu.
     { id: 'vr', icon: '🥽', label: 'Pair a VR headset', section: 'Together', status: () => true, title: () => 'Show a QR code for a VR headset to pair with this office', run: openVrPair },
+    // Up on the top bar next to it — but only where this browser can do immersive VR. Elsewhere
+    // (desktop Chrome without XR) the probe says no and the bar stays exactly as it was.
+    { id: 'entervr', icon: () => (vr.active ? '⏻' : '🕶️'), label: () => (vr.active ? 'Exit VR' : 'Enter VR'), section: 'Together', shown: () => vr.available, status: () => vr.available, chip: () => (vr.active ? 'In VR' : 'Enter VR'), on: () => vr.active, title: () => (vr.active ? 'Leave the immersive session' : 'Enter the office in VR, from the headset browser'), run: () => void vr.toggle() },
     { id: 'accounts', icon: '🔑', label: 'Accounts', section: 'Together', shown: () => store.me.admin, title: () => 'Invite people, see who has an account, revoke them', run: () => openAccounts(net) },
     { id: 'settings', icon: '⚙️', label: 'Settings', section: 'Office', run: showSettings },
     { id: 'help', icon: '❓', label: 'Controls', section: 'Office', key: 'H', run: openHelp },
@@ -2682,6 +2732,11 @@ const hud = mountHud(
   settings,
   () => saveSettings(settings),
 );
+// Whether this browser can do immersive VR: when it can, the Enter VR button joins the top bar.
+void probeXRSupport().then((availability) => {
+  vr.available = availability === 'supported';
+  if (vr.available) hud.refresh();
+});
 /** F: hang a picture on a wall of this floor. There are no walls for them up on the roof. */
 function startHanging() {
   if (upTop) return toast('No walls to hang pictures on up here — take the elevator down to a floor', 'warn');
@@ -2720,6 +2775,8 @@ function editProfile() {
 
 // ---- Main loop ---------------------------------------------------------------------------------------
 function resize() {
+  // Presenting, three owns the canvas size (the headset's framebuffer, per eye); hands off.
+  if (renderer.xr.isPresenting) return;
   const w = window.innerWidth;
   const hgt = window.innerHeight;
   renderer.setSize(w, hgt, false);
@@ -2739,11 +2796,15 @@ const headPos = new THREE.Vector3();
 /** Last frame went through the drunk vision. */
 let drunkVisionOn = false;
 
-function frame(ts?: number) {
+function frame(ts?: number, xrFrame?: XRFrame) {
+  void xrFrame;
   timer.update(ts);
   const dt = Math.min(timer.getDelta(), 0.1);
   const t = timer.getElapsed();
   const now = performance.now();
+  // Presenting in the headset: the VR session steers the player instead of the keyboard, the rays
+  // pick the target, and the cartoon hands and post effects sit out (the eyes are real ones).
+  const inVR = vr.active;
 
   // Coffee: quicker feet, higher jumps, a mug in hand, and maybe the jitters.
   const secs = now / 1000;
@@ -2759,7 +2820,8 @@ function frame(ts?: number) {
   const drunk = drinking(now);
 
   walkTick(now);
-  player.update(dt);
+  if (inVR) vr.update(dt);
+  else player.update(dt);
   // Walked into a pole's hole: you grab the pole on your way down it.
   const hole = office.stack.polesGoDown() ? office.stack.poles().find((s) => Math.hypot(player.pos.x - s.x, player.pos.z - s.z) < POLE.hole - 0.15) : undefined;
   if (hole && !climber.active && !trip && !player.seat && player.enabled && player.pos.y > -1.35 && player.pos.y < 0.6) climber.slide(hole);
@@ -2774,8 +2836,8 @@ function frame(ts?: number) {
   me.setVoiceLevel(voice.inVoice ? voice.localLevel : 0);
   const firstPerson = player.view === 'first';
   // In first person you are the camera; in third, hide yourself when it's zoomed in right behind your head.
-  me.root.visible = !firstPerson && camera.position.distanceTo(headPos.set(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5;
-  if (firstPerson) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded, jitter: player.jitter, grip });
+  me.root.visible = !(firstPerson || inVR) && camera.position.distanceTo(headPos.set(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5;
+  if (firstPerson && !inVR) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded, jitter: player.jitter, grip });
   // Down a pole: the view widens and the edges streak past.
   const rush = reduceMotion.matches ? 0 : climber.rush;
   const fov = 55 + rush * 16;
@@ -2786,7 +2848,8 @@ function frame(ts?: number) {
   whoosh.style.opacity = rush > 0.02 ? String(rush * 0.85) : '0';
 
   // Your ears are in your head, facing wherever the camera looks.
-  camera.getWorldDirection(lookDir);
+  if (inVR) vr.lookDir(lookDir);
+  else camera.getWorldDirection(lookDir);
   sound.update({ x: player.pos.x, y: player.pos.y + EYE_HEIGHT, z: player.pos.z, fx: lookDir.x, fz: lookDir.z });
 
   const moved = Math.abs(player.pos.x - lastSent.x) + Math.abs(player.pos.y - lastSent.y) + Math.abs(player.pos.z - lastSent.z) > 0.01 || Math.abs(player.facing - lastSent.rotY) > 0.02;
@@ -2860,18 +2923,26 @@ function frame(ts?: number) {
     hemi.intensity += strobe * 0.8;
   }
 
-  aimedNote = null;
-  if (modalOpen() || hanger.active || climber.active) target = null;
-  else if (firstPerson) {
-    const aim = aimedAt(CROSSHAIR);
-    target = aim?.near ? aim.it : mySeat();
-    if (aim?.near) aimedNote = noteUnder(aim);
+  if (inVR) {
+    // The session set target/aimedNote from the controller rays; a window still hides them.
+    if (modalOpen() || hanger.active || climber.active) {
+      target = null;
+      aimedNote = null;
+    }
   } else {
-    target = mySeat() ?? pickTarget();
-    // By the issues board, the mouse points at the note you'd take.
-    if (target?.kind === 'issues' && pointer) {
-      const aim = aimedAt(pointer, 2.5);
+    aimedNote = null;
+    if (modalOpen() || hanger.active || climber.active) target = null;
+    else if (firstPerson) {
+      const aim = aimedAt(CROSSHAIR);
+      target = aim?.near ? aim.it : mySeat();
       if (aim?.near) aimedNote = noteUnder(aim);
+    } else {
+      target = mySeat() ?? pickTarget();
+      // By the issues board, the mouse points at the note you'd take.
+      if (target?.kind === 'issues' && pointer) {
+        const aim = aimedAt(pointer, 2.5);
+        if (aim?.near) aimedNote = noteUnder(aim);
+      }
     }
   }
   issuesTex.lift(aimedNote?.number ?? null);
@@ -2892,14 +2963,18 @@ function frame(ts?: number) {
   }
 
   // A few drinks in, the frame goes to the screen through the drunk vision (see world/drunk.ts).
-  const blurry = drunk > 0.01;
+  // No post effects in the headset: drunk vision's render targets don't mix with the XR framebuffer.
+  const blurry = drunk > 0.01 && !inVR;
   if (blurry) drunkVision.begin();
   else if (drunkVisionOn) drunkVision.release();
   drunkVisionOn = blurry;
-  effect.render(scene, camera);
+  // In VR the outlines come from scene.onAfterRender (OutlineEffect's own VR recipe); on desktop
+  // the effect renders both passes itself, exactly as before.
+  if (inVR) renderer.render(scene, camera);
+  else effect.render(scene, camera);
   pointToWaiting(now);
   // Not while the camera's up at the boss's monitor or the arcade, where they'd cover the screen.
-  if (firstPerson && !arcade.zoomed && !cabinet.zoomed) {
+  if (firstPerson && !inVR && !arcade.zoomed && !cabinet.zoomed) {
     // Hands go on top of everything, so they never clip into a desk you walk up to. They have
     // lights of their own, turned down to match wherever you're standing.
     renderer.clearDepth();
@@ -2909,13 +2984,18 @@ function frame(ts?: number) {
     sky.shading(true);
   }
   if (blurry) drunkVision.end(drunk, t, !reduceMotion.matches);
-  requestAnimationFrame(frame);
+}
+
+// The loop runs through the renderer, so an immersive session can take it over; on desktop this is
+// the same rAF timestamp every frame, and XR start/stop swaps the driver by itself.
+function startLoop() {
+  renderer.setAnimationLoop(frame);
 }
 
 // ---- Boot ------------------------------------------------------------------------------------------
 function boot() {
   net.connect();
-  requestAnimationFrame(frame);
+  startLoop();
 }
 
 /** Who you're signed in as. With an account of your own, your name is that account's. */
@@ -2943,7 +3023,7 @@ void whoami().then(() => {
     // Pick a character first (people from before there was a choice keep their name and color).
     if (saved) Object.assign(store.profile, { name: saved.name, color: saved.color });
     // Render the office behind the character select screen.
-    requestAnimationFrame(frame);
+    startLoop();
     openCharacter(true, (p) => {
       showMyProfile(p);
       net.connect();
@@ -2952,7 +3032,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { roof: () => roof, booze, dj: () => djFrame(djAt()), store, player, caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote };
+(window as any).__office = { roof: () => roof, booze, dj: () => djFrame(djAt()), store, player, caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote, vr };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

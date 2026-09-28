@@ -44,6 +44,63 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   };
   paint();
 
+  // WebXR in the headset browser: how moving and turning feel in the headset.
+  const locoRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'VR locomotion' });
+  const turnRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'VR turning' });
+  const fadeRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'VR teleport fade' });
+  const speedSlider = h('input', { type: 'range', min: 30, max: 180, step: 5, 'aria-label': 'Smooth-turn speed' });
+  const speedPct = h('span.vol-pct');
+  const speedRow = h('div.volume', {}, speedSlider, speedPct);
+  const segBtn = (on: boolean, label: string, onclick: () => void) => h('button.btn', { type: 'button', role: 'radio', 'aria-checked': String(on), class: on ? 'on' : '', onclick }, label);
+  const paintVr = () => {
+    locoRow.replaceChildren(
+      segBtn(!settings.vr.glide, 'Teleport only', () => {
+        settings = { ...settings, vr: { ...settings.vr, glide: false } };
+        onChange(settings);
+        paintVr();
+      }),
+      segBtn(settings.vr.glide, '+ Smooth glide', () => {
+        settings = { ...settings, vr: { ...settings.vr, glide: true } };
+        onChange(settings);
+        paintVr();
+      }),
+    );
+    turnRow.replaceChildren(
+      segBtn(settings.vr.turn === 'snap', 'Snap turn', () => {
+        settings = { ...settings, vr: { ...settings.vr, turn: 'snap' } };
+        onChange(settings);
+        paintVr();
+      }),
+      segBtn(settings.vr.turn === 'smooth', 'Smooth turn', () => {
+        settings = { ...settings, vr: { ...settings.vr, turn: 'smooth' } };
+        onChange(settings);
+        paintVr();
+      }),
+    );
+    fadeRow.replaceChildren(
+      segBtn(settings.vr.fade, 'Fade on', () => {
+        settings = { ...settings, vr: { ...settings.vr, fade: true } };
+        onChange(settings);
+        paintVr();
+      }),
+      segBtn(!settings.vr.fade, 'Fade off', () => {
+        settings = { ...settings, vr: { ...settings.vr, fade: false } };
+        onChange(settings);
+        paintVr();
+      }),
+    );
+    speedSlider.value = String(settings.vr.turnSpeed);
+    speedSlider.style.setProperty('--fill', `${((settings.vr.turnSpeed - 30) / 150) * 100}%`);
+    speedPct.textContent = `${settings.vr.turnSpeed}°/s`;
+    speedRow.classList.toggle('muted', settings.vr.turn !== 'smooth');
+  };
+  paintVr();
+  speedSlider.addEventListener('input', () => {
+    settings = { ...settings, vr: { ...settings.vr, turnSpeed: Number(speedSlider.value) } };
+    onChange(settings);
+    paintVr();
+  });
+
   /** A volume slider with its mute button. Dragging it turns the sound back on; letting go plays `preview`. */
   const volumeRow = (label: string, level: 'volume' | 'music', muted: 'muted' | 'musicMuted', preview?: () => void) => {
     const slider = h('input', { type: 'range', min: 0, max: 100, step: 1, 'aria-label': label });
@@ -305,6 +362,17 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       h('label', {}, 'Camera view'),
       seg,
       note,
+      h('label', { style: 'margin-top:18px' }, 'VR (headset browser)'),
+      h('p.setting-note', { style: 'margin:0 0 6px' }, 'Locomotion'),
+      locoRow,
+      h('p.setting-note', {}, 'Teleport aims with A held (or the left stick pushed forward); gliding walks the stick. Teleport-only is the comfortable default.'),
+      h('p.setting-note', { style: 'margin:10px 0 6px' }, 'Turning (right stick)'),
+      turnRow,
+      speedRow,
+      h('p.setting-note', {}, 'Snap turn steps 45° per push; smooth turn spins at the speed above.'),
+      h('p.setting-note', { style: 'margin:10px 0 6px' }, 'Teleport fade'),
+      fadeRow,
+      h('p.setting-note', {}, 'A blink through black as you land, or a straight cut when it’s off.'),
       h('label', { style: 'margin-top:18px' }, 'Office sounds'),
       soundRow,
       h('p.setting-note', {}, 'Workers typing, the coffee machine, thunder, the dog, and the ding when a worker is done. Voice chat isn’t affected.'),
