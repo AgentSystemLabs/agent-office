@@ -16,6 +16,8 @@ export const DROIDPROXY_HEALTH_URL = 'http://127.0.0.1:8317/healthz';
 const POLL_MS = 5 * 60_000;
 /** Someone walking in reads again, at most this often. */
 const MIN_GAP_MS = 60_000;
+/** The refresh button reads again at most this often, so a room full of people can't hammer the providers. */
+const MANUAL_GAP_MS = 15_000;
 const TIMEOUT_MS = 15_000;
 /** The most windows one account shows on the monitor. */
 const MAX_WINDOWS = 4;
@@ -66,6 +68,16 @@ export class DroidProxyUsage {
     this.schedule(0);
   }
 
+  /** Someone pressed refresh on the monitor: reads now, or says why it won't. */
+  refreshNow(): string | undefined {
+    if (this.closed) return;
+    if (this.running) return 'Already reading DroidProxy’s limits';
+    const wait = this.lastRead + MANUAL_GAP_MS - Date.now();
+    if (wait > 0) return `DroidProxy’s limits were just read: try again in ${Math.ceil(wait / 1000)}s`;
+    clearTimeout(this.timer);
+    void this.poll(true);
+  }
+
   close() {
     this.closed = true;
     clearTimeout(this.timer);
@@ -87,19 +99,28 @@ export class DroidProxyUsage {
     this.timer.unref();
   }
 
-  private async poll() {
-    if (!this.wanted()) return this.schedule(POLL_MS);
+  /** @param force read even with nobody in the office to see it (the refresh button) */
+  private async poll(force = false) {
+    if (!force && !this.wanted()) return this.schedule(POLL_MS);
     this.running = true;
+    this.publish({ ...this.state, refreshing: true });
+    let next: ProxyState;
     try {
-      const next = await this.read();
-      if (this.closed) return;
-      this.state = next;
-      this.onChange(next);
+      next = await this.read();
+    } catch {
+      next = { ...this.state, refreshing: false };
     } finally {
       this.running = false;
       this.lastRead = Date.now();
     }
+    if (this.closed) return;
+    this.publish(next);
     this.schedule(POLL_MS);
+  }
+
+  private publish(state: ProxyState) {
+    this.state = state;
+    this.onChange(state);
   }
 
   private async healthy(): Promise<boolean> {

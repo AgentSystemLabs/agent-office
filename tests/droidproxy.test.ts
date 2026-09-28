@@ -180,3 +180,30 @@ test('no DroidProxy folder: no accounts, and nothing is fetched', async () => {
   assert.equal(s.running, undefined);
   assert.equal(fetched, 0);
 });
+
+test('the refresh button reads now, even with nobody around, then waits before reading again', async (t) => {
+  const dir = authDir({ 'claude-a.json': { type: 'claude', access_token: 'k1', expired: '2099-01-01T00:00:00Z' } });
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const seen: boolean[] = [];
+  let reads = 0;
+  const reader = new DroidProxyUsage(
+    dir,
+    () => false,
+    (s) => seen.push(!!s.refreshing),
+    async (url) => {
+      if (url.includes('anthropic')) reads++;
+      return { status: 200, json: async () => CLAUDE };
+    },
+    'http://health',
+  );
+  t.after(() => reader.close());
+  assert.equal(reader.refreshNow(), undefined);
+  assert.equal(reader.current.refreshing, true);
+  assert.match(reader.refreshNow() ?? '', /Already reading/);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(reads, 1);
+  assert.deepEqual(seen, [true, false]);
+  assert.equal(reader.current.accounts[0].label, 'Claude');
+  assert.match(reader.refreshNow() ?? '', /try again in \d+s/);
+  assert.equal(reads, 1);
+});

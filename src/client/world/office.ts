@@ -23,6 +23,7 @@ import {
   MEETING_SEATS,
   MEETING_TABLE,
   PLANTS,
+  PROXY_REFRESH,
   SEATING_BY_ID,
   SLAB,
   STAIRS,
@@ -90,7 +91,9 @@ export type InteractKind =
   | 'pole'
   | 'meeting'
   | 'bar'
-  | 'dj';
+  | 'dj'
+  /** The refresh button on the machine monitor's DroidProxy limits. */
+  | 'proxy';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -1186,10 +1189,21 @@ export function buildOffice(): Office {
   group.add(monitor);
   // Pictures keep clear of the tall monitor, so growing it never covers one.
   fixture('west', MACHINE_MONITOR.z, MACHINE_MONITOR.y, MACHINE_MONITOR.width + 0.2, MACHINE_MONITOR.tallHeight + 0.2);
+  // DroidProxy's refresh button: drawn on the screen (world/machine.ts), clicked through this.
+  const refreshButton = new THREE.Mesh(new THREE.PlaneGeometry(PROXY_REFRESH.width, PROXY_REFRESH.height), new THREE.MeshBasicMaterial({ visible: false }));
+  refreshButton.position.set(-MACHINE_MONITOR.width / 2 + PROXY_REFRESH.x + PROXY_REFRESH.width / 2, MACHINE_MONITOR.tallHeight / 2 - PROXY_REFRESH.y - PROXY_REFRESH.height / 2, 0.07);
+  refreshButton.visible = false;
+  monitor.add(refreshButton);
+  const proxyRefresh: Interactable = { kind: 'proxy', x: MACHINE_MONITOR.x + 1.6, z: MACHINE_MONITOR.z, radius: 1.8, off: true };
+  proxyRefresh.touch = [{ object: refreshButton, containsPoint: (p) => Math.abs(p.x) <= PROXY_REFRESH.width / 2 + 0.02 && Math.abs(p.y) <= PROXY_REFRESH.height / 2 + 0.02 && p.z >= -0.04 && p.z <= 0.1 }];
+  refreshButton.userData.interact = proxyRefresh;
+  interactables.push(proxyRefresh);
   let machineTall = false;
   const setMachineTall = (tall: boolean) => {
     if (tall === machineTall) return;
     machineTall = tall;
+    refreshButton.visible = tall;
+    proxyRefresh.off = !tall;
     const height = tall ? MACHINE_MONITOR.tallHeight : MACHINE_MONITOR.height;
     bezel.geometry.dispose();
     bezel.geometry = roundedBox(MACHINE_MONITOR.width + 0.16, 0.1, height + 0.16, 0.06);

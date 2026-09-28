@@ -456,6 +456,8 @@ function vrAimLabel(it: Interactable, note: GhIssue | null): string | null {
       return office.stack.polesGoDown() ? 'E · slide down' : 'E · spin round it';
     case 'dj':
       return 'E · the air horn';
+    case 'proxy':
+      return store.proxy.refreshing ? 'DroidProxy limits · reading…' : 'E · refresh DroidProxy limits';
     default:
       return null;
   }
@@ -2689,7 +2691,9 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   else if (target.kind === 'decor' && target.decorId) hanger.view(target.decorId);
   else if (target.kind === 'seat' && target.seatId) useSeat(target.seatId);
   else if (target.kind === 'dog') net.send({ t: 'dog.pet' });
-  else if (target.kind === 'coffee') drinkCoffee();
+  else if (target.kind === 'proxy') {
+    if (!store.proxy.refreshing) net.send({ t: 'proxy.refresh' });
+  } else if (target.kind === 'coffee') drinkCoffee();
   else if (target.kind === 'smoke') {
     if (smokeBreakUntil) {
       setSmoking(false);
@@ -3293,6 +3297,11 @@ function hintFor(it: Interactable): Hint {
       );
       return { k: `${dog.name}|${doing}`, parts: [title(`🐶 ${dog.name}`), doing ? aside(doing) : '', key('E', 'Pet')] };
     }
+    case 'proxy': {
+      const p = store.proxy;
+      const read = p.at ? `read ${timeAgo(p.at)}` : 'not read yet';
+      return { k: `${p.refreshing}|${read}`, parts: [title('DroidProxy limits'), aside(p.refreshing ? 'reading…' : read), p.refreshing ? '' : key('E', 'Refresh')] };
+    }
   }
 }
 
@@ -3694,6 +3703,7 @@ const REACH: Record<InteractKind, number> = {
   meeting: 7,
   bar: 3.5,
   dj: 6,
+  proxy: 4,
 };
 const eye = new THREE.Vector3();
 

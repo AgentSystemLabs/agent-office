@@ -533,6 +533,8 @@ export interface ProxyState {
   accounts: ProxyAccount[];
   /** When the numbers were read (ms since epoch); 0 before the first read. */
   at: number;
+  /** A read is under way; the numbers shown are the last ones. */
+  refreshing?: boolean;
 }
 
 export interface GhState<T> {
@@ -1111,6 +1113,8 @@ export type ClientMsg =
   | { t: 'dog.pet' }
   /** Name the dog on your floor ('' gives it back its first name). */
   | { t: 'dog.name'; name: string }
+  /** Read DroidProxy's limits again now (E at the machine monitor); answered with `proxy`, or a toast when it can't yet. */
+  | { t: 'proxy.refresh' }
   | { t: 'ping'; at: number };
 
 export type ServerMsg =

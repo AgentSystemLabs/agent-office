@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { MachineState, ProxyProvider, ProxyState } from '../../shared/protocol';
-import { MACHINE_MONITOR } from '../../shared/layout';
+import { MACHINE_MONITOR, PROXY_REFRESH } from '../../shared/layout';
 import { SANS, MONO } from '../fonts';
 import { fillGlyphText } from './glyph';
 
@@ -154,10 +154,26 @@ export class MachineTexture {
     g.font = `600 30px ${MONO}`;
     fillGlyphText(g, 'DroidProxy LIMITS', 30, top + 52, 30);
     const status = p.running === undefined ? ['…', MUTED] : p.running ? ['● RUNNING', '#3ccf91'] : ['● NOT RUNNING', '#ef4444'];
+    const bx = PROXY_REFRESH.x * PX_PER_M;
+    const by = PROXY_REFRESH.y * PX_PER_M;
+    const bw = PROXY_REFRESH.width * PX_PER_M;
+    const bh = PROXY_REFRESH.height * PX_PER_M;
     g.font = `600 22px ${MONO}`;
     g.textAlign = 'right';
     g.fillStyle = status[1];
-    g.fillText(status[0], W - 30, top + 50);
+    g.fillText(status[0], bx - 20, top + 50);
+
+    // The refresh button, where the office's hit area for it sits (world/office.ts).
+    g.fillStyle = p.refreshing ? '#1c1c1c' : '#202a24';
+    g.strokeStyle = p.refreshing ? '#3a3a3a' : '#3ccf91';
+    g.lineWidth = 2;
+    roundRect(g, bx, by, bw, bh, 6);
+    g.fill();
+    g.stroke();
+    g.textAlign = 'center';
+    g.fillStyle = p.refreshing ? MUTED : '#eeeeee';
+    g.font = `600 22px ${MONO}`;
+    g.fillText(p.refreshing ? 'READING…' : '↻ REFRESH', bx + bw / 2, by + bh / 2 + 8);
 
     const rowsTop = top + 80;
     const bottom = H - 20;

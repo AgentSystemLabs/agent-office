@@ -1233,6 +1233,11 @@ export async function startServer(cfg: Config) {
       case 'dog.pet':
         floorOf(c)?.dog.pet(c.peer);
         break;
+      case 'proxy.refresh': {
+        const why = proxy.refreshNow();
+        if (why) sendTo(c, { t: 'toast', text: why, level: 'info' });
+        break;
+      }
       case 'dog.name': {
         const floor = here();
         if (!floor) break;
