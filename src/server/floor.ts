@@ -12,6 +12,7 @@ import { GitHub, MergeWatch } from './github.js';
 import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { Decor } from './decor.js';
+import { Docs } from './docs.js';
 import { Dog } from './dog.js';
 import { Court } from './court.js';
 import { Jukebox } from './jukebox.js';
@@ -92,6 +93,8 @@ export class Floor {
   readonly whiteboard: Whiteboard;
   /** The meeting room, where workers work through a question together (see meetings.ts). */
   readonly meetings: MeetingRoom;
+  /** The bookshelf: the project's Markdown files (see docs.ts). */
+  readonly docs: Docs;
   /** Settles once the workers whose terminals outlived the last office are picked back up, and the rest woken. */
   readonly ready: Promise<void>;
   readonly dog: Dog;
@@ -111,6 +114,7 @@ export class Floor {
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
     excludeFromGit(def.dir);
     this.project = projectInfo(def.dir, def.name, ctx.agentCmd, ctx.agentArgs);
+    this.docs = new Docs(def.dir);
 
     // Before the workers, so it hears about the ones who wake up needing input.
     this.dog = new Dog(def.id, dataDir, {

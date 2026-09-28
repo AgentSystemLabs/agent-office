@@ -758,6 +758,32 @@ export async function startServer(cfg: Config) {
         res.end(r.body);
         return;
       }
+      if (p.startsWith('/api/docs') && req.method === 'GET') {
+        // The bookshelf: the project's Markdown files, one to read, and the pictures in it (see docs.ts).
+        if (!floor) return send(res, 404, { error: 'No such floor' });
+        if (p === '/api/docs') return send(res, 200, await floor.docs.list());
+        const file = str(url.searchParams.get('path'), 4096);
+        if (!file) return send(res, 400, { error: 'Bad request' });
+        if (p === '/api/docs/file') {
+          const r = await floor.docs.read(file);
+          return 'error' in r ? send(res, r.status, { error: r.error }) : send(res, 200, r);
+        }
+        if (p === '/api/docs/picture') {
+          const r = await floor.docs.picture(file);
+          if ('error' in r) return send(res, r.status, { error: r.error });
+          res.writeHead(200, {
+            'content-type': r.type,
+            'content-length': String(r.body.length),
+            'cache-control': 'no-store',
+            'x-content-type-options': 'nosniff',
+            'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+            'cross-origin-resource-policy': 'same-origin',
+          });
+          res.end(r.body);
+          return;
+        }
+        return send(res, 404, { error: 'Not found' });
+      }
       if (p === '/api/search' && req.method === 'GET') return send(res, 200, search(url.searchParams.get('q') ?? '', floor));
       if (p.startsWith('/api/gh/') && req.method === 'GET') {
         // What the issue and PR windows show beyond the board cards (see github.ts).
@@ -1379,9 +1405,12 @@ export async function startServer(cfg: Config) {
       }
       case 'doing': {
         const what = str(msg.what, 60).trim() || undefined;
-        if (what === c.peer.doing) break;
+        const reading = msg.reading === true || undefined;
+        if (what === c.peer.doing && reading === c.peer.reading) break;
         if (what) c.peer.doing = what;
         else delete c.peer.doing;
+        if (reading) c.peer.reading = true;
+        else delete c.peer.reading;
         broadcast({ t: 'peer.update', peer: c.peer });
         break;
       }
