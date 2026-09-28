@@ -864,6 +864,8 @@ const TASK_CHIP: Record<string, [string, string, string]> = {
 
 /** The outline of a worker's bubble once its pull request merged (the merged purple of the PR board). */
 const MERGED_INK = '#9d4edd';
+/** What its card's pill says once its pull request merged, while it isn't busy with something else. */
+const MERGED_CHIP: [string, string, string] = ['🎉 MERGED', MERGED_INK, '#ffffff'];
 
 /**
  * What a worker's body is doing: resting, arms up for joy, arms crossed waiting on you, typing, or
@@ -1336,8 +1338,10 @@ export class Worker {
     const { status, bouncing: bounce, task } = this;
     const hot = status === 'needs_input' || (status === 'done' && bounce);
     const bg = hot ? (status === 'done' ? '#caffbf' : '#ffd6e0') : status === 'working' ? '#ffec99' : '#fffaf3';
+    // Merged, and not working on or waiting for something more: it says so in place of ready / done / asleep.
+    const landed = this.merged && status !== 'working' && status !== 'needs_input' && status !== 'starting';
     const bubble =
-      status === 'needs_input' ? '❗ needs you' : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤' : '';
+      landed ? '🎉 merged' : status === 'needs_input' ? '❗ needs you' : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤' : '';
     const border = this.merged ? MERGED_INK : undefined;
     const key = `${border}|${task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble}`;
     if (key === this.bubbleKey) return;
@@ -1349,7 +1353,7 @@ export class Worker {
     }
     this.bubbleIsCard = !!task;
     if (task) {
-      const [text, chipBg, color] = TASK_CHIP[status] ?? TASK_CHIP.idle;
+      const [text, chipBg, color] = landed ? MERGED_CHIP : (TASK_CHIP[status] ?? TASK_CHIP.idle);
       this.bubble = cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: task.summary, bg: isAsleep(status) ? '#e9ecef' : bg, border });
     } else if (bubble) this.bubble = textSprite(bubble, { bg, size: 38, border });
     if (this.bubble) this.root.add(this.bubble);
