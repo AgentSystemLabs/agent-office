@@ -26,6 +26,14 @@ export function routeElevatorMessage(msg: ServerMsg) {
   if (msg.t === 'floor.added') for (const fn of addedWaiters) fn(msg);
 }
 
+/** Hears every floor.added (the VR add-a-floor flow reuses the panel's ears); returns the unlisten. */
+export function onFloorAdded(fn: (msg: Extract<ServerMsg, { t: 'floor.added' }>) => void): () => void {
+  addedWaiters.add(fn);
+  return () => {
+    addedWaiters.delete(fn);
+  };
+}
+
 let current: Modal | null = null;
 
 export function elevatorPanelOpen(): boolean {

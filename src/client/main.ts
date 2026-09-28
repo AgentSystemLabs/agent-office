@@ -56,7 +56,7 @@ import { Compass, type Bearing } from './ui/compass';
 import { openCharacter } from './ui/character';
 import { openSettings } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
-import { elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
+import { elevatorPanelOpen, onFloorAdded, openElevator, routeElevatorMessage } from './ui/elevator';
 import { toggleFloorMenu } from './ui/floormenu';
 import { providerLabel, rememberedChoice, resolvedProvider, modelBadge, supportedProviders, choiceForProvider, rememberProvider } from './ui/provider';
 import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
@@ -519,6 +519,7 @@ const vr = new VRSession(renderer, scene, camera, {
         meetingStop: () => net.send({ t: 'meeting.stop' }),
         meetingClear: () => net.send({ t: 'meeting.clear' }),
         copyServiceTunnel: (port) => void copyServiceTunnel(port),
+        addFloor: () => vrAddFloor(),
         sendChat: (text) => net.send({ t: 'chat', text }),
         vrSettings: (patch) => {
           Object.assign(settings.vr, patch);
@@ -612,6 +613,8 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     aim: () => vr.debugAim(),
     // Takes an issue card into hand (the meeting-carry check's setup).
     carry: (issue: number, title: string) => setCarrying({ issue, title }),
+    // The fresh VR toast's words, while one is up.
+    toastText: () => vrUi?.toast.current ?? null,
     // The pictures on the walls (the decor E-again check reads this back).
     decor: () => store.decor.map((d) => ({ id: d.id, title: d.title, by: d.by })),
     // What the VR prompt field holds (assert scripts read this back after pressing keys).
@@ -1719,6 +1722,31 @@ function killWarning(id: string): string | null {
   if (w.worktree) return `${again} (the ${w.worktree.branch} worktree stays unless it's empty)`;
   if (DESK_BY_ID.get(w.deskId)?.station) return `${again} (this stops its session for everyone)`;
   return `${again} and free the desk`;
+}
+/** The VR floors view's ➕ button: name a repository; the office clones it into a new floor and the elevator rides there (the panel's add, minus the browsing). */
+function vrAddFloor() {
+  if (!vrUi) return;
+  vrUi.askText({
+    title: '➕ Add a project',
+    subtitle: 'owner/name — cloned into a new floor',
+    placeholder: 'owner/repo…',
+    submitLabel: 'Add floor',
+    onSubmit: (text) => {
+      const repo = text.trim();
+      if (!repo) return;
+      toast(`⏳ Cloning ${repo}…`);
+      const off = onFloorAdded((msg) => {
+        if (msg.repo !== repo) return;
+        off();
+        if (msg.error || !msg.floor) {
+          toast(msg.error ?? `Couldn't add ${repo}`, 'warn');
+          return;
+        }
+        ride(msg.floor);
+      });
+      net.send({ t: 'floor.add', repo });
+    },
+  });
 }
 /** A services row in VR: the DOM list's tap (copies the tunnel command, says what happened). */
 async function copyServiceTunnel(port: number) {

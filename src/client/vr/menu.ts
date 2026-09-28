@@ -81,6 +81,8 @@ export interface VrMenuActions {
   meetingClear: () => void;
   /** Copies a service's tunnel command — the DOM services list's tap (main.ts copyServiceTunnel). */
   copyServiceTunnel: (port: number) => void;
+  /** Adds a project as a new floor — the elevator panel's add (main.ts vrAddFloor). */
+  addFloor: () => void;
   /** Leaves the immersive session — the XR session owner's exit. */
   exitVr: () => void;
 }
@@ -108,6 +110,8 @@ const JB_STOP: Rect = { x: 0.72, y: 0.015, w: 0.13, h: 0.09 };
 const JB_SKIP: Rect = { x: 0.86, y: 0.015, w: 0.11, h: 0.09 };
 /** Chat view: the "say something" button in the header. */
 const SAY_BTN: Rect = { x: 0.72, y: 0.015, w: 0.25, h: 0.09 };
+/** Floors view: the "add a project" button in the header. */
+const FLOORS_ADD: Rect = { x: 0.72, y: 0.015, w: 0.25, h: 0.09 };
 /** Header buttons for the meeting view: call one, stop it, or clear the room. */
 const MTG_CALL: Rect = { x: 0.72, y: 0.015, w: 0.25, h: 0.09 };
 const MTG_STOP: Rect = { x: 0.72, y: 0.015, w: 0.25, h: 0.09 };
@@ -370,6 +374,9 @@ export class VrMenu {
     if (this.view === 'chat') {
       buttons.push({ id: 'say', rect: SAY_BTN, onClick: () => this.onChatSay?.() });
     }
+    if (this.view === 'floors') {
+      buttons.push({ id: 'add', rect: FLOORS_ADD, onClick: () => this.actions.addFloor() });
+    }
     if (this.view === 'meeting') {
       const m = this.stores.getMeeting().current;
       // One header button, whatever the state: the ended summary row taps to call another.
@@ -584,6 +591,7 @@ export class VrMenu {
     if (this.view === 'board') this.paintTabs(ctx, w, h, state);
     if (this.view === 'jukebox') this.paintTransport(ctx, w, h, state);
     if (this.view === 'chat') this.paintSay(ctx, w, h, state);
+    if (this.view === 'floors') this.paintFloorsAdd(ctx, w, h, state);
     if (this.view === 'meeting') this.paintMeetingBtns(ctx, w, h, state);
     ctx.strokeStyle = '#ee6018';
     ctx.lineWidth = Math.max(2, h * 0.004);
@@ -667,6 +675,17 @@ export class VrMenu {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('✍️ say', (SAY_BTN.x + SAY_BTN.w / 2) * w, (SAY_BTN.y + SAY_BTN.h / 2) * h);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  private paintFloorsAdd(ctx: CanvasRenderingContext2D, w: number, h: number, state: { hoverId: string | null; pressedId: string | null }) {
+    this.pill(ctx, FLOORS_ADD, w, h, 'add', state);
+    ctx.fillStyle = '#eeeeee';
+    ctx.font = `700 ${Math.round(FLOORS_ADD.h * h * 0.38)}px ${TERM_FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('➕ add', (FLOORS_ADD.x + FLOORS_ADD.w / 2) * w, (FLOORS_ADD.y + FLOORS_ADD.h / 2) * h);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
   }

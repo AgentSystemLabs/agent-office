@@ -30,6 +30,11 @@ export class VrToast {
     return this.panel.visible;
   }
 
+  /** The fresh toast's words, while one is up (the emulator hook reads this back). */
+  get current(): string | null {
+    return performance.now() <= this.until ? this.text : null;
+  }
+
   /** Shows a message the way the DOM toast would (level colors the edge). */
   show(text: string, level: 'info' | 'warn' | 'error' = 'info') {
     this.text = text;

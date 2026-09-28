@@ -158,6 +158,7 @@ const deps: VrUiDeps = {
     meetingStop: () => log('stop the meeting'),
     meetingClear: () => log('clear the room'),
     copyServiceTunnel: (port) => log('copy tunnel for', `:${port}`),
+    addFloor: () => log('add a project (would open the VR repo prompt)'),
     sendChat: (text) => log('say', text),
     vrSettings: (patch) => log('VR settings', JSON.stringify(patch)),
     exitVr: () => log('exit VR (would end the XR session)'),
