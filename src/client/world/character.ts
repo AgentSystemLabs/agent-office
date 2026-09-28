@@ -862,10 +862,15 @@ const TASK_CHIP: Record<string, [string, string, string]> = {
   offline: ['💤 ASLEEP', STATUS_BULB.offline, '#ffffff'],
 };
 
-/** The outline of a worker's bubble once its pull request merged (the merged purple of the PR board). */
-const MERGED_INK = '#9d4edd';
-/** What its card's pill says once its pull request merged, while it isn't busy with something else. */
-const MERGED_CHIP: [string, string, string] = ['🎉 MERGED', MERGED_INK, '#ffffff'];
+/** A worker's pull request: still open, or merged (time to send it home). */
+export interface WorkerPr {
+  state: 'open' | 'merged';
+  number: number;
+}
+
+/** The outline of a worker's bubble, and its pill, once it has a pull request: GitHub's open green, or the PR board's merged purple. */
+const PR_INK: Record<WorkerPr['state'], string> = { open: '#2da44e', merged: '#9d4edd' };
+const PR_ICON: Record<WorkerPr['state'], string> = { open: '🔀', merged: '🎉' };
 
 /**
  * What a worker's body is doing: resting, arms up for joy, arms crossed waiting on you, typing, or
@@ -1076,8 +1081,8 @@ export class Worker {
   /** The bubble is a task card: it hangs from its tail instead of floating. */
   private bubbleIsCard = false;
   private task: WorkerTask | undefined;
-  /** Its pull request merged: its bubble is outlined in purple, to say it can be sent home. */
-  private merged = false;
+  /** Its pull request, open or merged: its bubble is outlined (and labelled, while it rests) to match. */
+  private pr: WorkerPr | undefined;
   private nameTag: THREE.Sprite | null = null;
   private eyes: THREE.Mesh[] = [];
   private blinkAt = Math.random() * 4;
@@ -1280,8 +1285,8 @@ export class Worker {
     this.drawBubble();
   }
 
-  setMerged(merged: boolean) {
-    this.merged = merged;
+  setPr(pr: WorkerPr | undefined) {
+    this.pr = pr;
     this.drawBubble();
   }
 
@@ -1335,15 +1340,15 @@ export class Worker {
 
   private drawBubble() {
     if (this.leaving) return;
-    const { status, bouncing: bounce, task } = this;
+    const { status, bouncing: bounce, task, pr } = this;
     const hot = status === 'needs_input' || (status === 'done' && bounce);
     const bg = hot ? (status === 'done' ? '#caffbf' : '#ffd6e0') : status === 'working' ? '#ffec99' : '#fffaf3';
-    // Merged, and not working on or waiting for something more: it says so in place of ready / done / asleep.
-    const landed = this.merged && status !== 'working' && status !== 'needs_input' && status !== 'starting';
+    const border = pr && PR_INK[pr.state];
+    // Not working on or waiting for something more: its pull request in place of ready / done / asleep.
+    const prLabel = pr && status !== 'working' && status !== 'needs_input' && status !== 'starting' ? `${PR_ICON[pr.state]} PR #${pr.number} ${pr.state}` : undefined;
     const bubble =
-      landed ? '🎉 merged' : status === 'needs_input' ? '❗ needs you' : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤' : '';
-    const border = this.merged ? MERGED_INK : undefined;
-    const key = `${border}|${task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble}`;
+      prLabel ?? (status === 'needs_input' ? '❗ needs you' : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤' : '');
+    const key = `${border}|${prLabel}|${task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble}`;
     if (key === this.bubbleKey) return;
     this.bubbleKey = key;
     if (this.bubble) {
@@ -1353,7 +1358,7 @@ export class Worker {
     }
     this.bubbleIsCard = !!task;
     if (task) {
-      const [text, chipBg, color] = landed ? MERGED_CHIP : (TASK_CHIP[status] ?? TASK_CHIP.idle);
+      const [text, chipBg, color] = prLabel ? [prLabel.toUpperCase(), border!, '#ffffff'] : (TASK_CHIP[status] ?? TASK_CHIP.idle);
       this.bubble = cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: task.summary, bg: isAsleep(status) ? '#e9ecef' : bg, border });
     } else if (bubble) this.bubble = textSprite(bubble, { bg, size: 38, border });
     if (this.bubble) this.root.add(this.bubble);
