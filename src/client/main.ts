@@ -1316,6 +1316,14 @@ net.onMessage((msg) => {
     }
     case 'floor.enter':
       vr.clearGrab();
+      // Not a trip of yours: the floor you were on was taken off the building, and the elevator took you away.
+      if (!trip) {
+        closeAllModals();
+        if (hanger.active) hanger.cancel();
+        if (climber.active) climber.abort();
+        if (walkingTo) stopWalking();
+        placeInCar();
+      }
       // The card belongs to the board downstairs (or up): the office already put it back there.
       if (carrying) {
         toast(`📌 #${carrying.issue} stayed behind on the other floor's board`);

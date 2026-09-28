@@ -915,6 +915,9 @@ a.when:hover { text-decoration: underline; }
 .elevator .floor-btn:hover:not(:disabled) { background: var(--surface-hover); }
 .elevator .floor-btn:disabled { cursor: default; }
 .elevator .floor-btn.here { border-color: var(--accent); background: var(--accent-muted); }
+.elevator .floor-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: stretch; }
+.elevator .floor-off { padding: 0 12px; font-size: 14px; }
+.elevator .floor-off:hover { border-color: var(--danger); color: var(--danger); background: rgba(239, 68, 68, .08); }
 .elevator .floor-no { width: 30px; height: 30px; border-radius: var(--radius); display: grid; place-items: center; font: 600 14px var(--font-mono); color: #fff; }
 .elevator .floor-text { display: flex; flex-direction: column; min-width: 0; }
 .elevator .floor-name { font-weight: 600; font-size: 14px; display: flex; gap: 8px; align-items: baseline; }

@@ -655,6 +655,8 @@ export interface FloorInfo {
   palette: number;
   /** Being cloned: on the elevator panel, but nobody can go there yet. */
   cloning?: boolean;
+  /** The project the office was started in (`agent-office <dir>`), which keeps its data: always a floor. */
+  local?: boolean;
   addedBy: string;
   addedAt: number;
   /**
@@ -1105,6 +1107,8 @@ export type ClientMsg =
   | { t: 'floor.repos'; refresh?: boolean }
   /** Clone a repository and make it a new floor; answered with `floor.added` once it's there. */
   | { t: 'floor.add'; repo: string }
+  /** Take a floor off the building (admins only). Its checkout stays on disk; everyone on it rides to another floor. */
+  | { t: 'floor.remove'; floor: string }
   /** Dress the building up for a holiday, take the decorations down ('off'), or follow the calendar ('auto'). */
   | { t: 'theme.set'; pick: ThemePick }
   /** Where new floors are cloned from now on (admins only); '' goes back to the default. */
