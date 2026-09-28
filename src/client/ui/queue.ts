@@ -51,7 +51,7 @@ export function openQueue(net: Net, actions: QueueActions) {
   );
 
   const ta = h('textarea', { rows: 2, placeholder: 'Describe a task for the next free worker…', 'aria-label': 'New task' }) as HTMLTextAreaElement;
-  const provider = providerPicker(store.project, 'queue-provider', 'Queue provider', 'queue');
+  const provider = providerPicker(store.project, 'queue-provider', 'Provider', 'queue');
   const addBtn = h('button.btn.primary', { type: 'submit' }, 'Add to queue');
   const form = h('form.queue-add', {}, ta, provider.element, addBtn) as HTMLFormElement;
   form.noValidate = true;
