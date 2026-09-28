@@ -854,6 +854,9 @@ a.when:hover { text-decoration: underline; }
 .elevator .floor-btn:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
 .elevator .floor-btn:disabled { cursor: default; }
 .elevator .floor-btn.here { background: var(--paper-2); box-shadow: none; transform: translateY(2px); }
+.elevator .floor-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: stretch; }
+.elevator .floor-off { padding: 0 12px; font-size: 16px; }
+.elevator .floor-off:hover { background: #ffe3d6; }
 .elevator .floor-no { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--ink); display: grid; place-items: center; font-weight: 900; font-size: 15px; color: #fff; text-shadow: 0 1px 0 rgba(0, 0, 0, .35); }
 .elevator .floor-text { display: flex; flex-direction: column; min-width: 0; }
 .elevator .floor-name { font-weight: 900; font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
