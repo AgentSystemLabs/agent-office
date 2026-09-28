@@ -494,13 +494,11 @@ export interface PoleSpot {
 }
 
 /**
- * The fire poles, slid down to the floor below. Each one goes the whole way down the building, through
- * a hole in every floor but the bottom one (where there's a mat to land on): whichever you walk up to
- * takes you down one floor, and on a floor with another below you swing off it through the railing.
+ * The fire pole, slid down to the floor below. It goes the whole way down the building, through a hole
+ * in every floor but the bottom one (where there's a mat to land on): it takes you down one floor, and
+ * on a floor with another below you swing off it through the railing, ready to go again.
  */
 export const POLES: readonly PoleSpot[] = [
-  // South of the desks, by the way in from the balcony.
-  { x: -6.6, z: 8.4, open: Math.PI / 2 },
   // Out in the open between the desks and the lounge, where you step out of the elevator.
   { x: 6.8, z: 1.6, open: Math.PI },
 ];
