@@ -348,6 +348,8 @@ class VrUi implements VrUiHandle {
         this.endAskText();
         opts.onCancel?.();
       },
+      // The alt button takes the prompt down the same way (the keyboard goes home too).
+      ...(opts.alt ? { alt: { label: opts.alt.label, onAlt: () => { this.endAskText(); opts.alt!.onAlt(); } } } : {}),
     });
   };
 

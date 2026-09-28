@@ -1561,6 +1561,8 @@ function vrHire(deskId: string) {
     placeholder: 'Optional first task…',
     submitLabel: 'Hire & start',
     allowEmpty: true,
+    // The B key's seat: a bare shell, no agent (the desktop key's function, no dialog).
+    alt: { label: '🐚 Shell', onAlt: () => openShell(deskId) },
     engine: {
       label: engineLabel,
       onCycle: () => {

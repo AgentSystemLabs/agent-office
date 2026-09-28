@@ -63,12 +63,18 @@ export interface VrPromptOpts {
   initial?: string;
   /** The engine row (VR hire): a tap cycles it, and the label repaints. */
   engine?: { label: () => string; onCycle: () => void };
+  /** A third button between Cancel and Send (VR hire's 🐚 Shell): choosing it closes the prompt. */
+  alt?: { label: string; onAlt: () => void };
   onSubmit: (text: string) => void;
   onCancel?: () => void;
 }
 
 const SEND_BTN: Rect = { x: 0.55, y: 0.82, w: 0.4, h: 0.13 };
 const CANCEL_BTN: Rect = { x: 0.05, y: 0.82, w: 0.44, h: 0.13 };
+/** With the alt button up, the bottom row splits three ways. */
+const SEND_ALT: Rect = { x: 0.64, y: 0.82, w: 0.31, h: 0.13 };
+const CANCEL_ALT: Rect = { x: 0.05, y: 0.82, w: 0.27, h: 0.13 };
+const ALT_BTN: Rect = { x: 0.335, y: 0.82, w: 0.29, h: 0.13 };
 const FIELD: Rect = { x: 0.05, y: 0.3, w: 0.9, h: 0.47 };
 /** With the engine row up, the field moves down to make room for it. */
 const ENGINE_BTN: Rect = { x: 0.05, y: 0.265, w: 0.9, h: 0.1 };
@@ -104,12 +110,15 @@ export class VrPromptPanel {
       this.buffer.cursor = [...opts.initial].length;
     }
     const buttons = [
-      { id: 'send', rect: SEND_BTN, onClick: () => this.send() },
-      { id: 'cancel', rect: CANCEL_BTN, onClick: () => this.close(false) },
+      { id: 'send', rect: opts.alt ? SEND_ALT : SEND_BTN, onClick: () => this.send() },
+      { id: 'cancel', rect: opts.alt ? CANCEL_ALT : CANCEL_BTN, onClick: () => this.close(false) },
     ];
     if (opts.engine) {
       const engine = opts.engine;
       buttons.push({ id: 'engine', rect: ENGINE_BTN, onClick: () => { engine.onCycle(); this.panel.markDirty(); } });
+    }
+    if (opts.alt) {
+      buttons.push({ id: 'alt', rect: ALT_BTN, onClick: () => this.chooseAlt() });
     }
     this.panel.setButtons(buttons);
     this.panel.setVisible(true);
@@ -132,6 +141,14 @@ export class VrPromptPanel {
 
   private send() {
     this.close(true);
+  }
+
+  /** The alt button (VR hire's 🐚 Shell): closes the prompt and takes the other path. */
+  private chooseAlt() {
+    const alt = this.opts?.alt;
+    this.opts = null;
+    this.panel.setVisible(false);
+    alt?.onAlt();
   }
 
   /** The VR keyboard's target while the prompt is up. */
@@ -208,8 +225,9 @@ export class VrPromptPanel {
         ctx.fillRect(Math.min(cx, fx + fw - pad - 2), cy, 2, fs);
       }
     }
-    this.paintBtn(ctx, w, h, CANCEL_BTN, 'cancel', 'Cancel', state, false);
-    this.paintBtn(ctx, w, h, SEND_BTN, 'send', opts.submitLabel ?? 'Send', state, true);
+    this.paintBtn(ctx, w, h, opts.alt ? CANCEL_ALT : CANCEL_BTN, 'cancel', 'Cancel', state, false);
+    if (opts.alt) this.paintBtn(ctx, w, h, ALT_BTN, 'alt', opts.alt.label, state, false);
+    this.paintBtn(ctx, w, h, opts.alt ? SEND_ALT : SEND_BTN, 'send', opts.submitLabel ?? 'Send', state, true);
     ctx.restore();
   }
 
@@ -245,7 +263,8 @@ export class VrPromptPanel {
     ctx.font = `700 ${Math.round(r.h * h * 0.34)}px ${TERM_FONT}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(label, (r.x + r.w / 2) * w, (r.y + r.h / 2) * h);
+    // Three-wide labels shrink to fit rather than bleeding into their neighbors.
+    ctx.fillText(label, (r.x + r.w / 2) * w, (r.y + r.h / 2) * h, r.w * w * 0.9);
     ctx.textAlign = 'left';
   }
 
