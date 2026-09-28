@@ -17,6 +17,10 @@ import org.json.JSONObject
  * # Or just the pieces (url defaults to the emulator's host-Mac alias):
  * adb shell am start -n com.agentoffice.xr/.MainActivity \
  *   -e ao_code ABCD-1234
+ *
+ * # Against a self-signed local office over wss, add its pin (see TlsPins):
+ * adb shell am start -n com.agentoffice.xr/.MainActivity \
+ *   -e ao_url wss://10.0.2.2:4600/ws -e ao_code ABCD-1234 -e ao_pin 'sha256/…'
  * ```
  *
  * Wired only behind `BuildConfig.DEBUG` from `MainActivity`, so it's compiled out of
@@ -32,6 +36,9 @@ object DebugPairing {
     // Piecewise overrides — convenient when you don't want to hand-assemble JSON.
     const val EXTRA_URL = "ao_url"
     const val EXTRA_CODE = "ao_code"
+
+    /** `sha256/…` pin for a self-signed local office (piecewise form only; JSON carries its own). */
+    const val EXTRA_PIN = "ao_pin"
 
     /**
      * The emulator reaches the developer machine (where agent-office runs) at this
@@ -61,9 +68,15 @@ object DebugPairing {
 
         val url = intent.getStringExtra(EXTRA_URL)?.takeIf { it.isNotBlank() }
             ?: EMULATOR_SERVER_URL
+        val pin = intent.getStringExtra(EXTRA_PIN)?.takeIf { it.isNotBlank() }
 
         Log.d(TAG, "injecting debug pairing for $url")
-        return PairingPayload.parse("""{"url":${jsonQuote(url)},"code":${jsonQuote(code)}}""")
+        val json = if (pin != null) {
+            """{"url":${jsonQuote(url)},"code":${jsonQuote(code)},"pin":${jsonQuote(pin)}}"""
+        } else {
+            """{"url":${jsonQuote(url)},"code":${jsonQuote(code)}}"""
+        }
+        return PairingPayload.parse(json)
             .onFailure { Log.w(TAG, "ignoring malformed debug pairing extras", it) }
             .getOrNull()
     }

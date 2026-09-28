@@ -47,10 +47,12 @@ object PairedOfficeStore {
     /** Persist (or replace) the paired office and its device token. */
     fun save(office: PairedOffice) {
         val p = prefs ?: return
+        // putString(key, null) removes the key: re-pairing without a pin clears a stale one.
         p.edit()
             .putString(KEY_SERVER_URL, office.serverUrl)
             .putString(KEY_DEVICE_TOKEN, office.deviceToken)
             .putLong(KEY_PAIRED_AT, office.pairedAtEpochMs)
+            .putString(KEY_CERT_PIN, office.certPin)
             .apply()
         _isPaired.value = true
     }
@@ -64,6 +66,7 @@ object PairedOfficeStore {
             serverUrl = serverUrl,
             deviceToken = deviceToken,
             pairedAtEpochMs = p.getLong(KEY_PAIRED_AT, 0L),
+            certPin = p.getString(KEY_CERT_PIN, null),
         )
     }
 
@@ -132,4 +135,5 @@ object PairedOfficeStore {
     private const val KEY_SERVER_URL = "server_url"
     private const val KEY_DEVICE_TOKEN = "device_token"
     private const val KEY_PAIRED_AT = "paired_at"
+    private const val KEY_CERT_PIN = "cert_pin"
 }

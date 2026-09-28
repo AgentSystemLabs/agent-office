@@ -295,15 +295,18 @@ export interface QrPayload {
   url: string;
   /** The pairing code from /api/pair/start, for POST /api/pair/claim. */
   code: string;
+  /** `sha256/…` pin for the office's TLS cert, when the office serves TLS itself (see /api/server-url). */
+  pin?: string;
 }
 
-/** GET /api/server-url (session auth): the ws(s) URL a headset on the LAN uses for this office. */
-export async function fetchServerUrl(): Promise<string> {
+/** GET /api/server-url (session auth): the ws(s) URL a headset on the LAN uses for this office, plus the TLS pin when the office serves TLS itself (so a self-signed office verifies on the headset instead of failing against the system trust store). */
+export async function fetchServerUrl(): Promise<{ url: string; pin?: string }> {
   const res = await fetch('/api/server-url');
   if (!res.ok) throw new Error('Could not reach the office');
-  const body = (await res.json()) as { url?: unknown };
+  const body = (await res.json()) as { url?: unknown; fingerprint?: unknown };
   if (typeof body.url !== 'string' || !body.url) throw new Error('The office gave no URL');
-  return body.url.replace(/^http/, 'ws');
+  const pin = typeof body.fingerprint === 'string' && body.fingerprint ? body.fingerprint : undefined;
+  return { url: body.url.replace(/^http/, 'ws'), ...(pin ? { pin } : {}) };
 }
 
 /** POST /api/pair/start (session auth): a short code for the headset to claim. */
@@ -347,8 +350,8 @@ export function openVrPair() {
     status.className = 'vr-status';
     codeEl.textContent = '····';
     try {
-      const [url, pair] = await Promise.all([fetchServerUrl(), fetchPairCode()]);
-      const payload: QrPayload = { url, code: pair.code };
+      const [info, pair] = await Promise.all([fetchServerUrl(), fetchPairCode()]);
+      const payload: QrPayload = { url: info.url, code: pair.code, ...(info.pin ? { pin: info.pin } : {}) };
       if (!drawQr(canvas, JSON.stringify(payload))) throw new Error('The code did not fit in a QR');
       expiresAt = pair.expiresAt;
       codeEl.textContent = pair.code;

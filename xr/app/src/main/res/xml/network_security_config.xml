@@ -7,8 +7,11 @@
     cover our case because the paired host is dynamic — it arrives inside the QR
     payload at runtime (often a bare IP literal like 192.168.1.10, which is a
     poor fit for this file). The QR still pins the exact ws:// URL we connect
-    to; this config only lifts the platform block. Revisit with per-host rules
-    (or wss-only) once the server ships TLS + token auth.
+    to; this config only lifts the platform block.
+
+    wss:// offices don't rely on this file's trust anchors: the QR carries the
+    office's certificate pin and the app pins it in code (see TlsPins), which is
+    the per-host story this file can't express.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true">

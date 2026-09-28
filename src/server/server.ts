@@ -8,6 +8,7 @@ import type { Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Config } from './config.js';
+import { tlsFingerprintPem } from './config.js';
 import { Auth, type Session } from './auth.js';
 import { Accounts } from './accounts.js';
 import { Devices, bearerToken } from './devices.js';
@@ -777,7 +778,12 @@ export async function startServer(cfg: Config) {
         for (const c of clients.values()) if (c.deviceId === revoked.id) signOut(c);
         return send(res, 200, { ok: true });
       }
-      if (p === '/api/server-url' && req.method === 'GET') return send(res, 200, { url: serverUrl(req) });
+      if (p === '/api/server-url' && req.method === 'GET') {
+        // Pin the TLS the QR points at so a self-signed office verifies on the headset — but only
+        // when we serve it ourselves: a --public-url may terminate at a proxy whose cert we don't know.
+        const fingerprint = !cfg.publicUrl && cfg.tls?.cert ? tlsFingerprintPem(cfg.tls.cert) : undefined;
+        return send(res, 200, { url: serverUrl(req), ...(fingerprint ? { fingerprint } : {}) });
+      }
       if (p === '/api/agents/opencode/models' && req.method === 'GET') {
         try {
           return send(res, 200, { models: await openCodeModels.get() });

@@ -87,4 +87,26 @@ class PairingPayloadTest {
     fun `rejects out-of-range port`() {
         assertTrue(PairingPayload.parse("""{"url":"ws://host:99999/ws","code":"c"}""").isFailure)
     }
+
+    @Test
+    fun `parses the pin when present`() {
+        val payload = PairingPayload.parse(
+            """{"url":"wss://192.168.1.5:4600","code":"K7Q2M9XD","pin":"sha256/gKUv3xNTJS02lTP3c8Qs2Y1P49/vwfdAnc40KnQGciY="}""",
+        ).getOrThrow()
+
+        assertEquals("sha256/gKUv3xNTJS02lTP3c8Qs2Y1P49/vwfdAnc40KnQGciY=", payload.pin)
+    }
+
+    @Test
+    fun `pin is null when absent`() {
+        val payload = PairingPayload.parse("""{"url":"ws://h:1/ws","code":"c"}""").getOrThrow()
+
+        assertEquals(null, payload.pin)
+    }
+
+    @Test
+    fun `rejects a malformed pin`() {
+        assertTrue(PairingPayload.parse("""{"url":"wss://h:1/ws","code":"c","pin":"bogus"}""").isFailure)
+        assertTrue(PairingPayload.parse("""{"url":"wss://h:1/ws","code":"c","pin":"sha256/short"}""").isFailure)
+    }
 }

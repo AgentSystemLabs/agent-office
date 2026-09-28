@@ -8,6 +8,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.agentoffice.xr.net.ConnectionState
@@ -24,12 +27,19 @@ import com.agentoffice.xr.wiring.ClientWiring
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val TAG = "MainActivity"
 
 class MainActivity : ComponentActivity() {
 
-    private lateinit var client: OfficeProtocolClient
+    /**
+     * The protocol client, held in state so rescanning a QR rebuilds it: the TLS pin scopes a
+     * client instance to exactly one office certificate (see `TlsPins`), so a new pairing — a
+     * new pin — needs a new client. Recomposition re-subscribes to the new flows. Null only
+     * until the vault loads on startup.
+     */
+    private var client: OfficeProtocolClient? by mutableStateOf(null)
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
@@ -37,35 +47,21 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        client = ClientWiring.buildProtocolClient(
-            context = this,
-            scope = lifecycleScope,
-            onTokenClaimed = { serverUrl, token ->
-                // Vault I/O (disk + Keystore) stays off the main thread. Async is fine:
-                // the vault is only read on the next launch; this launch connects now.
-                lifecycleScope.launch(Dispatchers.IO) {
-                    PairedOfficeStore.init(applicationContext)
-                    PairedOfficeStore.save(
-                        PairedOffice(
-                            serverUrl = serverUrl,
-                            deviceToken = token,
-                            pairedAtEpochMs = System.currentTimeMillis(),
-                        ),
-                    )
-                }
-            },
-        )
-
         requestAllRuntimePermissions()
         // EncryptedSharedPreferences init + load do disk I/O and Keystore-backed
         // crypto, so keep them off the main thread to avoid a startup ANR. The
-        // UI starts on the scanner and flips once auto-connect runs.
-        lifecycleScope.launch(Dispatchers.IO) { maybeAutoReconnect() }
+        // UI starts on "Starting…" and flips once auto-connect runs. The client is
+        // built here (not above) because auto-connect needs the vault's stored pin
+        // before the first socket exists.
+        lifecycleScope.launch(Dispatchers.IO) { startClient() }
         maybeInjectDebugPairing(intent)
 
         setContent {
-            val connection by client.connectionState.collectAsStateWithLifecycle()
-            val snapshot by client.snapshot.collectAsStateWithLifecycle()
+            val c = client
+            val connection by c?.connectionState?.collectAsStateWithLifecycle()
+                ?: remember { mutableStateOf(ConnectionState.Idle) }
+            val snapshot by c?.snapshot?.collectAsStateWithLifecycle()
+                ?: remember { mutableStateOf(null) }
             val isPaired by PairedOfficeStore.isPaired.collectAsStateWithLifecycle()
 
             // Consume QR results at the Activity boundary so the exact same provisioning
@@ -89,7 +85,9 @@ class MainActivity : ComponentActivity() {
             AgentOfficeXRApp(
                 // The scanner stashes results in PendingPairing; the flow above owns the
                 // single provisioning path, so no direct onPaired handling here.
-                uiState = uiStateFor(connection, snapshot, isPaired),
+                // No client yet (vault still loading): hold "Starting…" rather than flashing the scanner.
+                uiState = if (c == null) XrUiState.Connecting("Starting…", null, null)
+                else uiStateFor(connection, snapshot, isPaired),
                 onForget = { onForget() },
             )
         }
@@ -106,18 +104,51 @@ class MainActivity : ComponentActivity() {
         if (missing.isNotEmpty()) permissionLauncher.launch(missing)
     }
 
-    private suspend fun maybeAutoReconnect() {
+    private fun buildClient(certPin: String?): OfficeProtocolClient =
+        ClientWiring.buildProtocolClient(
+            context = this,
+            scope = lifecycleScope,
+            onTokenClaimed = { serverUrl, token, pin ->
+                // Vault I/O (disk + Keystore) stays off the main thread. Async is fine:
+                // the vault is only read on the next launch; this launch connects now.
+                lifecycleScope.launch(Dispatchers.IO) {
+                    PairedOfficeStore.init(applicationContext)
+                    PairedOfficeStore.save(
+                        PairedOffice(
+                            serverUrl = serverUrl,
+                            deviceToken = token,
+                            pairedAtEpochMs = System.currentTimeMillis(),
+                            certPin = pin,
+                        ),
+                    )
+                }
+            },
+            certPin = certPin,
+        )
+
+    /** Runs on Dispatchers.IO: load the vault, build the client (with the stored pin), connect. */
+    private suspend fun startClient() {
         PairedOfficeStore.init(applicationContext)
-        val office = PairedOfficeStore.load() ?: return
-        client.connect(office.serverUrl, office.deviceToken)
+        val office = PairedOfficeStore.load()
+        // State write + client construction hop to Main: mutableStateOf is main-confined.
+        val built = withContext(Dispatchers.Main) {
+            buildClient(office?.certPin).also { client = it }
+        }
+        if (office != null) built.connect(office.serverUrl, office.deviceToken)
     }
 
     private fun onQrPayload(payload: PairingPayload) {
-        client.pair(payload)
+        // A new pairing means a new pin (or none): rebuild the client so the claim and the
+        // socket both run under exactly this office's certificate. Same path for first-run
+        // pairing, rescans, and debug injection.
+        client?.disconnect()
+        val c = buildClient(payload.pin)
+        client = c
+        c.pair(payload)
     }
 
     private fun onForget() {
-        client.disconnect()
+        client?.disconnect()
         lifecycleScope.launch(Dispatchers.IO) {
             PairedOfficeStore.clear()
         }

@@ -6,6 +6,7 @@ import com.agentoffice.xr.net.OfficeProtocolClient
 import com.agentoffice.xr.net.OkHttpClaimService
 import com.agentoffice.xr.net.PrefsCookieJar
 import com.agentoffice.xr.net.ReconnectPolicy
+import com.agentoffice.xr.net.TlsPins
 import com.agentoffice.xr.net.WebSocketFactory
 import kotlinx.coroutines.CoroutineScope
 import okhttp3.OkHttpClient
@@ -22,15 +23,25 @@ object ClientWiring {
         context: Context,
         scope: CoroutineScope,
         claimService: ClaimService? = null,
-        onTokenClaimed: (serverUrl: String, token: String) -> Unit = { _, _ -> },
+        onTokenClaimed: (serverUrl: String, token: String, certPin: String?) -> Unit = { _, _, _ -> },
+        /**
+         * `sha256/…` pin for the office's TLS certificate (from the pairing QR or the vault).
+         * Null for cleartext offices. The pin scopes this client instance to exactly that
+         * office's certificate (see `TlsPins`); re-pairing rebuilds the client with the new pin.
+         */
+        certPin: String? = null,
     ): OfficeProtocolClient {
         val appContext = context.applicationContext
         val cookieJar = PrefsCookieJar(
             appContext.getSharedPreferences(COOKIE_PREFS, Context.MODE_PRIVATE),
         )
-        val okHttp = OkHttpClient.Builder()
+        val builder = OkHttpClient.Builder()
             .cookieJar(cookieJar)
-            .build()
+        if (certPin != null) {
+            // Scoped to this office's certificate (see TlsPins); unpinned offices keep defaults.
+            TlsPins.applyTo(builder, certPin)
+        }
+        val okHttp = builder.build()
         val webSocketFactory = WebSocketFactory { request, listener ->
             okHttp.newWebSocket(request, listener)
         }

@@ -1,4 +1,4 @@
-import { randomBytes, scryptSync } from 'node:crypto';
+import { createHash, randomBytes, scryptSync } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -422,8 +422,22 @@ export function loadConfig(argv: string[]): Config {
   };
 }
 
-export async function ensureSelfSigned(cfg: Config): Promise<void> {
-  if (!cfg.tls || cfg.tls.cert) return;
+/**
+ * OkHttp-style pin (`sha256/<base64>`) for a PEM certificate: SHA-256 over the DER bytes of the
+ * first certificate block (the leaf the handshake serves; a bundled chain's intermediates are
+ * ignored). The VR pairing QR carries this so the native headset app can pin a self-signed office
+ * instead of failing TLS against the system trust store. Undefined when the PEM holds no
+ * certificate. Pure: unit-tested with a canned cert.
+ */
+export function tlsFingerprintPem(pem: string): string | undefined {
+  const block = pem.match(/-----BEGIN CERTIFICATE-----([\s\S]*?)-----END CERTIFICATE-----/);
+  if (!block) return undefined;
+  const der = Buffer.from(block[1].replace(/\s+/g, ''), 'base64');
+  if (!der.length) return undefined;
+  return `sha256/${createHash('sha256').update(der).digest('base64')}`;
+}
+
+export async function ensureSelfSigned(cfg: Config): Promise<void> {  if (!cfg.tls || cfg.tls.cert) return;
   const certPath = path.join(cfg.dataDir, 'tls-cert.pem');
   const keyPath = path.join(cfg.dataDir, 'tls-key.pem');
   if (existsSync(certPath) && existsSync(keyPath)) {

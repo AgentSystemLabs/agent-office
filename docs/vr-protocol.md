@@ -115,14 +115,46 @@ and an expiry countdown, with Refresh and Done):
 { "url": "ws://192.168.1.5:4600", "code": "K7Q2M9XD" }
 ```
 
+With TLS the QR carries a third field, the office's certificate pin:
+
+```json
+{ "url": "wss://192.168.1.5:4600", "code": "K7Q2M9XD", "pin": "sha256/…" }
+```
+
 | field | meaning |
 | ----- | ------- |
 | `url` | The office's **ws(s)** URL as the headset reaches it. Never localhost: it comes from `GET /api/server-url` (session auth), which prefers the explicit `--public-url` flag / `AGENT_OFFICE_PUBLIC_URL` env, else the server's LAN IP + port + scheme (`wss` when the office serves TLS). |
 | `code` | The pairing code from `POST /api/pair/start`, for `POST /api/pair/claim`. |
+| `pin` | Optional. `sha256/<base64>` over the DER bytes of the office's TLS certificate, from `GET /api/server-url`'s `fingerprint` field. Present only when the office serves TLS itself; see below. |
 
 The headset flow: scan → `POST {url}/api/pair/claim { code, name }` (over https,
 i.e. the same host with the http(s) scheme) → store `token` → open
 `{url}/ws?token=…` → expect `welcome` with a known `protocolVersion`.
+
+## TLS pinning
+
+A LAN office typically serves TLS with a generated self-signed certificate
+(`--self-signed`): no public CA will vouch for it, so a native client using the
+system trust store would fail every TLS handshake with no path forward. The pin
+fixes the bootstrap: the laptop is already logged in over the office session, so
+the fingerprint it prints into the QR is trustworthy, and scanning the QR is the
+user's consent to trust exactly that certificate. The client pins the hash (a
+certificate-hash pin, not SPKI: the presented chain is accepted iff one of its
+certificates hashes to the pin), replacing the CA ladder and hostname verification
+for that office; unpinned offices keep the full default checks.
+
+- The pin is only as stable as the office's cert. `--self-signed` persists
+  `tls-cert.pem` in the office data dir, so pins survive restarts; wiping the data
+  dir (or rotating `--tls-cert`) regenerates the cert and paired headsets must
+  re-pair. A stored pin against a new cert fails fast with "The office's
+  certificate changed — re-pair", not a silent reconnect loop.
+- No pin is sent when the office serves plain `ws`, or when `--public-url` is set:
+  the public URL may terminate TLS at a proxy whose certificate the office doesn't
+  know. Such offices verify through the system trust store (i.e. the proxy needs a
+  publicly-trusted certificate).
+- Older headsets ignore the unknown `pin` field and pair as before (cleartext, or
+  system trust for `wss`); older offices send no `pin`, and new headsets fall back
+  to system trust with a re-pair hint on failure.
 
 ## Server flags
 

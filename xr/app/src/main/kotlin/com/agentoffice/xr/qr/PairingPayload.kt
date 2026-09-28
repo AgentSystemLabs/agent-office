@@ -27,6 +27,13 @@ data class PairingPayload(
     val serverUrl: String,
     /** Short-lived pairing code to exchange for a device token. */
     val code: String,
+    /**
+     * `sha256/…` pin for the office's TLS certificate, present when the office serves TLS
+     * itself (see `TlsPins`). The physically-scanned QR is the trust bootstrap: scanning it
+     * is the user's consent to trust exactly this certificate, so a self-signed office
+     * verifies instead of failing against the system trust store.
+     */
+    val pin: String? = null,
 ) {
     /**
      * `http(s)` base derived from [serverUrl], e.g. `ws://host:4600/ws` →
@@ -68,7 +75,16 @@ data class PairingPayload(
             require(port == -1 || port in 1..65535) { "invalid port $port" }
             val code = json.optString("code", "").trim()
             require(code.isNotEmpty()) { "missing code in QR payload" }
-            PairingPayload(serverUrl = url, code = code)
+            val pin = json.optString("pin", "").trim().ifEmpty { null }
+            if (pin != null) require(PIN_RE.matches(pin)) { "invalid pin '$pin'" }
+            PairingPayload(serverUrl = url, code = code, pin = pin)
         }
+
+        /**
+         * OkHttp pin format: `sha256/` + base64 of the 32 SHA-256 bytes (44 chars, one `=` pad).
+         * Strict on purpose — a malformed pin in our own QR is a corrupt code, not something
+         * to silently drop (dropping it would downgrade a pinned office to system trust).
+         */
+        private val PIN_RE = Regex("sha256/[A-Za-z0-9+/]{43}=")
     }
 }

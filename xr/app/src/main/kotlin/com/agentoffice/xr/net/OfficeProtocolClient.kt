@@ -60,7 +60,7 @@ class OfficeProtocolClient(
     private val webSocketFactory: WebSocketFactory,
     private val claimService: ClaimService,
     private val scope: CoroutineScope,
-    private val onTokenClaimed: (serverUrl: String, token: String) -> Unit = { _, _ -> },
+    private val onTokenClaimed: (serverUrl: String, token: String, certPin: String?) -> Unit = { _, _, _ -> },
     private val reconnectPolicy: ReconnectPolicy = ReconnectPolicy(maxAttempts = Int.MAX_VALUE),
     private val sleeper: suspend (Long) -> Unit = { delay(it) },
 ) {
@@ -91,10 +91,10 @@ class OfficeProtocolClient(
             } catch (e: Exception) {
                 Log.w(TAG, "pair claim failed", e)
                 _connectionState.value =
-                    ConnectionState.Failed(payload.serverUrl, e.message ?: "claim failed")
+                    ConnectionState.Failed(payload.serverUrl, ConnectErrors.claimText(e))
                 return@launch
             }
-            onTokenClaimed(payload.serverUrl, token)
+            onTokenClaimed(payload.serverUrl, token, payload.pin)
             runConnectionLoop(payload.serverUrl, token, options)
         }
     }
@@ -135,7 +135,13 @@ class OfficeProtocolClient(
             if (attempt == 1) {
                 _connectionState.value = ConnectionState.Connecting(serverUrl)
             }
-            awaitOneConnection(serverUrl, request)
+            val fatal = awaitOneConnection(serverUrl, request)
+            if (fatal != null) {
+                // TLS trust, not a dropped network: the office regenerated its cert (or was
+                // never pinned). Retrying the same handshake forever helps nobody; say so.
+                _connectionState.value = ConnectionState.Failed(serverUrl, fatal)
+                return
+            }
             if (!coroutineContext.isActive) return
             if (!reconnectPolicy.shouldRetry(attempt)) {
                 _connectionState.value =
@@ -152,10 +158,15 @@ class OfficeProtocolClient(
         }
     }
 
-    /** Open one socket, pump the send queue into it, and suspend until it closes. */
-    private suspend fun awaitOneConnection(serverUrl: String, request: Request) {
+    /**
+     * Open one socket, pump the send queue into it, and suspend until it closes. Returns the
+     * user-facing error when the socket died of TLS trust (fatal: reconnecting won't help),
+     * null for a normal close or a transient failure (the loop retries those).
+     */
+    private suspend fun awaitOneConnection(serverUrl: String, request: Request): String? {
         val closed = CompletableDeferred<Unit>()
         var writer: Job? = null
+        var fatal: String? = null
         val listener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 _connectionState.value = ConnectionState.Connected(serverUrl)
@@ -190,14 +201,24 @@ class OfficeProtocolClient(
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 response?.closeQuietly()
-                Log.w(TAG, "websocket failure; reconnecting", t)
+                if (ConnectErrors.isTlsFailure(t)) {
+                    Log.w(TAG, "websocket TLS failure; not retrying", t)
+                    fatal = ConnectErrors.failureText(t)
+                } else {
+                    Log.w(TAG, "websocket failure; reconnecting", t)
+                }
                 closed.complete(Unit)
             }
         }
         val ws = try {
             webSocketFactory.newWebSocket(request, listener)
         } catch (e: Exception) {
-            Log.w(TAG, "websocket open threw; reconnecting", e)
+            if (ConnectErrors.isTlsFailure(e)) {
+                Log.w(TAG, "websocket TLS failure; not retrying", e)
+                fatal = ConnectErrors.failureText(e)
+            } else {
+                Log.w(TAG, "websocket open threw; reconnecting", e)
+            }
             closed.complete(Unit)
             null
         }
@@ -211,6 +232,7 @@ class OfficeProtocolClient(
             writer?.cancel()
             if (socket === ws) socket = null
         }
+        return fatal
     }
 
     private fun handleMessage(text: String) {

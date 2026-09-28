@@ -115,6 +115,44 @@ class PairedOfficeStoreTest {
     }
 
     @Test
+    fun `save then load round-trips the cert pin`() {
+        val office = PairedOffice(
+            serverUrl = "wss://192.168.1.10:4600/ws",
+            deviceToken = "secret-token",
+            pairedAtEpochMs = 1_700_000_000_000L,
+            certPin = "sha256/gKUv3xNTJS02lTP3c8Qs2Y1P49/vwfdAnc40KnQGciY=",
+        )
+
+        PairedOfficeStore.save(office)
+
+        assertEquals(office, PairedOfficeStore.load())
+    }
+
+    @Test
+    fun `re-pairing without a pin clears the stored one`() {
+        PairedOfficeStore.save(PairedOffice("wss://a/ws", "token-a", 1L, certPin = "sha256/AAAA"))
+
+        PairedOfficeStore.save(PairedOffice("ws://a/ws", "token-b", 2L))
+
+        assertNull(PairedOfficeStore.load()?.certPin)
+    }
+
+    @Test
+    fun `legacy record without a pin loads with null pin`() {
+        val prefs = FakeSharedPreferences()
+        prefs.edit()
+            .putString("server_url", "wss://a/ws")
+            .putString("device_token", "token-a")
+            .putLong("paired_at", 7L)
+            .commit()
+        PairedOfficeStore.bindForTest(prefs)
+
+        val loaded = PairedOfficeStore.load()!!
+        assertEquals("token-a", loaded.deviceToken)
+        assertNull(loaded.certPin)
+    }
+
+    @Test
     fun `save overwrites the previous record`() {
         PairedOfficeStore.save(PairedOffice("ws://a/ws", "token-a", 1L))
         PairedOfficeStore.save(PairedOffice("ws://b/ws", "token-b", 2L))

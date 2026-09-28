@@ -12,4 +12,10 @@ data class PairedOffice(
     val deviceToken: String,
     /** When pairing completed, epoch millis. */
     val pairedAtEpochMs: Long,
+    /**
+     * `sha256/…` pin for the office's TLS certificate (see `TlsPins`), or null for cleartext
+     * offices and pairings from before pins existed. Persisted alongside the token because the
+     * socket factory needs it on every auto-connect, not just at pair time.
+     */
+    val certPin: String? = null,
 )
