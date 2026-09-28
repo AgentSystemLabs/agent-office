@@ -64,7 +64,8 @@ Persisted in the existing settings store (`Settings.vr`, localStorage) like ever
 ## World-space UI
 
 E in VR opens panels floating in the office, not DOM modals: the ☰ menu (hire, queue,
-board, floors, jukebox, chat, settings), worker terminals, the prompt + QWERTY keyboard,
+board, services, floors, jukebox, bar, chat, meeting, settings), worker terminals (ask,
+wake, send-home), the prompt + QWERTY keyboard,
 the controls card, and a toast mirror. Both rays press independently (two-handed typing),
 held keys repeat like a desktop board, and the prompt + keyboard ride teleports along.
 Head-placed panels draw through walls (below the cursor dots); the terminal stays

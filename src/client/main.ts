@@ -45,10 +45,10 @@ import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage, worktr
 import { issuePrompt, openBoard } from './ui/boards';
 import { openIssue, openPull, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
-import { openTeam, routeTeamMessage } from './ui/team';
+import { copy, guessOs, openTeam, routeTeamMessage } from './ui/team';
 import { openVrPair } from './ui/vr';
 import { openAccounts, routeAccountsMessage } from './ui/accounts';
-import { openServices } from './ui/services';
+import { openServices, serviceTunnel } from './ui/services';
 import { openQueue } from './ui/queue';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
 import { openHelp, renderCaffeine, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
@@ -359,7 +359,8 @@ function vrUseE(it: Interactable | null, note: GhIssue | null) {
     if (it.kind === 'jukebox') return vrUi.showMenu('jukebox');
     if (it.kind === 'bar') return vrUi.showMenu('bar');
     if (it.kind === 'meeting') return vrUi.showMenu('meeting');
-    if (it.kind === 'whiteboard' || it.kind === 'services' || it.kind === 'tv' || it.kind === 'decor' || it.kind === 'cabinet') {
+    if (it.kind === 'services') return vrUi.showMenu('services');
+    if (it.kind === 'whiteboard' || it.kind === 'tv' || it.kind === 'decor' || it.kind === 'cabinet') {
       toast(`The ${it.kind} isn't in VR yet — hop on the desktop for that one`, 'warn');
       return;
     }
@@ -406,6 +407,7 @@ const vr = new VRSession(renderer, scene, camera, {
       barCutOff: () => booze.cutOff(performance.now() / 1000),
       getVrSettings: () => settings.vr,
       getMeeting: () => store.meeting,
+      getServices: () => store.services,
       voice: { isMuted: () => voice.muted, inVoice: () => voice.inVoice, toggleMute: () => voice.toggleMute() },
       actions: {
         hire: (deskId) => vrHire(deskId),
@@ -421,6 +423,7 @@ const vr = new VRSession(renderer, scene, camera, {
         meetingCall: () => vrMeeting(),
         meetingStop: () => net.send({ t: 'meeting.stop' }),
         meetingClear: () => net.send({ t: 'meeting.clear' }),
+        copyServiceTunnel: (port) => void copyServiceTunnel(port),
         sendChat: (text) => net.send({ t: 'chat', text }),
         vrSettings: (patch) => {
           Object.assign(settings.vr, patch);
@@ -470,7 +473,7 @@ if (new URLSearchParams(location.search).has('vrtest')) {
       g.getWorldPosition(v);
       return [v.x, v.y, v.z] as [number, number, number];
     },
-    showMenu: (view: 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'assign' | 'settings' | 'meeting') => vrUi?.showMenu(view),
+    showMenu: (view: 'main' | 'hire' | 'queue' | 'board' | 'detail' | 'floors' | 'jukebox' | 'bar' | 'chat' | 'assign' | 'settings' | 'meeting' | 'services') => vrUi?.showMenu(view),
     // Hides the dash (controls card + menu) so the rays aim at the world, not a panel.
     hideDash: () => {
       vrUi?.controls.hide();
@@ -1611,6 +1614,14 @@ function killWarning(id: string): string | null {
   if (w.worktree) return `${again} (the ${w.worktree.branch} worktree stays unless it's empty)`;
   if (DESK_BY_ID.get(w.deskId)?.station) return `${again} (this stops its session for everyone)`;
   return `${again} and free the desk`;
+}
+/** A services row in VR: the DOM list's tap (copies the tunnel command, says what happened). */
+async function copyServiceTunnel(port: number) {
+  const svc = store.services.items.find((i) => i.port === port);
+  if (!svc) return toast(`The server on :${port} stopped`, 'warn');
+  const ok = await copy(serviceTunnel(store.services, port, guessOs()));
+  if (ok) toast(`✅ Tunnel command for :${port} copied — paste it in a terminal`);
+  else toast(`Copy failed — tunnel to the office, then open http://localhost:${port}`, 'warn');
 }
 /** The terminal's ⏻ button, confirmed: the X key's send without the dialog (the server keeps a worktree that holds work). */
 function vrKill(id: string) {
