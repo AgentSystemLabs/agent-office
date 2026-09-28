@@ -15,6 +15,7 @@ import { forgeOf, forgeWords, type Forge } from '../shared/floors.js';
 import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { Decor } from './decor.js';
+import { Docs } from './docs.js';
 import { Dog } from './dog.js';
 import { Jukebox } from './jukebox.js';
 import { Whiteboard } from './whiteboard.js';
@@ -98,6 +99,8 @@ export class Floor {
   readonly whiteboard: Whiteboard;
   /** The meeting room, where workers work through a question together (see meetings.ts). */
   readonly meetings: MeetingRoom;
+  /** The bookshelf: the project's Markdown files (see docs.ts). */
+  readonly docs: Docs;
   /** Settles once the workers whose terminals outlived the last office are picked back up, and the rest woken. */
   readonly ready: Promise<void>;
   readonly dog: Dog;
@@ -117,6 +120,7 @@ export class Floor {
     const forge = forgeOf(def.repo) ?? 'github';
     const words = forgeWords(forge);
     this.project = projectInfo(def.dir, def.name, ctx.agentCmd, ctx.agentArgs, forge);
+    this.docs = new Docs(def.dir);
     const onIssues = (state: Board['issues']) => ctx.emit(this, { t: 'gh.issues', state });
     const onPulls = (state: Board['pulls']) => {
       ctx.emit(this, { t: 'gh.pulls', state });

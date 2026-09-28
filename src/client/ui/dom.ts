@@ -39,11 +39,14 @@ export interface Modal {
   backdrop: HTMLElement;
   /** What having it open says you're doing, under your name tag (see PeerInfo.doing). */
   doing?: string;
+  /** You're reading while it's open: your character holds an open book (see PeerInfo.reading). */
+  reading?: boolean;
   close(): void;
 }
 
 const stack: Modal[] = [];
 const listeners = new Set<(open: boolean) => void>();
+const doingListeners = new Set<() => void>();
 
 export function onModalChange(fn: (open: boolean) => void) {
   listeners.add(fn);
@@ -59,13 +62,31 @@ export function doingNow(): string | undefined {
   return undefined;
 }
 
+/** Whether a window you're reading in is open (see Modal.reading). */
+export function readingNow(): boolean {
+  return stack.some((m) => m.reading);
+}
+
+/** Hears when an open window changes what it says you're doing (see setDoing). */
+export function onDoingChange(fn: () => void) {
+  doingListeners.add(fn);
+}
+
+/** Changes what an open window says you're doing, like the doc you turned to on the bookshelf. */
+export function setDoing(modal: Modal, doing: string | undefined) {
+  if (modal.doing === doing) return;
+  modal.doing = doing;
+  doingListeners.forEach((fn) => fn());
+}
+
 /**
  * Opens a modal. Esc closes it unless `escCloses` is false (for dialogs you mustn't skip) or a
  * function that returns false for that keypress (to let Esc through to what has focus), and so
  * does a ✕ in its top right corner unless `closeButton` is false (it follows `escCloses`). `doing`
- * is what teammates see under your name tag while it's open, like "reading PR #12".
+ * is what teammates see under your name tag while it's open, like "reading PR #12", and `reading`
+ * puts an open book in your character's hands.
  */
-export function openModal(content: HTMLElement, opts: { escCloses?: boolean | ((e: KeyboardEvent) => boolean); onClose?: () => void; backdropCloses?: boolean; closeButton?: boolean; doing?: string } = {}): Modal {
+export function openModal(content: HTMLElement, opts: { escCloses?: boolean | ((e: KeyboardEvent) => boolean); onClose?: () => void; backdropCloses?: boolean; closeButton?: boolean; doing?: string; reading?: boolean } = {}): Modal {
   const backdrop = h('div.backdrop', {}, content);
   const root = document.getElementById('modal-root')!;
   root.append(backdrop);
@@ -83,6 +104,7 @@ export function openModal(content: HTMLElement, opts: { escCloses?: boolean | ((
     el: content,
     backdrop,
     doing: opts.doing,
+    reading: opts.reading,
     close() {
       if (closed) return;
       closed = true;
