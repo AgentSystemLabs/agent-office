@@ -32,15 +32,52 @@ export interface Model {
 const loading = new Map<ModelName, Promise<GLTF>>();
 const loaded = new Map<ModelName, GLTF>();
 
+/**
+ * How far the model files have got: how many have been asked for so far, and how many of those are done
+ * (loaded, or given up on). Counted by file rather than by byte, since a file's size is only known when the
+ * response says it.
+ */
+export interface ModelsProgress {
+  asked: number;
+  done: number;
+}
+
+const progress: ModelsProgress = { asked: 0, done: 0 };
+const watchers = new Set<(p: ModelsProgress) => void>();
+
+/**
+ * Calls `fn` with the files' progress now, and again each time a file is asked for, gets more of itself in,
+ * or is done (see ModelsProgress). The loading screen fills its bar with it, and while the calls keep coming
+ * it knows a slow download is still going. Returns a function that stops the calls.
+ */
+export function onModelsProgress(fn: (p: ModelsProgress) => void): () => void {
+  watchers.add(fn);
+  fn({ ...progress });
+  return () => watchers.delete(fn);
+}
+
+function tell() {
+  for (const fn of watchers) fn({ ...progress });
+}
+
 /** Each file loads once, the first time something asks for it. */
 function fetchModel(name: ModelName): Promise<GLTF> {
   let p = loading.get(name);
   if (!p) {
-    p = new GLTFLoader().loadAsync(MODELS[name].url).then((gltf) => {
+    // Each chunk that comes in tells the watchers too, though the counts are still by file.
+    p = new GLTFLoader().loadAsync(MODELS[name].url, () => tell()).then((gltf) => {
       loaded.set(name, gltf);
       return gltf;
     });
     loading.set(name, p);
+    progress.asked++;
+    tell();
+    // Done either way: one that failed still rejects for whoever asked for it.
+    const done = () => {
+      progress.done++;
+      tell();
+    };
+    void p.then(done, done);
   }
   return p;
 }
