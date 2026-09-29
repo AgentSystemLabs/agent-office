@@ -72,11 +72,13 @@ export function openUpgrade(net: Net) {
   net.send({ t: 'upgrade.check' });
 }
 
-// --- Restart: a modal nobody can dismiss, then a reload onto the new version ---------------------
+// --- Restart: a modal saying so, then a reload onto the new version ------------------------------
 
 let restartModal: Modal | null = null;
+/** The office said it's restarting: this page reloads when it's back, whether or not the window is still up. */
+let restartPending = false;
 
-export const restarting = () => restartModal !== null;
+export const restarting = () => restartPending;
 let restartBody: HTMLElement | null = null;
 let slowTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -85,7 +87,14 @@ function restartDialog(title: string, ...content: (Node | string)[]) {
     closeAllModals();
     restartBody = h('div.body');
     const el = h('div.modal.restart', { role: 'alertdialog', 'aria-label': 'The office is upgrading' }, h('header', {}, h('h2', {})), restartBody);
-    restartModal = openModal(el, { escCloses: false, backdropCloses: false });
+    // Closing it only hides it: the reload still comes once the office is back.
+    restartModal = openModal(el, {
+      backdropCloses: false,
+      onClose: () => {
+        restartModal = null;
+        restartBody = null;
+      },
+    });
   }
   restartModal.el.querySelector('h2')!.textContent = title;
   restartBody!.replaceChildren(...content);
@@ -94,6 +103,7 @@ function restartDialog(title: string, ...content: (Node | string)[]) {
 /** The server said it's about to restart into a new version. */
 export function showRestarting(u: UpgradeState, net: Net) {
   net.expectRestart();
+  restartPending = true;
   restartDialog(
     '🛠️ Upgrading the office',
     h('div.restart-art', {}, '🏗️'),
