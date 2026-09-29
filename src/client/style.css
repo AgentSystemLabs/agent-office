@@ -415,6 +415,10 @@ body.telescope-active #hud { visibility: hidden; }
 .modal.term header { background: var(--paper); }
 .modal.term .term-host { flex: 1; min-height: 0; padding: 8px 4px 4px 10px; background: #1e1f2e; }
 .modal.term .term-host .xterm { height: 100%; }
+/* Files dragged over a terminal, and on their way to the office: they go in where its cursor is. */
+.modal.term .term-host { position: relative; }
+.modal.term.dropping .term-host::after, .modal.term.uploading .term-host::after { content: attr(data-drop); position: absolute; inset: 10px; z-index: 10; display: grid; place-items: center; padding: 16px; text-align: center; border: 3px dashed var(--accent); border-radius: 14px; background: rgba(30, 31, 46, .85); color: #fff; font-size: 18px; font-weight: 900; pointer-events: none; }
+.modal.term.uploading:not(.dropping) .term-host::after { content: '📎 Putting it in the terminal…'; }
 /* Who's in the terminal: a face per person, and a pencil on whoever's typing. */
 .viewers { display: flex; align-items: center; gap: 4px; }
 .avatar { position: relative; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--ink); display: grid; place-items: center; flex: none; font-size: 10px; font-weight: 900; letter-spacing: -.02em; color: var(--ink); cursor: default; }

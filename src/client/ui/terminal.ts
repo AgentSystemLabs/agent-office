@@ -9,6 +9,7 @@ import { usageLabel, usageTitle } from './usage';
 import type { ServerMsg, WorkerInfo } from '../../shared/protocol';
 import { isAsleep } from '../../shared/status';
 import { findLine } from '../../shared/search';
+import { DROP_MAX_BYTES, droppedPaths } from '../../shared/drops';
 import { providerLabel, providerUsageNote, providerUsageState, resolvedProvider } from './provider';
 
 /** A line to scroll to once the terminal has loaded: a search hit (see search.ts). */
@@ -34,6 +35,17 @@ function initials(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
   const first = (w: string | undefined) => (w ? Array.from(w)[0].toUpperCase() : '');
   return first(words[0]) + (words.length > 1 ? first(words[words.length - 1]) : '') || '?';
+}
+
+/** Sends a file dropped or pasted into a worker's terminal to the office; where the office keeps it. */
+async function uploadDrop(workerId: string, f: File): Promise<string> {
+  const name = f.name || 'That file';
+  if (f.size > DROP_MAX_BYTES) throw new Error(`${name} is too big to drop into a terminal (${DROP_MAX_BYTES / 1024 / 1024} MB at most)`);
+  const q = new URLSearchParams({ floor: store.floor ?? '', worker: workerId, name: f.name });
+  const res = await fetch(`/api/term/drop?${q}`, { method: 'POST', headers: { 'content-type': f.type || 'application/octet-stream' }, body: f });
+  const r = (await res.json().catch(() => ({}))) as { path?: string; error?: string };
+  if (!res.ok || !r.path) throw new Error(r.error ?? `${name} could not be dropped into the terminal`);
+  return r.path;
 }
 
 let current: { workerId: string; modal: Modal; find(f: TerminalFind): void } | null = null;
@@ -70,7 +82,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   const typed = h('span.typed', {});
   const changesBtn = h('button.btn', { type: 'button', title: 'What this worker changed: files, diff, commit, open a PR (C at the desk)' }, '🌿 Changes');
   const closeBtn = h('button.btn.close', { title: 'Leave terminal (Esc) · Ctrl+[ sends Esc to the terminal', 'aria-label': 'Close' }, '✕');
-  const host = h('div.term-host');
+  const host = h('div.term-host', { 'data-drop': '📎 Drop screenshots or files here to put them in the terminal' });
   const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, onChanges ? changesBtn : null, closeBtn), host);
 
   const term = new Terminal({
@@ -294,6 +306,66 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   term.onKey(sayTyping);
   term.textarea?.addEventListener('input', sayTyping);
   term.textarea?.addEventListener('paste', sayTyping);
+
+  // Files dropped in, or a screenshot pasted, go up to the office's machine and the terminal types
+  // where they are, as a terminal does with a file dragged into it: Claude Code attaches a picture.
+  let uploading = 0;
+  const insertFiles = async (files: File[]) => {
+    if (!files.length) return;
+    el.classList.toggle('uploading', ++uploading > 0);
+    try {
+      const paths = await Promise.all(files.map((f) => uploadDrop(workerId, f)));
+      if (current?.modal !== modal) return;
+      sayTyping();
+      sendSize(true);
+      term.paste(droppedPaths(paths));
+      term.focus();
+    } catch (err) {
+      toast((err as Error).message, 'warn');
+    } finally {
+      el.classList.toggle('uploading', --uploading > 0);
+    }
+  };
+  const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files');
+  // The whole screen is the drop zone while the terminal is open, so a near miss doesn't open the file in the browser.
+  let dragDepth = 0;
+  const dragEnd = () => {
+    dragDepth = 0;
+    el.classList.remove('dropping');
+  };
+  modal.backdrop.addEventListener('dragenter', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth++;
+    el.classList.add('dropping');
+  });
+  modal.backdrop.addEventListener('dragover', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = 'copy';
+  });
+  modal.backdrop.addEventListener('dragleave', (e) => {
+    if (hasFiles(e) && --dragDepth <= 0) dragEnd();
+  });
+  modal.backdrop.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragEnd();
+    void insertFiles([...e.dataTransfer!.files]);
+  });
+  // A picture on the clipboard with no text (a screenshot) pastes like a dropped file. Caught on the
+  // way down, before xterm would paste it as nothing.
+  host.addEventListener(
+    'paste',
+    (e) => {
+      const files = [...(e.clipboardData?.files ?? [])];
+      if (!files.length || e.clipboardData?.getData('text/plain')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void insertFiles(files);
+    },
+    true,
+  );
   modelsBtn.addEventListener('click', () => {
     if (modelsBtn.hasAttribute('disabled')) return;
     sendSize(true);
