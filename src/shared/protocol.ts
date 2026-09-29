@@ -793,6 +793,8 @@ export interface TeamState {
   /** SHA256 fingerprint of the box's ED25519 host key, to check on first connect. */
   fingerprint?: string;
   members: TeamMember[];
+  /** The office's name on its Tailscale network (e.g. agent-office.tail1234.ts.net): everyone there opens https://<it>. */
+  tailnet?: string;
 }
 
 /** A web server a worker started (a dev server, a preview), found by the ports it listens on. */
@@ -818,6 +820,8 @@ export interface ServicesState {
   port: number;
   /** user@host teammates tunnel to (offices deployed with deploy/aws.sh), e.g. office@203.0.113.7 */
   ssh?: string;
+  /** The office's name on its Tailscale network: each server is also on https://<it>:<port> there. */
+  tailnet?: string;
 }
 
 export type ChangeStatus = 'M' | 'A' | 'D' | 'R' | 'T' | '?';

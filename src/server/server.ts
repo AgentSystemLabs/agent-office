@@ -13,6 +13,7 @@ import { childEnv, resolveCommand } from './workers.js';
 import { SignIns, type GhAs } from './signins.js';
 import { agentProviders, configuredProvider, OPEN_CODE_MODEL_MAX } from './agents.js';
 import { createOpenCodeModelCatalogue } from './models.js';
+import { Tailnet } from './tailnet.js';
 import { Team } from './team.js';
 import { Upgrader } from './upgrade.js';
 import { Services } from './services.js';
@@ -525,7 +526,8 @@ export async function startServer(cfg: Config) {
   // Workers still running from the last office are back at their desks before anyone walks in.
   await Promise.all([...floors.values()].map((f) => f.ready));
 
-  const team = new Team(cfg.publicHost, cfg.port);
+  const team = new Team(cfg.publicHost, cfg.port, cfg.tailnet);
+  const tailnet = new Tailnet(cfg.tailnet);
 
   // Web servers the workers start, for the Services board and service tunnels (see relay.ts).
   // One scan covers every floor; each floor's board lists its own workers' servers.
@@ -533,11 +535,13 @@ export async function startServer(cfg: Config) {
     items: floor ? items.filter((s) => floor.workers.get(s.workerId)) : [],
     port: cfg.port,
     ssh: team.ssh,
+    tailnet: cfg.tailnet,
   });
   const services = new Services(
     () => [...floors.values()].flatMap((f) => f.workers.owners()),
     (items) => {
       for (const c of clients.values()) sendTo(c, { t: 'services', state: servicesState(floorOf(c), items) });
+      tailnet.sync(items.map((s) => s.port));
     },
   );
 
@@ -693,7 +697,7 @@ export async function startServer(cfg: Config) {
   const handler = async (req: http.IncomingMessage, res: http.ServerResponse) => {
     try {
       // A service tunnel (localhost:5173 -> the office): relay to that worker's server.
-      const tunneled = tunneledPort(req, cfg.port);
+      const tunneled = tunneledPort(req, cfg.port, cfg.tailnet);
       const svc = tunneled ? services.lookup(tunneled) : undefined;
       if (tunneled && svc) {
         if (req.method === 'POST' && req.url === RELAY_LOGIN) return await login(req, res);
@@ -894,7 +898,7 @@ export async function startServer(cfg: Config) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
   server.on('upgrade', (req, socket, head) => {
     socket.on('error', () => socket.destroy());
-    const tunneled = tunneledPort(req, cfg.port);
+    const tunneled = tunneledPort(req, cfg.port, cfg.tailnet);
     const svc = tunneled ? services.lookup(tunneled) : undefined;
     if (tunneled && svc) {
       if (svc !== 'gone' && auth.fromAnyCookie(req)) return relayUpgrade(req, socket, head, svc);
@@ -1011,7 +1015,7 @@ export async function startServer(cfg: Config) {
       projectsDir: building.projectsDirState(),
       ice: cfg.iceServers,
       chat: chat.recent(50),
-      invites: team.available,
+      invites: team.available || !!cfg.tailnet,
       version: upgrader.version,
       upgrade: upgrader.state,
       usage: ledger.state(),
@@ -2142,6 +2146,7 @@ export async function startServer(cfg: Config) {
     server.listen(cfg.port, cfg.host, () => resolve());
   });
   services.start();
+  tailnet.start(() => services.list().map((s) => s.port));
 
   /** With `keep` (a restart), workers' terminals keep running for the next office to pick up. */
   const shutdown = (keep = false) => {
@@ -2151,6 +2156,7 @@ export async function startServer(cfg: Config) {
     arcade.flush();
     upgrader.stop();
     services.stop();
+    tailnet.stop();
     webhook.stop();
     machine.stop();
     sky.stop();
