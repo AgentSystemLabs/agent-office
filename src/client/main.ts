@@ -586,7 +586,9 @@ function vehicleKey(code: string): boolean {
     toast('📣 HONK!');
     return true;
   }
-  return !!mine && ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space'].includes(code);
+  // Leave driving controls to PlayerController's held-key set. The vehicle rig takes over movement,
+  // so they cannot also walk the character, and consuming them here would clear them before a frame.
+  return false;
 }
 
 function updateVehicles(dt: number) {
