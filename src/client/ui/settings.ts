@@ -17,8 +17,34 @@ const THEME_LABEL: Record<ThemePick, string> = { auto: '📅 By the calendar', h
 
 const WEBHOOK_NAME: Record<WebhookKind, string> = { slack: 'Slack', discord: 'Discord', other: 'a webhook' };
 
-/** `outside` describes the sky over the office (see describeSky), once the server has said. */
-export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void, notifier: DesktopNotifier, onSignOut: () => void, outside?: { now: string; live: boolean }) {
+/** The categories down the side of ⚙️ Settings. */
+export type SettingsPane = 'you' | 'sound' | 'notify' | 'building' | 'workers';
+
+const PANES: { id: SettingsPane; icon: string; label: string; blurb: string }[] = [
+  { id: 'you', icon: '🧍', label: 'You', blurb: 'How you look, how you see the office, and how you’re signed in.' },
+  { id: 'sound', icon: '🔊', label: 'Sound & voice', blurb: 'How loud the office is for you, and how voice chat works.' },
+  { id: 'notify', icon: '🔔', label: 'Notifications', blurb: 'Hear about a worker that needs someone, or finished, while you’re somewhere else.' },
+  { id: 'building', icon: '🏢', label: 'Building', blurb: 'The decorations, the sky, the dog, and where new floors are cloned.' },
+  { id: 'workers', icon: '🤖', label: 'Workers', blurb: 'What workers start on, how many run at once, when they go home and what the office tells them.' },
+];
+
+/** Who a setting is for, shown by its name: some are yours alone, some the whole office's. */
+type Scope = 'you' | 'floor' | 'office';
+const SCOPE: Record<Scope, [label: string, title: string]> = {
+  you: ['Just you', 'Only for you, kept in this browser'],
+  floor: ['This floor', 'The same for everyone on this floor'],
+  office: ['Everyone', 'The same for everyone in the building'],
+};
+
+/** One setting: its name and who it's for, then whatever sets it. */
+const setting = (title: string, scope: Scope | null, ...body: Node[]) =>
+  h('div.setting', {}, h('div.setting-head', {}, h('h4', {}, title), scope && h('span.scope', { class: scope, title: SCOPE[scope][1] }, SCOPE[scope][0])), ...body);
+
+/** Where ⚙️ Settings was last, so it opens there again. */
+let lastPane: SettingsPane = 'you';
+
+/** `outside` describes the sky over the office (see describeSky), once the server has said. `first` opens on that category instead of the last one. */
+export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void, notifier: DesktopNotifier, onSignOut: () => void, outside?: { now: string; live: boolean }, first?: SettingsPane) {
   const seg = h('div.seg', { role: 'radiogroup', 'aria-label': 'Camera view' });
   const note = h('p.setting-note');
   const paint = () => {
@@ -385,7 +411,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const dogInput = h('input', { type: 'text', maxlength: DOG_NAME_MAX, 'aria-label': 'The dog’s name', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
   const dogSave = h('button.btn.primary', { type: 'button' }, 'Rename');
   const dogNote = h('p.setting-note');
-  const dogSection = h('div', {}, h('label', { style: 'margin-top:18px' }, 'Office dog'), h('div.webhook', {}, dogInput, dogSave), dogNote);
+  const dogSection = setting('Office dog', 'floor', h('div.webhook', {}, dogInput, dogSave), dogNote);
   const paintDog = () => {
     const dog = store.dog;
     dogSection.classList.toggle('hidden', !dog);
@@ -409,69 +435,78 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const signOut = h('button.btn', { type: 'button' }, '🚪 Sign out');
   signOut.addEventListener('click', onSignOut);
   const character = h('button.btn', { type: 'button' }, account ? '🧍 Change your look' : '🧍 Change your look & name');
-  const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
-  const el = h(
-    'div.modal',
-    { role: 'dialog', 'aria-label': 'Settings' },
-    h('header', {}, h('h2', {}, '⚙️ Settings'), close),
-    h(
-      'div.body',
-      {},
-      h('label', {}, 'Camera view'),
-      seg,
-      note,
-      h('label', { style: 'margin-top:18px' }, 'Office sounds'),
-      soundRow,
-      h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds and rain outside, the dog, and the ding when a worker is done. Voice chat isn’t affected.'),
-      h('label', { style: 'margin-top:18px' }, 'Voice chat'),
-      talkRow,
-      h('p.setting-note', {}, 'Either way, V joins voice, holding V talks and you’re muted once you let go, and M mutes or unmutes. With push to talk you join muted. Leave voice from the ☰ menu.'),
-      h('label', { style: 'margin-top:18px' }, '🎵 Jukebox'),
-      musicRow,
-      h('p.setting-note', {}, 'The jukebox in the lounge. Everyone on the floor hears the same song, louder the closer they are to it; this is how loud it is for you alone.'),
+  const panes: Record<SettingsPane, Node[]> = {
+    you: [
+      setting('Your character', null, character),
+      setting('Camera view', 'you', seg, note),
+      setting('Signed in', null, h('div.volume', {}, signOut), h('p.setting-note', {}, account ? `As ${account.name}, with your own account (${account.role}).` : 'With the shared office password.')),
+    ],
+    sound: [
+      setting('Office sounds', 'you', soundRow, h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds and rain outside, the dog, and the ding when a worker is done. Voice chat isn’t affected.')),
+      setting('Jukebox', 'you', musicRow, h('p.setting-note', {}, 'The jukebox in the lounge. Everyone on the floor hears the same song, louder the closer they are to it; this is how loud it is for you alone.')),
+      setting('Voice chat', 'you', talkRow, h('p.setting-note', {}, 'Either way, V joins voice, holding V talks and you’re muted once you let go, and M mutes or unmutes. With push to talk you join muted. Leave voice from the ☰ menu.')),
+    ],
+    notify: [
+      setting('Desktop notifications', 'you', notifyRow, notifyNote),
+      setting('Team notifications (Slack / Discord)', 'office', h('div.webhook', {}, hookInput, hookSave), hookActions, hookStatus),
+    ],
+    building: [
+      setting('Holiday theme', 'office', themeRow, themeNote),
       ...(outside
         ? [
-            h('label', { style: 'margin-top:18px' }, 'Outside'),
-            h('p.outside-now', {}, outside.now),
-            h('p.setting-note', {}, outside.live ? 'Everyone sees the same sky: the office’s clock and the live weather where it is.' : 'Everyone sees the same sky: the office’s clock, and weather that comes and goes. Start the office with --city to use a real city’s forecast.'),
+            setting(
+              'Outside',
+              'office',
+              h('p.outside-now', {}, outside.now),
+              h('p.setting-note', {}, outside.live ? 'Everyone sees the same sky: the office’s clock and the live weather where it is.' : 'Everyone sees the same sky: the office’s clock, and weather that comes and goes. Start the office with --city to use a real city’s forecast.'),
+            ),
           ]
         : []),
-      h('label', { style: 'margin-top:18px' }, 'Holiday theme'),
-      themeRow,
-      themeNote,
-      h('label', { style: 'margin-top:18px' }, 'Desktop notifications'),
-      notifyRow,
-      notifyNote,
-      h('label', { style: 'margin-top:18px' }, 'Team notifications (Slack / Discord)'),
-      h('div.webhook', {}, hookInput, hookSave),
-      hookActions,
-      hookStatus,
-      h('label', { style: 'margin-top:18px' }, '🤖 Default worker'),
-      agentNow,
-      agent.element,
-      agentActions,
-      agentNote,
-      h('label', { style: 'margin-top:18px' }, '📝 Prompts'),
-      promptsOpen,
-      promptsNote,
-      h('label', { style: 'margin-top:18px' }, '👷 Worker limit'),
-      limitRow,
-      limitNote,
-      h('label', { style: 'margin-top:18px' }, '🎉 Workers whose pull request merged'),
-      leaveRow,
-      leaveNote,
-      h('label', { style: 'margin-top:18px' }, '📁 Workspace folder'),
-      dirRow,
-      dirActions,
-      dirNote,
       dogSection,
-      h('label', { style: 'margin-top:18px' }, 'Your character'),
-      character,
-      h('label', { style: 'margin-top:18px' }, 'Signed in'),
-      h('div.volume', {}, signOut),
-      h('p.setting-note', {}, account ? `As ${account.name}, with your own account (${account.role}).` : 'With the shared office password.'),
-    ),
-  );
+      setting('Workspace folder', 'office', dirRow, dirActions, dirNote),
+    ],
+    workers: [
+      setting('Default worker', 'office', agentNow, agent.element, agentActions, agentNote),
+      setting('Worker limit', 'office', limitRow, limitNote),
+      setting('Workers whose pull request merged', 'office', leaveRow, leaveNote),
+      setting('Prompts', 'office', promptsOpen, promptsNote),
+    ],
+  };
+
+  // The categories down the side, the one picked on the right.
+  const nav = h('nav.settings-nav', { role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': 'Settings' });
+  const tabs = new Map<SettingsPane, HTMLButtonElement>();
+  const bodies = new Map<SettingsPane, HTMLElement>();
+  for (const p of PANES) {
+    const tab = h('button.settings-tab', { type: 'button', role: 'tab', onclick: () => show(p.id) }, h('span.icon', { 'aria-hidden': 'true' }, p.icon), h('span', {}, p.label)) as HTMLButtonElement;
+    tabs.set(p.id, tab);
+    nav.append(tab);
+    bodies.set(p.id, h('section.settings-pane', { role: 'tabpanel', 'aria-label': p.label }, h('div.settings-head', {}, h('h3', {}, `${p.icon} ${p.label}`), h('p', {}, p.blurb)), ...panes[p.id]));
+  }
+  const show = (id: SettingsPane) => {
+    lastPane = id;
+    for (const [t, tab] of tabs) {
+      tab.classList.toggle('on', t === id);
+      tab.setAttribute('aria-selected', String(t === id));
+      tab.tabIndex = t === id ? 0 : -1;
+    }
+    for (const [t, body] of bodies) body.classList.toggle('hidden', t !== id);
+    bodies.get(id)!.scrollTop = 0;
+    // On a phone the categories are a row across the top that scrolls sideways.
+    tabs.get(id)!.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  };
+  nav.addEventListener('keydown', (e) => {
+    const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const i = PANES.findIndex((p) => p.id === lastPane);
+    const next = PANES[(i + step + PANES.length) % PANES.length].id;
+    show(next);
+    tabs.get(next)!.focus();
+  });
+
+  const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
+  const el = h('div.modal.settings', { role: 'dialog', 'aria-label': 'Settings' }, h('header', {}, h('h2', {}, '⚙️ Settings'), close), h('div.settings-body', {}, nav, ...bodies.values()));
   const offNotify = store.on('notify', paintHook);
   const offDog = store.on('dog', paintDog);
   const offTheme = store.on('theme', paintTheme);
@@ -491,6 +526,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       offPrompts.forEach((off) => off());
     },
   });
+  show(first ?? lastPane);
   close.addEventListener('click', () => modal.close());
   character.addEventListener('click', () => {
     modal.close();
