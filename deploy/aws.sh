@@ -326,7 +326,7 @@ tailnet_reachable() { curl -fs -o /dev/null --max-time 20 "https://$1/api/health
 # machine, or to turn HTTPS certificates on) in your browser.
 open_tailscale_links() {
   local line url opened=" "
-  while IFS= read -r line; do
+  while IFS= read -r line || [[ -n "$line" ]]; do
     printf '%s\n' "$line"
     [[ "$line" =~ (https://login\.tailscale\.com/[^[:space:]]+) ]] || continue
     url="${BASH_REMATCH[1]}"
