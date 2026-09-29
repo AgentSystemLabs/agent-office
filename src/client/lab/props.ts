@@ -11,13 +11,15 @@
 // Once it has drawn, window.__ready holds each prop's size, triangles, draw calls and material names.
 
 import * as THREE from 'three';
+import { DESKS } from '../../shared/layout';
 import { buildCabinet } from '../world/cabinet';
 import { supercar } from '../world/cars';
 import { buildGong } from '../world/gong';
 import { buildJukebox } from '../world/jukebox';
 import { buildKitchen } from '../world/kitchen';
 import { preloadModels } from '../world/models';
-import { FLOOR_PLANTS, plant } from '../world/office';
+import { DESK_BOOKS, FLOOR_PLANTS, buildDesk, deskBooks, deskMug, plant } from '../world/office';
+import { toon } from '../world/toon';
 import { ready, stage } from './stage';
 
 /** A prop as the lab shows it: what goes in the scene, and what moves it every frame, if anything. */
@@ -48,6 +50,22 @@ const SHOW: Record<string, () => Shown> = {
     [...FLOOR_PLANTS, 'succulent' as const].forEach((species, i) => {
       if (!q.has('plant') || q.get('plant') === species) object.add(plant(species).translateX(at[i]));
     });
+    return { object };
+  },
+  desk_props: () => {
+    // The mug (in the first chair's color) and every arrangement of books side by side. desks=1 puts them
+    // on real desks instead, built by buildDesk: the first desk, which has the mug, and the first three
+    // with books, one of each arrangement.
+    const object = new THREE.Group();
+    if (q.get('desks') === '1') {
+      [0, 2, 5, 8].forEach((index, i) => {
+        const desk = buildDesk({ ...DESKS[index], x: i * 2.5, z: 0, rotY: 0 }, index, toon('#e8a87c'));
+        desk.vacancy.visible = false;
+        object.add(desk.group);
+      });
+    } else {
+      [deskMug('#ff8a5b'), ...DESK_BOOKS.map((_, i) => deskBooks(i))].forEach((p, i) => object.add(p.translateX(i * 0.36)));
+    }
     return { object };
   },
   lambo: () => ({ object: supercar('lambo', '#ffd166') }),

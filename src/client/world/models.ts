@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import deskPropsUrl from '../models/desk_props.glb?url';
 import dogCorgiUrl from '../models/dog-corgi.glb?url';
 import dogDachshundUrl from '../models/dog-dachshund.glb?url';
 import dogPugUrl from '../models/dog-pug.glb?url';
@@ -20,6 +21,7 @@ const MODELS = {
   'dog-dachshund': { url: dogDachshundUrl, preload: false },
   'dog-pug': { url: dogPugUrl, preload: false },
   'dog-shiba': { url: dogShibaUrl, preload: false },
+  desk_props: { url: deskPropsUrl, preload: true },
   kitchen: { url: kitchenUrl, preload: true },
   plants: { url: plantsUrl, preload: true },
 } satisfies Record<string, { url: string; preload: boolean }>;

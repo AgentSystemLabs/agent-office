@@ -264,6 +264,34 @@ export function plantLeaves(potted: THREE.Object3D): THREE.Object3D[] {
   return leaves;
 }
 
+// The desks' knick-knacks are modelled in Blender (blender/scripts/build_desk_props.py): a mug of coffee,
+// and books in a few arrangements, each a piece of desk_props.glb (see piece()). The colors are the old
+// code-built books' covers, book.ts's page edges and the coffee in a worker's mug (coffeeMug() in
+// character.ts); the mug itself is painted whatever color it's given.
+const DESK_PROP_COLORS = { CoverRed: '#e63946', CoverBlue: '#457b9d', CoverOrange: '#f4a261', Pages: '#f3ead8', Coffee: '#6f4518' };
+const paintDeskProp = palette(DESK_PROP_COLORS);
+/** The arrangements of books, which the desks with books take turns with (see deskBooks()). */
+export const DESK_BOOKS = ['books_upright', 'books_leaning', 'books_stack'] as const;
+
+/**
+ * A mug of coffee, its body `color`, its origin on the desk under the middle of its body and its handle out
+ * to +x. The body is the old code-built mug's size (0.06 round at the top, 0.12 tall). If the model didn't
+ * load, an empty group.
+ */
+export function deskMug(color: string): THREE.Object3D {
+  const body = toon(color);
+  return piece('desk_props', 'mug', (name) => (name === 'Mug' ? body : paintDeskProp(name)));
+}
+
+/**
+ * The `i`th arrangement of books (they take turns, see DESK_BOOKS), spines to +z, its origin on the desk in
+ * the middle of its footprint, which is at most the old code-built books' 0.26 by 0.18, and 0.24 tall. If
+ * the model didn't load, an empty group.
+ */
+export function deskBooks(i: number): THREE.Object3D {
+  return piece('desk_props', DESK_BOOKS[i % DESK_BOOKS.length], paintDeskProp);
+}
+
 /** A pendant lamp, its shade at 0, on a cord `cord` meters long. */
 function pendant(cord = 0.48): THREE.Group {
   const lamp = new THREE.Group();
@@ -768,7 +796,11 @@ function chair(color: string): THREE.Group {
   return g;
 }
 
-function buildDesk(def: DeskDef, index: number, trimMat: THREE.Material): DeskView {
+/**
+ * The `index`th desk (of DESKS) at `def`: its top, legs and modesty panel (in `trimMat`), its knick-knack,
+ * its chair, and the anchors its worker and laptop go in.
+ */
+export function buildDesk(def: DeskDef, index: number, trimMat: THREE.Material): DeskView {
   const group = new THREE.Group();
   group.position.set(def.x, 0, def.z);
   group.rotation.y = def.rotY;
@@ -782,19 +814,22 @@ function buildDesk(def: DeskDef, index: number, trimMat: THREE.Material): DeskVi
   }
   // Modesty panel facing away from the worker
   group.add(mesh(box(width - 0.3, 0.32, 0.03), trimMat, 0, height - 0.26, -depth / 2 + 0.06));
-  // Little desk decorations
+  // Little desk decorations. Which desk gets which stays as it is: the holiday present goes in whichever
+  // back corner it leaves free (DESK_SPOTS in holiday.ts).
   const deco = index % 3;
   if (deco === 0) {
-    const mug = mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.12, 10), toon(PALETTE.chairs[index % 6]), width / 2 - 0.25, height + 0.06, -0.2);
+    // In the chair's color.
+    const mug = deskMug(PALETTE.chairs[index % 6]);
+    mug.position.set(width / 2 - 0.25, height, -0.2);
     group.add(mug);
   } else if (deco === 1) {
     const p = plant('succulent');
     p.position.set(-width / 2 + 0.25, height, -0.25);
     group.add(p);
   } else {
-    const books = new THREE.Group();
-    ['#e63946', '#457b9d', '#f4a261'].forEach((c, i) => books.add(mesh(box(0.08, 0.24, 0.18), toon(c), i * 0.09, 0.12, 0)));
-    books.position.set(width / 2 - 0.35, height, -0.3);
+    // Where the old three boxes stood, the desks with books taking turns with the arrangements.
+    const books = deskBooks(Math.floor(index / 3));
+    books.position.set(width / 2 - 0.26, height, -0.3);
     group.add(books);
   }
 
