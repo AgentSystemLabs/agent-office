@@ -26,6 +26,7 @@ import { Building, type FloorDef } from './building.js';
 import { Floor, type FloorContext } from './floor.js';
 import { Sky } from './sky.js';
 import { Themes } from './theme.js';
+import { Maps } from './maps.js';
 import { OfficePrompts } from './prompts.js';
 import { LeaveOnMerge } from './leave-on-merge.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
@@ -33,7 +34,8 @@ import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState, SignInKind } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
-import { DESK_BY_ID, elevatorSpot, seatHere, streetBelow } from '../shared/layout.js';
+import { DESK_BY_ID, elevatorSpot, streetBelow } from '../shared/layout.js';
+import { seatHereOn } from '../shared/maps/index.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
@@ -378,6 +380,8 @@ export async function startServer(cfg: Config) {
   // goes by the calendar at the office, the sky's clock.
   const themes = new Themes(cfg.dataDir, () => sky.state.utcOffset, (state) => broadcast({ t: 'theme', state }));
   themes.start();
+  // What the building looks like inside: the office, the castle, or a map of your own (⚙️ Settings).
+  const maps = new Maps(cfg.dataDir);
   // The prompts the office writes for workers by itself, and the worker everyone starts on (⚙️ Settings).
   const configured = configuredProvider(cfg.agentCmd);
   const prompts = new OfficePrompts(cfg.dataDir, { list: agentProviders(configured), configured }, (state) => broadcast({ t: 'prompts', state }));
@@ -1037,6 +1041,8 @@ export async function startServer(cfg: Config) {
         ...(onRoof ? { floor: ROOF } : floor ? { floor: floor.id } : {}),
       },
     };
+    // Maps of your own may have been added or edited since: everyone already in hears first.
+    if (maps.reload()) broadcast({ t: 'map', state: maps.state() });
     clients.set(id, client);
     if (account) accounts.seen(account.id);
     ws.on('pong', () => (client.isAlive = true));
@@ -1059,6 +1065,7 @@ export async function startServer(cfg: Config) {
       machine: machine.state(),
       sky: sky.state,
       theme: themes.state(),
+      map: maps.state(),
       prompts: prompts.state(),
       leaveOnMerge: leaveOnMerge.state(),
       ...(onRoof ? roofView() : floorView(floor)),
@@ -1362,7 +1369,7 @@ export async function startServer(cfg: Config) {
         // Everyone sees them sit down (or get up), and anyone who comes in later finds them sitting.
         // Only on a seat where they are: the roof's up on the roof, the office's on a floor.
         const key = str(msg.seat, 40);
-        const seat = seatHere(key, c.peer.floor === ROOF) ? key : undefined;
+        const seat = seatHereOn(maps.plan(), key, c.peer.floor === ROOF) ? key : undefined;
         if (seat === c.peer.seat) break;
         if (seat) c.peer.seat = seat;
         else delete c.peer.seat;
@@ -1837,6 +1844,27 @@ export async function startServer(cfg: Config) {
                 ? `${who} took the holiday decorations down`
                 : `📅 ${who} set the decorations to follow the calendar${now ? ` (it's ${now === 'halloween' ? 'Halloween 🎃' : 'Christmas 🎄'} season)` : ''}`,
         );
+        break;
+      }
+      case 'map.set': {
+        // No map: someone opened the list, so the folder of maps of your own is read again.
+        if (msg.map === undefined) {
+          if (maps.reload()) broadcast({ t: 'map', state: maps.state() });
+          break;
+        }
+        const was = maps.pick();
+        if (!maps.set(str(msg.map, 64), who)) return warn(c, 'There’s no map by that name, or it won’t load: see ⚙️ Settings');
+        broadcast({ t: 'map', state: maps.state() });
+        if (maps.pick() !== was) {
+          const plan = maps.plan();
+          // Everyone gets up: the seats they were on aren't there any more.
+          for (const other of clients.values()) {
+            if (!other.peer.seat) continue;
+            delete other.peer.seat;
+            broadcast({ t: 'peer.update', peer: other.peer });
+          }
+          toastAll(`${plan.icon} ${who} changed the building's map to the ${plan.name.toLowerCase()}`);
+        }
         break;
       }
       case 'prompts.set': {
