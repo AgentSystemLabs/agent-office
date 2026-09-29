@@ -3,9 +3,8 @@
 // the worker's prompts and recent tool calls, told how by the 'office.namer' prompt (shared/prompts.ts).
 // Without it, the card falls back to the prompt itself.
 
-import { spawn } from 'node:child_process';
-import os from 'node:os';
 import type { WorkerTask } from '../shared/protocol.js';
+import { runHeadless, type HeadlessRunner } from './headless.js';
 
 /** What a worker has been asked and has been doing lately. */
 export interface TaskContext {
@@ -26,12 +25,12 @@ const TIMEOUT_MS = 45_000;
 const FAILS_BEFORE_BACKOFF = 3;
 const BACKOFF_MS = 10 * 60_000;
 
-const SCHEMA = JSON.stringify({
+const SCHEMA = {
   type: 'object',
   properties: { name: { type: 'string' }, summary: { type: 'string' } },
   required: ['name', 'summary'],
   additionalProperties: false,
-});
+};
 
 export class TaskNamer {
   private pending = new Map<string, TaskContext>();
@@ -45,12 +44,14 @@ export class TaskNamer {
    * @param claude the `claude` binary, or null to only ever use the prompt as the label
    * @param env environment for it (the office's own, minus anything that marks a child session)
    * @param system its instructions, as the office has them now (the 'office.namer' prompt)
+   * @param run how the CLI is called (a fake in tests)
    */
   constructor(
     private claude: string | null,
     private env: Record<string, string>,
     private system: () => string,
     private done: (workerId: string, task: WorkerTask, ctx: TaskContext) => void,
+    private run: HeadlessRunner = runHeadless,
   ) {}
 
   get enabled(): boolean {
@@ -99,7 +100,7 @@ export class TaskNamer {
 
   private async generate(ctx: TaskContext): Promise<WorkerTask | null> {
     if (!this.enabled) return null;
-    const out = await run(this.claude!, this.env, this.system(), describe(ctx));
+    const out = await this.run({ claude: this.claude!, env: this.env, prompt: describe(ctx), schema: SCHEMA, system: this.system(), isolated: true, timeoutMs: TIMEOUT_MS });
     const task = out === null ? null : parse(out);
     if (task) this.fails = 0;
     else if (++this.fails >= FAILS_BEFORE_BACKOFF) {
@@ -126,56 +127,11 @@ function describe(ctx: TaskContext): string {
   return parts.join('\n\n');
 }
 
-function run(claude: string, env: Record<string, string>, system: string, input: string): Promise<string | null> {
-  const args = [
-    '-p',
-    '--model', 'haiku',
-    '--output-format', 'json',
-    '--json-schema', SCHEMA,
-    '--system-prompt', system,
-    '--tools', '',
-    // Not the user's or the project's settings: no hooks, no MCP servers, no plugins, no transcript.
-    '--setting-sources', '',
-    '--strict-mcp-config',
-    '--disable-slash-commands',
-    '--no-session-persistence',
-  ];
-  return new Promise((resolve) => {
-    let out = '';
-    let settled = false;
-    const finish = (v: string | null) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(v);
-    };
-    const child = spawn(claude, args, {
-      // A neutral directory, so it doesn't pick up the project's CLAUDE.md.
-      cwd: os.tmpdir(),
-      env: { ...env, MAX_THINKING_TOKENS: '0' },
-      stdio: ['pipe', 'pipe', 'ignore'],
-    });
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      finish(null);
-    }, TIMEOUT_MS);
-    child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (d: string) => (out += d));
-    child.on('error', () => finish(null));
-    child.on('close', (code) => finish(code === 0 ? out : null));
-    child.stdin.on('error', () => {});
-    child.stdin.end(input);
-  });
-}
-
-function parse(out: string): WorkerTask | null {
+/** The label out of the model's answer, tidied; null when it isn't one. */
+function parse(v: unknown): WorkerTask | null {
   try {
-    const res = JSON.parse(out);
-    if (res?.is_error) return null;
-    let v = res?.structured_output;
-    if (!v && typeof res?.result === 'string') v = JSON.parse(res.result.replace(/^```(json)?|```$/g, ''));
-    const name = clip(String(v?.name ?? '').replace(/^["'\s]+|["'.\s]+$/g, ''), NAME_MAX);
-    const summary = clip(String(v?.summary ?? '').replace(/^["'\s]+|["'\s]+$/g, '').replace(/\.$/, ''), SUMMARY_MAX);
+    const name = clip(String((v as { name?: unknown })?.name ?? '').replace(/^["'\s]+|["'.\s]+$/g, ''), NAME_MAX);
+    const summary = clip(String((v as { summary?: unknown })?.summary ?? '').replace(/^["'\s]+|["'\s]+$/g, '').replace(/\.$/, ''), SUMMARY_MAX);
     return name && summary ? { name, summary } : null;
   } catch {
     return null;

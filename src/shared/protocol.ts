@@ -682,6 +682,8 @@ export interface FloorView {
   project: ProjectInfo | null;
   workers: WorkerInfo[];
   issues: GhState<GhIssue>;
+  /** Where the issues come from: GitHub through gh, or Linear. Pull requests always come from GitHub. */
+  issueProvider: 'github' | 'linear';
   pulls: GhState<GhPull>;
   queue: QueueState;
   /** Pictures on this floor's walls. */

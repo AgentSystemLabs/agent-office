@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import type { GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhLabel, GhMergeMethod, GhPull, GhPullDetail, GhRepoInfo, GhReviewComment, GhState } from '../shared/protocol.js';
+import type { IssueProvider } from './issues.js';
 
 const REFRESH_MS = 90_000;
 /** What names an issue or PR to gh: a PR's number, or an issue's id (its number as text, see shared/issues.ts). */
@@ -97,7 +98,12 @@ export class MergeWatch {
   }
 }
 
-export class GitHub {
+/**
+ * The repository's issues and pull requests, through the gh CLI. Always the office's source of pull
+ * requests; its source of issues too unless another tracker's provider (issues.ts) has the board.
+ */
+export class GitHub implements IssueProvider {
+  readonly kind = 'github' as const;
   issues: GhState<GhIssue> = { items: [], fetchedAt: 0, loading: false };
   pulls: GhState<GhPull> = { items: [], fetchedAt: 0, loading: false };
   private timer?: NodeJS.Timeout;
@@ -111,6 +117,8 @@ export class GitHub {
     private dir: string,
     private onIssues: (s: GhState<GhIssue>) => void,
     private onPulls: (s: GhState<GhPull>) => void,
+    /** With `issues: false`, only pull requests are fetched: the issue board comes from elsewhere. */
+    private opts: { issues: boolean } = { issues: true },
   ) {}
 
   start() {
@@ -123,7 +131,7 @@ export class GitHub {
   }
 
   async refresh() {
-    await Promise.all([this.refreshIssues(), this.refreshPulls()]);
+    await Promise.all([this.opts.issues ? this.refreshIssues() : undefined, this.refreshPulls()]);
   }
 
   /** The repository's full name and how it lets PRs merge. Asked once (again after a failure). */
@@ -356,7 +364,7 @@ export class GitHub {
     return undefined;
   }
 
-  private async refreshIssues() {
+  async refreshIssues() {
     if (this.issues.loading) return;
     this.issues = { ...this.issues, loading: true };
     this.onIssues(this.issues);

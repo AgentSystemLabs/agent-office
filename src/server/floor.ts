@@ -9,6 +9,7 @@ import { excludeFromGit } from './config.js';
 import { agentProviders, configuredProvider } from './agents.js';
 import { WorkerManager, type HookEnv } from './workers.js';
 import { GitHub, MergeWatch } from './github.js';
+import type { IssueProvider, IssuesConfig } from './issues.js';
 import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { Decor } from './decor.js';
@@ -37,6 +38,10 @@ export interface FloorContext {
   capacity: Capacity;
   /** The office's prompts and the worker everyone starts on, as set in ⚙️ Settings. */
   prompts: PromptSource;
+  /** Where the issue boards read from (--issues). */
+  issues: IssuesConfig;
+  /** The `claude` binary, for the headless calls an issue provider other than GitHub makes; null when there is none. */
+  claude: string | null;
   /** To everyone on this floor. */
   emit(floor: Floor, msg: ServerMsg, droppable?: boolean): void;
   toast(floor: Floor, text: string, level?: ToastLevel): void;
@@ -90,6 +95,8 @@ export class Floor {
   readonly project: ProjectInfo;
   readonly workers: WorkerManager;
   readonly github: GitHub;
+  /** The 📌 issue board's source: GitHub itself, or another tracker's provider (see issues.ts). */
+  readonly issueSource: IssueProvider;
   readonly queue: TaskQueue;
   readonly changes: Changes;
   readonly decor: Decor;
@@ -164,9 +171,10 @@ export class Floor {
       ctx.prompts,
     );
 
+    const githubIssues = ctx.issues.provider === 'github';
     this.github = new GitHub(
       def.dir,
-      (state) => ctx.emit(this, { t: 'gh.issues', state }),
+      (state) => githubIssues && ctx.emit(this, { t: 'gh.issues', state }),
       (state) => {
         ctx.emit(this, { t: 'gh.pulls', state });
         this.queue?.onPulls(state.items);
@@ -177,7 +185,9 @@ export class Floor {
         }
         this.sendLandedHome();
       },
+      { issues: githubIssues },
     );
+    this.issueSource = this.github;
     // The 📋 task queue seats workers by itself: it watches the workers and links PRs from GitHub.
     this.queue = new TaskQueue(dataDir, this.workers, !!this.project.branch, {
       update: (state) => {
@@ -186,7 +196,7 @@ export class Floor {
         this.sendLandedHome();
       },
       toast: (text, level) => ctx.toast(this, text, level),
-      claimIssue: (issue) => this.github.claim(issue),
+      claimIssue: (issue) => this.issueSource.claim(issue),
       refreshGitHub: () => void this.github.refresh(),
       hiringPaused: () => ctx.ledger.hiringPaused,
       room: () => ctx.capacity.room(),
@@ -248,11 +258,16 @@ export class Floor {
     this.whiteboard = new Whiteboard(dataDir);
     this.ready = this.workers.start();
 
-    void this.github.refresh();
+    void this.refreshBoards();
     // A floor with people on it, or work under way, keeps its boards fresh; the others check in now and then.
     this.timer = setInterval(() => {
-      if (this.active() || Date.now() - this.github.issues.fetchedAt > IDLE_REFRESH_MS) void this.github.refresh();
+      if (this.active() || Date.now() - this.issueSource.issues.fetchedAt > IDLE_REFRESH_MS) void this.refreshBoards();
     }, REFRESH_MS);
+  }
+
+  /** Asks for both boards again: pull requests from GitHub, issues from wherever they come from. */
+  refreshBoards(): Promise<void> {
+    return Promise.all([this.github.refresh(), this.issueSource === this.github ? undefined : this.issueSource.refreshIssues()]).then(() => undefined);
   }
 
   /** Pull request `n` merged (`by` someone, from the PR window): the gong rings, once per PR. */
@@ -284,7 +299,7 @@ export class Floor {
 
   /** Someone just walked in: boards that haven't been looked at in a while get fetched again. */
   arrived() {
-    if (Date.now() - Math.max(this.github.issues.fetchedAt, this.github.pulls.fetchedAt) > REFRESH_MS) void this.github.refresh();
+    if (Date.now() - Math.max(this.issueSource.issues.fetchedAt, this.github.pulls.fetchedAt) > REFRESH_MS) void this.refreshBoards();
   }
 
   private active(): boolean {

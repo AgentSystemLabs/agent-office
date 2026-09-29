@@ -387,8 +387,11 @@ export async function startServer(cfg: Config) {
 
   // The Claude plan's 5-hour and weekly limits, for the meter under the workers: one account for
   // every floor.
+  // The `claude` binary the office's own headless calls use (plan limits, the Linear board): the
+  // configured agent when that's Claude, else whatever `claude` is on the PATH.
+  const claudeBin = configuredProvider(cfg.agentCmd) === 'claude' ? resolveCommand(cfg.agentCmd) : resolveCommand('claude');
   const limits = new PlanLimitsReader(
-    configuredProvider(cfg.agentCmd) === 'claude' ? resolveCommand(cfg.agentCmd) : resolveCommand('claude'),
+    claudeBin,
     childEnv(),
     () => clients.size > 0,
     (state) => broadcast({ t: 'limits', state }),
@@ -430,6 +433,8 @@ export async function startServer(cfg: Config) {
     ledger,
     capacity: machine,
     prompts,
+    issues: { provider: 'github' },
+    claude: claudeBin,
     emit: toFloor,
     toast: toastFloor,
     termData: (workerId, data, viewers) => {
@@ -531,7 +536,8 @@ export async function startServer(cfg: Config) {
     floor: floor?.id ?? null,
     project: floor?.project ?? null,
     workers: floor?.workers.list() ?? [],
-    issues: floor?.github.issues ?? { items: [], fetchedAt: 0, loading: false },
+    issues: floor?.issueSource.issues ?? { items: [], fetchedAt: 0, loading: false },
+    issueProvider: floor?.issueSource.kind ?? 'github',
     pulls: floor?.github.pulls ?? { items: [], fetchedAt: 0, loading: false },
     queue: floor?.queue.state() ?? { tasks: [], maxWorkers: 0 },
     decor: floor?.decor.list() ?? [],
@@ -825,8 +831,8 @@ export async function startServer(cfg: Config) {
         const github = floor.github;
         try {
           if (p === '/api/gh/pull') return send(res, 200, await github.pullDetail(n));
-          if (p === '/api/gh/issue') return send(res, 200, await github.issueDetail(issue!));
-          if (p === '/api/gh/labels') return send(res, 200, await github.repoLabels());
+          if (p === '/api/gh/issue') return send(res, 200, await floor.issueSource.issueDetail(issue!));
+          if (p === '/api/gh/labels') return send(res, 200, await floor.issueSource.repoLabels());
           if (p === '/api/gh/pull/diff') {
             const diff = await github.pullDiff(n);
             res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
@@ -1131,7 +1137,7 @@ export async function startServer(cfg: Config) {
    */
   const takeIssue = (c: Client, floor: Floor, id: string) => {
     floor.queue.dropIssue(id);
-    void floor.github.claim(id).then((err) => warn(c, err && `Couldn't assign issue ${issueLabel(id)} on GitHub: ${err}`));
+    void floor.issueSource.claim(id).then((err) => warn(c, err && `Couldn't assign issue ${issueLabel(id)}: ${err}`));
   };
 
   const handleMessage = (c: Client, msg: ClientMsg) => {
@@ -1450,7 +1456,7 @@ export async function startServer(cfg: Config) {
         if (c.attached.has(msg.workerId)) workerFloor(msg.workerId)?.workers.resize(msg.workerId, num(msg.cols), num(msg.rows));
         break;
       case 'gh.refresh':
-        void floorOf(c)?.github.refresh();
+        void floorOf(c)?.refreshBoards();
         break;
       case 'gh.merge': {
         const floor = here();
@@ -1477,7 +1483,7 @@ export async function startServer(cfg: Config) {
           sendTo(c, { t: 'gh.commented', ...at, error: invalid });
           break;
         }
-        void floor.github.comment(at.kind, at.kind === 'pull' ? at.number : at.id, body).then((r) => {
+        void (at.kind === 'pull' ? floor.github.comment('pull', at.number, body) : floor.issueSource.comment('issue', at.id, body)).then((r) => {
           sendTo(c, { t: 'gh.commented', ...at, ...r });
           if (r.comment) toastFloor(floor, `💬 ${who} commented on ${ghName(at)}`);
         });
@@ -1505,7 +1511,7 @@ export async function startServer(cfg: Config) {
         const m = msg as { comment?: unknown; reason?: unknown; deleteBranch?: unknown };
         const reason: GhCloseReason = at.kind === 'issue' && m.reason === 'not planned' ? 'not planned' : 'completed';
         const opts = { comment: str(m.comment, 20000).trim() || undefined, reason, deleteBranch: at.kind === 'pull' && m.deleteBranch === true };
-        void floor.github.close(at.kind, at.kind === 'pull' ? at.number : at.id, opts).then((error) => {
+        void (at.kind === 'pull' ? floor.github.close('pull', at.number, opts) : floor.issueSource.close('issue', at.id, opts)).then((error) => {
           sendTo(c, { t: 'gh.closed', ...at, error });
           if (error) return;
           if (at.kind === 'pull') return toastFloor(floor, `${who} closed PR #${at.number} without merging`);
@@ -1526,7 +1532,7 @@ export async function startServer(cfg: Config) {
           sendTo(c, { t: 'gh.labeled', ...at, error: 'No labels to change' });
           break;
         }
-        void floor.github.setLabels(at.kind, at.kind === 'pull' ? at.number : at.id, add, remove).then((r) => {
+        void (at.kind === 'pull' ? floor.github.setLabels('pull', at.number, add, remove) : floor.issueSource.setLabels('issue', at.id, add, remove)).then((r) => {
           sendTo(c, { t: 'gh.labeled', ...at, ...r });
           if (r.labels) toastFloor(floor, `🏷️ ${who} labeled ${ghName(at)}: ${[...add.map((l) => `+${l}`), ...remove.map((l) => `−${l}`)].join(' ')}`);
         });
