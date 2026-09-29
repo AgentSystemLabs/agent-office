@@ -9,6 +9,7 @@ import { fmtTokens, isAgentEffort, isAgentProvider, tokensOf, type AgentChoice, 
 import { validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { gitError, type WorktreeRef, type WorktreeState } from './worktrees.js';
 import { PROMPTS, fillPrompt, type PromptId, type PromptVars } from '../shared/prompts.js';
+import { issueLabel, parseIssueId } from '../shared/issues.js';
 
 const execFileP = promisify(execFile);
 
@@ -142,7 +143,7 @@ export class MeetingRoom {
     if (pattern.needs === 'pr' && pr === undefined) return 'A review panel needs a pull request to review';
     const parts = (Array.isArray(req.parts) ? req.parts : []).map((p) => String(p ?? '').trim()).filter(Boolean).slice(0, PARTS_MAX);
     if (pattern.needs === 'parts' && parts.length < count - 1) return `List at least ${count - 1} part${count === 2 ? '' : 's'} for the mappers, one per line (or seat fewer workers)`;
-    const issue = Number.isInteger(req.issue) && (req.issue as number) > 0 ? (req.issue as number) : undefined;
+    const issue = parseIssueId(req.issue);
     const rounds = clamp(Math.floor(Number(req.rounds) || pattern.rounds.default), pattern.rounds.min, pattern.rounds.max);
     const budget = clamp(Math.floor(Number(req.budget) || count * TOKENS_PER_SEAT), 50_000, MAX_MEETING_BUDGET);
     const title = (String(req.title ?? '').replace(/\s+/g, ' ').trim() || (pr !== undefined && req.pattern === 'review' ? `Review of PR #${pr}` : firstLine(prompt))).slice(0, 100);
@@ -531,7 +532,7 @@ export class MeetingRoom {
       how: how[m.pattern],
       about: m.prompt,
       pullRequest: m.pr !== undefined ? `The pull request is #${m.pr}: read it with gh pr view ${m.pr} and gh pr diff ${m.pr}.` : '',
-      issue: m.issue !== undefined ? `It comes from GitHub issue #${m.issue}: gh issue view ${m.issue} --comments.` : '',
+      issue: m.issue !== undefined ? `It comes from GitHub issue ${issueLabel(m.issue)}: gh issue view ${m.issue} --comments.` : '',
       cwd: this.cwd(m),
       notes: path.join(this.cwd(m), m.notes),
       output: m.output,

@@ -1,4 +1,5 @@
 import type { GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhLabel, GhMergeMethod, GhPull, GhPullDetail, GhReviewComment, ServerMsg } from '../../shared/protocol';
+import { issueLabel } from '../../shared/issues';
 import type { Net } from '../net';
 import { AVATAR_COLORS, store, workerForPull } from '../state';
 import { issuePrompt, issueVars, type BoardActions } from './boards';
@@ -37,12 +38,22 @@ const closeWaiters = new Map<string, (msg: Extract<ServerMsg, { t: 'gh.closed' }
 /** Open label pickers, by "issue:N" or "pull:N". */
 const labelWaiters = new Map<string, (msg: Extract<ServerMsg, { t: 'gh.labeled' }>) => void>();
 
+/** Which issue or PR a gh.* message is about: a PR by its number, an issue by its id. */
+type GhTarget = { kind: 'pull'; number: number } | { kind: 'issue'; id: string };
+function ghTarget(kind: 'issue' | 'pull', it: GhIssue | GhPull): GhTarget {
+  return kind === 'pull' ? { kind: 'pull', number: (it as GhPull).number } : { kind: 'issue', id: (it as GhIssue).id };
+}
+/** The waiters' key for it: "issue:FOUND-2", "pull:12". */
+const ghKey = (at: GhTarget) => (at.kind === 'pull' ? `pull:${at.number}` : `issue:${at.id}`);
+/** How it's written: "#12" for a PR or a GitHub issue, "FOUND-2" for another tracker's issue. */
+const ghLabel = (at: GhTarget) => (at.kind === 'pull' ? `#${at.number}` : issueLabel(at.id));
+
 /** Main feeds server messages through here so an open merge, close or label dialog or comment box hears back. */
 export function routePullMessage(msg: ServerMsg) {
   if (msg.t === 'gh.merged') mergeWaiters.get(msg.number)?.(msg);
-  if (msg.t === 'gh.commented') commentWaiters.get(`${msg.kind}#${msg.number}`)?.(msg);
-  if (msg.t === 'gh.closed') closeWaiters.get(`${msg.kind}:${msg.number}`)?.(msg);
-  if (msg.t === 'gh.labeled') labelWaiters.get(`${msg.kind}:${msg.number}`)?.(msg);
+  if (msg.t === 'gh.commented') commentWaiters.get(ghKey(msg))?.(msg);
+  if (msg.t === 'gh.closed') closeWaiters.get(ghKey(msg))?.(msg);
+  if (msg.t === 'gh.labeled') labelWaiters.get(ghKey(msg))?.(msg);
 }
 
 function pref<T>(key: string, fallback: T): T {
@@ -202,9 +213,9 @@ interface CommentBox {
  * as that account rather than as you. The draft is kept per item until it is posted, so Esc or a
  * closed window doesn't lose it.
  */
-function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: string, net: Net, onPosted: (c: GhComment) => void): CommentBox {
+function commentBox(at: GhTarget, itemUrl: string, net: Net, onPosted: (c: GhComment) => void): CommentBox {
   const draftKey = `${DRAFT_KEY}${itemUrl}`;
-  const waitKey = `${kind}#${number}`;
+  const waitKey = ghKey(at);
   let busy = false;
   let timer = 0;
   const ta = h('textarea', { rows: 4, placeholder: 'Leave a comment. Markdown works; ⌘/Ctrl+Enter posts it.', 'aria-label': 'Comment' }) as HTMLTextAreaElement;
@@ -277,7 +288,7 @@ function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: string, net
       fail('No answer from the office. Reload the conversation to see whether the comment went through before posting it again.');
       sync();
     }, 45_000);
-    net.send({ t: 'gh.comment', kind, number, body });
+    net.send({ t: 'gh.comment', ...at, body });
   };
 
   ta.addEventListener('input', () => (saveDraft(), sync()));
@@ -425,7 +436,9 @@ const REASON_LABEL: Record<GhCloseReason, string> = { completed: '✅ Completed'
 
 /** Closes an issue (as completed or not planned) or a PR without merging, with an optional comment. */
 function openClose(kind: 'issue' | 'pull', it: GhIssue | GhPull, net: Net, onClosed: () => void) {
-  const key = `${kind}:${it.number}`;
+  const at = ghTarget(kind, it);
+  const key = ghKey(at);
+  const label = ghLabel(at);
   const pull = kind === 'pull' ? (it as GhPull) : null;
   let reason: GhCloseReason = 'completed';
   let busy = false;
@@ -445,8 +458,8 @@ function openClose(kind: 'issue' | 'pull', it: GhIssue | GhPull, net: Net, onClo
 
   const el = h(
     'div.modal.gh-merge',
-    { role: 'dialog', 'aria-label': `Close ${noun} #${it.number}` },
-    h('header', {}, h('h2', {}, `${pull ? '🚫' : '✔️'} Close ${pull ? 'PR' : 'issue'} #${it.number}`)),
+    { role: 'dialog', 'aria-label': `Close ${noun} ${label}` },
+    h('header', {}, h('h2', {}, `${pull ? '🚫' : '✔️'} Close ${pull ? 'PR' : 'issue'} ${label}`)),
     h(
       'div.body',
       {},
@@ -482,7 +495,8 @@ function openClose(kind: 'issue' | 'pull', it: GhIssue | GhPull, net: Net, onClo
       modal.close();
       onClosed();
     });
-    net.send({ t: 'gh.close', kind, number: it.number, comment: comment.value.trim() || undefined, reason: pull ? undefined : reason, deleteBranch: !!pull && del.checked });
+    const note = comment.value.trim() || undefined;
+    net.send(at.kind === 'pull' ? { t: 'gh.close', kind: 'pull', number: at.number, comment: note, deleteBranch: del.checked } : { t: 'gh.close', kind: 'issue', id: at.id, comment: note, reason });
   });
   setTimeout(() => comment.focus(), 30);
 }
@@ -494,7 +508,9 @@ function openClose(kind: 'issue' | 'pull', it: GhIssue | GhPull, net: Net, onClo
  * then save, and the office's gh account adds and takes off the difference.
  */
 export function openLabels(kind: 'issue' | 'pull', it: GhIssue | GhPull, net: Net, onSaved?: (labels: GhLabel[]) => void) {
-  const key = `${kind}:${it.number}`;
+  const at = ghTarget(kind, it);
+  const key = ghKey(at);
+  const label = ghLabel(at);
   const had = new Set(it.labels.map((l) => l.name));
   const on = new Set(had);
   const noun = kind === 'pull' ? 'PR' : 'issue';
@@ -515,8 +531,8 @@ export function openLabels(kind: 'issue' | 'pull', it: GhIssue | GhPull, net: Ne
   const save = h('button.btn.primary', { type: 'button' }, '🏷️ Save labels');
   const el = h(
     'div.modal.gh-merge.gh-labeler',
-    { role: 'dialog', 'aria-label': `Labels on ${noun} #${it.number}` },
-    h('header', {}, h('h2', {}, `🏷️ Labels on ${noun} #${it.number}`)),
+    { role: 'dialog', 'aria-label': `Labels on ${noun} ${label}` },
+    h('header', {}, h('h2', {}, `🏷️ Labels on ${noun} ${label}`)),
     h('div.body', {}, h('p.gh-merge-title', {}, it.title), filter, list, none, result),
     h('footer', {}, summary, cancel, save),
   );
@@ -604,7 +620,7 @@ export function openLabels(kind: 'issue' | 'pull', it: GhIssue | GhPull, net: Ne
       settle();
       fail('No answer from the office. Look at the board to see whether the labels changed before saving again.');
     }, 45_000);
-    net.send({ t: 'gh.labels', kind, number: it.number, add, remove });
+    net.send({ t: 'gh.labels', ...at, add, remove });
   };
 
   filter.addEventListener('input', applyFilter);
@@ -660,7 +676,7 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
   // The comment box stays put while the conversation above it is redrawn, so a load finishing
   // doesn't take the focus (or the text) away from someone typing.
   const thread = h('div.gh-items');
-  const comment = commentBox('pull', it.number, itemUrl, net, (c) => {
+  const comment = commentBox({ kind: 'pull', number: it.number }, itemUrl, net, (c) => {
     if (!detail) return loadAll();
     detail.comments.push(c);
     renderConv();
@@ -1145,7 +1161,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
   const pill = h('span.pill');
   const conv = h('div.gh-conv');
   const thread = h('div.gh-items');
-  const comment = commentBox('issue', it.number, itemUrl, net, (c) => {
+  const comment = commentBox({ kind: 'issue', id: it.id }, itemUrl, net, (c) => {
     if (!detail) return load();
     detail.comments.push(c);
     render();
@@ -1154,32 +1170,32 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
   // The footer stays put and renderFrame only shows, hides and relabels, so a board refresh never
   // pulls focus out of the provider picker.
   const closeIssue = h('button.btn', { type: 'button', title: 'Close this issue on GitHub', onclick: () => openClose('issue', it, net, load) }, '✔️ Close issue…');
-  const queueProvider = providerPicker(store.project, `issue-provider-${it.number}`, 'Queue on');
+  const queueProvider = providerPicker(store.project, `issue-provider-${it.id}`, 'Queue on');
   const addIssueToQueue = () => {
     if (!queueProvider.valid()) return;
     modal.close();
-    actions.queue(issuePrompt(it), `#${it.number} ${it.title}`, it.number, queueProvider.value(), queueProvider.model(), queueProvider.effort());
+    actions.queue(issuePrompt(it), `${issueLabel(it.id)} ${it.title}`, it.id, queueProvider.value(), queueProvider.model(), queueProvider.effort());
   };
   const queue = h('button.btn', { type: 'button', onclick: addIssueToQueue }) as HTMLButtonElement;
   const pickUp = h('button.btn', { type: 'button', title: 'Carry its card to an empty desk, a worker or the queue board, and press E there', onclick: () => actions.pickUp(it) }, '✋ Pick it up');
   const meta = h('div.gh-meta');
   const el = h(
     'div.modal.gh-window.issue',
-    { role: 'dialog', 'aria-label': `Issue #${it.number}` },
-    h('header', {}, pill, h('h2', { title: it.title }, `#${it.number} ${it.title}`), close),
+    { role: 'dialog', 'aria-label': `Issue ${issueLabel(it.id)}` },
+    h('header', {}, pill, h('h2', { title: it.title }, `${issueLabel(it.id)} ${it.title}`), close),
     meta,
     h('div.gh-body', {}, conv),
     h(
       'footer',
       {},
       h('a.grow', { href: it.url, target: '_blank', rel: 'noopener noreferrer' }, 'Open on GitHub ↗'),
-      h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this issue', onclick: () => actions.ask(issueContext(it), `Ask about issue #${it.number}`) }, '✍️ Ask a worker…'),
-      h('button.btn', { type: 'button', title: 'Workers take it on together in the meeting room: a debate, lead & team, map-reduce or red / blue', onclick: () => actions.meeting(issueMeeting(it.number, it.title)) }, '🤝 Meeting…'),
+      h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this issue', onclick: () => actions.ask(issueContext(it), `Ask about issue ${issueLabel(it.id)}`) }, '✍️ Ask a worker…'),
+      h('button.btn', { type: 'button', title: 'Workers take it on together in the meeting room: a debate, lead & team, map-reduce or red / blue', onclick: () => actions.meeting(issueMeeting(it.id, it.title)) }, '🤝 Meeting…'),
       closeIssue,
       queueProvider.element,
       queue,
       pickUp,
-      h('button.btn.primary', { type: 'button', onclick: () => actions.assign(issuePrompt(it), `Hand issue #${it.number} to a worker`) }, '🤖 Hand to a worker'),
+      h('button.btn.primary', { type: 'button', onclick: () => actions.assign(issuePrompt(it), `Hand issue ${issueLabel(it.id)} to a worker`) }, '🤖 Hand to a worker'),
     ),
   );
   const renderFrame = () => {
@@ -1196,7 +1212,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
     );
     pill.className = `pill ${isOpen ? 'done' : 'offline'}`;
     pill.textContent = isOpen ? 'open' : 'closed';
-    const task = store.taskForIssue(it.number);
+    const task = store.taskForIssue(it.id);
     const onQueue = !!task && task.status !== 'done';
     closeIssue.classList.toggle('hidden', !isOpen);
     pickUp.classList.toggle('hidden', !isOpen);
@@ -1218,7 +1234,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
     const g = ++generation;
     error = '';
     render();
-    getJson<GhIssueDetail>(`/api/gh/issue?number=${it.number}`)
+    getJson<GhIssueDetail>(`/api/gh/issue?id=${encodeURIComponent(it.id)}`)
       .then((d) => {
         if (g !== generation) return;
         detail = d;
@@ -1230,7 +1246,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
   }
   const unsubs = [
     store.on('issues', () => {
-      const fresh = store.issues.items.find((i) => i.number === it.number);
+      const fresh = store.issues.items.find((i) => i.id === it.id);
       if (!fresh) return;
       // The board can lag behind a close made from here.
       it = detail ? { ...fresh, state: fresh.state === 'OPEN' ? detail.state : fresh.state } : fresh;
@@ -1239,7 +1255,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
     store.on('queue', renderFrame),
   ];
   const modal = openModal(el, {
-    doing: `📋 reading issue #${it.number}`,
+    doing: `📋 reading issue ${issueLabel(it.id)}`,
     onClose: () => {
       comment.dispose();
       unsubs.forEach((u) => u());

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { hashIssue, issueLabel } from '../../shared/issues';
 import { DESK_BY_ID } from '../../shared/layout';
 import type { GhIssue, GhPull, GhState, QueueState, QueueTask, ServiceInfo, WorkerInfo } from '../../shared/protocol';
 import { workerForPull } from '../state';
@@ -25,7 +26,7 @@ export function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number, 
 
 /** A note as it was last drawn: its middle, size and tilt on the canvas. */
 interface DrawnNote {
-  number: number;
+  id: string;
   x: number;
   y: number;
   w: number;
@@ -40,7 +41,7 @@ export class BoardTexture {
   private ctx: CanvasRenderingContext2D;
   private notes: DrawnNote[] = [];
   /** The note being reached for, drawn lifted off the cork (see lift). */
-  private lifted: number | null = null;
+  private lifted: string | null = null;
   private last: [GhState<GhIssue> | GhState<GhPull>, Map<string, WorkerInfo> | undefined] | null = null;
 
   constructor(private kind: 'issues' | 'pulls') {
@@ -58,7 +59,7 @@ export class BoardTexture {
   }
 
   /** The note at a point on the board's face (its uv), or undefined over bare cork. */
-  noteAt(uv: THREE.Vector2): number | undefined {
+  noteAt(uv: THREE.Vector2): string | undefined {
     const px = uv.x * this.canvas.width;
     const py = (1 - uv.y) * this.canvas.height;
     // Topmost first: later notes are drawn over earlier ones.
@@ -69,15 +70,15 @@ export class BoardTexture {
       const dy = py - n.y;
       const c = Math.cos(-n.tilt);
       const s = Math.sin(-n.tilt);
-      if (Math.abs(dx * c - dy * s) <= n.w / 2 && Math.abs(dx * s + dy * c) <= n.h / 2) return n.number;
+      if (Math.abs(dx * c - dy * s) <= n.w / 2 && Math.abs(dx * s + dy * c) <= n.h / 2) return n.id;
     }
     return undefined;
   }
 
   /** Draws one note lifted off the cork, the one you're about to take (null for none). */
-  lift(number: number | null) {
-    if (number === this.lifted) return;
-    this.lifted = number;
+  lift(id: string | null) {
+    if (id === this.lifted) return;
+    this.lifted = id;
     if (this.last) this.render(...this.last);
   }
 
@@ -128,9 +129,12 @@ export class BoardTexture {
       const r = Math.floor(i / cols);
       const x = gx + c * (nw + gx);
       const y = gy + r * (nh + gy);
-      const tilt = ((it.number * 37) % 7 - 3) * 0.012;
-      this.notes.push({ number: it.number, x: x + nw / 2, y: y + nh / 2, w: nw, h: nh, tilt });
-      const lifted = it.number === this.lifted;
+      // An issue goes by its id, a PR by its number; the seed picks the note's colour and tilt.
+      const id = 'id' in it ? it.id : String(it.number);
+      const seed = 'id' in it ? hashIssue(it.id) : it.number;
+      const tilt = ((seed * 37) % 7 - 3) * 0.012;
+      this.notes.push({ id, x: x + nw / 2, y: y + nh / 2, w: nw, h: nh, tilt });
+      const lifted = id === this.lifted;
       g.save();
       g.translate(x + nw / 2, y + nh / 2);
       g.rotate(tilt);
@@ -139,7 +143,7 @@ export class BoardTexture {
       g.fillStyle = lifted ? 'rgba(0,0,0,.32)' : 'rgba(0,0,0,.25)';
       g.fillRect(-nw / 2 + (lifted ? 12 : 5), -nh / 2 + (lifted ? 16 : 7), nw, nh);
       const draft = this.kind === 'pulls' && (it as GhPull).isDraft;
-      g.fillStyle = draft ? '#e9ecef' : NOTE_COLORS[it.number % NOTE_COLORS.length];
+      g.fillStyle = draft ? '#e9ecef' : NOTE_COLORS[seed % NOTE_COLORS.length];
       g.fillRect(-nw / 2, -nh / 2, nw, nh);
       if (lifted) {
         g.lineWidth = 6;
@@ -151,7 +155,7 @@ export class BoardTexture {
       const w = this.kind === 'pulls' && workers ? workerForPull(workers.values(), it as GhPull) : undefined;
       const footer = w ? fs * 1.3 : 0;
       g.font = `900 ${Math.round(fs * 1.35)}px Nunito, ui-rounded, system-ui, sans-serif`;
-      g.fillText(`#${it.number}`, -nw / 2 + 14, -nh / 2 + fs * 2);
+      g.fillText('id' in it ? issueLabel(it.id) : `#${it.number}`, -nw / 2 + 14, -nh / 2 + fs * 2);
       g.font = `700 ${fs}px Nunito, ui-rounded, system-ui, sans-serif`;
       wrap(g, it.title, nw - 28, Math.max(2, Math.floor((nh - fs * 3 - footer) / (fs * 1.1)))).forEach((line, li) => g.fillText(line, -nw / 2 + 14, -nh / 2 + fs * 3.4 + li * fs * 1.1));
       if (w) {
@@ -289,7 +293,11 @@ export class QueueBoardTexture {
   }
 
   render(state: QueueState, workers: Map<string, WorkerInfo>) {
-    const name = (t: QueueTask) => (t.issue !== undefined ? `#${t.issue}  ${t.title.replace(new RegExp(`^#${t.issue}\\s*`), '')}` : t.title);
+    const name = (t: QueueTask) => {
+      if (t.issue === undefined) return t.title;
+      const label = issueLabel(t.issue);
+      return `${label}  ${t.title.startsWith(label) ? t.title.slice(label.length).trimStart() : t.title}`;
+    };
     const running = state.tasks.filter((t) => t.status === 'running');
     const queued = state.tasks.filter((t) => t.status === 'queued');
     const done = state.tasks.filter((t) => t.status === 'done').slice(-3).reverse();

@@ -229,7 +229,7 @@ class Store {
   }
 
   /** The queue task for an issue: the one on the queue if there is one, else the latest finished one. */
-  taskForIssue(issue: number): QueueTask | undefined {
+  taskForIssue(issue: string): QueueTask | undefined {
     const tasks = this.queue.tasks.filter((t) => t.issue === issue);
     return tasks.find((t) => t.status !== 'done') ?? tasks[tasks.length - 1];
   }

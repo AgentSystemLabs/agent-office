@@ -5,6 +5,7 @@ import { isAgentEffort, isAgentProvider, isClaudeModel, type AgentChoice, type A
 import { DESK_BY_ID, SEATS, nextFreeSeat } from '../shared/layout.js';
 import { isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { PROMPTS } from '../shared/prompts.js';
+import { issueLabel, parseIssueId } from '../shared/issues.js';
 
 /** What the queue needs from the worker manager. Narrow on purpose, so a smoke test can fake it. */
 export interface QueueWorkers {
@@ -22,7 +23,7 @@ export interface QueueEvents {
   update(state: QueueState): void;
   toast(text: string, level: 'info' | 'warn' | 'error'): void;
   /** Mark the issue as taken on GitHub, so the board moves it to In progress. Resolves to an error message when it can't. */
-  claimIssue(issue: number): Promise<string | undefined>;
+  claimIssue(issue: string): Promise<string | undefined>;
   /** Ask GitHub for fresh pull requests, to pick up the one a worker just opened. */
   refreshGitHub(): void;
   /** Why no workers may be hired right now (today's budget is spent), if that's so. */
@@ -80,7 +81,7 @@ export class TaskQueue {
   }
 
   /** Queues a task. With no `provider`, it runs on the office's default worker, model and effort included. */
-  add(prompt: string, by: string, title?: string, issue?: number, provider?: AgentProvider, model?: string, effort?: AgentEffort): string | undefined {
+  add(prompt: string, by: string, title?: string, issue?: string, provider?: AgentProvider, model?: string, effort?: AgentEffort): string | undefined {
     if (provider === undefined) ({ provider, model, effort } = this.workers.officeDefault ?? { provider: this.workers.defaultProvider });
     if (!isAgentProvider(provider) || (provider === 'custom' && this.workers.defaultProvider !== 'custom')) return 'Unknown agent provider';
     const modelError = validateWorkerModel('agent', provider, model);
@@ -89,7 +90,7 @@ export class TaskQueue {
     if (effortError) return effortError;
     const clean = prompt.replace(/\r\n?/g, '\n').trim();
     if (!clean) return 'Empty task';
-    if (issue !== undefined && this.tasks.some((t) => t.issue === issue && t.status !== 'done')) return `Issue #${issue} is already on the queue`;
+    if (issue !== undefined && this.tasks.some((t) => t.issue === issue && t.status !== 'done')) return `Issue ${issueLabel(issue)} is already on the queue`;
     if (this.tasks.filter((t) => t.status !== 'done').length >= MAX_TASKS) return `The queue is full (${MAX_TASKS} tasks)`;
     const task: QueueTask = {
       id: randomBytes(6).toString('hex'),
@@ -120,7 +121,7 @@ export class TaskQueue {
   }
 
   /** Takes a closed issue's waiting task off the queue (a running one carries on). Returns whether there was one. */
-  dropIssue(issue: number): boolean {
+  dropIssue(issue: string): boolean {
     const i = this.tasks.findIndex((t) => t.issue === issue && t.status === 'queued');
     if (i < 0) return false;
     this.tasks.splice(i, 1);
@@ -146,7 +147,7 @@ export class TaskQueue {
     const t = this.tasks.find((x) => x.id === taskId);
     if (!t) return 'No such task';
     if (t.status !== 'done') return 'That task is still on the queue';
-    if (t.issue !== undefined && this.tasks.some((x) => x !== t && x.issue === t.issue && x.status !== 'done')) return `Issue #${t.issue} is already on the queue`;
+    if (t.issue !== undefined && this.tasks.some((x) => x !== t && x.issue === t.issue && x.status !== 'done')) return `Issue ${issueLabel(t.issue)} is already on the queue`;
     this.tasks.splice(this.tasks.indexOf(t), 1);
     const fresh: QueueTask = { id: t.id, provider: t.provider, model: t.model, effort: t.effort, issue: t.issue, title: t.title, prompt: t.prompt, addedBy: t.addedBy, addedAt: Date.now(), status: 'queued' };
     this.tasks.push(fresh);
@@ -330,7 +331,7 @@ export class TaskQueue {
       if (t.issue !== undefined) {
         const issue = t.issue;
         void this.events.claimIssue(issue).then((err) => {
-          if (err) this.events.toast(`Couldn't assign issue #${issue} on GitHub: ${err}`, 'warn');
+          if (err) this.events.toast(`Couldn't assign issue ${issueLabel(issue)} on GitHub: ${err}`, 'warn');
         });
       }
     }
@@ -363,7 +364,7 @@ export class TaskQueue {
           provider,
           model: provider === 'opencode' && isValidOpenCodeModel(s.model) ? s.model : provider === 'claude' && isClaudeModel(s.model) ? s.model : undefined,
           effort: provider === 'claude' && isAgentEffort(s.effort) ? s.effort : undefined,
-          issue: typeof s.issue === 'number' ? s.issue : undefined,
+          issue: parseIssueId(s.issue),
           title: s.title,
           prompt: s.prompt,
           addedBy: s.addedBy ?? '?',
@@ -394,7 +395,7 @@ export class TaskQueue {
 }
 
 function label(t: QueueTask): string {
-  return t.issue !== undefined ? `#${t.issue}` : `“${t.title.length > 40 ? `${t.title.slice(0, 39)}…` : t.title}”`;
+  return t.issue !== undefined ? issueLabel(t.issue) : `“${t.title.length > 40 ? `${t.title.slice(0, 39)}…` : t.title}”`;
 }
 
 function firstLine(s: string): string {

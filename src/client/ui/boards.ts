@@ -1,4 +1,5 @@
 import { DESK_BY_ID } from '../../shared/layout';
+import { hashIssue, issueLabel } from '../../shared/issues';
 import type { AgentEffort, AgentProvider, GhIssue, GhLabel, GhPull, WorkerInfo } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store, workerForPull } from '../state';
@@ -16,7 +17,7 @@ export interface BoardActions {
   /** Walks you to the desk a pull request came from. */
   goToDesk(deskId: string): void;
   /** Put an issue on the 📋 task queue; a worker is seated for it when there's room. */
-  queue(prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string, effort?: AgentEffort): void;
+  queue(prompt: string, title: string, issue: string, provider?: AgentProvider, model?: string, effort?: AgentEffort): void;
   /** Take the issue's card off the board, to carry to a desk or the queue. */
   pickUp(issue: GhIssue): void;
   /** Call a meeting about it: the meeting room's form, filled in. */
@@ -24,13 +25,13 @@ export interface BoardActions {
 }
 
 /** The task a worker gets for an issue, from the board, a carried card or the queue (the 'issue.work' prompt). */
-export function issuePrompt(it: Pick<GhIssue, 'number' | 'title'> & { url?: string }): string {
+export function issuePrompt(it: Pick<GhIssue, 'id' | 'title'> & { url?: string }): string {
   return officePrompt('issue.work', issueVars(it));
 }
 
 /** What an issue's prompts fill in. A carried card has no URL, but the board usually knows it. */
-export function issueVars(it: Pick<GhIssue, 'number' | 'title'> & { url?: string }) {
-  return { number: it.number, title: it.title, url: it.url ?? store.issues.items.find((i) => i.number === it.number)?.url ?? '' };
+export function issueVars(it: Pick<GhIssue, 'id' | 'title'> & { url?: string }) {
+  return { number: it.id, title: it.title, url: it.url ?? store.issues.items.find((i) => i.id === it.id)?.url ?? '' };
 }
 
 const TILTS = ['-1.2deg', '0.8deg', '-0.4deg', '1.4deg', '0deg', '-0.9deg'];
@@ -49,7 +50,7 @@ const byUpdated = (a: { updatedAt: string }, b: { updatedAt: string }) => b.upda
 
 function issueColumns(items: GhIssue[]): Column<GhIssue>[] {
   const open = items.filter((i) => i.state === 'OPEN');
-  const inProgress = open.filter((i) => i.assignees.length > 0 || i.labels.some((l) => /progress|doing|wip|started/i.test(l.name)) || store.taskForIssue(i.number)?.status === 'running');
+  const inProgress = open.filter((i) => i.assignees.length > 0 || i.labels.some((l) => /progress|doing|wip|started/i.test(l.name)) || store.taskForIssue(i.id)?.status === 'running');
   const todo = open.filter((i) => !inProgress.includes(i));
   return [
     { key: 'open', title: '📥 Open', items: todo },
@@ -121,7 +122,7 @@ function deskChip(w: WorkerInfo) {
 }
 
 /** Where an issue stands on the 📋 queue, for its card. */
-function queueChip(issue: number): Node | '' {
+function queueChip(issue: string): Node | '' {
   const t = store.taskForIssue(issue);
   if (!t) return '';
   const provider = providerLabel(t.provider, store.project);
@@ -134,17 +135,18 @@ function queueChip(issue: number): Node | '' {
   return t.pr ? h('span.qchip.done', {}, `🔀 PR #${t.pr.number} · ${provider}`) : '';
 }
 
-function card(n: number, title: string, meta: (Node | string)[], i: number, onclick: () => void, onLabels: () => void) {
+/** A note on the board: `label` is what it's headed with ("#12", "FOUND-2"), `seed` picks its colour and tilt. */
+function card(label: string, seed: number, title: string, meta: (Node | string)[], i: number, onclick: () => void, onLabels: () => void) {
   return h(
     'li.card',
     {
-      style: `--tilt:${TILTS[n % TILTS.length]};background:${NOTE_COLORS[n % NOTE_COLORS.length]};--pin:${['#ef476f', '#118ab2', '#06d6a0', '#ffd166'][i % 4]}`,
+      style: `--tilt:${TILTS[seed % TILTS.length]};background:${NOTE_COLORS[seed % NOTE_COLORS.length]};--pin:${['#ef476f', '#118ab2', '#06d6a0', '#ffd166'][i % 4]}`,
       tabindex: 0,
       onclick,
       onkeydown: ((e: KeyboardEvent) => e.key === 'Enter' && e.target === e.currentTarget && onclick()) as EventListener,
     },
-    h('button.card-labels', { type: 'button', title: 'Change the labels', 'aria-label': `Change the labels on #${n}`, onclick: ((e: Event) => (e.stopPropagation(), onLabels())) as EventListener }, '🏷️'),
-    h('div.num', {}, `#${n}`),
+    h('button.card-labels', { type: 'button', title: 'Change the labels', 'aria-label': `Change the labels on ${label}`, onclick: ((e: Event) => (e.stopPropagation(), onLabels())) as EventListener }, '🏷️'),
+    h('div.num', {}, label),
     h('div.ttl', {}, title),
     h('div.meta', {}, ...meta.filter((m) => m !== '').map((m) => (typeof m === 'string' ? h('span', {}, m) : m))),
   );
@@ -248,7 +250,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
       for (const col of issueColumns(store.issues.items)) {
         body.append(
           column(col, all, (it, i) =>
-            card(it.number, it.title, [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, net, actions), () => openLabels('issue', it, net)),
+            card(issueLabel(it.id), hashIssue(it.id), it.title, [...labelChips(it.labels), queueChip(it.id), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, net, actions), () => openLabels('issue', it, net)),
           ),
         );
       }
@@ -258,6 +260,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
           column(col, all, (it, i) => {
             const w = workerForPull(store.workers.values(), it);
             return card(
+              `#${it.number}`,
               it.number,
               it.title,
               [

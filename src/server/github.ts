@@ -2,6 +2,8 @@ import { execFile } from 'node:child_process';
 import type { GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhLabel, GhMergeMethod, GhPull, GhPullDetail, GhRepoInfo, GhReviewComment, GhState } from '../shared/protocol.js';
 
 const REFRESH_MS = 90_000;
+/** What names an issue or PR to gh: a PR's number, or an issue's id (its number as text, see shared/issues.ts). */
+type GhRef = number | string;
 /** How long the repo's list of labels is kept before the label picker asks GitHub again. */
 const LABELS_MS = 60_000;
 
@@ -194,17 +196,17 @@ export class GitHub {
     return gh(['pr', 'diff', String(n), '--color', 'never'], this.dir, 60_000);
   }
 
-  async issueDetail(n: number): Promise<GhIssueDetail> {
-    const [view, viewer] = await Promise.all([gh(['issue', 'view', String(n), '--json', 'number,state,body,comments'], this.dir), this.viewer()]);
+  async issueDetail(id: string): Promise<GhIssueDetail> {
+    const [view, viewer] = await Promise.all([gh(['issue', 'view', id, '--json', 'number,state,body,comments'], this.dir), this.viewer()]);
     const i = JSON.parse(view);
-    return { number: i.number, state: i.state, body: String(i.body ?? ''), comments: commentsOf(i.comments), viewer };
+    return { id: String(i.number), state: i.state, body: String(i.body ?? ''), comments: commentsOf(i.comments), viewer };
   }
 
   /**
    * Comments on an issue, or on a PR's conversation (to GitHub a PR is an issue too), as whoever gh
    * is signed in as. Returns the comment as GitHub saved it, or why it couldn't.
    */
-  async comment(kind: 'issue' | 'pull', n: number, body: string): Promise<{ comment?: GhComment; error?: string }> {
+  async comment(kind: 'issue' | 'pull', n: GhRef, body: string): Promise<{ comment?: GhComment; error?: string }> {
     let comment: GhComment;
     try {
       // -f sends the body as a plain string: no @file reading, no {owner} filling in.
@@ -248,7 +250,7 @@ export class GitHub {
   }
 
   /** Closes an issue, or a pull request without merging it, optionally saying why. Returns an error. */
-  async close(kind: 'issue' | 'pull', n: number, opts: { comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }): Promise<string | undefined> {
+  async close(kind: 'issue' | 'pull', n: GhRef, opts: { comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }): Promise<string | undefined> {
     try {
       const repo = await this.repoInfo();
       // --repo for the same reason as merge: --delete-branch must leave the office's checkout alone.
@@ -264,7 +266,8 @@ export class GitHub {
     const refresh = () => (kind === 'issue' ? this.refreshIssues() : this.refreshPulls());
     // A refresh already in flight returns at once and can still list it as open, so look again shortly after.
     void refresh().then(() => {
-      if ((kind === 'issue' ? this.issues : this.pulls).items.some((i) => i.number === n && i.state === 'OPEN')) setTimeout(() => void refresh(), 3000);
+      const open = kind === 'issue' ? this.issues.items.some((i) => i.id === String(n) && i.state === 'OPEN') : this.pulls.items.some((p) => p.number === n && p.state === 'OPEN');
+      if (open) setTimeout(() => void refresh(), 3000);
     });
     return undefined;
   }
@@ -289,7 +292,7 @@ export class GitHub {
    * Puts labels on an issue or PR and takes others off (to GitHub a PR is an issue too), as whoever
    * gh is signed in as. Returns the labels it has now, or why they didn't change.
    */
-  async setLabels(kind: 'issue' | 'pull', n: number, add: string[], remove: string[]): Promise<{ labels?: GhLabel[]; error?: string }> {
+  async setLabels(kind: 'issue' | 'pull', n: GhRef, add: string[], remove: string[]): Promise<{ labels?: GhLabel[]; error?: string }> {
     const path = `repos/{owner}/{repo}/issues/${n}/labels`;
     const jq = '[.[] | {name, color}]';
     let now: GhLabel[] | undefined;
@@ -331,7 +334,7 @@ export class GitHub {
    */
   private relabel<T extends GhIssue | GhPull>(kind: 'issue' | 'pull', items: T[], asked: number): T[] {
     return items.map((it) => {
-      const key = `${kind}:${it.number}`;
+      const key = `${kind}:${'id' in it ? it.id : it.number}`;
       const r = this.relabeled.get(key);
       if (!r) return it;
       if (r.at < asked) {
@@ -343,9 +346,9 @@ export class GitHub {
   }
 
   /** Assigns the issue to whoever gh is signed in as, which moves it to In progress on the board. */
-  async claim(issue: number): Promise<string | undefined> {
+  async claim(issue: string): Promise<string | undefined> {
     try {
-      await gh(['issue', 'edit', String(issue), '--add-assignee', '@me'], this.dir);
+      await gh(['issue', 'edit', issue, '--add-assignee', '@me'], this.dir);
     } catch (err) {
       return (err as Error).message;
     }
@@ -366,7 +369,7 @@ export class GitHub {
         gh(['issue', 'list', '--state', 'closed', '--limit', '40', '--json', fields], this.dir),
       ]);
       const fetched: GhIssue[] = [...JSON.parse(open), ...JSON.parse(closed)].map((i: any) => ({
-        number: i.number,
+        id: String(i.number),
         title: i.title,
         state: i.state,
         url: i.url,
@@ -419,7 +422,7 @@ export class GitHub {
         deletions: p.deletions ?? 0,
         checks: checksOf(p.statusCheckRollup),
         body: String(p.body ?? '').slice(0, 4000),
-        closes: (p.closingIssuesReferences ?? []).map((r: any) => Number(r.number)).filter((n: number) => Number.isInteger(n) && n > 0),
+        closes: (p.closingIssuesReferences ?? []).map((r: any) => Number(r.number)).filter((n: number) => Number.isInteger(n) && n > 0).map(String),
       }));
       const items = this.relabel('pull', fetched, asked);
       this.pulls = { items, fetchedAt: Date.now(), loading: false };

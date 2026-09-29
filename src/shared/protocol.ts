@@ -226,7 +226,7 @@ export interface WorktreeState {
 
 /** The issue on a card someone carries around the floor (see PeerInfo.carrying). */
 export interface CarriedIssue {
-  issue: number;
+  issue: string;
   title: string;
 }
 
@@ -281,7 +281,8 @@ export interface GhLabel {
 }
 
 export interface GhIssue {
-  number: number;
+  /** Its id: a GitHub issue's number as text ("123"), or another tracker's identifier ("FOUND-2"). See shared/issues.ts. */
+  id: string;
   title: string;
   state: string;
   url: string;
@@ -314,7 +315,7 @@ export interface GhPull {
   checks: 'pass' | 'fail' | 'pending' | 'none';
   body: string;
   /** Issues it closes ("closes #12" in its description), as GitHub links them. */
-  closes: number[];
+  closes: string[];
 }
 
 export type TaskStatus = 'queued' | 'running' | 'done';
@@ -327,8 +328,8 @@ export interface QueueTask {
   model?: string;
   /** Reasoning effort requested for this task, when one was chosen (Claude only). */
   effort?: AgentEffort;
-  /** The GitHub issue it came from, when it did. */
-  issue?: number;
+  /** The issue it came from, when it did (see GhIssue.id). */
+  issue?: string;
   title: string;
   prompt: string;
   addedBy: string;
@@ -405,8 +406,8 @@ export interface Meeting {
   parts?: string[];
   /** Review panel: the pull request under review. */
   pr?: number;
-  /** The GitHub issue it's about, when it was called from one. */
-  issue?: number;
+  /** The issue it's about, when it was called from one (see GhIssue.id). */
+  issue?: string;
   provider?: AgentProvider;
   model?: string;
   effort?: AgentEffort;
@@ -478,7 +479,7 @@ export interface MeetingRequest {
   roles: string[];
   parts?: string[];
   pr?: number;
-  issue?: number;
+  issue?: string;
   rounds?: number;
   budget?: number;
   provider?: AgentProvider;
@@ -597,9 +598,9 @@ export interface GhPullDetail {
   viewer: string;
 }
 
-/** GET /api/gh/issue?number=N */
+/** GET /api/gh/issue?id=… */
 export interface GhIssueDetail {
-  number: number;
+  id: string;
   /** OPEN or CLOSED. */
   state: string;
   body: string;
@@ -971,12 +972,12 @@ export type ClientMsg =
   /** You sat down in a place on a couch, a beanbag, a chair or the bench (see seatAt in layout), or got up again (no seat). */
   | { t: 'sit'; seat?: string }
   /** You picked an issue card up off the board (or put it down again, no issue): everyone sees it in your hands. */
-  | { t: 'carry'; issue?: number; title?: string }
+  | { t: 'carry'; issue?: string; title?: string }
   /** An emote (hold G, or 1–6): everyone else on your floor sees your character do it. Rate limited, see EmoteBucket. */
   | { t: 'emote'; emote: EmoteId }
   | { t: 'profile'; name: string; color: string; look: Look }
   /** With `issue`, the worker is there for that GitHub issue: it's assigned on GitHub (so it moves to In progress) and taken off the queue. */
-  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: number }
+  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: string }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
@@ -984,7 +985,7 @@ export type ClientMsg =
   | { t: 'worker.attach'; workerId: string }
   | { t: 'worker.detach'; workerId: string }
   /** With `issue`, the prompt hands the worker that GitHub issue, which is taken as for worker.spawn. */
-  | { t: 'worker.prompt'; workerId: string; prompt: string; issue?: number }
+  | { t: 'worker.prompt'; workerId: string; prompt: string; issue?: string }
   /**
    * A prompt for the agent standing by a board (`deskId` is its kiosk, see STATIONS in layout). It's
    * typed into its session, which is woken up first if it's asleep, or hired there when nobody is.
@@ -1002,16 +1003,19 @@ export type ClientMsg =
   /** Merge a pull request; the answer comes back as gh.merged. */
   | { t: 'gh.merge'; number: number; method: GhMergeMethod; deleteBranch: boolean; auto?: boolean }
   /** Comment on an issue or a PR's conversation, as the server's gh account; answered with gh.commented. */
-  | { t: 'gh.comment'; kind: 'issue' | 'pull'; number: number; body: string }
+  | { t: 'gh.comment'; kind: 'pull'; number: number; body: string }
+  | { t: 'gh.comment'; kind: 'issue'; id: string; body: string }
   /** Hit the office gong (E at the gong); everyone on the floor hears it. */
   | { t: 'gong' }
   /** Blow the DJ's air horn on the roof; everyone up there hears it. */
   | { t: 'horn' }
   /** Close an issue, or a pull request without merging it; the answer comes back as gh.closed. */
-  | { t: 'gh.close'; kind: 'issue' | 'pull'; number: number; comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }
+  | { t: 'gh.close'; kind: 'pull'; number: number; comment?: string; deleteBranch?: boolean }
+  | { t: 'gh.close'; kind: 'issue'; id: string; comment?: string; reason?: GhCloseReason }
   /** Put labels on an issue or PR and take others off, as the server's gh account; answered with gh.labeled. */
-  | { t: 'gh.labels'; kind: 'issue' | 'pull'; number: number; add: string[]; remove: string[] }
-  | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string; effort?: AgentEffort }
+  | { t: 'gh.labels'; kind: 'pull'; number: number; add: string[]; remove: string[] }
+  | { t: 'gh.labels'; kind: 'issue'; id: string; add: string[]; remove: string[] }
+  | { t: 'queue.add'; prompt: string; title?: string; issue?: string; provider?: AgentProvider; model?: string; effort?: AgentEffort }
   | { t: 'queue.remove'; taskId: string }
   /** Move a queued task up (-1) or down (+1) the queue. */
   | { t: 'queue.move'; taskId: string; delta: number }
@@ -1178,7 +1182,8 @@ export type ServerMsg =
   /** Sent to whoever asked for the merge. */
   | { t: 'gh.merged'; number: number; error?: string }
   /** Sent to whoever commented: the comment as GitHub saved it, or why it wasn't. */
-  | { t: 'gh.commented'; kind: 'issue' | 'pull'; number: number; comment?: GhComment; error?: string }
+  | { t: 'gh.commented'; kind: 'pull'; number: number; comment?: GhComment; error?: string }
+  | { t: 'gh.commented'; kind: 'issue'; id: string; comment?: GhComment; error?: string }
   /**
    * The gong rings, for everyone on the floor: someone hit it, pull request `pr` merged (confetti
    * over the desk it came from), or the last task on the queue just finished (a bigger party).
@@ -1187,9 +1192,11 @@ export type ServerMsg =
   /** Someone on the roof blew the DJ's air horn (sent to everyone up there, them too). */
   | { t: 'horn'; by: string }
   /** Sent to whoever asked to close it. */
-  | { t: 'gh.closed'; kind: 'issue' | 'pull'; number: number; error?: string }
+  | { t: 'gh.closed'; kind: 'pull'; number: number; error?: string }
+  | { t: 'gh.closed'; kind: 'issue'; id: string; error?: string }
   /** Sent to whoever changed them: the labels it has now, or why they didn't change. */
-  | { t: 'gh.labeled'; kind: 'issue' | 'pull'; number: number; labels?: GhLabel[]; error?: string }
+  | { t: 'gh.labeled'; kind: 'pull'; number: number; labels?: GhLabel[]; error?: string }
+  | { t: 'gh.labeled'; kind: 'issue'; id: string; labels?: GhLabel[]; error?: string }
   | { t: 'rtc'; from: string; data: unknown }
   | ({ t: 'chat' } & ChatLine)
   | { t: 'toast'; text: string; level: 'info' | 'warn' | 'error' }

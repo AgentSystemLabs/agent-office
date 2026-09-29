@@ -29,7 +29,7 @@ import { LeaveOnMerge } from './leave-on-merge.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
-import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
+import type { ChatLine, ClientMsg, FloorInfo, FloorView, GhCloseReason, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import { DESK_BY_ID, elevatorSpot, seatHere, streetBelow } from '../shared/layout.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
@@ -42,6 +42,7 @@ import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
 import { isThemePick } from '../shared/theme.js';
 import { PROMPTS, PROMPT_MAX, isPromptId } from '../shared/prompts.js';
 import { ROOF, isDrink } from '../shared/rooftop.js';
+import { issueLabel, parseIssueId } from '../shared/issues.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -170,7 +171,21 @@ function arrivalSpot(at: unknown): { x: number; y: number; z: number; rotY: numb
   // Down on the street from a floor high up, the street is a long way down.
   return { x: clamp(a.x, -60, 60), y: clamp(a.y, streetBelow(MAX_FLOORS - 1), 10), z: clamp(a.z, -60, 60), rotY: num(a.rotY) };
 }
-const issueNumber = (v: unknown) => (Number.isInteger(v) && (v as number) > 0 ? (v as number) : undefined);
+const issueId = (v: unknown) => parseIssueId(v);
+/** Which issue or PR a gh.* message is about: a PR by its number, an issue by its id; undefined when it names neither. */
+type GhTarget = { kind: 'pull'; number: number } | { kind: 'issue'; id: string };
+const ghTarget = (msg: { kind?: unknown; number?: unknown; id?: unknown }): GhTarget | undefined => {
+  if (msg.kind === 'pull') {
+    const n = num(msg.number);
+    return Number.isSafeInteger(n) && n > 0 ? { kind: 'pull', number: n } : undefined;
+  }
+  if (msg.kind === 'issue') {
+    const id = parseIssueId(msg.id);
+    return id ? { kind: 'issue', id } : undefined;
+  }
+  return undefined;
+};
+const ghName = (at: GhTarget) => (at.kind === 'pull' ? `PR #${at.number}` : `issue ${issueLabel(at.id)}`);
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const TOO_MANY_ATTEMPTS = 'Too many attempts. Try again in a few minutes.';
 /** WebSocket close code for a session that stopped counting: the account was revoked, or the shared password switched off. */
@@ -321,11 +336,11 @@ export async function startServer(cfg: Config) {
     } catch {
       return send(res, 400, { error: 'Send JSON: {"title": "…", "prompt": "…", "issue": 12}' });
     }
-    const issue = Number.isInteger(body?.issue) && (body.issue as number) > 0 ? (body.issue as number) : undefined;
+    const issue = parseIssueId(body?.issue);
     const err = floor.queue.add(str(body?.prompt, 20000), agent.name, str(body?.title, 200) || undefined, issue);
     if (err) return send(res, 400, { error: err });
     const task = floor.queue.state().tasks.at(-1)!;
-    toastFloor(floor, `📋 The ${agent.name} queued ${issue !== undefined ? `issue #${issue}` : `“${task.title}”`}`);
+    toastFloor(floor, `📋 The ${agent.name} queued ${issue !== undefined ? `issue ${issueLabel(issue)}` : `“${task.title}”`}`);
     send(res, 200, { ok: true, task: { id: task.id, title: task.title, status: task.status } });
   };
   // Workers' terminals outlive a restart of the office (see ptys.ts) with this address in their
@@ -802,13 +817,15 @@ export async function startServer(cfg: Config) {
       if (p.startsWith('/api/gh/') && req.method === 'GET') {
         // What the issue and PR windows show beyond the board cards (see github.ts).
         const n = Number(url.searchParams.get('number'));
+        // An issue goes by its id ("12" or "FOUND-2"); ?number= still works for it.
+        const issue = parseIssueId(url.searchParams.get('id') ?? url.searchParams.get('number'));
         // The repo's labels (for the label picker) are the one thing not about a single issue or PR.
-        if (p !== '/api/gh/labels' && (!Number.isSafeInteger(n) || n <= 0)) return send(res, 400, { error: 'Bad number' });
+        if (p === '/api/gh/issue' ? !issue : p !== '/api/gh/labels' && (!Number.isSafeInteger(n) || n <= 0)) return send(res, 400, { error: 'Bad number' });
         if (!floor) return send(res, 404, { error: 'No such floor' });
         const github = floor.github;
         try {
           if (p === '/api/gh/pull') return send(res, 200, await github.pullDetail(n));
-          if (p === '/api/gh/issue') return send(res, 200, await github.issueDetail(n));
+          if (p === '/api/gh/issue') return send(res, 200, await github.issueDetail(issue!));
           if (p === '/api/gh/labels') return send(res, 200, await github.repoLabels());
           if (p === '/api/gh/pull/diff') {
             const diff = await github.pullDiff(n);
@@ -1112,9 +1129,9 @@ export async function startServer(cfg: Config) {
    * A worker took on GitHub issue `n` (an issue card dropped on its desk): assign it on GitHub, which
    * moves it to In progress on the board, and take it off the queue so nobody else is seated for it.
    */
-  const takeIssue = (c: Client, floor: Floor, n: number) => {
-    floor.queue.dropIssue(n);
-    void floor.github.claim(n).then((err) => warn(c, err && `Couldn't assign issue #${n} on GitHub: ${err}`));
+  const takeIssue = (c: Client, floor: Floor, id: string) => {
+    floor.queue.dropIssue(id);
+    void floor.github.claim(id).then((err) => warn(c, err && `Couldn't assign issue ${issueLabel(id)} on GitHub: ${err}`));
   };
 
   const handleMessage = (c: Client, msg: ClientMsg) => {
@@ -1197,7 +1214,7 @@ export async function startServer(cfg: Config) {
       }
       case 'carry': {
         // Everyone on the floor sees the issue card in their hands, and whoever comes in later too.
-        const issue = issueNumber(msg.issue);
+        const issue = issueId(msg.issue);
         if (issue === c.peer.carrying?.issue) break;
         if (issue !== undefined) c.peer.carrying = { issue, title: str(msg.title, 200) };
         else delete c.peer.carrying;
@@ -1319,9 +1336,9 @@ export async function startServer(cfg: Config) {
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
         const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
         const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort);
-        const issue = kind === 'agent' ? issueNumber(msg.issue) : undefined;
+        const issue = kind === 'agent' ? issueId(msg.issue) : undefined;
         if (typeof r === 'string') warn(c, r);
-        else toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${issue ? ` for issue #${issue}` : r.prompt ? ' with a task' : ''}`);
+        else toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${issue ? ` for issue ${issueLabel(issue)}` : r.prompt ? ' with a task' : ''}`);
         if (typeof r !== 'string' && issue) takeIssue(c, floor, issue);
         break;
       }
@@ -1371,9 +1388,9 @@ export async function startServer(cfg: Config) {
         const w = worker(msg.workerId);
         const err = w ? w.floor.workers.prompt(w.wid, str(msg.prompt, 20000), who) : 'No such worker';
         warn(c, err);
-        const issue = w?.info.kind === 'agent' ? issueNumber(msg.issue) : undefined;
+        const issue = w?.info.kind === 'agent' ? issueId(msg.issue) : undefined;
         if (w && !err && issue) {
-          toastFloor(w.floor, `${who} handed issue #${issue} to ${w.info.name}`);
+          toastFloor(w.floor, `${who} handed issue ${issueLabel(issue)} to ${w.info.name}`);
           takeIssue(c, w.floor, issue);
         }
         break;
@@ -1451,19 +1468,18 @@ export async function startServer(cfg: Config) {
       }
       case 'gh.comment': {
         const floor = here();
-        const n = num(msg.number);
-        const kind = msg.kind === 'pull' ? 'pull' : 'issue';
-        if (!floor || !Number.isSafeInteger(n) || n <= 0) break;
+        const at = ghTarget(msg);
+        if (!floor || !at) break;
         const body = typeof msg.body === 'string' ? msg.body : '';
         // Refused rather than cut short: a comment that silently lost its end would read as finished.
         const invalid = !body.trim() ? 'The comment is empty' : body.length > GH_COMMENT_MAX ? `GitHub takes comments of up to ${GH_COMMENT_MAX} characters` : '';
         if (invalid) {
-          sendTo(c, { t: 'gh.commented', kind, number: n, error: invalid });
+          sendTo(c, { t: 'gh.commented', ...at, error: invalid });
           break;
         }
-        void floor.github.comment(kind, n, body).then((r) => {
-          sendTo(c, { t: 'gh.commented', kind, number: n, ...r });
-          if (r.comment) toastFloor(floor, `💬 ${who} commented on ${kind === 'pull' ? 'PR' : 'issue'} #${n}`);
+        void floor.github.comment(at.kind, at.kind === 'pull' ? at.number : at.id, body).then((r) => {
+          sendTo(c, { t: 'gh.commented', ...at, ...r });
+          if (r.comment) toastFloor(floor, `💬 ${who} commented on ${ghName(at)}`);
         });
         break;
       }
@@ -1484,35 +1500,35 @@ export async function startServer(cfg: Config) {
       }
       case 'gh.close': {
         const floor = here();
-        const n = num(msg.number);
-        const kind = msg.kind === 'issue' || msg.kind === 'pull' ? msg.kind : undefined;
-        if (!floor || !Number.isSafeInteger(n) || n <= 0 || !kind) break;
-        const reason = msg.reason === 'not planned' ? 'not planned' : 'completed';
-        void floor.github.close(kind, n, { comment: str(msg.comment, 20000).trim() || undefined, reason, deleteBranch: msg.deleteBranch === true }).then((error) => {
-          sendTo(c, { t: 'gh.closed', kind, number: n, error });
+        const at = ghTarget(msg);
+        if (!floor || !at) break;
+        const m = msg as { comment?: unknown; reason?: unknown; deleteBranch?: unknown };
+        const reason: GhCloseReason = at.kind === 'issue' && m.reason === 'not planned' ? 'not planned' : 'completed';
+        const opts = { comment: str(m.comment, 20000).trim() || undefined, reason, deleteBranch: at.kind === 'pull' && m.deleteBranch === true };
+        void floor.github.close(at.kind, at.kind === 'pull' ? at.number : at.id, opts).then((error) => {
+          sendTo(c, { t: 'gh.closed', ...at, error });
           if (error) return;
-          if (kind === 'pull') return toastFloor(floor, `${who} closed PR #${n} without merging`);
+          if (at.kind === 'pull') return toastFloor(floor, `${who} closed PR #${at.number} without merging`);
           // Nobody should be seated for an issue that's closed.
-          const dropped = floor.queue.dropIssue(n);
-          toastFloor(floor, `${who} closed issue #${n}${reason === 'not planned' ? ' as not planned' : ''}${dropped ? ' and took it off the queue' : ''}`);
+          const dropped = floor.queue.dropIssue(at.id);
+          toastFloor(floor, `${who} closed issue ${issueLabel(at.id)}${reason === 'not planned' ? ' as not planned' : ''}${dropped ? ' and took it off the queue' : ''}`);
         });
         break;
       }
       case 'gh.labels': {
         const floor = here();
-        const n = num(msg.number);
-        const kind = msg.kind === 'issue' || msg.kind === 'pull' ? msg.kind : undefined;
-        if (!floor || !Number.isSafeInteger(n) || n <= 0 || !kind) break;
+        const at = ghTarget(msg);
+        if (!floor || !at) break;
         const names = (v: unknown) => [...new Set((Array.isArray(v) ? v : []).map((l) => str(l, GH_LABEL_MAX + 1)).filter((l) => l && l.length <= GH_LABEL_MAX))].slice(0, 100);
         const add = names(msg.add);
         const remove = names(msg.remove).filter((l) => !add.includes(l));
         if (!add.length && !remove.length) {
-          sendTo(c, { t: 'gh.labeled', kind, number: n, error: 'No labels to change' });
+          sendTo(c, { t: 'gh.labeled', ...at, error: 'No labels to change' });
           break;
         }
-        void floor.github.setLabels(kind, n, add, remove).then((r) => {
-          sendTo(c, { t: 'gh.labeled', kind, number: n, ...r });
-          if (r.labels) toastFloor(floor, `🏷️ ${who} labeled ${kind === 'pull' ? 'PR' : 'issue'} #${n}: ${[...add.map((l) => `+${l}`), ...remove.map((l) => `−${l}`)].join(' ')}`);
+        void floor.github.setLabels(at.kind, at.kind === 'pull' ? at.number : at.id, add, remove).then((r) => {
+          sendTo(c, { t: 'gh.labeled', ...at, ...r });
+          if (r.labels) toastFloor(floor, `🏷️ ${who} labeled ${ghName(at)}: ${[...add.map((l) => `+${l}`), ...remove.map((l) => `−${l}`)].join(' ')}`);
         });
         break;
       }
@@ -1523,12 +1539,12 @@ export async function startServer(cfg: Config) {
           warn(c, 'Unknown agent provider');
           break;
         }
-        const issue = Number.isInteger(msg.issue) && (msg.issue as number) > 0 ? (msg.issue as number) : undefined;
+        const issue = parseIssueId(msg.issue);
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
         const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
         const err = floor.queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model, effort);
         if (err) warn(c, err);
-        else toastFloor(floor, `📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`);
+        else toastFloor(floor, `📋 ${who} queued ${issue !== undefined ? `issue ${issueLabel(issue)}` : 'a task'}`);
         break;
       }
       case 'queue.remove': {
@@ -1566,7 +1582,7 @@ export async function startServer(cfg: Config) {
           roles: Array.isArray(msg.roles) ? msg.roles.slice(0, 8).map((r) => str(r, 80)) : [],
           parts: Array.isArray(msg.parts) ? msg.parts.slice(0, 200).map((p) => str(p, 500)) : undefined,
           pr: count(msg.pr),
-          issue: count(msg.issue),
+          issue: issueId(msg.issue),
           rounds: count(msg.rounds),
           budget: count(msg.budget),
           provider: msg.provider,

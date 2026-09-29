@@ -15,6 +15,7 @@ import { DESK_BY_ID, STATION_AGENT } from '../shared/layout.js';
 import { QUEUE_AGENT_DISALLOWED_TOOLS, stationBrief } from './stations.js';
 import { officePrompt, type PromptSource } from './prompts.js';
 import { isBusy } from '../shared/status.js';
+import { issueLabel } from '../shared/issues.js';
 import { gh } from './github.js';
 import type { ServiceOwner } from './services.js';
 import { TaskNamer, fallbackTask } from './tasks.js';
@@ -1646,17 +1647,18 @@ async function findOpenPr(branch: string, cwd: string): Promise<{ number: number
  * title when the task came off the issues board, else the task's first line; the body carries the
  * task, the commits, a "Closes #n" when the task asked for one, and which desk it came from.
  */
-function draftPr(info: WorkerInfo, commits: string[], by: string): { title: string; body: string } {
+export function draftPr(info: WorkerInfo, commits: string[], by: string): { title: string; body: string } {
   const task = (info.prompt ?? '').replace(/\r\n?/g, '\n').trim();
   const firstLine = task.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
-  // The issues board hands work over as: Work on GitHub issue #12: "Title".
-  const issue = /\bissue #(\d+):\s*["“](.+?)["”]\.?\s*$/i.exec(firstLine);
+  // The issues board hands work over as: Work on GitHub issue #12: "Title" (or Linear issue FOUND-2: "Title").
+  const issue = /\b[Ii]ssue (#\d+|[A-Z][A-Z0-9]*-\d+):\s*["“](.+?)["”]\.?\s*$/.exec(firstLine);
   const title = truncate(issue?.[2] || firstLine.replace(/[.:;,]+$/, '') || commits[0]?.replace(/^\S+\s+/, '') || info.worktree?.branch || info.name, PR_TITLE_MAX);
-  const closes = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b[^\n]{0,40}?#(\d+)/i.exec(task)?.[1] ?? issue?.[1];
+  // A team key is upper case, so "utf-8" in a sentence about a fix isn't taken for one.
+  const closes = /\b(?:[Cc]lose[sd]?|[Ff]ix(?:e[sd])?|[Rr]esolve[sd]?)\b[^\n]{0,40}?(#\d+|[A-Z][A-Z0-9]*-\d+)/.exec(task)?.[1] ?? issue?.[1];
   const parts: string[] = [];
   if (task) parts.push(`## Task\n\n${task.length > PR_TASK_MAX ? `${task.slice(0, PR_TASK_MAX)}…` : task}`);
   parts.push(`## Commits\n\n${commits.map((c) => `- \`${c.slice(0, c.indexOf(' '))}\` ${c.slice(c.indexOf(' ') + 1)}`).join('\n')}`);
-  if (closes) parts.push(`Closes #${closes}`);
+  if (closes) parts.push(`Closes ${issueLabel(closes.replace(/^#/, ''))}`);
   parts.push(`_Opened from Agent Office by ${by} · ${info.name} at ${DESK_BY_ID.get(info.deskId)?.label ?? info.deskId}_`);
   return { title, body: parts.join('\n\n') };
 }

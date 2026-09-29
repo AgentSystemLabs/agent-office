@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Ledger } from '../src/server/usage.js';
-import { CARRY_ON_PROMPT, WorkerManager, type WorkerEvents } from '../src/server/workers.js';
+import { CARRY_ON_PROMPT, WorkerManager, draftPr, type WorkerEvents } from '../src/server/workers.js';
 import type { AgentProvider, WorkerInfo } from '../src/shared/protocol.js';
 import type { PromptSource } from '../src/server/prompts.js';
 import { PROMPTS } from '../src/shared/prompts.js';
@@ -1054,4 +1054,18 @@ test('stopping the office on purpose (Ctrl+C) leaves nothing to carry on', async
   const resumed = (await waitFor(() => launches(f), (x) => x.length >= 2))[1];
   assert.ok(resumed.args.includes('stopped'));
   assert.equal(promptOf(resumed), undefined);
+});
+
+test('a PR draft takes its title and Closes line from a GitHub or a Linear issue prompt', () => {
+  const info = (prompt: string) => ({ prompt, name: 'Pixel', deskId: 'desk-1' }) as Parameters<typeof draftPr>[0];
+  const commits = ['abc1234 Fix the redirect'];
+  const gh = draftPr(info('Work on GitHub issue #12: "Login redirect loops".\n\nRead it first.'), commits, 'Ada');
+  assert.equal(gh.title, 'Login redirect loops');
+  assert.match(gh.body, /^Closes #12$/m);
+  const linear = draftPr(info('Work on Linear issue FOUND-2: "Login redirect loops".\n\nRead it first.'), commits, 'Ada');
+  assert.equal(linear.title, 'Login redirect loops');
+  assert.match(linear.body, /^Closes FOUND-2$/m);
+  // "Fixes" in the task names the issue too; a lower-case word with a dash is not a team id.
+  assert.match(draftPr(info('Make utf-8 the default. Fixes PLAT-931.'), commits, 'Ada').body, /^Closes PLAT-931$/m);
+  assert.doesNotMatch(draftPr(info('Fix the utf-8 default.'), commits, 'Ada').body, /Closes/);
 });

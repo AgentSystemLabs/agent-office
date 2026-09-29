@@ -1,4 +1,5 @@
 import './style.css';
+import { issueLabel } from '../shared/issues';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
@@ -160,8 +161,8 @@ function mountBoard(mesh: THREE.Mesh, texture: THREE.Texture, render: () => void
 /** The issue card in your hands, taken off this floor's issues board (see Carrying an issue card), or null. */
 let carrying: CarriedIssue | null = null;
 /** Issues whose cards someone on this floor is carrying around, so they're missing from the board. */
-function offBoard(): Set<number> {
-  const off = new Set<number>();
+function offBoard(): Set<string> {
+  const off = new Set<string>();
   if (carrying) off.add(carrying.issue);
   for (const p of store.peers.values()) if (p.carrying && p.id !== store.you && store.onMyFloor(p)) off.add(p.carrying.issue);
   return off;
@@ -169,7 +170,7 @@ function offBoard(): Set<number> {
 const issuesTex = new BoardTexture('issues');
 const renderIssuesBoard = () => {
   const off = offBoard();
-  issuesTex.render(off.size ? { ...store.issues, items: store.issues.items.filter((i) => !off.has(i.number)) } : store.issues);
+  issuesTex.render(off.size ? { ...store.issues, items: store.issues.items.filter((i) => !off.has(i.id)) } : store.issues);
 };
 mountBoard(office.boardMeshes.issues, issuesTex.texture, renderIssuesBoard, ['issues']);
 let carriedOff = '';
@@ -407,7 +408,7 @@ function teeOff() {
   if (golf.active || trip || climber.active) return;
   const other = teeTaken();
   if (other) return toast(`🏌️ ${other} is on the tee — wait your turn`, 'warn');
-  if (carrying) return toast(`✋ Your hands are full: put #${carrying.issue} down first (Q)`, 'warn');
+  if (carrying) return toast(`✋ Your hands are full: put ${issueLabel(carrying.issue)} down first (Q)`, 'warn');
   if (player.seat) standUp();
   if (hanger.active) hanger.cancel();
   if (walkingTo) stopWalking();
@@ -648,7 +649,7 @@ net.onMessage((msg) => {
       }
       // The card belongs to the board downstairs (or up): the office already put it back there.
       if (carrying) {
-        toast(`📌 #${carrying.issue} stayed behind on the other floor's board`);
+        toast(`📌 ${issueLabel(carrying.issue)} stayed behind on the other floor's board`);
         setCarrying(null);
       }
       // So does the ball: it's back under that floor's hoop.
@@ -1296,7 +1297,7 @@ function officeIsFull(): boolean {
   return true;
 }
 
-function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string, effort?: AgentEffort, issue?: number) {
+function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string, effort?: AgentEffort, issue?: string) {
   net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort, issue });
   // The moment notifications start to matter: ask once (it has to come from a key press or click).
   if (settings.notify && notifyPermission() === 'default' && !askedToNotify) {
@@ -1624,7 +1625,7 @@ function sendToWorker(title: string, text: { context?: string; initial?: string 
 
 function boardActions() {
   return {
-    queue: (prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string, effort?: AgentEffort) => net.send({ t: 'queue.add', prompt, title, issue, provider, model, effort }),
+    queue: (prompt: string, title: string, issue: string, provider?: AgentProvider, model?: string, effort?: AgentEffort) => net.send({ t: 'queue.add', prompt, title, issue, provider, model, effort }),
     assign: (prompt: string, title: string) => sendToWorker(`🤖 ${title}`, { initial: prompt }),
     ask: (context: string, title: string) => sendToWorker(`✍️ ${title}`, { context }),
     meeting: (preset: MeetingPreset) => showMeeting(preset),
@@ -2038,7 +2039,7 @@ function ballAtFeet(): Interactable | null {
 
 // ---- Carrying an issue card ------------------------------------------------------------------------
 function setCarrying(card: CarriedIssue | null) {
-  if ((card?.issue ?? 0) === (carrying?.issue ?? 0)) return;
+  if ((card?.issue ?? '') === (carrying?.issue ?? '')) return;
   carrying = card;
   me.carry(card);
   hands.carry(card);
@@ -2052,17 +2053,17 @@ function setCarrying(card: CarriedIssue | null) {
 function pickUp(it: GhIssue) {
   closeAllModals();
   dropBall();
-  if (carrying?.issue === it.number) return;
-  if (carrying) toast(`📌 #${carrying.issue} went back on the board`);
-  setCarrying({ issue: it.number, title: it.title });
+  if (carrying?.issue === it.id) return;
+  if (carrying) toast(`📌 ${issueLabel(carrying.issue)} went back on the board`);
+  setCarrying({ issue: it.id, title: it.title });
   sound.paper();
-  toast(`✋ You took #${it.number} off the board: take it to an empty desk, a worker or the 📋 queue and press E`);
+  toast(`✋ You took ${issueLabel(it.id)} off the board: take it to an empty desk, a worker or the 📋 queue and press E`);
 }
 
 /** Q, or E at the issues board: the card goes back where it came from. */
 function putBack() {
   if (!carrying) return;
-  toast(`📌 #${carrying.issue} is back on the board`);
+  toast(`📌 ${issueLabel(carrying.issue)} is back on the board`);
   setCarrying(null);
   sound.paper();
 }
@@ -2079,12 +2080,12 @@ function dropCard(it: Interactable, card: CarriedIssue, note: GhIssue | null): b
     else putBack();
     return true;
   }
-  const prompt = issuePrompt({ number: card.issue, title: card.title });
+  const prompt = issuePrompt({ id: card.issue, title: card.title });
   if (it.kind === 'queue') {
-    if (onQueue(card.issue)) toast(`#${card.issue} is already on the queue`, 'warn');
+    if (onQueue(card.issue)) toast(`${issueLabel(card.issue)} is already on the queue`, 'warn');
     else {
       const { provider, model, effort } = officeChoice(store.project);
-      net.send({ t: 'queue.add', prompt, title: `#${card.issue} ${card.title}`, issue: card.issue, provider, model, effort });
+      net.send({ t: 'queue.add', prompt, title: `${issueLabel(card.issue)} ${card.title}`, issue: card.issue, provider, model, effort });
       putDown();
     }
     return true;
@@ -2116,7 +2117,7 @@ function putDown() {
   sound.paper();
 }
 
-function onQueue(issue: number): boolean {
+function onQueue(issue: string): boolean {
   const t = store.taskForIssue(issue);
   return !!t && t.status !== 'done';
 }
@@ -2342,7 +2343,7 @@ function hintFor(it: Interactable): Hint {
     case 'station':
       return it.deskId ? stationHint(it.deskId) : { k: '', parts: [] };
     case 'issues':
-      if (aimedNote) return { k: String(aimedNote.number), parts: [title(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', 'Take it'), key('O', 'Read it')] };
+      if (aimedNote) return { k: aimedNote.id, parts: [title(clip(`📌 ${issueLabel(aimedNote.id)} ${aimedNote.title}`, 60)), key('E', 'Take it'), key('O', 'Read it')] };
       return issuesTex.hasNotes ? { k: 'notes', parts: [title('📌 Issues board'), key('E', 'Open'), aside('or point at a note to take it')] } : board('📌 Issues board');
     case 'pulls':
       return board('🔀 Pull request board');
@@ -2459,8 +2460,8 @@ function hintFor(it: Interactable): Hint {
 
 /** With an issue card in your hands: what E does with it here, and how to put it back. */
 function carryHint(card: CarriedIssue, it: Interactable | null): Hint {
-  const parts = (...mid: (HTMLElement | string)[]) => [h('span.title', {}, `🗂️ #${card.issue} in hand`), ...mid, key('Q', 'Put it back')];
-  if (it?.kind === 'issues') return aimedNote ? { k: String(aimedNote.number), parts: parts(key('E', `Swap it for #${aimedNote.number}`)) } : { k: '', parts: parts(key('E', 'Pin it back up')) };
+  const parts = (...mid: (HTMLElement | string)[]) => [h('span.title', {}, `🗂️ ${issueLabel(card.issue)} in hand`), ...mid, key('Q', 'Put it back')];
+  if (it?.kind === 'issues') return aimedNote ? { k: aimedNote.id, parts: parts(key('E', `Swap it for ${issueLabel(aimedNote.id)}`)) } : { k: '', parts: parts(key('E', 'Pin it back up')) };
   if (it?.kind === 'ball') return { k: 'ball', parts: parts(aside('🏀 hands full')) };
   if (it?.kind === 'queue') {
     const on = onQueue(card.issue);
@@ -2918,7 +2919,7 @@ function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boole
 function noteUnder(aim: { it: Interactable; hit: THREE.Intersection } | null): GhIssue | null {
   if (aim?.it.kind !== 'issues' || aim.hit.object !== office.boardMeshes.issues || !aim.hit.uv) return null;
   const n = issuesTex.noteAt(aim.hit.uv);
-  return n === undefined ? null : (store.issues.items.find((i) => i.number === n) ?? null);
+  return n === undefined ? null : (store.issues.items.find((i) => i.id === n) ?? null);
 }
 
 /** The note on the issues board under the crosshair (or, in third person, the mouse), which E takes. */
@@ -3356,7 +3357,7 @@ function frame(ts?: number) {
       if (aim?.near) aimedNote = noteUnder(aim);
     }
   }
-  issuesTex.lift(aimedNote?.number ?? null);
+  issuesTex.lift(aimedNote?.id ?? null);
   renderHint();
   renderCrosshair();
 

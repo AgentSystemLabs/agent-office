@@ -21,8 +21,10 @@ test('parses list, add and remove, with their options', () => {
   assert.deepEqual(parseArgs(['remove', 'abc123']), { cmd: 'remove', id: 'abc123' });
   assert.deepEqual(parseArgs(['rm', 'abc123']), { cmd: 'remove', id: 'abc123' });
   assert.deepEqual(parseArgs(['add', '--title', 'Fix login']), { cmd: 'add', title: 'Fix login' });
-  assert.deepEqual(parseArgs(['add', '--title=Fix login', '--issue', '12']), { cmd: 'add', title: 'Fix login', issue: 12 });
-  assert.deepEqual(parseArgs(['add', '--issue=#7', '--title', ' Fix login ', '--prompt', 'Do it']), { cmd: 'add', title: 'Fix login', issue: 7, prompt: 'Do it' });
+  assert.deepEqual(parseArgs(['add', '--title=Fix login', '--issue', '12']), { cmd: 'add', title: 'Fix login', issue: '12' });
+  assert.deepEqual(parseArgs(['add', '--issue=#7', '--title', ' Fix login ', '--prompt', 'Do it']), { cmd: 'add', title: 'Fix login', issue: '7', prompt: 'Do it' });
+  // Another tracker's id, as Linear writes them.
+  assert.deepEqual(parseArgs(['add', '--title', 'T', '--issue', 'found-2']), { cmd: 'add', title: 'T', issue: 'FOUND-2' });
   // A prompt that looks like an option is still the prompt.
   assert.deepEqual(parseArgs(['add', '--title', 'T', '--prompt', '- fix the list']), { cmd: 'add', title: 'T', prompt: '- fix the list' });
 });
@@ -36,8 +38,8 @@ test('says what is wrong with a bad command line', () => {
     [['add'], /--title/],
     [['add', '--title'], /--title needs a value/],
     [['add', '--title', '  '], /Give the task a --title/],
-    [['add', '--title', 'T', '--issue', 'twelve'], /--issue takes an issue number/],
-    [['add', '--title', 'T', '--issue', '0'], /--issue takes an issue number/],
+    [['add', '--title', 'T', '--issue', 'twelve'], /--issue takes an issue number or id/],
+    [['add', '--title', 'T', '--issue', '0'], /--issue takes an issue number or id/],
     [['add', '--title', 'T', '--model', 'x'], /Unknown option for add: --model/],
     [['add', 'Fix', 'login'], /Unexpected argument: Fix/],
   ];
@@ -58,11 +60,11 @@ test('builds the /office/queue requests', () => {
   assert.deepEqual(buildRequest({ cmd: 'remove', id: 'abc/123' }, OFFICE), {
     method: 'DELETE', url: 'http://127.0.0.1:4455/office/queue?worker=w1&task=abc%2F123', headers: auth,
   });
-  const add = buildRequest({ cmd: 'add', title: 'Fix login', issue: 12 }, OFFICE, 'Fix the redirect in src/login.ts.\r\nThen open a PR.\n');
+  const add = buildRequest({ cmd: 'add', title: 'Fix login', issue: '12' }, OFFICE, 'Fix the redirect in src/login.ts.\r\nThen open a PR.\n');
   assert.equal(add.method, 'POST');
   assert.equal(add.url, 'http://127.0.0.1:4455/office/queue?worker=w1');
   assert.deepEqual(add.headers, { ...auth, 'content-type': 'application/json' });
-  assert.deepEqual(JSON.parse(add.body), { title: 'Fix login', prompt: 'Fix the redirect in src/login.ts.\nThen open a PR.', issue: 12 });
+  assert.deepEqual(JSON.parse(add.body), { title: 'Fix login', prompt: 'Fix the redirect in src/login.ts.\nThen open a PR.', issue: '12' });
   // --prompt wins over stdin; with no issue there's no "issue" key.
   const flagged = buildRequest({ cmd: 'add', title: 'T', prompt: 'from the flag' }, OFFICE, 'from stdin');
   assert.deepEqual(JSON.parse(flagged.body), { title: 'T', prompt: 'from the flag' });
@@ -74,7 +76,7 @@ test('lists the queue readably: id, status, title, worker and PR', () => {
   const text = formatQueue({
     maxWorkers: 2,
     tasks: [
-      { id: 'aaa111', title: 'Fix login', status: 'running', issue: 12, worker: 'Pixel', branch: 'office/pixel-1a2b' },
+      { id: 'aaa111', title: 'Fix login', status: 'running', issue: '12', worker: 'Pixel', branch: 'office/pixel-1a2b' },
       { id: 'bbb222', title: 'Dark mode', status: 'queued' },
       { id: 'ccc333', title: 'Rename the dog', status: 'done', outcome: 'done', worker: 'Byte', pr: { number: 9, url: 'https://github.com/o/r/pull/9', state: 'OPEN', title: 'x' } },
       { id: 'ddd444', title: 'Broken', status: 'done', outcome: 'failed', error: 'no desk' },
@@ -115,7 +117,7 @@ test('add sends the prompt from stdin and prints the new task id', async () => {
   assert.match(r.err, /Queued “Fix login” \(queued, issue #12\)/);
   assert.equal(r.sent.length, 1);
   assert.equal(r.sent[0].init.method, 'POST');
-  assert.deepEqual(JSON.parse(String(r.sent[0].init.body)), { title: 'Fix login', prompt: 'Fix it.', issue: 12 });
+  assert.deepEqual(JSON.parse(String(r.sent[0].init.body)), { title: 'Fix login', prompt: 'Fix it.', issue: '12' });
 });
 
 test('clear errors when the environment is missing or the office says no', async () => {

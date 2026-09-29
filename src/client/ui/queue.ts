@@ -1,4 +1,5 @@
 import type { AgentProvider, QueueTask, Usage } from '../../shared/protocol';
+import { issueLabel } from '../../shared/issues';
 import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, timeAgo, STATUS_LABEL } from './dom';
@@ -13,8 +14,9 @@ export interface QueueActions {
 /** The queue task's name, linked to its GitHub issue when it has one. */
 function taskTitle(t: QueueTask): HTMLElement {
   if (t.issue === undefined) return h('div.queue-title', { title: t.prompt }, t.title);
-  const issue = store.issues.items.find((i) => i.number === t.issue);
-  const text = t.title.startsWith(`#${t.issue}`) ? t.title : `#${t.issue} ${t.title}`;
+  const issue = store.issues.items.find((i) => i.id === t.issue);
+  const label = issueLabel(t.issue);
+  const text = t.title.startsWith(label) ? t.title : `${label} ${t.title}`;
   return h('div.queue-title', { title: t.prompt }, issue ? h('a', { href: issue.url, target: '_blank', rel: 'noopener' }, text) : text);
 }
 

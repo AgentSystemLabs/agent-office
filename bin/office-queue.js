@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 const USAGE = `Usage:
   office-queue list                                  what's on the queue: id, status, title, worker, PR
   office-queue add --title "…" [--issue 12] <<'EOF'  add a task, its prompt on stdin (or --prompt "…");
+                                                     --issue takes a GitHub number (12, #12) or an id like FOUND-2
   …the prompt…                                       prints the new task's id
   EOF
   office-queue remove <id>                           take a waiting task off`;
@@ -21,6 +22,8 @@ const ENV = ['AGENT_OFFICE_HOOK_URL', 'AGENT_OFFICE_WORKER_ID', 'AGENT_OFFICE_HO
 /** How long the office may take to come back when it's restarting (a dev reload, an upgrade). */
 const RETRY_MS = 6000;
 const TIMEOUT_MS = 15_000;
+/** "#12" for a GitHub number, the id itself ("FOUND-2") otherwise. */
+const issueLabel = (id) => (/^\d+$/.test(String(id)) ? `#${id}` : String(id));
 
 /**
  * What the command line asks for:
@@ -40,7 +43,7 @@ export function parseArgs(argv) {
     return { cmd: 'remove', id: rest[0] };
   }
   if (cmd !== 'add') throw new UsageError(`Unknown command: ${cmd}`);
-  /** @type {{ cmd: 'add', title?: string, issue?: number, prompt?: string }} */
+  /** @type {{ cmd: 'add', title?: string, issue?: string, prompt?: string }} */
   const out = { cmd: 'add' };
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i];
@@ -56,9 +59,11 @@ export function parseArgs(argv) {
     if (flag === '--title') out.title = value.trim();
     else if (flag === '--prompt') out.prompt = value;
     else {
-      const n = /^#?(\d+)$/.exec(value.trim());
-      if (!n || Number(n[1]) < 1) throw new UsageError(`--issue takes an issue number, e.g. --issue 12 (got ${value})`);
-      out.issue = Number(n[1]);
+      // A GitHub number ("12", "#12") or another tracker's identifier ("FOUND-2"); the same rule as shared/issues.ts.
+      const id = value.trim().replace(/^#/, '');
+      const ok = /^\d+$/.test(id) ? Number(id) >= 1 : /^[A-Za-z][A-Za-z0-9]*-\d+$/.test(id);
+      if (!ok) throw new UsageError(`--issue takes an issue number or id, e.g. --issue 12 or --issue FOUND-2 (got ${value})`);
+      out.issue = /^\d+$/.test(id) ? String(Number(id)) : id.toUpperCase();
     }
   }
   if (!out.title) throw new UsageError('Give the task a --title, e.g. office-queue add --title "Fix the login redirect"');
@@ -118,7 +123,7 @@ export function formatQueue(view) {
   const status = (t) => (t.status === 'done' && t.outcome && t.outcome !== 'done' ? `done (${t.outcome})` : String(t.status ?? '?'));
   const width = Math.max(...tasks.map((t) => status(t).length));
   for (const t of tasks) {
-    const parts = [`${t.title ?? ''}${t.issue ? ` (issue #${t.issue})` : ''}`];
+    const parts = [`${t.title ?? ''}${t.issue ? ` (issue ${issueLabel(t.issue)})` : ''}`];
     if (t.worker) parts.push(`worker ${t.worker}${t.branch ? ` on ${t.branch}` : ''}`);
     if (t.pr) parts.push(`PR #${t.pr.number}${t.pr.state ? ` ${String(t.pr.state).toLowerCase()}` : ''} ${t.pr.url}`);
     if (t.error) parts.push(`error: ${t.error}`);
@@ -204,7 +209,7 @@ export async function main(argv, io = {}) {
     else {
       const task = res.body?.task ?? {};
       out(task.id ?? '');
-      err(`Queued “${task.title ?? cmd.title}” (${task.status ?? 'queued'}${cmd.issue !== undefined ? `, issue #${cmd.issue}` : ''}).`);
+      err(`Queued “${task.title ?? cmd.title}” (${task.status ?? 'queued'}${cmd.issue !== undefined ? `, issue ${issueLabel(cmd.issue)}` : ''}).`);
     }
     return 0;
   } catch (e) {

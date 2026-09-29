@@ -231,3 +231,26 @@ test('an office at its worker limit holds the queue, and a finished queue worker
   limit = 2; q.pump();
   assert.equal(q.state().tasks[2].status, 'running');
 });
+
+test('issues go by id: a legacy queue.json with numbers restores as text, and the same id is not queued twice', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  writeFileSync(path.join(f.dir, 'queue.json'), JSON.stringify({ maxWorkers: 0, tasks: [
+    { id: 'legacy', title: 'Legacy', prompt: 'Legacy task', status: 'queued', issue: 12 },
+  ] }));
+  const q = f.open();
+  assert.equal(q.state().tasks[0].issue, '12');
+  assert.match(q.add('Again', 'Tester', undefined, '12') ?? '', /#12 is already on the queue/);
+  assert.equal(q.add('Linear one', 'Tester', undefined, 'FOUND-2'), undefined);
+  assert.match(q.add('Linear again', 'Tester', undefined, 'FOUND-2') ?? '', /FOUND-2 is already on the queue/);
+  assert.equal(q.dropIssue('FOUND-2'), true);
+  assert.equal(q.dropIssue('FOUND-2'), false);
+});
+
+test('a pull request that closes a task’s issue links to it', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open(); q.setLimit(1);
+  q.add('Fix login', 'Tester', undefined, '12');
+  const pull = { number: 7, title: 'Fix login', state: 'OPEN', isDraft: false, url: 'u', author: 'a', labels: [], reviewDecision: '', headRefName: 'other', baseRefName: 'main', createdAt: new Date().toISOString(), updatedAt: '', additions: 0, deletions: 0, checks: 'none' as const, body: '', closes: ['12'] };
+  q.onPulls([pull]);
+  assert.equal(q.state().tasks[0].pr?.number, 7);
+});
