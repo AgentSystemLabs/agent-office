@@ -1,7 +1,7 @@
 import { BEANBAGS, BOARDS, DESKS, ELEVATOR, ELEVATOR_CAR, EXIT_DOOR, FLOOR, MEETING_SEATS, SEATING, STATIONS, STATION_AGENT, WALL_HEIGHT, seatHere, seatPlace, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../layout.js';
 import type { Circle, Rect } from '../nav.js';
 import { CASTLE } from './castle.js';
-import { boxFootprint, isPropKind, propFootprint } from './props.js';
+import { boxFootprint, isPropKind, propFootprint, propTop } from './props.js';
 import { BOARD_KEYS, type BoardDef, type BoardKey, type MapChoice, type MapConfig, type MapPlan, type TableConfig } from './types.js';
 
 export * from './types.js';
@@ -260,6 +260,9 @@ export function planMap(c: MapConfig): MapPlan {
     if (!isPropKind(p.kind)) throw new MapError(`props[${i}] is a "${p.kind}", which isn’t a kind of prop there is`);
     num(p.x, `props[${i}].x`);
     num(p.z, `props[${i}].z`);
+    // What hangs on a wall, or from the roof, has to fit under the walls' top.
+    const top = propTop(p);
+    if (top > height) throw new MapError(`props[${i}] (a ${p.kind}) reaches ${top.toFixed(1)} m up, over the hall's ${height} m walls: lower its y, or raise hall.height`);
     const f = propFootprint(p);
     if (f?.rect) rects.push(f.rect);
     if (f?.circle) circles.push(f.circle);

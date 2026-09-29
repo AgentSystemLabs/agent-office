@@ -95,3 +95,22 @@ export function propFootprint(p: PropConfig): { rect?: Rect; circle?: Circle } |
       return null;
   }
 }
+
+/** How high up a prop that hangs on a wall or from the roof reaches (0 for what stands on the floor). */
+export function propTop(p: PropConfig): number {
+  const y = p.y ?? 0;
+  switch (p.kind) {
+    case 'window':
+      return y + (p.height ?? 5);
+    case 'rose':
+      return y + (p.width ?? 4.5) / 2;
+    case 'banner':
+    case 'chandelier':
+      return y;
+    case 'torch':
+    case 'shield':
+      return y + 0.5;
+    default:
+      return 0;
+  }
+}

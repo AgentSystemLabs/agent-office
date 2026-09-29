@@ -60,6 +60,7 @@ test("a map that can't be used says why, and the building stays on the office", 
     { file: 'thing.json', json: { id: 'thing', name: 'Thing', extends: 'castle', props: [{ kind: 'spaceship', x: 0, z: 0 }] } },
     { file: 'dupe.json', json: { id: 'castle', name: 'Castle 2', extends: 'castle' } },
     { file: 'loop.json', json: { id: 'loop', name: 'Loop', extends: 'loop' } },
+    { file: 'low.json', json: { id: 'low', name: 'Low', extends: 'castle', hall: { height: 9 } } },
   ]);
   const why = Object.fromEntries(checked.map((m) => [m.file, m.error ?? '']));
   assert.match(why['office.json'], /office is built in code/);
@@ -68,6 +69,7 @@ test("a map that can't be used says why, and the building stays on the office", 
   assert.match(why['thing.json'], /spaceship/);
   assert.match(why['dupe.json'], /built-in map/);
   assert.match(why['loop.json'], /extends itself/);
+  assert.match(why['low.json'], /\(a banner\) reaches 11\.2 m up, over the hall's 9 m walls/);
   assert.equal(planOf('small', checked), OFFICE_PLAN);
   assert.equal(planOf('nowhere'), OFFICE_PLAN);
 });
