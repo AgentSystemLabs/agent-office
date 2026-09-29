@@ -195,7 +195,8 @@ main() {
   fi
   step "Starting Agent Office $tag"
   # Piped into bash (curl … | bash), stdin is the rest of this script: give the office the terminal
-  # instead, so its first-run walkthrough can ask where projects go and which one to start with.
+  # instead, so its first-run walkthrough can ask where projects go and which one to start with, and
+  # it can open itself in your browser, signed in.
   if [ ! -t 0 ] && [ -t 1 ] && (: </dev/tty) 2>/dev/null; then exec node "$entry" "$@" </dev/tty; fi
   exec node "$entry" "$@"
 }

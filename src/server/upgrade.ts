@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { UpgradeState, VersionInfo } from '../shared/protocol.js';
 
-/** The install this server runs from (deploy/aws.sh makes it a git checkout). */
+/** The install this server runs from (deploy/provision.sh makes it a git checkout). */
 function findAppDir(): string | undefined {
   let dir = path.dirname(fileURLToPath(import.meta.url));
   for (let i = 0; i < 5; i++, dir = path.dirname(dir)) {
@@ -78,10 +78,11 @@ async function keepWorkersThroughRestart() {
 }
 
 /**
- * Lets an office installed by deploy/aws.sh upgrade itself from the UI. The new version is
- * built next to the running one (the office keeps working meanwhile, and a failed build changes
- * nothing), swapped in, and then the process exits so systemd starts the new version. Workers keep
- * running through it in their terminal host, which the new version picks back up.
+ * Lets an office installed by deploy/provision.sh (or deploy/aws.sh) upgrade itself from the UI.
+ * The new version is built next to the running one (the office keeps working meanwhile, and a
+ * failed build changes nothing), swapped in, and then the process exits so systemd starts the new
+ * version. Workers keep running through it in their terminal host, which the new version picks
+ * back up.
  */
 export class Upgrader {
   readonly state: UpgradeState;
@@ -105,7 +106,7 @@ export class Upgrader {
     }
     this.version = current?.sha ?? pkg;
     const branch = current ? gitSync(['rev-parse', '--abbrev-ref', 'HEAD']) : undefined;
-    // Only deploy/aws.sh's systemd unit sets this, and it restarts the office whenever it exits.
+    // Only deploy/provision.sh's systemd unit sets this, and it restarts the office whenever it exits.
     // A checkout on a tag (detached HEAD) has no branch to follow.
     const enabled = process.env.AGENT_OFFICE_SELF_UPDATE === '1' && !!branch && branch !== 'HEAD';
     this.branch = enabled ? branch : undefined;
@@ -174,7 +175,7 @@ export class Upgrader {
 
   /** Starts building the newest version. Returns why it can't, if it can't. */
   async start(by: string): Promise<string | undefined> {
-    if (!this.branch) return "This office can't upgrade itself (it wasn't installed by deploy/aws.sh)";
+    if (!this.branch) return "This office can't upgrade itself (it wasn't installed by deploy/provision.sh or deploy/aws.sh)";
     if (this.busy) return 'An upgrade is already running';
     await this.check();
     if (this.busy) return 'An upgrade is already running';
