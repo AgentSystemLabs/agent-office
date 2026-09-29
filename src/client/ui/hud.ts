@@ -164,6 +164,7 @@ export function openHelp() {
     ['O', 'Open a pull request for a worker on its own branch, or see the one it has'],
     ['T', 'Chat'],
     ['G / 1–6', 'Emote: hold G, point at one and let go (or tap G and click one), or press 1–6: wave, thumbs up, clap, dance, point, facepalm. Everyone on your floor sees it'],
+    ['7', 'Draw the .44 Magnum (or holster it); click to fire at the worker under the crosshair. One shot drops it — confirm the kill or revive it'],
     ['/', 'Search the chat and every terminal on your floor, back to before the office last restarted'],
     ['V / M', 'Join voice / mute'],
     ['Tab', 'The ☰ menu, top right: every window, and what shows on screen. Pin what you use most to the top bar'],

@@ -81,15 +81,22 @@ export interface CasualtyHooks {
 
 let poolGeo: THREE.CircleGeometry | null = null;
 let poolMat: THREE.MeshBasicMaterial | null = null;
+let poolDark: THREE.MeshBasicMaterial | null = null;
 
-/** The blood pool: a spreading circle with a lobe off to one side, so it isn't a perfect disc. */
+/** The blood pool: a spreading circle, darker at its heart, with a lobe off to one side. */
 function bloodPool(): THREE.Group {
   poolGeo ??= new THREE.CircleGeometry(1, 28);
   poolMat ??= new THREE.MeshBasicMaterial({ color: '#a31621', transparent: true, opacity: 0.88, depthWrite: false });
+  poolDark ??= new THREE.MeshBasicMaterial({ color: '#630d14', transparent: true, opacity: 0.92, depthWrite: false });
   const pool = new THREE.Group();
   const main = new THREE.Mesh(poolGeo, poolMat);
   main.rotation.x = -Math.PI / 2;
   pool.add(main);
+  const heart = new THREE.Mesh(poolGeo, poolDark);
+  heart.rotation.x = -Math.PI / 2;
+  heart.position.y = 0.001;
+  heart.scale.setScalar(0.55);
+  pool.add(heart);
   const lobe = new THREE.Mesh(poolGeo, poolMat);
   lobe.rotation.x = -Math.PI / 2;
   lobe.position.set(0.55, 0.001, 0.35);

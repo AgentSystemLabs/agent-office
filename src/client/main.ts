@@ -1418,6 +1418,8 @@ function fireGun(ndc: THREE.Vector2) {
   hands.fireGun();
   me.fire();
   sound.gunshot();
+  // One shell of kick up the camera.
+  if (!reduceMotion.matches) thud = Math.max(thud, 0.4);
   if (upTop) return;
   raycaster.setFromCamera(ndc, camera);
   const byRoot = new Map<THREE.Object3D, string>();
@@ -1465,12 +1467,17 @@ function fireGun(ndc: THREE.Vector2) {
       dyingModal = null;
       shotDead.add(workerId);
       net.send(cleanup ? { t: 'worker.kill', workerId, cleanup } : { t: 'worker.kill', workerId });
+      toast(`💀 ${w.name} — the medics are on their way`);
     },
     onRevive: () => {
       const d = dyingId;
       dyingId = null;
       dyingModal = null;
-      if (d && casualties.revive(d) && !dyingSilent) toast(`🩹 ${w.name} is back on its feet — session untouched`);
+      if (d && casualties.revive(d)) {
+        // Back on its feet with a little hop.
+        workerViews.get(d)?.model.cheer(0.8);
+        if (!dyingSilent) toast(`🩹 ${w.name} is back on its feet — session untouched`);
+      }
       dyingSilent = false;
     },
   });
