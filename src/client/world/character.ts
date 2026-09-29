@@ -1536,7 +1536,8 @@ export class Worker {
     if (this.leaving) return;
     const { status, bouncing: bounce, task, pr } = this;
     const hot = status === 'needs_input' || (status === 'done' && bounce);
-    const bg = hot ? (status === 'done' ? '#caffbf' : '#ffd6e0') : status === 'working' ? '#ffec99' : '#fffaf3';
+    // Resting cards used to be cream. They sit black with white type, like the name tag.
+    const bg = hot ? (status === 'done' ? '#caffbf' : '#ffd6e0') : status === 'working' ? '#ffec99' : '#0a0a0a';
     const border = pr && PR_INK[pr.state];
     // Not working on or waiting for something more: its pull request in place of ready / done / asleep.
     const prLabel = pr && status !== 'working' && status !== 'needs_input' && status !== 'starting' ? pr.label : undefined;
@@ -1552,7 +1553,16 @@ export class Worker {
     this.bubbleIsCard = !!task;
     if (task) {
       const [text, chipBg, color] = prLabel && border ? [prLabel.toUpperCase(), border, '#ffffff'] : (TASK_CHIP[status] ?? TASK_CHIP.idle);
-      this.bubble = cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: task.summary, bg: isAsleep(status) ? '#e9ecef' : bg, border });
+      const dark = bg === '#0a0a0a';
+      this.bubble = cardSprite({
+        chip: { text, bg: chipBg, color },
+        title: task.name,
+        body: task.summary,
+        bg,
+        border: border ?? (dark ? '#eeeeee' : undefined),
+        color: dark ? '#ffffff' : undefined,
+        muted: dark ? '#e6e6ee' : undefined,
+      });
     } else if (bubble) this.bubble = textSprite(bubble, { bg: '#0a0a0a', color: '#eeeeee', border: border ?? '#2f2f2f', size: 38 });
     if (this.bubble) this.root.add(this.bubble);
   }

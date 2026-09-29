@@ -143,6 +143,10 @@ export interface CardOpts {
   bg: string;
   /** The outline's color, when it isn't the usual ink. */
   border?: string;
+  /** Title ink, when it isn't the usual dark ink (a light color on a dark card). */
+  color?: string;
+  /** Body ink, when it isn't the usual muted ink. */
+  muted?: string;
   /** Widest a line of text may get, in textSprite `size` pixels. */
   maxWidth?: number;
 }
@@ -227,10 +231,10 @@ export function cardSprite(o: CardOpts): THREE.Sprite {
     ctx.fillText(o.chip.text, cx, lw / 2 + chipH / 2 + R);
   }
   ctx.font = titleFont;
-  ctx.fillStyle = INK;
+  ctx.fillStyle = o.color ?? INK;
   title.forEach((l, i) => fillGlyphText(ctx, l, cx, titleY + (i + 0.5) * titleLH, titlePx));
   ctx.font = bodyFont;
-  ctx.fillStyle = '#5c5f77';
+  ctx.fillStyle = o.muted ?? '#5c5f77';
   body.forEach((l, i) => fillGlyphText(ctx, l, cx, bodyY + (i + 0.5) * bodyLH, bodyPx));
 
   const tex = new THREE.CanvasTexture(canvas);
