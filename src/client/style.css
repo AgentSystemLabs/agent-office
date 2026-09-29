@@ -280,8 +280,8 @@ button { font-family: inherit; }
 .modal .body { padding: 16px; overflow: auto; }
 .modal footer { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px; border-top: 3px solid var(--ink); background: var(--paper-2); align-items: center; }
 .modal footer .grow { flex: 1; font-size: 12px; color: var(--muted); font-weight: 700; }
-.modal textarea, .modal input[type=text] { width: 100%; font: inherit; font-size: 15px; border: 3px solid var(--ink); border-radius: 12px; padding: 10px 12px; background: #fff; outline: none; resize: vertical; }
-.modal textarea:focus, .modal input[type=text]:focus { border-color: var(--accent); }
+.modal textarea, .modal input[type=text], .modal input[type=password] { width: 100%; font: inherit; font-size: 15px; border: 3px solid var(--ink); border-radius: 12px; padding: 10px 12px; background: #fff; outline: none; resize: vertical; }
+.modal textarea:focus, .modal input[type=text]:focus, .modal input[type=password]:focus { border-color: var(--accent); }
 .modal label { font-weight: 800; font-size: 14px; display: block; margin-bottom: 6px; }
 .close { width: 34px; height: 34px; padding: 0; justify-content: center; }
 /* The ✕ openModal gives a window without a header of its own. */
@@ -537,6 +537,20 @@ button { font-family: inherit; }
 .accounts .invite-row select { font: inherit; font-weight: 800; border: 3px solid var(--ink); border-radius: 12px; padding: 0 8px; background: #fff; color: var(--ink); }
 .accounts .cmd { margin-top: 10px; }
 .accounts .team-head .btn { padding: 3px 10px; font-size: 13px; }
+.signins { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.signin { border: 3px solid var(--ink); border-radius: 14px; padding: 4px 14px 14px; background: #fff; }
+.signin.ok { background: #f3fbf6; }
+.signin .team-head { margin-top: 10px; }
+.signin-who { font-weight: 800; font-size: 14px; overflow-wrap: anywhere; text-align: right; }
+.signin-who.none { color: var(--muted); }
+.signin-body > * { margin-top: 10px; }
+.signin-body .team-status { margin-top: 10px; }
+.signin-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.signin-steps { margin: 10px 0 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; font-weight: 700; font-size: 14px; line-height: 1.5; }
+.signin-steps .btn { display: inline-block; text-decoration: none; }
+.signin-steps .invite-row, .signin-steps .cmd { margin-top: 6px; }
+.signin-code { font-size: 20px !important; letter-spacing: .12em; text-align: center; }
+.team .note.lead { margin-top: 0; }
 .role { font-size: 11px; font-weight: 900; padding: 1px 7px; border-radius: 999px; border: 2px solid var(--ink); background: #e0f2fe; }
 .role.admin { background: var(--warn); }
 .acct { font-size: 11px; color: var(--good); font-weight: 900; }

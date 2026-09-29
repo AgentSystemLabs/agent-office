@@ -7,8 +7,9 @@ import { DESK_BY_ID } from '../shared/layout.js';
 import type { FloorDef } from './building.js';
 import { excludeFromGit } from './config.js';
 import { agentProviders, configuredProvider } from './agents.js';
-import { WorkerManager, type HookEnv } from './workers.js';
+import { WorkerManager, type HookEnv, type RunAs } from './workers.js';
 import { GitHub, MergeWatch } from './github.js';
+import type { GhAs } from './signins.js';
 import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { Decor } from './decor.js';
@@ -37,6 +38,10 @@ export interface FloorContext {
   capacity: Capacity;
   /** The office's prompts and the worker everyone starts on, as set in ⚙️ Settings. */
   prompts: PromptSource;
+  /** Workers hired by an account run on its own sign-ins (see signins.ts). */
+  runAs?: RunAs;
+  /** How to run gh as an account: its own sign-in, the office's (undefined), or why it can't. */
+  ghAs(owner: string | undefined): GhAs | undefined | string;
   /** To everyone on this floor. */
   emit(floor: Floor, msg: ServerMsg, droppable?: boolean): void;
   toast(floor: Floor, text: string, level?: ToastLevel): void;
@@ -162,6 +167,7 @@ export class Floor {
       ctx.ledger,
       ctx.capacity,
       ctx.prompts,
+      ctx.runAs,
     );
 
     this.github = new GitHub(
@@ -186,7 +192,10 @@ export class Floor {
         this.sendLandedHome();
       },
       toast: (text, level) => ctx.toast(this, text, level),
-      claimIssue: (issue) => this.github.claim(issue),
+      claimIssue: (issue, owner) => {
+        const as = ctx.ghAs(owner);
+        return typeof as === 'string' ? Promise.resolve(as) : this.github.claim(issue, as);
+      },
       refreshGitHub: () => void this.github.refresh(),
       hiringPaused: () => ctx.ledger.hiringPaused,
       room: () => ctx.capacity.room(),
@@ -208,7 +217,7 @@ export class Floor {
           return workers.officeDefault;
         },
         list: () => this.workers.list(),
-        seat: (deskId, by, prompt, provider, model, effort, meeting) => this.workers.spawn(deskId, by, prompt, false, 'agent', provider, model, effort, meeting),
+        seat: (deskId, by, prompt, provider, model, effort, meeting, owner) => this.workers.spawn(deskId, by, prompt, false, 'agent', provider, model, effort, meeting, owner),
         prompt: (id, text, by) => this.workers.prompt(id, text, by),
         write: (id, data, by) => this.workers.write(id, data, by),
         kill: (id) => this.workers.kill(id),
@@ -218,7 +227,10 @@ export class Floor {
         update: (state) => ctx.emit(this, { t: 'meeting', state }),
         toast: (text, level) => ctx.toast(this, text, level),
         hiringPaused: () => ctx.ledger.hiringPaused,
-        postReview: (pr, file) => this.github.review(pr, file),
+        postReview: (pr, file, owner) => {
+          const as = ctx.ghAs(owner);
+          return typeof as === 'string' ? Promise.reject(new Error(as)) : this.github.review(pr, file, as);
+        },
         prompt: (id) => ctx.prompts.text(id),
       },
     );

@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import type { GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhLabel, GhMergeMethod, GhPull, GhPullDetail, GhRepoInfo, GhReviewComment, GhState } from '../shared/protocol.js';
+import type { GhAs } from './signins.js';
 
 const REFRESH_MS = 90_000;
 /** How long the repo's list of labels is kept before the label picker asks GitHub again. */
@@ -9,17 +10,19 @@ const LABELS_MS = 60_000;
 function friendly(raw: string): string {
   if (/no git remotes found|none of the git remotes/i.test(raw)) return 'This project has no GitHub remote yet. Push it to GitHub (git remote add origin <url>) to fill the boards.';
   if (/not a git repository/i.test(raw)) return "This folder isn't a git repository";
-  if (/auth login|not logged in|authentication/i.test(raw)) return "gh isn't logged in on the server — run `gh auth login`";
+  if (/auth login|not logged in|authentication/i.test(raw)) return "gh isn't signed in to GitHub on the office's machine — run `gh auth login` there";
   if (/could not resolve to a repository|not found/i.test(raw)) return "gh can't find this repository on GitHub (check the remote and access)";
   return raw;
 }
 
-export function gh(args: string[], cwd: string, timeout = 30_000): Promise<string> {
+/** Runs gh as the office, or with `env` as someone signed in to their own GitHub (see signins.ts). */
+export function gh(args: string[], cwd: string, timeout = 30_000, env?: Record<string, string>): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('gh', args, { cwd, maxBuffer: 32 * 1024 * 1024, timeout }, (err, stdout, stderr) => {
+    execFile('gh', args, { cwd, maxBuffer: 32 * 1024 * 1024, timeout, env }, (err, stdout, stderr) => {
       if (err) {
         const msg = (stderr || err.message || '').trim().split('\n').slice(-2).join(' ');
-        reject(new Error((err as NodeJS.ErrnoException).code === 'ENOENT' ? 'GitHub CLI (gh) is not installed on the server' : friendly(msg)));
+        const signedOut = env && /auth login|not logged in|authentication/i.test(msg);
+        reject(new Error((err as NodeJS.ErrnoException).code === 'ENOENT' ? 'GitHub CLI (gh) is not installed on the server' : signedOut ? 'Your GitHub sign-in stopped working — sign in again (☰ → 🔐 Your sign-ins)' : friendly(msg)));
       } else resolve(stdout);
     });
   });
@@ -135,22 +138,25 @@ export class GitHub {
     return this.repo;
   }
 
-  /** Who gh is signed in as, which is who the office comments as. Asked once; '' when gh can't say. */
+  /** Who the office's own gh is signed in as, which is who it comments as for everyone without their own. Asked once; '' when gh can't say. */
   viewer(): Promise<string> {
     this.login ??= gh(['api', 'user', '--jq', '.login'], this.dir).then((out) => out.trim());
     this.login.catch(() => (this.login = undefined));
     return this.login.catch(() => '');
   }
 
-  /** A PR's description, conversation, line comments, checks and whether it can merge. */
-  async pullDetail(n: number): Promise<GhPullDetail> {
+  /**
+   * A PR's description, conversation, line comments, checks and whether it can merge. `me` is the
+   * GitHub login of whoever asked, when they're signed in to their own; else it's the office's.
+   */
+  async pullDetail(n: number, me?: string): Promise<GhPullDetail> {
     const fields = 'number,body,state,isDraft,reviewDecision,headRefName,baseRefName,mergeable,mergeStateStatus,commits,comments,reviews,statusCheckRollup';
     const jq = '.[] | {id, in_reply_to_id, path, line, side, body, user: .user.login, created_at, html_url}';
     const [view, lines, repo, viewer] = await Promise.all([
       gh(['pr', 'view', String(n), '--json', fields], this.dir),
       gh(['api', `repos/{owner}/{repo}/pulls/${n}/comments?per_page=100`, '--paginate', '--jq', jq], this.dir),
       this.repoInfo(),
-      this.viewer(),
+      me ?? this.viewer(),
     ]);
     const p = JSON.parse(view);
     const reviewComments: GhReviewComment[] = lines
@@ -194,22 +200,22 @@ export class GitHub {
     return gh(['pr', 'diff', String(n), '--color', 'never'], this.dir, 60_000);
   }
 
-  async issueDetail(n: number): Promise<GhIssueDetail> {
-    const [view, viewer] = await Promise.all([gh(['issue', 'view', String(n), '--json', 'number,state,body,comments'], this.dir), this.viewer()]);
+  async issueDetail(n: number, me?: string): Promise<GhIssueDetail> {
+    const [view, viewer] = await Promise.all([gh(['issue', 'view', String(n), '--json', 'number,state,body,comments'], this.dir), me ?? this.viewer()]);
     const i = JSON.parse(view);
     return { number: i.number, state: i.state, body: String(i.body ?? ''), comments: commentsOf(i.comments), viewer };
   }
 
   /**
-   * Comments on an issue, or on a PR's conversation (to GitHub a PR is an issue too), as whoever gh
-   * is signed in as. Returns the comment as GitHub saved it, or why it couldn't.
+   * Comments on an issue, or on a PR's conversation (to GitHub a PR is an issue too), as `as` or
+   * else the office. Returns the comment as GitHub saved it, or why it couldn't.
    */
-  async comment(kind: 'issue' | 'pull', n: number, body: string): Promise<{ comment?: GhComment; error?: string }> {
+  async comment(kind: 'issue' | 'pull', n: number, body: string, as?: GhAs): Promise<{ comment?: GhComment; error?: string }> {
     let comment: GhComment;
     try {
       // -f sends the body as a plain string: no @file reading, no {owner} filling in.
       const jq = '{id: .node_id, author: {login: .user.login}, body, createdAt: .created_at, url: .html_url}';
-      const out = await gh(['api', '--method', 'POST', `repos/{owner}/{repo}/issues/${n}/comments`, '-f', `body=${body}`, '--jq', jq], this.dir);
+      const out = await gh(['api', '--method', 'POST', `repos/{owner}/{repo}/issues/${n}/comments`, '-f', `body=${body}`, '--jq', jq], this.dir, undefined, as?.env);
       [comment] = commentsOf([JSON.parse(out)]);
     } catch (err) {
       return { error: (err as Error).message };
@@ -223,15 +229,15 @@ export class GitHub {
    * Posts a review on a pull request that only comments (the meeting room's review panel), its body
    * read from a file. Resolves to the review's URL.
    */
-  async review(n: number, file: string): Promise<string> {
+  async review(n: number, file: string, as?: GhAs): Promise<string> {
     // -F reads @file's contents as the value; {owner}/{repo} are filled in from the checkout's remote.
-    const url = (await gh(['api', '--method', 'POST', `repos/{owner}/{repo}/pulls/${n}/reviews`, '-F', `body=@${file}`, '-f', 'event=COMMENT', '--jq', '.html_url'], this.dir, 60_000)).trim();
+    const url = (await gh(['api', '--method', 'POST', `repos/{owner}/{repo}/pulls/${n}/reviews`, '-F', `body=@${file}`, '-f', 'event=COMMENT', '--jq', '.html_url'], this.dir, 60_000, as?.env)).trim();
     void this.refreshPulls();
     return url;
   }
 
   /** Merges a PR, or with `auto` has GitHub merge it once its requirements pass. Returns an error. */
-  async merge(n: number, method: GhMergeMethod, deleteBranch: boolean, auto: boolean): Promise<string | undefined> {
+  async merge(n: number, method: GhMergeMethod, deleteBranch: boolean, auto: boolean, as?: GhAs): Promise<string | undefined> {
     try {
       const repo = await this.repoInfo();
       // --repo keeps gh out of the office's own checkout: without it, --delete-branch also deletes
@@ -239,7 +245,7 @@ export class GitHub {
       const args = ['pr', 'merge', String(n), `--${method}`, '--repo', repo.nameWithOwner];
       if (deleteBranch) args.push('--delete-branch');
       if (auto) args.push('--auto');
-      await gh(args, this.dir, 90_000);
+      await gh(args, this.dir, 90_000, as?.env);
     } catch (err) {
       return (err as Error).message;
     }
@@ -248,7 +254,7 @@ export class GitHub {
   }
 
   /** Closes an issue, or a pull request without merging it, optionally saying why. Returns an error. */
-  async close(kind: 'issue' | 'pull', n: number, opts: { comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }): Promise<string | undefined> {
+  async close(kind: 'issue' | 'pull', n: number, opts: { comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }, as?: GhAs): Promise<string | undefined> {
     try {
       const repo = await this.repoInfo();
       // --repo for the same reason as merge: --delete-branch must leave the office's checkout alone.
@@ -257,7 +263,7 @@ export class GitHub {
       if (opts.comment) args.push(`--comment=${opts.comment}`);
       if (kind === 'issue' && opts.reason) args.push(`--reason=${opts.reason}`);
       if (kind === 'pull' && opts.deleteBranch) args.push('--delete-branch');
-      await gh(args, this.dir);
+      await gh(args, this.dir, undefined, as?.env);
     } catch (err) {
       return (err as Error).message;
     }
@@ -286,19 +292,19 @@ export class GitHub {
   }
 
   /**
-   * Puts labels on an issue or PR and takes others off (to GitHub a PR is an issue too), as whoever
-   * gh is signed in as. Returns the labels it has now, or why they didn't change.
+   * Puts labels on an issue or PR and takes others off (to GitHub a PR is an issue too), as `as` or
+   * else the office. Returns the labels it has now, or why they didn't change.
    */
-  async setLabels(kind: 'issue' | 'pull', n: number, add: string[], remove: string[]): Promise<{ labels?: GhLabel[]; error?: string }> {
+  async setLabels(kind: 'issue' | 'pull', n: number, add: string[], remove: string[], as?: GhAs): Promise<{ labels?: GhLabel[]; error?: string }> {
     const path = `repos/{owner}/{repo}/issues/${n}/labels`;
     const jq = '[.[] | {name, color}]';
     let now: GhLabel[] | undefined;
     try {
       // -f labels[]=… sends a JSON array of plain strings: no @file reading, no {owner} filling in.
-      if (add.length) now = labels(JSON.parse(await gh(['api', '--method', 'POST', path, ...add.flatMap((l) => ['-f', `labels[]=${l}`]), '--jq', jq], this.dir)));
+      if (add.length) now = labels(JSON.parse(await gh(['api', '--method', 'POST', path, ...add.flatMap((l) => ['-f', `labels[]=${l}`]), '--jq', jq], this.dir, undefined, as?.env)));
       for (const l of remove) {
         try {
-          now = labels(JSON.parse(await gh(['api', '--method', 'DELETE', `${path}/${encodeURIComponent(l)}`, '--jq', jq], this.dir)));
+          now = labels(JSON.parse(await gh(['api', '--method', 'DELETE', `${path}/${encodeURIComponent(l)}`, '--jq', jq], this.dir, undefined, as?.env)));
         } catch (err) {
           // Someone took it off already, which is what was asked for.
           if (!/label does not exist/i.test((err as Error).message)) throw err;
@@ -342,10 +348,10 @@ export class GitHub {
     });
   }
 
-  /** Assigns the issue to whoever gh is signed in as, which moves it to In progress on the board. */
-  async claim(issue: number): Promise<string | undefined> {
+  /** Assigns the issue to `as` (else the office's own gh), which moves it to In progress on the board. */
+  async claim(issue: number, as?: GhAs): Promise<string | undefined> {
     try {
-      await gh(['issue', 'edit', String(issue), '--add-assignee', '@me'], this.dir);
+      await gh(['issue', 'edit', String(issue), '--add-assignee', '@me'], this.dir, undefined, as?.env);
     } catch (err) {
       return (err as Error).message;
     }
