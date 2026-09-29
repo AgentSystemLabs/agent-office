@@ -48,6 +48,7 @@ import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { Climber, gripOf, type Arrival, type Grip, type Way } from './climb';
 import { Caffeine } from './caffeine';
 import { buildOffice, type DeskView, type InteractKind, type Interactable } from './world/office';
+import { loadPropManifest, preloadProps, propManifest } from './world/props';
 import { buildRooftop, type Rooftop } from './world/rooftop';
 import { DrunkVision } from './world/drunk';
 import { Booze, type Stage as Feeling } from './booze';
@@ -161,6 +162,12 @@ scene.add(sun);
 
 const office = buildOffice();
 scene.add(office.group);
+
+// The MacBook GLBs load after the scene exists; each laptop swaps its procedural
+// stand-in for them the first frame they are cached (see world/laptop.ts).
+void loadPropManifest()
+  .then(() => preloadProps(Object.keys(propManifest())))
+  .catch((err) => console.warn('office: prop GLBs unavailable, keeping procedural props', err));
 const sky = new Sky(scene, { sun, hemi, ambient }, office.night);
 store.on('sky', () => store.sky && sky.set(store.sky));
 // Halloween or Christmas decorations, up while the building's dressed up for one (see dressUp).

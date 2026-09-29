@@ -1,0 +1,26 @@
+{
+  "macbook-base": {
+    "bytes": 19672,
+    "depth": 0.545,
+    "height": 0.048,
+    "materials": 5,
+    "tags": [
+      "desk"
+    ],
+    "triangles": 3720,
+    "url": "/props/macbook-base.glb",
+    "width": 0.784
+  },
+  "macbook-lid": {
+    "bytes": 8680,
+    "depth": 0.03,
+    "height": 0.5,
+    "materials": 6,
+    "tags": [
+      "desk"
+    ],
+    "triangles": 506,
+    "url": "/props/macbook-lid.glb",
+    "width": 0.78
+  }
+}

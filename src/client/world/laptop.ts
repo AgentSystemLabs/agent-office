@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, type Run } from '../../shared/protocol';
 import { mesh, roundedBox, toon } from './toon';
+import { propReady, useProp } from './props';
 import { TERM_FONT } from '../fonts';
 
 /**
@@ -171,7 +172,13 @@ export class Laptop {
   private canvas = document.createElement('canvas');
   private ctx: CanvasRenderingContext2D;
   private texture: THREE.CanvasTexture;
+  private screenMat: THREE.MeshBasicMaterial;
   private lid = new THREE.Group();
+  /** The visible base and lid, swapped for the MacBook GLBs once they arrive. */
+  private baseModel = new THREE.Group();
+  private lidModel = new THREE.Group();
+  private baseSwapped = false;
+  private lidSwapped = false;
   private drawnVersion = -1;
   private paintedAt = 0;
   private openT = 0;
@@ -185,26 +192,32 @@ export class Laptop {
     this.texture.colorSpace = THREE.SRGBColorSpace;
     this.texture.anisotropy = 8;
     this.texture.minFilter = THREE.LinearMipmapLinearFilter;
+    this.screenMat = new THREE.MeshBasicMaterial({ map: this.texture, toneMapped: false });
 
+    // The procedural laptop below is the stand-in: it shows until the MacBook GLBs land
+    // (see maybeSwap), the way every prop keeps a procedural version. The GLBs are
+    // authored in this same space, so the swap changes nothing but the meshes.
     const shell = toon('#c9ced6');
     const dark = toon('#2b2d42');
     // Base with keyboard
-    this.root.add(mesh(roundedBox(0.78, 0.035, 0.52, 0.04), shell, 0, 0.018, 0.02));
-    this.root.add(mesh(new THREE.BoxGeometry(0.66, 0.006, 0.24), dark, 0, 0.037, 0.0, false));
-    this.root.add(mesh(new THREE.BoxGeometry(0.2, 0.004, 0.11), toon('#aab1bb'), 0, 0.037, 0.19, false));
+    this.root.add(this.baseModel);
+    this.baseModel.add(mesh(roundedBox(0.78, 0.035, 0.52, 0.04), shell, 0, 0.018, 0.02));
+    this.baseModel.add(mesh(new THREE.BoxGeometry(0.66, 0.006, 0.24), dark, 0, 0.037, 0.0, false));
+    this.baseModel.add(mesh(new THREE.BoxGeometry(0.2, 0.004, 0.11), toon('#aab1bb'), 0, 0.037, 0.19, false));
     // Lid, hinged along the back edge
     this.lid.position.set(0, 0.035, -0.24);
     this.root.add(this.lid);
+    this.lid.add(this.lidModel);
     const lidShell = mesh(roundedBox(0.78, 0.025, 0.5, 0.04), shell, 0, 0.25, 0);
     lidShell.rotation.x = Math.PI / 2;
-    this.lid.add(lidShell);
-    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.46), new THREE.MeshBasicMaterial({ map: this.texture, toneMapped: false }));
+    this.lidModel.add(lidShell);
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.46), this.screenMat);
     screen.position.set(0, 0.25, 0.014);
-    this.lid.add(screen);
+    this.lidModel.add(screen);
     // Sticker on the back of the lid
     const sticker = mesh(new THREE.CircleGeometry(0.07, 20), toon('#ee6018'), 0, 0.27, -0.014, false);
     sticker.rotation.y = Math.PI;
-    this.lid.add(sticker);
+    this.lidModel.add(sticker);
     this.lid.rotation.x = Math.PI / 2; // closed; animates open
     paintScreen(this.ctx, this.canvas.width, this.canvas.height, undefined, this.placeholder);
     this.texture.needsUpdate = true;
@@ -218,6 +231,7 @@ export class Laptop {
 
   /** `distance` to the camera throttles repaints: far-away laptops refresh rarely. */
   update(dt: number, screen: ScreenState | undefined, distance = 0) {
+    this.maybeSwap();
     if (this.openT < 1) this.setLid(Math.min(1, this.openT + dt * 1.6));
     const version = screen ? screen.version : -1;
     const now = performance.now();
@@ -236,6 +250,28 @@ export class Laptop {
     return this.openT === 0;
   }
 
+  /**
+   * Swaps the procedural stand-in for the MacBook GLBs once they are cached. Laptops are
+   * built as workers arrive, before or after the preload, so each one swaps itself the
+   * first frame its GLBs are ready rather than going through the pending queue.
+   */
+  private maybeSwap() {
+    if (!this.baseSwapped && propReady('macbook-base')) {
+      this.baseSwapped = useProp(this.baseModel, 'macbook-base');
+    }
+    if (this.lidSwapped || !propReady('macbook-lid')) return;
+    if (useProp(this.lidModel, 'macbook-lid')) {
+      this.lidSwapped = true;
+      this.wireDisplay();
+    }
+  }
+
+  /** Points the lid's `Display` node at the live terminal texture. */
+  private wireDisplay() {
+    const display = this.lidModel.getObjectByName('Display') as THREE.Mesh | undefined;
+    if (display?.isMesh) display.material = this.screenMat;
+  }
+
   private setLid(open: number) {
     this.openT = open;
     const e = 1 - (1 - open) ** 3;
@@ -243,6 +279,7 @@ export class Laptop {
   }
 
   dispose() {
+    this.screenMat.dispose();
     this.texture.dispose();
   }
 }

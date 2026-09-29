@@ -6,7 +6,8 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!!**/dist", "!**/*.json", "!**/*.jsonc", "!**/*.css", "!**/*.html", "!**/*.svg"]
+    // The Draco decoder wrapper is vendored from three.js; linting its output is noise.
+    "includes": ["**", "!!**/dist", "!**/*.json", "!**/*.jsonc", "!**/*.css", "!**/*.html", "!**/*.svg", "!**/public/props/draco/draco_wasm_wrapper.js"]
   },
   "formatter": {
     "enabled": true,
