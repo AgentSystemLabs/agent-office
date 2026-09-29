@@ -105,13 +105,14 @@ test('the sofa is the old couch\'s size, 4.2 long and 1.0 deep, its back behind 
   assert.ok(highest(arms) > 0.7 && highest(arms) < 0.82, `its arms are ${highest(arms).toFixed(3)} m high`);
 });
 
-test('its seat cushions are where a sitter\'s hips go, under the collider\'s top', () => {
-  // The couch's places are 1.2 apart with hips 0.5 up, a sitter's bottom 0.1 under them; its collider's top is 0.55.
+test('its seat cushions are where a sitter\'s hips go, and where the collider\'s top is', () => {
+  // The couch's places are 1.2 apart with hips 0.5 up, a sitter's bottom 0.1 under them. Its collider's top is
+  // 0.47, so someone standing on it stands on the cushions.
   for (const x of [-1.2, 0, 1.2]) {
     // Its cushion, in front of the back cushions and between the arms.
     const seat = verticesOf('sofa', ['Sofa']).filter((v) => Math.abs(v.x - x) < 0.55 && v.z > -0.15);
     const top = highest(seat);
-    assert.ok(top >= 0.42 && top <= 0.52, `the seat at ${x} is ${top.toFixed(3)} m up`);
+    assert.ok(near(top, 0.47), `the seat at ${x} is ${top.toFixed(3)} m up`);
   }
   // A sitter sits 0.05 back from the middle, a torso 0.26 round: the back cushions come to about their back,
   // so they lean into them a little.
@@ -131,8 +132,9 @@ test('the pouf is about the old floor seat\'s size, its top where a sitter\'s hi
   const box = boundsOf('pouf');
   // The old seat was 0.6 round, its collider 0.5 either way of its middle.
   assert.ok(reach(box) > 0.45 && reach(box) <= 0.6, `it's ${reach(box).toFixed(3)} m round`);
-  // A sitter's hips go 0.42 up, their bottom 0.1 under that, so they sink a little into it; its collider's top is 0.6.
-  assert.ok(box.max.y >= 0.36 && box.max.y <= 0.45, `it's ${box.max.y.toFixed(3)} m tall`);
+  // A sitter's hips go 0.42 up, their bottom 0.1 under that, so they sink a little into it. Its collider's top is
+  // 0.42 too, so someone standing on it stands on it.
+  assert.ok(near(box.max.y, 0.42, 0.01), `it's ${box.max.y.toFixed(3)} m tall`);
 });
 
 test('the coffee table\'s top is 0.9 round at 0.46, on a pedestal inside its collider', () => {

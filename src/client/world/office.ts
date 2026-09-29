@@ -280,15 +280,16 @@ function upholstered(part: 'pillow' | 'pouf', color: string): THREE.Object3D {
 
 /**
  * The lounge's couch: the sofa, facing +z like every model, with a throw pillow leaning on its back cushions
- * either side of its middle. Its origin is on the floor under its middle, it's 4.2 long across x and 1.0 deep,
- * and its seat cushions' tops are 0.47 up. The pillows hang under it, so a click on one is a click on the couch.
+ * either side of its middle, halfway between its places (SEATING's couch, 1.2 apart), clear of whoever sits
+ * there. Its origin is on the floor under its middle, it's 4.2 long across x and 1.0 deep, and its seat
+ * cushions' tops are 0.47 up. The pillows hang under it, so a click on one is a click on the couch.
  */
 export function loungeCouch(): THREE.Group {
   const g = new THREE.Group();
   g.add(piece('lounge', 'sofa', paintLounge));
   for (const [x, color] of [
-    [0.9, '#ffd166'],
-    [-0.9, '#ef476f'],
+    [0.6, '#ffd166'],
+    [-0.6, '#ef476f'],
   ] as const) {
     const pillow = upholstered('pillow', color);
     // Standing on the seat, sunk in a little, its top tipped back onto the back cushions.
@@ -1211,7 +1212,8 @@ export function buildOffice(): Office {
   couch.position.set(10.5, 0, 0);
   couch.rotation.y = Math.PI / 2;
   group.add(couch);
-  colliders.push({ minX: 10, maxX: 11, minZ: -2.2, maxZ: 2.2, top: 0.55 });
+  // Its top on the seat cushions, so someone standing on the couch stands on them.
+  colliders.push({ minX: 10, maxX: 11, minZ: -2.2, maxZ: 2.2, top: 0.47 });
   seatable(couch, 'couch', 2.6, interactables);
 
   const table = coffeeTable();
@@ -1233,7 +1235,8 @@ export function buildOffice(): Office {
     seat.position.set(x, 0, z);
     seat.rotation.y = SEATING_BY_ID.get(id)!.rotY;
     group.add(seat);
-    colliders.push({ minX: x - 0.5, maxX: x + 0.5, minZ: z - 0.5, maxZ: z + 0.5, top: 0.6 });
+    // Its top on the pouf's, the button in the middle of it.
+    colliders.push({ minX: x - 0.5, maxX: x + 0.5, minZ: z - 0.5, maxZ: z + 0.5, top: 0.42 });
     seatable(seat, id, 1.4, interactables);
   }
   const jukebox = buildJukebox();

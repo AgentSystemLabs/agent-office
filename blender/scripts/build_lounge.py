@@ -55,21 +55,23 @@ def material(name):
 
 # The sizes the office's code counts on. Blender can't read TypeScript, so they're copied here, and
 # tests/lounge-model.test.ts checks the model against them.
-# The couch in office.ts: 4.2 long and 1.0 deep, its collider's top at 0.55, and three places on it
-# 1.2 apart where a sitter's hips go 0.5 up and 0.05 back from its middle.
+# The couch in office.ts: 4.2 long and 1.0 deep, its collider's top on the seat cushions, and three
+# places on it 1.2 apart where a sitter's hips go 0.5 up and 0.05 back from its middle.
 SOFA = {"length": 4.2, "depth": 1.0}
 # The seat cushions' tops. A sitter's bottom is 0.1 under their hips, so they sink a little in.
 SEAT_TOP = 0.47
 # The coffee table in office.ts: a round top 0.9 round, its surface at 0.46 (the holiday pumpkin
 # stands on it), inside a collider 0.8 either way of its middle.
 TABLE = {"radius": 0.9, "height": 0.46}
-# A floor pouf in office.ts: a collider 0.5 either way of its middle, and a sitter's hips 0.42 up and
-# 0.1 back from its middle. Its top is a touch under their hips, so they sink a little in and their
+# A floor pouf in office.ts: a collider 0.5 either way of its middle with its top on the pouf's, and
+# a sitter's hips 0.42 up and 0.1 back from its middle. Its top is a touch under their hips, so they sink a little in and their
 # legs lie along it.
 POUF = {"radius": 0.52, "height": 0.4}
-# Where office.ts leans the pillows, in the sofa's own axes: either side of its middle, standing on
-# the seat and tipped back against the back cushions.
-PILLOWS = {"x": 0.9, "z": -0.08, "tilt": 0.15}
+# Where office.ts leans the pillows, in the sofa's own axes: either side of its middle, halfway
+# between its places so they're clear of whoever sits there, standing on the seat and tipped back
+# against the back cushions. (Tucked against the arms they'd be in the side sitters' way: there's
+# only 0.17 m between a sitter's elbow and an arm.)
+PILLOWS = {"x": 0.6, "z": -0.08, "tilt": 0.15}
 
 
 # ---- Laying things out the office's way -----------------------------------------------------------
