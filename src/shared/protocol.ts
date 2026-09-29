@@ -819,7 +819,7 @@ export interface TeamState {
   /** Why invites can't be managed from the office, when they can't. */
   unavailable?: string;
   error?: string;
-  /** user@host teammates tunnel to, e.g. office@203.0.113.7 */
+  /** Where teammates tunnel to: office@203.0.113.7, or ssh://office@host:port off port 22 */
   ssh?: string;
   /** The office's port on the box (tunnel destination). */
   port: number;
@@ -855,7 +855,7 @@ export interface ServicesState {
   port: number;
   /** How to run the script that deployed the office, as in TeamState. */
   deploy?: string;
-  /** user@host teammates tunnel to (offices deployed with deploy/aws.sh), e.g. office@203.0.113.7 */
+  /** Where teammates tunnel to (offices deployed with deploy/aws.sh or deploy/railway.sh), as in TeamState */
   ssh?: string;
   /** The office's name on its Tailscale network: each server is also on https://<it>:<port> there. */
   tailnet?: string;

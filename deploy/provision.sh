@@ -19,6 +19,10 @@
 # APP_REF PROJECT_REPO CLAIM_TOKEN PUBLIC_HOST GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY
 # GIT_NAME GIT_EMAIL, and TAILSCALE TAILSCALE_AUTH_KEY TAILSCALE_HOSTNAME for --tailscale. They all
 # have defaults, and the options below set the common ones.
+#
+# deploy/container/install.sh copies four heredocs out of this file into the container image
+# deploy/railway.sh runs: team_sh, tunnel_sh, sshd_conf and the NODE onboarding. Keep each one's
+# first line naming its variable (or `as_user node -`) and ending in its <<'TAG'.
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
@@ -447,12 +451,14 @@ sudo visudo -cqf "$sudoers"
 sudo install -m 440 -o root -g root "$sudoers" /etc/sudoers.d/agent-office
 rm -f "$sudoers"
 # The same limits server-side, so they hold even for a key added by hand: local forwards to the
-# office port and nothing else (no shell, no -R listeners, no agent or X11 forwarding).
+# office port and nothing else (no shell, no -R listeners, no Unix socket forwards, no agent or X11
+# forwarding).
 sshd_conf=$(mktemp)
 cat >"$sshd_conf" <<'CONF'
 Match User office
     AllowTcpForwarding local
     PermitOpen localhost:4600 127.0.0.1:4600
+    AllowStreamLocalForwarding no
     AllowAgentForwarding no
     X11Forwarding no
     ForceCommand /usr/local/bin/agent-office-tunnel
