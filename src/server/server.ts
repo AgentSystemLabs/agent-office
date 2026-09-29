@@ -26,6 +26,7 @@ import { Building, type FloorDef } from './building.js';
 import { Floor, type FloorContext } from './floor.js';
 import { Sky } from './sky.js';
 import { Themes } from './theme.js';
+import { Maps } from './maps.js';
 import { OfficePrompts } from './prompts.js';
 import { LeaveOnMerge } from './leave-on-merge.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
@@ -33,7 +34,8 @@ import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState, SignInKind } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
-import { DESK_BY_ID, elevatorSpot, seatHere, streetBelow } from '../shared/layout.js';
+import { DESK_BY_ID, elevatorSpot, streetBelow } from '../shared/layout.js';
+import { OFFICE_MAP, seatHereOn } from '../shared/maps/index.js';
 import { EMPTY_PLAN } from '../shared/floorplan.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
@@ -379,6 +381,23 @@ export async function startServer(cfg: Config) {
   // goes by the calendar at the office, the sky's clock.
   const themes = new Themes(cfg.dataDir, () => sky.state.utcOffset, (state) => broadcast({ t: 'theme', state }));
   themes.start();
+  // What the building looks like inside: the office, the castle, or a map of your own (⚙️ Settings).
+  const maps = new Maps(cfg.dataDir);
+  /**
+   * Tells everyone about the maps, after a pick or a read of the folder. When the map everyone's on
+   * changed (`was` before), everyone's off their seats (each browser forgets them too, see the
+   * client's 'map'), and hears what it is now: `who` picked it, or a map of your own broke or came back.
+   */
+  const mapNews = (was: string, who?: string) => {
+    const now = maps.pick();
+    if (now !== was) for (const other of clients.values()) delete other.peer.seat;
+    broadcast({ t: 'map', state: maps.state() });
+    if (now === was) return;
+    const plan = maps.plan();
+    // Without a pick, a map of your own broke (back to the office) or was fixed (back to it).
+    const why = now === OFFICE_MAP ? `: the map "${was}" won't load (see ⚙️ Settings)` : ': it loads again';
+    toastAll(who ? `${who} changed the building's map to ${plan.icon} ${plan.name}` : `The building's map is ${plan.icon} ${plan.name} now${why}`);
+  };
   // The prompts the office writes for workers by itself, and the worker everyone starts on (⚙️ Settings).
   const configured = configuredProvider(cfg.agentCmd);
   const prompts = new OfficePrompts(cfg.dataDir, { list: agentProviders(configured), configured }, (state) => broadcast({ t: 'prompts', state }));
@@ -600,6 +619,7 @@ export async function startServer(cfg: Config) {
     services: servicesState(floor),
     dog: floor?.dog.view() ?? null,
     ball: floor?.court.state() ?? {},
+    cars: floor?.garage.state() ?? [],
     jukebox: floor?.jukebox.state() ?? { on: false, track: JUKEBOX_TUNES[0].id, startedAt: Date.now(), elapsed: 0 },
     whiteboard: { elements: floor?.whiteboard.scene() ?? [], people: floor ? drawing(floor) : [] },
     meeting: floor?.meetings.state() ?? { current: null, past: [] },
@@ -777,7 +797,8 @@ export async function startServer(cfg: Config) {
       const session = auth.fromRequest(req);
       if (!session) {
         if (p.startsWith('/api/')) return send(res, 401, { error: 'Not logged in' });
-        res.writeHead(302, { location: '/login' }).end();
+        // Back to the 2D view after signing in, if that's where they were going.
+        res.writeHead(302, { location: p === '/lite' ? '/login?next=/lite' : '/login' }).end();
         return;
       }
       if (p === '/api/whoami') return send(res, 200, { ok: true, me: meOf(session.account?.id) });
@@ -919,6 +940,8 @@ export async function startServer(cfg: Config) {
         return send(res, 404, { error: 'Not found' });
       }
       if (p === '/' || p === '/index.html') return serveFile(res, path.join(publicDir, 'index.html'), false);
+      // The 2D view: the workers, their terminals and the boards, without the 3D office (lite.ts).
+      if (p === '/lite' || p === '/lite.html') return serveFile(res, path.join(publicDir, 'lite.html'), false);
       const file = publicFile(p);
       if (file) return serveFile(res, file, false);
       res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
@@ -1036,9 +1059,13 @@ export async function startServer(cfg: Config) {
         muted: true,
         sharing: false,
         ...(account ? { account: true } : {}),
+        ...(url.searchParams.get('lite') === '1' ? { lite: true } : {}),
         ...(onRoof ? { floor: ROOF } : floor ? { floor: floor.id } : {}),
       },
     };
+    // Maps of your own may have been added or edited since: everyone already in hears first.
+    const mapWas = maps.pick();
+    if (maps.reload()) mapNews(mapWas);
     clients.set(id, client);
     if (account) accounts.seen(account.id);
     ws.on('pong', () => (client.isAlive = true));
@@ -1061,6 +1088,7 @@ export async function startServer(cfg: Config) {
       machine: machine.state(),
       sky: sky.state,
       theme: themes.state(),
+      map: maps.state(),
       prompts: prompts.state(),
       leaveOnMerge: leaveOnMerge.state(),
       ...(onRoof ? roofView() : floorView(floor)),
@@ -1098,6 +1126,7 @@ export async function startServer(cfg: Config) {
         f.workers.detachAll(id);
         f.changes.unwatchAll(id);
         if (f.court.left(id)) ballChanged(f);
+        if (f.garage.leave(id)) carsChanged(f);
       }
       broadcast({ t: 'peer.leave', id });
       if (account) accountsChanged();
@@ -1113,6 +1142,7 @@ export async function startServer(cfg: Config) {
     floorsChanged();
   };
   const ballChanged = (floor: Floor) => toFloor(floor, { t: 'ball', ball: floor.court.state() });
+  const carsChanged = (floor: Floor) => toFloor(floor, { t: 'cars', cars: floor.garage.state() });
   const jukeboxChanged = (floor: Floor) => toFloor(floor, { t: 'jukebox', state: floor.jukebox.state() });
   const teamState = async () => ({ ...(await team.state()), deploy: cfg.deployScript });
   const teamChanged = async () => broadcast({ t: 'team', state: await teamState() });
@@ -1197,6 +1227,8 @@ export async function startServer(cfg: Config) {
     // The ball stays on its floor, back under the hoop. That floor hears so once they're off it (see
     // arrived), or their own page would put it down before it knew they'd gone.
     const ballLeft = !!was?.court.left(c.id);
+    // So does a car they were in, parked where they left it.
+    const carLeft = !!was?.garage.leave(c.id);
     c.attached.clear();
     c.typingAt.clear();
     c.stale.clear();
@@ -1212,13 +1244,14 @@ export async function startServer(cfg: Config) {
     // An issue card belongs to the board it came off, which is on the floor they left; a drink stays at the bar.
     delete c.peer.carrying;
     delete c.peer.drink;
-    return { was, wasDrawing, ballLeft };
+    return { was, wasDrawing, ballLeft, carLeft };
   };
 
   const arrived = (c: Client, left: ReturnType<typeof leave>) => {
     broadcast({ t: 'peer.update', peer: c.peer }, c.id);
     if (left.wasDrawing) drawingChanged(left.was);
     if (left.ballLeft && left.was) ballChanged(left.was);
+    if (left.carLeft && left.was) carsChanged(left.was);
   };
 
   /**
@@ -1369,8 +1402,16 @@ export async function startServer(cfg: Config) {
         // Everyone sees them sit down (or get up), and anyone who comes in later finds them sitting.
         // Only on a seat where they are: the roof's up on the roof, the office's on a floor.
         const key = str(msg.seat, 40);
-        const seat = seatHere(key, c.peer.floor === ROOF) ? key : undefined;
+        const seat = seatHereOn(maps.plan(), key, c.peer.floor === ROOF) ? key : undefined;
         if (seat === c.peer.seat) break;
+        // Somebody on the floor got there first (two people arriving at an empty throne at once).
+        // (Not yourself, on a connection that hasn't timed out yet after a reconnect.)
+        const same = (o: typeof c) => o.peer.name === c.peer.name || (!!o.accountId && o.accountId === c.accountId);
+        const there = seat && [...clients.values()].find((o) => o !== c && !same(o) && o.peer.seat === seat && o.peer.floor === c.peer.floor);
+        if (there) {
+          sendTo(c, { t: 'sit.refused', seat: key, by: there.peer.name });
+          break;
+        }
         if (seat) c.peer.seat = seat;
         else delete c.peer.seat;
         broadcast({ t: 'peer.update', peer: c.peer }, c.id);
@@ -1479,6 +1520,28 @@ export async function startServer(cfg: Config) {
         else sendTo(c, { t: 'ball', ball: floor.court.state() });
         break;
       }
+      case 'car.enter':
+      case 'car.leave': {
+        const floor = floorOf(c);
+        if (!floor) break;
+        const changed = msg.t === 'car.enter' ? floor.garage.enter(c.id, Math.trunc(num(msg.car)), msg.seat) : floor.garage.leave(c.id);
+        // They hear back either way: someone who didn't get in (someone beat them to the seat) learns who did.
+        if (changed) toNeighbors(c, { t: 'cars', cars: floor.garage.state() });
+        sendTo(c, { t: 'cars', cars: floor.garage.state(), answer: true });
+        break;
+      }
+      case 'car.drive': {
+        const floor = floorOf(c);
+        const car = Math.trunc(num(msg.car));
+        const now = floor?.garage.drive(c.id, car, { x: num(msg.x), z: num(msg.z), rotY: num(msg.rotY), speed: num(msg.speed), steer: num(msg.steer) });
+        if (now) toNeighbors(c, { t: 'car.move', car, ...now }, true);
+        break;
+      }
+      case 'car.honk': {
+        const car = floorOf(c)?.garage.honk(c.id);
+        if (car !== undefined) toNeighbors(c, { t: 'car.honk', car });
+        break;
+      }
       case 'dog.pet':
         floorOf(c)?.dog.pet(c.peer);
         break;
@@ -1508,7 +1571,7 @@ export async function startServer(cfg: Config) {
         }
         // A shell is theirs too: `claude auth login` or `gh auth login` typed there signs them in.
         const hire = () => {
-          const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort, undefined, c.accountId, repos);
+          const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort, undefined, c.accountId, repos, msg.via === 'herald' ? 'herald' : undefined);
           const issue = kind === 'agent' ? issueNumber(msg.issue) : undefined;
           const across = repos.length ? ` across ${[floor.def.name, ...repos.map((x) => x.name)].join(' + ')}` : '';
           if (typeof r === 'string') warn(c, r);
@@ -1844,6 +1907,18 @@ export async function startServer(cfg: Config) {
                 ? `${who} took the holiday decorations down`
                 : `📅 ${who} set the decorations to follow the calendar${now ? ` (it's ${now === 'halloween' ? 'Halloween 🎃' : 'Christmas 🎄'} season)` : ''}`,
         );
+        break;
+      }
+      case 'map.set': {
+        // Someone opened the list, or picked a map: either way the folder of maps of your own is read again first.
+        const was = maps.pick();
+        const reloaded = maps.reload();
+        if (msg.map === undefined || !maps.set(str(msg.map, 64), who)) {
+          if (reloaded) mapNews(was);
+          if (msg.map !== undefined) warn(c, 'There’s no map by that name, or it won’t load: see ⚙️ Settings');
+          break;
+        }
+        mapNews(was, who);
         break;
       }
       case 'prompts.set': {

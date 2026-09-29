@@ -9,7 +9,7 @@ import { HIPS } from '../player';
 import { axeModel, dartModel } from './bargames';
 import { OpenBook } from './book';
 import { HeldCard } from './card';
-import { UNDEAD_SKIN, elfBoot, elfHat, elfWorker, santaHat, warlockHat, zombieWorker } from './costumes';
+import { GRIME, UNDEAD_SKIN, beard, beardColor, elfBoot, elfHat, elfWorker, grime, peasantGarb, santaHat, warlockHat, zombieWorker, type Beard, type PeasantGarb } from './costumes';
 import { cardSprite, disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
 
 export type Pose = 'stand' | 'walk' | 'sit' | 'type';
@@ -1475,6 +1475,16 @@ export class Worker {
   private phase = Math.random() * Math.PI * 2;
   /** How far through its stride it is, walking in. */
   private stride = 0;
+  /** How quick its steps are, next to a walk: more running, less shuffling (see Court). */
+  gait = 1;
+  /** Its headset, which a peasant doesn't wear. */
+  private headset: THREE.Object3D[] = [];
+  /** What it wears on the map it's on (see setOutfit): a peasant's smock and coif, or its own skin. */
+  private garb: PeasantGarb | null = null;
+  /** How worn out it looks, 0–1 (see setAge), and the beard, brows and dirt that show it. */
+  private age = 0;
+  private whiskers: Beard | null = null;
+  private dirt: { part: THREE.Object3D; at: number }[] = [];
 
   constructor(
     name: string,
@@ -1502,7 +1512,12 @@ export class Worker {
     const band = mesh(new THREE.TorusGeometry(0.29, 0.025, 6, 20, Math.PI), toon('#2b2d42'), 0, 0.72, 0, false);
     band.rotation.y = Math.PI / 2;
     this.body.add(band);
-    for (const sx of [-1, 1]) this.body.add(mesh(new THREE.SphereGeometry(0.07, 10, 8), toon('#2b2d42'), sx * 0.29, 0.72, 0, false));
+    this.headset.push(band);
+    for (const sx of [-1, 1]) {
+      const cup = mesh(new THREE.SphereGeometry(0.07, 10, 8), toon('#2b2d42'), sx * 0.29, 0.72, 0, false);
+      this.body.add(cup);
+      this.headset.push(cup);
+    }
     // Antenna with status bulb
     this.body.add(mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.22, 6), toon('#2b2d42'), 0, 1.07, 0, false));
     this.bulb = toonUnique(STATUS_BULB.starting);
@@ -1572,6 +1587,70 @@ export class Worker {
       wear(this.body, elfWorker(this.skin));
       for (const f of this.feet) wear(f, elfBoot());
     }
+    // An elf's hat goes on over the coif.
+    if (this.garb) this.garb.cap.visible = theme !== 'christmas';
+  }
+
+  /**
+   * Dresses it for the map it's on: a peasant's smock, rope belt and coif, in place of its headset,
+   * or back in just its own skin (null).
+   */
+  setOutfit(outfit: 'peasant' | null) {
+    if (!!this.garb === (outfit === 'peasant')) return;
+    if (this.garb) {
+      undress([this.garb.body, this.garb.cap]);
+      this.garb.cloth.dispose();
+      this.garb = null;
+    }
+    if (outfit === 'peasant') {
+      let seed = 0;
+      for (const ch of this.color) seed = (seed * 31 + ch.charCodeAt(0)) | 0;
+      this.garb = peasantGarb(seed);
+      this.body.add(this.garb.body, this.garb.cap);
+      this.garb.cap.visible = this.costume !== 'christmas';
+    }
+    for (const h of this.headset) h.visible = !this.garb;
+    this.setAge(this.age, true);
+  }
+
+  /**
+   * How worn out it looks, 0 (fresh) to 1 (it's worked for as long as the map says a worker can
+   * before it's spent): its beard grows out and goes grey, it gets grubby and patched, it droops,
+   * and it slows down.
+   */
+  setAge(k: number, force = false) {
+    const age = Math.max(0, Math.min(1, k));
+    if (!force && Math.abs(age - this.age) < 0.004) return;
+    this.age = age;
+    if (age > 0.02 && !this.whiskers) {
+      this.whiskers = beard();
+      this.body.add(this.whiskers.group);
+      this.dirt = grime();
+      for (const d of this.dirt) this.body.add(d.part);
+    }
+    const w = this.whiskers;
+    if (w) {
+      w.group.visible = age > 0.02;
+      beardColor(age, w.hair.color);
+      w.chin.scale.set(1.2 * (0.45 + 0.55 * Math.min(1, age * 3)), 0.75 * (0.45 + 0.55 * Math.min(1, age * 3)), 0.45);
+      w.hang.visible = age > 0.08;
+      // It grows from a short beard under the chin down to the floor; the smock bulges, so it leans out a little as it grows.
+      w.hang.scale.set(0.7 + 0.3 * Math.min(1, age * 2), 0.08 + 0.5 * age, 1);
+      w.hang.rotation.x = 0.06 - 0.12 * age;
+      w.mustache.visible = age > 0.05;
+      w.brows.visible = age > 0.45;
+      w.bags.visible = age > 0.6;
+    }
+    for (const d of this.dirt) d.part.visible = age >= d.at;
+    if (this.garb) {
+      this.garb.cloth.color.copy(this.garb.clean).lerp(GRIME, 0.5 * age);
+      for (const p of this.garb.patches) p.part.visible = age >= p.at;
+    }
+  }
+
+  /** How fast it walks, next to a fresh worker: a worn-out one shuffles. */
+  get pace(): number {
+    return 1 - 0.3 * this.age;
   }
 
   setName(name: string) {
@@ -1753,8 +1832,10 @@ export class Worker {
     this.armL.position.set(-0.3 + s.reach * 0.07, 0.55 - s.drop, 0.05 + s.reach * 0.12);
     this.armR.position.set(0.3 - s.reach * 0.07, 0.55 - s.drop + s.reach * 0.04, 0.05 + s.reach * 0.14);
     this.feet.forEach((f, i) => f.position.set(i ? 0.12 : -0.12, 0.2 + (i ? s.tap * 0.07 : 0), 0.05 + s.kick + (i ? s.tap * 0.03 : 0)));
-    for (const p of this.pupils) p.position.y = 0.7 + s.look;
-    this.body.rotation.x = s.lean;
+    for (const p of this.pupils) p.position.y = 0.7 + s.look - 0.02 * this.age;
+    // Worn out, it hunches over and its eyes droop.
+    this.body.rotation.x = s.lean + 0.2 * this.age;
+    s.lid = Math.min(s.lid, 1 - 0.38 * this.age);
     let twirl = 0;
     if (this.twirlT >= 0) {
       this.twirlT += dt;
@@ -1781,7 +1862,7 @@ export class Worker {
     if (this.nameTag) this.nameTag.position.y = 1.55 + (hopping ? this.body.position.y : 0);
     // Walking in to a meeting: the same waddle as on the way out, without the box.
     if (this.walking || this.stride) {
-      this.stride = this.walking ? this.stride + dt * 9 : 0;
+      this.stride = this.walking ? this.stride + dt * 9 * this.pace * this.gait : 0;
       const s = Math.sin(this.stride);
       this.feet.forEach((f, i) => {
         const step = i ? -s : s;
@@ -1971,5 +2052,13 @@ export class Worker {
     if (this.bubble) disposeSprite(this.bubble);
     if (this.nameTag) disposeSprite(this.nameTag);
     undress(this.outfit);
+    if (this.garb) {
+      undress([this.garb.body, this.garb.cap]);
+      this.garb.cloth.dispose();
+    }
+    if (this.whiskers) {
+      undress([this.whiskers.group, ...this.dirt.map((d) => d.part)]);
+      this.whiskers.hair.dispose();
+    }
   }
 }

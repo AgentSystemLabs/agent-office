@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { GAME, type CabinetFrame } from '../../shared/cabinet';
-import { DESK_BY_ID } from '../../shared/layout';
 import type { WorkerInfo } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store } from '../state';
@@ -100,6 +99,11 @@ export class Cabinet {
   /** Anywhere between your view and the screen: your first-person hands would cover it. */
   get zoomed(): boolean {
     return this.view.zoomed;
+  }
+
+  /** Puts it down, if you're at it (the building changed maps under you). */
+  stop() {
+    this.modal?.close();
   }
 
   /** Your game's score, while you've left it paused here. */
@@ -396,6 +400,6 @@ export function lostGame(asked: string, id: string): boolean {
 
 /** " at Desk 3", or nothing when it's not at a desk here. */
 function deskOf(w: WorkerInfo): string {
-  const d = DESK_BY_ID.get(w.deskId);
+  const d = store.plan().byId.get(w.deskId);
   return d ? ` at ${d.station ? `the ${d.label}` : d.label}` : '';
 }

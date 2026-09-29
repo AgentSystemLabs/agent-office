@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { BALCONY, DESKS, DESK_SIZE, EXIT_STAIRS, FLOOR, PLANTS, STREET_Y, WALL_HEIGHT, WINDOWS } from '../../shared/layout';
 import type { Theme } from '../../shared/protocol';
 import { batWingGeometry, glowTexture } from './costumes';
-import type { Collider, Office } from './office';
+import { plantLeaves, type Collider, type Office } from './office';
 import { SPOOKY_MOON } from './sky';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
 
@@ -583,8 +583,10 @@ export class Holiday {
       m.userData.outlineParameters = { visible: false };
       return m;
     });
-    // The potted plants become little trees, with presents round the pot.
+    // The potted plants become little trees standing in their pots, with presents round them: the
+    // leaves are hidden and the tree shown instead.
     office.plants.forEach((p, i) => {
+      const leaves = plantLeaves(p);
       const tree = new THREE.Group();
       const t = christmasTree(1.25, this.lights);
       t.position.y = 0.45;
@@ -605,7 +607,7 @@ export class Holiday {
       const merged = mergeByMaterial(tree);
       merged.visible = false;
       p.add(merged);
-      this.plants.push({ leaves: p.children.slice(1, 4), tree: merged });
+      this.plants.push({ leaves, tree: merged });
     });
     // A present on every desk.
     const deskGifts = new THREE.Group();

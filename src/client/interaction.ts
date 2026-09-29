@@ -44,5 +44,6 @@ export function interactionAvailable(it: Interactable | null, key: DeskKey, stat
   if (it.kind === 'decor') return !!it.decorId;
   if (it.kind === 'seat') return !!it.seatId;
   if (it.kind === 'pole') return it.pole !== undefined;
+  if (it.kind === 'car') return it.car !== undefined;
   return true;
 }

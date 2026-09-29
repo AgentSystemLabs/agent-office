@@ -385,6 +385,8 @@ export class Sky {
   lampsOn = 0;
   /** Up on the roof: out in the open, over the whole city (see setRoof). */
   private roof = false;
+  /** In a hall with a roof and walls all round (a map other than the office's, see setIndoors). */
+  private indoors = false;
   /** Where the street is from up there (the roof is at 0), for the haze. */
   private roofStreet = 0;
 
@@ -564,7 +566,17 @@ export class Sky {
   setRoof(on: boolean, drop = 0) {
     this.roof = on;
     this.roofStreet = -drop;
-    uniforms.skyInside.value = on ? 0 : 1;
+    uniforms.skyInside.value = on || this.indoors ? 0 : 1;
+  }
+
+  /**
+   * Inside a hall of a map of its own (the castle), walled and roofed all round, or back in the
+   * office (false): no rain or snow falls where you are, nothing gets wet or snowy, and the office's
+   * lamps and the street's don't light it (it lights itself: see World.mood).
+   */
+  setIndoors(on: boolean) {
+    this.indoors = on;
+    uniforms.skyInside.value = on || this.roof ? 0 : 1;
   }
 
   /**
@@ -580,7 +592,7 @@ export class Sky {
 
   /** Under a roof, out of the rain: the building, unless you're up on top of it. */
   private sheltered(x: number, z: number): boolean {
-    return !this.roof && sheltered(x, z);
+    return this.indoors || (!this.roof && sheltered(x, z));
   }
 
   /** Whether the lamps' light (and wet and snow) apply: off while your hands are drawn. */
@@ -590,6 +602,7 @@ export class Sky {
 
   /** How lit it is at `p`, 0–1 (1 is a clear day, or a room with its lights on), for your hands. */
   lightAt(p: THREE.Vector3): number {
+    if (this.indoors) return 1;
     const inside = !this.roof && ((p.x > FLOOR.minX && p.x < FLOOR.maxX && p.z > FLOOR.minZ && p.z < FLOOR.maxZ) || (sheltered(p.x, p.z) && (p.y < 0 || p.z < FLOOR.minZ)));
     if (inside) return 1;
     let lamp = 0;
@@ -647,8 +660,8 @@ export class Sky {
     // Wet ground dries off slowly; snow piles up over a few minutes and takes a while to melt.
     this.wet = snap ? (this.rain > 0.05 ? 1 : 0) : ease(this.wet, this.rain > 0.05 ? 1 : 0, dt, this.rain > 0.05 ? 30 : 400);
     this.lying = snap ? (this.snow > 0.05 ? 1 : 0) : ease(this.lying, this.snow > 0.05 ? 1 : 0, dt, (this.snow > 0.05 ? 120 : 900) * (this.rush > 0 ? 0.04 : 1));
-    uniforms.skyWet.value = this.wet * (1 - this.lying);
-    uniforms.skySnow.value = this.lying * 0.9;
+    uniforms.skyWet.value = this.indoors ? 0 : this.wet * (1 - this.lying);
+    uniforms.skySnow.value = this.indoors ? 0 : this.lying * 0.9;
 
     // The sun, and how much light it and the sky give.
     const { el, az } = sunPosition(this.now(), s.lat, s.lon);
@@ -693,7 +706,7 @@ export class Sky {
     uniforms.skyOffice.value.copy(C.office).lerp(C.officeNight, 1 - day).multiplyScalar(need * 3.2);
     uniforms.skyGarage.value.copy(C.garage).multiplyScalar(need * 2);
     const lamps = Math.min(this.night.lamps.length, MAX_LAMPS);
-    uniforms.skyLampCount.value = this.lampsOn > 0.005 && !this.roof ? lamps : 0;
+    uniforms.skyLampCount.value = this.lampsOn > 0.005 && !this.roof && !this.indoors ? lamps : 0;
     for (let i = 0; i < lamps; i++) {
       const l = this.night.lamps[i];
       uniforms.skyLampColors.value[i].set(l.color).multiplyScalar(l.power * this.lampsOn);
@@ -702,7 +715,7 @@ export class Sky {
     for (const m of this.night.windows) m.emissiveIntensity = this.lampsOn * 1.1;
     for (const h of this.halos) {
       h.material.opacity = this.lampsOn * 0.85;
-      h.visible = this.lampsOn > 0.01 && !this.roof;
+      h.visible = this.lampsOn > 0.01 && !this.roof && !this.indoors;
     }
 
     // The sky's color, and the fog, which fades far things into it. Halloween's is its own.
@@ -722,7 +735,7 @@ export class Sky {
     // the street never goes into it from the top floors, and from the roof you see across the city.
     fog.near = lerp(40, 3, this.fog) * (1 - 0.4 * precip);
     fog.far = lerp(90, 28, this.fog) * (1 - 0.3 * precip);
-    uniforms.skyStreet.value = this.roof ? this.roofStreet : this.night.street;
+    uniforms.skyStreet.value = this.roof ? this.roofStreet : this.indoors ? 0 : this.night.street;
     this.night.clouds.color.copy(C.white).lerp(C.cloudGrey, this.cover).lerp(SPOOKY.cloud, sp);
     this.night.clouds.visible = this.fog < 0.6;
     // Halloween's gradient, over the flat sky: dark overhead, the sky's color at the horizon, which the fog fades into.

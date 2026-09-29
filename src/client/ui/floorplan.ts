@@ -17,7 +17,7 @@ function lastColor(): string {
 export function openDeskLabel(net: Net, deskId: string) {
   const desk = DESK_BY_ID.get(deskId);
   if (!desk) return;
-  const old = store.plan.labels[deskId];
+  const old = store.floorPlan.labels[deskId];
   let color = old?.color ?? lastColor();
   const input = h('input', { type: 'text', maxlength: MAX_LABEL, placeholder: 'Operations', 'aria-label': 'Sign', autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
   input.value = old?.text ?? '';
@@ -122,7 +122,7 @@ export function openExpand(net: Net) {
       .map((d) => d.label)
       .join(' and ');
   const render = () => {
-    const level = store.plan.wing;
+    const level = store.floorPlan.wing;
     const full = level >= WING.rows;
     const next = level + 1;
     const last = level > 0 ? rowDesks(level) : [];
@@ -139,7 +139,7 @@ export function openExpand(net: Net) {
     shrink.disabled = level === 0 || !!busy;
     shrink.style.display = level === 0 ? 'none' : '';
   };
-  const off = [store.on('plan', render), store.on('workers', render)];
+  const off = [store.on('floorPlan', render), store.on('workers', render)];
   const modal = openModal(el, { doing: '🔨 in the back office', onClose: () => off.forEach((f) => f()) });
   expand.addEventListener('click', () => {
     net.send({ t: 'floor.expand' });

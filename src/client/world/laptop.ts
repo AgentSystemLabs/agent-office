@@ -1,29 +1,8 @@
 import * as THREE from 'three';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, type Run } from '../../shared/protocol';
 import { mesh, roundedBox, toon } from './toon';
+import { TERM_THEME } from '../ui/termtheme';
 
-export const TERM_THEME = {
-  background: '#1e1f2e',
-  foreground: '#e6e6f0',
-  cursor: '#ffd166',
-  selectionBackground: '#44475a',
-  black: '#282a36',
-  red: '#ff5c7a',
-  green: '#7cf29a',
-  yellow: '#ffd166',
-  blue: '#6cb6ff',
-  magenta: '#d69cff',
-  cyan: '#72ddf7',
-  white: '#e6e6f0',
-  brightBlack: '#6c7086',
-  brightRed: '#ff8fa3',
-  brightGreen: '#a6f4b8',
-  brightYellow: '#ffe29a',
-  brightBlue: '#9ccfff',
-  brightMagenta: '#e5c1ff',
-  brightCyan: '#a5ecfb',
-  brightWhite: '#ffffff',
-};
 
 const BASE16 = [
   TERM_THEME.black, TERM_THEME.red, TERM_THEME.green, TERM_THEME.yellow, TERM_THEME.blue, TERM_THEME.magenta, TERM_THEME.cyan, TERM_THEME.white,
@@ -159,8 +138,11 @@ export class Laptop {
   private paintedAt = 0;
   private openT = 0;
   private placeholder = 'booting…';
+  /** Anything else of its own to free (the tome's page). */
+  private owned: THREE.Material[] = [];
 
-  constructor() {
+  /** `tome`: a leather-bound book whose inside page shows the terminal, for the castle; it opens and shuts like the laptop. */
+  constructor(style: 'laptop' | 'tome' = 'laptop') {
     this.canvas.width = 1024;
     this.canvas.height = 680;
     this.ctx = this.canvas.getContext('2d')!;
@@ -169,25 +151,52 @@ export class Laptop {
     this.texture.anisotropy = 8;
     this.texture.minFilter = THREE.LinearMipmapLinearFilter;
 
-    const shell = toon('#c9ced6');
-    const dark = toon('#2b2d42');
-    // Base with keyboard
-    this.root.add(mesh(roundedBox(0.78, 0.035, 0.52, 0.04), shell, 0, 0.018, 0.02));
-    this.root.add(mesh(new THREE.BoxGeometry(0.66, 0.006, 0.24), dark, 0, 0.037, 0.0, false));
-    this.root.add(mesh(new THREE.BoxGeometry(0.2, 0.004, 0.11), toon('#aab1bb'), 0, 0.037, 0.19, false));
     // Lid, hinged along the back edge
     this.lid.position.set(0, 0.035, -0.24);
     this.root.add(this.lid);
-    const lidShell = mesh(roundedBox(0.78, 0.025, 0.5, 0.04), shell, 0, 0.25, 0);
-    lidShell.rotation.x = Math.PI / 2;
-    this.lid.add(lidShell);
     const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.46), new THREE.MeshBasicMaterial({ map: this.texture, toneMapped: false }));
     screen.position.set(0, 0.25, 0.014);
     this.lid.add(screen);
-    // Sticker on the back of the lid
-    const sticker = mesh(new THREE.CircleGeometry(0.07, 20), toon('#ff8a5b'), 0, 0.27, -0.014, false);
-    sticker.rotation.y = Math.PI;
-    this.lid.add(sticker);
+    if (style === 'tome') {
+      const leather = toon('#5a2a17');
+      const gold = toon('#d9ab2e');
+      const pages = toon('#efe3c2');
+      // The back cover and the block of pages on it, gold on the corners.
+      this.root.add(mesh(roundedBox(0.8, 0.03, 0.54, 0.03), leather, 0, 0.015, 0.02));
+      this.root.add(mesh(roundedBox(0.74, 0.03, 0.48, 0.02), pages, 0, 0.044, 0.02, false));
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.root.add(mesh(new THREE.BoxGeometry(0.07, 0.034, 0.07), gold, sx * 0.37, 0.016, 0.02 + sz * 0.24, false));
+      // The front cover, open, with the page inside it (the screen) and a gold seal on the outside.
+      const cover = mesh(roundedBox(0.8, 0.025, 0.52, 0.03), leather, 0, 0.25, 0);
+      cover.rotation.x = Math.PI / 2;
+      this.lid.add(cover);
+      const pageMat = new THREE.MeshBasicMaterial({ color: '#efe3c2' });
+      this.owned.push(pageMat);
+      const page = mesh(new THREE.PlaneGeometry(0.76, 0.49), pageMat, 0, 0.25, 0.0135, false);
+      this.lid.add(page);
+      // Hinged over the block of pages, so the cover shuts down on top of them.
+      this.lid.position.y = 0.072;
+      screen.position.z = 0.0145;
+      screen.scale.setScalar(0.94);
+      const seal = mesh(new THREE.CircleGeometry(0.08, 20), gold, 0, 0.27, -0.014, false);
+      seal.rotation.y = Math.PI;
+      this.lid.add(seal);
+      // A ribbon bookmark hanging out of the pages.
+      this.root.add(mesh(new THREE.BoxGeometry(0.03, 0.004, 0.16), toon('#9b1c1c'), 0.2, 0.06, 0.28, false));
+    } else {
+      const shell = toon('#c9ced6');
+      const dark = toon('#2b2d42');
+      // Base with keyboard
+      this.root.add(mesh(roundedBox(0.78, 0.035, 0.52, 0.04), shell, 0, 0.018, 0.02));
+      this.root.add(mesh(new THREE.BoxGeometry(0.66, 0.006, 0.24), dark, 0, 0.037, 0.0, false));
+      this.root.add(mesh(new THREE.BoxGeometry(0.2, 0.004, 0.11), toon('#aab1bb'), 0, 0.037, 0.19, false));
+      const lidShell = mesh(roundedBox(0.78, 0.025, 0.5, 0.04), shell, 0, 0.25, 0);
+      lidShell.rotation.x = Math.PI / 2;
+      this.lid.add(lidShell);
+      // Sticker on the back of the lid
+      const sticker = mesh(new THREE.CircleGeometry(0.07, 20), toon('#ff8a5b'), 0, 0.27, -0.014, false);
+      sticker.rotation.y = Math.PI;
+      this.lid.add(sticker);
+    }
     this.lid.rotation.x = Math.PI / 2; // closed; animates open
     paintScreen(this.ctx, this.canvas.width, this.canvas.height, undefined, this.placeholder);
     this.texture.needsUpdate = true;
@@ -227,5 +236,6 @@ export class Laptop {
 
   dispose() {
     this.texture.dispose();
+    for (const m of this.owned) m.dispose();
   }
 }

@@ -3,6 +3,7 @@ import { store, type Settings, type ViewMode } from '../state';
 import { askNotifyPermission, notifyPermission, type DesktopNotifier } from '../notify';
 import type { ThemePick, WebhookKind } from '../../shared/protocol';
 import { THEME_PICKS } from '../../shared/theme';
+import { mapChoices } from '../../shared/maps';
 import { DOG_NAME_MAX, cleanDogName } from '../../shared/dog';
 import { h, openModal, timeAgo } from './dom';
 import { agentFields, choiceLabel, officeChoice } from './provider';
@@ -24,7 +25,7 @@ const PANES: { id: SettingsPane; icon: string; label: string; blurb: string }[] 
   { id: 'you', icon: '🧍', label: 'You', blurb: 'How you look, how you see the office, and how you’re signed in.' },
   { id: 'sound', icon: '🔊', label: 'Sound & voice', blurb: 'How loud the office is for you, and how voice chat works.' },
   { id: 'notify', icon: '🔔', label: 'Notifications', blurb: 'Hear about a worker that needs someone, or finished, while you’re somewhere else.' },
-  { id: 'building', icon: '🏢', label: 'Building', blurb: 'The decorations, the sky, the dog, and where new floors are cloned.' },
+  { id: 'building', icon: '🏢', label: 'Building', blurb: 'The map, the decorations, the sky, the dog, and where new floors are cloned.' },
   { id: 'workers', icon: '🤖', label: 'Workers', blurb: 'What workers start on, how many run at once, when they go home and what the office tells them.' },
 ];
 
@@ -137,6 +138,37 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   paintTalk();
   const musicRow = volumeRow('Jukebox volume', 'music', 'musicMuted');
 
+  // The swish of the book's pages at the bookshelf, on or off.
+  const pagesRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Page turns at the bookshelf' });
+  const paintPages = () => {
+    pagesRow.replaceChildren(
+      ...(
+        [
+          [true, '📖 On'],
+          [false, 'Off'],
+        ] as const
+      ).map(([on, label]) =>
+        h(
+          'button.btn',
+          {
+            type: 'button',
+            role: 'radio',
+            'aria-checked': String(settings.pageTurns === on),
+            class: settings.pageTurns === on ? 'on' : '',
+            onclick: () => {
+              if (settings.pageTurns === on) return;
+              settings = { ...settings, pageTurns: on };
+              onChange(settings);
+              paintPages();
+            },
+          },
+          label,
+        ),
+      ),
+    );
+  };
+  paintPages();
+
   // The building's holiday theme, for everyone.
   const themeRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Holiday theme' });
   const themeNote = h('p.setting-note');
@@ -169,6 +201,42 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     themeNote.textContent = `${now}${how} It’s the same for everyone in the building${by ? `, set by ${by}${at ? ` ${timeAgo(at)}` : ''}` : ''}.`;
   };
   paintTheme();
+
+  // The building's map, for everyone: the office, the castle, or one of your own. Opening Settings
+  // has the office read its folder of maps again, so one you just added or fixed shows up.
+  net.send({ t: 'map.set' });
+  const mapRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Map' });
+  const mapNote = h('p.setting-note');
+  const mapBad = h('p.setting-note.bad', { style: 'white-space: pre-line' });
+  const paintMap = () => {
+    const { pick, by, at, custom } = store.map;
+    const choices = mapChoices(custom);
+    mapRow.replaceChildren(
+      ...choices.map((m) =>
+        h(
+          'button.btn',
+          {
+            type: 'button',
+            role: 'radio',
+            'aria-checked': String(pick === m.id),
+            class: pick === m.id ? 'on' : '',
+            disabled: !!m.error,
+            title: m.error ? `${m.id} won't load: ${m.error}` : m.description,
+            onclick: () => {
+              if (!m.error && store.map.pick !== m.id) net.send({ t: 'map.set', map: m.id });
+            },
+          },
+          `${m.icon} ${m.name}`,
+        ),
+      ),
+    );
+    const now = choices.find((m) => m.id === pick) ?? choices[0];
+    mapNote.textContent = `${now.description} It’s the same on every floor, for everyone in the building${by ? `, picked by ${by}${at ? ` ${timeAgo(at)}` : ''}` : ''}. Maps of your own go in the office’s .agent-office/maps/ folder as JSON (see docs/maps.md).`;
+    const broken = choices.filter((m) => m.error);
+    mapBad.textContent = broken.map((m) => `⚠️ ${m.id} won't load: ${m.error}`).join('\n');
+    mapBad.hidden = !broken.length;
+  };
+  paintMap();
 
   // Desktop notifications: this browser's permission, then your own on/off.
   const notifyRow = h('div.seg');
@@ -443,6 +511,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     ],
     sound: [
       setting('Office sounds', 'you', soundRow, h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds and rain outside, the dog, and the ding when a worker is done. Voice chat isn’t affected.')),
+      setting('Page turns at the bookshelf', 'you', pagesRow, h('p.setting-note', {}, 'A soft swish each time the book in your hands turns a page, as you open a doc or scroll through one. The 🔈 at the top of the bookshelf turns it off too.')),
       setting('Jukebox', 'you', musicRow, h('p.setting-note', {}, 'The jukebox in the lounge. Everyone on the floor hears the same song, louder the closer they are to it; this is how loud it is for you alone.')),
       setting('Voice chat', 'you', talkRow, h('p.setting-note', {}, 'Either way, V joins voice, holding V talks and you’re muted once you let go, and M mutes or unmutes. With push to talk you join muted. Leave voice from the ☰ menu.')),
     ],
@@ -451,6 +520,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       setting('Team notifications (Slack / Discord)', 'office', h('div.webhook', {}, hookInput, hookSave), hookActions, hookStatus),
     ],
     building: [
+      setting('Map', 'office', mapRow, mapNote, mapBad),
       setting('Holiday theme', 'office', themeRow, themeNote),
       ...(outside
         ? [
@@ -510,6 +580,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const offNotify = store.on('notify', paintHook);
   const offDog = store.on('dog', paintDog);
   const offTheme = store.on('theme', paintTheme);
+  const offMap = store.on('map', paintMap);
   const offLeave = store.on('leaveOnMerge', paintLeave);
   const offLimit = [store.on('machine', paintLimit), store.on('me', paintLimit)];
   const offDir = [store.on('projectsDir', paintDir), store.on('me', paintDir)];
@@ -520,6 +591,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       offNotify();
       offDog();
       offTheme();
+      offMap();
       offLeave();
       offLimit.forEach((off) => off());
       offDir.forEach((off) => off());
