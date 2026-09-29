@@ -124,7 +124,7 @@ export function paintScreen(ctx: CanvasRenderingContext2D, w: number, h: number,
     ctx.textAlign = 'left';
     return;
   }
-  const pad = w * 0.02;
+  const pad = w * 0.01;
   const win = zoomRows ? activeWindow(s, w - pad * 2, h - pad * 2, zoomRows) : { top: 0, rows: s.rows, cols: s.cols, first: 0, last: s.rows - 1 };
   const cellW = (w - pad * 2) / win.cols;
   const cellH = (h - pad * 2) / win.rows;
@@ -169,8 +169,8 @@ export function paintScreen(ctx: CanvasRenderingContext2D, w: number, h: number,
 }
 
 /** The lit screen in lid space, nearly edge to edge on the 0.78 x 0.5 lid. */
-const SCREEN_W = 0.75;
-const SCREEN_H = 0.47;
+const SCREEN_W = 0.775;
+const SCREEN_H = 0.495;
 /** In front of the GLB's bezel frame, whose face is at z 0.018. */
 const SCREEN_Z = 0.02;
 

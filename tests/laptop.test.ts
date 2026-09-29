@@ -82,8 +82,8 @@ test('preserves the plain narrow screen layout bounds', () => {
   paintScreen(ctx, 1024, 680, screen(56, 22, 22, 20), undefined, 22);
   const ys = textYs(ops);
   assert.ok(ys.length > 0);
-  assert.ok(Math.min(...ys) >= 20);
-  assert.ok(Math.max(...ys) <= 660);
+  assert.ok(Math.min(...ys) >= 10);
+  assert.ok(Math.max(...ys) <= 670);
 });
 
 test('renders an empty screen as background without synthetic terminal text', () => {

@@ -2012,7 +2012,7 @@ function syncWorkers() {
     }
     v.model.setAction(w.action);
     v.model.setPr(prBadge(w));
-    const engineBadge = w.kind === 'agent' ? modelBadge(w.provider, w.model, w.effort) : undefined;
+    const engineBadge = w.kind === 'agent' ? modelBadge(w.provider, w.activeModel ?? w.model, w.activeEffort ?? w.effort) : undefined;
     v.model.setTask(meetingCard(w) ?? (w.task && w.kind === 'agent' ? { ...w.task, name: engineBadge ? `${engineBadge} · ${w.task.name}` : w.task.name } : w.task));
     const deskDef = DESK_BY_ID.get(w.deskId);
     // Keys clack while it types, not while it reads, watches its tests or browses.

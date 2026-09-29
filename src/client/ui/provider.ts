@@ -285,14 +285,15 @@ function fetchDroidModels(): Promise<DroidModelOption[]> {
 export function droidDisplayName(id: string): string {
   const known = droidList?.find((m) => m.id === id)?.displayName;
   if (known) return known;
-  const proxied = /^(custom:)?droidproxy:/i.test(id);
-  const name = id
-    .replace(/^custom:/, '')
-    .replace(/^droidproxy:/i, '')
+  // Any droidproxy provider segment ("custom:droidproxy:…", "custom:droidproxy-2:…") is a DroidProxy model.
+  const proxy = /(?:^|:)droidproxy[\w.-]*:/i.exec(id);
+  const bare = proxy ? id.slice(proxy.index + proxy[0].length) : id.replace(/^custom:(?:[^:]+:)?/, '');
+  const name = bare
+    .replace(/^claude-/, '')
     .replace(/[-_]+/g, ' ')
     .replace(/(\d) (?=\d)/g, '$1.')
     .replace(/\b\w/g, (c) => c.toUpperCase());
-  return proxied ? `DroidProxy: ${name}` : name;
+  return proxy ? `DroidProxy: ${name}` : name;
 }
 
 /**

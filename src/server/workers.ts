@@ -25,6 +25,7 @@ import { addUsage, newTracker, restoreTracker, scanTracker, trackerUsage, zeroUs
 import { PtyHost, SCROLLBACK, type Adopted, type Pty } from './ptys.js';
 import { codexHookArgs, normalizeCodexHook, writeCodexHook } from './codex.js';
 import { reportedUsage } from './reported-usage.js';
+import { DroidSessionReader } from './droid-session.js';
 import { configuredProvider, isValidDroidModel, isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeStatusEvent } from './opencode.js';
 import { ScrollbackStore, searchTerminal, terminalTail } from './history.js';
@@ -185,6 +186,7 @@ export class WorkerManager {
   /** The Droid hook commands, reused for per-worker model overlays (see droidSettings). */
   private droidHooks: Record<string, unknown[]> = {};
   private trees: Worktrees;
+  private droidSessions = new DroidSessionReader();
   private agentPath: string | null = null;
   readonly defaultProvider: AgentProvider;
 
@@ -251,7 +253,10 @@ export class WorkerManager {
     this.restore();
     this.scrollback.prune(new Set(this.workers.keys()));
     // A session may have ended (and written its final tally) while the office was down.
-    for (const w of this.workers.values()) this.scanUsage(w);
+    for (const w of this.workers.values()) {
+      this.scanUsage(w);
+      this.refreshDroidModel(w);
+    }
     this.screenTimer = setInterval(() => this.flushScreens(), SCREEN_INTERVAL_MS);
     this.usageTimer = setInterval(() => {
       for (const w of this.workers.values()) this.scanUsage(w);
@@ -772,9 +777,24 @@ export class WorkerManager {
         this.setStatus(w, 'needs_input');
       } else if (report.notification_type === 'idle_prompt' && w.info.status === 'working') this.setStatus(w, 'done');
     } else if (event === 'Stop') this.setStatus(w, 'done');
+    // /model can change it between turns, and droid writes the file a moment after SessionStart.
+    if (event === 'SessionStart' || event === 'UserPromptSubmit' || event === 'Stop') this.refreshDroidModel(w);
     this.emitUpdate(w);
     this.persist();
     return true;
+  }
+
+  /** Looks up the model and effort droid says the worker's session runs, which no hook reports. */
+  private refreshDroidModel(w: Worker) {
+    const { sessionId } = w.info;
+    if (w.info.kind !== 'agent' || w.info.provider !== 'droid' || !sessionId) return;
+    void this.droidSessions.read(sessionId, this.cwd(w.info)).then((seen) => {
+      if (!seen || this.workers.get(w.info.id) !== w || w.info.sessionId !== sessionId) return;
+      if (seen.model === w.info.activeModel && seen.effort === w.info.activeEffort) return;
+      w.info.activeModel = seen.model;
+      w.info.activeEffort = seen.effort;
+      this.emitUpdate(w);
+    });
   }
 
   /** Native Codex lifecycle hooks register the root rollout for bounded metric reads. */
