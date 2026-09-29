@@ -45,7 +45,7 @@ There's a lot more (a rooftop bar, an office dog, an arcade): see [docs/features
 On the machine that runs the office:
 
 - **Node.js 20+**
-- At least one agent CLI, signed in as the user that runs the office: **Claude Code** (`claude`), **Codex** (`codex`) or **OpenCode** (`opencode`)
+- At least one agent CLI, signed in as the user that runs the office: **Claude Code** (`claude`), **Codex** (`codex`) or **OpenCode** (`opencode`). With [accounts](#add-users), everyone can sign in to their own Claude from the office instead.
 - **git**, and the **GitHub CLI** (`gh auth login`) for cloning repos and the issue and PR boards
 
 ## Run locally
