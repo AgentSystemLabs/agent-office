@@ -28,7 +28,8 @@ export interface MeetingWorkers {
 
 /** Git for the meeting's own worktree: made when it starts, tidied away once everyone has gone home. */
 export interface MeetingTrees {
-  create(slug: string): (Required<Omit<WorktreeRef, 'made'>> & { from?: string }) | string;
+  /** `note` says when commits the project has were left out of it (see Worktrees.create). */
+  create(slug: string): (Required<Omit<WorktreeRef, 'made'>> & { from?: string; note?: string }) | string;
   inspect(wt: WorktreeRef): Promise<WorktreeState>;
   remove(wt: WorktreeRef, cleanup: 'worktree' | 'all'): Promise<string | undefined>;
 }
@@ -163,7 +164,9 @@ export class MeetingRoom {
     if (this.trees) {
       const made = this.trees.create(`meeting-${slug}-${id.slice(0, 4)}`);
       if (typeof made === 'string') return made;
-      worktree = made;
+      const { note, ...ref } = made;
+      worktree = ref;
+      if (note) this.events.toast(`🌿 The meeting's worktree ${note}`, 'info');
     }
     const m: Meeting = {
       id,

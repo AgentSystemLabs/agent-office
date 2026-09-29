@@ -56,6 +56,7 @@ export function buildTower(colliders: Collider[], night: NightParts): Tower {
   const deck = toon('#e8a87c');
   const cornice = toon('#fffaf3');
   const behind = flat('#2b2d42');
+  const concrete = flat('#d3d6dd');
   // Glass you can't see into; at night some of it glows, as though someone upstairs is still at it.
   const dark = toon('#a9d8f5');
   const lit = ['#ffd27a', '#ffe6b0', '#9ec9ff'].map((glow) => {
@@ -284,6 +285,12 @@ export function buildTower(colliders: Collider[], night: NightParts): Tower {
       const top = (count - 1 - index) * STOREY + WALL_HEIGHT;
       crown(parts, top);
       roofTop(parts, top + SLAB);
+    }
+    // Down in the garage (the elevator goes there), the bottom floor's slab over it, seen from
+    // underneath: on that floor it's world/stack.ts's.
+    if (index > 0 && index < count) {
+      const under = new THREE.PlaneGeometry(B.maxX - B.minX, B.maxZ - B.minZ).rotateX(Math.PI / 2);
+      parts.add(mesh(under, concrete, (B.minX + B.maxX) / 2, -index * STOREY - SLAB, (B.minZ + B.maxZ) / 2, false));
     }
     // None of it casts a shadow (the sun lights the office through where its roof would be), and none
     // takes one from the floor you're on, which would fall on it as though nothing were in between.
