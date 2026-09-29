@@ -59,6 +59,8 @@ const MIME: Record<string, string> = {
   '.webmanifest': 'application/manifest+json',
   '.woff2': 'font/woff2',
   '.wasm': 'application/wasm',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
   '.mp3': 'audio/mpeg',
   '.ogg': 'audio/ogg',
 };
@@ -707,6 +709,15 @@ export async function startServer(cfg: Config) {
       if (p === '/api/health') return send(res, 200, { ok: true });
 
       if (p.startsWith('/assets/')) {
+        const file = publicFile(p);
+        if (file) return serveFile(res, file, true);
+        res.writeHead(404).end();
+        return;
+      }
+      // The prop GLBs and the Draco decoder. They are fetched before the session exists,
+      // and a given prop name always maps to the same bytes, so they cache for a year
+      // the same way the bundle's /assets/ files do.
+      if (p.startsWith('/props/')) {
         const file = publicFile(p);
         if (file) return serveFile(res, file, true);
         res.writeHead(404).end();
