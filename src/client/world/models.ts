@@ -1,11 +1,15 @@
-import type * as THREE from 'three';
+import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import deskPropsUrl from '../models/desk_props.glb?url';
 import dogCorgiUrl from '../models/dog-corgi.glb?url';
 import dogDachshundUrl from '../models/dog-dachshund.glb?url';
 import dogPugUrl from '../models/dog-pug.glb?url';
 import dogPupUrl from '../models/dog-pup.glb?url';
 import dogShibaUrl from '../models/dog-shiba.glb?url';
+import kitchenUrl from '../models/kitchen.glb?url';
+import loungeUrl from '../models/lounge.glb?url';
+import plantsUrl from '../models/plants.glb?url';
 import { toon } from './toon';
 
 // The things in the world modelled in Blender rather than built in code. Each .glb is exported by a
@@ -18,6 +22,10 @@ const MODELS = {
   'dog-dachshund': { url: dogDachshundUrl, preload: false },
   'dog-pug': { url: dogPugUrl, preload: false },
   'dog-shiba': { url: dogShibaUrl, preload: false },
+  desk_props: { url: deskPropsUrl, preload: true },
+  kitchen: { url: kitchenUrl, preload: true },
+  lounge: { url: loungeUrl, preload: true },
+  plants: { url: plantsUrl, preload: true },
 } satisfies Record<string, { url: string; preload: boolean }>;
 
 export type ModelName = keyof typeof MODELS;
@@ -103,6 +111,19 @@ export async function preloadModels(): Promise<void> {
 export function model(name: ModelName): Model | null {
   const gltf = loaded.get(name);
   return gltf ? copy(gltf) : null;
+}
+
+/**
+ * A painted copy of one piece of a `preload` model, the object called `part` in it, for a model that holds
+ * several things placed each on their own (a plant of each species, the lounge's sofa and its table).
+ * `paint` gives the material for each name, as for paintModel(). If the model didn't load, or has no such
+ * piece, an empty group: the office opens without it.
+ */
+export function piece(name: ModelName, part: string, paint: (name: string) => THREE.Material, castShadow = true): THREE.Object3D {
+  const copy = loaded.get(name)?.scene.getObjectByName(part)?.clone();
+  if (!copy) return new THREE.Group();
+  paintModel(copy, paint, castShadow);
+  return copy;
 }
 
 /**

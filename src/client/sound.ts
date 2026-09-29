@@ -35,7 +35,7 @@ export interface Listener extends Pos {
   fz: number;
 }
 
-// The kitchen props (office.ts puts the kitchen at x -14.5, z 12.2).
+// The kitchen props (kitchen.ts puts the kitchen at x -14.5, z 12.2).
 const COFFEE_MACHINE: Pos = { x: -15.7, y: 1.4, z: 12.2 };
 const FRIDGE: Pos = { x: -11.3, y: 1.1, z: 12.2 };
 /** Just outside the office's windows (not the loft's). */

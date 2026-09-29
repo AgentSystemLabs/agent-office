@@ -20,7 +20,7 @@ export function deskPoint(d: DeskDef, t: number, s: number): Pt {
   return [d.x + Math.cos(d.rotY) * t + Math.sin(d.rotY) * s, d.z - Math.sin(d.rotY) * t + Math.cos(d.rotY) * s];
 }
 
-/** What's in the way on the floor. The lounge, kitchen and plants are where office.ts puts them. */
+/** What's in the way on the floor. The lounge, kitchen and plants are where office.ts (and kitchen.ts) put them. */
 function obstacles(): { rects: Rect[]; circles: Circle[] } {
   const rects: Rect[] = [];
   const circles: Circle[] = [];
