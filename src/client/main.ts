@@ -740,7 +740,6 @@ function syncStack() {
   if (s.index === Math.max(0, index) && s.count === count && s.up === up && s.down === down) return;
   office.stack.set({ index: Math.max(0, index), count, up, down });
   office.setLevel(Math.max(0, index), count);
-  player.street = streetBelow(index);
 }
 store.on('floors', syncStack);
 
@@ -1025,14 +1024,14 @@ function renderProject() {
     $('project-meta').textContent = store.floors.length ? '🛗 Take the elevator to a floor' : '🛗 No floors yet — add a project in the elevator';
     // Where to go next, so it shows even with the floor details turned off.
     $('project-meta').classList.add('lobby');
-    office.setProjectName(store.floors.length ? 'Pick a floor' : 'Lobby');
+    world.setProjectName(store.floors.length ? 'Pick a floor' : 'Lobby');
     return;
   }
   const n = store.floors.findIndex((f) => f.id === store.floor);
   $('project-meta').classList.remove('lobby');
   $('project-name').textContent = `🏢 ${p.name}`;
   $('project-meta').textContent = [n >= 0 && `🛗 floor ${n + 1} of ${store.floors.length}`, p.branch && `⎇ ${p.branch}`, p.dir, `default: ${providerLabel(p.defaultProvider, p)}`].filter(Boolean).join(' · ');
-  office.setProjectName(p.name);
+  world.setProjectName(p.name);
 }
 store.on('floors', renderProject);
 store.on('project', renderProject);
@@ -1142,7 +1141,10 @@ function ride(to: string): void {
       toast(`${plan().icon} There's no ${to === ROOF ? 'rooftop bar' : 'garage'} in the ${plan().name.toLowerCase()}`, 'warn');
       return;
     }
-    return switchFloor(to);
+    // Still up on a roof this map doesn't have: straight down to that floor.
+    if (upTop) return leaveRoofFor(to);
+    // Straight there, and on over to whoever you were walking to.
+    return switchFloor(to, true);
   }
   const garage = to === GARAGE;
   const floorId = garage ? (upTop || !store.floor ? builtFloors()[0]?.id : store.floor) : to;
@@ -1201,8 +1203,10 @@ function standingAt(to: string): Arrival {
 }
 
 /** Straight to another floor from the floor list: a blink, and you're standing in the same spot there. */
-function switchFloor(floorId: string): void {
-  // The roof isn't laid out like a floor: to and from it, it's the elevator.
+function switchFloor(floorId: string, keepWalking = false): void {
+  // The roof isn't laid out like a floor: to and from it, it's the elevator (and on a map with no
+  // roof, straight down off it).
+  if (upTop && !inOffice()) return leaveRoofFor(floorId);
   if (upTop || floorId === ROOF) return ride(floorId);
   if (trip || floorId === store.floor) return;
   closeAllModals();
@@ -1212,7 +1216,7 @@ function switchFloor(floorId: string): void {
   if (thrower.active) thrower.stop();
   if (player.seat) standUp();
   // The floor list isn't a window, so nothing else stops a walk over to someone on this floor.
-  if (walkingTo) stopWalking();
+  if (walkingTo && !keepWalking) stopWalking();
   trip = { floor: floorId, how: 'switch', timer: window.setTimeout(tripFailed, 10_000) };
   player.enabled = false;
   player.clearKeys();
@@ -1237,6 +1241,11 @@ function tripFailed() {
   if (t.how === 'elevator') lift()?.setOpen(!!store.floor);
   if (t.how === 'ladder' || t.how === 'pole') climber.abort();
   player.enabled = !modalOpen();
+  // Down off a roof the map doesn't have: try again.
+  if (offRoof) {
+    offRoof = false;
+    offTheRoof();
+  }
 }
 
 /** Arrived in a spot that's a pole's hole on this floor: step out of it, the way in. */
@@ -1357,7 +1366,22 @@ function worldFor(p: MapPlan): { world: World; court: Court | null; idle: Return
   // A map of your own was edited since: it's built again.
   if (b && b.plan !== p) {
     scene.remove(b.world.group);
-    b.world.group.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+    // Its geometry, and the materials with a picture of their own (walls, banners, glass); the shared
+    // toon materials stay, being everyone's. Geometry shared with other worlds is never disposed
+    // (three.js uploads it again if it's drawn after).
+    const freed = new Set<THREE.Material>();
+    b.world.group.traverse((o) => {
+      const m = o as THREE.Mesh;
+      m.geometry?.dispose();
+      for (const mat of Array.isArray(m.material) ? m.material : m.material ? [m.material] : []) {
+        const map = (mat as THREE.MeshBasicMaterial).map;
+        if (map instanceof THREE.CanvasTexture && !freed.has(mat)) {
+          map.dispose();
+          mat.dispose();
+          freed.add(mat);
+        }
+      }
+    });
     for (const a of b.idle) a.model.dispose();
     built.delete(p.id);
     b = undefined;
@@ -1430,9 +1454,11 @@ function applyMap() {
   renderProject();
   dressUp();
   syncStack();
+  // They were there already: nobody walks in (and on a welcome, the floor's workers that come next weren't either).
+  const already = seatedAlready;
   seatedAlready = true;
   syncWorkers();
-  seatedAlready = false;
+  seatedAlready = already;
   if (store.floor && !upTop && !trip) {
     placeInCar();
     // Back in the office, in its elevator: the doors open onto it.
@@ -1462,12 +1488,19 @@ function offTheRoof() {
   if (!upTop || inOffice() || trip) return;
   const f = builtFloors()[0];
   if (!f) return;
-  offRoof = true;
-  trip = { floor: f.id, how: 'switch', timer: window.setTimeout(tripFailed, 10_000) };
-  player.enabled = false;
-  fade(true, true);
-  net.send({ t: 'floor.go', floor: f.id });
+  leaveRoofFor(f.id);
   toast(`${plan().icon} The building's the ${plan().name.toLowerCase()} now, with no rooftop bar: down you go`);
+}
+
+/** Off a roof the map doesn't have, down to `floorId`, arriving where the map has you come in (see floor.enter). */
+function leaveRoofFor(floorId: string) {
+  if (trip) return;
+  offRoof = true;
+  trip = { floor: floorId, how: 'switch', timer: window.setTimeout(tripFailed, 10_000) };
+  player.enabled = false;
+  player.clearKeys();
+  fade(true, true);
+  net.send({ t: 'floor.go', floor: floorId });
 }
 
 /** Workers waiting on someone, per floor, the last time the elevator said so. */
@@ -1526,7 +1559,7 @@ function syncPeers() {
     r.person.carry(peer.carrying);
     r.person.read(!!peer.reading);
     r.person.sit(peer.seat ? (seatOn(plan(), peer.seat)?.hips ?? null) : null);
-    r.person.setDoing(whereabouts(peer));
+    r.person.setDoing(whereabouts(peer, plan()));
   }
   for (const [id, r] of remotes) {
     const peer = store.peers.get(id);
@@ -2049,9 +2082,21 @@ function standAt(desk: DeskDef) {
   const w = store.workerAtDesk(desk.id);
   const inLine = w && court ? court.spotOf(w.id) : -1;
   if (inLine >= 0) {
+    // At the front: up on the throne, if it's free, where E is for them.
+    const throne = inLine === 0 && plan().throne ? freePlace(plan().throne!) : null;
+    if (throne) {
+      player.pos.set(throne.x, throne.y, throne.z);
+      player.sit(throne);
+      me.sit(throne.hips);
+      net.send({ t: 'sit', seat: throne.key });
+      player.camYaw = throne.rotY - Math.PI;
+      player.lookPitch = -0.2;
+      return;
+    }
+    // Else beside it in line, turned to it.
     const at = plan().lineup[inLine];
-    const x = at.x + Math.sin(at.rotY) * 1.4;
-    const z = at.z + Math.cos(at.rotY) * 1.4;
+    const x = at.x + Math.cos(at.rotY) * 1.3;
+    const z = at.z - Math.sin(at.rotY) * 1.3;
     player.pos.set(x, groundHere(x, z, 3), z);
     player.vy = 0;
     player.facing = Math.atan2(at.x - x, at.z - z);
@@ -3601,7 +3646,7 @@ function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boole
       it ??= o.userData.interact as Interactable | undefined;
     }
     if (!shown) continue;
-    if (!it) return null; // a wall, the floor, a plant… is in the way
+    if (!it || it.off) return null; // a wall, the floor, a plant… is in the way
     return { it, near: hit.point.distanceTo(eye) <= REACH[it.kind] + slack, hit };
   }
   return null;
@@ -3611,6 +3656,8 @@ function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boole
 function courtPickables(): THREE.Object3D[] {
   const out: THREE.Object3D[] = [];
   if (!court) return out;
+  // Whoever's left the line since is its seat's again (a click on it goes on to the seat's).
+  for (const v of workerViews.values()) delete v.model.root.userData.interact;
   for (const it of court.interactables) {
     const w = !it.off && it.deskId ? store.workerAtDesk(it.deskId) : undefined;
     const v = w && workerViews.get(w.id);
@@ -4096,7 +4143,7 @@ function frame(ts?: number) {
   if (modalOpen() || telescope.active || hanger.active || climber.active || golf.active || thrower.active) target = null;
   else if (firstPerson) {
     const aim = aimedAt(CROSSHAIR);
-    target = aim?.near ? aim.it : (throneTarget() ?? mySeat() ?? ballAtFeet());
+    target = aim?.near ? aim.it : (throneTarget() ?? mySeat() ?? (inOffice() ? ballAtFeet() : null));
     if (aim?.near) aimedNote = noteUnder(aim);
   } else {
     target = throneTarget() ?? mySeat() ?? pickTarget();
@@ -4115,7 +4162,7 @@ function frame(ts?: number) {
     // What people are up to changes as they walk about, not only when they open something.
     for (const [id, r] of remotes) {
       const p = store.peers.get(id);
-      if (p) r.person.setDoing(whereabouts(p));
+      if (p) r.person.setDoing(whereabouts(p, plan()));
     }
     renderPeople(voice, editProfile, walkTo, false);
     updateSpeaking(voice);

@@ -381,6 +381,9 @@ function glowTexture(): THREE.Texture {
   return glowTex;
 }
 
+/** Every flame's cones: the same two shapes, scaled. */
+const FLAME_OUTER = new THREE.ConeGeometry(0.45, 1, 8).translate(0, 0.5, 0);
+const FLAME_INNER = new THREE.ConeGeometry(0.25, 0.7, 8).translate(0, 0.35, 0);
 const FLAME_OUT = new THREE.MeshBasicMaterial({ color: '#ff8c2a', toneMapped: false });
 const FLAME_IN = new THREE.MeshBasicMaterial({ color: '#ffe38a', toneMapped: false });
 FLAME_OUT.userData.outlineParameters = { visible: false };
@@ -390,8 +393,8 @@ FLAME_IN.userData.outlineParameters = { visible: false };
 function flame(kit: Kit, parent: THREE.Object3D, x: number, y: number, z: number, size: number): void {
   const f = new THREE.Group();
   f.position.set(x, y, z);
-  const outer = new THREE.Mesh(new THREE.ConeGeometry(0.45, 1, 8).translate(0, 0.5, 0), FLAME_OUT);
-  const inner = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.7, 8).translate(0, 0.35, 0), FLAME_IN);
+  const outer = new THREE.Mesh(FLAME_OUTER, FLAME_OUT);
+  const inner = new THREE.Mesh(FLAME_INNER, FLAME_IN);
   inner.position.y = 0.02;
   f.add(outer, inner);
   f.scale.setScalar(size);
@@ -1178,7 +1181,7 @@ export function buildCastle(plan: MapPlan): Castle {
         hearth(kit, p);
         break;
       case 'gong': {
-        gong = buildGong({ x: p.x, z: p.z, rotY: p.rotY ?? 0 });
+        gong = buildGong({ x: p.x, y: kit.floorAt(p.x, p.z), z: p.z, rotY: p.rotY ?? 0 });
         group.add(gong.group);
         kit.colliders.push(...gong.colliders);
         kit.interactables.push(gong.interactable);
@@ -1371,7 +1374,7 @@ export function buildCastle(plan: MapPlan): Castle {
   if (plan.herald) {
     const hd = plan.herald;
     const person = new Person(hd.name, '#1f4d3a', { skin: 2, hair: 5, style: 0 });
-    const y = Math.max(0, ...kit.colliders.filter((cc) => cc.top < 50 && hd.x > cc.minX && hd.x < cc.maxX && hd.z > cc.minZ && hd.z < cc.maxZ).map((cc) => cc.top));
+    const y = kit.floorAt(hd.x, hd.z);
     person.root.position.set(hd.x, y, hd.z);
     person.root.rotation.y = hd.rotY;
     person.setLabel(hd.name, null);

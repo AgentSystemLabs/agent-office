@@ -159,6 +159,8 @@ export class Laptop {
   private paintedAt = 0;
   private openT = 0;
   private placeholder = 'booting…';
+  /** Anything else of its own to free (the tome's page). */
+  private owned: THREE.Material[] = [];
 
   /** `tome`: a leather-bound book whose inside page shows the terminal, for the castle; it opens and shuts like the laptop. */
   constructor(style: 'laptop' | 'tome' = 'laptop') {
@@ -188,8 +190,12 @@ export class Laptop {
       const cover = mesh(roundedBox(0.8, 0.025, 0.52, 0.03), leather, 0, 0.25, 0);
       cover.rotation.x = Math.PI / 2;
       this.lid.add(cover);
-      const page = mesh(new THREE.PlaneGeometry(0.76, 0.49), new THREE.MeshBasicMaterial({ color: '#efe3c2' }), 0, 0.25, 0.0135, false);
+      const pageMat = new THREE.MeshBasicMaterial({ color: '#efe3c2' });
+      this.owned.push(pageMat);
+      const page = mesh(new THREE.PlaneGeometry(0.76, 0.49), pageMat, 0, 0.25, 0.0135, false);
       this.lid.add(page);
+      // Hinged over the block of pages, so the cover shuts down on top of them.
+      this.lid.position.y = 0.072;
       screen.position.z = 0.0145;
       screen.scale.setScalar(0.94);
       const seal = mesh(new THREE.CircleGeometry(0.08, 20), gold, 0, 0.27, -0.014, false);
@@ -251,5 +257,6 @@ export class Laptop {
 
   dispose() {
     this.texture.dispose();
+    for (const m of this.owned) m.dispose();
   }
 }

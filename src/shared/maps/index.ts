@@ -395,7 +395,7 @@ export function mapChoices(custom: readonly CustomMap[] = []): MapChoice[] {
   ];
 }
 
-const plans = new Map<string, { key: string; plan: MapPlan }>();
+const plans = new Map<string, { config: MapConfig; key: string; plan: MapPlan }>();
 
 /**
  * The plan of the map `id`: the office, a built-in map, or a custom one (already checked, see
@@ -405,12 +405,17 @@ export function planOf(id: string | undefined, custom: readonly CustomMap[] = []
   if (!id || id === OFFICE_MAP) return OFFICE_PLAN;
   const config = custom.find((m) => m.config?.id === id)?.config ?? BUILTIN_MAPS.find((m) => m.id === id);
   if (!config) return OFFICE_PLAN;
-  const key = JSON.stringify(config);
   const hit = plans.get(id);
-  if (hit?.key === key) return hit.plan;
+  // The same config as last time (it's asked for often): no need to look any closer.
+  if (hit?.config === config) return hit.plan;
+  const key = JSON.stringify(config);
+  if (hit?.key === key) {
+    hit.config = config;
+    return hit.plan;
+  }
   try {
     const plan = planMap(config);
-    plans.set(id, { key, plan });
+    plans.set(id, { config, key, plan });
     return plan;
   } catch {
     return OFFICE_PLAN;

@@ -23,13 +23,14 @@ export interface Gong {
   update(dt: number): void;
 }
 
-/** The gong, where the office has it, or at (x, z) facing `rotY` (0 is +z, the office's way). */
-export function buildGong(at: { x: number; z: number; rotY?: number } = GONG): Gong {
+/** The gong, where the office has it, or at (x, z) facing `rotY` (0 is +z, the office's way), on a floor `y` up. */
+export function buildGong(at: { x: number; y?: number; z: number; rotY?: number } = GONG): Gong {
   const { width, height } = GONG;
   const { x, z } = at;
+  const y = at.y ?? 0;
   const rotY = at.rotY ?? 0;
   const group = new THREE.Group();
-  group.position.set(x, 0, z);
+  group.position.set(x, y, z);
   group.rotation.y = rotY;
   const lacquer = toon(LACQUER);
   const ink = toon(INK);
@@ -93,9 +94,9 @@ export function buildGong(at: { x: number; z: number; rotY?: number } = GONG): G
   group.add(wave);
 
   const [minX, maxX, minZ, maxZ] = rotY ? boxFootprint(x, z, width + 0.42, 0.6, rotY) : [x - half - 0.12, x + half + 0.3, z - 0.3, z + 0.3];
-  const colliders: Collider[] = [{ minX, maxX, minZ, maxZ, top: height + 0.1 }];
+  const colliders: Collider[] = [{ minX, maxX, minZ, maxZ, top: y + height + 0.1, ...(y ? { bottom: y } : {}) }];
   const ahead = { x: Math.sin(rotY), z: Math.cos(rotY) };
-  const interactable: Interactable = { kind: 'gong', x: x + ahead.x * 1.3, z: z + ahead.z * 1.3, radius: 1.5 };
+  const interactable: Interactable = { kind: 'gong', x: x + ahead.x * 1.3, ...(y ? { y } : {}), z: z + ahead.z * 1.3, radius: 1.5 };
   group.userData.interact = interactable;
 
   let swing = 0;
@@ -108,7 +109,7 @@ export function buildGong(at: { x: number; z: number; rotY?: number } = GONG): G
     group,
     colliders,
     interactable,
-    top: new THREE.Vector3(x + ahead.x * 0.3, height + 0.4, z + ahead.z * 0.3),
+    top: new THREE.Vector3(x + ahead.x * 0.3, y + height + 0.4, z + ahead.z * 0.3),
     strike(strength = 1) {
       // Hit from the front, it swings back towards the wall first.
       swing = Math.min(0.3, swing * 0.5 + 0.16 * strength);

@@ -75,6 +75,8 @@ export class Court {
     const [x, z] = from;
     c.model.root.position.set(x, this.ground(x, z, 2) - FEET, z);
     c.pace = RUN;
+    // On its feet in the hall (not in its seat), so it sets off for it.
+    c.state = 'stand';
     this.walkTo(c, { seat: true });
   }
 
@@ -84,6 +86,7 @@ export class Court {
     if (!c) return undefined;
     this.people.delete(id);
     c.model.walking = false;
+    c.model.gait = 1;
     this.freeSpots();
     if (c.state === 'seated') return undefined;
     const p = c.model.root.position;
@@ -144,9 +147,10 @@ export class Court {
     const turn = root.getWorldQuaternion(new THREE.Quaternion());
     this.parent.add(root);
     root.position.copy(pos);
-    root.quaternion.copy(turn);
-    root.scale.setScalar(scale);
+    // Upright, facing the way it was (as a heading, so turning from here never flips it round).
     c.heading = new THREE.Euler().setFromQuaternion(turn, 'YXZ').y;
+    root.rotation.set(0, c.heading, 0);
+    root.scale.setScalar(scale);
   }
 
   /** Sets off for `goal` from wherever it is: down off its seat first if it's in it. */
@@ -231,10 +235,12 @@ export class Court {
         }
       }
       c.model.walking = c.next < c.way.length;
+      // Its feet go as fast as it does: quicker running, slower shuffling.
+      c.model.gait = c.pace / WALK;
       if (c.model.walking) {
         c.stepIn -= dt;
         if (c.stepIn <= 0) {
-          c.stepIn += Math.PI / 9;
+          c.stepIn += Math.PI / (9 * c.model.pace * c.model.gait);
           this.footstep(pos.x, pos.y, pos.z);
         }
       } else if ('seat' in c.goal) {
@@ -258,6 +264,7 @@ export class Court {
     const root = c.model.root;
     c.state = 'seated';
     c.model.walking = false;
+    c.model.gait = 1;
     c.pace = WALK;
     c.desk.seatAnchor.add(root);
     root.position.set(0, 0, 0);

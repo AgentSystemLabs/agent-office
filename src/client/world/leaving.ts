@@ -173,7 +173,8 @@ export class Departures {
     this.parent.add(model.root);
     model.root.position.copy(seat);
     // On the seat it faces the desk: the seat anchor is turned round from the desk's own rotation.
-    if (facing) model.root.quaternion.copy(facing);
+    // Upright, as a heading, so turning from there never flips it round.
+    if (facing) model.root.rotation.set(0, new THREE.Euler().setFromQuaternion(facing, 'YXZ').y, 0);
     else model.root.rotation.set(0, desk.def.rotY + Math.PI, 0);
     model.root.scale.setScalar(scale);
     model.leave(pick(FAREWELLS));

@@ -1475,6 +1475,8 @@ export class Worker {
   private phase = Math.random() * Math.PI * 2;
   /** How far through its stride it is, walking in. */
   private stride = 0;
+  /** How quick its steps are, next to a walk: more running, less shuffling (see Court). */
+  gait = 1;
   /** Its headset, which a peasant doesn't wear. */
   private headset: THREE.Object3D[] = [];
   /** What it wears on the map it's on (see setOutfit): a peasant's smock and coif, or its own skin. */
@@ -1598,6 +1600,7 @@ export class Worker {
     if (!!this.garb === (outfit === 'peasant')) return;
     if (this.garb) {
       undress([this.garb.body, this.garb.cap]);
+      this.garb.cloth.dispose();
       this.garb = null;
     }
     if (outfit === 'peasant') {
@@ -1860,7 +1863,7 @@ export class Worker {
     if (this.nameTag) this.nameTag.position.y = 1.55 + (hopping ? this.body.position.y : 0);
     // Walking in to a meeting: the same waddle as on the way out, without the box.
     if (this.walking || this.stride) {
-      this.stride = this.walking ? this.stride + dt * 9 * this.pace : 0;
+      this.stride = this.walking ? this.stride + dt * 9 * this.pace * this.gait : 0;
       const s = Math.sin(this.stride);
       this.feet.forEach((f, i) => {
         const step = i ? -s : s;
