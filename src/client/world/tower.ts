@@ -41,15 +41,21 @@ function onFace(g: THREE.Object3D, side: Side, u: number): THREE.Object3D {
 
 export function buildTower(colliders: Collider[], night: NightParts): Tower {
   const group = new THREE.Group();
-  const paint = toon('#e07a5f');
-  const band = toon('#e8a87c');
+  // Big flat walls get no cartoon outline (the frames round the windows give it its ink lines).
+  const flat = (color: string) => {
+    const m = toonUnique(color);
+    m.userData.outlineParameters = { visible: false };
+    return m;
+  };
+  const paint = flat('#e07a5f');
+  const band = flat('#e8a87c');
   const frame = toon('#ffffff');
   const alu = toon('#aab4be');
   const ink = toon('#3d405b');
   const wood = toon('#c98b5a');
   const deck = toon('#e8a87c');
   const cornice = toon('#fffaf3');
-  const behind = toon('#2b2d42');
+  const behind = flat('#2b2d42');
   // Glass you can't see into; at night some of it glows, as though someone upstairs is still at it.
   const dark = toon('#a9d8f5');
   const lit = ['#ffd27a', '#ffe6b0', '#9ec9ff'].map((glow) => {

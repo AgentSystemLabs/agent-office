@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { HAIR_COLOR_NAMES, HAIR_COLORS, HAIR_STYLES, SKIN_TONES, randomLook, type Look } from '../../shared/avatar';
 import { AVATAR_COLORS, saveProfile, store, type Profile } from '../state';
 import { Person } from '../world/character';
@@ -9,6 +10,7 @@ import { h, openModal } from './dom';
 class Preview {
   readonly person: Person;
   private renderer: THREE.WebGLRenderer;
+  private effect: OutlineEffect;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(28, 1, 0.1, 20);
   private raf = 0;
@@ -26,6 +28,7 @@ class Preview {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
+    this.effect = new OutlineEffect(this.renderer, { defaultThickness: 0.0045, defaultColor: [0.17, 0.18, 0.26] });
 
     // A neutral dark stage, so the character reads the way it does in the dark office.
     this.scene.add(new THREE.HemisphereLight('#ffffff', '#3a3f46', 1.5));
@@ -41,6 +44,7 @@ class Preview {
     const rug = new THREE.Mesh(new THREE.CircleGeometry(0.9, 40), toonUnique('#1c1f24'));
     rug.rotation.x = -Math.PI / 2;
     rug.receiveShadow = true;
+    rug.material.userData.outlineParameters = { visible: false };
     this.scene.add(rug);
 
     this.person = new Person(p.name, p.color, p.look);
@@ -109,7 +113,7 @@ class Preview {
     }
     this.person.root.position.y = y;
     this.person.update(dt, t, false, y > 0.01);
-    this.renderer.render(this.scene, this.camera);
+    this.effect.render(this.scene, this.camera);
   }
 
   dispose() {

@@ -334,6 +334,8 @@ function gradientDome(): THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial> 
     depthWrite: false,
     fog: false,
   });
+  // The outline pass would paint the inside of the dome over in ink.
+  mat.userData.outlineParameters = { visible: false };
   const dome = new THREE.Mesh(new THREE.SphereGeometry(185, 32, 16), mat);
   dome.renderOrder = -1;
   dome.frustumCulled = false;
@@ -476,7 +478,9 @@ export class Sky {
     starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
     this.stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: '#ffffff', size: 1.6, sizeAttenuation: false, transparent: true, opacity: 0, depthWrite: false, fog: false }));
     const disc = (r: number, color: string) => {
-      return new THREE.Mesh(new THREE.SphereGeometry(r, 24, 16), new THREE.MeshBasicMaterial({ color, transparent: true, fog: false, depthWrite: false }));
+      const m = new THREE.Mesh(new THREE.SphereGeometry(r, 24, 16), new THREE.MeshBasicMaterial({ color, transparent: true, fog: false, depthWrite: false }));
+      m.material.userData.outlineParameters = { visible: false };
+      return m;
     };
     this.moonDisc = disc(3.2, '#f2f1ea');
     this.moonDisc.material.map = moonTexture();

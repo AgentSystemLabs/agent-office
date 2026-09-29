@@ -1,5 +1,6 @@
 import './style.css';
 import * as THREE from 'three';
+import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
 import {
   BALCONY,
@@ -129,6 +130,11 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+const effect = new OutlineEffect(renderer, { defaultThickness: 0.0032, defaultColor: [0.17, 0.18, 0.26] });
+// No outline pass in the headset: a nested render inside the XR framebuffer (e.g. via onAfterRender)
+// clears and overwrites each eye's buffer, which shows up as a black screen. VR renders plain;
+// outlines stay a desktop-only effect through `effect.render` below.
+
 const scene = new THREE.Scene();
 // It is always night; the sky's color and the fog change with the weather (world/sky.ts).
 scene.background = new THREE.Color('#0a0720');
@@ -167,6 +173,18 @@ store.on('sky', () => store.sky && sky.set(store.sky));
 const holiday = new Holiday(office);
 scene.add(holiday.group);
 
+const noOutline = (obj: THREE.Object3D) =>
+  obj.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const geo = m.geometry;
+    const flat = geo instanceof THREE.PlaneGeometry || geo instanceof THREE.CircleGeometry;
+    const mats = Array.isArray(m.material) ? m.material : [m.material];
+    for (const mat of mats) if (flat || mat instanceof THREE.MeshBasicMaterial) mat.userData.outlineParameters = { visible: false };
+  });
+noOutline(office.group);
+noOutline(holiday.group);
+
 // ---- Board agents -------------------------------------------------------------------------------
 /** What each board agent is for: its board's icon, what it offers on the card over its head, and an example ask. */
 const STATION_INFO: Record<StationKind, { icon: string; offer: string; does: string; example: string }> = {
@@ -183,6 +201,7 @@ const idleAgents = STATIONS.map((def) => {
   model.setTask({ name: STATION_INFO[kind].offer, summary: STATION_INFO[kind].does });
   const view = office.desks.get(def.id)!;
   view.vacancy.children[0].add(model.root);
+  noOutline(model.root);
   return { model, view };
 });
 
@@ -321,6 +340,7 @@ function theRoof(): Rooftop {
     roof = buildRooftop(office.night, roofFloors());
     roof.group.visible = false;
     scene.add(roof.group);
+    noOutline(roof.group);
     syncElevatorButtons();
   }
   return roof;
@@ -352,6 +372,7 @@ const voice = new Voice(net);
 const me = new Person(store.profile.name, store.profile.color, store.profile.look);
 me.showLabel(false);
 scene.add(me.root);
+noOutline(me.root);
 const settings = loadSettings();
 const player = new PlayerController(camera, canvas, office.colliders);
 // Everyone arrives by elevator (the welcome says exactly where).
@@ -1790,6 +1811,7 @@ function syncPeers() {
       person.onSmoke = puff;
       person.root.position.set(peer.x, peer.y, peer.z);
       scene.add(person.root);
+      noOutline(person.root);
       const held = new HeldObjectView();
       scene.add(held.root);
       r = { person, held, target: new THREE.Vector3(peer.x, peer.y, peer.z), rotY: peer.rotY, moving: false, label: '', look: { ...peer.look }, grip: null };
@@ -1800,10 +1822,12 @@ function syncPeers() {
       r.label = label;
       r.person.setLabel(peer.name, peer.voice ? peer.muted : null);
       r.person.setColor(peer.color);
+      noOutline(r.person.root);
     }
     if (!sameLook(peer.look, r.look)) {
       r.look = { ...peer.look };
       r.person.setLook(peer.look);
+      noOutline(r.person.root);
     }
     r.person.setSmoking(!!peer.smoking);
     r.person.setGolf(!!peer.golfing);
@@ -1960,6 +1984,7 @@ function syncWorkers() {
       if (desk.def.room && !seatedAlready) arrivals.add(model, desk);
       const laptop = new Laptop();
       desk.laptopAnchor.add(laptop.root);
+      noOutline(desk.group);
       desk.chair.rotation.y = 0;
       v = { model, laptop, deskId: w.deskId, status: '', acked: true };
       workerViews.set(w.id, v);
@@ -1980,6 +2005,7 @@ function syncWorkers() {
       v.status = w.status;
       v.acked = w.acked;
       v.model.setStatus(w.status, waitingOnSomeone(w));
+      noOutline(v.model.root);
     }
     v.model.setAction(w.action);
     v.model.setPr(prBadge(w));
@@ -4722,7 +4748,10 @@ function frame(ts?: number, xrFrame?: XRFrame) {
   if (blurry) drunkVision.begin();
   else if (drunkVisionOn) drunkVision.release();
   drunkVisionOn = blurry;
-  renderer.render(scene, camera);
+  // VR renders plain into the XR framebuffer; on desktop the effect renders both passes itself,
+  // exactly as before.
+  if (inVR) renderer.render(scene, camera);
+  else effect.render(scene, camera);
   pointToWaiting(now);
   // Not while the camera's up at the boss's monitor or the arcade, where they'd cover the screen.
   if (firstPerson && !inVR && !arcade.zoomed && !cabinet.zoomed && !golf.active) {
@@ -4731,7 +4760,7 @@ function frame(ts?: number, xrFrame?: XRFrame) {
     renderer.clearDepth();
     hands.setLight(sky.lightAt(camera.position));
     sky.shading(false);
-    renderer.render(hands.scene, hands.camera);
+    effect.render(hands.scene, hands.camera);
     sky.shading(true);
   }
   if (blurry) drunkVision.end(drunk, t, !reduceMotion.matches);

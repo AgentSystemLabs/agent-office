@@ -63,6 +63,8 @@ export class Smoke {
       if (this.live.length >= MAX) p = this.live.shift()!;
       else {
         const mat = new THREE.MeshBasicMaterial({ map: this.tex, color: '#dde2e8', transparent: true, depthWrite: false, opacity: 0 });
+        // Drawn once, soft: no cartoon outline.
+        mat.userData.outlineParameters = { visible: false };
         const mesh = new THREE.Mesh(this.geo, mat);
         mesh.renderOrder = 2;
         p = { mesh, vel: new THREE.Vector3(), age: 0, life: 1, size0: 0, size1: 0, alpha: 0, spin: 0 };

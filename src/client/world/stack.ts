@@ -249,7 +249,10 @@ export function buildStack(colliders: Collider[], planks: THREE.Material): Stack
   const B = { minX: FLOOR.minX - WALL_T, maxX: FLOOR.maxX + WALL_T, minZ: FLOOR.minZ - WALL_T, maxZ: FLOOR.maxZ + WALL_T };
   const concrete = toon('#d3d6dd');
   const band = toon('#e8a87c');
+  // Big flat surfaces get no cartoon outline, as the floor never has.
+  planks.userData.outlineParameters = { visible: false };
   const tiles = toon('#ffffff').clone();
+  tiles.userData.outlineParameters = { visible: false };
   tiles.map = tileTexture();
   // Lit from below by the room's lamps, not left in the shade the sun would give it.
   tiles.emissive = new THREE.Color('#3a3d44');

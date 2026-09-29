@@ -62,6 +62,7 @@ export class Confetti {
   /** `groundAt` says how high the surface under (x, z) is, for something falling from `y`. */
   constructor(private groundAt: (x: number, z: number, y: number) => number) {
     const mat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, toneMapped: false });
+    mat.userData.outlineParameters = { visible: false };
     this.mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.06, 0.1), mat, MAX);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.frustumCulled = false;

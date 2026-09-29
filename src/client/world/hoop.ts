@@ -73,10 +73,11 @@ export function buildHoop(): HoopView {
   const lineX = face + HOOP.line;
   const keyW = 2.6;
   const paint = (geo: THREE.BufferGeometry, color: string, y: number) => {
-    // Lit like the floor it's on, and drawn over the planks.
+    // Lit like the floor it's on (and not outlined: it's flat on it), and drawn over the planks.
     const mat = toonUnique(color);
     mat.polygonOffset = true;
     mat.polygonOffsetFactor = -2;
+    mat.userData.outlineParameters = { visible: false };
     const m = new THREE.Mesh(geo, mat);
     m.rotation.x = -Math.PI / 2;
     m.position.y = y;
