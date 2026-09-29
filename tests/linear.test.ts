@@ -55,6 +55,7 @@ test('a refresh asks for every team in one call, allowed only list_issues, and f
   assert.match(call.prompt, /call list_issues once with team set to that team/);
   assert.doesNotMatch(call.prompt, /keep only the issues that fit/);
   assert.equal(call.isolated, undefined);
+  assert.ok(call.disallowedTools?.includes('Bash'));
   assert.ok(call.system?.includes('never call a tool you were not given'));
 
   assert.deepEqual(states.map((s) => s.loading), [true, false]);

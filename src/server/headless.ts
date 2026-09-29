@@ -24,6 +24,8 @@ export interface HeadlessOpts {
   isolated?: boolean;
   /** The tools it may use without asking, e.g. mcp__claude_ai_Linear__list_issues. */
   allowedTools?: string[];
+  /** Built-in tools it must not reach for (Bash, say), so it stays on the tools it was given. */
+  disallowedTools?: string[];
   maxTurns?: number;
   timeoutMs?: number;
 }
@@ -45,6 +47,7 @@ export function headlessArgs(o: HeadlessOpts): string[] {
     // The user's settings, where their claude.ai connectors (MCP servers) come from; not the project's.
     args.push('--setting-sources', 'user');
     if (o.allowedTools?.length) args.push('--allowedTools', ...o.allowedTools);
+    if (o.disallowedTools?.length) args.push('--disallowedTools', ...o.disallowedTools);
   }
   args.push('--disable-slash-commands', '--no-session-persistence');
   return args;
