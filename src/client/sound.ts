@@ -92,6 +92,11 @@ export class OfficeSound {
   /** …where there's wind, and the city far below. */
   private outside!: GainNode;
   private outdoors = false;
+  /**
+   * On a map of its own (the castle): the room it is, where its gong hangs and where its windows are,
+   * with nothing of the office's in it (no phones, no fridge). Null in the office.
+   */
+  private hall: { bounds: { minX: number; maxX: number; minZ: number; maxZ: number }; gong: Pos | null; windows: Pos[] } | null = null;
   private analyser!: AnalyserNode;
   private buf!: Buffers;
   private volume = 0.7;
@@ -290,7 +295,7 @@ export class OfficeSound {
     }
     this.tickRain(now);
     if (now >= this.nextPhone) {
-      if (!this.outdoors) this.phone(now);
+      if (!this.outdoors && !this.hall) this.phone(now);
       this.nextPhone = now + rand(90, 240);
     }
     if (now >= this.nextFidget) {
@@ -749,9 +754,11 @@ export class OfficeSound {
     const ctx = this.ctx;
     if (!ctx) return;
     this.count('coffee');
-    const out = this.panner(COFFEE_MACHINE, 1.2, 1);
+    // In a hall of its own it's ale drawn from a cask, where you're standing: no grinder, just the pour.
+    const cask = !!this.hall;
+    const out = this.panner(cask ? { x: this.listener.x, y: this.listener.y + 0.2, z: this.listener.z } : COFFEE_MACHINE, 1.2, 1);
     out.connect(this.ambience);
-    const t0 = ctx.currentTime + 0.05;
+    const t0 = ctx.currentTime + 0.05 - (cask ? 1.8 : 0);
 
     // Grinder: a buzzing motor with beans crunching in it.
     const motor = ctx.createOscillator();
@@ -799,7 +806,7 @@ export class OfficeSound {
     for (const dt of [3.3, 3.9, 4.7]) this.blip(out, t1 + dt + rand(-0.1, 0.1), rand(1100, 1400), 0.55, 0.05, 0.11);
 
     const end = t1 + 3.2;
-    for (const s of [motor, crunch, rattle]) {
+    for (const s of cask ? [] : [motor, crunch, rattle]) {
       s.start(t0);
       s.stop(t0 + 1.6);
     }
@@ -929,7 +936,8 @@ export class OfficeSound {
   private tickFridge(now: number) {
     const f = this.fridge;
     if (!f || now < f.next) return;
-    f.on = !f.on;
+    // No fridge in a castle: it stays off.
+    f.on = !f.on && !this.hall;
     f.gain.gain.setTargetAtTime(f.on ? 0.06 : 0, now, f.on ? 0.6 : 0.3);
     f.next = now + (f.on ? rand(25, 50) : rand(20, 45));
     this.play(pick(this.buf.steps), { at: FRIDGE, gain: 0.25, rate: 0.6, ref: 1, rolloff: 1.6, dest: this.indoors });
@@ -940,7 +948,7 @@ export class OfficeSound {
   private birds(now: number) {
     const ctx = this.ctx!;
     this.count('birds');
-    const out = this.panner(pick(WINDOWS), 2, 1.2);
+    const out = this.panner(pick(this.windows()), 2, 1.2);
     // Heard through the glass.
     out.connect(biquad(ctx, 'lowpass', 5000, 0.7)).connect(this.ambience);
     const base = rand(2400, 4200);
@@ -969,7 +977,7 @@ export class OfficeSound {
   private crickets(now: number) {
     const ctx = this.ctx!;
     this.count('crickets');
-    const out = this.panner(pick(WINDOWS), 2, 1.2);
+    const out = this.panner(pick(this.windows()), 2, 1.2);
     out.connect(biquad(ctx, 'lowpass', 6000, 0.7)).connect(this.ambience);
     const freq = rand(4200, 5200);
     let t = now + 0.05;
@@ -993,6 +1001,10 @@ export class OfficeSound {
   /** Where your ears are: in the office, where rain is muffled by the glass, in the garage, or out in it. */
   private where(): 'office' | 'garage' | 'out' {
     const { x, y, z } = this.listener;
+    if (this.hall) {
+      const b = this.hall.bounds;
+      return x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ ? 'office' : 'out';
+    }
     const under = (m: number) => x > FLOOR.minX - m && x < FLOOR.maxX + m && z > FLOOR.minZ - m && z < FLOOR.maxZ + m;
     if (under(0) && y > -0.5) return 'office';
     return under(0.3) ? 'garage' : 'out';
@@ -1023,7 +1035,7 @@ export class OfficeSound {
     if (rain > 0.05 && now >= this.nextDrip) {
       this.nextDrip = now + rand(0.03, 0.2) / rain;
       const l = this.listener;
-      const at = where === 'office' ? pick(WINDOWS) : { x: l.x + rand(-4, 4), y: l.y - 1.2, z: l.z + rand(-4, 4) };
+      const at = where === 'office' ? pick(this.windows()) : { x: l.x + rand(-4, 4), y: l.y - 1.2, z: l.z + rand(-4, 4) };
       this.play(this.buf.drop, { at, gain: rand(0.05, 0.14), rate: rand(0.7, 1.4), ref: 1.5, rolloff: 1.3 });
       this.count('drip');
     }
@@ -1136,7 +1148,8 @@ export class OfficeSound {
     this.count(`gong.${why}`);
     // Someone banging it is the room; a merge is news for the whole floor (and from another tab too,
     // like the dings), so it carries further.
-    const out = why === 'hit' ? this.panner(GONG_AT, 4, 0.6) : this.panner(GONG_AT, 8, 0.45);
+    const at = this.hall ? (this.hall.gong ?? { x: this.listener.x, y: this.listener.y + 2, z: this.listener.z }) : GONG_AT;
+    const out = why === 'hit' ? this.panner(at, 4, 0.6) : this.panner(at, 8, 0.45);
     out.connect(why === 'hit' ? this.ambience : this.alerts);
     const t0 = ctx.currentTime + 0.03;
     if (why === 'queue') [0.7, 0.85, 1.1].forEach((strength, i) => this.strike(out, t0 + i * 0.85, strength));
@@ -1226,6 +1239,16 @@ export class OfficeSound {
       o.start(t0);
       o.stop(t0 + 0.3);
     });
+  }
+
+  /** On a map of its own, `hall` (see the field); null back in the office. */
+  setHall(hall: NonNullable<OfficeSound['hall']> | null) {
+    this.hall = hall;
+  }
+
+  /** Where the sounds from outside come in: the hall's windows, or the office's. */
+  private windows(): Pos[] {
+    return this.hall?.windows.length ? this.hall.windows : WINDOWS;
   }
 
   // ---- The roof ---------------------------------------------------------------------------------

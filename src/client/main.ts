@@ -1400,6 +1400,18 @@ function applyMap() {
   if (!upTop) player.colliders = world.colliders;
   player.room = inOffice() ? { ...FLOOR, wall: WALL_T, enclosed: false } : { ...plan().bounds, wall: 0.6, enclosed: true };
   sky.setIndoors(!inOffice());
+  // What you hear: the office's phones and fridge, or the hall's own windows and gong.
+  const cfg = plan().config;
+  const gongAt = world.gong?.top;
+  sound.setHall(
+    inOffice()
+      ? null
+      : {
+          bounds: plan().bounds,
+          gong: gongAt ? { x: gongAt.x, y: gongAt.y - 1.8, z: gongAt.z } : null,
+          windows: (cfg?.props ?? []).filter((p) => p.kind === 'window').map((p) => ({ x: p.x, y: (p.y ?? 6) + (p.height ?? 5) / 2, z: p.z })),
+        },
+  );
   // The office's own: the holiday decorations round it and the street, the dog, the jukebox.
   holiday.group.visible = inOffice() && !upTop;
   dog.root.visible = inOffice() && !!store.dog;
