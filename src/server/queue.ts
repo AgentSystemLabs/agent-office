@@ -16,6 +16,8 @@ export interface QueueWorkers {
   spawn(deskId: string, by: string, prompt: string, worktree: boolean, kind: 'agent', provider: AgentProvider, model?: string, effort?: AgentEffort, meeting?: undefined, owner?: string): WorkerInfo | string;
   /** Resolves with a line about what became of the worker's worktree. */
   kill(id: string): Promise<{ note?: string; error?: string }>;
+  /** Fetches what a new worktree starts from; undefined when there's nothing to wait for (see Worktrees.fetch). */
+  fetchBase?(): Promise<void> | undefined;
 }
 
 export interface QueueEvents {
@@ -280,13 +282,7 @@ export class TaskQueue {
    * is delivered.
    */
   private recycleDesk(): string | undefined {
-    const byId = new Map(this.workers.list().map((w) => [w.id, w]));
-    const candidates = this.tasks
-      .filter((t) => t.status === 'done' && t.workerId && byId.has(t.workerId))
-      .map((t) => ({ t, w: byId.get(t.workerId!)! }))
-      .filter(({ w }) => FINISHED.has(w.status) && w.viewers.length === 0)
-      .sort((a, b) => Number(!!b.t.pr) - Number(!!a.t.pr) || (a.t.finishedAt ?? 0) - (b.t.finishedAt ?? 0));
-    const pick = candidates[0];
+    const pick = this.recyclable();
     if (!pick) return undefined;
     const done = this.workers.kill(pick.w.id);
     this.events.toast(`📋 ${pick.w.name} went home after ${label(pick.t)} to make room for the next task`, 'info');
@@ -295,6 +291,16 @@ export class TaskQueue {
       if (error) this.events.toast(error, 'warn');
     });
     return pick.w.deskId;
+  }
+
+  /** The finished worker recycleDesk would send home, if there is one. */
+  private recyclable(): { t: QueueTask; w: WorkerInfo } | undefined {
+    const byId = new Map(this.workers.list().map((w) => [w.id, w]));
+    return this.tasks
+      .filter((t) => t.status === 'done' && t.workerId && byId.has(t.workerId))
+      .map((t) => ({ t, w: byId.get(t.workerId!)! }))
+      .filter(({ w }) => FINISHED.has(w.status) && w.viewers.length === 0)
+      .sort((a, b) => Number(!!b.t.pr) - Number(!!a.t.pr) || (a.t.finishedAt ?? 0) - (b.t.finishedAt ?? 0))[0];
   }
 
   private seat() {
@@ -308,7 +314,16 @@ export class TaskQueue {
       // workers going home makes room. Over the limit (it was just lowered), it waits for people to send some home.
       const room = this.events.room?.() ?? Infinity;
       if (room < 0) break;
-      const desk = (room > 0 ? this.freeDesk() : undefined) ?? this.recycleDesk();
+      const free = room > 0 ? this.freeDesk() : undefined;
+      if (!free && !this.recyclable()) break;
+      // Its worktree starts from what's on GitHub now, PRs merged since included: fetch that first,
+      // and come back to seat it once it's in.
+      const fetching = this.useWorktree ? this.workers.fetchBase?.() : undefined;
+      if (fetching) {
+        void fetching.then(() => this.pump());
+        break;
+      }
+      const desk = free ?? this.recycleDesk();
       if (!desk) break;
       const note = this.useWorktree ? this.events.worktreeNote?.() ?? PROMPTS['queue.worktree'].text : '';
       const r = this.workers.spawn(desk, `${t.addedBy} (queue)`, note ? `${t.prompt}\n\n${note}` : t.prompt, this.useWorktree, 'agent', t.provider ?? this.workers.defaultProvider, t.model, t.effort, undefined, t.owner);

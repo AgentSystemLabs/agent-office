@@ -282,6 +282,14 @@ export class WorkerManager {
     }));
   }
 
+  /**
+   * Fetches the branch the project is on, so a worktree made next starts from what's on GitHub now
+   * (see Worktrees.fetch). Undefined when there's nothing to wait for.
+   */
+  fetchBase(): Promise<void> | undefined {
+    return this.trees.fetch();
+  }
+
   deskOccupied(deskId: string): boolean {
     for (const w of this.workers.values()) if (w.info.deskId === deskId) return true;
     return false;
@@ -323,7 +331,9 @@ export class WorkerManager {
     if (worktree) {
       const made = this.trees.create(`${name.toLowerCase()}-${id.slice(0, 4)}`);
       if (typeof made === 'string') return made;
-      wt = made;
+      const { note, ...ref } = made;
+      wt = ref;
+      if (note) this.events.toast(`🌿 ${name}'s worktree ${note}`, 'info');
     }
     const info: WorkerInfo = {
       id,

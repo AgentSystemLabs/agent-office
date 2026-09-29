@@ -1204,6 +1204,19 @@ export async function startServer(cfg: Config) {
       sendTo(c, { t: 'signins.needed', which, why });
     });
   };
+  /**
+   * Runs `go` once a worktree made on `floor` would start from what's on GitHub now (see
+   * Worktrees.fetch): right away when that was just fetched, else after a fetch, if `c` and the floor
+   * are still there.
+   */
+  const withFreshBase = (c: Client, floor: Floor, go: () => void) => {
+    const fetching = floor.workers.fetchBase();
+    if (!fetching) return go();
+    void fetching.then(() => {
+      if (c.out || c.ws.readyState !== WebSocket.OPEN || floors.get(floor.id) !== floor) return;
+      go();
+    });
+  };
   /** Runs `go` with how the office acts on GitHub for `c`: as them, or as itself (no account, or an admin's choice). */
   const withGitHub = (c: Client, go: (as: GhAs | undefined) => void, refused?: (why: string) => void) =>
     withSignIn(
@@ -1440,13 +1453,14 @@ export async function startServer(cfg: Config) {
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
         const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
         // A shell is theirs too: `claude auth login` or `gh auth login` typed there signs them in.
-        withSignIn(c, kind === 'agent' ? claudeFor(msg.provider ?? floor.workers.officeDefault.provider) : undefined, () => {
+        const hire = () => {
           const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort, undefined, c.accountId);
           const issue = kind === 'agent' ? issueNumber(msg.issue) : undefined;
           if (typeof r === 'string') warn(c, r);
           else toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${issue ? ` for issue #${issue}` : r.prompt ? ' with a task' : ''}`);
           if (typeof r !== 'string' && issue) takeIssue(c, floor, issue);
-        });
+        };
+        withSignIn(c, kind === 'agent' ? claudeFor(msg.provider ?? floor.workers.officeDefault.provider) : undefined, () => (msg.worktree === true ? withFreshBase(c, floor, hire) : hire()));
         break;
       }
       case 'worker.resume': {
@@ -1725,7 +1739,7 @@ export async function startServer(cfg: Config) {
           model: msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1),
           effort: isAgentEffort(msg.effort) ? msg.effort : undefined,
         };
-        withSignIn(c, claudeFor(request.provider ?? floor.workers.officeDefault.provider), () => warn(c, floor.meetings.start(request, who, c.accountId)));
+        withSignIn(c, claudeFor(request.provider ?? floor.workers.officeDefault.provider), () => withFreshBase(c, floor, () => warn(c, floor.meetings.start(request, who, c.accountId))));
         break;
       }
       case 'meeting.stop': {

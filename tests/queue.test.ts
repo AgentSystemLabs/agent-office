@@ -231,3 +231,72 @@ test('an office at its worker limit holds the queue, and a finished queue worker
   limit = 2; q.pump();
   assert.equal(q.state().tasks[2].status, 'running');
 });
+
+test('a worktree task waits for the fetch of what its worktree starts from, then sits down', async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'office-queue-'));
+  const workers: WorkerInfo[] = [];
+  let fetches = 0;
+  let fetched: (() => void) | undefined;
+  let inFlight: Promise<void> | undefined;
+  let fresh = false;
+  const manager: QueueWorkers = {
+    defaultProvider: 'claude',
+    list: () => workers,
+    deskOccupied: (desk) => workers.some((w) => w.deskId === desk),
+    spawn(deskId, by, prompt, worktree, kind, provider) {
+      assert.equal(worktree, true);
+      assert.ok(fresh, 'seated before its base was fetched');
+      const worker: WorkerInfo = {
+        id: `worker-${workers.length}`, deskId, kind, provider, prompt, name: 'Test', color: '#ffffff', status: 'working',
+        acked: false, createdBy: by, createdAt: Date.now(), cols: 80, rows: 24, viewers: [], viewerIds: [],
+      };
+      workers.push(worker);
+      return worker;
+    },
+    kill: () => Promise.resolve({}),
+    fetchBase() {
+      if (fresh) return undefined;
+      if (!inFlight) fetches++;
+      inFlight ??= new Promise<void>((resolve) => (fetched = () => { fresh = true; resolve(); }));
+      return inFlight;
+    },
+  };
+  const q = new TaskQueue(dir, manager, true, {
+    update() {}, toast() {}, claimIssue: async () => undefined, refreshGitHub() {}, hiringPaused: () => undefined, emptied() {},
+  });
+  t.after(() => { q.shutdown(); rmSync(dir, { recursive: true, force: true }); });
+  q.add('Fix login', 'Tester');
+  q.add('Fix logout', 'Tester');
+  assert.equal(workers.length, 0);
+  assert.equal(q.state().tasks[0].status, 'queued');
+  q.pump();
+  assert.equal(workers.length, 0);
+  fetched!();
+  await new Promise((r) => setImmediate(r));
+  // One fetch for the pair of them.
+  assert.equal(workers.length, 2);
+  assert.deepEqual(q.state().tasks.map((x) => x.status), ['running', 'running']);
+  assert.equal(fetches, 1);
+});
+
+test("a queue that has nowhere to seat anyone doesn't fetch", (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'office-queue-'));
+  let fetches = 0;
+  const manager: QueueWorkers = {
+    defaultProvider: 'claude',
+    list: () => [],
+    deskOccupied: () => false,
+    spawn: () => 'unreachable',
+    kill: () => Promise.resolve({}),
+    fetchBase() {
+      fetches++;
+      return new Promise<void>(() => {});
+    },
+  };
+  const q = new TaskQueue(dir, manager, true, {
+    update() {}, toast() {}, claimIssue: async () => undefined, refreshGitHub() {}, hiringPaused: () => undefined, emptied() {}, room: () => 0,
+  });
+  t.after(() => { q.shutdown(); rmSync(dir, { recursive: true, force: true }); });
+  q.add('Fix login', 'Tester');
+  assert.equal(fetches, 0);
+});
