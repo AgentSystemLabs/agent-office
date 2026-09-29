@@ -180,8 +180,9 @@ export function planMap(input: unknown): MapPlan {
       seated.push(s);
       const nx = right[0] * s;
       const nz = right[1] * s;
-      // The bench down that side.
+      // The bench down that side, all of it (and whoever sits on it) inside the hall.
       rects.push(boxFootprint(x + nx * (w / 2 + BENCH_OUT), z + nz * (w / 2 + BENCH_OUT), 0.42, len - 0.2, r));
+      for (const end of [-1, 1]) inside(x + nx * (w / 2 + BENCH_OUT + 0.22) + (along[0] * (len - 0.2) * end) / 2, z + nz * (w / 2 + BENCH_OUT + 0.22) + (along[1] * (len - 0.2) * end) / 2, `the bench along ${what}`, 0);
       const out = w / 2 - PLACE_IN;
       for (let k = 0; k < n; k++) {
         const t0 = (k - (n - 1) / 2) * (len / n);
@@ -207,6 +208,8 @@ export function planMap(input: unknown): MapPlan {
   const stations: DeskDef[] = STATION_KINDS.map((kind) => {
     const p = place(c.stations[kind], `stations.${kind}`);
     const def = { id: `station-${kind}`, station: kind, x: p.x, z: p.z, rotY: p.rotY, label: STATION_AGENT[kind].name };
+    // The agent stands behind its lectern: that's in the hall too.
+    inside(p.x + Math.sin(p.rotY) * 0.9, p.z + Math.cos(p.rotY) * 0.9, `where the ${STATION_AGENT[kind].name} stands`, 0);
     // The lectern, and the agent standing behind it.
     const corners = [-1, 1].flatMap((t) => [-0.25, 0.9].map((s) => [p.x + Math.cos(p.rotY) * t * 0.4 + Math.sin(p.rotY) * s, p.z - Math.sin(p.rotY) * t * 0.4 + Math.cos(p.rotY) * s]));
     rects.push([Math.min(...corners.map((q) => q[0])), Math.max(...corners.map((q) => q[0])), Math.min(...corners.map((q) => q[1])), Math.max(...corners.map((q) => q[1]))]);

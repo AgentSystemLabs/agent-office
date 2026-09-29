@@ -5,7 +5,7 @@ import path from 'node:path';
 import { CASTLE } from '../src/shared/maps/castle.js';
 import { DESK_BY_ID } from '../src/shared/layout.js';
 import { NavGrid, pathLength } from '../src/shared/nav.js';
-import { BUILTIN_MAPS, OFFICE_PLAN, checkCustomMaps, mapChoices, planMap, planOf, seatHereOn } from '../src/shared/maps/index.js';
+import { BUILTIN_MAPS, DEFAULT_DAIS, OFFICE_PLAN, checkCustomMaps, mapChoices, planMap, planOf, seatHereOn } from '../src/shared/maps/index.js';
 import { clockWork, workedMs } from '../src/server/workers.js';
 import type { WorkerInfo } from '../src/shared/protocol.js';
 
@@ -27,11 +27,28 @@ test('in the castle every worker can walk from its seat to the door and to the f
   const nav = new NavGrid(plan.bounds, plan.obstacles!);
   assert.ok(plan.lineup.length >= 4, 'a line in front of the throne');
   for (const spot of plan.lineup) assert.ok(nav.walkable(spot.x, spot.z), `the line's spot at (${spot.x}, ${spot.z}) is clear`);
+  /** Every step along `way` (after its first `skip` points) is on open floor. */
+  const clear = (way: [number, number][], skip: number, what: string) => {
+    for (let i = skip + 1; i < way.length; i++) {
+      const [x0, z0] = way[i - 1];
+      const [x1, z1] = way[i];
+      const n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.2);
+      for (let k = 0; k <= n; k++) {
+        const x = x0 + ((x1 - x0) * k) / n;
+        const z = z0 + ((z1 - z0) * k) / n;
+        assert.ok(nav.walkable(x, z), `${what} walks into something at (${x.toFixed(2)}, ${z.toFixed(2)})`);
+      }
+    }
+  };
   for (const d of plan.byId.values()) {
-    for (const to of [plan.door, plan.lineup[0]]) {
+    for (const to of [plan.door, ...plan.lineup]) {
+      // Off its seat (it hops down beside it, then walks)…
       const way = nav.wayFrom(d, [to.x, to.z]);
-      for (const [x, z] of way.slice(1)) assert.ok(nav.walkable(x, z), `${d.id} walks into something at (${x.toFixed(2)}, ${z.toFixed(2)})`);
+      clear(way, 1, `${d.id} going`);
       assert.ok(pathLength(way) < 3 * Math.hypot(to.x - d.x, to.z - d.z) + 10, `${d.id} doesn't go the long way round`);
+      // …and back to it (up to beside it, where it hops on).
+      const back = nav.wayTo([to.x, to.z], d);
+      clear(back.slice(0, -1), 0, `${d.id} coming back`);
     }
   }
   // The throne is a seat of its own, somewhere you can sit only on the castle's floors.
@@ -110,7 +127,8 @@ test('a custom map takes away what it extends with null, and merges no prototype
   const [low] = checkCustomMaps([{ file: 'low.json', json: { id: 'low', name: 'Low', extends: 'castle', throne: { dais: null } } }]);
   assert.equal(low.error, undefined);
   const p = planOf('low', [low]);
-  assert.equal(p.throne!.y, p.dais!.height);
+  assert.deepEqual(p.dais, DEFAULT_DAIS);
+  assert.equal(p.throne!.y, DEFAULT_DAIS.height);
 });
 
 test('a worker keeps count of how long it has worked, over every stretch', () => {

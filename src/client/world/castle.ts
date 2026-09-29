@@ -1232,7 +1232,9 @@ function buildCouncil(kit: Kit, plan: MapPlan): { board?: THREE.Mesh; sign?: THR
   chart.rotation.x = -Math.PI / 2;
   t.add(chart);
   kit.group.add(t);
-  kit.colliders.push({ minX: cp.x - COUNCIL.radius, maxX: cp.x + COUNCIL.radius, minZ: cp.z - COUNCIL.radius, maxZ: cp.z + COUNCIL.radius, top: COUNCIL.height });
+  // A square inside the round top, so its corners don't stick out past the edge.
+  const r = COUNCIL.radius * Math.SQRT1_2;
+  kit.colliders.push({ minX: cp.x - r, maxX: cp.x + r, minZ: cp.z - r, maxZ: cp.z + r, top: COUNCIL.height });
   const meeting: Interactable = { kind: 'meeting', x: cp.x, z: cp.z, radius: 2.2 };
   t.userData.interact = meeting;
   kit.interactables.push(meeting);

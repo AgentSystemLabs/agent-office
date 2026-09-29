@@ -1,7 +1,6 @@
 import * as THREE from 'three';
-import { DESK_BY_ID } from '../../shared/layout';
 import type { GhIssue, GhPull, GhState, QueueState, QueueTask, ServiceInfo, WorkerInfo } from '../../shared/protocol';
-import { workerForPull } from '../state';
+import { store, workerForPull } from '../state';
 
 export const NOTE_COLORS = ['#fff7b0', '#ffd6e0', '#caffbf', '#bde0fe', '#ffe5b4'];
 export const PINS = ['#ef476f', '#118ab2', '#06d6a0', '#ffd166'];
@@ -167,7 +166,7 @@ export class BoardTexture {
         g.stroke();
         g.fillStyle = '#5c5f73';
         g.font = `800 ${Math.round(fs * 0.78)}px Nunito, ui-rounded, system-ui, sans-serif`;
-        g.fillText(clip(g, `${w.name} · ${DESK_BY_ID.get(w.deskId)?.label ?? 'desk'}`, nw - 28 - r * 2 - 8), -nw / 2 + 14 + r * 2 + 8, y + fs * 0.28);
+        g.fillText(clip(g, `${w.name} · ${store.plan().byId.get(w.deskId)?.label ?? 'desk'}`, nw - 28 - r * 2 - 8), -nw / 2 + 14 + r * 2 + 8, y + fs * 0.28);
       }
       g.beginPath();
       g.arc(0, -nh / 2 + 10, 11, 0, Math.PI * 2);

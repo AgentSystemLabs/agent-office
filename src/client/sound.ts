@@ -758,35 +758,40 @@ export class OfficeSound {
     const cask = !!this.hall;
     const out = this.panner(cask ? { x: this.listener.x, y: this.listener.y + 0.2, z: this.listener.z } : COFFEE_MACHINE, 1.2, 1);
     out.connect(this.ambience);
-    const t0 = ctx.currentTime + 0.05 - (cask ? 1.8 : 0);
+    const t0 = ctx.currentTime + 0.05;
+    // The grinder first (not at a cask), then the pour.
+    const grinder: AudioScheduledSourceNode[] = [];
+    if (!cask) {
 
-    // Grinder: a buzzing motor with beans crunching in it.
-    const motor = ctx.createOscillator();
-    motor.type = 'sawtooth';
-    motor.frequency.setValueAtTime(70, t0);
-    motor.frequency.linearRampToValueAtTime(118, t0 + 0.25);
-    motor.frequency.setValueAtTime(118, t0 + 1.2);
-    motor.frequency.linearRampToValueAtTime(60, t0 + 1.5);
-    const motorTone = biquad(ctx, 'lowpass', 1100, 0.8);
-    const crunch = this.noise(this.buf.white);
-    const crunchTone = biquad(ctx, 'bandpass', 2600, 1.2);
-    const grind = ctx.createGain();
-    envelope(grind.gain, t0, [
-      [0.08, 0.13],
-      [1.25, 0.13],
-      [1.5, 0],
-    ]);
-    const crunchAmp = ctx.createGain();
-    crunchAmp.gain.value = 0.5;
-    const rattle = this.noise(this.buf.gurgle, true);
-    rattle.playbackRate.value = 3;
-    rattle.connect(crunchAmp.gain);
-    motor.connect(motorTone).connect(grind);
-    crunch.connect(crunchTone).connect(crunchAmp).connect(grind);
-    grind.connect(out);
+      // Grinder: a buzzing motor with beans crunching in it.
+      const motor = ctx.createOscillator();
+      motor.type = 'sawtooth';
+      motor.frequency.setValueAtTime(70, t0);
+      motor.frequency.linearRampToValueAtTime(118, t0 + 0.25);
+      motor.frequency.setValueAtTime(118, t0 + 1.2);
+      motor.frequency.linearRampToValueAtTime(60, t0 + 1.5);
+      const motorTone = biquad(ctx, 'lowpass', 1100, 0.8);
+      const crunch = this.noise(this.buf.white);
+      const crunchTone = biquad(ctx, 'bandpass', 2600, 1.2);
+      const grind = ctx.createGain();
+      envelope(grind.gain, t0, [
+        [0.08, 0.13],
+        [1.25, 0.13],
+        [1.5, 0],
+      ]);
+      const crunchAmp = ctx.createGain();
+      crunchAmp.gain.value = 0.5;
+      const rattle = this.noise(this.buf.gurgle, true);
+      rattle.playbackRate.value = 3;
+      rattle.connect(crunchAmp.gain);
+      motor.connect(motorTone).connect(grind);
+      crunch.connect(crunchTone).connect(crunchAmp).connect(grind);
+      grind.connect(out);
+      grinder.push(motor, crunch, rattle);
+    }
 
     // Brewing: a hissing, gurgling pour with bubbles popping.
-    const t1 = t0 + 1.8;
+    const t1 = t0 + (cask ? 0 : 1.8);
     const pour = this.noise(this.buf.white);
     const pourTone = biquad(ctx, 'bandpass', 850, 0.9);
     const gurgle = ctx.createGain();
@@ -806,7 +811,7 @@ export class OfficeSound {
     for (const dt of [3.3, 3.9, 4.7]) this.blip(out, t1 + dt + rand(-0.1, 0.1), rand(1100, 1400), 0.55, 0.05, 0.11);
 
     const end = t1 + 3.2;
-    for (const s of cask ? [] : [motor, crunch, rattle]) {
+    for (const s of grinder) {
       s.start(t0);
       s.stop(t0 + 1.6);
     }

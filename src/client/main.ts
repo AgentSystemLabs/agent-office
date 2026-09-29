@@ -1191,6 +1191,11 @@ function rodeWithin() {
   if (!trip) return;
   clearTimeout(trip.timer);
   trip = null;
+  // The map changed on the ride down (or up): where it has you come in.
+  if (placeOnArrival) {
+    placeOnArrival = false;
+    placeInCar();
+  }
   fade(false);
   doorsOpen();
 }
@@ -1475,7 +1480,7 @@ let placeOnArrival = false;
 function placeAtSpawn() {
   const p = plan();
   const at = p.spawn;
-  placeAt({ x: at.x, y: groundHere(at.x, at.z, 3), z: at.z, rotY: at.rotY });
+  placeAt({ x: at.x, y: groundHere(at.x, at.z, 1.5), z: at.z, rotY: at.rotY });
   // Not on the way to another floor: the throne's this one's.
   if (trip) return;
   const seat = p.throne && freePlace(p.throne);
@@ -2101,14 +2106,19 @@ function standAt(desk: DeskDef) {
     const at = plan().lineup[inLine];
     const x = at.x + Math.cos(at.rotY) * 1.3;
     const z = at.z - Math.sin(at.rotY) * 1.3;
-    player.pos.set(x, groundHere(x, z, 3), z);
+    player.pos.set(x, groundHere(x, z, 1.5), z);
     player.vy = 0;
     player.facing = Math.atan2(at.x - x, at.z - z);
     player.camYaw = player.facing - Math.PI;
     player.lookPitch = -0.2;
     return;
   }
-  const spot = deskSeat(desk, desk.station ? -1.6 : desk.beanbag ? 1.6 : 2.4);
+  let spot = deskSeat(desk, desk.station ? -1.6 : desk.beanbag ? 1.6 : 2.4);
+  // On a map of its own, the office's distances can land in a pillar: the nearest open floor to it.
+  if (!inOffice() && !player.fits(spot.x, spot.z, 0)) {
+    const [x, z] = world.nav.nearestWalkable([spot.x, spot.z]);
+    spot = { x, z };
+  }
   player.pos.set(spot.x, 0, spot.z);
   player.vy = 0;
   player.facing = Math.atan2(desk.x - spot.x, desk.z - spot.z);
@@ -3643,9 +3653,8 @@ const eye = new THREE.Vector3();
 function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boolean; hit: THREE.Intersection } | null {
   raycaster.setFromCamera(ndc, camera);
   eye.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
-  const pickables = upTop && roof ? roof.pickables : inOffice() ? [office.group, dog.root] : world.pickables;
-  // Workers up and about in the castle are walked up to where they stand, as at their seats.
-  for (const hit of raycaster.intersectObjects(court ? [...pickables, ...courtPickables()] : pickables, true)) {
+  // (Workers standing in line in the castle carry their spot's interactable: see Court.)
+  for (const hit of raycaster.intersectObjects(upTop && roof ? roof.pickables : inOffice() ? [office.group, dog.root] : world.pickables, true)) {
     let it: Interactable | undefined;
     let shown = true;
     for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) {
@@ -3657,22 +3666,6 @@ function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boole
     return { it, near: hit.point.distanceTo(eye) <= REACH[it.kind] + slack, hit };
   }
   return null;
-}
-
-/** The models of the workers standing in line for the throne, each clicking through to its spot's interactable. */
-function courtPickables(): THREE.Object3D[] {
-  const out: THREE.Object3D[] = [];
-  if (!court) return out;
-  // Whoever's left the line since is its seat's again (a click on it goes on to the seat's).
-  for (const v of workerViews.values()) delete v.model.root.userData.interact;
-  for (const it of court.interactables) {
-    const w = !it.off && it.deskId ? store.workerAtDesk(it.deskId) : undefined;
-    const v = w && workerViews.get(w.id);
-    if (!v) continue;
-    v.model.root.userData.interact = it;
-    out.push(v.model.root);
-  }
-  return out;
 }
 
 /**

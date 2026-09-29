@@ -87,6 +87,7 @@ export class Court {
     this.people.delete(id);
     c.model.walking = false;
     c.model.gait = 1;
+    delete c.model.root.userData.interact;
     this.freeSpots();
     if (c.state === 'seated') return undefined;
     const p = c.model.root.position;
@@ -99,10 +100,10 @@ export class Court {
     return !!c && c.state !== 'seated';
   }
 
-  /** Where `id` is in line (0 is at the front), or -1. */
+  /** Where `id` is in line, or on its way to (0 is at the front), or -1. */
   spotOf(id: string): number {
     const c = this.people.get(id);
-    return c && c.state === 'stand' && 'spot' in c.goal ? c.goal.spot : -1;
+    return c && c.state !== 'seated' && 'spot' in c.goal ? c.goal.spot : -1;
   }
 
   /** Who's waiting on someone, the one who's waited longest first: they line up in that order, as many as there are spots. */
@@ -118,25 +119,36 @@ export class Court {
     }
   }
 
-  /** Everyone walking about, for the doors to open. */
+  /** Everyone walking about, for the doors to open (the same list each time, to save making one a frame). */
   positions(): THREE.Vector3[] {
-    return [...this.people.values()].filter((c) => c.state !== 'seated').map((c) => c.model.root.position);
+    this.walking.length = 0;
+    for (const c of this.people.values()) if (c.state !== 'seated') this.walking.push(c.model.root.position);
+    return this.walking;
   }
+  private readonly walking: THREE.Vector3[] = [];
 
   update(dt: number) {
     for (const c of this.people.values()) this.step(c, dt);
-    this.freeSpots();
   }
 
-  /** Each spot in line points at whoever's standing in it. */
+  /**
+   * Each spot in line points at whoever's standing in it, and so does a click on them (the model
+   * carries its spot's interactable, as a desk's group does its own). Run whenever someone takes a
+   * spot or leaves one.
+   */
   private freeSpots() {
-    const at = new Map<number, Courtier>();
-    for (const c of this.people.values()) if (c.state === 'stand' && 'spot' in c.goal) at.set(c.goal.spot, c);
-    this.interactables.forEach((it, i) => {
-      const c = at.get(i);
-      it.off = !c;
-      it.deskId = c?.desk.def.id;
-    });
+    for (const it of this.interactables) {
+      it.off = true;
+      it.deskId = undefined;
+    }
+    for (const c of this.people.values()) {
+      const it = c.state === 'stand' && 'spot' in c.goal ? this.interactables[c.goal.spot] : undefined;
+      if (it) {
+        it.off = false;
+        it.deskId = c.desk.def.id;
+        c.model.root.userData.interact = it;
+      } else delete c.model.root.userData.interact;
+    }
   }
 
   /** Out of its seat, into the hall, keeping where it is in the world. */
@@ -182,9 +194,12 @@ export class Court {
       c.way = [land, ...(target ? this.nav.route(land, target) : this.nav.wayTo(land, c.desk.def)).slice(1)];
       return;
     }
+    const left = c.state === 'stand';
     c.way = target ? this.nav.route(here, target) : this.nav.wayTo(here, c.desk.def);
     c.next = 1;
     c.state = 'walk';
+    // Out of its spot in line: it's no longer there to walk up to.
+    if (left) this.freeSpots();
   }
 
   private step(c: Courtier, dt: number) {
@@ -250,6 +265,7 @@ export class Court {
         c.from.copy(pos);
       } else {
         c.state = 'stand';
+        this.freeSpots();
       }
     }
     // Up and down the dais steps as it goes, and facing the way it's walking, or the throne once it's in line.

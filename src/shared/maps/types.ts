@@ -103,7 +103,7 @@ export interface MapConfig {
   tables: TableConfig[];
   /** The board agents, each at a lectern: where the lectern is, and the way the agent faces. */
   stations: Record<StationKind, Place>;
-  /** The meeting table: five chairs round it, the first facing `rotY`'s way. */
+  /** The meeting table: five chairs round it, the head of the table's on its `rotY` side (facing back across it), and the easel on the other. */
   council: Place;
   boards: Record<BoardKey, BoardPlace>;
   props?: PropConfig[];
@@ -152,7 +152,7 @@ export interface MapPlan {
   door: { x: number; z: number };
   /** The tables as checked, with what was left out filled in: the sides with seats (1 is the table's right, -1 its left). */
   tables: { x: number; z: number; length: number; width: number; rotY: number; seats: number; sides: (1 | -1)[]; name: string }[];
-  /** The meeting table's middle, and the way its head faces. */
+  /** The meeting table's middle, and which side the head of the table is on (see MapConfig.council). */
   council?: { x: number; z: number; rotY: number };
   boards: Record<BoardKey, BoardDef>;
   /** What's in the way on the floor, for walking round it (the office has its own: OFFICE_NAV). */
