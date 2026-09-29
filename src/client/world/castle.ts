@@ -991,6 +991,8 @@ export function buildCastle(plan: MapPlan): Castle {
       kit.colliders.push(alongX ? { minX: a, maxX: bb, minZ: z - d / 2, maxZ: z + d / 2, top: 99 } : { minX: x - w / 2, maxX: x + w / 2, minZ: a, maxZ: bb, top: 99 });
     }
     group.add(alongX ? mesh(box(DOORWAY.width, H - DOORWAY.height, d), mat, u, (H + DOORWAY.height) / 2, z) : mesh(box(w, H - DOORWAY.height, DOORWAY.width), mat, x, (H + DOORWAY.height) / 2, u));
+    // The workers come and go through it; you stay in the hall.
+    kit.colliders.push(alongX ? { minX: d0, maxX: d1, minZ: z - d / 2, maxZ: z + d / 2, top: 99, fence: true } : { minX: x - w / 2, maxX: x + w / 2, minZ: d0, maxZ: d1, top: 99, fence: true });
   }
   // Skirting and a cornice round the room.
   for (const [side, x, z, w, d] of walls) {
