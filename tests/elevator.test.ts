@@ -20,6 +20,7 @@ function rig(t: TestContext) {
         textAlign: '',
         textBaseline: '',
         measureText: (text: string) => ({ width: text.length * 26 }),
+        setTransform() {},
         clearRect() {},
         fillText(text: string) {
           labels.push(text);

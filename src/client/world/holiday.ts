@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ANISOTROPY } from './texture-quality';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { BALCONY, DESKS, DESK_SIZE, EXIT_STAIRS, FLOOR, PLANTS, STREET_Y, WALL_HEIGHT, WINDOWS } from '../../shared/layout';
 import type { Theme } from '../../shared/protocol';
@@ -193,7 +194,7 @@ function pumpkinTextures(): [THREE.CanvasTexture, THREE.CanvasTexture] {
   return [skin, glow].map((c) => {
     const t = new THREE.CanvasTexture(c);
     t.colorSpace = THREE.SRGBColorSpace;
-    t.anisotropy = 4;
+    t.anisotropy = ANISOTROPY;
     return t;
   }) as [THREE.CanvasTexture, THREE.CanvasTexture];
 }

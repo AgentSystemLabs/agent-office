@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ANISOTROPY } from './texture-quality';
 import { FLOOR } from '../../shared/layout';
 import { BALL, HOOP, RETURN_AFTER, THREE_POINT, backboard, launch, nearSolids, outOfReach, simulate, type BallHit, type BallShot, type BallSim, type BallState, type Solid } from '../../shared/hoop';
 import type { Collider, Interactable } from './office';
@@ -161,7 +162,7 @@ function texture(): THREE.CanvasTexture {
   g.stroke();
   ballTexture = new THREE.CanvasTexture(c);
   ballTexture.colorSpace = THREE.SRGBColorSpace;
-  ballTexture.anisotropy = 4;
+  ballTexture.anisotropy = ANISOTROPY;
   return ballTexture;
 }
 

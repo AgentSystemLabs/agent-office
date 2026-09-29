@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { FLOOR, SLAB, STREET_Y, WALL_T, roofDrop } from '../../shared/layout';
 import type { NightParts } from './outside';
 import { mergeByMaterial, mesh, toon } from './toon';
+import { ANISOTROPY, TILE_SCALE, fitScale } from './texture-quality';
 import { buildTower } from './tower';
 
 // The city around the rooftop bar: the building's own floors going down to the street (as the tower
@@ -54,15 +55,18 @@ function rng(seed: number): () => number {
   };
 }
 
-function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
+function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void, scale = TILE_SCALE): THREE.CanvasTexture {
   const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  draw(c.getContext('2d')!);
+  const k = fitScale(w, h, scale);
+  c.width = Math.round(w * k);
+  c.height = Math.round(h * k);
+  const g = c.getContext('2d')!;
+  g.scale(c.width / w, c.height / h);
+  draw(g);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 8;
+  t.anisotropy = ANISOTROPY;
   return t;
 }
 
@@ -224,14 +228,19 @@ function tree(r: () => number): THREE.Group {
 
 /** Soft round blob, for lamps seen from far off. */
 function glowTexture(): THREE.CanvasTexture {
-  return canvasTexture(64, 64, (g) => {
-    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-    grad.addColorStop(0, 'rgba(255,255,255,1)');
-    grad.addColorStop(0.25, 'rgba(255,255,255,0.7)');
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = grad;
-    g.fillRect(0, 0, 64, 64);
-  });
+  return canvasTexture(
+    64,
+    64,
+    (g) => {
+      const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grad.addColorStop(0, 'rgba(255,255,255,1)');
+      grad.addColorStop(0.25, 'rgba(255,255,255,0.7)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 64, 64);
+    },
+    1,
+  );
 }
 
 /**

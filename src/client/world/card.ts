@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ANISOTROPY } from './texture-quality';
 import type { CarriedIssue } from '../../shared/protocol';
 import { NOTE_COLORS, PINS, wrap } from './boards';
 import { toon, toonUnique } from './toon';
@@ -32,7 +33,7 @@ function issueCard(card: CarriedIssue, width: number): THREE.Mesh {
   g.fillRect(W / 2 - 8, 14, 16, 16);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = ANISOTROPY;
   const face = toonUnique('#ffffff');
   face.map = tex;
   const back = toon('#0a0a0a');

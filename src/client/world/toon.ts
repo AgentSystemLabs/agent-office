@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { SANS } from '../fonts';
 import { fillGlyphText, measureGlyphText as measure, withGlyph } from './glyph';
+import { ANISOTROPY, LABEL_SCALE } from './texture-quality';
 
 let gradient: THREE.DataTexture | null = null;
 
@@ -87,12 +88,13 @@ function textTexture(text: string, opts: TextOpts) {
   ctx.font = font;
   const w = Math.ceil(ctx.measureText(text).width) + size;
   const h = Math.ceil(size * 1.6);
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = w * LABEL_SCALE;
+  canvas.height = h * LABEL_SCALE;
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = ANISOTROPY;
   const draw = () => {
+    ctx.setTransform(LABEL_SCALE, 0, 0, LABEL_SCALE, 0, 0);
     ctx.clearRect(0, 0, w, h);
     ctx.font = font;
     if (opts.bg) {
@@ -145,8 +147,8 @@ export interface CardOpts {
   maxWidth?: number;
 }
 
-/** Cards are drawn at twice the pixels of other labels so their smaller text stays crisp up close. */
-const CARD_RES = 2;
+/** Cards draw their text in smaller type than other labels, so they get a density of their own. */
+const CARD_RES = LABEL_SCALE;
 const INK = '#2b2d42';
 const FONT = SANS;
 
@@ -233,7 +235,7 @@ export function cardSprite(o: CardOpts): THREE.Sprite {
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = ANISOTROPY;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false, transparent: true }));
   sprite.scale.set((w / R) * TEXT_SCALE, (h / R) * TEXT_SCALE, 1);
   sprite.center.set(0.5, 0);

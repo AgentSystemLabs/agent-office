@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BALCONY, FLOOR, GOLF_HOLE, GOLF_TEE, ROAD, SLAB, STOREY, STREET_Y, WALL_HEIGHT, WALL_T } from '../../shared/layout';
 import type { Collider, Interactable } from './office';
 import { bulb, neighbourBoxes, streetLamp, tree, type NightParts } from './outside';
+import { ANISOTROPY, TILE_SCALE } from './texture-quality';
 import { disposeSprite, mergeByMaterial, mesh, textPlane, textSprite, toon } from './toon';
 
 // Golf off the balcony: the tee out there (a square of turf, a ball on a tee, a bag of clubs), the
@@ -98,8 +99,9 @@ function lieAt(x: number, z: number): Lie {
 /** A square of green stripes, mown two ways, for the fairway and the tee's mat. */
 function mownTexture(light: string, dark: string, stripes: number, border?: string): THREE.CanvasTexture {
   const c = document.createElement('canvas');
-  c.width = c.height = 128;
+  c.width = c.height = 128 * TILE_SCALE;
   const g = c.getContext('2d')!;
+  g.scale(TILE_SCALE, TILE_SCALE);
   for (let i = 0; i < stripes; i++) {
     g.fillStyle = i % 2 ? dark : light;
     g.fillRect(0, (i * 128) / stripes, 128, 128 / stripes + 1);
@@ -111,7 +113,7 @@ function mownTexture(light: string, dark: string, stripes: number, border?: stri
   }
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
+  t.anisotropy = ANISOTROPY;
   return t;
 }
 

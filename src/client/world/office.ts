@@ -47,6 +47,7 @@ import { wallFacing, type WallId, type WallRect } from '../../shared/decor';
 import { deskPoint } from '../../shared/nav';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
 import { buildGarage, buildStreet, bulb, type NightParts } from './outside';
+import { ANISOTROPY, TILE_SCALE } from './texture-quality';
 import { mergeByMaterial, mesh, roundedBox, textPlane, toon, toonUnique } from './toon';
 import { buildElevator, type Elevator } from './elevator';
 import { buildGong, type Gong } from './gong';
@@ -267,6 +268,8 @@ function onWall(side: Side, u: number): { x: number; z: number; rotY: number } {
 /** Chunky planks in a floor's colors. */
 function paintPlanks(c: HTMLCanvasElement, p: FloorPalette) {
   const g = c.getContext('2d')!;
+  // Drawn on a 512 grid whatever the canvas size; set, not scaled, since a floor repaints the same canvas.
+  g.setTransform(c.width / 512, 0, 0, c.height / 512, 0, 0);
   g.fillStyle = p.floor;
   g.fillRect(0, 0, 512, 512);
   for (let row = 0; row < 8; row++) {
@@ -283,14 +286,14 @@ function paintPlanks(c: HTMLCanvasElement, p: FloorPalette) {
 
 function floorTexture(width = FLOOR.maxX - FLOOR.minX, depth = FLOOR.maxZ - FLOOR.minZ): THREE.CanvasTexture {
   const c = document.createElement('canvas');
-  c.width = 512;
-  c.height = 512;
+  c.width = 512 * TILE_SCALE;
+  c.height = 512 * TILE_SCALE;
   paintPlanks(c, FLOOR_PALETTES[0]);
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.repeat.set(width / 6, depth / 6);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
+  t.anisotropy = ANISOTROPY;
   return t;
 }
 

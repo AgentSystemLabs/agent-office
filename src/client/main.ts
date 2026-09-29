@@ -4585,8 +4585,19 @@ const headPos = new THREE.Vector3();
 /** Last frame went through the drunk vision. */
 let drunkVisionOn = false;
 
+const fpsEl = $('fps');
+let fpsFrames = 0;
+let fpsSince = performance.now();
+
 function frame(ts?: number, xrFrame?: XRFrame) {
   void xrFrame;
+  fpsFrames++;
+  const fpsNow = performance.now();
+  if (fpsNow - fpsSince >= 500) {
+    fpsEl.textContent = `${Math.round((fpsFrames * 1000) / (fpsNow - fpsSince))} FPS`;
+    fpsFrames = 0;
+    fpsSince = fpsNow;
+  }
   timer.update(ts);
   const dt = Math.min(timer.getDelta(), 0.1);
   const t = timer.getElapsed();
