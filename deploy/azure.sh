@@ -15,7 +15,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NAME="agent-office"
-SIZE="Standard_B4s_v2" # 4 vCPU, 16 GiB, burstable: what a t3.xlarge is on AWS
+# 4 vCPU and 16 GiB, like the t3.xlarge deploy/aws.sh uses, at about its price. Not the burstable
+# B4s_v2: a t3 on AWS bursts without limit by default, while a B-series VM that runs out of CPU
+# credits (under an hour of busy workers) slows to 40%.
+DEFAULT_SIZE="Standard_D4as_v5"
+SIZE="$DEFAULT_SIZE"
 SIZE_SET=0
 DISK_GB=64 # Premium SSD is billed by tier, and anything from 33 to 64 GiB is the same P6 tier
 LOCATION_ARG=""
@@ -68,7 +72,7 @@ Commands
   revoke <ip|me>     Take that access away again
   ssh                SSH into the VM
   logs               Follow the office's logs
-  resize <size>      Change the VM size, e.g. Standard_B8s_v2 (stops it for a few minutes; the
+  resize <size>      Change the VM size, e.g. Standard_D8as_v5 (stops it for a few minutes; the
                      address stays the same). `up --size <size>` does this too.
   update             Install the latest agent-office on the VM and restart it
   reset-password     Forget the password and show a new one once in your browser
@@ -80,7 +84,7 @@ Options
                             default location, else eastus). An office stays in the region it was
                             created in. --region works too
   --subscription <id|name>  Azure subscription (default: the az CLI's current one)
-  --size <vm-size>          VM size (default: Standard_B4s_v2 — 4 vCPU, 16 GiB). --instance-type
+  --size <vm-size>          VM size (default: Standard_D4as_v5 — 4 vCPU, 16 GiB). --instance-type
                             works too
   --disk <GiB>              OS disk size, Premium SSD (default: 64)
   --allow <ip|cidr>         With up or invite: also allow this IP to SSH in (repeatable).
@@ -111,8 +115,8 @@ die() {
   exit 1
 }
 
-CMD="${1:-help}"
-[[ $# -gt 0 ]] && shift
+# The first word that isn't an option is the command; options can go before or after it.
+CMD=""
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -134,16 +138,22 @@ while [[ $# -gt 0 ]]; do
     -y | --yes) YES=1; shift ;;
     -h | --help) usage; exit 0 ;;
     -*) die "unknown option $1 (see: deploy/azure.sh help)" ;;
-    *) POSITIONAL+=("$1"); shift ;;
+    *)
+      if [[ -z "$CMD" ]]; then CMD="$1"; else POSITIONAL+=("$1"); fi
+      shift
+      ;;
   esac
 done
+CMD="${CMD:-help}"
+# Azure's resource group names ignore case, so the office's name does too.
+NAME=$(printf '%s' "$NAME" | tr '[:upper:]' '[:lower:]')
 
 # Resource names are built from it, and a Linux VM's name can't start or end with a dash.
 [[ "$NAME" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,38}[a-zA-Z0-9])?$ ]] ||
   die "--name may only contain letters, numbers and dashes (not first or last), up to 40 of them"
 [[ "$LOCAL_PORT" =~ ^[0-9]+$ && $LOCAL_PORT -gt 0 && $LOCAL_PORT -lt 65536 ]] || die "--port must be a port number"
 [[ "$DISK_GB" =~ ^[0-9]+$ && $DISK_GB -ge 30 && $DISK_GB -le 4095 ]] || die "--disk must be a size in GiB, from 30 to 4095"
-[[ "$SIZE" =~ ^[A-Za-z0-9_]+$ ]] || die "not a VM size: $SIZE (e.g. Standard_B4s_v2)"
+[[ "$SIZE" =~ ^[A-Za-z0-9_]+$ ]] || die "not a VM size: $SIZE (e.g. $DEFAULT_SIZE)"
 RESOURCE="agent-office-$NAME"
 [[ "$NAME" == "agent-office" ]] && RESOURCE="agent-office"
 RG="$RESOURCE"
@@ -154,10 +164,12 @@ VNET="$RESOURCE-vnet"
 STATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/agent-office/azure/$NAME"
 NAME_FLAG=""
 [[ "$NAME" != "agent-office" ]] && NAME_FLAG=" --name $NAME"
-# RSA: Azure only takes ED25519 keys for new VMs in preview.
+# RSA, which every Azure path takes (ED25519 support is newer, and not everywhere).
 KEY_FILE="$STATE_DIR/id_rsa"
 KNOWN_HOSTS="$STATE_DIR/known_hosts"
 CLAIM_FILE="$STATE_DIR/claim-token"
+# The subscription `up` made the office in, so later commands look there without --subscription.
+SUB_FILE="$STATE_DIR/subscription"
 
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 is required (${2:-install it first})"; }
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
@@ -175,6 +187,7 @@ preflight() {
   need az "https://learn.microsoft.com/cli/azure/install-azure-cli"
   need ssh
   need curl
+  [[ -z "$SUBSCRIPTION_ARG" && -s "$SUB_FILE" ]] && SUBSCRIPTION_ARG=$(cat "$SUB_FILE")
   [[ -n "$SUBSCRIPTION_ARG" ]] && SUB_ARGS=(--subscription "$SUBSCRIPTION_ARG")
   # Fetching a token refreshes the sign-in, so an expired one fails here and not halfway through.
   azc account get-access-token -o none 2>/dev/null ||
@@ -226,11 +239,14 @@ confirm() {
 # Sets LOCATION to the region of the office's resource group ('' when there's none yet), after
 # making sure this script made it: destroy deletes the whole group.
 load_group() {
-  local row tag
-  row=$(azc group show -n "$RG" --query '[[location, tags."agent-office"]]' -o tsv 2>/dev/null) || row=""
-  LOCATION=$(printf '%s' "$row" | cut -f1)
-  tag=$(printf '%s' "$row" | cut -f2 -s | sed 's/^None$//')
-  [[ -z "$LOCATION" || "$tag" == "$NAME" ]] ||
+  local exists row tag
+  LOCATION=""
+  exists=$(azv group exists -n "$RG") || die "couldn't look up the resource group $RG (above)"
+  [[ "$exists" == "true" ]] || return 0
+  row=$(azc group show -n "$RG" --query '[[location, tags."agent-office"]]' -o tsv | words) ||
+    die "couldn't read the resource group $RG (above)"
+  read -r LOCATION tag <<<"$row"
+  [[ "$tag" == "$NAME" ]] ||
     die "the resource group $RG wasn't made by deploy/azure.sh (it has no agent-office=$NAME tag) — pick another --name"
 }
 
@@ -294,12 +310,12 @@ size_row() {
 # SIZE_TEMP to what it has (see size_row).
 size_info() {
   local want="$1" row
-  [[ "$want" =~ ^[A-Za-z0-9_]+$ ]] || die "not a VM size: $want (e.g. Standard_B4s_v2)"
+  [[ "$want" =~ ^[A-Za-z0-9_]+$ ]] || die "not a VM size: $want (e.g. $DEFAULT_SIZE)"
   say "Checking that $want is available in $LOCATION"
   row=$(size_row "$want")
   [[ -n "$row" ]] || die "$want isn't available to your subscription in $LOCATION. Check the region's name
    (az account list-locations -o table), or pick another --size or --location. The sizes there:
-   az vm list-skus -l $LOCATION --resource-type virtualMachines --size Standard_B -o table"
+   az vm list-skus -l $LOCATION --resource-type virtualMachines --size Standard_D4 -o table"
   read -r SIZE SIZE_ARCH SIZE_GENS SIZE_NO_TL SIZE_PREMIUM SIZE_TEMP <<<"$row"
 }
 
@@ -380,11 +396,15 @@ remote() {
   ssh "${SSH_OPTS[@]}" "$SSH_USER@$IP" "$@"
 }
 
-# The addresses allowed to reach SSH, one per line. Azure keeps a single one in
-# sourceAddressPrefix and several in sourceAddressPrefixes.
+# The addresses allowed to reach SSH, one per line (none when the rule isn't there). Azure keeps a
+# single one in sourceAddressPrefix and several in sourceAddressPrefixes. Any other error stops the
+# script: taken for an empty list, it would make the next change drop everyone else's address.
 allowed_cidrs() {
-  azv network nsg rule show -g "$RG" --nsg-name "$NSG" -n "$SSH_RULE" --query '[sourceAddressPrefix, sourceAddressPrefixes][]' 2>/dev/null |
-    sed '/^$/d' || true
+  local out
+  out=$(azc network nsg show -g "$RG" -n "$NSG" -o tsv \
+    --query "securityRules[?name=='$SSH_RULE'] | [0].[sourceAddressPrefix, sourceAddressPrefixes][]") ||
+    die "couldn't read the firewall rules of $NSG (above)"
+  printf '%s\n' "$out" | sed '/^$/d;/^None$/d'
 }
 
 # Makes the NSG's one inbound rule SSH (22) from exactly these addresses. Only SSH is ever opened;
@@ -392,9 +412,8 @@ allowed_cidrs() {
 set_ssh_sources() {
   if [[ $# -eq 0 ]]; then
     azc network nsg rule delete -g "$RG" --nsg-name "$NSG" -n "$SSH_RULE" -o none
-  elif [[ -n "$(azv network nsg rule show -g "$RG" --nsg-name "$NSG" -n "$SSH_RULE" --query name 2>/dev/null || true)" ]]; then
-    azc network nsg rule update -g "$RG" --nsg-name "$NSG" -n "$SSH_RULE" --source-address-prefixes "$@" -o none
   else
+    # create is a PUT: it writes the whole rule whether or not it's there yet.
     azc network nsg rule create -g "$RG" --nsg-name "$NSG" -n "$SSH_RULE" --priority 1000 \
       --direction Inbound --access Allow --protocol Tcp --source-address-prefixes "$@" --source-port-ranges '*' \
       --destination-address-prefixes '*' --destination-port-ranges 22 \
@@ -576,9 +595,12 @@ cmd_up() {
   local have_size="" resize=0 machine
   if [[ -z "$VM_ID" ]]; then
     size_info "$SIZE"
-    # Azure's Arm Ubuntu images take Trusted Launch, which the Ampere (Bpsv2) sizes can't run.
-    [[ "$SIZE_ARCH" == "Arm64" && "$SIZE_NO_TL" == "True" ]] &&
-      die "$SIZE is an Arm size without Trusted Launch. For Arm, pick a Cobalt size (e.g. Standard_D4ps_v6), or the default x64 Standard_B4s_v2"
+    # The az CLI turns Trusted Launch on for Azure's Gen2 Ubuntu images (Arm ones included), so a
+    # size without it needs the Gen1 image, and the Ampere Arm sizes (Bpsv2) have none.
+    if [[ "$SIZE_NO_TL" == "True" && "$SIZE_GENS" != *V1* ]]; then
+      [[ "$SIZE_ARCH" == "Arm64" ]] && die "$SIZE is an Arm size without Trusted Launch. For Arm, pick a Cobalt size like Standard_D4ps_v6"
+      die "$SIZE supports neither Trusted Launch nor Gen1 images — pick another size, like the default $DEFAULT_SIZE"
+    fi
     machine="$SIZE, ${DISK_GB} GiB disk, Ubuntu 24.04"
   else
     have_size=$(vm_size)
@@ -607,6 +629,7 @@ cmd_up() {
 
   mkdir -p "$STATE_DIR"
   chmod 700 "$STATE_DIR"
+  echo "$SUB_ID" >"$SUB_FILE"
   local new_key=0
   if [[ ! -f "$KEY_FILE" ]]; then
     ssh-keygen -q -t rsa -b 4096 -N '' -C "$RESOURCE" -f "$KEY_FILE"
@@ -629,8 +652,10 @@ cmd_up() {
 
   # A fixed address, so the office's address survives pauses and resizes.
   if [[ -z "$(azv network public-ip show -g "$RG" -n "$PIP" --query id 2>/dev/null || true)" ]]; then
+    # Azure drops a connection that's quiet for --idle-timeout minutes (4 by default), and a
+    # teammate's tunnel doesn't send keepalives.
     azc network public-ip create -g "$RG" -n "$PIP" -l "$LOCATION" --sku Standard --allocation-method Static --version IPv4 \
-      --tags "agent-office=$NAME" -o none
+      --idle-timeout 30 --tags "agent-office=$NAME" -o none
   fi
   IP=$(public_ip)
   [[ -n "$IP" ]] || die "the public IP $PIP has no address"
@@ -653,7 +678,8 @@ cmd_up() {
       --vnet-name "$VNET" --subnet default --nsg "$NSG" --nsg-rule NONE --public-ip-address "$PIP" \
       --os-disk-size-gb "$DISK_GB" --storage-sku "$disk_sku" --tags "agent-office=$NAME" -o none ||
       die "couldn't create the VM (Azure's reason is above). If it's a quota, ask for more vCPUs for that
-   size's family (Azure portal → Quotas → Compute) or try another --size or --location, then run up again"
+   size's family (Azure portal → Quotas → Compute), or run up again with another --size. Another region
+   (--location) needs a fresh start: deploy/azure.sh destroy$NAME_FLAG first"
   elif [[ $resize -eq 1 ]]; then
     resize_vm "$SIZE"
   elif [[ "$(settled_power)" != "running" ]]; then
@@ -687,7 +713,8 @@ cmd_up() {
   {
     printf 'export APP_REPO=%q APP_REF=%q PROJECT_REPO=%q\n' "$APP_REPO" "$APP_REF" "$project_repo"
     printf 'export CLAIM_TOKEN=%q PUBLIC_HOST=%q GH_TOKEN=%q CLAUDE_CODE_OAUTH_TOKEN=%q ANTHROPIC_API_KEY=%q\n' "$(cat "$CLAIM_FILE")" "$IP" "$gh_token" "$CLAUDE_TOKEN" "$ANTHROPIC_KEY"
-    printf 'export GIT_NAME=%q GIT_EMAIL=%q DEPLOY_SCRIPT=%q\n' "$git_name" "$git_email" "deploy/azure.sh"
+    # How the office names this script in the commands it suggests (with --name for a second office).
+    printf 'export GIT_NAME=%q GIT_EMAIL=%q DEPLOY_SCRIPT=%q\n' "$git_name" "$git_email" "deploy/azure.sh$NAME_FLAG"
     cat "$SCRIPT_DIR/provision.sh"
   } | remote 'bash -s' || die "provisioning failed (re-run \"deploy/azure.sh up$NAME_FLAG\" to retry; it picks up where it left off)"
 
@@ -737,18 +764,20 @@ cmd_status() {
   IP=$(public_ip)
   echo "vm:        $VM $(vm_size) ${state:-unknown}"
   echo "address:   ${IP:-none}  (open the office with: deploy/azure.sh open$NAME_FLAG)"
-  if [[ "$state" =~ ^(stopped|stopping|deallocated|deallocating)$ ]]; then
+  if [[ "$state" =~ ^(stopped|stopping)$ ]]; then
+    echo "office:    shut down, but Azure still bills a stopped VM (deploy/azure.sh pause$NAME_FLAG deallocates it; resume starts it)"
+  elif [[ "$state" =~ ^(deallocated|deallocating)$ ]]; then
     echo "office:    paused (start it with: deploy/azure.sh resume$NAME_FLAG)"
   elif [[ -n "$IP" && -f "$KEY_FILE" ]] && office_get /api/health >/dev/null 2>&1; then
     echo "office:    up"
     local team
-    team=$(team_members 2>/dev/null | awk '{printf "%s%s", sep, $1; sep=", "}')
+    team=$(team_members 2>/dev/null | awk '{printf "%s%s", sep, $1; sep=", "}') || team="(couldn't list it)"
     echo "team:      ${team:-nobody invited yet}"
   else
     echo "office:    not answering"
   fi
   local from
-  from=$(allowed_cidrs | tr '\n' ' ')
+  from=$(allowed_cidrs 2>/dev/null | tr '\n' ' ') || from="(couldn't read the firewall)"
   echo "ssh from:  ${from:-nobody}"
 }
 
@@ -867,7 +896,7 @@ cmd_logs() {
 
 cmd_resize() {
   preflight
-  [[ ${#POSITIONAL[@]} -eq 1 ]] || die "usage: deploy/azure.sh resize <vm-size>   (e.g. Standard_B8s_v2, Standard_D4s_v5)"
+  [[ ${#POSITIONAL[@]} -eq 1 ]] || die "usage: deploy/azure.sh resize <vm-size>   (e.g. Standard_D8as_v5, Standard_B4s_v2)"
   require_key
   require_group
   [[ -n "$(find_vm)" ]] || die "office \"$NAME\" has no VM — run: deploy/azure.sh up$NAME_FLAG"
@@ -946,11 +975,17 @@ cmd_down() {
   load_group
   if [[ -z "$LOCATION" ]]; then
     echo "Nothing to delete for \"$NAME\" in subscription $SUB_NAME."
-    rm -rf "$STATE_DIR"
+    # Its SSH key and claim link stay if they belong to an office in another subscription.
+    if [[ -s "$SUB_FILE" && "$(cat "$SUB_FILE")" != "$SUB_ID" ]]; then
+      echo "(This computer's files for it, in $STATE_DIR, are for subscription $(cat "$SUB_FILE"), so they stay.)"
+    else
+      rm -rf "$STATE_DIR"
+    fi
     return
   fi
-  say "This permanently deletes office \"$NAME\": the resource group $RG in $LOCATION and everything in it"
-  echo "   (the VM, its disk, its IP address, its network and firewall)."
+  say "This permanently deletes office \"$NAME\": the resource group $RG in $LOCATION (subscription $SUB_NAME)"
+  echo "   and everything in it:"
+  azc resource list -g "$RG" -o tsv --query '[].[type, name]' | awk -F'\t' '{ printf "     %s  %s\n", $2, $1 }' || true
   echo "   Anything on the VM that isn't pushed to GitHub is lost."
   if [[ $YES -ne 1 ]]; then
     local answer
