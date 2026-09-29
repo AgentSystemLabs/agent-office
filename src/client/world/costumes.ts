@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { mesh, toon, toonUnique } from './toon';
+import { mesh, toon } from './toon';
 
 /*
  * Holiday costumes (see world/holiday.ts for the decorations): the workers go as zombies for
@@ -9,18 +9,6 @@ import { mesh, toon, toonUnique } from './toon';
 
 /** What undead skin is mixed toward, for Halloween: a warlock's hands and face. */
 export const UNDEAD_SKIN = new THREE.Color('#a3bf98');
-
-const details = new Map<string, THREE.MeshToonMaterial>();
-/** A material for small bits (stitches, bells), drawn without the cartoon outline, which would swallow them. */
-function detail(color: string): THREE.MeshToonMaterial {
-  let m = details.get(color);
-  if (!m) {
-    m = toonUnique(color);
-    m.userData.outlineParameters = { visible: false };
-    details.set(color, m);
-  }
-  return m;
-}
 
 const Z = new THREE.Vector3(0, 0, 1);
 
@@ -54,7 +42,7 @@ function stitches(g: THREE.Group, from: [number, number], to: [number, number], 
     pts.push(onBean(THREE.MathUtils.lerp(from[0], to[0], k) + Math.sin(k * 9) * wobble, THREE.MathUtils.lerp(from[1], to[1], k), 0.004).at);
   }
   const curve = new THREE.CatmullRomCurve3(pts);
-  const thread = detail('#3b2a2a');
+  const thread = toon('#3b2a2a');
   g.add(mesh(new THREE.TubeGeometry(curve, 24, 0.009, 5), thread, 0, 0, 0, false));
   const stitch = new THREE.BoxGeometry(0.075, 0.014, 0.014);
   for (let i = 0; i < crossings; i++) {
@@ -87,7 +75,7 @@ export function zombieWorker(skin: THREE.Material): THREE.Group {
   lid.rotation.z = -0.25;
   g.add(lid);
   // Rotten patches.
-  const rot = detail('#4d6b3c');
+  const rot = toon('#4d6b3c');
   for (const [y, a, r] of [
     [0.38, 0.55, 0.06],
     [0.62, -1.95, 0.075],
@@ -112,7 +100,7 @@ export function zombieWorker(skin: THREE.Material): THREE.Group {
   const loose = stick(mesh(new THREE.BoxGeometry(0.06, 0.16, 0.012), linen, 0, 0, 0), 0.26, 2.2, 0.01);
   loose.rotateX(0.25);
   g.add(loose);
-  g.add(stick(mesh(new THREE.SphereGeometry(0.022, 8, 6), detail('#8f1d21'), 0, 0, 0, false), 0.36, -0.7, 0.03));
+  g.add(stick(mesh(new THREE.SphereGeometry(0.022, 8, 6), toon('#8f1d21'), 0, 0, 0, false), 0.36, -0.7, 0.03));
   return g;
 }
 
@@ -140,7 +128,7 @@ export function elfWorker(skin: THREE.Material): THREE.Group {
   const flap = new THREE.ConeGeometry(0.075, 0.15, 4).rotateX(Math.PI).scale(1, 1, 0.35).translate(0, -0.07, 0.01);
   const red = toon('#d62828');
   const green = toon('#2e9e48');
-  const gold = detail('#ffc233');
+  const gold = toon('#ffc233');
   for (let i = 0; i < 10; i++) {
     const a = (i / 10) * Math.PI * 2;
     const f = stick(mesh(flap, i % 2 ? green : red, 0, 0, 0, false), 0.57, a, 0.012);
@@ -151,8 +139,8 @@ export function elfWorker(skin: THREE.Material): THREE.Group {
   const belt = mesh(new THREE.TorusGeometry(0.273, 0.03, 6, 28), toon('#2b2d42'), 0, 0.3, 0, false);
   belt.rotation.x = Math.PI / 2;
   g.add(belt);
-  g.add(stick(mesh(new THREE.BoxGeometry(0.1, 0.075, 0.02), detail('#ffc233'), 0, 0, 0, false), 0.3, 0, 0.03));
-  g.add(stick(mesh(new THREE.BoxGeometry(0.055, 0.035, 0.02), detail('#2b2d42'), 0, 0, 0, false), 0.3, 0, 0.037));
+  g.add(stick(mesh(new THREE.BoxGeometry(0.1, 0.075, 0.02), toon('#ffc233'), 0, 0, 0, false), 0.3, 0, 0.03));
+  g.add(stick(mesh(new THREE.BoxGeometry(0.055, 0.035, 0.02), toon('#2b2d42'), 0, 0, 0, false), 0.3, 0, 0.037));
   return g;
 }
 
@@ -167,7 +155,7 @@ export function elfBoot(): THREE.Group {
   toe.position.set(0, -0.06, 0.09);
   toe.rotation.x = -0.75;
   toe.add(mesh(new THREE.ConeGeometry(0.04, 0.13, 8).rotateX(Math.PI / 2).translate(0, 0, 0.06), red, 0, 0, 0, false));
-  toe.add(mesh(new THREE.SphereGeometry(0.022, 8, 6), detail('#ffc233'), 0, 0, 0.135, false));
+  toe.add(mesh(new THREE.SphereGeometry(0.022, 8, 6), toon('#ffc233'), 0, 0, 0.135, false));
   g.add(toe);
   return g;
 }
@@ -181,7 +169,7 @@ export function warlockHat(): THREE.Group {
   g.add(mesh(new THREE.CylinderGeometry(0.54, 0.54, 0.03, 32), felt, 0, 0.25, 0));
   g.add(mesh(new THREE.CylinderGeometry(0.13, 0.31, 0.42, 24), felt, 0, 0.46, 0));
   g.add(mesh(new THREE.CylinderGeometry(0.305, 0.312, 0.08, 24), toon('#ff7b00'), 0, 0.3, 0));
-  g.add(mesh(new THREE.BoxGeometry(0.11, 0.08, 0.02), detail('#ffd166'), 0, 0.3, 0.315, false));
+  g.add(mesh(new THREE.BoxGeometry(0.11, 0.08, 0.02), toon('#ffd166'), 0, 0.3, 0.315, false));
   const bend = new THREE.Group();
   bend.position.set(0, 0.66, 0);
   bend.rotation.set(-0.55, 0, 0.25);
@@ -252,7 +240,7 @@ export function warlockHand(side: 1 | -1, skin: THREE.Material): THREE.Group {
   const palm = mesh(new THREE.SphereGeometry(0.054, 18, 12), skin, 0, 0, 0, false);
   palm.scale.set(1, 0.62, 1.2);
   g.add(palm);
-  const claw = detail('#1e1522');
+  const claw = toon('#1e1522');
   const knuckle = new THREE.SphereGeometry(0.013, 8, 6);
   const bone = (len: number) => new THREE.CapsuleGeometry(0.0092, len, 4, 8).rotateX(Math.PI / 2).translate(0, 0, -len / 2);
   const tip = new THREE.ConeGeometry(0.0095, 0.038, 8).rotateX(-Math.PI / 2).translate(0, 0, -0.019);

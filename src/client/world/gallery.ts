@@ -137,13 +137,6 @@ const FRAME_DEPTH = 0.06;
 
 type PictureMesh = THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
 
-/** A flat material the cartoon outline pass leaves alone. */
-function flat(params: THREE.MeshBasicMaterialParameters): THREE.MeshBasicMaterial {
-  const m = new THREE.MeshBasicMaterial(params);
-  m.userData.outlineParameters = { visible: false };
-  return m;
-}
-
 function frameGeometry(w: number, h: number): THREE.ExtrudeGeometry {
   const ow = w / 2 + FRAME_BORDER;
   const oh = h / 2 + FRAME_BORDER;
@@ -160,7 +153,7 @@ function buildFrame(w: number, h: number, frame: number): { group: THREE.Group; 
   const border = new THREE.Mesh(frameGeometry(w, h), toon((FRAMES[frame] ?? FRAMES[0]).color));
   border.receiveShadow = true;
   group.add(border);
-  const picture: PictureMesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), flat({ map: loadingTexture() }));
+  const picture: PictureMesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: loadingTexture() }));
   picture.position.z = FRAME_DEPTH * 0.35;
   group.add(picture);
   return { group, picture };
@@ -297,7 +290,7 @@ export class Ghost {
   private key = '';
 
   constructor() {
-    this.halo = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), flat({ color: '#3ccf91', transparent: true, opacity: 0.5, depthWrite: false }));
+    this.halo = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: '#3ccf91', transparent: true, opacity: 0.5, depthWrite: false }));
     this.halo.position.z = -0.002;
     this.group.add(this.halo);
     this.group.visible = false;

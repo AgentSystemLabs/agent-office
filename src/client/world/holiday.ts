@@ -581,7 +581,6 @@ export class Holiday {
       const m = toonUnique(c);
       m.emissive.set(c);
       m.emissiveIntensity = 0.6;
-      m.userData.outlineParameters = { visible: false };
       return m;
     });
     // The potted plants become little trees, with presents round the pot.

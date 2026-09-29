@@ -179,8 +179,7 @@ changes (a focused terminal's checkout: files, commit, tap-twice discard, open-a
 - **Skipped in the headset**: the cartoon first-person hands (your hands are real) and the
   DOM fade (an in-headset quad fades teleports and elevator/ladder trips instead). Drunk
   vision's post shader can't run on the XR framebuffer, so the rig rolls and pitches with
-  the same wobble (and the glide staggers) instead. Outlines keep rendering via
-  `renderOutline`, three's documented VR path for `OutlineEffect`.
+  the same wobble (and the glide staggers) instead.
 
 Known gaps:
 
@@ -277,7 +276,7 @@ XR and Galaxy XR, but the office does not depend on it. Its input, interaction, 
 and simulator all run inside its `Core` engine: `xb.init()` creates its own
 `WebGLRenderer`, camera, scene and `setAnimationLoop`, and `Input.init` is "Only called by
 Core". Importing the package root constructs that `Core` singleton at load time. The office
-already owns its renderer, dolly rig, outline pass and render loop, so adopting xrblocks
+already owns its renderer, dolly rig and render loop, so adopting xrblocks
 would mean moving the whole client onto its engine.
 
 Its device knowledge is still a useful reference for Galaxy XR:
@@ -325,43 +324,42 @@ Without XR hardware, the following were **not** verified and must be checked on-
 calling VR done:
 
 1. Immersive stereo rendering (both eyes, correct scale/depth, no clipping through the loft).
-2. The outline pass in-headset (`renderOutline` per XR frame): look and frame cost.
-3. Controller ray feel, cursor-dot legibility, and reach gating at real room scale.
-4. Trigger/squeeze/button/stick mapping on a real controller (mapping varies by headset).
+2. Controller ray feel, cursor-dot legibility, and reach gating at real room scale.
+3. Trigger/squeeze/button/stick mapping on a real controller (mapping varies by headset).
    On Galaxy XR, B/Y fires N once per press, A/X aims a teleport, the stick glides and turns,
    and the left ≡ button leaves VR. Log `inputSource.profiles` once: Chromium builds with the
    Galaxy XR mapping report `samsung-galaxyxr` first (older builds report `oculus-touch`),
    and the controller model should load instead of the orange stand-in.
-5. Hand tracking: aim-pose rays and pinch. A pinch should take effect only when thumb and
+4. Hand tracking: aim-pose rays and pinch. A pinch should take effect only when thumb and
    index fully meet, never on a half-closed or relaxed hand. A closed fist must not fire N or
    aim a teleport. Log a hand's `gamepad.buttons` once to confirm the
    `[pinch, -, -, -, grasp]` layout and that a full pinch reaches `value` 1.0. If it never
    does, three's joint-distance pinch still has to trigger it.
    Also switch between controllers and hands mid-session (put the controllers down, pick them
    back up) and confirm rays, holds and the hand mesh follow.
-6. Teleport arc readability, landing validation, and fade comfort.
-7. Snap- vs smooth-turn comfort, turn-speed range, glide comfort and collision at glide speed.
-8. In-headset frame rate with the full office (two eye renders × outline pass). Foveation
+5. Teleport arc readability, landing validation, and fade comfort.
+6. Snap- vs smooth-turn comfort, turn-speed range, glide comfort and collision at glide speed.
+7. In-headset frame rate with the full office (two eye renders). Foveation
    does nothing in Chrome, so the 0.8 framebuffer scale is the only render-size saving.
    After leaving VR, the desktop camera's field of view and canvas size must be back to
    normal.
-9. Session edge cases: headset sleep/resume mid-session, controller disconnect/reconnect,
+8. Session edge cases: headset sleep/resume mid-session, controller disconnect/reconnect,
    entering VR while seated/climbing/riding the elevator.
-10. Physical keyboard: a Bluetooth keyboard paired to the headset delivers `keydown` to the
+9. Physical keyboard: a Bluetooth keyboard paired to the headset delivers `keydown` to the
     page during the immersive session (the emulator run drives Chromium's key input, not a
     headset's), plus IME and non-US layouts through it.
-11. Galaxy XR cab buttons: ride by ray tap and index-finger touch, hold contact without repeat
+10. Galaxy XR cab buttons: ride by ray tap and index-finger touch, hold contact without repeat
     rides, withdraw and press again, and travel to/from the roof. Check label readability and
     reach while standing/seated, live floor additions/removals/clone completion, and the
     floors-menu fallback. This physical-headset check is still pending; automated tests or
     IWSDK emulation do not satisfy it.
-12. Galaxy XR physical contact: touch the gong
+11. Galaxy XR physical contact: touch the gong
     with either hand. Hold contact (including both hands), withdraw, and re-touch. Walk past
     without reaching out, briefly lose tracking, and check pinch/ray and controller fallbacks.
     Reach for the coffee cup and confirm the machine does not drink on contact. This
     physical-headset check is pending; automated checks do not satisfy issue #4's hardware
     acceptance criterion.
-13. **Galaxy XR grab acceptance is pending.** With hands, pick up coffee, move it, sip once,
+12. **Galaxy XR grab acceptance is pending.** With hands, pick up coffee, move it, sip once,
     put it on a desk and pick the empty cup back up. With both hands and controllers, take an
     issue note, pin it, queue it, hand it to a desk and open a meeting with its issue preset.
     Observe the held/placed poses from a second client. Check hand tracking loss, controller

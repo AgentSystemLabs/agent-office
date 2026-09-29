@@ -80,9 +80,8 @@ export function coffeeMug(scale = 1): THREE.Group {
   return mug;
 }
 
-/** Clear glass, faintly blue; no cartoon outline, so the drink inside shows through it. */
+/** Clear glass, faintly blue, so the drink inside shows through it. */
 const GLASS = new THREE.MeshBasicMaterial({ color: '#e8f6ff', transparent: true, opacity: 0.38, depthWrite: false });
-GLASS.userData.outlineParameters = { visible: false };
 
 /** A drink from the rooftop bar in its glass, standing on y = 0. */
 export function drinkGlass(d: Drink, scale = 1): THREE.Group {

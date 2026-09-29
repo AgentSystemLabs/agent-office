@@ -136,7 +136,6 @@ function beamMaterial(): THREE.ShaderMaterial {
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
   });
-  m.userData.outlineParameters = { visible: false };
   return m;
 }
 
@@ -263,7 +262,6 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
 
   // The deck, and the slab it's laid on (the top of the building).
   const deckMat = new THREE.MeshToonMaterial({ map: deckTexture(), gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap });
-  deckMat.userData.outlineParameters = { visible: false };
   const deck = new THREE.Mesh(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2), deckMat);
   deck.position.set(cx, 0.002, cz);
   deck.receiveShadow = true;
