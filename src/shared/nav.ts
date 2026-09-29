@@ -1,5 +1,6 @@
-// Getting around the office floor downstairs (no stairs, no loft, no elevator), round the furniture
-// on a coarse grid: the dog's walks (server/dog.ts), and a worker's way out when it's sent home.
+// Getting around a floor on a coarse grid, round the furniture: the dog's walks (server/dog.ts), a
+// worker's way out when it's sent home, and on a map of its own (see shared/maps), a worker's walks
+// about the hall. The office's grid is below; a map builds one from its plan (NavGrid).
 
 import { BALCONY, BALCONY_DOOR, BEANBAGS, BOOKSHELF, CABINET, DESK_SIZE, DESKS, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LADDER, LOFT, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PARACHUTE, PLANTS, POLE, POLES, ROAD, STAIRS, STATIONS, WHITEBOARD, type DeskDef } from './layout.js';
 
@@ -9,11 +10,21 @@ export type Pt = [number, number];
 const CELL = 0.5;
 /** Half the width of whoever walks it (the dog, a worker), plus a little room: how far they keep from things. */
 const R = 0.3;
-const COLS = Math.ceil((FLOOR.maxX - FLOOR.minX) / CELL);
-const ROWS = Math.ceil((FLOOR.maxZ - FLOOR.minZ) / CELL);
 
-type Rect = [number, number, number, number]; // minX, maxX, minZ, maxZ
-type Circle = [number, number, number]; // x, z, radius
+export type Rect = [number, number, number, number]; // minX, maxX, minZ, maxZ
+export type Circle = [number, number, number]; // x, z, radius
+/** What's in the way on a floor. */
+export interface Obstacles {
+  rects: Rect[];
+  circles: Circle[];
+}
+/** The floor a grid covers. */
+export interface Bounds {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
 
 /** The desk's own frame: `t` along its width, `s` out toward the side the worker sits on. */
 export function deskPoint(d: DeskDef, t: number, s: number): Pt {
@@ -21,7 +32,7 @@ export function deskPoint(d: DeskDef, t: number, s: number): Pt {
 }
 
 /** What's in the way on the floor. The lounge, kitchen and plants are where office.ts puts them. */
-function obstacles(): { rects: Rect[]; circles: Circle[] } {
+function obstacles(): Obstacles {
   const rects: Rect[] = [];
   const circles: Circle[] = [];
   const hw = DESK_SIZE.width / 2;
@@ -87,139 +98,215 @@ function obstacles(): { rects: Rect[]; circles: Circle[] } {
   return { rects, circles };
 }
 
-function isBlocked(x: number, z: number, o: ReturnType<typeof obstacles>): boolean {
-  if (x < FLOOR.minX + R || x > FLOOR.maxX - R || z < FLOOR.minZ + R || z > FLOOR.maxZ - R) return true;
+/** Whether (x, z) is too close to anything in the way, or to the walls, to stand in. */
+function isBlocked(x: number, z: number, b: Bounds, o: Obstacles): boolean {
+  if (x < b.minX + R || x > b.maxX - R || z < b.minZ + R || z > b.maxZ - R) return true;
   for (const [x0, x1, z0, z1] of o.rects) if (x > x0 - R && x < x1 + R && z > z0 - R && z < z1 + R) return true;
   for (const [cx, cz, r] of o.circles) if (Math.hypot(x - cx, z - cz) < r + R) return true;
   return false;
 }
 
-const GRID = (() => {
-  const o = obstacles();
-  const g = new Uint8Array(COLS * ROWS);
-  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) g[r * COLS + c] = isBlocked(FLOOR.minX + (c + 0.5) * CELL, FLOOR.minZ + (r + 0.5) * CELL, o) ? 1 : 0;
-  return g;
-})();
+/** A floor on a half-meter grid, with what's in the way marked: where you can walk, and the way round. */
+export class NavGrid {
+  readonly cols: number;
+  readonly rows: number;
+  private readonly grid: Uint8Array;
 
-const colOf = (x: number) => Math.max(0, Math.min(COLS - 1, Math.floor((x - FLOOR.minX) / CELL)));
-const rowOf = (z: number) => Math.max(0, Math.min(ROWS - 1, Math.floor((z - FLOOR.minZ) / CELL)));
-const centerOf = (i: number): Pt => [FLOOR.minX + ((i % COLS) + 0.5) * CELL, FLOOR.minZ + (Math.floor(i / COLS) + 0.5) * CELL];
-
-export function walkable(x: number, z: number): boolean {
-  return x > FLOOR.minX && x < FLOOR.maxX && z > FLOOR.minZ && z < FLOOR.maxZ && !GRID[rowOf(z) * COLS + colOf(x)];
-}
-
-/** Whether it can trot straight from a to b: every cell the line crosses is clear. */
-function clearLine(a: Pt, b: Pt): boolean {
-  let c = colOf(a[0]);
-  let r = rowOf(a[1]);
-  const c1 = colOf(b[0]);
-  const r1 = rowOf(b[1]);
-  const dx = b[0] - a[0];
-  const dz = b[1] - a[1];
-  const sc = Math.sign(dx);
-  const sr = Math.sign(dz);
-  const stepC = sc ? CELL / Math.abs(dx) : Infinity;
-  const stepR = sr ? CELL / Math.abs(dz) : Infinity;
-  let nextC = sc ? (FLOOR.minX + (c + (sc > 0 ? 1 : 0)) * CELL - a[0]) / dx : Infinity;
-  let nextR = sr ? (FLOOR.minZ + (r + (sr > 0 ? 1 : 0)) * CELL - a[1]) / dz : Infinity;
-  for (let n = 0; n <= COLS + ROWS; n++) {
-    if (GRID[r * COLS + c]) return false;
-    if (c === c1 && r === r1) return true;
-    if (Math.abs(nextC - nextR) < 1e-9) {
-      // Right through a corner: both cells beside it count.
-      if (GRID[r * COLS + c + sc] || GRID[(r + sr) * COLS + c]) return false;
-      c += sc;
-      r += sr;
-      nextC += stepC;
-      nextR += stepR;
-    } else if (nextC < nextR) {
-      c += sc;
-      nextC += stepC;
-    } else {
-      r += sr;
-      nextR += stepR;
-    }
+  constructor(
+    readonly bounds: Bounds,
+    obstacles: Obstacles,
+  ) {
+    this.cols = Math.ceil((bounds.maxX - bounds.minX) / CELL);
+    this.rows = Math.ceil((bounds.maxZ - bounds.minZ) / CELL);
+    this.grid = new Uint8Array(this.cols * this.rows);
+    for (let r = 0; r < this.rows; r++) for (let c = 0; c < this.cols; c++) this.grid[r * this.cols + c] = isBlocked(bounds.minX + (c + 0.5) * CELL, bounds.minZ + (r + 0.5) * CELL, bounds, obstacles) ? 1 : 0;
   }
-  return false;
-}
 
-/** The middle of the nearest cell it can stand in. */
-export function nearestWalkable(p: Pt): Pt {
-  if (walkable(p[0], p[1])) return p;
-  let best = -1;
-  let bestD = Infinity;
-  for (let i = 0; i < GRID.length; i++) {
-    if (GRID[i]) continue;
-    const [x, z] = centerOf(i);
-    const d = (x - p[0]) ** 2 + (z - p[1]) ** 2;
-    if (d < bestD) {
-      bestD = d;
-      best = i;
-    }
+  private colOf(x: number) {
+    return Math.max(0, Math.min(this.cols - 1, Math.floor((x - this.bounds.minX) / CELL)));
   }
-  return best < 0 ? p : centerOf(best);
-}
 
-/** A* over the grid, then pulled tight: the corners of a route from `from` to `to`, both included. */
-export function route(from: Pt, to: Pt): Pt[] {
-  const goal = nearestWalkable(to);
-  const start = nearestWalkable(from);
-  const lead: Pt[] = start === from ? [from] : [from, start];
-  if (clearLine(start, goal)) return [...lead, goal];
-  const s = rowOf(start[1]) * COLS + colOf(start[0]);
-  const g = rowOf(goal[1]) * COLS + colOf(goal[0]);
-  const cost = new Float64Array(GRID.length).fill(Infinity);
-  const came = new Int32Array(GRID.length).fill(-1);
-  const closed = new Uint8Array(GRID.length);
-  const heap = new Heap();
-  const gc = g % COLS;
-  const gr = Math.floor(g / COLS);
-  const h = (i: number) => {
-    const dx = Math.abs((i % COLS) - gc);
-    const dz = Math.abs(Math.floor(i / COLS) - gr);
-    return Math.max(dx, dz) + (Math.SQRT2 - 1) * Math.min(dx, dz);
-  };
-  cost[s] = 0;
-  heap.push(s, h(s));
-  while (heap.size) {
-    const i = heap.pop();
-    if (i === g) break;
-    if (closed[i]) continue;
-    closed[i] = 1;
-    const c = i % COLS;
-    const r = Math.floor(i / COLS);
-    for (let dz = -1; dz <= 1; dz++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        if (!dx && !dz) continue;
-        const nc = c + dx;
-        const nr = r + dz;
-        if (nc < 0 || nr < 0 || nc >= COLS || nr >= ROWS) continue;
-        const n = nr * COLS + nc;
-        if (GRID[n] || closed[n]) continue;
-        // No cutting corners past something in the way.
-        if (dx && dz && (GRID[r * COLS + nc] || GRID[nr * COLS + c])) continue;
-        const next = cost[i] + (dx && dz ? Math.SQRT2 : 1);
-        if (next >= cost[n]) continue;
-        cost[n] = next;
-        came[n] = i;
-        heap.push(n, next + h(n));
+  private rowOf(z: number) {
+    return Math.max(0, Math.min(this.rows - 1, Math.floor((z - this.bounds.minZ) / CELL)));
+  }
+
+  private centerOf(i: number): Pt {
+    return [this.bounds.minX + ((i % this.cols) + 0.5) * CELL, this.bounds.minZ + (Math.floor(i / this.cols) + 0.5) * CELL];
+  }
+
+  walkable(x: number, z: number): boolean {
+    const b = this.bounds;
+    return x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ && !this.grid[this.rowOf(z) * this.cols + this.colOf(x)];
+  }
+
+  /** Whether it can trot straight from a to b: every cell the line crosses is clear. */
+  clearLine(a: Pt, b: Pt): boolean {
+    const { grid, cols, rows } = this;
+    let c = this.colOf(a[0]);
+    let r = this.rowOf(a[1]);
+    const c1 = this.colOf(b[0]);
+    const r1 = this.rowOf(b[1]);
+    const dx = b[0] - a[0];
+    const dz = b[1] - a[1];
+    const sc = Math.sign(dx);
+    const sr = Math.sign(dz);
+    const stepC = sc ? CELL / Math.abs(dx) : Infinity;
+    const stepR = sr ? CELL / Math.abs(dz) : Infinity;
+    let nextC = sc ? (this.bounds.minX + (c + (sc > 0 ? 1 : 0)) * CELL - a[0]) / dx : Infinity;
+    let nextR = sr ? (this.bounds.minZ + (r + (sr > 0 ? 1 : 0)) * CELL - a[1]) / dz : Infinity;
+    for (let n = 0; n <= cols + rows; n++) {
+      if (grid[r * cols + c]) return false;
+      if (c === c1 && r === r1) return true;
+      if (Math.abs(nextC - nextR) < 1e-9) {
+        // Right through a corner: both cells beside it count.
+        if (grid[r * cols + c + sc] || grid[(r + sr) * cols + c]) return false;
+        c += sc;
+        r += sr;
+        nextC += stepC;
+        nextR += stepR;
+      } else if (nextC < nextR) {
+        c += sc;
+        nextC += stepC;
+      } else {
+        r += sr;
+        nextR += stepR;
       }
     }
+    return false;
   }
-  if (came[g] < 0) return [...lead, goal]; // nowhere to go round; shouldn't happen in one room
-  const cells: Pt[] = [];
-  for (let i = came[g]; i !== s && i >= 0; i = came[i]) cells.push(centerOf(i));
-  const pts: Pt[] = [start, ...cells.reverse(), goal];
-  // Keep only the corners: from each point, straight on to the farthest one it can see.
-  const out: Pt[] = [...lead];
-  for (let i = 0; i < pts.length - 1; ) {
-    let j = pts.length - 1;
-    while (j > i + 1 && !clearLine(pts[i], pts[j])) j--;
-    out.push(pts[j]);
-    i = j;
+
+  /** The middle of the nearest cell it can stand in. */
+  nearestWalkable(p: Pt): Pt {
+    if (this.walkable(p[0], p[1])) return p;
+    let best = -1;
+    let bestD = Infinity;
+    for (let i = 0; i < this.grid.length; i++) {
+      if (this.grid[i]) continue;
+      const [x, z] = this.centerOf(i);
+      const d = (x - p[0]) ** 2 + (z - p[1]) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return best < 0 ? p : this.centerOf(best);
   }
-  return out;
+
+  /** A* over the grid, then pulled tight: the corners of a route from `from` to `to`, both included. */
+  route(from: Pt, to: Pt): Pt[] {
+    const { grid, cols, rows } = this;
+    const goal = this.nearestWalkable(to);
+    const start = this.nearestWalkable(from);
+    const lead: Pt[] = start === from ? [from] : [from, start];
+    if (this.clearLine(start, goal)) return [...lead, goal];
+    const s = this.rowOf(start[1]) * cols + this.colOf(start[0]);
+    const g = this.rowOf(goal[1]) * cols + this.colOf(goal[0]);
+    const cost = new Float64Array(grid.length).fill(Infinity);
+    const came = new Int32Array(grid.length).fill(-1);
+    const closed = new Uint8Array(grid.length);
+    const heap = new Heap();
+    const gc = g % cols;
+    const gr = Math.floor(g / cols);
+    const h = (i: number) => {
+      const dx = Math.abs((i % cols) - gc);
+      const dz = Math.abs(Math.floor(i / cols) - gr);
+      return Math.max(dx, dz) + (Math.SQRT2 - 1) * Math.min(dx, dz);
+    };
+    cost[s] = 0;
+    heap.push(s, h(s));
+    while (heap.size) {
+      const i = heap.pop();
+      if (i === g) break;
+      if (closed[i]) continue;
+      closed[i] = 1;
+      const c = i % cols;
+      const r = Math.floor(i / cols);
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dz) continue;
+          const nc = c + dx;
+          const nr = r + dz;
+          if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
+          const n = nr * cols + nc;
+          if (grid[n] || closed[n]) continue;
+          // No cutting corners past something in the way.
+          if (dx && dz && (grid[r * cols + nc] || grid[nr * cols + c])) continue;
+          const next = cost[i] + (dx && dz ? Math.SQRT2 : 1);
+          if (next >= cost[n]) continue;
+          cost[n] = next;
+          came[n] = i;
+          heap.push(n, next + h(n));
+        }
+      }
+    }
+    if (came[g] < 0) return [...lead, goal]; // nowhere to go round; shouldn't happen in one room
+    const cells: Pt[] = [];
+    for (let i = came[g]; i !== s && i >= 0; i = came[i]) cells.push(this.centerOf(i));
+    const pts: Pt[] = [start, ...cells.reverse(), goal];
+    // Keep only the corners: from each point, straight on to the farthest one it can see.
+    const out: Pt[] = [...lead];
+    for (let i = 0; i < pts.length - 1; ) {
+      let j = pts.length - 1;
+      while (j > i + 1 && !this.clearLine(pts[i], pts[j])) j--;
+      out.push(pts[j]);
+      i = j;
+    }
+    return out;
+  }
+
+  /**
+   * From beside `seat`, where a worker hops down, round the furniture to `to`. It gets down on
+   * whichever side of its chair (its bean bag, its kiosk) is the shorter way.
+   */
+  wayFrom(seat: DeskDef, to: Pt): Pt[] {
+    const ways = [-1, 1].map((side) => {
+      // Beside the chair and back from the desk into the aisle, off the bean bag and round behind it, or
+      // out from behind the kiosk and round its front, into the room.
+      const [down, back] = seat.beanbag
+        ? [deskPoint(seat, side * 1.05, 0.1), deskPoint(seat, side * 1.05, 1.25)]
+        : seat.station
+          ? [deskPoint(seat, side * 0.95, KIOSK.stand), deskPoint(seat, side * 0.95, -1)]
+          : // At the meeting table there's less room behind the chair, before the glass.
+            [deskPoint(seat, side * 0.7, 0.95), deskPoint(seat, side * 0.7, seat.room ? 1.4 : 1.75)];
+      // A bean bag or a kiosk can stand with one side up against something (the elevator, by the queue).
+      const blocked = !!(seat.beanbag || seat.station) && !this.walkable(down[0], down[1]);
+      const pts = [down, ...this.route(back, to)];
+      return { pts, cost: (blocked ? 1000 : 0) + pathLength(pts) };
+    });
+    return ways[0].cost <= ways[1].cost ? ways[0].pts : ways[1].pts;
+  }
+
+  /**
+   * From `from`, round the furniture to beside `seat`'s chair (the last point), on whichever side is
+   * the shorter way, where it hops on.
+   */
+  wayTo(from: Pt, seat: DeskDef): Pt[] {
+    const ways = [-1, 1].map((side) => {
+      const pts = [...this.route(from, deskPoint(seat, side * 0.7, seat.room ? 1.4 : 1.75)), deskPoint(seat, side * 0.7, 0.95)];
+      return { pts, cost: pathLength(pts) };
+    });
+    return ways[0].cost <= ways[1].cost ? ways[0].pts : ways[1].pts;
+  }
+}
+
+/** How far it is along `pts`, corner to corner. */
+export const pathLength = (pts: Pt[]) => pts.reduce((n, p, i) => (i ? n + Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : 0), 0);
+
+/** The office floor downstairs (no stairs, no loft, no elevator). */
+export const OFFICE_NAV = new NavGrid(FLOOR, obstacles());
+
+export function walkable(x: number, z: number): boolean {
+  return OFFICE_NAV.walkable(x, z);
+}
+
+/** The middle of the nearest cell it can stand in on the office floor. */
+export function nearestWalkable(p: Pt): Pt {
+  return OFFICE_NAV.nearestWalkable(p);
+}
+
+/** A* over the office floor's grid, then pulled tight: the corners of a route from `from` to `to`, both included. */
+export function route(from: Pt, to: Pt): Pt[] {
+  return OFFICE_NAV.route(from, to);
 }
 
 class Heap {
@@ -280,8 +367,6 @@ const SIDEWALK_Z = ROAD.minZ - 1.7;
 /** How far west along the sidewalk they get before they're gone. */
 const WALK_OFF_X = -38;
 
-const pathLength = (pts: Pt[]) => pts.reduce((n, p, i) => (i ? n + Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : 0), 0);
-
 /** Where a worker called to a meeting comes in: out of the elevator. */
 const IN_FROM: Pt = [ELEVATOR.x, ELEVATOR_FRONT + 0.5];
 
@@ -290,11 +375,7 @@ const IN_FROM: Pt = [ELEVATOR.x, ELEVATOR_FRONT + 0.5];
  * furniture to beside its chair (the last point), on whichever side is the shorter way, where it hops on.
  */
 export function wayIn(seat: DeskDef): Pt[] {
-  const ways = [-1, 1].map((side) => {
-    const pts = [...route(IN_FROM, deskPoint(seat, side * 0.7, seat.room ? 1.4 : 1.75)), deskPoint(seat, side * 0.7, 0.95)];
-    return { pts, cost: pathLength(pts) };
-  });
-  return ways[0].cost <= ways[1].cost ? ways[0].pts : ways[1].pts;
+  return OFFICE_NAV.wayTo(IN_FROM, seat);
 }
 
 /**
@@ -325,19 +406,5 @@ export function walkOff(from: Pt): Pt[] {
 
 /** From beside `seat`, where it hops down, round the furniture to `door` on the office floor. */
 function wayTo(seat: DeskDef, door: Pt): Pt[] {
-  const ways = [-1, 1].map((side) => {
-    // Beside the chair and back from the desk into the aisle, off the bean bag and round behind it, or
-    // out from behind the kiosk and round its front, into the room.
-    const [down, back] = seat.beanbag
-      ? [deskPoint(seat, side * 1.05, 0.1), deskPoint(seat, side * 1.05, 1.25)]
-      : seat.station
-        ? [deskPoint(seat, side * 0.95, KIOSK.stand), deskPoint(seat, side * 0.95, -1)]
-        : // At the meeting table there's less room behind the chair, before the glass.
-          [deskPoint(seat, side * 0.7, 0.95), deskPoint(seat, side * 0.7, seat.room ? 1.4 : 1.75)];
-    // A bean bag or a kiosk can stand with one side up against something (the elevator, by the queue).
-    const blocked = !!(seat.beanbag || seat.station) && !walkable(down[0], down[1]);
-    const pts = [down, ...route(back, door)];
-    return { pts, cost: (blocked ? 1000 : 0) + pathLength(pts) };
-  });
-  return ways[0].cost <= ways[1].cost ? ways[0].pts : ways[1].pts;
+  return OFFICE_NAV.wayFrom(seat, door);
 }
