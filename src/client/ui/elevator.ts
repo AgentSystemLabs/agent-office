@@ -36,7 +36,8 @@ export function elevatorPanelOpen(): boolean {
 
 export function openElevator(opts: ElevatorOptions): void {
   if (current) return;
-  // Nowhere to go yet: the panel stays until there's a floor to ride to.
+  // Nowhere to go yet: the panel greets you. It closes like any other; the elevator (or the floor
+  // name in the corner) opens it again.
   const setup = !store.floor;
   const { net } = opts;
   let filter = '';
@@ -54,10 +55,9 @@ export function openElevator(opts: ElevatorOptions): void {
   const statusEl = h('div');
   const addBtn = h('button.btn.primary', { type: 'button' }, '🛗 Add floor');
   const refreshBtn = h('button.btn', { type: 'button', title: 'Ask GitHub for the list again' }, '↻');
-  const close = setup ? null : h('button.btn.close', { 'aria-label': 'Close' }, '✕');
+  const close = h('button.btn.close', { type: 'button', 'aria-label': 'Close', title: 'Close (Esc)' }, '✕');
 
-  // Where clones go. Admins can move it right here: a new office's elevator can't be closed to reach
-  // ⚙️ Settings until it has a floor, and the first project is when it matters.
+  // Where clones go. Admins can move it right here: the first project is when it matters.
   const dirInput = h('input', { type: 'text', placeholder: '~/Workspace', 'aria-label': 'Workspace folder', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
   const dirSave = h('button.btn.primary', { type: 'button' }, 'Save');
   const dirCancel = h('button.btn', { type: 'button' }, 'Cancel');
@@ -301,12 +301,12 @@ export function openElevator(opts: ElevatorOptions): void {
     { role: 'dialog', 'aria-label': 'Elevator' },
     h('header', {}, h('h2', {}, setup ? '🏢 Welcome to Agent Office' : '🛗 Elevator'), close),
     h('div.body', {}, intro, floorsEl, addEl),
-    h('footer', {}, h('span.grow', {}, setup ? 'Your office, one floor per project' : 'Pick a floor · Esc to stay here'), addBtn),
+    h('footer', {}, h('span.grow', {}, setup ? 'Your office, one floor per project · Esc to look around first' : 'Pick a floor · Esc to stay here'), addBtn),
   );
   const unsubs = [store.on('floors', () => (renderFloors(), renderAdd())), store.on('repos', renderAdd), store.on('projectsDir', () => (editDir(false), renderAdd())), store.on('floor', renderFloors), store.on('peers', renderFloors), store.on('me', () => (renderFloors(), renderAdd()))];
   const modal = openModal(el, {
     doing: '🛗 at the elevator',
-    escCloses: !setup,
+    // A stray click shouldn't lose the first-run panel; ✕ and Esc still close it.
     backdropCloses: !setup,
     onClose: () => {
       current = null;
@@ -315,7 +315,7 @@ export function openElevator(opts: ElevatorOptions): void {
     },
   });
   current = modal;
-  close?.addEventListener('click', () => modal.close());
+  close.addEventListener('click', () => modal.close());
   renderFloors();
   if (showAdd) needRepos();
   renderAdd();
