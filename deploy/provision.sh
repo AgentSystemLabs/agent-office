@@ -21,8 +21,8 @@
 # have defaults, and the options below set the common ones.
 #
 # deploy/container/install.sh copies four heredocs out of this file into the container image
-# deploy/railway.sh runs: team_sh, tunnel_sh, sshd_conf and the NODE onboarding. Keep each one's
-# first line naming its variable (or `as_user node -`) and ending in its <<'TAG'.
+# deploy/railway.sh and deploy/fly.sh run: team_sh, tunnel_sh, sshd_conf and the NODE onboarding.
+# Keep each one's first line naming its variable (or `as_user node -`) and ending in its <<'TAG'.
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 

@@ -48,7 +48,7 @@ export class Team {
 
   /**
    * Where teammates tunnel to, when invites work: user@host, or ssh://user@host:port when the
-   * public address has a port of its own (Railway's TCP proxy in front of port 22).
+   * public address has a port of its own (Railway's TCP proxy, or a Fly.io app's IP address).
    */
   get ssh(): string | undefined {
     if (!this.available) return undefined;
