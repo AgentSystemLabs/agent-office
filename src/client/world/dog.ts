@@ -145,6 +145,13 @@ export class Dog {
   /** The breed it last synced as, whose model it has on or is loading. */
   private wants: DogBreed | null = null;
   private loading: Promise<boolean> = Promise.resolve(false);
+  private firstIn = () => {};
+  /**
+   * Settles the first time there's a dog to see: the model of the breed it was synced as is on, or couldn't
+   * be loaded, or the first sync had no dog at all (a building without floors). The loading screen waits on
+   * it; unlike `ready`, a later breed never makes it wait again. Never rejects.
+   */
+  readonly firstReady = new Promise<void>((resolve) => (this.firstIn = resolve));
   private coatMats: [THREE.MeshToonMaterial, THREE.MeshToonMaterial, THREE.MeshToonMaterial];
   private coat = -1;
   private tag: THREE.Sprite | null = null;
@@ -221,6 +228,7 @@ export class Dog {
     this.root.visible = !!state;
     if (!state) {
       this.placed = false;
+      this.firstIn();
       return;
     }
     // Another floor's dog (someone took the elevator): its breed's model, once that's in.
@@ -328,6 +336,8 @@ export class Dog {
         console.error(`The office dog's model (${breed}) didn't load`, err);
         return false;
       });
+    // On or not coming, unless another breed was asked for meanwhile: then it's that one's turn.
+    void this.loading.then(() => this.wants === breed && this.firstIn());
   }
 
   /**
