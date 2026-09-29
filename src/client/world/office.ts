@@ -264,6 +264,51 @@ export function plantLeaves(potted: THREE.Object3D): THREE.Object3D[] {
   return leaves;
 }
 
+// The lounge's furniture is modelled in Blender (blender/scripts/build_lounge.py): the sofa, a throw pillow, a
+// floor pouf and the coffee table, each a piece of lounge.glb placed on its own (see piece()), so they can be
+// moved round one by one. Sofa is the old couch's blue, Wood and Frame the old coffee table's top and pedestal,
+// and WoodDark the sofa's feet (the desk furniture's darker wood). A pillow's or a pouf's Cloth is each copy's
+// own color, so it has none here: a copy that forgets its color comes out magenta.
+const LOUNGE_COLORS = { Sofa: '#5b8def', WoodDark: '#8a5a3b', Wood: PALETTE.wood, Frame: PALETTE.deskLeg };
+const paintLounge = palette(LOUNGE_COLORS);
+
+/** A pillow or a pouf, its Cloth in `color`. */
+function upholstered(part: 'pillow' | 'pouf', color: string): THREE.Object3D {
+  const cloth = toon(color);
+  return piece('lounge', part, (name) => (name === 'Cloth' ? cloth : paintLounge(name)));
+}
+
+/**
+ * The lounge's couch: the sofa, facing +z like every model, with a throw pillow leaning on its back cushions
+ * either side of its middle. Its origin is on the floor under its middle, it's 4.2 long across x and 1.0 deep,
+ * and its seat cushions' tops are 0.47 up. The pillows hang under it, so a click on one is a click on the couch.
+ */
+export function loungeCouch(): THREE.Group {
+  const g = new THREE.Group();
+  g.add(piece('lounge', 'sofa', paintLounge));
+  for (const [x, color] of [
+    [0.9, '#ffd166'],
+    [-0.9, '#ef476f'],
+  ] as const) {
+    const pillow = upholstered('pillow', color);
+    // Standing on the seat, sunk in a little, its top tipped back onto the back cushions.
+    pillow.position.set(x, 0.46, -0.08);
+    pillow.rotation.x = -0.15;
+    g.add(pillow);
+  }
+  return g;
+}
+
+/** A floor pouf in `color`, about 1.05 round and 0.4 tall, its origin on the floor under its middle. */
+export function pouf(color: string): THREE.Object3D {
+  return upholstered('pouf', color);
+}
+
+/** The lounge's round coffee table, 0.9 round, its top 0.46 up (where the holiday pumpkin stands). */
+export function coffeeTable(): THREE.Object3D {
+  return piece('lounge', 'coffee_table', paintLounge);
+}
+
 /** A pendant lamp, its shade at 0, on a cord `cord` meters long. */
 function pendant(cord = 0.48): THREE.Group {
   const lamp = new THREE.Group();
@@ -1161,37 +1206,36 @@ export function buildOffice(): Office {
   group.add(monitor);
   fixture('west', MACHINE_MONITOR.z, MACHINE_MONITOR.y, MACHINE_MONITOR.width + 0.2, MACHINE_MONITOR.height + 0.2);
 
-  const couch = new THREE.Group();
-  const couchMat = toon('#5b8def');
-  couch.add(mesh(roundedBox(1, 0.45, 4.2, 0.2), couchMat, 0, 0.3, 0));
-  couch.add(mesh(roundedBox(0.35, 0.9, 4.2, 0.15), couchMat, -0.45, 0.55, 0));
-  couch.add(mesh(roundedBox(1, 0.7, 0.35, 0.15), couchMat, 0, 0.45, -2.0));
-  couch.add(mesh(roundedBox(1, 0.7, 0.35, 0.15), couchMat, 0, 0.45, 2.0));
-  ['#ffd166', '#ef476f'].forEach((c, i) => couch.add(mesh(roundedBox(0.2, 0.45, 0.5, 0.1), toon(c), -0.2, 0.75, i ? 0.9 : -0.9)));
+  // The couch, its back to the room, turned from the model's +z to face the TV on the east wall (+x).
+  const couch = loungeCouch();
   couch.position.set(10.5, 0, 0);
+  couch.rotation.y = Math.PI / 2;
   group.add(couch);
   colliders.push({ minX: 10, maxX: 11, minZ: -2.2, maxZ: 2.2, top: 0.55 });
   seatable(couch, 'couch', 2.6, interactables);
 
-  const table = new THREE.Group();
-  table.add(mesh(new THREE.CylinderGeometry(0.9, 0.9, 0.08, 24), toon(PALETTE.wood), 0, 0.42, 0));
-  table.add(mesh(new THREE.CylinderGeometry(0.12, 0.2, 0.4, 12), toon(PALETTE.deskLeg), 0, 0.2, 0));
+  const table = coffeeTable();
   table.position.set(13, 0, 0);
   group.add(table);
   colliders.push({ minX: 12.2, maxX: 13.8, minZ: -0.8, maxZ: 0.8, top: 0.46 });
   const lounge = mesh(roundedBox(7, 0.02, 7, 1.2), toon('#ffc6ff'), 13.4, 0.011, 0, false);
   group.add(lounge);
 
-  [
-    ['#06d6a0', 12.5, 3.5],
-    ['#ffd166', 14.5, -3.4],
-  ].forEach(([c, x, z], i) => {
-    const bean = mesh(new THREE.SphereGeometry(0.6, 16, 12), toon(c as string), x as number, 0.35, z as number);
-    bean.scale.y = 0.6;
-    group.add(bean);
-    colliders.push({ minX: (x as number) - 0.5, maxX: (x as number) + 0.5, minZ: (z as number) - 0.5, maxZ: (z as number) + 0.5, top: 0.6 });
-    seatable(bean, `lounge-beanbag-${i + 1}`, 1.4, interactables);
-  });
+  // A pouf either side of the lounge (the seats still called beanbags), turned to the TV like whoever sits on it.
+  for (const [i, [color, x, z]] of (
+    [
+      ['#06d6a0', 12.5, 3.5],
+      ['#ffd166', 14.5, -3.4],
+    ] as const
+  ).entries()) {
+    const id = `lounge-beanbag-${i + 1}`;
+    const seat = pouf(color);
+    seat.position.set(x, 0, z);
+    seat.rotation.y = SEATING_BY_ID.get(id)!.rotY;
+    group.add(seat);
+    colliders.push({ minX: x - 0.5, maxX: x + 0.5, minZ: z - 0.5, maxZ: z + 0.5, top: 0.6 });
+    seatable(seat, id, 1.4, interactables);
+  }
   const jukebox = buildJukebox();
   group.add(jukebox.group);
   colliders.push(jukebox.collider);

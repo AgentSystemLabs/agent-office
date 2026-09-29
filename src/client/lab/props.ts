@@ -17,7 +17,7 @@ import { buildGong } from '../world/gong';
 import { buildJukebox } from '../world/jukebox';
 import { buildKitchen } from '../world/kitchen';
 import { preloadModels } from '../world/models';
-import { FLOOR_PLANTS, plant } from '../world/office';
+import { FLOOR_PLANTS, coffeeTable, loungeCouch, plant, pouf } from '../world/office';
 import { ready, stage } from './stage';
 
 /** A prop as the lab shows it: what goes in the scene, and what moves it every frame, if anything. */
@@ -48,6 +48,14 @@ const SHOW: Record<string, () => Shown> = {
     [...FLOOR_PLANTS, 'succulent' as const].forEach((species, i) => {
       if (!q.has('plant') || q.get('plant') === species) object.add(plant(species).translateX(at[i]));
     });
+    return { object };
+  },
+  lounge: () => {
+    // The lounge's pieces side by side, as the office paints them: the sofa with its two pillows, the coffee
+    // table, and a pouf in each of its colors.
+    const object = new THREE.Group();
+    const at = [0, 3.5, 5.3, 6.6];
+    [loungeCouch(), coffeeTable(), pouf('#06d6a0'), pouf('#ffd166')].forEach((o, i) => object.add(o.translateX(at[i])));
     return { object };
   },
   lambo: () => ({ object: supercar('lambo', '#ffd166') }),
