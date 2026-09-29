@@ -775,7 +775,8 @@ export async function startServer(cfg: Config) {
       const session = auth.fromRequest(req);
       if (!session) {
         if (p.startsWith('/api/')) return send(res, 401, { error: 'Not logged in' });
-        res.writeHead(302, { location: '/login' }).end();
+        // Back to the 2D view after signing in, if that's where they were going.
+        res.writeHead(302, { location: p === '/lite' ? '/login?next=/lite' : '/login' }).end();
         return;
       }
       if (p === '/api/whoami') return send(res, 200, { ok: true, me: meOf(session.account?.id) });
@@ -917,6 +918,8 @@ export async function startServer(cfg: Config) {
         return send(res, 404, { error: 'Not found' });
       }
       if (p === '/' || p === '/index.html') return serveFile(res, path.join(publicDir, 'index.html'), false);
+      // The 2D view: the workers, their terminals and the boards, without the 3D office (lite.ts).
+      if (p === '/lite' || p === '/lite.html') return serveFile(res, path.join(publicDir, 'lite.html'), false);
       const file = publicFile(p);
       if (file) return serveFile(res, file, false);
       res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
@@ -1034,6 +1037,7 @@ export async function startServer(cfg: Config) {
         muted: true,
         sharing: false,
         ...(account ? { account: true } : {}),
+        ...(url.searchParams.get('lite') === '1' ? { lite: true } : {}),
         ...(onRoof ? { floor: ROOF } : floor ? { floor: floor.id } : {}),
       },
     };

@@ -9,6 +9,8 @@ import { ROOF } from '../../shared/rooftop';
  */
 export function whereabouts(p: PeerInfo): string | undefined {
   if (p.doing) return p.doing;
+  // Not standing anywhere: in on the 2D view, from a phone, say.
+  if (p.lite) return '📱 on the 2D view';
   if (p.smoking) return '🚬 on a smoke break';
   if (p.golfing) return '🏌️ teeing off';
   if (p.throwing) return p.throwing === 'darts' ? '🎯 playing darts' : '🪓 throwing axes';

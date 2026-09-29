@@ -4,7 +4,7 @@ import { store } from '../state';
 import { h, openModal, timeAgo, STATUS_LABEL } from './dom';
 import { confirmDialog } from './prompt';
 import { providerPicker, providerLabel, providerUsageState, resolvedProvider, modelBadge } from './provider';
-import { officeFull } from '../world/machine';
+import { officeFull } from '../../shared/machine';
 
 export interface QueueActions {
   openTerminal(workerId: string): void;

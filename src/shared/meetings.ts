@@ -132,6 +132,12 @@ export function meetingSpend(m: Pick<Meeting, 'tokens' | 'cost' | 'costKnown'>):
   return `${fmtTokens(m.tokens)} tokens${m.costKnown ? ` · ${fmtCost(m.cost)}` : m.cost > 0 ? ` · ${fmtCost(m.cost)}+` : ''}`;
 }
 
+/** What's on the table in a line: "Round 2 of 3 · critiquing". */
+export function meetingStage(m: Meeting): string {
+  const doing = [...new Set(m.turns.filter((t) => t.state !== 'done').map((t) => t.doing))].join(', ');
+  return `Round ${m.round} of ${m.rounds}${doing ? ` · ${doing}` : ''}`;
+}
+
 /**
  * The line on the room's door once a meeting is over: pattern, rounds, tokens, cost, and the output
  * file it wrote (and where), or why it stopped.

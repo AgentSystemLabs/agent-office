@@ -2,6 +2,7 @@
 // arrows at the edge of the screen point to them (ui/compass.ts), and the top bar and the Workers panel count them.
 
 import type { WorkerInfo } from '../shared/protocol';
+import { isAsleep, isBusy } from '../shared/status';
 import { waitingOnSomeone } from './notify';
 
 type Waiting = WorkerInfo & { status: 'needs_input' | 'done' };
@@ -14,6 +15,17 @@ function since(w: WorkerInfo): number {
 /** Workers waiting on someone, whoever has waited longest first. */
 export function waitingInOrder(workers: Iterable<WorkerInfo>): Waiting[] {
   return [...workers].filter(waitingOnSomeone).sort((a, b) => since(a) - since(b) || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+}
+
+/**
+ * Every worker, as the 2D view lists them: the ones waiting on someone first (longest first), then
+ * the ones at work, then the rest (ready, or done and seen to), asleep last; hired first within each.
+ */
+export function byUrgency(workers: Iterable<WorkerInfo>): WorkerInfo[] {
+  const all = [...workers];
+  const rank = (w: WorkerInfo) => (isBusy(w.status) ? 0 : isAsleep(w.status) ? 2 : 1);
+  const rest = all.filter((w) => !waitingOnSomeone(w)).sort((a, b) => rank(a) - rank(b) || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  return [...waitingInOrder(all), ...rest];
 }
 
 /** "2 waiting · 1 done": the ones that need input, then the ones that finished. */
