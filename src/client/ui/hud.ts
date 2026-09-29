@@ -8,6 +8,7 @@ import { usageLabel, usageTitle } from './usage';
 import { providerLabel, providerUsageState, resolvedProvider, modelBadge } from './provider';
 import { whereabouts } from './whereabouts';
 import { DESK_BY_ID } from '../../shared/layout';
+import { IS_MAC } from './termkeys';
 
 /** What the people list last showed, so it's only drawn again when something in it changed. */
 let peopleKey = '';
@@ -159,6 +160,7 @@ export function openHelp() {
     ['T', 'Chat'],
     ['G / 1–6', 'Emote: hold G, point at one and let go (or tap G and click one), or press 1–6: wave, thumbs up, clap, dance, point, facepalm. Everyone on your floor sees it'],
     ['/', 'Search the chat and every terminal on your floor, back to before the office last restarted'],
+    [IS_MAC ? '⌘K' : 'Ctrl+K', 'Command palette: type a few letters to find a worker, issue, PR, service, board, teammate or action. Enter opens it, Shift+Enter walks you over to it first'],
     ['V', 'Join voice. In voice, hold V to talk (push to talk): you’re muted once you let go. Leave voice from the ☰ menu'],
     ['M', 'Mute or unmute your mic in voice. ⚙️ Settings can have you join muted, for push to talk'],
     ['Tab', 'The ☰ menu, top right: every window, and what shows on screen. Pin what you use most to the top bar'],
