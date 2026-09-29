@@ -142,8 +142,11 @@ export function openTeam(net: Net) {
         `It opens the tunnel and http://localhost:${t.port} in their browser. They keep the terminal open while they're in. `,
         t.fingerprint ? h('span', {}, 'The first time, ssh asks whether to trust the server: the fingerprint must be ', h('code', {}, t.fingerprint), '.') : null,
       ),
-      h('p.note', {}, 'SSH only answers IP addresses you allowed. If theirs isn\'t, run ', h('code', {}, `${t.deploy ?? 'deploy/aws.sh'} allow <their-ip>`), ' (or ', h('code', {}, 'allow anywhere'), ') on your machine.'),
     );
+    // Railway's TCP proxy (an address with a port of its own) answers every IP; AWS's firewall doesn't.
+    if (!t.ssh?.startsWith('ssh://')) {
+      body.append(h('p.note', {}, 'SSH only answers IP addresses you allowed. If theirs isn\'t, run ', h('code', {}, `${t.deploy ?? 'deploy/aws.sh'} allow <their-ip>`), ' (or ', h('code', {}, 'allow anywhere'), ') on your machine.'));
+    }
 
     body.append(h('h4', {}, `Invited `, h('span.count', {}, String(t.members.length))), memberList(t));
     if (typing || !focused) setTimeout(() => input.focus(), 30);

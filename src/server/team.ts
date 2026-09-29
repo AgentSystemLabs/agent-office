@@ -46,9 +46,14 @@ export class Team {
     return !!this.publicHost && existsSync(HELPER);
   }
 
-  /** user@host teammates tunnel to, when invites work. */
+  /**
+   * Where teammates tunnel to, when invites work: user@host, or ssh://user@host:port when the
+   * public address has a port of its own (Railway's TCP proxy in front of port 22).
+   */
   get ssh(): string | undefined {
-    return this.available ? `${TEAM_USER}@${this.publicHost}` : undefined;
+    if (!this.available) return undefined;
+    const [, host, port] = /^([^:]+):(\d+)$/.exec(this.publicHost!) ?? [];
+    return port && port !== '22' ? `ssh://${TEAM_USER}@${host}:${port}` : `${TEAM_USER}@${host ?? this.publicHost}`;
   }
 
   async state(): Promise<TeamState> {

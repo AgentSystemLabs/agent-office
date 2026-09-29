@@ -19,6 +19,10 @@
 # APP_REF PROJECT_REPO CLAIM_TOKEN PUBLIC_HOST GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY
 # GIT_NAME GIT_EMAIL, and TAILSCALE TAILSCALE_AUTH_KEY TAILSCALE_HOSTNAME for --tailscale. They all
 # have defaults, and the options below set the common ones.
+#
+# deploy/container/install.sh copies four heredocs out of this file into the container image
+# deploy/railway.sh runs: team_sh, tunnel_sh, sshd_conf and the NODE onboarding. Keep each one's
+# first line naming its variable (or `as_user node -`) and ending in its <<'TAG'.
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 

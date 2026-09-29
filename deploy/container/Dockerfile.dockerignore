@@ -1,0 +1,6 @@
+# Only what the image builds from (deploy/railway.sh uploads with .gitignore applied too).
+node_modules
+dist
+.agent-office
+.git
+*.log
