@@ -95,6 +95,31 @@ export class Worktrees {
     return first ? Number(first[1]) : undefined;
   }
 
+  /** Whether a branch is still there: not once it's deleted, or renamed (`git branch -m`). */
+  async hasBranch(branch: string): Promise<boolean> {
+    return this.git(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]).then(() => true, () => false);
+  }
+
+  /** Whether `from` was renamed to `branch` (`git branch -m`), going by the reflog that moved along with it. */
+  async renamedTo(from: string, branch: string): Promise<boolean> {
+    const log = await this.git(['log', '-g', '--format=%gs', `refs/heads/${branch}`, '--']).catch(() => '');
+    return log.split('\n').includes(`Branch: renamed refs/heads/${from} to refs/heads/${branch}`);
+  }
+
+  /**
+   * What deleting `branch` would lose that no remote, the project's checkout or the `besides`
+   * branches have, as describeWork says it; '' when nothing.
+   */
+  async wouldLose(branch: string, besides: string[] = []): Promise<string> {
+    const state: WorktreeState = { exists: false, dirty: 0, ahead: 0, unpushed: 0 };
+    try {
+      state.unpushed = Number(await this.git(['rev-list', '--count', branch, '--not', 'HEAD', '--remotes', ...besides, '--']));
+    } catch (err) {
+      state.error = gitError(err);
+    }
+    return describeWork(state);
+  }
+
   /**
    * What a worktree holds: uncommitted changes, commits since it was made, and the commits only it has.
    * `landed` is a commit already delivered (the head of its merged pull request): it and the commits
@@ -108,9 +133,11 @@ export class Worktrees {
       if (exists) state.dirty = (await this.git(['status', '--porcelain'], abs)).split('\n').filter(Boolean).length;
       // A commit this checkout never fetched (GitHub updated the branch itself) can't be left out.
       const known = landed && /^[0-9a-f]{40,64}$/.test(landed) && (await this.git(['cat-file', '-e', `${landed}^{commit}`]).then(() => true, () => false));
+      // The office's own branch, when the worker has moved to another, holds its work too.
+      const made = wt.made && wt.made !== wt.branch && (await this.hasBranch(wt.made)) ? [wt.made] : [];
       // On no remote and not in the project's own checkout either: what deleting the branch would lose.
-      state.unpushed = Number(await this.git(['rev-list', '--count', wt.branch, '--not', 'HEAD', '--remotes', ...(known ? [landed] : [])]));
-      state.ahead = Number(await this.git(['rev-list', '--count', wt.branch, '--not', wt.base ?? 'HEAD']).catch(() => state.unpushed));
+      state.unpushed = Number(await this.git(['rev-list', '--count', wt.branch, ...made, '--not', 'HEAD', '--remotes', ...(known ? [landed] : [])]));
+      state.ahead = Number(await this.git(['rev-list', '--count', wt.branch, ...made, '--not', wt.base ?? 'HEAD']).catch(() => state.unpushed));
     } catch (err) {
       state.error = gitError(err);
     }
@@ -136,8 +163,8 @@ export class Worktrees {
       await this.git(['worktree', 'prune']);
       if (cleanup === 'all') {
         // The office's own branch, left behind when the worker made one of its own: it goes too,
-        // unless it has commits that one doesn't.
-        const made = wt.made && wt.made !== wt.branch && (await this.git(['merge-base', '--is-ancestor', wt.made, wt.branch]).then(() => wt.made, () => undefined));
+        // unless it has commits that no remote, the project's checkout or that one has.
+        const made = wt.made && wt.made !== wt.branch && !(await this.wouldLose(wt.made, [wt.branch])) ? wt.made : undefined;
         await this.git(['branch', '-D', wt.branch]);
         if (made) await this.git(['branch', '-D', made]).catch(() => undefined);
       }

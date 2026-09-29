@@ -447,11 +447,28 @@ export class WorkerManager {
       cleanup = 'all';
     }
     if (cleanup === 'keep') return { note: `Kept ${name}'s worktree and branch ${wt.branch}` };
-    // A branch it made itself goes with it; one that was there before it (main, say) isn't the office's to delete.
-    const gone = cleanup === 'all' && wt.made && !(await this.trees.madeSince(wt.branch, wt.made)) ? { ...wt, branch: wt.made, made: undefined } : wt;
+    let gone = wt;
+    let kept = '';
+    if (cleanup === 'all' && wt.made) {
+      if (!(await this.trees.hasBranch(wt.made))) {
+        // The agent deleted the office's branch (a rename is followed, see current), so git can't say
+        // whether the one it's on is its own or was there before it: that one stays.
+        cleanup = 'worktree';
+      } else {
+        // The office's own branch stays while it has commits that no remote, the project's checkout
+        // or the branch it's on has.
+        const work = await this.trees.wouldLose(wt.made, [wt.branch]);
+        if (work) kept = ` and kept branch ${wt.made} — it has ${work}`;
+        // A branch it made itself goes with it; one that was there before it (main, say) isn't the office's to delete.
+        if (await this.trees.madeSince(wt.branch, wt.made)) gone = work ? { ...wt, made: undefined } : wt;
+        else if (work) cleanup = 'worktree';
+        else gone = { ...wt, branch: wt.made, made: undefined };
+      }
+    }
     const error = await this.trees.remove(gone, cleanup);
     if (error) return { error: `Couldn't delete ${name}'s worktree: ${error}` };
-    return { note: cleanup === 'all' ? `Deleted ${name}'s worktree and branch ${gone.branch}` : `Deleted ${name}'s worktree and kept branch ${wt.branch}` };
+    if (cleanup === 'worktree') return { note: `Deleted ${name}'s worktree${kept || ` and kept branch ${wt.branch}`}` };
+    return { note: `Deleted ${name}'s worktree and branch ${gone.branch}${kept && `,${kept}`}` };
   }
 
   /** What a worker's worktree holds, so whoever sends it home knows what deleting it would lose. */
@@ -487,9 +504,11 @@ export class WorkerManager {
   /** A worktree on the branch it's on now, with the office's own branch kept in `made`; the same one when nothing moved. */
   private async current(wt: Worktree): Promise<Worktree> {
     const live = await this.trees.branchOf(wt);
-    if (!live || live === wt.branch) return wt;
-    const made = wt.made ?? wt.branch;
-    return { ...wt, branch: live, made: live === made ? undefined : made };
+    if (!live) return wt;
+    let made = wt.made ?? (live === wt.branch ? undefined : wt.branch);
+    // Back on it, or renamed it (`git branch -m fix-x`): the branch it's on is the office's own.
+    if (made === live || (made && (await this.trees.renamedTo(made, live)))) made = undefined;
+    return live === wt.branch && made === wt.made ? wt : { ...wt, branch: live, made };
   }
 
   attach(id: string, clientId: string, name: string): { data: string; cols: number; rows: number } | undefined {
