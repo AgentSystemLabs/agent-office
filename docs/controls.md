@@ -23,6 +23,7 @@ Back to the [README](../README.md).
 | T / Enter | Chat |
 | G / 1–6 | Emote: hold G for the wheel (point and let go) or press 1–6 to wave, give a thumbs up, clap, dance, point or facepalm; everyone on your floor sees it |
 | / | Search the chat and every terminal on your floor |
+| Ctrl + K (⌘K on a Mac) | Command palette: find a worker, issue, PR, service, board, teammate or action; Enter opens it, Shift+Enter walks you there first |
 | V | Join voice; in voice, hold to talk (you're muted when you let go) |
 | M | Mute / unmute in voice |
 | Tab | The ☰ menu: every window, and what shows on screen |
