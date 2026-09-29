@@ -296,6 +296,7 @@ const telescope = new TelescopeView(
   camera,
   $('telescope-view'),
   $('telescope-exit'),
+  window,
   () => {
     player.enabled = false;
     player.clearKeys();

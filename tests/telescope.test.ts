@@ -18,9 +18,10 @@ test('telescope view restores its camera and callbacks across repeated visits', 
   const quaternion = camera.quaternion.clone();
   const overlay = { classList: new Classes() };
   const button = new EventTarget();
+  const pointer = new EventTarget();
   let enters = 0;
   let exits = 0;
-  const view = new TelescopeView(camera, overlay as never, button, () => enters++, () => exits++);
+  const view = new TelescopeView(camera, overlay as never, button, pointer, () => enters++, () => exits++);
 
   for (let visit = 0; visit < 3; visit++) {
     assert.equal(view.enter(), true);
@@ -28,6 +29,13 @@ test('telescope view restores its camera and callbacks across repeated visits', 
     assert.equal(camera.fov, 20);
     assert.notDeepEqual(camera.position.toArray(), position.toArray());
     assert.equal(overlay.classList.values.has('active'), true);
+
+    const aimed = camera.quaternion.clone();
+    const move = new Event('pointermove');
+    Object.defineProperties(move, { movementX: { value: 80 }, movementY: { value: -25 } });
+    pointer.dispatchEvent(move);
+    view.update();
+    assert.ok(camera.quaternion.angleTo(aimed) > 0.05, 'mouse movement aims the telescope');
 
     camera.position.set(99, 99, 99);
     camera.fov = 55;
