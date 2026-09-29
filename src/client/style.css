@@ -440,6 +440,9 @@ body.telescope-active #hud { visibility: hidden; }
 .modal.desk-changes header .branch { font-size: 13px; font-weight: 800; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
 .modal.desk-changes header .btn { padding: 4px 10px; font-size: 13px; }
 .modal.desk-changes header .close { width: 34px; padding: 0; }
+.changes-tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-bottom: 3px solid var(--ink); background: var(--paper-2); }
+.changes-tabs .btn { padding: 3px 10px; font-size: 13px; }
+.changes-tabs .btn small { font-weight: 700; opacity: .8; }
 .changes-body { flex: 1; min-height: 0; display: flex; }
 .changes-files { width: 320px; flex: none; border-right: 3px solid var(--ink); display: flex; flex-direction: column; background: var(--paper-2); min-height: 0; }
 .changes-files h4 { margin: 0; padding: 8px 12px; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border-bottom: 2px solid rgba(43,45,66,.15); }
@@ -800,6 +803,19 @@ a.when:hover { text-decoration: underline; }
 .ask-context { margin-top: 12px; font-size: 13px; }
 .ask-context summary { cursor: pointer; font-weight: 800; color: var(--muted); }
 .ask-context pre { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 ui-monospace, Menlo, monospace; background: var(--paper-2); border: 2px solid rgba(43, 45, 66, .2); border-radius: 10px; padding: 8px 10px; }
+/* Hiring across repositories: the other floors' projects to take on too. */
+.repo-picks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 0 26px; font-size: 13px; font-weight: 800; }
+.repo-picks > span { color: var(--muted); margin-right: 2px; }
+.modal label.repo-pick { display: inline-flex; gap: 5px; align-items: center; margin: 0; padding: 2px 10px 2px 6px; border: 2px solid var(--ink); border-radius: 999px; background: #fff; cursor: pointer; font-weight: 800; }
+.modal label.repo-pick:has(input:checked) { border-color: var(--accent); background: var(--paper-2); }
+.repo-pick input { margin: 0; accent-color: var(--accent); }
+/* O at the desk of a worker across repositories: a row per repository. */
+.repo-pulls { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.repo-pulls li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 3px solid var(--ink); border-radius: 12px; background: #fff; font-weight: 800; }
+.repo-pulls li .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repo-pulls li .name small { display: block; font-size: 12px; font-weight: 600; color: var(--muted); }
+.repo-pulls li .none { color: var(--muted); font-weight: 700; font-size: 13px; }
+.repo-pulls li .btn { padding: 3px 10px; font-size: 13px; }
 .modal label.ask-wt { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; cursor: pointer; }
 
 /* Markdown from GitHub (ui/markdown.ts) */

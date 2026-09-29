@@ -13,7 +13,7 @@ Back to the [README](../README.md).
 | B | Open a shared shell at an empty desk |
 | R | Resume a sleeping worker (or restart a shell) |
 | X | Send a worker home (frees the desk; a worker with its own worktree asks what to do with it) |
-| O | Open a pull request for a worker on its own branch, or see the one it has |
+| O | Open a pull request for a worker on its own branch, or see the one it has (a worker across several projects gets one in each) |
 | N | Go to the worker that has waited longest on someone; again for the next one |
 | F | Hang a picture from the web on a wall (scroll to size it, click to hang it) |
 | Q | Put back the issue card you're carrying, or drop the basketball |

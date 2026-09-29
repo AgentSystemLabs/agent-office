@@ -35,7 +35,7 @@ curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/i
 - **A floor per project.** Ride the elevator, pick one of your GitHub repos, and the office clones it and opens a floor for it. Every worker, board and queue on that floor works in that checkout.
 - **Workers at desks.** Walk up to an empty desk, press **E**, and pick Claude Code, Codex or OpenCode. The agent's live terminal shows on its laptop, and anyone can open it and type.
 - **You can see who needs you.** A worker that needs input or has finished jumps up and down and dings. Press **N** to go straight to the one that has waited longest.
-- **GitHub on the walls.** Issues and pull requests hang on cork boards. Hand an issue to a worker, queue tasks, give a worker its own git worktree and open its PR with one key.
+- **GitHub on the walls.** Issues and pull requests hang on cork boards. Hand an issue to a worker, queue tasks, give a worker its own git worktree and open its PR with one key. One task can span several projects: the worker gets a worktree of each, and a PR in each that links the others.
 - **Together.** Voice, chat, screen sharing on the lounge TV and a shared whiteboard.
 
 There's a lot more (a rooftop bar, an office dog, an arcade): see [docs/features.md](docs/features.md).

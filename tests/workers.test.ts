@@ -1092,7 +1092,7 @@ test('a worktree worker that makes its own branch is followed there: O finds the
   assert.deepEqual(saved.find((w) => w.id === worker.id)?.worktree, info.worktree);
   // O at the desk: the PR it opened, not "has no commits on office/… yet".
   const pr = await workers.openPr(worker.id, 'Cody');
-  assert.deepEqual(pr, { number: 242, url: 'https://github.com/o/r/pull/242', existed: true, dirty: false });
+  assert.deepEqual(pr, { prs: [{ number: 242, url: 'https://github.com/o/r/pull/242', existed: true, dirty: false }], failed: [] });
   assert.deepEqual(workers.get(worker.id)?.pr, { number: 242, url: 'https://github.com/o/r/pull/242' });
   // Sent home: the worktree goes, with its branch and the office's (which holds nothing fix-x lacks).
   const home = await workers.kill(worker.id, 'all');

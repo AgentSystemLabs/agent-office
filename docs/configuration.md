@@ -44,7 +44,8 @@ agent-office prune [dir] [-n|--dry-run] [-f|--force]
 
   Removes leftover worker worktrees under .agent-office/worktrees/ and their
   office/* branches, in one floor's checkout (dir). Anything with uncommitted changes or unpushed commits is
-  kept unless --force is given.
+  kept unless --force is given. A worker across several projects has worktrees of them in its
+  own floor's workspace: prune each project to clear those out.
 
 agent-office accounts [list | invite [name] [--admin] | revoke <name> | role <name> admin|member | password on|off] [-d <dir>]
 

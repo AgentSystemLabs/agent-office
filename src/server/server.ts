@@ -9,7 +9,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Config } from './config.js';
 import { Auth, type Session } from './auth.js';
 import { Accounts } from './accounts.js';
-import { childEnv, resolveCommand } from './workers.js';
+import { MAX_REPOS, childEnv, resolveCommand, type RepoSource } from './workers.js';
 import { SignIns, type GhAs } from './signins.js';
 import { agentProviders, configuredProvider, OPEN_CODE_MODEL_MAX } from './agents.js';
 import { createOpenCodeModelCatalogue } from './models.js';
@@ -173,6 +173,8 @@ function send(res: http.ServerResponse, status: number, body: unknown, headers: 
 }
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
+/** Which of a worker's repositories a Changes message is about: another floor's (see WorkerInfo.repos), or none for its own. */
+const repoOf = (v: unknown) => str(v, 64) || undefined;
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 /** Where someone going to another floor says they arrive (see `floor.go`): on the grounds, or nowhere (the elevator). */
 function arrivalSpot(at: unknown): { x: number; y: number; z: number; rotY: number } | undefined {
@@ -508,9 +510,16 @@ export async function startServer(cfg: Config) {
     },
     peers: (floor) => [...clients.values()].filter((c) => c.peer.floor === floor.id).map((c) => c.peer),
     leaveOnMerge: () => leaveOnMerge.on,
+    floor: (id) => floors.get(id),
+    pullsChanged: (floor) => {
+      for (const f of floors.values()) if (f !== floor && worksIn(f, floor)) f.sendLandedHome();
+    },
+    lent: (floor) => [...floors.values()].some((f) => f !== floor && worksIn(f, floor)),
     runAs: signins,
     ghAs: (owner) => (owner ? signins.ghAs(owner) : undefined),
   };
+  /** Whether a worker on `from` works in `on`'s project too (see WorkerInfo.repos). */
+  const worksIn = (from: Floor, on: Floor) => from.workers.list().some((w) => w.repos?.some((r) => r.floor === on.id));
   const openFloor = (def: FloorDef): Floor | undefined => {
     if (!existsSync(def.dir)) {
       console.error(`agent-office: the ${def.name} floor's checkout is gone (${def.dir}) — it stays closed until it's back`);
@@ -841,7 +850,7 @@ export async function startServer(cfg: Config) {
         if (!workerId || !file || (side !== 'old' && side !== 'new')) return send(res, 400, { error: 'Bad request' });
         if (!floor) return send(res, 404, { error: 'No such floor' });
         if (!floor.workers.get(workerId)) return send(res, 404, { error: 'No such worker' });
-        const r = await floor.changes.file(workerId, file, side);
+        const r = await floor.changes.file(workerId, file, side, repoOf(url.searchParams.get('repo')));
         if ('error' in r) return send(res, r.status, { error: r.error });
         res.writeHead(200, {
           'content-type': r.type,
@@ -1238,11 +1247,12 @@ export async function startServer(cfg: Config) {
    * Worktrees.fetch): right away when that was just fetched, else after a fetch, if `c` and the floor
    * are still there.
    */
-  const withFreshBase = (c: Client, floor: Floor, go: () => void) => {
-    const fetching = floor.workers.fetchBase();
-    if (!fetching) return go();
-    void fetching.then(() => {
-      if (c.out || c.ws.readyState !== WebSocket.OPEN || floors.get(floor.id) !== floor) return;
+  const withFreshBase = (c: Client, floor: Floor | Floor[], go: () => void) => {
+    const all = Array.isArray(floor) ? floor : [floor];
+    const fetching = all.map((f) => f.workers.fetchBase()).filter((p) => p !== undefined);
+    if (!fetching.length) return go();
+    void Promise.all(fetching).then(() => {
+      if (c.out || c.ws.readyState !== WebSocket.OPEN || all.some((f) => floors.get(f.id) !== f)) return;
       go();
     });
   };
@@ -1481,15 +1491,25 @@ export async function startServer(cfg: Config) {
         }
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
         const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
+        // Other floors' projects to work in too, each in a worktree of its own.
+        const repos: RepoSource[] = [];
+        for (const id of Array.isArray(msg.repos) ? [...new Set(msg.repos.slice(0, MAX_REPOS + 1).map((x) => str(x, 64)))] : []) {
+          const other = floors.get(id);
+          if (!other || other === floor) return warn(c, other ? "The worker's own floor's project is already in its workspace" : 'That project is no longer in the building');
+          repos.push({ floor: other.id, name: other.def.name, repo: other.def.repo, dir: other.dir });
+        }
         // A shell is theirs too: `claude auth login` or `gh auth login` typed there signs them in.
         const hire = () => {
-          const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort, undefined, c.accountId);
+          const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort, undefined, c.accountId, repos);
           const issue = kind === 'agent' ? issueNumber(msg.issue) : undefined;
+          const across = repos.length ? ` across ${[floor.def.name, ...repos.map((x) => x.name)].join(' + ')}` : '';
           if (typeof r === 'string') warn(c, r);
-          else toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${issue ? ` for issue #${issue}` : r.prompt ? ' with a task' : ''}`);
+          else toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${issue ? ` for issue #${issue}` : r.prompt ? ' with a task' : ''}${across}`);
           if (typeof r !== 'string' && issue) takeIssue(c, floor, issue);
         };
-        withSignIn(c, kind === 'agent' ? claudeFor(msg.provider ?? floor.workers.officeDefault.provider) : undefined, () => (msg.worktree === true ? withFreshBase(c, floor, hire) : hire()));
+        // Every project it gets a worktree of starts from what's on GitHub.
+        const fresh = [floor, ...repos.map((x) => floors.get(x.floor)!)];
+        withSignIn(c, kind === 'agent' ? claudeFor(msg.provider ?? floor.workers.officeDefault.provider) : undefined, () => (msg.worktree === true ? withFreshBase(c, fresh, hire) : hire()));
         break;
       }
       case 'worker.resume': {
@@ -1564,14 +1584,25 @@ export async function startServer(cfg: Config) {
         const { floor, wid } = w;
         withGitHub(c, (as) => void floor.workers.openPr(wid, who, as).then((r) => {
           if (typeof r === 'string') return warn(c, r);
-          const name = floor.workers.get(wid)?.name ?? 'the worker';
-          toastFloor(floor, r.existed ? `${name}'s branch already has PR #${r.number}` : `${who} opened PR #${r.number} for ${name}`);
-          if (r.dirty) warn(c, `${name} still has uncommitted changes in its worktree — they are not in the PR`);
+          const info = floor.workers.get(wid);
+          const name = info?.name ?? 'the worker';
+          const [one] = r.prs;
+          if (r.prs.length === 1 && !one.repo) toastFloor(floor, one.existed ? `${name}'s branch already has PR #${one.number}` : `${who} opened PR #${one.number} for ${name}`);
+          else {
+            // Across repositories: one line for them all.
+            const list = r.prs.map((p) => `${p.repo} #${p.number}`).join(', ');
+            toastFloor(floor, r.prs.every((p) => p.existed) ? `${name}'s pull requests are already open: ${list}` : `${who} opened ${name}'s pull requests: ${list}`);
+          }
+          const dirty = r.prs.filter((p) => p.dirty);
+          if (dirty.length) warn(c, `${name} still has uncommitted changes in ${dirty.some((p) => p.repo) ? `its worktree${dirty.length > 1 ? 's' : ''} of ${dirty.map((p) => p.repo).join(', ')}` : 'its worktree'} — they are not in the PR`);
+          for (const f of r.failed) warn(c, f);
           // Put it on the board now rather than at the next poll. A refresh already in flight
           // returns at once and can miss it, so look again shortly after.
+          const own = r.prs.find((p) => !p.repo || p.repo === info?.worktree?.path.split(/[\\/]/).pop());
           void floor.github.refresh().then(() => {
-            if (!floor.github.pulls.items.some((p) => p.number === r.number)) setTimeout(() => void floor.github.refresh(), 3000);
+            if (own && !floor.github.pulls.items.some((p) => p.number === own.number)) setTimeout(() => void floor.github.refresh(), 3000);
           });
+          for (const x of info?.repos ?? []) void floors.get(x.floor)?.github.refresh();
         }));
         break;
       }
@@ -1855,26 +1886,27 @@ export async function startServer(cfg: Config) {
       }
       case 'changes.watch': {
         const w = worker(msg.workerId);
-        if (w) w.floor.changes.watch(w.wid, c.id);
+        if (w) w.floor.changes.watch(w.wid, c.id, repoOf(msg.repo));
         break;
       }
       case 'changes.unwatch': {
         const wid = str(msg.workerId, 32);
         // Its worker may have gone home already; stop watching wherever it was.
-        for (const f of floors.values()) f.changes.unwatch(wid, c.id);
+        for (const f of floors.values()) f.changes.unwatch(wid, c.id, repoOf(msg.repo));
         break;
       }
       case 'changes.diff': {
         const workerId = str(msg.workerId, 32);
         const file = str(msg.path, 4096);
+        const repo = repoOf(msg.repo);
         const floor = workerFloor(workerId);
         if (!floor) {
-          sendTo(c, { t: 'changes.diff', workerId, path: file, diff: '', truncated: false, error: 'No such worker' });
+          sendTo(c, { t: 'changes.diff', workerId, repo, path: file, diff: '', truncated: false, error: 'No such worker' });
           break;
         }
-        void floor.changes.diff(workerId, file).then((r) => {
-          if (typeof r === 'string') sendTo(c, { t: 'changes.diff', workerId, path: file, diff: '', truncated: false, error: r });
-          else sendTo(c, { t: 'changes.diff', workerId, path: file, ...r });
+        void floor.changes.diff(workerId, file, repo).then((r) => {
+          if (typeof r === 'string') sendTo(c, { t: 'changes.diff', workerId, repo, path: file, diff: '', truncated: false, error: r });
+          else sendTo(c, { t: 'changes.diff', workerId, repo, path: file, ...r });
         });
         break;
       }
@@ -1882,17 +1914,17 @@ export async function startServer(cfg: Config) {
         const w = worker(msg.workerId);
         // Committed as whoever pressed it: their GitHub name and email, once they've signed in to it.
         const env = c.accountId ? signins.apply(c.accountId, childEnv(), [], 'github') : undefined;
-        if (w) void w.floor.changes.commit(w.wid, str(msg.message, 5000), who, env).then((err) => warn(c, err));
+        if (w) void w.floor.changes.commit(w.wid, str(msg.message, 5000), who, env, repoOf(msg.repo)).then((err) => warn(c, err));
         break;
       }
       case 'changes.discard': {
         const w = worker(msg.workerId);
-        if (w) void w.floor.changes.discard(w.wid, typeof msg.path === 'string' ? str(msg.path, 4096) : undefined, who).then((err) => warn(c, err));
+        if (w) void w.floor.changes.discard(w.wid, typeof msg.path === 'string' ? str(msg.path, 4096) : undefined, who, repoOf(msg.repo)).then((err) => warn(c, err));
         break;
       }
       case 'changes.pr': {
         const w = worker(msg.workerId);
-        if (w) withGitHub(c, (as) => void w.floor.changes.pullRequest(w.wid, str(msg.title, 300), str(msg.body, 20000), who, as?.env).then((err) => warn(c, err)));
+        if (w) withGitHub(c, (as) => void w.floor.changes.pullRequest(w.wid, str(msg.title, 300), str(msg.body, 20000), who, as?.env, repoOf(msg.repo)).then((err) => warn(c, err)));
         break;
       }
       case 'upgrade.check':

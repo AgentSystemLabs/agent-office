@@ -46,6 +46,7 @@ import { $, h, clip, closeAllModals, doingNow, modalOpen, onDoingChange, onModal
 import { openTerminal, openTerminalFor, routeTerminalMessage, type TerminalFind } from './ui/terminal';
 import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
+import { openRepoPulls, workerRepos } from './ui/repos';
 import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage, worktreePref } from './ui/prompt';
 import { issuePrompt, openBoard } from './ui/boards';
 import { openIssue, openPull, routePullMessage } from './ui/pull';
@@ -808,7 +809,7 @@ net.onMessage((msg) => {
       const openId = openTerminalFor();
       if (openId && store.workers.has(openId)) net.send({ t: 'worker.attach', workerId: openId });
       const watching = openChangesFor();
-      if (watching && store.workers.has(watching)) net.send({ t: 'changes.watch', workerId: watching });
+      if (watching && store.workers.has(watching.workerId)) net.send({ t: 'changes.watch', ...watching });
       renderProject();
       hud.refresh();
       // Back from a restart on another version: this page's code is stale, so load the new one.
@@ -1592,13 +1593,18 @@ function officeIsFull(): boolean {
   return true;
 }
 
-function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string, effort?: AgentEffort, issue?: number) {
-  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort, issue });
+function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string, effort?: AgentEffort, issue?: number, repos?: string[]) {
+  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort, issue, repos: repos?.length ? repos : undefined });
   // The moment notifications start to matter: ask once (it has to come from a key press or click).
   if (settings.notify && notifyPermission() === 'default' && !askedToNotify) {
     askedToNotify = true;
     void askNotifyPermission();
   }
+}
+
+/** The building's other projects a new worker can work in too, each in a worktree of its own (see WorkerInfo.repos). */
+function repoChoices(): { id: string; name: string }[] {
+  return store.floors.filter((f) => f.id !== store.floor && f.branch && !f.cloning).map((f) => ({ id: f.id, name: f.name }));
 }
 
 function openShell(deskId: string) {
@@ -1618,7 +1624,8 @@ function promptAtDesk(deskId: string) {
       submitLabel: 'Hire & start',
       providerOption: true,
       worktreeOption: !!store.project?.branch,
-      onSubmit: (text, o) => hire(deskId, text, o.worktree, o.provider, o.model, o.effort),
+      repoOptions: repoChoices(),
+      onSubmit: (text, o) => hire(deskId, text, o.worktree, o.provider, o.model, o.effort, undefined, o.repos),
     });
   } else if (isAsleep(w.status)) {
     toast(`${w.name} is asleep — press R to resume first`, 'warn');
@@ -1651,7 +1658,8 @@ function hireAtDesk(deskId: string) {
     allowEmpty: true,
     providerOption: true,
     worktreeOption: !!store.project?.branch,
-    onSubmit: (text, o) => hire(deskId, text || undefined, o.worktree, o.provider, o.model, o.effort),
+    repoOptions: repoChoices(),
+    onSubmit: (text, o) => hire(deskId, text || undefined, o.worktree, o.provider, o.model, o.effort, undefined, o.repos),
   });
 }
 
@@ -1674,6 +1682,7 @@ function killWorker(id: string) {
       name: w.name,
       where,
       worktree: w.worktree,
+      repos: w.repos?.length ? [w.worktree.path.split('/').pop() ?? 'its own', ...w.repos.map((r) => r.name)] : undefined,
       ask: () => net.send({ t: 'worker.worktree', workerId: id }),
       onConfirm: (cleanup) => net.send({ t: 'worker.kill', workerId: id, cleanup }),
     });
@@ -1728,6 +1737,7 @@ function prReady(w: WorkerInfo) {
 
 /** O at a desk: see the worker's pull request, or push its branch and open one. */
 function pullRequestFor(w: WorkerInfo) {
+  if (w.repos?.length) return pullRequestsFor(w);
   if (w.pr) {
     const it = store.pulls.items.find((p) => p.number === w.pr!.number);
     if (it) openPull(it, net, boardActions());
@@ -1739,6 +1749,31 @@ function pullRequestFor(w: WorkerInfo) {
   if (!prReady(w)) return toast(`${w.name} is still ${STATUS_LABEL[w.status]} — wait until it's done`, 'warn');
   toast(`Pushing ${w.worktree.branch} and opening a pull request…`);
   net.send({ t: 'worker.pr', workerId: w.id });
+}
+
+/**
+ * O at the desk of a worker across repositories: with no pull request yet, the office opens one in
+ * each repository it committed to (and lists them all in each one). Once it has one, O shows each
+ * repository's, with a button for the ones still missing.
+ */
+function pullRequestsFor(w: WorkerInfo) {
+  const open = () => {
+    const now = store.workers.get(w.id);
+    if (!now || now.prOpening) return;
+    if (!prReady(now)) return toast(`${now.name} is still ${STATUS_LABEL[now.status]} — wait until it's done`, 'warn');
+    toast(`Pushing ${now.worktree?.branch ?? 'its branch'} in each of ${now.name}'s repositories and opening pull requests…`);
+    net.send({ t: 'worker.pr', workerId: now.id });
+  };
+  if (!workerRepos(w).some((r) => r.pr)) return open();
+  openRepoPulls(w.id, {
+    openPull: (number, url) => {
+      const it = store.pulls.items.find((p) => p.number === number);
+      if (it) openPull(it, net, boardActions());
+      else window.open(url, '_blank', 'noopener');
+    },
+    openMissing: open,
+    changes: (repo) => openWorkerChanges(w.id, repo),
+  });
 }
 
 /** Puts you in front of a desk, looking at it: the PR board's "Go to desk". */
@@ -1846,10 +1881,10 @@ function showSearch() {
   openSearch(openWorkerTerminal);
 }
 
-/** What the worker changed: changed files, diff, commit / discard / open a PR. */
-function openWorkerChanges(id: string) {
+/** What the worker changed: changed files, diff, commit / discard / open a PR; `repo` for another floor's repository it works in. */
+function openWorkerChanges(id: string, repo?: string) {
   if (!store.workers.has(id)) return;
-  openChanges(net, id, () => openWorkerTerminal(id));
+  openChanges(net, id, () => openWorkerTerminal(id), repo);
 }
 
 function showQueue() {
@@ -1912,9 +1947,10 @@ function sendToWorker(title: string, text: { context?: string; initial?: string 
     workers: awake.map((w) => ({ id: w.id, name: w.name, color: w.color, status: w.status })),
     worktreeOption: !!store.project?.branch,
     providerOption: true,
-    onSubmit: (prompt, to, worktree, provider, model, effort) => {
+    repoOptions: repoChoices(),
+    onSubmit: (prompt, to, worktree, provider, model, effort, repos) => {
       if (to) net.send({ t: 'worker.prompt', workerId: to, prompt });
-      else if (desk) hire(desk, prompt, worktree, provider, model, effort);
+      else if (desk) hire(desk, prompt, worktree, provider, model, effort, undefined, repos);
     },
   });
 }
@@ -2828,7 +2864,7 @@ function deskHint(deskId: string): Hint {
   const spent = w.kind === 'agent' && w.usage ? usageLabel(w.usage, workerProvider) : '';
   const shell = w.kind === 'shell';
   return {
-    k: w.status + w.id + (w.pr?.number ?? '') + (w.prOpening ? '!' : '') + doing + spent,
+    k: w.status + w.id + (w.pr?.number ?? '') + (w.repos?.map((r) => r.pr?.number ?? '-').join() ?? '') + (w.prOpening ? '!' : '') + doing + spent,
     parts: [
       h('span.title', {}, `${w.name} · ${STATUS_LABEL[w.status]}`),
       doing ? aside(doing) : '',
@@ -2836,10 +2872,19 @@ function deskHint(deskId: string): Hint {
       key('E', 'Open terminal'),
       key('C', 'Changes'),
       isAsleep(w.status) ? key('R', shell ? 'Restart' : 'Resume') : key('P', shell ? 'Run command' : 'Prompt'),
-      w.pr ? key('O', `PR #${w.pr.number}`) : w.prOpening ? aside('⏳ Opening PR…') : prReady(w) ? key('O', 'Open PR') : '',
+      w.repos?.length ? reposKey(w) : w.pr ? key('O', `PR #${w.pr.number}`) : w.prOpening ? aside('⏳ Opening PR…') : prReady(w) ? key('O', 'Open PR') : '',
       key('X', 'Send home'),
     ],
   };
+}
+
+/** The O in the desk hint of a worker across repositories: its pull requests so far, or opening them. */
+function reposKey(w: WorkerInfo) {
+  const repos = workerRepos(w);
+  const prs = repos.filter((r) => r.pr).length;
+  if (w.prOpening) return aside('⏳ Opening PRs…');
+  if (prs) return key('O', `${prs} of ${repos.length} PRs`);
+  return prReady(w) ? key('O', `Open PRs (${repos.length} repos)`) : '';
 }
 
 function stationHint(deskId: string): Hint {
