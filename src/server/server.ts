@@ -1154,7 +1154,11 @@ export async function startServer(cfg: Config) {
         if (c.peer.vehicle || !VEHICLE_IDS.has(msg.id) || c.peer.floor === ROOF) break;
         const driver = [...clients.values()].find((other) => other.peer.floor === c.peer.floor && other.peer.vehicle?.id === msg.id && other.peer.vehicle.driver);
         const pose = driver?.peer.vehicle ?? VEHICLES.find((v) => v.id === msg.id)!;
-        if (Math.hypot(c.peer.x - pose.x, c.peer.z - pose.z) > 3) break;
+        const dx = c.peer.x - pose.x;
+        const dz = c.peer.z - pose.z;
+        const side = dx * Math.cos(pose.rotY) - dz * Math.sin(pose.rotY);
+        const along = dx * Math.sin(pose.rotY) + dz * Math.cos(pose.rotY);
+        if (Math.hypot(Math.max(0, Math.abs(side) - 1), Math.max(0, Math.abs(along) - 2.3)) > 1.25) break;
         c.peer.vehicle = { id: msg.id, driver: !driver, x: pose.x, z: pose.z, rotY: pose.rotY, speed: 'speed' in pose ? pose.speed : 0 };
         broadcast({ t: 'peer.update', peer: c.peer });
         break;

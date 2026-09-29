@@ -565,8 +565,14 @@ function nearestVehicle(): string | undefined {
   let best: { id: string; d: number } | undefined;
   for (const def of VEHICLES) {
     const pose = driverFor(def.id)?.vehicle ?? def;
-    const d = Math.hypot(player.pos.x - pose.x, player.pos.z - pose.z);
-    if (d < 2.4 && (!best || d < best.d)) best = { id: def.id, d };
+    // Distance to the rotated body, rather than its center: at the nose the collider keeps a
+    // pedestrian more than half the car's 4.6 m length from its center.
+    const dx = player.pos.x - pose.x;
+    const dz = player.pos.z - pose.z;
+    const side = dx * Math.cos(pose.rotY) - dz * Math.sin(pose.rotY);
+    const along = dx * Math.sin(pose.rotY) + dz * Math.cos(pose.rotY);
+    const d = Math.hypot(Math.max(0, Math.abs(side) - 1), Math.max(0, Math.abs(along) - 2.3));
+    if (d < 1.25 && (!best || d < best.d)) best = { id: def.id, d };
   }
   return best?.id;
 }
