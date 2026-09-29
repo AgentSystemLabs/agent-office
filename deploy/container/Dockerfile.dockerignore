@@ -1,4 +1,5 @@
-# Only what the image builds from (deploy/railway.sh uploads with .gitignore applied too).
+# Only what the image builds from (deploy/railway.sh uploads with .gitignore applied too, and
+# deploy/fly.sh hands this file to Fly's builder).
 node_modules
 dist
 .agent-office

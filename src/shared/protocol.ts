@@ -297,6 +297,8 @@ export interface PeerInfo {
   doing?: string;
   /** Reading something off the bookshelf: an open book in their hands, its pages turning. */
   reading?: boolean;
+  /** On the 2D view (/lite: a phone, say, or a slow computer): in the office, but not standing anywhere in it. */
+  lite?: boolean;
 }
 
 /** A styled run of text on a terminal row: [text, fg, bg, flags]. */
@@ -858,7 +860,7 @@ export interface ServicesState {
   port: number;
   /** How to run the script that deployed the office, as in TeamState. */
   deploy?: string;
-  /** Where teammates tunnel to (offices deployed with deploy/aws.sh or deploy/railway.sh), as in TeamState */
+  /** Where teammates tunnel to (offices deployed with deploy/aws.sh, deploy/railway.sh, deploy/fly.sh or deploy/dokploy.sh), as in TeamState */
   ssh?: string;
   /** The office's name on its Tailscale network: each server is also on https://<it>:<port> there. */
   tailnet?: string;

@@ -3,6 +3,11 @@ import { lastFloor, store, type Profile, type Spot } from './state';
 
 type Handler = (msg: ServerMsg) => void;
 
+/** The sign-in page, coming back to the 2D view afterwards if that's where you are (see login.ts). */
+export function loginUrl(): string {
+  return location.pathname === '/lite' ? '/login?next=/lite' : '/login';
+}
+
 export class Net {
   private ws: WebSocket | null = null;
   private handlers: Handler[] = [];
@@ -17,6 +22,8 @@ export class Net {
     private profile: () => Profile,
     /** Where you are (or were, before this page), to be put back in the same spot. */
     private where: () => Spot | null,
+    /** On the 2D view: in the office without standing anywhere in it (see PeerInfo.lite). */
+    private lite = false,
   ) {}
 
   onMessage(h: Handler) {
@@ -34,6 +41,7 @@ export class Net {
     // Back to the floor you were on (after a reload or a restart), in the spot you were in there.
     const floor = store.floor ?? lastFloor();
     if (floor) q.set('floor', floor);
+    if (this.lite) q.set('lite', '1');
     const at = this.where();
     if (floor && at?.floor === floor) {
       for (const k of ['x', 'y', 'z'] as const) q.set(k, at[k].toFixed(2));
@@ -64,7 +72,7 @@ export class Net {
       try {
         const res = await fetch('/api/whoami', { cache: 'no-store' });
         if (res.status === 401) {
-          location.href = '/login';
+          location.href = loginUrl();
           return;
         }
       } catch {

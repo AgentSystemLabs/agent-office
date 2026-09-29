@@ -35,7 +35,7 @@ export interface Listener extends Pos {
   fz: number;
 }
 
-// The kitchen props (office.ts puts the kitchen at x -14.5, z 12.2).
+// The kitchen props (kitchen.ts puts the kitchen at x -14.5, z 12.2).
 const COFFEE_MACHINE: Pos = { x: -15.7, y: 1.4, z: 12.2 };
 const FRIDGE: Pos = { x: -11.3, y: 1.1, z: 12.2 };
 /** Just outside the office's windows (not the loft's). */
@@ -397,6 +397,34 @@ export class OfficeSound {
     if (!this.ctx) return;
     this.play(this.buf.rustle, { gain: 0.5, rate: rand(1.1, 1.3) });
     this.count('paper');
+  }
+
+  /**
+   * A page of the book in your hands turning over, at the bookshelf: a soft swish that rises as the
+   * page sweeps through the air and falls as it settles, then a light pat as it lands. Quiet, since
+   * it comes every screenful you scroll.
+   */
+  pageTurn() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count('pageTurn');
+    const t0 = ctx.currentTime + 0.005;
+    const len = rand(0.24, 0.32);
+    const swish = this.noise(this.buf.white);
+    const band = biquad(ctx, 'bandpass', 1000, 0.8);
+    band.frequency.setValueAtTime(rand(800, 1100), t0);
+    band.frequency.exponentialRampToValueAtTime(rand(2400, 3000), t0 + len * 0.6);
+    band.frequency.exponentialRampToValueAtTime(1400, t0 + len);
+    const g = ctx.createGain();
+    envelope(g.gain, t0, [
+      [len * 0.3, 0.075],
+      [len * 0.6, 0.13],
+      [len, 0],
+    ]);
+    swish.connect(band).connect(biquad(ctx, 'lowpass', 4500, 0.7)).connect(g).connect(this.ambience);
+    swish.start(t0, rand(0, 4.5));
+    swish.stop(t0 + len + 0.02);
+    this.play(pick(this.buf.steps), { gain: 0.08, rate: rand(2.4, 2.8), when: t0 + len * 0.85 });
   }
 
   /** Someone else's footstep, on the office floor unless `y` says where else. */
