@@ -301,7 +301,7 @@ export class Dog {
       return pivot;
     };
     for (const sx of [-1, 1]) {
-      this.legs.front.push(leg(this.torso, sx * 0.085, SHOULDER[0], SHOULDER[1], 0.045));
+      this.legs.front.push(leg(this.torso, sx * 0.075, SHOULDER[0], SHOULDER[1] - 0.15, 0.045));
       this.legs.rear.push(leg(this.hips, sx * 0.095, HIP_Y + SHOULDER[0], HIP_Z, 0.055));
     }
     this.root.traverse((o) => ((o as THREE.Mesh).castShadow = true));
