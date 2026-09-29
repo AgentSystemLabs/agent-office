@@ -260,6 +260,14 @@ button { font-family: inherit; }
 .golf-last { position: absolute; top: -2px; bottom: -2px; width: 3px; margin-left: -1px; background: var(--ink); }
 .golf-info { font-weight: 800; font-variant-numeric: tabular-nums; }
 #hud:has(.golf:not(.hidden)) #toasts { translate: 0 48px; }
+/* At the rooftop bar's dart board or axe lane (see throwing.ts): the meter with its green, and the round so far. */
+.throw { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); width: min(320px, calc(100vw - 32px)); padding: 8px 12px 9px; display: grid; gap: 6px; font-size: 13px; font-weight: 900; text-align: center; pointer-events: none !important; }
+.throw-meter { position: relative; height: 16px; border: 3px solid var(--ink); border-radius: 999px; background: #f1e4d3; overflow: hidden; }
+.throw-sweet { position: absolute; top: 0; bottom: 0; background: var(--good); }
+.throw-fill { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, rgba(255,209,102,.3), rgba(255,138,91,.75)); border-right: 3px solid var(--ink); }
+.throw-last { position: absolute; top: -2px; bottom: -2px; width: 3px; margin-left: -1px; background: var(--ink); opacity: .45; }
+.throw-info { font-weight: 800; font-variant-numeric: tabular-nums; }
+#hud:has(.throw:not(.hidden)) #toasts { translate: 0 48px; }
 .caffeine.jittery .bar span { background: var(--bad); }
 @keyframes jitters { 50% { transform: translate(1px, -1px) rotate(-1.5deg); } }
 @media (prefers-reduced-motion: reduce) { .caffeine.jittery { animation: none; } }

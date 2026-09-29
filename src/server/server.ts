@@ -42,6 +42,7 @@ import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
 import { isThemePick } from '../shared/theme.js';
 import { PROMPTS, PROMPT_MAX, isPromptId } from '../shared/prompts.js';
 import { ROOF, isDrink } from '../shared/rooftop.js';
+import { isBarGame, tossOk, type BarGame } from '../shared/bargames.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -82,6 +83,8 @@ interface Client {
   lastGolfAt: number;
   /** When they last blew the DJ's air horn on the roof. */
   lastHornAt: number;
+  /** When they last threw a dart or an axe up there. */
+  lastTossAt: number;
   emotes: EmoteBucket;
   /** Has the floor's whiteboard open. */
   whiteboard: boolean;
@@ -100,6 +103,8 @@ interface Client {
 const SLOW_CLIENT_BYTES = 8 * 1024 * 1024;
 /** The least time between two 'term.typing' notes from one person in one terminal. */
 const TYPING_GAP_MS = 500;
+/** The quickest anyone throws one dart after another, or one axe (ms): a page's own wait is longer. */
+const TOSS_EVERY: Record<BarGame, number> = { darts: 250, axe: 700 };
 
 function findPublicDir(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -911,6 +916,7 @@ export async function startServer(cfg: Config) {
       lastGongAt: 0,
       lastGolfAt: 0,
       lastHornAt: 0,
+      lastTossAt: 0,
       // A little more lenient than the page's own, so emotes it let through aren't dropped for arriving bunched up.
       emotes: new EmoteBucket(EMOTE_EVERY * 0.8),
       whiteboard: false,
@@ -1096,6 +1102,7 @@ export async function startServer(cfg: Config) {
     Object.assign(c.peer, { x: spot.x, y: spot.y, z: spot.z, rotY: spot.rotY, moving: false });
     delete c.peer.seat;
     delete c.peer.golfing;
+    delete c.peer.throwing;
     // An issue card belongs to the board it came off, which is on the floor they left; a drink stays at the bar.
     delete c.peer.carrying;
     delete c.peer.drink;
@@ -1167,6 +1174,15 @@ export async function startServer(cfg: Config) {
           broadcast({ t: 'peer.act', id: c.id, golf }, c.id, true);
           break;
         }
+        if (msg.throwing !== undefined) {
+          // The dart board and the axe lane are up on the roof.
+          const game = isBarGame(msg.throwing) && c.peer.floor === ROOF ? msg.throwing : undefined;
+          if (game === c.peer.throwing) break;
+          if (game) c.peer.throwing = game;
+          else delete c.peer.throwing;
+          broadcast({ t: 'peer.act', id: c.id, throwing: game ?? null }, c.id, true);
+          break;
+        }
         const now = Date.now();
         if (now - c.lastActAt < 100) break;
         c.lastActAt = now;
@@ -1179,6 +1195,15 @@ export async function startServer(cfg: Config) {
         if (!c.peer.golfing || now - c.lastGolfAt < 800 || Math.abs(yaw) > 2 || loft < 0 || loft > 1.6 || power < 0 || power > 1) break;
         c.lastGolfAt = now;
         toNeighbors(c, { t: 'golf', id: c.id, yaw, loft, power });
+        break;
+      }
+      case 'toss': {
+        // Only at the line they stepped up to, and no quicker than anyone throws.
+        const now = Date.now();
+        const toss: { game: unknown; u: unknown; v: unknown; n: unknown } = { game: msg.game, u: msg.u, v: msg.v, n: msg.n };
+        if (!tossOk(toss) || c.peer.throwing !== toss.game || now - c.lastTossAt < TOSS_EVERY[toss.game]) break;
+        c.lastTossAt = now;
+        toNeighbors(c, { t: 'toss', id: c.id, game: toss.game, u: toss.u, v: toss.v, n: toss.n, stick: msg.stick === true });
         break;
       }
       case 'emote':
