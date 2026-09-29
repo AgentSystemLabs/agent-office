@@ -9,7 +9,7 @@ import { isDocPath, type DocFile, type DocList, type DocText } from '../shared/d
 
 // The bookshelf: every Markdown file in a floor's project, to read in the office (ui/bookshelf.ts).
 // Git says which files are the project's (tracked, or new and not ignored), so node_modules, build
-// output and the office's own .agent-office stay off the shelf. A folder that isn't a git checkout
+// output and the office's own .droid-office stay off the shelf. A folder that isn't a git checkout
 // is walked instead, skipping the usual suspects.
 
 const MAX_DOCS = 5000;

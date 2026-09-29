@@ -21,14 +21,14 @@ function fixture(t: { after(fn: () => void): void }, git: boolean) {
   put('docs/API.MD', 'Some intro\n\nThe API\n=======\n');
   put('src/index.ts', 'export {};\n');
   put('node_modules/dep/README.md', '# a dependency\n');
-  put('.agent-office/meetings/notes.md', '# office notes\n');
+  put('.droid-office/meetings/notes.md', '# office notes\n');
   put('ignored/secret.md', '# ignored\n');
   put('pic.png', 'not really a png');
   writeFileSync(path.join(root, 'outside.md'), '# outside\n');
   if (git) {
     const g = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'ignore' });
     g('init', '-q', '-b', 'main');
-    put('.gitignore', 'node_modules\nignored\n.agent-office/\n');
+    put('.gitignore', 'node_modules\nignored\n.droid-office/\n');
     g('add', 'README.md', 'docs', 'src', '.gitignore');
     g('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init');
     // New and not ignored: still the project's.

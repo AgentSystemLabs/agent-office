@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { MAX_DECOR, checkImageUrl, sanitizePlacement, type Decoration } from '../shared/decor.js';
 
-/** The pictures on the office walls, saved in .agent-office/decor.json. */
+/** The pictures on the office walls, saved in .droid-office/decor.json. */
 export class Decor {
   private items: Decoration[] = [];
   private file: string;
@@ -131,7 +131,7 @@ export class ImageProxy {
         signal: AbortSignal.timeout(TIMEOUT_MS),
         headers: {
           accept: 'image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5',
-          'user-agent': 'Mozilla/5.0 (compatible; agent-office; +https://github.com/nikships/droid-office)',
+          'user-agent': 'Mozilla/5.0 (compatible; droid-office; +https://github.com/nikships/droid-office)',
         },
       });
     } catch (err) {

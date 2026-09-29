@@ -14,7 +14,7 @@ interface Saved {
 
 /**
  * The building's holiday theme (Halloween, Christmas, none, or whichever the calendar says), picked
- * in ⚙️ Settings by anyone and kept in .agent-office/theme.json. Everyone sees the same one.
+ * in ⚙️ Settings by anyone and kept in .droid-office/theme.json. Everyone sees the same one.
  */
 export class Themes {
   private saved?: Saved;

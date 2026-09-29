@@ -43,7 +43,7 @@ let office: net.Socket | null = null;
 let stopping = false;
 let idleTimer: NodeJS.Timeout | undefined;
 
-process.title = 'agent-office-ptys';
+process.title = 'droid-office-ptys';
 // One bad message must never take down every worker's terminal.
 process.on('uncaughtException', (err) => console.error('pty host:', err));
 

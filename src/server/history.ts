@@ -11,7 +11,7 @@ type Serializer = InstanceType<typeof serialize.SerializeAddon>;
 /** How many chat lines the office keeps, across restarts. */
 export const CHAT_KEEP = 1000;
 
-/** The office chat, kept in .agent-office/chat.jsonl (a line per message) so a restart doesn't wipe it. */
+/** The office chat, kept in .droid-office/chat.jsonl (a line per message) so a restart doesn't wipe it. */
 export class ChatLog {
   private lines: ChatLine[] = [];
   private file: string;
@@ -85,7 +85,7 @@ export class ChatLog {
   }
 }
 
-/** Each worker's latest terminal output, kept in .agent-office/scrollback/<worker id>.ansi across restarts. */
+/** Each worker's latest terminal output, kept in .droid-office/scrollback/<worker id>.ansi across restarts. */
 export class ScrollbackStore {
   private dir: string;
 

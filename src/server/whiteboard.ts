@@ -18,7 +18,7 @@ export interface Applied {
 /**
  * A floor's whiteboard: the Excalidraw elements everyone drew, merged by version the way
  * Excalidraw's live collaboration merges them, and the pictures on it. Kept in the floor's
- * .agent-office/whiteboard folder: elements.json, and a file per picture under files/.
+ * .droid-office/whiteboard folder: elements.json, and a file per picture under files/.
  */
 export class Whiteboard {
   private elements = new Map<string, WbElement>();

@@ -4,10 +4,10 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { WORKTREES_DIR, Worktrees, describeWork, gitError } from './worktrees.js';
 
-const HELP = `agent-office prune — remove leftover worker worktrees and branches
+const HELP = `droid-office prune — remove leftover worker worktrees and branches
 
 Usage:
-  agent-office prune [dir] [options]
+  droid-office prune [dir] [options]
 
 Removes the worktrees under ${WORKTREES_DIR}/ and the office/* branches that
 no worker of the office in [dir] (default: current directory) uses any more.
@@ -25,7 +25,7 @@ interface SavedWorker {
   worktree?: { path: string; branch: string; base?: string };
 }
 
-/** `agent-office prune`: exits 0 when done, 1 when the dir is not a git repo, 2 for a usage error. */
+/** `droid-office prune`: exits 0 when done, 1 when the dir is not a git repo, 2 for a usage error. */
 export async function prune(argv: string[]): Promise<number> {
   let dir = process.cwd();
   let dryRun = false;
@@ -37,19 +37,19 @@ export async function prune(argv: string[]): Promise<number> {
     } else if (a === '-n' || a === '--dry-run') dryRun = true;
     else if (a === '-f' || a === '--force') force = true;
     else if (a.startsWith('-')) {
-      console.error(`agent-office prune: unknown option ${a}\n`);
+      console.error(`droid-office prune: unknown option ${a}\n`);
       process.stderr.write(HELP);
       return 2;
     } else dir = path.resolve(a);
   }
   if (!existsSync(dir)) {
-    console.error(`agent-office prune: directory not found: ${dir}`);
+    console.error(`droid-office prune: directory not found: ${dir}`);
     return 2;
   }
   try {
     execFileSync('git', ['rev-parse', '--git-dir'], { cwd: dir, stdio: 'ignore' });
   } catch {
-    console.error(`agent-office prune: not a git repository: ${dir}`);
+    console.error(`droid-office prune: not a git repository: ${dir}`);
     return 1;
   }
 
@@ -57,7 +57,7 @@ export async function prune(argv: string[]): Promise<number> {
   const ownerOfBranch = new Map<string, string>();
   const ownerOfPath = new Map<string, string>();
   try {
-    const saved = JSON.parse(readFileSync(path.join(dir, '.agent-office', 'workers.json'), 'utf8')) as SavedWorker[];
+    const saved = JSON.parse(readFileSync(path.join(dir, '.droid-office', 'workers.json'), 'utf8')) as SavedWorker[];
     for (const w of saved) {
       if (!w.worktree) continue;
       ownerOfBranch.set(w.worktree.branch, w.name ?? 'a worker');
@@ -87,7 +87,7 @@ export async function prune(argv: string[]): Promise<number> {
     }
   };
 
-  console.log(`\n  agent-office prune — ${dir}${dryRun ? ' (dry run)' : ''}\n`);
+  console.log(`\n  droid-office prune — ${dir}${dryRun ? ' (dry run)' : ''}\n`);
   const withWorktree = new Set<string>();
   for (const wt of worktrees) {
     if (wt.branch) withWorktree.add(wt.branch);

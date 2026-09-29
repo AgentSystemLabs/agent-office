@@ -47,8 +47,8 @@ fi
 export PATH="$HOME/.local/bin:$PATH"
 echo "    claude $(claude --version 2>/dev/null | head -1)"
 
-step "Writing secrets to /etc/agent-office/env"
-sudo install -d -m 755 /etc/agent-office
+step "Writing secrets to /etc/droid-office/env"
+sudo install -d -m 755 /etc/droid-office
 env_file=$(mktemp)
 {
   printf 'AGENT_OFFICE_CLAIM_TOKEN="%s"\n' "$CLAIM_TOKEN"
@@ -58,7 +58,7 @@ env_file=$(mktemp)
   [[ -n "${ANTHROPIC_API_KEY:-}" ]] && printf 'ANTHROPIC_API_KEY="%s"\n' "$ANTHROPIC_API_KEY"
   true
 } >"$env_file"
-sudo install -m 600 -o root -g root "$env_file" /etc/agent-office/env
+sudo install -m 600 -o root -g root "$env_file" /etc/droid-office/env
 rm -f "$env_file"
 
 if [[ -n "${GH_TOKEN:-}" ]]; then
@@ -73,30 +73,30 @@ fi
 [[ -n "${GIT_EMAIL:-}" ]] && git config --global user.email "$GIT_EMAIL"
 git config --global init.defaultBranch main
 
-step "Installing agent-office ($APP_REF) from $APP_REPO"
-sudo install -d -o "$USER" -g "$USER" /opt/agent-office
-if [[ -d /opt/agent-office/.git ]]; then
-  quiet git -C /opt/agent-office fetch --depth 1 origin "$APP_REF"
-  quiet git -C /opt/agent-office reset --hard FETCH_HEAD
+step "Installing droid-office ($APP_REF) from $APP_REPO"
+sudo install -d -o "$USER" -g "$USER" /opt/droid-office
+if [[ -d /opt/droid-office/.git ]]; then
+  quiet git -C /opt/droid-office fetch --depth 1 origin "$APP_REF"
+  quiet git -C /opt/droid-office reset --hard FETCH_HEAD
 else
-  quiet git clone --depth 1 --branch "$APP_REF" "$APP_REPO" /opt/agent-office
+  quiet git clone --depth 1 --branch "$APP_REF" "$APP_REPO" /opt/droid-office
 fi
-echo "    at $(git -C /opt/agent-office log -1 --format='%h %s')"
+echo "    at $(git -C /opt/droid-office log -1 --format='%h %s')"
 step "npm install (builds the office)"
-(cd /opt/agent-office && quiet npm install --no-audit --no-fund)
+(cd /opt/droid-office && quiet npm install --no-audit --no-fund)
 
-# The office keeps its data (password, accounts, the list of floors) in ~/agent-office and clones
+# The office keeps its data (password, accounts, the list of floors) in ~/droid-office and clones
 # projects into ~/workspace/<owner>/<repo>. It starts with no project: its elevator lists every
 # repository the GitHub token can see, and cloning one makes it the first floor.
-OFFICE_HOME="$HOME/agent-office"
+OFFICE_HOME="$HOME/droid-office"
 WORKSPACE="$HOME/workspace"
 mkdir -p "$WORKSPACE"
 # Offices provisioned before that ran in one project's checkout, with their data in it: they carry
 # on there, so nobody loses their account. That project can be taken off in the elevator.
 LEGACY_DIR=""
-if [[ -f /etc/agent-office/dir ]]; then
-  legacy=$(cat /etc/agent-office/dir)
-  [[ -f "$legacy/.agent-office/config.json" ]] && LEGACY_DIR="$legacy"
+if [[ -f /etc/droid-office/dir ]]; then
+  legacy=$(cat /etc/droid-office/dir)
+  [[ -f "$legacy/.droid-office/config.json" ]] && LEGACY_DIR="$legacy"
 fi
 if [[ -n "$LEGACY_DIR" ]]; then
   step "Keeping the office in $LEGACY_DIR (its accounts and floors are there)"
@@ -107,19 +107,19 @@ else
   OFFICE_ARGS=""
   setup_args=()
   # Once: after that, the folder is the admins' to move in ⚙️ Settings.
-  [[ -f "$OFFICE_HOME/.agent-office/projects-folder.json" ]] || setup_args+=(--projects "$WORKSPACE")
+  [[ -f "$OFFICE_HOME/.droid-office/projects-folder.json" ]] || setup_args+=(--projects "$WORKSPACE")
   [[ -n "${PROJECT_REPO:-}" ]] && setup_args+=(--project "$PROJECT_REPO")
   if [[ ${#setup_args[@]} -gt 0 ]]; then
     step "Setting up the office${PROJECT_REPO:+: cloning $PROJECT_REPO as a floor}"
     # It won't touch a running office's floors (the service restarts below anyway).
-    sudo systemctl stop agent-office >/dev/null 2>&1 || true
-    node /opt/agent-office/bin/agent-office.js setup "${setup_args[@]}" </dev/null ||
+    sudo systemctl stop droid-office >/dev/null 2>&1 || true
+    node /opt/droid-office/bin/droid-office.js setup "${setup_args[@]}" </dev/null ||
       echo "    (carrying on: add projects from the office's elevator)"
   fi
-  sudo rm -f /etc/agent-office/dir
+  sudo rm -f /etc/droid-office/dir
 fi
-echo "$OFFICE_HOME" | sudo tee /etc/agent-office/home >/dev/null
-[[ -n "$LEGACY_DIR" ]] && echo "$LEGACY_DIR" | sudo tee /etc/agent-office/dir >/dev/null
+echo "$OFFICE_HOME" | sudo tee /etc/droid-office/home >/dev/null
+[[ -n "$LEGACY_DIR" ]] && echo "$LEGACY_DIR" | sudo tee /etc/droid-office/dir >/dev/null
 
 step "Pre-accepting Claude Code onboarding and folder trust"
 # The workspace (every project is cloned under it), and an older office's own project.
@@ -154,14 +154,14 @@ echo "Agent Office tunnel is up: open http://localhost:4600 in your browser."
 echo "Keep this window open; Ctrl-C closes it."
 exec cat >/dev/null
 SH
-sudo install -m 755 "$tunnel_sh" /usr/local/bin/agent-office-tunnel
+sudo install -m 755 "$tunnel_sh" /usr/local/bin/droid-office-tunnel
 rm -f "$tunnel_sh"
 # Adds and removes teammates' keys. deploy/aws.sh (invite/uninvite/team) and the office's own
 # invite panel both go through it, and it's the only root thing the office user may run.
 team_sh=$(mktemp)
 cat >"$team_sh" <<'SH'
 #!/bin/bash
-# agent-office-team list | add <name> (public keys on stdin) | remove <name> | fingerprint
+# droid-office-team list | add <name> (public keys on stdin) | remove <name> | fingerprint
 set -euo pipefail
 [[ $EUID -eq 0 ]] || exec sudo -n "$0" "$@"
 KEYS=/home/office/.ssh/authorized_keys
@@ -169,40 +169,40 @@ PORT=4600
 cmd="${1:-}" who="${2:-}"
 valid() { [[ "$who" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$ ]] || { echo "not a valid name: $who" >&2; exit 64; }; }
 write() { install -m 644 -o root -g root "$1" "$KEYS"; rm -f "$1"; }
-exec 9>/run/agent-office-team.lock
+exec 9>/run/droid-office-team.lock
 flock 9
 case "$cmd" in
-  list) awk '{print $NF}' "$KEYS" | sed -n 's/^agent-office://p' | sort | uniq -c | awk '{print $2, $1}' ;;
+  list) awk '{print $NF}' "$KEYS" | sed -n 's/^droid-office://p' | sort | uniq -c | awk '{print $2, $1}' ;;
   add)
     valid
     # Each key may only open a tunnel to the office port: no shell, no other forwarding.
     keys=$(awk -v who="$who" -v port="$PORT" '
       $1 ~ /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)$/ &&
       $2 ~ /^[A-Za-z0-9+\/]+=*$/ {
-        printf "restrict,pty,port-forwarding,permitopen=\"localhost:%s\",permitopen=\"127.0.0.1:%s\",command=\"/usr/local/bin/agent-office-tunnel\" %s %s agent-office:%s\n", port, port, $1, $2, who
+        printf "restrict,pty,port-forwarding,permitopen=\"localhost:%s\",permitopen=\"127.0.0.1:%s\",command=\"/usr/local/bin/droid-office-tunnel\" %s %s droid-office:%s\n", port, port, $1, $2, who
       }')
     [[ -n "$keys" ]] || { echo "no SSH public keys given" >&2; exit 65; }
     tmp=$(mktemp)
-    { awk -v tag="agent-office:$who" '$NF != tag' "$KEYS"; printf '%s\n' "$keys"; } >"$tmp"
+    { awk -v tag="droid-office:$who" '$NF != tag' "$KEYS"; printf '%s\n' "$keys"; } >"$tmp"
     write "$tmp"
     printf '%s\n' "$keys" | wc -l ;;
   remove)
     valid
     tmp=$(mktemp)
-    awk -v tag="agent-office:$who" '$NF != tag' "$KEYS" >"$tmp"
+    awk -v tag="droid-office:$who" '$NF != tag' "$KEYS" >"$tmp"
     if cmp -s "$tmp" "$KEYS"; then rm -f "$tmp"; echo "$who isn't invited" >&2; exit 66; fi
     write "$tmp"
     pkill -u office || true ;;
   fingerprint) ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub | awk '{print $2}' ;;
-  *) echo "usage: agent-office-team list | add <name> | remove <name> | fingerprint" >&2; exit 64 ;;
+  *) echo "usage: droid-office-team list | add <name> | remove <name> | fingerprint" >&2; exit 64 ;;
 esac
 SH
-sudo install -m 755 -o root -g root "$team_sh" /usr/local/bin/agent-office-team
+sudo install -m 755 -o root -g root "$team_sh" /usr/local/bin/droid-office-team
 rm -f "$team_sh"
 sudoers=$(mktemp)
-echo "$USER ALL=(root) NOPASSWD: /usr/local/bin/agent-office-team" >"$sudoers"
+echo "$USER ALL=(root) NOPASSWD: /usr/local/bin/droid-office-team" >"$sudoers"
 sudo visudo -cqf "$sudoers"
-sudo install -m 440 -o root -g root "$sudoers" /etc/sudoers.d/agent-office
+sudo install -m 440 -o root -g root "$sudoers" /etc/sudoers.d/droid-office
 rm -f "$sudoers"
 # The same limits server-side, so they hold even for a key added by hand: local forwards to the
 # office port and nothing else (no shell, no -R listeners, no agent or X11 forwarding).
@@ -213,14 +213,14 @@ Match User office
     PermitOpen localhost:4600 127.0.0.1:4600
     AllowAgentForwarding no
     X11Forwarding no
-    ForceCommand /usr/local/bin/agent-office-tunnel
+    ForceCommand /usr/local/bin/droid-office-tunnel
 CONF
-sudo install -m 644 "$sshd_conf" /etc/ssh/sshd_config.d/agent-office.conf
+sudo install -m 644 "$sshd_conf" /etc/ssh/sshd_config.d/droid-office.conf
 rm -f "$sshd_conf"
 sudo sshd -t
 sudo systemctl reload ssh 2>/dev/null || sudo systemctl restart ssh
 
-step "Installing the agent-office service (restarts itself if it ever crashes)"
+step "Installing the droid-office service (restarts itself if it ever crashes)"
 unit=$(mktemp)
 cat >"$unit" <<UNIT
 [Unit]
@@ -234,7 +234,7 @@ Type=simple
 User=$USER
 Group=$USER
 WorkingDirectory=$RUN_DIR
-EnvironmentFile=/etc/agent-office/env
+EnvironmentFile=/etc/droid-office/env
 Environment=HOME=$HOME
 Environment=AGENT_OFFICE_HOME=$OFFICE_HOME
 Environment=SHELL=/bin/bash
@@ -243,7 +243,7 @@ Environment=PATH=$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/
 # Restart=always brings it back up on that version.
 Environment=AGENT_OFFICE_SELF_UPDATE=1
 # Loopback only: the office is reached through an SSH tunnel, never from the internet.
-ExecStart=/usr/bin/node /opt/agent-office/bin/agent-office.js ${OFFICE_ARGS}--host 127.0.0.1 --port 4600
+ExecStart=/usr/bin/node /opt/droid-office/bin/droid-office.js ${OFFICE_ARGS}--host 127.0.0.1 --port 4600
 Restart=always
 RestartSec=3
 # Stopping or restarting the office stops the office, not its workers: their terminals run in a
@@ -255,10 +255,10 @@ LimitNOFILE=65536
 [Install]
 WantedBy=multi-user.target
 UNIT
-sudo install -m 644 "$unit" /etc/systemd/system/agent-office.service
+sudo install -m 644 "$unit" /etc/systemd/system/droid-office.service
 rm -f "$unit"
 sudo systemctl daemon-reload
-sudo systemctl enable agent-office >/dev/null 2>&1
-sudo systemctl restart agent-office
+sudo systemctl enable droid-office >/dev/null 2>&1
+sudo systemctl restart droid-office
 
 step "Done"

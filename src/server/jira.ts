@@ -253,7 +253,7 @@ function writePrivate(file: string, data: unknown) {
 /**
  * The office's one Jira Cloud connection, shared by every floor: the site, the account's email and
  * its API token (a read-only one is enough: the office only reads), kept in the office's
- * .agent-office/jira.json (0600). The token never leaves this class: connection() is what browsers
+ * .droid-office/jira.json (0600). The token never leaves this class: connection() is what browsers
  * get, and API errors are redacted.
  */
 export class JiraOffice {
@@ -320,7 +320,7 @@ export class JiraOffice {
     try {
       writePrivate(this.file, this.saved);
     } catch (err) {
-      console.error(`agent-office: couldn't save the Jira connection: ${(err as Error).message}`);
+      console.error(`droid-office: couldn't save the Jira connection: ${(err as Error).message}`);
     }
   }
 
@@ -349,7 +349,7 @@ export interface FloorJiraEvents {
 /**
  * One floor's Jira epic, shown read-only as the issue board's Jira tab: every direct child of the
  * epic, in To Do, In Progress and Done by status category. Kept in the floor's
- * .agent-office/jira-epic.json. Everything goes through the office's connection (JiraOffice).
+ * .droid-office/jira-epic.json. Everything goes through the office's connection (JiraOffice).
  */
 export class FloorJira {
   epic?: JiraEpic;
@@ -480,7 +480,7 @@ export class FloorJira {
     try {
       writePrivate(this.file, this.epic);
     } catch (err) {
-      console.error(`agent-office: couldn't save the floor's Jira epic: ${(err as Error).message}`);
+      console.error(`droid-office: couldn't save the floor's Jira epic: ${(err as Error).message}`);
     }
   }
 

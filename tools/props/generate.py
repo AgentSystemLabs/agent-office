@@ -1,4 +1,4 @@
-"""Generate agent-office prop GLBs.
+"""Generate droid-office prop GLBs.
 
 Run inside Blender:
 

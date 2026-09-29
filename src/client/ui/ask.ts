@@ -32,7 +32,7 @@ export interface AskOptions {
 }
 
 // Shared with the hire prompt, so the choice sticks either way.
-const WT_KEY = 'agent-office.worktree';
+const WT_KEY = 'droid-office.worktree';
 
 export function openAsk(opts: AskOptions) {
   let to: string | null = opts.newDesk ? null : (opts.workers[0]?.id ?? null);

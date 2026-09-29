@@ -67,7 +67,7 @@ form.addEventListener('submit', async (e) => {
       return;
     }
     try {
-      localStorage.setItem('agent-office.login-name', r.body.name);
+      localStorage.setItem('droid-office.login-name', r.body.name);
     } catch {
       // storage blocked
     }

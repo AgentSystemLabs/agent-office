@@ -231,7 +231,7 @@ export async function startServer(cfg: Config) {
   const building = new Building(cfg.dataDir, cfg.projectsDir);
   if (cfg.projects) {
     const err = building.setProjectsDir(cfg.projects, 'the command line');
-    if (err) console.error(`agent-office: --projects: ${err}`);
+    if (err) console.error(`droid-office: --projects: ${err}`);
   }
   const floors = new Map<string, Floor>();
   const floorOf = (c: Client): Floor | undefined => (c.peer.floor ? floors.get(c.peer.floor) : undefined);
@@ -402,7 +402,7 @@ export async function startServer(cfg: Config) {
   );
   if (cfg.webhook !== undefined) {
     const err = webhook.set(cfg.webhook, 'the command line');
-    if (err) console.error(`agent-office: --webhook: ${err}`);
+    if (err) console.error(`droid-office: --webhook: ${err}`);
   }
 
   // The office's one Jira Cloud account, which every floor's epic board reads through (⚙️ Settings, admins).
@@ -482,7 +482,7 @@ export async function startServer(cfg: Config) {
   };
   const openFloor = (def: FloorDef): Floor | undefined => {
     if (!existsSync(def.dir)) {
-      console.error(`agent-office: the ${def.name} floor's checkout is gone (${def.dir}) — it stays closed until it's back`);
+      console.error(`droid-office: the ${def.name} floor's checkout is gone (${def.dir}) — it stays closed until it's back`);
       return undefined;
     }
     try {
@@ -490,7 +490,7 @@ export async function startServer(cfg: Config) {
       floors.set(def.id, floor);
       return floor;
     } catch (err) {
-      console.error(`agent-office: couldn't open the ${def.name} floor: ${(err as Error).message}`);
+      console.error(`droid-office: couldn't open the ${def.name} floor: ${(err as Error).message}`);
       return undefined;
     }
   };
@@ -2050,7 +2050,7 @@ export async function startServer(cfg: Config) {
   }, 1000);
 
   // Drop dead connections so ghosts don't linger in the office.
-  // Also signs out anyone `agent-office accounts` revoked, and passes on role changes made there.
+  // Also signs out anyone `droid-office accounts` revoked, and passes on role changes made there.
   const heartbeat = setInterval(() => {
     let accountsMoved = false;
     for (const c of clients.values()) {

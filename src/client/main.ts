@@ -1126,7 +1126,7 @@ const notifier = new DesktopNotifier(
 const balls = new GolfBalls();
 scene.add(balls.group);
 /** Your closest shot to the pin so far (meters) and how many you've holed in one, kept in this browser. */
-const GOLF_KEY = 'agent-office.golf';
+const GOLF_KEY = 'droid-office.golf';
 function golfRecord(): { best: number | null; holes: number } {
   try {
     const r = JSON.parse(localStorage.getItem(GOLF_KEY) ?? '{}') as { best?: unknown; holes?: unknown };

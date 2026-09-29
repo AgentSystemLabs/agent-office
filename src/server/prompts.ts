@@ -19,7 +19,7 @@ export function officePrompt(source: PromptSource | undefined, id: PromptId, var
 /**
  * The prompts the office writes for workers by itself (shared/prompts.ts), as rewritten in
  * Settings, and the provider, model and effort a worker starts on when whoever starts it doesn't
- * pick one. The same for the whole building, kept in .agent-office/prompts.json; admins change them.
+ * pick one. The same for the whole building, kept in .droid-office/prompts.json; admins change them.
  */
 export class OfficePrompts implements PromptSource {
   private saved: PromptsState = { custom: {} };

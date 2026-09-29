@@ -13,13 +13,13 @@ import type { Forge } from '../src/shared/floors.js';
 
 function fixture(opts: { git?: boolean; rewritten?: Partial<Record<PromptId, string>>; officeDefault?: AgentChoice; forge?: Forge } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-meeting-'));
-  const dataDir = path.join(dir, '.agent-office');
+  const dataDir = path.join(dir, '.droid-office');
   mkdirSync(dataDir, { recursive: true });
   if (opts.git) {
     const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'ignore' });
     git('init', '-q', '-b', 'main');
     writeFileSync(path.join(dir, 'README.md'), '# demo\n');
-    writeFileSync(path.join(dir, '.git', 'info', 'exclude'), '.agent-office/\n');
+    writeFileSync(path.join(dir, '.git', 'info', 'exclude'), '.droid-office/\n');
     git('add', '.');
     git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init');
     git('config', 'user.email', 't@t');
@@ -174,7 +174,7 @@ test('a debate runs its rounds and ends when the chair writes the decision', (t)
   assert.equal(readFileSync(path.join(f.dir, 'docs/decision.md'), 'utf8'), '# We use Redis');
   assert.equal(m.preview, '# We use Redis');
   // The notes are kept by the floor's other state.
-  assert.ok(existsSync(path.join(f.dir, '.agent-office', 'meetings', m.id)));
+  assert.ok(existsSync(path.join(f.dir, '.droid-office', 'meetings', m.id)));
 });
 
 test('the meeting stops once it runs over its token budget, and says so', (t) => {
@@ -278,7 +278,7 @@ test('bad requests are turned away before anyone sits down', (t) => {
   assert.match(f.start({ prompt: '  ' }) ?? '', /what the meeting is about/);
   assert.match(f.start({ output: '../x.md' }) ?? '', /\.\./);
   assert.match(f.start({ output: '/etc/x' }) ?? '', /relative/);
-  assert.match(f.start({ output: '.agent-office/x.md' }) ?? '', /\.agent-office/);
+  assert.match(f.start({ output: '.droid-office/x.md' }) ?? '', /\.droid-office/);
   assert.match(f.start({ roles: ['a', 'b', 'c', 'd', 'e', 'f'] }) ?? '', /2 to 5 workers/);
   assert.match(f.start({ pattern: 'redblue', roles: ['a', 'b', 'c'] }) ?? '', /seats 2 workers/);
   assert.equal(f.workers.length, 0);
@@ -402,7 +402,7 @@ test('a meeting says what the office’s rewritten prompts say, and seats the de
   assert.equal(f.start({ rounds: 3, provider: undefined }), undefined);
   assert.equal(
     f.prompts[0].text,
-    `You are the Chair. Topic: Which cache should we use?{{nothing}}\n\nRound 1 of 3, proposing. Pitch it as the Chair, into ${path.join(f.cwd(), '.agent-office', 'meetings', f.room.state().current!.id, 'r1-1-chair.md')}.`,
+    `You are the Chair. Topic: Which cache should we use?{{nothing}}\n\nRound 1 of 3, proposing. Pitch it as the Chair, into ${path.join(f.cwd(), '.droid-office', 'meetings', f.room.state().current!.id, 'r1-1-chair.md')}.`,
   );
   assert.deepEqual(
     f.workers.map((w) => [w.provider, w.model, w.effort]),
@@ -440,7 +440,7 @@ test('a review panel tells its reviewers what it always did, on GitHub and GitLa
     assert.equal(f.start({ pattern: 'review', prompt: 'Review it', pr: 42 }), undefined);
     const m = f.room.state().current!;
     const cwd = f.cwd();
-    const notes = path.join(cwd, '.agent-office', 'meetings', m.id);
+    const notes = path.join(cwd, '.droid-office', 'meetings', m.id);
     const [pull, ref, read] = forge === 'gitlab' ? ['merge request', '!42', 'glab mr view 42 --comments and glab mr diff 42'] : ['pull request', '#42', 'gh pr view 42 and gh pr diff 42'];
     assert.equal(
       f.prompts[1].text,

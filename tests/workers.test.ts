@@ -116,7 +116,7 @@ if (delay > 0) setTimeout(() => process.exit(0), delay).unref();
 `;
 
 function fixture(): Fixture {
-  const root = mkdtempSync(path.join(tmpdir(), 'agent-office-workers-'));
+  const root = mkdtempSync(path.join(tmpdir(), 'droid-office-workers-'));
   const data = path.join(root, 'data');
   const bin = path.join(root, 'bin');
   const log = path.join(root, 'invocations.jsonl');
@@ -298,7 +298,7 @@ test('OpenCode workers use OpenCode-only hooks/config, never invoke Claude namin
   assert.equal(firstWorker.args.includes('--settings'), false);
   assert.equal(firstWorker.env.workerId, worker.id);
   assert.ok(firstWorker.env.hookToken);
-  assert.ok(firstWorker.env.opencodeConfig?.includes('agent-office-opencode'));
+  assert.ok(firstWorker.env.opencodeConfig?.includes('droid-office-opencode'));
   assert.equal(first.filter((r) => r.kind === 'claude').length, 0, 'OpenCode must not launch the Claude task namer');
 
   const transcript = path.join(f.root, 'must-not-be-read.jsonl');

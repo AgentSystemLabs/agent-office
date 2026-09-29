@@ -8,7 +8,7 @@ import { markdownFile } from './markdown';
 // rendered as GitHub shows it: links to other docs open them here, pictures come from the project,
 // and the contents menu jumps to a heading. While it's open your character reads an open book.
 
-const LAST_KEY = 'agent-office.bookshelf';
+const LAST_KEY = 'droid-office.bookshelf';
 
 export interface ShelfDeps {
   /** The floor whose project it is, and the project's name. */

@@ -62,7 +62,7 @@ function demoScreen(seed: number): ScreenState {
   const rows = 28;
   const lines: Run[][] = [];
   const rainbow = [1, 2, 3, 4, 5, 6];
-  lines.push(gridLine('$ agent-office worker --demo', 2, -1, 1));
+  lines.push(gridLine('$ droid-office worker --demo', 2, -1, 1));
   lines.push(gridLine(''));
   for (let i = 0; i < 20; i++) {
     const fg = rainbow[(i + seed) % rainbow.length];
@@ -188,7 +188,7 @@ const chat: ChatLine[] = [
   { from: 'ada', name: 'Ada', color: '#4f86f7', text: 'the dog did. he looked guilty', at: now - 60000 },
 ];
 const floors: FloorInfo[] = [
-  { id: 'f1', name: 'agent-office', repo: 'nik/agent-office', dir: '/tmp/f1', palette: 0, addedBy: 'nik', addedAt: now - 8000000, workers: 3, busy: 1, waiting: 1, people: 1 },
+  { id: 'f1', name: 'droid-office', repo: 'nik/droid-office', dir: '/tmp/f1', palette: 0, addedBy: 'nik', addedAt: now - 8000000, workers: 3, busy: 1, waiting: 1, people: 1 },
   { id: 'f2', name: 'droidproxy', dir: '/tmp/f2', palette: 2, addedBy: 'nik', addedAt: now - 7000000, workers: 1, busy: 0, waiting: 0, people: 0 },
 ];
 const jukebox: JukeboxState = { on: true, track: 'coffee-break', by: 'Ada', startedAt: now - 45000, elapsed: 0 };

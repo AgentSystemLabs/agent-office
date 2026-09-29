@@ -15,7 +15,7 @@ import * as pty from '@lydell/node-pty';
  */
 
 /** Bump whenever the host's messages change: an office that finds an older host stops it and starts its own. */
-export const PTY_PROTOCOL = 1;
+export const PTY_PROTOCOL = 2;
 export const SCROLLBACK = 3000;
 
 export interface SpawnOpts {
@@ -167,7 +167,7 @@ export class PtyHost {
     // Unix socket paths are capped at ~104 bytes; a deep project falls back to the temp dir.
     const inData = path.join(dataDir, 'pty.sock');
     const hash = createHash('sha256').update(dataDir).digest('hex').slice(0, 16);
-    this.socketPath = Buffer.byteLength(inData) < 100 ? inData : path.join(os.tmpdir(), `agent-office-${hash}.sock`);
+    this.socketPath = Buffer.byteLength(inData) < 100 ? inData : path.join(os.tmpdir(), `droid-office-${hash}.sock`);
   }
 
   get hosted(): boolean {

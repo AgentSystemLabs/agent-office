@@ -11,7 +11,7 @@ function peer(x: number, z: number, floor?: string, y = 0): PeerInfo {
 
 test("the roof's corner over the meeting room is a tall table, not the meeting room", () => {
   const t = ROOF_TABLES.find((t) => t.x > 9 && t.z > 8)!;
-  assert.equal(whereabouts(peer(t.x + 0.7, t.z, 'agent-office')), '🤝 in the meeting room');
+  assert.equal(whereabouts(peer(t.x + 0.7, t.z, 'droid-office')), '🤝 in the meeting room');
   assert.equal(whereabouts(peer(t.x + 0.7, t.z, ROOF)), '🕯️ at a tall table');
 });
 

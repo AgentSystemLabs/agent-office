@@ -14,7 +14,7 @@ const entry = (n: number, score: number, name = 'Ada') => ({ game: game(n), name
 const news = (r: { changed: boolean; first: { game: string } | null }) => ({ changed: r.changed, first: r.first?.game ?? null });
 
 test('a high score set by one person is still on the table after a restart', (t) => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'agent-office-arcade-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'droid-office-arcade-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const before = new HighScores(dir);
   assert.deepEqual(news(before.record(entry(1, 1200))), { changed: true, first: game(1) });
@@ -30,7 +30,7 @@ test('a high score set by one person is still on the table after a restart', (t)
 });
 
 test('the same game only ever goes up, and only its own player can raise it', (t) => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'agent-office-arcade-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'droid-office-arcade-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const table = new HighScores(dir);
   table.record(entry(1, 500));
@@ -47,7 +47,7 @@ test('the same game only ever goes up, and only its own player can raise it', (t
 });
 
 test('the table keeps the best games, and a new leader is news', (t) => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'agent-office-arcade-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'droid-office-arcade-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const table = new HighScores(dir);
   for (let i = 1; i <= SCORES_KEPT; i++) table.record(entry(i, i * 100));
@@ -62,7 +62,7 @@ test('the table keeps the best games, and a new leader is news', (t) => {
 });
 
 test('several games go on the table at once, and the one that ends up in front is the news', (t) => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'agent-office-arcade-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'droid-office-arcade-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const table = new HighScores(dir);
   table.record(entry(1, 1000));
@@ -75,7 +75,7 @@ test('several games go on the table at once, and the one that ends up in front i
 });
 
 test('a broken or tampered table file is read as far as it makes sense', (t) => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'agent-office-arcade-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'droid-office-arcade-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   writeFileSync(
     path.join(dir, 'arcade.json'),
@@ -174,7 +174,7 @@ const frame = (f: Partial<CabinetFrame> = {}): CabinetFrame => ({ cells: CELLS, 
 
 /** An arcade with its table in a fresh folder, on a clock the test moves; `news` is every change to the table. */
 function arcadeFor(t: TestContext) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'agent-office-arcade-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'droid-office-arcade-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
   const table = new HighScores(dir);

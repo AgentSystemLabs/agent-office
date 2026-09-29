@@ -72,7 +72,7 @@ function pullColumns(items: GhPull[]): Column<GhPull>[] {
 type LabelFilters = Record<string, string[]>;
 
 function filtersKey(kind: 'issues' | 'pulls'): string {
-  return `agent-office.board-labels.${store.floor ?? ''}.${kind}`;
+  return `droid-office.board-labels.${store.floor ?? ''}.${kind}`;
 }
 
 function loadFilters(kind: 'issues' | 'pulls'): LabelFilters {

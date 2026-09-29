@@ -48,9 +48,9 @@ function hash(password: string, salt: Buffer): Promise<Buffer> {
 const digest = (s: string) => createHash('sha256').update(s).digest();
 
 /**
- * Everyone's own sign-in, in .agent-office/accounts.json: named accounts made from single-use
+ * Everyone's own sign-in, in .droid-office/accounts.json: named accounts made from single-use
  * invite links, and whether the shared office password still works alongside them.
- * `agent-office accounts` edits the same file while the office runs, so it's re-read when it changes.
+ * `droid-office accounts` edits the same file while the office runs, so it's re-read when it changes.
  */
 export class Accounts {
   private data: Saved = { accounts: [], invites: [] };
@@ -256,13 +256,13 @@ export class Accounts {
       this.unreadable = false;
     } catch (err) {
       this.unreadable = true;
-      console.error(`agent-office: couldn't read ${this.file}: ${(err as Error).message}`);
+      console.error(`droid-office: couldn't read ${this.file}: ${(err as Error).message}`);
     }
   }
 
   private save() {
     if (this.unreadable) {
-      console.error(`agent-office: not saving accounts over ${this.file}, which couldn't be read — fix or move it`);
+      console.error(`droid-office: not saving accounts over ${this.file}, which couldn't be read — fix or move it`);
       return;
     }
     // Written whole and renamed into place, so the office and the `accounts` command never read half a file.
@@ -271,7 +271,7 @@ export class Accounts {
       writeFileSync(tmp, JSON.stringify(this.data, null, 2), { mode: 0o600 });
       renameSync(tmp, this.file);
     } catch (err) {
-      console.error(`agent-office: couldn't save ${this.file}: ${(err as Error).message}`);
+      console.error(`droid-office: couldn't save ${this.file}: ${(err as Error).message}`);
       return;
     }
     try {
@@ -283,20 +283,20 @@ export class Accounts {
   }
 }
 
-const HELP = `agent-office accounts — who can sign in to the office
+const HELP = `droid-office accounts — who can sign in to the office
 
 Usage:
-  agent-office accounts [list]                 Accounts, open invites, and the shared password
-  agent-office accounts invite [name] [--admin]
+  droid-office accounts [list]                 Accounts, open invites, and the shared password
+  droid-office accounts invite [name] [--admin]
                                                Make a single-use invite link (valid 7 days)
-  agent-office accounts revoke <name>          Delete an account; it's signed out at once
-  agent-office accounts role <name> admin|member
-  agent-office accounts password on|off        Whether the shared office password still works
+  droid-office accounts revoke <name>          Delete an account; it's signed out at once
+  droid-office accounts role <name> admin|member
+  droid-office accounts password on|off        Whether the shared office password still works
 
 Options:
   -d, --dir <dir>   The office's directory: the project it was started in, or its
                     home (default: the current directory if an office ran there,
-                    else ~/agent-office or $AGENT_OFFICE_HOME)
+                    else ~/droid-office or $AGENT_OFFICE_HOME)
   -h, --help        Show this help
 
 Works while the office runs: it picks up the changes within seconds.
@@ -304,10 +304,10 @@ Works while the office runs: it picks up the changes within seconds.
 
 const day = (t: number) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
 
-/** `agent-office accounts`: exits 0 when done, 1 when it couldn't, 2 for a usage error. */
+/** `droid-office accounts`: exits 0 when done, 1 when it couldn't, 2 for a usage error. */
 export function accountsCommand(argv: string[]): number {
   // An office started in this project keeps its accounts here; one started anywhere else, in its home.
-  let dir = existsSync(path.join(process.cwd(), '.agent-office', 'config.json')) ? process.cwd() : officeHome();
+  let dir = existsSync(path.join(process.cwd(), '.droid-office', 'config.json')) ? process.cwd() : officeHome();
   let admin = false;
   const args: string[] = [];
   for (let i = 0; i < argv.length; i++) {
@@ -322,11 +322,11 @@ export function accountsCommand(argv: string[]): number {
     else if (a.startsWith('-')) return usage(`unknown option ${a}`);
     else args.push(a);
   }
-  const dataDir = path.join(dir, '.agent-office');
+  const dataDir = path.join(dir, '.droid-office');
   try {
     statSync(dataDir);
   } catch {
-    console.error(`agent-office accounts: no office has run in ${dir} yet — start it once with \`agent-office\` there`);
+    console.error(`droid-office accounts: no office has run in ${dir} yet — start it once with \`droid-office\` there`);
     return 1;
   }
   const accounts = new Accounts(dataDir);
@@ -340,7 +340,7 @@ export function accountsCommand(argv: string[]): number {
       for (const a of s.accounts) {
         console.log(`  ${a.name.padEnd(NAME_MAX)}  ${a.role.padEnd(6)}  since ${day(a.createdAt)}  ${a.lastSeenAt ? `last seen ${day(a.lastSeenAt)}` : 'never signed in'}`);
       }
-      if (!s.accounts.length) console.log('  none yet: `agent-office accounts invite <name> --admin` makes you one');
+      if (!s.accounts.length) console.log('  none yet: `droid-office accounts invite <name> --admin` makes you one');
       if (s.invites.length) {
         console.log(`\nOpen invites (${s.invites.length}):`);
         for (const v of s.invites) console.log(`  ${(v.name ?? '(they pick)').padEnd(NAME_MAX)}  ${v.role.padEnd(6)}  by ${v.createdBy}, until ${day(v.expiresAt)}  /join#${v.token}`);
@@ -372,7 +372,7 @@ export function accountsCommand(argv: string[]): number {
     case 'password': {
       if (arg !== 'on' && arg !== 'off') return usage('password takes on or off');
       if (arg === 'off' && !accounts.state(new Set()).accounts.some((a) => a.role === 'admin')) {
-        return fail('make an admin account first (`agent-office accounts invite <name> --admin`), or nobody could manage the office');
+        return fail('make an admin account first (`droid-office accounts invite <name> --admin`), or nobody could manage the office');
       }
       accounts.setSharedPassword(arg === 'on');
       console.log(arg === 'on' ? 'The shared office password works again.' : 'The shared office password no longer signs anyone in; people who used it are signed out within seconds.');
@@ -384,12 +384,12 @@ export function accountsCommand(argv: string[]): number {
 }
 
 function usage(msg: string): number {
-  console.error(`agent-office accounts: ${msg}\n`);
+  console.error(`droid-office accounts: ${msg}\n`);
   process.stderr.write(HELP);
   return 2;
 }
 
 function fail(msg: string): number {
-  console.error(`agent-office accounts: ${msg}`);
+  console.error(`droid-office accounts: ${msg}`);
   return 1;
 }

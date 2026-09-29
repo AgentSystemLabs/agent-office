@@ -10,7 +10,7 @@ export type { WorktreeCleanup, WorktreeState } from '../shared/protocol.js';
 const execFileP = promisify(execFile);
 
 /** Where the office keeps its workers' worktrees, relative to the project. */
-export const WORKTREES_DIR = path.join('.agent-office', 'worktrees');
+export const WORKTREES_DIR = path.join('.droid-office', 'worktrees');
 /** Their branches are office/<worker>-<id>. */
 export const BRANCH_PREFIX = 'office/';
 
@@ -117,7 +117,7 @@ export class Worktrees {
     }
   }
 
-  /** The worktrees git has under .agent-office/worktrees, every office/* branch, and folders there git doesn't know. */
+  /** The worktrees git has under .droid-office/worktrees, every office/* branch, and folders there git doesn't know. */
   async list(): Promise<{ worktrees: ListedWorktree[]; branches: string[]; strays: string[] }> {
     const home = path.join(this.root, WORKTREES_DIR);
     const worktrees: ListedWorktree[] = [];
@@ -141,7 +141,7 @@ export class Worktrees {
     return { worktrees, branches, strays };
   }
 
-  /** True for a folder inside .agent-office/worktrees, the only place this class deletes on its own. */
+  /** True for a folder inside .droid-office/worktrees, the only place this class deletes on its own. */
   owns(abs: string): boolean {
     return within(path.join(this.root, WORKTREES_DIR), real(abs));
   }

@@ -1,10 +1,10 @@
 {
-  "name": "agent-office",
+  "name": "droid-office",
   "version": "0.1.0",
   "description": "A cartoon 3D multiplayer office where your team spawns Claude Code workers at desks, shares live terminals, talks over voice, and tracks GitHub issues and PRs.",
   "type": "module",
   "bin": {
-    "agent-office": "bin/agent-office.js"
+    "droid-office": "bin/droid-office.js"
   },
   "files": [
     "bin",
@@ -21,7 +21,7 @@
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "lint": "biome check --error-on-warnings .",
     "format": "biome format --write .",
-    "start": "node bin/agent-office.js",
+    "start": "node bin/droid-office.js",
     "prepare": "node .husky/install.mjs && npm run build"
   },
   "lint-staged": {

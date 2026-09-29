@@ -7,24 +7,24 @@ import { pathToFileURL } from 'node:url';
 import { mergeOpenCodeConfigContent, writeOpenCodePlugin } from '../src/server/opencode.js';
 
 test('merges the inline OpenCode config and preserves user plugins', () => {
-  const plugin = 'file:///tmp/agent-office-opencode.mjs';
+  const plugin = 'file:///tmp/droid-office-opencode.mjs';
   const merged = JSON.parse(mergeOpenCodeConfigContent(JSON.stringify({ model: 'x/y', plugin: ['one'] }), plugin));
   assert.equal(merged.model, 'x/y');
   assert.deepEqual(merged.plugin, ['one', plugin]);
 });
 
 test('does not duplicate the generated plugin in inline config', () => {
-  const plugin = 'file:///tmp/agent-office-opencode.mjs';
+  const plugin = 'file:///tmp/droid-office-opencode.mjs';
   const merged = JSON.parse(mergeOpenCodeConfigContent(JSON.stringify({ plugin: [plugin] }), plugin));
   assert.deepEqual(merged.plugin, [plugin]);
 });
 
 test('rejects malformed inline OpenCode config instead of dropping user settings', () => {
-  assert.throws(() => mergeOpenCodeConfigContent('{model:', 'file:///tmp/agent-office-opencode.mjs'), /OPENCODE_CONFIG_CONTENT/);
+  assert.throws(() => mergeOpenCodeConfigContent('{model:', 'file:///tmp/droid-office-opencode.mjs'), /OPENCODE_CONFIG_CONTENT/);
 });
 
 test('writes a loadable plugin module that forwards root events and excludes subagents', async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'agent-office-opencode-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'droid-office-opencode-'));
   const oldFetch = globalThis.fetch;
   const oldUrl = process.env.AGENT_OFFICE_HOOK_URL;
   const oldToken = process.env.AGENT_OFFICE_HOOK_TOKEN;
@@ -177,7 +177,7 @@ test('writes a loadable plugin module that forwards root events and excludes sub
 });
 
 test('hydrates persisted OpenCode root and child usage without blocking plugin startup', async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'agent-office-opencode-hydrate-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'droid-office-opencode-hydrate-'));
   const oldFetch = globalThis.fetch;
   const oldUrl = process.env.AGENT_OFFICE_HOOK_URL;
   const oldToken = process.env.AGENT_OFFICE_HOOK_TOKEN;
@@ -263,7 +263,7 @@ test('hydrates persisted OpenCode root and child usage without blocking plugin s
 });
 
 test('marks live OpenCode usage incomplete when hydration fails', async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'agent-office-opencode-partial-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'droid-office-opencode-partial-'));
   const oldFetch = globalThis.fetch;
   const oldUrl = process.env.AGENT_OFFICE_HOOK_URL;
   const oldToken = process.env.AGENT_OFFICE_HOOK_TOKEN;

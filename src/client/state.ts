@@ -89,7 +89,7 @@ export interface Profile {
   look: Look;
 }
 
-const PROFILE_KEY = 'agent-office.profile';
+const PROFILE_KEY = 'droid-office.profile';
 export const AVATAR_COLORS = ['#ff8a5b', '#4f86f7', '#06d6a0', '#ef476f', '#ffd166', '#9d4edd', '#00b4d8', '#f77f00'];
 
 /** Your saved profile. `look` is missing if you joined before there was a character select screen. */
@@ -154,8 +154,8 @@ export interface Settings {
   vr: VrSettings;
 }
 
-const SETTINGS_KEY = 'agent-office.settings';
-const FLOOR_KEY = 'agent-office.floor';
+const SETTINGS_KEY = 'droid-office.settings';
+const FLOOR_KEY = 'droid-office.floor';
 
 /** The floor you were last on, to come back to it after a reload. */
 export function lastFloor(): string | null {

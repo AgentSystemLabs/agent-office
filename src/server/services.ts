@@ -140,7 +140,7 @@ function inside(dir: string, child: string): boolean {
 /** Does it speak HTTP? And what's the <title> of its front page? */
 function probe(host: string, port: number): Promise<{ ok: boolean; title?: string }> {
   return new Promise((resolve) => {
-    const req = http.get({ host, port, path: '/', timeout: 2500, headers: { host: `localhost:${port}`, accept: 'text/html,*/*', 'user-agent': 'agent-office' } }, (res) => {
+    const req = http.get({ host, port, path: '/', timeout: 2500, headers: { host: `localhost:${port}`, accept: 'text/html,*/*', 'user-agent': 'droid-office' } }, (res) => {
       if (!/text\/html/i.test(String(res.headers['content-type'] ?? ''))) {
         res.resume();
         return resolve({ ok: true });

@@ -34,7 +34,7 @@ export interface Spot {
   ok: boolean;
 }
 
-const SIZE_KEY = 'agent-office.picture-size';
+const SIZE_KEY = 'droid-office.picture-size';
 function lastSize(): number {
   try {
     const n = Number(localStorage.getItem(SIZE_KEY));

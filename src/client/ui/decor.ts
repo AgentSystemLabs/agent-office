@@ -10,7 +10,7 @@ export interface HangChoice {
   frame: number;
 }
 
-const FRAME_KEY = 'agent-office.frame';
+const FRAME_KEY = 'droid-office.frame';
 function lastFrame(): number {
   try {
     const n = Number(localStorage.getItem(FRAME_KEY));

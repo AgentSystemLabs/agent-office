@@ -91,8 +91,8 @@ export const MAX_MEETING_BUDGET = 50_000_000;
 
 /**
  * The round notes' folder at the top of a meeting's worktree. It's left out of the meeting's commit and
- * cleared away with the room (a copy stays in the floor's .agent-office/meetings/). Not under
- * .agent-office/: Claude Code asks before writing there in a worktree nested in the project.
+ * cleared away with the room (a copy stays in the floor's .droid-office/meetings/). Not under
+ * .droid-office/: Claude Code asks before writing there in a worktree nested in the project.
  */
 export const MEETING_NOTES_DIR = '.meeting';
 
@@ -119,7 +119,7 @@ export function outputProblem(p: string): string | undefined {
   if (/^[/\\]|^[a-zA-Z]:/.test(p)) return 'The output file goes inside the project: give a path relative to it';
   const parts = p.split(/[/\\]/);
   if (parts.some((x) => x === '..' || x === '.' || x === '')) return 'The output path can’t have empty, . or .. parts';
-  if (parts[0] === '.git' || parts[0] === '.agent-office' || parts[0] === MEETING_NOTES_DIR) return `The output can’t go in ${parts[0]}/`;
+  if (parts[0] === '.git' || parts[0] === '.droid-office' || parts[0] === MEETING_NOTES_DIR) return `The output can’t go in ${parts[0]}/`;
   if (/[\0-\x1f]/.test(p)) return 'The output path has control characters in it';
   return undefined;
 }

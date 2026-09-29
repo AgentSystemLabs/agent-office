@@ -10,8 +10,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: agent-office version or commit
-      description: For an install from `install.sh`, run `cat ~/.local/share/agent-office/current`. For a checkout, run `git rev-parse --short HEAD`.
+      label: droid-office version or commit
+      description: For an install from `install.sh`, run `cat ~/.local/share/droid-office/current`. For a checkout, run `git rev-parse --short HEAD`.
       placeholder: v0.1.68 or 35c4b32
     validations:
       required: true
@@ -112,5 +112,5 @@ body:
     id: log
     attributes:
       label: Office log excerpt
-      description: The office's terminal output (what `agent-office` prints) around the time of the bug. For terminal problems, also include `.agent-office/pty-host.log` from the affected floor's checkout.
+      description: The office's terminal output (what `droid-office` prints) around the time of the bug. For terminal problems, also include `.droid-office/pty-host.log` from the affected floor's checkout.
       render: text

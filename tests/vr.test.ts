@@ -235,7 +235,7 @@ test('VR settings round-trip through the store, clamped and complete', (t) => {
   saveSettings(s);
   assert.deepEqual(loadSettings().vr, { glide: true, turn: 'smooth', turnSpeed: 180, fade: false });
   // An old save from before VR existed grows the section with defaults.
-  mem.set('agent-office.settings', JSON.stringify({ view: 'third' }));
+  mem.set('droid-office.settings', JSON.stringify({ view: 'third' }));
   assert.deepEqual(loadSettings().vr, VR_DEFAULTS);
 });
 test('VR hire engine choice: per-provider memory, fallback, and cycling', (t) => {
@@ -251,8 +251,8 @@ test('VR hire engine choice: per-provider memory, fallback, and cycling', (t) =>
   // Nothing picked yet: the default provider, with no model or effort behind it.
   assert.deepEqual(rememberedChoice(project, 'desk:d1'), { provider: 'droid', model: undefined, effort: undefined });
   // Each desk keeps its own Claude model: the cycler picks it back up.
-  mem.set('agent-office.claude-model.desk:d1', 'opus');
-  mem.set('agent-office.claude-effort.desk:d1', 'high');
+  mem.set('droid-office.claude-model.desk:d1', 'opus');
+  mem.set('droid-office.claude-effort.desk:d1', 'high');
   assert.deepEqual(choiceForProvider(project, 'desk:d1', 'claude'), { provider: 'claude', model: 'opus', effort: 'high' });
   // ...and another desk is unaffected.
   assert.deepEqual(choiceForProvider(project, 'desk:d2', 'claude'), { provider: 'claude', model: undefined, effort: undefined });

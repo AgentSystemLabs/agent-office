@@ -1,5 +1,5 @@
 {
-  "name": "agent-office-xr-test",
+  "name": "droid-office-xr-test",
   "private": true,
   "version": "0.0.0",
   "description": "Detection shim so the IWSDK CLI resolves the XR test runtime at the Vite root (src/client), where the plugin publishes its session. Never installed or published; the real dependencies live at the repo root.",

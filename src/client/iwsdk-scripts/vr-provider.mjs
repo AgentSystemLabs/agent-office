@@ -1,7 +1,7 @@
 export default async function run({ frame }) {
   const p = await frame.evaluate(() => {
     try {
-      return localStorage.getItem('agent-office.provider');
+      return localStorage.getItem('droid-office.provider');
     } catch {
       return 'unreadable';
     }

@@ -9,7 +9,7 @@
 
 Read [docs/vr-webxr.md](../../docs/vr-webxr.md) before changing `vr/` or VR hooks in `main.ts`.
 
-`npm run dev:runtime` (from the repository root) serves the office with an emulated Quest 3 and a headless managed browser at `https://127.0.0.1:5173`. It proxies `/api` and `/ws` to an office on `https://localhost:4600`, so start one over HTTPS first, e.g. `node bin/agent-office.js <project> --password dev --self-signed`. The emulator test hooks load with `?vrtest=1` (`window.__vrtest`).
+`npm run dev:runtime` (from the repository root) serves the office with an emulated Quest 3 and a headless managed browser at `https://127.0.0.1:5173`. It proxies `/api` and `/ws` to an office on `https://localhost:4600`, so start one over HTTPS first, e.g. `node bin/droid-office.js <project> --password dev --self-signed`. The emulator test hooks load with `?vrtest=1` (`window.__vrtest`).
 
 `iwsdk-scripts/*.mjs` are Playwright scripts for that browser, each exporting a default `run({ frame, page, ... })`. With the runtime up, run one from the repository root:
 

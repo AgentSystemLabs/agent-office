@@ -48,7 +48,7 @@ type Leg = Omit<DogState, 'name' | 'coat' | 'elapsed'> & { start: number };
  * A floor's dog. It naps under the desks of workers who are busy, trots after people for a while,
  * sniffs around and hangs out on the lounge rug. When a worker needs input it drops everything, runs
  * to that desk and barks (the browsers do the barking; see client/world/dog.ts). Its name is kept
- * in the floor's .agent-office/dog.json.
+ * in the floor's .droid-office/dog.json.
  */
 export class Dog {
   private name: string;
@@ -148,7 +148,7 @@ export class Dog {
     try {
       writeFileSync(this.file, JSON.stringify({ name: this.name }, null, 2), { mode: 0o600 });
     } catch (err) {
-      console.error(`agent-office: couldn't save the dog's name: ${(err as Error).message}`);
+      console.error(`droid-office: couldn't save the dog's name: ${(err as Error).message}`);
     }
     this.send();
     return this.name;

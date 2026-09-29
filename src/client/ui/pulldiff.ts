@@ -99,7 +99,7 @@ export function parseDiff(text: string): DiffFile[] {
 
 // ---- Which files you've reviewed, per PR, kept in this browser --------------------------------
 
-const REVIEWED_KEY = 'agent-office.reviewed';
+const REVIEWED_KEY = 'droid-office.reviewed';
 const KEEP_PRS = 60;
 
 type ReviewedStore = Record<string, { at: number; files: Record<string, string> }>;

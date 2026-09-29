@@ -9,15 +9,15 @@
 # The first time the office starts it asks where to clone your projects, offers to sign the GitHub
 # (gh) or GitLab (glab) CLI in if neither is, and lets you pick your first repository to clone as a floor.
 #
-# Releases go in %LOCALAPPDATA%\agent-office and an `agent-office` command in %LOCALAPPDATA%\agent-office\bin,
-# which is added to your user PATH, so afterwards `agent-office` starts it too. Run the irm line again to
+# Releases go in %LOCALAPPDATA%\droid-office and an `droid-office` command in %LOCALAPPDATA%\droid-office\bin,
+# which is added to your user PATH, so afterwards `droid-office` starts it too. Run the irm line again to
 # update to the newest release. It works in Windows PowerShell 5.1 and PowerShell 7.
 #
 # Environment:
 #   AGENT_OFFICE_VERSION       install this release (a tag like v0.1.68) instead of the newest
-#   AGENT_OFFICE_INSTALL_DIR   where releases go (default %LOCALAPPDATA%\agent-office)
-#   AGENT_OFFICE_BIN_DIR       where the `agent-office` command goes (default <install dir>\bin; none: no command)
-#   AGENT_OFFICE_NO_MODIFY_PATH  1: write the `agent-office` command, but leave your user PATH alone
+#   AGENT_OFFICE_INSTALL_DIR   where releases go (default %LOCALAPPDATA%\droid-office)
+#   AGENT_OFFICE_BIN_DIR       where the `droid-office` command goes (default <install dir>\bin; none: no command)
+#   AGENT_OFFICE_NO_MODIFY_PATH  1: write the `droid-office` command, but leave your user PATH alone
 #   AGENT_OFFICE_INSTALL_ONLY  1: install, but don't start the office
 #   AGENT_OFFICE_TARBALL       install this release tarball (a local file) instead of downloading one
 #
@@ -38,8 +38,8 @@
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
     $repo = 'nikships/droid-office'
-    $marker = 'agent-office launcher, written by install.ps1'
-    $installDir = if ($env:AGENT_OFFICE_INSTALL_DIR) { $env:AGENT_OFFICE_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'agent-office' }
+    $marker = 'droid-office launcher, written by install.ps1'
+    $installDir = if ($env:AGENT_OFFICE_INSTALL_DIR) { $env:AGENT_OFFICE_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'droid-office' }
     # Windows can't hold an empty environment variable (setting one to '' deletes it), so where
     # install.sh takes an empty AGENT_OFFICE_BIN_DIR for no launcher, this takes `none`.
     $binDir = if ($env:AGENT_OFFICE_BIN_DIR -eq 'none') { '' } elseif ($env:AGENT_OFFICE_BIN_DIR) { $env:AGENT_OFFICE_BIN_DIR } else { Join-Path $installDir 'bin' }
@@ -99,13 +99,13 @@
       $stage = Join-Path $versions ('.install.' + [IO.Path]::GetRandomFileName())
       [IO.Directory]::CreateDirectory($stage) | Out-Null
       try {
-        $tgz = Join-Path $stage 'agent-office.tgz'
+        $tgz = Join-Path $stage 'droid-office.tgz'
         if ($tarball) {
           Copy-Item -LiteralPath $tarball -Destination $tgz
         } else {
           Step "Downloading Agent Office $tag"
           try {
-            Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/$repo/releases/download/$tag/agent-office.tgz" -OutFile $tgz
+            Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/$repo/releases/download/$tag/droid-office.tgz" -OutFile $tgz
           } catch {
             throw "couldn't download release $tag (is that a release of https://github.com/$repo/releases ?): $($_.Exception.Message)"
           }
@@ -113,7 +113,7 @@
         & $tar -xzf $tgz -C $stage | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "that isn't a release tarball" }
         $pkg = Join-Path $stage 'package'
-        if (-not (Test-Path -LiteralPath (Join-Path $pkg 'bin\agent-office.js'))) { throw "that release tarball doesn't contain Agent Office" }
+        if (-not (Test-Path -LiteralPath (Join-Path $pkg 'bin\droid-office.js'))) { throw "that release tarball doesn't contain Agent Office" }
         if (-not $tag) { $tag = 'v' + (& node -p 'require(process.argv[1]).version' (Join-Path $pkg 'package.json')) }
         if (-not (ValidTag $tag)) { throw "not a release version: $tag" }
         $dest = Join-Path $versions $tag
@@ -159,12 +159,12 @@
         ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
-    # Puts an `agent-office` command on the PATH that starts this version: a .cmd for PowerShell and cmd,
+    # Puts an `droid-office` command on the PATH that starts this version: a .cmd for PowerShell and cmd,
     # and a sh script for Git Bash. Returns what to type to start it.
     function Write-Launcher([string]$tag, [string]$entry) {
       if (-not $binDir) { return '' }
-      $cmdFile = Join-Path $binDir 'agent-office.cmd'
-      $shFile = Join-Path $binDir 'agent-office'
+      $cmdFile = Join-Path $binDir 'droid-office.cmd'
+      $shFile = Join-Path $binDir 'droid-office'
       foreach ($f in @($cmdFile, $shFile)) {
         if ((Test-Path -LiteralPath $f) -and -not (Select-String -LiteralPath $f -SimpleMatch $marker -Quiet)) {
           Warn "left $f alone: this script didn't write it"
@@ -201,8 +201,8 @@
 
       $onPath = { param($list) [bool](($list -split ';') | Where-Object { $_ -and [Environment]::ExpandEnvironmentVariables($_).TrimEnd('\') -ieq $binDir.TrimEnd('\') }) }
       if ($env:AGENT_OFFICE_NO_MODIFY_PATH -eq '1') {
-        if (& $onPath $env:Path) { return 'agent-office' }
-        Warn "$binDir isn't on your PATH. Add it to run agent-office directly next time."
+        if (& $onPath $env:Path) { return 'droid-office' }
+        Warn "$binDir isn't on your PATH. Add it to run droid-office directly next time."
         return $cmdFile
       }
       # Through the registry, not [Environment]::SetEnvironmentVariable: that one would write back the
@@ -221,10 +221,10 @@
         # terminals see the new PATH.
         [Environment]::SetEnvironmentVariable('AGENT_OFFICE_INSTALL_REFRESH', '1', 'User')
         [Environment]::SetEnvironmentVariable('AGENT_OFFICE_INSTALL_REFRESH', $null, 'User')
-        Step "Added $binDir to your user PATH. Open a new terminal to run agent-office there."
+        Step "Added $binDir to your user PATH. Open a new terminal to run droid-office there."
       }
       if (-not (& $onPath $env:Path)) { $env:Path = "$env:Path;$binDir" }
-      return 'agent-office'
+      return 'droid-office'
     }
 
     Check-Requirements
@@ -257,7 +257,7 @@
     [IO.File]::WriteAllText($currentFile, "$tag`n", $utf8)
     Prune-Versions $tag
 
-    $entry = Join-Path $versions "$tag\bin\agent-office.js"
+    $entry = Join-Path $versions "$tag\bin\droid-office.js"
     $launcher = Write-Launcher $tag $entry
 
     if ($env:AGENT_OFFICE_INSTALL_ONLY -eq '1') {

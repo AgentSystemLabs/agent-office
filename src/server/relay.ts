@@ -10,7 +10,7 @@ import { withoutOfficeCookies } from './auth.js';
 // signed in to the office.
 
 /** Set on everything the office relays, so a server that proxies back to the office can't loop. */
-const RELAYED = 'x-agent-office-relay';
+const RELAYED = 'x-droid-office-relay';
 const LOOPBACK_HOST = /^(?:localhost|127\.0\.0\.1|\[::1\]|[a-z0-9-]+\.localhost):(\d{1,5})$/i;
 
 /** The service port a request came in for, when it came through a service tunnel. */
@@ -89,7 +89,7 @@ function page(res: http.ServerResponse, status: number, title: string, body: str
 }
 
 /** Where the sign-in form below posts; the office answers it on service tunnels only. */
-export const RELAY_LOGIN = '/__agent-office/login';
+export const RELAY_LOGIN = '/__droid-office/login';
 
 /** `opts` says which fields to ask for: a name when there are accounts, a password always. */
 export function signInPage(res: http.ServerResponse, port: number, opts: { accounts: boolean; shared: boolean }) {

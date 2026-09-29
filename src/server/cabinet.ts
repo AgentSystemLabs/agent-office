@@ -10,7 +10,7 @@ const byScore = (a: HighScore, b: HighScore) => b.score - a.score || a.at - b.at
 
 /**
  * The arcade's high-score table: one for the whole building, on every floor's cabinet, saved in the
- * office's .agent-office/arcade.json so it's still there after a restart.
+ * office's .droid-office/arcade.json so it's still there after a restart.
  */
 export class HighScores {
   private list: HighScore[] = [];

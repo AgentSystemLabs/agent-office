@@ -10,7 +10,7 @@ import { findLine, searchKey, snippet } from '../src/shared/search.js';
 import type { ChatLine } from '../src/shared/protocol.js';
 
 function dataDir(t: { after(fn: () => void): void }) {
-  const dir = mkdtempSync(path.join(tmpdir(), 'agent-office-history-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'droid-office-history-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
 }

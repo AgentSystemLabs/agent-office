@@ -31,7 +31,7 @@ test('riding the elevator between floors that share a kiosk and a desk leaves ne
     // A seat only the old floor used is free again; the rest are free on both.
     for (const id of DESK_BY_ID.keys()) if (!from.some((w) => w.deskId === id) && !to.some((w) => w.deskId === id)) assert.ok(before.has(id) && after.has(id), `${id} is free`);
   }
-  assert.ok(vacantSeats(survive).has('beanbag-1'), 'the bean bag only agent-office uses is free on the other floor');
+  assert.ok(vacantSeats(survive).has('beanbag-1'), 'the bean bag only droid-office uses is free on the other floor');
 });
 
 test('a kiosk shows its idle agent again only once the hired one sent home has got up', () => {

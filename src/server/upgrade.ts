@@ -10,7 +10,7 @@ function findAppDir(): string | undefined {
   let dir = path.dirname(fileURLToPath(import.meta.url));
   for (let i = 0; i < 5; i++, dir = path.dirname(dir)) {
     try {
-      if (JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')).name === 'agent-office') return dir;
+      if (JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')).name === 'droid-office') return dir;
     } catch {
       // keep looking
     }
@@ -203,7 +203,7 @@ export class Upgrader {
       return;
     }
     this.set({ phase: 'restarting' });
-    await keepWorkersThroughRestart().catch((err) => console.warn(`agent-office: workers will be resumed after the restart, not kept running: ${(err as Error).message}`));
+    await keepWorkersThroughRestart().catch((err) => console.warn(`droid-office: workers will be resumed after the restart, not kept running: ${(err as Error).message}`));
     // Give every browser a moment to hear about it, then hand over to the new version.
     setTimeout(this.restart, 1500);
   }

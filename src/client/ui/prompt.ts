@@ -22,7 +22,7 @@ export interface PromptOptions {
   onSubmit(text: string, opts: { worktree: boolean; provider?: AgentProvider; model?: string; effort?: AgentEffort }): void;
 }
 
-const WT_KEY = 'agent-office.worktree';
+const WT_KEY = 'droid-office.worktree';
 /** Whether the last hire asked for its own git worktree (the Ask window shares the choice). */
 export function worktreePref(): boolean {
   try {
@@ -162,7 +162,7 @@ export function sendHomeDialog(opts: SendHomeOptions) {
   const choices: [WorktreeCleanup, string, string][] = [
     ['all', 'Delete the worktree and its branch', `Removes ${path} and ${branch}.`],
     ['worktree', 'Delete the worktree, keep the branch', `${branch} stays for a pull request or a later checkout.`],
-    ['keep', 'Keep both', 'Leaves everything as it is; agent-office prune tidies up later.'],
+    ['keep', 'Keep both', 'Leaves everything as it is; droid-office prune tidies up later.'],
   ];
   const radios = new Map<WorktreeCleanup, HTMLInputElement>();
   let touched = false;

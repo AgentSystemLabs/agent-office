@@ -23,7 +23,7 @@ function worker(id: string, status: WorkerStatus = 'done', more: Partial<WorkerI
     rows: 24,
     viewers: [],
     viewerIds: [],
-    worktree: { path: `.agent-office/worktrees/${id}`, branch: `office/${id}`, base: 'abc' },
+    worktree: { path: `.droid-office/worktrees/${id}`, branch: `office/${id}`, base: 'abc' },
     ...more,
   };
 }

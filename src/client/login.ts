@@ -9,7 +9,7 @@ const input = document.getElementById('password') as HTMLInputElement;
 const error = document.getElementById('error') as HTMLParagraphElement;
 const submit = document.getElementById('submit') as HTMLButtonElement;
 
-const NAME_KEY = 'agent-office.login-name';
+const NAME_KEY = 'droid-office.login-name';
 
 // Ask for a name once people have accounts; it's optional while the shared password still works.
 void fetch('/api/login', { cache: 'no-store' })

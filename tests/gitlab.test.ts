@@ -103,7 +103,7 @@ test('discussions split into comments, approvals and threads on lines of code', 
 });
 
 test('a projects folder inside a git checkout is refused, so clones never land in a project', (t) => {
-  const root = mkdtempSync(path.join(tmpdir(), 'agent-office-nest-'));
+  const root = mkdtempSync(path.join(tmpdir(), 'droid-office-nest-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(path.join(root, 'checkout', '.git'), { recursive: true });
   assert.match(insideCheckout(path.join(root, 'checkout', 'nikships')) ?? '', /inside the git checkout/);

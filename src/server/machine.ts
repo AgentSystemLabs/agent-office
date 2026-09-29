@@ -66,7 +66,7 @@ function availableMemory(): Promise<number> {
  * The machine the office runs on: how busy its CPU and memory are (for the monitor on the wall, and
  * a warning before hiring while it's under pressure), and the most workers the office runs at once,
  * across every floor. That limit comes from --max-workers, or from ⚙️ Settings (kept in
- * .agent-office/machine.json), which can lower it but never raise it past --max-workers.
+ * .droid-office/machine.json), which can lower it but never raise it past --max-workers.
  */
 export class Machine implements Capacity {
   private saved?: Saved;

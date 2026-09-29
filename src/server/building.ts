@@ -39,7 +39,7 @@ const MAX_REPOS = 1000;
 const CLONE_TIMEOUT_MS = 30 * 60_000;
 
 /**
- * The floors of the building, saved in <office>/.agent-office/floors.json: which projects there are,
+ * The floors of the building, saved in <office>/.droid-office/floors.json: which projects there are,
  * where their checkouts live, and how each floor is painted. New floors are cloned with the office
  * machine's `gh` login into <projects>/<owner>/<repo>, or its `glab` login into
  * <projects>/<host>/<group>/…/<project>; the projects folder can be picked in ⚙️ Settings (kept in
@@ -104,7 +104,7 @@ export class Building {
     try {
       writeFileSync(this.pickedFile, JSON.stringify(this.picked ?? {}, null, 2), { mode: 0o600 });
     } catch (err) {
-      console.error(`agent-office: couldn't save the projects folder: ${(err as Error).message}`);
+      console.error(`droid-office: couldn't save the projects folder: ${(err as Error).message}`);
     }
     return undefined;
   }
@@ -119,7 +119,7 @@ export class Building {
   }
 
   /**
-   * Makes the checkout the office was started in a floor, if it isn't one yet: `agent-office <dir>`
+   * Makes the checkout the office was started in a floor, if it isn't one yet: `droid-office <dir>`
    * has always meant that project. Once someone takes it off the building it stays off (the office
    * still keeps its own data in it), until its repository is added again from the elevator.
    */
@@ -148,7 +148,7 @@ export class Building {
 
   /**
    * Takes a floor off the building. Its checkout stays where it is, with its workers, queue and
-   * pictures in its .agent-office folder: adding the repository again moves back in, as long as the
+   * pictures in its .droid-office folder: adding the repository again moves back in, as long as the
    * checkout is still where the projects folder clones it (or it's the one the office was started
    * in). Returns the floor, or why it can't.
    */
@@ -279,7 +279,7 @@ export class Building {
         });
       }
     } catch (err) {
-      console.error(`agent-office: ${this.file} couldn't be read, so the building starts empty: ${(err as Error).message}`);
+      console.error(`droid-office: ${this.file} couldn't be read, so the building starts empty: ${(err as Error).message}`);
     }
   }
 
@@ -311,7 +311,7 @@ export class Building {
       if (off) writeFileSync(this.localFile, JSON.stringify(off, null, 2), { mode: 0o600 });
       else rmSync(this.localFile, { force: true });
     } catch (err) {
-      console.error(`agent-office: couldn't save ${this.localFile}: ${(err as Error).message}`);
+      console.error(`droid-office: couldn't save ${this.localFile}: ${(err as Error).message}`);
     }
   }
 
@@ -319,7 +319,7 @@ export class Building {
     try {
       writeFileSync(this.file, JSON.stringify(this.defs, null, 2), { mode: 0o600 });
     } catch (err) {
-      console.error(`agent-office: couldn't save the floors: ${(err as Error).message}`);
+      console.error(`droid-office: couldn't save the floors: ${(err as Error).message}`);
     }
   }
 }

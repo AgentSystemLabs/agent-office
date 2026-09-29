@@ -48,22 +48,22 @@ test('rejects unknown, malformed, empty, oversized, and child-scoped events', ()
 });
 
 test('generates one stable CLI hook override per supported event', () => {
-  const args = codexHookArgs('/tmp/office data/agent-office-codex-hook.cjs');
+  const args = codexHookArgs('/tmp/office data/droid-office-codex-hook.cjs');
   assert.equal(args.length, CODEX_HOOK_EVENTS.length * 2);
   for (let i = 0; i < CODEX_HOOK_EVENTS.length; i++) {
     assert.equal(args[i * 2], '-c');
     assert.match(args[i * 2 + 1], new RegExp(`^hooks\\.${CODEX_HOOK_EVENTS[i]}=\\[\\{hooks=`));
     assert.match(args[i * 2 + 1], /type="command"/);
     assert.match(args[i * 2 + 1], /timeout=3/);
-    assert.match(args[i * 2 + 1], /agent-office-codex-hook\.cjs/);
+    assert.match(args[i * 2 + 1], /droid-office-codex-hook\.cjs/);
   }
 });
 
 test('writes a mode-restricted helper that forwards paths without reading transcripts', () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'agent-office-codex-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'droid-office-codex-'));
   try {
     const file = writeCodexHook(dir);
-    assert.equal(file, path.join(dir, 'agent-office-codex-hook.cjs'));
+    assert.equal(file, path.join(dir, 'droid-office-codex-hook.cjs'));
     const source = readFileSync(file, 'utf8');
     assert.match(source, /MAX = 64 \* 1024/);
     assert.match(source, /AGENT_OFFICE_HOOK_TOKEN/);
@@ -74,7 +74,7 @@ test('writes a mode-restricted helper that forwards paths without reading transc
 });
 
 test('helper forwards only the bounded root event fields to the authenticated bridge', async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'agent-office-codex-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'droid-office-codex-'));
   const received: { url?: string; authorization?: string; body?: unknown } = {};
   const server = createServer((req, res) => {
     const chunks: Buffer[] = [];

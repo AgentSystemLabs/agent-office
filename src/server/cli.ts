@@ -31,8 +31,8 @@ try {
   office = await startServer(cfg);
 } catch (err) {
   const e = err as NodeJS.ErrnoException;
-  if (e.code === 'EADDRINUSE') console.error(`agent-office: port ${cfg.port} is already in use (try --port)`);
-  else console.error(`agent-office: ${e.message}`);
+  if (e.code === 'EADDRINUSE') console.error(`droid-office: port ${cfg.port} is already in use (try --port)`);
+  else console.error(`droid-office: ${e.message}`);
   process.exit(1);
 }
 
@@ -53,7 +53,7 @@ function floorsLine() {
 }
 
 function passwordLine() {
-  if (!office.accounts.sharedPassword) return 'off — everyone signs in with their own account (agent-office accounts)';
+  if (!office.accounts.sharedPassword) return 'off — everyone signs in with their own account (droid-office accounts)';
   if (!cfg.passwordGenerated) return '(from --password / AGENT_OFFICE_PASSWORD)';
   if (cfg.claimToken && !cfg.claimed) return 'shown exactly once to whoever opens the claim link (/claim?t=…)';
   if (cfg.claimed || !cfg.password) return '(already claimed — never shown again; reset with --reset-password)';
@@ -62,7 +62,7 @@ function passwordLine() {
 // Started in a project that's still one of the floors (it can be taken off like any other).
 const local = cfg.project && office.floors().some((f) => path.resolve(f.def.dir) === cfg.project);
 console.log(`
-  🏢  agent-office is open${local ? ` for ${cfg.project}` : ''}
+  🏢  droid-office is open${local ? ` for ${cfg.project}` : ''}
 
   ${floorsLine()}
 
@@ -87,6 +87,6 @@ const stop = (signal: NodeJS.Signals) => {
   setTimeout(() => process.exit(0), 300);
 };
 // Last line of defense: one bad request must never take down every running worker.
-process.on('unhandledRejection', (err) => console.error('agent-office: unhandled rejection', err));
+process.on('unhandledRejection', (err) => console.error('droid-office: unhandled rejection', err));
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

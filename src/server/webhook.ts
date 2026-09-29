@@ -41,7 +41,7 @@ const oneLine = (s: string, max: number) => {
 /**
  * The office's Slack / Discord webhook. When an agent worker starts waiting on input or finishes its
  * turn, and is still that way a few seconds later with nobody at its terminal, the channel gets a
- * line about it. Set from ⚙️ Settings (or --webhook) and kept in .agent-office/webhook.json.
+ * line about it. Set from ⚙️ Settings (or --webhook) and kept in .droid-office/webhook.json.
  */
 export class Webhook {
   private saved?: Saved;
@@ -195,7 +195,7 @@ export class Webhook {
     }
     // The link was changed while this was on its way; its outcome says nothing about the new one.
     if (this.saved !== saved) return error;
-    if (error) console.error(`agent-office: webhook: ${error}`);
+    if (error) console.error(`droid-office: webhook: ${error}`);
     if (error !== this.error || !error) {
       this.error = error;
       if (!error) this.lastSentAt = Date.now();

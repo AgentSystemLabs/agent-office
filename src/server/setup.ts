@@ -13,7 +13,7 @@ import { forgetGitlabHosts, gitlabHosts } from './gitlab.js';
 // Setting up an office from its terminal: where projects are cloned, signing the GitHub or GitLab CLI
 // in, and picking the first repositories to clone as floors. A new office walks you through it the
 // first time it starts in a terminal, so it opens on projects of your own instead of an empty
-// building. `agent-office setup` runs it again, or does it without asking when given --projects /
+// building. `droid-office setup` runs it again, or does it without asking when given --projects /
 // --project (deploy/provision.sh does).
 
 /** How many repositories a list shows; typing a word narrows it down. */
@@ -22,10 +22,10 @@ const SHOWN = 12;
 /** Folders people keep their code in, in the home folder: the first one that's there is the suggestion. */
 const CODE_FOLDERS = ['Workspace', 'workspace', 'Developer', 'code', 'Code', 'projects', 'Projects', 'repos', 'src', 'dev', 'git', 'GitHub', 'github'];
 
-const SETUP_HELP = `agent-office setup — pick where projects are cloned and which ones are floors
+const SETUP_HELP = `droid-office setup — pick where projects are cloned and which ones are floors
 
 Usage:
-  agent-office setup [--projects <dir>] [--project <repo>]... [--home <dir>]
+  droid-office setup [--projects <dir>] [--project <repo>]... [--home <dir>]
 
 In a terminal it walks you through it: the workspace folder new projects are cloned
 into, signing the GitHub CLI (gh) or GitLab CLI (glab) in, and picking repositories
@@ -36,10 +36,10 @@ A new office runs this by itself the first time it starts in a terminal. Run it
 while the office is stopped; while it runs, use its elevator and ⚙️ Settings.
 
 Options:
-      --home <dir>        The office to set up (default ~/agent-office, env AGENT_OFFICE_HOME)
+      --home <dir>        The office to set up (default ~/droid-office, env AGENT_OFFICE_HOME)
       --projects <dir>    Clone new projects into <dir>/<owner>/<repo> (GitLab:
                           <dir>/<host>/<group>/<project>) from now on. Default
-                          ~/.agent-office/projects
+                          ~/.droid-office/projects
       --project <repo>    Clone this repository as a floor: owner/name or a GitHub
                           URL, or a GitLab project URL or host/group/project path.
                           Repeat it for more than one
@@ -72,7 +72,7 @@ export async function welcome(cfg: Config): Promise<void> {
   console.log(building.list().length ? '\n  All set. Opening the office…' : '\n  Opening the office: its elevator asks for your first project.');
 }
 
-/** `agent-office setup …`: returns the exit code. */
+/** `droid-office setup …`: returns the exit code. */
 export async function setupCommand(argv: string[]): Promise<number> {
   let home = '';
   let projects = '';
@@ -82,7 +82,7 @@ export async function setupCommand(argv: string[]): Promise<number> {
     const value = () => {
       const v = argv[++i];
       if (v === undefined || v.startsWith('-')) {
-        console.error(`agent-office setup: ${a} needs a value`);
+        console.error(`droid-office setup: ${a} needs a value`);
         process.exit(2);
       }
       return v;
@@ -94,39 +94,39 @@ export async function setupCommand(argv: string[]): Promise<number> {
     else if (a === '--projects') projects = value();
     else if (a === '--project') repos.push(value());
     else {
-      console.error(`agent-office setup: unknown option ${a}\n`);
+      console.error(`droid-office setup: unknown option ${a}\n`);
       process.stderr.write(SETUP_HELP);
       return 2;
     }
   }
 
-  // The same office `agent-office` would start from here (see loadConfig).
+  // The same office `droid-office` would start from here (see loadConfig).
   const cwd = process.cwd();
   let dir = home || officeHome();
-  if (!home && !process.env.AGENT_OFFICE_HOME && cwd !== dir && existsSync(path.join(cwd, '.agent-office', 'config.json'))) dir = cwd;
-  const dataDir = path.join(dir, '.agent-office');
+  if (!home && !process.env.AGENT_OFFICE_HOME && cwd !== dir && existsSync(path.join(cwd, '.droid-office', 'config.json'))) dir = cwd;
+  const dataDir = path.join(dir, '.droid-office');
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   if (await officeRunning(dataDir)) {
-    console.error(`agent-office setup: the office in ${tildify(dir)} is running. Add projects from its elevator, and pick the workspace folder in ⚙️ Settings.`);
+    console.error(`droid-office setup: the office in ${tildify(dir)} is running. Add projects from its elevator, and pick the workspace folder in ⚙️ Settings.`);
     return 1;
   }
   const building = new Building(dataDir, defaultProjectsDir());
 
   if (projects || repos.length || !interactive()) {
     if (!projects && !repos.length) {
-      console.error('agent-office setup: nothing to do without a terminal to ask in. Pass --projects <dir> and/or --project <repo>.');
+      console.error('droid-office setup: nothing to do without a terminal to ask in. Pass --projects <dir> and/or --project <repo>.');
       return 2;
     }
     let code = 0;
     if (projects) {
-      const err = building.setProjectsDir(projects, 'agent-office setup');
+      const err = building.setProjectsDir(projects, 'droid-office setup');
       if (err) {
-        console.error(`agent-office setup: --projects: ${err}`);
+        console.error(`droid-office setup: --projects: ${err}`);
         return 1;
       }
       console.log(`  📁 New projects are cloned into ${building.projectsDirState().dir}/<owner>/<repo>`);
     }
-    for (const repo of repos) if (!(await addFloor(building, repo, 'agent-office setup'))) code = 1;
+    for (const repo of repos) if (!(await addFloor(building, repo, 'droid-office setup'))) code = 1;
     return code;
   }
 
@@ -145,7 +145,7 @@ async function walkthrough(building: Building, dataDir: string, askFolder: boole
   if (askFolder) await pickFolder(building);
   const login = await signIn(dataDir);
   if (!login) {
-    console.log('\n  Add projects from the elevator in the office once gh or glab is ready (or run `agent-office setup` again).');
+    console.log('\n  Add projects from the elevator in the office once gh or glab is ready (or run `droid-office setup` again).');
     return;
   }
   await pickProjects(building, login);
@@ -390,7 +390,7 @@ function whoAmI(): string {
   try {
     return os.userInfo().username;
   } catch {
-    return 'agent-office setup';
+    return 'droid-office setup';
   }
 }
 

@@ -86,11 +86,11 @@ function savePref(key: string, v: unknown) {
   }
 }
 
-const MERGE_KEY = 'agent-office.merge';
-const FILES_KEY = 'agent-office.pr-files';
-const TAB_KEY = 'agent-office.pr-tab';
+const MERGE_KEY = 'droid-office.merge';
+const FILES_KEY = 'droid-office.pr-files';
+const TAB_KEY = 'droid-office.pr-tab';
 /** Followed by the issue or PR's URL: the comment you were writing there. */
-const DRAFT_KEY = 'agent-office.comment:';
+const DRAFT_KEY = 'droid-office.comment:';
 
 interface MergePref {
   method?: GhMergeMethod;

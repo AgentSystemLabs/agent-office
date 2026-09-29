@@ -11,20 +11,20 @@
 # sign the GitHub (gh) or GitLab (glab) CLI in if neither is, and lets you pick your first
 # repository to clone as a floor.
 #
-# Releases go in ~/.local/share/agent-office and an `agent-office` command in ~/.local/bin, so
-# afterwards `agent-office` starts it too. Run the curl line again to update to the newest release.
+# Releases go in ~/.local/share/droid-office and an `droid-office` command in ~/.local/bin, so
+# afterwards `droid-office` starts it too. Run the curl line again to update to the newest release.
 #
 # Environment:
 #   AGENT_OFFICE_VERSION       install this release (a tag like v0.1.68) instead of the newest
-#   AGENT_OFFICE_INSTALL_DIR   where releases go (default ~/.local/share/agent-office)
-#   AGENT_OFFICE_BIN_DIR       where the `agent-office` command goes (default ~/.local/bin; empty: none)
+#   AGENT_OFFICE_INSTALL_DIR   where releases go (default ~/.local/share/droid-office)
+#   AGENT_OFFICE_BIN_DIR       where the `droid-office` command goes (default ~/.local/bin; empty: none)
 #   AGENT_OFFICE_INSTALL_ONLY  1: install, but don't start the office
 #   AGENT_OFFICE_TARBALL       install this release tarball (a local file) instead of downloading one
 set -euo pipefail
 
 REPO="nikships/droid-office"
-MARKER="agent-office launcher, written by install.sh"
-INSTALL_DIR="${AGENT_OFFICE_INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/agent-office}"
+MARKER="droid-office launcher, written by install.sh"
+INSTALL_DIR="${AGENT_OFFICE_INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/droid-office}"
 VERSIONS="$INSTALL_DIR/versions"
 BIN_DIR="${AGENT_OFFICE_BIN_DIR-$HOME/.local/bin}"
 STAGE=""
@@ -35,7 +35,7 @@ if [ -t 2 ]; then BOLD=$'\033[1m' CYAN=$'\033[1;36m' YELLOW=$'\033[1;33m' RED=$'
 else BOLD="" CYAN="" YELLOW="" RED="" RESET=""; fi
 step() { printf '%s==>%s %s\n' "$CYAN" "$RESET" "$*" >&2; }
 warn() { printf '%swarning:%s %s\n' "$YELLOW" "$RESET" "$*" >&2; }
-die() { printf '%sagent-office:%s %s\n' "$RED" "$RESET" "$*" >&2; exit 1; }
+die() { printf '%sdroid-office:%s %s\n' "$RED" "$RESET" "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 # Single-quotes a string for a shell script.
 sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
@@ -84,14 +84,14 @@ install_release() {
   mkdir -p "$VERSIONS"
   STAGE="$(mktemp -d "$VERSIONS/.install.XXXXXX")"
   if [ -n "$tarball" ]; then
-    cp "$tarball" "$STAGE/agent-office.tgz"
+    cp "$tarball" "$STAGE/droid-office.tgz"
   else
     step "Downloading Agent Office $tag"
-    curl -fSL --progress-bar -o "$STAGE/agent-office.tgz" "https://github.com/$REPO/releases/download/$tag/agent-office.tgz" ||
+    curl -fSL --progress-bar -o "$STAGE/droid-office.tgz" "https://github.com/$REPO/releases/download/$tag/droid-office.tgz" ||
       die "couldn't download release $tag (is that a release of https://github.com/$REPO/releases ?)"
   fi
-  tar -xzf "$STAGE/agent-office.tgz" -C "$STAGE" || die "that isn't a release tarball"
-  [ -f "$STAGE/package/bin/agent-office.js" ] || die "that release tarball doesn't contain Agent Office"
+  tar -xzf "$STAGE/droid-office.tgz" -C "$STAGE" || die "that isn't a release tarball"
+  [ -f "$STAGE/package/bin/droid-office.js" ] || die "that release tarball doesn't contain Agent Office"
   if [ -z "$tag" ]; then tag="v$(node -p 'require(process.argv[1]).version' "$STAGE/package/package.json")"; fi
   valid_tag "$tag" || die "not a release version: $tag"
   dest="$VERSIONS/$tag"
@@ -129,11 +129,11 @@ prune_versions() {
   done
 }
 
-# Puts an `agent-office` command on the PATH that starts this version.
+# Puts an `droid-office` command on the PATH that starts this version.
 write_launcher() {
   local tag="$1" entry="$2" target tmp
   [ -n "$BIN_DIR" ] || return 0
-  target="$BIN_DIR/agent-office"
+  target="$BIN_DIR/droid-office"
   if [ -e "$target" ] && ! grep -q "$MARKER" "$target" 2>/dev/null; then
     warn "left $target alone: this script didn't write it"
     return 0
@@ -150,10 +150,10 @@ EOF
   chmod 755 "$tmp"
   mv -f "$tmp" "$target"
   case ":$PATH:" in
-    *":$BIN_DIR:"*) LAUNCHER="agent-office" ;;
+    *":$BIN_DIR:"*) LAUNCHER="droid-office" ;;
     *)
       LAUNCHER="$target"
-      warn "$BIN_DIR isn't on your PATH. Add it to run ${BOLD}agent-office${RESET} directly next time."
+      warn "$BIN_DIR isn't on your PATH. Add it to run ${BOLD}droid-office${RESET} directly next time."
       ;;
   esac
 }
@@ -188,7 +188,7 @@ main() {
   printf '%s\n' "$tag" >"$INSTALL_DIR/current"
   prune_versions "$tag"
 
-  local entry="$VERSIONS/$tag/bin/agent-office.js"
+  local entry="$VERSIONS/$tag/bin/droid-office.js"
   write_launcher "$tag" "$entry"
 
   if [ "${AGENT_OFFICE_INSTALL_ONLY:-}" = 1 ]; then

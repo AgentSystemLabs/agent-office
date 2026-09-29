@@ -4,7 +4,7 @@ import { withoutGlyph } from '../world/glyph';
 import { store } from '../state';
 import { h } from './dom';
 
-const PROVIDER_KEY = 'agent-office.provider';
+const PROVIDER_KEY = 'droid-office.provider';
 
 export const PROVIDER_LABEL: Record<AgentProvider, string> = {
   claude: 'Claude Code',
@@ -138,12 +138,12 @@ export function choiceLabel(choice: AgentChoice): string {
 
 /** Remembers the last Claude model/effort chosen at this picker's key (a desk, or the queue). */
 function claudeChoiceKey(kind: 'model' | 'effort', key: string): string {
-  return `agent-office.claude-${kind}.${key}`;
+  return `droid-office.claude-${kind}.${key}`;
 }
 
 /** Remembers the last Droid model/effort chosen at this picker's key. */
 function droidChoiceKey(kind: 'model' | 'effort', key: string): string {
-  return `agent-office.droid-${kind}.${key}`;
+  return `droid-office.droid-${kind}.${key}`;
 }
 
 function preferredClaudeModel(key: string): ClaudeModel | undefined {

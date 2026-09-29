@@ -132,7 +132,7 @@ export function openAccounts(net: Net) {
         {},
         s.sharedPassword
           ? 'On. Anyone who knows it gets in as an admin and picks any name they like. Once everyone has an account, switch it off, so that revoking someone really locks them out.'
-          : 'Off: only accounts can sign in. If every admin is ever locked out, run agent-office accounts password on on the office’s machine.',
+          : 'Off: only accounts can sign in. If every admin is ever locked out, run droid-office accounts password on on the office’s machine.',
         s.sharedPassword && !canSwitchOff ? h('b', {}, ' Make yourself an admin account and sign in with it before you switch it off.') : null,
       ),
     );

@@ -6,7 +6,7 @@ import { isBusy, workerPr } from '../shared/status.js';
 
 /**
  * Whether a worker whose pull request merged goes home by itself, picked in ⚙️ Settings by anyone
- * and kept in .agent-office/leave-on-merge.json. The same on every floor; off until someone turns it on.
+ * and kept in .droid-office/leave-on-merge.json. The same on every floor; off until someone turns it on.
  */
 export class LeaveOnMerge {
   private saved?: Required<LeaveOnMergeState>;

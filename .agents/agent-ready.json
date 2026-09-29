@@ -57,7 +57,7 @@
     {
       "id": "setup",
       "status": "pass",
-      "notes": "AGENTS.md \"Commands\" and docs/guide.md \"Development\" document npm ci / npm install, build, lint, typecheck, tests and running bin/agent-office.js; \"dev\" and \"start\" scripts exist.",
+      "notes": "AGENTS.md \"Commands\" and docs/guide.md \"Development\" document npm ci / npm install, build, lint, typecheck, tests and running bin/droid-office.js; \"dev\" and \"start\" scripts exist.",
       "measurement": {
         "command": "npm ci && npm run dev"
       }

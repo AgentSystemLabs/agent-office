@@ -7,14 +7,14 @@ import { WEATHERS, type Weather } from '../shared/protocol.js';
 import { MAX_WORKER_LIMIT, parseWorkerLimit } from './machine.js';
 
 export interface Config {
-  /** The office's own folder: the building's data lives in its .agent-office. */
+  /** The office's own folder: the building's data lives in its .droid-office. */
   dir: string;
   dataDir: string;
-  /** Where new floors are cloned by default (~/.agent-office/projects), as <projectsDir>/<owner>/<repo>. */
+  /** Where new floors are cloned by default (~/.droid-office/projects), as <projectsDir>/<owner>/<repo>. */
   projectsDir: string;
   /** --projects / AGENT_OFFICE_PROJECTS: picks the projects folder, as ⚙️ Settings in the office does. */
   projects?: string;
-  /** Started as `agent-office <dir>`: that checkout is a floor of its own (it's also `dir`). */
+  /** Started as `droid-office <dir>`: that checkout is a floor of its own (it's also `dir`). */
   project?: string;
   host: string;
   port: number;
@@ -57,14 +57,14 @@ export interface RTCIceServerLike {
   credential?: string;
 }
 
-const HELP = `agent-office — a 3D office for your team and its Droid / Claude Code / OpenCode / Codex workers
+const HELP = `droid-office — a 3D office for your team and its Droid / Claude Code / OpenCode / Codex workers
 
 Usage:
-  agent-office [options]
-  agent-office [dir] [options]
-  agent-office setup [--projects <dir>] [--project <repo>]...
-  agent-office prune [dir] [--dry-run] [--force]
-  agent-office accounts [list|invite|revoke|role|password] ...
+  droid-office [options]
+  droid-office [dir] [options]
+  droid-office setup [--projects <dir>] [--project <repo>]...
+  droid-office prune [dir] [--dry-run] [--force]
+  droid-office accounts [list|invite|revoke|role|password] ...
 
 Runs the office. Every project is a floor of the building: ride the elevator,
 pick one of the repositories your \`gh\` (GitHub) or \`glab\` (GitLab) login can
@@ -78,14 +78,14 @@ project.
 
 Started from anywhere, the office keeps its data in --home. Given a [dir] (or
 started in a project where an office already ran), it keeps its data in
-<dir>/.agent-office as it always has, and that project starts out as a floor
+<dir>/.droid-office as it always has, and that project starts out as a floor
 (an admin can take it off in the elevator like any other).
 
 Commands:
   setup                   Pick the folder projects are cloned into and clone
                           projects as floors: a walkthrough in a terminal, or
                           just --projects / --project for scripts (see setup --help)
-  prune                   Remove leftover worker worktrees (.agent-office/worktrees/)
+  prune                   Remove leftover worker worktrees (.droid-office/worktrees/)
                           and their office/* branches. Anything with uncommitted
                           changes or unpushed commits is kept unless --force is given.
   accounts                Invite, list and revoke people's own accounts, and switch
@@ -93,17 +93,17 @@ Commands:
 
 Options:
       --home <dir>        Where the office keeps its data when no [dir] is given
-                          (default ~/agent-office, env AGENT_OFFICE_HOME)
+                          (default ~/droid-office, env AGENT_OFFICE_HOME)
       --projects <dir>    Where new floors are cloned, as <dir>/<owner>/<repo>
                           (GitLab: <dir>/<host>/<group>/<project>). Default
-                          ~/.agent-office/projects, env AGENT_OFFICE_PROJECTS.
+                          ~/.droid-office/projects, env AGENT_OFFICE_PROJECTS.
                           It can't be inside a git checkout. Also settable
                           from ⚙️ Settings in the office
   -p, --port <n>          Port to listen on (default 4600, env PORT)
   -H, --host <addr>       Address to bind (default 0.0.0.0)
       --password <pw>     Office password (env AGENT_OFFICE_PASSWORD).
                           Without one, a random password is generated once and
-                          saved in <dir>/.agent-office/config.json
+                          saved in <dir>/.droid-office/config.json
       --claim-token <t>   Show the generated password exactly once, at /claim?t=<t>
                           (env AGENT_OFFICE_CLAIM_TOKEN). After that only a hash
                           is kept and the password is never displayed again.
@@ -146,7 +146,7 @@ Voice and screen sharing need a secure context: use https (a reverse proxy,
 function takeValue(args: string[], i: number, flag: string): string {
   const v = args[i + 1];
   if (v === undefined || v.startsWith('--')) {
-    console.error(`agent-office: ${flag} needs a value`);
+    console.error(`droid-office: ${flag} needs a value`);
     process.exit(2);
   }
   return v;
@@ -167,17 +167,17 @@ function parseTurn(url: string): RTCIceServerLike {
   return { urls: url };
 }
 
-/** Where the office lives when it isn't started in a project: ~/agent-office, or $AGENT_OFFICE_HOME. */
+/** Where the office lives when it isn't started in a project: ~/droid-office, or $AGENT_OFFICE_HOME. */
 export function officeHome(): string {
-  return path.resolve(process.env.AGENT_OFFICE_HOME || path.join(os.homedir(), 'agent-office'));
+  return path.resolve(process.env.AGENT_OFFICE_HOME || path.join(os.homedir(), 'droid-office'));
 }
 
 /**
- * Where new floors are cloned unless another folder is picked: ~/.agent-office/projects. It's its
+ * Where new floors are cloned unless another folder is picked: ~/.droid-office/projects. It's its
  * own folder, apart from the office's home, which may be a checkout of Agent Office itself.
  */
 export function defaultProjectsDir(): string {
-  return path.join(os.homedir(), '.agent-office', 'projects');
+  return path.join(os.homedir(), '.droid-office', 'projects');
 }
 
 /** Keep the office's own data out of git without touching the project's .gitignore. */
@@ -186,9 +186,9 @@ export function excludeFromGit(dir: string) {
     const gitDir = execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
     const exclude = path.resolve(dir, gitDir, 'info', 'exclude');
     const cur = existsSync(exclude) ? readFileSync(exclude, 'utf8') : '';
-    if (!cur.split('\n').some((l) => l.trim() === '.agent-office/' || l.trim() === '.agent-office')) {
+    if (!cur.split('\n').some((l) => l.trim() === '.droid-office/' || l.trim() === '.droid-office')) {
       mkdirSync(path.dirname(exclude), { recursive: true });
-      appendFileSync(exclude, `${cur && !cur.endsWith('\n') ? '\n' : ''}.agent-office/\n`);
+      appendFileSync(exclude, `${cur && !cur.endsWith('\n') ? '\n' : ''}.droid-office/\n`);
     }
   } catch {
     // not a git repo; nothing to exclude
@@ -293,7 +293,7 @@ export function loadConfig(argv: string[]): Config {
         break;
       default:
         if (a.startsWith('-')) {
-          console.error(`agent-office: unknown option ${a}\n`);
+          console.error(`droid-office: unknown option ${a}\n`);
           process.stderr.write(HELP);
           process.exit(2);
         }
@@ -304,34 +304,34 @@ export function loadConfig(argv: string[]): Config {
   // An office already runs in this project (started here before there were floors): carry on with
   // it, its workers and its password, rather than open an empty building somewhere else.
   const cwd = process.cwd();
-  if (!project && !homeGiven && cwd !== home && existsSync(path.join(cwd, '.agent-office', 'config.json'))) project = cwd;
+  if (!project && !homeGiven && cwd !== home && existsSync(path.join(cwd, '.droid-office', 'config.json'))) project = cwd;
   if (project && !existsSync(project)) {
-    console.error(`agent-office: directory not found: ${project}`);
+    console.error(`droid-office: directory not found: ${project}`);
     process.exit(2);
   }
   const dir = project || home;
   const projectsDir = defaultProjectsDir();
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    console.error('agent-office: invalid --port');
+    console.error('droid-office: invalid --port');
     process.exit(2);
   }
   const budgetUsd = budget ? Number(budget.replace(/^\$/, '')) : undefined;
   if (budgetUsd !== undefined && !(budgetUsd > 0)) {
-    console.error('agent-office: --budget needs an amount in dollars, e.g. --budget 20');
+    console.error('droid-office: --budget needs an amount in dollars, e.g. --budget 20');
     process.exit(2);
   }
   const workerLimit = maxWorkers ? parseWorkerLimit(maxWorkers) : undefined;
   if (maxWorkers && workerLimit === undefined) {
-    console.error(`agent-office: --max-workers needs a whole number from 1 to ${MAX_WORKER_LIMIT}, e.g. --max-workers 6`);
+    console.error(`droid-office: --max-workers needs a whole number from 1 to ${MAX_WORKER_LIMIT}, e.g. --max-workers 6`);
     process.exit(2);
   }
   weather = weather.trim().toLowerCase();
   if (weather && !(WEATHERS as readonly string[]).includes(weather)) {
-    console.error(`agent-office: --weather is one of ${WEATHERS.join(', ')}`);
+    console.error(`droid-office: --weather is one of ${WEATHERS.join(', ')}`);
     process.exit(2);
   }
 
-  const dataDir = path.join(dir, '.agent-office');
+  const dataDir = path.join(dir, '.droid-office');
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   if (project) excludeFromGit(dir);
 
@@ -353,7 +353,7 @@ export function loadConfig(argv: string[]): Config {
     delete stored.verifier;
     delete stored.claimedAt;
     save();
-    console.log('agent-office: password forgotten — a new one is generated on the next start');
+    console.log('droid-office: password forgotten — a new one is generated on the next start');
     process.exit(0);
   }
 
@@ -380,7 +380,7 @@ export function loadConfig(argv: string[]): Config {
   let tls: Config['tls'];
   if (tlsCert || tlsKey) {
     if (!tlsCert || !tlsKey) {
-      console.error('agent-office: --tls-cert and --tls-key go together');
+      console.error('droid-office: --tls-cert and --tls-key go together');
       process.exit(2);
     }
     tls = { cert: readFileSync(tlsCert, 'utf8'), key: readFileSync(tlsKey, 'utf8') };
@@ -435,7 +435,7 @@ export async function ensureSelfSigned(cfg: Config): Promise<void> {
   }
   const selfsigned = await import('selfsigned');
   const gen = (selfsigned as any).generate ?? (selfsigned as any).default?.generate;
-  const pems = await gen([{ name: 'commonName', value: 'agent-office' }], { days: 825, keySize: 2048 });
+  const pems = await gen([{ name: 'commonName', value: 'droid-office' }], { days: 825, keySize: 2048 });
   writeFileSync(certPath, pems.cert, { mode: 0o600 });
   writeFileSync(keyPath, pems.private, { mode: 0o600 });
   cfg.tls = { cert: pems.cert, key: pems.private };

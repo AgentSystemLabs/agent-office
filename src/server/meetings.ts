@@ -225,7 +225,7 @@ export class MeetingRoom {
       startedAt: Date.now(),
       worktree,
       // Without git, the notes go with the floor's other state.
-      notes: worktree ? MEETING_NOTES_DIR : `.agent-office/meetings/${id}`,
+      notes: worktree ? MEETING_NOTES_DIR : `.droid-office/meetings/${id}`,
     };
     mkdirSync(path.join(this.cwd(m), m.notes), { recursive: true });
     const first = this.plan(m, 1, 1) ?? [];
@@ -501,7 +501,7 @@ export class MeetingRoom {
     // Kept with the floor's state already (keepNotes): the notes, and a review panel's review, which
     // is on the pull request now, go, so they don't count as work left behind.
     const cwd = this.cwd(m);
-    const own = path.resolve(this.dir, '.agent-office', 'worktrees') + path.sep;
+    const own = path.resolve(this.dir, '.droid-office', 'worktrees') + path.sep;
     for (const leftover of [m.notes, m.pattern === 'review' ? m.output : undefined]) {
       const abs = leftover && path.resolve(cwd, leftover);
       if (abs?.startsWith(own)) rmSync(abs, { recursive: true, force: true });

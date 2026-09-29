@@ -12,7 +12,7 @@ interface Saved {
 }
 
 /**
- * The lounge jukebox on one floor, saved in .agent-office/jukebox.json. It only says what's on and
+ * The lounge jukebox on one floor, saved in .droid-office/jukebox.json. It only says what's on and
  * since when; every browser plays it for itself, from the same point.
  */
 export class Jukebox {

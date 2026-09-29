@@ -81,7 +81,7 @@ export function wander(prev: Weather | null, month: number, south: boolean): { w
 const pinned = (weather: Weather) => ({ weather, intensity: weather === 'clear' ? 0 : 0.8 });
 
 async function getJson(url: string): Promise<any> {
-  const res = await fetch(url, { signal: AbortSignal.timeout(10_000), headers: { 'user-agent': 'agent-office' } });
+  const res = await fetch(url, { signal: AbortSignal.timeout(10_000), headers: { 'user-agent': 'droid-office' } });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -152,7 +152,7 @@ export class Sky {
     try {
       this.place ??= await locate(city);
       if (!this.place) {
-        console.warn(`agent-office: couldn't find the city "${city}"; the weather is made up instead`);
+        console.warn(`droid-office: couldn't find the city "${city}"; the weather is made up instead`);
         this.opts.city = undefined;
         return this.drift();
       }
@@ -167,7 +167,7 @@ export class Sky {
       this.warned = false;
       this.later(FORECAST_MS, () => void this.forecast());
     } catch (err) {
-      if (!this.warned) console.warn(`agent-office: no weather for ${city} yet (${(err as Error).message}); trying again in a couple of minutes`);
+      if (!this.warned) console.warn(`droid-office: no weather for ${city} yet (${(err as Error).message}); trying again in a couple of minutes`);
       this.warned = true;
       this.later(RETRY_MS, () => void this.forecast());
     }

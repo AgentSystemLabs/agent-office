@@ -89,7 +89,7 @@ export function projectInfo(dir: string, name: string, agentCmd: string, agentAr
 
 /**
  * One floor of the building: a project's checkout with its own desks and workers, issues and PR
- * boards, task queue, pictures and jukebox, all kept in that checkout's .agent-office folder.
+ * boards, task queue, pictures and jukebox, all kept in that checkout's .droid-office folder.
  */
 export class Floor {
   readonly id: string;
@@ -129,7 +129,7 @@ export class Floor {
   ) {
     this.id = def.id;
     this.dir = def.dir;
-    const dataDir = path.join(def.dir, '.agent-office');
+    const dataDir = path.join(def.dir, '.droid-office');
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
     excludeFromGit(def.dir);
     const forge = forgeOf(def.repo) ?? 'github';

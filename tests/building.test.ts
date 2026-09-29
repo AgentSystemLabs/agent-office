@@ -8,9 +8,9 @@ import { Building, type FloorDef } from '../src/server/building.js';
 import { suggestedFolder } from '../src/server/setup.js';
 
 function office(t: { after(fn: () => void): void }) {
-  const root = mkdtempSync(path.join(tmpdir(), 'agent-office-building-'));
+  const root = mkdtempSync(path.join(tmpdir(), 'droid-office-building-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const dataDir = path.join(root, '.agent-office');
+  const dataDir = path.join(root, '.droid-office');
   mkdirSync(dataDir);
   const floor = (id: string, palette: number): FloorDef => {
     const dir = path.join(root, 'acme', id);
@@ -105,9 +105,9 @@ for (const [forge, origin, repo] of [
 }
 
 test('the walkthrough suggests a code folder that is already in the home folder, else the default', (t) => {
-  const home = mkdtempSync(path.join(tmpdir(), 'agent-office-home-'));
+  const home = mkdtempSync(path.join(tmpdir(), 'droid-office-home-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
-  const fallback = path.join(home, '.agent-office', 'projects');
+  const fallback = path.join(home, '.droid-office', 'projects');
   assert.equal(suggestedFolder(fallback, home), fallback);
   writeFileSync(path.join(home, 'code'), 'a file, not a folder');
   assert.equal(suggestedFolder(fallback, home), fallback);

@@ -86,13 +86,13 @@ jobs:
           cp package-lock.json npm-shrinkwrap.json
           npm pkg set 'files[]=npm-shrinkwrap.json'
           npm pack --ignore-scripts
-          mv "agent-office-$version.tgz" agent-office.tgz
-          tar -tzf agent-office.tgz | grep -qx 'package/npm-shrinkwrap.json'
+          mv "droid-office-$version.tgz" droid-office.tgz
+          tar -tzf droid-office.tgz | grep -qx 'package/npm-shrinkwrap.json'
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Install it with install.sh and start it
         env:
-          AGENT_OFFICE_TARBALL: ${{ github.workspace }}/agent-office.tgz
+          AGENT_OFFICE_TARBALL: ${{ github.workspace }}/droid-office.tgz
           AGENT_OFFICE_INSTALL_DIR: ${{ runner.temp }}/install
           AGENT_OFFICE_BIN_DIR: ${{ runner.temp }}/bin
           AGENT_OFFICE_HOME: ${{ runner.temp }}/office
@@ -100,7 +100,7 @@ jobs:
         run: |
           bash install.sh
           cd "$RUNNER_TEMP"
-          "$RUNNER_TEMP/bin/agent-office" --host 127.0.0.1 --port 4700 --password ci > office.log 2>&1 &
+          "$RUNNER_TEMP/bin/droid-office" --host 127.0.0.1 --port 4700 --password ci > office.log 2>&1 &
           office=$!
           for _ in $(seq 60); do
             code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4700/login.html || true)
@@ -122,4 +122,4 @@ jobs:
             echo "$TAG is already released"
             exit 0
           fi
-          gh release create "$TAG" agent-office.tgz --target "$GITHUB_SHA" --title "$TAG" --generate-notes --latest
+          gh release create "$TAG" droid-office.tgz --target "$GITHUB_SHA" --title "$TAG" --generate-notes --latest

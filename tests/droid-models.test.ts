@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createDroidModelCatalogue, readDroidModels } from '../src/server/droid-models.js';
 
 function settingsFile(t: { after(fn: () => void): void }, body: unknown): string {
-  const dir = mkdtempSync(path.join(tmpdir(), 'agent-office-droid-models-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'droid-office-droid-models-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const file = path.join(dir, 'settings.json');
   writeFileSync(file, typeof body === 'string' ? body : JSON.stringify(body));
@@ -36,7 +36,7 @@ test('Droid catalogue lists custom models with their display names and efforts',
 });
 
 test('Droid catalogue tolerates missing, corrupt, or model-less settings', (t) => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'agent-office-droid-models-'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'droid-office-droid-models-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   assert.deepEqual(readDroidModels(path.join(dir, 'nope.json')), { models: [] });
   assert.deepEqual(readDroidModels(settingsFile(t, 'not json{{')), { models: [] });

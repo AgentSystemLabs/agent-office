@@ -1,7 +1,7 @@
 export default async function run({ frame }) {
   const s = await frame.evaluate(() => {
     try {
-      return JSON.parse(localStorage.getItem('agent-office.settings') ?? 'null')?.vr ?? null;
+      return JSON.parse(localStorage.getItem('droid-office.settings') ?? 'null')?.vr ?? null;
     } catch {
       return 'unreadable';
     }

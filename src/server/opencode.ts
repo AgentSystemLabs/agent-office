@@ -45,7 +45,7 @@ export function mergeOpenCodeConfigContent(existing: string | undefined, plugin:
 /** Write the self-contained plugin used for every OpenCode worker process. */
 export function writeOpenCodePlugin(dataDir: string): string {
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-  const file = path.join(dataDir, 'agent-office-opencode.mjs');
+  const file = path.join(dataDir, 'droid-office-opencode.mjs');
   writeFileSync(file, OPENCODE_PLUGIN_SOURCE, { mode: 0o600 });
   return file;
 }

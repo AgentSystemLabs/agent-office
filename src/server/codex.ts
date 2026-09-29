@@ -94,7 +94,7 @@ export function codexHookArgs(hookPath: string): string[] {
 /** Write the stable, self-contained helper invoked by Codex's native command hooks. */
 export function writeCodexHook(dataDir: string): string {
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-  const file = path.join(dataDir, 'agent-office-codex-hook.cjs');
+  const file = path.join(dataDir, 'droid-office-codex-hook.cjs');
   writeFileSync(file, CODEX_HOOK_SOURCE, { mode: 0o600 });
   chmodSync(file, 0o600);
   return file;
