@@ -16,7 +16,7 @@ let peopleKey = '';
 export function renderPeople(voice: Voice, onEditProfile: () => void, onWalkTo: (id: string) => void, force = true) {
   const peers = [...store.peers.values()].sort((a, b) => (a.id === store.you ? -1 : b.id === store.you ? 1 : a.name.localeCompare(b.name)));
   // What each of them is up to changes as they walk about (onto the balcony, up the stairs).
-  const doing = peers.map((p) => (p.id === store.you ? undefined : whereabouts(p)));
+  const doing = peers.map((p) => (p.id === store.you ? undefined : whereabouts(p, store.carOf(p.id))));
   const key = peers.map((p, i) => `${p.id}|${doing[i] ?? ''}`).join('\n');
   if (!force && key === peopleKey) return;
   peopleKey = key;

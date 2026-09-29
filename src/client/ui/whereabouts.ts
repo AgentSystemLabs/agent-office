@@ -1,14 +1,19 @@
 import { BALCONY, DANCE_FLOOR, FIRE_PIT, FLOOR, LOFT, MEETING_ROOM, ROOF_BAR, ROOF_TABLES, SEATING_BY_ID, STAGE, seatAt } from '../../shared/layout';
 import type { PeerInfo } from '../../shared/protocol';
 import { ROOF } from '../../shared/rooftop';
+import { CARS, type CarSeat } from '../../shared/garage';
 
 /**
  * What a teammate is up to, for the line under their name tag and in the sidebar: whatever they have
  * open ("💻 in Pixel's terminal", "🔀 reading PR #12"), else somewhere worth saying they are ("🌇 on
- * the balcony", "🛋️ on the couch"). Nothing while they're just walking around the office.
+ * the balcony", "🛋️ on the couch", "🏎️ driving the Orange Lambo"). Nothing while they're just walking around
+ * the office.
  */
-export function whereabouts(p: PeerInfo): string | undefined {
+export function whereabouts(p: PeerInfo, car?: { car: number; seat: CarSeat }): string | undefined {
   if (p.doing) return p.doing;
+  // In one of the garage's cars (see Store.carOf).
+  const def = car && CARS[car.car];
+  if (def) return `🏎️ ${car.seat === 'driver' ? 'driving' : 'riding in'} the ${def.name}`;
   if (p.smoking) return '🚬 on a smoke break';
   if (p.golfing) return '🏌️ teeing off';
   if (p.throwing) return p.throwing === 'darts' ? '🎯 playing darts' : '🪓 throwing axes';

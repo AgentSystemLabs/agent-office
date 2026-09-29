@@ -598,6 +598,7 @@ export async function startServer(cfg: Config) {
     services: servicesState(floor),
     dog: floor?.dog.view() ?? null,
     ball: floor?.court.state() ?? {},
+    cars: floor?.garage.state() ?? [],
     jukebox: floor?.jukebox.state() ?? { on: false, track: JUKEBOX_TUNES[0].id, startedAt: Date.now(), elapsed: 0 },
     whiteboard: { elements: floor?.whiteboard.scene() ?? [], people: floor ? drawing(floor) : [] },
     meeting: floor?.meetings.state() ?? { current: null, past: [] },
@@ -1096,6 +1097,7 @@ export async function startServer(cfg: Config) {
         f.workers.detachAll(id);
         f.changes.unwatchAll(id);
         if (f.court.left(id)) ballChanged(f);
+        if (f.garage.leave(id)) carsChanged(f);
       }
       broadcast({ t: 'peer.leave', id });
       if (account) accountsChanged();
@@ -1106,6 +1108,7 @@ export async function startServer(cfg: Config) {
 
   const decorChanged = (floor: Floor) => toFloor(floor, { t: 'decor', items: floor.decor.list() });
   const ballChanged = (floor: Floor) => toFloor(floor, { t: 'ball', ball: floor.court.state() });
+  const carsChanged = (floor: Floor) => toFloor(floor, { t: 'cars', cars: floor.garage.state() });
   const jukeboxChanged = (floor: Floor) => toFloor(floor, { t: 'jukebox', state: floor.jukebox.state() });
   const teamState = async () => ({ ...(await team.state()), deploy: cfg.deployScript });
   const teamChanged = async () => broadcast({ t: 'team', state: await teamState() });
@@ -1190,6 +1193,8 @@ export async function startServer(cfg: Config) {
     // The ball stays on its floor, back under the hoop. That floor hears so once they're off it (see
     // arrived), or their own page would put it down before it knew they'd gone.
     const ballLeft = !!was?.court.left(c.id);
+    // So does a car they were in, parked where they left it.
+    const carLeft = !!was?.garage.leave(c.id);
     c.attached.clear();
     c.typingAt.clear();
     c.stale.clear();
@@ -1205,13 +1210,14 @@ export async function startServer(cfg: Config) {
     // An issue card belongs to the board it came off, which is on the floor they left; a drink stays at the bar.
     delete c.peer.carrying;
     delete c.peer.drink;
-    return { was, wasDrawing, ballLeft };
+    return { was, wasDrawing, ballLeft, carLeft };
   };
 
   const arrived = (c: Client, left: ReturnType<typeof leave>) => {
     broadcast({ t: 'peer.update', peer: c.peer }, c.id);
     if (left.wasDrawing) drawingChanged(left.was);
     if (left.ballLeft && left.was) ballChanged(left.was);
+    if (left.carLeft && left.was) carsChanged(left.was);
   };
 
   /**
@@ -1470,6 +1476,28 @@ export async function startServer(cfg: Config) {
         // Whoever didn't get it (someone else caught it first) is told where it really is.
         if (changed) ballChanged(floor);
         else sendTo(c, { t: 'ball', ball: floor.court.state() });
+        break;
+      }
+      case 'car.enter':
+      case 'car.leave': {
+        const floor = floorOf(c);
+        if (!floor) break;
+        const changed = msg.t === 'car.enter' ? floor.garage.enter(c.id, Math.trunc(num(msg.car)), msg.seat) : floor.garage.leave(c.id);
+        // They hear back either way: someone who didn't get in (someone beat them to the seat) learns who did.
+        if (changed) toNeighbors(c, { t: 'cars', cars: floor.garage.state() });
+        sendTo(c, { t: 'cars', cars: floor.garage.state(), answer: true });
+        break;
+      }
+      case 'car.drive': {
+        const floor = floorOf(c);
+        const car = Math.trunc(num(msg.car));
+        const now = floor?.garage.drive(c.id, car, { x: num(msg.x), z: num(msg.z), rotY: num(msg.rotY), speed: num(msg.speed), steer: num(msg.steer) });
+        if (now) toNeighbors(c, { t: 'car.move', car, ...now }, true);
+        break;
+      }
+      case 'car.honk': {
+        const car = floorOf(c)?.garage.honk(c.id);
+        if (car !== undefined) toNeighbors(c, { t: 'car.honk', car });
         break;
       }
       case 'dog.pet':
