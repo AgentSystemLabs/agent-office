@@ -44,7 +44,7 @@ Keep the terminal open while you use the office; Ctrl-C closes the tunnel. Next 
 
 (East US, on demand, from Azure's retail price list; other regions differ.)
 
-Pick one with `up --size <size>`, or change it later with `deploy/azure.sh resize <size>`. Resizing deallocates the VM, changes its size and starts it again, which takes a few minutes. The address, the disk and everything on it stay. Azure refuses a few changes, and `resize` checks for them before it stops anything: between Intel/AMD and Arm sizes, between a size with a local temp disk and one without (`Standard_B4ms` and `Standard_B4s_v2`, say), or to a size without Trusted Launch. For those, `destroy` and `up` again.
+Pick one with `up --size <size>`, or change it later with `deploy/azure.sh resize <size>`. Resizing deallocates the VM, changes its size and starts it again, which takes a few minutes. The address, the disk and everything on it stay. A paused office stays paused, as the new size. Azure refuses some changes, and `resize` checks for them before it stops anything: between Intel/AMD and Arm sizes, between a size with a local temp disk and one without (`Standard_B4ms` and `Standard_B4s_v2`, say), to a size without Trusted Launch or without Premium SSD (no `s` after the number, like `Standard_D8_v5`), or to one that only takes NVMe disks (most v6 sizes). For those, `destroy` and `up` again. If Azure can't start the VM as the new size (no room for it in the region just then), `resize` puts it back on the old one.
 
 **Arm.** The Arm sizes have a `p` in their name. `up` takes the Cobalt ones, like `Standard_D4ps_v6`, and gives them the Arm build of Ubuntu. It turns down the older Ampere B-series ones (`Standard_B4ps_v2`), which can't run Trusted Launch.
 
@@ -97,12 +97,15 @@ Useful options for `up`:
 - `--name <name>` runs several offices side by side, each in its own resource group, `agent-office-<name>`. Every other command then takes the same `--name`, before or after the command, and the commands the office itself suggests include it.
 - `--claude-token "$(claude setup-token)"`, `--anthropic-api-key`, `--github-token` and `--no-github-token` work as they do on [AWS](aws.md).
 
-**From a second computer.** The SSH key lives on the computer that ran `up`. Run `deploy/azure.sh up` on another computer (signed in to the same subscription) and it makes that computer a key and adds it to the VM with `az vm user update`. Copying `~/.config/agent-office/azure/<name>/` across works too.
+**From a second computer.** The SSH key lives on the computer that ran `up`. On another one, signed in to the same subscription (or with `--subscription`), run `deploy/azure.sh connect`: it makes that computer a key, adds it to the VM with `az vm user update`, and lets its IP through the firewall. It changes nothing else, where `up` would also re-provision the VM with that computer's GitHub token and git name. Copying `~/.config/agent-office/azure/<name>/` across works too.
+
+**Running `up` again** re-provisions the VM, which is how `--size`, `--project` or a new `--claude-token` get applied. Without `--claude-token` or `--anthropic-api-key`, it keeps the Claude sign-in it was given before.
 
 **Settings.** Like on AWS, office settings go in `/etc/agent-office/env` on the VM (`deploy/azure.sh ssh`, then `sudo nano /etc/agent-office/env` and `sudo systemctl restart agent-office`). The VM's clock is UTC, so set `AGENT_OFFICE_CITY="Portland, Oregon"` there for the office's sky to follow your time of day.
 
 ## When Azure says no
 
-- **Quota.** *"Operation could not be completed as it results in exceeding approved … Cores quota"*: your subscription can't run that many vCPUs of that family in the region. Free and trial subscriptions have very few. Ask for more in the Azure portal under **Quotas → Compute** (for the default size, "Standard DASv5 Family vCPUs"), or run `up` again with another `--size`. To try another region, `destroy` first, since the office's resource group already lives in the first one.
+- **Quota.** *"Operation could not be completed as it results in exceeding approved … Cores quota"*: your subscription can't run that many vCPUs of that family in the region. Ask for more in the Azure portal under **Quotas → Compute** (for the default size, "Standard DASv5 Family vCPUs"), or run `up` again with another `--size`. To try another region, `destroy` first, since the office's resource group already lives in the first one. Free Trial and student subscriptions get 4 vCPUs per region and can't ask for more: the default size fits, but anything bigger needs a pay-as-you-go subscription.
 - **Size not available.** `up` checks first and stops before creating anything. To list the sizes you can use in a region: `az vm list-skus -l eastus --resource-type virtualMachines --size Standard_B -o table`.
-- **A half-made office.** If `up` stops partway (a quota, a lost connection), run it again: it reuses whatever it already made. `destroy` removes all of it.
+- **A half-made office.** If `up` stops partway (a quota, a lost connection), run it again: it reuses whatever it already made. `destroy` removes all of it. (Azure may also make a `NetworkWatcherRG` resource group of its own for the region. It's free, and it's not the office's to delete.)
+- **SSH won't connect.** SSH only answers the IPs you allowed. On a new network, `open` says so; `deploy/azure.sh allow me` lets your new IP in.

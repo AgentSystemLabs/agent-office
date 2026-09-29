@@ -59,6 +59,8 @@ Commands
   resume             Start a paused office again and open it in the browser
   destroy            Delete the office's resource group and everything in it (asks you to type
                      the office name first). `down` does the same.
+  connect            Let this computer manage an office made on another one: adds this
+                     computer's SSH key to the VM and its IP to the firewall, and nothing else
 
   service <port>     Open a worker's web server from the office's 🌐 Services board on
                      http://localhost:<port> (through the office; Ctrl-C closes the tunnel)
@@ -119,6 +121,11 @@ die() {
 CMD=""
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --name | --location | --region | --subscription | --size | --instance-type | --disk | --allow | --port | --project | \
+      --app-repo | --app-ref | --github-token | --claude-token | --anthropic-api-key)
+      [[ $# -ge 2 ]] || die "$1 needs a value (see: deploy/azure.sh help)" ;;
+  esac
   case "$1" in
     --name) NAME="$2"; shift 2 ;;
     --location | --region) LOCATION_ARG="$2"; shift 2 ;;
@@ -181,7 +188,7 @@ azc() { az "$@" "${SUB_ARGS[@]+"${SUB_ARGS[@]}"}" --only-show-errors | tr -d '\r
 # One value. az prints None for a missing one in a list, and nothing for a missing one on its own.
 azv() { azc "$@" -o tsv | sed 's/^None$//'; }
 # az's tsv rows as space-separated words, with - for a missing value, so `read` keeps each in place.
-words() { awk -F'\t' '{ for (i = 1; i <= NF; i++) if ($i == "" || $i == "None") $i = "-"; $1 = $1; print }'; }
+words() { awk -F'\t' '{ for (i = 1; i <= NF; i++) { gsub(/ /, "", $i); if ($i == "" || $i == "None") $i = "-" } $1 = $1; print }'; }
 
 preflight() {
   need az "https://learn.microsoft.com/cli/azure/install-azure-cli"
@@ -223,7 +230,7 @@ open_url() {
   if command -v open >/dev/null 2>&1; then open "$url"
   elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$url" >/dev/null 2>&1 &
   elif command -v wslview >/dev/null 2>&1; then wslview "$url"
-  elif command -v cmd.exe >/dev/null 2>&1; then cmd.exe /c start "" "$url"
+  elif command -v cmd.exe >/dev/null 2>&1; then MSYS2_ARG_CONV_EXCL='*' cmd.exe /c start "" "$url" # Git Bash would make /c C:/
   fi
 }
 
@@ -264,8 +271,19 @@ default_location() {
 # "West Europe" and "westeurope" are the same region; Azure's name for it is the second.
 normalize_location() { lower "$1" | tr -d ' '; }
 
-find_vm() { azv vm show -g "$RG" -n "$VM" --query id 2>/dev/null || true; }
+# The office's VM ID, or nothing when it has none. A list rather than `vm show`, so that any other
+# error stops the script instead of reading as "no VM".
+find_vm() { azv vm list -g "$RG" --query "[?name=='$VM'].id | [0]"; }
 vm_size() { azv vm show -g "$RG" -n "$VM" --query hardwareProfile.vmSize; }
+
+require_vm_exists() {
+  VM_ID=$(find_vm)
+  [[ -n "$VM_ID" ]] || die "office \"$NAME\" has no VM — run: deploy/azure.sh up$NAME_FLAG"
+}
+
+# A network resource of the office's, by kind (nsg, public-ip) and name: its ID, or nothing. Here
+# too an error stops the script: taking one for "missing" would re-create, and so reset, what's there.
+find_resource() { azv network "$1" list -g "$RG" --query "[?name=='$2'].id | [0]"; }
 
 # running, starting, stopping, stopped (off, still billed), deallocating or deallocated (paused).
 vm_power() {
@@ -273,15 +291,22 @@ vm_power() {
     sed 's#^PowerState/##' || true
 }
 
-# The power state once it's done changing (a start, stop or deallocate in progress).
+# The power state once it's done changing (a start, stop or deallocate in progress). Gives up
+# after 10 minutes, or after 30 seconds of Azure not saying.
 settled_power() {
-  local p="" i
+  local p="" i blank=0
   for ((i = 0; i < 120; i++)); do
     p=$(vm_power)
     case "$p" in
-      starting | stopping | deallocating | "") sleep 5 ;;
+      starting | stopping | deallocating) ;;
+      "")
+        blank=$((blank + 1))
+        [[ $blank -lt 6 ]] || break
+        ;;
       *) break ;;
     esac
+    [[ $i -eq 0 ]] && say "Waiting for the VM, which is ${p:-busy}" >&2
+    sleep 5
   done
   echo "$p"
 }
@@ -295,45 +320,58 @@ start_vm() {
 
 public_ip() { azv network public-ip show -g "$RG" -n "$PIP" --query ipAddress 2>/dev/null || true; }
 
-# "<name> <arch> <generations> <no Trusted Launch> <premium SSD> <temp disk MB>" for a size this
-# subscription can use in $LOCATION (- where Azure doesn't say), or nothing when it can't.
+# "<name> <arch> <generations> <no Trusted Launch> <premium SSD> <temp disk MB> <disk controllers>"
+# for a size this subscription can use in $LOCATION (- where Azure doesn't say), or nothing when it
+# can't. Fails when Azure can't list the sizes at all.
 size_row() {
-  local q="[].[name" c
-  for c in CpuArchitectureType HyperVGenerations TrustedLaunchDisabled PremiumIO MaxResourceVolumeMB; do
+  local q="[].[name" c out
+  for c in CpuArchitectureType HyperVGenerations TrustedLaunchDisabled PremiumIO MaxResourceVolumeMB DiskControllerTypes; do
     q+=", capabilities[?name=='$c'] | [0].value"
   done
-  azc vm list-skus -l "$LOCATION" --resource-type virtualMachines --size "$1" -o tsv --query "$q]" 2>/dev/null |
-    awk -F'\t' -v w="$1" 'tolower($1) == tolower(w) { print; exit }' | words || true
+  out=$(azc vm list-skus -l "$LOCATION" --resource-type virtualMachines --size "$1" -o tsv --query "$q]") || return 1
+  printf '%s\n' "$out" | awk -F'\t' -v w="$1" 'tolower($1) == tolower(w) { print; exit }' | words
 }
 
-# Sets SIZE to the size's own spelling, and SIZE_ARCH, SIZE_GENS, SIZE_NO_TL, SIZE_PREMIUM and
-# SIZE_TEMP to what it has (see size_row).
+# Sets SIZE to the size's own spelling, and SIZE_ARCH, SIZE_GENS, SIZE_NO_TL, SIZE_PREMIUM, SIZE_TEMP
+# and SIZE_CONTROLLERS to what it has (see size_row).
 size_info() {
   local want="$1" row
   [[ "$want" =~ ^[A-Za-z0-9_]+$ ]] || die "not a VM size: $want (e.g. $DEFAULT_SIZE)"
   say "Checking that $want is available in $LOCATION"
-  row=$(size_row "$want")
+  row=$(size_row "$want") || die "couldn't list the VM sizes in $LOCATION (above)"
   [[ -n "$row" ]] || die "$want isn't available to your subscription in $LOCATION. Check the region's name
    (az account list-locations -o table), or pick another --size or --location. The sizes there:
    az vm list-skus -l $LOCATION --resource-type virtualMachines --size Standard_D4 -o table"
-  read -r SIZE SIZE_ARCH SIZE_GENS SIZE_NO_TL SIZE_PREMIUM SIZE_TEMP <<<"$row"
+  read -r SIZE SIZE_ARCH SIZE_GENS SIZE_NO_TL SIZE_PREMIUM SIZE_TEMP SIZE_CONTROLLERS <<<"$row"
 }
 
 # Whether a size has a local temp disk: Azure only resizes between sizes that both do or both don't.
 temp_disk() { [[ "$1" != "-" && "$1" != "0" ]]; }
 
-# Stop -> change size -> start. The disk, the address and everything on the VM stay. Changes Azure
-# would refuse are caught first, so they don't cost the office any downtime.
+# Whether the size in SIZE takes a disk controller (SCSI or NVMe). Sizes that don't say take SCSI.
+size_takes() {
+  if [[ "$SIZE_CONTROLLERS" == "-" ]]; then [[ "$1" == "SCSI" ]]; else [[ ",$SIZE_CONTROLLERS," == *",$1,"* ]]; fi
+}
+
+# Deallocate -> change size -> start. The disk, the address and everything on the VM stay. The
+# changes Azure is known to refuse are caught before anything stops, and if Azure can't start it as
+# the new size (no room for that size in the region just then), it goes back to the old one. A
+# paused office stays paused, as the new size: then RESIZED_PAUSED is 1.
 resize_vm() {
-  local have image security h_arch h_temp had_temp=0 has_temp=0
+  local have was paused=0 image security disk controller h_arch h_temp had_temp=0 has_temp=0
+  RESIZED_PAUSED=0
   have=$(vm_size)
+  was=$(settled_power)
+  if [[ "$was" == "deallocated" || "$was" == "stopped" ]]; then paused=1; fi
   if [[ "$(lower "$have")" == "$(lower "$1")" ]]; then
     ok "Already a $have"
+    RESIZED_PAUSED=$paused
     return
   fi
   size_info "$1"
-  read -r image security <<<"$(azc vm show -g "$RG" -n "$VM" -o tsv \
-    --query '[[storageProfile.imageReference.sku, securityProfile.securityType]]' | words)"
+  read -r image security disk controller <<<"$(azc vm show -g "$RG" -n "$VM" -o tsv --query \
+    '[[storageProfile.imageReference.sku, securityProfile.securityType, storageProfile.osDisk.managedDisk.storageAccountType, storageProfile.diskControllerType]]' |
+    words)"
   case "$image" in
     *arm64*) h_arch=Arm64 ;;
     *) h_arch=x64 ;;
@@ -346,40 +384,63 @@ resize_vm() {
   fi
   [[ "$security" == "TrustedLaunch" && "$SIZE_NO_TL" == "True" ]] &&
     die "$SIZE doesn't support Trusted Launch, which this VM uses — pick another size, or destroy + up"
-  h_temp=$(size_row "$have" | awk '{ print $6 }')
+  [[ "$disk" == Premium* && "$SIZE_PREMIUM" != "True" ]] &&
+    die "$SIZE can't take this VM's Premium SSD — pick a size with an s after the number, like $DEFAULT_SIZE"
+  [[ "$controller" == "-" ]] && controller="SCSI"
+  size_takes "$controller" || die "$SIZE doesn't take this VM's $controller disk controller — pick another size, or destroy + up"
+  h_temp=$(size_row "$have" | awk '{ print $6 }') || h_temp=""
   if [[ -n "$h_temp" ]]; then
     temp_disk "$h_temp" && had_temp=1
     temp_disk "$SIZE_TEMP" && has_temp=1
     [[ $had_temp -eq $has_temp ]] ||
       die "Azure only resizes between sizes that both have a local temp disk or both don't, and only one of $have and $SIZE has one — pick another size, or destroy + up"
   fi
-  say "Resizing $VM from $have to $SIZE. The office goes offline for a few minutes;"
-  echo "   running workers stop and come back asleep (press R at their desk to resume)."
+  if [[ $paused -eq 1 ]]; then
+    say "Resizing the paused $VM from $have to $SIZE. It stays paused."
+  else
+    say "Resizing $VM from $have to $SIZE. The office goes offline for a few minutes;"
+    echo "   running workers stop and come back asleep (press R at their desk to resume)."
+  fi
   confirm
-  if [[ "$(settled_power)" != "deallocated" ]]; then
+  if [[ "$was" != "deallocated" ]]; then
     say "Stopping"
     azc vm deallocate -g "$RG" -n "$VM" -o none
   fi
   if ! azc vm resize -g "$RG" -n "$VM" --size "$SIZE" -o none; then
-    warn "Azure wouldn't make it a $SIZE (above). Starting it again as a $have"
+    warn "Azure wouldn't make it a $SIZE (above)"
+    [[ $paused -eq 1 ]] && die "the office is still a $have, and still paused"
+    say "Starting it again as a $have"
     azc vm start -g "$RG" -n "$VM" -o none || true
     die "the office is still a $have"
   fi
+  if [[ $paused -eq 1 ]]; then
+    RESIZED_PAUSED=1
+    ok "Now a $SIZE, and still paused"
+    return
+  fi
   say "Starting as $SIZE"
-  azc vm start -g "$RG" -n "$VM" -o none
+  if ! azc vm start -g "$RG" -n "$VM" -o none; then
+    warn "Azure couldn't start it as a $SIZE (above; often there's no room for that size in the region just then)"
+    say "Going back to $have"
+    azc vm deallocate -g "$RG" -n "$VM" -o none || true
+    if azc vm resize -g "$RG" -n "$VM" --size "$have" -o none && azc vm start -g "$RG" -n "$VM" -o none; then
+      die "the office is back up as a $have. Try $SIZE again later, or another size"
+    fi
+    die "…and that failed too (above). Try again with: deploy/azure.sh resize $have$NAME_FLAG"
+  fi
   ok "Now a $SIZE"
 }
 
 # Commands that SSH in need the key `up` made. Checked first, since a failed ssh can be silenced.
 require_key() {
   [[ -f "$KEY_FILE" ]] || die "the SSH key for office \"$NAME\" isn't on this computer ($KEY_FILE).
-   Run deploy/azure.sh up$NAME_FLAG here to add one (or copy that folder over from the computer that made the office)"
+   Let this computer in with: deploy/azure.sh connect$NAME_FLAG (or copy that folder over from the one that made the office)"
 }
 
 require_vm() {
   require_key
   require_group
-  [[ -n "$(find_vm)" ]] || die "office \"$NAME\" has no VM — run: deploy/azure.sh up$NAME_FLAG"
+  require_vm_exists
   case "$(vm_power)" in
     stopped | stopping | deallocated | deallocating) die "the office is paused — start it with: deploy/azure.sh resume$NAME_FLAG" ;;
   esac
@@ -446,13 +507,57 @@ change_ssh_sources() {
 
 office_get() { remote "curl -fs --max-time 4 http://127.0.0.1:$OFFICE_PORT$1"; }
 
+ip_int() {
+  local IFS=.
+  # shellcheck disable=SC2086 # split on the dots
+  set -- $1
+  echo $((($1 << 24) | ($2 << 16) | ($3 << 8) | $4))
+}
+
+# Whether IPv4 address $1 is in one of the CIDRs on stdin.
+ip_allowed() {
+  local ip c n bits mask
+  ip=$(ip_int "$1")
+  while IFS= read -r c; do
+    if [[ "$c" == "*" || "$c" == "Internet" ]]; then return 0; fi
+    [[ "$c" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] || continue
+    n=$(ip_int "${c%/*}")
+    bits=${c#*/}
+    mask=$((bits == 0 ? 0 : (0xFFFFFFFF << (32 - bits)) & 0xFFFFFFFF))
+    if (((ip & mask) == (n & mask))); then return 0; fi
+  done
+  return 1
+}
+
+# SSH that won't connect: stop and say so when this computer's IP isn't one the firewall lets in.
+ssh_blocked_hint() {
+  local my list
+  my=$(my_ip 2>/dev/null) || return 0
+  [[ "$my" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || return 0
+  list=$(allowed_cidrs 2>/dev/null) || return 0
+  printf '%s\n' "$list" | ip_allowed "$my" && return 0
+  die "SSH only answers the IPs you allowed, and this computer's ($my) isn't one of them. Let it in with: deploy/azure.sh allow me$NAME_FLAG"
+}
+
+# Waits for SSH on a VM that's (re)starting.
+wait_for_ssh() {
+  local i
+  say "Waiting for SSH"
+  for ((i = 0; i < 60; i++)); do
+    remote true 2>/dev/null && return 0
+    sleep 5
+  done
+  remote true || die "SSH never came up on $IP"
+}
+
 wait_healthy() {
   local i rc
   for ((i = 0; i < 30; i++)); do
     rc=0
     remote "for i in \$(seq 90); do curl -fs --max-time 4 http://127.0.0.1:$OFFICE_PORT/api/health >/dev/null && exit 0; sleep 2; done; exit 1" \
       2>/dev/null || rc=$?
-    [[ $rc -eq 255 ]] || return "$rc" # 255: ssh itself failed, the VM is still booting
+    [[ $rc -eq 255 ]] || return "$rc" # 255: ssh itself failed, the VM is still booting…
+    [[ $i -eq 0 ]] && ssh_blocked_hint # …or this computer's IP isn't allowed in
     sleep 5
   done
   return 1
@@ -591,7 +696,7 @@ cmd_up() {
   fi
 
   VM_ID=""
-  [[ $new_group -eq 1 ]] || VM_ID=$(find_vm)
+  if [[ $new_group -eq 0 ]]; then VM_ID=$(find_vm); fi
   local have_size="" resize=0 machine
   if [[ -z "$VM_ID" ]]; then
     size_info "$SIZE"
@@ -643,7 +748,9 @@ cmd_up() {
   fi
 
   # Network security group: only the allowed IPs can reach 22 (ssh). Nothing else is open.
-  if [[ -z "$(azv network nsg show -g "$RG" -n "$NSG" --query id 2>/dev/null || true)" ]]; then
+  local nsg_id pip_id
+  nsg_id=$(find_resource nsg "$NSG")
+  if [[ -z "$nsg_id" ]]; then
     azc network nsg create -g "$RG" -n "$NSG" -l "$LOCATION" --tags "agent-office=$NAME" -o none
     ok "Network security group $NSG"
   fi
@@ -651,7 +758,8 @@ cmd_up() {
   ok "SSH allowed from ${cidrs[*]}"
 
   # A fixed address, so the office's address survives pauses and resizes.
-  if [[ -z "$(azv network public-ip show -g "$RG" -n "$PIP" --query id 2>/dev/null || true)" ]]; then
+  pip_id=$(find_resource public-ip "$PIP")
+  if [[ -z "$pip_id" ]]; then
     # Azure drops a connection that's quiet for --idle-timeout minutes (4 by default), and a
     # teammate's tunnel doesn't send keepalives.
     azc network public-ip create -g "$RG" -n "$PIP" -l "$LOCATION" --sku Standard --allocation-method Static --version IPv4 \
@@ -682,6 +790,7 @@ cmd_up() {
    (--location) needs a fresh start: deploy/azure.sh destroy$NAME_FLAG first"
   elif [[ $resize -eq 1 ]]; then
     resize_vm "$SIZE"
+    if [[ $RESIZED_PAUSED -eq 1 ]]; then start_vm; fi
   elif [[ "$(settled_power)" != "running" ]]; then
     start_vm
   else
@@ -690,19 +799,8 @@ cmd_up() {
   ok "VM $VM is running at $IP"
 
   # An office made on another computer (or whose key was lost): give this computer's key to it too.
-  if [[ $new_key -eq 1 && -n "$VM_ID" ]]; then
-    say "Adding this computer's SSH key to the VM"
-    azc vm user update -g "$RG" -n "$VM" --username "$SSH_USER" --ssh-key-value "$KEY_FILE.pub" -o none ||
-      die "couldn't add the SSH key ($KEY_FILE.pub) to the VM"
-  fi
-
-  say "Waiting for SSH"
-  local i
-  for ((i = 0; i < 60; i++)); do
-    remote true 2>/dev/null && break
-    sleep 5
-  done
-  remote true || die "SSH never came up on $IP"
+  if [[ $new_key -eq 1 && -n "$VM_ID" ]]; then add_key; fi
+  wait_for_ssh
 
   [[ -f "$CLAIM_FILE" ]] || (umask 077 && random_token >"$CLAIM_FILE")
 
@@ -731,6 +829,40 @@ cmd_up() {
   open_office
 }
 
+# Puts this computer's public key on the VM (through Azure's VM agent, so no SSH needed).
+add_key() {
+  say "Adding this computer's SSH key to the VM"
+  azc vm user update -g "$RG" -n "$VM" --username "$SSH_USER" --ssh-key-value "$KEY_FILE.pub" -o none ||
+    die "couldn't add the SSH key ($KEY_FILE.pub) to the VM (above)"
+}
+
+# An office made on another computer: this one gets a key on the VM and its IP in the firewall.
+# Unlike up, it doesn't provision, so the office keeps its GitHub and Claude sign-ins.
+cmd_connect() {
+  preflight
+  need ssh-keygen
+  require_group
+  require_vm_exists
+  mkdir -p "$STATE_DIR"
+  chmod 700 "$STATE_DIR"
+  echo "$SUB_ID" >"$SUB_FILE"
+  local my
+  my=$(my_ip) || die "couldn't detect your public IP"
+  change_ssh_sources "$my/32"
+  ok "SSH allowed from $my/32"
+  start_vm # the VM agent that adds the key only runs on a running VM
+  IP=$(public_ip)
+  [[ -n "$IP" ]] || die "the office's VM has no public IP ($PIP) — run: deploy/azure.sh up$NAME_FLAG"
+  if [[ -f "$KEY_FILE" ]] && remote true 2>/dev/null; then
+    ok "This computer could already SSH in"
+  else
+    [[ -f "$KEY_FILE" ]] || ssh-keygen -q -t rsa -b 4096 -N '' -C "$RESOURCE" -f "$KEY_FILE"
+    add_key
+    wait_for_ssh
+  fi
+  ok "Connected to office \"$NAME\" at $IP — open it with: deploy/azure.sh open$NAME_FLAG"
+}
+
 cmd_open() {
   preflight
   require_vm
@@ -755,7 +887,8 @@ cmd_status() {
     return
   fi
   echo "office:    $NAME ($LOCATION, resource group $RG)"
-  if [[ -z "$(find_vm)" ]]; then
+  VM_ID=$(find_vm)
+  if [[ -z "$VM_ID" ]]; then
     echo "vm:        none yet (create it with: deploy/azure.sh up$NAME_FLAG)"
     return
   fi
@@ -899,8 +1032,12 @@ cmd_resize() {
   [[ ${#POSITIONAL[@]} -eq 1 ]] || die "usage: deploy/azure.sh resize <vm-size>   (e.g. Standard_D8as_v5, Standard_B4s_v2)"
   require_key
   require_group
-  [[ -n "$(find_vm)" ]] || die "office \"$NAME\" has no VM — run: deploy/azure.sh up$NAME_FLAG"
+  require_vm_exists
   resize_vm "${POSITIONAL[0]}"
+  if [[ $RESIZED_PAUSED -eq 1 ]]; then
+    echo "   Start it with: deploy/azure.sh resume$NAME_FLAG"
+    return
+  fi
   IP=$(public_ip)
   say "Waiting for the office to answer"
   wait_healthy || die "the office didn't come back — check: deploy/azure.sh logs$NAME_FLAG"
@@ -910,7 +1047,7 @@ cmd_resize() {
 cmd_pause() {
   preflight
   require_group
-  [[ -n "$(find_vm)" ]] || die "office \"$NAME\" has no VM"
+  require_vm_exists
   local state
   state=$(settled_power)
   if [[ "$state" != "deallocated" ]]; then
@@ -929,7 +1066,7 @@ cmd_resume() {
   preflight
   require_key
   require_group
-  [[ -n "$(find_vm)" ]] || die "office \"$NAME\" has no VM — run: deploy/azure.sh up$NAME_FLAG"
+  require_vm_exists
   start_vm
   IP=$(public_ip)
   [[ -n "$IP" ]] || die "the office's VM has no public IP ($PIP) — run: deploy/azure.sh up$NAME_FLAG"
@@ -970,17 +1107,22 @@ cmd_reset_password() {
   open_office
 }
 
+# Drops this computer's files for the office (SSH key, claim link), unless they're for an office of
+# the same name in another subscription.
+forget_office() {
+  if [[ -s "$SUB_FILE" && "$(cat "$SUB_FILE")" != "$SUB_ID" ]]; then
+    echo "(This computer's files for \"$NAME\", in $STATE_DIR, are for subscription $(cat "$SUB_FILE"), so they stay.)"
+    return
+  fi
+  rm -rf "$STATE_DIR"
+}
+
 cmd_down() {
   preflight
   load_group
   if [[ -z "$LOCATION" ]]; then
     echo "Nothing to delete for \"$NAME\" in subscription $SUB_NAME."
-    # Its SSH key and claim link stay if they belong to an office in another subscription.
-    if [[ -s "$SUB_FILE" && "$(cat "$SUB_FILE")" != "$SUB_ID" ]]; then
-      echo "(This computer's files for it, in $STATE_DIR, are for subscription $(cat "$SUB_FILE"), so they stay.)"
-    else
-      rm -rf "$STATE_DIR"
-    fi
+    forget_office
     return
   fi
   say "This permanently deletes office \"$NAME\": the resource group $RG in $LOCATION (subscription $SUB_NAME)"
@@ -994,7 +1136,7 @@ cmd_down() {
   fi
   say "Deleting $RG — this takes a few minutes"
   azc group delete -n "$RG" --yes -o none || die "couldn't delete $RG (above) — run destroy again in a minute"
-  rm -rf "$STATE_DIR"
+  forget_office
   ok "All gone"
 }
 
@@ -1016,6 +1158,7 @@ case "$CMD" in
   update) cmd_update ;;
   reset-password) cmd_reset_password ;;
   destroy | down) cmd_down ;;
+  connect) cmd_connect ;;
   help | -h | --help) usage ;;
   *) die "unknown command \"$CMD\" (see: deploy/azure.sh help)" ;;
 esac

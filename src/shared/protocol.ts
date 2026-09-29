@@ -776,12 +776,12 @@ export interface AccountsState {
 }
 
 export interface TeamMember {
-  /** GitHub username (or the name deploy/aws.sh invited a key file under). */
+  /** GitHub username (or the name deploy/aws.sh or deploy/azure.sh invited a key file under). */
   name: string;
   keys: number;
 }
 
-/** Who may SSH-tunnel into the office. Only offices deployed with deploy/aws.sh manage this. */
+/** Who may SSH-tunnel into the office. Only offices deployed with deploy/aws.sh or deploy/azure.sh manage this. */
 export interface TeamState {
   /** Why invites can't be managed from the office, when they can't. */
   unavailable?: string;

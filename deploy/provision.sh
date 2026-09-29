@@ -151,6 +151,13 @@ fi
 [[ -n "${DEPLOY_SCRIPT:-}" ]] ||
   DEPLOY_SCRIPT=$(sudo sed -n 's/^AGENT_OFFICE_DEPLOY_SCRIPT="\(.*\)"$/\1/p' /etc/agent-office/env 2>/dev/null || true)
 [[ "$DEPLOY_SCRIPT" =~ ^deploy/[a-z0-9-]+\.sh(\ --name\ [a-z0-9-]+)?$ ]] || DEPLOY_SCRIPT=""
+# Run again without a Claude token or API key (deploy/*.sh up to resize or update, say), this keeps
+# the one it was given before, rather than signing the office out of Claude.
+if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -z "${ANTHROPIC_API_KEY:-}" ]]; then
+  CLAUDE_CODE_OAUTH_TOKEN=$(sudo sed -n 's/^CLAUDE_CODE_OAUTH_TOKEN="\(.*\)"$/\1/p' /etc/agent-office/env 2>/dev/null || true)
+  ANTHROPIC_API_KEY=$(sudo sed -n 's/^ANTHROPIC_API_KEY="\(.*\)"$/\1/p' /etc/agent-office/env 2>/dev/null || true)
+  export CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY
+fi
 
 step "Writing secrets to /etc/agent-office/env"
 sudo install -d -m 755 /etc/agent-office

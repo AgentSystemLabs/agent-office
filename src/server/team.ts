@@ -7,7 +7,7 @@ import type { TeamState } from '../shared/protocol.js';
 const HELPER = process.env.AGENT_OFFICE_TEAM_HELPER || '/usr/local/bin/agent-office-team';
 const TEAM_USER = 'office';
 const GITHUB_USER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
-/** deploy/aws.sh also accepts other names, for keys invited from a file. */
+/** deploy/aws.sh and deploy/azure.sh also accept other names, for keys invited from a file. */
 const MEMBER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/;
 
 interface Run {
