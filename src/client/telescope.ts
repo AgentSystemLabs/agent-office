@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 
-const VIEW_POSITION = new THREE.Vector3(10.05, 4.12, 9.05);
+// Just beyond the objective lens and the loft's corner post: from the eyepiece both pieces of
+// foreground geometry fill the narrow FOV, while this still reads as the telescope's sightline.
+const VIEW_POSITION = new THREE.Vector3(8.45, 3.95, 7.75);
 const VIEW_TARGET = new THREE.Vector3(-3.5, 0.75, -1.5);
 const VIEW_FOV = 20;
 const LOOK_SPEED = 0.0015;
