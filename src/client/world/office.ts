@@ -29,7 +29,7 @@ export interface Collider {
   fence?: boolean;
 }
 
-export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'cabinet' | 'ladder' | 'pole' | 'meeting' | 'bar' | 'dj' | 'golf' | 'ball' | 'bookshelf' | 'telescope';
+export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'cabinet' | 'ladder' | 'pole' | 'meeting' | 'bar' | 'dj' | 'golf' | 'ball' | 'bookshelf' | 'darts' | 'axe' | 'telescope';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -1183,8 +1183,16 @@ export function buildOffice(): Office {
   coffee.add(mesh(new THREE.SphereGeometry(0.05, 8, 8), toon('#ef476f', { emissive: '#ef476f' }), 0.18, 0.55, 0.26));
   coffee.position.set(-1.2, 1.03, 0);
   kitchen.add(coffee);
-  kitchen.add(mesh(roundedBox(1.1, 2.2, 1, 0.1), toon('#f8f9fa'), 3.2, 1.1, 0));
-  kitchen.add(mesh(box(0.06, 0.5, 0.06), toon('#adb5bd'), 2.75, 1.4, 0.52));
+  const fridge = new THREE.Group();
+  fridge.add(mesh(roundedBox(1.1, 2.2, 1, 0.1), toon('#e9ecef'), 0, 1.1, 0));
+  // The doors and handles sit on the room-facing side (-z); +z is tight against the south wall.
+  fridge.add(mesh(roundedBox(1, 1.25, 0.05, 0.06), toon('#f8f9fa'), 0, 1.49, -0.5));
+  fridge.add(mesh(roundedBox(1, 0.73, 0.05, 0.06), toon('#f1f3f5'), 0, 0.45, -0.5));
+  fridge.add(mesh(box(0.94, 0.035, 0.025), toon('#adb5bd'), 0, 0.84, -0.535));
+  fridge.add(mesh(roundedBox(0.09, 0.43, 0.09, 0.025), toon('#6c757d'), -0.35, 1.26, -0.57));
+  fridge.add(mesh(roundedBox(0.09, 0.3, 0.09, 0.025), toon('#6c757d'), -0.35, 0.62, -0.57));
+  fridge.position.x = 3.2;
+  kitchen.add(fridge);
   kitchen.position.set(-14.5, 0, 12.2);
   group.add(kitchen);
   colliders.push({ minX: -17, maxX: -12, minZ: 11.7, maxZ: 12.7, top: 1.03 });

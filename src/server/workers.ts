@@ -16,6 +16,7 @@ import { QUEUE_AGENT_DISALLOWED_TOOLS, stationBrief } from './stations.js';
 import { officePrompt, type PromptSource } from './prompts.js';
 import { isBusy } from '../shared/status.js';
 import { gh } from './github.js';
+import type { GhAs } from './signins.js';
 import type { ServiceOwner } from './services.js';
 import { TaskNamer, fallbackTask } from './tasks.js';
 import { addUsage, newTracker, restoreTracker, scanTracker, trackerUsage, zeroUsage, type Ledger, type UsageTracker } from './usage.js';
@@ -86,8 +87,23 @@ export interface HookEnv {
   token: string;
 }
 
+/**
+ * Runs a worker as the account that hired it, on that account's own Claude and GitHub sign-ins
+ * (see signins.ts). Workers hired without an account run as the office, as they always have.
+ */
+export interface RunAs {
+  /** Whether the account has a Claude sign-in its workers can start on. */
+  claudeReady(owner: string): boolean;
+  /** What to tell the account when it hasn't. */
+  why(which: 'claude'): string;
+  /** Puts the account's sign-ins in place of the office's in `env`; `dirs` are where the worker starts. */
+  apply(owner: string, env: Record<string, string>, dirs: string[]): Record<string, string>;
+}
+
 interface Worker {
   info: WorkerInfo;
+  /** The account that hired it, whose sign-ins it runs on. None: the office's own. */
+  owner?: string;
   pty?: Pty;
   term?: HeadlessTerminal;
   ser?: InstanceType<typeof serialize.SerializeAddon>;
@@ -175,6 +191,8 @@ export class WorkerManager {
     private capacity?: Capacity,
     /** The office's prompts and the worker everyone starts on, as set in ⚙️ Settings (see prompts.ts). */
     private prompts?: PromptSource,
+    /** Everyone's own sign-ins, for workers hired by an account. */
+    private runAs?: RunAs,
   ) {
     this.defaultProvider = configuredProvider(agentCmd);
     this.trees = new Worktrees(dir);
@@ -248,6 +266,11 @@ export class WorkerManager {
     return this.workers.get(id)?.info;
   }
 
+  /** The account a worker runs as (see RunAs), if not the office. */
+  ownerOf(id: string): string | undefined {
+    return this.workers.get(id)?.owner;
+  }
+
   /** Each worker's terminal process and directory, to tell whose servers are whose. */
   owners(): ServiceOwner[] {
     return [...this.workers.values()].map((w) => ({
@@ -268,7 +291,7 @@ export class WorkerManager {
    * Hires a worker at a desk. `meeting` seats one at the meeting room's table instead, for that meeting
    * (see meetings.ts), in the meeting's own worktree, which everyone at the table shares.
    */
-  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }): WorkerInfo | string {
+  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }, owner?: string): WorkerInfo | string {
     // Nobody picked (a board agent, say): the office's default worker, model and effort included.
     if (kind === 'agent' && provider === undefined) ({ provider, model, effort } = this.officeDefault);
     const selectedProvider = kind === 'agent' ? provider : undefined;
@@ -289,6 +312,7 @@ export class WorkerManager {
       const paused = this.ledger.hiringPaused;
       if (paused) return paused;
     }
+    if (owner && selectedProvider === 'claude' && this.runAs && !this.runAs.claudeReady(owner)) return this.runAs.why('claude');
     const full = this.capacity?.full();
     if (full) return full;
     const used = new Set([...this.workers.values()].map((w) => w.info.name.replace(/ 🐚$/, '')));
@@ -324,6 +348,7 @@ export class WorkerManager {
       meeting: meeting?.id,
     };
     const w = newWorker(info, newTracker());
+    w.owner = owner;
     this.workers.set(id, w);
     if (info.prompt) this.notePrompt(w, info.prompt);
     // A board agent is told what it's there for ahead of its first request (which is what shows).
@@ -358,13 +383,13 @@ export class WorkerManager {
    * up with it if it's asleep, or it's hired there with it when nobody is. Returns what went wrong, or
    * the agent and whether it was just hired.
    */
-  station(deskId: string, by: string, text: string): { info: WorkerInfo; hired: boolean } | string {
+  station(deskId: string, by: string, text: string, owner?: string): { info: WorkerInfo; hired: boolean } | string {
     if (!DESK_BY_ID.get(deskId)?.station) return 'There is no agent to ask there';
     const clean = text.replace(/\r\n?/g, '\n').trim();
     if (!clean) return 'Empty prompt';
     const w = [...this.workers.values()].find((x) => x.info.deskId === deskId);
     if (!w) {
-      const info = this.spawn(deskId, by, clean);
+      const info = this.spawn(deskId, by, clean, false, 'agent', undefined, undefined, undefined, undefined, owner);
       return typeof info === 'string' ? info : { info, hired: true };
     }
     // Typed into the question it's asking, the prompt would answer it.
@@ -512,10 +537,11 @@ export class WorkerManager {
 
   /**
    * Pushes a worktree worker's branch and opens a pull request for it, with a title and body
-   * drafted from its task. Resolves to the PR, or to a message saying why there is none. The
-   * branch may already have an open PR (a second press, or one opened by hand): that one is used.
+   * drafted from its task, as `as` (whoever pressed the button) or else the office. Resolves to the
+   * PR, or to a message saying why there is none. The branch may already have an open PR (a second
+   * press, or one opened by hand): that one is used.
    */
-  async openPr(id: string, by: string): Promise<{ number: number; url: string; existed: boolean; dirty: boolean } | string> {
+  async openPr(id: string, by: string, as?: GhAs): Promise<{ number: number; url: string; existed: boolean; dirty: boolean } | string> {
     const w = this.workers.get(id);
     if (!w) return 'No such worker';
     const { info } = w;
@@ -539,10 +565,10 @@ export class WorkerManager {
         this.persist();
         return { ...open, existed: true, dirty };
       }
-      await run('git', ['push', '-u', 'origin', wt.branch], cwd, 90_000);
+      await run('git', ['push', '-u', 'origin', wt.branch], cwd, 90_000, as?.env);
       const base = await this.pushedBranch([wt.from, this.trees.currentBranch()], wt.branch);
       const { title, body } = draftPr(info, commits, by);
-      const out = await gh(['pr', 'create', '--head', wt.branch, ...(base ? ['--base', base] : []), '--title', title, '--body', body], cwd, 60_000);
+      const out = await gh(['pr', 'create', '--head', wt.branch, ...(base ? ['--base', base] : []), '--title', title, '--body', body], cwd, 60_000, as?.env);
       const url = out.trim().split('\n').pop() ?? '';
       const number = Number(/\/pull\/(\d+)/.exec(url)?.[1]);
       if (!number) throw new Error(`gh did not return a pull request URL (${truncate(out, 120)})`);
@@ -951,6 +977,13 @@ export class WorkerManager {
     }
 
     const cwd = this.cwd(info);
+    if (w.owner && this.runAs) {
+      if (isClaude && !this.runAs.claudeReady(w.owner)) {
+        this.startFailed(w, `whoever hired ${info.name} (${info.createdBy}) isn't signed in to Claude — they can sign in under ☰ → 🔐 Your sign-ins, then press R here`);
+        return;
+      }
+      this.runAs.apply(w.owner, env, [this.dir, cwd]);
+    }
     if (isCodex) w.codexHome = codexHome(cwd, env);
     // The host keeps its own copy of the screen for the next office: it starts with the same history.
     const where = { cwd, env, cols: info.cols, rows: info.rows, prelude };
@@ -1325,8 +1358,9 @@ process.stdin.on('end', () => {
   }
 
   private persist() {
-    const saved = [...this.workers.values()].map(({ info, tracker, codexTranscript, hookToken, pty, bootBlocked, interrupted }) => ({
+    const saved = [...this.workers.values()].map(({ info, owner, tracker, codexTranscript, hookToken, pty, bootBlocked, interrupted }) => ({
       id: info.id,
+      owner,
       kind: info.kind,
       provider: info.provider,
       model: info.model,
@@ -1363,7 +1397,7 @@ process.stdin.on('end', () => {
   private restore() {
     if (!existsSync(this.statePath)) return;
     try {
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { tracker?: unknown; codexTranscript?: unknown; hookToken?: unknown; pty?: any; midTurn?: unknown })[];
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { owner?: unknown; tracker?: unknown; codexTranscript?: unknown; hookToken?: unknown; pty?: any; midTurn?: unknown })[];
       for (const s of saved) {
         if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || this.deskOccupied(s.deskId)) continue;
         const tracker = restoreTracker(s.tracker);
@@ -1402,6 +1436,7 @@ process.stdin.on('end', () => {
           meeting: typeof s.meeting === 'string' && DESK_BY_ID.get(s.deskId)?.room ? s.meeting : undefined,
         };
         const w = newWorker(info, tracker, typeof s.hookToken === 'string' && s.hookToken ? s.hookToken : undefined);
+        if (typeof s.owner === 'string' && s.owner) w.owner = s.owner;
         if (provider === 'codex' && typeof s.codexTranscript === 'string') w.codexTranscript = s.codexTranscript;
         w.screenDirty = false;
         if (typeof s.pty?.id === 'string') {
@@ -1625,10 +1660,10 @@ function offlineBanner(info: WorkerInfo): string {
   return `\x1b[2m${info.name} is not running.${hint}\x1b[0m\r\n`;
 }
 
-/** Runs a command without blocking the office; rejects with the last lines of its stderr. */
-function run(cmd: string, args: string[], cwd: string, timeout = 30_000): Promise<string> {
+/** Runs a command without blocking the office (with `env`: as someone else); rejects with the last lines of its stderr. */
+function run(cmd: string, args: string[], cwd: string, timeout = 30_000, env?: Record<string, string>): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { cwd, encoding: 'utf8', timeout, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile(cmd, args, { cwd, encoding: 'utf8', timeout, maxBuffer: 4 * 1024 * 1024, env }, (err, stdout, stderr) => {
       if (err) reject(new Error((stderr || err.message).trim().split('\n').filter(Boolean).slice(-2).join(' ') || `${cmd} failed`));
       else resolve(stdout.trim());
     });

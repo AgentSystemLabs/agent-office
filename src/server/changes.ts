@@ -54,9 +54,10 @@ interface Result {
 }
 
 /** Runs a command; a non-zero exit is a result, not an error. Only "can't run it at all" throws. */
-function run(cmd: string, args: string[], cwd: string, timeout = 30_000): Promise<Result> {
+/** With `env`, it runs as someone signed in to their own GitHub (see signins.ts) instead of the office. */
+function run(cmd: string, args: string[], cwd: string, timeout = 30_000, env?: Record<string, string>): Promise<Result> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }, (err, stdout, stderr) => {
+    execFile(cmd, args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout, env: { ...(env ?? process.env), GIT_OPTIONAL_LOCKS: '0' } }, (err, stdout, stderr) => {
       if (!err) return resolve({ out: stdout, err: stderr, code: 0 });
       const e = err as NodeJS.ErrnoException & { code?: number | string; killed?: boolean };
       if (typeof e.code === 'number') return resolve({ out: stdout, err: stderr, code: e.code });
@@ -88,8 +89,8 @@ function reason(r: Result, fallback: string): string {
   return line ? line.replace(/^(fatal|error):\s*/i, '') : fallback;
 }
 
-async function git(args: string[], cwd: string, timeout?: number): Promise<string> {
-  const r = await run('git', args, cwd, timeout);
+async function git(args: string[], cwd: string, timeout?: number, env?: Record<string, string>): Promise<string> {
+  const r = await run('git', args, cwd, timeout, env);
   if (r.code !== 0) throw new GitError(reason(r, `git ${args[0]} failed`));
   return r.out.replace(/\n$/, '');
 }
@@ -265,13 +266,13 @@ export class Changes {
     }
   }
 
-  /** Stages everything in the checkout and commits it. */
-  async commit(workerId: string, message: string, who: string): Promise<string | undefined> {
+  /** Stages everything in the checkout and commits it; with `env`, as whoever pressed the button (their git name and email). */
+  async commit(workerId: string, message: string, who: string, env?: Record<string, string>): Promise<string | undefined> {
     const msg = message.trim();
     if (!msg) return 'The commit needs a message';
     return this.action(workerId, 'Committing…', async (t) => {
       await git(['add', '-A'], t.cwd);
-      await git(['commit', '-q', '-m', msg], t.cwd, 120_000);
+      await git(['commit', '-q', '-m', msg], t.cwd, 120_000, env);
       const subject = msg.split('\n')[0];
       this.events.toast(`${who} committed “${subject.length > 60 ? `${subject.slice(0, 59)}…` : subject}” at ${t.name}'s desk`, 'info');
     });
@@ -296,8 +297,8 @@ export class Changes {
     });
   }
 
-  /** Pushes the branch and opens a pull request for it with `gh`. */
-  async pullRequest(workerId: string, title: string, body: string, who: string): Promise<string | undefined> {
+  /** Pushes the branch and opens a pull request for it with `gh`; with `env`, as whoever pressed the button. */
+  async pullRequest(workerId: string, title: string, body: string, who: string, env?: Record<string, string>): Promise<string | undefined> {
     if (!title.trim()) return 'The pull request needs a title';
     return this.action(workerId, 'Pushing the branch and opening a pull request…', async (t, w) => {
       const s = w.last ?? (await this.compute(workerId, t));
@@ -308,8 +309,8 @@ export class Changes {
       const remotes = (await git(['remote'], t.cwd)).split('\n').filter(Boolean);
       const remote = remotes.includes('origin') ? 'origin' : remotes[0];
       if (!remote) return 'This project has no git remote to push to';
-      await git(['push', '-u', remote, s.branch], t.cwd, 120_000);
-      const r = await run('gh', ['pr', 'create', '--head', s.branch, '--base', s.prBase, '--title', title.trim(), '--body', body], t.cwd, 120_000);
+      await git(['push', '-u', remote, s.branch], t.cwd, 120_000, env);
+      const r = await run('gh', ['pr', 'create', '--head', s.branch, '--base', s.prBase, '--title', title.trim(), '--body', body], t.cwd, 120_000, env);
       const url = r.out.trim().split('\n').pop() ?? '';
       if (r.code !== 0 || !/^https?:\/\//.test(url)) throw new GitError(reason(r, url || 'gh pr create failed'));
       const number = Number(/\/(\d+)$/.exec(url)?.[1] ?? 0);

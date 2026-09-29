@@ -10,6 +10,7 @@ import type { Config } from './config.js';
 import { Auth, type Session } from './auth.js';
 import { Accounts } from './accounts.js';
 import { childEnv, resolveCommand } from './workers.js';
+import { SignIns, type GhAs } from './signins.js';
 import { agentProviders, configuredProvider, OPEN_CODE_MODEL_MAX } from './agents.js';
 import { createOpenCodeModelCatalogue } from './models.js';
 import { Team } from './team.js';
@@ -29,7 +30,7 @@ import { LeaveOnMerge } from './leave-on-merge.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
-import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState } from '../shared/protocol.js';
+import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState, SignInKind } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import { DESK_BY_ID, elevatorSpot, seatHere, streetBelow } from '../shared/layout.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
@@ -42,6 +43,7 @@ import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
 import { isThemePick } from '../shared/theme.js';
 import { PROMPTS, PROMPT_MAX, isPromptId } from '../shared/prompts.js';
 import { ROOF, isDrink } from '../shared/rooftop.js';
+import { isBarGame, tossOk, type BarGame } from '../shared/bargames.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -82,6 +84,8 @@ interface Client {
   lastGolfAt: number;
   /** When they last blew the DJ's air horn on the roof. */
   lastHornAt: number;
+  /** When they last threw a dart or an axe up there. */
+  lastTossAt: number;
   emotes: EmoteBucket;
   /** Has the floor's whiteboard open. */
   whiteboard: boolean;
@@ -100,6 +104,8 @@ interface Client {
 const SLOW_CLIENT_BYTES = 8 * 1024 * 1024;
 /** The least time between two 'term.typing' notes from one person in one terminal. */
 const TYPING_GAP_MS = 500;
+/** The quickest anyone throws one dart after another, or one axe (ms): a page's own wait is longer. */
+const TOSS_EVERY: Record<BarGame, number> = { darts: 250, axe: 700 };
 
 function findPublicDir(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -169,6 +175,12 @@ function arrivalSpot(at: unknown): { x: number; y: number; z: number; rotY: numb
   const clamp = (v: unknown, lo: number, hi: number) => Math.min(hi, Math.max(lo, num(v)));
   // Down on the street from a floor high up, the street is a long way down.
   return { x: clamp(a.x, -60, 60), y: clamp(a.y, streetBelow(MAX_FLOORS - 1), 10), z: clamp(a.z, -60, 60), rotY: num(a.rotY) };
+}
+/** The spot someone coming back in says they were standing in (see Net.connect), if they say. */
+function spotFrom(q: URLSearchParams): ReturnType<typeof arrivalSpot> {
+  const n = (k: string) => (q.get(k) ? Number(q.get(k)) : NaN);
+  const [x, y, z, rotY] = ['x', 'y', 'z', 'rotY'].map(n);
+  return Number.isFinite(x) && Number.isFinite(z) ? arrivalSpot({ x, y, z, rotY }) : undefined;
 }
 const issueNumber = (v: unknown) => (Number.isInteger(v) && (v as number) > 0 ? (v as number) : undefined);
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -322,7 +334,8 @@ export async function startServer(cfg: Config) {
       return send(res, 400, { error: 'Send JSON: {"title": "…", "prompt": "…", "issue": 12}' });
     }
     const issue = Number.isInteger(body?.issue) && (body.issue as number) > 0 ? (body.issue as number) : undefined;
-    const err = floor.queue.add(str(body?.prompt, 20000), agent.name, str(body?.title, 200) || undefined, issue);
+    // Its tasks run as whoever the board agent runs as.
+    const err = floor.queue.add(str(body?.prompt, 20000), agent.name, str(body?.title, 200) || undefined, issue, undefined, undefined, undefined, floor.workers.ownerOf(agent.id));
     if (err) return send(res, 400, { error: err });
     const task = floor.queue.state().tasks.at(-1)!;
     toastFloor(floor, `📋 The ${agent.name} queued ${issue !== undefined ? `issue #${issue}` : `“${task.title}”`}`);
@@ -370,14 +383,54 @@ export async function startServer(cfg: Config) {
     toastAll,
   );
 
-  // The Claude plan's 5-hour and weekly limits, for the meter under the workers: one account for
-  // every floor.
-  const limits = new PlanLimitsReader(
-    configuredProvider(cfg.agentCmd) === 'claude' ? resolveCommand(cfg.agentCmd) : resolveCommand('claude'),
-    childEnv(),
-    () => clients.size > 0,
-    (state) => broadcast({ t: 'limits', state }),
+  const claudeBin = configuredProvider(cfg.agentCmd) === 'claude' ? resolveCommand(cfg.agentCmd) : resolveCommand('claude');
+  // Everyone with an account runs on their own Claude and GitHub sign-ins (see signins.ts). On the
+  // shared password, with no accounts, the office's own are used, as they always were.
+  const signins = new SignIns(
+    cfg.dataDir,
+    claudeBin,
+    resolveCommand('gh'),
+    childEnv,
+    (id) => accounts.get(id)?.role === 'admin',
+    (id) => {
+      for (const c of clients.values()) if (c.accountId === id && !c.out) sendTo(c, { t: 'signins', state: signins.state(id) });
+    },
   );
+  // Accounts revoked from the terminal while the office was closed leave their sign-ins behind.
+  if (!accounts.unreadableFile) signins.prune(new Set(accounts.state(new Set()).accounts.map((a) => a.id)));
+
+  // The Claude plan's 5-hour and weekly limits, for the meter under the workers: the office's own
+  // plan, and each account's own once it runs on a Claude sign-in of its own.
+  const limits = new PlanLimitsReader(
+    claudeBin,
+    childEnv(),
+    () => [...clients.values()].some((c) => limitsOf(c) === limits),
+    (state) => {
+      for (const c of clients.values()) if (limitsOf(c) === limits) sendTo(c, { t: 'limits', state });
+    },
+  );
+  const accountLimits = new Map<string, { key: string; reader: PlanLimitsReader }>();
+  /** Whose plan `c` sees: their own, on an account with its own Claude sign-in; else the office's. */
+  const limitsOf = (c: Client): PlanLimitsReader => {
+    const id = c.accountId;
+    const key = id && signins.claudeKey(id);
+    if (!id || !key) return limits;
+    let a = accountLimits.get(id);
+    if (a?.key !== key) {
+      a?.reader.close();
+      const reader = new PlanLimitsReader(
+        claudeBin,
+        signins.apply(id, childEnv(), [], 'claude'),
+        () => [...clients.values()].some((o) => o.accountId === id),
+        (state) => {
+          for (const o of clients.values()) if (o.accountId === id) sendTo(o, { t: 'limits', state });
+        },
+      );
+      a = { key, reader };
+      accountLimits.set(id, a);
+    }
+    return a.reader;
+  };
 
   // Slack / Discord pings for workers that need input or finish (set from ⚙️ Settings or --webhook).
   webhook = new Webhook(cfg.dataDir, (workerId) => (workerId && workerFloor(workerId)?.def.name) || officeName, (state) => broadcast({ t: 'notify', state }));
@@ -449,6 +502,8 @@ export async function startServer(cfg: Config) {
     },
     peers: (floor) => [...clients.values()].filter((c) => c.peer.floor === floor.id).map((c) => c.peer),
     leaveOnMerge: () => leaveOnMerge.on,
+    runAs: signins,
+    ghAs: (owner) => (owner ? signins.ghAs(owner) : undefined),
   };
   const openFloor = (def: FloorDef): Floor | undefined => {
     if (!existsSync(def.dir)) {
@@ -807,8 +862,10 @@ export async function startServer(cfg: Config) {
         if (!floor) return send(res, 404, { error: 'No such floor' });
         const github = floor.github;
         try {
-          if (p === '/api/gh/pull') return send(res, 200, await github.pullDetail(n));
-          if (p === '/api/gh/issue') return send(res, 200, await github.issueDetail(n));
+          // "You" on comments is your own GitHub login once you've signed in to it.
+          const me = session.account ? signins.githubLogin(session.account.id) : undefined;
+          if (p === '/api/gh/pull') return send(res, 200, await github.pullDetail(n, me));
+          if (p === '/api/gh/issue') return send(res, 200, await github.issueDetail(n, me));
           if (p === '/api/gh/labels') return send(res, 200, await github.repoLabels());
           if (p === '/api/gh/pull/diff') {
             const diff = await github.pullDiff(n);
@@ -887,12 +944,16 @@ export async function startServer(cfg: Config) {
 
   const onConnection = (ws: WebSocket, url: URL, session: Session) => {
     const id = randomBytes(5).toString('hex');
-    // Back where they were before a reload or a restart, else the first floor. Everyone arrives by elevator.
+    // Back on the floor they were on before a reload, a restart or closing the tab, else the first floor.
     const wanted = url.searchParams.get('floor');
+    // Their floor's gone since (taken off the building, or its checkout deleted): up to the roof instead.
+    const gone = !!wanted && wanted !== ROOF && !floors.has(wanted);
     // Up on the roof, as long as there's a building under it.
-    const onRoof = wanted === ROOF && floors.size > 0;
+    const onRoof = (wanted === ROOF || gone) && floors.size > 0;
     const floor = onRoof ? undefined : arrivalFloor(wanted);
-    const spot = elevatorSpot();
+    // Back where they were standing on it too; anywhere else, they arrive by elevator.
+    const back = !gone && wanted !== null && (onRoof || floor?.id === wanted);
+    const spot = (back && spotFrom(url.searchParams)) || { ...elevatorSpot(), y: 0, rotY: 0 };
     const account = session.account;
     // An account's name is its own; on the shared password people pick one.
     const name = account?.name ?? (str(url.searchParams.get('name'), 24).trim() || `Guest ${id.slice(0, 3)}`);
@@ -911,6 +972,7 @@ export async function startServer(cfg: Config) {
       lastGongAt: 0,
       lastGolfAt: 0,
       lastHornAt: 0,
+      lastTossAt: 0,
       // A little more lenient than the page's own, so emotes it let through aren't dropped for arriving bunched up.
       emotes: new EmoteBucket(EMOTE_EVERY * 0.8),
       whiteboard: false,
@@ -925,10 +987,10 @@ export async function startServer(cfg: Config) {
         color: COLOR_RE.test(colorParam) ? colorParam : '#4f86f7',
         look: sanitizeLook({ skin: intParam('skin'), hair: intParam('hair'), style: intParam('style') }, lookFromSeed(id)),
         x: spot.x,
-        y: 0,
+        y: spot.y,
         z: spot.z,
-        // Facing out through the doors.
-        rotY: 0,
+        // The way they were facing, or out through the elevator's doors.
+        rotY: spot.rotY,
         moving: false,
         voice: false,
         muted: true,
@@ -953,7 +1015,7 @@ export async function startServer(cfg: Config) {
       version: upgrader.version,
       upgrade: upgrader.state,
       usage: ledger.state(),
-      limits: limits.state,
+      limits: limitsOf(client).state,
       me,
       notify: webhook.state(),
       machine: machine.state(),
@@ -972,7 +1034,11 @@ export async function startServer(cfg: Config) {
       // Anyone whose process ended since (exited, or failed to resume) gets up as you walk in.
       floor.workers.wakeAll();
     }
-    limits.refresh();
+    limitsOf(client).refresh();
+    if (account) {
+      sendTo(client, { t: 'signins', state: signins.state(account.id) });
+      void signins.look(account.id);
+    }
 
     ws.on('message', (raw) => {
       let msg: ClientMsg;
@@ -1096,6 +1162,7 @@ export async function startServer(cfg: Config) {
     Object.assign(c.peer, { x: spot.x, y: spot.y, z: spot.z, rotY: spot.rotY, moving: false });
     delete c.peer.seat;
     delete c.peer.golfing;
+    delete c.peer.throwing;
     // An issue card belongs to the board it came off, which is on the floor they left; a drink stays at the bar.
     delete c.peer.carrying;
     delete c.peer.drink;
@@ -1114,8 +1181,44 @@ export async function startServer(cfg: Config) {
    */
   const takeIssue = (c: Client, floor: Floor, n: number) => {
     floor.queue.dropIssue(n);
-    void floor.github.claim(n).then((err) => warn(c, err && `Couldn't assign issue #${n} on GitHub: ${err}`));
+    const as = c.accountId ? signins.ghAs(c.accountId) : undefined;
+    if (typeof as === 'string') return warn(c, `Couldn't assign issue #${n} on GitHub: ${as}`);
+    void floor.github.claim(n, as).then((err) => warn(c, err && `Couldn't assign issue #${n} on GitHub: ${err}`));
   };
+
+  /**
+   * Runs `go` once `c` has a sign-in of their own to `which` (only accounts need one: on the shared
+   * password it's the office's own). Without one it looks again, since they may have just signed
+   * in from a shell, and otherwise tells them why (`refused`, else a toast) and opens their sign-ins.
+   */
+  const withSignIn = (c: Client, which: SignInKind | undefined, go: () => void, refused?: (why: string) => void) => {
+    const id = c.accountId;
+    const ready = (a: string) => (which === 'claude' ? signins.claudeReady(a) : signins.githubReady(a));
+    if (!which || !id || ready(id)) return go();
+    void signins.look(id, true).then(() => {
+      if (c.out || c.ws.readyState !== WebSocket.OPEN) return;
+      if (ready(id)) return go();
+      const why = signins.why(which);
+      if (refused) refused(why);
+      else warn(c, why);
+      sendTo(c, { t: 'signins.needed', which, why });
+    });
+  };
+  /** Runs `go` with how the office acts on GitHub for `c`: as them, or as itself (no account, or an admin's choice). */
+  const withGitHub = (c: Client, go: (as: GhAs | undefined) => void, refused?: (why: string) => void) =>
+    withSignIn(
+      c,
+      'github',
+      () => {
+        const as = c.accountId ? signins.ghAs(c.accountId) : undefined;
+        if (typeof as !== 'string') return go(as);
+        if (refused) refused(as);
+        else warn(c, as);
+      },
+      refused,
+    );
+  /** Needs a Claude sign-in of its own when the worker it starts runs Claude. */
+  const claudeFor = (provider: string | undefined): SignInKind | undefined => (provider === 'claude' ? 'claude' : undefined);
 
   const handleMessage = (c: Client, msg: ClientMsg) => {
     const who = c.peer.name;
@@ -1167,6 +1270,15 @@ export async function startServer(cfg: Config) {
           broadcast({ t: 'peer.act', id: c.id, golf }, c.id, true);
           break;
         }
+        if (msg.throwing !== undefined) {
+          // The dart board and the axe lane are up on the roof.
+          const game = isBarGame(msg.throwing) && c.peer.floor === ROOF ? msg.throwing : undefined;
+          if (game === c.peer.throwing) break;
+          if (game) c.peer.throwing = game;
+          else delete c.peer.throwing;
+          broadcast({ t: 'peer.act', id: c.id, throwing: game ?? null }, c.id, true);
+          break;
+        }
         const now = Date.now();
         if (now - c.lastActAt < 100) break;
         c.lastActAt = now;
@@ -1179,6 +1291,15 @@ export async function startServer(cfg: Config) {
         if (!c.peer.golfing || now - c.lastGolfAt < 800 || Math.abs(yaw) > 2 || loft < 0 || loft > 1.6 || power < 0 || power > 1) break;
         c.lastGolfAt = now;
         toNeighbors(c, { t: 'golf', id: c.id, yaw, loft, power });
+        break;
+      }
+      case 'toss': {
+        // Only at the line they stepped up to, and no quicker than anyone throws.
+        const now = Date.now();
+        const toss: { game: unknown; u: unknown; v: unknown; n: unknown } = { game: msg.game, u: msg.u, v: msg.v, n: msg.n };
+        if (!tossOk(toss) || c.peer.throwing !== toss.game || now - c.lastTossAt < TOSS_EVERY[toss.game]) break;
+        c.lastTossAt = now;
+        toNeighbors(c, { t: 'toss', id: c.id, game: toss.game, u: toss.u, v: toss.v, n: toss.n, stick: msg.stick === true });
         break;
       }
       case 'emote':
@@ -1318,11 +1439,14 @@ export async function startServer(cfg: Config) {
         }
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
         const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
-        const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort);
-        const issue = kind === 'agent' ? issueNumber(msg.issue) : undefined;
-        if (typeof r === 'string') warn(c, r);
-        else toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${issue ? ` for issue #${issue}` : r.prompt ? ' with a task' : ''}`);
-        if (typeof r !== 'string' && issue) takeIssue(c, floor, issue);
+        // A shell is theirs too: `claude auth login` or `gh auth login` typed there signs them in.
+        withSignIn(c, kind === 'agent' ? claudeFor(msg.provider ?? floor.workers.officeDefault.provider) : undefined, () => {
+          const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort, undefined, c.accountId);
+          const issue = kind === 'agent' ? issueNumber(msg.issue) : undefined;
+          if (typeof r === 'string') warn(c, r);
+          else toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${issue ? ` for issue #${issue}` : r.prompt ? ' with a task' : ''}`);
+          if (typeof r !== 'string' && issue) takeIssue(c, floor, issue);
+        });
         break;
       }
       case 'worker.resume': {
@@ -1381,16 +1505,21 @@ export async function startServer(cfg: Config) {
       case 'station.prompt': {
         const floor = here();
         if (!floor) break;
-        const r = floor.workers.station(str(msg.deskId, 32), who, str(msg.prompt, 20000));
-        if (typeof r === 'string') warn(c, r);
-        else if (r.hired) toastFloor(floor, `${who} asked the ${r.info.name} something`);
+        const deskId = str(msg.deskId, 32);
+        // Nobody there yet: whoever asks first hires it, on their own sign-ins.
+        const hires = !floor.workers.deskOccupied(deskId);
+        withSignIn(c, hires ? claudeFor(floor.workers.officeDefault.provider) : undefined, () => {
+          const r = floor.workers.station(deskId, who, str(msg.prompt, 20000), c.accountId);
+          if (typeof r === 'string') warn(c, r);
+          else if (r.hired) toastFloor(floor, `${who} asked the ${r.info.name} something`);
+        });
         break;
       }
       case 'worker.pr': {
         const w = worker(msg.workerId);
         if (!w) break;
         const { floor, wid } = w;
-        void floor.workers.openPr(wid, who).then((r) => {
+        withGitHub(c, (as) => void floor.workers.openPr(wid, who, as).then((r) => {
           if (typeof r === 'string') return warn(c, r);
           const name = floor.workers.get(wid)?.name ?? 'the worker';
           toastFloor(floor, r.existed ? `${name}'s branch already has PR #${r.number}` : `${who} opened PR #${r.number} for ${name}`);
@@ -1400,7 +1529,7 @@ export async function startServer(cfg: Config) {
           void floor.github.refresh().then(() => {
             if (!floor.github.pulls.items.some((p) => p.number === r.number)) setTimeout(() => void floor.github.refresh(), 3000);
           });
-        });
+        }));
         break;
       }
       case 'term.input':
@@ -1440,13 +1569,18 @@ export async function startServer(cfg: Config) {
         const n = num(msg.number);
         const method = (['squash', 'merge', 'rebase'] as const).find((m) => m === msg.method);
         if (!floor || !Number.isSafeInteger(n) || n <= 0 || !method) break;
-        void floor.github.merge(n, method, msg.deleteBranch === true, msg.auto === true).then((error) => {
-          sendTo(c, { t: 'gh.merged', number: n, error });
-          if (error) return;
-          toastFloor(floor, msg.auto ? `${who} set PR #${n} to merge once its checks pass` : `🎉 ${who} merged PR #${n}`);
-          // An auto-merge rings once GitHub gets round to it and the boards see it merged.
-          if (!msg.auto) floor.merged(n, who);
-        });
+        withGitHub(
+          c,
+          (as) =>
+            void floor.github.merge(n, method, msg.deleteBranch === true, msg.auto === true, as).then((error) => {
+              sendTo(c, { t: 'gh.merged', number: n, error });
+              if (error) return;
+              toastFloor(floor, msg.auto ? `${who} set PR #${n} to merge once its checks pass` : `🎉 ${who} merged PR #${n}`);
+              // An auto-merge rings once GitHub gets round to it and the boards see it merged.
+              if (!msg.auto) floor.merged(n, who);
+            }),
+          (error) => sendTo(c, { t: 'gh.merged', number: n, error }),
+        );
         break;
       }
       case 'gh.comment': {
@@ -1461,10 +1595,15 @@ export async function startServer(cfg: Config) {
           sendTo(c, { t: 'gh.commented', kind, number: n, error: invalid });
           break;
         }
-        void floor.github.comment(kind, n, body).then((r) => {
-          sendTo(c, { t: 'gh.commented', kind, number: n, ...r });
-          if (r.comment) toastFloor(floor, `💬 ${who} commented on ${kind === 'pull' ? 'PR' : 'issue'} #${n}`);
-        });
+        withGitHub(
+          c,
+          (as) =>
+            void floor.github.comment(kind, n, body, as).then((r) => {
+              sendTo(c, { t: 'gh.commented', kind, number: n, ...r });
+              if (r.comment) toastFloor(floor, `💬 ${who} commented on ${kind === 'pull' ? 'PR' : 'issue'} #${n}`);
+            }),
+          (error) => sendTo(c, { t: 'gh.commented', kind, number: n, error }),
+        );
         break;
       }
       case 'gong': {
@@ -1488,14 +1627,19 @@ export async function startServer(cfg: Config) {
         const kind = msg.kind === 'issue' || msg.kind === 'pull' ? msg.kind : undefined;
         if (!floor || !Number.isSafeInteger(n) || n <= 0 || !kind) break;
         const reason = msg.reason === 'not planned' ? 'not planned' : 'completed';
-        void floor.github.close(kind, n, { comment: str(msg.comment, 20000).trim() || undefined, reason, deleteBranch: msg.deleteBranch === true }).then((error) => {
-          sendTo(c, { t: 'gh.closed', kind, number: n, error });
-          if (error) return;
-          if (kind === 'pull') return toastFloor(floor, `${who} closed PR #${n} without merging`);
-          // Nobody should be seated for an issue that's closed.
-          const dropped = floor.queue.dropIssue(n);
-          toastFloor(floor, `${who} closed issue #${n}${reason === 'not planned' ? ' as not planned' : ''}${dropped ? ' and took it off the queue' : ''}`);
-        });
+        withGitHub(
+          c,
+          (as) =>
+            void floor.github.close(kind, n, { comment: str(msg.comment, 20000).trim() || undefined, reason, deleteBranch: msg.deleteBranch === true }, as).then((error) => {
+              sendTo(c, { t: 'gh.closed', kind, number: n, error });
+              if (error) return;
+              if (kind === 'pull') return toastFloor(floor, `${who} closed PR #${n} without merging`);
+              // Nobody should be seated for an issue that's closed.
+              const dropped = floor.queue.dropIssue(n);
+              toastFloor(floor, `${who} closed issue #${n}${reason === 'not planned' ? ' as not planned' : ''}${dropped ? ' and took it off the queue' : ''}`);
+            }),
+          (error) => sendTo(c, { t: 'gh.closed', kind, number: n, error }),
+        );
         break;
       }
       case 'gh.labels': {
@@ -1510,10 +1654,15 @@ export async function startServer(cfg: Config) {
           sendTo(c, { t: 'gh.labeled', kind, number: n, error: 'No labels to change' });
           break;
         }
-        void floor.github.setLabels(kind, n, add, remove).then((r) => {
-          sendTo(c, { t: 'gh.labeled', kind, number: n, ...r });
-          if (r.labels) toastFloor(floor, `🏷️ ${who} labeled ${kind === 'pull' ? 'PR' : 'issue'} #${n}: ${[...add.map((l) => `+${l}`), ...remove.map((l) => `−${l}`)].join(' ')}`);
-        });
+        withGitHub(
+          c,
+          (as) =>
+            void floor.github.setLabels(kind, n, add, remove, as).then((r) => {
+              sendTo(c, { t: 'gh.labeled', kind, number: n, ...r });
+              if (r.labels) toastFloor(floor, `🏷️ ${who} labeled ${kind === 'pull' ? 'PR' : 'issue'} #${n}: ${[...add.map((l) => `+${l}`), ...remove.map((l) => `−${l}`)].join(' ')}`);
+            }),
+          (error) => sendTo(c, { t: 'gh.labeled', kind, number: n, error }),
+        );
         break;
       }
       case 'queue.add': {
@@ -1526,9 +1675,12 @@ export async function startServer(cfg: Config) {
         const issue = Number.isInteger(msg.issue) && (msg.issue as number) > 0 ? (msg.issue as number) : undefined;
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
         const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
-        const err = floor.queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model, effort);
-        if (err) warn(c, err);
-        else toastFloor(floor, `📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`);
+        // Its worker runs on the sign-ins of whoever queued it, whenever it gets a desk.
+        withSignIn(c, claudeFor(msg.provider ?? floor.workers.officeDefault.provider), () => {
+          const err = floor.queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model, effort, c.accountId);
+          if (err) warn(c, err);
+          else toastFloor(floor, `📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`);
+        });
         break;
       }
       case 'queue.remove': {
@@ -1573,7 +1725,7 @@ export async function startServer(cfg: Config) {
           model: msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1),
           effort: isAgentEffort(msg.effort) ? msg.effort : undefined,
         };
-        warn(c, floor.meetings.start(request, who));
+        withSignIn(c, claudeFor(request.provider ?? floor.workers.officeDefault.provider), () => warn(c, floor.meetings.start(request, who, c.accountId)));
         break;
       }
       case 'meeting.stop': {
@@ -1685,7 +1837,9 @@ export async function startServer(cfg: Config) {
       }
       case 'changes.commit': {
         const w = worker(msg.workerId);
-        if (w) void w.floor.changes.commit(w.wid, str(msg.message, 5000), who).then((err) => warn(c, err));
+        // Committed as whoever pressed it: their GitHub name and email, once they've signed in to it.
+        const env = c.accountId ? signins.apply(c.accountId, childEnv(), [], 'github') : undefined;
+        if (w) void w.floor.changes.commit(w.wid, str(msg.message, 5000), who, env).then((err) => warn(c, err));
         break;
       }
       case 'changes.discard': {
@@ -1695,7 +1849,7 @@ export async function startServer(cfg: Config) {
       }
       case 'changes.pr': {
         const w = worker(msg.workerId);
-        if (w) void w.floor.changes.pullRequest(w.wid, str(msg.title, 300), str(msg.body, 20000), who).then((err) => warn(c, err));
+        if (w) withGitHub(c, (as) => void w.floor.changes.pullRequest(w.wid, str(msg.title, 300), str(msg.body, 20000), who, as?.env).then((err) => warn(c, err)));
         break;
       }
       case 'upgrade.check':
@@ -1708,7 +1862,7 @@ export async function startServer(cfg: Config) {
         });
         break;
       case 'limits.refresh':
-        limits.refresh();
+        limitsOf(c).refresh();
         break;
       case 'team.get':
         void team.state().then((state) => sendTo(c, { t: 'team', state }));
@@ -1739,6 +1893,15 @@ export async function startServer(cfg: Config) {
       case 'accounts.role':
       case 'accounts.shared':
         handleAccounts(c, msg);
+        break;
+      case 'signins.get':
+      case 'signins.start':
+      case 'signins.code':
+      case 'signins.cancel':
+      case 'signins.token':
+      case 'signins.office':
+      case 'signins.signout':
+        handleSignIns(c, msg);
         break;
       case 'decor.add': {
         const floor = here();
@@ -1862,6 +2025,37 @@ export async function startServer(cfg: Config) {
   };
 
   /** Inviting, listing and revoking people. Admins only: an admin account, or the shared password. */
+  /** Your own Claude and GitHub sign-ins (see signins.ts). Accounts only: the shared password runs on the office's. */
+  const handleSignIns = (c: Client, msg: Extract<ClientMsg, { t: `signins.${string}` }>) => {
+    const id = c.accountId;
+    if (!id) return warn(c, "On the shared office password, workers run on the office's own sign-ins");
+    const which: SignInKind = 'which' in msg && msg.which === 'github' ? 'github' : 'claude';
+    switch (msg.t) {
+      case 'signins.get':
+        sendTo(c, { t: 'signins', state: signins.state(id) });
+        void signins.look(id, true);
+        break;
+      case 'signins.start':
+        warn(c, signins.start(id, which));
+        break;
+      case 'signins.code':
+        warn(c, signins.code(id, str(msg.code, 4096)));
+        break;
+      case 'signins.cancel':
+        signins.cancel(id, which);
+        break;
+      case 'signins.token':
+        void signins.token(id, which, str(msg.token, 4096)).then((err) => warn(c, err));
+        break;
+      case 'signins.office':
+        warn(c, signins.useOffice(id, which));
+        break;
+      case 'signins.signout':
+        void signins.signOut(id, which);
+        break;
+    }
+  };
+
   const handleAccounts = (c: Client, msg: Extract<ClientMsg, { t: `accounts.${string}` }>) => {
     const who = c.peer.name;
     if (!meOf(c.accountId).admin) return warn(c, 'Only admins can manage accounts');
@@ -1887,6 +2081,9 @@ export async function startServer(cfg: Config) {
         console.log(`  ${who} revoked ${a.name}'s account`);
         toastAll(`${who} revoked ${a.name}'s account`);
         accountsChanged(); // signs them out everywhere
+        signins.forget(a.id); // and their Claude and GitHub sign-ins go with the account
+        accountLimits.get(a.id)?.reader.close();
+        accountLimits.delete(a.id);
         break;
       }
       case 'accounts.role': {
@@ -1896,6 +2093,8 @@ export async function startServer(cfg: Config) {
         if (!a) break;
         toastAll(a.role === 'admin' ? `${who} made ${a.name} an admin` : `${a.name} is no longer an admin`);
         accountsChanged();
+        // Only admins may use the office's own sign-ins: a demoted one is back on their own.
+        void signins.look(a.id, true);
         break;
       }
       case 'accounts.shared': {
@@ -1959,6 +2158,8 @@ export async function startServer(cfg: Config) {
     for (const f of floors.values()) f.shutdown(keep);
     ledger.flush();
     limits.close();
+    for (const a of accountLimits.values()) a.reader.close();
+    signins.shutdown();
     for (const c of clients.values()) c.ws.close();
     server.close();
     hookServer.close();

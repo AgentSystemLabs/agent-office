@@ -1,6 +1,7 @@
 // Wire protocol between browser and server. Every WebSocket frame is one JSON object.
 
 import type { Look } from './avatar.js';
+import type { BarGame } from './bargames.js';
 import type { CabinetFrame, CabinetState, CabinetView } from './cabinet.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
@@ -248,6 +249,8 @@ export interface PeerInfo {
   smoking?: boolean;
   /** At the golf tee on the balcony, club in hand. */
   golfing?: boolean;
+  /** At the rooftop bar's dart board or axe lane, a dart or an axe in hand. */
+  throwing?: BarGame;
   /** Sitting down: the place they're in (see seatAt in layout), like "couch:1". */
   seat?: string;
   /** An issue card they took off the issues board, on its way to a desk or the queue. */
@@ -332,6 +335,8 @@ export interface QueueTask {
   title: string;
   prompt: string;
   addedBy: string;
+  /** The account that queued it: its worker runs on that account's own sign-ins. None: the office's own. */
+  owner?: string;
   addedAt: number;
   status: TaskStatus;
   /** The worker seated for it (it may have gone home since). */
@@ -430,6 +435,8 @@ export interface Meeting {
   /** Why it stopped short. */
   reason?: string;
   calledBy: string;
+  /** The account that called it: its workers run on that account's own sign-ins, and its review is posted as them. */
+  owner?: string;
   startedAt: number;
   finishedAt?: number;
   /** The meeting's own git worktree, relative to the project, which everyone at the table shares. */
@@ -710,6 +717,33 @@ export interface Me {
   admin: boolean;
 }
 
+/** What someone signs in to for their own workers: Claude Code, and the GitHub CLI. */
+export type SignInKind = 'claude' | 'github';
+
+/** One of your sign-ins, as the office sees it (see server/signins.ts). */
+export interface SignInState {
+  /** ok: signed in. none: not yet. busy: signing in, or being looked at. */
+  status: 'ok' | 'none' | 'busy';
+  /** Its own login in your folder on the office's machine, a pasted token, or the machine's own (admins). */
+  how: 'login' | 'token' | 'office';
+  /** Who it signs in as: an email and plan for Claude, @login for GitHub. */
+  who?: string;
+  /** A sign-in under way: the page to open, GitHub's one-time code to type there, and whether Claude's code was sent back. */
+  pending?: { url?: string; code?: string; sent?: boolean };
+  error?: string;
+}
+
+/**
+ * Your own Claude and GitHub sign-ins, which your workers run with and the office acts on GitHub
+ * with for you. Only accounts have them: on the shared password, the office's own are used.
+ */
+export interface SignInsState {
+  claude: SignInState;
+  github: SignInState;
+  /** You may use the office machine's own sign-ins instead of yours (admins). */
+  office: boolean;
+}
+
 export interface AccountInfo {
   id: string;
   name: string;
@@ -960,14 +994,20 @@ export type ClientMsg =
   /**
    * You reached out to use something; everyone else sees your character's arm do it. With `smoke`,
    * you lit a cigarette (or put it out) on the balcony instead; with `golf`, you took a club out at
-   * the tee (or put it back); with `drink`, you took a drink from the rooftop bar (or finished it, null).
+   * the tee (or put it back); with `drink`, you took a drink from the rooftop bar (or finished it,
+   * null); with `throwing`, you stepped up to the dart board or the axe lane up there (or back, null).
    */
-  | { t: 'act'; smoke?: boolean; golf?: boolean; drink?: DrinkId | null }
+  | { t: 'act'; smoke?: boolean; golf?: boolean; drink?: DrinkId | null; throwing?: BarGame | null }
   /**
    * You hit a golf ball off the tee: its heading (0 is south, toward +x from there), loft (radians)
    * and power (0–1). Everyone on your floor works out where it goes the same way (world/golf.ts fly).
    */
   | { t: 'golf'; yaw: number; loft: number; power: number }
+  /**
+   * You threw a dart or an axe at the rooftop bar: where it lands on the target (u right, v up, in
+   * meters from its middle), whether an axe sticks, and which throw of the round it is (from 1).
+   */
+  | { t: 'toss'; game: BarGame; u: number; v: number; stick: boolean; n: number }
   /** You sat down in a place on a couch, a beanbag, a chair or the bench (see seatAt in layout), or got up again (no seat). */
   | { t: 'sit'; seat?: string }
   /** You picked an issue card up off the board (or put it down again, no issue): everyone sees it in your hands. */
@@ -1046,6 +1086,18 @@ export type ClientMsg =
   | { t: 'accounts.role'; accountId: string; role: AccountRole }
   /** Let the shared office password sign people in, or stop it. */
   | { t: 'accounts.shared'; on: boolean }
+  /** Your own sign-ins (accounts only): look at them again. */
+  | { t: 'signins.get' }
+  /** Sign in from the office: it runs the login and hands back the page to open. */
+  | { t: 'signins.start'; which: SignInKind }
+  /** The code Claude's sign-in page gave you. */
+  | { t: 'signins.code'; code: string }
+  | { t: 'signins.cancel'; which: SignInKind }
+  /** A token instead: from `claude setup-token` (or an Anthropic API key), or a GitHub token. */
+  | { t: 'signins.token'; which: SignInKind; token: string }
+  /** Use the office machine's own sign-in (admins only). */
+  | { t: 'signins.office'; which: SignInKind }
+  | { t: 'signins.signout'; which: SignInKind }
   /** Follow what a worker changed (the office polls its checkout while anyone watches). */
   | { t: 'changes.watch'; workerId: string }
   | { t: 'changes.unwatch'; workerId: string }
@@ -1161,9 +1213,11 @@ export type ServerMsg =
   | { t: 'peer.update'; peer: PeerInfo }
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }
   | { t: 'peer.leave'; id: string }
-  | { t: 'peer.act'; id: string; smoke?: boolean; golf?: boolean; drink?: DrinkId | null }
+  | { t: 'peer.act'; id: string; smoke?: boolean; golf?: boolean; drink?: DrinkId | null; throwing?: BarGame | null }
   /** Someone on your floor hit a golf ball off the tee (see the client's 'golf'). */
   | { t: 'golf'; id: string; yaw: number; loft: number; power: number }
+  /** Someone up on the roof threw a dart or an axe (see the client's 'toss'). */
+  | { t: 'toss'; id: string; game: BarGame; u: number; v: number; stick: boolean; n: number }
   | { t: 'peer.emote'; id: string; emote: EmoteId }
   | { t: 'worker.update'; worker: WorkerInfo }
   | { t: 'worker.remove'; workerId: string }
@@ -1233,5 +1287,9 @@ export type ServerMsg =
   | { t: 'accounts.invited'; invite?: AccountInvite; error?: string }
   /** Your role changed. */
   | { t: 'me'; me: Me }
+  /** Your own sign-ins, whenever they change (accounts only). */
+  | { t: 'signins'; state: SignInsState }
+  /** What you tried needs a sign-in of your own first. */
+  | { t: 'signins.needed'; which: SignInKind; why: string }
   /** `now` is the office's clock as it answered, which the jukebox keeps time by. */
   | { t: 'pong'; at: number; now: number };
