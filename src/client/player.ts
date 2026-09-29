@@ -66,6 +66,8 @@ export class PlayerController {
    * frame, with no walking, falling or bumping into things, and the camera follows.
    */
   rig: ((dt: number) => void) | null = null;
+  /** The rig is a car (see driving.ts): out on the street or in the garage, not up a shaft indoors. */
+  riding = false;
   /**
    * A click (not a drag) on the scene, in normalized device coordinates.
    * In first person it is always the crosshair, (0, 0).
@@ -513,7 +515,7 @@ export class PlayerController {
     // And under the loft, its roof or the garage ceiling.
     const m = 0.4;
     // On the ladder or a pole you can be down in a shaft under the floor, but you're still indoors.
-    const rigged = !!this.rig;
+    const rigged = !!this.rig && !this.riding;
     const under = this.pos.x > FLOOR.minX && this.pos.x < FLOOR.maxX && this.pos.z > FLOOR.minZ && this.pos.z < FLOOR.maxZ;
     const indoors = (rigged || this.pos.y > -SLAB - 0.5) && under;
     if (indoors) {

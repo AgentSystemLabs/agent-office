@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { ELEVATOR, ELEVATOR_FRONT, FLOOR, ROAD, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
-import { CAR, supercar, type CarKind } from './cars';
+import { LOT, SIDE_LOT } from '../../shared/garage';
 import type { Collider } from './office';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
 
@@ -138,8 +138,8 @@ function garageFloorTexture(): THREE.CanvasTexture {
 
 /**
  * Downstairs: the open garage under the office's floor slab (see world/stack.ts): concrete
- * walls at the back and on the west side, columns along the open front and east side, strip
- * lights, and a row of Lambos and a row of Ferraris.
+ * walls at the back and on the west side, columns along the open front and east side, and strip
+ * lights. The Lambos and Ferraris parked in it are world/cars.ts's.
  */
 export function buildGarage(group: THREE.Group, colliders: Collider[]) {
   const w = B.maxX - B.minX;
@@ -185,44 +185,6 @@ export function buildGarage(group: THREE.Group, colliders: Collider[]) {
   const light = toon('#ffffff', { emissive: '#fff4d6' });
   for (const x of [-13, -4.8, 4.8, 13]) for (const z of [-4.5, 4.5]) parts.add(mesh(box(2.6, 0.07, 0.22), light, x, ceiling - 0.04, z, false));
   group.add(mergeByMaterial(parts));
-
-  // The cars: Lambos nose-in along the back wall, Ferraris backed in facing the street.
-  const cars: [CarKind, string, number, number][] = [
-    ['lambo', '#8ac926', -14.4, -1],
-    ['lambo', '#ff7b00', -8, -1],
-    ['lambo', '#ffd000', 1.6, -1],
-    ['lambo', '#7b2cbf', 11.2, -1],
-    ['ferrari', '#d90429', -14.4, 1],
-    ['ferrari', '#d90429', -4.8, 1],
-    ['ferrari', '#ffc300', 4.8, 1],
-    ['ferrari', '#e5383b', 14.4, 1],
-  ];
-  const lot = new THREE.Group();
-  for (const [kind, color, x, face] of cars) {
-    const z = face < 0 ? B.minZ + WALL_T + 0.4 + CAR.length / 2 : B.maxZ - 0.5 - CAR.length / 2;
-    park(lot, colliders, kind, color, x, z, face < 0 ? Math.PI : 0);
-  }
-  // One left out front, for everyone upstairs to look at.
-  park(lot, colliders, 'lambo', '#00b4d8', 9, 18.2, Math.PI / 2);
-  group.add(mergeByMaterial(lot));
-}
-
-/** Parks a car at (x, z) turned by `rotY` (a multiple of 90°), with colliders you can hop up on. */
-function park(group: THREE.Group, colliders: Collider[], kind: CarKind, color: string, x: number, z: number, rotY: number) {
-  const car = supercar(kind, color);
-  car.position.set(x, G, z);
-  car.rotation.y = rotY;
-  group.add(car);
-  // A rectangle in the car's own frame (x across, z nose-ward), in the world.
-  const c = Math.round(Math.cos(rotY));
-  const sn = Math.round(Math.sin(rotY));
-  const rect = (x0: number, x1: number, z0: number, z1: number, top: number) => {
-    const xs = [x0 * c + z0 * sn, x1 * c + z1 * sn];
-    const zs = [-x0 * sn + z0 * c, -x1 * sn + z1 * c];
-    colliders.push({ minX: x + Math.min(...xs), maxX: x + Math.max(...xs), minZ: z + Math.min(...zs), maxZ: z + Math.max(...zs), bottom: G, top: G + top });
-  };
-  rect(-CAR.width / 2 + 0.08, CAR.width / 2 - 0.08, -CAR.length / 2 + 0.08, CAR.length / 2 - 0.08, CAR.body);
-  rect(-0.6, 0.6, -1.3, 0.1, CAR.roof);
 }
 
 export function tree(scale: number): THREE.Group {
@@ -343,11 +305,13 @@ export function buildStreet(group: THREE.Group, colliders: Collider[], night: Ni
   // What you stand on anywhere out there, the lot and the road and the grass alike.
   colliders.push({ minX: -200, maxX: 200, minZ: -200, maxZ: 200, bottom: G - 1, top: G });
 
-  // The lot in front of the garage, out to the sidewalk.
-  const lot = groundPlane(60, 21 - B.maxZ, 0, G - 0.01, (B.maxZ + 21) / 2, null, '#9a9ea8');
-  group.add(lot);
-  const sideways = groundPlane(12, B.maxZ - B.minZ + 6, B.maxX + 6, G - 0.012, (B.minZ + B.maxZ) / 2 + 1, null, '#9a9ea8');
-  group.add(sideways);
+  // The lot in front of the garage, out to the sidewalk, and the one down its east side.
+  for (const [b, y] of [
+    [LOT, G - 0.01],
+    [SIDE_LOT, G - 0.012],
+  ] as const) {
+    group.add(groundPlane(b.maxX - b.minX, b.maxZ - b.minZ, (b.minX + b.maxX) / 2, y, (b.minZ + b.maxZ) / 2, null, '#9a9ea8'));
+  }
 
   // The road: asphalt, white edge lines and a dashed yellow middle.
   const road = canvasTexture(256, 128, (g) => {
@@ -393,6 +357,9 @@ export function buildStreet(group: THREE.Group, colliders: Collider[], night: Ni
     const t = tree(s);
     t.position.set(x, G, z);
     forest.add(t);
+    // Its trunk, which you (or a car) can't go through.
+    const r = 0.26 * s;
+    colliders.push({ minX: x - r, maxX: x + r, minZ: z - r, maxZ: z + r, bottom: G, top: G + 2.2 * s });
   }
   group.add(mergeByMaterial(forest));
 
