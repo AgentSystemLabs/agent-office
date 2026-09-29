@@ -31,6 +31,18 @@ function typingLine(names: string[]): string {
   return `${names[0]} and ${names.length - 1} others are typing…`;
 }
 
+/**
+ * Whether the program in the terminal says Esc does something right now, like Claude's /skills
+ * menu ("Esc to close") or a question ("Esc to cancel"), apart from interrupting it while it works.
+ */
+function screenMentionsEsc(term: Terminal): boolean {
+  const buf = term.buffer.active;
+  for (let y = buf.baseY; y < buf.baseY + term.rows; y++) {
+    if (/\besc(ape)?\b(?!\s+(to\s+)?interrupt)/i.test(buf.getLine(y)?.translateToString(true) ?? '')) return true;
+  }
+  return false;
+}
+
 /** Up to two letters for someone's face: "Sam" -> "S", "Ada Lovelace" -> "AL". */
 function initials(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
@@ -81,10 +93,17 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
     'aria-label': 'OpenCode models',
   }, '🧠 Models');
   const typed = h('span.typed', {});
+  // The Esc key leaves the terminal, so this is how Esc reaches the program: to close a menu like
+  // Claude's /skills, or to interrupt it. Ctrl+[ does the same from the keyboard.
+  const escBtn = h('button.btn', {
+    type: 'button',
+    title: 'Send Esc to the terminal (Ctrl+[): closes a menu like /skills, or interrupts the agent. The Esc key on its own leaves the terminal',
+    'aria-label': 'Send Esc to the terminal',
+  }, '⎋ Esc');
   const changesBtn = h('button.btn', { type: 'button', title: 'What this worker changed: files, diff, commit, open a PR (C at the desk)' }, '🌿 Changes');
-  const closeBtn = h('button.btn.close', { title: 'Leave terminal (Esc) · Ctrl+[ sends Esc to the terminal', 'aria-label': 'Close' }, '✕');
+  const closeBtn = h('button.btn.close', { title: 'Leave terminal (Esc or Ctrl+]) · ⎋ Esc or Ctrl+[ sends Esc to the terminal', 'aria-label': 'Close' }, '✕');
   const host = h('div.term-host', { 'data-drop': '📎 Drop screenshots or files here to put them in the terminal' });
-  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, onChanges ? changesBtn : null, closeBtn), host);
+  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, escBtn, onChanges ? changesBtn : null, closeBtn), host);
 
   const term = new Terminal({
     fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
@@ -198,6 +217,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
     const openCode = w.kind === 'agent' && resolvedProvider(w.provider, store.project) === 'opencode';
     modelsBtn.classList.toggle('hidden', !openCode);
     modelsBtn.toggleAttribute('disabled', !openCode || !ready || isAsleep(w.status));
+    escBtn.toggleAttribute('disabled', !ready || isAsleep(w.status));
     // Someone else resized the shared PTY (the latest typist wins): follow it so this view renders
     // correctly. Typing here fits the terminal back to this window and reclaims the size.
     const ptySize = `${w.cols}x${w.rows}`;
@@ -266,7 +286,9 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   const modal = openModal(el, {
     backdropCloses: true,
     doing: `💻 in ${info.name}'s terminal`,
-    onClose: () => {
+    onClose: (byEsc) => {
+      // Leaving with Esc while the program wanted one (you were in /skills, say): say how to send it one.
+      if (byEsc && ready && screenMentionsEsc(term)) toast(`Esc left the terminal. To send ${store.workers.get(workerId)?.name ?? info.name} an Esc (to close a menu), use ⎋ Esc at the top or Ctrl+[`);
       listeners.delete(onMsg);
       unsub();
       unsubPeers();
@@ -292,10 +314,25 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   });
 
   term.open(host);
+  const sendEsc = () => {
+    sendSize(true);
+    sayTyping();
+    term.input('\x1b');
+  };
   term.attachCustomKeyEventHandler((e) => {
-    if (e.type === 'keydown' && e.ctrlKey && e.key === ']') {
-      modal.close();
-      return false;
+    if (e.type === 'keydown' && e.ctrlKey && !e.altKey && !e.metaKey) {
+      // By the key's place too, for keyboards where [ and ] take AltGr or are other letters (ü, å), but
+      // not where that key types something else ASCII: Ctrl + + zooms in on a German keyboard.
+      const at = (key: string, code: string) => e.key === key || (e.code === code && !/^[ -~]$/.test(e.key));
+      if (at(']', 'BracketRight')) {
+        modal.close();
+        return false;
+      }
+      if (at('[', 'BracketLeft')) {
+        e.preventDefault();
+        sendEsc();
+        return false;
+      }
     }
     // ⌘⌫, Ctrl+⌫, Shift+Enter and friends edit the prompt the way your own terminal does (termkeys.ts).
     const natural = e.type === 'keydown' && !e.isComposing ? naturalKey(e) : undefined;
@@ -376,6 +413,11 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
     },
     true,
   );
+  escBtn.addEventListener('click', () => {
+    if (escBtn.hasAttribute('disabled')) return;
+    sendEsc();
+    term.focus();
+  });
   modelsBtn.addEventListener('click', () => {
     if (modelsBtn.hasAttribute('disabled')) return;
     sendSize(true);
