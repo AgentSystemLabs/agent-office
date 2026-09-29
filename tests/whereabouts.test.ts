@@ -21,3 +21,8 @@ test('up on the roof, the dance floor and the bar have their own words, and the 
   assert.equal(whereabouts(peer(0, 3, ROOF)), undefined);
   assert.equal(whereabouts({ ...peer(12, 0, ROOF), seat: 'roof-stool-3:0' }), '🪑 on the bar stool');
 });
+
+test('someone on the 2D view is on the 2D view, unless they have something open', () => {
+  assert.equal(whereabouts({ ...peer(0, 0, 'agent-office'), lite: true }), '📱 on the 2D view');
+  assert.equal(whereabouts({ ...peer(0, 0, 'agent-office'), lite: true, doing: "💻 in Pixel's terminal" }), "💻 in Pixel's terminal");
+});

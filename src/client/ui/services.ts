@@ -8,7 +8,7 @@ function onTailnet(s: ServicesState): boolean {
   return !!s.tailnet && location.hostname === s.tailnet;
 }
 
-function serviceUrl(port: number, s = store.services): string {
+export function serviceUrl(port: number, s = store.services): string {
   // Tailscale Serve points <office>.ts.net:<port> at the office, which relays it by the port.
   if (onTailnet(s)) return `https://${s.tailnet}:${port}`;
   // The tunnel lands on the office's own port, so it speaks whatever the office speaks.

@@ -12,7 +12,7 @@ import { FAILS_TO_DESPAIR, outputFailed, toolAction } from '../shared/actions.js
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, isAgentEffort, isClaudeModel } from '../shared/protocol.js';
 import { WORKSPACE_FILES, WORKTREES_DIR, Worktrees, describeWork, workspaceOf, type WorktreeCleanup, type WorktreeRef, type WorktreeState } from './worktrees.js';
 import { normalizeRepo } from '../shared/floors.js';
-import { DESK_BY_ID, STATION_AGENT } from '../shared/layout.js';
+import { DESK_BY_ID, STATION_AGENT, deskBuilt } from '../shared/layout.js';
 import { QUEUE_AGENT_DISALLOWED_TOOLS, stationBrief } from './stations.js';
 import { officePrompt, type PromptSource } from './prompts.js';
 import { isBusy } from '../shared/status.js';
@@ -223,6 +223,8 @@ export class WorkerManager {
   private scrollback: ScrollbackStore;
   private drops: DropStore;
   private saveTimer: NodeJS.Timeout;
+  /** How many rows the floor's back office is built out: its desks past that aren't there to hire at (see WING). */
+  wing: () => number = () => 0;
 
   constructor(
     private dir: string,
@@ -360,7 +362,7 @@ export class WorkerManager {
    * (see meetings.ts), in the meeting's own worktree, which everyone at the table shares. `repos` are
    * other floors' repositories a worker in its own worktree works in too (see makeWorkspace).
    */
-  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }, owner?: string, repos: RepoSource[] = []): WorkerInfo | string {
+  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }, owner?: string, repos: RepoSource[] = [], via?: 'herald'): WorkerInfo | string {
     // Nobody picked (a board agent, say): the office's default worker, model and effort included.
     if (kind === 'agent' && provider === undefined) ({ provider, model, effort } = this.officeDefault);
     const selectedProvider = kind === 'agent' ? provider : undefined;
@@ -370,6 +372,7 @@ export class WorkerManager {
     if (effortError) return effortError;
     const seat = DESK_BY_ID.get(deskId);
     if (!seat) return 'Unknown desk';
+    if (!deskBuilt(seat, this.wing())) return `${seat.label} isn't built yet: expand the back office first`;
     if (this.deskOccupied(deskId)) return seat.station ? `The ${STATION_AGENT[seat.station].name} is already there` : `That ${seat.beanbag ? 'bean bag' : 'desk'} is taken`;
     if (kind === 'shell' && seat.station) return 'A board agent is always an agent, not a shell';
     if (seat.station && !prompt?.trim()) return 'Tell the board agent what to do';
@@ -418,6 +421,7 @@ export class WorkerManager {
       acked: true,
       createdBy: by,
       createdAt: Date.now(),
+      ...(via ? { via } : {}),
       prompt: kind === 'shell' ? undefined : prompt?.trim() || undefined,
       worktree: wt,
       repos: others,
@@ -501,6 +505,7 @@ export class WorkerManager {
     const w = this.workers.get(id);
     if (!w) return 'No such worker';
     if (w.pty) return 'Worker is already running';
+    clockWork(w.info, 'starting');
     w.info.status = 'starting';
     w.info.exitCode = undefined;
     const station = DESK_BY_ID.get(w.info.deskId)?.station;
@@ -1503,7 +1508,10 @@ export class WorkerManager {
       this.startFailed(w, (err as Error).message);
       return;
     }
-    if (!isClaude && !isCodex && !isGrok && !isMuse) info.status = 'idle';
+    if (!isClaude && !isCodex && !isGrok && !isMuse) {
+      clockWork(info, 'idle');
+      info.status = 'idle';
+    }
     this.follow(w, proc, term, resumeSessionId);
     this.emitUpdate(w);
     this.persist();
@@ -1525,6 +1533,7 @@ export class WorkerManager {
     this.setTitle(w, adopted.title);
     // A hook that came in since the office started already says how it's doing.
     if (info.status === 'offline') {
+      clockWork(info, saved.status);
       info.status = saved.status;
       info.acked = saved.acked;
       info.waitingSince = saved.waitingSince;
@@ -1606,6 +1615,7 @@ export class WorkerManager {
         return;
       }
       info.exitCode = exitCode;
+      clockWork(info, 'exited');
       info.status = 'exited';
       const hint = info.kind === 'shell' ? ' — press R to restart' : info.sessionId ? ' — press R to resume' : '';
       const msg = `\r\n\x1b[2m[${info.name} exited with code ${exitCode}${hint}]\x1b[0m\r\n`;
@@ -1638,6 +1648,7 @@ export class WorkerManager {
   private startFailed(w: Worker, message: string) {
     const what = this.command(w.info);
     const msg = `\r\n\x1b[31mFailed to start ${what}: ${message}\x1b[0m\r\n`;
+    clockWork(w.info, 'exited');
     w.info.status = 'exited';
     w.info.exitCode = -1;
     w.term?.write(msg);
@@ -1706,6 +1717,7 @@ export class WorkerManager {
   private setStatus(w: Worker, status: WorkerStatus) {
     if (w.info.status === status) return;
     if (w.info.status === 'needs_input') w.leftNeedsInputAt = Date.now();
+    clockWork(w.info, status);
     w.info.status = status;
     // Done, idle or asleep: it's not acting anything out any more.
     if (status !== 'working' && status !== 'needs_input') w.info.action = undefined;
@@ -1886,6 +1898,7 @@ process.stdin.on('end', () => {
       task: info.task,
       pr: info.pr,
       meeting: info.meeting,
+      workedMs: workedMs(info),
       tracker: info.kind === 'agent' ? tracker : undefined,
       usage: info.provider === 'opencode' || info.provider === 'codex' ? info.usage : undefined,
       codexTranscript: info.provider === 'codex' ? codexTranscript : undefined,
@@ -1943,6 +1956,7 @@ process.stdin.on('end', () => {
           viewers: [],
           viewerIds: [],
           meeting: typeof s.meeting === 'string' && DESK_BY_ID.get(s.deskId)?.room ? s.meeting : undefined,
+          workedMs: typeof s.workedMs === 'number' && Number.isFinite(s.workedMs) && s.workedMs > 0 ? s.workedMs : undefined,
         };
         const w = newWorker(info, tracker, typeof s.hookToken === 'string' && s.hookToken ? s.hookToken : undefined);
         if (typeof s.owner === 'string' && s.owner) w.owner = s.owner;
@@ -2303,4 +2317,21 @@ function safeEq(a: string, b: string) {
   let r = 0;
   for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return r === 0;
+}
+
+/** How long a worker has spent working (ms), the stretch it's in now included. */
+export function workedMs(info: WorkerInfo, now = Date.now()): number | undefined {
+  const ms = (info.workedMs ?? 0) + (info.workingSince === undefined ? 0 : Math.max(0, now - info.workingSince));
+  return ms > 0 ? ms : undefined;
+}
+
+/** Keeps count of how long a worker has worked (WorkerInfo.workedMs) as it goes from its status into `next`. */
+export function clockWork(info: WorkerInfo, next: WorkerStatus, now = Date.now()) {
+  if (next === 'working') {
+    info.workingSince ??= now;
+    return;
+  }
+  if (info.workingSince === undefined) return;
+  info.workedMs = workedMs(info, now);
+  info.workingSince = undefined;
 }
