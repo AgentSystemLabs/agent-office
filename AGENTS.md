@@ -2,7 +2,7 @@
 
 A 3D multiplayer office in the browser where a team hires claude, opencode, codex and droid workers at desks and shares their live PTYs. A Node server owns the workers, terminals, boards and state; a Vite/three.js client renders the office.
 
-Read [README.md "How it works"](README.md#how-it-works) before changing how a subsystem behaves (status hooks, PTY host, worktrees, meetings, queue, floors, state files). Read [docs/vr-webxr.md](docs/vr-webxr.md) before touching WebXR code.
+Read [docs/guide.md "How it works"](docs/guide.md#how-it-works) before changing how a subsystem behaves (status hooks, PTY host, worktrees, meetings, queue, floors, state files). Read [docs/vr-webxr.md](docs/vr-webxr.md) before touching WebXR code.
 
 ## Repository map
 
@@ -16,7 +16,7 @@ Read [README.md "How it works"](README.md#how-it-works) before changing how a su
 | `tests/` | `node:test` suites run through `tsx` |
 | `deploy/` | `aws.sh` (EC2 lifecycle) and `provision.sh` (machine setup it runs) |
 | `install.sh`, `install.ps1` | Release installers for macOS/Linux and Windows |
-| `docs/` | Feature docs (`vr-webxr.md`) |
+| `docs/` | `guide.md` (every feature, setup and how each subsystem works), `vr-webxr.md`, and the README banner |
 
 ## Commands
 
