@@ -5,7 +5,7 @@ import { deskPoint } from '../../shared/nav';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
 import { buildGarage, buildStreet, bulb, type NightParts } from './outside';
 import { mergeByMaterial, mesh, roundedBox, textPlane, toon, toonUnique } from './toon';
-import { model, paintModel, palette } from './models';
+import { palette, piece } from './models';
 import { buildElevator, type Elevator } from './elevator';
 import { buildGong, type Gong } from './gong';
 import { buildJukebox, type JukeboxView } from './jukebox';
@@ -222,8 +222,8 @@ function box(w: number, h: number, d: number) {
   return new THREE.BoxGeometry(w, h, d);
 }
 
-// The potted plants are modelled in Blender (blender/scripts/build_plants.py): one copy of plants.glb,
-// whose species each plant clones and paints. A species is its pot, named after it, with everything that
+// The potted plants are modelled in Blender (blender/scripts/build_plants.py): each plant is a painted
+// copy of one species in plants.glb (see piece()). A species is its pot, named after it, with everything that
 // grows out of the pot hung under it as `<species>_leaves` (see plantLeaves()). The colors are the old
 // code-built plants' pot and greens, the Christmas tree's trunk brown for the soil, the street trees'
 // trunk brown for the ficus's, and the kitchen cupboards' blue for the snake plant's glazed pot.
@@ -232,7 +232,6 @@ export type PlantSpecies = 'monstera' | 'snake_plant' | 'ficus' | 'succulent';
 export const FLOOR_PLANTS = ['monstera', 'snake_plant', 'ficus'] as const satisfies readonly PlantSpecies[];
 const PLANT_COLORS = { Pot: PALETTE.pot, Glaze: '#8ecae6', Soil: '#6b4226', Bark: '#8a5a3b', Leaf: PALETTE.plant, LeafDark: PALETTE.plantDark };
 const paintPlant = palette(PLANT_COLORS);
-let plantModel: THREE.Object3D | null = null;
 
 /**
  * A potted plant of `species`, `scale` times its modelled size, its origin on the floor in the middle of
@@ -241,13 +240,8 @@ let plantModel: THREE.Object3D | null = null;
  * model didn't load, an empty group: the office opens without it.
  */
 export function plant(species: PlantSpecies, scale = 1): THREE.Group {
-  plantModel ??= model('plants')?.scene ?? null;
   const g = new THREE.Group();
-  const copy = plantModel?.getObjectByName(species)?.clone();
-  if (copy) {
-    paintModel(copy, paintPlant);
-    g.add(copy);
-  }
+  g.add(piece('plants', species, paintPlant));
   g.scale.setScalar(scale);
   return g;
 }
