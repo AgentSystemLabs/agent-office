@@ -264,6 +264,19 @@ if [[ -z "${PUBLIC_HOST:-}" ]]; then
   [[ -n "$PUBLIC_HOST" ]] || PUBLIC_HOST=$(curl -fsS --max-time 5 https://checkip.amazonaws.com 2>/dev/null | tr -d '[:space:]' || true)
   [[ -n "$PUBLIC_HOST" ]] || PUBLIC_HOST=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
 fi
+# The script that deployed this server, exported as DEPLOY_SCRIPT by deploy/azure.sh ("deploy/azure.sh",
+# plus "--name <name>" for a second office), so the office names it in the commands it suggests.
+# Run again by hand, this keeps the one from before.
+[[ -n "${DEPLOY_SCRIPT:-}" ]] ||
+  DEPLOY_SCRIPT=$(sudo sed -n 's/^AGENT_OFFICE_DEPLOY_SCRIPT="\(.*\)"$/\1/p' /etc/agent-office/env 2>/dev/null || true)
+[[ "$DEPLOY_SCRIPT" =~ ^deploy/[a-z0-9-]+\.sh(\ --name\ [a-z0-9-]+)?$ ]] || DEPLOY_SCRIPT=""
+# Run again without a Claude token or API key (deploy/*.sh up to resize or update, say), this keeps
+# the one it was given before, rather than signing the office out of Claude.
+if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -z "${ANTHROPIC_API_KEY:-}" ]]; then
+  CLAUDE_CODE_OAUTH_TOKEN=$(sudo sed -n 's/^CLAUDE_CODE_OAUTH_TOKEN="\(.*\)"$/\1/p' /etc/agent-office/env 2>/dev/null || true)
+  ANTHROPIC_API_KEY=$(sudo sed -n 's/^ANTHROPIC_API_KEY="\(.*\)"$/\1/p' /etc/agent-office/env 2>/dev/null || true)
+  export CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY
+fi
 
 step "Writing secrets to /etc/agent-office/env"
 sudo install -d -m 755 /etc/agent-office
@@ -276,6 +289,7 @@ env_file=$(mktemp)
   [[ -n "$TS_HOST" ]] && printf 'AGENT_OFFICE_TAILSCALE_HOST="%s"\n' "$TS_HOST"
   [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]] && printf 'CLAUDE_CODE_OAUTH_TOKEN="%s"\n' "$CLAUDE_CODE_OAUTH_TOKEN"
   [[ -n "${ANTHROPIC_API_KEY:-}" ]] && printf 'ANTHROPIC_API_KEY="%s"\n' "$ANTHROPIC_API_KEY"
+  [[ -n "$DEPLOY_SCRIPT" ]] && printf 'AGENT_OFFICE_DEPLOY_SCRIPT="%s"\n' "$DEPLOY_SCRIPT"
   true
 } >"$env_file"
 sudo install -m 600 -o root -g root "$env_file" /etc/agent-office/env
