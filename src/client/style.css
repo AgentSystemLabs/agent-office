@@ -503,6 +503,11 @@ body.telescope-active #hud { visibility: hidden; }
 .col-caret { font-size: 11px; color: var(--muted); }
 .col-head:hover .col-caret, .col-head[aria-expanded="true"] .col-caret { color: var(--ink); }
 .column.filtered h4 { background: var(--paper-2); }
+/* Each column's box for narrowing it by title. */
+.col-search { position: relative; flex-shrink: 0; background: var(--paper); border-bottom: 3px solid var(--ink); padding: 6px 8px; }
+.col-search input[type=text] { font-size: 13px; border-width: 2px; border-radius: 9px; padding: 5px 26px 5px 9px; }
+.col-search-clear { position: absolute; top: 50%; right: 14px; transform: translateY(-50%); border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; font-weight: 900; cursor: pointer; padding: 0 2px; }
+.col-search-clear:hover { color: var(--ink); }
 .col-active, .col-filter { background: var(--paper); border-bottom: 3px solid var(--ink); padding: 7px 10px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .col-clear { margin-left: auto; border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; font-weight: 900; cursor: pointer; padding: 0 2px; }
 .col-clear:hover { color: var(--ink); }

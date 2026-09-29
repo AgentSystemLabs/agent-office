@@ -158,6 +158,8 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
   const el = h('div.modal.board', { role: 'dialog', 'aria-label': kind === 'issues' ? 'Issues board' : 'Pull requests board' }, h('header', {}, h('h2', {}, kind === 'issues' ? '📌 Issues' : '🔀 Pull Requests'), status, refresh, close), body);
 
   const filters = loadFilters(kind);
+  /** What each column's filter box holds (column key → text), for as long as the board is open. */
+  const queries: Record<string, string> = {};
   /** The column whose label picker is open, if any. */
   let picking: string | null = null;
   const setFilter = (key: string, labels: string[]) => {
@@ -188,16 +190,46 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
     return h('div.col-filter', {}, list, h('div.col-filter-foot', {}, h('small', {}, hint), picked.length ? h('button.btn.small', { type: 'button', onclick: () => setFilter(col.key, []) }, 'Clear') : null));
   };
 
-  /** A column of cards. Click its header to filter it by label. */
+  /** A column of cards. Type in its box to narrow it by title; click its header to filter it by label. */
   const column = <T extends GhIssue | GhPull>(col: Column<T>, all: Map<string, string>, cardOf: (it: T, i: number) => HTMLElement) => {
     const picked = filters[col.key] ?? [];
-    const matching = picked.length ? col.items.filter((it) => it.labels.some((l) => picked.includes(l.name))) : col.items;
-    const shown = matching.slice(0, col.max);
+    const labelled = picked.length ? col.items.filter((it) => it.labels.some((l) => picked.includes(l.name))) : col.items;
     const ul = h('ul');
-    shown.forEach((it, i) => ul.append(cardOf(it, i)));
-    if (!shown.length) ul.append(h('li.empty', {}, picked.length ? 'Nothing here with those labels' : 'Nothing here'));
+    const count = h('span');
+    const name = col.title.replace(/^\S+ /, '');
+    const search = h('input', {
+      type: 'text',
+      value: queries[col.key] ?? '',
+      placeholder: 'Filter by title…',
+      'aria-label': `Filter ${name} by title`,
+      'data-focus': `search:${col.key}`,
+      spellcheck: 'false',
+      autocomplete: 'off',
+    }) as HTMLInputElement;
+    const clear = h('button.col-search-clear', { type: 'button', 'aria-label': 'Clear the title filter', title: 'Clear' }, '✕');
+    const section = h('section.column');
+    /** Deals the cards that match both filters. Typing only redoes this column, so the box keeps focus. */
+    const fill = () => {
+      const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
+      const matching = words.length ? labelled.filter((it) => words.every((w) => it.title.toLowerCase().includes(w))) : labelled;
+      const shown = matching.slice(0, col.max);
+      ul.replaceChildren(...shown.map((it, i) => cardOf(it, i)));
+      if (!shown.length) ul.append(h('li.empty', {}, words.length ? `No titles match “${search.value.trim()}”${picked.length ? ' with those labels' : ''}` : picked.length ? 'Nothing here with those labels' : 'Nothing here'));
+      count.textContent = picked.length || words.length ? `${shown.length} / ${col.items.slice(0, col.max).length}` : String(shown.length);
+      clear.classList.toggle('hidden', !search.value);
+      section.classList.toggle('filtered', picked.length > 0 || words.length > 0);
+    };
+    search.addEventListener('input', () => {
+      queries[col.key] = search.value;
+      ul.scrollTop = 0;
+      fill();
+    });
+    clear.addEventListener('click', () => {
+      search.value = queries[col.key] = '';
+      fill();
+      search.focus();
+    });
     const open = picking === col.key;
-    const count = picked.length ? `${shown.length} / ${col.items.slice(0, col.max).length}` : String(shown.length);
     const head = h(
       'button.col-head',
       {
@@ -213,7 +245,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
       h('span', {}, col.title),
       h('span.col-count', {}, count, h('span.col-caret', { 'aria-hidden': 'true' }, open ? '▴' : '▾')),
     );
-    const section = h('section.column', { class: picked.length ? 'filtered' : '' }, h('h4', {}, head));
+    section.append(h('h4', {}, head), h('div.col-search', {}, search, clear));
     if (open) section.append(labelPicker(col, all, picked));
     else if (picked.length) {
       section.append(
@@ -226,6 +258,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
       );
     }
     section.append(ul);
+    fill();
     return section;
   };
 
@@ -233,11 +266,12 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
     const st = kind === 'issues' ? store.issues : store.pulls;
     status.textContent = st.loading ? 'Refreshing…' : st.fetchedAt ? `Updated ${timeAgo(st.fetchedAt)}` : '';
     // Every refresh rebuilds the columns, so note how far each was scrolled and put it back afterwards,
-    // and keep focus on the header or label toggle it was on.
+    // and keep focus (and the caret, in a filter box) on the header, label toggle or box it was on.
     const scrolled = [...body.querySelectorAll('.column > ul')].map((ul) => ul.scrollTop);
     const { scrollLeft, scrollTop } = body;
     const active = document.activeElement;
     const focused = active && body.contains(active) ? active.getAttribute('data-focus') : null;
+    const caret = active instanceof HTMLInputElement ? ([active.selectionStart, active.selectionEnd] as const) : null;
     body.replaceChildren();
     if (st.error && !st.items.length) {
       body.append(h('div.board-error', {}, `Couldn't load from GitHub: ${st.error}`, h('br'), h('small', {}, 'The server runs `gh` in the project directory — make sure it is installed and authenticated (gh auth login).')));
@@ -281,7 +315,9 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
     body.querySelectorAll('.column > ul').forEach((ul, i) => (ul.scrollTop = scrolled[i] ?? 0));
     body.scrollLeft = scrollLeft;
     body.scrollTop = scrollTop;
-    if (focused !== null) [...body.querySelectorAll<HTMLElement>('[data-focus]')].find((b) => b.dataset.focus === focused)?.focus();
+    const again = focused === null ? undefined : [...body.querySelectorAll<HTMLElement>('[data-focus]')].find((b) => b.dataset.focus === focused);
+    again?.focus();
+    if (caret && again instanceof HTMLInputElement) again.setSelectionRange(caret[0], caret[1]);
   };
 
   const unsubs = [store.on(kind, render), store.on('queue', render)];
