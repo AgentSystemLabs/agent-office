@@ -419,23 +419,27 @@ export class Changes {
     const branch = (await gitMaybe(['rev-parse', '--abbrev-ref', 'HEAD'], t.cwd)) || 'HEAD';
     const onBranch = branch !== 'HEAD';
     const baseBranch = t.baseBranch === undefined ? this.baseBranch : t.baseBranch === 'HEAD' ? undefined : t.baseBranch ?? undefined;
-    let ref: string | undefined;
+    let refs: string[] = [];
     let label = 'HEAD';
     if (baseBranch && branch !== baseBranch && (await gitMaybe(['rev-parse', '--verify', '--quiet', `refs/heads/${baseBranch}`], t.cwd))) {
-      ref = baseBranch;
+      // Origin's copy too, whichever is newer: a worktree starts from PRs merged there that the
+      // project may never have pulled (see Worktrees.create), and they aren't this worker's changes.
+      const remote = `refs/remotes/origin/${baseBranch}`;
+      refs = (await gitMaybe(['rev-parse', '--verify', '--quiet', remote], t.cwd)) ? [baseBranch, remote] : [baseBranch];
       label = baseBranch;
     } else if (t.worktreeBase && branch !== baseBranch) {
-      ref = t.worktreeBase;
+      refs = [t.worktreeBase];
       label = t.worktreeBase.slice(0, 7);
     } else {
       // On the base branch itself: what isn't pushed yet, when it tracks a remote.
       const up = await gitMaybe(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], t.cwd);
       if (up) {
-        ref = up;
+        refs = [up];
         label = up;
       }
     }
-    const commit = (ref && (await gitMaybe(['merge-base', ref, 'HEAD'], t.cwd))) || head;
+    // With two refs, git takes the merge base with a merge of them both: the newer one's, as a rule.
+    const commit = (refs.length && (await gitMaybe(['merge-base', 'HEAD', ...refs], t.cwd))) || head;
     const prBase = onBranch && baseBranch && branch !== baseBranch ? baseBranch : undefined;
     return { commit, label, branch: onBranch ? branch : undefined, prBase };
   }

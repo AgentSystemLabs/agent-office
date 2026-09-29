@@ -137,7 +137,7 @@ export function openHelp() {
     ['Mouse', 'Look around in first person (click to capture the mouse, Esc to free it)'],
     ['Click / E', "Use what you look at: hire a worker, open its terminal, read a board, call a meeting in the meeting room, watch the TV, put a song on the jukebox, tee off from the balcony, sit on a couch, a beanbag, a chair or the balcony bench (walk off to get up)"],
     ['👥', 'Click someone under "In the office" to walk over to them (on another floor, you ride the elevator first). The line under their name says what they have open or where they are'],
-    ['🛗', 'Every project is a floor: step into the elevator on the north wall and press E (or click the project name, top left) to go to another one or add a project'],
+    ['🛗', 'Every project is a floor: step into the elevator on the north wall and press E (or click the project name, top left) to go to another one or add a project. It goes down to the garage too, and back up from there'],
     ['🤖', 'An agent stands by the issues board, the PR board and the task queue. Press E at one and type what you want: it runs as an agent that knows that board. O there opens its terminal, X sends it home'],
     ['📝', 'The whiteboard on wheels between the desks and the lounge: press E to draw on it with everyone on your floor, live. What you draw stays up on the board'],
     ['🕹️', 'The arcade cabinet in the lounge plays BLOCKFALL: arrows (or WASD) move and turn, Space drops, C holds, P pauses. Everyone on the floor sees your game on it, and E there watches whoever is playing. One of your workers needing input pauses it'],
@@ -163,7 +163,7 @@ export function openHelp() {
     ['M', 'Mute or unmute your mic in voice. ⚙️ Settings can have you join muted, for push to talk'],
     ['Tab', 'The ☰ menu, top right: every window, and what shows on screen. Pin what you use most to the top bar'],
     ['Esc', 'Close any window and get back to looking around'],
-    ['Ctrl + [', 'Send Esc to a terminal (e.g. to interrupt Claude)'],
+    ['Ctrl + [', 'Send Esc to a terminal instead, to close a menu like Claude’s /skills or interrupt Claude. ⎋ Esc in the terminal’s header does the same'],
     ['⚙️', 'Settings (in the ☰ menu): switch between first and third person'],
   ];
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');

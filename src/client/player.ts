@@ -514,7 +514,8 @@ export class PlayerController {
     const m = 0.4;
     // On the ladder or a pole you can be down in a shaft under the floor, but you're still indoors.
     const rigged = !!this.rig;
-    const indoors = (rigged || this.pos.y > -SLAB - 0.5) && this.pos.x > FLOOR.minX && this.pos.x < FLOOR.maxX && this.pos.z > FLOOR.minZ && this.pos.z < FLOOR.maxZ;
+    const under = this.pos.x > FLOOR.minX && this.pos.x < FLOOR.maxX && this.pos.z > FLOOR.minZ && this.pos.z < FLOOR.maxZ;
+    const indoors = (rigged || this.pos.y > -SLAB - 0.5) && under;
     if (indoors) {
       cam.x = THREE.MathUtils.clamp(cam.x, FLOOR.minX + m, FLOOR.maxX - m);
       cam.z = THREE.MathUtils.clamp(cam.z, FLOOR.minZ + m, FLOOR.maxZ - m);
@@ -522,9 +523,16 @@ export class PlayerController {
     const floorY = rigged ? 0 : Math.max(groundAt(this.colliders, this.pos.x, this.pos.z, this.pos.y), this.street);
     const roof = ceilingAt(this.colliders, cam.x, cam.z, floorY) - 0.3;
     cam.y = THREE.MathUtils.clamp(cam.y, floorY + 0.6, Math.max(floorY + 0.6, Math.min(floorY + 3.5, roof)));
-    // Down on the street, stay under the garage ceiling so its edge never cuts across the view.
+    // Down on the street, stay under the garage ceiling so its edge never cuts across the view; in the
+    // garage, on this side of its back and west walls too (the elevator comes down in the back one).
     const garage = this.street - STREET_Y - SLAB;
-    if (this.pos.y < garage - 1 && !rigged) cam.y = Math.min(cam.y, Math.max(floorY + 0.6, garage - 0.3));
+    if (this.pos.y < garage - 1 && !rigged) {
+      cam.y = Math.min(cam.y, Math.max(floorY + 0.6, garage - 0.3));
+      if (under) {
+        cam.x = Math.max(cam.x, FLOOR.minX + m);
+        cam.z = Math.max(cam.z, FLOOR.minZ + m);
+      }
+    }
     // How far you are out past each outside wall (west, east, north, south), and how far inside them the camera is.
     const e = WALL_T + m;
     const out = [FLOOR.minX - WALL_T - this.pos.x, this.pos.x - FLOOR.maxX - WALL_T, FLOOR.minZ - WALL_T - this.pos.z, this.pos.z - FLOOR.maxZ - WALL_T];

@@ -24,7 +24,7 @@ Options:
 
 interface SavedWorker {
   name?: string;
-  worktree?: { path: string; branch: string; base?: string };
+  worktree?: { path: string; branch: string; base?: string; made?: string };
   /** A worker across repositories: its worktrees of other floors' projects (see WorkerInfo.repos). */
   repos?: { path?: string; branch?: string }[];
 }
@@ -89,6 +89,7 @@ export async function prune(argv: string[]): Promise<number> {
   for (const w of savedWorkers(dir)) {
     if (!w.worktree) continue;
     ownerOfBranch.set(w.worktree.branch, w.name ?? 'a worker');
+    if (w.worktree.made) ownerOfBranch.set(w.worktree.made, w.name ?? 'a worker');
     ownerOfPath.set(path.normalize(w.worktree.path), w.name ?? 'a worker');
     // Across repositories: the workspace folder its worktrees are in is its too.
     if (w.repos?.length) ownerOfPath.set(path.normalize(path.dirname(w.worktree.path)), w.name ?? 'a worker');

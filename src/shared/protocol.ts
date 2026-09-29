@@ -100,8 +100,10 @@ export interface WorkerInfo {
   /**
    * Set when the worker runs in its own git worktree (path relative to the office dir). `from` is
    * the branch the office was on when the worktree was cut, which its pull request targets.
+   * `branch` is the branch the worktree is on: the office's own office/<name>-<id> until the worker
+   * switches to one of its own (`git checkout -b fix-x`), which `made` then remembers.
    */
-  worktree?: { path: string; branch: string; base: string; from?: string };
+  worktree?: { path: string; branch: string; base: string; from?: string; made?: string };
   /** The pull request opened from this desk for the worktree branch (see 'worker.pr'). */
   pr?: { number: number; url: string };
   /**
@@ -807,12 +809,12 @@ export interface AccountsState {
 }
 
 export interface TeamMember {
-  /** GitHub username (or the name deploy/aws.sh invited a key file under). */
+  /** GitHub username (or the name deploy/aws.sh or deploy/azure.sh invited a key file under). */
   name: string;
   keys: number;
 }
 
-/** Who may SSH-tunnel into the office. Only offices deployed with deploy/aws.sh manage this. */
+/** Who may SSH-tunnel into the office. Only offices deployed with deploy/aws.sh or deploy/azure.sh manage this. */
 export interface TeamState {
   /** Why invites can't be managed from the office, when they can't. */
   unavailable?: string;
@@ -821,9 +823,13 @@ export interface TeamState {
   ssh?: string;
   /** The office's port on the box (tunnel destination). */
   port: number;
+  /** How to run the script that deployed the office (deploy/azure.sh, --name and all), for the commands the panel suggests. deploy/aws.sh when unknown. */
+  deploy?: string;
   /** SHA256 fingerprint of the box's ED25519 host key, to check on first connect. */
   fingerprint?: string;
   members: TeamMember[];
+  /** The office's name on its Tailscale network (e.g. agent-office.tail1234.ts.net): everyone there opens https://<it>. */
+  tailnet?: string;
 }
 
 /** A web server a worker started (a dev server, a preview), found by the ports it listens on. */
@@ -847,8 +853,12 @@ export interface ServicesState {
   items: ServiceInfo[];
   /** The office's port on its machine. Service tunnels end there and the office relays them. */
   port: number;
+  /** How to run the script that deployed the office, as in TeamState. */
+  deploy?: string;
   /** user@host teammates tunnel to (offices deployed with deploy/aws.sh), e.g. office@203.0.113.7 */
   ssh?: string;
+  /** The office's name on its Tailscale network: each server is also on https://<it>:<port> there. */
+  tailnet?: string;
 }
 
 export type ChangeStatus = 'M' | 'A' | 'D' | 'R' | 'T' | '?';

@@ -14,11 +14,13 @@ function fixture(defaultProvider: AgentProvider = 'claude') {
     defaultProvider,
     list: () => workers,
     deskOccupied: (desk) => workers.some((w) => w.deskId === desk),
-    spawn(deskId, by, prompt, _worktree, kind, provider, model, effort) {
+    spawn(deskId, by, prompt, worktree, kind, provider, model, effort) {
+      const id = `worker-${hired++}`;
       const worker: WorkerInfo = {
-        id: `worker-${hired++}`, deskId, kind, provider, model, effort, prompt, name: 'Test',
+        id, deskId, kind, provider, model, effort, prompt, name: 'Test',
         color: '#ffffff', status: 'working', acked: false, createdBy: by,
         createdAt: Date.now(), cols: 80, rows: 24, viewers: [], viewerIds: [],
+        worktree: worktree ? { path: `.agent-office/worktrees/${id}`, branch: `office/${id}`, base: 'abc' } : undefined,
       };
       workers.push(worker);
       return worker;
@@ -32,8 +34,8 @@ function fixture(defaultProvider: AgentProvider = 'claude') {
   };
   const queues: TaskQueue[] = [];
   let emptied = 0;
-  const open = (room?: () => number) => {
-    const queue = new TaskQueue(dir, manager, false, {
+  const open = (room?: () => number, worktrees = false) => {
+    const queue = new TaskQueue(dir, manager, worktrees, {
       update() {}, toast() {}, claimIssue: async () => undefined,
       refreshGitHub() {}, hiringPaused: () => undefined, emptied: () => emptied++, room,
     });
@@ -230,4 +232,93 @@ test('an office at its worker limit holds the queue, and a finished queue worker
   // Room again: it carries on.
   limit = 2; q.pump();
   assert.equal(q.state().tasks[2].status, 'running');
+});
+
+test('a worktree task waits for the fetch of what its worktree starts from, then sits down', async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'office-queue-'));
+  const workers: WorkerInfo[] = [];
+  let fetches = 0;
+  let fetched: (() => void) | undefined;
+  let inFlight: Promise<void> | undefined;
+  let fresh = false;
+  const manager: QueueWorkers = {
+    defaultProvider: 'claude',
+    list: () => workers,
+    deskOccupied: (desk) => workers.some((w) => w.deskId === desk),
+    spawn(deskId, by, prompt, worktree, kind, provider) {
+      assert.equal(worktree, true);
+      assert.ok(fresh, 'seated before its base was fetched');
+      const worker: WorkerInfo = {
+        id: `worker-${workers.length}`, deskId, kind, provider, prompt, name: 'Test', color: '#ffffff', status: 'working',
+        acked: false, createdBy: by, createdAt: Date.now(), cols: 80, rows: 24, viewers: [], viewerIds: [],
+      };
+      workers.push(worker);
+      return worker;
+    },
+    kill: () => Promise.resolve({}),
+    fetchBase() {
+      if (fresh) return undefined;
+      if (!inFlight) fetches++;
+      inFlight ??= new Promise<void>((resolve) => (fetched = () => { fresh = true; resolve(); }));
+      return inFlight;
+    },
+  };
+  const q = new TaskQueue(dir, manager, true, {
+    update() {}, toast() {}, claimIssue: async () => undefined, refreshGitHub() {}, hiringPaused: () => undefined, emptied() {},
+  });
+  t.after(() => { q.shutdown(); rmSync(dir, { recursive: true, force: true }); });
+  q.add('Fix login', 'Tester');
+  q.add('Fix logout', 'Tester');
+  assert.equal(workers.length, 0);
+  assert.equal(q.state().tasks[0].status, 'queued');
+  q.pump();
+  assert.equal(workers.length, 0);
+  fetched!();
+  await new Promise((r) => setImmediate(r));
+  // One fetch for the pair of them.
+  assert.equal(workers.length, 2);
+  assert.deepEqual(q.state().tasks.map((x) => x.status), ['running', 'running']);
+  assert.equal(fetches, 1);
+});
+
+test("a queue that has nowhere to seat anyone doesn't fetch", (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'office-queue-'));
+  let fetches = 0;
+  const manager: QueueWorkers = {
+    defaultProvider: 'claude',
+    list: () => [],
+    deskOccupied: () => false,
+    spawn: () => 'unreachable',
+    kill: () => Promise.resolve({}),
+    fetchBase() {
+      fetches++;
+      return new Promise<void>(() => {});
+    },
+  };
+  const q = new TaskQueue(dir, manager, true, {
+    update() {}, toast() {}, claimIssue: async () => undefined, refreshGitHub() {}, hiringPaused: () => undefined, emptied() {}, room: () => 0,
+  });
+  t.after(() => { q.shutdown(); rmSync(dir, { recursive: true, force: true }); });
+  q.add('Fix login', 'Tester');
+  assert.equal(fetches, 0);
+});
+
+test("a queue worker that switches to a branch of its own takes its task's branch along, so the PR from there is linked", (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open(undefined, true);
+  assert.equal(q.add('Fix login', 'Tester'), undefined);
+  const w = f.workers[0];
+  assert.equal(q.state().tasks[0].branch, 'office/worker-0');
+  w.status = 'done';
+  q.onWorker(w);
+  assert.equal(q.state().tasks[0].outcome, 'done');
+  // The office noticed it had run `git checkout -b fix-login` (see Workers.syncBranch).
+  w.worktree = { ...w.worktree!, branch: 'fix-login', made: 'office/worker-0' };
+  q.onWorker(w);
+  assert.equal(q.state().tasks[0].branch, 'fix-login');
+  q.onPulls([{
+    number: 242, title: 'Fix login', state: 'OPEN', isDraft: false, url: 'https://github.com/o/r/pull/242', author: '', labels: [], reviewDecision: '',
+    headRefName: 'fix-login', baseRefName: 'main', createdAt: new Date().toISOString(), updatedAt: '', additions: 0, deletions: 0, checks: 'none', body: '', closes: [],
+  }]);
+  assert.equal(q.state().tasks[0].pr?.number, 242);
 });

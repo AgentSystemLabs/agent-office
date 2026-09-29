@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Ledger } from '../src/server/usage.js';
 import { CARRY_ON_PROMPT, WorkerManager, type WorkerEvents } from '../src/server/workers.js';
+import { Worktrees } from '../src/server/worktrees.js';
 import type { AgentProvider, WorkerInfo } from '../src/shared/protocol.js';
 import type { PromptSource } from '../src/server/prompts.js';
 import { PROMPTS } from '../src/shared/prompts.js';
@@ -1054,4 +1055,178 @@ test('stopping the office on purpose (Ctrl+C) leaves nothing to carry on', async
   const resumed = (await waitFor(() => launches(f), (x) => x.length >= 2))[1];
   assert.ok(resumed.args.includes('stopped'));
   assert.equal(promptOf(resumed), undefined);
+});
+
+test('a worktree worker that makes its own branch is followed there: O finds the PR it opened, and sending it home tidies both branches', async (t) => {
+  const f = carryOnFixture(t);
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd, encoding: 'utf8' }).trim();
+  git(f.root, 'init', '-q', '-b', 'main');
+  writeFileSync(path.join(f.root, 'a.txt'), 'a');
+  git(f.root, 'add', 'a.txt');
+  git(f.root, 'commit', '-qm', 'init');
+  // GitHub has one open pull request, from the branch the worker is about to make.
+  writeFileSync(path.join(path.dirname(f.claude), 'gh'), `#!/bin/sh\ncase "$*" in *"--head fix-x "*) echo '[{"number":242,"url":"https://github.com/o/r/pull/242"}]';; *) echo '[]';; esac\n`, { mode: 0o700 });
+  const updates: WorkerInfo[] = [];
+  const workers = manager(f, f.claude, updates);
+  t.after(() => workers.shutdown());
+  const worker = workers.spawn('desk-1', 'test', 'fix x on a new branch and open a PR', true);
+  assert.notEqual(typeof worker, 'string'); if (typeof worker === 'string') return;
+  const office = worker.worktree!.branch;
+  assert.match(office, /^office\//);
+  const token = (await waitFor(() => launches(f), (x) => x.length > 0))[0].env.hookToken!;
+  const hook = (event: string, extra = {}) => assert.equal(workers.handleHook(worker.id, token, event, { session_id: 'own-branch', ...extra }), true);
+  hook('SessionStart');
+  hook('UserPromptSubmit', { prompt: 'fix x on a new branch and open a PR' });
+  // What the task (or the repo's CLAUDE.md) told it to do: a branch of its own, a commit, a PR from there.
+  const cwd = path.join(f.root, worker.worktree!.path);
+  git(cwd, 'checkout', '-qb', 'fix-x');
+  writeFileSync(path.join(cwd, 'x.txt'), 'x');
+  git(cwd, 'add', 'x.txt');
+  git(cwd, 'commit', '-qm', 'fix x');
+  hook('Stop');
+  const info = await waitFor(() => workers.get(worker.id)!, (w) => w.worktree?.branch === 'fix-x');
+  assert.equal(info.worktree!.made, office);
+  assert.equal(updates.at(-1)?.worktree?.branch, 'fix-x');
+  // Saved, for a restarted office and for `agent-office prune`.
+  const saved = JSON.parse(readFileSync(path.join(f.data, 'workers.json'), 'utf8')) as WorkerInfo[];
+  assert.deepEqual(saved.find((w) => w.id === worker.id)?.worktree, info.worktree);
+  // O at the desk: the PR it opened, not "has no commits on office/… yet".
+  const pr = await workers.openPr(worker.id, 'Cody');
+  assert.deepEqual(pr, { prs: [{ number: 242, url: 'https://github.com/o/r/pull/242', existed: true, dirty: false }], failed: [] });
+  assert.deepEqual(workers.get(worker.id)?.pr, { number: 242, url: 'https://github.com/o/r/pull/242' });
+  // Sent home: the worktree goes, with its branch and the office's (which holds nothing fix-x lacks).
+  const home = await workers.kill(worker.id, 'all');
+  assert.equal(home.error, undefined);
+  assert.equal(home.note, `Deleted ${worker.name}'s worktree and branch fix-x`);
+  assert.equal(git(f.root, 'branch', '--list', 'fix-x', office), '');
+  assert.ok(!existsSync(cwd));
+  // One that checked out a branch from before it was hired leaves that branch be.
+  execFileSync('git', ['branch', 'release'], { cwd: f.root, env: { ...process.env, GIT_COMMITTER_DATE: '@1000000000 +0000' } });
+  const other = workers.spawn('desk-2', 'test', 'look at the release branch', true);
+  assert.notEqual(typeof other, 'string'); if (typeof other === 'string') return;
+  git(path.join(f.root, other.worktree!.path), 'checkout', '-q', 'release');
+  const left = await workers.kill(other.id, 'all');
+  assert.equal(left.note, `Deleted ${other.name}'s worktree and branch ${other.worktree!.branch}`);
+  assert.equal(git(f.root, 'branch', '--list', '--format=%(refname:short)', 'release', other.worktree!.branch), 'release');
+});
+
+test("the office's branch keeps a worker's commits once it has moved on: the dialog warns, and sending it home never deletes them", async (t) => {
+  const f = carryOnFixture(t);
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd, encoding: 'utf8' }).trim();
+  git(f.root, 'init', '-q', '-b', 'main');
+  writeFileSync(path.join(f.root, 'a.txt'), 'a');
+  git(f.root, 'add', 'a.txt');
+  git(f.root, 'commit', '-qm', 'init');
+  execFileSync('git', ['branch', 'release'], { cwd: f.root, env: { ...process.env, GIT_COMMITTER_DATE: '@1000000000 +0000' } });
+  const workers = manager(f, f.claude, []);
+  t.after(() => workers.shutdown());
+  /** A worker that commits on the office's branch, then goes to another one. */
+  const hire = (desk: string, ...checkout: string[]) => {
+    const w = workers.spawn(desk, 'test', 'commit, then switch branches', true);
+    if (typeof w === 'string') throw new Error(w);
+    const cwd = path.join(f.root, w.worktree!.path);
+    writeFileSync(path.join(cwd, `${desk}.txt`), desk);
+    git(cwd, 'add', `${desk}.txt`);
+    git(cwd, 'commit', '-qm', `work at ${desk}`);
+    git(cwd, 'checkout', '-q', ...checkout);
+    return { w, cwd, office: w.worktree!.branch };
+  };
+  const tip = (branch: string) => git(f.root, 'log', '-1', '--format=%s', branch);
+  // Onto release, which was there before it: the commit is only on the office's branch.
+  const a = hire('desk-1', 'release');
+  assert.deepEqual(await workers.inspectWorktree(a.w.id), { exists: true, dirty: 0, ahead: 1, unpushed: 1 });
+  assert.equal(workers.get(a.w.id)?.worktree?.made, a.office);
+  // Deleting the worktree and branch anyway: release isn't the office's, and the office's has the commit.
+  const sent = await workers.kill(a.w.id, 'all');
+  assert.equal(sent.error, undefined);
+  assert.equal(sent.note, `Deleted ${a.w.name}'s worktree and kept branch ${a.office} — it has 1 unpushed commit`);
+  assert.ok(!existsSync(a.cwd));
+  assert.equal(tip(a.office), 'work at desk-1');
+  assert.equal(tip('release'), 'init');
+  // Sent home with no choice (the queue recycling its desk, leave-on-merge): nothing goes.
+  const b = hire('desk-2', 'release');
+  assert.equal((await workers.kill(b.w.id)).note, `Kept ${b.w.name}'s worktree and branch release — it has 1 unpushed commit`);
+  assert.ok(existsSync(b.cwd));
+  assert.equal(tip(b.office), 'work at desk-2');
+  // A branch of its own, cut from main without that commit: it goes, the office's stays.
+  const c = hire('desk-3', '-b', 'fix-z', 'main');
+  const own = await workers.kill(c.w.id, 'all');
+  assert.equal(own.note, `Deleted ${c.w.name}'s worktree and branch fix-z, and kept branch ${c.office} — it has 1 unpushed commit`);
+  assert.equal(git(f.root, 'branch', '--list', 'fix-z'), '');
+  assert.equal(tip(c.office), 'work at desk-3');
+});
+
+test("a worker that renames the office's branch goes home with it; one that deletes it leaves the branch it's on", async (t) => {
+  const f = carryOnFixture(t);
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd, encoding: 'utf8' }).trim();
+  git(f.root, 'init', '-q', '-b', 'main');
+  writeFileSync(path.join(f.root, 'a.txt'), 'a');
+  git(f.root, 'add', 'a.txt');
+  git(f.root, 'commit', '-qm', 'init');
+  const workers = manager(f, f.claude, []);
+  t.after(() => workers.shutdown());
+  const hire = (desk: string) => {
+    const w = workers.spawn(desk, 'test', 'fix x and name the branch after it', true);
+    if (typeof w === 'string') throw new Error(w);
+    return { w, cwd: path.join(f.root, w.worktree!.path), office: w.worktree!.branch };
+  };
+  const a = hire('desk-1');
+  const token = (await waitFor(() => launches(f), (x) => x.length > 0))[0].env.hookToken!;
+  const hook = (event: string, extra = {}) => assert.equal(workers.handleHook(a.w.id, token, event, { session_id: 'renamed', ...extra }), true);
+  hook('SessionStart');
+  hook('UserPromptSubmit', { prompt: 'fix x and name the branch after it' });
+  writeFileSync(path.join(a.cwd, 'x.txt'), 'x');
+  git(a.cwd, 'add', 'x.txt');
+  git(a.cwd, 'commit', '-qm', 'fix x');
+  git(a.cwd, 'branch', '-m', 'fix-x');
+  hook('Stop');
+  // Followed there, with nothing to remember: office/… is gone, fix-x is it.
+  const info = await waitFor(() => workers.get(a.w.id)!, (w) => w.worktree?.branch === 'fix-x');
+  assert.equal(info.worktree!.made, undefined);
+  const sent = await workers.kill(a.w.id, 'all');
+  assert.equal(sent.error, undefined);
+  assert.equal(sent.note, `Deleted ${a.w.name}'s worktree and branch fix-x`);
+  assert.equal(git(f.root, 'branch', '--list', 'fix-x', a.office), '');
+  assert.ok(!existsSync(a.cwd));
+  // Renamed with nothing unpushed (its PR merged, say) and sent home before it came to rest: all of it goes.
+  const b = hire('desk-2');
+  git(b.cwd, 'branch', '-m', 'fix-y');
+  assert.deepEqual(await workers.kill(b.w.id), { note: `Deleted ${b.w.name}'s worktree and branch fix-y` });
+  assert.equal(git(f.root, 'branch', '--list', 'fix-y', b.office), '');
+  // The office's branch deleted instead: git can't say whether the one it's on is its own, so it stays.
+  const c = hire('desk-3');
+  git(c.cwd, 'checkout', '-qb', 'fix-w');
+  git(c.cwd, 'branch', '-D', c.office);
+  assert.deepEqual(await workers.kill(c.w.id, 'all'), { note: `Deleted ${c.w.name}'s worktree and kept branch fix-w` });
+  assert.equal(git(f.root, 'branch', '--list', '--format=%(refname:short)', 'fix-w', c.office), 'fix-w');
+  assert.ok(!existsSync(c.cwd));
+});
+
+test("only a branch the worker made is its own to delete, and the office's stays when it has commits that one doesn't", async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'office-made-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const git = (...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: dir, encoding: 'utf8' }).trim();
+  git('init', '-q', '-b', 'main');
+  writeFileSync(path.join(dir, 'a.txt'), 'a');
+  git('add', 'a.txt');
+  git('commit', '-qm', 'init');
+  // A branch that was there long before any worker (its reflog says it was made in 2001).
+  execFileSync('git', ['branch', 'release'], { cwd: dir, env: { ...process.env, GIT_COMMITTER_DATE: '@1000000000 +0000' } });
+  const trees = new Worktrees(dir);
+  const made = trees.create('mochi-1234');
+  assert.notEqual(typeof made, 'string'); if (typeof made === 'string') return;
+  const cwd = path.join(dir, made.path);
+  const gitIn = (...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd, encoding: 'utf8' }).trim();
+  // A commit on the office's branch, then a fresh branch from main that doesn't have it.
+  writeFileSync(path.join(cwd, 'o.txt'), 'o');
+  gitIn('add', 'o.txt');
+  gitIn('commit', '-qm', 'on the office branch');
+  gitIn('checkout', '-qb', 'fix-y', 'main');
+  assert.equal(await trees.branchOf(made), 'fix-y');
+  assert.equal(await trees.madeSince('fix-y', made.branch), true);
+  assert.equal(await trees.madeSince('release', made.branch), false);
+  assert.equal(await trees.madeSince('main', made.branch), false);
+  assert.equal(await trees.remove({ ...made, branch: 'fix-y', made: made.branch }, 'all'), undefined);
+  assert.equal(git('branch', '--list', 'fix-y'), '');
+  assert.equal(git('branch', '--list', made.branch).replace(/^\*?\s+/, ''), made.branch);
 });

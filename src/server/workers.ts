@@ -27,10 +27,12 @@ import { reportedUsage } from './reported-usage.js';
 import { configuredProvider, isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeStatusEvent } from './opencode.js';
 import { ScrollbackStore, searchTerminal, terminalTail } from './history.js';
+import { DropStore } from './drops.js';
 import { screenSnapshot } from './screen.js';
 import type { Capacity } from './machine.js';
 
 type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
+type Worktree = NonNullable<WorkerInfo['worktree']>;
 
 const NAMES = [
   'Pixel', 'Byte', 'Nibble', 'Sprocket', 'Widget', 'Gizmo', 'Bolt', 'Cosmo', 'Dot', 'Echo',
@@ -206,6 +208,7 @@ export class WorkerManager {
   private host: PtyHost;
   /** Each worker's terminal on disk, so a restart doesn't wipe it (see history.ts). */
   private scrollback: ScrollbackStore;
+  private drops: DropStore;
   private saveTimer: NodeJS.Timeout;
 
   constructor(
@@ -242,8 +245,10 @@ export class WorkerManager {
     });
     this.host = new PtyHost(dataDir, () => this.events.toast("The workers' terminal host stopped — resuming them", 'warn'));
     this.scrollback = new ScrollbackStore(dataDir);
+    this.drops = new DropStore(dataDir);
     this.restore();
     this.scrollback.prune(new Set(this.workers.keys()));
+    this.drops.prune(new Set(this.workers.keys()));
     // A session may have ended (and written its final tally) while the office was down.
     for (const w of this.workers.values()) this.scanUsage(w);
     this.screenTimer = setInterval(() => this.flushScreens(), SCREEN_INTERVAL_MS);
@@ -274,6 +279,8 @@ export class WorkerManager {
     // Terminals nobody saved a claim on (their worker was sent home as the office went down).
     this.host.killUnclaimed();
     this.wakeAll();
+    // It may have switched branches while the office was down, its terminal still going.
+    void this.syncBranches();
   }
 
   get resolvedAgent(): string | null {
@@ -309,6 +316,14 @@ export class WorkerManager {
       cwd: this.cwd(w.info),
       root: this.dir,
     }));
+  }
+
+  /**
+   * Fetches the branch the project is on, so a worktree made next starts from what's on GitHub now
+   * (see Worktrees.fetch). Undefined when there's nothing to wait for.
+   */
+  fetchBase(): Promise<void> | undefined {
+    return this.trees.fetch();
   }
 
   deskOccupied(deskId: string): boolean {
@@ -357,8 +372,14 @@ export class WorkerManager {
       const slug = `${name.toLowerCase()}-${id.slice(0, 4)}`;
       const made = repos.length ? this.makeWorkspace(slug, repos) : this.trees.create(slug);
       if (typeof made === 'string') return made;
-      if ('repos' in made) ({ worktree: wt, repos: others } = made);
-      else wt = made;
+      if ('repos' in made) {
+        ({ worktree: wt, repos: others } = made);
+        for (const note of made.notes) this.events.toast(`🌿 ${name}'s worktree of ${note}`, 'info');
+      } else {
+        const { note, ...ref } = made;
+        wt = ref;
+        if (note) this.events.toast(`🌿 ${name}'s worktree ${note}`, 'info');
+      }
     }
     const info: WorkerInfo = {
       id,
@@ -399,7 +420,7 @@ export class WorkerManager {
    * (the 'worker.repos' prompt, as CLAUDE.md and AGENTS.md). All or nothing: when one repository
    * can't have its worktree, the ones already made are taken out again.
    */
-  private makeWorkspace(slug: string, repos: RepoSource[]): { worktree: NonNullable<WorkerInfo['worktree']>; repos: WorkerRepo[] } | string {
+  private makeWorkspace(slug: string, repos: RepoSource[]): { worktree: NonNullable<WorkerInfo['worktree']>; repos: WorkerRepo[]; notes: string[] } | string {
     // A branch can only be checked out once per repository, and two floors can be checkouts of the same one.
     const seen = new Map<string, string>();
     const own = this.trees.commonDir();
@@ -422,14 +443,17 @@ export class WorkerManager {
       })();
       return why;
     };
-    const primary = this.trees.create(slug, names[0]);
-    if (typeof primary === 'string') return fail(primary);
+    const first = this.trees.create(slug, names[0]);
+    if (typeof first === 'string') return fail(first);
+    const { note, ...primary } = first;
+    const notes = note ? [`${names[0]} ${note}`] : [];
     made.push({ trees: this.trees, ref: primary });
     const others: WorkerRepo[] = [];
     for (const [i, r] of repos.entries()) {
       const trees = new Worktrees(r.dir);
       const wt = trees.create(slug, names[i + 1], this.dir);
       if (typeof wt === 'string') return fail(`${r.name}: ${wt}`);
+      if (wt.note) notes.push(`${names[i + 1]} ${wt.note}`);
       made.push({ trees, ref: { ...wt, path: path.relative(r.dir, path.join(this.dir, wt.path)) } });
       others.push({ floor: r.floor, name: names[i + 1], repo: r.repo, dir: r.dir, path: wt.path, branch: wt.branch, base: wt.base, from: wt.from });
     }
@@ -445,7 +469,7 @@ export class WorkerManager {
     } catch (err) {
       return fail(`Could not write the workspace's brief: ${(err as Error).message}`);
     }
-    return { worktree: primary, repos: others };
+    return { worktree: primary, repos: others, notes };
   }
 
   /** Starts a worker that isn't running again, carrying on its session, with `prompt` as its next message. */
@@ -522,11 +546,13 @@ export class WorkerManager {
     }
     w.term?.dispose();
     this.scrollback.remove(id);
+    this.drops.remove(id);
     this.events.remove(id);
     this.persist();
-    const wt = w.info.worktree;
     // A meeting's worktree is everyone at the table's: the meeting tidies it away once they've all gone.
-    if (!wt || w.info.meeting) return {};
+    if (!w.info.worktree || w.info.meeting) return {};
+    // On the branch its work is on, should it have switched since it last came to rest.
+    const wt = await this.current(w.info.worktree);
     const name = w.info.name;
     if (w.info.repos?.length) return this.clearRepos(w.info, cleanup, landed, landedRepos);
     if (!cleanup) {
@@ -535,9 +561,28 @@ export class WorkerManager {
       cleanup = 'all';
     }
     if (cleanup === 'keep') return { note: `Kept ${name}'s worktree and branch ${wt.branch}` };
-    const error = await this.trees.remove(wt, cleanup);
+    let gone = wt;
+    let kept = '';
+    if (cleanup === 'all' && wt.made) {
+      if (!(await this.trees.hasBranch(wt.made))) {
+        // The agent deleted the office's branch (a rename is followed, see current), so git can't say
+        // whether the one it's on is its own or was there before it: that one stays.
+        cleanup = 'worktree';
+      } else {
+        // The office's own branch stays while it has commits that no remote, the project's checkout
+        // or the branch it's on has.
+        const work = await this.trees.wouldLose(wt.made, [wt.branch]);
+        if (work) kept = ` and kept branch ${wt.made} — it has ${work}`;
+        // A branch it made itself goes with it; one that was there before it (main, say) isn't the office's to delete.
+        if (await this.trees.madeSince(wt.branch, wt.made)) gone = work ? { ...wt, made: undefined } : wt;
+        else if (work) cleanup = 'worktree';
+        else gone = { ...wt, branch: wt.made, made: undefined };
+      }
+    }
+    const error = await this.trees.remove(gone, cleanup);
     if (error) return { error: `Couldn't delete ${name}'s worktree: ${error}` };
-    return { note: cleanup === 'all' ? `Deleted ${name}'s worktree and branch ${wt.branch}` : `Deleted ${name}'s worktree and kept branch ${wt.branch}` };
+    if (cleanup === 'worktree') return { note: `Deleted ${name}'s worktree${kept || ` and kept branch ${wt.branch}`}` };
+    return { note: `Deleted ${name}'s worktree and branch ${gone.branch}${kept && `,${kept}`}` };
   }
 
   /** Sending home a worker across repositories: what `kill` does with a worktree, for each of its worktrees, and then its workspace. */
@@ -593,13 +638,50 @@ export class WorkerManager {
 
   /** What a worker's worktree holds, so whoever sends it home knows what deleting it would lose. */
   async inspectWorktree(id: string): Promise<WorktreeState | undefined> {
-    const info = this.workers.get(id)?.info;
-    if (!info?.worktree) return undefined;
-    if (!info.repos?.length) return this.trees.inspect(info.worktree);
+    const w = this.workers.get(id);
+    const info = w?.info;
+    if (!w || !info?.worktree) return undefined;
+    if (!info.repos?.length) {
+      await this.syncBranch(w);
+      return this.trees.inspect(w.info.worktree!);
+    }
     const repos = await Promise.all(this.treesOf(info).map(async (t) => ({ name: t.name, state: await t.trees.inspect(t.ref) })));
     const sum = (k: 'dirty' | 'ahead' | 'unpushed') => repos.reduce((n, r) => n + r.state[k], 0);
     const errors = repos.filter((r) => r.state.error).map((r) => `${r.name}: ${r.state.error}`);
     return { exists: repos.every((r) => r.state.exists), dirty: sum('dirty'), ahead: sum('ahead'), unpushed: sum('unpushed'), error: errors.length ? errors.join('; ') : undefined, repos };
+  }
+
+  /** Every worker's worktree branch, looked at again (see syncBranch): for when new pull requests may have come in. */
+  async syncBranches(): Promise<void> {
+    await Promise.all([...this.workers.values()].map((w) => this.syncBranch(w)));
+  }
+
+  /**
+   * Keeps `worktree.branch` on the branch the worktree is actually on. Agents often make their own
+   * (`git checkout -b fix-x`, because the task or the repo's CLAUDE.md says to) and open the pull
+   * request from there with gh, and the PR badge, O at the desk and sending it home go by it. A
+   * meeting's worktree stays the meeting's, and a worker across repositories keeps the branch it was
+   * given in each (see openPrs).
+   */
+  private async syncBranch(w: Worker): Promise<void> {
+    const wt = w.info.worktree;
+    if (!wt || w.info.meeting || w.info.repos?.length) return;
+    const now = await this.current(wt);
+    // Sent home meanwhile, or another look got there first.
+    if (now === wt || this.workers.get(w.info.id) !== w || w.info.worktree !== wt) return;
+    w.info.worktree = now;
+    this.emitUpdate(w);
+    this.persist();
+  }
+
+  /** A worktree on the branch it's on now, with the office's own branch kept in `made`; the same one when nothing moved. */
+  private async current(wt: Worktree): Promise<Worktree> {
+    const live = await this.trees.branchOf(wt);
+    if (!live) return wt;
+    let made = wt.made ?? (live === wt.branch ? undefined : wt.branch);
+    // Back on it, or renamed it (`git branch -m fix-x`): the branch it's on is the office's own.
+    if (made === live || (made && (await this.trees.renamedTo(made, live)))) made = undefined;
+    return live === wt.branch && made === wt.made ? wt : { ...wt, branch: live, made };
   }
 
   attach(id: string, clientId: string, name: string): { data: string; cols: number; rows: number } | undefined {
@@ -654,6 +736,11 @@ export class WorkerManager {
     if (changed) this.emitUpdate(w);
   }
 
+  /** Keeps a file dropped or pasted into a worker's terminal on this machine; where it is, for the terminal to type. */
+  drop(id: string, name: string, type: string, body: Buffer): string | undefined {
+    return this.workers.has(id) ? this.drops.save(id, name, type, body) : undefined;
+  }
+
   /**
    * Remembers who typed into the terminal last. Says whether that's news: another person, or the
    * same one after a pause (not every keystroke, or a typist would flood everyone with updates).
@@ -706,19 +793,22 @@ export class WorkerManager {
     info.prOpening = true;
     this.emitUpdate(w);
     try {
-      const commits = (await run('git', ['log', '--reverse', '--format=%h %s', `${wt.base}..${wt.branch}`], cwd)).split('\n').filter(Boolean);
+      // The PR comes from the branch its work is on, which may be one it made itself.
+      await this.syncBranch(w);
+      const branch = info.worktree?.branch ?? wt.branch;
+      const commits = (await run('git', ['log', '--reverse', '--format=%h %s', `${wt.base}..${branch}`], cwd)).split('\n').filter(Boolean);
       const dirty = (await run('git', ['status', '--porcelain'], cwd)) !== '';
-      if (!commits.length) return dirty ? `${info.name} hasn't committed anything yet — ask it to commit first` : `${info.name} has no commits on ${wt.branch} yet`;
-      const open = await findOpenPr(wt.branch, cwd);
+      if (!commits.length) return dirty ? `${info.name} hasn't committed anything yet — ask it to commit first` : `${info.name} has no commits on ${branch} yet`;
+      const open = await findOpenPr(branch, cwd);
       if (open) {
         info.pr = open;
         this.persist();
         return { prs: [{ ...open, existed: true, dirty }], failed: [] };
       }
-      await run('git', ['push', '-u', 'origin', wt.branch], cwd, 90_000, as?.env);
-      const base = await this.pushedBranch([wt.from, this.trees.currentBranch()], wt.branch);
+      await run('git', ['push', '-u', 'origin', branch], cwd, 90_000, as?.env);
+      const base = await this.pushedBranch([wt.from, this.trees.currentBranch()], branch);
       const { title, body } = draftPr(info, commits, by);
-      const { number, url } = await createPr(wt.branch, base, title, body, cwd, as);
+      const { number, url } = await createPr(branch, base, title, body, cwd, as);
       info.pr = { number, url };
       this.persist();
       return { prs: [{ number, url, existed: false, dirty }], failed: [] };
@@ -1338,6 +1428,7 @@ export class WorkerManager {
       w.unsaved = true;
       this.emitUpdate(w);
       this.persist();
+      void this.syncBranch(w);
     });
     // SessionStart fires as soon as Claude can take input. Still silent after a while means it is
     // blocked on a human: folder trust dialog, login, first-run onboarding. Flag it so it jumps.
@@ -1436,6 +1527,8 @@ export class WorkerManager {
     this.emitUpdate(w);
     // What a restarted office picks the worker back up as, should its terminal outlive this one.
     if (w.pty?.id) this.persist();
+    // At rest: it may have made a branch of its own this turn, and opened its PR from there.
+    if (status === 'done' || status === 'idle') void this.syncBranch(w);
   }
 
   private syncViewers(w: Worker): boolean {

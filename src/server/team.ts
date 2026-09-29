@@ -7,7 +7,7 @@ import type { TeamState } from '../shared/protocol.js';
 const HELPER = process.env.AGENT_OFFICE_TEAM_HELPER || '/usr/local/bin/agent-office-team';
 const TEAM_USER = 'office';
 const GITHUB_USER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
-/** deploy/aws.sh also accepts other names, for keys invited from a file. */
+/** deploy/aws.sh and deploy/azure.sh also accept other names, for keys invited from a file. */
 const MEMBER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/;
 
 interface Run {
@@ -27,13 +27,18 @@ function helper(args: string[], input = ''): Promise<Run> {
   });
 }
 
-/** Who may open the SSH tunnel to this office, for offices set up with deploy/provision.sh (or deploy/aws.sh). */
+/**
+ * Who may open the SSH tunnel to this office, for offices set up with deploy/provision.sh (or
+ * deploy/aws.sh). On one that's on a Tailscale network, Tailscale decides who gets in instead:
+ * the panel then says how to share the machine there.
+ */
 export class Team {
   private fingerprint?: string;
 
   constructor(
     private publicHost: string | undefined,
     private port: number,
+    private tailnet?: string,
   ) {}
 
   /** Invites work when the office knows its public address and the helper is installed. */
@@ -47,8 +52,11 @@ export class Team {
   }
 
   async state(): Promise<TeamState> {
-    const base = { port: this.port, members: [] };
-    if (!this.available) return { ...base, unavailable: 'Invites work on offices set up with deploy/provision.sh or deploy/aws.sh (run it again on one made before invites).' };
+    const base = { port: this.port, members: [], tailnet: this.tailnet };
+    if (!this.available) {
+      if (this.tailnet) return base;
+      return { ...base, unavailable: 'Invites work on offices set up with deploy/provision.sh or deploy/aws.sh (run it again on one made before invites).' };
+    }
     this.fingerprint ??= (await helper(['fingerprint'])).out.trim() || undefined;
     const list = await helper(['list']);
     if (list.code) return { ...base, ssh: this.ssh, fingerprint: this.fingerprint, error: `Couldn't list the team: ${list.err}` };
