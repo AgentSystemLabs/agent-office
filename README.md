@@ -109,11 +109,10 @@ agent-office ~/code/my-app --issues linear --linear-teams FOUND,PLAT
 | Flag | Env | What it does |
 |---|---|---|
 | `--issues linear` | `AGENT_OFFICE_ISSUES` | The board shows Linear issues (default `github`) |
-| `--linear-teams FOUND,PLAT` | `AGENT_OFFICE_LINEAR_TEAMS` | The teams whose issues fill it, by key or name |
-| `--linear-filter "…"` | `AGENT_OFFICE_LINEAR_FILTER` | Only issues that fit a plain-English rule, e.g. `"assigned to me or unassigned"` |
-| `--linear-mcp claude_ai_Linear` | `AGENT_OFFICE_LINEAR_MCP` | The Linear MCP server as Claude names its tools (`mcp__<name>__list_issues`) |
+| `--linear-teams FOUND,PLAT` | `AGENT_OFFICE_LINEAR_TEAMS` | The teams whose issues fill it, by key |
+| `--linear-key lin_api_…` | `AGENT_OFFICE_LINEAR_KEY` | Optional: the API key, for a server started by a script |
 
-**How it reaches Linear.** The office keeps no Linear token. Every read and write is a short headless Claude Code session allowed just the Linear MCP tools it needs, through the **claude.ai Linear connector** of the account that runs the office. `claude mcp list` must show `claude.ai Linear … Connected`; if it doesn't, the board says so. Each refresh, comment, close, claim or label change is one such session: expect 15 to 40 seconds and a few cents. The board refreshes when someone walks in, after a write, and every ten minutes on a quiet floor, all teams in one call.
+**The API key.** The first time the board opens it asks for one: an admin pastes a personal API key (Linear → Settings → Security & access → API) right there, or in ⚙️ Settings. The office checks it against Linear, then keeps it in `<project>/.agent-office/linear.json` (mode 0600, and `.agent-office/` is in the repo's `.git/info/exclude`, so it can't be committed). Nobody sees the key again: the office shows its last four characters and who set it. Remove it from ⚙️ Settings. One key serves every floor. Reads and writes go straight to Linear's GraphQL API and take about a second.
 
 **What changes on the board.** Cards read `FOUND-2` instead of `#12`, in Linear's priority order (urgent first). An issue whose Linear state is *started* sits under In progress. Close as *completed* moves it to the team's Done state, *not planned* to Canceled. The label picker offers Linear's labels.
 

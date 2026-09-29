@@ -317,7 +317,7 @@ button { font-family: inherit; }
 .setting-note { margin: 10px 0 0; font-size: 13px; font-weight: 600; color: var(--muted); line-height: 1.4; }
 .setting-note.bad { color: var(--bad); }
 .webhook { display: flex; gap: 8px; }
-.webhook input[type=text] { flex: 1; min-width: 0; }
+.webhook input[type=text], .webhook input[type=password] { flex: 1; min-width: 0; }
 .outside-now { margin: 0; font-size: 15px; font-weight: 800; }
 
 .swatches { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
@@ -482,6 +482,10 @@ button { font-family: inherit; }
 @media (hover: none) { .card-labels { opacity: 1; } }
 .board-status { font-size: 12px; font-weight: 700; color: var(--muted); }
 .board-error { margin: auto; background: var(--paper); border: 3px solid var(--ink); border-radius: 14px; padding: 18px 22px; font-weight: 800; max-width: 520px; text-align: center; }
+.board-connect { text-align: left; max-width: 560px; }
+.board-connect h3 { margin: 0 0 8px; }
+.board-connect p { margin: 0 0 12px; font-size: 14px; font-weight: 600; line-height: 1.4; color: var(--muted); }
+.board-connect p.bad { margin: 10px 0 0; color: var(--bad); }
 .detail pre { white-space: pre-wrap; word-break: break-word; font: 13px/1.5 ui-monospace, Menlo, monospace; background: #fff; border: 2px solid var(--ink); border-radius: 10px; padding: 10px; max-height: 45vh; overflow: auto; margin: 10px 0 0; }
 .detail .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 13px; font-weight: 700; color: var(--muted); }
 .detail a { color: #1d6fd6; font-weight: 800; }

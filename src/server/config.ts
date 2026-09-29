@@ -54,6 +54,8 @@ export interface Config {
   weather?: Weather;
   /** Where the 📌 issue boards read from (--issues): GitHub through gh, or Linear. */
   issues: IssuesConfig;
+  /** A Linear API key given at start (--linear-key); admins can also paste one on the Issues board. */
+  linearKey?: string;
 }
 
 export interface RTCIceServerLike {
@@ -118,16 +120,13 @@ Options:
                           Workers can also select Claude Code, OpenCode or Codex in the UI
       --issues <tracker>  Where the 📌 issue boards read from: github (default) or
                           linear (env AGENT_OFFICE_ISSUES). Pull requests always
-                          come from GitHub. Linear is read and written through
-                          Claude Code and your claude.ai Linear connector, so
-                          "claude mcp list" must show it Connected
+                          come from GitHub
       --linear-teams <keys>  Linear team keys whose issues fill the board, comma-
                           separated, e.g. FOUND,PLAT (env AGENT_OFFICE_LINEAR_TEAMS)
-      --linear-filter <text>  Only the issues that fit this, in plain English, e.g.
-                          "assigned to me or unassigned" (env AGENT_OFFICE_LINEAR_FILTER)
-      --linear-mcp <name> The Linear MCP server as Claude names its tools, e.g.
-                          mcp__<name>__list_issues (default claude_ai_Linear,
-                          env AGENT_OFFICE_LINEAR_MCP)
+      --linear-key <key>  A Linear API key (env AGENT_OFFICE_LINEAR_KEY). Without
+                          one, an admin pastes it on the Issues board in the office;
+                          either way it's kept in <dir>/.agent-office/linear.json,
+                          which git never sees
       --tls-cert <file>   Serve HTTPS with this certificate (PEM)
       --tls-key <file>    ...and this private key (PEM)
       --self-signed       Serve HTTPS with a generated self-signed certificate
@@ -233,8 +232,7 @@ export function loadConfig(argv: string[]): Config {
   let weather = process.env.AGENT_OFFICE_WEATHER || '';
   let issuesFrom = process.env.AGENT_OFFICE_ISSUES || 'github';
   let linearTeams = process.env.AGENT_OFFICE_LINEAR_TEAMS || '';
-  let linearFilter = process.env.AGENT_OFFICE_LINEAR_FILTER || '';
-  let linearMcp = process.env.AGENT_OFFICE_LINEAR_MCP || 'claude_ai_Linear';
+  let linearKey = process.env.AGENT_OFFICE_LINEAR_KEY || '';
   const iceServers: RTCIceServerLike[] = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 
   for (let i = 0; i < argv.length; i++) {
@@ -269,11 +267,8 @@ export function loadConfig(argv: string[]): Config {
       case '--linear-teams':
         linearTeams = takeValue(argv, i++, a);
         break;
-      case '--linear-filter':
-        linearFilter = takeValue(argv, i++, a);
-        break;
-      case '--linear-mcp':
-        linearMcp = takeValue(argv, i++, a);
+      case '--linear-key':
+        linearKey = takeValue(argv, i++, a);
         break;
       case '--tls-cert':
         tlsCert = takeValue(argv, i++, a);
@@ -374,12 +369,7 @@ export function loadConfig(argv: string[]): Config {
     console.error('agent-office: --issues linear needs the teams whose issues fill the board, e.g. --linear-teams FOUND,PLAT');
     process.exit(2);
   }
-  linearMcp = linearMcp.trim();
-  if (issuesFrom === 'linear' && !/^[A-Za-z0-9_.-]+$/.test(linearMcp)) {
-    console.error('agent-office: --linear-mcp is an MCP server name as Claude writes it in tool names, e.g. claude_ai_Linear');
-    process.exit(2);
-  }
-  const issues: IssuesConfig = issuesFrom === 'linear' ? { provider: 'linear', teams, filter: linearFilter.trim() || undefined, mcp: linearMcp } : { provider: 'github' };
+  const issues: IssuesConfig = issuesFrom === 'linear' ? { provider: 'linear', teams: teams.map((t) => t.toUpperCase()) } : { provider: 'github' };
 
   const dataDir = path.join(dir, '.agent-office');
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -474,6 +464,7 @@ export function loadConfig(argv: string[]): Config {
     city: city.trim() || undefined,
     weather: (weather as Weather) || undefined,
     issues,
+    linearKey: linearKey.trim() || undefined,
   };
 }
 

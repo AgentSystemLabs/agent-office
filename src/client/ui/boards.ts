@@ -35,6 +35,41 @@ export function issueVars(it: Pick<GhIssue, 'id' | 'title'> & { url?: string; br
   return issueVarsFor(store.issueProvider, { id: it.id, title: it.title, url: it.url ?? known?.url, branch: it.branch ?? known?.branch });
 }
 
+/**
+ * The 📌 board on a Linear floor before the office has an API key: where an admin pastes one. The
+ * server checks it against Linear and keeps it in .agent-office/linear.json (see server/linear-key.ts).
+ */
+function connectLinear(net: Net, error?: string): HTMLElement {
+  const admin = store.me.admin;
+  const input = h('input', { type: 'password', placeholder: 'lin_api_…', 'aria-label': 'Linear API key', autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
+  const save = h('button.btn.primary', { type: 'button' }, 'Connect') as HTMLButtonElement;
+  const send = () => {
+    const key = input.value.trim();
+    if (!key) return input.focus();
+    save.disabled = true;
+    save.textContent = 'Checking…';
+    net.send({ t: 'linear.key', key });
+  };
+  save.addEventListener('click', send);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') send();
+  });
+  return h(
+    'div.board-error.board-connect',
+    {},
+    h('h3', {}, '🔗 Connect Linear'),
+    h(
+      'p',
+      {},
+      admin
+        ? 'Paste a personal API key from Linear (Settings → Security & access → API). The office keeps it on the server in .agent-office/linear.json, which git never sees, and shows it to nobody.'
+        : 'This floor’s issues live in Linear, and the office has no API key for it yet. An admin can connect it here.',
+    ),
+    admin ? h('div.webhook', {}, input, save) : null,
+    error ? h('p.bad', {}, error) : null,
+  );
+}
+
 const TILTS = ['-1.2deg', '0.8deg', '-0.4deg', '1.4deg', '0deg', '-0.9deg'];
 const NOTE_COLORS = ['#fff7b0', '#ffd6e0', '#caffbf', '#bde0fe', '#ffe5b4'];
 
@@ -232,6 +267,10 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
     return section;
   };
 
+  /** An admin asked to paste a new Linear API key over the one the board has. */
+
+  let replacingKey = false;
+
   const render = () => {
     const st = kind === 'issues' ? store.issues : store.pulls;
     status.textContent = st.loading ? 'Refreshing…' : st.fetchedAt ? `Updated ${timeAgo(st.fetchedAt)}` : '';
@@ -244,17 +283,27 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
     body.replaceChildren();
     if (st.error && !st.items.length) {
       const linear = kind === 'issues' && store.issueProvider === 'linear';
+      // A Linear floor with no API key yet (or a key being replaced): the board is where it's pasted.
+      if (linear && (!store.linear.key || replacingKey)) {
+        body.append(connectLinear(net, store.linear.error ?? (store.linear.key ? st.error : undefined)));
+        return;
+      }
       body.append(
         h(
           'div.board-error',
           {},
           `Couldn't load from ${linear ? 'Linear' : 'GitHub'}: ${st.error}`,
           h('br'),
-          h('small', {}, linear ? 'The server asks Linear through Claude Code and its Linear connector — make sure `claude mcp list` shows it Connected.' : 'The server runs `gh` in the project directory — make sure it is installed and authenticated (gh auth login).'),
+          linear
+            ? store.me.admin
+              ? h('button.btn', { type: 'button', style: 'margin-top:10px', onclick: () => ((replacingKey = true), render()) }, '🔑 Replace the API key…')
+              : h('small', {}, 'An admin can replace the API key on this board.')
+            : h('small', {}, 'The server runs `gh` in the project directory — make sure it is installed and authenticated (gh auth login).'),
         ),
       );
       return;
     }
+    replacingKey = false;
     const all = boardLabels(st.items);
     if (kind === 'issues') {
       for (const col of issueColumns(store.issues.items)) {
@@ -298,6 +347,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
   };
 
   const unsubs = [store.on(kind, render), store.on('queue', render)];
+  if (kind === 'issues') unsubs.push(store.on('linear', render), store.on('me', render));
   // Which desk a PR came from can change (a worker sent home, a PR opened from a desk).
   if (kind === 'pulls') unsubs.push(store.on('workers', render));
   const timer = setInterval(() => {

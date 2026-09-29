@@ -1,6 +1,6 @@
-// Where a floor's 📌 issues come from. GitHub, through the gh CLI (github.ts), or Linear, through a
-// headless Claude session and the user's Linear connector (linear.ts). Pull requests always come from
-// GitHub; only the issue board, the cards, the queue's links and the prompts change with the provider.
+// Where a floor's 📌 issues come from. GitHub, through the gh CLI (github.ts), or Linear, through its
+// API with the office's key (linear.ts, linear-key.ts). Pull requests always come from GitHub; only the
+// issue board, the cards, the queue's links and the prompts change with the provider.
 
 import type { GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhLabel, GhState } from '../shared/protocol.js';
 
@@ -11,12 +11,8 @@ export type IssuesConfig =
   | { provider: 'github' }
   | {
       provider: 'linear';
-      /** Team keys or names whose issues fill the board. */
+      /** Team keys (FOUND, PLAT) whose issues fill the board. The API key is kept apart, in linear-key.ts. */
       teams: string[];
-      /** A plain-English narrowing added to every refresh, e.g. "only issues assigned to me or unassigned". */
-      filter?: string;
-      /** The MCP server the Linear tools come from, as Claude names it: mcp__<server>__list_issues. */
-      mcp: string;
     };
 
 /** One floor's issue board and everything the office does to an issue. Ids are as in shared/issues.ts. */

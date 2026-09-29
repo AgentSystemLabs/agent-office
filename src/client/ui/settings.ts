@@ -235,6 +235,39 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   hookTest.addEventListener('click', () => net.send({ t: 'notify.test' }));
   hookRemove.addEventListener('click', () => net.send({ t: 'notify.webhook', url: '' }));
 
+  // The office's Linear API key, shared by every floor whose issues live there. Admins set it, here or on the 📌 Issues board.
+  const linStatus = h('p.setting-note');
+  const linInput = h('input', { type: 'password', placeholder: 'lin_api_…', 'aria-label': 'Linear API key', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
+  const linSave = h('button.btn.primary', { type: 'button' }, 'Save');
+  const linRemove = h('button.btn.danger', { type: 'button' }, 'Remove');
+  const linRow = h('div.webhook', {}, linInput, linSave);
+  const linActions = h('div.seg', { style: 'margin-top:8px' }, linRemove);
+  const paintLinear = () => {
+    const { key, error } = store.linear;
+    const admin = store.me.admin;
+    linRow.classList.toggle('hidden', !admin);
+    linActions.classList.toggle('hidden', !admin || !key);
+    linSave.textContent = key ? 'Replace' : 'Save';
+    linStatus.classList.toggle('bad', !!error);
+    linStatus.textContent = !key
+      ? `Not connected. ${admin ? 'Paste a personal API key (Linear → Settings → Security & access → API); it’s kept on the server in .agent-office/linear.json and shown to nobody.' : 'An admin can paste an API key here or on the 📌 Issues board.'} It matters on floors started with --issues linear.`
+      : error
+        ? `⚠️ Linear turned the key ${key.hint} away: ${error}`
+        : `🔗 Connected as ${key.viewer ?? 'someone'}${key.workspace ? ` (${key.workspace})` : ''} with key ${key.hint}, set by ${key.by} ${timeAgo(key.at)}.`;
+  };
+  paintLinear();
+  const saveLinear = () => {
+    const key = linInput.value.trim();
+    if (!key) return linInput.focus();
+    net.send({ t: 'linear.key', key });
+    linInput.value = '';
+  };
+  linSave.addEventListener('click', saveLinear);
+  linInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') saveLinear();
+  });
+  linRemove.addEventListener('click', () => net.send({ t: 'linear.key', key: '' }));
+
   // The worker everyone starts on, unless whoever starts one picks another. Admins pick it.
   const agent = agentFields(store.project, 'office-agent', officeChoice(store.project));
   let agentTouched = false;
@@ -446,6 +479,10 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       h('div.webhook', {}, hookInput, hookSave),
       hookActions,
       hookStatus,
+      h('label', { style: 'margin-top:18px' }, 'Linear'),
+      linRow,
+      linActions,
+      linStatus,
       h('label', { style: 'margin-top:18px' }, '🤖 Default worker'),
       agentNow,
       agent.element,
@@ -473,6 +510,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     ),
   );
   const offNotify = store.on('notify', paintHook);
+  const offLinear = [store.on('linear', paintLinear), store.on('me', paintLinear)];
   const offDog = store.on('dog', paintDog);
   const offTheme = store.on('theme', paintTheme);
   const offLeave = store.on('leaveOnMerge', paintLeave);
@@ -483,6 +521,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     doing: '⚙️ in settings',
     onClose: () => {
       offNotify();
+      offLinear.forEach((off) => off());
       offDog();
       offTheme();
       offLeave();

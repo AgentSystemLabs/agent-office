@@ -1,4 +1,4 @@
-import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, LeaveOnMergeState, MachineState, MeetingState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, PromptsState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, ThemeState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
+import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, LeaveOnMergeState, MachineState, MeetingState, LinearKeyState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, PromptsState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, ThemeState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
@@ -9,7 +9,7 @@ import type { CabinetFrame, CabinetState } from '../shared/cabinet';
 import type { BallState } from '../shared/hoop';
 import type { IssueTracker } from '../shared/issues';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'leaveOnMerge' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting' | 'prompts' | 'ball';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'linear' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'leaveOnMerge' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting' | 'prompts' | 'ball';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -172,6 +172,8 @@ class Store {
   accounts: AccountsState | null = null;
   /** The office's Slack / Discord webhook. */
   notify: NotifyState = {};
+  /** The office's Linear API key: its tail and who set it, never the key. */
+  linear: LinearKeyState = {};
   /** How busy the office's machine is, and its worker limit. */
   machine: MachineState = { cpu: 0, cores: 0, memUsed: 0, memTotal: 0, history: [], workers: 0 };
   /** The dog on your floor, and when (performance.now()) the leg it's on began. */
@@ -286,6 +288,7 @@ class Store {
         this.limits = msg.limits;
         this.me = msg.me;
         this.notify = msg.notify;
+        this.linear = msg.linear ?? {};
         this.machine = msg.machine;
         this.clock = undefined; // compared again, in case it's another office (or the same one, restarted)
         this.sky = msg.sky;
@@ -293,7 +296,7 @@ class Store {
         this.prompts = msg.prompts ?? { custom: {} };
         this.leaveOnMerge = msg.leaveOnMerge ?? { on: false };
         this.enter(msg);
-        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'floors', 'projectsDir', 'sky', 'theme', 'prompts', 'leaveOnMerge'] as Topic[]) this.emit(t);
+        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'linear', 'machine', 'floors', 'projectsDir', 'sky', 'theme', 'prompts', 'leaveOnMerge'] as Topic[]) this.emit(t);
         break;
       case 'floor.enter':
         this.peers = new Map(msg.peers.map((p) => [p.id, p]));
@@ -429,6 +432,10 @@ class Store {
       case 'notify':
         this.notify = msg.state;
         this.emit('notify');
+        break;
+      case 'linear':
+        this.linear = msg.state;
+        this.emit('linear');
         break;
       case 'machine':
         this.machine = msg.state;

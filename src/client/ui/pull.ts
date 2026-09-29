@@ -224,7 +224,7 @@ function commentBox(at: GhTarget, itemUrl: string, net: Net, onPosted: (c: GhCom
   const write = h('button.btn.on', { type: 'button' }, 'Write');
   const preview = h('button.btn', { type: 'button' }, 'Preview');
   const tracker = at.kind === 'issue' ? TRACKER_NAME[store.issueProvider] : 'GitHub';
-  const who = h('span.grow', {}, tracker === 'GitHub' ? "Posts to GitHub as the office's gh account" : `Posts to ${tracker} as the office's Claude connector`);
+  const who = h('span.grow', {}, tracker === 'GitHub' ? "Posts to GitHub as the office's gh account" : `Posts to ${tracker} as the office's API key`);
   const post = h('button.btn.primary', { type: 'button' }, '💬 Comment');
   const result = h('div.gh-merge-result.error.hidden');
   const el = h(

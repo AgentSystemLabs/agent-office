@@ -11,7 +11,7 @@ import { WorkerManager, type HookEnv } from './workers.js';
 import { GitHub, MergeWatch } from './github.js';
 import type { IssueProvider, IssuesConfig } from './issues.js';
 import { LinearIssues } from './linear.js';
-import { childEnv } from './workers.js';
+import type { KeySource } from './linear-key.js';
 import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { Decor } from './decor.js';
@@ -42,8 +42,8 @@ export interface FloorContext {
   prompts: PromptSource;
   /** Where the issue boards read from (--issues). */
   issues: IssuesConfig;
-  /** The `claude` binary, for the headless calls an issue provider other than GitHub makes; null when there is none. */
-  claude: string | null;
+  /** The office's Linear API key, for floors whose issues live there (see linear-key.ts). */
+  linear: KeySource;
   /** To everyone on this floor. */
   emit(floor: Floor, msg: ServerMsg, droppable?: boolean): void;
   toast(floor: Floor, text: string, level?: ToastLevel): void;
@@ -190,8 +190,8 @@ export class Floor {
       },
       { issues: githubIssues },
     );
-    // Linear reads and writes through headless Claude sessions and the user's Linear connector (see linear.ts).
-    this.issueSource = ctx.issues.provider === 'linear' ? new LinearIssues(ctx.issues, ctx.claude, childEnv(), (state) => ctx.emit(this, { t: 'gh.issues', state })) : this.github;
+    // Linear is read and written through its API with the office's key (see linear.ts).
+    this.issueSource = ctx.issues.provider === 'linear' ? new LinearIssues(ctx.issues, ctx.linear, (state) => ctx.emit(this, { t: 'gh.issues', state })) : this.github;
     // The 📋 task queue seats workers by itself: it watches the workers and links PRs from GitHub.
     this.queue = new TaskQueue(dataDir, this.workers, !!this.project.branch, {
       update: (state) => {

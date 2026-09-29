@@ -43,6 +43,8 @@ import { isThemePick } from '../shared/theme.js';
 import { PROMPTS, PROMPT_MAX, isPromptId } from '../shared/prompts.js';
 import { ROOF, isDrink } from '../shared/rooftop.js';
 import { issueLabel, parseIssueId } from '../shared/issues.js';
+import { LinearKey } from './linear-key.js';
+import { checkLinearKey } from './linear.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -404,6 +406,20 @@ export async function startServer(cfg: Config) {
     if (err) console.error(`agent-office: --webhook: ${err}`);
   }
 
+  // The Linear API key, for offices whose issues live there: pasted on the 📌 Issues board or in
+  // ⚙️ Settings by an admin (or --linear-key), checked against Linear, kept in .agent-office/linear.json.
+  const linearKey = new LinearKey(cfg.dataDir, (state) => broadcast({ t: 'linear', state }));
+  /** Every floor's boards, once the key changed (the floors may not exist yet at startup; they refresh as they're built). */
+  const refreshAllBoards = () => {
+    for (const f of floors.values()) void f.refreshBoards();
+  };
+  if (cfg.linearKey) {
+    void linearKey.set(cfg.linearKey, 'the command line', (k) => checkLinearKey(k)).then((err) => {
+      if (err) console.error(`agent-office: --linear-key: ${err}`);
+      else refreshAllBoards();
+    });
+  }
+
   // The machine's CPU and memory, for the monitor on the wall and a warning before hiring, and the
   // most workers the office runs at once, across every floor (--max-workers, or ⚙️ Settings).
   const machine = new Machine(
@@ -434,7 +450,7 @@ export async function startServer(cfg: Config) {
     capacity: machine,
     prompts,
     issues: cfg.issues,
-    claude: claudeBin,
+    linear: linearKey,
     emit: toFloor,
     toast: toastFloor,
     termData: (workerId, data, viewers) => {
@@ -979,6 +995,7 @@ export async function startServer(cfg: Config) {
       limits: limits.state,
       me,
       notify: webhook.state(),
+      linear: linearKey.state(),
       machine: machine.state(),
       sky: sky.state,
       theme: themes.state(),
@@ -1618,6 +1635,29 @@ export async function startServer(cfg: Config) {
       case 'notify.test':
         void webhook.test(who).then((err) => sendTo(c, { t: 'toast', text: err ?? '📣 Sent a test message', level: err ? 'warn' : 'info' }));
         break;
+      case 'linear.key': {
+        if (!meOf(c.accountId).admin) return warn(c, 'Only admins can connect Linear');
+        const key = str(msg.key, 512).trim();
+        if (!key) {
+          const had = !!linearKey.key();
+          linearKey.clear();
+          if (had) toastAll(`🔗 ${who} disconnected Linear`);
+          refreshAllBoards();
+          break;
+        }
+        void linearKey.set(key, who, (k) => checkLinearKey(k)).then((err) => {
+          if (err) {
+            warn(c, err);
+            // The board's form shows why, under the input; the next real state replaces it.
+            sendTo(c, { t: 'linear', state: { ...linearKey.state(), error: err } });
+            return;
+          }
+          const k = linearKey.state().key;
+          toastAll(`🔗 ${who} connected Linear as ${k?.viewer ?? 'someone'}${k?.workspace ? ` (${k.workspace})` : ''}`);
+          refreshAllBoards();
+        });
+        break;
+      }
       case 'theme.set': {
         if (!isThemePick(msg.pick)) return;
         if (msg.pick === themes.state().pick) break;

@@ -1,6 +1,5 @@
-// One-shot, non-interactive runs of the `claude` CLI that answer with JSON: the sign-writer that
-// names each worker's task (tasks.ts), and the Linear issue board, which reads and writes Linear
-// through the user's Linear MCP connector (linear.ts). Nothing here streams or keeps a session.
+// One-shot, non-interactive runs of the `claude` CLI that answer with JSON, like the sign-writer that
+// names each worker's task (tasks.ts). Nothing here streams or keeps a session.
 
 import { spawn } from 'node:child_process';
 import os from 'node:os';
@@ -19,13 +18,9 @@ export interface HeadlessOpts {
   model?: string;
   /**
    * Alone with no tools, none of the user's settings, no MCP servers and no hooks: for calls that
-   * only need to think. Otherwise the user's own settings load, so their MCP connectors are there.
+   * only need to think. Otherwise the user's own settings load (not the project's).
    */
   isolated?: boolean;
-  /** The tools it may use without asking, e.g. mcp__claude_ai_Linear__list_issues. */
-  allowedTools?: string[];
-  /** Built-in tools it must not reach for (Bash, say), so it stays on the tools it was given. */
-  disallowedTools?: string[];
   maxTurns?: number;
   timeoutMs?: number;
 }
@@ -44,10 +39,7 @@ export function headlessArgs(o: HeadlessOpts): string[] {
     // Not the user's or the project's settings: no hooks, no MCP servers, no plugins, no transcript.
     args.push('--tools', '', '--setting-sources', '', '--strict-mcp-config');
   } else {
-    // The user's settings, where their claude.ai connectors (MCP servers) come from; not the project's.
     args.push('--setting-sources', 'user');
-    if (o.allowedTools?.length) args.push('--allowedTools', ...o.allowedTools);
-    if (o.disallowedTools?.length) args.push('--disallowedTools', ...o.disallowedTools);
   }
   args.push('--disable-slash-commands', '--no-session-persistence');
   return args;

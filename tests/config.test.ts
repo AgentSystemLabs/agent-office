@@ -51,11 +51,13 @@ test('--no-open leaves the browser alone', (t) => {
   assert.equal(load(t, '--no-open').open, false);
 });
 
-test('--issues picks the tracker; linear needs its teams', (t) => {
+test('--issues picks the tracker; linear needs its teams, and may take a key', (t) => {
   assert.deepEqual(load(t).issues, { provider: 'github' });
-  assert.deepEqual(load(t, '--issues', 'linear', '--linear-teams', 'found, PLAT').issues, { provider: 'linear', teams: ['found', 'PLAT'], filter: undefined, mcp: 'claude_ai_Linear' });
-  assert.deepEqual(load(t, '--issues', 'Linear', '--linear-teams', 'FOUND', '--linear-filter', ' assigned to me ', '--linear-mcp', 'linear').issues, { provider: 'linear', teams: ['FOUND'], filter: 'assigned to me', mcp: 'linear' });
+  assert.equal(load(t).linearKey, undefined);
+  assert.deepEqual(load(t, '--issues', 'linear', '--linear-teams', 'found, PLAT').issues, { provider: 'linear', teams: ['FOUND', 'PLAT'] });
+  const withKey = load(t, '--issues', 'Linear', '--linear-teams', 'FOUND', '--linear-key', ' lin_api_abc ');
+  assert.deepEqual(withKey.issues, { provider: 'linear', teams: ['FOUND'] });
+  assert.equal(withKey.linearKey, 'lin_api_abc');
   assert.throws(() => load(t, '--issues', 'jira'), /--issues is github or linear/);
   assert.throws(() => load(t, '--issues', 'linear'), /--linear-teams/);
-  assert.throws(() => load(t, '--issues', 'linear', '--linear-teams', 'FOUND', '--linear-mcp', 'not a name'), /--linear-mcp/);
 });

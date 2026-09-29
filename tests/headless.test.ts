@@ -15,13 +15,11 @@ test('an isolated call runs with no tools and none of the user’s settings', ()
   assert.ok(!args.includes('--allowedTools'));
 });
 
-test('a call that uses the user’s MCP connectors loads their settings and allows just the named tools', () => {
-  const args = headlessArgs({ ...base, model: 'sonnet', allowedTools: ['mcp__claude_ai_Linear__list_issues', 'mcp__claude_ai_Linear__get_issue'], disallowedTools: ['Bash', 'Edit'], maxTurns: 6 });
+test('a call that is not isolated loads the user’s settings', () => {
+  const args = headlessArgs({ ...base, model: 'sonnet', maxTurns: 6 });
   assert.equal(args[args.indexOf('--model') + 1], 'sonnet');
   assert.equal(args[args.indexOf('--setting-sources') + 1], 'user');
-  assert.deepEqual(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--allowedTools') + 3), ['mcp__claude_ai_Linear__list_issues', 'mcp__claude_ai_Linear__get_issue']);
   assert.equal(args[args.indexOf('--max-turns') + 1], '6');
-  assert.deepEqual(args.slice(args.indexOf('--disallowedTools') + 1, args.indexOf('--disallowedTools') + 3), ['Bash', 'Edit']);
   assert.ok(!args.includes('--strict-mcp-config') && !args.includes('--tools'));
 });
 

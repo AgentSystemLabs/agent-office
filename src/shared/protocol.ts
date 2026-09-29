@@ -505,6 +505,13 @@ export interface NotifyState {
   lastSentAt?: number;
 }
 
+/** The office's Linear API key (see server/linear-key.ts): never the key itself, just its tail and who set it. */
+export interface LinearKeyState {
+  key?: { hint: string; by: string; at: number; viewer?: string; workspace?: string };
+  /** Why Linear turned the saved key away, or a new one was refused. */
+  error?: string;
+}
+
 /**
  * The office's machine (see server/machine.ts): how busy it is, for the wall monitor and a warning
  * before hiring, and the most workers the office runs at once, across every floor.
@@ -1042,6 +1049,8 @@ export type ClientMsg =
   | { t: 'notify.webhook'; url: string }
   /** Post a test message through the webhook; the outcome comes back as a toast. */
   | { t: 'notify.test' }
+  /** Admins: connect Linear with an API key ('' disconnects). Checked against Linear before it's kept; answered with linear. */
+  | { t: 'linear.key'; key: string }
   /** Admins: the most workers the office runs at once, across every floor; null takes the limit off. */
   | { t: 'machine.limit'; limit: number | null }
   | { t: 'voice'; voice: boolean; muted: boolean; sharing: boolean }
@@ -1151,6 +1160,7 @@ export type ServerMsg =
       limits: PlanLimits;
       me: Me;
       notify: NotifyState;
+      linear: LinearKeyState;
       machine: MachineState;
       /** Outside the windows: the same on every floor. */
       sky: SkyState;
@@ -1232,6 +1242,7 @@ export type ServerMsg =
   | { t: 'queue'; state: QueueState }
   | { t: 'meeting'; state: MeetingState }
   | { t: 'notify'; state: NotifyState }
+  | { t: 'linear'; state: LinearKeyState }
   | { t: 'machine'; state: MachineState }
   | { t: 'sky'; state: SkyState }
   | { t: 'theme'; state: ThemeState }
