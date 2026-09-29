@@ -2,9 +2,11 @@ import * as THREE from 'three';
 import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES, type Look } from '../../shared/avatar';
 import { EMOTE_BY_ID, type Emote, type EmoteId } from '../../shared/emotes';
 import type { CarriedIssue, Theme, WorkerAction, WorkerStatus, WorkerTask } from '../../shared/protocol';
+import type { BarGame } from '../../shared/bargames';
 import type { Drink } from '../../shared/rooftop';
 import { isAsleep, type WorkerPr } from '../../shared/status';
 import { HIPS } from '../player';
+import { axeModel, dartModel } from './bargames';
 import { OpenBook } from './book';
 import { HeldCard } from './card';
 import { UNDEAD_SKIN, elfBoot, elfHat, elfWorker, santaHat, warlockHat, zombieWorker } from './costumes';
@@ -58,6 +60,22 @@ export const IMPACT = 0.08;
 const DOWN = new THREE.Vector3(0, -1, 0);
 const hands = new THREE.Vector3();
 const armDir = new THREE.Vector3();
+
+/**
+ * Throwing darts (with the right hand, the arm on -x) and axes (both hands, over the head). A dart is
+ * held up by the eye, drawn back as far as the wind-up takes it, and pushed out at the board. An axe
+ * goes round on an arc about AXE_TURN, from in front of the chest (`aim`) back over the head, and
+ * over and down in front to throw, let go of on the way (`release`). Its handle points out along the
+ * arc, tipped back AXE_WRIST from it. Seconds for each: the throw, and a whole one on its own
+ * (someone else's) taking it back first. The next dart or axe is in hand `reload` after letting go.
+ */
+const DART_AIM = new THREE.Vector3(-0.2, 1.45, 0.36);
+const DART_BACK = new THREE.Vector3(-0.21, 1.5, 0.12);
+const DART_OUT = new THREE.Vector3(-0.24, 1.25, 0.6);
+const AXE_TURN = new THREE.Vector3(0, 1.05, 0.02);
+const AXE_ARC = { r: 0.36, aim: 0.25, back: 2.2, release: 0.55, end: -0.5 } as const;
+const AXE_WRIST = 1.15;
+const THROW = { darts: { time: 0.16, release: 0.5, auto: 0.25, reload: 0.55 }, axe: { time: 0.28, release: 0.62, auto: 0.35, reload: 1.2 } } as const;
 
 /** A golf club, hanging down from the hands (its grip at 0): a wrapped grip, a steel shaft and the head at the bottom, its face toward +x. */
 function golfClub(): THREE.Group {
@@ -362,6 +380,22 @@ export class Person {
    * `autoT` is a whole swing playing by itself (golfSwing), taken back to `power`.
    */
   private golf: { swing: THREE.Group; back: number; want: number; top: number; swingT: number; autoT: number; power: number } | null = null;
+  /**
+   * At the dart board's oche or the axe lane's line (see setThrowing): the dart or axe in hand, how
+   * far it's been drawn back (`back`, easing to `want`), a throw under way (`throwT` seconds in, from
+   * `top`) or taking it back all by itself first (`autoT`), and how long until the next is in hand.
+   */
+  private oche: {
+    game: BarGame;
+    prop: THREE.Group;
+    back: number;
+    want: number;
+    top: number;
+    throwT: number;
+    autoT: number;
+    reload: number;
+    release: ((from: THREE.Vector3, turn: number) => void) | null;
+  } | null = null;
   /** Dressed up for a holiday (see setCostume): a warlock's hat and undead skin, or a Santa hat. */
   private costume: Theme | null = null;
   private hat: THREE.Object3D[] = [];
@@ -634,7 +668,7 @@ export class Person {
   holdMug(on: boolean) {
     this.wantsMug = on;
     this.cup.visible = !this.glass;
-    this.mug.visible = (on || !!this.glass) && !this.card.held && !this.book && !this.ball;
+    this.mug.visible = (on || !!this.glass) && !this.card.held && !this.book && !this.ball && this.oche?.game !== 'axe';
   }
 
   /** A drink from the rooftop bar in the left hand (in place of a mug), or none (null). */
@@ -941,6 +975,124 @@ export class Person {
     this.legR.rotation.set(0, 0, 0.1);
   }
 
+  /** At the oche with a dart in the right hand, or the axe lane's line with an axe in both, or neither (null). */
+  setThrowing(game: BarGame | null) {
+    if (game === (this.oche?.game ?? null)) return;
+    if (this.oche) {
+      this.oche.prop.removeFromParent();
+      this.oche.prop.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+      this.oche = null;
+      for (const limb of [this.armL, this.armR]) limb.rotation.set(0, 0, 0);
+    }
+    if (game) {
+      const prop = game === 'darts' ? dartModel(this.shirt.color.getStyle()) : axeModel();
+      this.body.add(prop);
+      this.oche = { game, prop, back: 0, want: 0, top: 0, throwT: -1, autoT: -1, reload: 0, release: null };
+    }
+    this.holdMug(this.wantsMug);
+  }
+
+  /** Drawing the dart or axe back, `k` of the way (0 aiming, 1 as far as it goes). */
+  tossBack(k: number) {
+    const o = this.oche;
+    if (o && o.throwT < 0 && o.autoT < 0) o.want = THREE.MathUtils.clamp(k, 0, 1);
+  }
+
+  /** Throws from wherever it's drawn back to. `release` is told where it left the hand (and how an axe was turned, see AXE), as it does. */
+  toss(release: (from: THREE.Vector3, turn: number) => void) {
+    const o = this.oche;
+    if (!o) return;
+    o.release = release;
+    o.top = o.back;
+    o.throwT = 0;
+    o.autoT = -1;
+  }
+
+  /** A whole throw on its own, drawing back first (someone else's). */
+  tossAuto(release: (from: THREE.Vector3, turn: number) => void) {
+    const o = this.oche;
+    if (!o) return release(this.root.localToWorld(new THREE.Vector3(0, 1.4, 0.3)), 0);
+    // One still on its way out of the hand goes first.
+    o.release?.(this.propWorld(new THREE.Vector3()), o.prop.rotation.x);
+    o.release = release;
+    o.throwT = -1;
+    o.autoT = 0;
+  }
+
+  private propWorld(out: THREE.Vector3): THREE.Vector3 {
+    this.root.updateMatrixWorld(true);
+    return this.oche!.prop.getWorldPosition(out);
+  }
+
+  /** Where the hands are round the axe's arc (see AXE_ARC) at elevation `phi`. */
+  private axeHands(phi: number): THREE.Vector3 {
+    return hands.set(AXE_TURN.x, AXE_TURN.y + Math.sin(phi) * AXE_ARC.r, AXE_TURN.z + Math.cos(phi) * AXE_ARC.r);
+  }
+
+  /** The throwing arm (or arms), and the dart or axe in hand, over whatever they were doing. */
+  private ocheStep(dt: number) {
+    const o = this.oche!;
+    const t = THROW[o.game];
+    if (o.autoT >= 0) {
+      o.autoT += dt;
+      o.want = Math.min(1, o.autoT / t.auto);
+      o.back += (o.want - o.back) * Math.min(1, dt * 14);
+      if (o.autoT >= t.auto) {
+        o.autoT = -1;
+        o.top = o.back;
+        o.throwT = 0;
+      }
+    } else if (o.throwT < 0) o.back += (o.want - o.back) * Math.min(1, dt * 14);
+    // How far through the throw: 0 drawn back, 1 all the way out, easing back to aiming after.
+    let out = -1;
+    if (o.throwT >= 0) {
+      o.throwT += dt;
+      const u = o.throwT / t.time;
+      if (u < 1) out = u * u;
+      else if (u < 2.5) out = 1;
+      else {
+        out = -1;
+        o.throwT = -1;
+        o.back = o.want = 0;
+      }
+    }
+    if (o.reload > 0) {
+      o.reload -= dt;
+      if (o.reload <= 0) o.prop.visible = true;
+    }
+    const prop = o.prop;
+    const rest = (arm: THREE.Object3D, sx: number, at: THREE.Vector3) => {
+      armDir.set(at.x - sx, at.y - 0.9, at.z).normalize();
+      arm.quaternion.setFromUnitVectors(DOWN, armDir);
+    };
+    if (o.game === 'darts') {
+      const at = out >= 0 ? v1.copy(DART_AIM).lerp(DART_BACK, o.top).lerp(DART_OUT, out) : v1.copy(DART_AIM).lerp(DART_BACK, o.back);
+      rest(this.armL, -0.33, at);
+      // The dart's held by the barrel in the fist, at the end of the arm, pointing out and a little up.
+      armDir.set(at.x + 0.33, at.y - 0.9, at.z).normalize();
+      prop.position.set(-0.33, 0.9, 0).addScaledVector(armDir, 0.38);
+      prop.position.z += 0.09;
+      prop.rotation.set(-0.12, 0, 0);
+    } else {
+      const phi = out >= 0 ? THREE.MathUtils.lerp(THREE.MathUtils.lerp(AXE_ARC.aim, AXE_ARC.back, o.top), AXE_ARC.end, out) : THREE.MathUtils.lerp(AXE_ARC.aim, AXE_ARC.back, o.back);
+      const at = v1.copy(this.axeHands(phi));
+      rest(this.armL, -0.33, v2.set(at.x - 0.03, at.y + 0.03, at.z));
+      rest(this.armR, 0.33, v2.set(at.x + 0.03, at.y - 0.05, at.z));
+      prop.position.copy(at);
+      prop.rotation.set(Math.PI / 2 - phi - AXE_WRIST, 0, 0);
+      // Leaning into it, down the lane.
+      this.body.rotation.x = out >= 0 ? Math.sin(Math.min(1, out) * Math.PI) * 0.18 : -o.back * 0.1;
+    }
+    const released = out >= 0 && out >= t.release * t.release;
+    if (released && o.release) {
+      const release = o.release;
+      o.release = null;
+      release(this.propWorld(new THREE.Vector3()), prop.rotation.x);
+      prop.visible = false;
+      o.reload = t.reload;
+    }
+  }
+
   /** `pace` speeds up the walk cycle for someone walking faster than usual. */
   update(dt: number, t: number, moving: boolean, airborne: boolean, pace = 1) {
     const target = moving ? 1 : 0;
@@ -1036,6 +1188,7 @@ export class Person {
     this.body.rotation.y = this.body.rotation.z = 0;
     if (this.emoting) this.emoteStep(dt, moving || airborne ? 0 : 1 - sit);
     if (this.golf && !sit && !airborne) this.golfStep(dt);
+    if (this.oche && !sit) this.ocheStep(dt);
   }
 }
 
