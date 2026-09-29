@@ -102,6 +102,11 @@ export class Cabinet {
     return this.view.zoomed;
   }
 
+  /** Puts it down, if you're at it (the building changed maps under you). */
+  stop() {
+    this.modal?.close();
+  }
+
   /** Your game's score, while you've left it paused here. */
   get leftAt(): number | null {
     return this.game && !this.game.over && this.mode !== 'play' ? this.game.score : null;

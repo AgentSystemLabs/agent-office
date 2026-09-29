@@ -840,7 +840,10 @@ net.onMessage((msg) => {
         // Back to where you were, if that was on this map (and not in the elevator: that's arriving).
         const saved = lastSpot();
         const sameMap = !!saved && (saved.map ?? OFFICE_PLAN.id) === plan().id;
-        if (sameMap && !(inOffice() && inElevator(mine.x, mine.z)) && player.fits(mine.x, mine.z, mine.y)) {
+        // A hall of its own has nothing outside it to come back to (and its walls may have moved since).
+        const b = plan().bounds;
+        const inRoom = inOffice() || (mine.x > b.minX + 0.3 && mine.x < b.maxX - 0.3 && mine.z > b.minZ + 0.3 && mine.z < b.maxZ - 0.3);
+        if (sameMap && inRoom && !(inOffice() && inElevator(mine.x, mine.z)) && player.fits(mine.x, mine.z, mine.y)) {
           placeAt(mine);
           arrive('back');
         } else {
@@ -902,9 +905,10 @@ net.onMessage((msg) => {
       if (holdingBall()) toast('🏀 The ball stayed behind, back under the other floor’s hoop');
       ballNews(false);
       arrive();
-      // Down off a roof that isn't there any more: where you come in on this map.
-      if (offRoof) {
+      // Down off a roof that isn't there any more, or the map changed on the way: where you come in on this map.
+      if (offRoof || placeOnArrival) {
         offRoof = false;
+        placeOnArrival = false;
         placeInCar();
       }
       offTheRoof();
@@ -994,7 +998,8 @@ net.onMessage((msg) => {
       // Somebody on the floor got there first: back on your feet, next to them.
       if (player.seat?.key === msg.seat) {
         player.stand();
-        me.sit(null);
+        // On your feet as far as everyone's concerned (the office still has you where you sat before).
+        gotUp();
         toast(`${msg.by} got there first`, 'warn');
       }
       break;
@@ -1139,17 +1144,18 @@ function lift() {
  * stay on that floor, just further down the shaft (or back up it); from the roof, the garage is the
  * bottom floor's.
  */
-function ride(to: string): void {
+function ride(to: string, keepWalking = false): void {
   // A map of its own has no elevator: straight there, and no roof or garage to go to.
   if (!inOffice()) {
     if (to === ROOF || to === GARAGE) {
+      if (walkingTo) stopWalking();
       toast(`${plan().icon} There's no ${to === ROOF ? 'rooftop bar' : 'garage'} in the ${plan().name.toLowerCase()}`, 'warn');
       return;
     }
     // Still up on a roof this map doesn't have: straight down to that floor.
     if (upTop) return leaveRoofFor(to);
-    // Straight there, and on over to whoever you were walking to.
-    return switchFloor(to, true);
+    // Straight there (and on over to whoever you were walking to, if that's why).
+    return switchFloor(to, keepWalking);
   }
   const garage = to === GARAGE;
   const floorId = garage ? (upTop || !store.floor ? builtFloors()[0]?.id : store.floor) : to;
@@ -1246,6 +1252,11 @@ function tripFailed() {
   if (t.how === 'elevator') lift()?.setOpen(!!store.floor);
   if (t.how === 'ladder' || t.how === 'pole') climber.abort();
   player.enabled = !modalOpen();
+  // The map changed on the way: back where it has you come in.
+  if (placeOnArrival && !upTop) {
+    placeOnArrival = false;
+    placeInCar();
+  }
   // Down off a roof the map doesn't have: try again.
   if (offRoof) {
     offRoof = false;
@@ -1413,7 +1424,13 @@ function applyMap() {
   if (walkingTo) stopWalking();
   if (golf.active) golf.stop();
   if (smokeBreakUntil) setSmoking(false);
+  // The office's things: the ball goes down (out of everyone's hands, since its sync is the office's), the games stop.
   if (holdingBall()) dropBall();
+  me.holdBall(false);
+  hands.holdBall(false);
+  for (const r of remotes.values()) r.person.holdBall(false);
+  arcade.stop();
+  cabinet.stop();
   world.group.visible = false;
   world = next.world;
   court = next.court;
@@ -1443,18 +1460,24 @@ function applyMap() {
     placeInCar();
     // Back in the office, in its elevator: the doors open onto it.
     lift()?.setOpen(true);
-  }
+  } else if (trip) placeOnArrival = true;
+  heraldHires.clear();
   offTheRoof();
   hintKey = 'stale';
   hud.refresh();
 }
 store.on('map', applyMap);
 
+/** The map changed while you were on your way to a floor: wherever you land, you arrive where the map has you come in. */
+let placeOnArrival = false;
+
 /** Where you come in on a map of its own: on the throne if nobody's on it, else on your feet where the map says. */
 function placeAtSpawn() {
   const p = plan();
   const at = p.spawn;
   placeAt({ x: at.x, y: groundHere(at.x, at.z, 3), z: at.z, rotY: at.rotY });
+  // Not on the way to another floor: the throne's this one's.
+  if (trip) return;
   const seat = p.throne && freePlace(p.throne);
   if (!seat) return;
   player.sit(seat);
@@ -1585,7 +1608,7 @@ function walkTo(id: string) {
   if (store.onMyFloor(p)) toast(`🚶 Walking over to ${p.name}`);
   else {
     toast(`🛗 Taking the elevator to ${p.name}, on the ${store.floors.find((f) => f.id === p.floor)?.name ?? 'other'} floor`);
-    ride(p.floor!);
+    ride(p.floor!, true);
   }
 }
 
@@ -1732,14 +1755,16 @@ function inCourt(w: WorkerInfo): boolean {
 }
 
 /** Seats you've just sent a worker out to from the herald (see hireFromHerald): it runs there from beside him. */
-const heraldHires = new Set<string>();
+const heraldHires = new Map<string, { floor: string | null; at: number }>();
+/** How long a worker sent out from the herald has to turn up before its seat's forgotten. */
+const HERALD_WAIT = 30_000;
 
 /** Where a worker just hired comes in from, running to its seat: the herald, the doors (off the queue), or nowhere (it's just there). */
 function cameFrom(w: WorkerInfo): [number, number] | undefined {
-  if (heraldHires.delete(w.deskId) && plan().herald) {
-    const h = plan().herald!;
-    return [h.x + Math.sin(h.rotY) * 1.1, h.z + Math.cos(h.rotY) * 1.1];
-  }
+  const sent = heraldHires.get(w.deskId);
+  heraldHires.delete(w.deskId);
+  const h = plan().herald;
+  if (sent && h && sent.floor === store.floor && performance.now() - sent.at < HERALD_WAIT) return [h.x + Math.sin(h.rotY) * 1.1, h.z + Math.cos(h.rotY) * 1.1];
   if (w.createdBy.endsWith('(queue)')) return [plan().door.x, plan().door.z];
   return undefined;
 }
@@ -2353,10 +2378,13 @@ function hireFromHerald() {
     worktreeOption: !!store.project?.branch,
     repoOptions: repoChoices(),
     onSubmit: (text, o) => {
-      // Whichever seat is free now: someone may have sat down while you were thinking.
-      const deskId = firstFreeSeat();
+      // Whichever seat is free now (someone may have sat down while you were thinking), and not one
+      // you've just sent someone else to.
+      const now = performance.now();
+      for (const [id, s] of heraldHires) if (now - s.at > HERALD_WAIT) heraldHires.delete(id);
+      const deskId = [...plan().desks, ...plan().overflow].find((d) => !store.workerAtDesk(d.id) && !heraldHires.has(d.id))?.id;
       if (!deskId) return toast('Every seat at the tables is taken now', 'warn');
-      heraldHires.add(deskId);
+      heraldHires.set(deskId, { floor: store.floor, at: now });
       hire(deskId, text || undefined, o.worktree, o.provider, o.model, o.effort, undefined, o.repos);
     },
   });
