@@ -10,6 +10,7 @@ import type { ServerMsg, WorkerInfo } from '../../shared/protocol';
 import { isAsleep } from '../../shared/status';
 import { findLine } from '../../shared/search';
 import { providerLabel, providerUsageNote, providerUsageState, resolvedProvider } from './provider';
+import { naturalKey } from './termkeys';
 
 /** A line to scroll to once the terminal has loaded: a search hit (see search.ts). */
 export interface TerminalFind {
@@ -282,6 +283,15 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   term.attachCustomKeyEventHandler((e) => {
     if (e.type === 'keydown' && e.ctrlKey && e.key === ']') {
       modal.close();
+      return false;
+    }
+    // ⌘⌫, Ctrl+⌫, Shift+Enter and friends edit the prompt the way your own terminal does (termkeys.ts).
+    const natural = e.type === 'keydown' && !e.isComposing ? naturalKey(e) : undefined;
+    if (natural !== undefined) {
+      e.preventDefault();
+      e.stopPropagation();
+      sayTyping();
+      term.input(natural);
       return false;
     }
     return true;

@@ -27,3 +27,15 @@ Back to the [README](../README.md).
 | Ctrl + [ | Send Esc to a terminal (e.g. to interrupt Claude) |
 
 You can also click a nearby desk to interact with it, or click a worker in the Workers panel (**🤖 Workers**, top right) to open its terminal.
+
+## In a terminal
+
+The prompt edits the way it does in your own terminal (iTerm2's *Natural Text Editing*, or VS Code's), in Claude Code, Codex, OpenCode and a shell alike:
+
+| Key | Action |
+| --- | --- |
+| Shift + Enter | A new line in an agent's prompt, without sending it (in a shell it runs the line, like Enter) |
+| Ctrl + ⌫ / ⌥ + ⌫ | Delete the word before the cursor |
+| ⌘ + ⌫ | Delete to the start of the line (Mac) |
+| ⌘ + ⌦ | Delete to the end of the line (Mac) |
+| ⌘ + ← / → | Jump to the start / end of the line (Mac) |
