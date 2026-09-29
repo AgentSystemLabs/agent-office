@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
-import { HAIR_COLOR_NAMES, HAIR_COLORS, HAIR_STYLES, SKIN_TONES, randomLook, type Look } from '../../shared/avatar';
+import { HAIR_COLOR_NAMES, HAIR_COLORS, HAIR_STYLES, SKIN_TONES, randomLook, randomName, type Look } from '../../shared/avatar';
 import { AVATAR_COLORS, saveProfile, store, type Profile } from '../state';
 import { Person } from '../world/character';
 import { toonUnique } from '../world/toon';
@@ -135,8 +135,17 @@ export function openCharacter(first: boolean, onSave: (p: Profile) => void) {
   const canvas = h('canvas', { 'aria-label': 'Your character, drag to spin' }) as HTMLCanvasElement;
   const preview = new Preview(canvas, pick);
 
-  const input = h('input', { type: 'text', maxlength: 24, value: first ? '' : pick.name, placeholder: 'e.g. Ada', 'aria-label': 'Your name' }) as HTMLInputElement;
-  if (first && pick.name !== 'Guest') input.value = pick.name;
+  // Leave the name blank (or skip this) and you go by the made-up one in the box; 🎲 deals another.
+  // Guest is what you were before you picked one, so it isn't a name to keep.
+  const input = h('input', { type: 'text', maxlength: 24, value: pick.name === 'Guest' ? '' : pick.name, placeholder: randomName(), 'aria-label': 'Your name' }) as HTMLInputElement;
+  const reroll = h('button.btn', { type: 'button', title: 'Random name', 'aria-label': 'Random name' }, '🎲');
+  reroll.addEventListener('click', () => {
+    let name = randomName();
+    while (name === input.value || name === input.placeholder) name = randomName();
+    input.value = input.placeholder = name;
+    input.focus();
+  });
+  const typedName = () => input.value.trim().slice(0, 24) || input.placeholder;
   // Your account's name is the one everyone sees; only the look is yours to change here.
   const account = store.me.account;
   if (account) {
@@ -192,7 +201,7 @@ export function openCharacter(first: boolean, onSave: (p: Profile) => void) {
         'div.charsel-opts',
         {},
         h('label', {}, 'Your name'),
-        input,
+        account ? input : h('div.webhook', {}, input, reroll),
         account ? h('p.setting-note', {}, `🔑 Signed in as ${account.name}, so that's your name here.`) : null,
         h('label', {}, 'Skin tone'),
         skinRow,
@@ -221,19 +230,14 @@ export function openCharacter(first: boolean, onSave: (p: Profile) => void) {
     doing: '🪞 picking a new look',
     onClose: () => {
       preview.dispose();
-      // The office only lets you in with a character: skipping it goes in with this one, and the name you had (or Guest).
-      if (first && !done) finish(input.value.trim().slice(0, 24) || store.profile.name);
+      // The office only lets you in with a character: skipping it goes in with this one, and the name in the box.
+      if (first && !done) finish(typedName());
     },
   });
   close.addEventListener('click', () => modal.close());
   form.addEventListener('submit', (e) => {
     e.preventDefault();
-    const name = input.value.trim().slice(0, 24);
-    if (!name) {
-      input.focus();
-      return;
-    }
-    finish(name);
+    finish(typedName());
   });
   if (!account) setTimeout(() => input.focus(), 30);
 }
