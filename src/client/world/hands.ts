@@ -5,6 +5,7 @@ import type { Drink } from '../../shared/rooftop';
 import { OpenBook } from './book';
 import { HeldCard } from './card';
 import { REACH_TIME, SMOKE_CYCLE, cigarette, coffeeMug, dragCurve, drinkGlass, emoteEnvelope, putDownGlass, reachCurve } from './character';
+import { Muzzle, disposeGun, magnum } from './gun';
 import { UNDEAD_SKIN, raggedCuff, warlockHand, witchFire } from './costumes';
 import { mesh, toon, toonUnique } from './toon';
 import { ballMesh } from './hoop';
@@ -96,6 +97,11 @@ export class Hands {
   /** An undead warlock's hands for Halloween, mittens for Christmas (see setCostume). */
   private costume: Theme | null = null;
   private rags = toonUnique('#24123a');
+  /**
+   * A .44 Magnum in the right fist (see holdGun): the prop, its muzzle flash, how far into the
+   * draw (0–1), and seconds into the shot's recoil, or -1.
+   */
+  private gun: { prop: THREE.Group; muzzle: Muzzle; draw: number; fireT: number } | null = null;
 
   constructor(shirt: string, skin: string) {
     this.shirt = shirt;
@@ -308,6 +314,37 @@ export class Hands {
     this.sipT = -REACH_TIME * 0.6;
   }
 
+  /** A .44 Magnum in the right fist, or back in its holster. The left hand keeps what it holds. */
+  holdGun(on: boolean) {
+    if (on === !!this.gun) return;
+    if (!on) {
+      const { prop } = this.gun!;
+      disposeGun(prop);
+      this.gun = null;
+      if (this.right.finger) this.right.finger.visible = this.costume !== 'halloween' && this.costume !== 'christmas';
+      return;
+    }
+    const prop = magnum();
+    prop.position.set(0, -0.01, -0.06);
+    // The muzzle down -z, at the crosshair.
+    prop.rotation.y = Math.PI;
+    prop.scale.setScalar(0.01);
+    const muzzle = new Muzzle();
+    prop.add(muzzle.group);
+    this.right.group.add(prop);
+    // A fist round the grip, not a pointing finger.
+    if (this.right.finger) this.right.finger.visible = false;
+    this.gun = { prop, muzzle, draw: 0, fireT: -1 };
+  }
+
+  /** Fires it: a flash at the muzzle and one shell of recoil up the arm. */
+  fireGun() {
+    const g = this.gun;
+    if (!g) return;
+    g.muzzle.fire();
+    g.fireT = 0;
+  }
+
   private arm(side: 1 | -1): Arm {
     const group = new THREE.Group();
     // Sleeve runs from the wrist back past the camera, so its far end is always off screen.
@@ -466,6 +503,25 @@ export class Hands {
     l.position.y += 0.13 * sip;
     l.position.z += 0.14 * sip;
     l.rotation.x += 0.7 * sip;
+    // The gun: out toward the crosshair, like a point you hold; the shot kicks it up.
+    if (this.gun) {
+      const g = this.gun;
+      g.draw = Math.min(1, g.draw + dt / 0.18);
+      const e = 1 - (1 - g.draw) ** 3;
+      g.prop.scale.setScalar(Math.max(0.01, e));
+      let kick = 0;
+      if (g.fireT >= 0) {
+        g.fireT += dt;
+        kick = Math.max(0, 1 - g.fireT / 0.22);
+        if (g.fireT >= 0.22) g.fireT = -1;
+      }
+      r.position.x -= 0.16 * e;
+      r.position.y += (0.09 + kick * 0.09) * e;
+      r.position.z -= (0.2 - kick * 0.06) * e;
+      r.rotation.x += (0.3 + kick * 0.5) * e;
+      r.rotation.y += 0.15 * e;
+      g.muzzle.update(dt);
+    }
     // A drag: the cigarette hand comes up to your mouth, just under the camera, and back down.
     if (this.smokeT >= 0) {
       this.smokeT += dt;

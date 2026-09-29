@@ -8,6 +8,7 @@ import { HIPS } from '../player';
 import { OpenBook } from './book';
 import { HeldCard } from './card';
 import { UNDEAD_SKIN, elfBoot, elfHat, elfWorker, santaHat, warlockHat, zombieWorker } from './costumes';
+import { Muzzle, disposeGun, magnum } from './gun';
 import { cardSprite, disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
 
 export type Pose = 'stand' | 'walk' | 'sit' | 'type';
@@ -365,6 +366,11 @@ export class Person {
   /** Dressed up for a holiday (see setCostume): a warlock's hat and undead skin, or a Santa hat. */
   private costume: Theme | null = null;
   private hat: THREE.Object3D[] = [];
+  /**
+   * A .44 Magnum in the right fist (see setGun): the prop, its muzzle flash, how far into the draw
+   * (0–1), and seconds into the shot's recoil, or -1.
+   */
+  private gun: { prop: THREE.Group; muzzle: Muzzle; draw: number; fireT: number } | null = null;
 
   constructor(name: string, color: string, look: Look) {
     this.look = { ...look };
@@ -936,6 +942,60 @@ export class Person {
     this.legR.rotation.set(0, 0, 0.1);
   }
 
+  /** Takes it out of the scene and frees its sprites (its materials are shared). */
+  dispose() {
+    this.root.removeFromParent();
+    if (this.label) disposeSprite(this.label);
+    if (this.doing) disposeSprite(this.doing);
+    this.endEmote();
+  }
+
+  /** A .44 Magnum in the right fist, or back in its holster. The arm swings up to aim as it draws. */
+  setGun(on: boolean) {
+    if (on === !!this.gun) return;
+    if (!on) {
+      const { prop } = this.gun!;
+      disposeGun(prop);
+      this.gun = null;
+      this.armL.rotation.set(0, 0, 0);
+      return;
+    }
+    const prop = magnum();
+    prop.position.set(0, -0.38, 0.03);
+    // The muzzle down the arm, out of the fist: aiming the arm aims the gun.
+    prop.rotation.x = Math.PI / 2;
+    prop.scale.setScalar(0.01);
+    const muzzle = new Muzzle();
+    prop.add(muzzle.group);
+    this.armL.add(prop);
+    this.gun = { prop, muzzle, draw: 0, fireT: -1 };
+  }
+
+  /** Fires it: a flash at the muzzle and one shell of recoil up the arm. */
+  fire() {
+    const g = this.gun;
+    if (!g) return;
+    g.muzzle.fire();
+    g.fireT = 0;
+  }
+
+  /** The draw, the aim and the recoil, over whatever the right arm was doing. */
+  private gunStep(dt: number) {
+    const g = this.gun!;
+    g.draw = Math.min(1, g.draw + dt / 0.18);
+    const e = 1 - (1 - g.draw) ** 3;
+    g.prop.scale.setScalar(Math.max(0.01, e));
+    let kick = 0;
+    if (g.fireT >= 0) {
+      g.fireT += dt;
+      kick = Math.max(0, 1 - g.fireT / 0.22);
+      if (g.fireT >= 0.22) g.fireT = -1;
+    }
+    this.armL.rotation.x = THREE.MathUtils.lerp(this.armL.rotation.x, -1.55 - kick * 0.55, e);
+    this.armL.rotation.z = THREE.MathUtils.lerp(this.armL.rotation.z, 0.12, e);
+    g.muzzle.update(dt);
+  }
+
   /** `pace` speeds up the walk cycle for someone walking faster than usual. */
   update(dt: number, t: number, moving: boolean, airborne: boolean, pace = 1) {
     const target = moving ? 1 : 0;
@@ -1031,6 +1091,7 @@ export class Person {
     this.body.rotation.y = this.body.rotation.z = 0;
     if (this.emoting) this.emoteStep(dt, moving || airborne ? 0 : 1 - sit);
     if (this.golf && !sit && !airborne) this.golfStep(dt);
+    if (this.gun) this.gunStep(dt);
   }
 }
 
@@ -1294,6 +1355,8 @@ export class Worker {
   private feet: THREE.Mesh[] = [];
   /** Sent home: the box of its things in its arms, and how far into its waddle it is. */
   private leaving: { box: THREE.Group; boxT: number; stride: number } | null = null;
+  /** Shot: light out, face slack, flat where it fell while its session keeps running (see die). */
+  private dead = false;
   /** On its way out (sent home) or in (called to a meeting): it waddles along instead of standing. */
   walking = false;
   /** What its latest tool call was (see setAction), and what it's acting out right now. */
@@ -1396,6 +1459,7 @@ export class Worker {
 
   /** Just finished: a quick spin and a hop. */
   celebrate() {
+    if (this.dead) return;
     this.twirlT = 0;
     this.cheer(1.2);
   }
@@ -1433,6 +1497,11 @@ export class Worker {
 
   setStatus(status: WorkerStatus, bounce: boolean) {
     this.status = status;
+    // Down on the floor, the session runs on but the light stays out and the bubble stays gone.
+    if (this.dead) {
+      this.bouncing = false;
+      return;
+    }
     this.bouncing = bounce;
     if (!this.dancing) this.paintBulb();
     this.drawBubble();
@@ -1454,7 +1523,7 @@ export class Worker {
    * ball, and hops back down into its seat. Asked again mid-dance, it stays up and dances on.
    */
   dance(stage: Stage) {
-    if (this.leaving) return;
+    if (this.leaving || this.dead) return;
     const d = this.dancing;
     if (!d) {
       this.dancing = { stage, t: 0 };
@@ -1532,8 +1601,43 @@ export class Worker {
     this.root.add(this.bubble);
   }
 
+  /** Shot: its light goes out, its face goes slack and its bubble goes away. Its session runs on. */
+  die() {
+    if (this.dead) return;
+    this.dead = true;
+    this.stopDancing();
+    this.bouncing = false;
+    this.cheerT = 0;
+    this.bounceT = 0;
+    this.twirlT = -1;
+    for (const prop of [this.papers.group, this.globe.group]) prop.visible = false;
+    this.armL.position.set(-0.3, 0.55, 0.05);
+    this.armR.position.set(0.3, 0.55, 0.05);
+    this.feet.forEach((f, i) => f.position.set(i ? 0.12 : -0.12, 0.2, 0.05));
+    this.bulb.color.set(STATUS_BULB.exited);
+    this.bulb.emissive.set('#000000');
+    if (this.bubble) {
+      this.root.remove(this.bubble);
+      disposeSprite(this.bubble);
+      this.bubble = null;
+    }
+    this.bubbleKey = 'dead';
+    for (const p of this.pupils) p.position.y = 0.62;
+  }
+
+  /** Revived: back on its feet with its session untouched, light and bubble as its status says. */
+  revive() {
+    if (!this.dead) return;
+    this.dead = false;
+    for (const p of this.pupils) p.position.y = 0.7;
+    for (const e of this.eyes) e.scale.y = 1;
+    this.settle();
+    this.bubbleKey = '';
+    this.drawBubble();
+  }
+
   private drawBubble() {
-    if (this.leaving) return;
+    if (this.leaving || this.dead) return;
     const { status, bouncing: bounce, task, pr } = this;
     const hot = status === 'needs_input' || (status === 'done' && bounce);
     // Resting cards used to be cream. They sit black with white type, like the name tag.
@@ -1570,6 +1674,7 @@ export class Worker {
   update(dt: number, t: number) {
     if (this.leaving) return this.carry(this.leaving, dt, t);
     if (this.dancing) return this.boogie(this.dancing, dt, t);
+    if (this.dead) return this.flatline(dt);
     this.cheerT = Math.max(0, this.cheerT - dt);
     // Waiting on you: a couple of seconds of jumping, then arms crossed and a tapping foot, and round again.
     this.waitT = this.status === 'needs_input' ? this.waitT + dt : 0;
@@ -1687,6 +1792,14 @@ export class Worker {
       this.globe.ball.rotation.y = t * 2.2;
       this.globe.ring.rotation.z = t * 0.6;
     }
+  }
+
+  /** Shot: flat where it fell, lids heavy, light out. Only the name tag stays up. */
+  private flatline(dt: number) {
+    this.blinkAt -= dt;
+    if (this.blinkAt < 0) this.blinkAt = 4 + Math.random() * 4;
+    const shut = this.blinkAt < 0.4;
+    for (const e of this.eyes) e.scale.y = shut ? 0.1 : 0.4;
   }
 
   /** Sent home: head hung, the box in its arms, waddling along while `walking`. */

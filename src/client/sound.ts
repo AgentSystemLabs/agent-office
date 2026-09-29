@@ -793,6 +793,121 @@ export class OfficeSound {
     wash.stop(t0 + 3.5 * long + 0.05);
   }
 
+  // ---- The .44 Magnum ----------------------------------------------------------------------------
+
+  /** Your shot: a loud crack over a deep boom. It's your gun, so it isn't positional. */
+  gunshot() {
+    this.unlock();
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (ctx.state === 'suspended') void ctx.resume();
+    this.count('gunshot');
+    const t0 = ctx.currentTime + 0.005;
+    // The crack: white noise through a wide band, gone in a blink.
+    const crack = this.noise(this.buf.white);
+    const cg = ctx.createGain();
+    envelope(cg.gain, t0, [
+      [0.008, 0.9],
+      [0.09, 0.25],
+      [0.3, 0],
+    ]);
+    crack
+      .connect(biquad(ctx, 'bandpass', 1600, 0.5))
+      .connect(cg)
+      .connect(this.ambience);
+    crack.start(t0);
+    crack.stop(t0 + 0.35);
+    // The boom under it: low noise swelling and rolling off.
+    const boom = this.noise(this.buf.brown, true);
+    const tone = biquad(ctx, 'lowpass', 420, 0.6);
+    tone.frequency.setValueAtTime(420, t0);
+    tone.frequency.exponentialRampToValueAtTime(90, t0 + 0.5);
+    const bg = ctx.createGain();
+    bg.gain.setValueAtTime(0.0001, t0);
+    bg.gain.exponentialRampToValueAtTime(0.7, t0 + 0.015);
+    bg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.7);
+    boom.connect(tone).connect(bg).connect(this.ambience);
+    boom.start(t0);
+    boom.stop(t0 + 0.75);
+  }
+
+  /** Drawing it: the hammer back and the cylinder turning, two clicks. */
+  gunDraw() {
+    this.unlock();
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count('gunDraw');
+    const t0 = ctx.currentTime + 0.005;
+    this.play(pick(this.buf.steps), { gain: 0.35, rate: 2.2, when: t0 });
+    this.play(pick(this.buf.steps), { gain: 0.45, rate: 1.7, when: t0 + 0.09 });
+    this.blip(this.ambience, t0 + 0.09, 2600, 0.9, 0.05, 0.06, 'square');
+  }
+
+  /** Holstering it: one soft click. */
+  gunHolster() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count('gunHolster');
+    this.play(pick(this.buf.steps), { gain: 0.22, rate: 1.1 });
+  }
+
+  /** A body landing on the floorboards, from where it fell. */
+  thud(at: Pos) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count('thud');
+    const out = this.panner(at, 2.5, 1);
+    out.connect(this.ambience);
+    const t0 = ctx.currentTime + 0.005;
+    const n = this.noise(this.buf.brown);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.6, t0 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.3);
+    n.connect(biquad(ctx, 'lowpass', 260, 0.7))
+      .connect(g)
+      .connect(out);
+    n.start(t0);
+    n.stop(t0 + 0.35);
+    this.play(pick(this.buf.steps), { gain: 0.3, rate: 0.55, when: t0, dest: out });
+  }
+
+  /** A missed shot cracking into the wall or floor, from where it hit. */
+  impact(at: Pos) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count('impact');
+    const out = this.panner(at, 3, 0.9);
+    out.connect(this.ambience);
+    const t0 = ctx.currentTime + 0.005;
+    const n = this.noise(this.buf.white);
+    const g = ctx.createGain();
+    envelope(g.gain, t0, [
+      [0.006, 0.4],
+      [0.05, 0.15],
+      [0.16, 0],
+    ]);
+    n.connect(biquad(ctx, 'highpass', 2000, 0.7))
+      .connect(g)
+      .connect(out);
+    n.start(t0);
+    n.stop(t0 + 0.2);
+  }
+
+  /** The medics coming in: a two-tone siren sting, from the elevator. */
+  siren(at: Pos) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count('siren');
+    const out = this.panner(at, 6, 0.6);
+    out.connect(this.alerts);
+    const t0 = ctx.currentTime + 0.02;
+    for (let i = 0; i < 3; i++) {
+      this.blip(out, t0 + i * 0.42, 660, 1.335, 0.2, 0.16, 'triangle');
+      this.blip(out, t0 + i * 0.42 + 0.21, 880, 0.75, 0.2, 0.16, 'triangle');
+    }
+  }
+
   // ---- The arcade -------------------------------------------------------------------------------
 
   /** The arcade cabinet's chip bleeps: a piece landing, lines clearing (a longer run up for more at once), the game ending. */

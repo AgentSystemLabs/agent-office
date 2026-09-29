@@ -265,6 +265,8 @@ img.glyph { display: inline-block; width: 1em; height: 1em; vertical-align: -0.1
   transition: transform var(--duration) var(--ease), background var(--duration) var(--ease); pointer-events: none !important;
 }
 .crosshair.on { transform: scale(1.6); background: var(--accent); opacity: 1; }
+.crosshair.armed { background: #e03131; opacity: 1; }
+.crosshair.armed.on { transform: scale(1.6); background: #e03131; }
 .crosshair .look-hint {
   display: none; position: absolute; top: 18px; left: 50%; transform: translateX(-50%); white-space: nowrap;
   background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 4px 10px; font: 500 10px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--text-secondary);
