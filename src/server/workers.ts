@@ -418,7 +418,7 @@ export class WorkerManager {
       // Fresh branches with nothing on them: nothing is lost taking them out again.
       void (async () => {
         for (const m of made.reverse()) await m.trees.remove(m.ref, 'all');
-        clearWorkspace(path.join(this.dir, path.join(WORKTREES_DIR, slug)));
+        clearWorkspace(path.join(this.dir, WORKTREES_DIR, slug));
       })();
       return why;
     };
@@ -441,7 +441,7 @@ export class WorkerManager {
       repos: [line(names[0], home, primary.from, " (this floor's project)"), ...repos.map((r, i) => line(names[i + 1], r.repo ?? r.name, others[i].from))].join('\n'),
     });
     try {
-      for (const file of WORKSPACE_FILES) writeFileSync(path.join(this.dir, path.join(WORKTREES_DIR, slug), file), `${brief.trim()}\n`);
+      for (const file of WORKSPACE_FILES) writeFileSync(path.join(this.dir, WORKTREES_DIR, slug, file), `${brief.trim()}\n`);
     } catch (err) {
       return fail(`Could not write the workspace's brief: ${(err as Error).message}`);
     }

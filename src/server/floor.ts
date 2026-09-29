@@ -319,7 +319,7 @@ export class Floor {
         // it goes once nothing is left that its merged PRs didn't deliver.
         if (this.landing.has(worker.id)) continue;
         this.landing.add(worker.id);
-        void this.workers.holdsWork(worker.id, head, heads).then((held) => {
+        void this.workers.holdsWork(worker.id, head, heads).catch(() => true).then((held) => {
           this.landing.delete(worker.id);
           if (!held && this.workers.get(worker.id) === worker) this.goHome(worker, `its pull requests merged (${landed.prs?.join(', ')})`, head, heads);
         });

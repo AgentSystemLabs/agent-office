@@ -1548,7 +1548,7 @@ export async function startServer(cfg: Config) {
             toastFloor(floor, r.prs.every((p) => p.existed) ? `${name}'s pull requests are already open: ${list}` : `${who} opened ${name}'s pull requests: ${list}`);
           }
           const dirty = r.prs.filter((p) => p.dirty);
-          if (dirty.length) warn(c, `${name} still has uncommitted changes in ${dirty.some((p) => p.repo) ? `its worktrees of ${dirty.map((p) => p.repo).join(', ')}` : 'its worktree'} — they are not in the PR`);
+          if (dirty.length) warn(c, `${name} still has uncommitted changes in ${dirty.some((p) => p.repo) ? `its worktree${dirty.length > 1 ? 's' : ''} of ${dirty.map((p) => p.repo).join(', ')}` : 'its worktree'} — they are not in the PR`);
           for (const f of r.failed) warn(c, f);
           // Put it on the board now rather than at the next poll. A refresh already in flight
           // returns at once and can miss it, so look again shortly after.
