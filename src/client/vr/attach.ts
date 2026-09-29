@@ -83,7 +83,7 @@ export interface VrUiVoice {
 /** Everything the VR UI needs from the office: stores, clients and DOM-shared actions. No globals. */
 export interface VrUiDeps {
   send: (msg: VrTerminalMsg) => void;
-  subscribe: (topic: 'screens' | 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services' | 'peers' | 'dog', fn: () => void) => () => void;
+  subscribe: (topic: 'screens' | 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services' | 'peers', fn: () => void) => () => void;
   getScreen: (workerId: string) => ScreenState | undefined;
   getWorker: (workerId: string) => WorkerInfo | undefined;
   /** A worker's provider after the office default fills in a missing one (the store's resolvedProvider). */
@@ -100,7 +100,6 @@ export interface VrUiDeps {
   getMeeting: () => MeetingState;
   getServices: () => ServicesState;
   getPeers: () => PeerInfo[];
-  getDogName: () => string | null;
   getSound: () => { volume: number; muted: boolean; music: number; musicMuted: boolean };
   getWorktree: () => boolean;
   getSearch: () => VrSearchState | null;
@@ -243,7 +242,6 @@ class VrUi implements VrUiHandle {
         getMeeting: deps.getMeeting,
         getServices: deps.getServices,
         getPeers: deps.getPeers,
-        getDogName: deps.getDogName,
         getSound: deps.getSound,
         getWorktree: deps.getWorktree,
         getSearch: deps.getSearch,

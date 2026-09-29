@@ -3,7 +3,6 @@ import { store, type Settings, type ViewMode } from '../state';
 import { askNotifyPermission, notifyPermission, type DesktopNotifier } from '../notify';
 import type { ThemePick, WebhookKind } from '../../shared/protocol';
 import { THEME_PICKS } from '../../shared/theme';
-import { DOG_NAME_MAX, cleanDogName } from '../../shared/dog';
 import { h, openModal, timeAgo } from './dom';
 import { onJiraSetup } from './jira';
 import { agentFields, choiceLabel, officeChoice } from './provider';
@@ -162,9 +161,9 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     );
     const now =
       active === 'halloween'
-        ? 'Halloween: the workers are zombies, your hands are an undead warlock’s, the dog’s in costume, the sky’s gone creepy and there are jack-o’-lanterns everywhere.'
+        ? 'Halloween: the workers are zombies, your hands are an undead warlock’s, the sky’s gone creepy and there are jack-o’-lanterns everywhere.'
         : active === 'christmas'
-          ? 'Christmas: the workers are elves, your hands are in mittens, the dog’s Rudolph, and it’s snowing outside.'
+          ? 'Christmas: the workers are elves, your hands are in mittens, and it’s snowing outside.'
           : 'No decorations up right now.';
     const how = pick === 'auto' ? ' By the calendar it’s Halloween through October and Christmas through December.' : '';
     themeNote.textContent = `${now}${how} It’s the same for everyone in the building${by ? `, set by ${by}${at ? ` ${timeAgo(at)}` : ''}` : ''}.`;
@@ -525,30 +524,6 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     net.send({ t: 'jira.epic', key: '' });
   });
 
-  // The dog on this floor, named for everyone here.
-  const dogInput = h('input', { type: 'text', maxlength: DOG_NAME_MAX, 'aria-label': 'The dog’s name', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
-  const dogSave = h('button.btn.primary', { type: 'button' }, 'Rename');
-  const dogNote = h('p.setting-note');
-  const dogSection = h('div', {}, h('label', { style: 'margin-top:18px' }, 'Office dog'), h('div.webhook', {}, dogInput, dogSave), dogNote);
-  const paintDog = () => {
-    const dog = store.dog;
-    dogSection.classList.toggle('hidden', !dog);
-    if (!dog) return;
-    dogInput.placeholder = dog.name;
-    dogNote.textContent = `${dog.name} lives on this floor. When a worker needs input, ${dog.name} runs to its desk and barks. Walk up and press E to pet it. A new name is for everyone on this floor.`;
-  };
-  paintDog();
-  const renameDog = () => {
-    const name = cleanDogName(dogInput.value);
-    if (!name) return dogInput.focus();
-    net.send({ t: 'dog.name', name });
-    dogInput.value = '';
-  };
-  dogSave.addEventListener('click', renameDog);
-  dogInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') renameDog();
-  });
-
   const account = store.me.account;
   const signOut = h('button.btn', { type: 'button' }, 'Sign out');
   signOut.addEventListener('click', onSignOut);
@@ -577,7 +552,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       h('p.setting-note', {}, 'A blink through black as you land, or a straight cut when it’s off.'),
       h('label', { style: 'margin-top:18px' }, 'Office sounds'),
       soundRow,
-      h('p.setting-note', {}, 'Workers typing, the coffee machine, thunder, the dog, and the ding when a worker is done. Voice chat isn’t affected.'),
+      h('p.setting-note', {}, 'Workers typing, the coffee machine, thunder, and the ding when a worker is done. Voice chat isn’t affected.'),
       h('label', { style: 'margin-top:18px' }, 'Jukebox'),
       musicRow,
       h('p.setting-note', {}, 'The jukebox in the lounge. Everyone on the floor hears the same song, louder the closer they are to it; this is how loud it is for you alone.'),
@@ -629,7 +604,6 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       dirRow,
       dirActions,
       dirNote,
-      dogSection,
       h('label', { style: 'margin-top:18px' }, 'Your character'),
       character,
       h('label', { style: 'margin-top:18px' }, 'Signed in'),
@@ -638,7 +612,6 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     ),
   );
   const offNotify = store.on('notify', paintHook);
-  const offDog = store.on('dog', paintDog);
   const offTheme = store.on('theme', paintTheme);
   const offLeave = store.on('leaveOnMerge', paintLeave);
   const offLimit = [store.on('machine', paintLimit), store.on('me', paintLimit)];
@@ -649,7 +622,6 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     doing: '⚙️ in settings',
     onClose: () => {
       offNotify();
-      offDog();
       offTheme();
       offLeave();
       offLimit.forEach((off) => off());

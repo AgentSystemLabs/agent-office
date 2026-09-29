@@ -17,7 +17,7 @@ interface GestureRow {
 
 const HANDS: GestureRow[] = [
   { gesture: '👌 Pinch', does: 'use it (E)' },
-  { gesture: 'Touch', does: 'pet dog · ring gong · cab keys' },
+  { gesture: 'Touch', does: 'ring gong · cab keys' },
   { gesture: '👌… near a cup/card', does: 'hold to grab · let go to put down' },
   { gesture: '☕ / 📋 held', does: 'sip at mouth / free-hand tap to use' },
   { gesture: '👌… away from objects', does: 'aim teleport, let go to land' },

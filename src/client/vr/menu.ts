@@ -11,8 +11,7 @@
  * terminal lines, tap one to open its terminal at the line), assign (hand an issue to a worker), meeting (the room's
  * status + call one with the pattern defaults, and the earlier meetings), services (the workers' web servers, tap to copy
  * a tunnel command), people (who else is around — tap a row to walk over), and settings
- * (glide, turning, turn speed, teleport fade, the dog's name — the ⚙️ Settings VR section
- * plus the office dog, in the headset).
+ * (glide, turning, turn speed, teleport fade — the ⚙️ Settings VR section, in the headset).
  *
  * A worker's uncommitted work lives in the changes view (the Changes window's file list
  * with commit / discard / open-a-PR — the diff itself stays in the window, or a `git diff`
@@ -53,7 +52,7 @@ export interface VrMergeInfo {
 }
 
 export interface VrMenuStores {
-  subscribe: (topic: 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services' | 'peers' | 'dog', fn: () => void) => () => void;
+  subscribe: (topic: 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services' | 'peers', fn: () => void) => () => void;
   getWorkers: () => WorkerInfo[];
   getIssues: () => GhState<GhIssue>;
   getPulls: () => GhState<GhPull>;
@@ -77,8 +76,6 @@ export interface VrMenuStores {
   getServices: () => ServicesState;
   /** Everyone else around (the sidebar's people, without you). */
   getPeers: () => PeerInfo[];
-  /** The floor dog's name (the ⚙️ Settings office-dog row's value). */
-  getDogName: () => string | null;
   /** Your own sound levels (the ⚙️ Settings volume rows' values, live). */
   getSound: () => { volume: number; muted: boolean; music: number; musicMuted: boolean };
   /** Whether the next hire gets its own git worktree (the hire dialog checkbox's memory). */
@@ -124,8 +121,6 @@ export interface VrMenuActions {
   leaveVoice: () => void;
   /** Patches VR locomotion/comfort — the DOM ⚙️ Settings VR section's function (assign + save). */
   vrSettings: (patch: Partial<VrSettings>) => void;
-  /** Renames the floor dog — the DOM ⚙️ Settings office-dog row (main.ts vrRenameDog). */
-  renameDog: () => void;
   /** Mutes/unmutes the jukebox or the office sounds — the DOM ⚙️ Settings mute buttons. */
   toggleSound: (kind: 'music' | 'sounds') => void;
   /** Calls a meeting with the pattern defaults — the DOM meeting form's send (main.ts vrMeeting). */
@@ -297,7 +292,7 @@ export class VrMenu {
     this.panel = new WorldPanel({ width: widthM, height: heightM, paint: (ctx, w, h, _dirty, state) => this.paint(ctx, w, h, state) });
     this.panel.setScrollRegion('list', BODY);
     this.panel.setVisible(false);
-    this.unsubs = (['workers', 'issues', 'pulls', 'queue', 'chat', 'floors', 'floor', 'jukebox', 'meeting', 'services', 'peers', 'dog'] as const).map((t) => stores.subscribe(t, () => this.refresh()));
+    this.unsubs = (['workers', 'issues', 'pulls', 'queue', 'chat', 'floors', 'floor', 'jukebox', 'meeting', 'services', 'peers'] as const).map((t) => stores.subscribe(t, () => this.refresh()));
     this.syncButtons();
   }
 
@@ -525,8 +520,6 @@ export class VrMenu {
       { id: 'speed', icon: '🎚️', title: `Turn speed: ${s.turnSpeed}°/s`, sub: 'smooth turning only · tap to step up' },
       { id: 'fade', icon: '🌑', title: `Teleport fade: ${s.fade ? 'on' : 'off'}`, sub: s.fade ? 'through black · tap for instant' : 'instant · tap for the fade' },
     ];
-    const dog = this.stores.getDogName();
-    if (dog) rows.push({ id: 'dog', icon: '🐶', title: `Office dog: ${dog}`, sub: 'tap to rename for the floor' });
     rows.push(
       { id: 'music', icon: sound.musicMuted ? '🔇' : '🎵', title: sound.musicMuted ? 'Jukebox: muted' : `Jukebox: ${Math.round(sound.music * 100)}%`, sub: 'your ears only · tap to mute/unmute' },
       { id: 'sounds', icon: sound.muted ? '🔇' : '🔊', title: sound.muted ? 'Office sounds: muted' : `Office sounds: ${Math.round(sound.volume * 100)}%`, sub: 'your ears only · tap to mute/unmute' },
@@ -957,7 +950,6 @@ export class VrMenu {
         const next = s.turnSpeed + 30;
         this.actions.vrSettings({ turnSpeed: next > 180 ? 30 : next });
       } else if (id === 'fade') this.actions.vrSettings({ fade: !s.fade });
-      else if (id === 'dog') this.actions.renameDog();
       else if (id === 'music') this.actions.toggleSound('music');
       else if (id === 'sounds') this.actions.toggleSound('sounds');
       this.refresh();

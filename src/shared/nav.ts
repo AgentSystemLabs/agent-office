@@ -1,5 +1,5 @@
 // Getting around the office floor downstairs (no stairs, no loft, no elevator), round the furniture
-// on a coarse grid: the dog's walks (server/dog.ts), and a worker's way out when it's sent home.
+// on a coarse grid: a worker's way out when it's sent home.
 
 import {
   BALCONY,
@@ -36,7 +36,7 @@ import {
 export type Pt = [number, number];
 
 const CELL = 0.5;
-/** Half the width of whoever walks it (the dog, a worker), plus a little room: how far they keep from things. */
+/** Half the width of whoever walks it (a worker), plus a little room: how far they keep from things. */
 const R = 0.3;
 const COLS = Math.ceil((FLOOR.maxX - FLOOR.minX) / CELL);
 const ROWS = Math.ceil((FLOOR.maxZ - FLOOR.minZ) / CELL);
@@ -81,11 +81,11 @@ function obstacles(): { rects: Rect[]; circles: Circle[] } {
   // The bookshelf against the south wall, as world/bookshelf.ts puts it.
   rects.push([BOOKSHELF.x - BOOKSHELF.width / 2 - 0.04, BOOKSHELF.x + BOOKSHELF.width / 2 + 0.04, BOOKSHELF.z - BOOKSHELF.depth / 2 - 0.03, FLOOR.maxZ]);
   // The ladder up the west wall, and the fire poles: a hole with a railing round it, or a landing mat.
-  // Which spot has which changes floor by floor, so the dog keeps off both.
+  // Which spot has which changes floor by floor, so workers keep off both.
   rects.push([FLOOR.minX, FLOOR.minX + 0.3, LADDER.z - LADDER.width / 2 - 0.05, LADDER.z + LADDER.width / 2 + 0.05]);
   for (const p of POLES) rects.push([p.x - POLE.rail - 0.05, p.x + POLE.rail + 0.05, p.z - POLE.rail - 0.05, p.z + POLE.rail + 0.05]);
   // The overflow bean bags and their lap desks. They're only out while every desk is taken, but they
-  // always come out in the same spots, so the dog keeps off those.
+  // always come out in the same spots, so workers keep off those.
   for (const b of BEANBAGS) {
     const corners = [deskPoint(b, -0.62, -1.1), deskPoint(b, 0.62, -1.1), deskPoint(b, -0.62, 0.64), deskPoint(b, 0.62, 0.64)];
     const xs = corners.map(([x]) => x);

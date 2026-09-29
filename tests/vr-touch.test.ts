@@ -5,9 +5,7 @@ import { VRSession, type VRHooks } from '../src/client/vr/session.js';
 import { pickTouchTarget } from '../src/client/world/touch.js';
 import { buildCoffeeMachine } from '../src/client/world/coffee.js';
 import { buildGong } from '../src/client/world/gong.js';
-import { Dog } from '../src/client/world/dog.js';
 import type { Interactable } from '../src/client/world/office.js';
-import type { DogAct } from '../src/shared/dog.js';
 import { GONG } from '../src/shared/layout.js';
 
 function canvasStub(t: TestContext) {
@@ -95,24 +93,6 @@ test('gong contact is limited to the disc and its swing cannot rearm a stationar
   assert.equal(pickTouchTarget(point, [[gong.interactable]]), null);
 });
 
-test('dog head and back contact follows movement, rotation and every resting pose', (t) => {
-  canvasStub(t);
-  const dog = new Dog({ bark() {}, yip() {} }, () => false);
-  assert.equal(pickTouchTarget(new THREE.Vector3(), [dog.interactables]), null, 'no floor dog');
-  for (const act of ['stand', 'sit', 'lie', 'nap', 'sniff', 'wag'] satisfies DogAct[]) {
-    dog.sync({ name: 'Pup', coat: 0, path: [[4, -3]], speed: 0, elapsed: 0, act, face: Math.PI / 2 }, performance.now());
-    for (let i = 0; i < 60; i++) dog.update(1 / 60);
-    const [head, back] = dog.interactable.touch!;
-    assert.equal(pickTouchTarget(head.object.localToWorld(new THREE.Vector3(0, 0.16, 0)), [dog.interactables]), dog.interactable, `${act}: head`);
-    assert.equal(pickTouchTarget(back.object.localToWorld(new THREE.Vector3(0, 0.22, 0.19)), [dog.interactables]), dog.interactable, `${act}: back`);
-    assert.equal(pickTouchTarget(new THREE.Vector3(4, 1, -3), [dog.interactables]), null, `${act}: walking hand above the dog`);
-    assert.equal(pickTouchTarget(new THREE.Vector3(4.8, 0.4, -3), [dog.interactables]), null, `${act}: passing alongside`);
-    assert.equal(pickTouchTarget(new THREE.Vector3(0, 0.4, 0), [dog.interactables]), null, 'old position is not touchable');
-  }
-  dog.sync(null, performance.now());
-  assert.equal(pickTouchTarget(new THREE.Vector3(4, 0.4, -3), [[dog.interactable]]), null, 'hidden model rejects stale lists');
-});
-
 test('physical models keep their existing ray-pickable interactables', (t) => {
   canvasStub(t);
   const { group, it } = coffeeFixture();
@@ -165,7 +145,7 @@ function sessionFixture(t: TestContext) {
     },
   } as unknown as THREE.WebGLRenderer;
   const calls: Interactable[] = [];
-  const target: Interactable = { kind: 'dog', x: 0, z: 0, radius: 1.5 };
+  const target: Interactable = { kind: 'gong', x: 0, z: 0, radius: 1.5 };
   const hooks = {
     player: { rig: null },
     useE: (it: Interactable) => calls.push(it),

@@ -1,7 +1,7 @@
 /**
  * The VR aim bar: the desktop hint bar's twin for the headset. A small strip low in the view
- * naming what E (pinch, trigger) would do to whatever the ray aims at — desks, boards, the
- * dog — and going quiet where E would do nothing (out of reach, a panel under the ray, a
+ * naming what E (pinch, trigger) would do to whatever the ray aims at — desks, boards,
+ * the elevator — and going quiet where E would do nothing (out of reach, a panel under the ray, a
  * teleport being aimed). The session feeds it the same target the flat mirror's hint shows.
  */
 

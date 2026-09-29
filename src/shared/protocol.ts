@@ -4,7 +4,6 @@ import type { Look } from './avatar.js';
 import type { Forge } from './floors.js';
 import type { CabinetFrame, CabinetState, CabinetView } from './cabinet.js';
 import type { DecorPlacement, Decoration } from './decor.js';
-import type { DogState } from './dog.js';
 import type { EmoteId } from './emotes.js';
 import type { BallState } from './hoop.js';
 import type { JiraBoardState, JiraFloorState } from './jira.js';
@@ -87,6 +86,10 @@ export interface WorkerInfo {
   model?: string;
   /** Reasoning effort requested for this worker, when one was chosen (Claude and Droid only). */
   effort?: AgentEffort;
+  /** The model its session is running now, as the agent reports it (Droid), even when none was requested. Wins over `model` for display. */
+  activeModel?: string;
+  /** The reasoning effort its session is running now, alongside `activeModel`. */
+  activeEffort?: AgentEffort;
   deskId: string;
   name: string;
   color: string;
@@ -743,8 +746,6 @@ export interface FloorView {
   /** Pictures on this floor's walls. */
   decor: Decoration[];
   services: ServicesState;
-  /** The floor's dog; null in a building with no floors yet. */
-  dog: DogState | null;
   /** What the lounge jukebox is playing. */
   jukebox: JukeboxState;
   /** Who's at the arcade cabinet, what's on its screen, and the building's high scores. */
@@ -1183,10 +1184,6 @@ export type ClientMsg =
   | { t: 'prompts.set'; id: PromptId; text: string | null }
   /** Pick the worker a new one starts on when nobody picks (admins only); null goes back to the office's --agent. */
   | { t: 'prompts.agent'; choice: AgentChoice | null }
-  /** Give the dog on your floor a pat; it has to be within reach. */
-  | { t: 'dog.pet' }
-  /** Name the dog on your floor ('' gives it back its first name). */
-  | { t: 'dog.name'; name: string }
   /** Read DroidProxy's limits again now (E at the machine monitor); answered with `proxy`, or a toast when it can't yet. */
   | { t: 'proxy.refresh' }
   | { t: 'ping'; at: number };
@@ -1270,8 +1267,6 @@ export type ServerMsg =
   | { t: 'upgrade'; state: UpgradeState }
   | { t: 'services'; state: ServicesState }
   | { t: 'decor'; items: Decoration[] }
-  /** What the dog on your floor is up to now: sent at the start of each leg of its day. */
-  | { t: 'dog'; dog: DogState }
   /** The basketball on your floor was picked up, thrown, or put back under the hoop. */
   | { t: 'ball'; ball: BallState }
   | { t: 'jukebox'; state: JukeboxState }

@@ -3,7 +3,7 @@
 // and opens the room's menu instead — no modal.
 export default async function run({ frame }) {
   const s = await frame.evaluate(() => {
-    window.__vrtest?.carry?.(7, 'The dog ate the deploy');
+    window.__vrtest?.carry?.(7, 'The bean bag ate the deploy');
     window.__vrtest?.tapUse?.('meeting');
     return { view: window.__vrtest?.menuView?.() ?? null, modal: window.__vrtest?.modal?.() ?? null };
   });

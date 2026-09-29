@@ -34,7 +34,6 @@ import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
 import { newer, type WbElement } from '../shared/whiteboard';
-import type { DogState } from '../shared/dog';
 import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
 import { forgeWords, type ForgeWords } from '../shared/floors';
@@ -66,7 +65,6 @@ export type Topic =
   | 'floor'
   | 'projectsDir'
   | 'repos'
-  | 'dog'
   | 'jukebox'
   | 'sky'
   | 'theme'
@@ -267,9 +265,6 @@ class Store {
   machine: MachineState = { cpu: 0, cores: 0, memUsed: 0, memTotal: 0, history: [], workers: 0 };
   /** The limits of the accounts DroidProxy serves on the office's machine. */
   proxy: ProxyState = { accounts: [], at: 0 };
-  /** The dog on your floor, and when (performance.now()) the leg it's on began. */
-  dog: DogState | null = null;
-  dogStart = 0;
   /** The basketball on this floor, as the office last said (see world/hoop.ts). */
   ball: BallState = {};
   /** Outside the windows; null until the server says. */
@@ -349,15 +344,9 @@ class Store {
     this.drawing = v.whiteboard.people;
     this.cabinet = { player: v.cabinet.player, scores: v.cabinet.scores };
     this.cabinetFrame = v.cabinet.frame;
-    this.setDog(v.dog);
     this.setJukebox(v.jukebox);
     this.ball = v.ball ?? {};
-    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'jira', 'jiraBoard', 'ball'] as Topic[]) this.emit(t);
-  }
-
-  private setDog(dog: DogState | null) {
-    this.dog = dog;
-    this.dogStart = performance.now() - (dog?.elapsed ?? 0);
+    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'services', 'jukebox', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'jira', 'jiraBoard', 'ball'] as Topic[]) this.emit(t);
   }
 
   /** When the track started on this page's clock: from the office's clock once it's known, else from `elapsed`. */
@@ -540,10 +529,6 @@ class Store {
       case 'proxy':
         this.proxy = msg.state;
         this.emit('proxy');
-        break;
-      case 'dog':
-        this.setDog(msg.dog);
-        this.emit('dog');
         break;
       case 'ball':
         this.ball = msg.ball;

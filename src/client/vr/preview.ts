@@ -93,7 +93,7 @@ screens.set('w3', demoScreen(80));
 const issues: GhIssue[] = [
   {
     number: 101,
-    title: 'Dog walks through the jukebox on floor 2',
+    title: 'Bean bag clips through the jukebox on floor 2',
     state: 'OPEN',
     url: '#',
     author: 'nik',
@@ -101,7 +101,7 @@ const issues: GhIssue[] = [
     assignees: [],
     createdAt: '',
     updatedAt: '',
-    body: 'Steps to reproduce: hire a worker, wait for the dog. The good boy phases straight through the jukebox cabinet. Expected: collision. Actual: ghost dog.',
+    body: 'Steps to reproduce: hire a worker, sit on the bean bag. It phases straight through the jukebox cabinet. Expected: collision. Actual: ghost bean bag.',
     comments: 4,
   },
   {
@@ -122,21 +122,21 @@ const issues: GhIssue[] = [
 const pulls: GhPull[] = [
   {
     number: 42,
-    title: 'Fix ghost dog collision',
+    title: 'Fix ghost bean bag collision',
     state: 'OPEN',
     isDraft: false,
     url: '#',
     author: 'grace',
     labels: [],
     reviewDecision: '',
-    headRefName: 'fix/ghost-dog',
+    headRefName: 'fix/ghost-bean-bag',
     baseRefName: 'main',
     createdAt: '',
     updatedAt: '',
     additions: 120,
     deletions: 30,
     checks: 'pass',
-    body: 'Collider added to the jukebox. The dog now walks around it, disappointed.',
+    body: 'Collider added to the jukebox. The bean bag now stops at it, disappointed.',
     closes: [101],
   },
   {
@@ -160,7 +160,7 @@ const pulls: GhPull[] = [
   },
 ];
 const tasks: QueueTask[] = [
-  { id: 't1', title: '#101 ghost dog', prompt: 'fix the dog', addedBy: 'nik', addedAt: now - 5000, status: 'running', issue: 101, workerId: 'w2', workerName: 'Grace', branch: 'fix/ghost-dog' },
+  { id: 't1', title: '#101 ghost bean bag', prompt: 'fix the bean bag', addedBy: 'nik', addedAt: now - 5000, status: 'running', issue: 101, workerId: 'w2', workerName: 'Grace', branch: 'fix/ghost-bean-bag' },
   { id: 't2', title: '#102 espresso martini', prompt: 'mix drinks', addedBy: 'ada', addedAt: now - 60000, status: 'queued', issue: 102 },
   { id: 't3', title: 'Refactor confetti physics', prompt: 'confetti', addedBy: 'sam', addedAt: now - 90000, status: 'queued' },
   {
@@ -173,11 +173,11 @@ const tasks: QueueTask[] = [
     finishedAt: now - 7000000,
     outcome: 'done',
     workerName: 'Sam',
-    pr: { number: 42, url: '#', title: 'Fix ghost dog collision', state: 'OPEN' },
+    pr: { number: 42, url: '#', title: 'Fix ghost bean bag collision', state: 'OPEN' },
   },
 ];
 
-type Topic = 'screens' | 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services' | 'peers' | 'dog';
+type Topic = 'screens' | 'workers' | 'issues' | 'pulls' | 'queue' | 'chat' | 'floors' | 'floor' | 'jukebox' | 'meeting' | 'services' | 'peers';
 const subs = new Map<Topic, Set<() => void>>();
 function emit(t: Topic) {
   subs.get(t)?.forEach((fn) => fn());
@@ -185,7 +185,7 @@ function emit(t: Topic) {
 
 const chat: ChatLine[] = [
   { from: 'nik', name: 'Nik', color: '#ee6018', text: 'who took my bean bag', at: now - 90000 },
-  { from: 'ada', name: 'Ada', color: '#4f86f7', text: 'the dog did. he looked guilty', at: now - 60000 },
+  { from: 'ada', name: 'Ada', color: '#4f86f7', text: 'the elevator did. it looked guilty', at: now - 60000 },
 ];
 const floors: FloorInfo[] = [
   { id: 'f1', name: 'droid-office', repo: 'nik/droid-office', dir: '/tmp/f1', palette: 0, addedBy: 'nik', addedAt: now - 8000000, workers: 3, busy: 1, waiting: 1, people: 1 },
@@ -235,7 +235,6 @@ const deps: VrUiDeps = {
   getMeeting: () => ({ current: null, past: [] }),
   getServices: () => ({ items: [], port: 4600 }),
   getPeers: () => [],
-  getDogName: () => 'Biscuit',
   getSound: () => ({ volume: 0.7, muted: false, music: 0.5, musicMuted: false }),
   getWorktree: () => true,
   getSearch: () => ({ query: 'bean bag', status: 'done', results: { q: 'bean bag', chat: [chat[0]], terminals: [{ workerId: 'w2', text: 'sitting on the bean bag, feeling guilty', row: 30, rows: 40 }], more: false } }),
@@ -300,7 +299,6 @@ const deps: VrUiDeps = {
     copyPrUrl: (url) => log('copy PR link', url),
     viewChanged: (view) => log('menu view →', view),
     playStream: () => log('play a stream (would open the VR URL prompt)'),
-    renameDog: () => log('rename the dog (would open the VR name prompt)'),
     toggleSound: (kind) => log('mute toggle', kind),
     sendChat: (text) => log('say', text),
     searchOffice: (q) => log('search', q),

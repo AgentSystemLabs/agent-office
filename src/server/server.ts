@@ -477,7 +477,6 @@ export async function startServer(cfg: Config) {
       for (const c of clients.values()) if (c.peer.floor === floor.id) n++;
       return n;
     },
-    peers: (floor) => [...clients.values()].filter((c) => c.peer.floor === floor.id).map((c) => c.peer),
     leaveOnMerge: () => leaveOnMerge.on,
   };
   const openFloor = (def: FloorDef): Floor | undefined => {
@@ -551,7 +550,6 @@ export async function startServer(cfg: Config) {
     queue: floor?.queue.state() ?? { tasks: [], maxWorkers: 0 },
     decor: floor?.decor.list() ?? [],
     services: servicesState(floor),
-    dog: floor?.dog.view() ?? null,
     ball: floor?.court.state() ?? {},
     jukebox: floor?.jukebox.state() ?? { on: false, track: JUKEBOX_TUNES[0].id, startedAt: Date.now(), elapsed: 0 },
     whiteboard: { elements: floor?.whiteboard.scene() ?? [], people: floor ? drawing(floor) : [] },
@@ -1364,19 +1362,9 @@ export async function startServer(cfg: Config) {
         else sendTo(c, { t: 'ball', ball: floor.court.state() });
         break;
       }
-      case 'dog.pet':
-        floorOf(c)?.dog.pet(c.peer);
-        break;
       case 'proxy.refresh': {
         const why = proxy.refreshNow();
         if (why) sendTo(c, { t: 'toast', text: why, level: 'info' });
-        break;
-      }
-      case 'dog.name': {
-        const floor = here();
-        if (!floor) break;
-        const name = floor.dog.rename(str(msg.name, 200));
-        toastFloor(floor, `🐶 ${who} named the dog ${name}`);
         break;
       }
       case 'worker.spawn': {

@@ -2,8 +2,7 @@
 // the office sounds off and back on: the mute switches round-trip, nothing stays muted.
 export default async function run({ frame }) {
   const before = await frame.evaluate(() => window.__vrtest?.soundMuted?.() ?? null);
-  const hasDog = await frame.evaluate(() => window.__vrtest?.dog?.() ?? null);
-  const base = hasDog ? 5 : 4;
+  const base = 4;
   await frame.evaluate(() => window.__vrtest?.showMenu?.('settings'));
   await frame.waitForTimeout(500);
   await frame.evaluate((r) => window.__vrtest?.mclick?.(`row:${r}`), base);

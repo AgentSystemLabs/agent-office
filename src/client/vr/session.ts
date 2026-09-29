@@ -194,7 +194,7 @@ export interface VRHooks {
   settings: Settings;
   /** E on an Interactable: the same `use()` the keyboard calls. Never forked. Null aims at nothing, like the desktop key with no target. */
   useE: (it: Interactable | null, note: GhIssue | null, spot?: BoardSpot | null) => void;
-  /** The shared ray picker (office, gallery, dog, or the roof's): ray in, Interactable out. */
+  /** The shared ray picker (office, gallery, or the roof's): ray in, Interactable out. */
   pickFromRay: (ray: THREE.Raycaster, slack: number) => { it: Interactable; near: boolean; hit: THREE.Intersection } | null;
   /** Physical contact at a tracked joint; cab keys accept only the index fingertip. */
   touchTarget?: (point: THREE.Vector3, indexTip: boolean) => Interactable | null;

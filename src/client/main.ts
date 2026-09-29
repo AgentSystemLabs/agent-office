@@ -39,7 +39,6 @@ import type { AgentEffort, AgentProvider, CarriedIssue, CarriedObject, ChangesSt
 import { HeldObjectView } from './world/held-object';
 import { GRAB_REACH, type Grabbable } from './vr/grab';
 import { MEETING_PATTERNS, defaultMeetingRequest, reviewMeetingRequest } from '../shared/meetings';
-import { cleanDogName } from '../shared/dog';
 import { isAsleep, isBusy, workerPr } from '../shared/status';
 import { Net } from './net';
 import { guardLeaving, leaveTo } from './leave';
@@ -68,7 +67,6 @@ import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/b
 import type { BoardSpot } from './world/board-layout';
 import { loadFonts, MONO } from './fonts';
 import { Gallery } from './world/gallery';
-import { Dog } from './world/dog';
 import { pickTouchTarget } from './world/touch';
 import { Holiday } from './world/holiday';
 import { Arrivals, Departures } from './world/leaving';
@@ -189,7 +187,7 @@ noOutline(holiday.group);
 // ---- Board agents -------------------------------------------------------------------------------
 /** What each board agent is for: its board's icon, what it offers on the card over its head, and an example ask. */
 const STATION_INFO: Record<StationKind, { icon: string; offer: string; does: string; example: string }> = {
-  issues: { icon: '📌', offer: 'Ask me about issues', does: 'I file, find, triage, label and close them', example: 'File an issue: the dog walks straight through the jukebox' },
+  issues: { icon: '📌', offer: 'Ask me about issues', does: 'I file, find, triage, label and close them', example: 'File an issue: the bean bag walks straight through the jukebox' },
   pulls: { icon: '🔀', offer: 'Ask me about PRs', does: 'I sum up, review, comment on and merge them', example: 'Review the newest PR and tell me if it’s ready to merge' },
   queue: { icon: '📋', offer: 'Ask me to queue work', does: 'I turn it into tasks for fresh workers', example: 'Queue every open bug issue, most important first' },
 };
@@ -466,8 +464,6 @@ function vrAimLabel(it: Interactable, note: GhIssue | null, spot: BoardSpot | nu
       if (seat?.game) return '💣 Minesweeper · desktop only';
       return 'E · stand up';
     }
-    case 'dog':
-      return 'E · pet the dog';
     case 'coffee':
       return 'Squeeze / pinch-hold near the cup · grab';
     case 'smoke':
@@ -639,7 +635,6 @@ const vr = new VRSession(renderer, scene, camera, {
       getMeeting: () => store.meeting,
       getServices: () => store.services,
       getPeers: () => [...store.peers.values()].filter((p) => p.id !== store.you),
-      getDogName: () => store.dog?.name ?? null,
       getSound: () => ({ volume: settings.volume, muted: settings.muted, music: settings.music, musicMuted: settings.musicMuted }),
       getWorktree: () => worktreePref(),
       getSearch: () => vrSearch,
@@ -715,7 +710,6 @@ const vr = new VRSession(renderer, scene, camera, {
             void vrMergeFetch(number);
           }
         },
-        renameDog: () => vrRenameDog(),
         toggleSound: (kind) => {
           // The ⚙️ Settings mute buttons: flip it, save it, hear it (levels stay desktop — sliders).
           if (kind === 'music') {
@@ -917,8 +911,6 @@ if (new URLSearchParams(location.search).has('vrtest')) {
     },
     // Whether this client is in voice (the join-voice check reads this back).
     inVoice: () => voice.inVoice,
-    // The floor dog's name (the rename check reads this back).
-    dog: () => store.dog?.name ?? null,
     // What's on the jukebox (the stream check reads this back).
     jukebox: () => ({ on: store.jukebox.on, track: store.jukebox.track, url: store.jukebox.url ?? null }),
     // Your own mute switches (the sound-rows check reads these back).
@@ -1102,11 +1094,6 @@ me.onSmoke = (kind, at, dir) => {
 };
 const sound = new OfficeSound();
 sound.setVolume(settings.volume, settings.muted);
-// The floor's dog. It goes quiet once someone has the terminal of the worker it's barking at open.
-const dog = new Dog(sound, (id) => (store.workers.get(id)?.viewers.length ?? 0) > 0);
-scene.add(dog.root);
-noOutline(dog.root);
-store.on('dog', () => dog.sync(store.dog, store.dogStart));
 sound.setMusicVolume(settings.music, settings.musicMuted);
 sound.onMusicError = (text) => toast(text, 'warn');
 // The jukebox on your floor: everyone there hears it from the same bar, and its lights say what's on.
@@ -1752,7 +1739,7 @@ function setPlace() {
 
 /** What you can use where you are, and what's in the way of looking at it. */
 function usable(): Interactable[][] {
-  return upTop && roof ? [roof.interactables] : [office.interactables, gallery.interactables, dog.interactables, ball.interactables];
+  return upTop && roof ? [roof.interactables] : [office.interactables, gallery.interactables, ball.interactables];
 }
 
 /** You're on a floor (or in the building without one): paint it, and open the doors (or carry on down the pole…). */
@@ -2115,13 +2102,12 @@ store.on('workers', renderUsage);
 
 /**
  * Dresses the building up for the holiday it's set to (⚙️ Settings), or takes it all down: the sky and
- * the decorations, the dog, your hands and your character, everyone else, and every worker.
+ * the decorations, your hands and your character, everyone else, and every worker.
  */
 function dressUp() {
   const theme = store.theme.active;
   holiday.set(theme);
   sky.setTheme(theme);
-  dog.setCostume(theme);
   hands.setCostume(theme);
   me.setCostume(theme);
   for (const r of remotes.values()) r.person.setCostume(theme);
@@ -2318,21 +2304,6 @@ function vrJukeboxStream() {
         return;
       }
       net.send({ t: 'jukebox.play', url: u.url });
-    },
-  });
-}
-/** The VR settings view's 🐶 row: a new name for the floor dog (the ⚙️ Settings office-dog row — for everyone on this floor). */
-function vrRenameDog() {
-  if (!vrUi) return;
-  const now = store.dog?.name ?? 'The dog';
-  vrUi.askText({
-    title: '🐶 Office dog',
-    subtitle: `${now} lives on this floor — a new name is for everyone here`,
-    placeholder: now,
-    submitLabel: 'Rename',
-    onSubmit: (text) => {
-      const name = cleanDogName(text);
-      if (name) net.send({ t: 'dog.name', name });
     },
   });
 }
@@ -2912,7 +2883,6 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote, s
   else if (target.kind === 'bookshelf') showBookshelf();
   else if (target.kind === 'decor' && target.decorId) hanger.view(target.decorId);
   else if (target.kind === 'seat' && target.seatId) useSeat(target.seatId);
-  else if (target.kind === 'dog') net.send({ t: 'dog.pet' });
   else if (target.kind === 'proxy') {
     if (!store.proxy.refreshing) net.send({ t: 'proxy.refresh' });
   } else if (target.kind === 'coffee') drinkCoffee();
@@ -3742,13 +3712,6 @@ function hintFor(it: Interactable): Hint {
     }
     case 'ball':
       return { k: String(ball.still), parts: [title('Basketball'), ball.still ? aside('shoot some hoops') : '', key('E', ball.still ? 'Pick it up' : 'Catch it!')] };
-    case 'dog': {
-      const doing = dog.doing(
-        (id) => store.workers.get(id)?.name,
-        (id) => (id === store.you ? 'you' : store.peers.get(id)?.name),
-      );
-      return { k: `${dog.name}|${doing}`, parts: [title(`🐶 ${dog.name}`), doing ? aside(doing) : '', key('E', 'Pet')] };
-    }
     case 'proxy': {
       const p = store.proxy;
       const read = p.at ? `read ${timeAgo(p.at)}` : 'not read yet';
@@ -4193,7 +4156,6 @@ const REACH: Record<InteractKind, number> = {
   smoke: 3,
   elevator: 4.5,
   gong: 3.5,
-  dog: 3.2,
   jukebox: 4,
   seat: 3,
   whiteboard: 7,
@@ -4223,7 +4185,7 @@ function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boole
  */
 function pickFromRay(ray: THREE.Raycaster, slack = 0): { it: Interactable; near: boolean; hit: THREE.Intersection } | null {
   eye.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
-  for (const hit of ray.intersectObjects(upTop && roof ? roof.pickables : [office.group, dog.root], true)) {
+  for (const hit of ray.intersectObjects(upTop && roof ? roof.pickables : [office.group], true)) {
     let it: Interactable | undefined;
     let shown = true;
     for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) {
@@ -4714,7 +4676,6 @@ function frame(ts?: number, xrFrame?: XRFrame) {
   for (const a of idleAgents) if (a.view.vacancy.visible) a.model.update(dt, t);
   departures.update(dt, t);
   arrivals.update(dt);
-  dog.update(dt);
   if (!upTop) updateBall(now, dt);
   if (!upTop) {
     office.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions(), ...arrivals.positions()]);
@@ -4887,7 +4848,6 @@ void whoami().then(() => {
   balls,
   elevatorPanelOpen,
   confetti,
-  dog,
   sky,
   holiday,
   carried: () => carrying,

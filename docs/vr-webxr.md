@@ -31,11 +31,11 @@ menu's ❓ row brings it back).
 
 | Input | Action |
 |---|---|
-| Trigger / pinch tap | **E** on whatever the ray points at (desks, boards, elevator, gong, dog, seats…). Trigger uses the object in that controller's hand first. |
+| Trigger / pinch tap | **E** on whatever the ray points at (desks, boards, elevator, gong, seats…). Trigger uses the object in that controller's hand first. |
 | Squeeze / pinch-hold within 30 cm of a cup or issue note | Grab it in that hand; let go to put it down |
 | Bring a held coffee mug to your mouth | Drink once after a short hold; trigger also drinks it |
 | Touch a cab floor button with an index fingertip | Ride to that floor, without pinching |
-| Touch the dog or gong disc with a tracked hand | Pet or ring, without pinching |
+| Touch the gong disc with a tracked hand | Ring it, without pinching |
 | Pinch hold (hands) | Aim a teleport arc; release to go (green lands, red doesn't) |
 | Both hands pinch-hold, rays off the panels | Toggle the ☰ menu (the hands' squeeze) |
 | Squeeze away from grabbables, with no physical object held | Cancel: the carried issue card goes back, else the topmost window closes, else ☰ |
@@ -120,13 +120,13 @@ fallbacks, including from outside the cab. Desktop retains its decorative cab pa
 
 ### Physical hand contact
 
-Reach out to pet the dog's head or back, or tap the gong disc.
-Fingertips and palm joints can activate these objects. The coffee machine has no contact
+Reach out and tap the gong disc.
+Fingertips and palm joints can activate it. The coffee machine has no contact
 zone: a hand reaching for its cup would press the machine first, so coffee in VR comes only
 from grabbing the cup (see "Held coffee and issue cards"). A hand that holds an object
-touches nothing. Their contact zones follow the visible
+touches nothing. Its contact zone follows the visible
 geometry with only a few centimeters of tolerance, not the much larger desktop walk-up radius.
-The dog's zones follow its pose; the gong's zone stays at the resting disc so its swing cannot
+The gong's zone stays at the resting disc so its swing cannot
 ring it again against a stationary hand. Nearby furniture, the gong frame, and walking past
 without touching do nothing. Seats, ladders, poles and other physical kinds remain ray-only
 to avoid accidental locomotion or toggles.
@@ -164,7 +164,7 @@ Destructive acts confirm with tap-twice (detail ✕, queue rows, PR review): the
 arms red, the second fires. Per view: hire (free desks, worktree toggle, shell shortcut),
 queue (add, pause, tap-twice remove + requeue, trailing tap-twice clear), board detail (hand, queue, comment, close,
 PR review panel, tap-twice ✓ merge at the dialog's defaults), jukebox (tunes + pasted streams), people (tap a row to walk over),
-meeting (call with a pattern picker), settings (locomotion, dog rename, sound mutes),
+meeting (call with a pattern picker), settings (locomotion, sound mutes),
 chat (🔎 searches the chat and every terminal; a terminal hit opens it at the line),
 changes (a focused terminal's checkout: files, commit, tap-twice discard, open-a-PR).
 
@@ -355,7 +355,7 @@ calling VR done:
     reach while standing/seated, live floor additions/removals/clone completion, and the
     floors-menu fallback. This physical-headset check is still pending; automated tests or
     IWSDK emulation do not satisfy it.
-12. Galaxy XR physical contact: pet the dog standing, sitting and lying down; touch the gong
+12. Galaxy XR physical contact: touch the gong
     with either hand. Hold contact (including both hands), withdraw, and re-touch. Walk past
     without reaching out, briefly lose tracking, and check pinch/ray and controller fallbacks.
     Reach for the coffee cup and confirm the machine does not drink on contact. This
