@@ -83,8 +83,11 @@ import { DESK_KEYS, interactionAvailable, type DeskKey } from './interaction';
 import { MeetingBoardTexture, MeetingSignTexture, meetingStage } from './world/meeting';
 import { issueMeeting, openMeeting, type MeetingPreset } from './ui/meeting';
 import { TelescopeView } from './telescope';
-import { preloadModels } from './world/models';
+import { onModelsProgress, preloadModels } from './world/models';
+import { loadingScreen } from './ui/loading';
 
+// The loading screen stays up until there's an office to see (see boot and whoami at the end).
+const loading = loadingScreen(onModelsProgress);
 // The models made in Blender, loaded before the world they're in is built (see world/models.ts).
 await preloadModels();
 
@@ -3794,6 +3797,7 @@ function frame(ts?: number) {
     sky.shading(true);
   }
   if (blurry) drunkVision.end(drunk, t, !reduceMotion.matches);
+  loading.drew();
   requestAnimationFrame(frame);
 }
 
@@ -3824,6 +3828,17 @@ void whoami().then(() => {
     store.profile = { ...saved, look: saved.look };
     showMyProfile(store.profile);
     boot();
+    // In as soon as the floor you're on is here with its dog, so the dog doesn't pop in after.
+    const welcomed = new Promise<void>((resolve) => {
+      const off = store.on('floor', () => {
+        off();
+        resolve();
+      });
+    });
+    loading.until([
+      { say: 'Knocking on the door', done: welcomed },
+      { say: 'Fetching the dog', done: dog.firstReady },
+    ]);
   } else {
     // Pick a character first (people from before there was a choice keep their name and color).
     if (saved) Object.assign(store.profile, { name: saved.name, color: saved.color });
@@ -3833,6 +3848,8 @@ void whoami().then(() => {
       showMyProfile(p);
       net.connect();
     });
+    // No floor comes before you pick, so only the office behind the character select is waited for.
+    loading.until([]);
   }
 });
 
