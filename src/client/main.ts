@@ -914,6 +914,8 @@ net.onMessage((msg) => {
   }
   if (msg.t === 'worker.remove') sentHome.add(msg.workerId);
   store.apply(msg);
+  // A floor's cars where they are before anything asks if there's room to stand beside one (see welcome).
+  if (msg.t === 'welcome' || msg.t === 'floor.enter') office.cars.snap(store.cars);
   seatedAlready = false;
   sentHome.clear();
   routeTerminalMessage(msg);
@@ -1185,7 +1187,12 @@ function saveSpot() {
   if (s) rememberSpot(s);
 }
 // Closing the tab, or reloading: the frame loop saves it every second, and here's the last word.
-window.addEventListener('pagehide', saveSpot);
+window.addEventListener('pagehide', () => {
+  saveSpot();
+  // Mid-drive, the car stops right where you left it, not where the office last heard it was.
+  const p = driver.driving ? driver.pose : null;
+  if (p) net.send({ t: 'car.drive', car: driver.car!, x: p.x, z: p.z, rotY: p.rotY, speed: 0, steer: p.steer });
+});
 
 /** You asked to come back to floor `was`, and it's gone (taken off the building, or its checkout deleted): the office sent you up to the roof. */
 function floorWentWhileAway(was: string | null) {
@@ -3794,7 +3801,7 @@ function frame(ts?: number) {
 
   walkTick(now);
   // The cars first, so whoever's riding in one sits in it where it's got to.
-  office.cars.update(dt, store.cars, store.carsAt, now, driver.active ? { car: driver.car!, driving: driver.driving } : null);
+  office.cars.update(dt, store.cars, store.carsAt, now, driver.active ? { car: driver.car!, driving: driver.driving } : null, camera.position);
   player.update(dt);
   // A car coming at you where you stand: out of its way, with a thump if it was going.
   if (!driver.active && !upTop && !trip) {

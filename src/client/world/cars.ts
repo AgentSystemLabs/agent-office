@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CAR, CARS, SEATS, carPoint, type Box, type CarDef, type CarKind, type CarPose, type CarSeat, type CarState } from '../../shared/garage';
-import { STREET_Y } from '../../shared/layout';
+import { FLOOR, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
 import type { Collider, Interactable } from './office';
 import { mergeByMaterial, mesh, toon } from './toon';
 
@@ -186,6 +186,19 @@ export interface CarView extends CarModel {
   interactable: Interactable;
 }
 
+/** Whether the whole car is in under the building (the office's floor over it), rather than out on the lot or the street. */
+function underneath(p: CarPose): boolean {
+  return [
+    [1, 1],
+    [1, -1],
+    [-1, 1],
+    [-1, -1],
+  ].every(([sx, sz]) => {
+    const c = carPoint(p, (sx * CAR.width) / 2, (sz * CAR.length) / 2);
+    return c.x > FLOOR.minX - WALL_T && c.x < FLOOR.maxX + WALL_T && c.z > FLOOR.minZ - WALL_T && c.z < FLOOR.maxZ + WALL_T;
+  });
+}
+
 /** Boxes along the car's body, for colliders: a car turned off square takes more than one. */
 const SLICES = 3;
 
@@ -231,8 +244,11 @@ export class Fleet {
    * it, which is where your own driving put it. The office doesn't tell you your own moves, so that
    * goes back into `cars` for when you get out.
    */
-  update(dt: number, cars: CarState[], at: number[], now: number, mine: { car: number; driving: boolean } | null) {
+  update(dt: number, cars: CarState[], at: number[], now: number, mine: { car: number; driving: boolean } | null, eye: THREE.Vector3) {
     const k = 1 - Math.exp(-dt * 12);
+    // From up in the office, the cars in under it can't be seen through its floor: not drawn at all.
+    const indoors = eye.y > -SLAB && eye.x > FLOOR.minX && eye.x < FLOOR.maxX && eye.z > FLOOR.minZ && eye.z < FLOOR.maxZ;
+    for (const v of this.cars) v.root.visible = !indoors || !underneath(v.pose);
     for (const v of this.cars) {
       const c = cars[v.index];
       if (!c) continue;
@@ -264,6 +280,16 @@ export class Fleet {
     }
   }
 
+  /** Every car straight to where the office says it is, not smoothed: a floor's cars as you arrive on it. */
+  snap(cars: CarState[]) {
+    for (const v of this.cars) {
+      const c = cars[v.index];
+      if (!c) continue;
+      Object.assign(v.pose, { x: c.x, z: c.z, rotY: c.rotY, speed: c.speed, steer: c.steer });
+      this.show(v);
+    }
+  }
+
   /** Puts car `i` at `pose` (your own driving). */
   place(i: number, pose: CarPose) {
     const v = this.cars[i];
@@ -290,7 +316,8 @@ export class Fleet {
     const own = this.cars[except]?.colliders;
     const out: Box[] = [];
     for (const c of this.all) {
-      if (own?.includes(c) || (c.bottom ?? 0) > this.street + 1 || c.top < this.street + 0.3 || c.maxX - c.minX > 100) continue;
+      // Not the ground itself (the lawn, the lots), nor anything overhead.
+      if (own?.includes(c) || (c.bottom ?? 0) > this.street + 1 || c.top < this.street + 0.3) continue;
       out.push(c);
     }
     return out;

@@ -13,8 +13,10 @@ export interface DriveHooks {
   bump(at: { x: number; z: number }, speed: number): void;
 }
 
-/** How often the office hears where your car is, at most (ms). */
-const SEND_EVERY = 66;
+/** How often the office hears where your car is, at most (seconds). */
+const SEND_EVERY = 0.066;
+/** How soon after one crunch another can sound (seconds). */
+const BUMP_EVERY = 0.35;
 /** The longest step a car takes in one go (m), so it never jumps a lamp post between two frames. */
 const STEP = 0.25;
 
@@ -26,8 +28,10 @@ export class Driver {
   seat: CarSeat | null = null;
   /** How hard you're on the gas (-1 in reverse), for the engine. */
   gas = 0;
-  private sent = { at: 0, x: 0, z: 0, rotY: 0, speed: 0, steer: 0 };
-  private bumpedAt = 0;
+  /** Seconds behind the wheel (or beside it), for how often things happen. */
+  private clock = 0;
+  private sent = { at: -Infinity, x: 0, z: 0, rotY: 0, speed: 0, steer: 0 };
+  private bumpedAt = -Infinity;
   /** The way the car pointed last frame, to turn a first-person view along with it. */
   private yaw = 0;
   /** How the third-person camera was before you got in: it pulls back to see the car. */
@@ -90,7 +94,8 @@ export class Driver {
     const pose = this.fleet.cars[car].pose;
     const y = this.fleet.seatAt(car, seat)!.y;
     const s = SEATS[seat];
-    const out = CAR.width / 2 + 0.55;
+    // Far enough out to clear the car's boxes at any angle (turned, they stick out past its sides).
+    const out = CAR.width / 2 + 0.8;
     const side = Math.sign(s.x);
     for (const [lx, lz] of [
       [side * out, s.z],
@@ -145,6 +150,7 @@ export class Driver {
   /** Each frame in the car: drive it (behind the wheel), and sit in your seat wherever it's got to. */
   private step(dt: number) {
     const car = this.car!;
+    this.clock += dt;
     if (this.driving) {
       const p = this.player;
       const pedals: Pedals = {
@@ -176,16 +182,26 @@ export class Driver {
         pose = next;
         continue;
       }
-      // Sliding keeps only the part of the move along what's in the way, and only that much of the speed.
-      const want = Math.hypot(next.x - pose.x, next.z - pose.z) || 1;
+      // Sliding keeps only the part of the move along what's in the way (everything here is square to
+      // the street), and only that much of the speed; the car swings round to run along it.
+      const dx = next.x - pose.x;
+      const dz = next.z - pose.z;
+      const want = Math.hypot(dx, dz) || 1;
       const slides = [
-        { to: { ...next, z: pose.z }, keep: Math.abs(next.x - pose.x) / want },
-        { to: { ...next, x: pose.x }, keep: Math.abs(next.z - pose.z) / want },
+        { to: { ...next, z: pose.z }, keep: Math.abs(dx) / want, heading: Math.sign(dx) * (Math.PI / 2) },
+        { to: { ...next, x: pose.x }, keep: Math.abs(dz) / want, heading: dz > 0 ? 0 : Math.PI },
       ].filter((q) => q.keep > 0.25 && carFits(q.to, solids));
       const along = slides.sort((a, b) => b.keep - a.keep)[0];
       if (along) {
         this.bumped(pose, Math.abs(next.speed) * (1 - along.keep));
-        pose = { ...along.to, speed: next.speed * along.keep };
+        const slid = { ...along.to, speed: next.speed * along.keep };
+        // Backing along it, it's the tail that leads.
+        const heading = along.heading + (next.speed < 0 ? Math.PI : 0);
+        const rotY = wrap(slid.rotY + wrap(heading - slid.rotY) * 0.3);
+        // Swinging round about its middle takes its far end into it: a nudge off it, the way it came.
+        const off = along.heading === 0 || along.heading === Math.PI ? { x: -Math.sign(dx), z: 0 } : { x: 0, z: -Math.sign(dz) };
+        const turned = [0, 0.03, 0.08].map((d) => ({ ...slid, rotY, x: slid.x + off.x * d, z: slid.z + off.z * d })).find((q) => carFits(q, solids));
+        pose = turned ?? slid;
         continue;
       }
       this.bumped(pose, Math.abs(pose.speed));
@@ -197,19 +213,17 @@ export class Driver {
 
   /** Ran into something, losing `speed` m/s of the car's: a crunch, if it's enough to hear. */
   private bumped(pose: CarPose, speed: number) {
-    const now = performance.now();
-    if (speed < 2 || now - this.bumpedAt < 350) return;
-    this.bumpedAt = now;
+    if (speed < 2 || this.clock - this.bumpedAt < BUMP_EVERY) return;
+    this.bumpedAt = this.clock;
     this.hooks.bump(carPoint(pose, 0, (Math.sign(pose.speed) * CAR.length) / 2), speed);
   }
 
   /** Tells the office where the car is, every so often while it's going (and once more when it stops). */
   private send(car: number, pose: CarPose) {
     const s = this.sent;
-    const now = performance.now();
     const changed = Math.abs(pose.x - s.x) + Math.abs(pose.z - s.z) > 0.01 || Math.abs(wrap(pose.rotY - s.rotY)) > 0.004 || pose.speed !== s.speed || Math.abs(pose.steer - s.steer) > 0.02;
-    if (!changed || now - s.at < SEND_EVERY) return;
-    this.sent = { at: now, x: pose.x, z: pose.z, rotY: pose.rotY, speed: pose.speed, steer: pose.steer };
+    if (!changed || this.clock - s.at < SEND_EVERY) return;
+    this.sent = { at: this.clock, x: pose.x, z: pose.z, rotY: pose.rotY, speed: pose.speed, steer: pose.steer };
     this.hooks.moved(car, pose);
   }
 
