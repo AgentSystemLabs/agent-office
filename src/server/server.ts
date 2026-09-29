@@ -38,6 +38,7 @@ import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
+import { DROP_MAX_BYTES } from '../shared/drops.js';
 import { MAX_FLOORS } from '../shared/floors.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
@@ -130,6 +131,10 @@ function isSecure(req: http.IncomingMessage, cfg: Config): boolean {
 }
 
 function readBody(req: http.IncomingMessage, limit = 1024 * 1024): Promise<string> {
+  return readBytes(req, limit).then((b) => b.toString('utf8'));
+}
+
+function readBytes(req: http.IncomingMessage, limit: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks: Buffer[] = [];
@@ -140,7 +145,7 @@ function readBody(req: http.IncomingMessage, limit = 1024 * 1024): Promise<strin
         req.destroy();
       } else chunks.push(c);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
 }
@@ -808,6 +813,24 @@ export async function startServer(cfg: Config) {
         }
         const error = floor.whiteboard.addFile(body);
         return error ? send(res, 400, { error }) : send(res, 200, { ok: true });
+      }
+      if (p === '/api/term/drop') {
+        // A file dropped or pasted into a worker's terminal, kept on this machine for the terminal to type its path.
+        if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
+        if (!sameOrigin(req, cfg)) return send(res, 403, { error: 'Forbidden' });
+        if (!floor) return send(res, 404, { error: 'No such floor' });
+        const workerId = str(url.searchParams.get('worker'), 32);
+        if (!floor.workers.get(workerId)) return send(res, 404, { error: 'No such worker' });
+        const tooBig = `That file is too big to drop into a terminal (${DROP_MAX_BYTES / 1024 / 1024} MB at most)`;
+        if (Number(req.headers['content-length']) > DROP_MAX_BYTES) return send(res, 413, { error: tooBig });
+        let body: Buffer;
+        try {
+          body = await readBytes(req, DROP_MAX_BYTES);
+        } catch (err) {
+          return (err as Error).message === 'too large' ? send(res, 413, { error: tooBig }) : send(res, 400, { error: 'Bad request' });
+        }
+        const file = floor.workers.drop(workerId, str(url.searchParams.get('name'), 256), str(req.headers['content-type'], 128), body);
+        return file ? send(res, 200, { path: file }) : send(res, 500, { error: 'The office could not keep that file' });
       }
       if (p === '/api/changes/file') {
         // A changed picture in the Changes window at a desk: before (old) or after (new) the worker's edits.
