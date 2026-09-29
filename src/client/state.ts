@@ -7,9 +7,10 @@ import type { DogState } from '../shared/dog';
 import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
 import type { BallState } from '../shared/hoop';
+import { parked, type CarSeat, type CarState } from '../shared/garage';
 import { OFFICE_MAP, planOf, type MapPlan } from '../shared/maps';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'signins' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'map' | 'leaveOnMerge' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting' | 'prompts' | 'ball';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'signins' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'map' | 'leaveOnMerge' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting' | 'prompts' | 'ball' | 'cars';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -35,7 +36,8 @@ export function loadProfile(): (Omit<Profile, 'look'> & { look?: Look }) | null 
   return null;
 }
 
-export function saveProfile(p: Profile) {
+/** Without a look, the 3D office still has you pick a character (the 2D view saves only a name). */
+export function saveProfile(p: Omit<Profile, 'look'> & { look?: Look }) {
   try {
     localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
   } catch {
@@ -58,6 +60,8 @@ export interface Settings {
   /** The lounge jukebox, 0–1, apart from the office sounds. */
   music: number;
   musicMuted: boolean;
+  /** The swish of a page turning as you read at the bookshelf. */
+  pageTurns: boolean;
   /** Voice chat starts muted and V is held down to talk, instead of an open mic. */
   pushToTalk: boolean;
   /** Desktop notifications when a worker needs input or finishes while you're in another tab (once the browser allows them). */
@@ -128,7 +132,7 @@ export function rememberSpot(s: Spot) {
 }
 
 export function loadSettings(): Settings {
-  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, pushToTalk: false, notify: true, hud: { ...HUD_DEFAULTS }, pins: [] };
+  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, pageTurns: true, pushToTalk: false, notify: true, hud: { ...HUD_DEFAULTS }, pins: [] };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
     if (saved?.view === 'first' || saved?.view === 'third') s.view = saved.view;
@@ -136,6 +140,7 @@ export function loadSettings(): Settings {
     if (typeof saved?.muted === 'boolean') s.muted = saved.muted;
     if (typeof saved?.music === 'number' && Number.isFinite(saved.music)) s.music = Math.max(0, Math.min(1, saved.music));
     if (typeof saved?.musicMuted === 'boolean') s.musicMuted = saved.musicMuted;
+    if (typeof saved?.pageTurns === 'boolean') s.pageTurns = saved.pageTurns;
     if (typeof saved?.pushToTalk === 'boolean') s.pushToTalk = saved.pushToTalk;
     if (typeof saved?.notify === 'boolean') s.notify = saved.notify;
     for (const k of Object.keys(s.hud) as HudPanel[]) if (typeof saved?.hud?.[k] === 'boolean') s.hud[k] = saved.hud[k];
@@ -218,6 +223,12 @@ class Store {
   dogStart = 0;
   /** The basketball on this floor, as the office last said (see world/hoop.ts). */
   ball: BallState = {};
+  /**
+   * The cars in the garage, as the office last said (see shared/garage.ts), and when (performance.now())
+   * each one's driver last said where it is. Their moves change them without a word, like people's.
+   */
+  cars: CarState[] = parked();
+  carsAt: number[] = [];
   /** Outside the windows; null until the server says. */
   sky: SkyState | null = null;
   /** The building's holiday decorations: the same on every floor. */
@@ -303,7 +314,23 @@ class Store {
     this.setDog(v.dog);
     this.setJukebox(v.jukebox);
     this.ball = v.ball ?? {};
-    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'ball'] as Topic[]) this.emit(t);
+    this.setCars(v.cars ?? parked());
+    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'ball', 'cars'] as Topic[]) this.emit(t);
+  }
+
+  private setCars(cars: CarState[]) {
+    this.cars = cars;
+    const now = performance.now();
+    this.carsAt = cars.map(() => now);
+  }
+
+  /** The car `id` (a PeerInfo id) is in on this floor, and which seat. */
+  carOf(id: string): { car: number; seat: CarSeat } | undefined {
+    for (let i = 0; i < this.cars.length; i++) {
+      if (this.cars[i].driver === id) return { car: i, seat: 'driver' };
+      if (this.cars[i].passenger === id) return { car: i, seat: 'passenger' };
+    }
+    return undefined;
   }
 
   private setDog(dog: DogState | null) {
@@ -494,6 +521,17 @@ class Store {
         this.ball = msg.ball;
         this.emit('ball');
         break;
+      case 'cars':
+        this.setCars(msg.cars);
+        this.emit('cars');
+        break;
+      case 'car.move': {
+        const c = this.cars[msg.car];
+        if (!c) break;
+        Object.assign(c, { x: msg.x, z: msg.z, rotY: msg.rotY, speed: msg.speed, steer: msg.steer });
+        this.carsAt[msg.car] = performance.now();
+        break;
+      }
       case 'sky':
         this.sky = msg.state;
         this.emit('sky');

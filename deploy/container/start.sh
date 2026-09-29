@@ -41,16 +41,20 @@ for f in .bashrc .profile; do
 done
 cd $RUN_HOME
 
-# The address teammates SSH to: Railway's TCP proxy in front of port 22 (host:port).
+# The address teammates SSH to: Railway's TCP proxy in front of port 22 (host:port). deploy/fly.sh
+# sets it itself: the app's IPv4 address and its port.
 if [[ -z "${AGENT_OFFICE_PUBLIC_HOST:-}" && -n "${RAILWAY_TCP_PROXY_DOMAIN:-}" && -n "${RAILWAY_TCP_PROXY_PORT:-}" ]]; then
   export AGENT_OFFICE_PUBLIC_HOST=$RAILWAY_TCP_PROXY_DOMAIN:$RAILWAY_TCP_PROXY_PORT
 fi
+# On Fly.io, port 22 is Fly's own SSH server (`fly ssh console`), so deploy/fly.sh moves this one.
+SSHD_PORT=${AGENT_OFFICE_SSHD_PORT:-22}
+[[ "$SSHD_PORT" =~ ^[0-9]+$ ]] || SSHD_PORT=22
 
 mkdir -p /run/sshd
 /usr/sbin/sshd -t
 # Brought back if it ever dies, so the tunnels keep working.
-(while :; do /usr/sbin/sshd -D -e; sleep 2; done) &
-say "sshd is listening on port 22${AGENT_OFFICE_PUBLIC_HOST:+ (reached at $AGENT_OFFICE_PUBLIC_HOST)}"
+(while :; do /usr/sbin/sshd -D -e -p "$SSHD_PORT"; sleep 2; done) &
+say "sshd is listening on port $SSHD_PORT${AGENT_OFFICE_PUBLIC_HOST:+ (reached at $AGENT_OFFICE_PUBLIC_HOST)}"
 
 if [[ ! -x $RUN_HOME/.local/bin/claude ]]; then
   say "installing Claude Code in $RUN_HOME/.local (first start)"

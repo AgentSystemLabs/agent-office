@@ -3,7 +3,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { Net } from '../net';
 import { store } from '../state';
-import { TERM_THEME } from '../world/laptop';
+import { TERM_THEME } from './termtheme';
 import { h, openModal, STATUS_LABEL, timeAgo, toast, type Modal } from './dom';
 import { usageLabel, usageTitle } from './usage';
 import type { ServerMsg, WorkerInfo } from '../../shared/protocol';
@@ -61,6 +61,28 @@ async function uploadDrop(workerId: string, f: File): Promise<string> {
   return r.path;
 }
 
+export interface TerminalOptions {
+  /**
+   * The keys a phone's keyboard hasn't got (1 2 3 for a menu, arrows, Enter, Tab, Esc, Ctrl+C) and a
+   * box to send a prompt from, under the terminal, for the 2D view (lite.ts). The terminal doesn't
+   * take the focus as it opens either, so a phone's keyboard stays down until you tap into it.
+   */
+  keypad?: boolean;
+}
+
+/** The keypad's keys: what each types, or a function of the terminal for the ones that depend on its mode. */
+const KEYPAD: { label: string; title: string; keys: string | ((term: Terminal) => string) }[] = [
+  { label: '1', title: 'Pick 1 (yes, in a permission prompt)', keys: '1' },
+  { label: '2', title: 'Pick 2', keys: '2' },
+  { label: '3', title: 'Pick 3', keys: '3' },
+  { label: '↑', title: 'Up', keys: (t) => (t.modes.applicationCursorKeysMode ? '\x1bOA' : '\x1b[A') },
+  { label: '↓', title: 'Down', keys: (t) => (t.modes.applicationCursorKeysMode ? '\x1bOB' : '\x1b[B') },
+  { label: '⏎', title: 'Enter', keys: '\r' },
+  { label: '⇥', title: 'Tab', keys: '\t' },
+  { label: 'Esc', title: 'Esc: close a menu, or interrupt the agent', keys: '\x1b' },
+  { label: '^C', title: 'Ctrl+C', keys: '\x03' },
+];
+
 let current: { workerId: string; modal: Modal; find(f: TerminalFind): void } | null = null;
 const listeners = new Set<(msg: ServerMsg) => void>();
 
@@ -73,7 +95,7 @@ export function openTerminalFor(): string | null {
   return current?.workerId ?? null;
 }
 
-export function openTerminal(net: Net, workerId: string, onChanges?: () => void, find?: TerminalFind) {
+export function openTerminal(net: Net, workerId: string, onChanges?: () => void, find?: TerminalFind, opts: TerminalOptions = {}) {
   if (current?.workerId === workerId) {
     if (find) current.find(find);
     return;
@@ -103,11 +125,18 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   const changesBtn = h('button.btn', { type: 'button', title: 'What this worker changed: files, diff, commit, open a PR (C at the desk)' }, '🌿 Changes');
   const closeBtn = h('button.btn.close', { title: 'Leave terminal (Esc or Ctrl+]) · ⎋ Esc or Ctrl+[ sends Esc to the terminal', 'aria-label': 'Close' }, '✕');
   const host = h('div.term-host', { 'data-drop': '📎 Drop screenshots or files here to put them in the terminal' });
-  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, escBtn, onChanges ? changesBtn : null, closeBtn), host);
+  const keys = h('div.term-keys', { role: 'group', 'aria-label': 'Keys' });
+  const say = h('input', { type: 'text', placeholder: 'Reply, or tell it what to do next…', 'aria-label': 'Prompt', enterkeyhint: 'send', autocomplete: 'off' }) as HTMLInputElement;
+  const sayBtn = h('button.btn.primary', { type: 'submit' }, 'Send');
+  const sayForm = h('form.term-say', {}, say, sayBtn);
+  const keypad = opts.keypad ? h('div.term-keypad', {}, keys, sayForm) : null;
+  // The keypad has an Esc of its own.
+  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, keypad ? null : escBtn, onChanges ? changesBtn : null, closeBtn), host, keypad);
 
   const term = new Terminal({
     fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
-    fontSize: 14,
+    // A few more columns on a phone's narrow screen.
+    fontSize: opts.keypad ? 12 : 14,
     lineHeight: 1.1,
     theme: TERM_THEME,
     cursorBlink: true,
@@ -218,6 +247,8 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
     modelsBtn.classList.toggle('hidden', !openCode);
     modelsBtn.toggleAttribute('disabled', !openCode || !ready || isAsleep(w.status));
     escBtn.toggleAttribute('disabled', !ready || isAsleep(w.status));
+    for (const b of keys.children) b.toggleAttribute('disabled', !ready || isAsleep(w.status));
+    sayBtn.toggleAttribute('disabled', isAsleep(w.status));
     // Someone else resized the shared PTY (the latest typist wins): follow it so this view renders
     // correctly. Typing here fits the terminal back to this window and reclaims the size.
     const ptySize = `${w.cols}x${w.rows}`;
@@ -418,6 +449,26 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
     sendEsc();
     term.focus();
   });
+  for (const k of KEYPAD) {
+    const b = h('button.btn', { type: 'button', title: k.title, 'aria-label': k.title }, k.label);
+    // Not the terminal's focus: a key from here shouldn't bring up the phone's keyboard.
+    b.addEventListener('pointerdown', (e) => e.preventDefault());
+    b.addEventListener('click', () => {
+      if (b.hasAttribute('disabled')) return;
+      sendSize(true);
+      sayTyping();
+      term.input(typeof k.keys === 'string' ? k.keys : k.keys(term));
+    });
+    keys.append(b);
+  }
+  sayForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const prompt = say.value.trim();
+    if (!prompt || sayBtn.hasAttribute('disabled')) return;
+    sendSize(true);
+    net.send({ t: 'worker.prompt', workerId, prompt });
+    say.value = '';
+  });
   modelsBtn.addEventListener('click', () => {
     if (modelsBtn.hasAttribute('disabled')) return;
     sendSize(true);
@@ -430,5 +481,5 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   ro.observe(host);
   refresh();
   net.send({ t: 'worker.attach', workerId });
-  setTimeout(() => term.focus(), 50);
+  if (!opts.keypad) setTimeout(() => term.focus(), 50);
 }

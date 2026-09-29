@@ -35,7 +35,7 @@ export interface Listener extends Pos {
   fz: number;
 }
 
-// The kitchen props (office.ts puts the kitchen at x -14.5, z 12.2).
+// The kitchen props (kitchen.ts puts the kitchen at x -14.5, z 12.2).
 const COFFEE_MACHINE: Pos = { x: -15.7, y: 1.4, z: 12.2 };
 const FRIDGE: Pos = { x: -11.3, y: 1.1, z: 12.2 };
 /** Just outside the office's windows (not the loft's). */
@@ -66,6 +66,17 @@ const GONG_PARTIALS: [number, number, number][] = [
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 const randInt = (a: number, b: number) => Math.floor(rand(a, b + 1));
 const pick = <T>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)];
+
+/** A car's engine note: a sawtooth and a square an octave under it, through a filter that opens as it revs. */
+interface Motor {
+  saw: OscillatorNode;
+  sub: OscillatorNode;
+  tone: BiquadFilterNode;
+  gain: GainNode;
+  pan: PannerNode;
+  /** When it started (the AudioContext's clock). */
+  born: number;
+}
 
 interface Typist {
   x: number;
@@ -135,6 +146,8 @@ export class OfficeSound {
   onMusicError?: (text: string) => void;
   /** How many of each sound have played, for quick checks from the console. */
   readonly played: Record<string, number> = {};
+  /** The engines of the cars being driven, by car. */
+  private motors = new Map<number, Motor>();
 
   constructor() {
     // Browsers only allow audio after a click or key press.
@@ -389,6 +402,34 @@ export class OfficeSound {
     if (!this.ctx) return;
     this.play(this.buf.rustle, { gain: 0.5, rate: rand(1.1, 1.3) });
     this.count('paper');
+  }
+
+  /**
+   * A page of the book in your hands turning over, at the bookshelf: a soft swish that rises as the
+   * page sweeps through the air and falls as it settles, then a light pat as it lands. Quiet, since
+   * it comes every screenful you scroll.
+   */
+  pageTurn() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count('pageTurn');
+    const t0 = ctx.currentTime + 0.005;
+    const len = rand(0.24, 0.32);
+    const swish = this.noise(this.buf.white);
+    const band = biquad(ctx, 'bandpass', 1000, 0.8);
+    band.frequency.setValueAtTime(rand(800, 1100), t0);
+    band.frequency.exponentialRampToValueAtTime(rand(2400, 3000), t0 + len * 0.6);
+    band.frequency.exponentialRampToValueAtTime(1400, t0 + len);
+    const g = ctx.createGain();
+    envelope(g.gain, t0, [
+      [len * 0.3, 0.075],
+      [len * 0.6, 0.13],
+      [len, 0],
+    ]);
+    swish.connect(band).connect(biquad(ctx, 'lowpass', 4500, 0.7)).connect(g).connect(this.ambience);
+    swish.start(t0, rand(0, 4.5));
+    swish.stop(t0 + len + 0.02);
+    this.play(pick(this.buf.steps), { gain: 0.08, rate: rand(2.4, 2.8), when: t0 + len * 0.85 });
   }
 
   /** Someone else's footstep, on the office floor unless `y` says where else. */
@@ -744,6 +785,137 @@ export class OfficeSound {
       n.connect(tone).connect(g).connect(out);
       n.start(t0);
       n.stop(t0 + 0.4);
+    }
+  }
+
+  // ---- The cars in the garage ------------------------------------------------------------------------
+
+  /**
+   * The engines running: one for each car somebody's driving, where it is, how fast it's going and
+   * how hard it's pushed. One that's dropped off the list dies away.
+   */
+  setEngines(running: { car: number; at: Pos; speed: number; gas: number }[]) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const on = new Set<number>();
+    for (const e of running) {
+      on.add(e.car);
+      let m = this.motors.get(e.car);
+      if (!m) {
+        m = this.startMotor(e.at);
+        this.motors.set(e.car, m);
+      }
+      place(m.pan, e.at.x, e.at.y, e.at.z);
+      // Still catching, with its rev.
+      if (now - m.born < 0.7) continue;
+      const v = Math.abs(e.speed);
+      const push = Math.abs(e.gas);
+      // Up through the gears: the revs climb in each one and drop back as it shifts up.
+      const gear = Math.min(3, Math.floor(v / 5.5));
+      const f = 44 + gear * 7 + Math.min(1.5, (v - gear * 5.5) / 5.5) * 46 + push * 5;
+      m.saw.frequency.setTargetAtTime(f, now, 0.06);
+      m.sub.frequency.setTargetAtTime(f / 2, now, 0.06);
+      m.tone.frequency.setTargetAtTime(240 + f * 5 + push * 450, now, 0.08);
+      m.gain.gain.setTargetAtTime(0.035 + 0.04 * push + 0.025 * Math.min(1, v / 20), now, 0.1);
+    }
+    for (const [car, m] of this.motors) {
+      if (on.has(car)) continue;
+      this.motors.delete(car);
+      m.gain.gain.cancelScheduledValues(now);
+      m.gain.gain.setTargetAtTime(0, now, 0.12);
+      m.saw.stop(now + 0.8);
+      m.sub.stop(now + 0.8);
+    }
+  }
+
+  /** An engine turning over: it catches with a rev and settles to a burble. */
+  private startMotor(at: Pos): Motor {
+    const ctx = this.ctx!;
+    this.count('engine');
+    const now = ctx.currentTime;
+    const pan = this.panner(at, 3, 1);
+    pan.connect(this.ambience);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.11, now + 0.12);
+    gain.gain.setTargetAtTime(0.035, now + 0.45, 0.15);
+    const tone = biquad(ctx, 'lowpass', 900, 2);
+    const saw = ctx.createOscillator();
+    saw.type = 'sawtooth';
+    const sub = ctx.createOscillator();
+    sub.type = 'square';
+    for (const [o, k] of [
+      [saw, 1],
+      [sub, 0.5],
+    ] as const) {
+      o.frequency.setValueAtTime(30 * k, now);
+      o.frequency.linearRampToValueAtTime(115 * k, now + 0.3);
+      o.frequency.setTargetAtTime(44 * k, now + 0.35, 0.12);
+    }
+    const low = ctx.createGain();
+    low.gain.value = 0.5;
+    saw.connect(tone);
+    sub.connect(low).connect(tone);
+    tone.connect(gain).connect(pan);
+    saw.start(now);
+    sub.start(now);
+    return { saw, sub, tone, gain, pan, born: now };
+  }
+
+  /** A car's horn: two notes a third apart, a Lambo's higher than a Ferrari's. */
+  honk(at: Pos, high: boolean) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count('honk');
+    const out = this.panner(at, 4, 0.9);
+    out.connect(this.ambience);
+    const t0 = ctx.currentTime + 0.005;
+    const g = ctx.createGain();
+    envelope(g.gain, t0, [
+      [0.02, 0.09],
+      [0.42, 0.08],
+      [0.5, 0],
+    ]);
+    const tone = biquad(ctx, 'lowpass', 2200, 0.7);
+    tone.connect(g).connect(out);
+    for (const f of high ? [440, 554] : [392, 494]) {
+      const o = ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.value = f;
+      o.connect(tone);
+      o.start(t0);
+      o.stop(t0 + 0.55);
+    }
+  }
+
+  /** A car door shutting behind someone getting in or out. */
+  carDoor(at: Pos) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count('car-door');
+    const out = this.panner(at, 2, 1.1);
+    out.connect(this.ambience);
+    this.play(pick(this.buf.steps), { gain: 0.6, rate: 0.55, dest: out });
+    this.blip(out, ctx.currentTime + 0.005, 120, 0.6, 0.09, 0.12);
+  }
+
+  /** A car running into something `speed` m/s: a thump, and the panels clanging. */
+  crash(at: Pos, speed: number) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count('crash');
+    const loud = Math.min(1, speed / 12);
+    const out = this.panner(at, 3, 1);
+    out.connect(this.ambience);
+    const t0 = ctx.currentTime + 0.005;
+    this.play(pick(this.buf.steps), { gain: 0.4 + 0.8 * loud, rate: 0.4, dest: out });
+    this.blip(out, t0, 90, 0.5, 0.3, 0.1 + 0.25 * loud);
+    for (const [f, amp] of [
+      [520, 0.05],
+      [1270, 0.03],
+    ]) {
+      this.blip(out, t0, f * rand(0.9, 1.1), 0.98, 0.25, amp * loud, 'triangle');
     }
   }
 

@@ -1,29 +1,8 @@
 import * as THREE from 'three';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, type Run } from '../../shared/protocol';
 import { mesh, roundedBox, toon } from './toon';
+import { TERM_THEME } from '../ui/termtheme';
 
-export const TERM_THEME = {
-  background: '#1e1f2e',
-  foreground: '#e6e6f0',
-  cursor: '#ffd166',
-  selectionBackground: '#44475a',
-  black: '#282a36',
-  red: '#ff5c7a',
-  green: '#7cf29a',
-  yellow: '#ffd166',
-  blue: '#6cb6ff',
-  magenta: '#d69cff',
-  cyan: '#72ddf7',
-  white: '#e6e6f0',
-  brightBlack: '#6c7086',
-  brightRed: '#ff8fa3',
-  brightGreen: '#a6f4b8',
-  brightYellow: '#ffe29a',
-  brightBlue: '#9ccfff',
-  brightMagenta: '#e5c1ff',
-  brightCyan: '#a5ecfb',
-  brightWhite: '#ffffff',
-};
 
 const BASE16 = [
   TERM_THEME.black, TERM_THEME.red, TERM_THEME.green, TERM_THEME.yellow, TERM_THEME.blue, TERM_THEME.magenta, TERM_THEME.cyan, TERM_THEME.white,
