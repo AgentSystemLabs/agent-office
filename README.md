@@ -28,7 +28,7 @@ Droid Office turns that into a place. Every agent sits at a desk with a laptop s
 
 - **A desk for every agent.** Walk up, press **E**, pick Droid, Claude Code, Codex or OpenCode, and a worker sits down. Its live terminal opens on the laptop in front of it.
 - **One terminal, many hands.** Teammates can step into the same session at the same time and see who is typing. Late joiners get the full scrollback.
-- **A floor per project.** Ride the elevator, pick a GitHub or GitLab repository, and the office clones it and opens a new floor. Each floor has its own desks, boards, task queue and workers.
+- **A floor per project.** Ride the elevator, pick one of the git projects you already have, and the office opens a new floor in it, right where it is. Nothing is cloned. Each floor has its own desks, boards, task queue and workers.
 - **Boards you can touch.** Issues and pull requests hang on the wall. Take a card off the board, carry it across the room, and hand it to a worker.
 - **A task queue that works while you don't.** Queue tasks and walk away. Each one gets a fresh worker on its own git branch, and the PR shows up on the board when it's ready.
 - **Meetings between agents.** Seat two to five workers at the glass meeting table for a debate, a lead-and-team split, a red-versus-blue attack on your change, or a review panel that posts one merged review on the PR.
@@ -82,7 +82,7 @@ curl -fsSL https://raw.githubusercontent.com/nikships/droid-office/main/install.
 irm https://raw.githubusercontent.com/nikships/droid-office/main/install.ps1 | iex
 ```
 
-That installs the latest release and starts the office. It asks where to keep your projects, helps you sign in, and clones your first repository. Then it prints the link to share with your team. Run the same line again any time to update.
+That installs the latest release and starts the office. It asks which folder your projects are in and lets you pick your first one. It uses your existing checkouts where they are and never clones anything. Then it prints the link to share with your team. Run the same line again any time to update.
 
 ## Take it further
 

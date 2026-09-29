@@ -450,15 +450,14 @@ export class VrMenu {
   }
 
   /** Elevator rows: every floor plus the roof (the roof is a ride like any other). */
-  private floorRows(): ({ id: string; name: string; here: boolean; cloning: boolean; sub: string } | { roof: true })[] {
+  private floorRows(): ({ id: string; name: string; here: boolean; sub: string } | { roof: true })[] {
     const here = this.stores.currentFloor();
     const onRoof = this.stores.onRoof();
-    const rows: ({ id: string; name: string; here: boolean; cloning: boolean; sub: string } | { roof: true })[] = this.stores.getFloors().map((f) => ({
+    const rows: ({ id: string; name: string; here: boolean; sub: string } | { roof: true })[] = this.stores.getFloors().map((f) => ({
       id: f.id,
       name: f.name,
       here: f.id === here && !onRoof,
-      cloning: !!f.cloning,
-      sub: f.cloning ? '⏳ cloning…' : `${f.people} 🧑 · ${f.workers} 💻${f.waiting ? ` · ${f.waiting} 🙋` : ''}`,
+      sub: `${f.people} 🧑 · ${f.workers} 💻${f.waiting ? ` · ${f.waiting} 🙋` : ''}`,
     }));
     rows.push({ roof: true });
     return rows;
@@ -903,7 +902,7 @@ export class VrMenu {
         if (!this.stores.onRoof()) this.actions.ride(ROOF);
         return;
       }
-      if (!row.here && !row.cloning) this.actions.ride(row.id);
+      if (!row.here) this.actions.ride(row.id);
       return;
     }
     if (this.view === 'jukebox') {

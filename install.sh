@@ -7,9 +7,8 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/nikships/droid-office/main/install.sh | bash -s -- --port 4700
 #
-# The first time the office starts in a terminal it asks where to clone your projects, offers to
-# sign the GitHub (gh) or GitLab (glab) CLI in if neither is, and lets you pick your first
-# repository to clone as a floor.
+# The first time the office starts in a terminal it asks which folder your projects are in and lets you
+# pick your first project (an existing git checkout, used where it is) as a floor.
 #
 # Releases go in ~/.local/share/droid-office and an `droid-office` command in ~/.local/bin, so
 # afterwards `droid-office` starts it too. Run the curl line again to update to the newest release.
@@ -197,7 +196,7 @@ main() {
   fi
   step "Starting Droid Office $tag"
   # Piped into bash (curl … | bash), stdin is the rest of this script: give the office the terminal
-  # instead, so its first-run walkthrough can ask where projects go and which one to start with.
+  # instead, so its first-run walkthrough can ask which folder your projects are in and which one to start with.
   if [ ! -t 0 ] && [ -t 1 ] && (: </dev/tty) 2>/dev/null; then exec node "$entry" "$@" </dev/tty; fi
   exec node "$entry" "$@"
 }

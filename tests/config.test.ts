@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
-import { loadConfig } from '../src/server/config.js';
+import { loadConfig, suggestedFolder } from '../src/server/config.js';
 
 /** loadConfig with a throwaway --home, turning process.exit into a throw so a bad flag can be tested. */
 function load(t: { after(fn: () => void): void }, ...argv: string[]) {
@@ -41,10 +41,9 @@ test('other flags still treat a leading -- as a missing value', (t) => {
   assert.throws(() => load(t, '--agent', '--agent-args', 'x'), /exit 2: droid-office: --agent needs a value/);
 });
 
-test('new floors are cloned into ~/.droid-office/projects, not next to the office', (t) => {
+test('the office looks for checkouts in a code folder in the home folder, else the home folder itself', (t) => {
   const cfg = load(t);
-  assert.equal(cfg.projectsDir, path.join(homedir(), '.droid-office', 'projects'));
-  assert.notEqual(path.dirname(cfg.projectsDir), cfg.dir);
+  assert.equal(cfg.projectsDir, suggestedFolder(homedir()));
 });
 
 test('the default agent is droid', (t) => {

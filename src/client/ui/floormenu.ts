@@ -41,22 +41,19 @@ export function toggleFloorMenu(anchor: HTMLElement, opts: FloorMenuOptions): vo
     const n = Math.abs(i - here);
     const where = isHere ? 'you are here' : here < 0 ? '' : `${i > here ? '⬆' : '⬇'} ${n} floor${n === 1 ? '' : 's'} ${i > here ? 'up' : 'down'}`;
     const stats: HTMLElement[] = [];
-    if (f.cloning) stats.push(h('span', {}, '⏳ Cloning…'));
-    else {
-      if (f.waiting) stats.push(h('span.waiting', { title: 'Workers waiting on someone' }, `🙋 ${f.waiting}`));
-      if (f.busy) stats.push(h('span', { title: 'Working' }, `👷 ${f.busy}`));
-      stats.push(h('span', { title: 'Workers at desks' }, `💻 ${f.workers}`));
-      if (f.people) stats.push(h('span', { title: 'People on this floor' }, `🧑 ${f.people}`));
-    }
+    if (f.waiting) stats.push(h('span.waiting', { title: 'Workers waiting on someone' }, `🙋 ${f.waiting}`));
+    if (f.busy) stats.push(h('span', { title: 'Working' }, `👷 ${f.busy}`));
+    stats.push(h('span', { title: 'Workers at desks' }, `💻 ${f.workers}`));
+    if (f.people) stats.push(h('span', { title: 'People on this floor' }, `🧑 ${f.people}`));
     const btn = h(
       'button.floor-item',
-      { type: 'button', role: 'menuitem', class: isHere ? 'here' : '', disabled: isHere || f.cloning, title: isHere ? "You're on this floor" : f.cloning ? 'Still being cloned' : `Go to ${f.name}, right where you're standing` },
+      { type: 'button', role: 'menuitem', class: isHere ? 'here' : '', disabled: isHere, title: isHere ? "You're on this floor" : `Go to ${f.name}, right where you're standing` },
       h('span.floor-no', { style: `background:${p.trim}` }, String(i + 1)),
       h('span.floor-text', {}, h('span.floor-name', {}, f.name), h('span.floor-sub', {}, where || (f.repo ?? f.dir))),
       h('span.floor-stats', {}, ...stats),
     );
     btn.addEventListener('click', () => {
-      if (isHere || f.cloning) return;
+      if (isHere) return;
       close();
       opts.go(f.id);
     });

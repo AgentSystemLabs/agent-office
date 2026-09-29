@@ -218,9 +218,9 @@ class Store {
   /** Every floor of the building, and the one you're on (null while there are none). */
   floors: FloorInfo[] = [];
   floor: string | null = null;
-  /** Where the office clones new floors to. */
+  /** Where the office looks for existing checkouts to add as floors. */
   projectsDir: ProjectsDirState = { dir: '', custom: false };
-  /** The repositories the office's gh and glab logins can clone, once asked for (see floor.repos). */
+  /** The git checkouts found in the workspace folder, once asked for (see floor.repos). */
   repos: { list: RepoChoice[]; error?: string; loading: boolean; at: number } = { list: [], loading: false, at: 0 };
   issues: GhState<GhIssue> = { items: [], fetchedAt: 0, loading: true };
   pulls: GhState<GhPull> = { items: [], fetchedAt: 0, loading: true };

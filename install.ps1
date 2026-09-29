@@ -6,8 +6,8 @@
 #
 #   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/nikships/droid-office/main/install.ps1))) --port 4700
 #
-# The first time the office starts it asks where to clone your projects, offers to sign the GitHub
-# (gh) or GitLab (glab) CLI in if neither is, and lets you pick your first repository to clone as a floor.
+# The first time the office starts it asks which folder your projects are in and lets you pick
+# your first project (an existing git checkout, used where it is) as a floor.
 #
 # Releases go in %LOCALAPPDATA%\droid-office and an `droid-office` command in %LOCALAPPDATA%\droid-office\bin,
 # which is added to your user PATH, so afterwards `droid-office` starts it too. Run the irm line again to

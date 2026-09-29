@@ -696,8 +696,6 @@ export interface FloorInfo {
   dir: string;
   /** Which of FLOOR_PALETTES it's painted in. */
   palette: number;
-  /** Being cloned: on the elevator panel, but nobody can go there yet. */
-  cloning?: boolean;
   /** The project the office was started in (`droid-office <dir>`): the office keeps its own data in its checkout. */
   local?: boolean;
   addedBy: string;
@@ -713,25 +711,27 @@ export interface FloorInfo {
   people: number;
 }
 
-/** Where the elevator's "add a project" clones to: <dir>/<owner>/<repo> (GitLab: <dir>/<host>/<group>/…/<project>) on the office's machine. */
+/** The workspace folder on the office's machine: where the elevator's "add a project" looks for existing checkouts. Nothing is ever cloned. */
 export interface ProjectsDirState {
   /** For showing people: under the home folder it's ~/…. */
   dir: string;
-  /** Set from ⚙️ Settings or --projects, rather than the office's default. */
+  /** Set from ⚙️ Settings or --projects, rather than the office's default (a code folder in the home folder, else the home folder). */
   custom: boolean;
   by?: string;
   at?: number;
 }
 
-/** A repository the office's `gh` or `glab` login can clone, for the elevator's "add a project". */
+/** A git checkout found in the workspace folder, for the elevator's "add a project". */
 export interface RepoChoice {
-  /** owner/name on GitHub, host/group/…/project on GitLab. */
+  /** owner/name (GitHub) or host/group/…/project (GitLab) from its origin remote, else its folder's name. */
   name: string;
-  forge: Forge;
-  description?: string;
-  private: boolean;
-  /** ISO time of the last push. */
-  pushedAt?: string;
+  /** Where it is on the office's machine (absolute). */
+  dir: string;
+  /** The GitHub or GitLab repository its origin points at, when it has one. */
+  repo?: string;
+  forge?: Forge;
+  /** ISO time it was last touched (committed to, checked out…). */
+  activeAt?: string;
 }
 
 /** Everything that belongs to the floor you're on: sent when you walk in, and when you change floors. */
@@ -1164,17 +1164,17 @@ export type ClientMsg =
    * floor list), or the ladder or fire pole you came by.
    */
   | { t: 'floor.go'; floor: string; at?: { x: number; y: number; z: number; rotY: number } }
-  /** The repositories that could become a floor; answered with `floor.repos`. */
+  /** The checkouts in the workspace folder that could become a floor; answered with `floor.repos`. */
   | { t: 'floor.repos'; refresh?: boolean }
-  /** Clone a repository and make it a new floor; answered with `floor.added` once it's there. */
-  | { t: 'floor.add'; repo: string }
+  /** Make an existing checkout (its full path, in the workspace folder) a new floor, where it is; answered with `floor.added`. */
+  | { t: 'floor.add'; dir: string }
   /** Take a floor off the building (admins only). Its checkout stays on disk; everyone on it rides to another floor. */
   | { t: 'floor.remove'; floor: string }
   /** Dress the building up for a holiday, take the decorations down ('off'), or follow the calendar ('auto'). */
   | { t: 'theme.set'; pick: ThemePick }
   /** Workers whose pull request merged go home by themselves (true), or wait to be sent home. */
   | { t: 'leaveOnMerge.set'; on: boolean }
-  /** Where new floors are cloned from now on (admins only); '' goes back to the default. */
+  /** Where the office looks for checkouts from now on (admins only); '' goes back to the default. */
   | { t: 'floor.projectsDir'; dir: string }
   /** Pick up the floor's basketball (or catch it): yours if nobody else has it. */
   | { t: 'ball.take' }
@@ -1195,7 +1195,7 @@ export type ServerMsg =
       peers: PeerInfo[];
       /** Every floor of the building, for the elevator. */
       floors: FloorInfo[];
-      /** Where new projects are cloned to, on the office's machine. */
+      /** Where the office looks for checkouts to add as floors, on the office's machine. */
       projectsDir: ProjectsDirState;
       ice: { urls: string | string[]; username?: string; credential?: string }[];
       chat: ChatLine[];
@@ -1223,8 +1223,8 @@ export type ServerMsg =
   | { t: 'floors'; floors: FloorInfo[] }
   /** Sent to whoever asked. */
   | { t: 'floor.repos'; repos: RepoChoice[]; error?: string }
-  /** Sent to whoever asked for the floor, once it's cloned (or couldn't be). */
-  | { t: 'floor.added'; repo: string; floor?: string; error?: string }
+  /** Sent to whoever asked for the floor (or couldn't get it). `dir` is the checkout they asked for. */
+  | { t: 'floor.added'; dir: string; floor?: string; error?: string }
   /** The projects folder moved (see floor.projectsDir). */
   | { t: 'projectsDir'; state: ProjectsDirState }
   | { t: 'peer.join'; peer: PeerInfo }

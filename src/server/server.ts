@@ -252,10 +252,7 @@ export async function startServer(cfg: Config) {
   const toastFloor = (floor: Floor | undefined, text: string, level: ToastLevel = 'info') => {
     if (floor) toFloor(floor, { t: 'toast', text, level });
   };
-  const floorInfos = (): FloorInfo[] => [
-    ...[...floors.values()].map((f) => ({ ...f.info(), ...(building.isLocal(f.id) ? { local: true } : {}) })),
-    ...building.pending().map((d) => ({ id: d.id, name: d.name, repo: d.repo, dir: d.dir, palette: d.palette, addedBy: d.addedBy, addedAt: d.addedAt, cloning: true, workers: 0, busy: 0, waiting: 0, people: 0 })),
-  ];
+  const floorInfos = (): FloorInfo[] => [...[...floors.values()].map((f) => ({ ...f.info(), ...(building.isLocal(f.id) ? { local: true } : {}) }))];
   // The elevator's counts change with every worker update; tell everyone at most a few times a second.
   let floorsSent = '';
   let floorsTimer: NodeJS.Timeout | undefined;
@@ -1302,32 +1299,26 @@ export async function startServer(cfg: Config) {
           break;
         }
         const floor = floors.get(str(msg.floor, 64));
-        if (!floor) warn(c, building.pending().some((d) => d.id === msg.floor) ? "That floor is still being cloned — it'll be ready in a moment" : 'No such floor');
+        if (!floor) warn(c, 'No such floor');
         else goToFloor(c, floor, arrivalSpot(msg.at));
         break;
       }
       case 'floor.repos':
         void building.repos(msg.refresh === true).then(
           (repos) => sendTo(c, { t: 'floor.repos', repos }),
-          (err: Error) => sendTo(c, { t: 'floor.repos', repos: [], error: `Couldn't list your repositories with gh or glab: ${err.message}` }),
+          (err: Error) => sendTo(c, { t: 'floor.repos', repos: [], error: `Couldn't look for checkouts: ${err.message}` }),
         );
         break;
       case 'floor.add': {
-        const repo = str(msg.repo, 400);
-        void building
-          .add(repo, who, (def) => {
-            floorsChanged();
-            toastAll(`🛗 ${who} is adding a floor for ${def.repo ?? def.name}…`);
-          })
-          .then((r) => {
-            floorsChanged();
-            if (typeof r === 'string') return sendTo(c, { t: 'floor.added', repo, error: r });
-            const floor = openFloor(r);
-            if (!floor) return sendTo(c, { t: 'floor.added', repo, error: `Cloned ${r.repo}, but couldn't open its floor — see the office's log` });
-            console.log(`  ${who} added a floor for ${r.repo} (${r.dir})`);
-            toastAll(`🛗 New floor: ${r.name}, added by ${who}`);
-            sendTo(c, { t: 'floor.added', repo, floor: floor.id });
-          });
+        const dir = str(msg.dir, 1024);
+        const r = building.add(dir, who);
+        if (typeof r === 'string') return sendTo(c, { t: 'floor.added', dir, error: r });
+        floorsChanged();
+        const floor = openFloor(r);
+        if (!floor) return sendTo(c, { t: 'floor.added', dir, error: `Added ${r.name}, but couldn't open its floor — see the office's log` });
+        console.log(`  ${who} added a floor for ${r.repo ?? r.name} (${r.dir})`);
+        toastAll(`🛗 New floor: ${r.name}, added by ${who}`);
+        sendTo(c, { t: 'floor.added', dir, floor: floor.id });
         break;
       }
       case 'floor.remove': {
@@ -1343,7 +1334,7 @@ export async function startServer(cfg: Config) {
         break;
       }
       case 'floor.projectsDir': {
-        // It's a folder on the office's machine that `gh` and `glab` write into: admins pick it.
+        // It's a folder on the office's machine that decides which checkouts anyone can add as a floor: admins pick it.
         const err = meOf(c.accountId).admin ? building.setProjectsDir(str(msg.dir, 1024), who) : 'Only admins can move the workspace folder';
         warn(c, err);
         if (err) break;

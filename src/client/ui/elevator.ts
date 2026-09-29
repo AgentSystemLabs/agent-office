@@ -1,29 +1,29 @@
 import type { FloorInfo, RepoChoice, ServerMsg } from '../../shared/protocol';
-import { floorPalette, forgeOf, normalizeRepo, sameRepo } from '../../shared/floors';
+import { floorPalette } from '../../shared/floors';
 import { ROOF, ROOF_NAME } from '../../shared/rooftop';
 import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, timeAgo, type Modal } from './dom';
 import { confirmDialog } from './prompt';
 
-// The elevator's panel: a button for every floor (every project), and "add a project", which clones
-// one of the repositories the office's gh (GitHub) or glab (GitLab) login can see and makes it a new
-// floor. The first time the office runs there are no floors, and this is where you start. Admins can
-// take a floor off the building here too; its checkout stays on disk.
+// The elevator's panel: a button for every floor (every project), and "add a project", which lists the
+// git checkouts already in the office's workspace folder and makes the one you pick a new floor, right
+// where it is: nothing is cloned or copied. The first time the office runs there are no floors, and
+// this is where you start. Admins can take a floor off the building here too; its checkout stays on disk.
 
 export interface ElevatorOptions {
   net: Net;
   ride(floorId: string): void;
 }
 
-/** How many repositories the list shows at once; typing narrows it down. */
+/** How many checkouts the list shows at once; typing narrows it down. */
 const SHOWN = 60;
-/** Ask gh and glab for the repositories again after this long. */
-const REPOS_STALE_MS = 5 * 60_000;
+/** Look in the workspace folder again after this long. */
+const REPOS_STALE_MS = 30_000;
 
 const addedWaiters = new Set<(msg: Extract<ServerMsg, { t: 'floor.added' }>) => void>();
 
-/** Main feeds server messages through here, so a panel waiting on its clone hears back. */
+/** Main feeds server messages through here, so a panel waiting on its new floor hears back. */
 export function routeElevatorMessage(msg: ServerMsg) {
   if (msg.t === 'floor.added') for (const fn of addedWaiters) fn(msg);
 }
@@ -57,15 +57,15 @@ export function openElevator(opts: ElevatorOptions): void {
 
   const floorsEl = h('div.floors');
   const addEl = h('div.add');
-  const input = h('input', { type: 'text', placeholder: 'Search your repositories, or paste a GitHub or GitLab URL', 'aria-label': 'Repository', autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
-  const listEl = h('div.repo-list', { role: 'listbox', 'aria-label': 'Repositories' });
+  const input = h('input', { type: 'text', placeholder: 'Search your projects, or type a checkout’s full path', 'aria-label': 'Project', autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
+  const listEl = h('div.repo-list', { role: 'listbox', 'aria-label': 'Projects' });
   const statusEl = h('div');
   const addBtn = h('button.btn.primary', { type: 'button' }, 'Add floor');
-  const refreshBtn = h('button.btn', { type: 'button', title: 'Ask GitHub and GitLab for the list again' }, '↻');
+  const refreshBtn = h('button.btn', { type: 'button', title: 'Look in the workspace folder again' }, '↻');
   const close = setup ? null : h('button.btn.close', { 'aria-label': 'Close' }, '✕');
 
-  // Where clones go. Admins can move it right here: a new office's elevator can't be closed to reach
-  // ⚙️ Settings until it has a floor, and the first project is when it matters.
+  // Where checkouts are looked for. Admins can move it right here: a new office's elevator can't be
+  // closed to reach ⚙️ Settings until it has a floor, and the first project is when it matters.
   const dirInput = h('input', { type: 'text', placeholder: '~/Workspace', 'aria-label': 'Workspace folder', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
   const dirSave = h('button.btn.primary', { type: 'button' }, 'Save');
   const dirCancel = h('button.btn', { type: 'button' }, 'Cancel');
@@ -96,29 +96,30 @@ export function openElevator(opts: ElevatorOptions): void {
     net.send({ t: 'floor.repos' });
   };
 
-  /** What "Add floor" would add: the row picked, else what's typed if it names a repository. */
-  const choice = (): string | undefined => selected ?? normalizeRepo(filter);
+  /** What "Add floor" would add: the row picked, else what's typed if it's a full path. */
+  const typedPath = (): string | undefined => {
+    const t = filter.trim();
+    return t.startsWith('/') || t === '~' || t.startsWith('~/') ? t : undefined;
+  };
+  const choice = (): string | undefined => selected ?? typedPath();
 
   const floorButton = (f: FloorInfo, i: number) => {
     const here = f.id === store.floor;
     const p = floorPalette(f.palette);
-    const stats: (HTMLElement | string)[] = [];
-    if (f.cloning) stats.push('⏳ Cloning…');
-    else {
-      if (f.busy) stats.push(h('span', { title: 'Working' }, `👷 ${f.busy}`));
-      if (f.waiting) stats.push(h('span.waiting', { title: 'Waiting on someone' }, `🙋 ${f.waiting}`));
-      stats.push(h('span', { title: 'Workers at desks' }, `💻 ${f.workers}`));
-      if (f.people) stats.push(h('span', { title: 'People on this floor' }, `🧑 ${f.people}`));
-    }
+    const stats: HTMLElement[] = [];
+    if (f.busy) stats.push(h('span', { title: 'Working' }, `👷 ${f.busy}`));
+    if (f.waiting) stats.push(h('span.waiting', { title: 'Waiting on someone' }, `🙋 ${f.waiting}`));
+    stats.push(h('span', { title: 'Workers at desks' }, `💻 ${f.workers}`));
+    if (f.people) stats.push(h('span', { title: 'People on this floor' }, `🧑 ${f.people}`));
     const btn = h(
       'button.floor-btn',
-      { type: 'button', class: here ? 'here' : '', disabled: f.cloning || here, title: here ? "You're on this floor" : f.cloning ? 'Still being cloned' : `Ride to ${f.name}` },
+      { type: 'button', class: here ? 'here' : '', disabled: here, title: here ? "You're on this floor" : `Ride to ${f.name}` },
       h('span.floor-no', { style: `background:${p.trim}` }, String(i + 1)),
       h('span.floor-text', {}, h('span.floor-name', {}, f.name, here ? h('span.here-tag', {}, 'you are here') : null), h('span.floor-sub', {}, f.repo ?? f.dir)),
       h('span.floor-stats', {}, ...stats.flatMap((s, j) => (j ? [' ', s] : [s]))),
     );
     btn.addEventListener('click', () => {
-      if (here || f.cloning) return;
+      if (here) return;
       modal.close();
       opts.ride(f.id);
     });
@@ -128,14 +129,14 @@ export function openElevator(opts: ElevatorOptions): void {
   /** The floor's button, with a 🗑 beside it for admins to take it off the building. */
   const floorRow = (f: FloorInfo, i: number) => {
     const btn = floorButton(f, i);
-    if (!store.me.admin || f.cloning) return btn;
+    if (!store.me.admin) return btn;
     const off = h('button.btn.floor-off', { type: 'button', title: `Take ${f.name} off the building`, 'aria-label': `Remove ${f.name}` }, '🗑');
     off.addEventListener('click', () => confirmRemove(f));
     return h('div.floor-row', {}, btn, off);
   };
 
   const confirmRemove = (f: FloorInfo) => {
-    const next = store.floors.find((o) => o.id !== f.id && !o.cloning);
+    const next = store.floors.find((o) => o.id !== f.id);
     const workers = f.workers ? `Its ${f.workers} worker${f.workers === 1 ? '' : 's'} stop${f.workers === 1 ? 's' : ''}. ` : '';
     const people = f.people ? `Everyone on it rides the elevator to ${next ? next.name : 'the lobby'}. ` : '';
     // The office was started in it: its accounts, password and chat live in that .droid-office too, and stay.
@@ -165,37 +166,43 @@ export function openElevator(opts: ElevatorOptions): void {
   const renderFloors = () => {
     const floors = store.floors;
     // Top floor first, the way an elevator's buttons stack, with the roof over them and floor 1 at the bottom.
-    floorsEl.replaceChildren(...(floors.some((f) => !f.cloning) ? [roofButton()] : []), ...(floors.length ? floors.map(floorRow).reverse() : [h('p.empty', {}, 'No floors yet.')]));
+    floorsEl.replaceChildren(...(floors.length ? [roofButton()] : []), ...(floors.length ? floors.map(floorRow).reverse() : [h('p.empty', {}, 'No floors yet.')]));
   };
 
   const repoRow = (r: RepoChoice) => {
-    const floor = store.floors.find((f) => sameRepo(f.repo, r.name));
+    const floor = store.floors.find((f) => f.dir === r.dir);
+    const on = selected === r.dir;
     const row = h(
       'div.repo',
-      { role: 'option', class: selected && sameRepo(selected, r.name) ? 'sel' : '', 'aria-selected': String(!!selected && sameRepo(selected, r.name)), title: r.description ?? r.name },
-      h('span.forge', { title: r.forge === 'gitlab' ? 'GitLab' : 'GitHub' }, r.forge === 'gitlab' ? '🦊' : '🐙'),
+      { role: 'option', class: on ? 'sel' : '', 'aria-selected': String(on), title: r.dir },
+      h('span.forge', { title: r.forge === 'gitlab' ? 'GitLab' : r.forge === 'github' ? 'GitHub' : 'Local folder' }, r.forge === 'gitlab' ? '🦊' : r.forge === 'github' ? '🐙' : '📁'),
       h('span.nm', {}, r.name),
-      r.private ? h('span', { title: 'Private' }, '🔒') : null,
-      h('span.desc', {}, r.description ?? ''),
-      floor ? h('span.pill', {}, floor.id === store.floor ? 'you are here' : `floor ${store.floors.indexOf(floor) + 1}`) : r.pushedAt ? h('span.when', {}, timeAgo(r.pushedAt)) : null,
+      h('span.desc', {}, tildePath(r.dir)),
+      floor ? h('span.pill', {}, floor.id === store.floor ? 'you are here' : `floor ${store.floors.indexOf(floor) + 1}`) : r.activeAt ? h('span.when', {}, timeAgo(r.activeAt)) : null,
     );
     row.addEventListener('click', () => {
       if (adding) return;
       if (floor) {
         // Already a floor: the button takes you there.
-        if (floor.id !== store.floor && !floor.cloning) {
+        if (floor.id !== store.floor) {
           modal.close();
           opts.ride(floor.id);
         }
         return;
       }
-      selected = r.name;
+      selected = r.dir;
       renderAdd();
     });
     row.addEventListener('dblclick', () => {
-      if (!floor) add(r.name);
+      if (!floor) add(r.dir);
     });
     return row;
+  };
+
+  /** The workspace folder is shown as ~/… where it can be; a checkout's path is shown the same way. */
+  const tildePath = (dir: string) => {
+    const root = store.projectsDir.dir;
+    return root && dir.startsWith(`${root}/`) ? `${root}${dir.slice(root.length)}` : dir;
   };
 
   const renderAdd = () => {
@@ -214,35 +221,40 @@ export function openElevator(opts: ElevatorOptions): void {
     addBtn.classList.remove('hidden');
     const r = store.repos;
     const q = filter.trim().toLowerCase();
-    const typed = normalizeRepo(filter);
-    const matches = r.list.filter((x) => !q || x.name.toLowerCase().includes(q) || (x.description ?? '').toLowerCase().includes(q));
-    const rows: HTMLElement[] = [];
-    // A repository that isn't in the list (someone else's public one): offer it anyway.
-    if (typed && !r.list.some((x) => sameRepo(x.name, typed))) rows.push(repoRow({ name: typed, forge: forgeOf(typed) ?? 'github', private: false, description: 'Not in your list — the office will try to clone it' }));
-    rows.push(...matches.slice(0, SHOWN).map(repoRow));
+    const matches = r.list.filter((x) => !q || x.name.toLowerCase().includes(q) || x.dir.toLowerCase().includes(q));
+    const rows: HTMLElement[] = matches.slice(0, SHOWN).map(repoRow);
     if (!rows.length)
       rows.push(
         h(
           'p.empty',
           { style: 'padding:10px' },
-          r.loading ? 'Asking GitHub and GitLab for your repositories…' : r.error ? '' : q ? 'Nothing matches. Type owner/name (GitHub), or paste a GitLab project URL, to clone any repository.' : 'No repositories.',
+          r.loading
+            ? `Looking for git projects in ${store.projectsDir.dir}…`
+            : r.error
+              ? ''
+              : q
+                ? 'Nothing matches. Type the full path of a checkout in the workspace folder to add one that isn’t listed.'
+                : `No git projects in ${store.projectsDir.dir}.${store.me.admin ? ' Change the folder below.' : ' An admin can change the folder.'}`,
         ),
       );
     if (matches.length > SHOWN) rows.push(h('p.empty', { style: 'padding:8px 10px' }, `…and ${matches.length - SHOWN} more — type to narrow it down`));
     listEl.replaceChildren(...rows);
     const pick = choice();
-    const dest = pick ? `${store.projectsDir.dir}/${pick}` : `${store.projectsDir.dir}/<owner>/<repo>`;
-    const cli = pick ? (forgeOf(pick) === 'gitlab' ? 'glab' : 'gh') : 'gh or glab';
-    const change = store.me.admin ? h('button.btn.dir-change', { type: 'button', title: 'Clone new projects into another folder on the office’s machine' }, 'Change folder') : null;
+    const change = store.me.admin ? h('button.btn.dir-change', { type: 'button', title: 'Look for projects in another folder on the office’s machine' }, 'Change folder') : null;
     change?.addEventListener('click', () => editDir(true));
     statusEl.replaceChildren(
       adding
-        ? h('p.note.busy', {}, `⏳ Cloning ${adding} into ${store.projectsDir.dir}/${adding}… A big repository can take a minute.`)
-        : h('p.note', {}, `Cloned into ${dest} with this machine's ${cli} login. Everything on the new floor works in that checkout.${store.me.admin ? ' Pick another folder here or in ⚙️ Settings.' : ''}`, change),
+        ? h('p.note.busy', {}, `⏳ Adding ${adding}…`)
+        : h(
+            'p.note',
+            {},
+            `Looking in ${store.projectsDir.dir || 'the workspace folder'} for git projects. The new floor works in the checkout where it is: nothing is cloned or copied.${store.me.admin ? ' Pick another folder here or in ⚙️ Settings.' : ''}`,
+            change,
+          ),
       ...[r.error, error].filter(Boolean).map((e) => h('p.err', {}, e)),
     );
-    addBtn.disabled = !!adding || !pick || store.floors.some((f) => sameRepo(f.repo, pick));
-    addBtn.textContent = adding ? 'Cloning…' : pick ? `Add ${pick}` : 'Add floor';
+    addBtn.disabled = !!adding || !pick || store.floors.some((f) => f.dir === pick);
+    addBtn.textContent = adding ? 'Adding…' : 'Add floor';
     input.disabled = !!adding;
     if (!built) {
       built = true;
@@ -250,16 +262,16 @@ export function openElevator(opts: ElevatorOptions): void {
     }
   };
 
-  const add = (repo: string) => {
+  const add = (dir: string) => {
     if (adding) return;
-    adding = repo;
+    adding = dir;
     error = '';
     renderAdd();
-    net.send({ t: 'floor.add', repo });
+    net.send({ t: 'floor.add', dir });
   };
 
   const onAdded = (msg: Extract<ServerMsg, { t: 'floor.added' }>) => {
-    if (!adding || msg.repo !== adding) return;
+    if (!adding || msg.dir !== adding) return;
     adding = null;
     if (msg.error || !msg.floor) {
       error = msg.error ?? 'The floor could not be added';
@@ -273,16 +285,16 @@ export function openElevator(opts: ElevatorOptions): void {
 
   input.addEventListener('input', () => {
     filter = input.value;
-    // Typing something else drops the row that was picked, unless it's still what's typed.
-    if (selected && !sameRepo(selected, normalizeRepo(filter))) selected = null;
+    // Typing something else drops the row that was picked.
+    selected = null;
     renderAdd();
   });
   input.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || e.isComposing) return;
     e.preventDefault();
     const q = filter.trim().toLowerCase();
-    const matches = store.repos.list.filter((x) => !store.floors.some((f) => sameRepo(f.repo, x.name)) && (x.name.toLowerCase().includes(q) || (x.description ?? '').toLowerCase().includes(q)));
-    const pick = choice() ?? (q && matches.length === 1 ? matches[0].name : undefined);
+    const matches = store.repos.list.filter((x) => !store.floors.some((f) => f.dir === x.dir) && (x.name.toLowerCase().includes(q) || x.dir.toLowerCase().includes(q)));
+    const pick = choice() ?? (q && matches.length === 1 ? matches[0].dir : undefined);
     if (pick) add(pick);
   });
   addBtn.addEventListener('click', () => {
@@ -301,7 +313,7 @@ export function openElevator(opts: ElevatorOptions): void {
         {},
         store.floors.length
           ? 'Every project is a floor of this building. Pick a floor to ride to, or add another project.'
-          : "Every project is a floor of this building, and it doesn't have any yet. Pick one of your repositories: the office clones it and it becomes the first floor.",
+          : "Every project is a floor of this building, and it doesn't have any yet. Pick one of your git projects: it becomes the first floor, and the office works in it right where it is.",
       )
     : null;
   const el = h(

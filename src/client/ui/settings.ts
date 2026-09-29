@@ -379,7 +379,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   };
   paintLeave();
 
-  // Where the elevator clones new projects on the office's machine. Admins move it.
+  // Where the elevator looks for existing git projects on the office's machine. Admins move it.
   const dirInput = h('input', { type: 'text', placeholder: '~/Workspace', 'aria-label': 'Workspace folder', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
   const dirSave = h('button.btn.primary', { type: 'button' }, 'Save');
   const dirDefault = h('button.btn', { type: 'button' }, 'Use the default');
@@ -393,9 +393,9 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     dirRow.classList.toggle('hidden', !admin);
     dirActions.classList.toggle('hidden', !admin || !custom);
     dirNote.textContent =
-      `New projects from the elevator are cloned into ${dir}/<owner>/<repo> (GitLab: ${dir}/<host>/<group>/<project>) on the office’s machine. It can’t be inside a git checkout.` +
+      `The elevator lists the git projects it finds in ${dir} on the office’s machine (up to four folders deep) and opens the one you pick as a floor, right where it is. Nothing is cloned or copied.` +
       (custom && by && at ? ` Set by ${by} ${timeAgo(at)}.` : '') +
-      (admin ? ' A checkout of the same repository that’s already there is used as it is. Floors you already have stay where they are.' : ' An admin can move it.');
+      (admin ? ' Floors you already have stay where they are when you move it.' : ' An admin can move it.');
   };
   paintDir();
   const saveDir = () => {

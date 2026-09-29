@@ -1,11 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 import { forgeOf, forgeWords, gitlabParts, normalizeRepo, repoPath, repoWebUrl } from '../src/shared/floors.js';
 import { closesOf, mergeState, splitDiscussions } from '../src/server/gitlab.js';
-import { insideCheckout } from '../src/server/building.js';
 import { stationBrief } from '../src/server/stations.js';
 
 test('GitHub repositories stay owner/repo, however they are typed', () => {
@@ -100,14 +96,6 @@ test('discussions split into comments, approvals and threads on lines of code', 
       [6, undefined, 'b.ts', 4, 'LEFT'],
     ],
   );
-});
-
-test('a projects folder inside a git checkout is refused, so clones never land in a project', (t) => {
-  const root = mkdtempSync(path.join(tmpdir(), 'droid-office-nest-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  mkdirSync(path.join(root, 'checkout', '.git'), { recursive: true });
-  assert.match(insideCheckout(path.join(root, 'checkout', 'nikships')) ?? '', /inside the git checkout/);
-  assert.equal(insideCheckout(path.join(root, 'elsewhere', 'projects')), undefined);
 });
 
 test('board agents on a GitLab floor are briefed for glab and merge requests', () => {

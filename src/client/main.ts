@@ -422,7 +422,6 @@ function vrAimLabel(it: Interactable, note: GhIssue | null, spot: BoardSpot | nu
       const floor = store.floors.find((f) => f.id === it.floorId);
       const name = it.floorId === ROOF ? 'Rooftop bar' : floor?.name;
       if (!name) return null;
-      if (floor?.cloning) return `${name} · cloning`;
       return it.floorId === store.floor ? `${name} · you are here` : `E · ride to ${name}`;
     }
     case 'issues':
@@ -1224,9 +1223,9 @@ hanger.onChange = () => {
 };
 
 // ---- The ladder and the fire poles ----------------------------------------------------------------
-/** The floors of the building from the bottom up (not the ones still being cloned: nobody can go there yet). */
+/** The floors of the building from the bottom up. */
 function builtFloors(): FloorInfo[] {
-  return store.floors.filter((f) => !f.cloning);
+  return store.floors;
 }
 /** The floor above yours (1) or below it (-1), if there is one. */
 function floorThere(way: Way): FloorInfo | undefined {
@@ -1609,7 +1608,7 @@ function lift() {
   return upTop && roof ? roof.elevator : office.elevator;
 }
 
-/** Both cabs follow the live list, including clone completion/removal and a lazily built roof. */
+/** Both cabs follow the live list, including additions/removals and a lazily built roof. */
 function syncElevatorButtons() {
   for (const elevator of [office.elevator, roof?.elevator]) {
     if (!elevator) continue;
@@ -2464,28 +2463,27 @@ function vrQueueAdd() {
     },
   });
 }
-/** The VR floors view's ➕ button: name a repository; the office clones it into a new floor and the elevator rides there (the panel's add, minus the browsing). */
+/** The VR floors view's ➕ button: name a checkout's folder; the office makes it a floor where it is and the elevator rides there (the panel's add, minus the browsing). */
 function vrAddFloor() {
   if (!vrUi) return;
   vrUi.askText({
     title: '➕ Add a project',
-    subtitle: 'owner/name — cloned into a new floor',
-    placeholder: 'owner/repo…',
+    subtitle: 'Full path of a git checkout in the workspace folder',
+    placeholder: `${store.projectsDir.dir || '~/Workspace'}/my-project…`,
     submitLabel: 'Add floor',
     onSubmit: (text) => {
-      const repo = text.trim();
-      if (!repo) return;
-      toast(`⏳ Cloning ${repo}…`);
+      const dir = text.trim();
+      if (!dir) return;
       const off = onFloorAdded((msg) => {
-        if (msg.repo !== repo) return;
+        if (msg.dir !== dir) return;
         off();
         if (msg.error || !msg.floor) {
-          toast(msg.error ?? `Couldn't add ${repo}`, 'warn');
+          toast(msg.error ?? `Couldn't add ${dir}`, 'warn');
           return;
         }
         ride(msg.floor);
       });
-      net.send({ t: 'floor.add', repo });
+      net.send({ t: 'floor.add', dir });
     },
   });
 }

@@ -27,7 +27,7 @@ export interface Elevator {
   setSign(text: string): void;
   /** Swap the decorative desktop panel for the live VR buttons. */
   setVR(active: boolean): void;
-  setFloors(floors: readonly Pick<FloorInfo, 'id' | 'name' | 'cloning'>[], current: string | null): void;
+  setFloors(floors: readonly Pick<FloorInfo, 'id' | 'name'>[], current: string | null): void;
   /** Animate a valid destination press. The caller rides through the normal trip sequence. */
   pressFloor(id: string): boolean;
   /** The cab button under a tracked fingertip, in world space. */
@@ -121,7 +121,6 @@ export function buildElevator(): Elevator {
   group.add(floorPanel);
   const buttons: {
     id: string;
-    cloning: boolean;
     group: THREE.Group;
     material: THREE.MeshToonMaterial;
     interactable: Interactable;
@@ -133,14 +132,14 @@ export function buildElevator(): Elevator {
   const paintButtons = () => {
     for (const b of buttons) {
       const here = b.id === currentFloor;
-      b.material.color.set(b.cloning ? '#777d88' : here ? BRASS : '#fff7d6');
+      b.material.color.set(here ? BRASS : '#fff7d6');
       b.material.emissive.set(here ? '#6c4c0b' : '#000000');
     }
   };
   const setFloors: Elevator['setFloors'] = (floors, current) => {
     currentFloor = current;
-    const entries = floors.map((f, i) => ({ id: f.id, name: `${i + 1} · ${f.name}${f.cloning ? ' (cloning)' : ''}`, cloning: !!f.cloning }));
-    if (floors.some((f) => !f.cloning)) entries.push({ id: ROOF, name: 'R · Rooftop bar', cloning: false });
+    const entries = floors.map((f, i) => ({ id: f.id, name: `${i + 1} · ${f.name}` }));
+    if (floors.length) entries.push({ id: ROOF, name: 'R · Rooftop bar' });
     const key = JSON.stringify(entries);
     if (key !== floorKey) {
       floorKey = key;
@@ -172,7 +171,7 @@ export function buildElevator(): Elevator {
           const it: Interactable = { kind: 'elevator', floorId: f.id, x: floorPanel.position.x, z: floorPanel.position.z - keycap.position.x, radius: 0.3 };
           keycap.userData.interact = it;
           floorPanel.add(keycap);
-          buttons.push({ id: f.id, cloning: f.cloning, group: keycap, material, interactable: it, pressed: 0 });
+          buttons.push({ id: f.id, group: keycap, material, interactable: it, pressed: 0 });
         });
       }
     }
@@ -190,7 +189,7 @@ export function buildElevator(): Elevator {
   };
   const pressFloor = (id: string): boolean => {
     const b = buttons.find((b) => b.id === id);
-    if (!floorPanel.visible || !b || b.cloning || id === currentFloor) return false;
+    if (!floorPanel.visible || !b || id === currentFloor) return false;
     b.pressed = 0.24;
     b.group.position.z = 0.029;
     return true;

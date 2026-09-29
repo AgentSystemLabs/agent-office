@@ -93,7 +93,7 @@ test('live floor changes replace labels and targets, dispose old resources, and 
   elevator.setFloors(
     [
       { id: 'alpha', name: 'Renamed' },
-      { id: 'gamma', name: 'Gamma', cloning: true },
+      { id: 'gamma', name: 'Gamma' },
     ],
     'alpha',
   );
@@ -101,12 +101,11 @@ test('live floor changes replace labels and targets, dispose old resources, and 
   assert.equal(elevator.pressFloor('beta'), false, 'cached rays cannot activate removed destinations');
   assert.equal(disposed, 3);
   assert.ok(labels.includes('1 · Renamed'));
-  assert.equal(elevator.pressFloor('gamma'), false, 'cloning floors are visible but inactive');
   labels.length = 0;
   redrawText();
   assert.ok(!labels.includes('2 · Beta'), 'disposed labels leave the font-redraw registry');
   elevator.setFloors([{ id: 'gamma', name: 'Gamma' }], 'alpha');
-  assert.equal(elevator.pressFloor('gamma'), true, 'clone completion enables its button');
+  assert.equal(elevator.pressFloor('gamma'), true, 'a new floor gets a working button');
   elevator.setFloors([], null);
   assert.equal(panel.children.length, 0, 'an empty building has no stale buttons or roof');
 });

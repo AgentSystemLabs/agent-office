@@ -1,5 +1,5 @@
 import { randomBytes, scryptSync } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, appendFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -10,9 +10,9 @@ export interface Config {
   /** The office's own folder: the building's data lives in its .droid-office. */
   dir: string;
   dataDir: string;
-  /** Where new floors are cloned by default (~/.droid-office/projects), as <projectsDir>/<owner>/<repo>. */
+  /** Where the office looks for existing checkouts to add as floors, unless another folder is picked (see defaultProjectsDir). */
   projectsDir: string;
-  /** --projects / DROID_OFFICE_PROJECTS: picks the projects folder, as ⚙️ Settings in the office does. */
+  /** --projects / DROID_OFFICE_PROJECTS: picks the workspace folder, as ⚙️ Settings in the office does. */
   projects?: string;
   /** Started as `droid-office <dir>`: that checkout is a floor of its own (it's also `dir`). */
   project?: string;
@@ -66,15 +66,13 @@ Usage:
   droid-office prune [dir] [--dry-run] [--force]
   droid-office accounts [list|invite|revoke|role|password] ...
 
-Runs the office. Every project is a floor of the building: ride the elevator,
-pick one of the repositories your \`gh\` (GitHub) or \`glab\` (GitLab) login can
-see, and the office clones it into the projects folder as a new floor. Workers,
-terminals, boards and the task queue on a floor all belong to that floor's
-checkout.
+Runs the office. Every project is a floor of the building: ride the elevator and
+pick one of the git checkouts you already have in your workspace folder. The
+office uses it where it is (it never clones or copies a repository). Workers,
+terminals, boards and the task queue on a floor all belong to that checkout.
 
 The first time it starts in a terminal with no floors, it walks you through
-where projects are cloned, signing the GitHub or GitLab CLI in, and your first
-project.
+which folder your projects are in and which of them to open first.
 
 Started from anywhere, the office keeps its data in --home. Given a [dir] (or
 started in a project where an office already ran), it keeps its data in
@@ -82,9 +80,9 @@ started in a project where an office already ran), it keeps its data in
 (an admin can take it off in the elevator like any other).
 
 Commands:
-  setup                   Pick the folder projects are cloned into and clone
-                          projects as floors: a walkthrough in a terminal, or
-                          just --projects / --project for scripts (see setup --help)
+  setup                   Pick the folder your projects are in and which of them
+                          are floors: a walkthrough in a terminal, or just
+                          --projects / --project for scripts (see setup --help)
   prune                   Remove leftover worker worktrees (.droid-office/worktrees/)
                           and their office/* branches. Anything with uncommitted
                           changes or unpushed commits is kept unless --force is given.
@@ -94,11 +92,12 @@ Commands:
 Options:
       --home <dir>        Where the office keeps its data when no [dir] is given
                           (default ~/droid-office, env DROID_OFFICE_HOME)
-      --projects <dir>    Where new floors are cloned, as <dir>/<owner>/<repo>
-                          (GitLab: <dir>/<host>/<group>/<project>). Default
-                          ~/.droid-office/projects, env DROID_OFFICE_PROJECTS.
-                          It can't be inside a git checkout. Also settable
-                          from ⚙️ Settings in the office
+      --projects <dir>    The workspace folder: where the office looks for your
+                          existing git checkouts to offer as floors. Default a
+                          code folder in your home folder (~/Workspace, ~/code,
+                          ~/repos…), else the home folder. Env
+                          DROID_OFFICE_PROJECTS. Also settable from ⚙️ Settings
+                          in the office
   -p, --port <n>          Port to listen on (default 4600, env PORT)
   -H, --host <addr>       Address to bind (default 0.0.0.0)
       --password <pw>     Office password (env DROID_OFFICE_PASSWORD).
@@ -172,12 +171,34 @@ export function officeHome(): string {
   return path.resolve(process.env.DROID_OFFICE_HOME || path.join(os.homedir(), 'droid-office'));
 }
 
+/** Folders people keep their code in, in the home folder: the first one that's there is the default workspace folder. */
+const CODE_FOLDERS = ['Workspace', 'workspace', 'Developer', 'code', 'Code', 'projects', 'Projects', 'repos', 'src', 'dev', 'git', 'GitHub', 'github'];
+
+/** A code folder that's already in `home`, else `fallback`. */
+export function suggestedFolder(fallback: string, home = os.homedir()): string {
+  let names: string[] = [];
+  try {
+    names = readdirSync(home);
+  } catch {
+    return fallback;
+  }
+  for (const name of CODE_FOLDERS) {
+    const dir = path.join(home, name);
+    try {
+      if (names.includes(name) && statSync(dir).isDirectory()) return dir;
+    } catch {
+      // a broken link
+    }
+  }
+  return fallback;
+}
+
 /**
- * Where new floors are cloned unless another folder is picked: ~/.droid-office/projects. It's its
- * own folder, apart from the office's home, which may be a checkout of Droid Office itself.
+ * Where the office looks for checkouts to add as floors unless another folder is picked: a code
+ * folder in the home folder if there is one, else the home folder itself.
  */
 export function defaultProjectsDir(): string {
-  return path.join(os.homedir(), '.droid-office', 'projects');
+  return suggestedFolder(os.homedir());
 }
 
 /** Keep the office's own data out of git without touching the project's .gitignore. */
