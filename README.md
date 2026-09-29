@@ -20,7 +20,7 @@ and jump into any of them together. Every GitHub repo is a floor of the building
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square)](#run-locally)
 [![Built with TypeScript](https://img.shields.io/badge/built%20with-TypeScript-3178c6?style=flat-square)](https://www.typescriptlang.org)
 
-[**Run locally**](#run-locally) · [**Deploy to AWS**](#deploy-to-aws-ec2) · [**Azure**](#deploy-to-azure) · [**Railway**](#deploy-to-railway) · [**Any server**](#deploy-to-any-ubuntu-or-debian-server) · [**Add users**](#add-users) · [**Controls**](#controls) · [**Features**](docs/features.md) · [**How it works**](docs/how-it-works.md)
+[**Run locally**](#run-locally) · [**Deploy to AWS**](#deploy-to-aws-ec2) · [**Azure**](#deploy-to-azure) · [**Railway**](#deploy-to-railway) · [**Dokploy**](#deploy-to-dokploy) · [**Any server**](#deploy-to-any-ubuntu-or-debian-server) · [**Add users**](#add-users) · [**Controls**](#controls) · [**Features**](docs/features.md) · [**How it works**](docs/how-it-works.md)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.sh | bash
@@ -96,7 +96,7 @@ npm install -g .     # puts `agent-office` on your PATH
 agent-office
 ```
 
-> Only your computer can reach the office: it listens on `127.0.0.1`. `--host 0.0.0.0` lets your network in, but over plain http, where voice and screen sharing don't work. To share the office with a team, put it on a server: [AWS](#deploy-to-aws-ec2), [Azure](#deploy-to-azure), [Railway](#deploy-to-railway) or [any Ubuntu or Debian machine](#deploy-to-any-ubuntu-or-debian-server).
+> Only your computer can reach the office: it listens on `127.0.0.1`. `--host 0.0.0.0` lets your network in, but over plain http, where voice and screen sharing don't work. To share the office with a team, put it on a server: [AWS](#deploy-to-aws-ec2), [Azure](#deploy-to-azure), [Railway](#deploy-to-railway), [Dokploy](#deploy-to-dokploy) or [any Ubuntu or Debian machine](#deploy-to-any-ubuntu-or-debian-server).
 
 ## Deploy to AWS (EC2)
 
@@ -186,6 +186,36 @@ deploy/railway.sh destroy           # delete the project and its volume (asks fi
 
 The details, and what's on the volume, are in [docs/railway.md](docs/railway.md).
 
+## Deploy to Dokploy
+
+Already run a [Dokploy](https://dokploy.com) server? One script puts the office on it, through Dokploy's API. You need an **API key** (Dokploy: **Settings → Profile → API/CLI Keys**, with rate limiting off), `ssh`, `curl`, `git`, Node.js and a clone of this repo:
+
+```bash
+git clone https://github.com/AgentSystemLabs/agent-office && cd agent-office
+export DOKPLOY_API_KEY=<your key>
+deploy/dokploy.sh up --url https://dokploy.example.com --claude-token "$(claude setup-token)"
+```
+
+In about five minutes, `up`:
+
+1. Creates a Dokploy project with one application, and uploads this checkout for Dokploy to build with [`deploy/container/Dockerfile`](deploy/container/Dockerfile), the same image as on Railway.
+2. Mounts a **Docker volume on `/data`** for everything the office keeps. Deploys and restarts replace the container, never the volume.
+3. Publishes the container's SSH on **port 2222 of the server** (`--ssh-port` picks another), and nothing else: no domain, and the office listens on `127.0.0.1:4600` inside the container. Everyone reaches it through an SSH tunnel, as on AWS. A firewall in front of the server has to let that port through.
+4. Opens a tunnel and your browser at http://localhost:4600. **The first page shows the office password once. Write it down.**
+
+The agents and GitHub sign in as on AWS: `--claude-token`, `--anthropic-api-key`, `--github-token` or `--no-github-token`. `--server <name>` runs it on one of Dokploy's remote servers.
+
+```bash
+deploy/dokploy.sh open              # tunnel + open the office (Ctrl-C closes the tunnel)
+deploy/dokploy.sh status            # its page in Dokploy, last deployment, SSH address, who's invited
+deploy/dokploy.sh invite octocat    # let a teammate tunnel in with their GitHub SSH keys
+deploy/dokploy.sh logs              # follow the office's logs (ssh: a shell in the container)
+deploy/dokploy.sh update            # upload this checkout again, build it and redeploy it
+deploy/dokploy.sh destroy           # delete the application and its volume (asks first)
+```
+
+The details, and what's on the volume, are in [docs/dokploy.md](docs/dokploy.md).
+
 ## Deploy to any Ubuntu or Debian server
 
 Another cloud, or your own machine? Run one line on the server, as root or as a user with sudo:
@@ -204,12 +234,13 @@ Everyone gets their own account, so their name is on their character, in chat an
 
 **1. On a server, let them in first.** On a [Tailscale](docs/aws.md#tailscale) office, everyone on your tailnet can already open it. For someone who isn't, share the machine with them from Tailscale's Machines page: **☰ → 👥 Invite teammates** says how. Skip to step 2.
 
-Otherwise the office is only reachable through an SSH tunnel, so a teammate needs their SSH key on the machine. In the office, open **☰ → 👥 Invite teammates** and type their GitHub username. On AWS or Railway you can also do it from your terminal:
+Otherwise the office is only reachable through an SSH tunnel, so a teammate needs their SSH key on the machine. In the office, open **☰ → 👥 Invite teammates** and type their GitHub username. On AWS, Railway or Dokploy you can also do it from your terminal:
 
 ```bash
 deploy/aws.sh invite octocat        # installs the keys from github.com/octocat.keys
 deploy/aws.sh allow 203.0.113.7     # their IP ("allow anywhere" opens SSH to every IP)
 deploy/railway.sh invite octocat    # on Railway, SSH answers every IP already
+deploy/dokploy.sh invite octocat    # on Dokploy too
 ```
 
 It prints the command to send them. They leave it running and open http://localhost:4600:
@@ -218,7 +249,7 @@ It prints the command to send them. They leave it running and open http://localh
 ssh -L 4600:localhost:4600 office@<your-office-ip>
 ```
 
-(On Railway the address carries the TCP proxy's port: `ssh://office@zephyr.proxy.rlwy.net:17738`.)
+(On Railway the address carries the TCP proxy's port: `ssh://office@zephyr.proxy.rlwy.net:17738`. On Dokploy, the server's SSH port for the office: `ssh://office@203.0.113.7:2222`.)
 
 Their key logs in as a locked-down `office` user that can only forward to the office port: no shell, no other ports. Running the office on your own computer, or on your own domain over HTTPS? Skip this step.
 
@@ -238,13 +269,14 @@ On the EC2 machine, run it through `deploy/aws.sh ssh` (on Azure, `deploy/azure.
 ```bash
 deploy/aws.sh ssh 'node /opt/agent-office/bin/agent-office.js accounts invite ada --dir "$(cat /etc/agent-office/home)"'
 deploy/railway.sh ssh 'node /opt/agent-office/bin/agent-office.js accounts invite ada'   # on Railway
+deploy/dokploy.sh ssh 'node /opt/agent-office/bin/agent-office.js accounts invite ada'   # on Dokploy
 ```
 
 **Their own Claude and GitHub.** With accounts, everyone's workers run on their own Claude plan, and the office acts on GitHub as them: comments, merges, labels, pushes and pull requests show up under their name. The first time someone comes in, **🔐 Your sign-ins** opens (it's in the **☰** menu too). *Sign in with Claude* gives them Claude's sign-in page and takes back the code it shows. *Sign in with GitHub* shows a one-time code for github.com/login/device. They can paste a token from `claude setup-token`, or a GitHub token, instead. A 🐚 shell they open at a desk runs as them, so `claude auth login` and `gh auth login` typed there work too. Admins can use the office machine's own sign-ins instead. Each account's sign-ins live in `.agent-office/homes/<account>/`, and revoking the account deletes them. The boards are read with the machine's own `gh`, so that account needs read access to the repos. Running it just for yourself, with no accounts, none of this applies.
 
 **3. Turn off the shared password.** Until you do, anyone who knows the office password can get in, as an admin. Once everyone has an account, switch it off in **🔑 Accounts** (signed in with your own admin account), or `agent-office accounts password off`.
 
-**Removing someone.** Revoke their account in **🔑 Accounts** (or `agent-office accounts revoke <name>`), and on a server also remove them in **👥 Invite teammates** (on AWS, `deploy/aws.sh uninvite <name>`; on Railway, `deploy/railway.sh uninvite <name>`) to take away their SSH keys and drop open tunnels (other teammates just reconnect). If the shared password is still on, change it with `deploy/aws.sh reset-password` (or `deploy/railway.sh reset-password`).
+**Removing someone.** Revoke their account in **🔑 Accounts** (or `agent-office accounts revoke <name>`), and on a server also remove them in **👥 Invite teammates** (on AWS, `deploy/aws.sh uninvite <name>`; on Railway or Dokploy, `deploy/railway.sh uninvite <name>` or `deploy/dokploy.sh uninvite <name>`) to take away their SSH keys and drop open tunnels (other teammates just reconnect). If the shared password is still on, change it with `deploy/aws.sh reset-password` (or `deploy/railway.sh reset-password`, `deploy/dokploy.sh reset-password`).
 
 ## Controls
 
@@ -287,6 +319,7 @@ Every change to the app that lands on `main` is published as a GitHub release by
 - [Configuration](docs/configuration.md): every command-line option, and where the office keeps its data
 - [AWS reference](docs/aws.md): Tailscale, service tunnels, upgrades, and everything `deploy/aws.sh` does
 - [Railway reference](docs/railway.md): what `deploy/railway.sh` sets up, and what the volume keeps
+- [Dokploy reference](docs/dokploy.md): what `deploy/dokploy.sh` sets up on your Dokploy, and what the volume keeps
 - [Your own server](docs/self-hosting.md): the one-line setup for any Ubuntu or Debian server, or by hand behind Caddy or nginx
 - [Azure reference](docs/azure.md): picking a VM size, pausing, and everything `deploy/azure.sh` does
 - [How it works](docs/how-it-works.md): the architecture, and security notes
