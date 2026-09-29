@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FLOOR, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
+import { FLOOR, SLAB, STREET_Y, WALL_HEIGHT, WALL_T, WING, wingMinZ } from '../../shared/layout';
 import type { SkyState, Theme, Weather } from '../../shared/protocol';
 import { guessPlace, sunPosition } from '../../shared/sun';
 import type { NightParts } from './outside';
@@ -55,6 +55,8 @@ const uniforms = {
   skyDrop: { value: 0 },
   /** Where the street is, which the haze thins out with height over. */
   skyStreet: { value: STREET_Y },
+  /** The back office, when the floor's built out into one (see WING): minX, maxX, minZ, maxZ. Empty without. */
+  skyWing: { value: new THREE.Vector4(1, 0, 1, 0) },
 };
 
 const v3 = (x: number, y: number, z: number) => `vec3(${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)})`;
@@ -73,11 +75,15 @@ uniform vec3 skyLampMax;
 uniform float skyWet;
 uniform float skySnow;
 uniform float skyDrop;
+uniform vec4 skyWing;
 
-// Inside the office's walls (and up through its open top).
+// Inside the office's walls (and up through its open top), or the back office's, up to its ceiling
+// and no further: its roof, and the cornice over where the wall came down, are outdoors.
 float skyInOffice( vec3 p ) {
   vec3 d = max( ${v3(FLOOR.minX - 0.02, -0.06, FLOOR.minZ - 0.02)} - p, p - ${v3(FLOOR.maxX + 0.02, 40, FLOOR.maxZ + 0.02)} );
-  return 1.0 - smoothstep( 0.0, 0.12, length( max( d, 0.0 ) ) );
+  vec3 w = max( vec3( skyWing.x, -0.06, skyWing.z ) - p, p - vec3( skyWing.y, ${(WALL_HEIGHT + 0.005).toFixed(3)}, skyWing.w ) );
+  float wing = length( max( w, 0.0 ) ) + step( ${(WALL_HEIGHT + 0.005).toFixed(3)}, p.y );
+  return 1.0 - smoothstep( 0.0, 0.12, min( length( max( d, 0.0 ) ), wing ) );
 }
 
 // Under the bottom floor: walled at the back and on the west side, open to the street on the south and east.
@@ -358,8 +364,12 @@ function blobTexture(inner: number): THREE.CanvasTexture {
   return new THREE.CanvasTexture(c);
 }
 
+/** The back office, walls included, when the floor you're on is built out into one (see Sky.setWing). */
+let wingBox: { minX: number; maxX: number; minZ: number; maxZ: number } | null = null;
+
 /** Is (x, z) under the building, where no rain or snow falls? */
-const sheltered = (x: number, z: number) => x > B.minX - 0.05 && x < B.maxX + 0.05 && z > B.minZ - 0.05 && z < B.maxZ + 0.05;
+const sheltered = (x: number, z: number) =>
+  (x > B.minX - 0.05 && x < B.maxX + 0.05 && z > B.minZ - 0.05 && z < B.maxZ + 0.05) || (!!wingBox && x > wingBox.minX - 0.05 && x < wingBox.maxX + 0.05 && z > wingBox.minZ - 0.05 && z < wingBox.maxZ);
 
 export class Sky {
   private preview: { hour?: number; weather?: Weather; intensity?: number } = {};
@@ -557,6 +567,17 @@ export class Sky {
     uniforms.skyInside.value = on ? 0 : 1;
   }
 
+  /**
+   * The floor you're on is built out `level` rows into the back office (see WING): lit like the
+   * office inside, and out of the rain.
+   */
+  setWing(level: number) {
+    const minZ = wingMinZ(level);
+    wingBox = level > 0 ? { minX: WING.minX - WALL_T, maxX: WING.maxX + WALL_T, minZ: minZ - WALL_T, maxZ: FLOOR.minZ } : null;
+    if (level > 0) uniforms.skyWing.value.set(WING.minX - 0.02, WING.maxX + 0.02, minZ - 0.02, FLOOR.minZ);
+    else uniforms.skyWing.value.set(1, 0, 1, 0);
+  }
+
   /** Under a roof, out of the rain: the building, unless you're up on top of it. */
   private sheltered(x: number, z: number): boolean {
     return !this.roof && sheltered(x, z);
@@ -569,7 +590,7 @@ export class Sky {
 
   /** How lit it is at `p`, 0–1 (1 is a clear day, or a room with its lights on), for your hands. */
   lightAt(p: THREE.Vector3): number {
-    const inside = !this.roof && ((p.x > FLOOR.minX && p.x < FLOOR.maxX && p.z > FLOOR.minZ && p.z < FLOOR.maxZ) || (sheltered(p.x, p.z) && p.y < 0));
+    const inside = !this.roof && ((p.x > FLOOR.minX && p.x < FLOOR.maxX && p.z > FLOOR.minZ && p.z < FLOOR.maxZ) || (sheltered(p.x, p.z) && (p.y < 0 || p.z < FLOOR.minZ)));
     if (inside) return 1;
     let lamp = 0;
     if (!this.roof) {

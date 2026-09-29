@@ -147,6 +147,8 @@ const pick = <T>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length
 export class Departures {
   private leavers: Leaver[] = [];
   private laptops: Closing[] = [];
+  /** How many rows the floor's back office is built out, to find the way out of it (see WING). */
+  wing = 0;
 
   constructor(
     private parent: THREE.Object3D,
@@ -174,7 +176,7 @@ export class Departures {
     const chair = desk.def.beanbag ? null : desk.chair;
     const up = this.upstairs();
     const chute: Chute | null = up ? { phase: 'walk', t: 0, color: pick(CANOPIES), canopy: null, from: new THREE.Vector3(), vel: new THREE.Vector3(), land: new THREE.Vector3(), angle: 0, radius: 0, height: 1 } : null;
-    const way = up ? wayToBalcony(desk.def) : wayHome(desk.def);
+    const way = up ? wayToBalcony(desk.def, this.wing) : wayHome(desk.def, this.wing);
     this.leavers.push({ model, deskId: desk.def.id, way, next: 0, t: 0, seat, heading: model.root.rotation.y, stepIn: 0, chair, spin: 0, scale, gone: 0, chute });
     this.laptops.push({ laptop, deskId: desk.def.id, gone: 0 });
   }
@@ -446,6 +448,8 @@ export class Arrivals {
   private walkers: Arriver[] = [];
   /** When (performance.now(), in seconds) the next one to arrive may step out: they come one at a time. */
   private nextAt = 0;
+  /** How many rows the floor's back office is built out (see WING). */
+  wing = 0;
 
   constructor(
     private parent: THREE.Object3D,
@@ -459,7 +463,7 @@ export class Arrivals {
     const now = performance.now() / 1000;
     const delay = Math.max(0, this.nextAt - now);
     this.nextAt = now + delay + IN_SPACING;
-    const way = wayIn(desk.def);
+    const way = wayIn(desk.def, this.wing);
     const [x, z] = way[0];
     this.parent.add(model.root);
     model.root.position.set(x, this.ground(x, z, 0) - FEET, z);

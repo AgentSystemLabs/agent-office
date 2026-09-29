@@ -35,3 +35,13 @@ test('carried issue actions still consume E at their valid destinations', () => 
     assert.equal(interactionAvailable(target, 'E', state({ carrying: true })), true);
   }
 });
+
+test('L hangs a sign over any desk, empty or not, but not over a bean bag or a meeting chair', () => {
+  const worker = { id: 'worker-1', status: 'working' } as InteractionState['worker'];
+  assert.equal(interactionAvailable(interaction('desk', { deskId: 'desk-1' }), 'L', state()), true);
+  assert.equal(interactionAvailable(interaction('desk', { deskId: 'desk-1' }), 'L', state({ worker })), true);
+  assert.equal(interactionAvailable(interaction('desk', { deskId: 'beanbag-1' }), 'L', state()), false);
+  assert.equal(interactionAvailable(interaction('desk', { deskId: 'meeting-1' }), 'L', state({ room: true })), false);
+  assert.equal(interactionAvailable(interaction('expand'), 'E', state()), true);
+  assert.equal(interactionAvailable(null, 'L', state()), false);
+});

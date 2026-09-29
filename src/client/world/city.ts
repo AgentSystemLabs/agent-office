@@ -37,7 +37,7 @@ export interface City {
    * The building has `floors` floors under the roof: the street goes as far down as that is tall,
    * and the buildings nearby come down to stay under the roof.
    */
-  setFloors(floors: number): void;
+  setFloors(floors: number, wings?: readonly number[]): void;
   /** The cars along the streets, the blinking lights on the towers: `night` is how dark it is (0–1). */
   update(t: number, dt: number, night: number): void;
 }
@@ -395,7 +395,8 @@ export function buildCity(night: NightParts): City {
     [6, 18],
     [16, 18],
     [-20, -18],
-    [20, -18],
+    // Clear of the back office, when a floor's built out into one (see WING).
+    [21, -20],
   ]) {
     const t = tree(r);
     t.position.set(x, 0, z);
@@ -587,16 +588,18 @@ export function buildCity(night: NightParts): City {
   group.add(mergeByMaterial(sky));
 
   let floorsNow = 0;
+  let wingsNow = '';
   let riseNow = -1;
   return {
     group,
-    setFloors(floors) {
+    setFloors(floors, wings = []) {
       floors = Math.max(1, floors);
-      if (floors === floorsNow) return;
+      if (floors === floorsNow && wings.join() === wingsNow) return;
       floorsNow = floors;
+      wingsNow = wings.join();
       const drop = roofDrop(floors);
       street.position.y = -drop;
-      building.set(floors, floors);
+      building.set(floors, floors, wings);
       // The buildings only change height up to six floors (see rise).
       const k = Math.min(1, drop / LAID_OUT);
       if (k !== riseNow) {

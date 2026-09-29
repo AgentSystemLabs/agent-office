@@ -8,7 +8,7 @@
  * Everything goes through one master gain that Settings turns down or mutes. Voice chat doesn't, and
  * the jukebox has a volume of its own.
  */
-import { CABINET, DESKS, DJ_BOOTH, FLOOR, GONG, JUKEBOX, WINDOWS as OPENINGS } from '../shared/layout';
+import { CABINET, DESKS, DJ_BOOTH, FLOOR, GONG, JUKEBOX, WINDOWS as OPENINGS, inWing } from '../shared/layout';
 import type { GongWhy } from '../shared/protocol';
 import { STREAM } from '../shared/jukebox';
 import { TunePlayer } from './music';
@@ -92,6 +92,8 @@ export class OfficeSound {
   /** …where there's wind, and the city far below. */
   private outside!: GainNode;
   private outdoors = false;
+  /** How many rows the floor's back office is built out: in there you're indoors too. */
+  wing = 0;
   private analyser!: AnalyserNode;
   private buf!: Buffers;
   private volume = 0.7;
@@ -994,7 +996,7 @@ export class OfficeSound {
   private where(): 'office' | 'garage' | 'out' {
     const { x, y, z } = this.listener;
     const under = (m: number) => x > FLOOR.minX - m && x < FLOOR.maxX + m && z > FLOOR.minZ - m && z < FLOOR.maxZ + m;
-    if (under(0) && y > -0.5) return 'office';
+    if ((under(0) || inWing(x, z, this.wing)) && y > -0.5) return 'office';
     return under(0.3) ? 'garage' : 'out';
   }
 

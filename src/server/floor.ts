@@ -13,6 +13,7 @@ import type { GhAs } from './signins.js';
 import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { Decor } from './decor.js';
+import { FloorPlanStore } from './floorplan.js';
 import { Docs } from './docs.js';
 import { Dog } from './dog.js';
 import { Court } from './court.js';
@@ -110,6 +111,8 @@ export class Floor {
   readonly queue: TaskQueue;
   readonly changes: Changes;
   readonly decor: Decor;
+  /** The signs over its desks, and how far its back office is built out. */
+  readonly plan: FloorPlanStore;
   readonly jukebox: Jukebox;
   /** The whiteboard everyone on the floor draws on together. */
   readonly whiteboard: Whiteboard;
@@ -141,12 +144,15 @@ export class Floor {
     excludeFromGit(def.dir);
     this.project = projectInfo(def.dir, def.name, ctx.agentCmd, ctx.agentArgs);
     this.docs = new Docs(def.dir);
+    // Before the workers and the dog: the back office's desks are only there once it's built.
+    this.plan = new FloorPlanStore(dataDir);
 
     // Before the workers, so it hears about the ones who wake up needing input.
     this.dog = new Dog(def.id, dataDir, {
       workers: () => this.workers?.list() ?? [],
       people: () => ctx.peers(this),
       send: (dog) => ctx.emit(this, { t: 'dog', dog }),
+      wing: () => this.plan.wing,
     });
 
     this.workers = new WorkerManager(
@@ -183,6 +189,7 @@ export class Floor {
       ctx.prompts,
       ctx.runAs,
     );
+    this.workers.wing = () => this.plan.wing;
 
     this.github = new GitHub(
       def.dir,
@@ -362,6 +369,7 @@ export class Floor {
       busy: ws.filter((w) => w.status === 'working').length,
       waiting: ws.filter((w) => w.kind === 'agent' && (w.status === 'needs_input' || (w.status === 'done' && !w.acked))).length,
       people: this.ctx.people(this),
+      wing: this.plan.wing,
     };
   }
 

@@ -1,7 +1,9 @@
 // Getting around the office floor downstairs (no stairs, no loft, no elevator), round the furniture
 // on a coarse grid: the dog's walks (server/dog.ts), and a worker's way out when it's sent home.
+// A floor built out into the back office (see WING) has more of it to get round: everything here
+// takes how many rows it's built out (`wing`), and the grid reaches as far back as it can go.
 
-import { BALCONY, BALCONY_DOOR, BEANBAGS, BOOKSHELF, CABINET, DESK_SIZE, DESKS, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LADDER, LOFT, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PARACHUTE, PLANTS, POLE, POLES, ROAD, STAIRS, STATIONS, WHITEBOARD, type DeskDef } from './layout.js';
+import { BALCONY, BALCONY_DOOR, BEANBAGS, BOOKSHELF, CABINET, DESK_SIZE, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LADDER, LOFT, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PARACHUTE, POLE, POLES, ROAD, STAIRS, STATIONS, WHITEBOARD, WING, builtDesks, inWing, plantsAt, wingLevel, wingMinZ, type DeskDef } from './layout.js';
 
 
 export type Pt = [number, number];
@@ -9,8 +11,10 @@ export type Pt = [number, number];
 const CELL = 0.5;
 /** Half the width of whoever walks it (the dog, a worker), plus a little room: how far they keep from things. */
 const R = 0.3;
+/** The grid's north edge: the back office's back wall, built out as far as it goes. */
+const MIN_Z = wingMinZ(WING.rows);
 const COLS = Math.ceil((FLOOR.maxX - FLOOR.minX) / CELL);
-const ROWS = Math.ceil((FLOOR.maxZ - FLOOR.minZ) / CELL);
+const ROWS = Math.ceil((FLOOR.maxZ - MIN_Z) / CELL);
 
 type Rect = [number, number, number, number]; // minX, maxX, minZ, maxZ
 type Circle = [number, number, number]; // x, z, radius
@@ -20,13 +24,13 @@ export function deskPoint(d: DeskDef, t: number, s: number): Pt {
   return [d.x + Math.cos(d.rotY) * t + Math.sin(d.rotY) * s, d.z - Math.sin(d.rotY) * t + Math.cos(d.rotY) * s];
 }
 
-/** What's in the way on the floor. The lounge, kitchen and plants are where office.ts puts them. */
-function obstacles(): { rects: Rect[]; circles: Circle[] } {
+/** What's in the way on the floor, built out `wing` rows. The lounge, kitchen and plants are where office.ts puts them. */
+function obstacles(wing: number): { rects: Rect[]; circles: Circle[] } {
   const rects: Rect[] = [];
   const circles: Circle[] = [];
   const hw = DESK_SIZE.width / 2;
   const hd = DESK_SIZE.depth / 2;
-  for (const d of DESKS) {
+  for (const d of builtDesks(wing)) {
     // Desks face ±z, so their tops are axis-aligned.
     rects.push([d.x - hw, d.x + hw, d.z - hd, d.z + hd]);
     const [cx, cz] = deskPoint(d, 0, 0.9);
@@ -36,7 +40,7 @@ function obstacles(): { rects: Rect[]; circles: Circle[] } {
   rects.push([12.2, 13.8, -0.8, 0.8]); // coffee table
   circles.push([12.5, 3.5, 0.5], [14.5, -3.4, 0.5]); // beanbags
   rects.push([-17, -10.75, 11.7, 12.7]); // kitchen counter and fridge
-  for (const [x, z, s] of PLANTS) circles.push([x, z, 0.3 * s]);
+  for (const [x, z, s] of plantsAt(wing)) circles.push([x, z, 0.3 * s]);
   // The loft's posts, the stairs up to it, and the elevator shaft.
   for (const x of [LOFT.minX + 0.15, (LOFT.minX + LOFT.maxX) / 2]) circles.push([x, LOFT.minZ + 0.15, 0.14]);
   rects.push([STAIRS.fromX, STAIRS.toX, STAIRS.minZ - 0.1, STAIRS.maxZ]);
@@ -87,30 +91,39 @@ function obstacles(): { rects: Rect[]; circles: Circle[] } {
   return { rects, circles };
 }
 
-function isBlocked(x: number, z: number, o: ReturnType<typeof obstacles>): boolean {
-  if (x < FLOOR.minX + R || x > FLOOR.maxX - R || z < FLOOR.minZ + R || z > FLOOR.maxZ - R) return true;
+function isBlocked(x: number, z: number, o: ReturnType<typeof obstacles>, wing: number): boolean {
+  const room = x > FLOOR.minX + R && x < FLOOR.maxX - R && z > FLOOR.minZ + R && z < FLOOR.maxZ - R;
+  // Through where the north wall was, into the back office: between its walls, short of its back one.
+  const back = wing > 0 && x > WING.minX + R && x < WING.maxX - R && z > wingMinZ(wing) + R && z < FLOOR.maxZ - R;
+  if (!room && !back) return true;
   for (const [x0, x1, z0, z1] of o.rects) if (x > x0 - R && x < x1 + R && z > z0 - R && z < z1 + R) return true;
   for (const [cx, cz, r] of o.circles) if (Math.hypot(x - cx, z - cz) < r + R) return true;
   return false;
 }
 
-const GRID = (() => {
-  const o = obstacles();
-  const g = new Uint8Array(COLS * ROWS);
-  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) g[r * COLS + c] = isBlocked(FLOOR.minX + (c + 0.5) * CELL, FLOOR.minZ + (r + 0.5) * CELL, o) ? 1 : 0;
-  return g;
-})();
+/** The grid for a floor built out `wing` rows, made the first time it's needed. */
+const GRIDS: Uint8Array[] = [];
+function grid(wing: number): Uint8Array {
+  const level = wingLevel(wing);
+  let g = GRIDS[level];
+  if (g) return g;
+  const o = obstacles(level);
+  g = new Uint8Array(COLS * ROWS);
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) g[r * COLS + c] = isBlocked(FLOOR.minX + (c + 0.5) * CELL, MIN_Z + (r + 0.5) * CELL, o, level) ? 1 : 0;
+  return (GRIDS[level] = g);
+}
 
 const colOf = (x: number) => Math.max(0, Math.min(COLS - 1, Math.floor((x - FLOOR.minX) / CELL)));
-const rowOf = (z: number) => Math.max(0, Math.min(ROWS - 1, Math.floor((z - FLOOR.minZ) / CELL)));
-const centerOf = (i: number): Pt => [FLOOR.minX + ((i % COLS) + 0.5) * CELL, FLOOR.minZ + (Math.floor(i / COLS) + 0.5) * CELL];
+const rowOf = (z: number) => Math.max(0, Math.min(ROWS - 1, Math.floor((z - MIN_Z) / CELL)));
+const centerOf = (i: number): Pt => [FLOOR.minX + ((i % COLS) + 0.5) * CELL, MIN_Z + (Math.floor(i / COLS) + 0.5) * CELL];
 
-export function walkable(x: number, z: number): boolean {
-  return x > FLOOR.minX && x < FLOOR.maxX && z > FLOOR.minZ && z < FLOOR.maxZ && !GRID[rowOf(z) * COLS + colOf(x)];
+export function walkable(x: number, z: number, wing = 0): boolean {
+  const inside = (x > FLOOR.minX && x < FLOOR.maxX && z > FLOOR.minZ && z < FLOOR.maxZ) || inWing(x, z, wing);
+  return inside && !grid(wing)[rowOf(z) * COLS + colOf(x)];
 }
 
 /** Whether it can trot straight from a to b: every cell the line crosses is clear. */
-function clearLine(a: Pt, b: Pt): boolean {
+function clearLine(a: Pt, b: Pt, GRID: Uint8Array): boolean {
   let c = colOf(a[0]);
   let r = rowOf(a[1]);
   const c1 = colOf(b[0]);
@@ -122,7 +135,7 @@ function clearLine(a: Pt, b: Pt): boolean {
   const stepC = sc ? CELL / Math.abs(dx) : Infinity;
   const stepR = sr ? CELL / Math.abs(dz) : Infinity;
   let nextC = sc ? (FLOOR.minX + (c + (sc > 0 ? 1 : 0)) * CELL - a[0]) / dx : Infinity;
-  let nextR = sr ? (FLOOR.minZ + (r + (sr > 0 ? 1 : 0)) * CELL - a[1]) / dz : Infinity;
+  let nextR = sr ? (MIN_Z + (r + (sr > 0 ? 1 : 0)) * CELL - a[1]) / dz : Infinity;
   for (let n = 0; n <= COLS + ROWS; n++) {
     if (GRID[r * COLS + c]) return false;
     if (c === c1 && r === r1) return true;
@@ -145,8 +158,9 @@ function clearLine(a: Pt, b: Pt): boolean {
 }
 
 /** The middle of the nearest cell it can stand in. */
-export function nearestWalkable(p: Pt): Pt {
-  if (walkable(p[0], p[1])) return p;
+export function nearestWalkable(p: Pt, wing = 0): Pt {
+  if (walkable(p[0], p[1], wing)) return p;
+  const GRID = grid(wing);
   let best = -1;
   let bestD = Infinity;
   for (let i = 0; i < GRID.length; i++) {
@@ -162,11 +176,12 @@ export function nearestWalkable(p: Pt): Pt {
 }
 
 /** A* over the grid, then pulled tight: the corners of a route from `from` to `to`, both included. */
-export function route(from: Pt, to: Pt): Pt[] {
-  const goal = nearestWalkable(to);
-  const start = nearestWalkable(from);
+export function route(from: Pt, to: Pt, wing = 0): Pt[] {
+  const GRID = grid(wing);
+  const goal = nearestWalkable(to, wing);
+  const start = nearestWalkable(from, wing);
   const lead: Pt[] = start === from ? [from] : [from, start];
-  if (clearLine(start, goal)) return [...lead, goal];
+  if (clearLine(start, goal, GRID)) return [...lead, goal];
   const s = rowOf(start[1]) * COLS + colOf(start[0]);
   const g = rowOf(goal[1]) * COLS + colOf(goal[0]);
   const cost = new Float64Array(GRID.length).fill(Infinity);
@@ -215,7 +230,7 @@ export function route(from: Pt, to: Pt): Pt[] {
   const out: Pt[] = [...lead];
   for (let i = 0; i < pts.length - 1; ) {
     let j = pts.length - 1;
-    while (j > i + 1 && !clearLine(pts[i], pts[j])) j--;
+    while (j > i + 1 && !clearLine(pts[i], pts[j], GRID)) j--;
     out.push(pts[j]);
     i = j;
   }
@@ -289,9 +304,9 @@ const IN_FROM: Pt = [ELEVATOR.x, ELEVATOR_FRONT + 0.5];
  * A worker's walk in to its seat when it's called to a meeting: out of the elevator and round the
  * furniture to beside its chair (the last point), on whichever side is the shorter way, where it hops on.
  */
-export function wayIn(seat: DeskDef): Pt[] {
+export function wayIn(seat: DeskDef, wing = 0): Pt[] {
   const ways = [-1, 1].map((side) => {
-    const pts = [...route(IN_FROM, deskPoint(seat, side * 0.7, seat.room ? 1.4 : 1.75)), deskPoint(seat, side * 0.7, 0.95)];
+    const pts = [...route(IN_FROM, deskPoint(seat, side * 0.7, seat.room ? 1.4 : 1.75), wing), deskPoint(seat, side * 0.7, 0.95)];
     return { pts, cost: pathLength(pts) };
   });
   return ways[0].cost <= ways[1].cost ? ways[0].pts : ways[1].pts;
@@ -303,8 +318,8 @@ export function wayIn(seat: DeskDef): Pt[] {
  * furniture to the exit door in the west wall, across the landing outside, down the steps to the
  * street and off along the sidewalk.
  */
-export function wayHome(seat: DeskDef): Pt[] {
-  const inside = wayTo(seat, EXIT);
+export function wayHome(seat: DeskDef, wing = 0): Pt[] {
+  const inside = wayTo(seat, EXIT, wing);
   const { landingZ1, steps, run } = EXIT_STAIRS;
   return [...inside, [STEPS_X, EXIT_DOOR.u], ...walkOff([STEPS_X, landingZ1 + (steps - 1) * run + 0.6])];
 }
@@ -313,8 +328,8 @@ export function wayHome(seat: DeskDef): Pt[] {
  * The same walk on a floor above the bottom one, which has no exit door: round the furniture to the
  * balcony doors, out across the balcony and up to its railing (PARACHUTE.jump), where it goes over.
  */
-export function wayToBalcony(seat: DeskDef): Pt[] {
-  const inside = wayTo(seat, BALCONY_IN);
+export function wayToBalcony(seat: DeskDef, wing = 0): Pt[] {
+  const inside = wayTo(seat, BALCONY_IN, wing);
   return [...inside, [BALCONY_DOOR.u, BALCONY.minZ + 0.4], [PARACHUTE.jump.x, PARACHUTE.jump.z]];
 }
 
@@ -324,7 +339,7 @@ export function walkOff(from: Pt): Pt[] {
 }
 
 /** From beside `seat`, where it hops down, round the furniture to `door` on the office floor. */
-function wayTo(seat: DeskDef, door: Pt): Pt[] {
+function wayTo(seat: DeskDef, door: Pt, wing: number): Pt[] {
   const ways = [-1, 1].map((side) => {
     // Beside the chair and back from the desk into the aisle, off the bean bag and round behind it, or
     // out from behind the kiosk and round its front, into the room.
@@ -332,11 +347,14 @@ function wayTo(seat: DeskDef, door: Pt): Pt[] {
       ? [deskPoint(seat, side * 1.05, 0.1), deskPoint(seat, side * 1.05, 1.25)]
       : seat.station
         ? [deskPoint(seat, side * 0.95, KIOSK.stand), deskPoint(seat, side * 0.95, -1)]
-        : // At the meeting table there's less room behind the chair, before the glass.
-          [deskPoint(seat, side * 0.7, 0.95), deskPoint(seat, side * 0.7, seat.room ? 1.4 : 1.75)];
+        : seat.wing
+          ? // In the back office the chair has its back to a wall or the next row: out to the side of it instead.
+            [deskPoint(seat, side * 0.7, 0.95), deskPoint(seat, side * 0.95, 1.25)]
+          : // At the meeting table there's less room behind the chair, before the glass.
+            [deskPoint(seat, side * 0.7, 0.95), deskPoint(seat, side * 0.7, seat.room ? 1.4 : 1.75)];
     // A bean bag or a kiosk can stand with one side up against something (the elevator, by the queue).
-    const blocked = !!(seat.beanbag || seat.station) && !walkable(down[0], down[1]);
-    const pts = [down, ...route(back, door)];
+    const blocked = !!(seat.beanbag || seat.station) && !walkable(down[0], down[1], wing);
+    const pts = [down, ...route(back, door, wing)];
     return { pts, cost: (blocked ? 1000 : 0) + pathLength(pts) };
   });
   return ways[0].cost <= ways[1].cost ? ways[0].pts : ways[1].pts;

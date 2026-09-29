@@ -2,7 +2,8 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, LOFT, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, STOREY, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, roofDrop, seatAt, seatPlace, streetBelow, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, LOFT, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, STOREY, WALL_HEIGHT, WING, beanbagsOut, builtDesks, deskBuilt, deskSeat, inElevator, inWing, nextFreeSeat, roofDrop, seatAt, seatPlace, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { canLabel } from '../shared/floorplan';
 import { floorPalette } from '../shared/floors';
 import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
 import { MEETING_PATTERNS } from '../shared/meetings';
@@ -85,6 +86,7 @@ import { issueMeeting, openMeeting, type MeetingPreset } from './ui/meeting';
 import { TelescopeView } from './telescope';
 import { onModelsProgress, preloadModels } from './world/models';
 import { loadingScreen } from './ui/loading';
+import { openDeskLabel, openExpand } from './ui/floorplan';
 
 // The loading screen stays up until there's an office to see (see boot and whoami at the end).
 const loading = loadingScreen(onModelsProgress);
@@ -269,6 +271,7 @@ let roof: Rooftop | null = null;
 function theRoof(): Rooftop {
   if (!roof) {
     roof = buildRooftop(office.night, roofFloors());
+    roof.setFloors(roofFloors(), floorWings(builtFloors()));
     roof.group.visible = false;
     roof.games.onDrop = (at) => sound.toss('drop', at);
     scene.add(roof.group);
@@ -284,7 +287,7 @@ function roofFloors(): number {
 function syncRoof() {
   if (!roof) return;
   const floors = roofFloors();
-  roof.setFloors(floors);
+  roof.setFloors(floors, floorWings(builtFloors()));
   if (upTop) sky.setRoof(true, roofDrop(floors));
 }
 store.on('floors', syncRoof);
@@ -693,12 +696,20 @@ function syncStack() {
   const up = store.floor === ROOF ? undefined : floors[index + 1]?.name;
   const down = index > 0 ? floors[index - 1]?.name : undefined;
   const count = index < 0 ? 1 : floors.length;
+  const wings = floorWings(floors);
   const s = office.stack.state;
-  if (s.index === Math.max(0, index) && s.count === count && s.up === up && s.down === down) return;
-  office.stack.set({ index: Math.max(0, index), count, up, down });
-  office.setLevel(Math.max(0, index), count);
+  const same = s.index === Math.max(0, index) && s.count === count && s.up === up && s.down === down;
+  if (same && wings.join() === wingsShown) return;
+  wingsShown = wings.join();
+  if (!same) office.stack.set({ index: Math.max(0, index), count, up, down });
+  office.setLevel(Math.max(0, index), count, wings);
   player.street = streetBelow(index);
 }
+/** How far each floor's back office goes, for the building's outside (the one you're on as you see it). */
+function floorWings(floors: FloorInfo[]): number[] {
+  return floors.map((f) => (f.id === store.floor ? store.plan.wing : (f.wing ?? 0)));
+}
+let wingsShown = '';
 store.on('floors', syncStack);
 
 function showMyProfile(p: Profile) {
@@ -787,7 +798,7 @@ net.onMessage((msg) => {
         // Where the office put you: back in the spot you left (if there's still room there), or in the elevator car.
         setPlace();
         syncStack();
-        if (!inElevator(mine.x, mine.z) && player.fits(mine.x, mine.z, mine.y)) {
+        if (!inElevator(mine.x, mine.z) && !pastTheWing(mine, store.plan.wing) && player.fits(mine.x, mine.z, mine.y)) {
           placeAt(mine);
           arrive('back');
         } else {
@@ -1407,7 +1418,7 @@ function walkTick(now: number) {
   if (Math.hypot(at.x - player.pos.x, at.z - player.pos.z) < NEAR_ENOUGH && Math.abs(at.y - player.pos.y) < 1) return arrivedAt(at);
   if (now < walkingTo.replanAt) return;
   walkingTo.replanAt = now + 800;
-  player.walkPath(wayTo(player.pos, at));
+  player.walkPath(wayTo(player.pos, at, store.plan.wing));
 }
 
 player.onPathEnd = (why) => {
@@ -1533,12 +1544,52 @@ function arrangeSeats() {
   // Someone sent home still counts until they get up, so a bean bag stays out under them.
   const free = vacantSeats(store.workers.values(), (id) => departures.seated(id));
   for (const [id, desk] of office.desks) desk.vacancy.visible = free.has(id);
-  const appeared = office.setBeanbags(beanbagsOut((id) => !free.has(id)));
+  const appeared = office.setBeanbags(beanbagsOut((id) => !free.has(id), store.plan.wing));
   // One came out right where you're standing (on the office floor, not down in the garage): you end up on top of it.
   const p = player.pos;
   for (const c of appeared) if (p.y > -0.1 && p.y < c.top && p.x > c.minX - 0.3 && p.x < c.maxX + 0.3 && p.z > c.minZ - 0.3 && p.z < c.maxZ + 0.3) p.y = c.top;
 }
 store.on('workers', syncWorkers);
+
+/** The plan last shown, to tell someone knocking through from arriving on a floor already built out. */
+let shownPlan: { floor: string | null; wing: number } = { floor: null, wing: 0 };
+/**
+ * Standing where a back office would be, further back than this floor's goes (`level` rows): a row
+ * walled up round you, or a floor you switched to that isn't built out as far as the one you left.
+ */
+function pastTheWing(p: { x: number; y: number; z: number }, level: number): boolean {
+  return p.y > -1 && p.y < 3 && p.x > WING.minX - 0.3 && p.x < WING.maxX + 0.3 && p.z < FLOOR.minZ && !inWing(p.x, p.z, level);
+}
+/**
+ * The floor's back office, as far as it's built out, and the signs over its desks. Everything that
+ * finds its way round the floor learns how far it goes; a row knocked through goes up in a puff of
+ * dust, and anyone standing past where it goes now steps back in first.
+ */
+function syncPlan() {
+  const plan = store.plan;
+  const level = store.floor === ROOF ? 0 : plan.wing;
+  const was = shownPlan;
+  shownPlan = { floor: store.floor, wing: level };
+  const p = player.pos;
+  if (pastTheWing(p, level)) {
+    // Out to the side aisle of what's left, or back into the room.
+    const side = p.x < (WING.minX + WING.maxX) / 2 ? WING.minX + 0.6 : WING.maxX - 0.6;
+    p.set(level ? side : p.x, 0, level ? wingMinZ(level) + 0.6 : FLOOR.minZ + 1.6);
+  }
+  office.setWing(level);
+  office.signs.set(plan.labels, (d) => deskBuilt(d, level));
+  player.wing = sound.wing = departures.wing = arrivals.wing = level;
+  sky.setWing(level);
+  syncStack();
+  syncRoof();
+  arrangeSeats();
+  if (was.floor === store.floor && level > was.wing) {
+    const at = { x: (WING.minX + WING.maxX) / 2, y: 1.2, z: wingRowZ(level) };
+    confetti.burst(at.x, 2.4, at.z, 140, 0.8);
+    sound.toss('thunk', at);
+  }
+}
+store.on('plan', syncPlan);
 // A worker at the meeting table shows its role and round over its head (see meetingCard).
 store.on('meeting', syncWorkers);
 // A worker's bubble shows whether it has a pull request open (green) or merged (purple: send it home).
@@ -1579,7 +1630,7 @@ function freeDesk(): string | null {
   // Prefer the empty desk nearest to you; when they're all taken, the bean bag that's out.
   let best: string | null = null;
   let bestD = Infinity;
-  for (const d of DESKS) {
+  for (const d of builtDesks(store.plan.wing)) {
     if (store.workerAtDesk(d.id)) continue;
     const dist = Math.hypot(d.x - player.pos.x, d.z - player.pos.z);
     if (dist < bestD) {
@@ -1587,7 +1638,7 @@ function freeDesk(): string | null {
       best = d.id;
     }
   }
-  return best ?? nextFreeSeat((id) => !!store.workerAtDesk(id))?.id ?? null;
+  return best ?? nextFreeSeat((id) => !!store.workerAtDesk(id), store.plan.wing)?.id ?? null;
 }
 
 let askedToNotify = false;
@@ -1995,6 +2046,7 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   if (target.kind !== 'issues') note = null;
   if (key === 'E' && carrying && dropCard(target, carrying, note)) return;
   if (target.kind === 'desk' && target.deskId) {
+    if (key === 'L') return openDeskLabel(net, target.deskId);
     const w = store.workerAtDesk(target.deskId);
     // Nobody is hired at the meeting table: a meeting seats its own workers there.
     if (!w && DESK_BY_ID.get(target.deskId)?.room) return key === 'E' ? showMeeting() : undefined;
@@ -2049,6 +2101,7 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   else if (target.kind === 'darts' || target.kind === 'axe') stepUp(target.kind);
   else if (target.kind === 'ball') takeBall();
   else if (target.kind === 'telescope') telescope.enter();
+  else if (target.kind === 'expand') openExpand(net);
 }
 
 // ---- The rooftop bar ---------------------------------------------------------------------------------
@@ -2813,6 +2866,11 @@ function hintFor(it: Interactable): Hint {
     }
     case 'telescope':
       return { k: '', parts: [title('🔭 Office telescope'), aside('overlooks the worker floor'), key('E', 'Look through')] };
+    case 'expand': {
+      const level = store.plan.wing;
+      if (level >= WING.rows) return { k: 'full', parts: [title('🏢 Back office'), aside('built all the way out'), key('E', 'Wall a row up')] };
+      return { k: String(level), parts: [title(level ? '🚧 Room to grow' : '🚧 Room to grow through the wall'), aside(level ? `${level} of ${WING.rows} rows built` : 'the office can get bigger here'), key('E', level ? 'Another row: 2 more desks' : 'Knock through: 2 more desks')] };
+    }
   }
 }
 
@@ -2848,14 +2906,18 @@ function carryHint(card: CarriedIssue, it: Interactable | null): Hint {
 function deskHint(deskId: string): Hint {
   const w = store.workerAtDesk(deskId);
   if (!w && DESK_BY_ID.get(deskId)?.room) return { k: 'room', parts: [h('span.title', {}, `🤝 ${DESK_BY_ID.get(deskId)!.label} · free`), key('E', 'Call a meeting')] };
+  // The sign over it, if it has one, and L to hang one (or change it).
+  const sign = store.plan.labels[deskId]?.text;
+  const labelKey = canLabel(deskId) ? key('L', sign ? 'Sign' : 'Label') : '';
+  const deskName = `${sign ? `🪧 ${sign} · ` : ''}${DESK_BY_ID.get(deskId)!.label}`;
   if (!w) {
     const paused = hiringPaused();
     const m = store.machine;
     const full = officeFull(m);
     return {
-      k: `${paused}|${full}|${m.workers}|${m.limit}|${!!m.pressure}`,
+      k: `${paused}|${full}|${m.workers}|${m.limit}|${!!m.pressure}|${sign}`,
       parts: [
-        h('span.title', {}, `${DESK_BY_ID.get(deskId)!.label} · empty`),
+        h('span.title', {}, `${deskName} · empty`),
         ...(full
           ? [h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`)]
           : [
@@ -2863,6 +2925,7 @@ function deskHint(deskId: string): Hint {
               ...(paused ? [h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow')] : [key('E', 'Hire a worker'), key('P', 'Hire with a task')]),
               key('B', 'Shell'),
             ]),
+        labelKey,
       ],
     };
   }
@@ -2871,9 +2934,9 @@ function deskHint(deskId: string): Hint {
   const spent = w.kind === 'agent' && w.usage ? usageLabel(w.usage, workerProvider) : '';
   const shell = w.kind === 'shell';
   return {
-    k: w.status + w.id + (w.pr?.number ?? '') + (w.repos?.map((r) => r.pr?.number ?? '-').join() ?? '') + (w.prOpening ? '!' : '') + doing + spent,
+    k: w.status + w.id + (w.pr?.number ?? '') + (w.repos?.map((r) => r.pr?.number ?? '-').join() ?? '') + (w.prOpening ? '!' : '') + doing + spent + (sign ?? ''),
     parts: [
-      h('span.title', {}, `${w.name} · ${STATUS_LABEL[w.status]}`),
+      h('span.title', {}, `${sign ? `🪧 ${sign} · ` : ''}${w.name} · ${STATUS_LABEL[w.status]}`),
       doing ? aside(doing) : '',
       spent ? h('span.cost', { title: usageTitle(w.usage!, workerProvider) }, spent) : '',
       key('E', 'Open terminal'),
@@ -2881,6 +2944,7 @@ function deskHint(deskId: string): Hint {
       isAsleep(w.status) ? key('R', shell ? 'Restart' : 'Resume') : key('P', shell ? 'Run command' : 'Prompt'),
       w.repos?.length ? reposKey(w) : w.pr ? key('O', `PR #${w.pr.number}`) : w.prOpening ? aside('⏳ Opening PR…') : prReady(w) ? key('O', 'Open PR') : '',
       key('X', 'Send home'),
+      labelKey,
     ],
   };
 }
@@ -3134,8 +3198,8 @@ function officeKey(e: KeyboardEvent): boolean {
   const deskKey = DESK_KEYS[e.code as keyof typeof DESK_KEYS];
   if (deskKey) {
     const handled = use(target, deskKey);
-    // P opens a text box, which the key mustn't land in.
-    if (handled && deskKey === 'P') e.preventDefault();
+    // P and L open a text box, which the key mustn't land in.
+    if (handled && (deskKey === 'P' || deskKey === 'L')) e.preventDefault();
     return handled;
   }
   switch (e.code) {
@@ -3283,7 +3347,7 @@ document.addEventListener('pointerlockchange', () => {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5, expand: 8 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */

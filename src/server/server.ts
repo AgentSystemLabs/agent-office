@@ -34,6 +34,7 @@ import { Arcade, HighScores } from './cabinet.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState, SignInKind } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import { DESK_BY_ID, elevatorSpot, seatHere, streetBelow } from '../shared/layout.js';
+import { EMPTY_PLAN } from '../shared/floorplan.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
@@ -262,7 +263,7 @@ export async function startServer(cfg: Config) {
   };
   const floorInfos = (): FloorInfo[] => [
     ...[...floors.values()].map((f) => ({ ...f.info(), ...(building.isLocal(f.id) ? { local: true } : {}) })),
-    ...building.pending().map((d) => ({ id: d.id, name: d.name, repo: d.repo, dir: d.dir, palette: d.palette, addedBy: d.addedBy, addedAt: d.addedAt, cloning: true, workers: 0, busy: 0, waiting: 0, people: 0 })),
+    ...building.pending().map((d) => ({ id: d.id, name: d.name, repo: d.repo, dir: d.dir, palette: d.palette, addedBy: d.addedBy, addedAt: d.addedAt, cloning: true, workers: 0, busy: 0, waiting: 0, people: 0, wing: 0 })),
   ];
   // The elevator's counts change with every worker update; tell everyone at most a few times a second.
   let floorsSent = '';
@@ -595,6 +596,7 @@ export async function startServer(cfg: Config) {
     pulls: floor?.github.pulls ?? { items: [], fetchedAt: 0, loading: false },
     queue: floor?.queue.state() ?? { tasks: [], maxWorkers: 0 },
     decor: floor?.decor.list() ?? [],
+    plan: floor?.plan.state() ?? EMPTY_PLAN,
     services: servicesState(floor),
     dog: floor?.dog.view() ?? null,
     ball: floor?.court.state() ?? {},
@@ -1105,6 +1107,11 @@ export async function startServer(cfg: Config) {
   };
 
   const decorChanged = (floor: Floor) => toFloor(floor, { t: 'decor', items: floor.decor.list() });
+  /** The floor's signs or back office changed: its people see it, and everyone sees the building's outside change. */
+  const planChanged = (floor: Floor) => {
+    toFloor(floor, { t: 'plan', plan: floor.plan.state() });
+    floorsChanged();
+  };
   const ballChanged = (floor: Floor) => toFloor(floor, { t: 'ball', ball: floor.court.state() });
   const jukeboxChanged = (floor: Floor) => toFloor(floor, { t: 'jukebox', state: floor.jukebox.state() });
   const teamState = async () => ({ ...(await team.state()), deploy: cfg.deployScript });
@@ -2003,6 +2010,37 @@ export async function startServer(cfg: Config) {
         if (!d) break;
         decorChanged(floor);
         toastFloor(floor, `${who} took down ${d.title ? `“${d.title}”` : 'a picture'}`);
+        break;
+      }
+      case 'desk.label': {
+        const floor = here();
+        if (!floor) break;
+        const deskId = str(msg.deskId, 32);
+        const r = floor.plan.label(deskId, msg.text, msg.color, who);
+        if (typeof r === 'string') return warn(c, r);
+        if (!r.label && !r.old) break;
+        planChanged(floor);
+        const desk = DESK_BY_ID.get(deskId)?.label ?? 'a desk';
+        if (r.label && r.label.text !== r.old?.text) toastFloor(floor, `🪧 ${who} hung a sign over ${desk}: “${r.label.text}”`);
+        else if (!r.label) toastFloor(floor, `🪧 ${who} took the “${r.old!.text}” sign down from ${desk}`);
+        break;
+      }
+      case 'floor.expand': {
+        const floor = here();
+        if (!floor) break;
+        const r = floor.plan.expand();
+        if (typeof r === 'string') return warn(c, r);
+        planChanged(floor);
+        toastFloor(floor, `🔨 ${who} knocked out the back wall: ${r.map((id) => DESK_BY_ID.get(id)?.label).join(' and ')} are ready for workers`);
+        break;
+      }
+      case 'floor.shrink': {
+        const floor = here();
+        if (!floor) break;
+        const r = floor.plan.shrink((id) => floor.workers.deskOccupied(id));
+        if (typeof r === 'string') return warn(c, r);
+        planChanged(floor);
+        toastFloor(floor, `🧱 ${who} walled the back office back up, and ${r.map((id) => DESK_BY_ID.get(id)?.label).join(' and ')} went with it`);
         break;
       }
       case 'wb.open':
