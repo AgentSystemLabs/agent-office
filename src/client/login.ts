@@ -11,6 +11,19 @@ const submit = document.getElementById('submit') as HTMLButtonElement;
 
 const NAME_KEY = 'agent-office.login-name';
 
+// A sign-in link from the office's terminal (/login#key=…): it works once, so take it out of the
+// address bar and trade it for a session. The key is after the #, so it never reaches a server log.
+const linkKey = new URLSearchParams(location.hash.slice(1)).get('key');
+if (linkKey) {
+  history.replaceState(null, '', location.pathname);
+  void fetch('/api/link', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: linkKey }) })
+    .then(async (res) => {
+      if (res.ok) return location.replace('/');
+      error.textContent = ((await res.json().catch(() => ({}))) as { error?: string }).error ?? 'Could not sign in';
+    })
+    .catch(() => void (error.textContent = 'Server unreachable'));
+}
+
 // Ask for a name once people have accounts; it's optional while the shared password still works.
 void fetch('/api/login', { cache: 'no-store' })
   .then((r) => r.json())

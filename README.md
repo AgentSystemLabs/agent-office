@@ -4,9 +4,19 @@ A cartoon 3D office your team walks around in together. Sit a Claude Code, OpenC
 
 Every project is **a floor of the building**. Ride the elevator, pick one of your GitHub repositories, and the office clones it and opens a new floor for it, painted its own colors. Every worker, terminal, board and queue on a floor works in that project's checkout.
 
+**On your computer**, one line installs it and opens it in your browser, signed in. Only your computer can reach it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.sh | bash
 ```
-agent-office
+
+**On a server for your team** (any Ubuntu or Debian VM), one line run on it installs it as a service that only an SSH tunnel reaches, and prints the tunnel command plus a link that shows the password once:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/deploy/provision.sh | bash
 ```
+
+Nothing to clone, and no npm or Docker. Details are in [Install & run](#install--run) and [Run it on a server for your team](#run-it-on-a-server-for-your-team).
 
 ## What's inside
 
@@ -82,7 +92,7 @@ One line installs the latest release and starts the office. You don't need to cl
 curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.sh | bash
 ```
 
-Anything after `bash -s --` goes to the office, such as a port:
+It opens the office in your browser with a sign-in link that works once, so there's no password to copy. The office listens on `127.0.0.1` only, so nobody else on your network can reach it. For a team, [run it on a server](#run-it-on-a-server-for-your-team). Anything after `bash -s --` goes to the office, such as a port:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.sh | bash -s -- --port 4700
@@ -126,7 +136,7 @@ The first time it starts in a terminal, it walks you through setting up before i
 
 Press Enter to skip any step: the elevator in the office asks for your first project too. Run `agent-office setup` to go through it again while the office is stopped, or `agent-office setup --projects ~/workspace --project owner/repo` to do the same without questions, from a script.
 
-It prints the URLs your teammates can open. If you leave out `--password`, it generates one, saves it in `~/agent-office/.agent-office/config.json` and prints it.
+Then it opens in your browser, signed in. The terminal shows the address, the sign-in link (it works once; `--no-open` leaves the browser alone) and the password. If you leave out `--password`, it generates one, saves it in `~/agent-office/.agent-office/config.json` and prints it, for signing in from another browser. Only this computer can reach the office unless you pass `--host 0.0.0.0`, which lets anyone on your network in over plain http, where voice and screen sharing don't work. For a team, a server is better.
 
 The office keeps its data in `~/agent-office` (`--home` or `AGENT_OFFICE_HOME` to move it) and clones projects next to it, as `~/agent-office/<owner>/<repo>`. To clone them somewhere else, like `~/Workspace`, an admin picks the **Workspace folder** in ⚙️ Settings (or start with `--projects` or `AGENT_OFFICE_PROJECTS`). Floors you already have stay where they are, and a checkout of the same repository that's already in the new folder is used as it is. The list of floors is `~/agent-office/.agent-office/floors.json`. Each floor keeps its workers, queue, pictures and worktrees in its own checkout's `.agent-office/`.
 
@@ -155,8 +165,9 @@ agent-office [dir] [options]
       --projects <dir>    Where new floors are cloned, as <dir>/<owner>/<repo> (default ~/agent-office;
                           also settable from ⚙️ Settings)
   -p, --port <n>          Port (default 4600, env PORT)
-  -H, --host <addr>       Bind address (default 0.0.0.0)
+  -H, --host <addr>       Bind address (default 127.0.0.1; 0.0.0.0 lets your network in)
       --password <pw>     Office password (env AGENT_OFFICE_PASSWORD)
+      --no-open           Don't open the office in your browser when it starts
       --agent <cmd>       Default agent command (default "claude")
       --agent-args <str>  Extra args for the configured agent, e.g. "--model opus"
       --tls-cert <file>   Serve HTTPS with this cert…
@@ -211,7 +222,7 @@ agent-office /path/to/project --agent opencode
 
 Everything the office tells a worker by itself can be rewritten in ⚙️ Settings → **📝 Prompts**: what **🤖 Hand to a worker**, **🔍 Review**, **Fix up & merge**, **Fix conflicts & merge** and **✍️ Ask a worker** send from the boards, what a meeting about an issue or a review panel starts with, the note the queue adds to a worktree task, the three board agents' briefs, every part the meeting room hands out, and the instructions for the model that writes the signs over workers' heads. Each one lists its `{{placeholders}}` (the issue number, the PR's branch, the file a meeting waits for…), which the office fills in when it sends it, and warns when one the office counts on is missing. **↺ Default** puts the office's own wording back. Admins edit them; they're the same on every floor and kept in `.agent-office/prompts.json` with the Default worker.
 
-OpenCode receives prompts through `--prompt` and resumes its saved session through `--session`. The office adds a local event plugin through `OPENCODE_CONFIG_CONTENT`, preserving existing inline JSON settings and plugin entries. Inline settings must be a JSON object; configuration files continue to use OpenCode's own loader. The office does not edit your OpenCode configuration files or bypass permission prompts. The bridge reports worker status to a loopback endpoint authenticated by a per-worker token. OpenCode and Codex must be installed separately on machines provisioned with the existing AWS script, which still installs Claude Code only.
+OpenCode receives prompts through `--prompt` and resumes its saved session through `--session`. The office adds a local event plugin through `OPENCODE_CONFIG_CONTENT`, preserving existing inline JSON settings and plugin entries. Inline settings must be a JSON object; configuration files continue to use OpenCode's own loader. The office does not edit your OpenCode configuration files or bypass permission prompts. The bridge reports worker status to a loopback endpoint authenticated by a per-worker token. OpenCode and Codex must be installed separately on servers set up with `deploy/provision.sh` (or the AWS script), which installs Claude Code only.
 
 Codex uses its interactive CLI with `--no-alt-screen`, preserves native sandbox and approval settings, and resumes through `codex resume <session-id>`. Set it as the default with `--agent codex`; use `/model` inside its terminal to choose a model. The office supplies command hooks through per-process config overrides, without editing your Codex configuration. On first use, open the terminal, complete any login/setup, and review the generated Office commands in `/hooks`. Hooks need your native trust approval before session/status tracking works; the office never bypasses that review. Workers that do not report startup are marked as needing input. Codex tasks use local summaries and do not launch Claude for task naming. Its token metrics come from the root rollout identified by the trusted hook, under `CODEX_HOME/sessions` or `CODEX_HOME/archived_sessions` (default `~/.codex`). The reader checks the session identity, bounds file reads, and sends only normalized counters to the browser. Snapshots update after hooks and on a 10-second poll, survive restarts, and reset for a new session. Cache and reasoning are counted once. Child-session usage is excluded; USD cost and API-call counts are shown as unavailable. The rollout format is version-dependent (verified against 0.154.0); missing or unsupported records remain unavailable instead of being shown as zero. Reads inspect at most a 1 MiB header and the latest 4 MiB of a rollout; if no newer counter is found in that tail, the last known snapshot remains visible.
 
@@ -245,6 +256,98 @@ OpenCode metrics come from assistant-message token/cost records exposed by its p
 
 You can also click a nearby desk to interact with it, or click a worker in the Workers panel (**🤖 Workers**, top right) to open its terminal.
 
+## Run it on a server for your team
+
+Run this on any Ubuntu or Debian server, as root or as a user with sudo:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/deploy/provision.sh | bash
+```
+
+Or run it from your computer without logging in first: `ssh root@203.0.113.7 'curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/deploy/provision.sh | bash'`.
+
+It takes a few minutes the first time:
+
+1. Installs Node.js 22, git, the GitHub CLI and **Claude Code**. Run as root, it creates an `agentoffice` user and runs the office as that user, so workers never run as root.
+2. Clones agent-office into `/opt/agent-office` and runs it under systemd. `Restart=always` brings it back after a crash or a reboot, and `KillMode=process` keeps workers running through a restart. It listens on `127.0.0.1:4600` only. The office keeps its data in `~/agent-office` and clones projects into `~/workspace/<owner>/<repo>`.
+3. Sets up **👥 Invite teammates**. Teammates' SSH keys log in as a separate `office` user that can only forward to the office port: no shell, no other ports.
+4. Offers to sign the GitHub CLI in, if it's running in a terminal.
+5. Prints how to get in:
+
+```
+  On your computer, open a tunnel and leave it running:
+
+    ssh -N -L 4600:localhost:4600 root@203.0.113.7
+
+  then open http://localhost:4600/claim?t=…
+  It shows the office password once: write it down.
+```
+
+Everything goes through SSH, so there are no certificates to manage, and `localhost` counts as a secure origin, so voice and screen sharing work. Claude signs in from the office: the first worker asks you to type `/login` in its terminal. If GitHub isn't signed in yet, run `gh auth login` from a shell at any desk (**B**). To update, run the same line again, or use **⬆️ Upgrade the office** in the **☰** menu. Options go after `bash -s --`: `--project owner/repo` clones a first floor, and `--help` lists the rest.
+
+**On your own domain.** Point a DNS record at the server, open ports 80 and 443, and add `--domain`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/deploy/provision.sh | bash -s -- --domain office.example.com
+```
+
+It installs [Caddy](https://caddyserver.com), which gets a certificate from Let's Encrypt by itself and serves the office on https://office.example.com. The claim link is then `https://office.example.com/claim?t=…`. Give teammates an invite link each from **🔑 Accounts**.
+
+**Setting it up by hand** (another distribution, or your own proxy): run `agent-office`, which listens on `127.0.0.1` only, and reach it through `ssh -L 4600:localhost:4600 you@server`. Or put it behind HTTPS on a domain, which voice and screen sharing need, with Caddy:
+
+```caddy
+# /etc/caddy/Caddyfile
+office.example.com {
+    reverse_proxy 127.0.0.1:4600
+}
+```
+
+```bash
+agent-office setup --projects ~/workspace --project owner/repo   # once; or pick projects in the office
+agent-office --host 127.0.0.1 --trust-proxy --password "$(openssl rand -base64 18)"
+```
+
+Caddy proxies WebSockets out of the box. With nginx, forward the Host and Upgrade headers:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:4600;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 1d;
+}
+```
+
+To keep the office running, use a systemd unit:
+
+```ini
+# /etc/systemd/system/agent-office.service
+[Unit]
+Description=Agent Office
+After=network.target
+
+[Service]
+User=dev
+WorkingDirectory=/home/dev
+# generate with: openssl rand -base64 24
+Environment=AGENT_OFFICE_PASSWORD=<a long random password>
+ExecStart=/usr/bin/env agent-office --host 127.0.0.1 --trust-proxy
+Restart=on-failure
+# Restarting the office leaves the workers' terminals running for the next one to pick up.
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
+```
+
+If you don't have a domain, `--self-signed` serves HTTPS directly. Browsers will warn once per person.
+
+**Voice across strict NATs.** Peers connect directly using public STUN. If some teammates can't hear each other (common on corporate networks), run a TURN server such as coturn and pass `--turn turn:user:pass@turn.example.com:3478`.
+
 ## One command on AWS
 
 If you have the AWS CLI logged in, one command gives you your own office on EC2. No Terraform needed:
@@ -268,7 +371,7 @@ What `up` does, in about 2 minutes:
 1. Creates an SSH key pair (kept in `~/.config/agent-office/aws/<name>/`).
 2. Creates a security group that opens **only SSH (port 22), and only to your current IP**. The office itself is never on the internet.
 3. Gives the machine a fixed Elastic IP and launches a **t3.xlarge** (4 vCPU, 16 GiB) Ubuntu 24.04 instance with a 50 GiB disk.
-4. Installs Node 22, git, the GitHub CLI and **Claude Code**. It clones the latest agent-office from GitHub and runs `npm i`. The office keeps its data in `~/agent-office` on the machine and clones projects into `~/workspace/<owner>/<repo>`.
+4. Runs the same [`deploy/provision.sh`](deploy/provision.sh) as [any server](#run-it-on-a-server-for-your-team): it installs Node 22, git, the GitHub CLI and **Claude Code**, clones the latest agent-office from GitHub and runs `npm i`. The office keeps its data in `~/agent-office` on the machine and clones projects into `~/workspace/<owner>/<repo>`.
 5. Runs the office under systemd with `Restart=always`, so it comes back after a crash or a reboot, and `KillMode=process`, so restarting it leaves the workers running. It listens on `127.0.0.1:4600` on the machine, so the only way in is an SSH tunnel.
 6. Opens an SSH tunnel and your browser at `http://localhost:4600`. **The first page shows the office password once. Write it down.** The server then keeps only a hash, so nobody can display the password again.
 7. The office opens on its elevator with no floors yet. It lists every repository your GitHub token can see: pick one and it becomes the first floor.
@@ -333,65 +436,6 @@ Useful options for `up`:
 
 **GitHub.** By default, your local `gh auth token` is used to sign in the GitHub CLI on the machine. It's needed for private repos, the issue and PR boards, and for workers to push branches and open PRs. Anyone who can use the office can use that token, so pass `--github-token <fine-grained token>` or `--no-github-token` if that's too much.
 
-## Running it on a VPS for your team
-
-The simplest private setup needs no certificates at all. Run `agent-office --host 127.0.0.1` and have everyone connect with `ssh -L 4600:localhost:4600 you@server`, then open http://localhost:4600. Browsers treat `localhost` as secure, so voice and screen sharing work.
-
-To serve it on a real domain instead, put the office behind HTTPS. Voice and screen sharing need a secure context. The simplest setup is Caddy, which gets certificates automatically:
-
-```caddy
-# /etc/caddy/Caddyfile
-office.example.com {
-    reverse_proxy 127.0.0.1:4600
-}
-```
-
-```bash
-agent-office setup --projects ~/workspace --project owner/repo   # once; or pick projects in the office
-agent-office --host 127.0.0.1 --trust-proxy --password "$(openssl rand -base64 18)"
-```
-
-Caddy proxies WebSockets out of the box. With nginx, forward the Host and Upgrade headers:
-
-```nginx
-location / {
-    proxy_pass http://127.0.0.1:4600;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_read_timeout 1d;
-}
-```
-
-To keep the office running, use a systemd unit:
-
-```ini
-# /etc/systemd/system/agent-office.service
-[Unit]
-Description=Agent Office
-After=network.target
-
-[Service]
-User=dev
-WorkingDirectory=/home/dev
-# generate with: openssl rand -base64 24
-Environment=AGENT_OFFICE_PASSWORD=<a long random password>
-ExecStart=/usr/bin/env agent-office --host 127.0.0.1 --trust-proxy
-Restart=on-failure
-# Restarting the office leaves the workers' terminals running for the next one to pick up.
-KillMode=process
-
-[Install]
-WantedBy=multi-user.target
-```
-
-If you don't have a domain, `--self-signed` serves HTTPS directly. Browsers will warn once per person.
-
-**Voice across strict NATs.** Peers connect directly using public STUN. If some teammates can't hear each other (common on corporate networks), run a TURN server such as coturn and pass `--turn turn:user:pass@turn.example.com:3478`.
-
 ## How it works
 
 ```
@@ -434,6 +478,7 @@ browser ──HTTPS/WSS──▶ agent-office (Node)
 
 Anyone who can sign in can drive Claude Code, OpenCode or Codex in that directory, and through it run commands as the user that runs the office. Treat the password, the accounts and the invite links like SSH access:
 
+- The office listens on `127.0.0.1` unless you pass `--host`, and `deploy/provision.sh` keeps it there, behind SSH or Caddy. The sign-in link the terminal prints works once, and the office keeps only a hash of it, in memory.
 - Use a strong password and HTTPS. With `--trust-proxy`, cookies are `Secure` once the proxy says the request came over https.
 - Changing the shared password signs out everyone who came in with it, because those sessions are signed with a key derived from it. Account sessions carry the account's id and are checked on every request, so revoking an account, or switching the shared password off, signs those people out at once, open connections included. Account passwords are stored as scrypt hashes, and invite links carry their token after the `#`, so it never reaches a server log. Login and invite attempts are limited to 10 per 5 minutes per client.
 - Only enable `--trust-proxy` behind a proxy that appends `X-Forwarded-For` (Caddy and nginx both do). The office uses the rightmost hop.

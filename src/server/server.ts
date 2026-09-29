@@ -671,6 +671,16 @@ export async function startServer(cfg: Config) {
         console.log('  the office password was claimed — it will not be shown again');
         return send(res, 200, { password }, signedIn(req));
       }
+      // A sign-in link the office printed in its terminal (/login#key=…), traded for a session once.
+      if (p === '/api/link' && req.method === 'POST') {
+        const guess = await readGuess(req, res);
+        if (!guess) return;
+        if (!accounts.sharedPassword || !auth.useLinkKey(str(guess.body.key, 128))) {
+          return send(res, 410, { error: 'That sign-in link was already used. Sign in with the office password.' });
+        }
+        auth.recordSuccess(guess.ip);
+        return send(res, 200, { ok: true }, signedIn(req));
+      }
       if (p === '/api/logout' && req.method === 'POST') {
         return send(res, 200, { ok: true }, { 'set-cookie': auth.clearCookie(req) });
       }
@@ -1954,5 +1964,8 @@ export async function startServer(cfg: Config) {
     hookServer.close();
   };
 
-  return { server, shutdown, accounts, publicDir, hookPort, floors: () => [...floors.values()], projectsDir: () => building.projectsDir, resolvedAgent: resolveCommand(cfg.agentCmd) };
+  /** A link (path and fragment) that signs one browser in, once; see Auth.linkKey. */
+  const signInLink = () => `/login#key=${auth.linkKey()}`;
+
+  return { server, shutdown, accounts, publicDir, hookPort, signInLink, floors: () => [...floors.values()], projectsDir: () => building.projectsDir, resolvedAgent: resolveCommand(cfg.agentCmd) };
 }
