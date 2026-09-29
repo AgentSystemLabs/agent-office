@@ -52,6 +52,7 @@ import { openIssue, openPull, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { openAccounts, routeAccountsMessage } from './ui/accounts';
+import { needsSigningIn, openSignIns } from './ui/signins';
 import { openServices } from './ui/services';
 import { openQueue } from './ui/queue';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
@@ -720,6 +721,8 @@ let bootVersion = '';
 let upgradePhase = '';
 
 net.onStatus((up) => $('conn').classList.toggle('hidden', up));
+/** Whether this page has shown someone their sign-ins yet (it greets a newcomer once). */
+let signInsGreeted = false;
 net.onMessage((msg) => {
   // The floor you asked to come back to (see Net.connect), to tell if the office put you somewhere else.
   const wasOn = msg.t === 'welcome' ? (store.floor ?? lastFloor()) : null;
@@ -788,6 +791,16 @@ net.onMessage((msg) => {
       voice.syncPeers();
       break;
     }
+    case 'signins':
+      // Someone who just joined starts here: their workers need their own Claude sign-in first.
+      if (!signInsGreeted) {
+        signInsGreeted = true;
+        if (needsSigningIn()) openSignIns(net, 'Welcome! Sign in to Claude so the workers you hire run on your own plan, and to GitHub so what you do on the boards is yours.');
+      }
+      break;
+    case 'signins.needed':
+      openSignIns(net, msg.why);
+      break;
     case 'floor.enter':
       // Not a trip of yours: the floor you were on was taken off the building, and the elevator took you away.
       if (!trip) takenAway();
@@ -3347,6 +3360,7 @@ const hud = mountHud(
     { id: 'decor', icon: '🖼️', label: () => (hanger.active ? 'Stop hanging the picture' : 'Hang a picture'), section: 'Together', key: 'F', on: () => hanger.active, status: () => hanger.active, run: () => (hanger.active ? hanger.cancel() : startHanging()) },
     { id: 'team', icon: '👥', label: 'Invite teammates', section: 'Together', shown: () => store.invites, run: () => openTeam(net) },
     { id: 'accounts', icon: '🔑', label: 'Accounts', section: 'Together', shown: () => store.me.admin, title: () => 'Invite people, see who has an account, revoke them', run: () => openAccounts(net) },
+    { id: 'signins', icon: '🔐', label: 'Your sign-ins', section: 'Together', shown: () => !!store.me.account, tone: () => (needsSigningIn() ? 'danger' : undefined), status: needsSigningIn, chip: () => 'Sign in to Claude', title: () => 'The Claude plan and GitHub account your workers run on: your own', run: () => openSignIns(net) },
     { id: 'settings', icon: '⚙️', label: 'Settings', section: 'Office', run: showSettings },
     { id: 'help', icon: '❓', label: 'Controls', section: 'Office', key: 'H', run: openHelp },
     {
