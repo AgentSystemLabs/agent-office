@@ -17,6 +17,7 @@ import { buildGong } from '../world/gong';
 import { buildJukebox } from '../world/jukebox';
 import { buildKitchen } from '../world/kitchen';
 import { preloadModels } from '../world/models';
+import { FLOOR_PLANTS, plant } from '../world/office';
 import { ready, stage } from './stage';
 
 /** A prop as the lab shows it: what goes in the scene, and what moves it every frame, if anything. */
@@ -39,6 +40,16 @@ const SHOW: Record<string, () => Shown> = {
   },
   cabinet: () => ({ object: buildCabinet().group }),
   kitchen: () => ({ object: buildKitchen().group }),
+  plants: () => {
+    // The floor plants at scale 1 side by side, then the desk succulent, to compare them. A param of
+    // its own: plant=<species> keeps just that one.
+    const object = new THREE.Group();
+    const at = [0, 1.15, 2.25, 3];
+    [...FLOOR_PLANTS, 'succulent' as const].forEach((species, i) => {
+      if (!q.has('plant') || q.get('plant') === species) object.add(plant(species).translateX(at[i]));
+    });
+    return { object };
+  },
   lambo: () => ({ object: supercar('lambo', '#ffd166') }),
   ferrari: () => ({ object: supercar('ferrari', '#ef476f') }),
 };

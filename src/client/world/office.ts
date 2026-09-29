@@ -5,6 +5,7 @@ import { deskPoint } from '../../shared/nav';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
 import { buildGarage, buildStreet, bulb, type NightParts } from './outside';
 import { mergeByMaterial, mesh, roundedBox, textPlane, toon, toonUnique } from './toon';
+import { model, paintModel, palette } from './models';
 import { buildElevator, type Elevator } from './elevator';
 import { buildGong, type Gong } from './gong';
 import { buildJukebox, type JukeboxView } from './jukebox';
@@ -117,7 +118,7 @@ export interface Office {
   setLevel(index: number, count: number): void;
   /** Lights, windows and glass for the sky to change with the time of day and the weather. */
   night: NightParts;
-  /** The potted plants round the room, in PLANTS' order: pot first, then the leaves (world/holiday.ts trims them for Christmas). */
+  /** The potted plants round the room, in PLANTS' order. At Christmas world/holiday.ts hides their leaves (plantLeaves()) and stands a little tree in each pot. */
   plants: THREE.Group[];
   /** Animates the office; doors open for anyone in `people` who comes up to them. */
   update(t: number, dt: number, people: Iterable<{ x: number; y: number; z: number }>): void;
@@ -221,14 +222,52 @@ function box(w: number, h: number, d: number) {
   return new THREE.BoxGeometry(w, h, d);
 }
 
-function plant(scale = 1): THREE.Group {
+// The potted plants are modelled in Blender (blender/scripts/build_plants.py): one copy of plants.glb,
+// whose species each plant clones and paints. A species is its pot, named after it, with everything that
+// grows out of the pot hung under it as `<species>_leaves` (see plantLeaves()). The colors are the old
+// code-built plants' pot and greens, the Christmas tree's trunk brown for the soil, the street trees'
+// trunk brown for the ficus's, and the kitchen cupboards' blue for the snake plant's glazed pot.
+export type PlantSpecies = 'monstera' | 'snake_plant' | 'ficus' | 'succulent';
+/** The species that stand on the floor, which a row of plants takes turns with (see floorPlant()). */
+export const FLOOR_PLANTS = ['monstera', 'snake_plant', 'ficus'] as const satisfies readonly PlantSpecies[];
+const PLANT_COLORS = { Pot: PALETTE.pot, Glaze: '#8ecae6', Soil: '#6b4226', Bark: '#8a5a3b', Leaf: PALETTE.plant, LeafDark: PALETTE.plantDark };
+const paintPlant = palette(PLANT_COLORS);
+let plantModel: THREE.Object3D | null = null;
+
+/**
+ * A potted plant of `species`, `scale` times its modelled size, its origin on the floor in the middle of
+ * its pot. At scale 1 a floor species' pot is the old one's size (0.28 round at the top, 0.5 tall, its
+ * soil at 0.45), so colliders of 0.3 * scale still fit it; the succulent is desk-sized as it is. If the
+ * model didn't load, an empty group: the office opens without it.
+ */
+export function plant(species: PlantSpecies, scale = 1): THREE.Group {
+  plantModel ??= model('plants')?.scene ?? null;
   const g = new THREE.Group();
-  g.add(mesh(new THREE.CylinderGeometry(0.28, 0.22, 0.5, 12), toon(PALETTE.pot), 0, 0.25, 0));
-  g.add(mesh(new THREE.SphereGeometry(0.42, 12, 10), toon(PALETTE.plant), 0, 0.85, 0));
-  g.add(mesh(new THREE.SphereGeometry(0.3, 12, 10), toon(PALETTE.plantDark), 0.22, 1.1, 0.1));
-  g.add(mesh(new THREE.SphereGeometry(0.26, 12, 10), toon(PALETTE.plant), -0.2, 1.15, -0.08));
+  const copy = plantModel?.getObjectByName(species)?.clone();
+  if (copy) {
+    paintModel(copy, paintPlant);
+    g.add(copy);
+  }
   g.scale.setScalar(scale);
   return g;
+}
+
+/** The floor species for the `i`th of a row of plants: they take turns, so no two neighbours match. */
+function floorPlant(i: number): PlantSpecies {
+  return FLOOR_PLANTS[i % FLOOR_PLANTS.length];
+}
+
+/**
+ * A plant's leaves, and whatever else grows out of its pot (stalks, a trunk): everything but the pot and
+ * its soil. Christmas hides them and stands a little tree in the pot instead (world/holiday.ts). None if
+ * the model didn't load.
+ */
+export function plantLeaves(potted: THREE.Object3D): THREE.Object3D[] {
+  const leaves: THREE.Object3D[] = [];
+  potted.traverse((o) => {
+    if (o.name.endsWith('_leaves')) leaves.push(o);
+  });
+  return leaves;
 }
 
 /** A pendant lamp, its shade at 0, on a cord `cord` meters long. */
@@ -509,11 +548,12 @@ function buildBalcony(group: THREE.Group, colliders: Collider[], interactables: 
     colliders.push({ minX: x - 0.2, maxX: x + 0.2, minZ: tz - 0.2, maxZ: tz + 0.2, top: 0.49 });
     seatable(stool, sx < 0 ? 'stool-1' : 'stool-2', 0.9, interactables);
   }
-  for (const [px, pz, sc] of [
+  for (const [i, [px, pz, sc]] of [
     [maxX - 0.55, minZ + 0.5, 1.1],
     [minX + 0.55, maxZ - 0.55, 0.9],
-  ]) {
-    const p = plant(sc);
+  ].entries()) {
+    // Starting past the monstera, which spreads too wide for a spot this near the rail.
+    const p = plant(floorPlant(i + 1), sc);
     p.position.set(px, 0, pz);
     parts.add(p);
     const r = 0.3 * sc;
@@ -754,7 +794,7 @@ function buildDesk(def: DeskDef, index: number, trimMat: THREE.Material): DeskVi
     const mug = mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.12, 10), toon(PALETTE.chairs[index % 6]), width / 2 - 0.25, height + 0.06, -0.2);
     group.add(mug);
   } else if (deco === 1) {
-    const p = plant(0.35);
+    const p = plant('succulent');
     p.position.set(-width / 2 + 0.25, height, -0.25);
     group.add(p);
   } else {
@@ -1188,8 +1228,8 @@ export function buildOffice(): Office {
 
   // Plants around the room
   const plants: THREE.Group[] = [];
-  for (const [x, z, s] of PLANTS) {
-    const p = plant(s);
+  for (const [i, [x, z, s]] of PLANTS.entries()) {
+    const p = plant(floorPlant(i), s);
     p.position.set(x, 0, z);
     group.add(p);
     plants.push(p);
@@ -1652,11 +1692,12 @@ function buildLoft(group: THREE.Group, colliders: Collider[], interactables: Int
   interactables.push(telescope);
   colliders.push({ minX: minX + 0.65, maxX: minX + 1.15, minZ: minZ + 0.65, maxZ: minZ + 1.15, bottom: floorY, top: floorY + 1.3 });
 
-  for (const [px, pz, s] of [
+  for (const [i, [px, pz, s]] of [
     [maxX - 0.6, minZ + 0.6, 1],
     [maxX - 0.6, maxZ - 0.6, 1.2],
-  ]) {
-    const p = plant(s);
+  ].entries()) {
+    // Starting past the monstera, which spreads too wide for a corner this tight.
+    const p = plant(floorPlant(i + 1), s);
     p.position.set(px, floorY, pz);
     group.add(p);
     const r = 0.3 * s;

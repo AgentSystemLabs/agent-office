@@ -7,6 +7,7 @@ import dogPugUrl from '../models/dog-pug.glb?url';
 import dogPupUrl from '../models/dog-pup.glb?url';
 import dogShibaUrl from '../models/dog-shiba.glb?url';
 import kitchenUrl from '../models/kitchen.glb?url';
+import plantsUrl from '../models/plants.glb?url';
 import { toon } from './toon';
 
 // The things in the world modelled in Blender rather than built in code. Each .glb is exported by a
@@ -20,6 +21,7 @@ const MODELS = {
   'dog-pug': { url: dogPugUrl, preload: false },
   'dog-shiba': { url: dogShibaUrl, preload: false },
   kitchen: { url: kitchenUrl, preload: true },
+  plants: { url: plantsUrl, preload: true },
 } satisfies Record<string, { url: string; preload: boolean }>;
 
 export type ModelName = keyof typeof MODELS;
