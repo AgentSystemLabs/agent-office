@@ -86,10 +86,15 @@ die() {
   exit 1
 }
 
-CMD="${1:-help}"
-[[ $# -gt 0 ]] && shift
+# The first word that isn't an option is the command; options can go before or after it (the office
+# suggests `deploy/railway.sh --name <name> service <port>`).
+CMD=""
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --name | --workspace | --port | --github-token | --claude-token | --anthropic-api-key)
+      [[ $# -ge 2 ]] || die "$1 needs a value (see: deploy/railway.sh help)" ;;
+  esac
   case "$1" in
     --name) NAME="$2"; shift 2 ;;
     --workspace) WORKSPACE="$2"; shift 2 ;;
@@ -102,9 +107,13 @@ while [[ $# -gt 0 ]]; do
     -y | --yes) YES=1; shift ;;
     -h | --help) usage; exit 0 ;;
     -*) die "unknown option $1 (see: deploy/railway.sh help)" ;;
-    *) POSITIONAL+=("$1"); shift ;;
+    *)
+      if [[ -z "$CMD" ]]; then CMD="$1"; else POSITIONAL+=("$1"); fi
+      shift
+      ;;
   esac
 done
+CMD="${CMD:-help}"
 
 [[ "$NAME" =~ ^[a-zA-Z0-9-]+$ ]] || die "--name may only contain letters, numbers and dashes"
 [[ "$LOCAL_PORT" =~ ^[0-9]+$ && $LOCAL_PORT -gt 0 && $LOCAL_PORT -lt 65536 ]] || die "--port must be a port number"
@@ -171,10 +180,25 @@ open_url() {
 
 # --- Railway ---------------------------------------------------------------------------------------
 
+# Whether $PROJECT_ID is still on Railway (a deleted one stays listed for a while, with deletedAt).
+# Only a listing that worked can say it's gone: when Railway can't be asked (network, login, 2FA),
+# this dies, so nothing gets made again or forgotten over a project that's still running.
+project_exists() {
+  local list found
+  list=$(railway list --json </dev/null) ||
+    die "couldn't list your Railway projects, so can't tell whether \"$NAME\" ($PROJECT_ID) is still there — check: railway whoami"
+  found=$(json "Array.isArray(j) ? j.some((p) => p.id === '$PROJECT_ID' && !p.deletedAt) : 'unreadable'" <<<"$list" 2>/dev/null) || found=""
+  [[ "$found" == true || "$found" == false ]] ||
+    die "couldn't read Railway's list of projects (railway list --json), so can't tell whether \"$NAME\" ($PROJECT_ID) is still there"
+  [[ "$found" == true ]]
+}
+
 # The project, its environment and the office's service: made once, then remembered in $IDS_FILE.
+# Each ID is saved as soon as it exists, so a later step failing never makes the next `up` create
+# a second project (or `destroy` miss the first).
 ensure_project() {
   load_ids
-  if [[ -n "$PROJECT_ID" ]] && ! railway list --json | json "j.some((p) => p.id === '$PROJECT_ID' && !p.deletedAt)" | grep -q true; then
+  if [[ -n "$PROJECT_ID" ]] && ! project_exists; then
     warn "the Railway project for \"$NAME\" is gone; making a new one"
     PROJECT_ID="" ENVIRONMENT_ID="" SERVICE_ID="" SSH_HOST="" SSH_PORT=""
   fi
@@ -186,17 +210,23 @@ ensure_project() {
 $(sed 's/^/   /' <<<"$spaces")"
       WORKSPACE="$spaces"
     fi
-    PROJECT_ID=$(rw init --name "$NAME" --workspace "$WORKSPACE" --json </dev/null 2>/dev/null | json 'j.id') ||
+    PROJECT_ID=$(rw init --name "$NAME" --workspace "$WORKSPACE" --json </dev/null 2>/dev/null | json 'j.id') || PROJECT_ID=""
+    [[ -n "$PROJECT_ID" ]] ||
       die "couldn't create the Railway project (try: railway init --name $NAME)"
+    save_ids
     ok "Railway project $NAME"
   fi
-  [[ -n "$ENVIRONMENT_ID" ]] || ENVIRONMENT_ID=$(rw status --json | json 'j.environments.edges[0].node.id')
-  [[ -n "$ENVIRONMENT_ID" ]] || die "the Railway project has no environment"
+  if [[ -z "$ENVIRONMENT_ID" ]]; then
+    ENVIRONMENT_ID=$(rw status --json | json 'j.environments.edges[0].node.id') || ENVIRONMENT_ID=""
+    [[ -n "$ENVIRONMENT_ID" ]] || die "couldn't find the Railway project's environment (run this again to retry)"
+    save_ids
+  fi
   if [[ -z "$SERVICE_ID" ]]; then
-    SERVICE_ID=$(rw add --service "$SERVICE_NAME" --json </dev/null 2>/dev/null | json 'j.id') || die "couldn't add the office's service"
+    SERVICE_ID=$(rw add --service "$SERVICE_NAME" --json </dev/null 2>/dev/null | json 'j.id') || SERVICE_ID=""
+    [[ -n "$SERVICE_ID" ]] || die "couldn't add the office's service (run this again to retry)"
+    save_ids
     ok "Service $SERVICE_NAME"
   fi
-  save_ids
   # Linked, so plain `railway` commands run in the state directory act on the office's service.
   rw link --project "$PROJECT_ID" --environment "$ENVIRONMENT_ID" --service "$SERVICE_ID" --json </dev/null >/dev/null 2>&1 || true
 }
@@ -604,16 +634,20 @@ cmd_down() {
     rm -rf "$STATE_DIR"
     return
   fi
-  say "This permanently deletes office \"$NAME\": Railway project $PROJECT_ID, its volume and everything on it."
-  echo "   Anything in the office that isn't pushed to GitHub is lost."
-  if [[ $YES -ne 1 ]]; then
-    read -r -p "   Type the office name ($NAME) to confirm: " answer
-    [[ "$answer" == "$NAME" ]] || die "cancelled"
-  fi
-  if railway list --json | json "j.some((p) => p.id === '$PROJECT_ID' && !p.deletedAt)" | grep -q true; then
+  # The state directory (this office's SSH key, claim token and IDs) goes only once the project has:
+  # project_exists dies when Railway can't say, and a failed delete stops here.
+  if project_exists; then
+    say "This permanently deletes office \"$NAME\": Railway project $PROJECT_ID, its volume and everything on it."
+    echo "   Anything in the office that isn't pushed to GitHub is lost."
+    if [[ $YES -ne 1 ]]; then
+      read -r -p "   Type the office name ($NAME) to confirm: " answer
+      [[ "$answer" == "$NAME" ]] || die "cancelled"
+    fi
     railway delete --project "$PROJECT_ID" --yes </dev/null >/dev/null ||
-      die "couldn't delete the project (with 2FA on, run: railway delete --project $PROJECT_ID)"
+      die "couldn't delete the project (with 2FA on, run: railway delete --project $PROJECT_ID, then this again)"
     ok "Railway project deleted (the service, its volume and the TCP proxy go with it)"
+  else
+    ok "Railway project $PROJECT_ID is already deleted"
   fi
   rw unlink --yes </dev/null >/dev/null 2>&1 || true # forget the state directory's link in the CLI's config
   rm -rf "$STATE_DIR"

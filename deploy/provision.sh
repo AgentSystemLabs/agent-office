@@ -451,12 +451,14 @@ sudo visudo -cqf "$sudoers"
 sudo install -m 440 -o root -g root "$sudoers" /etc/sudoers.d/agent-office
 rm -f "$sudoers"
 # The same limits server-side, so they hold even for a key added by hand: local forwards to the
-# office port and nothing else (no shell, no -R listeners, no agent or X11 forwarding).
+# office port and nothing else (no shell, no -R listeners, no Unix socket forwards, no agent or X11
+# forwarding).
 sshd_conf=$(mktemp)
 cat >"$sshd_conf" <<'CONF'
 Match User office
     AllowTcpForwarding local
     PermitOpen localhost:4600 127.0.0.1:4600
+    AllowStreamLocalForwarding no
     AllowAgentForwarding no
     X11Forwarding no
     ForceCommand /usr/local/bin/agent-office-tunnel
