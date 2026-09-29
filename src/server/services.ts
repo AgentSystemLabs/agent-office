@@ -120,7 +120,7 @@ async function cwds(pids: number[]): Promise<Map<number, string>> {
 async function workerFromEnv(pid: number): Promise<string | undefined> {
   if (process.platform !== 'linux') return undefined;
   const env = await readFile(`/proc/${pid}/environ`, 'latin1').catch(() => '');
-  return /(?:^|\0)AGENT_OFFICE_WORKER_ID=([^\0]+)/.exec(env)?.[1];
+  return /(?:^|\0)DROID_OFFICE_WORKER_ID=([^\0]+)/.exec(env)?.[1];
 }
 
 /** "node /x/node_modules/.bin/vite --port 5173" -> "vite --port 5173" */

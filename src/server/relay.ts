@@ -84,7 +84,7 @@ function page(res: http.ServerResponse, status: number, title: string, body: str
     'x-frame-options': 'DENY',
   });
   res.end(
-    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · Agent Office</title><style>${STYLE}</style></head><body><main><h1>${esc(title)}</h1>${body}</main>${script ? `<script>${script}</script>` : ''}</body></html>`,
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · Droid Office</title><style>${STYLE}</style></head><body><main><h1>${esc(title)}</h1>${body}</main>${script ? `<script>${script}</script>` : ''}</body></html>`,
   );
 }
 

@@ -92,11 +92,11 @@ jobs:
 
       - name: Install it with install.sh and start it
         env:
-          AGENT_OFFICE_TARBALL: ${{ github.workspace }}/droid-office.tgz
-          AGENT_OFFICE_INSTALL_DIR: ${{ runner.temp }}/install
-          AGENT_OFFICE_BIN_DIR: ${{ runner.temp }}/bin
-          AGENT_OFFICE_HOME: ${{ runner.temp }}/office
-          AGENT_OFFICE_INSTALL_ONLY: '1'
+          DROID_OFFICE_TARBALL: ${{ github.workspace }}/droid-office.tgz
+          DROID_OFFICE_INSTALL_DIR: ${{ runner.temp }}/install
+          DROID_OFFICE_BIN_DIR: ${{ runner.temp }}/bin
+          DROID_OFFICE_HOME: ${{ runner.temp }}/office
+          DROID_OFFICE_INSTALL_ONLY: '1'
         run: |
           bash install.sh
           cd "$RUNNER_TEMP"

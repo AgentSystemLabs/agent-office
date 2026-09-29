@@ -1,4 +1,4 @@
-# Agent Office
+# Droid Office
 
 A 3D multiplayer office in the browser where a team hires claude, opencode, codex and droid workers at desks and shares their live PTYs. A Node server owns the workers, terminals, boards and state; a Vite/three.js client renders the office.
 

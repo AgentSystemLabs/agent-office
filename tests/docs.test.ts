@@ -16,7 +16,7 @@ function fixture(t: { after(fn: () => void): void }, git: boolean) {
     mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
     writeFileSync(path.join(dir, file), text);
   };
-  put('README.md', '# Agent Office\n\nHello.\n');
+  put('README.md', '# Droid Office\n\nHello.\n');
   put('docs/setup.markdown', '---\ntitle: "Getting set up"\n---\n\n# Not this one\n');
   put('docs/API.MD', 'Some intro\n\nThe API\n=======\n');
   put('src/index.ts', 'export {};\n');
@@ -47,7 +47,7 @@ test('the shelf is every Markdown file git counts as the project, with its title
       ['docs/API.MD', 'The API'],
       ['docs/setup.markdown', 'Getting set up'],
       ['NOTES.md', undefined],
-      ['README.md', 'Agent Office'],
+      ['README.md', 'Droid Office'],
     ],
   );
   assert.ok(files.every((f) => f.size > 0 && f.mtime > 0));

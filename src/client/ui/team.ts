@@ -27,7 +27,7 @@ export function tunnelCommand(t: TeamState, os: Os): string {
 function inviteMessage(t: TeamState, os: Os): string {
   const project = store.project?.name ?? 'our';
   return [
-    `You're invited to the ${project} Agent Office. Run this in a terminal (${OS_LABEL[os]}):`,
+    `You're invited to the ${project} Droid Office. Run this in a terminal (${OS_LABEL[os]}):`,
     '',
     tunnelCommand(t, os),
     '',

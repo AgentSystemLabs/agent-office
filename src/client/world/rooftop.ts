@@ -814,7 +814,7 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
       }
       g.globalAlpha = 0.85;
     }
-    const words = f.part === 'drop' ? 'AGENT OFFICE' : f.part === 'build' ? 'GET READY' : 'DJ MERGE CONFLICT';
+    const words = f.part === 'drop' ? 'DROID OFFICE' : f.part === 'build' ? 'GET READY' : 'DJ MERGE CONFLICT';
     fitFont(g, words, 60, W - 40);
     g.textAlign = 'center';
     g.textBaseline = 'middle';

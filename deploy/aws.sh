@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy your own Agent Office to AWS with one command, using only the AWS CLI.
+# Deploy your own Droid Office to AWS with one command, using only the AWS CLI.
 #
 #   deploy/aws.sh up        create the machine, install and start the office, open it
 #   deploy/aws.sh open      tunnel to the office and open it in your browser
@@ -34,7 +34,7 @@ LOCAL_PORT_SET=0
 
 usage() {
   cat <<'EOF'
-Agent Office on AWS — one command up, one command down.
+Droid Office on AWS — one command up, one command down.
 
 Usage: deploy/aws.sh <command> [options]
 
@@ -430,7 +430,7 @@ cmd_up() {
   local a
   for a in "${EXTRA_ALLOW[@]+"${EXTRA_ALLOW[@]}"}"; do cidrs+=("$(to_cidr "$a")"); done
 
-  say "Agent Office \"$NAME\" in $AWS_REGION (account $ACCOUNT)"
+  say "Droid Office \"$NAME\" in $AWS_REGION (account $ACCOUNT)"
   echo "   machine:  $INSTANCE_TYPE, ${DISK_GB} GiB disk, Ubuntu 24.04"
   echo "   app:      $APP_REPO @ $APP_REF"
   echo "   projects: ${project_repo:+$project_repo, then }pick them in the office's elevator (cloned into ~/workspace)"
@@ -470,7 +470,7 @@ cmd_up() {
   sg=$(find_sg)
   if [[ -z "$sg" ]]; then
     sg=$(aws_ ec2 create-security-group --group-name "$RESOURCE" --vpc-id "$vpc" \
-      --description "Agent Office $NAME - SSH from allowed IPs only" \
+      --description "Droid Office $NAME - SSH from allowed IPs only" \
       --tag-specifications "ResourceType=security-group,Tags=[{Key=droid-office,Value=$NAME},{Key=Name,Value=$RESOURCE}]" \
       --query GroupId)
     ok "Security group $sg"
@@ -776,7 +776,7 @@ cmd_reset_password() {
   remote "set -e
     # An office from before ~/droid-office keeps its data in its project (/etc/droid-office/dir).
     if [ -f /etc/droid-office/dir ]; then set -- \"\$(cat /etc/droid-office/dir)\"; else set -- --home \"\$(cat /etc/droid-office/home)\"; fi
-    sudo sed -i 's/^AGENT_OFFICE_CLAIM_TOKEN=.*/AGENT_OFFICE_CLAIM_TOKEN=\"$(cat "$CLAIM_FILE")\"/' /etc/droid-office/env
+    sudo sed -i 's/^DROID_OFFICE_CLAIM_TOKEN=.*/DROID_OFFICE_CLAIM_TOKEN=\"$(cat "$CLAIM_FILE")\"/' /etc/droid-office/env
     sudo systemctl stop droid-office
     node /opt/droid-office/bin/droid-office.js \"\$@\" --reset-password >/dev/null
     sudo systemctl start droid-office" || die "reset failed"

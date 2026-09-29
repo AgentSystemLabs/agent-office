@@ -1,7 +1,7 @@
 # Server
 
 - Compiled by `tsconfig.server.json` (NodeNext, Node types, no DOM) into `dist/server`. Relative imports end in `.js`.
-- Office options (CLI flags and their `AGENT_OFFICE_*` / `PORT` environment equivalents) are parsed by `loadConfig` in `config.ts` into `Config`. Add a new option there and document it in `HELP` in the same file.
+- Office options (CLI flags and their `DROID_OFFICE_*` / `PORT` environment equivalents) are parsed by `loadConfig` in `config.ts` into `Config`. Add a new option there and document it in `HELP` in the same file.
 
 ## PTY host
 

@@ -54,7 +54,7 @@ function floorsLine() {
 
 function passwordLine() {
   if (!office.accounts.sharedPassword) return 'off — everyone signs in with their own account (droid-office accounts)';
-  if (!cfg.passwordGenerated) return '(from --password / AGENT_OFFICE_PASSWORD)';
+  if (!cfg.passwordGenerated) return '(from --password / DROID_OFFICE_PASSWORD)';
   if (cfg.claimToken && !cfg.claimed) return 'shown exactly once to whoever opens the claim link (/claim?t=…)';
   if (cfg.claimed || !cfg.password) return '(already claimed — never shown again; reset with --reset-password)';
   return cfg.password;

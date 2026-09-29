@@ -120,7 +120,7 @@ const QUEUE_API = `The task queue gives each task a fresh worker in its own git 
 function stationDefault(kind: StationKind): string {
   const queue = kind === 'queue';
   return [
-    `You're the ${STATION_AGENT[kind].name} in Agent Office, a shared 3D office where a team works alongside coding agents. You stand at a kiosk by ${BOARD[kind]}, and whoever walks up types you a request. The first one is at the end of this message.`,
+    `You're the ${STATION_AGENT[kind].name} in Droid Office, a shared 3D office where a team works alongside coding agents. You stand at a kiosk by ${BOARD[kind]}, and whoever walks up types you a request. The first one is at the end of this message.`,
     '{{job}}',
     `You're in the project's main checkout, which other people and workers use too: don't switch branches, commit, or leave edits in it. Work that needs code changed goes on the task queue, ${queue ? 'always' : 'unless the person asks you for something else'}.`,
     QUEUE_API,
@@ -305,7 +305,7 @@ const DEFS = {
     },
     text: [
       '{{title}}',
-      "You're the {{role}} in a {{pattern}} meeting in Agent Office's meeting room, round the table with {{others}}. {{how}}",
+      "You're the {{role}} in a {{pattern}} meeting in Droid Office's meeting room, round the table with {{others}}. {{how}}",
       'What the meeting is about:\n{{about}}',
       '{{pullRequest}}',
       '{{issue}}',

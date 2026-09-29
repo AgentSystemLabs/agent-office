@@ -166,7 +166,7 @@ export class Webhook {
       body = { text: `*${slackEscape(msg.title)}*${msg.detail ? `\n>${slackEscape(msg.detail)}` : ''}` };
     } else if (kind === 'discord') {
       // No @everyone or role pings, whatever a worker's text says.
-      body = { content: `**${msg.title}**${msg.detail ? `\n> ${msg.detail}` : ''}`, username: 'Agent Office', allowed_mentions: { parse: [] } };
+      body = { content: `**${msg.title}**${msg.detail ? `\n> ${msg.detail}` : ''}`, username: 'Droid Office', allowed_mentions: { parse: [] } };
     } else {
       const w = msg.worker;
       body = {

@@ -455,7 +455,7 @@ export class MeetingRoom {
         },
       );
     } else if (m.worktree) {
-      void commitAll(cwd, `${m.title}\n\n${p.label} meeting in Agent Office, called by ${m.calledBy}. Output: ${m.output}`, m.notes).then(
+      void commitAll(cwd, `${m.title}\n\n${p.label} meeting in Droid Office, called by ${m.calledBy}. Output: ${m.output}`, m.notes).then(
         (sha) => {
           m.commit = sha;
           this.changed();

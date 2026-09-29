@@ -100,7 +100,7 @@ export class Upgrader {
     const branch = current ? gitSync(['rev-parse', '--abbrev-ref', 'HEAD']) : undefined;
     // Only deploy/aws.sh's systemd unit sets this, and it restarts the office whenever it exits.
     // A checkout on a tag (detached HEAD) has no branch to follow.
-    const enabled = process.env.AGENT_OFFICE_SELF_UPDATE === '1' && !!branch && branch !== 'HEAD';
+    const enabled = process.env.DROID_OFFICE_SELF_UPDATE === '1' && !!branch && branch !== 'HEAD';
     this.branch = enabled ? branch : undefined;
     this.state = { available: enabled, current, phase: 'idle' };
     if (!enabled) return;

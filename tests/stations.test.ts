@@ -12,7 +12,7 @@ test('every board agent reaches the queue with office-queue, not its own curl ca
     assert.match(brief, /office-queue add --title "[^"]+"/, kind);
     assert.match(brief, /<<'EOF'/, `${kind}: the prompt goes in a quoted heredoc`);
     assert.match(brief, /office-queue remove <id>/, kind);
-    assert.doesNotMatch(brief, /curl|\/office\/queue|AGENT_OFFICE_HOOK_TOKEN|Authorization/, kind);
+    assert.doesNotMatch(brief, /curl|\/office\/queue|DROID_OFFICE_HOOK_TOKEN|Authorization/, kind);
     // The request is typed in right after it.
     assert.ok(brief.endsWith('The request:'), kind);
   }

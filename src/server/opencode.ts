@@ -55,12 +55,12 @@ export function openCodePluginSpecifier(file: string): string {
 }
 
 /** No imports: OpenCode loads this module from the office data directory in packaged installs. */
-export const OPENCODE_PLUGIN_SOURCE = String.raw`export default async function AgentOfficeOpenCodePlugin({ client } = {}) {
-  const url = process.env.AGENT_OFFICE_HOOK_URL;
-  const token = process.env.AGENT_OFFICE_HOOK_TOKEN;
-  const worker = process.env.AGENT_OFFICE_WORKER_ID;
+export const OPENCODE_PLUGIN_SOURCE = String.raw`export default async function DroidOfficeOpenCodePlugin({ client } = {}) {
+  const url = process.env.DROID_OFFICE_HOOK_URL;
+  const token = process.env.DROID_OFFICE_HOOK_TOKEN;
+  const worker = process.env.DROID_OFFICE_WORKER_ID;
   if (!url || !token || !worker) return {};
-  let rootSession = process.env.AGENT_OFFICE_SESSION_ID || undefined;
+  let rootSession = process.env.DROID_OFFICE_SESSION_ID || undefined;
   const children = new Set();
   const pending = new Set();
   const usageByMessage = new Map();

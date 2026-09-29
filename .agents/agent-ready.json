@@ -70,7 +70,7 @@
     {
       "id": "env_example",
       "status": "pass",
-      "notes": ".env.example lists every AGENT_OFFICE_* and PORT setting the office and installers read; tests/env-example.test.ts keeps it in sync with the code, and .gitignore ignores .env and .env.* except .env.example."
+      "notes": ".env.example lists every DROID_OFFICE_* and PORT setting the office and installers read; tests/env-example.test.ts keeps it in sync with the code, and .gitignore ignores .env and .env.* except .env.example."
     },
     {
       "id": "ci_parity",

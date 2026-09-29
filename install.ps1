@@ -1,4 +1,4 @@
-# Install the latest Agent Office release on Windows and start it, no clone needed. In PowerShell:
+# Install the latest Droid Office release on Windows and start it, no clone needed. In PowerShell:
 #
 #   irm https://raw.githubusercontent.com/nikships/droid-office/main/install.ps1 | iex
 #
@@ -14,12 +14,12 @@
 # update to the newest release. It works in Windows PowerShell 5.1 and PowerShell 7.
 #
 # Environment:
-#   AGENT_OFFICE_VERSION       install this release (a tag like v0.1.68) instead of the newest
-#   AGENT_OFFICE_INSTALL_DIR   where releases go (default %LOCALAPPDATA%\droid-office)
-#   AGENT_OFFICE_BIN_DIR       where the `droid-office` command goes (default <install dir>\bin; none: no command)
-#   AGENT_OFFICE_NO_MODIFY_PATH  1: write the `droid-office` command, but leave your user PATH alone
-#   AGENT_OFFICE_INSTALL_ONLY  1: install, but don't start the office
-#   AGENT_OFFICE_TARBALL       install this release tarball (a local file) instead of downloading one
+#   DROID_OFFICE_VERSION       install this release (a tag like v0.1.68) instead of the newest
+#   DROID_OFFICE_INSTALL_DIR   where releases go (default %LOCALAPPDATA%\droid-office)
+#   DROID_OFFICE_BIN_DIR       where the `droid-office` command goes (default <install dir>\bin; none: no command)
+#   DROID_OFFICE_NO_MODIFY_PATH  1: write the `droid-office` command, but leave your user PATH alone
+#   DROID_OFFICE_INSTALL_ONLY  1: install, but don't start the office
+#   DROID_OFFICE_TARBALL       install this release tarball (a local file) instead of downloading one
 #
 # Everything runs inside a script block so that `irm | iex` leaves nothing behind in your session but
 # the PATH addition, and errors throw instead of calling `exit`, which would close the PowerShell window
@@ -28,7 +28,7 @@
 & {
   param([string[]]$Passed)
 
-  function Install-AgentOffice {
+  function Install-DroidOffice {
     param([string[]]$OfficeArgs = @())
 
     $ErrorActionPreference = 'Stop'
@@ -39,10 +39,10 @@
 
     $repo = 'nikships/droid-office'
     $marker = 'droid-office launcher, written by install.ps1'
-    $installDir = if ($env:AGENT_OFFICE_INSTALL_DIR) { $env:AGENT_OFFICE_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'droid-office' }
+    $installDir = if ($env:DROID_OFFICE_INSTALL_DIR) { $env:DROID_OFFICE_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'droid-office' }
     # Windows can't hold an empty environment variable (setting one to '' deletes it), so where
-    # install.sh takes an empty AGENT_OFFICE_BIN_DIR for no launcher, this takes `none`.
-    $binDir = if ($env:AGENT_OFFICE_BIN_DIR -eq 'none') { '' } elseif ($env:AGENT_OFFICE_BIN_DIR) { $env:AGENT_OFFICE_BIN_DIR } else { Join-Path $installDir 'bin' }
+    # install.sh takes an empty DROID_OFFICE_BIN_DIR for no launcher, this takes `none`.
+    $binDir = if ($env:DROID_OFFICE_BIN_DIR -eq 'none') { '' } elseif ($env:DROID_OFFICE_BIN_DIR) { $env:DROID_OFFICE_BIN_DIR } else { Join-Path $installDir 'bin' }
     # Absolute paths, resolved the way PowerShell does (~, the current location), since the .NET calls
     # below and the PATH entry would otherwise resolve them differently.
     $installDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($installDir)
@@ -65,11 +65,11 @@
       Where-Object { $_.Source -match '\.(cmd|bat|exe)$' } | Select-Object -First 1 | ForEach-Object { $_.Source }
 
     function Check-Requirements {
-      if (-not (Have 'node')) { throw 'Agent Office needs Node.js 20 or newer. Get it from https://nodejs.org (or nvm-windows), then run this again.' }
+      if (-not (Have 'node')) { throw 'Droid Office needs Node.js 20 or newer. Get it from https://nodejs.org (or nvm-windows), then run this again.' }
       # No quotes in the expression: Windows PowerShell 5.1 strips them from native command arguments.
       $major = [int](& node -p 'parseInt(process.versions.node)')
-      if ($major -lt 20) { throw "Agent Office needs Node.js 20 or newer, and this is $(& node -v). Update it, then run this again." }
-      if (-not $npm) { throw "Agent Office needs npm, which comes with Node.js." }
+      if ($major -lt 20) { throw "Droid Office needs Node.js 20 or newer, and this is $(& node -v). Update it, then run this again." }
+      if (-not $npm) { throw "Droid Office needs npm, which comes with Node.js." }
       if (-not (Test-Path -LiteralPath $tar)) { throw "this needs Windows' tar.exe (Windows 10 1803 or newer)." }
       if (-not (Have 'git')) { Warn "git isn't installed. The office needs it for projects and worker worktrees." }
       if (-not ((Have 'claude') -or (Have 'opencode') -or (Have 'codex') -or (Have 'droid'))) {
@@ -103,7 +103,7 @@
         if ($tarball) {
           Copy-Item -LiteralPath $tarball -Destination $tgz
         } else {
-          Step "Downloading Agent Office $tag"
+          Step "Downloading Droid Office $tag"
           try {
             Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/$repo/releases/download/$tag/droid-office.tgz" -OutFile $tgz
           } catch {
@@ -113,7 +113,7 @@
         & $tar -xzf $tgz -C $stage | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "that isn't a release tarball" }
         $pkg = Join-Path $stage 'package'
-        if (-not (Test-Path -LiteralPath (Join-Path $pkg 'bin\droid-office.js'))) { throw "that release tarball doesn't contain Agent Office" }
+        if (-not (Test-Path -LiteralPath (Join-Path $pkg 'bin\droid-office.js'))) { throw "that release tarball doesn't contain Droid Office" }
         if (-not $tag) { $tag = 'v' + (& node -p 'require(process.argv[1]).version' (Join-Path $pkg 'package.json')) }
         if (-not (ValidTag $tag)) { throw "not a release version: $tag" }
         $dest = Join-Path $versions $tag
@@ -122,13 +122,13 @@
           # Say so before the install rather than after it. On Windows a half-removed version (a file
           # still open when it was pruned) is the usual cause.
           if (Test-Path -LiteralPath $dest) { throw "$dest is in the way; remove it and run this again" }
-          Step "Installing Agent Office $tag"
+          Step "Installing Droid Office $tag"
           # Exactly the dependency versions the release was tested with (its npm-shrinkwrap.json).
           # The repo's .npmrc (legacy-peer-deps) isn't in the tarball, so its peer policy is passed here.
           Push-Location -LiteralPath $pkg
           # Out-Host, or npm's output would become part of this function's return value.
           try { & $npm ci --omit=dev --legacy-peer-deps --no-audit --no-fund --loglevel=error | Out-Host } finally { Pop-Location }
-          if ($LASTEXITCODE -ne 0) { throw "npm couldn't install Agent Office's dependencies (see above)" }
+          if ($LASTEXITCODE -ne 0) { throw "npm couldn't install Droid Office's dependencies (see above)" }
           [IO.File]::WriteAllText((Join-Path $pkg '.installed'), '')
           # Another run may have installed the same version meanwhile; either copy will do.
           if (-not (Test-Path -LiteralPath $dest)) { Move-Item -LiteralPath $pkg -Destination $dest }
@@ -186,7 +186,7 @@
       [IO.File]::WriteAllText($cmdFile, (@(
         '@echo off',
         "rem $marker (https://github.com/$repo).",
-        "rem Starts Agent Office $tag. To update, run the install command again in PowerShell:",
+        "rem Starts Droid Office $tag. To update, run the install command again in PowerShell:",
         "rem   $update",
         "node `"$cmdEntry`" %*"
       ) -join "`r`n") + "`r`n", $oem)
@@ -194,13 +194,13 @@
       [IO.File]::WriteAllText($shFile, (@(
         '#!/bin/sh',
         "# $marker (https://github.com/$repo).",
-        "# Starts Agent Office $tag. To update, run the install command again in PowerShell:",
+        "# Starts Droid Office $tag. To update, run the install command again in PowerShell:",
         "#   $update",
         "exec node '$shEntry' `"`$@`""
       ) -join "`n") + "`n", $utf8)
 
       $onPath = { param($list) [bool](($list -split ';') | Where-Object { $_ -and [Environment]::ExpandEnvironmentVariables($_).TrimEnd('\') -ieq $binDir.TrimEnd('\') }) }
-      if ($env:AGENT_OFFICE_NO_MODIFY_PATH -eq '1') {
+      if ($env:DROID_OFFICE_NO_MODIFY_PATH -eq '1') {
         if (& $onPath $env:Path) { return 'droid-office' }
         Warn "$binDir isn't on your PATH. Add it to run droid-office directly next time."
         return $cmdFile
@@ -219,8 +219,8 @@
       if ($added) {
         # Setting and clearing a variable this way tells Explorer to reload the environment, so new
         # terminals see the new PATH.
-        [Environment]::SetEnvironmentVariable('AGENT_OFFICE_INSTALL_REFRESH', '1', 'User')
-        [Environment]::SetEnvironmentVariable('AGENT_OFFICE_INSTALL_REFRESH', $null, 'User')
+        [Environment]::SetEnvironmentVariable('DROID_OFFICE_INSTALL_REFRESH', '1', 'User')
+        [Environment]::SetEnvironmentVariable('DROID_OFFICE_INSTALL_REFRESH', $null, 'User')
         Step "Added $binDir to your user PATH. Open a new terminal to run droid-office there."
       }
       if (-not (& $onPath $env:Path)) { $env:Path = "$env:Path;$binDir" }
@@ -230,14 +230,14 @@
     Check-Requirements
 
     $tag = ''
-    $tarball = $env:AGENT_OFFICE_TARBALL
+    $tarball = $env:DROID_OFFICE_TARBALL
     $currentFile = Join-Path $installDir 'current'
     $installed = if (Test-Path -LiteralPath $currentFile) { "$(Get-Content -LiteralPath $currentFile -TotalCount 1)".Trim() } else { '' }
     if ($tarball) {
       if (-not (Test-Path -LiteralPath $tarball -PathType Leaf)) { throw "no such file: $tarball" }
       $tarball = (Resolve-Path -LiteralPath $tarball).Path
-    } elseif ($env:AGENT_OFFICE_VERSION) {
-      $tag = 'v' + $env:AGENT_OFFICE_VERSION.TrimStart('v')
+    } elseif ($env:DROID_OFFICE_VERSION) {
+      $tag = 'v' + $env:DROID_OFFICE_VERSION.TrimStart('v')
     } else {
       $tag = Latest-Tag
       if (-not $tag) {
@@ -260,12 +260,12 @@
     $entry = Join-Path $versions "$tag\bin\droid-office.js"
     $launcher = Write-Launcher $tag $entry
 
-    if ($env:AGENT_OFFICE_INSTALL_ONLY -eq '1') {
+    if ($env:DROID_OFFICE_INSTALL_ONLY -eq '1') {
       $start = if ($launcher) { $launcher } else { "node `"$entry`"" }
-      Step "Agent Office $tag is installed. Start it with: $start"
+      Step "Droid Office $tag is installed. Start it with: $start"
       return
     }
-    Step "Starting Agent Office $tag"
+    Step "Starting Droid Office $tag"
     # Before PowerShell 7.3, an argument with a space and a trailing backslash (a tab-completed folder,
     # 'C:\My Project\') is quoted so that the backslash escapes the closing quote, and it swallows every
     # argument after it. Doubling the trailing backslashes gets it through intact.
@@ -275,5 +275,5 @@
     & node $entry @OfficeArgs
   }
 
-  Install-AgentOffice -OfficeArgs $Passed
+  Install-DroidOffice -OfficeArgs $Passed
 } $args

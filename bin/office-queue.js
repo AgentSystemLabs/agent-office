@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// office-queue: the task queue from inside Agent Office, for the agents standing by the boards (see
+// office-queue: the task queue from inside Droid Office, for the agents standing by the boards (see
 // src/server/stations.ts). The office puts it on their PATH and gives them their own address and token
-// in AGENT_OFFICE_HOOK_URL, AGENT_OFFICE_WORKER_ID and AGENT_OFFICE_HOOK_TOKEN; this talks to the
+// in DROID_OFFICE_HOOK_URL, DROID_OFFICE_WORKER_ID and DROID_OFFICE_HOOK_TOKEN; this talks to the
 // /office/queue endpoint with them. Plain Node, no build step, no dependencies.
 
 import { realpathSync } from 'node:fs';
@@ -17,7 +17,7 @@ const USAGE = `Usage:
 /** A mistake in how the command was called: the usage is shown with it. */
 export class UsageError extends Error {}
 
-const ENV = ['AGENT_OFFICE_HOOK_URL', 'AGENT_OFFICE_WORKER_ID', 'AGENT_OFFICE_HOOK_TOKEN'];
+const ENV = ['DROID_OFFICE_HOOK_URL', 'DROID_OFFICE_WORKER_ID', 'DROID_OFFICE_HOOK_TOKEN'];
 /** How long the office may take to come back when it's restarting (a dev reload, an upgrade). */
 const RETRY_MS = 6000;
 const TIMEOUT_MS = 15_000;
@@ -72,9 +72,9 @@ export function parseArgs(argv) {
 export function officeEnv(env) {
   const missing = ENV.filter((k) => !env[k]);
   if (missing.length) {
-    throw new Error(`${missing.join(', ')} ${missing.length === 1 ? "isn't" : "aren't"} set. office-queue only works inside Agent Office, from the terminal of an agent standing by one of the boards.`);
+    throw new Error(`${missing.join(', ')} ${missing.length === 1 ? "isn't" : "aren't"} set. office-queue only works inside Droid Office, from the terminal of an agent standing by one of the boards.`);
   }
-  return { url: env.AGENT_OFFICE_HOOK_URL.replace(/\/+$/, ''), worker: env.AGENT_OFFICE_WORKER_ID, token: env.AGENT_OFFICE_HOOK_TOKEN };
+  return { url: env.DROID_OFFICE_HOOK_URL.replace(/\/+$/, ''), worker: env.DROID_OFFICE_WORKER_ID, token: env.DROID_OFFICE_HOOK_TOKEN };
 }
 
 /**

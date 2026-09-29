@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { UsageError, buildRequest, formatQueue, main, officeEnv, parseArgs } from '../bin/office-queue.js';
 
 const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'office-queue.js');
-const ENV = { AGENT_OFFICE_HOOK_URL: 'http://127.0.0.1:4455', AGENT_OFFICE_WORKER_ID: 'w1 &x', AGENT_OFFICE_HOOK_TOKEN: 'tok' };
+const ENV = { DROID_OFFICE_HOOK_URL: 'http://127.0.0.1:4455', DROID_OFFICE_WORKER_ID: 'w1 &x', DROID_OFFICE_HOOK_TOKEN: 'tok' };
 const OFFICE = { url: 'http://127.0.0.1:4455', worker: 'w1', token: 'tok' };
 
 test('parses list, add and remove, with their options', () => {
@@ -50,9 +50,9 @@ test('says what is wrong with a bad command line', () => {
 });
 
 test('needs the office address, its worker id and its token from the environment', () => {
-  assert.deepEqual(officeEnv({ ...ENV, AGENT_OFFICE_HOOK_URL: 'http://127.0.0.1:4455/' }), { url: 'http://127.0.0.1:4455', worker: 'w1 &x', token: 'tok' });
-  assert.throws(() => officeEnv({}), /AGENT_OFFICE_HOOK_URL, AGENT_OFFICE_WORKER_ID, AGENT_OFFICE_HOOK_TOKEN aren't set.*inside Agent Office/);
-  assert.throws(() => officeEnv({ ...ENV, AGENT_OFFICE_HOOK_TOKEN: '' }), /^Error: AGENT_OFFICE_HOOK_TOKEN isn't set/);
+  assert.deepEqual(officeEnv({ ...ENV, DROID_OFFICE_HOOK_URL: 'http://127.0.0.1:4455/' }), { url: 'http://127.0.0.1:4455', worker: 'w1 &x', token: 'tok' });
+  assert.throws(() => officeEnv({}), /DROID_OFFICE_HOOK_URL, DROID_OFFICE_WORKER_ID, DROID_OFFICE_HOOK_TOKEN aren't set.*inside Droid Office/);
+  assert.throws(() => officeEnv({ ...ENV, DROID_OFFICE_HOOK_TOKEN: '' }), /^Error: DROID_OFFICE_HOOK_TOKEN isn't set/);
 });
 
 test('builds the /office/queue requests', () => {
@@ -134,13 +134,13 @@ test('clear errors when the environment is missing or the office says no', async
   const noEnv = await run(['list'], { env: {} });
   assert.equal(noEnv.code, 1);
   assert.equal(noEnv.sent.length, 0);
-  assert.match(noEnv.err, /^office-queue: AGENT_OFFICE_HOOK_URL, AGENT_OFFICE_WORKER_ID, AGENT_OFFICE_HOOK_TOKEN aren't set/);
+  assert.match(noEnv.err, /^office-queue: DROID_OFFICE_HOOK_URL, DROID_OFFICE_WORKER_ID, DROID_OFFICE_HOOK_TOKEN aren't set/);
 
   const desk = await run(['list'], { status: 403, body: { error: 'Only the agents standing by the boards can use the queue' } });
   assert.equal(desk.code, 1);
   assert.equal(desk.err, 'office-queue: The office said no (403): Only the agents standing by the boards can use the queue.');
 
-  const stale = await run(['list'], { status: 401, body: { error: 'Send your own AGENT_OFFICE_WORKER_ID' } });
+  const stale = await run(['list'], { status: 401, body: { error: 'Send your own DROID_OFFICE_WORKER_ID' } });
   assert.match(stale.err, /didn't accept this agent's token \(401\)/);
 
   const running = await run(['remove', 'abc123'], { status: 400, body: { error: 'Pixel is on it — send the worker home to stop it' } });
@@ -188,7 +188,7 @@ test("runs as a command: a heredoc prompt goes over HTTP with the agent's own to
       child.stdin!.end(input);
     });
 
-  const ok = await cli({ ...ENV, AGENT_OFFICE_HOOK_URL: url, AGENT_OFFICE_WORKER_ID: 'w1' }, "Don't expand $HOME or `this`.\n");
+  const ok = await cli({ ...ENV, DROID_OFFICE_HOOK_URL: url, DROID_OFFICE_WORKER_ID: 'w1' }, "Don't expand $HOME or `this`.\n");
   assert.equal(ok.code, 0, ok.stderr);
   assert.equal(ok.stdout, 'f00d\n');
   assert.deepEqual(seen[0], {
@@ -198,7 +198,7 @@ test("runs as a command: a heredoc prompt goes over HTTP with the agent's own to
     body: JSON.stringify({ title: 'Fix login', prompt: "Don't expand $HOME or `this`." }),
   });
 
-  const desk = await cli({ ...ENV, AGENT_OFFICE_HOOK_URL: url, AGENT_OFFICE_HOOK_TOKEN: 'desk-token' }, 'x');
+  const desk = await cli({ ...ENV, DROID_OFFICE_HOOK_URL: url, DROID_OFFICE_HOOK_TOKEN: 'desk-token' }, 'x');
   assert.equal(desk.code, 1);
   assert.equal(desk.stdout, '');
   assert.match(desk.stderr, /The office said no \(403\): Only the agents standing by the boards/);

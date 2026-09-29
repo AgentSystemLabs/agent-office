@@ -1560,7 +1560,7 @@ function renderProject() {
     return;
   }
   if (!p) {
-    $('project-name').textContent = '🏢 Agent Office';
+    $('project-name').textContent = '🏢 Droid Office';
     $('project-meta').textContent = store.floors.length ? '🛗 Take the elevator to a floor' : '🛗 No floors yet — add a project in the elevator';
     // Where to go next, so it shows even with the floor details turned off.
     $('project-meta').classList.add('lobby');
@@ -1581,7 +1581,7 @@ function renderTitle() {
   const name = store.project?.name;
   const elsewhere = store.floors.reduce((n, f) => n + (f.id === store.floor ? 0 : f.waiting), 0);
   const waiting = [...store.workers.values()].filter(waitingOnSomeone).length + elsewhere;
-  document.title = `${waiting ? `(${waiting}) ` : ''}${name ? `${name} · ` : ''}Agent Office`;
+  document.title = `${waiting ? `(${waiting}) ` : ''}${name ? `${name} · ` : ''}Droid Office`;
 }
 
 // ---- Floors & the elevator ----------------------------------------------------------------------

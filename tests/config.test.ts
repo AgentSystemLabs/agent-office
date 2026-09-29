@@ -11,19 +11,19 @@ function load(t: { after(fn: () => void): void }, ...argv: string[]) {
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const exit = process.exit;
   const error = console.error;
-  const previousArgs = process.env.AGENT_OFFICE_AGENT_ARGS;
+  const previousArgs = process.env.DROID_OFFICE_AGENT_ARGS;
   const errors: string[] = [];
   process.exit = ((code?: number) => {
     throw new Error(`exit ${code}: ${errors.join('\n')}`);
   }) as typeof process.exit;
   console.error = (...args: unknown[]) => void errors.push(args.join(' '));
-  delete process.env.AGENT_OFFICE_AGENT_ARGS;
+  delete process.env.DROID_OFFICE_AGENT_ARGS;
   try {
     return loadConfig(['--home', home, '--password', 'x', ...argv]);
   } finally {
     process.exit = exit;
     console.error = error;
-    if (previousArgs !== undefined) process.env.AGENT_OFFICE_AGENT_ARGS = previousArgs;
+    if (previousArgs !== undefined) process.env.DROID_OFFICE_AGENT_ARGS = previousArgs;
   }
 }
 
@@ -48,10 +48,10 @@ test('new floors are cloned into ~/.droid-office/projects, not next to the offic
 });
 
 test('the default agent is droid', (t) => {
-  const previous = process.env.AGENT_OFFICE_AGENT;
-  delete process.env.AGENT_OFFICE_AGENT;
+  const previous = process.env.DROID_OFFICE_AGENT;
+  delete process.env.DROID_OFFICE_AGENT;
   t.after(() => {
-    if (previous !== undefined) process.env.AGENT_OFFICE_AGENT = previous;
+    if (previous !== undefined) process.env.DROID_OFFICE_AGENT = previous;
   });
   assert.equal(load(t).agentCmd, 'droid');
 });

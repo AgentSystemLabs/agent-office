@@ -69,7 +69,7 @@ function isolateProviderEnvironment(f: Fixture, t: { after(fn: () => void): void
   for (const key of Object.keys(process.env)) {
     // These are the office hook variables used by the in-process OpenCode
     // plugin test; they are synthetic protocol values, not provider secrets.
-    if (key.startsWith('AGENT_OFFICE_')) continue;
+    if (key.startsWith('DROID_OFFICE_')) continue;
     if (/(?:API_KEY|AUTH_TOKEN|ACCESS_TOKEN|SECRET|PASSWORD|CREDENTIAL|TOKEN)/i.test(key)) delete process.env[key];
   }
   t.after(() => {
@@ -91,9 +91,9 @@ const record = (extra = {}) => fs.appendFileSync(log, JSON.stringify({
   args,
   ...extra,
   env: {
-    workerId: process.env.AGENT_OFFICE_WORKER_ID,
-    hookToken: process.env.AGENT_OFFICE_HOOK_TOKEN,
-    hookUrl: process.env.AGENT_OFFICE_HOOK_URL,
+    workerId: process.env.DROID_OFFICE_WORKER_ID,
+    hookToken: process.env.DROID_OFFICE_HOOK_TOKEN,
+    hookUrl: process.env.DROID_OFFICE_HOOK_URL,
     opencodeConfig: process.env.OPENCODE_CONFIG_CONTENT,
     path: process.env.PATH,
   },

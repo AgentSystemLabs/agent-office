@@ -296,7 +296,7 @@ Usage:
 Options:
   -d, --dir <dir>   The office's directory: the project it was started in, or its
                     home (default: the current directory if an office ran there,
-                    else ~/droid-office or $AGENT_OFFICE_HOME)
+                    else ~/droid-office or $DROID_OFFICE_HOME)
   -h, --help        Show this help
 
 Works while the office runs: it picks up the changes within seconds.

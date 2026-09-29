@@ -83,7 +83,7 @@ const SCRUB_ENV = new Set([
   'TERM_PROGRAM',
   'TERM_PROGRAM_VERSION',
 ]);
-const SCRUB_PREFIXES = ['CLAUDE_CODE_SESSION', 'CLAUDE_CODE_CHILD', 'CLAUDE_CODE_MESSAGING', 'NEBULA_', 'AGENT_OFFICE_'];
+const SCRUB_PREFIXES = ['CLAUDE_CODE_SESSION', 'CLAUDE_CODE_CHILD', 'CLAUDE_CODE_MESSAGING', 'NEBULA_', 'DROID_OFFICE_'];
 const scrubbed = (k: string) => SCRUB_ENV.has(k) || SCRUB_PREFIXES.some((p) => k.startsWith(p));
 
 const SCREEN_INTERVAL_MS = 250;
@@ -1061,9 +1061,9 @@ export class WorkerManager {
     Object.assign(env, {
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
-      AGENT_OFFICE_WORKER_ID: info.id,
-      AGENT_OFFICE_HOOK_URL: this.hook.url,
-      AGENT_OFFICE_HOOK_TOKEN: w.hookToken,
+      DROID_OFFICE_WORKER_ID: info.id,
+      DROID_OFFICE_HOOK_URL: this.hook.url,
+      DROID_OFFICE_HOOK_TOKEN: w.hookToken,
     });
     // A board agent reaches the queue with the office-queue command, whichever agent it runs.
     if (station && this.queueBin) {
@@ -1080,7 +1080,7 @@ export class WorkerManager {
     try {
       if (!existsSync(cwd)) throw new Error(`working directory is gone: ${cwd}`);
       if (isOpenCode) {
-        env.AGENT_OFFICE_SESSION_ID = resumeSessionId ?? '';
+        env.DROID_OFFICE_SESSION_ID = resumeSessionId ?? '';
         env.OPENCODE_CONFIG_CONTENT = mergeOpenCodeConfigContent(env.OPENCODE_CONFIG_CONTENT, openCodePluginSpecifier(this.openCodePlugin));
       }
       if (isShell) {
@@ -1396,11 +1396,11 @@ const [provider, event] = process.argv.slice(2);
 let body = '';
 process.stdin.on('data', (c) => (body += c));
 process.stdin.on('end', () => {
-  const url = new URL(process.env.AGENT_OFFICE_HOOK_URL + '/hooks/' + provider);
-  url.searchParams.set('worker', process.env.AGENT_OFFICE_WORKER_ID);
+  const url = new URL(process.env.DROID_OFFICE_HOOK_URL + '/hooks/' + provider);
+  url.searchParams.set('worker', process.env.DROID_OFFICE_WORKER_ID);
   url.searchParams.set('event', event);
   const send = (tries) => {
-    const req = http.request(url, { method: 'POST', timeout: 3000, headers: { authorization: 'Bearer ' + process.env.AGENT_OFFICE_HOOK_TOKEN, 'content-type': 'application/json' } }, (res) => res.resume());
+    const req = http.request(url, { method: 'POST', timeout: 3000, headers: { authorization: 'Bearer ' + process.env.DROID_OFFICE_HOOK_TOKEN, 'content-type': 'application/json' } }, (res) => res.resume());
     req.on('error', (err) => {
       if (err.code === 'ECONNREFUSED' && tries > 1) setTimeout(() => send(tries - 1), 1000);
     });
@@ -1414,10 +1414,10 @@ process.stdin.on('end', () => {
     );
     const commandFor = (provider: 'claude' | 'droid', event: string) => {
       const curl =
-        `curl -sS -m 3 --retry ${HOOK_TRIES - 1} --retry-delay 1 --retry-connrefused -X POST -H "Authorization: Bearer $AGENT_OFFICE_HOOK_TOKEN" -H "Content-Type: application/json" ` +
-        `--data-binary @- "$AGENT_OFFICE_HOOK_URL/hooks/${provider}?worker=$AGENT_OFFICE_WORKER_ID&event=${event}"`;
+        `curl -sS -m 3 --retry ${HOOK_TRIES - 1} --retry-delay 1 --retry-connrefused -X POST -H "Authorization: Bearer $DROID_OFFICE_HOOK_TOKEN" -H "Content-Type: application/json" ` +
+        `--data-binary @- "$DROID_OFFICE_HOOK_URL/hooks/${provider}?worker=$DROID_OFFICE_WORKER_ID&event=${event}"`;
       return (
-        `if [ -z "$AGENT_OFFICE_WORKER_ID" ] || [ -z "$AGENT_OFFICE_HOOK_URL" ]; then exit 0; fi; ` +
+        `if [ -z "$DROID_OFFICE_WORKER_ID" ] || [ -z "$DROID_OFFICE_HOOK_URL" ]; then exit 0; fi; ` +
         `if command -v curl >/dev/null 2>&1; then ${curl} >/dev/null 2>&1; ` +
         `else ${shq(process.execPath)} ${shq(nodeHook)} ${provider} ${event} >/dev/null 2>&1; fi; true`
       );
@@ -1462,7 +1462,7 @@ process.stdin.on('end', () => {
     const dir = path.join(this.dataDir, 'bin');
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const file = path.join(dir, 'office-queue');
-    writeFileSync(file, `#!/bin/sh\n# Agent Office's task queue, for the board agents (see bin/office-queue.js).\nexec ${shq(process.execPath)} ${shq(script)} "$@"\n`, { mode: 0o700 });
+    writeFileSync(file, `#!/bin/sh\n# Droid Office's task queue, for the board agents (see bin/office-queue.js).\nexec ${shq(process.execPath)} ${shq(script)} "$@"\n`, { mode: 0o700 });
     chmodSync(file, 0o700);
     // cmd.exe and PowerShell find it by PATHEXT; Git Bash (Claude Code's shell there) runs the sh one.
     if (WIN) writeFileSync(`${file}.cmd`, `@"${process.execPath}" "${script}" %*\r\n`);
@@ -1812,7 +1812,7 @@ function draftPr(info: WorkerInfo, commits: string[], by: string): { title: stri
   if (task) parts.push(`## Task\n\n${task.length > PR_TASK_MAX ? `${task.slice(0, PR_TASK_MAX)}…` : task}`);
   parts.push(`## Commits\n\n${commits.map((c) => `- \`${c.slice(0, c.indexOf(' '))}\` ${c.slice(c.indexOf(' ') + 1)}`).join('\n')}`);
   if (closes) parts.push(`Closes #${closes}`);
-  parts.push(`_Opened from Agent Office by ${by} · ${info.name} at ${DESK_BY_ID.get(info.deskId)?.label ?? info.deskId}_`);
+  parts.push(`_Opened from Droid Office by ${by} · ${info.name} at ${DESK_BY_ID.get(info.deskId)?.label ?? info.deskId}_`);
   return { title, body: parts.join('\n\n') };
 }
 

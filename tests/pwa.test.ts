@@ -14,8 +14,8 @@ function pngSize(src: string) {
 }
 
 test('the office installs as a standalone app at the origin root', () => {
-  assert.equal(manifest.name, 'Agent Office');
-  assert.equal(manifest.short_name, 'Agent Office');
+  assert.equal(manifest.name, 'Droid Office');
+  assert.equal(manifest.short_name, 'Droid Office');
   assert.equal(manifest.start_url, '/');
   assert.equal(manifest.scope, '/');
   assert.equal(manifest.display, 'standalone');

@@ -141,9 +141,9 @@ process.stdin.on('end', async () => {
   if (toolUseId) body.tool_use_id = toolUseId;
   if (turn) body.turn_id = turn;
   if (transcript) body.transcript_path = transcript;
-  const base = process.env.AGENT_OFFICE_HOOK_URL;
-  const token = process.env.AGENT_OFFICE_HOOK_TOKEN;
-  const worker = process.env.AGENT_OFFICE_WORKER_ID;
+  const base = process.env.DROID_OFFICE_HOOK_URL;
+  const token = process.env.DROID_OFFICE_HOOK_TOKEN;
+  const worker = process.env.DROID_OFFICE_WORKER_ID;
   if (!base || !token || !worker) return finish(false);
   try {
     const url = new URL('/hooks/codex', base);

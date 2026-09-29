@@ -66,7 +66,7 @@ test('writes a mode-restricted helper that forwards paths without reading transc
     assert.equal(file, path.join(dir, 'droid-office-codex-hook.cjs'));
     const source = readFileSync(file, 'utf8');
     assert.match(source, /MAX = 64 \* 1024/);
-    assert.match(source, /AGENT_OFFICE_HOOK_TOKEN/);
+    assert.match(source, /DROID_OFFICE_HOOK_TOKEN/);
     assert.doesNotMatch(source, /readFile|readSync|createReadStream/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -94,9 +94,9 @@ test('helper forwards only the bounded root event fields to the authenticated br
     const child = spawn(process.execPath, [file, 'UserPromptSubmit'], {
       env: {
         PATH: process.env.PATH,
-        AGENT_OFFICE_HOOK_URL: `http://127.0.0.1:${address.port}`,
-        AGENT_OFFICE_HOOK_TOKEN: 'hook-token',
-        AGENT_OFFICE_WORKER_ID: 'worker-1',
+        DROID_OFFICE_HOOK_URL: `http://127.0.0.1:${address.port}`,
+        DROID_OFFICE_HOOK_TOKEN: 'hook-token',
+        DROID_OFFICE_WORKER_ID: 'worker-1',
       },
       stdio: ['pipe', 'pipe', 'ignore'],
     });

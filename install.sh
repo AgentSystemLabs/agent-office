@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the latest Agent Office release and start it, no clone needed:
+# Install the latest Droid Office release and start it, no clone needed:
 #
 #   curl -fsSL https://raw.githubusercontent.com/nikships/droid-office/main/install.sh | bash
 #
@@ -15,18 +15,18 @@
 # afterwards `droid-office` starts it too. Run the curl line again to update to the newest release.
 #
 # Environment:
-#   AGENT_OFFICE_VERSION       install this release (a tag like v0.1.68) instead of the newest
-#   AGENT_OFFICE_INSTALL_DIR   where releases go (default ~/.local/share/droid-office)
-#   AGENT_OFFICE_BIN_DIR       where the `droid-office` command goes (default ~/.local/bin; empty: none)
-#   AGENT_OFFICE_INSTALL_ONLY  1: install, but don't start the office
-#   AGENT_OFFICE_TARBALL       install this release tarball (a local file) instead of downloading one
+#   DROID_OFFICE_VERSION       install this release (a tag like v0.1.68) instead of the newest
+#   DROID_OFFICE_INSTALL_DIR   where releases go (default ~/.local/share/droid-office)
+#   DROID_OFFICE_BIN_DIR       where the `droid-office` command goes (default ~/.local/bin; empty: none)
+#   DROID_OFFICE_INSTALL_ONLY  1: install, but don't start the office
+#   DROID_OFFICE_TARBALL       install this release tarball (a local file) instead of downloading one
 set -euo pipefail
 
 REPO="nikships/droid-office"
 MARKER="droid-office launcher, written by install.sh"
-INSTALL_DIR="${AGENT_OFFICE_INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/droid-office}"
+INSTALL_DIR="${DROID_OFFICE_INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/droid-office}"
 VERSIONS="$INSTALL_DIR/versions"
-BIN_DIR="${AGENT_OFFICE_BIN_DIR-$HOME/.local/bin}"
+BIN_DIR="${DROID_OFFICE_BIN_DIR-$HOME/.local/bin}"
 STAGE=""
 TAG=""
 LAUNCHER=""
@@ -47,13 +47,13 @@ cleanup() {
 check_requirements() {
   case "$(uname -s)" in
     Darwin | Linux) ;;
-    *) die "Agent Office runs on macOS and Linux. On Windows, run this inside WSL." ;;
+    *) die "Droid Office runs on macOS and Linux. On Windows, run this inside WSL." ;;
   esac
-  have node || die "Agent Office needs Node.js 20 or newer. Get it from https://nodejs.org (or nvm), then run this again."
+  have node || die "Droid Office needs Node.js 20 or newer. Get it from https://nodejs.org (or nvm), then run this again."
   local major
   major="$(node -p 'process.versions.node.split(".")[0]')"
-  [ "$major" -ge 20 ] || die "Agent Office needs Node.js 20 or newer, and this is $(node -v). Update it, then run this again."
-  have npm || die "Agent Office needs npm, which comes with Node.js."
+  [ "$major" -ge 20 ] || die "Droid Office needs Node.js 20 or newer, and this is $(node -v). Update it, then run this again."
+  have npm || die "Droid Office needs npm, which comes with Node.js."
   have curl || die "this needs curl."
   have tar || die "this needs tar."
   have git || warn "git isn't installed. The office needs it for projects and worker worktrees."
@@ -86,21 +86,21 @@ install_release() {
   if [ -n "$tarball" ]; then
     cp "$tarball" "$STAGE/droid-office.tgz"
   else
-    step "Downloading Agent Office $tag"
+    step "Downloading Droid Office $tag"
     curl -fSL --progress-bar -o "$STAGE/droid-office.tgz" "https://github.com/$REPO/releases/download/$tag/droid-office.tgz" ||
       die "couldn't download release $tag (is that a release of https://github.com/$REPO/releases ?)"
   fi
   tar -xzf "$STAGE/droid-office.tgz" -C "$STAGE" || die "that isn't a release tarball"
-  [ -f "$STAGE/package/bin/droid-office.js" ] || die "that release tarball doesn't contain Agent Office"
+  [ -f "$STAGE/package/bin/droid-office.js" ] || die "that release tarball doesn't contain Droid Office"
   if [ -z "$tag" ]; then tag="v$(node -p 'require(process.argv[1]).version' "$STAGE/package/package.json")"; fi
   valid_tag "$tag" || die "not a release version: $tag"
   dest="$VERSIONS/$tag"
   if [ ! -f "$dest/.installed" ]; then
-    step "Installing Agent Office $tag"
+    step "Installing Droid Office $tag"
     # Exactly the dependency versions the release was tested with (its npm-shrinkwrap.json).
     # The repo's .npmrc (legacy-peer-deps) isn't in the tarball, so its peer policy is passed here.
     (cd "$STAGE/package" && npm ci --omit=dev --legacy-peer-deps --no-audit --no-fund --loglevel=error >&2) ||
-      die "npm couldn't install Agent Office's dependencies (see above)"
+      die "npm couldn't install Droid Office's dependencies (see above)"
     touch "$STAGE/package/.installed"
     # Another run may have installed the same version meanwhile; either copy will do.
     if [ ! -e "$dest" ]; then mv "$STAGE/package" "$dest"
@@ -143,7 +143,7 @@ write_launcher() {
   cat >"$tmp" <<EOF
 #!/bin/sh
 # $MARKER (https://github.com/$REPO).
-# Starts Agent Office $tag. To update, run the install command again:
+# Starts Droid Office $tag. To update, run the install command again:
 #   curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | bash
 exec node $(sq "$entry") "\$@"
 EOF
@@ -162,12 +162,12 @@ main() {
   trap cleanup EXIT
   check_requirements
 
-  local tag="" tarball="${AGENT_OFFICE_TARBALL:-}" installed=""
+  local tag="" tarball="${DROID_OFFICE_TARBALL:-}" installed=""
   [ -f "$INSTALL_DIR/current" ] && installed="$(cat "$INSTALL_DIR/current")"
   if [ -n "$tarball" ]; then
     [ -f "$tarball" ] || die "no such file: $tarball"
-  elif [ -n "${AGENT_OFFICE_VERSION:-}" ]; then
-    tag="v${AGENT_OFFICE_VERSION#v}"
+  elif [ -n "${DROID_OFFICE_VERSION:-}" ]; then
+    tag="v${DROID_OFFICE_VERSION#v}"
   else
     tag="$(latest_tag)"
     if [ -z "$tag" ]; then
@@ -191,11 +191,11 @@ main() {
   local entry="$VERSIONS/$tag/bin/droid-office.js"
   write_launcher "$tag" "$entry"
 
-  if [ "${AGENT_OFFICE_INSTALL_ONLY:-}" = 1 ]; then
-    step "Agent Office $tag is installed. Start it with: ${LAUNCHER:-node $entry}"
+  if [ "${DROID_OFFICE_INSTALL_ONLY:-}" = 1 ]; then
+    step "Droid Office $tag is installed. Start it with: ${LAUNCHER:-node $entry}"
     return 0
   fi
-  step "Starting Agent Office $tag"
+  step "Starting Droid Office $tag"
   # Piped into bash (curl … | bash), stdin is the rest of this script: give the office the terminal
   # instead, so its first-run walkthrough can ask where projects go and which one to start with.
   if [ ! -t 0 ] && [ -t 1 ] && (: </dev/tty) 2>/dev/null; then exec node "$entry" "$@" </dev/tty; fi

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { DESK_BY_ID, seatHere, vacantSeats } from '../src/shared/layout.js';
 
 // Two floors that each have a Queue agent hired at the queue kiosk and a worker at desk 3.
-const agentOffice = [
+const droidOffice = [
   { id: 'w-queue-a', deskId: 'station-queue' },
   { id: 'w-desk-a', deskId: 'desk-3' },
   { id: 'w-bag-a', deskId: 'beanbag-1' },
@@ -19,8 +19,8 @@ test('an empty floor shows every seat and kiosk free, board agents included', ()
 
 test('riding the elevator between floors that share a kiosk and a desk leaves neither showing free', () => {
   for (const [from, to] of [
-    [agentOffice, survive],
-    [survive, agentOffice],
+    [droidOffice, survive],
+    [survive, droidOffice],
   ]) {
     const before = vacantSeats(from);
     const after = vacantSeats(to);

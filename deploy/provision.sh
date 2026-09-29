@@ -51,9 +51,9 @@ step "Writing secrets to /etc/droid-office/env"
 sudo install -d -m 755 /etc/droid-office
 env_file=$(mktemp)
 {
-  printf 'AGENT_OFFICE_CLAIM_TOKEN="%s"\n' "$CLAIM_TOKEN"
+  printf 'DROID_OFFICE_CLAIM_TOKEN="%s"\n' "$CLAIM_TOKEN"
   # The address teammates SSH to, so the office can show them the tunnel command.
-  [[ -n "${PUBLIC_HOST:-}" ]] && printf 'AGENT_OFFICE_PUBLIC_HOST="%s"\n' "$PUBLIC_HOST"
+  [[ -n "${PUBLIC_HOST:-}" ]] && printf 'DROID_OFFICE_PUBLIC_HOST="%s"\n' "$PUBLIC_HOST"
   [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]] && printf 'CLAUDE_CODE_OAUTH_TOKEN="%s"\n' "$CLAUDE_CODE_OAUTH_TOKEN"
   [[ -n "${ANTHROPIC_API_KEY:-}" ]] && printf 'ANTHROPIC_API_KEY="%s"\n' "$ANTHROPIC_API_KEY"
   true
@@ -150,7 +150,7 @@ sudo test -f /home/office/.ssh/authorized_keys || sudo install -m 644 -o root -g
 tunnel_sh=$(mktemp)
 cat >"$tunnel_sh" <<'SH'
 #!/bin/sh
-echo "Agent Office tunnel is up: open http://localhost:4600 in your browser."
+echo "Droid Office tunnel is up: open http://localhost:4600 in your browser."
 echo "Keep this window open; Ctrl-C closes it."
 exec cat >/dev/null
 SH
@@ -224,7 +224,7 @@ step "Installing the droid-office service (restarts itself if it ever crashes)"
 unit=$(mktemp)
 cat >"$unit" <<UNIT
 [Unit]
-Description=Agent Office
+Description=Droid Office
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=0
@@ -236,12 +236,12 @@ Group=$USER
 WorkingDirectory=$RUN_DIR
 EnvironmentFile=/etc/droid-office/env
 Environment=HOME=$HOME
-Environment=AGENT_OFFICE_HOME=$OFFICE_HOME
+Environment=DROID_OFFICE_HOME=$OFFICE_HOME
 Environment=SHELL=/bin/bash
 Environment=PATH=$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Lets the office upgrade itself from its UI: it builds the new version, then exits, and
 # Restart=always brings it back up on that version.
-Environment=AGENT_OFFICE_SELF_UPDATE=1
+Environment=DROID_OFFICE_SELF_UPDATE=1
 # Loopback only: the office is reached through an SSH tunnel, never from the internet.
 ExecStart=/usr/bin/node /opt/droid-office/bin/droid-office.js ${OFFICE_ARGS}--host 127.0.0.1 --port 4600
 Restart=always

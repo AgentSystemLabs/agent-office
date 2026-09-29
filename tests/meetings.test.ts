@@ -446,7 +446,7 @@ test('a review panel tells its reviewers what it always did, on GitHub and GitLa
       f.prompts[1].text,
       [
         'Review of PR #42',
-        "You're the Security in a Review panel meeting in Agent Office's meeting room, round the table with the Correctness and the Performance & simplicity. Round 1: each reviewer reviews the pull request through their own lens. Round 2: the Correctness merges the reviews into one, which the office posts on the pull request.",
+        "You're the Security in a Review panel meeting in Droid Office's meeting room, round the table with the Correctness and the Performance & simplicity. Round 1: each reviewer reviews the pull request through their own lens. Round 2: the Correctness merges the reviews into one, which the office posts on the pull request.",
         'What the meeting is about:\nReview it',
         `The ${pull} is ${ref}: read it with ${read}.`,
         `How it runs: the office hands each of you your part of every round in a message like this one. Do just that part, write it to the file it names, and end your turn; the next round starts once every part of this one is written. Your working directory is ${cwd}, and every file of the meeting is in it: the notes go in ${notes}/, which is where you read what the others wrote. The meeting ends when reviews/pr-42.md (${path.join(cwd, 'reviews/pr-42.md')}) is written, and only the part that says so writes it. It has 2 rounds at most and 3.00M tokens between all of you, so keep your notes short: bullets over prose.`,

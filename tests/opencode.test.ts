@@ -26,17 +26,17 @@ test('rejects malformed inline OpenCode config instead of dropping user settings
 test('writes a loadable plugin module that forwards root events and excludes subagents', async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'droid-office-opencode-'));
   const oldFetch = globalThis.fetch;
-  const oldUrl = process.env.AGENT_OFFICE_HOOK_URL;
-  const oldToken = process.env.AGENT_OFFICE_HOOK_TOKEN;
-  const oldWorker = process.env.AGENT_OFFICE_WORKER_ID;
-  const oldSession = process.env.AGENT_OFFICE_SESSION_ID;
+  const oldUrl = process.env.DROID_OFFICE_HOOK_URL;
+  const oldToken = process.env.DROID_OFFICE_HOOK_TOKEN;
+  const oldWorker = process.env.DROID_OFFICE_WORKER_ID;
+  const oldSession = process.env.DROID_OFFICE_SESSION_ID;
   const sent: unknown[] = [];
   try {
     const file = writeOpenCodePlugin(dir);
-    process.env.AGENT_OFFICE_HOOK_URL = 'http://127.0.0.1:1';
-    process.env.AGENT_OFFICE_HOOK_TOKEN = 'token';
-    process.env.AGENT_OFFICE_WORKER_ID = 'worker';
-    process.env.AGENT_OFFICE_SESSION_ID = 'ses_existing';
+    process.env.DROID_OFFICE_HOOK_URL = 'http://127.0.0.1:1';
+    process.env.DROID_OFFICE_HOOK_TOKEN = 'token';
+    process.env.DROID_OFFICE_WORKER_ID = 'worker';
+    process.env.DROID_OFFICE_SESSION_ID = 'ses_existing';
     globalThis.fetch = (async (_url, init) => {
       sent.push(JSON.parse(String(init?.body)));
       return new Response(null, { status: 200 });
@@ -164,14 +164,14 @@ test('writes a loadable plugin module that forwards root events and excludes sub
     assert.deepEqual(sent.at(-1), { type: 'error', sessionId: 'saved', status: 'needs_input', detail: 'Unavailable' });
   } finally {
     globalThis.fetch = oldFetch;
-    if (oldUrl === undefined) delete process.env.AGENT_OFFICE_HOOK_URL;
-    else process.env.AGENT_OFFICE_HOOK_URL = oldUrl;
-    if (oldToken === undefined) delete process.env.AGENT_OFFICE_HOOK_TOKEN;
-    else process.env.AGENT_OFFICE_HOOK_TOKEN = oldToken;
-    if (oldWorker === undefined) delete process.env.AGENT_OFFICE_WORKER_ID;
-    else process.env.AGENT_OFFICE_WORKER_ID = oldWorker;
-    if (oldSession === undefined) delete process.env.AGENT_OFFICE_SESSION_ID;
-    else process.env.AGENT_OFFICE_SESSION_ID = oldSession;
+    if (oldUrl === undefined) delete process.env.DROID_OFFICE_HOOK_URL;
+    else process.env.DROID_OFFICE_HOOK_URL = oldUrl;
+    if (oldToken === undefined) delete process.env.DROID_OFFICE_HOOK_TOKEN;
+    else process.env.DROID_OFFICE_HOOK_TOKEN = oldToken;
+    if (oldWorker === undefined) delete process.env.DROID_OFFICE_WORKER_ID;
+    else process.env.DROID_OFFICE_WORKER_ID = oldWorker;
+    if (oldSession === undefined) delete process.env.DROID_OFFICE_SESSION_ID;
+    else process.env.DROID_OFFICE_SESSION_ID = oldSession;
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -179,17 +179,17 @@ test('writes a loadable plugin module that forwards root events and excludes sub
 test('hydrates persisted OpenCode root and child usage without blocking plugin startup', async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'droid-office-opencode-hydrate-'));
   const oldFetch = globalThis.fetch;
-  const oldUrl = process.env.AGENT_OFFICE_HOOK_URL;
-  const oldToken = process.env.AGENT_OFFICE_HOOK_TOKEN;
-  const oldWorker = process.env.AGENT_OFFICE_WORKER_ID;
-  const oldSession = process.env.AGENT_OFFICE_SESSION_ID;
+  const oldUrl = process.env.DROID_OFFICE_HOOK_URL;
+  const oldToken = process.env.DROID_OFFICE_HOOK_TOKEN;
+  const oldWorker = process.env.DROID_OFFICE_WORKER_ID;
+  const oldSession = process.env.DROID_OFFICE_SESSION_ID;
   const sent: unknown[] = [];
   try {
     const file = writeOpenCodePlugin(dir);
-    process.env.AGENT_OFFICE_HOOK_URL = 'http://127.0.0.1:1';
-    process.env.AGENT_OFFICE_HOOK_TOKEN = 'token';
-    process.env.AGENT_OFFICE_WORKER_ID = 'worker';
-    process.env.AGENT_OFFICE_SESSION_ID = 'hydrate-root';
+    process.env.DROID_OFFICE_HOOK_URL = 'http://127.0.0.1:1';
+    process.env.DROID_OFFICE_HOOK_TOKEN = 'token';
+    process.env.DROID_OFFICE_WORKER_ID = 'worker';
+    process.env.DROID_OFFICE_SESSION_ID = 'hydrate-root';
     globalThis.fetch = (async (_url, init) => {
       sent.push(JSON.parse(String(init?.body)));
       return new Response(null, { status: 200 });
@@ -250,14 +250,14 @@ test('hydrates persisted OpenCode root and child usage without blocking plugin s
     ]);
   } finally {
     globalThis.fetch = oldFetch;
-    if (oldUrl === undefined) delete process.env.AGENT_OFFICE_HOOK_URL;
-    else process.env.AGENT_OFFICE_HOOK_URL = oldUrl;
-    if (oldToken === undefined) delete process.env.AGENT_OFFICE_HOOK_TOKEN;
-    else process.env.AGENT_OFFICE_HOOK_TOKEN = oldToken;
-    if (oldWorker === undefined) delete process.env.AGENT_OFFICE_WORKER_ID;
-    else process.env.AGENT_OFFICE_WORKER_ID = oldWorker;
-    if (oldSession === undefined) delete process.env.AGENT_OFFICE_SESSION_ID;
-    else process.env.AGENT_OFFICE_SESSION_ID = oldSession;
+    if (oldUrl === undefined) delete process.env.DROID_OFFICE_HOOK_URL;
+    else process.env.DROID_OFFICE_HOOK_URL = oldUrl;
+    if (oldToken === undefined) delete process.env.DROID_OFFICE_HOOK_TOKEN;
+    else process.env.DROID_OFFICE_HOOK_TOKEN = oldToken;
+    if (oldWorker === undefined) delete process.env.DROID_OFFICE_WORKER_ID;
+    else process.env.DROID_OFFICE_WORKER_ID = oldWorker;
+    if (oldSession === undefined) delete process.env.DROID_OFFICE_SESSION_ID;
+    else process.env.DROID_OFFICE_SESSION_ID = oldSession;
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -265,17 +265,17 @@ test('hydrates persisted OpenCode root and child usage without blocking plugin s
 test('marks live OpenCode usage incomplete when hydration fails', async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'droid-office-opencode-partial-'));
   const oldFetch = globalThis.fetch;
-  const oldUrl = process.env.AGENT_OFFICE_HOOK_URL;
-  const oldToken = process.env.AGENT_OFFICE_HOOK_TOKEN;
-  const oldWorker = process.env.AGENT_OFFICE_WORKER_ID;
-  const oldSession = process.env.AGENT_OFFICE_SESSION_ID;
+  const oldUrl = process.env.DROID_OFFICE_HOOK_URL;
+  const oldToken = process.env.DROID_OFFICE_HOOK_TOKEN;
+  const oldWorker = process.env.DROID_OFFICE_WORKER_ID;
+  const oldSession = process.env.DROID_OFFICE_SESSION_ID;
   const sent: any[] = [];
   try {
     const file = writeOpenCodePlugin(dir);
-    process.env.AGENT_OFFICE_HOOK_URL = 'http://127.0.0.1:1';
-    process.env.AGENT_OFFICE_HOOK_TOKEN = 'token';
-    process.env.AGENT_OFFICE_WORKER_ID = 'worker';
-    process.env.AGENT_OFFICE_SESSION_ID = 'partial-root';
+    process.env.DROID_OFFICE_HOOK_URL = 'http://127.0.0.1:1';
+    process.env.DROID_OFFICE_HOOK_TOKEN = 'token';
+    process.env.DROID_OFFICE_WORKER_ID = 'worker';
+    process.env.DROID_OFFICE_SESSION_ID = 'partial-root';
     globalThis.fetch = (async (_url, init) => {
       sent.push(JSON.parse(String(init?.body)));
       return new Response(null, { status: 200 });
@@ -311,14 +311,14 @@ test('marks live OpenCode usage incomplete when hydration fails', async () => {
     assert.equal(sent.filter((event) => event.type === 'usage').at(-1)?.usage.incomplete, true);
   } finally {
     globalThis.fetch = oldFetch;
-    if (oldUrl === undefined) delete process.env.AGENT_OFFICE_HOOK_URL;
-    else process.env.AGENT_OFFICE_HOOK_URL = oldUrl;
-    if (oldToken === undefined) delete process.env.AGENT_OFFICE_HOOK_TOKEN;
-    else process.env.AGENT_OFFICE_HOOK_TOKEN = oldToken;
-    if (oldWorker === undefined) delete process.env.AGENT_OFFICE_WORKER_ID;
-    else process.env.AGENT_OFFICE_WORKER_ID = oldWorker;
-    if (oldSession === undefined) delete process.env.AGENT_OFFICE_SESSION_ID;
-    else process.env.AGENT_OFFICE_SESSION_ID = oldSession;
+    if (oldUrl === undefined) delete process.env.DROID_OFFICE_HOOK_URL;
+    else process.env.DROID_OFFICE_HOOK_URL = oldUrl;
+    if (oldToken === undefined) delete process.env.DROID_OFFICE_HOOK_TOKEN;
+    else process.env.DROID_OFFICE_HOOK_TOKEN = oldToken;
+    if (oldWorker === undefined) delete process.env.DROID_OFFICE_WORKER_ID;
+    else process.env.DROID_OFFICE_WORKER_ID = oldWorker;
+    if (oldSession === undefined) delete process.env.DROID_OFFICE_SESSION_ID;
+    else process.env.DROID_OFFICE_SESSION_ID = oldSession;
     rmSync(dir, { recursive: true, force: true });
   }
 });

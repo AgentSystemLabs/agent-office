@@ -12,7 +12,7 @@ export interface Config {
   dataDir: string;
   /** Where new floors are cloned by default (~/.droid-office/projects), as <projectsDir>/<owner>/<repo>. */
   projectsDir: string;
-  /** --projects / AGENT_OFFICE_PROJECTS: picks the projects folder, as ⚙️ Settings in the office does. */
+  /** --projects / DROID_OFFICE_PROJECTS: picks the projects folder, as ⚙️ Settings in the office does. */
   projects?: string;
   /** Started as `droid-office <dir>`: that checkout is a floor of its own (it's also `dir`). */
   project?: string;
@@ -93,23 +93,23 @@ Commands:
 
 Options:
       --home <dir>        Where the office keeps its data when no [dir] is given
-                          (default ~/droid-office, env AGENT_OFFICE_HOME)
+                          (default ~/droid-office, env DROID_OFFICE_HOME)
       --projects <dir>    Where new floors are cloned, as <dir>/<owner>/<repo>
                           (GitLab: <dir>/<host>/<group>/<project>). Default
-                          ~/.droid-office/projects, env AGENT_OFFICE_PROJECTS.
+                          ~/.droid-office/projects, env DROID_OFFICE_PROJECTS.
                           It can't be inside a git checkout. Also settable
                           from ⚙️ Settings in the office
   -p, --port <n>          Port to listen on (default 4600, env PORT)
   -H, --host <addr>       Address to bind (default 0.0.0.0)
-      --password <pw>     Office password (env AGENT_OFFICE_PASSWORD).
+      --password <pw>     Office password (env DROID_OFFICE_PASSWORD).
                           Without one, a random password is generated once and
                           saved in <dir>/.droid-office/config.json
       --claim-token <t>   Show the generated password exactly once, at /claim?t=<t>
-                          (env AGENT_OFFICE_CLAIM_TOKEN). After that only a hash
+                          (env DROID_OFFICE_CLAIM_TOKEN). After that only a hash
                           is kept and the password is never displayed again.
       --reset-password    Forget the generated password (a new one is made on the
                           next start) and exit
-      --agent <cmd>       Default agent command (default "droid", env AGENT_OFFICE_AGENT)
+      --agent <cmd>       Default agent command (default "droid", env DROID_OFFICE_AGENT)
       --agent-args <str>  Extra args for the configured agent, e.g. "--model opus"
                           Workers can also select Droid, Claude Code, OpenCode or Codex in the UI
       --tls-cert <file>   Serve HTTPS with this certificate (PEM)
@@ -119,24 +119,24 @@ Options:
       --turn <url>        Add a TURN server for voice (repeatable), e.g.
                           turn:user:pass@turn.example.com:3478
       --budget <usd>      Daily budget for tracked Claude Code spend (env
-                          AGENT_OFFICE_BUDGET). Everyone is warned when the
+                          DROID_OFFICE_BUDGET). Everyone is warned when the
                           day's spend passes it. Other providers' spend is excluded
       --budget-pause      ...and no new workers can be hired until the next
-                          day (env AGENT_OFFICE_BUDGET_PAUSE=1)
+                          day (env DROID_OFFICE_BUDGET_PAUSE=1)
       --max-workers <n>   Run at most this many workers at once, across every
-                          floor (env AGENT_OFFICE_MAX_WORKERS). Hiring past it
+                          floor (env DROID_OFFICE_MAX_WORKERS). Hiring past it
                           is refused. Admins can lower the limit from ⚙️
                           Settings, but not raise it past this
       --webhook <url>     Post to this Slack or Discord webhook when a worker
-                          needs input or finishes (env AGENT_OFFICE_WEBHOOK).
+                          needs input or finishes (env DROID_OFFICE_WEBHOOK).
                           Also settable from ⚙️ Settings in the office; "" turns it off
       --city <name>       Put the office in a real city, e.g. "Berlin" or
-                          "Portland, Oregon" (env AGENT_OFFICE_CITY): day, night
+                          "Portland, Oregon" (env DROID_OFFICE_CITY): day, night
                           and the weather outside follow its live forecast from
                           open-meteo.com. Without it the sun follows this
                           machine's clock and the weather is made up
       --weather <kind>    Pin the weather: clear, cloudy, rain, storm, snow or
-                          fog (env AGENT_OFFICE_WEATHER)
+                          fog (env DROID_OFFICE_WEATHER)
   -h, --help              Show this help
 
 Voice and screen sharing need a secure context: use https (a reverse proxy,
@@ -167,14 +167,14 @@ function parseTurn(url: string): RTCIceServerLike {
   return { urls: url };
 }
 
-/** Where the office lives when it isn't started in a project: ~/droid-office, or $AGENT_OFFICE_HOME. */
+/** Where the office lives when it isn't started in a project: ~/droid-office, or $DROID_OFFICE_HOME. */
 export function officeHome(): string {
-  return path.resolve(process.env.AGENT_OFFICE_HOME || path.join(os.homedir(), 'droid-office'));
+  return path.resolve(process.env.DROID_OFFICE_HOME || path.join(os.homedir(), 'droid-office'));
 }
 
 /**
  * Where new floors are cloned unless another folder is picked: ~/.droid-office/projects. It's its
- * own folder, apart from the office's home, which may be a checkout of Agent Office itself.
+ * own folder, apart from the office's home, which may be a checkout of Droid Office itself.
  */
 export function defaultProjectsDir(): string {
   return path.join(os.homedir(), '.droid-office', 'projects');
@@ -198,25 +198,25 @@ export function excludeFromGit(dir: string) {
 export function loadConfig(argv: string[]): Config {
   let project = '';
   let home = officeHome();
-  let homeGiven = !!process.env.AGENT_OFFICE_HOME;
-  let projects = process.env.AGENT_OFFICE_PROJECTS ? path.resolve(process.env.AGENT_OFFICE_PROJECTS) : '';
+  let homeGiven = !!process.env.DROID_OFFICE_HOME;
+  let projects = process.env.DROID_OFFICE_PROJECTS ? path.resolve(process.env.DROID_OFFICE_PROJECTS) : '';
   let port = Number(process.env.PORT) || 4600;
   let host = '0.0.0.0';
-  let password = process.env.AGENT_OFFICE_PASSWORD || '';
-  let agentCmd = process.env.AGENT_OFFICE_AGENT || 'droid';
-  let agentArgs: string[] = splitArgs(process.env.AGENT_OFFICE_AGENT_ARGS || '');
+  let password = process.env.DROID_OFFICE_PASSWORD || '';
+  let agentCmd = process.env.DROID_OFFICE_AGENT || 'droid';
+  let agentArgs: string[] = splitArgs(process.env.DROID_OFFICE_AGENT_ARGS || '');
   let tlsCert = '';
   let tlsKey = '';
   let selfSigned = false;
   let trustProxy = false;
-  let claimToken = process.env.AGENT_OFFICE_CLAIM_TOKEN || '';
+  let claimToken = process.env.DROID_OFFICE_CLAIM_TOKEN || '';
   let resetPassword = false;
-  let budget = process.env.AGENT_OFFICE_BUDGET || '';
-  let budgetPause = !!process.env.AGENT_OFFICE_BUDGET_PAUSE && process.env.AGENT_OFFICE_BUDGET_PAUSE !== '0';
-  let maxWorkers = process.env.AGENT_OFFICE_MAX_WORKERS || '';
-  let webhook = process.env.AGENT_OFFICE_WEBHOOK;
-  let city = process.env.AGENT_OFFICE_CITY || '';
-  let weather = process.env.AGENT_OFFICE_WEATHER || '';
+  let budget = process.env.DROID_OFFICE_BUDGET || '';
+  let budgetPause = !!process.env.DROID_OFFICE_BUDGET_PAUSE && process.env.DROID_OFFICE_BUDGET_PAUSE !== '0';
+  let maxWorkers = process.env.DROID_OFFICE_MAX_WORKERS || '';
+  let webhook = process.env.DROID_OFFICE_WEBHOOK;
+  let city = process.env.DROID_OFFICE_CITY || '';
+  let weather = process.env.DROID_OFFICE_WEATHER || '';
   const iceServers: RTCIceServerLike[] = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 
   for (let i = 0; i < argv.length; i++) {
@@ -415,7 +415,7 @@ export function loadConfig(argv: string[]): Config {
     tls,
     trustProxy,
     iceServers,
-    publicHost: process.env.AGENT_OFFICE_PUBLIC_HOST || undefined,
+    publicHost: process.env.DROID_OFFICE_PUBLIC_HOST || undefined,
     budget: budgetUsd,
     budgetPause,
     maxWorkers: workerLimit,

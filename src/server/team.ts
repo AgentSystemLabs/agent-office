@@ -4,7 +4,7 @@ import type { TeamState } from '../shared/protocol.js';
 
 // Installed by deploy/provision.sh. It edits the `office` user's authorized_keys (root-owned), so
 // it re-runs itself with sudo; the office only ever passes it a validated name and key text.
-const HELPER = process.env.AGENT_OFFICE_TEAM_HELPER || '/usr/local/bin/droid-office-team';
+const HELPER = process.env.DROID_OFFICE_TEAM_HELPER || '/usr/local/bin/droid-office-team';
 const TEAM_USER = 'office';
 const GITHUB_USER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 /** deploy/aws.sh also accepts other names, for keys invited from a file. */

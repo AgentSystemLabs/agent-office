@@ -316,7 +316,7 @@ export async function startServer(cfg: Config) {
     const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
     const floor = workerFloor(workerId);
     const agent = floor?.workers.authenticate(workerId, token);
-    if (!floor || !agent) return send(res, 401, { error: 'Send your own AGENT_OFFICE_WORKER_ID as ?worker= and AGENT_OFFICE_HOOK_TOKEN as the bearer token' });
+    if (!floor || !agent) return send(res, 401, { error: 'Send your own DROID_OFFICE_WORKER_ID as ?worker= and DROID_OFFICE_HOOK_TOKEN as the bearer token' });
     if (!DESK_BY_ID.get(agent.deskId)?.station) return send(res, 403, { error: 'Only the agents standing by the boards can use the queue' });
     const view = () => {
       const q = floor.queue.state();

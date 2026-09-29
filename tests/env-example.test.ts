@@ -11,7 +11,7 @@ const SKIP = new Set(['node_modules', 'dist', '.iwsdk']);
 const INSTALLERS = ['install.sh', 'install.ps1'];
 
 /** Set by the office for its own workers, or by the installers for themselves: not user settings. */
-const INTERNAL = new Set(['AGENT_OFFICE_HOOK_URL', 'AGENT_OFFICE_HOOK_TOKEN', 'AGENT_OFFICE_WORKER_ID', 'AGENT_OFFICE_SESSION_ID', 'AGENT_OFFICE_CLAIM_TOKEN', 'AGENT_OFFICE_INSTALL_REFRESH']);
+const INTERNAL = new Set(['DROID_OFFICE_HOOK_URL', 'DROID_OFFICE_HOOK_TOKEN', 'DROID_OFFICE_WORKER_ID', 'DROID_OFFICE_SESSION_ID', 'DROID_OFFICE_CLAIM_TOKEN', 'DROID_OFFICE_INSTALL_REFRESH']);
 /** The operating system's own variables, read to find the shell and programs. */
 const SYSTEM = new Set(['PATH', 'PATHEXT', 'SHELL', 'COMSPEC']);
 
@@ -23,18 +23,18 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-/** Every variable named in src/, bin/ and the installers: process.env reads and AGENT_OFFICE_* names. */
+/** Every variable named in src/, bin/ and the installers: process.env reads and DROID_OFFICE_* names. */
 function namesInCode(): Map<string, string> {
   const found = new Map<string, string>();
   const add = (name: string, file: string) => found.has(name) || found.set(name, path.relative(ROOT, file));
   for (const file of [...sourceFiles(path.join(ROOT, 'src')), ...sourceFiles(path.join(ROOT, 'bin'))]) {
     const text = readFileSync(file, 'utf8');
     for (const m of text.matchAll(/process\.env(?:\.([A-Za-z_][A-Za-z0-9_]*)|\[\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*\])/g)) add(m[1] ?? m[2], file);
-    for (const m of text.matchAll(/\bAGENT_OFFICE_[A-Z0-9_]+/g)) add(m[0], file);
+    for (const m of text.matchAll(/\bDROID_OFFICE_[A-Z0-9_]+/g)) add(m[0], file);
   }
   for (const name of INSTALLERS) {
     const file = path.join(ROOT, name);
-    for (const m of readFileSync(file, 'utf8').matchAll(/\bAGENT_OFFICE_[A-Z0-9_]+/g)) add(m[0], file);
+    for (const m of readFileSync(file, 'utf8').matchAll(/\bDROID_OFFICE_[A-Z0-9_]+/g)) add(m[0], file);
   }
   return found;
 }

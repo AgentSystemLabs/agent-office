@@ -1,6 +1,6 @@
 {
-  "name": "Agent Office",
-  "short_name": "Agent Office",
+  "name": "Droid Office",
+  "short_name": "Droid Office",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

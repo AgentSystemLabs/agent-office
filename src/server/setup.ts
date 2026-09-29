@@ -36,7 +36,7 @@ A new office runs this by itself the first time it starts in a terminal. Run it
 while the office is stopped; while it runs, use its elevator and ⚙️ Settings.
 
 Options:
-      --home <dir>        The office to set up (default ~/droid-office, env AGENT_OFFICE_HOME)
+      --home <dir>        The office to set up (default ~/droid-office, env DROID_OFFICE_HOME)
       --projects <dir>    Clone new projects into <dir>/<owner>/<repo> (GitLab:
                           <dir>/<host>/<group>/<project>) from now on. Default
                           ~/.droid-office/projects
@@ -62,7 +62,7 @@ export async function welcome(cfg: Config): Promise<void> {
   // --projects is the answer to the first question (the office applies it again as it starts).
   const folderGiven = !!cfg.projects && !building.setProjectsDir(cfg.projects, 'the command line');
   console.log(`
-  👋 Welcome to Agent Office!
+  👋 Welcome to Droid Office!
 
   Every project is a floor of the building, and this one doesn't have any yet.
   Let's add your first: pick one of your GitHub or GitLab repositories and the
@@ -103,7 +103,7 @@ export async function setupCommand(argv: string[]): Promise<number> {
   // The same office `droid-office` would start from here (see loadConfig).
   const cwd = process.cwd();
   let dir = home || officeHome();
-  if (!home && !process.env.AGENT_OFFICE_HOME && cwd !== dir && existsSync(path.join(cwd, '.droid-office', 'config.json'))) dir = cwd;
+  if (!home && !process.env.DROID_OFFICE_HOME && cwd !== dir && existsSync(path.join(cwd, '.droid-office', 'config.json'))) dir = cwd;
   const dataDir = path.join(dir, '.droid-office');
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   if (await officeRunning(dataDir)) {
