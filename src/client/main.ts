@@ -5,7 +5,7 @@ import { sameLook } from '../shared/avatar';
 import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, LOFT, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, STOREY, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, roofDrop, seatAt, seatPlace, streetBelow, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
 import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
-import { MEETING_PATTERNS } from '../shared/meetings';
+import { MEETING_PATTERNS, meetingStage } from '../shared/meetings';
 import { isAsleep, isBusy, workerPr } from '../shared/status';
 import { Net } from './net';
 import { store, lastFloor, lastSpot, loadProfile, loadSettings, rememberSpot, saveSettings, workerForPull, type Profile, type Spot, type Topic } from './state';
@@ -67,7 +67,8 @@ import { toggleFloorMenu } from './ui/floormenu';
 import { providerLabel, officeChoice, resolvedProvider, modelBadge } from './ui/provider';
 import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
 import { renderLimits } from './ui/limits';
-import { MachineTexture, officeFull, pressureNote } from './world/machine';
+import { MachineTexture } from './world/machine';
+import { officeFull, pressureNote } from '../shared/machine';
 import { mountHud } from './ui/menu';
 import { openJukebox } from './ui/jukebox';
 import { openBookshelf } from './ui/bookshelf';
@@ -80,21 +81,32 @@ import { EmoteWheel } from './ui/emotes';
 import { whereabouts } from './ui/whereabouts';
 import { wayTo } from './walkto';
 import { DESK_KEYS, interactionAvailable, type DeskKey } from './interaction';
-import { MeetingBoardTexture, MeetingSignTexture, meetingStage } from './world/meeting';
+import { MeetingBoardTexture, MeetingSignTexture } from './world/meeting';
 import { issueMeeting, openMeeting, type MeetingPreset } from './ui/meeting';
 import { TelescopeView } from './telescope';
 import { onModelsProgress, preloadModels } from './world/models';
 import { loadingScreen } from './ui/loading';
+import { SlowFrames } from './framerate';
+import { offerLite, touchOnly } from './ui/litesuggest';
 
 // The loading screen stays up until there's an office to see (see boot and whoami at the end).
 const loading = loadingScreen(onModelsProgress);
+// Came here from the 2D view's 🏢 3D button: it isn't offered straight back.
+const chose3d = new URLSearchParams(location.search).has('3d');
+if (chose3d) history.replaceState(null, '', location.pathname);
+/** Offers the 2D view (/lite) where the 3D is hard going. */
+const offer2d = (why: 'touch' | 'slow') => chose3d || offerLite(why);
+// A phone can't walk around the office: the 2D view is made for it.
+if (touchOnly()) offer2d('touch');
 // The models made in Blender, loaded before the world they're in is built (see world/models.ts).
 await preloadModels();
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+const renderer = makeRenderer() ?? (await noWebGL());
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+/** Frames coming too slowly for the 3D to be any fun: the 2D view is offered (see frame). */
+const slowFrames = new SlowFrames();
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -1293,8 +1305,8 @@ function noticeWaiting() {
 // ---- Peers --------------------------------------------------------------------------------------
 function syncPeers() {
   for (const [id, peer] of store.peers) {
-    // Only who's on your floor is in the room with you.
-    if (id === store.you || !store.onMyFloor(peer)) continue;
+    // Only who's on your floor is in the room with you, and not someone on the 2D view: they're not standing anywhere.
+    if (id === store.you || !store.onMyFloor(peer) || peer.lite) continue;
     let r = remotes.get(id);
     if (!r) {
       const person = new Person(peer.name, peer.color, peer.look);
@@ -1329,7 +1341,7 @@ function syncPeers() {
   }
   for (const [id, r] of remotes) {
     const peer = store.peers.get(id);
-    if (!peer || !store.onMyFloor(peer)) {
+    if (!peer || !store.onMyFloor(peer) || peer.lite) {
       scene.remove(r.person.root);
       remotes.delete(id);
     }
@@ -1363,6 +1375,7 @@ let walkingTo: { id: string; replanAt: number } | null = null;
 function walkTo(id: string) {
   const p = store.peers.get(id);
   if (!p || id === store.you) return;
+  if (p.lite) return void toast(`📱 ${p.name} is on the 2D view, not anywhere in the office itself`);
   if (!store.onMyFloor(p) && !p.floor) return;
   if (player.seat) standUp();
   if (golf.active) golf.stop();
@@ -3489,6 +3502,7 @@ const hud = mountHud(
     { id: 'signins', icon: '🔐', label: 'Your sign-ins', section: 'Together', shown: () => !!store.me.account, tone: () => (needsSigningIn() ? 'danger' : undefined), status: needsSigningIn, chip: () => 'Sign in to Claude', title: () => 'The Claude plan and GitHub account your workers run on: your own', run: () => openSignIns(net) },
     { id: 'settings', icon: '⚙️', label: 'Settings', section: 'Office', run: showSettings },
     { id: 'help', icon: '❓', label: 'Controls', section: 'Office', key: 'H', run: openHelp },
+    { id: 'lite', icon: '📱', label: '2D view', section: 'Office', title: () => 'The workers, their terminals and the boards without the 3D: for a phone or a slow computer', run: () => location.assign('/lite') },
     {
       id: 'upgrade',
       icon: '⬆️',
@@ -3592,9 +3606,11 @@ let drunkVisionOn = false;
 
 function frame(ts?: number) {
   timer.update(ts);
-  const dt = Math.min(timer.getDelta(), 0.1);
+  const delta = timer.getDelta();
+  const dt = Math.min(delta, 0.1);
   const t = timer.getElapsed();
   const now = performance.now();
+  if (slowFrames.frame(now, delta * 1000)) offer2d('slow');
 
   // Coffee: quicker feet, higher jumps, a mug in hand, and maybe the jitters.
   const secs = now / 1000;
@@ -3802,6 +3818,21 @@ function frame(ts?: number) {
 }
 
 // ---- Boot ------------------------------------------------------------------------------------------
+function makeRenderer(): THREE.WebGLRenderer | null {
+  try {
+    return new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  } catch (err) {
+    console.error(err);
+    return null;
+  }
+}
+
+/** No WebGL here (switched off, or no graphics for it): on to the 2D view, which does without. */
+function noWebGL(): Promise<never> {
+  location.replace('/lite?why=webgl');
+  return new Promise(() => {});
+}
+
 function boot() {
   net.connect();
   requestAnimationFrame(frame);

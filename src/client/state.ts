@@ -34,7 +34,8 @@ export function loadProfile(): (Omit<Profile, 'look'> & { look?: Look }) | null 
   return null;
 }
 
-export function saveProfile(p: Profile) {
+/** Without a look, the 3D office still has you pick a character (the 2D view saves only a name). */
+export function saveProfile(p: Omit<Profile, 'look'> & { look?: Look }) {
   try {
     localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
   } catch {

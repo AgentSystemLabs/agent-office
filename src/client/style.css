@@ -434,6 +434,12 @@ body.telescope-active #hud { visibility: hidden; }
   .modal.term header h2 { flex-basis: calc(100% - 80px); }
   .modal.term header > :not(.dot, h2, .close) { order: 1; }
 }
+/* Under a terminal on the 2D view (TerminalOptions.keypad): the keys a phone's keyboard hasn't got, and a prompt box. */
+.term-keypad { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; padding-bottom: max(8px, env(safe-area-inset-bottom)); background: var(--paper); border-top: 3px solid var(--ink); }
+.term-keys { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 3px; }
+.term-keys .btn { flex: 1 0 auto; min-width: 40px; height: 40px; padding: 0 8px; justify-content: center; font-variant-numeric: tabular-nums; }
+.term-say { display: flex; gap: 8px; }
+.modal .term-say input[type=text] { flex: 1; min-width: 0; padding: 8px 10px; }
 
 /* Changes window: changed files + diff at a desk */
 .modal.desk-changes { width: min(1300px, 100%); height: min(860px, calc(100vh - 32px)); outline: none; }
@@ -1239,6 +1245,11 @@ a.when:hover { text-decoration: underline; }
 }
 
 /* The loading screen (index.html): up from the first paint, over everything, until ui/loading.ts takes it down. */
+/* Offering the 2D view on a phone, or where the 3D runs slowly (ui/litesuggest.ts): over the loading screen too. */
+.lite-offer { position: fixed; left: 12px; right: 12px; bottom: max(16px, env(safe-area-inset-bottom)); z-index: 110; max-width: 440px; margin: 0 auto; padding: 14px 16px; animation: toast-in .25s ease-out; }
+.lite-offer p { margin: 0 0 12px; font-weight: 800; font-size: 15px; line-height: 1.35; }
+.lite-offer-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.lite-offer-btns .btn { flex: 1; justify-content: center; min-height: 44px; text-decoration: none; }
 #loading { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px; background: #bfe3ff; transition: opacity .35s ease; }
 #loading.gone { opacity: 0; pointer-events: none; }
 .loading-card { width: min(320px, 100%); padding: 22px 26px 20px; text-align: center; background: var(--paper); border: 3px solid var(--ink); border-radius: var(--radius); box-shadow: var(--shadow); }
