@@ -168,6 +168,8 @@ SUB_ARGS=()
 azc() { az "$@" "${SUB_ARGS[@]+"${SUB_ARGS[@]}"}" --only-show-errors | tr -d '\r'; }
 # One value. az prints None for a missing one in a list, and nothing for a missing one on its own.
 azv() { azc "$@" -o tsv | sed 's/^None$//'; }
+# az's tsv rows as space-separated words, with - for a missing value, so `read` keeps each in place.
+words() { awk -F'\t' '{ for (i = 1; i <= NF; i++) if ($i == "" || $i == "None") $i = "-"; $1 = $1; print }'; }
 
 preflight() {
   need az "https://learn.microsoft.com/cli/azure/install-azure-cli"
@@ -248,12 +250,6 @@ normalize_location() { lower "$1" | tr -d ' '; }
 
 find_vm() { azv vm show -g "$RG" -n "$VM" --query id 2>/dev/null || true; }
 vm_size() { azv vm show -g "$RG" -n "$VM" --query hardwareProfile.vmSize; }
-vm_arch() {
-  case "$(azv vm show -g "$RG" -n "$VM" --query storageProfile.imageReference.sku)" in
-    *arm64*) echo Arm64 ;;
-    *) echo x64 ;;
-  esac
-}
 
 # running, starting, stopping, stopped (off, still billed), deallocating or deallocated (paused).
 vm_power() {
@@ -283,32 +279,64 @@ start_vm() {
 
 public_ip() { azv network public-ip show -g "$RG" -n "$PIP" --query ipAddress 2>/dev/null || true; }
 
-# Sets SIZE to the size's own spelling and SIZE_ARCH, SIZE_GENS, SIZE_NO_TL and SIZE_PREMIUM to what
-# it supports, from the sizes this subscription can use in $LOCATION.
+# "<name> <arch> <generations> <no Trusted Launch> <premium SSD> <temp disk MB>" for a size this
+# subscription can use in $LOCATION (- where Azure doesn't say), or nothing when it can't.
+size_row() {
+  local q="[].[name" c
+  for c in CpuArchitectureType HyperVGenerations TrustedLaunchDisabled PremiumIO MaxResourceVolumeMB; do
+    q+=", capabilities[?name=='$c'] | [0].value"
+  done
+  azc vm list-skus -l "$LOCATION" --resource-type virtualMachines --size "$1" -o tsv --query "$q]" 2>/dev/null |
+    awk -F'\t' -v w="$1" 'tolower($1) == tolower(w) { print; exit }' | words || true
+}
+
+# Sets SIZE to the size's own spelling, and SIZE_ARCH, SIZE_GENS, SIZE_NO_TL, SIZE_PREMIUM and
+# SIZE_TEMP to what it has (see size_row).
 size_info() {
   local want="$1" row
   [[ "$want" =~ ^[A-Za-z0-9_]+$ ]] || die "not a VM size: $want (e.g. Standard_B4s_v2)"
   say "Checking that $want is available in $LOCATION"
-  row=$(azc vm list-skus -l "$LOCATION" --resource-type virtualMachines --size "$want" -o tsv --query \
-    "[].[name, capabilities[?name=='CpuArchitectureType'] | [0].value, capabilities[?name=='HyperVGenerations'] | [0].value, capabilities[?name=='TrustedLaunchDisabled'] | [0].value, capabilities[?name=='PremiumIO'] | [0].value]" |
-    awk -F'\t' -v w="$want" 'tolower($1) == tolower(w) { for (i = 2; i <= 5; i++) if ($i == "" || $i == "None") $i = "-"; print $1, $2, $3, $4, $5; exit }') || row=""
+  row=$(size_row "$want")
   [[ -n "$row" ]] || die "$want isn't available to your subscription in $LOCATION. Check the region's name
    (az account list-locations -o table), or pick another --size or --location. The sizes there:
    az vm list-skus -l $LOCATION --resource-type virtualMachines --size Standard_B -o table"
-  read -r SIZE SIZE_ARCH SIZE_GENS SIZE_NO_TL SIZE_PREMIUM <<<"$row"
+  read -r SIZE SIZE_ARCH SIZE_GENS SIZE_NO_TL SIZE_PREMIUM SIZE_TEMP <<<"$row"
 }
 
-# Stop -> change size -> start. The disk, the address and everything on the VM stay.
+# Whether a size has a local temp disk: Azure only resizes between sizes that both do or both don't.
+temp_disk() { [[ "$1" != "-" && "$1" != "0" ]]; }
+
+# Stop -> change size -> start. The disk, the address and everything on the VM stay. Changes Azure
+# would refuse are caught first, so they don't cost the office any downtime.
 resize_vm() {
-  local have have_arch
+  local have image security h_arch h_temp had_temp=0 has_temp=0
   have=$(vm_size)
   if [[ "$(lower "$have")" == "$(lower "$1")" ]]; then
     ok "Already a $have"
     return
   fi
   size_info "$1"
-  have_arch=$(vm_arch)
-  [[ "$SIZE_ARCH" == "$have_arch" ]] || die "can't switch CPU architecture ($have is $have_arch, $SIZE is $SIZE_ARCH) — use destroy + up instead"
+  read -r image security <<<"$(azc vm show -g "$RG" -n "$VM" -o tsv \
+    --query '[[storageProfile.imageReference.sku, securityProfile.securityType]]' | words)"
+  case "$image" in
+    *arm64*) h_arch=Arm64 ;;
+    *) h_arch=x64 ;;
+  esac
+  [[ "$SIZE_ARCH" == "$h_arch" ]] || die "can't switch CPU architecture ($have is $h_arch, $SIZE is $SIZE_ARCH) — use destroy + up instead"
+  if [[ "$image" == *gen1* ]]; then
+    [[ "$SIZE_GENS" == *V1* ]] || die "$SIZE can't run this VM's Gen1 image — use destroy + up instead"
+  else
+    [[ "$SIZE_GENS" == *V2* ]] || die "$SIZE can't run this VM's Gen2 image — use destroy + up instead"
+  fi
+  [[ "$security" == "TrustedLaunch" && "$SIZE_NO_TL" == "True" ]] &&
+    die "$SIZE doesn't support Trusted Launch, which this VM uses — pick another size, or destroy + up"
+  h_temp=$(size_row "$have" | awk '{ print $6 }')
+  if [[ -n "$h_temp" ]]; then
+    temp_disk "$h_temp" && had_temp=1
+    temp_disk "$SIZE_TEMP" && has_temp=1
+    [[ $had_temp -eq $has_temp ]] ||
+      die "Azure only resizes between sizes that both have a local temp disk or both don't, and only one of $have and $SIZE has one — pick another size, or destroy + up"
+  fi
   say "Resizing $VM from $have to $SIZE. The office goes offline for a few minutes;"
   echo "   running workers stop and come back asleep (press R at their desk to resume)."
   confirm
@@ -326,7 +354,14 @@ resize_vm() {
   ok "Now a $SIZE"
 }
 
+# Commands that SSH in need the key `up` made. Checked first, since a failed ssh can be silenced.
+require_key() {
+  [[ -f "$KEY_FILE" ]] || die "the SSH key for office \"$NAME\" isn't on this computer ($KEY_FILE).
+   Run deploy/azure.sh up$NAME_FLAG here to add one (or copy that folder over from the computer that made the office)"
+}
+
 require_vm() {
+  require_key
   require_group
   [[ -n "$(find_vm)" ]] || die "office \"$NAME\" has no VM — run: deploy/azure.sh up$NAME_FLAG"
   case "$(vm_power)" in
@@ -340,7 +375,7 @@ SSH_OPTS=(-i "$KEY_FILE" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-n
   -o ConnectTimeout=8 -o ServerAliveInterval=15 -o LogLevel=ERROR)
 
 remote() {
-  [[ -f "$KEY_FILE" ]] || die "the SSH key for this office isn't on this computer ($KEY_FILE) — run: deploy/azure.sh up$NAME_FLAG"
+  require_key
   # shellcheck disable=SC2029 # the command is meant to expand here, then run there
   ssh "${SSH_OPTS[@]}" "$SSH_USER@$IP" "$@"
 }
@@ -541,6 +576,9 @@ cmd_up() {
   local have_size="" resize=0 machine
   if [[ -z "$VM_ID" ]]; then
     size_info "$SIZE"
+    # Azure's Arm Ubuntu images take Trusted Launch, which the Ampere (Bpsv2) sizes can't run.
+    [[ "$SIZE_ARCH" == "Arm64" && "$SIZE_NO_TL" == "True" ]] &&
+      die "$SIZE is an Arm size without Trusted Launch. For Arm, pick a Cobalt size (e.g. Standard_D4ps_v6), or the default x64 Standard_B4s_v2"
     machine="$SIZE, ${DISK_GB} GiB disk, Ubuntu 24.04"
   else
     have_size=$(vm_size)
@@ -818,20 +856,19 @@ cmd_team() {
 cmd_ssh() {
   preflight
   require_vm
-  [[ -f "$KEY_FILE" ]] || die "the SSH key for this office isn't on this computer ($KEY_FILE) — run: deploy/azure.sh up$NAME_FLAG"
   exec ssh "${SSH_OPTS[@]}" -t "$SSH_USER@$IP" "${POSITIONAL[@]+"${POSITIONAL[@]}"}"
 }
 
 cmd_logs() {
   preflight
   require_vm
-  [[ -f "$KEY_FILE" ]] || die "the SSH key for this office isn't on this computer ($KEY_FILE) — run: deploy/azure.sh up$NAME_FLAG"
   exec ssh "${SSH_OPTS[@]}" -t "$SSH_USER@$IP" 'sudo journalctl -u agent-office -n 100 -f'
 }
 
 cmd_resize() {
   preflight
   [[ ${#POSITIONAL[@]} -eq 1 ]] || die "usage: deploy/azure.sh resize <vm-size>   (e.g. Standard_B8s_v2, Standard_D4s_v5)"
+  require_key
   require_group
   [[ -n "$(find_vm)" ]] || die "office \"$NAME\" has no VM — run: deploy/azure.sh up$NAME_FLAG"
   resize_vm "${POSITIONAL[0]}"
@@ -861,6 +898,7 @@ cmd_pause() {
 
 cmd_resume() {
   preflight
+  require_key
   require_group
   [[ -n "$(find_vm)" ]] || die "office \"$NAME\" has no VM — run: deploy/azure.sh up$NAME_FLAG"
   start_vm

@@ -42,7 +42,9 @@ Keep the terminal open while you use the office; Ctrl-C closes the tunnel. Next 
 | `Standard_B8s_v2` | 8 | 32 | A team, or many workers at once |
 | `Standard_D4s_v5` | 4 | 16 | Workers busy all day (no credits to run out of) |
 
-Pick one with `up --size <size>`, or change it later with `deploy/azure.sh resize <size>`. Resizing deallocates the VM, changes its size and starts it again, which takes a few minutes. The address, the disk and everything on it stay. Azure refuses a few changes: between Intel/AMD and Arm sizes (the ones with a `p`, like `Standard_B4ps_v2`), from a size with a local temp disk to one without (`Standard_B4ms` to `Standard_B4s_v2`, say), or to a size without Trusted Launch. For those, `destroy` and `up` again.
+Pick one with `up --size <size>`, or change it later with `deploy/azure.sh resize <size>`. Resizing deallocates the VM, changes its size and starts it again, which takes a few minutes. The address, the disk and everything on it stay. Azure refuses a few changes, and `resize` checks for them before it stops anything: between Intel/AMD and Arm sizes, between a size with a local temp disk and one without (`Standard_B4ms` and `Standard_B4s_v2`, say), or to a size without Trusted Launch. For those, `destroy` and `up` again.
+
+**Arm.** The Arm sizes have a `p` in their name. `up` takes the Cobalt ones, like `Standard_D4ps_v6`, and gives them the Arm build of Ubuntu. It turns down the older Ampere B-series ones (`Standard_B4ps_v2`), which can't run Trusted Launch.
 
 **The disk.** Premium SSD is billed by tier, and every size from 33 to 64 GiB costs the same (P6), so the default is 64. `up --disk 128` makes a new office's disk the next tier up.
 
