@@ -26,7 +26,7 @@ test('telescope view restores its camera and callbacks across repeated visits', 
   for (let visit = 0; visit < 3; visit++) {
     assert.equal(view.enter(), true);
     assert.equal(view.enter(), false, 'enter is idempotent');
-    assert.equal(camera.fov, 20);
+    assert.equal(camera.fov, 16);
     assert.notDeepEqual(camera.position.toArray(), position.toArray());
     assert.equal(overlay.classList.values.has('active'), true);
 
@@ -40,7 +40,7 @@ test('telescope view restores its camera and callbacks across repeated visits', 
     camera.position.set(99, 99, 99);
     camera.fov = 55;
     view.update();
-    assert.equal(camera.fov, 20);
+    assert.equal(camera.fov, 16);
     assert.notDeepEqual(camera.position.toArray(), [99, 99, 99]);
 
     button.dispatchEvent(new Event('click'));

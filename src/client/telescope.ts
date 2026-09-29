@@ -4,7 +4,7 @@ import * as THREE from 'three';
 // foreground geometry fill the narrow FOV, while this still reads as the telescope's sightline.
 const VIEW_POSITION = new THREE.Vector3(8.45, 3.95, 7.75);
 const VIEW_TARGET = new THREE.Vector3(-3.5, 0.75, -1.5);
-const VIEW_FOV = 20;
+const VIEW_FOV = 16;
 const LOOK_SPEED = 0.0015;
 const YAW_RANGE = 0.42;
 const MIN_PITCH = -0.5;
