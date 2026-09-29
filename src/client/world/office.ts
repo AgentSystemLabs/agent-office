@@ -846,7 +846,7 @@ function buildDesk(def: DeskDef, index: number, trimMat: THREE.Material): DeskVi
 
   const laptopAnchor = new THREE.Object3D();
   laptopAnchor.position.set(0, height, -0.06);
-  laptopAnchor.scale.setScalar(1.3);
+  laptopAnchor.scale.setScalar(1.45);
   group.add(laptopAnchor);
 
   // On the chair, facing the desk.
@@ -911,7 +911,7 @@ function buildBeanbag(def: DeskDef, index: number): DeskView {
 
   const laptopAnchor = new THREE.Object3D();
   laptopAnchor.position.set(0, 0.445, -0.8);
-  laptopAnchor.scale.setScalar(1.05);
+  laptopAnchor.scale.setScalar(1.17);
   group.add(laptopAnchor);
 
   // Sunk into the bag, facing the lap desk.
@@ -1454,7 +1454,7 @@ function buildMeetingSeat(def: DeskDef, index: number): DeskView {
   group.rotation.y = def.rotY;
   const laptopAnchor = new THREE.Object3D();
   laptopAnchor.position.set(0, MEETING_TABLE.height, 0);
-  laptopAnchor.scale.setScalar(1.15);
+  laptopAnchor.scale.setScalar(1.28);
   group.add(laptopAnchor);
   const seatAnchor = new THREE.Object3D();
   seatAnchor.position.set(0, 0.4, 0.85);

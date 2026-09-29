@@ -168,6 +168,15 @@ export function paintScreen(ctx: CanvasRenderingContext2D, w: number, h: number,
   }
 }
 
+/** The lit screen in lid space, nearly edge to edge on the 0.78 x 0.5 lid. */
+const SCREEN_W = 0.75;
+const SCREEN_H = 0.47;
+/** In front of the GLB's bezel frame, whose face is at z 0.018. */
+const SCREEN_Z = 0.02;
+
+/** Radians the open lid leans back past upright; negative tips the screen toward whoever sits at it. */
+const LID_LEAN = 0.08;
+
 export class Laptop {
   readonly root = new THREE.Group();
   private canvas = document.createElement('canvas');
@@ -186,8 +195,8 @@ export class Laptop {
   private placeholder = 'booting…';
 
   constructor() {
-    this.canvas.width = 1024;
-    this.canvas.height = 680;
+    this.canvas.width = 2048;
+    this.canvas.height = 1360;
     this.ctx = this.canvas.getContext('2d')!;
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.colorSpace = THREE.SRGBColorSpace;
@@ -212,7 +221,7 @@ export class Laptop {
     const lidShell = mesh(roundedBox(0.78, 0.025, 0.5, 0.04), shell, 0, 0.25, 0);
     lidShell.rotation.x = Math.PI / 2;
     this.lidModel.add(lidShell);
-    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.46), this.screenMat);
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(SCREEN_W, SCREEN_H), this.screenMat);
     screen.position.set(0, 0.25, 0.014);
     this.lidModel.add(screen);
     // Sticker on the back of the lid
@@ -270,13 +279,20 @@ export class Laptop {
   /** Points the lid's `Display` node at the live terminal texture. */
   private wireDisplay() {
     const display = this.lidModel.getObjectByName('Display') as THREE.Mesh | undefined;
-    if (display?.isMesh) display.material = this.screenMat;
+    if (!display?.isMesh) return;
+    display.material = this.screenMat;
+    // The GLB's plane (0.72 x 0.46, centred at y 0.253, z 0.013) sits recessed in a bezel frame.
+    // Stretch it to nearly the lid's full 0.78 x 0.5 and float it just in front of the frame.
+    const sx = SCREEN_W / 0.72;
+    const sy = SCREEN_H / 0.46;
+    display.scale.set(sx, sy, 1);
+    display.position.set(0, 0.253 * (1 - sy) + (0.25 - 0.253), SCREEN_Z - 0.013);
   }
 
   private setLid(open: number) {
     this.openT = open;
     const e = 1 - (1 - open) ** 3;
-    this.lid.rotation.x = Math.PI / 2 - e * (Math.PI / 2 + 0.22);
+    this.lid.rotation.x = Math.PI / 2 - e * (Math.PI / 2 + LID_LEAN);
   }
 
   dispose() {
