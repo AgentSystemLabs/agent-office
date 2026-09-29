@@ -18,7 +18,7 @@ import { buildGong } from '../world/gong';
 import { buildJukebox } from '../world/jukebox';
 import { buildKitchen } from '../world/kitchen';
 import { preloadModels } from '../world/models';
-import { DESK_BOOKS, FLOOR_PLANTS, buildDesk, deskBooks, deskMug, plant } from '../world/office';
+import { DESK_BOOKS, FLOOR_PLANTS, buildDesk, coffeeTable, deskBooks, deskMug, loungeCouch, plant, pouf } from '../world/office';
 import { toon } from '../world/toon';
 import { ready, stage } from './stage';
 
@@ -66,6 +66,14 @@ const SHOW: Record<string, () => Shown> = {
     } else {
       [deskMug('#ff8a5b'), ...DESK_BOOKS.map((_, i) => deskBooks(i))].forEach((p, i) => object.add(p.translateX(i * 0.36)));
     }
+    return { object };
+  },
+  lounge: () => {
+    // The lounge's pieces side by side, as the office paints them: the sofa with its two pillows, the coffee
+    // table, and a pouf in each of its colors.
+    const object = new THREE.Group();
+    const at = [0, 3.5, 5.3, 6.6];
+    [loungeCouch(), coffeeTable(), pouf('#06d6a0'), pouf('#ffd166')].forEach((o, i) => object.add(o.translateX(at[i])));
     return { object };
   },
   lambo: () => ({ object: supercar('lambo', '#ffd166') }),
