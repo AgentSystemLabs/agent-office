@@ -48,3 +48,15 @@ test('the issues and PR agents keep their jobs, and may still be asked for somet
 test('the queue agent is launched without the file-editing tools', () => {
   assert.deepEqual(QUEUE_AGENT_DISALLOWED_TOOLS, ['Edit', 'Write', 'NotebookEdit']);
 });
+
+test('on a floor whose issues live in Linear, the briefs say so and point at the Linear tools', () => {
+  const issues = stationBrief('issues', undefined, 'linear');
+  assert.match(issues, /Linear issues with the Linear MCP tools/);
+  assert.doesNotMatch(issues, /gh CLI|GitHub/);
+  const queue = stationBrief('queue', undefined, 'linear');
+  assert.match(queue, /Read the code and list_issues only as far/);
+  assert.match(queue, /--issue FOUND-2\) the task is linked to that Linear issue/);
+  assert.doesNotMatch(queue, /\{\{/);
+  // GitHub is the default, and reads as it always did.
+  assert.match(stationBrief('queue'), /--issue 12\) the task is linked to that GitHub issue/);
+});

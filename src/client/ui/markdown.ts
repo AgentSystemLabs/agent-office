@@ -116,7 +116,7 @@ export function markdownFile(src: string): HTMLElement {
   return el;
 }
 
-/** https://github.com/owner/repo from an issue or PR URL. */
+/** https://github.com/owner/repo from an issue or PR URL; '' for a page somewhere else (a Linear issue), whose relative links mean nothing here. */
 export function repoUrlOf(itemUrl: string): string {
-  return itemUrl.replace(/\/(pull|issues)\/\d+.*$/, '');
+  return /^https:\/\/github\.com\//.test(itemUrl) ? itemUrl.replace(/\/(pull|issues)\/\d+.*$/, '') : '';
 }

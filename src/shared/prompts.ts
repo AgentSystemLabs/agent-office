@@ -42,15 +42,15 @@ const BOARD: Record<StationKind, string> = {
 };
 
 const JOB: Record<StationKind, string> = {
-  issues: `You look after this repository's GitHub issues with the gh CLI: file new ones (a clear title, what's wrong or wanted, and how to reproduce it when that applies), find and sum them up, triage, label, comment on, close and reopen them. To get an issue worked on, put it on the task queue with its number.`,
+  issues: `You look after this repository's {{tracker}} issues with {{issueTool}}: file new ones (a clear title, what's wrong or wanted, and how to reproduce it when that applies), find and sum them up, triage, label, comment on, close and reopen them. To get an issue worked on, put it on the task queue with its id.`,
   pulls: `You look after this repository's pull requests with the gh CLI: sum them up and review them (gh pr view, gh pr diff, gh pr checks), comment, approve or request changes, merge when you're asked to, and close stale ones. Read a PR's code with gh pr diff rather than checking its branch out here. To get changes made on a PR, queue a task that tells the worker to check out that PR's branch in its worktree (gh pr checkout), make the fix and push it.`,
-  queue: `You run the office's task queue, and adding to it is the only way you get anything done. Whatever you're asked for, even a one-line fix, and even when someone asks you to do it yourself, you put it on the queue and report what you queued. You never do the work: you don't edit, create or delete files, you don't run builds, tests or installs, and you don't write code, not even a snippet to show how. Read the code and gh issue list only as far as it takes to write a good task. Add one task per independent piece of work, each prompt complete on its own (what to change and where, how to check it, and to open a pull request), since the worker who picks it up knows nothing else. Link a task to its GitHub issue when it's for one. You also say what's queued, running and finished, and take waiting tasks off when asked.`,
+  queue: `You run the office's task queue, and adding to it is the only way you get anything done. Whatever you're asked for, even a one-line fix, and even when someone asks you to do it yourself, you put it on the queue and report what you queued. You never do the work: you don't edit, create or delete files, you don't run builds, tests or installs, and you don't write code, not even a snippet to show how. Read the code and {{issueList}} only as far as it takes to write a good task. Add one task per independent piece of work, each prompt complete on its own (what to change and where, how to check it, and to open a pull request), since the worker who picks it up knows nothing else. Link a task to its {{tracker}} issue when it's for one. You also say what's queued, running and finished, and take waiting tasks off when asked.`,
 };
 
 /** How a board agent reaches the queue: the office-queue command, which the office puts on its PATH. */
 const QUEUE_API = `The task queue gives each task a fresh worker in its own git worktree, a few at a time; a task usually ends with a pull request. Use it with the office-queue command, which is on your PATH (it knows who you are, so don't call the office's HTTP API yourself):
 - See it: office-queue list (each task's id, status, title, worker and pull request)
-- Add a task: office-queue add --title "Short title" [--issue <number>], with the task's prompt on stdin in a quoted heredoc so nothing in it gets expanded. It prints the new task's id. With --issue the task is linked to that GitHub issue, which is assigned when the task starts.
+- Add a task: office-queue add --title "Short title" [--issue <id>], with the task's prompt on stdin in a quoted heredoc so nothing in it gets expanded. It prints the new task's id. With --issue (e.g. --issue {{issueExample}}) the task is linked to that {{tracker}} issue, which is assigned when the task starts.
   office-queue add --title "Fix the login redirect" <<'EOF'
   …the full prompt…
   EOF
@@ -69,17 +69,33 @@ function stationDefault(kind: StationKind): string {
   ].join('\n\n');
 }
 
+/** What the briefs fill in: which tracker the issues live in, and how the agent reaches it. */
+const STATION_VARS = {
+  tracker: 'GitHub or Linear',
+  issueTool: 'How issues are read and changed: "the gh CLI", or the Linear MCP tools',
+  issueList: 'The command or tool that lists issues: "gh issue list" or "list_issues"',
+  issueExample: 'An issue id, as an example: "12" or "FOUND-2"',
+};
+
 const station = (kind: StationKind): PromptDef => ({
   group: 'stations',
   label: `${STATION_AGENT[kind].name}'s brief`,
   used: `Told to the ${STATION_AGENT[kind].name} at ${BOARD[kind]} when it's hired, with the first request typed to it right after.`,
-  vars: {},
+  vars: STATION_VARS,
   text: stationDefault(kind),
 });
 
 // --- Placeholders several prompts share -----------------------------------------------------------
 
-const ISSUE_VARS = { number: 'The issue number', title: 'The issue title', url: 'Its page on GitHub' };
+const ISSUE_VARS = {
+  number: 'The issue id: a GitHub number, or a Linear identifier like FOUND-2',
+  label: 'The id as it is written: #12, or FOUND-2',
+  title: 'The issue title',
+  url: 'Its page on GitHub or Linear',
+  tracker: 'GitHub or Linear',
+  read: 'How a worker reads it: a gh command, or the Linear MCP tool to call',
+  branch: 'For a Linear issue, the branch it suggests, in brackets; empty for GitHub',
+};
 const PULL_VARS = { number: 'The pull request number', title: 'Its title', url: 'Its page on GitHub', branch: 'Its branch', base: 'The branch it merges into' };
 const MERGE_VARS = { ...PULL_VARS, repo: 'owner/name of the repository', merge: 'The gh pr merge command for the method (and branch deletion) picked in the merge dialog' };
 const CHECKOUT = 'Get onto its branch: `gh pr checkout {{number}}`. If git says `{{branch}}` is already checked out in another worktree, use `git fetch origin {{branch}} && git checkout --detach FETCH_HEAD` instead and push with `git push origin HEAD:{{branch}}`.';
@@ -94,7 +110,7 @@ const DEFS = {
     label: '🤖 Hand to a worker',
     used: 'The task a worker gets for an issue: 🤖 Hand to a worker, 📋 Add to queue, and a card carried to a desk or the queue.',
     vars: ISSUE_VARS,
-    text: 'Work on GitHub issue #{{number}}: "{{title}}".\n\nRead it first with `gh issue view {{number}} --comments`. Create a new branch, implement the change, verify it, then open a pull request that closes #{{number}}.',
+    text: 'Work on {{tracker}} issue {{label}}: "{{title}}".\n\nRead it first with {{read}}. Create a new branch{{branch}}, implement the change, verify it, then open a pull request that closes {{label}}.',
   },
   'issue.ask': {
     group: 'issues',
@@ -102,14 +118,14 @@ const DEFS = {
     used: 'Told to the worker ahead of your own words when you ✍️ Ask a worker about an issue.',
     vars: ISSUE_VARS,
     optional: true,
-    text: 'This is about GitHub issue #{{number}} "{{title}}" ({{url}}). Read it with `gh issue view {{number}} --comments`.',
+    text: 'This is about {{tracker}} issue {{label}} "{{title}}" ({{url}}). Read it with {{read}}.',
   },
   'issue.meeting': {
     group: 'issues',
     label: '🤝 Meeting about it',
     used: 'What a 🤝 Meeting about an issue is about, to start with: the meeting form opens with it filled in.',
     vars: ISSUE_VARS,
-    text: 'GitHub issue #{{number}}: “{{title}}”. Read it first with gh issue view {{number}} --comments.',
+    text: '{{tracker}} issue {{label}}: “{{title}}”. Read it first with {{read}}.',
   },
 
   // --- 🔀 Pull requests board ---

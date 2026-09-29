@@ -5,6 +5,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { WEATHERS, type Weather } from '../shared/protocol.js';
 import { MAX_WORKER_LIMIT, parseWorkerLimit } from './machine.js';
+import type { IssuesConfig } from './issues.js';
 
 export interface Config {
   /** The office's own folder: the building's data lives in its .agent-office. */
@@ -51,6 +52,8 @@ export interface Config {
   city?: string;
   /** Weather pinned for good, instead of made up or forecast. */
   weather?: Weather;
+  /** Where the 📌 issue boards read from (--issues): GitHub through gh, or Linear. */
+  issues: IssuesConfig;
 }
 
 export interface RTCIceServerLike {
@@ -113,6 +116,18 @@ Options:
       --agent <cmd>       Default agent command (default "claude", env AGENT_OFFICE_AGENT)
       --agent-args <str>  Extra args for the configured agent, e.g. "--model opus"
                           Workers can also select Claude Code, OpenCode or Codex in the UI
+      --issues <tracker>  Where the 📌 issue boards read from: github (default) or
+                          linear (env AGENT_OFFICE_ISSUES). Pull requests always
+                          come from GitHub. Linear is read and written through
+                          Claude Code and your claude.ai Linear connector, so
+                          "claude mcp list" must show it Connected
+      --linear-teams <keys>  Linear team keys whose issues fill the board, comma-
+                          separated, e.g. FOUND,PLAT (env AGENT_OFFICE_LINEAR_TEAMS)
+      --linear-filter <text>  Only the issues that fit this, in plain English, e.g.
+                          "assigned to me or unassigned" (env AGENT_OFFICE_LINEAR_FILTER)
+      --linear-mcp <name> The Linear MCP server as Claude names its tools, e.g.
+                          mcp__<name>__list_issues (default claude_ai_Linear,
+                          env AGENT_OFFICE_LINEAR_MCP)
       --tls-cert <file>   Serve HTTPS with this certificate (PEM)
       --tls-key <file>    ...and this private key (PEM)
       --self-signed       Serve HTTPS with a generated self-signed certificate
@@ -216,6 +231,10 @@ export function loadConfig(argv: string[]): Config {
   let webhook = process.env.AGENT_OFFICE_WEBHOOK;
   let city = process.env.AGENT_OFFICE_CITY || '';
   let weather = process.env.AGENT_OFFICE_WEATHER || '';
+  let issuesFrom = process.env.AGENT_OFFICE_ISSUES || 'github';
+  let linearTeams = process.env.AGENT_OFFICE_LINEAR_TEAMS || '';
+  let linearFilter = process.env.AGENT_OFFICE_LINEAR_FILTER || '';
+  let linearMcp = process.env.AGENT_OFFICE_LINEAR_MCP || 'claude_ai_Linear';
   const iceServers: RTCIceServerLike[] = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 
   for (let i = 0; i < argv.length; i++) {
@@ -243,6 +262,18 @@ export function loadConfig(argv: string[]): Config {
         // Its value is flags itself ("--model opus"), so a leading -- doesn't mean the value is missing.
         if (argv[i + 1] === undefined) takeValue(argv, i, a);
         agentArgs = splitArgs(argv[++i]);
+        break;
+      case '--issues':
+        issuesFrom = takeValue(argv, i++, a);
+        break;
+      case '--linear-teams':
+        linearTeams = takeValue(argv, i++, a);
+        break;
+      case '--linear-filter':
+        linearFilter = takeValue(argv, i++, a);
+        break;
+      case '--linear-mcp':
+        linearMcp = takeValue(argv, i++, a);
         break;
       case '--tls-cert':
         tlsCert = takeValue(argv, i++, a);
@@ -333,6 +364,22 @@ export function loadConfig(argv: string[]): Config {
     console.error(`agent-office: --weather is one of ${WEATHERS.join(', ')}`);
     process.exit(2);
   }
+  issuesFrom = issuesFrom.trim().toLowerCase();
+  if (issuesFrom !== 'github' && issuesFrom !== 'linear') {
+    console.error('agent-office: --issues is github or linear');
+    process.exit(2);
+  }
+  const teams = linearTeams.split(',').map((t) => t.trim()).filter(Boolean);
+  if (issuesFrom === 'linear' && !teams.length) {
+    console.error('agent-office: --issues linear needs the teams whose issues fill the board, e.g. --linear-teams FOUND,PLAT');
+    process.exit(2);
+  }
+  linearMcp = linearMcp.trim();
+  if (issuesFrom === 'linear' && !/^[A-Za-z0-9_.-]+$/.test(linearMcp)) {
+    console.error('agent-office: --linear-mcp is an MCP server name as Claude writes it in tool names, e.g. claude_ai_Linear');
+    process.exit(2);
+  }
+  const issues: IssuesConfig = issuesFrom === 'linear' ? { provider: 'linear', teams, filter: linearFilter.trim() || undefined, mcp: linearMcp } : { provider: 'github' };
 
   const dataDir = path.join(dir, '.agent-office');
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -426,6 +473,7 @@ export function loadConfig(argv: string[]): Config {
     webhook,
     city: city.trim() || undefined,
     weather: (weather as Weather) || undefined,
+    issues,
   };
 }
 

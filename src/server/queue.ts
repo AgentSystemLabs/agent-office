@@ -5,7 +5,19 @@ import { isAgentEffort, isAgentProvider, isClaudeModel, type AgentChoice, type A
 import { DESK_BY_ID, SEATS, nextFreeSeat } from '../shared/layout.js';
 import { isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { PROMPTS } from '../shared/prompts.js';
-import { issueLabel, parseIssueId } from '../shared/issues.js';
+import { isGithubIssueId, issueLabel, parseIssueId } from '../shared/issues.js';
+
+/**
+ * Whether a pull request is for another tracker's issue: its branch carries the id (Linear's
+ * suggested branches do), or its title or body says it closes, fixes or resolves it. GitHub tells
+ * the office which of its own issues a PR closes (GhPull.closes), so this is for the others.
+ */
+function mentions(p: GhPull, id: string): boolean {
+  if (isGithubIssueId(id)) return false;
+  const lower = id.toLowerCase();
+  if (p.headRefName.toLowerCase().split(/[/_.]/).some((part) => part === lower || part.startsWith(`${lower}-`))) return true;
+  return new RegExp(`\\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\s+${id.replace(/[-]/g, '\\-')}\\b`, 'i').test(`${p.title}\n${p.body}`);
+}
 
 /** What the queue needs from the worker manager. Narrow on purpose, so a smoke test can fake it. */
 export interface QueueWorkers {
@@ -190,7 +202,7 @@ export class TaskQueue {
       if (t.status === 'queued') continue;
       const since = (t.startedAt ?? t.addedAt) - 60_000;
       const match = pulls
-        .filter((p) => (t.branch && p.headRefName === t.branch) || (t.issue !== undefined && p.closes.includes(t.issue) && Date.parse(p.createdAt) >= since))
+        .filter((p) => (t.branch && p.headRefName === t.branch) || (t.issue !== undefined && (p.closes.includes(t.issue) || mentions(p, t.issue)) && Date.parse(p.createdAt) >= since))
         .sort((a, b) => Number(b.headRefName === t.branch) - Number(a.headRefName === t.branch) || b.createdAt.localeCompare(a.createdAt))[0];
       if (!match) continue;
       const pr = { number: match.number, url: match.url, state: match.isDraft ? 'DRAFT' : match.state, title: match.title };

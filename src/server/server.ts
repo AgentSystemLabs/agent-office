@@ -433,7 +433,7 @@ export async function startServer(cfg: Config) {
     ledger,
     capacity: machine,
     prompts,
-    issues: { provider: 'github' },
+    issues: cfg.issues,
     claude: claudeBin,
     emit: toFloor,
     toast: toastFloor,

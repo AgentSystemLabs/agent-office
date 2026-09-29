@@ -33,3 +33,33 @@ export function hashIssue(id: string): number {
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
   return h;
 }
+
+/** Where a floor's issues come from. Pull requests always come from GitHub. */
+export type IssueTracker = 'github' | 'linear';
+
+export const TRACKER_NAME: Record<IssueTracker, string> = { github: 'GitHub', linear: 'Linear' };
+
+/**
+ * What an issue's prompts fill in (the 'issue.*' prompts in shared/prompts.ts): its id both bare and
+ * as it's written, the tracker's name, how a worker reads it there, and for Linear the branch it
+ * suggests. `number` keeps its old name, so prompts rewritten before there were trackers still work.
+ */
+export function issueVarsFor(tracker: IssueTracker, it: { id: string; title: string; url?: string; branch?: string }) {
+  const label = issueLabel(it.id);
+  return {
+    number: it.id,
+    label,
+    title: it.title,
+    url: it.url ?? '',
+    tracker: TRACKER_NAME[tracker],
+    read: tracker === 'linear' ? `the Linear MCP tool \`get_issue\` with id "${it.id}" (and \`list_comments\` for its comments)` : `\`gh issue view ${it.id} --comments\``,
+    branch: tracker === 'linear' && it.branch ? ` (Linear suggests \`${it.branch}\`)` : '',
+  };
+}
+
+/** What the board agents' briefs fill in (the 'station.*' prompts): which tracker, and how to reach it. */
+export function stationVarsFor(tracker: IssueTracker) {
+  return tracker === 'linear'
+    ? { tracker: 'Linear', issueTool: 'the Linear MCP tools (list_issues, get_issue, save_issue, save_comment)', issueList: 'list_issues', issueExample: 'FOUND-2' }
+    : { tracker: 'GitHub', issueTool: 'the gh CLI', issueList: 'gh issue list', issueExample: '12' };
+}

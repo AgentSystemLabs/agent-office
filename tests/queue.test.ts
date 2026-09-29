@@ -254,3 +254,17 @@ test('a pull request that closes a task’s issue links to it', (t) => {
   q.onPulls([pull]);
   assert.equal(q.state().tasks[0].pr?.number, 7);
 });
+
+test('a pull request for a Linear issue links by its branch or a "Closes FOUND-2" in its body', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open(); q.setLimit(2);
+  q.add('Fix login', 'Tester', undefined, 'FOUND-2');
+  q.add('Fix logout', 'Tester', undefined, 'PLAT-931');
+  const base = { title: 'x', state: 'OPEN', isDraft: false, url: 'u', author: 'a', labels: [], reviewDecision: '', baseRefName: 'main', createdAt: new Date().toISOString(), updatedAt: '', additions: 0, deletions: 0, checks: 'none' as const, closes: [] as string[] };
+  q.onPulls([
+    { ...base, number: 7, headRefName: 'greg/found-2-fix-login', body: '' },
+    { ...base, number: 8, headRefName: 'other', body: 'Closes PLAT-931', title: 'Fix logout' },
+    { ...base, number: 9, headRefName: 'utf-8-work', body: 'fixes utf-8 handling' },
+  ]);
+  assert.deepEqual(q.state().tasks.map((t) => t.pr?.number), [7, 8]);
+});

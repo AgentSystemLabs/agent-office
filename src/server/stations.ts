@@ -4,10 +4,12 @@
 // rewrite in ⚙️ Settings (shared/prompts.ts).
 
 import type { StationKind } from '../shared/layout.js';
+import { stationVarsFor, type IssueTracker } from '../shared/issues.js';
 import { officePrompt, type PromptSource } from './prompts.js';
 
-export function stationBrief(kind: StationKind, prompts?: PromptSource): string {
-  return officePrompt(prompts, `station.${kind}`);
+/** The brief, filled in for the tracker the floor's issues live in (GitHub unless told otherwise). */
+export function stationBrief(kind: StationKind, prompts?: PromptSource, tracker: IssueTracker = 'github'): string {
+  return officePrompt(prompts, `station.${kind}`, stationVarsFor(tracker));
 }
 
 /** Claude Code tools the queue agent is launched without, so it can't edit the checkout even by mistake. */

@@ -293,6 +293,12 @@ export interface GhIssue {
   updatedAt: string;
   body: string;
   comments: number;
+  /** From a tracker with workflow states (Linear): the state's type, e.g. "started". Unset for GitHub. */
+  status?: string;
+  /** Linear's priority, 1 (urgent) to 4 (low); 0 or unset for none. Unset for GitHub. */
+  priority?: number;
+  /** The branch the tracker suggests for it (Linear), when it does. */
+  branch?: string;
 }
 
 export interface GhPull {

@@ -1,5 +1,5 @@
 import type { GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhLabel, GhMergeMethod, GhPull, GhPullDetail, GhReviewComment, ServerMsg } from '../../shared/protocol';
-import { issueLabel } from '../../shared/issues';
+import { TRACKER_NAME, issueLabel } from '../../shared/issues';
 import type { Net } from '../net';
 import { AVATAR_COLORS, store, workerForPull } from '../state';
 import { issuePrompt, issueVars, type BoardActions } from './boards';
@@ -223,7 +223,8 @@ function commentBox(at: GhTarget, itemUrl: string, net: Net, onPosted: (c: GhCom
   const shown = h('div.gh-compose-preview.hidden');
   const write = h('button.btn.on', { type: 'button' }, 'Write');
   const preview = h('button.btn', { type: 'button' }, 'Preview');
-  const who = h('span.grow', {}, "Posts to GitHub as the office's gh account");
+  const tracker = at.kind === 'issue' ? TRACKER_NAME[store.issueProvider] : 'GitHub';
+  const who = h('span.grow', {}, tracker === 'GitHub' ? "Posts to GitHub as the office's gh account" : `Posts to ${tracker} as the office's Claude connector`);
   const post = h('button.btn.primary', { type: 'button' }, '💬 Comment');
   const result = h('div.gh-merge-result.error.hidden');
   const el = h(
@@ -279,7 +280,7 @@ function commentBox(at: GhTarget, itemUrl: string, net: Net, onPosted: (c: GhCom
         saveDraft();
         setPreview(false);
         onPosted(msg.comment);
-      } else fail(msg.error ?? 'GitHub did not take the comment');
+      } else fail(msg.error ?? `${tracker} did not take the comment`);
       sync();
     });
     // The office drops messages while it's disconnected, and then no answer comes.
@@ -305,7 +306,7 @@ function commentBox(at: GhTarget, itemUrl: string, net: Net, onPosted: (c: GhCom
   return {
     el,
     setViewer(login) {
-      if (login) who.textContent = `Posts to GitHub as @${login}`;
+      if (login) who.textContent = `Posts to ${tracker} as ${tracker === 'GitHub' ? '@' : ''}${login}`;
     },
     dispose: settle,
   };
@@ -511,10 +512,11 @@ export function openLabels(kind: 'issue' | 'pull', it: GhIssue | GhPull, net: Ne
   const at = ghTarget(kind, it);
   const key = ghKey(at);
   const label = ghLabel(at);
+  const tracker = at.kind === 'issue' ? TRACKER_NAME[store.issueProvider] : 'GitHub';
   const had = new Set(it.labels.map((l) => l.name));
   const on = new Set(had);
   const noun = kind === 'pull' ? 'PR' : 'issue';
-  const manage = `${repoUrlOf(it.url)}/labels`;
+  const manage = tracker === 'Linear' ? 'https://linear.app/settings/labels' : `${repoUrlOf(it.url)}/labels`;
   let repo: GhLabel[] | null = null;
   let error = '';
   let busy = false;
@@ -607,11 +609,11 @@ export function openLabels(kind: 'issue' | 'pull', it: GhIssue | GhPull, net: Ne
     if (busy || (!add.length && !remove.length)) return;
     busy = true;
     result.className = 'gh-merge-result';
-    result.replaceChildren(h('span.spinner'), 'Saving the labels on GitHub…');
+    result.replaceChildren(h('span.spinner'), `Saving the labels on ${tracker}…`);
     sync();
     labelWaiters.set(key, (msg) => {
       settle();
-      if (!msg.labels) return fail(msg.error ?? 'GitHub did not take the labels');
+      if (!msg.labels) return fail(msg.error ?? `${tracker} did not take the labels`);
       modal.close();
       onSaved?.(msg.labels);
     });
@@ -1169,7 +1171,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
   conv.append(h('div.gh-col', {}, thread, comment.el));
   // The footer stays put and renderFrame only shows, hides and relabels, so a board refresh never
   // pulls focus out of the provider picker.
-  const closeIssue = h('button.btn', { type: 'button', title: 'Close this issue on GitHub', onclick: () => openClose('issue', it, net, load) }, '✔️ Close issue…');
+  const closeIssue = h('button.btn', { type: 'button', title: `Close this issue on ${TRACKER_NAME[store.issueProvider]}`, onclick: () => openClose('issue', it, net, load) }, '✔️ Close issue…');
   const queueProvider = providerPicker(store.project, `issue-provider-${it.id}`, 'Queue on');
   const addIssueToQueue = () => {
     if (!queueProvider.valid()) return;
@@ -1188,7 +1190,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
     h(
       'footer',
       {},
-      h('a.grow', { href: it.url, target: '_blank', rel: 'noopener noreferrer' }, 'Open on GitHub ↗'),
+      h('a.grow', { href: it.url, target: '_blank', rel: 'noopener noreferrer' }, `Open on ${TRACKER_NAME[store.issueProvider]} ↗`),
       h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this issue', onclick: () => actions.ask(issueContext(it), `Ask about issue ${issueLabel(it.id)}`) }, '✍️ Ask a worker…'),
       h('button.btn', { type: 'button', title: 'Workers take it on together in the meeting room: a debate, lead & team, map-reduce or red / blue', onclick: () => actions.meeting(issueMeeting(it.id, it.title)) }, '🤝 Meeting…'),
       closeIssue,

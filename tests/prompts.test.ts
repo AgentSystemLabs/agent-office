@@ -6,6 +6,7 @@ import path from 'node:path';
 import { PROMPTS, PROMPT_IDS, PROMPT_MAX, fillPrompt, placeholders, promptText } from '../src/shared/prompts.js';
 import { OfficePrompts, officePrompt, type PromptSource } from '../src/server/prompts.js';
 import { stationBrief } from '../src/server/stations.js';
+import { issueVarsFor } from '../src/shared/issues.js';
 import { TaskQueue, type QueueWorkers } from '../src/server/queue.js';
 import type { AgentChoice, PromptsState, WorkerInfo } from '../src/shared/protocol.js';
 
@@ -37,9 +38,17 @@ test('every default only uses placeholders it says it has, and names the ones th
 
 test('the boards send what they always did', () => {
   assert.equal(
-    fillPrompt(PROMPTS['issue.work'].text, { number: 7, title: 'Dog barks', url: 'u' }),
+    fillPrompt(PROMPTS['issue.work'].text, issueVarsFor('github', { id: '7', title: 'Dog barks', url: 'u' })),
     'Work on GitHub issue #7: "Dog barks".\n\nRead it first with `gh issue view 7 --comments`. Create a new branch, implement the change, verify it, then open a pull request that closes #7.',
   );
+  // The same prompt, for an issue that lives in Linear.
+  assert.equal(
+    fillPrompt(PROMPTS['issue.work'].text, issueVarsFor('linear', { id: 'FOUND-2', title: 'Dog barks', url: 'u', branch: 'greg/found-2-dog-barks' })),
+    'Work on Linear issue FOUND-2: "Dog barks".\n\nRead it first with the Linear MCP tool `get_issue` with id "FOUND-2" (and `list_comments` for its comments). Create a new branch (Linear suggests `greg/found-2-dog-barks`), implement the change, verify it, then open a pull request that closes FOUND-2.',
+  );
+  assert.match(fillPrompt(PROMPTS['issue.ask'].text, issueVarsFor('linear', { id: 'FOUND-2', title: 'T', url: 'https://linear.app/x/issue/FOUND-2' })), /^This is about Linear issue FOUND-2 "T" \(https:\/\/linear\.app\/x\/issue\/FOUND-2\)\. Read it with the Linear MCP tool `get_issue`/);
+  // A prompt rewritten before there were trackers still fills in.
+  assert.equal(fillPrompt('Do #{{number}} now', issueVarsFor('github', { id: '4', title: 'T' })), 'Do #4 now');
   const merge = fillPrompt(PROMPTS['pull.fixMerge'].text, { number: 5, title: 'T', url: 'https://github.com/o/r/pull/5', branch: 'feat', base: 'main', repo: 'o/r', merge: 'gh pr merge 5 --squash --repo o/r' });
   assert.match(merge, /^Get pull request #5 "T" \(https:\/\/github\.com\/o\/r\/pull\/5\) ready and merge it\.\n\n1\. Get onto its branch: `gh pr checkout 5`\. If git says `feat` is already checked out/);
   assert.match(merge, /git push origin HEAD:feat/);

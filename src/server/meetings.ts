@@ -9,7 +9,13 @@ import { fmtTokens, isAgentEffort, isAgentProvider, tokensOf, type AgentChoice, 
 import { validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { gitError, type WorktreeRef, type WorktreeState } from './worktrees.js';
 import { PROMPTS, fillPrompt, type PromptId, type PromptVars } from '../shared/prompts.js';
-import { issueLabel, parseIssueId } from '../shared/issues.js';
+import { issueVarsFor, parseIssueId, type IssueTracker } from '../shared/issues.js';
+
+/** The line of a meeting's brief that says which issue it's about and how to read it. */
+function issueLine(tracker: IssueTracker, id: string): string {
+  const v = issueVarsFor(tracker, { id, title: '' });
+  return `It comes from ${v.tracker} issue ${v.label}: read it with ${v.read}.`;
+}
 
 const execFileP = promisify(execFile);
 
@@ -43,6 +49,8 @@ export interface MeetingEvents {
   postReview(pr: number, file: string): Promise<string>;
   /** One of the office's prompts as it has it now (rewritten in ⚙️ Settings, or the default). */
   prompt?(id: PromptId): string;
+  /** Where the floor's issues come from, for how a meeting about one is told to read it. */
+  issueTracker?(): IssueTracker;
 }
 
 const PUMP_MS = 3000;
@@ -532,7 +540,7 @@ export class MeetingRoom {
       how: how[m.pattern],
       about: m.prompt,
       pullRequest: m.pr !== undefined ? `The pull request is #${m.pr}: read it with gh pr view ${m.pr} and gh pr diff ${m.pr}.` : '',
-      issue: m.issue !== undefined ? `It comes from GitHub issue ${issueLabel(m.issue)}: gh issue view ${m.issue} --comments.` : '',
+      issue: m.issue !== undefined ? issueLine(this.events.issueTracker?.() ?? 'github', m.issue) : '',
       cwd: this.cwd(m),
       notes: path.join(this.cwd(m), m.notes),
       output: m.output,

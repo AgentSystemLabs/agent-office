@@ -10,6 +10,8 @@ import { agentProviders, configuredProvider } from './agents.js';
 import { WorkerManager, type HookEnv } from './workers.js';
 import { GitHub, MergeWatch } from './github.js';
 import type { IssueProvider, IssuesConfig } from './issues.js';
+import { LinearIssues } from './linear.js';
+import { childEnv } from './workers.js';
 import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { Decor } from './decor.js';
@@ -169,6 +171,7 @@ export class Floor {
       ctx.ledger,
       ctx.capacity,
       ctx.prompts,
+      ctx.issues.provider,
     );
 
     const githubIssues = ctx.issues.provider === 'github';
@@ -187,7 +190,8 @@ export class Floor {
       },
       { issues: githubIssues },
     );
-    this.issueSource = this.github;
+    // Linear reads and writes through headless Claude sessions and the user's Linear connector (see linear.ts).
+    this.issueSource = ctx.issues.provider === 'linear' ? new LinearIssues(ctx.issues, ctx.claude, childEnv(), (state) => ctx.emit(this, { t: 'gh.issues', state })) : this.github;
     // The 📋 task queue seats workers by itself: it watches the workers and links PRs from GitHub.
     this.queue = new TaskQueue(dataDir, this.workers, !!this.project.branch, {
       update: (state) => {
@@ -230,6 +234,7 @@ export class Floor {
         hiringPaused: () => ctx.ledger.hiringPaused,
         postReview: (pr, file) => this.github.review(pr, file),
         prompt: (id) => ctx.prompts.text(id),
+        issueTracker: () => this.issueSource.kind,
       },
     );
 

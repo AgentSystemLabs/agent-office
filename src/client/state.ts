@@ -7,6 +7,7 @@ import type { DogState } from '../shared/dog';
 import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
 import type { BallState } from '../shared/hoop';
+import type { IssueTracker } from '../shared/issues';
 
 export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'leaveOnMerge' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting' | 'prompts' | 'ball';
 
@@ -135,6 +136,8 @@ class Store {
   /** The repositories the office's gh login can clone, once asked for (see floor.repos). */
   repos: { list: RepoChoice[]; error?: string; loading: boolean; at: number } = { list: [], loading: false, at: 0 };
   issues: GhState<GhIssue> = { items: [], fetchedAt: 0, loading: true };
+  /** Where this floor's issues come from; pull requests always come from GitHub. */
+  issueProvider: IssueTracker = 'github';
   pulls: GhState<GhPull> = { items: [], fetchedAt: 0, loading: true };
   ice: RTCIceServer[] = [];
   chat: ChatLine[] = [];
@@ -242,6 +245,7 @@ class Store {
     this.workers = new Map(v.workers.map((w) => [w.id, w]));
     this.screens.clear(); // fresh full frames follow
     this.issues = v.issues;
+    this.issueProvider = v.issueProvider;
     this.pulls = v.pulls;
     this.queue = v.queue;
     this.meeting = v.meeting;

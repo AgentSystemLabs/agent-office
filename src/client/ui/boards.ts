@@ -1,5 +1,5 @@
 import { DESK_BY_ID } from '../../shared/layout';
-import { hashIssue, issueLabel } from '../../shared/issues';
+import { TRACKER_NAME, hashIssue, issueLabel, issueVarsFor } from '../../shared/issues';
 import type { AgentEffort, AgentProvider, GhIssue, GhLabel, GhPull, WorkerInfo } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store, workerForPull } from '../state';
@@ -29,9 +29,10 @@ export function issuePrompt(it: Pick<GhIssue, 'id' | 'title'> & { url?: string }
   return officePrompt('issue.work', issueVars(it));
 }
 
-/** What an issue's prompts fill in. A carried card has no URL, but the board usually knows it. */
-export function issueVars(it: Pick<GhIssue, 'id' | 'title'> & { url?: string }) {
-  return { number: it.id, title: it.title, url: it.url ?? store.issues.items.find((i) => i.id === it.id)?.url ?? '' };
+/** What an issue's prompts fill in. A carried card has no URL or branch, but the board usually knows them. */
+export function issueVars(it: Pick<GhIssue, 'id' | 'title'> & { url?: string; branch?: string }) {
+  const known = store.issues.items.find((i) => i.id === it.id);
+  return issueVarsFor(store.issueProvider, { id: it.id, title: it.title, url: it.url ?? known?.url, branch: it.branch ?? known?.branch });
 }
 
 const TILTS = ['-1.2deg', '0.8deg', '-0.4deg', '1.4deg', '0deg', '-0.9deg'];
@@ -50,7 +51,7 @@ const byUpdated = (a: { updatedAt: string }, b: { updatedAt: string }) => b.upda
 
 function issueColumns(items: GhIssue[]): Column<GhIssue>[] {
   const open = items.filter((i) => i.state === 'OPEN');
-  const inProgress = open.filter((i) => i.assignees.length > 0 || i.labels.some((l) => /progress|doing|wip|started/i.test(l.name)) || store.taskForIssue(i.id)?.status === 'running');
+  const inProgress = open.filter((i) => i.assignees.length > 0 || i.status === 'started' || i.labels.some((l) => /progress|doing|wip|started/i.test(l.name)) || store.taskForIssue(i.id)?.status === 'running');
   const todo = open.filter((i) => !inProgress.includes(i));
   return [
     { key: 'open', title: '📥 Open', items: todo },
@@ -155,7 +156,7 @@ function card(label: string, seed: number, title: string, meta: (Node | string)[
 export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActions) {
   const body = h('div.body');
   const status = h('span.board-status');
-  const refresh = h('button.btn', { title: 'Refresh from GitHub', onclick: () => net.send({ t: 'gh.refresh' }) }, '🔄 Refresh');
+  const refresh = h('button.btn', { title: `Refresh from ${kind === 'issues' ? TRACKER_NAME[store.issueProvider] : 'GitHub'}`, onclick: () => net.send({ t: 'gh.refresh' }) }, '🔄 Refresh');
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const el = h('div.modal.board', { role: 'dialog', 'aria-label': kind === 'issues' ? 'Issues board' : 'Pull requests board' }, h('header', {}, h('h2', {}, kind === 'issues' ? '📌 Issues' : '🔀 Pull Requests'), status, refresh, close), body);
 
@@ -242,7 +243,16 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
     const focused = active && body.contains(active) ? active.getAttribute('data-focus') : null;
     body.replaceChildren();
     if (st.error && !st.items.length) {
-      body.append(h('div.board-error', {}, `Couldn't load from GitHub: ${st.error}`, h('br'), h('small', {}, 'The server runs `gh` in the project directory — make sure it is installed and authenticated (gh auth login).')));
+      const linear = kind === 'issues' && store.issueProvider === 'linear';
+      body.append(
+        h(
+          'div.board-error',
+          {},
+          `Couldn't load from ${linear ? 'Linear' : 'GitHub'}: ${st.error}`,
+          h('br'),
+          h('small', {}, linear ? 'The server asks Linear through Claude Code and its Linear connector — make sure `claude mcp list` shows it Connected.' : 'The server runs `gh` in the project directory — make sure it is installed and authenticated (gh auth login).'),
+        ),
+      );
       return;
     }
     const all = boardLabels(st.items);

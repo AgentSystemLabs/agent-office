@@ -35,7 +35,7 @@ curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/i
 - **A floor per project.** Ride the elevator, pick one of your GitHub repos, and the office clones it and opens a floor for it. Every worker, board and queue on that floor works in that checkout.
 - **Workers at desks.** Walk up to an empty desk, press **E**, and pick Claude Code, Codex or OpenCode. The agent's live terminal shows on its laptop, and anyone can open it and type.
 - **You can see who needs you.** A worker that needs input or has finished jumps up and down and dings. Press **N** to go straight to the one that has waited longest.
-- **GitHub on the walls.** Issues and pull requests hang on cork boards. Hand an issue to a worker, queue tasks, give a worker its own git worktree and open its PR with one key.
+- **GitHub on the walls.** Issues and pull requests hang on cork boards. Hand an issue to a worker, queue tasks, give a worker its own git worktree and open its PR with one key. Teams that track work in Linear can hang [Linear issues](#issues-from-linear) on the board instead.
 - **Together.** Voice, chat, screen sharing on the lounge TV and a shared whiteboard.
 
 There's a lot more (a rooftop bar, an office dog, an arcade): see [docs/features.md](docs/features.md).
@@ -97,6 +97,27 @@ agent-office
 ```
 
 > Only your computer can reach the office: it listens on `127.0.0.1`. `--host 0.0.0.0` lets your network in, but over plain http, where voice and screen sharing don't work. To share the office with a team, put it on a server: [AWS](#deploy-to-aws-ec2) or [any Ubuntu or Debian machine](#deploy-to-any-ubuntu-or-debian-server).
+
+## Issues from Linear
+
+The 📌 issue board reads GitHub issues through `gh`. If your team tracks work in Linear, point the board there instead; pull requests stay on GitHub.
+
+```sh
+agent-office ~/code/my-app --issues linear --linear-teams FOUND,PLAT
+```
+
+| Flag | Env | What it does |
+|---|---|---|
+| `--issues linear` | `AGENT_OFFICE_ISSUES` | The board shows Linear issues (default `github`) |
+| `--linear-teams FOUND,PLAT` | `AGENT_OFFICE_LINEAR_TEAMS` | The teams whose issues fill it, by key or name |
+| `--linear-filter "…"` | `AGENT_OFFICE_LINEAR_FILTER` | Only issues that fit a plain-English rule, e.g. `"assigned to me or unassigned"` |
+| `--linear-mcp claude_ai_Linear` | `AGENT_OFFICE_LINEAR_MCP` | The Linear MCP server as Claude names its tools (`mcp__<name>__list_issues`) |
+
+**How it reaches Linear.** The office keeps no Linear token. Every read and write is a short headless Claude Code session allowed just the Linear MCP tools it needs, through the **claude.ai Linear connector** of the account that runs the office. `claude mcp list` must show `claude.ai Linear … Connected`; if it doesn't, the board says so. Each refresh, comment, close, claim or label change is one such session: expect 15 to 40 seconds and a few cents. The board refreshes when someone walks in, after a write, and every ten minutes on a quiet floor, all teams in one call.
+
+**What changes on the board.** Cards read `FOUND-2` instead of `#12`, in Linear's priority order (urgent first). An issue whose Linear state is *started* sits under In progress. Close as *completed* moves it to the team's Done state, *not planned* to Canceled. The label picker offers Linear's labels.
+
+**What workers are told.** 🤖 Hand to a worker, 📋 Add to queue, a carried card and a meeting fill the same prompts as for GitHub, with Linear's words: *Work on Linear issue FOUND-2: "…". Read it first with the Linear MCP tool `get_issue` … open a pull request that closes FOUND-2.* Workers are Claude Code sessions with your connectors, so they read the issue themselves. The queue links a task to its pull request when the PR's branch carries the id (Linear's suggested branches do) or its body says `Closes FOUND-2`, which Linear's own GitHub integration reads too. The board agents' briefs and every issue prompt can be rewritten in ⚙️ Settings; `{{tracker}}`, `{{label}}`, `{{read}}` and `{{branch}}` fill in per tracker.
 
 ## Deploy to AWS (EC2)
 
