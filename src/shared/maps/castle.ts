@@ -33,10 +33,10 @@ const props: PropConfig[] = [
   ),
   // Tall stained glass high up in every bay, and a rose window over the throne and over the doors.
   ...BAYS_Z.flatMap((z) => [-1, 1].map((side) => ({ kind: 'window', x: side * WALL_X, z, y: 6.4, width: 2.3, height: 5.2, rotY: side < 0 ? Math.PI / 2 : -Math.PI / 2 }))),
-  { kind: 'rose', x: 0, z: -L / 2 + 0.08, y: 10.3, width: 5, rotY: 0 },
+  { kind: 'rose', x: 0, z: -L / 2 + 0.08, y: 10.4, width: 4.6, rotY: 0 },
   { kind: 'rose', x: 0, z: L / 2 - 0.08, y: 10.3, width: 4.2, rotY: Math.PI },
   // The great banner behind the throne.
-  { kind: 'banner', x: 0, z: -L / 2 + 0.1, y: 8.8, width: 3.4, height: 6.4, rotY: 0 },
+  { kind: 'banner', x: 0, z: -L / 2 + 0.1, y: 7.7, width: 3.4, height: 6, rotY: 0 },
   // Shields and crossed swords in the bays that have no board.
   ...[-21, -9, 9, 21].flatMap((z) => [-1, 1].map((side) => ({ kind: 'shield', x: side * WALL_X, z, y: 3.6, rotY: side < 0 ? Math.PI / 2 : -Math.PI / 2 }))),
   // The red carpet from the doors to the foot of the dais.
@@ -95,5 +95,5 @@ export const CASTLE: MapConfig = {
   },
   props,
   agents: { outfit: 'peasant', ageMinutes: 30 },
-  palette: { stone: '#9a9186', floor: '#7b746a', carpet: '#8e1b1b', wood: '#6b4526', trim: '#d9ab2e' },
+  palette: { stone: '#8c847a', floor: '#6f685f', carpet: '#8e1b1b', wood: '#6b4526', trim: '#d9ab2e' },
 };

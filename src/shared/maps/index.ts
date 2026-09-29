@@ -18,8 +18,11 @@ const STATION_KINDS: readonly StationKind[] = ['issues', 'pulls', 'queue'];
 const PLACE_IN = 0.35;
 /** How far out from a table's edge the middle of the bench down that side is. */
 export const BENCH_OUT = 0.52;
-/** The round meeting table: the chairs' place settings and how far out the chairs are. */
-export const COUNCIL = { radius: 1.15, height: 0.78, place: 0.5, chairs: 1.35 } as const;
+/**
+ * The round meeting table: how big it is, how far out the chairs' place settings and the chairs are,
+ * and how far behind it (away from the head of the table) the easel with the meeting's board stands.
+ */
+export const COUNCIL = { radius: 1.15, height: 0.78, place: 0.5, chairs: 1.35, easel: 2.5 } as const;
 /** The throne's footprint, and the lectern each board agent stands behind (the office's kiosk's size). */
 export const THRONE_SIZE = { width: 1.9, depth: 1.9 } as const;
 
@@ -196,6 +199,10 @@ export function planMap(c: MapConfig): MapPlan {
     return def;
   });
   circles.push([council.x, council.z, COUNCIL.radius]);
+  const ex = council.x - Math.sin(council.rotY) * COUNCIL.easel;
+  const ez = council.z - Math.cos(council.rotY) * COUNCIL.easel;
+  inside(ex, ez, 'the council’s easel');
+  rects.push(boxFootprint(ex, ez, 2.6, 0.5, council.rotY));
 
   // The boards on the walls.
   if (!isObj(c.boards)) throw new MapError('it needs boards: issues, queue, pulls and services');
@@ -221,7 +228,7 @@ export function planMap(c: MapConfig): MapPlan {
     const p = place(c.throne, 'throne');
     const dais = isObj(c.throne.dais) ? c.throne.dais : undefined;
     const y = dais ? num(dais.height, 'throne.dais.height', 0, 3) : 0;
-    throne = { id: 'throne', label: '👑 Throne', x: p.x, y, z: p.z, rotY: p.rotY, places: [0], hips: 0.62, depth: 0.12, out: 1.1 };
+    throne = { id: 'throne', label: '👑 Throne', x: p.x, y, z: p.z, rotY: p.rotY, places: [0], hips: 0.74, depth: 0.12, out: 1.1 };
     seating.push(throne);
     rects.push(boxFootprint(p.x, p.z - Math.cos(p.rotY) * 0.2, THRONE_SIZE.width, THRONE_SIZE.depth, p.rotY));
   }
