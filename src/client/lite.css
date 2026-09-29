@@ -5,11 +5,11 @@ html, body { height: auto; min-height: 100%; overflow: auto; }
 body.lite { min-height: 100dvh; background: var(--paper); -webkit-tap-highlight-color: transparent; }
 
 .lite-bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 8px; padding: 10px 12px; padding-top: max(10px, env(safe-area-inset-top)); background: var(--paper-2); border-bottom: 3px solid var(--ink); }
-.lite-bar .btn { height: 44px; flex: none; }
-.lite-floor { flex: 1; min-width: 0; display: flex; flex-direction: column; margin: 0; }
+.lite-bar .btn { height: 44px; flex: none; text-decoration: none; }
+.lite-floor { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; margin: 0; }
 .lite-floor-label { font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .lite-floor select {
-  width: 100%; min-width: 0; padding: 0 22px 0 0; border: 0; background: none; color: var(--ink);
+  width: auto; max-width: 100%; min-width: 0; padding: 0 22px 0 0; border: 0; background: none; color: var(--ink);
   font: 900 19px/1.2 var(--font); text-overflow: ellipsis; appearance: none; -webkit-appearance: none; cursor: pointer;
   background: no-repeat right 2px center / 12px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%232b2d42' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
@@ -50,7 +50,8 @@ body.lite { min-height: 100dvh; background: var(--paper); -webkit-tap-highlight-
 .lite-nav .n:empty { display: none; }
 .lite-nav .n { min-width: 20px; padding: 0 5px; border-radius: 999px; background: var(--ink); color: #fff; font-size: 12px; line-height: 20px; font-variant-numeric: tabular-nums; }
 .lite-nav .btn.primary .n { background: #fff; color: var(--ink); }
-@media (min-width: 761px) { .lite-nav { padding-left: calc(50% - 368px); padding-right: calc(50% - 368px); } }
+/* A wide window: the bars line up with the list. */
+@media (min-width: 761px) { .lite-bar, .lite-nav { padding-left: calc(50% - 368px); padding-right: calc(50% - 368px); } }
 
 /* The page scrolls here, so what floats over it stays put on the screen. */
 #toasts { position: fixed; top: 84px; z-index: 60; width: calc(100% - 24px); }
@@ -71,4 +72,5 @@ body.lite { min-height: 100dvh; background: var(--paper); -webkit-tap-highlight-
   .modal.term .term-host { padding: 6px 2px 2px 6px; }
   .modal.board .body { padding: 10px; overflow-x: auto; }
   .modal.board .column { min-width: 78vw; }
+  .modal.board header .board-status { display: none; }
 }

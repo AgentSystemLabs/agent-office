@@ -136,7 +136,7 @@ function renderWorkers() {
   const ul = $('workers');
   ul.replaceChildren(...list.map(workerCard));
   if (!list.length) ul.append(h('li.lite-empty', {}, store.project ? 'Nobody is working on this floor. ✨ New task hires someone.' : 'No workers here.'));
-  $('waiting').textContent = waitingLabel(waitingInOrder(list));
+  $('waiting-now').textContent = waitingLabel(waitingInOrder(list));
   renderTitle();
 }
 
@@ -179,7 +179,8 @@ function workerCard(w: WorkerInfo): HTMLElement {
       ),
       h('span.lite-state', {}, h('span.pill', { class: w.status }, STATUS_LABEL[w.status] ?? w.status), waiting && w.waitingSince ? h('small', {}, timeAgo(w.waitingSince)) : null),
     ),
-    asleep ? null : h('button.btn.lite-say', { type: 'button', title: `Send ${w.name} a prompt`, 'aria-label': `Send ${w.name} a prompt`, onclick: () => promptWorker(w.id) }, '✍️'),
+    // One that's asking something is answered in its terminal, where the question is.
+    asleep || w.status === 'needs_input' ? null : h('button.btn.lite-say', { type: 'button', title: `Send ${w.name} a prompt`, 'aria-label': `Send ${w.name} a prompt`, onclick: () => promptWorker(w.id) }, '✍️'),
   );
 }
 
@@ -321,7 +322,7 @@ onDoingChange(() => sendDoing());
 
 // ---- Notifications ------------------------------------------------------------------------------
 // The browser only asks from a tap, so there's a button for it while it hasn't been asked.
-const bell = h('button.btn', { type: 'button', title: 'Get a notification when a worker needs input or is done' }, '🔔');
+const bell = h('button.btn', { type: 'button', title: 'Get a notification when a worker needs input or is done', 'aria-label': 'Turn on notifications' }, '🔔');
 bell.addEventListener('click', async () => {
   await askNotifyPermission();
   bell.remove();

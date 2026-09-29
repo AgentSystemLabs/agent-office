@@ -436,8 +436,8 @@ body.telescope-active #hud { visibility: hidden; }
 }
 /* Under a terminal on the 2D view (TerminalOptions.keypad): the keys a phone's keyboard hasn't got, and a prompt box. */
 .term-keypad { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; padding-bottom: max(8px, env(safe-area-inset-bottom)); background: var(--paper); border-top: 3px solid var(--ink); }
-.term-keys { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 3px; }
-.term-keys .btn { flex: 1 0 auto; min-width: 40px; height: 40px; padding: 0 8px; justify-content: center; font-variant-numeric: tabular-nums; }
+.term-keys { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 3px; }
+.term-keys .btn { flex: 1 1 0; min-width: 34px; height: 42px; padding: 0 4px; justify-content: center; border-radius: 10px; font-variant-numeric: tabular-nums; }
 .term-say { display: flex; gap: 8px; }
 .modal .term-say input[type=text] { flex: 1; min-width: 0; padding: 8px 10px; }
 

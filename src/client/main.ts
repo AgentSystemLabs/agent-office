@@ -105,8 +105,6 @@ await preloadModels();
 const canvas = $('scene') as HTMLCanvasElement;
 const renderer = makeRenderer() ?? (await noWebGL());
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-/** Frames coming too slowly for the 3D to be any fun: the 2D view is offered (see frame). */
-const slowFrames = new SlowFrames();
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -3603,6 +3601,8 @@ const workerPos = new THREE.Vector3();
 const headPos = new THREE.Vector3();
 /** Last frame went through the drunk vision. */
 let drunkVisionOn = false;
+/** Frames coming too slowly for the 3D to be any fun: the 2D view is offered. */
+const slowFrames = new SlowFrames();
 
 function frame(ts?: number) {
   timer.update(ts);
