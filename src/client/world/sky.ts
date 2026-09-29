@@ -1,23 +1,28 @@
 import * as THREE from 'three';
 import { FLOOR, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
 import type { SkyState, Theme, Weather } from '../../shared/protocol';
-import { guessPlace, sunPosition } from '../../shared/sun';
+import { guessPlace } from '../../shared/sun';
 import type { NightParts } from './outside';
 
 /*
- * Day, night and the weather outside the windows. The server says where the office is and what the
- * weather is doing (server/sky.ts). From that and the clock, this works out where the sun is, and
- * every frame it sets the sky's color, the fog, the sun (or the moon), the lamps that come on at
- * night, and the rain or snow.
+ * The night city and the weather outside the windows. It is always night: the server says what the
+ * weather is doing (server/sky.ts), and every frame this sets the sky's color, the fog, the moon,
+ * the lamps, and the rain or snow.
  *
- * The office has no roof, and the sun and the sky light everything, inside and out, so at night the
- * room would go as dark as the street. A few lines added to every lit material (below) give light
- * back where there are lamps: the office and the garage fill with lamplight, and each street lamp,
- * the balcony's string lights and the lamp over the exit throw a pool of light around them. The
- * same lines darken the ground outside when it's wet and lay snow on whatever faces up out there.
+ * The office has no roof, so the moon and the sky light everything, inside and out. A few lines
+ * added to every lit material (below) give light back where there are lamps: the office and the
+ * garage get a faint neon fill, the laptops' screens throw pools of light over the desks (the main
+ * light in the room), and each street lamp, the balcony's string lights and the lamp over the exit
+ * throw a pool of light around them. The same lines darken the ground outside when it's wet and lay
+ * snow on whatever faces up out there.
  */
 
 const MAX_LAMPS = 24;
+/** The laptop screens that light the room at once: the nearest ones to you. */
+const MAX_SCREENS = 16;
+/** How far a laptop screen's light reaches (m), and how strongly it shines in the units of three.js lights. */
+const SCREEN_REACH = 3.4;
+const SCREEN_POWER = 2.6;
 const DEG = Math.PI / 180;
 /**
  * The furthest off the haze ever is, however high up you are: past that nothing's built (the grass
@@ -48,6 +53,14 @@ const uniforms = {
   /** Around all the lamps' pools, so everywhere else skips them. */
   skyLampMin: { value: new THREE.Vector3() },
   skyLampMax: { value: new THREE.Vector3() },
+  /** Each laptop screen's position and reach, which way it faces, and its color × strength. */
+  skyScreenCount: { value: 0 },
+  skyScreens: { value: Array.from({ length: MAX_SCREENS }, () => new THREE.Vector4()) },
+  skyScreenDirs: { value: Array.from({ length: MAX_SCREENS }, () => new THREE.Vector3()) },
+  skyScreenColors: { value: Array.from({ length: MAX_SCREENS }, () => new THREE.Color()) },
+  /** Around all the screens' pools, so everywhere else skips them. */
+  skyScreenMin: { value: new THREE.Vector3() },
+  skyScreenMax: { value: new THREE.Vector3() },
   /** How wet the ground is, and how much snow lies on it: 0–1. */
   skyWet: { value: 0 },
   skySnow: { value: 0 },
@@ -70,6 +83,12 @@ uniform vec4 skyLamps[${MAX_LAMPS}];
 uniform vec3 skyLampColors[${MAX_LAMPS}];
 uniform vec3 skyLampMin;
 uniform vec3 skyLampMax;
+uniform int skyScreenCount;
+uniform vec4 skyScreens[${MAX_SCREENS}];
+uniform vec3 skyScreenDirs[${MAX_SCREENS}];
+uniform vec3 skyScreenColors[${MAX_SCREENS}];
+uniform vec3 skyScreenMin;
+uniform vec3 skyScreenMax;
 uniform float skyWet;
 uniform float skySnow;
 uniform float skyDrop;
@@ -98,6 +117,21 @@ vec3 skyLampsAt( vec3 p, vec3 n ) {
   }
   return sum;
 }
+
+// A laptop screen throws its light forward, and a little all round from the glow off the lid.
+vec3 skyScreensAt( vec3 p, vec3 n ) {
+  vec3 sum = vec3( 0.0 );
+  if ( any( lessThan( p, skyScreenMin ) ) || any( greaterThan( p, skyScreenMax ) ) ) return sum;
+  for ( int i = 0; i < ${MAX_SCREENS}; i ++ ) {
+    if ( i >= skyScreenCount ) break;
+    vec3 d = skyScreens[ i ].xyz - p;
+    float r = max( length( d ), 0.001 );
+    float k = 1.0 - clamp( r / skyScreens[ i ].w, 0.0, 1.0 );
+    float front = 0.12 + 0.88 * smoothstep( -0.1, 0.7, dot( -d / r, skyScreenDirs[ i ] ) );
+    sum += skyScreenColors[ i ] * k * k * front * ( 0.35 + 0.65 * max( dot( n, d / r ), 0.0 ) );
+  }
+  return sum;
+}
 `;
 
 /** Wet ground is darker; snow covers what faces up. Only outdoors. Runs before the lights. */
@@ -113,7 +147,7 @@ material.diffuseColor = mix( material.diffuseColor, vec3( 0.93, 0.96, 1.0 ), sky
 /** The lamps' light, added to what the sun and the sky give. */
 const LIGHT = /* glsl */ `
 if ( skyOn > 0.0 ) {
-  vec3 skyLight = skyIndoor * skyOffice * ( 0.65 + 0.35 * skyN.y ) + ( 1.0 - skyIndoor ) * ( skyGar * skyGarage + skyLampsAt( vSkyWorld, skyN ) );
+  vec3 skyLight = skyIndoor * skyOffice * ( 0.65 + 0.35 * skyN.y ) + ( 1.0 - skyIndoor ) * ( skyGar * skyGarage + skyLampsAt( vSkyWorld, skyN ) ) + skyScreensAt( vSkyWorld, skyN );
   reflectedLight.indirectDiffuse += skyLight * BRDF_Lambert( material.diffuseColor );
 }
 `;
@@ -196,8 +230,7 @@ const ICON: Record<Weather, string> = { clear: '☀️', cloudy: '☁️', rain:
 
 /** "🌙 Clear · 9:41 PM office time · Berlin, Germany, 11 °C", for Settings. */
 export function describeSky(s: SkyState, now = Date.now()): string {
-  const night = sunPosition(now, s.lat, s.lon).el < -4 * DEG;
-  const icon = s.weather === 'clear' && night ? '🌙' : ICON[s.weather];
+  const icon = s.weather === 'clear' ? '🌙' : ICON[s.weather];
   const time = new Date(now + s.utcOffset * 60_000).toLocaleTimeString([], { timeZone: 'UTC', hour: 'numeric', minute: '2-digit' });
   const where = s.city ? ` · ${s.city}${s.temp !== undefined ? `, ${s.temp} °C` : ''}` : '';
   return `${icon} ${LABEL[s.weather]} · ${time} office time${where}`;
@@ -205,55 +238,49 @@ export function describeSky(s: SkyState, now = Date.now()): string {
 
 const lerp = THREE.MathUtils.lerp;
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
-const smooth = (a: number, b: number, x: number) => {
-  const t = clamp01((x - a) / (b - a));
-  return t * t * (3 - 2 * t);
-};
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 /** Eases `x` toward `to`, most of the way in `secs`. */
 const ease = (x: number, to: number, dt: number, secs: number) => x + (to - x) * (1 - Math.exp(-dt / secs));
 
+/** Cyberpunk night: a violet-black sky, a magenta haze over the town, and hardly any light in the building. */
 const C = {
-  day: new THREE.Color('#bfe3ff'),
   dusk: new THREE.Color('#ffb48c'),
-  night: new THREE.Color('#0b1431'),
-  greyDay: new THREE.Color('#aab3bf'),
-  greyNight: new THREE.Color('#11151d'),
-  fogDay: new THREE.Color('#d7dce2'),
+  night: new THREE.Color('#0a0720'),
+  greyNight: new THREE.Color('#110a1f'),
   // Lit from below by the town, so it still reads as fog at night.
-  fogNight: new THREE.Color('#3a414d'),
+  fogNight: new THREE.Color('#2c1345'),
   flash: new THREE.Color('#e4e9ff'),
-  sunHigh: new THREE.Color('#fff1d6'),
-  sunLow: new THREE.Color('#ffa566'),
-  moon: new THREE.Color('#a9bcff'),
-  hemiSky: new THREE.Color('#fff5e6'),
-  hemiGround: new THREE.Color('#c9a27a'),
-  hemiSkyNight: new THREE.Color('#4b5b90'),
-  hemiGroundNight: new THREE.Color('#1d1b29'),
-  ambientNight: new THREE.Color('#8797cc'),
+  moon: new THREE.Color('#8f9cff'),
+  hemiSkyNight: new THREE.Color('#2b2a6b'),
+  hemiGroundNight: new THREE.Color('#1a0d2c'),
+  ambientNight: new THREE.Color('#5a4a9c'),
   white: new THREE.Color('#ffffff'),
-  office: new THREE.Color('#fff2de'),
-  officeNight: new THREE.Color('#ffd49c'),
-  garage: new THREE.Color('#f6f2e4'),
+  // The faint neon fill in the office, and in the garage.
+  officeNight: new THREE.Color('#3b2a8c'),
+  garage: new THREE.Color('#1f3a5c'),
   cloudGrey: new THREE.Color('#a3abb6'),
+  /** What a laptop screen throws on the desk around it. */
+  screen: new THREE.Color('#6fdcff'),
 };
+
+/** How dim the night is: the moon's, the sky's and the room fill's light, against a clear day's (FULL_DAY). */
+const NIGHT = { moon: 0.18, hemi: 0.3, ambient: 0.1, office: 1.6, garage: 1.4 } as const;
+/** Where the moon hangs, all night: low in the south-south-west, in sight through the south windows. */
+const MOON_AT = { el: 35 * DEG, az: 200 * DEG } as const;
+/** How lit your hands are inside (see Sky.lightAt): the room is dim, so they are too. */
+const INDOOR_HANDS = 0.4;
 
 /** Halloween's sky: a bruised purple overhead going blood orange at the horizon, and a big harvest moon. */
 const SPOOKY = {
-  day: new THREE.Color('#6f5b8e'),
   dusk: new THREE.Color('#ff5a1f'),
   night: new THREE.Color('#24102f'),
-  greyDay: new THREE.Color('#5b5068'),
   greyNight: new THREE.Color('#150d1f'),
-  fogDay: new THREE.Color('#7e7194'),
   fogNight: new THREE.Color('#34223f'),
-  zenithDay: new THREE.Color('#3a2358'),
   zenithNight: new THREE.Color('#07020d'),
   glow: new THREE.Color('#ff6a2a'),
   cloud: new THREE.Color('#5a4f6e'),
   hemiSky: new THREE.Color('#c3b0ff'),
   hemiGround: new THREE.Color('#5a3d2b'),
-  sun: new THREE.Color('#ff8a45'),
   moon: new THREE.Color('#ffc46b'),
   moonLight: new THREE.Color('#c9b3ff'),
 };
@@ -335,8 +362,15 @@ function moonTexture(): THREE.CanvasTexture {
   return t;
 }
 
-/** How strong the sun and the sky's light are on a clear day, which is what the lamps make up for. */
+/** How strong the sun and the sky's light are on a clear day: what "fully lit" means for your hands and the rain. */
 const FULL_DAY = 1.5 + 0.5 + 0.6 * 2.2;
+
+/** A laptop screen as a light: where it is, which way it faces, and how lit it is, 0–1. */
+export interface ScreenGlow {
+  pos: THREE.Vector3;
+  dir: THREE.Vector3;
+  power: number;
+}
 
 export interface SkyLights {
   sun: THREE.DirectionalLight;
@@ -362,17 +396,15 @@ function blobTexture(inner: number): THREE.CanvasTexture {
 const sheltered = (x: number, z: number) => x > B.minX - 0.05 && x < B.maxX + 0.05 && z > B.minZ - 0.05 && z < B.maxZ + 0.05;
 
 export class Sky {
-  private preview: { hour?: number; weather?: Weather; intensity?: number } = {};
+  private preview: { weather?: Weather; intensity?: number } = {};
   /** Lightning struck; its thunder should follow `delay` seconds later. */
   onThunder: ((delay: number, loud: number) => void) | null = null;
 
-  /** 1 in daylight, 0 at night. */
-  daylight = 1;
   /** How hard it's raining (storms too) and snowing right now, 0–1, easing from one spell to the next. */
   rain = 0;
   snow = 0;
-  /** How far the lamps are on, 0–1: at night, and on the darkest of days. */
-  lampsOn = 0;
+  /** How far the lamps are on, 0–1: always all the way, it is always night. */
+  readonly lampsOn = 1;
   /** Up on the roof: out in the open, over the whole city (see setRoof). */
   private roof = false;
   /** Where the street is from up there (the roof is at 0), for the haze. */
@@ -400,16 +432,14 @@ export class Sky {
   private flash = 0;
   private flashes: number[] = [];
   private nextFlash = 0;
-  /** How much light the sun and the sky give (1 on a clear day), for your hands. */
+  /** How much light the moon and the sky give (1 on a clear day), for your hands. */
   private level = 1;
   private readonly tmp = new THREE.Color();
-  private readonly tmp2 = new THREE.Color();
   private readonly dir = new THREE.Vector3();
   private readonly camPos = new THREE.Vector3();
 
   private readonly dome = new THREE.Group();
   private readonly stars: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
-  private readonly sunDisc: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   private readonly moonDisc: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   private readonly halos: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>[] = [];
   /** The halos down by the street, which go down with it. */
@@ -429,12 +459,14 @@ export class Sky {
   ) {
     const here = guessPlace();
     this.state = { ...here, utcOffset: -new Date().getTimezoneOffset(), weather: 'clear', intensity: 0 };
-    scene.fog ??= new THREE.Fog('#bfe3ff', 40, 90);
-    if (!(scene.background instanceof THREE.Color)) scene.background = new THREE.Color('#bfe3ff');
+    scene.fog ??= new THREE.Fog(C.night, 40, 90);
+    if (!(scene.background instanceof THREE.Color)) scene.background = new THREE.Color(C.night);
+    uniforms.skyOffice.value.copy(C.officeNight).multiplyScalar(NIGHT.office);
+    uniforms.skyGarage.value.copy(C.garage).multiplyScalar(NIGHT.garage);
 
     this.placeLamps();
 
-    // Stars, the sun and the moon, far off, always around you.
+    // Stars and the moon, far off, always around you.
     const starPos: number[] = [];
     for (let i = 0; i < 700; i++) {
       const y = rand(0.08, 1);
@@ -450,10 +482,9 @@ export class Sky {
       m.material.userData.outlineParameters = { visible: false };
       return m;
     };
-    this.sunDisc = disc(5, '#fff4c8');
     this.moonDisc = disc(3.2, '#f2f1ea');
     this.moonDisc.material.map = moonTexture();
-    this.dome.add(this.spookyDome, this.stars, this.sunDisc, this.moonDisc);
+    this.dome.add(this.spookyDome, this.stars, this.moonDisc);
     scene.add(this.dome);
 
     // Halos round the bulbs at night, one set of points per size (and per floor or street).
@@ -521,8 +552,8 @@ export class Sky {
     if (this.heard) this.rush = 10;
   }
 
-  /** For quick checks from the console: show this hour of the office's day, or this weather, right away. */
-  show(preview: { hour?: number; weather?: Weather; intensity?: number }) {
+  /** For quick checks from the console: show this weather right away. */
+  show(preview: { weather?: Weather; intensity?: number }) {
     this.preview = preview;
     this.snap = true;
   }
@@ -557,6 +588,31 @@ export class Sky {
     uniforms.skyInside.value = on ? 0 : 1;
   }
 
+  /**
+   * The laptops' screens light the room: the `count` glows in `glows`, of which the nearest to `eye`
+   * shine (the shader has room for MAX_SCREENS). `power` is how open each lid is, 0–1.
+   */
+  setScreens(glows: readonly ScreenGlow[], count: number, eye: THREE.Vector3) {
+    const near = glows
+      .slice(0, count)
+      .sort((p, q) => p.pos.distanceToSquared(eye) - q.pos.distanceToSquared(eye))
+      .slice(0, MAX_SCREENS);
+    const lo = uniforms.skyScreenMin.value.set(Infinity, Infinity, Infinity);
+    const hi = uniforms.skyScreenMax.value.set(-Infinity, -Infinity, -Infinity);
+    near.forEach((g, i) => {
+      uniforms.skyScreens.value[i].set(g.pos.x, g.pos.y, g.pos.z, SCREEN_REACH);
+      uniforms.skyScreenDirs.value[i].copy(g.dir);
+      uniforms.skyScreenColors.value[i].copy(C.screen).multiplyScalar(SCREEN_POWER * g.power);
+      lo.x = Math.min(lo.x, g.pos.x - SCREEN_REACH);
+      lo.y = Math.min(lo.y, g.pos.y - SCREEN_REACH);
+      lo.z = Math.min(lo.z, g.pos.z - SCREEN_REACH);
+      hi.x = Math.max(hi.x, g.pos.x + SCREEN_REACH);
+      hi.y = Math.max(hi.y, g.pos.y + SCREEN_REACH);
+      hi.z = Math.max(hi.z, g.pos.z + SCREEN_REACH);
+    });
+    uniforms.skyScreenCount.value = this.roof ? 0 : near.length;
+  }
+
   /** Under a roof, out of the rain: the building, unless you're up on top of it. */
   private sheltered(x: number, z: number): boolean {
     return !this.roof && sheltered(x, z);
@@ -567,25 +623,16 @@ export class Sky {
     uniforms.skyOn.value = on ? 1 : 0;
   }
 
-  /** How lit it is at `p`, 0–1 (1 is a clear day, or a room with its lights on), for your hands. */
+  /** How lit it is at `p`, 0–1 (1 is a clear day), for your hands: dim indoors and out on the street at night. */
   lightAt(p: THREE.Vector3): number {
     const inside = !this.roof && ((p.x > FLOOR.minX && p.x < FLOOR.maxX && p.z > FLOOR.minZ && p.z < FLOOR.maxZ) || (sheltered(p.x, p.z) && p.y < 0));
-    if (inside) return 1;
+    if (inside) return INDOOR_HANDS;
     let lamp = 0;
     if (!this.roof) {
       const drop = STREET_Y - this.street;
       for (const l of this.night.lamps) lamp = Math.max(lamp, 1 - Math.hypot(l.x - p.x, (l.ground ? l.y - drop : l.y) - p.y, l.z - p.z) / l.reach);
     }
     return Math.min(1, Math.max(this.level, lamp * this.lampsOn));
-  }
-
-  /** The office's clock (ms), or the previewed hour today. */
-  private now(): number {
-    const h = this.preview.hour;
-    if (h === undefined) return Date.now();
-    const off = this.state.utcOffset * 60_000;
-    const midnight = Math.floor((Date.now() + off) / 86_400_000) * 86_400_000;
-    return midnight - off + h * 3_600_000;
   }
 
   update(dt: number, t: number, camera: THREE.Camera) {
@@ -629,13 +676,6 @@ export class Sky {
     uniforms.skyWet.value = this.wet * (1 - this.lying);
     uniforms.skySnow.value = this.lying * 0.9;
 
-    // The sun, and how much light it and the sky give.
-    const { el, az } = sunPosition(this.now(), s.lat, s.lon);
-    const elD = el / DEG;
-    // Halloween's days are a long, gloomy dusk.
-    const day = smooth(-8, 4, elD) * (1 - 0.6 * sp);
-    const dusk = Math.max(0, 1 - Math.abs(elD + 1) / 9) * (1 - this.cover);
-    this.daylight = day;
     if (sp > 0.5 && this.storm < 0.5 && t >= this.nextSpook) {
       if (this.nextSpook > 0) {
         this.flashes.push(t, t + rand(0.12, 0.3));
@@ -645,47 +685,26 @@ export class Sky {
     }
     this.lightning(t, dt);
     const flash = this.flash;
-    const sunI = 2.2 * smooth(-3, 10, elD) * (1 - 0.8 * this.cover) * (1 - 0.6 * this.fog) * (1 - 0.65 * sp);
-    const moonI = 0.4 * smooth(-4, -12, elD) * (1 - 0.75 * this.cover);
-    const hemiI = lerp(0.38, 1.5 * (1 - 0.25 * this.cover) * (1 - 0.35 * this.storm), day);
-    const ambI = lerp(0.12, 0.5, day);
+    const moonI = NIGHT.moon * (1 - 0.75 * this.cover);
+    const hemiI = NIGHT.hemi * (1 - 0.3 * this.storm);
+    const ambI = NIGHT.ambient;
     const { sun, hemi, ambient } = this.lights;
     hemi.intensity = hemiI + flash * 3;
-    hemi.color
-      .copy(C.hemiSkyNight)
-      .lerp(C.hemiSky, day)
-      .lerp(SPOOKY.hemiSky, sp * 0.5);
-    hemi.groundColor
-      .copy(C.hemiGroundNight)
-      .lerp(C.hemiGround, day)
-      .lerp(SPOOKY.hemiGround, sp * 0.5);
+    hemi.color.copy(C.hemiSkyNight).lerp(SPOOKY.hemiSky, sp * 0.5);
+    hemi.groundColor.copy(C.hemiGroundNight).lerp(SPOOKY.hemiGround, sp * 0.5);
     ambient.intensity = ambI + flash;
-    ambient.color.copy(C.ambientNight).lerp(C.white, day);
-    // A cartoon sun: never so low its shadows fill the room. At night the moon lights things, from across the sky.
-    const moonlit = elD < -4;
-    const lightEl = (moonlit ? 50 : 25 + Math.max(0, elD) * 0.6) * DEG;
-    const lightAz = moonlit ? az + Math.PI : az;
-    this.dir.set(Math.cos(lightEl) * Math.sin(lightAz), Math.sin(lightEl), -Math.cos(lightEl) * Math.cos(lightAz));
+    ambient.color.copy(C.ambientNight);
+    // The moon lights things from high across the sky.
+    const lightEl = 50 * DEG;
+    this.dir.set(Math.cos(lightEl) * Math.sin(MOON_AT.az), Math.sin(lightEl), -Math.cos(lightEl) * Math.cos(MOON_AT.az));
     sun.position.copy(sun.target.position).addScaledVector(this.dir, 45);
-    sun.intensity = moonlit ? moonI : sunI;
-    if (moonlit) sun.color.copy(C.moon).lerp(SPOOKY.moonLight, sp);
-    else
-      sun.color
-        .copy(C.sunLow)
-        .lerp(C.sunHigh, smooth(0, 25, elD))
-        .lerp(SPOOKY.sun, sp);
-    this.level = clamp01((hemiI + ambI + 0.6 * (sunI + moonI)) / FULL_DAY);
+    sun.intensity = moonI;
+    sun.color.copy(C.moon).lerp(SPOOKY.moonLight, sp);
+    this.level = clamp01((hemiI + ambI + 0.6 * moonI) / FULL_DAY);
 
-    // Lamps come on as it gets dark: the office's and the garage's, and the ones outside.
-    const need = 1 - this.level;
-    this.lampsOn = smooth(0.45, 0.62, need);
-    uniforms.skyOffice.value
-      .copy(C.office)
-      .lerp(C.officeNight, 1 - day)
-      .multiplyScalar(need * 3.2);
-    uniforms.skyGarage.value.copy(C.garage).multiplyScalar(need * 2);
+    // The lamps are always on: the ones outside, and the office's and the garage's faint fill (set up in the constructor).
     const lamps = Math.min(this.night.lamps.length, MAX_LAMPS);
-    uniforms.skyLampCount.value = this.lampsOn > 0.005 && !this.roof ? lamps : 0;
+    uniforms.skyLampCount.value = this.roof ? 0 : lamps;
     for (let i = 0; i < lamps; i++) {
       const l = this.night.lamps[i];
       uniforms.skyLampColors.value[i].set(l.color).multiplyScalar(l.power * this.lampsOn);
@@ -694,18 +713,17 @@ export class Sky {
     for (const m of this.night.windows) m.emissiveIntensity = this.lampsOn * 1.1;
     for (const h of this.halos) {
       h.material.opacity = this.lampsOn * 0.85;
-      h.visible = this.lampsOn > 0.01 && !this.roof;
+      h.visible = !this.roof;
     }
 
     // The sky's color, and the fog, which fades far things into it. Halloween's is its own.
-    const pal = (key: 'day' | 'dusk' | 'night' | 'greyDay' | 'greyNight' | 'fogDay' | 'fogNight', out: THREE.Color) => out.copy(C[key]).lerp(SPOOKY[key], sp);
+    const pal = (key: 'dusk' | 'night' | 'greyNight' | 'fogNight', out: THREE.Color) => out.copy(C[key]).lerp(SPOOKY[key], sp);
     const a = this.tmp;
-    const b = this.tmp2;
-    const sky = (this.scene.background as THREE.Color).copy(pal('night', a)).lerp(pal('day', b), day);
-    // Halloween's gloomy days glow at the horizon all day; its nights keep only a rim of it (the dome's).
-    sky.lerp(pal('dusk', a), Math.max(dusk, sp * THREE.MathUtils.lerp(0.08, 0.35, Math.min(1, day / 0.4))) * 0.55);
-    sky.lerp(pal('greyNight', a).lerp(pal('greyDay', b), day), this.cover * 0.85);
-    sky.lerp(pal('fogNight', a).lerp(pal('fogDay', b), day), this.fog);
+    const sky = (this.scene.background as THREE.Color).copy(pal('night', a));
+    // Halloween's nights keep only a rim of the horizon's glow (the dome's).
+    sky.lerp(pal('dusk', a), sp * 0.08 * 0.55);
+    sky.lerp(pal('greyNight', a), this.cover * 0.85);
+    sky.lerp(pal('fogNight', a), this.fog);
     sky.lerp(C.flash, flash * 0.5);
     const fog = this.scene.fog as THREE.Fog;
     fog.color.copy(sky);
@@ -723,30 +741,20 @@ export class Sky {
     if (this.spookyDome.visible) {
       u.opacity.value = sp;
       u.horizon.value.copy(sky);
-      u.top.value
-        .copy(SPOOKY.zenithNight)
-        .lerp(SPOOKY.zenithDay, Math.min(1, day / 0.4))
-        .lerp(sky, this.fog * 0.6 + flash * 0.5);
+      u.top.value.copy(SPOOKY.zenithNight).lerp(sky, this.fog * 0.6 + flash * 0.5);
       u.glow.value.copy(SPOOKY.glow);
       u.glowK.value = 0.55 * (1 - this.fog * 0.6) * (1 - this.cover * 0.5);
       u.moonGlow.value.copy(SPOOKY.moon).multiplyScalar(0.55 * (1 - this.cover * 0.6));
     }
 
-    // Stars, the sun and the moon ride along with you, so they look infinitely far off.
+    // Stars and the moon ride along with you, so they look infinitely far off.
     camera.getWorldPosition(this.camPos);
     this.dome.position.copy(this.camPos);
     const clear = (1 - this.cover) * (1 - this.fog);
-    this.stars.material.opacity = (1 - day) ** 2 * clear;
+    this.stars.material.opacity = clear;
     this.stars.visible = this.stars.material.opacity > 0.01;
-    const up = (e: number, a: number, m: THREE.Mesh) => m.position.set(Math.cos(e) * Math.sin(a) * 160, Math.sin(e) * 160, -Math.cos(e) * Math.cos(a) * 160);
-    up(el, az, this.sunDisc);
-    this.sunDisc.material.color.copy(C.sunLow).lerp(C.white, smooth(0, 20, elD));
-    this.sunDisc.material.opacity = smooth(-3, 0, elD) * clear;
-    this.sunDisc.visible = this.sunDisc.material.opacity > 0.01;
-    // At Halloween the sun hides, and a big orange harvest moon hangs low over the street all day.
-    this.sunDisc.material.opacity *= 1 - sp;
-    this.sunDisc.visible = this.sunDisc.material.opacity > 0.01;
-    skyward(-el, az + Math.PI, this.moonAt);
+    // At Halloween a big orange harvest moon hangs low over the street instead.
+    skyward(MOON_AT.el, MOON_AT.az, this.moonAt);
     skyward(SPOOKY_MOON.el, SPOOKY_MOON.az, this.moonTo);
     u.moonDir.value.copy(this.moonTo);
     this.moonAt.lerp(this.moonTo, sp);
@@ -756,7 +764,7 @@ export class Sky {
       .multiplyScalar(160);
     this.moonDisc.scale.setScalar(1 + 2.2 * sp);
     this.moonDisc.material.color.copy(C.white).lerp(SPOOKY.moon, sp);
-    this.moonDisc.material.opacity = Math.max(smooth(2, -2, elD) * clear, sp * (1 - 0.5 * this.cover));
+    this.moonDisc.material.opacity = Math.max(clear, sp * (1 - 0.5 * this.cover));
     this.moonDisc.visible = this.moonDisc.material.opacity > 0.01;
 
     // Rain and snow fall outside, lit about as much as everything else is.

@@ -61,7 +61,7 @@ import { Hands } from './world/hands';
 import { Basketball, IN_HANDS } from './world/hoop';
 import { HOOP, SWEET, idealSpeed, lookAtRim, meter, shotSpeed, throwPitch, tossSpeed, underCeiling } from '../shared/hoop';
 import { Smoke } from './world/smoke';
-import { HAZE_MAX, Sky, describeSky } from './world/sky';
+import { HAZE_MAX, Sky, describeSky, type ScreenGlow } from './world/sky';
 import { Laptop } from './world/laptop';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import type { BoardSpot } from './world/board-layout';
@@ -99,7 +99,6 @@ import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 import { elevatorPanelOpen, onFloorAdded, openElevator, routeElevatorMessage } from './ui/elevator';
 import { toggleFloorMenu } from './ui/floormenu';
 import { providerLabel, rememberedChoice, resolvedProvider, modelBadge, supportedProviders, choiceForProvider, rememberProvider } from './ui/provider';
-import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
 import { renderLimits } from './ui/limits';
 import { MachineTexture, officeFull, pressureNote } from './world/machine';
 import { mountHud } from './ui/menu';
@@ -137,18 +136,18 @@ const effect = new OutlineEffect(renderer, { defaultThickness: 0.0032, defaultCo
 // outlines stay a desktop-only effect through `effect.render` below.
 
 const scene = new THREE.Scene();
-// The sky's color and the fog change with the time of day and the weather (world/sky.ts).
-scene.background = new THREE.Color('#bfe3ff');
-scene.fog = new THREE.Fog('#bfe3ff', 40, 90);
+// It is always night; the sky's color and the fog change with the weather (world/sky.ts).
+scene.background = new THREE.Color('#0a0720');
+scene.fog = new THREE.Fog('#0a0720', 40, 90);
 /** How far the camera sees in the office: as far as the haze ever is, from the top floor. */
 const FAR = HAZE_MAX + 20;
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, FAR);
 
-const hemi = new THREE.HemisphereLight('#fff5e6', '#c9a27a', 1.5);
-const ambient = new THREE.AmbientLight('#ffffff', 0.5);
+const hemi = new THREE.HemisphereLight('#2b2a6b', '#1a0d2c', 0.3);
+const ambient = new THREE.AmbientLight('#5a4a9c', 0.1);
 scene.add(hemi, ambient);
-// The sun by day and the moon by night; the sky moves it (world/sky.ts).
-const sun = new THREE.DirectionalLight('#fff1d6', 2.2);
+// The moon; the sky sets its light (world/sky.ts).
+const sun = new THREE.DirectionalLight('#8f9cff', 0.18);
 sun.position.set(-8, 18, 10);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
@@ -167,6 +166,8 @@ void loadPropManifest()
   .then(() => preloadProps(Object.keys(propManifest())))
   .catch((err) => console.warn('office: prop GLBs unavailable, keeping procedural props', err));
 const sky = new Sky(scene, { sun, hemi, ambient }, office.night);
+/** The laptop screens that light the room, reused every frame (see Sky.setScreens). */
+const screenGlows: ScreenGlow[] = [];
 store.on('sky', () => store.sky && sky.set(store.sky));
 // Halloween or Christmas decorations, up while the building's dressed up for one (see dressUp).
 const holiday = new Holiday(office);
@@ -205,9 +206,12 @@ const idleAgents = STATIONS.map((def) => {
 });
 
 // Boards: each draws onto a canvas texture, redrawn whenever what it shows changes.
+/** How much of its light a wall board gives off in the dark room: dim, but its text stays easy to read. */
+const BOARD_GLOW = 0.62;
 function mountBoard(mesh: THREE.Mesh, texture: THREE.Texture, render: () => void, topics: Topic[]) {
   const mat = mesh.material as THREE.MeshBasicMaterial;
   mat.map = texture;
+  mat.color.setScalar(BOARD_GLOW);
   mat.needsUpdate = true;
   for (const topic of topics) store.on(topic, render);
   render();
@@ -269,9 +273,6 @@ mountBoard(office.meetingSign, meetingSignTex.texture, renderMeetingSign, ['meet
 const gallery = new Gallery();
 office.group.add(gallery.group);
 store.on('decor', () => gallery.sync(store.decor));
-
-// The whiteboard shows what everyone's drawn on it.
-mirrorWhiteboard(office.whiteboard.show, office.whiteboard.fit.width, office.whiteboard.fit.height);
 
 // Confetti for merges, landing on whatever it falls on
 const confetti = new Confetti((x, z, y) => groundAt(office.colliders, x, z, y, false));
@@ -440,8 +441,6 @@ function vrAimLabel(it: Interactable, note: GhIssue | null, spot: BoardSpot | nu
       return 'E · the meeting room';
     case 'services':
       return 'E · running servers';
-    case 'whiteboard':
-      return '📝 Whiteboard · desktop only';
     case 'bookshelf':
       return '📚 Bookshelf · desktop only';
     case 'tv':
@@ -557,7 +556,7 @@ function vrUseE(it: Interactable | null, note: GhIssue | null, spot: BoardSpot |
       toast(`🖼️ ${d.title || 'A picture'} — hung by ${d.by}, ${timeAgo(d.at)}. E again to take it down`);
       return;
     }
-    if (it.kind === 'whiteboard' || it.kind === 'tv' || it.kind === 'cabinet' || it.kind === 'bookshelf' || it.kind === 'ball' || it.kind === 'golf') {
+    if (it.kind === 'tv' || it.kind === 'cabinet' || it.kind === 'bookshelf' || it.kind === 'ball' || it.kind === 'golf') {
       toast(`The ${it.kind} isn't in VR yet — hop on the desktop for that one`, 'warn');
       return;
     }
@@ -1395,7 +1394,6 @@ net.onMessage((msg) => {
   routePullMessage(msg);
   routeJiraMessage(msg);
   routeElevatorMessage(msg);
-  routeWhiteboardMessage(msg, net);
   switch (msg.t) {
     case 'welcome': {
       // A few pings, to line this page's clock up with the office's for the jukebox.
@@ -2893,7 +2891,6 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote, s
       toast('🚬 Smoke break');
     }
   } else if (target.kind === 'gong') hitGong();
-  else if (target.kind === 'whiteboard') openWhiteboard(net);
   else if (target.kind === 'cabinet') cabinet.play();
   else if (target.kind === 'ladder') grabLadder();
   else if (target.kind === 'pole' && target.pole !== undefined) usePole(target.pole);
@@ -3655,10 +3652,6 @@ function hintFor(it: Interactable): Hint {
         .join(', ');
       return { k: names, parts: [title('📚 Bookshelf'), aside(names ? `📖 ${clip(names, 40)} reading` : "the project's docs"), key('E', 'Read the docs')] };
     }
-    case 'whiteboard': {
-      const names = store.drawing.flatMap((id) => (id === store.you ? [] : (store.peers.get(id)?.name ?? []))).join(', ');
-      return { k: names, parts: [title('📝 Whiteboard'), aside(names ? `✏️ ${clip(names, 40)} drawing` : 'draw together, live'), key('E', names ? 'Join in' : 'Draw')] };
-    }
     case 'meeting': {
       const m = store.meeting.current;
       const p = m && MEETING_PATTERNS[m.pattern];
@@ -4156,7 +4149,6 @@ const REACH: Record<InteractKind, number> = {
   gong: 3.5,
   jukebox: 4,
   seat: 3,
-  whiteboard: 7,
   cabinet: 4,
   ladder: 3,
   pole: 4,
@@ -4370,7 +4362,6 @@ const hud = mountHud(
     { id: 'pulls', icon: '🔀', label: 'Pull requests', section: 'Open', count: () => store.pulls.items.filter((p) => p.state === 'OPEN').length, run: () => openBoard('pulls', net, boardActions()) },
     { id: 'queue', icon: '📋', label: 'Task queue', section: 'Open', count: () => store.queue.tasks.filter((t) => t.status !== 'done').length, title: () => 'Issues and tasks waiting for a worker', run: showQueue },
     { id: 'services', icon: '🌐', label: 'Services', section: 'Open', count: () => store.services.items.length, title: () => 'Web servers the workers are running', run: () => openServices() },
-    { id: 'whiteboard', icon: '📝', label: 'Whiteboard', section: 'Open', title: () => 'Draw together, live', run: () => openWhiteboard(net) },
     // Up on the top bar while a meeting is on: what's being worked through in the meeting room.
     {
       id: 'meeting',
@@ -4662,6 +4653,7 @@ function frame(ts?: number, xrFrame?: XRFrame) {
   }
 
   const camPos = camera.position;
+  let screens = 0;
   for (const [id, v] of workerViews) {
     const desk = DESK_BY_ID.get(v.deskId)!;
     // A jumping worker holds still while you're near enough to read its card, and jumps again once you walk away.
@@ -4669,8 +4661,13 @@ function frame(ts?: number, xrFrame?: XRFrame) {
     v.model.held = d < (v.model.held ? HOLD_LEAVE : HOLD_NEAR);
     v.model.update(dt, t);
     // A board agent's kiosk has no laptop to paint (see buildKiosk).
-    if (!desk.station) v.laptop.update(dt, store.screens.get(id), Math.hypot(desk.x - camPos.x, desk.z - camPos.z));
+    if (desk.station) continue;
+    v.laptop.update(dt, store.screens.get(id), Math.hypot(desk.x - camPos.x, desk.z - camPos.z));
+    const glow = (screenGlows[screens] ??= { pos: new THREE.Vector3(), dir: new THREE.Vector3(), power: 0 });
+    glow.power = v.laptop.glow(glow.pos, glow.dir);
+    if (glow.power > 0.01) screens++;
   }
+  sky.setScreens(screenGlows, screens, camPos);
   for (const a of idleAgents) if (a.view.vacancy.visible) a.model.update(dt, t);
   departures.update(dt, t);
   arrivals.update(dt);

@@ -54,7 +54,6 @@ import { buildGong, type Gong } from './gong';
 import { buildJukebox, type JukeboxView } from './jukebox';
 import { buildBookshelf } from './bookshelf';
 import { buildCabinet, type CabinetModel } from './cabinet';
-import { buildWhiteboard, type WhiteboardStand } from './whiteboard';
 import { buildStack, type Stack } from './stack';
 import { buildTower } from './tower';
 import { buildCoffeeMachine } from './coffee';
@@ -90,7 +89,6 @@ export type InteractKind =
   | 'gong'
   | 'jukebox'
   | 'seat'
-  | 'whiteboard'
   | 'cabinet'
   | 'ladder'
   | 'pole'
@@ -173,8 +171,6 @@ export interface Office {
   jukebox: JukeboxView;
   /** The arcade cabinet in the lounge, where BLOCKFALL plays (ui/cabinet.ts). */
   cabinet: CabinetModel;
-  /** The rolling whiteboard everyone draws on together. */
-  whiteboard: WhiteboardStand;
   /** The golf tee on the balcony, and the hole across the street it's hit at. */
   tee: Tee;
   green: Green;
@@ -1349,11 +1345,6 @@ export function buildOffice(): Office {
   colliders.push(...hoop.colliders);
   fixture('west', HOOP.z, (HOOP.board.bottom - 0.6 + HOOP.board.top + 0.1) / 2, HOOP.board.width + 0.2, HOOP.board.top - HOOP.board.bottom + 0.7);
 
-  // The whiteboard, out on the floor between the desks and the lounge.
-  const whiteboard = buildWhiteboard();
-  group.add(whiteboard.group);
-  colliders.push(...whiteboard.colliders);
-  interactables.push(whiteboard.interactable);
   // Pictures stay clear of the stairs (step by step, so they can hang above them) and of what's on
   // the loft's walls upstairs, as buildLoft places it: the couch and the sign.
   const run = (STAIRS.toX - STAIRS.fromX) / STAIRS.steps;
@@ -1432,7 +1423,6 @@ export function buildOffice(): Office {
     gong,
     jukebox,
     cabinet,
-    whiteboard,
     tee,
     green,
     hoop,

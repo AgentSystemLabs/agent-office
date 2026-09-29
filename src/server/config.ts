@@ -130,10 +130,9 @@ Options:
                           needs input or finishes (env DROID_OFFICE_WEBHOOK).
                           Also settable from ⚙️ Settings in the office; "" turns it off
       --city <name>       Put the office in a real city, e.g. "Berlin" or
-                          "Portland, Oregon" (env DROID_OFFICE_CITY): day, night
-                          and the weather outside follow its live forecast from
-                          open-meteo.com. Without it the sun follows this
-                          machine's clock and the weather is made up
+                          "Portland, Oregon" (env DROID_OFFICE_CITY): the weather
+                          outside follows its live forecast from open-meteo.com
+                          (it is always night). Without it the weather is made up
       --weather <kind>    Pin the weather: clear, cloudy, rain, storm, snow or
                           fog (env DROID_OFFICE_WEATHER)
   -h, --help              Show this help

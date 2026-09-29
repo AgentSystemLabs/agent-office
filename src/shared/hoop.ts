@@ -282,7 +282,7 @@ export function simulate(s: BallSim, seconds: number, solids: readonly Solid[], 
 }
 
 /**
- * Where a ball lying still can't be picked up from: too high up (on the whiteboard, or the loft's
+ * Where a ball lying still can't be picked up from: too high up (on a wall, or the loft's
  * roof), unless it's up in the loft. It goes back under the hoop, and so does a lost one.
  */
 export function outOfReach(s: { x: number; y: number; z: number }): boolean {

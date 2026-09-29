@@ -10,7 +10,6 @@ import type { JiraBoardState, JiraFloorState } from './jira.js';
 import type { JukeboxState } from './jukebox.js';
 import type { PromptId } from './prompts.js';
 import type { DrinkId } from './rooftop.js';
-import type { WbElement, WbPointer, WhiteboardView } from './whiteboard.js';
 
 export type WorkerStatus =
   | 'starting' // PTY launched, agent booting
@@ -750,8 +749,6 @@ export interface FloorView {
   jukebox: JukeboxState;
   /** Who's at the arcade cabinet, what's on its screen, and the building's high scores. */
   cabinet: CabinetView;
-  /** What's drawn on this floor's whiteboard, and who's drawing. */
-  whiteboard: WhiteboardView;
   /** The meeting room: who's meeting about what, and the meetings before. */
   meeting: MeetingState;
   /** The office's Jira connection and this floor's epic. */
@@ -1151,13 +1148,6 @@ export type ClientMsg =
    * how your score gets on the high-score table: the office follows the game frame by frame.
    */
   | { t: 'cabinet.frame'; frame: CabinetFrame }
-  /** You opened the whiteboard (or closed it): everyone on the floor sees who's drawing. */
-  | { t: 'wb.open' }
-  | { t: 'wb.close' }
-  /** Elements you added or changed on the whiteboard; pictures go first, by POST /api/whiteboard/file. */
-  | { t: 'wb.update'; elements: WbElement[] }
-  /** Where your mouse is on the whiteboard, and what you have selected there. */
-  | ({ t: 'wb.pointer'; selected?: string[] } & WbPointer)
   /**
    * Go to another floor; the server answers with `floor.enter`. By elevator you arrive in the car;
    * `at` is where you arrive instead: the same spot on the other floor (switching floors from the
@@ -1274,12 +1264,6 @@ export type ServerMsg =
   | { t: 'cabinet'; state: CabinetState }
   /** The game on your floor's cabinet, as its player sees it (sent to everyone else on the floor). */
   | { t: 'cabinet.frame'; frame: CabinetFrame }
-  /** Someone changed these elements on the floor's whiteboard (sent to everyone else on the floor). */
-  | { t: 'wb.update'; elements: WbElement[] }
-  /** Who has the floor's whiteboard open now. */
-  | { t: 'wb.people'; people: string[] }
-  /** Someone's mouse on the whiteboard; only people who have it open get these. */
-  | ({ t: 'wb.pointer'; id: string; selected?: string[] } & WbPointer)
   | { t: 'usage'; state: UsageState }
   | { t: 'limits'; state: PlanLimits }
   | { t: 'queue'; state: QueueState }

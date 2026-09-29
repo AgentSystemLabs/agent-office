@@ -254,6 +254,16 @@ export class Laptop {
     }
   }
 
+  /**
+   * Where the screen is and which way it faces, for the light it throws (see Sky.setScreens). Returns
+   * how lit it is, 0–1: nothing until the lid has swung most of the way up.
+   */
+  glow(pos: THREE.Vector3, dir: THREE.Vector3): number {
+    this.lid.localToWorld(pos.set(0, 0.25, 0.05));
+    dir.set(0, 0, 1).transformDirection(this.lid.matrixWorld);
+    return Math.max(0, (this.openT - 0.6) / 0.4);
+  }
+
   /** Folds the lid down a little further (it snaps shut at the end); true once it's closed. */
   shut(dt: number): boolean {
     this.setLid(Math.max(0, this.openT - dt * 2));

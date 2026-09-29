@@ -9,7 +9,7 @@ export default async function run({ frame }) {
   const chair = await frame.evaluate(() => window.__vrtest?.menuView?.());
   await frame.evaluate(() => window.__vrtest?.showMenu?.('main'));
   await frame.waitForTimeout(500);
-  await frame.evaluate(() => window.__vrtest?.tapUse?.('whiteboard'));
+  await frame.evaluate(() => window.__vrtest?.tapUse?.('tv'));
   await frame.waitForTimeout(500);
   const gaps = await frame.evaluate(() => window.__vrtest?.menuView?.());
   console.log('MEETE:', JSON.stringify({ room, chair, gaps }));

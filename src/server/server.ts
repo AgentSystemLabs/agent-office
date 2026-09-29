@@ -38,7 +38,6 @@ import { DESK_BY_ID, elevatorSpot, seatHere, streetBelow } from '../shared/layou
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
-import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
 import { MAX_FLOORS, forgeWords } from '../shared/floors.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
@@ -93,9 +92,6 @@ interface Client {
   /** When they last blew the DJ's air horn on the roof. */
   lastHornAt: number;
   emotes: EmoteBucket;
-  /** Has the floor's whiteboard open. */
-  whiteboard: boolean;
-  lastWbPointerAt: number;
   /** At the arcade cabinet on their floor, playing `game` (see Arcade); `frame` is it as it looks now. */
   playing: boolean;
   game?: string;
@@ -512,12 +508,6 @@ export async function startServer(cfg: Config) {
     },
   );
 
-  /** Who has a floor's whiteboard open. */
-  const drawing = (floor: Floor): string[] => [...clients.values()].filter((c) => c.whiteboard && c.peer.floor === floor.id).map((c) => c.id);
-  const drawingChanged = (floor: Floor | undefined) => {
-    if (floor) toFloor(floor, { t: 'wb.people', people: drawing(floor) });
-  };
-
   /** Who's playing the arcade cabinet on a floor. */
   const cabinetPlayer = (floor: Floor): Client | undefined => [...clients.values()].find((c) => c.playing && c.peer.floor === floor.id);
   const cabinetState = (floor: Floor | undefined): CabinetState => {
@@ -549,7 +539,6 @@ export async function startServer(cfg: Config) {
     services: servicesState(floor),
     ball: floor?.court.state() ?? {},
     jukebox: floor?.jukebox.state() ?? { on: false, track: JUKEBOX_TUNES[0].id, startedAt: Date.now(), elapsed: 0 },
-    whiteboard: { elements: floor?.whiteboard.scene() ?? [], people: floor ? drawing(floor) : [] },
     meeting: floor?.meetings.state() ?? { current: null, past: [] },
     jira: floor?.jira.state() ?? { connection: jira.connection() },
     jiraBoard: floor?.jira.board ?? null,
@@ -771,26 +760,6 @@ export async function startServer(cfg: Config) {
       }
       // Which floor a request is about: its boards and its workers.
       const floor = floors.get(url.searchParams.get('floor') ?? '');
-      if (p === '/api/whiteboard/file') {
-        // Pictures on the whiteboard. Their ids are hashes of what's in them, so they never change.
-        if (!floor) return send(res, 404, { error: 'No such floor' });
-        if (req.method === 'GET') {
-          const f = floor.whiteboard.file(url.searchParams.get('id') ?? '');
-          if (!f) return send(res, 404, { error: 'No such picture' });
-          return send(res, 200, f, { 'cache-control': 'private, max-age=31536000, immutable' });
-        }
-        if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
-        if (!sameOrigin(req, cfg)) return send(res, 403, { error: 'Forbidden' });
-        let body: unknown;
-        try {
-          body = JSON.parse(await readBody(req, WB_MAX_FILE_BYTES + 4096));
-        } catch (err) {
-          if ((err as Error).message === 'too large') return send(res, 413, { error: 'That picture is too big for the whiteboard' });
-          return send(res, 400, { error: 'Bad request' });
-        }
-        const error = floor.whiteboard.addFile(body);
-        return error ? send(res, 400, { error }) : send(res, 200, { ok: true });
-      }
       if (p === '/api/changes/file') {
         // A changed picture in the Changes window at a desk: before (old) or after (new) the worker's edits.
         if (req.method !== 'GET') return send(res, 405, { error: 'Method not allowed' });
@@ -966,8 +935,6 @@ export async function startServer(cfg: Config) {
       lastHornAt: 0,
       // A little more lenient than the page's own, so emotes it let through aren't dropped for arriving bunched up.
       emotes: new EmoteBucket(EMOTE_EVERY * 0.8),
-      whiteboard: false,
-      lastWbPointerAt: 0,
       playing: false,
       lastFrameAt: 0,
       typingAt: new Map(),
@@ -1041,7 +1008,6 @@ export async function startServer(cfg: Config) {
     });
     ws.on('close', () => {
       clients.delete(id);
-      if (client.whiteboard) drawingChanged(floorOf(client));
       stopPlaying(client);
       for (const f of floors.values()) {
         f.workers.detachAll(id);
@@ -1143,9 +1109,6 @@ export async function startServer(cfg: Config) {
     c.attached.clear();
     c.typingAt.clear();
     c.stale.clear();
-    // The whiteboard downstairs stays downstairs, and so does the arcade.
-    const wasDrawing = c.whiteboard;
-    c.whiteboard = false;
     stopPlaying(c, was);
     const spot = at ?? { ...elevatorSpot(), y: 0, rotY: 0 };
     Object.assign(c.peer, { x: spot.x, y: spot.y, z: spot.z, rotY: spot.rotY, moving: false });
@@ -1154,12 +1117,11 @@ export async function startServer(cfg: Config) {
     // An issue card belongs to the board it came off, which is on the floor they left; a drink stays at the bar.
     delete c.peer.carrying;
     delete c.peer.drink;
-    return { was, wasDrawing, ballLeft };
+    return { was, ballLeft };
   };
 
   const arrived = (c: Client, left: ReturnType<typeof leave>) => {
     broadcast({ t: 'peer.update', peer: c.peer }, c.id);
-    if (left.wasDrawing) drawingChanged(left.was);
     if (left.ballLeft && left.was) ballChanged(left.was);
   };
 
@@ -1865,41 +1827,6 @@ export async function startServer(cfg: Config) {
         if (!d) break;
         decorChanged(floor);
         toastFloor(floor, `${who} took down ${d.title ? `“${d.title}”` : 'a picture'}`);
-        break;
-      }
-      case 'wb.open':
-      case 'wb.close': {
-        const floor = floorOf(c);
-        const open = msg.t === 'wb.open' && !!floor;
-        if (open === c.whiteboard) break;
-        c.whiteboard = open;
-        drawingChanged(floor);
-        break;
-      }
-      case 'wb.update': {
-        const floor = here();
-        if (!floor) break;
-        const { accepted, error } = floor.whiteboard.apply(msg.elements);
-        if (accepted.length) toNeighbors(c, { t: 'wb.update', elements: accepted });
-        warn(c, error);
-        break;
-      }
-      case 'wb.pointer': {
-        const now = Date.now();
-        if (!c.whiteboard || now - c.lastWbPointerAt < 25) break;
-        c.lastWbPointerAt = now;
-        const selected = Array.isArray(msg.selected)
-          ? msg.selected
-              .filter((s): s is string => typeof s === 'string')
-              .slice(0, 200)
-              .map((s) => s.slice(0, 100))
-          : undefined;
-        const pointer: ServerMsg = { t: 'wb.pointer', id: c.id, x: num(msg.x), y: num(msg.y), tool: msg.tool === 'laser' ? 'laser' : 'pointer', button: msg.button === 'down' ? 'down' : 'up', selected };
-        const json = JSON.stringify(pointer);
-        for (const o of clients.values()) {
-          if (o.id === c.id || !o.whiteboard || o.peer.floor !== c.peer.floor || o.ws.readyState !== WebSocket.OPEN || o.ws.bufferedAmount > 1024 * 1024) continue;
-          o.ws.send(json);
-        }
         break;
       }
       case 'jukebox.play': {

@@ -54,7 +54,7 @@ test('a dropped ball bounces, rolls to a stop on the floor and can be picked up 
 });
 
 test('up on something tall it is out of reach, but not up in the loft', () => {
-  assert.ok(outOfReach({ x: 5.4, y: 3.05 + BALL.r, z: -5.4 }), 'on top of the whiteboard');
+  assert.ok(outOfReach({ x: 5.4, y: 3.05 + BALL.r, z: -5.4 }), 'up high');
   assert.ok(!outOfReach({ x: (LOFT.minX + LOFT.maxX) / 2, y: LOFT.y + BALL.r, z: (LOFT.minZ + LOFT.maxZ) / 2 }), 'on the loft floor');
   assert.ok(outOfReach({ x: (LOFT.minX + LOFT.maxX) / 2, y: LOFT.y + LOFT.height + 0.2 + BALL.r, z: (LOFT.minZ + LOFT.maxZ) / 2 }), 'on the loft roof');
 });

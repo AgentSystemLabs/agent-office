@@ -229,13 +229,6 @@ export const PLANTS: readonly (readonly [x: number, z: number, scale: number])[]
 ];
 
 /**
- * The whiteboard on wheels everyone draws on together, out on the open floor between the desks and
- * the lounge, facing into the room (+z). `width` and `height` are its writing surface, whose bottom
- * edge is `bottom` above the floor.
- */
-export const WHITEBOARD = { x: 5.4, z: -5.4, width: 4, height: 2.2, bottom: 0.5 } as const;
-
-/**
  * The bottom floor of the building is its second storey: the street, and the open garage under the
  * office, are this far below its floor. Each floor stands one STOREY higher than the one below it,
  * so from floor `i` the street is `streetBelow(i)` down.

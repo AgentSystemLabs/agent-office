@@ -1059,19 +1059,6 @@ a.when:hover { text-decoration: underline; }
 .elevator .dir-pick { margin-top: 8px; }
 .elevator .err { margin: 8px 0 0; font-size: 13px; font-weight: 600; color: var(--danger); overflow-wrap: anywhere; }
 
-/* ---------- Whiteboard ---------- */
-/* Its own window rather than a .modal, whose rules for labels, inputs and textareas would restyle Excalidraw's. */
-.wb-window { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); width: min(1600px, 100%); height: calc(100vh - 32px); display: flex; flex-direction: column; overflow: hidden; animation: fade .18s var(--ease); }
-.wb-window > header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface-raised); }
-.wb-window > header h2 { margin: 0; font: 600 12px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .1em; flex: none; }
-.wb-people { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; font: 400 12px var(--font-mono); }
-.wb-live { flex: none; background: rgba(239, 68, 68, .12); color: var(--danger); border: 1px solid rgba(239, 68, 68, .5); border-radius: var(--radius-xs); padding: 1px 6px; font: 500 9.5px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .07em; }
-.wb-person { display: inline-flex; align-items: center; gap: 5px; background: var(--surface-raised); border: 1px solid var(--border-strong); border-radius: var(--radius-xs); padding: 1px 9px 1px 5px; white-space: nowrap; font-size: 12px; }
-.wb-person .dot { width: 10px; height: 10px; }
-.wb-alone { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wb-host { flex: 1; min-height: 0; position: relative; background: #fff; }
-.wb-loading { display: grid; place-items: center; height: 100%; padding: 16px; text-align: center; font: 400 12px var(--font-mono); text-transform: uppercase; letter-spacing: .07em; color: var(--text-secondary); }
-
 /* Minesweeper on the boss's monitor (ui/arcade.ts): the office stays in view around the game, which sits right over the screen. */
 .backdrop.clear { background: none; padding: 0; animation: none; }
 /* The game would cut through the HUD's panels, so they step aside while you play. */

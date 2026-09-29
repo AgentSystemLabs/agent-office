@@ -156,7 +156,7 @@ wake, send-home, ⌨ keyboard toggle), the prompt + QWERTY keyboard,
 the controls card, and a toast mirror. Both rays press independently (two-handed typing),
 held keys repeat like a desktop board, and the prompt + keyboard ride teleports along.
 A strip low in the view names what E would do to the ray's target (the desktop hint
-bar's twin); whiteboard, TV and arcade stay desktop-only and say so.
+bar's twin); TV and arcade stay desktop-only and say so.
 Head-placed panels draw through walls (below the cursor dots); the terminal stays
 depth-tested furniture. The menu, controls card and toast glide after the head; the
 terminal, prompt and keyboard stay where they opened so you can lean in.

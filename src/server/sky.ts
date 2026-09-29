@@ -1,7 +1,7 @@
 import type { SkyState, Weather } from '../shared/protocol.js';
 import { guessPlace } from '../shared/sun.js';
 
-// The sky over the office: where it is (which sets when the sun rises and sets) and the weather.
+// The sky over the office: where it is and the weather. It is always night in the office's city.
 // With --city, both follow that city's live forecast from open-meteo.com (free, no key needed).
 // Without one, the office sits in the host's time zone and the weather wanders by itself, one
 // spell after another, with snow only in winter. --weather pins it either way.

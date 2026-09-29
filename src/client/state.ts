@@ -33,7 +33,6 @@ import type {
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
-import { newer, type WbElement } from '../shared/whiteboard';
 import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
 import { forgeWords, type ForgeWords } from '../shared/floors';
@@ -69,8 +68,6 @@ export type Topic =
   | 'sky'
   | 'theme'
   | 'leaveOnMerge'
-  | 'whiteboard'
-  | 'drawing'
   | 'cabinet'
   | 'cabinetFrame'
   | 'meeting'
@@ -237,10 +234,6 @@ class Store {
   jukebox: JukeboxState & { since: number } = { on: false, track: JUKEBOX_TUNES[0].id, startedAt: 0, elapsed: 0, since: 0 };
   /** The office's clock minus performance.now(), from the quickest ping (see 'pong'); for the jukebox. */
   private clock?: { offset: number; rtt: number };
-  /** The floor's whiteboard: the newest copy of every element anyone drew, deleted ones too. */
-  whiteboard = new Map<string, WbElement>();
-  /** Who has the whiteboard open (client ids). */
-  drawing: string[] = [];
   /** Who's at the arcade cabinet on your floor, and the building's high scores. */
   cabinet: CabinetState = { player: null, scores: [] };
   /** The game on the cabinet as its player last sent it; null while nobody plays. */
@@ -308,17 +301,6 @@ class Store {
     return undefined;
   }
 
-  /** Takes in whiteboard elements, yours or someone else's: each one newer than the copy here replaces it. */
-  drew(elements: readonly WbElement[]) {
-    let changed = false;
-    for (const e of elements) {
-      if (!newer(e, this.whiteboard.get(e.id))) continue;
-      this.whiteboard.set(e.id, e);
-      changed = true;
-    }
-    if (changed) this.emit('whiteboard');
-  }
-
   /** The queue task for an issue: the one on the queue if there is one, else the latest finished one. */
   taskForIssue(issue: number): QueueTask | undefined {
     const tasks = this.queue.tasks.filter((t) => t.issue === issue);
@@ -340,13 +322,11 @@ class Store {
     this.jiraBoard = v.jiraBoard ?? null;
     this.decor = v.decor;
     this.services = v.services;
-    this.whiteboard = new Map(v.whiteboard.elements.map((e) => [e.id, e]));
-    this.drawing = v.whiteboard.people;
     this.cabinet = { player: v.cabinet.player, scores: v.cabinet.scores };
     this.cabinetFrame = v.cabinet.frame;
     this.setJukebox(v.jukebox);
     this.ball = v.ball ?? {};
-    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'services', 'jukebox', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'jira', 'jiraBoard', 'ball'] as Topic[]) this.emit(t);
+    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'services', 'jukebox', 'cabinet', 'cabinetFrame', 'jira', 'jiraBoard', 'ball'] as Topic[]) this.emit(t);
   }
 
   /** When the track started on this page's clock: from the office's clock once it's known, else from `elapsed`. */
@@ -487,13 +467,6 @@ class Store {
         if (Math.abs(this.jukebox.since - was) > 20) this.emit('jukebox');
         break;
       }
-      case 'wb.update':
-        this.drew(msg.elements);
-        break;
-      case 'wb.people':
-        this.drawing = msg.people;
-        this.emit('drawing');
-        break;
       case 'usage':
         this.usage = msg.state;
         this.emit('usage');

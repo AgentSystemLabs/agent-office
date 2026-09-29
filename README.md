@@ -32,7 +32,7 @@ Droid Office turns that into a place. Every agent sits at a desk with a laptop s
 - **Boards you can touch.** Issues and pull requests hang on the wall. Take a card off the board, carry it across the room, and hand it to a worker.
 - **A task queue that works while you don't.** Queue tasks and walk away. Each one gets a fresh worker on its own git branch, and the PR shows up on the board when it's ready.
 - **Meetings between agents.** Seat two to five workers at the glass meeting table for a debate, a lead-and-team split, a red-versus-blue attack on your change, or a review panel that posts one merged review on the PR.
-- **Voice, screen share and a whiteboard.** Talk to your team, put your screen on the lounge TV and draw together.
+- **Voice and screen share.** Talk to your team and put your screen on the lounge TV.
 - **A place worth being in.** A rooftop bar, a basketball hoop, a golf tee, an arcade cabinet, a jukebox, and weather outside the windows that follows a real city if you ask.
 
 <img src="docs/meeting.jpg" alt="Robot workers and a person around a glass meeting table with a whiteboard of diagrams behind them" width="100%">
