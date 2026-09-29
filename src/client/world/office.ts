@@ -88,6 +88,8 @@ export interface Office {
   /** What's already on the walls (boards, the TV, windows…), so pictures don't hang over it. */
   fixtures(): WallRect[];
   elevator: Elevator;
+  /** The elevator's stop down in the garage, under the building. */
+  garageLift: Elevator;
   /** The merge gong by the PR board. */
   gong: Gong;
   jukebox: JukeboxView;
@@ -1242,6 +1244,13 @@ export function buildOffice(): Office {
   colliders.push(...elevator.colliders);
   interactables.push(elevator.interactable);
   fixture('north', ELEVATOR.x, WALL_HEIGHT / 2, ELEVATOR.width + 0.1, WALL_HEIGHT);
+  // Its stop in the garage, at the bottom of the same shaft: as tall as the garage, and as far down
+  // as the street is (see setLevel).
+  const garageLift = buildElevator(-SLAB - STREET_Y);
+  garageLift.setSign('🛗 Garage');
+  group.add(garageLift.group);
+  colliders.push(...garageLift.colliders);
+  interactables.push(garageLift.interactable);
 
   // The gong, just past the elevator from the PR board.
   const gong = buildGong();
@@ -1291,6 +1300,7 @@ export function buildOffice(): Office {
     night.street = streetBelow(index);
     exit.door.y = -drop;
     exit.door.locked = index > 0;
+    garageLift.setFloor(streetBelow(index));
     plug.group.visible = index > 0;
     const i = colliders.indexOf(plug.collider);
     if (index > 0 && i < 0) colliders.push(plug.collider);
@@ -1315,12 +1325,13 @@ export function buildOffice(): Office {
       d.vacancy.rotation.y = t * 1.2;
     }
     elevator.update(dt);
+    garageLift.update(dt);
     gong.update(dt);
     green.update(t);
     hoop.update(dt);
   };
 
-  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, elevator, gong, jukebox, cabinet, whiteboard, tee, green, hoop, stack, setProjectName, setLook, setLevel, night, plants, update };
+  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, elevator, garageLift, gong, jukebox, cabinet, whiteboard, tee, green, hoop, stack, setProjectName, setLook, setLevel, night, plants, update };
 }
 
 /** A chair at the meeting table, with its laptop on the table in front of it. */
