@@ -37,6 +37,8 @@ export interface Config {
   tls?: { cert: string; key: string };
   trustProxy: boolean;
   iceServers: RTCIceServerLike[];
+  /** The script that deployed the office, e.g. deploy/azure.sh (set by deploy/provision.sh), for the commands it suggests. */
+  deployScript?: string;
   /** Address teammates SSH-tunnel to (set by deploy/provision.sh); enables invites from the office. */
   publicHost?: string;
   /** Daily tracked Claude Code spend budget, USD. OpenCode/Codex spend is excluded. */
@@ -419,6 +421,7 @@ export function loadConfig(argv: string[]): Config {
     tls,
     trustProxy,
     iceServers,
+    deployScript: process.env.AGENT_OFFICE_DEPLOY_SCRIPT || undefined,
     publicHost: process.env.AGENT_OFFICE_PUBLIC_HOST || undefined,
     budget: budgetUsd,
     budgetPause,

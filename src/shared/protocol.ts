@@ -790,6 +790,8 @@ export interface TeamState {
   ssh?: string;
   /** The office's port on the box (tunnel destination). */
   port: number;
+  /** The script that deployed the office, for the commands the panel suggests (deploy/aws.sh when unknown). */
+  deploy?: string;
   /** SHA256 fingerprint of the box's ED25519 host key, to check on first connect. */
   fingerprint?: string;
   members: TeamMember[];
@@ -816,6 +818,8 @@ export interface ServicesState {
   items: ServiceInfo[];
   /** The office's port on its machine. Service tunnels end there and the office relays them. */
   port: number;
+  /** The script that deployed the office (deploy/aws.sh when unknown). */
+  deploy?: string;
   /** user@host teammates tunnel to (offices deployed with deploy/aws.sh), e.g. office@203.0.113.7 */
   ssh?: string;
 }

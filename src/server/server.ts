@@ -532,6 +532,7 @@ export async function startServer(cfg: Config) {
   const servicesState = (floor: Floor | undefined, items = services.list()): ServicesState => ({
     items: floor ? items.filter((s) => floor.workers.get(s.workerId)) : [],
     port: cfg.port,
+    deploy: cfg.deployScript,
     ssh: team.ssh,
   });
   const services = new Services(
@@ -1069,7 +1070,8 @@ export async function startServer(cfg: Config) {
   const decorChanged = (floor: Floor) => toFloor(floor, { t: 'decor', items: floor.decor.list() });
   const ballChanged = (floor: Floor) => toFloor(floor, { t: 'ball', ball: floor.court.state() });
   const jukeboxChanged = (floor: Floor) => toFloor(floor, { t: 'jukebox', state: floor.jukebox.state() });
-  const teamChanged = async () => broadcast({ t: 'team', state: await team.state() });
+  const teamState = async () => ({ ...(await team.state()), deploy: cfg.deployScript });
+  const teamChanged = async () => broadcast({ t: 'team', state: await teamState() });
 
   /** To everyone else on the same floor as `c`: nobody on another floor can see them. */
   const toNeighbors = (c: Client, msg: ServerMsg, droppable = false) => {
@@ -1865,7 +1867,7 @@ export async function startServer(cfg: Config) {
         limitsOf(c).refresh();
         break;
       case 'team.get':
-        void team.state().then((state) => sendTo(c, { t: 'team', state }));
+        void teamState().then((state) => sendTo(c, { t: 'team', state }));
         break;
       case 'team.invite': {
         const user = str(msg.github, 64);

@@ -128,7 +128,7 @@ export function openTeam(net: Net) {
         `It opens the tunnel and http://localhost:${t.port} in their browser. They keep the terminal open while they're in. `,
         t.fingerprint ? h('span', {}, 'The first time, ssh asks whether to trust the server: the fingerprint must be ', h('code', {}, t.fingerprint), '.') : null,
       ),
-      h('p.note', {}, 'SSH only answers IP addresses you allowed. If theirs isn\'t, run ', h('code', {}, 'deploy/aws.sh allow <their-ip>'), ' (or ', h('code', {}, 'allow anywhere'), ') on your machine.'),
+      h('p.note', {}, 'SSH only answers IP addresses you allowed. If theirs isn\'t, run ', h('code', {}, `${t.deploy ?? 'deploy/aws.sh'} allow <their-ip>`), ' (or ', h('code', {}, 'allow anywhere'), ') on your machine.'),
     );
 
     const list = h('ul.team-list');

@@ -145,6 +145,11 @@ if [[ -z "${PUBLIC_HOST:-}" ]]; then
   [[ -n "$PUBLIC_HOST" ]] || PUBLIC_HOST=$(curl -fsS --max-time 5 https://checkip.amazonaws.com 2>/dev/null | tr -d '[:space:]' || true)
   [[ -n "$PUBLIC_HOST" ]] || PUBLIC_HOST=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
 fi
+# The script that deployed this server, exported as DEPLOY_SCRIPT (deploy/azure.sh does), so the
+# office names it in the commands it suggests. Run again by hand, this keeps the one from before.
+[[ -n "${DEPLOY_SCRIPT:-}" ]] ||
+  DEPLOY_SCRIPT=$(sudo sed -n 's/^AGENT_OFFICE_DEPLOY_SCRIPT="\(.*\)"$/\1/p' /etc/agent-office/env 2>/dev/null || true)
+[[ "$DEPLOY_SCRIPT" =~ ^deploy/[a-z0-9-]+\.sh$ ]] || DEPLOY_SCRIPT=""
 
 step "Writing secrets to /etc/agent-office/env"
 sudo install -d -m 755 /etc/agent-office
@@ -155,6 +160,7 @@ env_file=$(mktemp)
   [[ -n "${PUBLIC_HOST:-}" ]] && printf 'AGENT_OFFICE_PUBLIC_HOST="%s"\n' "$PUBLIC_HOST"
   [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]] && printf 'CLAUDE_CODE_OAUTH_TOKEN="%s"\n' "$CLAUDE_CODE_OAUTH_TOKEN"
   [[ -n "${ANTHROPIC_API_KEY:-}" ]] && printf 'ANTHROPIC_API_KEY="%s"\n' "$ANTHROPIC_API_KEY"
+  [[ -n "$DEPLOY_SCRIPT" ]] && printf 'AGENT_OFFICE_DEPLOY_SCRIPT="%s"\n' "$DEPLOY_SCRIPT"
   true
 } >"$env_file"
 sudo install -m 600 -o root -g root "$env_file" /etc/agent-office/env
