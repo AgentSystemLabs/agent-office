@@ -13,6 +13,7 @@ import { childEnv, resolveCommand } from './workers.js';
 import { SignIns, type GhAs } from './signins.js';
 import { agentProviders, configuredProvider, OPEN_CODE_MODEL_MAX } from './agents.js';
 import { createOpenCodeModelCatalogue } from './models.js';
+import { Tailnet } from './tailnet.js';
 import { Team } from './team.js';
 import { Upgrader } from './upgrade.js';
 import { Services } from './services.js';
@@ -37,6 +38,7 @@ import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
+import { DROP_MAX_BYTES } from '../shared/drops.js';
 import { MAX_FLOORS } from '../shared/floors.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
@@ -129,6 +131,10 @@ function isSecure(req: http.IncomingMessage, cfg: Config): boolean {
 }
 
 function readBody(req: http.IncomingMessage, limit = 1024 * 1024): Promise<string> {
+  return readBytes(req, limit).then((b) => b.toString('utf8'));
+}
+
+function readBytes(req: http.IncomingMessage, limit: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks: Buffer[] = [];
@@ -139,7 +145,7 @@ function readBody(req: http.IncomingMessage, limit = 1024 * 1024): Promise<strin
         req.destroy();
       } else chunks.push(c);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
 }
@@ -525,19 +531,23 @@ export async function startServer(cfg: Config) {
   // Workers still running from the last office are back at their desks before anyone walks in.
   await Promise.all([...floors.values()].map((f) => f.ready));
 
-  const team = new Team(cfg.publicHost, cfg.port);
+  const team = new Team(cfg.publicHost, cfg.port, cfg.tailnet);
+  const tailnet = new Tailnet(cfg.tailnet);
 
   // Web servers the workers start, for the Services board and service tunnels (see relay.ts).
   // One scan covers every floor; each floor's board lists its own workers' servers.
   const servicesState = (floor: Floor | undefined, items = services.list()): ServicesState => ({
     items: floor ? items.filter((s) => floor.workers.get(s.workerId)) : [],
     port: cfg.port,
+    deploy: cfg.deployScript,
     ssh: team.ssh,
+    tailnet: cfg.tailnet,
   });
   const services = new Services(
     () => [...floors.values()].flatMap((f) => f.workers.owners()),
     (items) => {
       for (const c of clients.values()) sendTo(c, { t: 'services', state: servicesState(floorOf(c), items) });
+      tailnet.sync(items.map((s) => s.port));
     },
   );
 
@@ -693,7 +703,7 @@ export async function startServer(cfg: Config) {
   const handler = async (req: http.IncomingMessage, res: http.ServerResponse) => {
     try {
       // A service tunnel (localhost:5173 -> the office): relay to that worker's server.
-      const tunneled = tunneledPort(req, cfg.port);
+      const tunneled = tunneledPort(req, cfg.port, cfg.tailnet);
       const svc = tunneled ? services.lookup(tunneled) : undefined;
       if (tunneled && svc) {
         if (req.method === 'POST' && req.url === RELAY_LOGIN) return await login(req, res);
@@ -804,6 +814,24 @@ export async function startServer(cfg: Config) {
         const error = floor.whiteboard.addFile(body);
         return error ? send(res, 400, { error }) : send(res, 200, { ok: true });
       }
+      if (p === '/api/term/drop') {
+        // A file dropped or pasted into a worker's terminal, kept on this machine for the terminal to type its path.
+        if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
+        if (!sameOrigin(req, cfg)) return send(res, 403, { error: 'Forbidden' });
+        if (!floor) return send(res, 404, { error: 'No such floor' });
+        const workerId = str(url.searchParams.get('worker'), 32);
+        if (!floor.workers.get(workerId)) return send(res, 404, { error: 'No such worker' });
+        const tooBig = `That file is too big to drop into a terminal (${DROP_MAX_BYTES / 1024 / 1024} MB at most)`;
+        if (Number(req.headers['content-length']) > DROP_MAX_BYTES) return send(res, 413, { error: tooBig });
+        let body: Buffer;
+        try {
+          body = await readBytes(req, DROP_MAX_BYTES);
+        } catch (err) {
+          return (err as Error).message === 'too large' ? send(res, 413, { error: tooBig }) : send(res, 400, { error: 'Bad request' });
+        }
+        const file = floor.workers.drop(workerId, str(url.searchParams.get('name'), 256), str(req.headers['content-type'], 128), body);
+        return file ? send(res, 200, { path: file }) : send(res, 500, { error: 'The office could not keep that file' });
+      }
       if (p === '/api/changes/file') {
         // A changed picture in the Changes window at a desk: before (old) or after (new) the worker's edits.
         if (req.method !== 'GET') return send(res, 405, { error: 'Method not allowed' });
@@ -894,7 +922,7 @@ export async function startServer(cfg: Config) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
   server.on('upgrade', (req, socket, head) => {
     socket.on('error', () => socket.destroy());
-    const tunneled = tunneledPort(req, cfg.port);
+    const tunneled = tunneledPort(req, cfg.port, cfg.tailnet);
     const svc = tunneled ? services.lookup(tunneled) : undefined;
     if (tunneled && svc) {
       if (svc !== 'gone' && auth.fromAnyCookie(req)) return relayUpgrade(req, socket, head, svc);
@@ -1011,7 +1039,7 @@ export async function startServer(cfg: Config) {
       projectsDir: building.projectsDirState(),
       ice: cfg.iceServers,
       chat: chat.recent(50),
-      invites: team.available,
+      invites: team.available || !!cfg.tailnet,
       version: upgrader.version,
       upgrade: upgrader.state,
       usage: ledger.state(),
@@ -1069,7 +1097,8 @@ export async function startServer(cfg: Config) {
   const decorChanged = (floor: Floor) => toFloor(floor, { t: 'decor', items: floor.decor.list() });
   const ballChanged = (floor: Floor) => toFloor(floor, { t: 'ball', ball: floor.court.state() });
   const jukeboxChanged = (floor: Floor) => toFloor(floor, { t: 'jukebox', state: floor.jukebox.state() });
-  const teamChanged = async () => broadcast({ t: 'team', state: await team.state() });
+  const teamState = async () => ({ ...(await team.state()), deploy: cfg.deployScript });
+  const teamChanged = async () => broadcast({ t: 'team', state: await teamState() });
 
   /** To everyone else on the same floor as `c`: nobody on another floor can see them. */
   const toNeighbors = (c: Client, msg: ServerMsg, droppable = false) => {
@@ -1202,6 +1231,19 @@ export async function startServer(cfg: Config) {
       if (refused) refused(why);
       else warn(c, why);
       sendTo(c, { t: 'signins.needed', which, why });
+    });
+  };
+  /**
+   * Runs `go` once a worktree made on `floor` would start from what's on GitHub now (see
+   * Worktrees.fetch): right away when that was just fetched, else after a fetch, if `c` and the floor
+   * are still there.
+   */
+  const withFreshBase = (c: Client, floor: Floor, go: () => void) => {
+    const fetching = floor.workers.fetchBase();
+    if (!fetching) return go();
+    void fetching.then(() => {
+      if (c.out || c.ws.readyState !== WebSocket.OPEN || floors.get(floor.id) !== floor) return;
+      go();
     });
   };
   /** Runs `go` with how the office acts on GitHub for `c`: as them, or as itself (no account, or an admin's choice). */
@@ -1440,13 +1482,14 @@ export async function startServer(cfg: Config) {
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
         const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
         // A shell is theirs too: `claude auth login` or `gh auth login` typed there signs them in.
-        withSignIn(c, kind === 'agent' ? claudeFor(msg.provider ?? floor.workers.officeDefault.provider) : undefined, () => {
+        const hire = () => {
           const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort, undefined, c.accountId);
           const issue = kind === 'agent' ? issueNumber(msg.issue) : undefined;
           if (typeof r === 'string') warn(c, r);
           else toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${issue ? ` for issue #${issue}` : r.prompt ? ' with a task' : ''}`);
           if (typeof r !== 'string' && issue) takeIssue(c, floor, issue);
-        });
+        };
+        withSignIn(c, kind === 'agent' ? claudeFor(msg.provider ?? floor.workers.officeDefault.provider) : undefined, () => (msg.worktree === true ? withFreshBase(c, floor, hire) : hire()));
         break;
       }
       case 'worker.resume': {
@@ -1725,7 +1768,7 @@ export async function startServer(cfg: Config) {
           model: msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1),
           effort: isAgentEffort(msg.effort) ? msg.effort : undefined,
         };
-        withSignIn(c, claudeFor(request.provider ?? floor.workers.officeDefault.provider), () => warn(c, floor.meetings.start(request, who, c.accountId)));
+        withSignIn(c, claudeFor(request.provider ?? floor.workers.officeDefault.provider), () => withFreshBase(c, floor, () => warn(c, floor.meetings.start(request, who, c.accountId))));
         break;
       }
       case 'meeting.stop': {
@@ -1865,7 +1908,7 @@ export async function startServer(cfg: Config) {
         limitsOf(c).refresh();
         break;
       case 'team.get':
-        void team.state().then((state) => sendTo(c, { t: 'team', state }));
+        void teamState().then((state) => sendTo(c, { t: 'team', state }));
         break;
       case 'team.invite': {
         const user = str(msg.github, 64);
@@ -2142,6 +2185,7 @@ export async function startServer(cfg: Config) {
     server.listen(cfg.port, cfg.host, () => resolve());
   });
   services.start();
+  tailnet.start(() => services.list().map((s) => s.port));
 
   /** With `keep` (a restart), workers' terminals keep running for the next office to pick up. */
   const shutdown = (keep = false) => {
@@ -2151,6 +2195,7 @@ export async function startServer(cfg: Config) {
     arcade.flush();
     upgrader.stop();
     services.stop();
+    tailnet.stop();
     webhook.stop();
     machine.stop();
     sky.stop();

@@ -13,6 +13,9 @@ const execFileP = promisify(execFile);
 export const WORKTREES_DIR = path.join('.agent-office', 'worktrees');
 /** Their branches are office/<worker>-<id>. */
 export const BRANCH_PREFIX = 'office/';
+/** A fetch this recent is fresh enough for the next worktree: a burst of hires shares one. */
+const FETCH_FRESH_MS = 15_000;
+const FETCH_TIMEOUT_MS = 15_000;
 
 export interface WorktreeRef {
   /** Folder relative to the project dir; missing for a branch whose worktree is already gone. */
@@ -33,25 +36,98 @@ export interface ListedWorktree {
 export class Worktrees {
   /** The project dir with symlinks resolved, so it compares with the paths git prints. */
   private readonly root: string;
+  private fetchedAt = 0;
+  private fetching?: Promise<void>;
+  /** The last fetch's error, so the office's log says it once rather than on every hire. */
+  private fetchError?: string;
 
   constructor(private dir: string) {
     this.root = real(dir);
   }
 
   /**
-   * A new branch and worktree at the project's current HEAD. `from` is the branch the project was
-   * on, which the worker's pull request targets. Returns what went wrong as a string.
+   * A new branch and worktree, from the latest of the branch the project is on (see startPoint).
+   * `from` is that branch, which the worker's pull request targets; `note` says when commits the
+   * project has were left out. Returns what went wrong as a string.
    */
-  create(slug: string): (Required<WorktreeRef> & { from?: string }) | string {
+  create(slug: string): (Required<WorktreeRef> & { from?: string; note?: string }) | string {
     try {
-      const base = this.gitSync(['rev-parse', 'HEAD']);
       const from = this.currentBranch();
+      const { base, note } = this.startPoint(from);
       const rel = path.join(WORKTREES_DIR, slug);
       const branch = `${BRANCH_PREFIX}${slug}`;
       this.gitSync(['worktree', 'add', '-b', branch, rel, base]);
-      return { path: rel, branch, base, from };
+      return { path: rel, branch, base, from, note };
     } catch (err) {
       return `Could not create a git worktree: ${gitError(err)}`;
+    }
+  }
+
+  /**
+   * Brings origin's copy of the branch the project is on up to date, so the next worktree starts from
+   * what's really there (a pull request merged since, say) rather than from a checkout nobody pulled.
+   * Resolves either way: offline, or with no origin, worktrees start from what's here. Undefined when
+   * there's nothing to wait for (a fetch this recent, or no branch to fetch).
+   */
+  fetch(): Promise<void> | undefined {
+    if (this.fetching) return this.fetching;
+    if (Date.now() - this.fetchedAt < FETCH_FRESH_MS) return undefined;
+    const from = this.currentBranch();
+    if (!from || !this.hasOrigin()) return undefined;
+    // Never stop to ask for a password: there's nobody at the office's terminal to type it.
+    const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+    this.fetching = execFileP('git', ['fetch', '--quiet', '--no-tags', 'origin', from], { cwd: this.dir, env, timeout: FETCH_TIMEOUT_MS })
+      .then(
+        () => (this.fetchError = undefined),
+        (err) => {
+          // Its first complaint says what's wrong; the last line is advice about access rights.
+          const why = String((err as { stderr?: string }).stderr ?? '').split('\n').find((l) => /^(fatal|error):/.test(l)) ?? gitError(err);
+          if (why !== this.fetchError) console.warn(`agent-office: couldn't fetch origin/${from} in ${this.dir}, so new worktrees start from what's here: ${why}`);
+          this.fetchError = why;
+        },
+      )
+      .then(() => {
+        this.fetchedAt = Date.now();
+        this.fetching = undefined;
+      });
+    return this.fetching;
+  }
+
+  private hasOrigin(): boolean {
+    try {
+      return !!this.gitSync(['remote', 'get-url', 'origin']);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Where a worktree starts: origin's copy of `from`, which its pull request goes to, so it has every
+   * PR merged there even if nobody pulled them into the project. HEAD instead when it already has all
+   * of that (it's ahead with commits not pushed yet), or when origin doesn't have the branch.
+   */
+  private startPoint(from: string | undefined): { base: string; note?: string } {
+    const head = this.gitSync(['rev-parse', 'HEAD']);
+    if (!from) return { base: head };
+    let remote: string;
+    try {
+      remote = this.gitSync(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${from}^{commit}`]);
+    } catch {
+      return { base: head };
+    }
+    if (this.isAncestor(remote, head)) return { base: head };
+    if (this.isAncestor(head, remote)) return { base: remote };
+    // Both moved on: the PR goes to origin's, so start there and say what's left behind.
+    const n = Number(this.gitSync(['rev-list', '--count', head, '--not', remote]));
+    return { base: remote, note: `starts from origin/${from}, without the ${n} commit${n === 1 ? '' : 's'} on ${from} that origin doesn't have` };
+  }
+
+  private isAncestor(a: string, b: string): boolean {
+    try {
+      this.gitSync(['merge-base', '--is-ancestor', a, b]);
+      return true;
+    } catch {
+      return false;
     }
   }
 

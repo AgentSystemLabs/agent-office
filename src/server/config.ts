@@ -37,8 +37,12 @@ export interface Config {
   tls?: { cert: string; key: string };
   trustProxy: boolean;
   iceServers: RTCIceServerLike[];
+  /** How to run the script that deployed the office, e.g. "deploy/azure.sh --name team2" (set by deploy/provision.sh), for the commands it suggests. */
+  deployScript?: string;
   /** Address teammates SSH-tunnel to (set by deploy/provision.sh); enables invites from the office. */
   publicHost?: string;
+  /** The office's name on a Tailscale network, e.g. agent-office.tail1234.ts.net (set by deploy/provision.sh --tailscale). */
+  tailnet?: string;
   /** Daily tracked Claude Code spend budget, USD. OpenCode/Codex spend is excluded. */
   budget?: number;
   /** Refuse new hires for the rest of the day once the budget is spent. */
@@ -419,7 +423,9 @@ export function loadConfig(argv: string[]): Config {
     tls,
     trustProxy,
     iceServers,
+    deployScript: process.env.AGENT_OFFICE_DEPLOY_SCRIPT || undefined,
     publicHost: process.env.AGENT_OFFICE_PUBLIC_HOST || undefined,
+    tailnet: process.env.AGENT_OFFICE_TAILSCALE_HOST?.toLowerCase().replace(/\.$/, '') || undefined,
     budget: budgetUsd,
     budgetPause,
     maxWorkers: workerLimit,
