@@ -75,6 +75,7 @@ import { EMOTES, EMOTE_BY_ID, EmoteBucket, type EmoteId } from '../shared/emotes
 import { EmoteWheel } from './ui/emotes';
 import { whereabouts } from './ui/whereabouts';
 import { wayTo } from './walkto';
+import { DESK_KEYS, interactionAvailable, type DeskKey } from './interaction';
 import { MeetingBoardTexture, MeetingSignTexture, meetingStage } from './world/meeting';
 import { issueMeeting, openMeeting, type MeetingPreset } from './ui/meeting';
 
@@ -2689,13 +2690,13 @@ function emoteKey(e: KeyboardEvent): boolean {
 }
 
 /** Keys that use what you're facing: at a desk, each does something else (see interact). */
-const DESK_KEYS = { KeyE: 'E', KeyP: 'P', KeyR: 'R', KeyX: 'X', KeyB: 'B', KeyC: 'C', KeyO: 'O' } as const;
-type DeskKey = (typeof DESK_KEYS)[keyof typeof DESK_KEYS];
-
-function use(it: Interactable | null, key: DeskKey, note = aimedNote) {
-  if (!it) return;
+function use(it: Interactable | null, key: DeskKey, note = aimedNote): boolean {
+  const worker = it?.deskId ? store.workerAtDesk(it.deskId) : undefined;
+  const room = !!(it?.deskId && DESK_BY_ID.get(it.deskId)?.room);
+  if (!interactionAvailable(it, key, { worker, room, note, carrying: !!carrying })) return false;
   reach();
   interact(it, key, note);
+  return true;
 }
 
 // ---- Input ----------------------------------------------------------------------------------------
@@ -2744,10 +2745,10 @@ window.addEventListener('blur', () => voice.stopTalking());
 function officeKey(e: KeyboardEvent): boolean {
   const deskKey = DESK_KEYS[e.code as keyof typeof DESK_KEYS];
   if (deskKey) {
+    const handled = use(target, deskKey);
     // P opens a text box, which the key mustn't land in.
-    if (deskKey === 'P') e.preventDefault();
-    use(target, deskKey);
-    return true;
+    if (handled && deskKey === 'P') e.preventDefault();
+    return handled;
   }
   switch (e.code) {
     case 'KeyT':
