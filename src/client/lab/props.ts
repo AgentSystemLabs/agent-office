@@ -37,8 +37,8 @@ const SHOW: Record<string, () => Shown> = {
     return { object: g.group, update: (dt) => g.update(dt) };
   },
   cabinet: () => ({ object: buildCabinet().group }),
-  lambo: () => ({ object: supercar('lambo', '#ffd166') }),
-  ferrari: () => ({ object: supercar('ferrari', '#ef476f') }),
+  lambo: () => ({ object: supercar('lambo', '#ffd166').root }),
+  ferrari: () => ({ object: supercar('ferrari', '#ef476f').root }),
 };
 
 const q = new URLSearchParams(location.search);
