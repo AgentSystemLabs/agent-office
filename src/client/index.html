@@ -11,6 +11,11 @@
     <div id="app">
       <canvas id="scene" tabindex="-1"></canvas>
       <div id="fade"></div>
+      <div id="telescope-view" class="telescope-view" aria-hidden="true">
+        <div class="telescope-glass"></div>
+        <div class="telescope-reticle" aria-hidden="true"></div>
+        <button id="telescope-exit" class="btn telescope-exit" type="button">Exit telescope <span class="key">Esc</span></button>
+      </div>
       <div id="hud">
         <div id="compass"></div>
         <header class="topbar">
