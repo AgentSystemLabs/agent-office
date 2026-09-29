@@ -1420,6 +1420,17 @@ function fireGun(ndc: THREE.Vector2) {
   sound.gunshot();
   // One shell of kick up the camera.
   if (!reduceMotion.matches) thud = Math.max(thud, 0.4);
+  // Smoke curling off the muzzle.
+  const tip = player.view === 'first' ? hands.muzzleTip(new THREE.Vector3()) : me.muzzleTip(new THREE.Vector3());
+  if (tip) {
+    if (player.view === 'first') camera.localToWorld(tip);
+    for (let i = 0; i < 2; i++) {
+      tip.x += (Math.random() - 0.5) * 0.05;
+      tip.y += Math.random() * 0.04;
+      tip.z += (Math.random() - 0.5) * 0.05;
+      smoke.wisp(tip);
+    }
+  }
   if (upTop) return;
   raycaster.setFromCamera(ndc, camera);
   const byRoot = new Map<THREE.Object3D, string>();

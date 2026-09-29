@@ -979,6 +979,12 @@ export class Person {
     g.fireT = 0;
   }
 
+  /** Where the gun's muzzle is, or null with the gun holstered. */
+  muzzleTip(out: THREE.Vector3): THREE.Vector3 | null {
+    if (!this.gun) return null;
+    return this.gun.muzzle.group.localToWorld(out.set(0, 0, 0.12));
+  }
+
   /** The draw, the aim and the recoil, over whatever the right arm was doing. */
   private gunStep(dt: number) {
     const g = this.gun!;

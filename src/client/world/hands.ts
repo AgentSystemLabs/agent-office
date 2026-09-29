@@ -181,6 +181,13 @@ export class Hands {
     return this.cig.localToWorld(out.set(0, 0, 0.09));
   }
 
+  /** Where the gun's muzzle is, in camera space, or null with the gun holstered. */
+  muzzleTip(out: THREE.Vector3): THREE.Vector3 | null {
+    if (!this.gun) return null;
+    this.right.group.updateMatrixWorld(true);
+    return this.gun.muzzle.group.localToWorld(out.set(0, 0, 0.12));
+  }
+
   setColor(shirt: string) {
     this.shirt = shirt;
     this.paint();
