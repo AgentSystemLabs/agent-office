@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, POLE, POLES, SLAB, STATION_AGENT, STOREY, WALL_HEIGHT, WALL_T, WING, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, seatPlace, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, POLE, POLES, SLAB, STATION_AGENT, STOREY, WALL_HEIGHT, WALL_T, WING, WING_DESKS, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, seatPlace, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { OFFICE_PLAN, seatOn, type MapPlan } from '../shared/maps';
 import { canLabel } from '../shared/floorplan';
 import { floorPalette } from '../shared/floors';
@@ -1892,10 +1892,10 @@ let errand: { at: { x: number; z: number }; what: string; face?: { x: number; z:
 /**
  * Walks you over to `at` on this floor and does `then` when you get there, as if you'd walked up
  * and pressed E. Where there's no walking to be done (up on the roof, riding the elevator, on the
- * ladder) it just does it. A key of yours takes over, and then it doesn't happen.
+ * ladder, driving a car) it just does it. A key of yours takes over, and then it doesn't happen.
  */
 function walkThen(at: { x: number; y?: number; z: number }, what: string, then: () => void, face?: { x: number; z: number }) {
-  if (upTop || trip || climber.active) return then();
+  if (upTop || trip || climber.active || driver.active) return then();
   closeAllModals();
   if (player.seat) standUp();
   if (hanger.active) hanger.cancel();
@@ -1904,7 +1904,9 @@ function walkThen(at: { x: number; y?: number; z: number }, what: string, then: 
   if (walkingTo) stopWalking();
   errand = { at, what, face, then };
   toast(`🚶 Walking over to ${what}`);
-  player.walkPath(wayTo(player.pos, { x: at.x, y: at.y ?? 0, z: at.z }));
+  const to = { x: at.x, y: at.y ?? 0, z: at.z };
+  // As walkTick does: round the office's rooms (and its back office), or round what's in the way on a map of its own.
+  player.walkPath(inOffice() ? wayTo(player.pos, to, officeWing()) : world.nav.route([player.pos.x, player.pos.z], [to.x, to.z]).slice(1).map(([x, z]) => ({ x, z })));
 }
 
 function errandEnd(why: 'arrived' | 'cancelled' | 'stuck') {
@@ -2549,8 +2551,8 @@ function deskSpot(desk: DeskDef): { x: number; z: number } | undefined {
 function nearestFreeDesk(): DeskDef | undefined {
   let best: DeskDef | undefined;
   let bestD = Infinity;
-  for (const d of DESKS) {
-    if (store.workerAtDesk(d.id) || !office.desks.has(d.id)) continue;
+  for (const d of [...DESKS, ...WING_DESKS]) {
+    if (store.workerAtDesk(d.id) || !office.desks.has(d.id) || !seatBuilt(d.id)) continue;
     const dist = Math.hypot(d.x - player.pos.x, d.z - player.pos.z);
     if (dist < bestD) {
       best = d;
