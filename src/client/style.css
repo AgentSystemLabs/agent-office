@@ -1021,6 +1021,7 @@ a.when:hover { text-decoration: underline; }
 /* ---- The elevator: floors, one per project ---------------------------------------------------- */
 #fade { position: fixed; inset: 0; background: var(--bg); opacity: 0; pointer-events: none; transition: opacity .3s ease; z-index: 40; }
 #fade.on { opacity: 1; }
+#fps { position: fixed; right: 10px; bottom: 8px; z-index: 60; pointer-events: none; font: 600 11px/1 var(--font-mono); color: #39ff14; text-shadow: 0 0 4px rgba(57, 255, 20, .7), 0 1px 2px #000; font-variant-numeric: tabular-nums; }
 .people .where { font: 400 10px var(--font-mono); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .modal.elevator { width: min(640px, 100%); }
 .elevator .intro { margin: 0 0 12px; font-weight: 500; }
