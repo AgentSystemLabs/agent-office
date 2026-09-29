@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { FLOOR, ROAD, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
 import { CAR, supercar, type CarKind } from './cars';
 import type { Collider } from './office';
+import { ANISOTROPY, TILE_SCALE, fitScale } from './texture-quality';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
 
 const G = STREET_Y;
@@ -50,14 +51,17 @@ export function bulb(night: NightParts, color: string, day = 0): THREE.MeshToonM
 
 const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
 
-function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
+function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void, scale = TILE_SCALE): THREE.CanvasTexture {
   const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  draw(c.getContext('2d')!);
+  const k = fitScale(w, h, scale);
+  c.width = Math.round(w * k);
+  c.height = Math.round(h * k);
+  const g = c.getContext('2d')!;
+  g.scale(c.width / w, c.height / h);
+  draw(g);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
+  t.anisotropy = ANISOTROPY;
   return t;
 }
 

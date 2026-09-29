@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ANISOTROPY } from './texture-quality';
 import type { MachineState, ProxyProvider, ProxyState } from '../../shared/protocol';
 import { MACHINE_MONITOR, PROXY_REFRESH } from '../../shared/layout';
 import { SANS, MONO } from '../fonts';
@@ -61,7 +62,7 @@ export class MachineTexture {
     this.ctx = this.canvas.getContext('2d')!;
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.colorSpace = THREE.SRGBColorSpace;
-    this.texture.anisotropy = 8;
+    this.texture.anisotropy = ANISOTROPY;
   }
 
   /** Draws the monitor. Returns whether it should be the tall one. */

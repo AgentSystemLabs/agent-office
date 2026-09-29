@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ANISOTROPY } from './texture-quality';
 import { mesh, toon, toonUnique } from './toon';
 
 // An open book, held by someone reading off the bookshelf: two page blocks in a shallow V on a
@@ -49,7 +50,7 @@ function pageMaterials(): { print: THREE.MeshToonMaterial; leaf: THREE.MeshToonM
   }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = ANISOTROPY;
   const print = toonUnique('#ffffff');
   print.map = tex;
   // The page that turns shows print on its back too.

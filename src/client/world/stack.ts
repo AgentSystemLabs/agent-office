@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FLOOR, LADDER, POLE, POLES, SLAB, WALL_HEIGHT, WALL_T, WINDOWS, type PoleSpot } from '../../shared/layout';
 import type { Collider, Interactable } from './office';
+import { ANISOTROPY, TILE_SCALE } from './texture-quality';
 import { mesh, textPlane, toon } from './toon';
 
 // The floors above and below this one: the ceiling (and the hatches and holes in it and in the floor),
@@ -110,8 +111,9 @@ function rectOutline(r: Rect): [number, number][] {
 /** Ceiling tiles: a dark industrial grid, one tile per repeat. */
 function tileTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');
-  c.width = c.height = 128;
+  c.width = c.height = 128 * TILE_SCALE;
   const g = c.getContext('2d')!;
+  g.scale(TILE_SCALE, TILE_SCALE);
   g.fillStyle = '#2e3138';
   g.fillRect(0, 0, 128, 128);
   g.fillStyle = '#22252b';
@@ -124,7 +126,7 @@ function tileTexture(): THREE.CanvasTexture {
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.repeat.set(1 / 1.2, 1 / 1.2);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
+  t.anisotropy = ANISOTROPY;
   return t;
 }
 

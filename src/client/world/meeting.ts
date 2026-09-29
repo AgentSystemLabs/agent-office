@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ANISOTROPY } from './texture-quality';
 import { MEETING_PATTERNS, meetingSummary } from '../../shared/meetings';
 import { fmtCost, fmtTokens, type Meeting, type MeetingState } from '../../shared/protocol';
 import { SANS, MONO } from '../fonts';
@@ -12,7 +13,7 @@ function canvasTexture(w: number, h: number): { canvas: HTMLCanvasElement; g: Ca
   canvas.height = h;
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 8;
+  texture.anisotropy = ANISOTROPY;
   return { canvas, g: canvas.getContext('2d')!, texture };
 }
 

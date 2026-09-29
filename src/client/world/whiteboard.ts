@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ANISOTROPY } from './texture-quality';
 import { WHITEBOARD } from '../../shared/layout';
 import { mesh, roundedBox, textPlane, toon } from './toon';
 import type { Collider, Interactable } from './office';
@@ -45,7 +46,7 @@ export function buildWhiteboard(): WhiteboardStand {
   const g = canvas.getContext('2d')!;
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
+  texture.anisotropy = ANISOTROPY;
   const face = new THREE.Mesh(new THREE.PlaneGeometry(width, height), new THREE.MeshBasicMaterial({ map: texture, toneMapped: false }));
   face.position.set(0, mid, 0.04);
   group.add(face);

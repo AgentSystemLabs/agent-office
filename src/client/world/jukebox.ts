@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ANISOTROPY } from './texture-quality';
 import { JUKEBOX } from '../../shared/layout';
 import { mesh, roundedBox, textSprite, toon, toonUnique } from './toon';
 import { MONO } from '../fonts';
@@ -51,7 +52,7 @@ export function buildJukebox(): JukeboxView {
   canvas.height = 256;
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = ANISOTROPY;
   const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.82, 0.41), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
   screen.position.set(0, H - r + 0.02, front + 0.005);
   group.add(screen);

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ANISOTROPY } from '../world/texture-quality';
 import { GAME, type CabinetFrame } from '../../shared/cabinet';
 import { DESK_BY_ID } from '../../shared/layout';
 import type { WorkerInfo } from '../../shared/protocol';
@@ -78,7 +79,7 @@ export class Cabinet {
     this.picture.width = 512;
     this.picture.height = 384;
     this.texture.colorSpace = THREE.SRGBColorSpace;
-    this.texture.anisotropy = 4;
+    this.texture.anisotropy = ANISOTROPY;
     const mat = screen.material as THREE.MeshBasicMaterial;
     mat.map = this.texture;
     mat.color.set('#ffffff');

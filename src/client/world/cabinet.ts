@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ANISOTROPY } from './texture-quality';
 import { CABINET, FLOOR } from '../../shared/layout';
 import { mesh, roundedBox, toon } from './toon';
 import { SANS } from '../fonts';
@@ -95,7 +96,7 @@ export function buildCabinet(): CabinetModel {
   paintMarquee(marquee);
   const marqueeTex = new THREE.CanvasTexture(marquee);
   marqueeTex.colorSpace = THREE.SRGBColorSpace;
-  marqueeTex.anisotropy = 4;
+  marqueeTex.anisotropy = ANISOTROPY;
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(inner, 0.25), new THREE.MeshBasicMaterial({ map: marqueeTex, toneMapped: false }));
   sign.position.set(0, 1.765, 0.192);
   group.add(sign);

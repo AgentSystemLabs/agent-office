@@ -14,6 +14,7 @@ function canvasStub(t: TestContext) {
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'document');
   const context = {
     measureText: (text: string) => ({ width: text.length * 26 }),
+    setTransform() {},
     clearRect() {},
     fillText() {},
     beginPath() {},

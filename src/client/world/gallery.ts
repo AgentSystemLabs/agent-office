@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ANISOTROPY } from './texture-quality';
 import { FRAMES, FRAME_BORDER, WALLS, frameRect, wallPose, wallTop, type Decoration, type WallId, type WallRect } from '../../shared/decor';
 import { FLOOR, LOFT } from '../../shared/layout';
 import type { Interactable } from './office';
@@ -17,7 +18,7 @@ export interface Picture {
 }
 
 /** A wall picture never needs more pixels than this, and big photos would eat GPU memory. */
-const MAX_TEXTURE = 1024;
+const MAX_TEXTURE = 4096;
 const pictures = new Map<string, Promise<Picture>>();
 const holds = new Map<string, number>();
 
@@ -57,7 +58,7 @@ async function fetchPicture(url: string): Promise<Picture> {
     canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = 8;
+    texture.anisotropy = ANISOTROPY;
     return { url, texture, aspect: iw / ih, src };
   } catch {
     URL.revokeObjectURL(src);

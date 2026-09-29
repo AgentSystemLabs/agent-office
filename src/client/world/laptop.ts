@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ANISOTROPY } from './texture-quality';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, type Run } from '../../shared/protocol';
 import { mesh, roundedBox, toon } from './toon';
 import { propReady, useProp } from './props';
@@ -190,7 +191,7 @@ export class Laptop {
     this.ctx = this.canvas.getContext('2d')!;
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.colorSpace = THREE.SRGBColorSpace;
-    this.texture.anisotropy = 8;
+    this.texture.anisotropy = ANISOTROPY;
     this.texture.minFilter = THREE.LinearMipmapLinearFilter;
     this.screenMat = new THREE.MeshBasicMaterial({ map: this.texture, toneMapped: false });
 

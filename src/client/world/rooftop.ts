@@ -6,6 +6,7 @@ import { buildCity, type City } from './city';
 import { buildElevator, type Elevator } from './elevator';
 import type { Collider, Interactable } from './office';
 import { bulb, type NightParts } from './outside';
+import { ANISOTROPY, LABEL_SCALE, TILE_SCALE, fitScale } from './texture-quality';
 import { mergeByMaterial, mesh, roundedBox, toon, toonUnique } from './toon';
 import { SANS } from '../fonts';
 
@@ -67,14 +68,20 @@ function hue(c: THREE.Color, h: number, l = 0.55): THREE.Color {
   return c.setHSL(((h % 1) + 1) % 1, 1, l, THREE.SRGBColorSpace);
 }
 
-function canvasTexture(w: number, h: number, draw?: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
+/** The LED wall is redrawn every frame, so it stays lighter than the tiled textures. */
+const LED_SCALE = 2;
+
+function canvasTexture(w: number, h: number, draw?: (g: CanvasRenderingContext2D) => void, scale = TILE_SCALE): THREE.CanvasTexture {
   const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  draw?.(c.getContext('2d')!);
+  const k = fitScale(w, h, scale);
+  c.width = Math.round(w * k);
+  c.height = Math.round(h * k);
+  const g = c.getContext('2d')!;
+  g.scale(c.width / w, c.height / h);
+  draw?.(g);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
+  t.anisotropy = ANISOTROPY;
   return t;
 }
 
@@ -333,17 +340,23 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
   const riser = 0.25;
   table.add(mesh(new THREE.BoxGeometry(3.4, TH, 0.7), toon('#1d1d1d'), DJ_BOOTH.x, tableY + TH / 2, tz));
   statics.add(mesh(new THREE.BoxGeometry(1.8, riser, 0.9), toon('#3d405b'), DJ_BOOTH.x, tableY + riser / 2, DJ_BOOTH.z - 0.05));
-  const nameplate = canvasTexture(512, 128, (g) => {
-    g.fillStyle = '#111018';
-    g.fillRect(0, 0, 512, 128);
-    fitFont(g, 'DJ MERGE CONFLICT', 64, 470);
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.shadowColor = '#ff4fd8';
-    g.shadowBlur = 18;
-    g.fillStyle = '#ffe3fb';
-    g.fillText('DJ MERGE CONFLICT', 256, 66);
-  });
+  const nameplate = canvasTexture(
+    512,
+    128,
+    (g) => {
+      g.fillStyle = '#111018';
+      g.fillRect(0, 0, 512, 128);
+      fitFont(g, 'DJ MERGE CONFLICT', 64, 470);
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.shadowColor = '#ff4fd8';
+      // Shadow blur ignores the context's scale.
+      g.shadowBlur = 18 * g.getTransform().a;
+      g.fillStyle = '#ffe3fb';
+      g.fillText('DJ MERGE CONFLICT', 256, 66);
+    },
+    LABEL_SCALE,
+  );
   const plateMat = new THREE.MeshBasicMaterial({ map: nameplate });
   plateMat.toneMapped = false;
   table.add(mesh(new THREE.PlaneGeometry(3.2, 0.8), plateMat, DJ_BOOTH.x, tableY + TH / 2, tz + 0.352, false));
@@ -388,7 +401,7 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
   }
 
   // The LED wall behind the DJ.
-  const led = canvasTexture(512, 256);
+  const led = canvasTexture(512, 256, undefined, LED_SCALE);
   const ledMat = new THREE.MeshBasicMaterial({ map: led });
   ledMat.toneMapped = false;
   const ledW = 8;
@@ -552,22 +565,27 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
     statics.add(mesh(new THREE.BoxGeometry(0.16, 0.22, p1.z - p0.z + 0.3), wood, x, roofY, (p0.z + p1.z) / 2));
   }
   for (let z = p0.z; z <= p1.z + 0.01; z += 0.55) statics.add(mesh(new THREE.BoxGeometry(p1.x - p0.x + 0.4, 0.08, 0.1), wood, (p0.x + p1.x) / 2, roofY + 0.15, z));
-  const neon = canvasTexture(768, 192, (g) => {
-    g.clearRect(0, 0, 768, 192);
-    g.font = `900 104px ${SANS}`;
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    for (const [blur, color] of [
-      [36, '#ff4fd8'],
-      [14, '#ff4fd8'],
-      [0, '#ffe3fb'],
-    ] as const) {
-      g.shadowColor = '#ff4fd8';
-      g.shadowBlur = blur;
-      g.fillStyle = color;
-      g.fillText('🍸 SKY BAR', 384, 100);
-    }
-  });
+  const neon = canvasTexture(
+    768,
+    192,
+    (g) => {
+      g.clearRect(0, 0, 768, 192);
+      g.font = `900 104px ${SANS}`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      for (const [blur, color] of [
+        [36, '#ff4fd8'],
+        [14, '#ff4fd8'],
+        [0, '#ffe3fb'],
+      ] as const) {
+        g.shadowColor = '#ff4fd8';
+        g.shadowBlur = blur * g.getTransform().a;
+        g.fillStyle = color;
+        g.fillText('🍸 SKY BAR', 384, 100);
+      }
+    },
+    LABEL_SCALE,
+  );
   const neonMat = new THREE.MeshBasicMaterial({ map: neon, transparent: true, depthWrite: false });
   neonMat.toneMapped = false;
   const sign = mesh(new THREE.PlaneGeometry(3.6, 0.9).rotateY(-Math.PI / 2), neonMat, p0.x - 0.1, roofY - 0.4, bz, false);
@@ -637,14 +655,19 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
   const glowGeo = new THREE.BufferGeometry();
   glowGeo.setAttribute('position', new THREE.Float32BufferAttribute(glowAt, 3));
   glowGeo.setAttribute('color', new THREE.Float32BufferAttribute(glowColor, 3));
-  const halo = canvasTexture(64, 64, (g) => {
-    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-    grad.addColorStop(0, 'rgba(255,255,255,1)');
-    grad.addColorStop(0.3, 'rgba(255,255,255,0.45)');
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = grad;
-    g.fillRect(0, 0, 64, 64);
-  });
+  const halo = canvasTexture(
+    64,
+    64,
+    (g) => {
+      const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grad.addColorStop(0, 'rgba(255,255,255,1)');
+      grad.addColorStop(0.3, 'rgba(255,255,255,0.45)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 64, 64);
+    },
+    1,
+  );
   const glows = unpickable(new THREE.Points(glowGeo, new THREE.PointsMaterial({ size: 0.55, map: halo, vertexColors: true, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending })));
   group.add(glows);
 
@@ -778,6 +801,7 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
     const g = ledCtx;
     const W = 512;
     const H = 256;
+    g.setTransform(LED_SCALE, 0, 0, LED_SCALE, 0, 0);
     g.globalAlpha = 1;
     g.fillStyle = '#07060d';
     g.fillRect(0, 0, W, H);

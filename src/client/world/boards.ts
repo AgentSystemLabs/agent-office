@@ -1,10 +1,15 @@
 import * as THREE from 'three';
+import { ANISOTROPY, SCREEN_SCALE } from './texture-quality';
 import { DESK_BY_ID } from '../../shared/layout';
 import type { GhIssue, GhPull, GhState, QueueState, QueueTask, ServiceInfo, WorkerInfo } from '../../shared/protocol';
 import { ticketColumns, type JiraBoardState, type JiraCategory } from '../../shared/jira';
 import { words, workerForPull } from '../state';
 import { SANS, MONO } from '../fonts';
 import { TAB_H, inRect, jiraLayout, tabRects, type BoardSpot, type Rect, type WallTab } from './board-layout';
+
+/** The boards are laid out on this many pixels; the canvas holds SCREEN_SCALE times as many. */
+const BOARD_W = 1200;
+const BOARD_H = 600;
 
 // The Factory-style world surfaces: near-black panels, light text, orange accents (see ui/boards'
 // constants in style.css). The board's cards all read as one family; the marker squares vary.
@@ -65,12 +70,13 @@ export class BoardTexture {
   private last: [GhState<GhIssue> | GhState<GhPull>, Map<string, WorkerInfo> | undefined] | null = null;
 
   constructor(private kind: 'issues' | 'pulls') {
-    this.canvas.width = 1200;
-    this.canvas.height = 600;
+    this.canvas.width = BOARD_W * SCREEN_SCALE;
+    this.canvas.height = BOARD_H * SCREEN_SCALE;
     this.ctx = this.canvas.getContext('2d')!;
+    this.ctx.scale(SCREEN_SCALE, SCREEN_SCALE);
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.colorSpace = THREE.SRGBColorSpace;
-    this.texture.anisotropy = 8;
+    this.texture.anisotropy = ANISOTROPY;
   }
 
   /** Whether any notes are up on the board. */
@@ -80,8 +86,8 @@ export class BoardTexture {
 
   /** The note at a point on the board's face (its uv), or undefined over bare cork. */
   noteAt(uv: THREE.Vector2): number | undefined {
-    const px = uv.x * this.canvas.width;
-    const py = (1 - uv.y) * this.canvas.height;
+    const px = uv.x * BOARD_W;
+    const py = (1 - uv.y) * BOARD_H;
     // Topmost first: later notes are drawn over earlier ones.
     for (let i = this.notes.length - 1; i >= 0; i--) {
       const n = this.notes[i];
@@ -112,8 +118,8 @@ export class BoardTexture {
 
   /** The tab or Jira card at a point on the board's face (its uv), or undefined. */
   spotAt(uv: THREE.Vector2): BoardSpot | undefined {
-    const px = uv.x * this.canvas.width;
-    const py = (1 - uv.y) * this.canvas.height;
+    const px = uv.x * BOARD_W;
+    const py = (1 - uv.y) * BOARD_H;
     return this.spots.find((s) => inRect(s.rect, px, py))?.spot;
   }
 
@@ -139,8 +145,8 @@ export class BoardTexture {
     this.notes = [];
     this.spots = [];
     const g = this.ctx;
-    const W = this.canvas.width;
-    const H = this.canvas.height;
+    const W = BOARD_W;
+    const H = BOARD_H;
     g.fillStyle = '#0a0a0a';
     g.fillRect(0, 0, W, H);
     // A faint dot grid, like the board window's background.
@@ -232,8 +238,8 @@ export class BoardTexture {
   /** A message in a box in the middle of the space below `top`. */
   private centerNote(note: string, top: number) {
     const g = this.ctx;
-    const W = this.canvas.width;
-    const cy = (top + this.canvas.height) / 2;
+    const W = BOARD_W;
+    const cy = (top + BOARD_H) / 2;
     g.font = `700 34px ${MONO}`;
     const lines = wrap(g, note.replace(/`/g, ''), 820, 4);
     const boxH = 64 + lines.length * 46;
@@ -275,7 +281,7 @@ export class BoardTexture {
     g.textBaseline = 'middle';
     g.fillStyle = '#8c8c8c';
     g.font = `500 20px ${MONO}`;
-    g.fillText('point at a tab to switch', this.canvas.width - 24, rects.issues.y + rects.issues.h / 2);
+    g.fillText('point at a tab to switch', BOARD_W - 24, rects.issues.y + rects.issues.h / 2);
     g.textAlign = 'left';
     g.textBaseline = 'alphabetic';
   }
@@ -288,8 +294,8 @@ export class BoardTexture {
     const cols = ticketColumns(jira.items);
     const layout = jiraLayout(
       cols.map((c) => c.items.length),
-      this.canvas.width,
-      this.canvas.height,
+      BOARD_W,
+      BOARD_H,
       top + 6,
     );
     cols.forEach((col, i) => {
@@ -355,12 +361,13 @@ export class ServicesBoardTexture {
   private drawn = '';
 
   constructor() {
-    this.canvas.width = 1200;
-    this.canvas.height = 600;
+    this.canvas.width = BOARD_W * SCREEN_SCALE;
+    this.canvas.height = BOARD_H * SCREEN_SCALE;
     this.ctx = this.canvas.getContext('2d')!;
+    this.ctx.scale(SCREEN_SCALE, SCREEN_SCALE);
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.colorSpace = THREE.SRGBColorSpace;
-    this.texture.anisotropy = 8;
+    this.texture.anisotropy = ANISOTROPY;
   }
 
   render(items: ServiceInfo[], workers: Map<string, WorkerInfo>) {
@@ -373,8 +380,8 @@ export class ServicesBoardTexture {
     if (key === this.drawn) return;
     this.drawn = key;
     const g = this.ctx;
-    const W = this.canvas.width;
-    const H = this.canvas.height;
+    const W = BOARD_W;
+    const H = BOARD_H;
     g.fillStyle = '#0a0a0a';
     g.fillRect(0, 0, W, H);
     // A faint dot grid, like the issues and PRs boards.
@@ -441,12 +448,13 @@ export class QueueBoardTexture {
   private drawn = '';
 
   constructor() {
-    this.canvas.width = 1200;
-    this.canvas.height = 600;
+    this.canvas.width = BOARD_W * SCREEN_SCALE;
+    this.canvas.height = BOARD_H * SCREEN_SCALE;
     this.ctx = this.canvas.getContext('2d')!;
+    this.ctx.scale(SCREEN_SCALE, SCREEN_SCALE);
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.colorSpace = THREE.SRGBColorSpace;
-    this.texture.anisotropy = 8;
+    this.texture.anisotropy = ANISOTROPY;
   }
 
   render(state: QueueState, workers: Map<string, WorkerInfo>) {
@@ -476,8 +484,8 @@ export class QueueBoardTexture {
     if (key === this.drawn) return;
     this.drawn = key;
     const g = this.ctx;
-    const W = this.canvas.width;
-    const H = this.canvas.height;
+    const W = BOARD_W;
+    const H = BOARD_H;
     g.fillStyle = '#0a0a0a';
     g.fillRect(0, 0, W, H);
     // A faint dot grid, like the other boards.
