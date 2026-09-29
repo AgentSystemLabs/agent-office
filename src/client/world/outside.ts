@@ -351,7 +351,8 @@ export function buildStreet(group: THREE.Group, colliders: Collider[], night: Ni
     [30, 6, 1.25],
     [-12, -22, 1.2],
     [4, -24, 1],
-    [18, -21, 1.1],
+    // Clear of the back office, when a floor's built out into one (see WING).
+    [23, -19, 1.1],
   ];
   for (const [x, z, s] of trees) {
     const t = tree(s);

@@ -38,7 +38,7 @@ The easy way is to start from the castle and change only what you want. This one
 
 To change the lists (move a pillar, resize the hall and everything in it), start from a copy of the whole castle instead: [`docs/maps/castle.json`](maps/castle.json) is it, as a map of your own called *My castle*. Copy it into the folder and it's in Settings; change what you like from there.
 
-Or write one from nothing. This is about the least a map can be: a hall, a door, tables to seat 28, the board agents, a meeting table and the four boards. Everything else (the throne, the line, the herald, the props) is optional:
+Or write one from nothing. This is about the least a map can be: a hall, a door, tables to seat 32, the board agents, a meeting table and the four boards. Everything else (the throne, the line, the herald, the props) is optional:
 
 ```json
 {
@@ -50,7 +50,7 @@ Or write one from nothing. This is about the least a map can be: a hall, a door,
   "door": { "x": 0, "z": 13.6 },
   "tables": [
     { "name": "West table", "x": -5, "z": 0, "length": 12, "seats": 5 },
-    { "name": "Middle table", "x": 0, "z": -2, "length": 10, "seats": 4 },
+    { "name": "Middle table", "x": 0, "z": -2, "length": 10, "seats": 6 },
     { "name": "East table", "x": 5, "z": 0, "length": 12, "seats": 5 }
   ],
   "stations": {
@@ -101,7 +101,7 @@ A map that won't load (bad JSON, something outside the hall, too few seats, a pr
 
 ### Seats
 
-Every map has the same seats, by id, so that the server, the task queue, meetings and saved workers work on any of them: 16 regular seats (`desk-1` to `desk-16`), 12 more that come out once those are taken (`beanbag-1` to `beanbag-12`), the three board agents' places and the five meeting chairs. The tables' seats are handed out in order: first the side of every table toward the middle of the hall (its inner side), table by table in the order they're listed, then their other sides the same way. Along a table they go from one end to the other, north to south for one that runs along z. So `desk-1` is the first seat on the first table's inner side, and a map's tables must seat at least 28 between them; any seats past that are just bench.
+Every map has the same seats, by id, so that the server, the task queue, meetings and saved workers work on any of them: 16 regular seats (`desk-1` to `desk-16`), 4 for the office's back office (`desk-17` to `desk-20`, only sat at once that floor's back office is built out that far), 12 more that come out once those are taken (`beanbag-1` to `beanbag-12`), the three board agents' places and the five meeting chairs. The tables' seats are handed out in order: first the side of every table toward the middle of the hall (its inner side), table by table in the order they're listed, then their other sides the same way. Along a table they go from one end to the other, north to south for one that runs along z. So `desk-1` is the first seat on the first table's inner side, and a map's tables must seat at least 32 between them; any seats past that are just bench.
 
 ### Props
 

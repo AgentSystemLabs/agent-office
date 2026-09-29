@@ -2,7 +2,7 @@ import type * as THREE from 'three';
 import type { FloorPalette } from '../../shared/floors';
 import { LOFT, WALL_HEIGHT, WALL_T, FLOOR, type DeskDef } from '../../shared/layout';
 import { OFFICE_PLAN, type BoardKey, type MapPlan } from '../../shared/maps';
-import { OFFICE_NAV, wayHome, wayIn, wayToBalcony, type NavGrid, type Pt } from '../../shared/nav';
+import { officeNav, wayHome, wayIn, wayToBalcony, type NavGrid, type Pt } from '../../shared/nav';
 import type { Person } from './character';
 import type { Area } from './confetti';
 import type { Gong } from './gong';
@@ -77,8 +77,11 @@ function ceilingOver(x: number, z: number): number {
   return loft ? LOFT.y - 0.35 : WALL_HEIGHT - 0.1;
 }
 
-/** The office as a world. `upstairs` says whether this floor is above the bottom one (no exit door: workers leave by the balcony). */
-export function officeWorld(office: Office, upstairs: () => boolean): World {
+/**
+ * The office as a world. `upstairs` says whether this floor is above the bottom one (no exit door:
+ * workers leave by the balcony), and `wing` how many rows its back office is built out (see WING).
+ */
+export function officeWorld(office: Office, upstairs: () => boolean, wing: () => number): World {
   return {
     plan: OFFICE_PLAN,
     group: office.group,
@@ -90,10 +93,12 @@ export function officeWorld(office: Office, upstairs: () => boolean): World {
     meetingBoard: office.meetingBoard,
     meetingSign: office.meetingSign,
     gong: office.gong,
-    nav: OFFICE_NAV,
+    get nav() {
+      return officeNav(wing());
+    },
     ways: {
-      home: (seat) => (upstairs() ? { way: wayToBalcony(seat), chute: true } : { way: wayHome(seat), chute: false }),
-      in: (seat) => wayIn(seat),
+      home: (seat) => (upstairs() ? { way: wayToBalcony(seat, wing()), chute: true } : { way: wayHome(seat, wing()), chute: false }),
+      in: (seat) => wayIn(seat, wing()),
     },
     rain: [
       { area: FLOOR, top: ceilingOver },

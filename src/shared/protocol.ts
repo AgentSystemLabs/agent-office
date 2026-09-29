@@ -5,6 +5,7 @@ import type { BarGame } from './bargames.js';
 import type { CabinetFrame, CabinetState, CabinetView } from './cabinet.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
+import type { FloorPlan } from './floorplan.js';
 import type { EmoteId } from './emotes.js';
 import type { CarSeat, CarState } from './garage.js';
 import type { BallState } from './hoop.js';
@@ -704,6 +705,8 @@ export interface FloorInfo {
   /** Workers waiting on someone: a question, a permission, or a finished turn nobody looked at. */
   waiting: number;
   people: number;
+  /** How many rows its back office is built out (see WING), for the building's outside. */
+  wing: number;
 }
 
 /** Where the elevator's "add a project" clones to: <dir>/<owner>/<repo> on the office's machine. */
@@ -737,6 +740,8 @@ export interface FloorView {
   queue: QueueState;
   /** Pictures on this floor's walls. */
   decor: Decoration[];
+  /** The signs over this floor's desks, and how far its back office is built out. */
+  plan: FloorPlan;
   services: ServicesState;
   /** The floor's dog; null in a building with no floors yet. */
   dog: DogState | null;
@@ -1189,6 +1194,11 @@ export type ClientMsg =
   /** Move, resize, re-frame or swap the image of a picture. */
   | { t: 'decor.update'; id: string; decor: Partial<DecorPlacement> }
   | { t: 'decor.remove'; id: string }
+  /** Hang a sign over a desk on your floor (a SIGN_COLORS color), or take it down with no text. */
+  | { t: 'desk.label'; deskId: string; text: string; color?: string }
+  /** Knock the back office out another row, with two more desks; or wall its last row back up. */
+  | { t: 'floor.expand' }
+  | { t: 'floor.shrink' }
   /** Put a tune on the jukebox (a JUKEBOX_TUNES id), or a stream; with neither, turn it back on. */
   | { t: 'jukebox.play'; track?: string; url?: string }
   /** On to the next tune. */
@@ -1337,6 +1347,8 @@ export type ServerMsg =
   | { t: 'upgrade'; state: UpgradeState }
   | { t: 'services'; state: ServicesState }
   | { t: 'decor'; items: Decoration[] }
+  /** Your floor's signs changed, or its back office was built out or walled up. */
+  | { t: 'plan'; plan: FloorPlan }
   /** What the dog on your floor is up to now: sent at the start of each leg of its day. */
   | { t: 'dog'; dog: DogState }
   /** The basketball on your floor was picked up, thrown, or put back under the hoop. */

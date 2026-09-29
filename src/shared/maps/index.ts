@@ -1,4 +1,4 @@
-import { BEANBAGS, BOARDS, DESKS, ELEVATOR, ELEVATOR_CAR, EXIT_DOOR, FLOOR, MEETING_SEATS, SEATING, STATIONS, STATION_AGENT, WALL_HEIGHT, seatHere, seatPlace, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../layout.js';
+import { BEANBAGS, BOARDS, DESKS, ELEVATOR, ELEVATOR_CAR, EXIT_DOOR, FLOOR, MEETING_SEATS, SEATING, STATIONS, STATION_AGENT, WALL_HEIGHT, WING_DESKS, seatHere, seatPlace, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../layout.js';
 import type { Circle, Rect } from '../nav.js';
 import { CASTLE } from './castle.js';
 import { boxFootprint, isPropKind, propFootprint, propTop } from './props.js';
@@ -36,8 +36,15 @@ const DEFAULT_BOARD_LABEL: Record<BoardKey, string> = { issues: 'Issues', queue:
 
 // ---- The office -----------------------------------------------------------------------------------
 
+/**
+ * Every map's desks, by id: the office's room, then its back office (see WING), which is only there to
+ * sit at on a floor built out that far (deskBuilt), on whichever map, so a worker hired there has a
+ * seat on every map.
+ */
+const MAP_DESKS: DeskDef[] = [...DESKS, ...WING_DESKS];
+
 function officePlan(): MapPlan {
-  const byId = new Map([...DESKS, ...BEANBAGS, ...STATIONS, ...MEETING_SEATS].map((d) => [d.id, d]));
+  const byId = new Map([...MAP_DESKS, ...BEANBAGS, ...STATIONS, ...MEETING_SEATS].map((d) => [d.id, d]));
   const boards = {} as Record<BoardKey, BoardDef>;
   for (const k of BOARD_KEYS) boards[k] = { ...BOARDS[k] };
   return {
@@ -49,7 +56,7 @@ function officePlan(): MapPlan {
     bounds: { ...FLOOR },
     height: WALL_HEIGHT,
     spawn: { x: ELEVATOR.x, y: 0, z: (ELEVATOR_CAR.minZ + ELEVATOR_CAR.maxZ) / 2, rotY: 0 },
-    desks: DESKS,
+    desks: MAP_DESKS,
     overflow: BEANBAGS,
     stations: STATIONS,
     meeting: MEETING_SEATS,
@@ -192,16 +199,16 @@ export function planMap(input: unknown): MapPlan {
     }
   });
   const all = [...inner, ...outer];
-  const need = DESKS.length + BEANBAGS.length;
-  if (all.length < need) throw new MapError(`its tables seat ${all.length}, and a map needs ${need} (${DESKS.length} seats and ${BEANBAGS.length} more for when they’re all taken)`);
+  const need = MAP_DESKS.length + BEANBAGS.length;
+  if (all.length < need) throw new MapError(`its tables seat ${all.length}, and a map needs ${need} (${MAP_DESKS.length} seats and ${BEANBAGS.length} more for when they’re all taken)`);
   const counts = new Map<string, number>();
   const named = all.slice(0, need).map(({ def, table }) => {
     const k = (counts.get(table) ?? 0) + 1;
     counts.set(table, k);
     return { ...def, label: `${table}, seat ${k}` };
   });
-  const desks: DeskDef[] = named.slice(0, DESKS.length).map((d, i) => ({ ...d, id: DESKS[i].id }));
-  const overflow: DeskDef[] = named.slice(DESKS.length).map((d, i) => ({ ...d, id: BEANBAGS[i].id }));
+  const desks: DeskDef[] = named.slice(0, MAP_DESKS.length).map((d, i) => ({ ...d, id: MAP_DESKS[i].id }));
+  const overflow: DeskDef[] = named.slice(MAP_DESKS.length).map((d, i) => ({ ...d, id: BEANBAGS[i].id }));
 
   // The board agents' lecterns.
   if (!isObj(c.stations)) throw new MapError('it needs stations: where the Issues, PR and Queue agents stand');

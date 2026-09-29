@@ -1,8 +1,10 @@
 // Getting around a floor on a coarse grid, round the furniture: the dog's walks (server/dog.ts), a
 // worker's way out when it's sent home, and on a map of its own (see shared/maps), a worker's walks
 // about the hall. The office's grid is below; a map builds one from its plan (NavGrid).
+// An office floor built out into the back office (see WING) has more of it to get round: the office's
+// helpers take how many rows it's built out (`wing`), and each level gets a grid of its own.
 
-import { BALCONY, BALCONY_DOOR, BEANBAGS, BOOKSHELF, CABINET, DESK_SIZE, DESKS, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LADDER, LOFT, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PARACHUTE, PLANTS, POLE, POLES, ROAD, STAIRS, STATIONS, WHITEBOARD, type DeskDef } from './layout.js';
+import { BALCONY, BALCONY_DOOR, BEANBAGS, BOOKSHELF, CABINET, DESK_SIZE, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LADDER, LOFT, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PARACHUTE, POLE, POLES, ROAD, STAIRS, STATIONS, WHITEBOARD, WING, builtDesks, plantsAt, wingLevel, wingMinZ, type DeskDef } from './layout.js';
 
 
 export type Pt = [number, number];
@@ -25,19 +27,27 @@ export interface Bounds {
   minZ: number;
   maxZ: number;
 }
+/** Whether (x, z) is on the floor, at least `m` in from its walls: for a floor that isn't just its bounds. */
+export type Floorplan = (x: number, z: number, m: number) => boolean;
+
+/** A floor that fills its bounds. */
+const within =
+  (b: Bounds): Floorplan =>
+  (x, z, m) =>
+    x > b.minX + m && x < b.maxX - m && z > b.minZ + m && z < b.maxZ - m;
 
 /** The desk's own frame: `t` along its width, `s` out toward the side the worker sits on. */
 export function deskPoint(d: DeskDef, t: number, s: number): Pt {
   return [d.x + Math.cos(d.rotY) * t + Math.sin(d.rotY) * s, d.z - Math.sin(d.rotY) * t + Math.cos(d.rotY) * s];
 }
 
-/** What's in the way on the floor. The lounge, kitchen and plants are where office.ts (and kitchen.ts) put them. */
-function obstacles(): Obstacles {
+/** What's in the way on the office floor, built out `wing` rows. The lounge, kitchen and plants are where office.ts (and kitchen.ts) put them. */
+function obstacles(wing: number): Obstacles {
   const rects: Rect[] = [];
   const circles: Circle[] = [];
   const hw = DESK_SIZE.width / 2;
   const hd = DESK_SIZE.depth / 2;
-  for (const d of DESKS) {
+  for (const d of builtDesks(wing)) {
     // Desks face ±z, so their tops are axis-aligned.
     rects.push([d.x - hw, d.x + hw, d.z - hd, d.z + hd]);
     const [cx, cz] = deskPoint(d, 0, 0.9);
@@ -47,7 +57,7 @@ function obstacles(): Obstacles {
   rects.push([12.2, 13.8, -0.8, 0.8]); // coffee table
   circles.push([12.5, 3.5, 0.5], [14.5, -3.4, 0.5]); // beanbags
   rects.push([-17, -10.75, 11.7, 12.7]); // kitchen counter and fridge
-  for (const [x, z, s] of PLANTS) circles.push([x, z, 0.3 * s]);
+  for (const [x, z, s] of plantsAt(wing)) circles.push([x, z, 0.3 * s]);
   // The loft's posts, the stairs up to it, and the elevator shaft.
   for (const x of [LOFT.minX + 0.15, (LOFT.minX + LOFT.maxX) / 2]) circles.push([x, LOFT.minZ + 0.15, 0.14]);
   rects.push([STAIRS.fromX, STAIRS.toX, STAIRS.minZ - 0.1, STAIRS.maxZ]);
@@ -99,8 +109,8 @@ function obstacles(): Obstacles {
 }
 
 /** Whether (x, z) is too close to anything in the way, or to the walls, to stand in. */
-function isBlocked(x: number, z: number, b: Bounds, o: Obstacles): boolean {
-  if (x < b.minX + R || x > b.maxX - R || z < b.minZ + R || z > b.maxZ - R) return true;
+function isBlocked(x: number, z: number, on: Floorplan, o: Obstacles): boolean {
+  if (!on(x, z, R)) return true;
   for (const [x0, x1, z0, z1] of o.rects) if (x > x0 - R && x < x1 + R && z > z0 - R && z < z1 + R) return true;
   for (const [cx, cz, r] of o.circles) if (Math.hypot(x - cx, z - cz) < r + R) return true;
   return false;
@@ -112,14 +122,16 @@ export class NavGrid {
   readonly rows: number;
   private readonly grid: Uint8Array;
 
+  /** `on`: the floor's shape, when it doesn't fill `bounds` (the office built out into its back office). */
   constructor(
     readonly bounds: Bounds,
     obstacles: Obstacles,
+    private readonly on: Floorplan = within(bounds),
   ) {
     this.cols = Math.ceil((bounds.maxX - bounds.minX) / CELL);
     this.rows = Math.ceil((bounds.maxZ - bounds.minZ) / CELL);
     this.grid = new Uint8Array(this.cols * this.rows);
-    for (let r = 0; r < this.rows; r++) for (let c = 0; c < this.cols; c++) this.grid[r * this.cols + c] = isBlocked(bounds.minX + (c + 0.5) * CELL, bounds.minZ + (r + 0.5) * CELL, bounds, obstacles) ? 1 : 0;
+    for (let r = 0; r < this.rows; r++) for (let c = 0; c < this.cols; c++) this.grid[r * this.cols + c] = isBlocked(bounds.minX + (c + 0.5) * CELL, bounds.minZ + (r + 0.5) * CELL, on, obstacles) ? 1 : 0;
   }
 
   private colOf(x: number) {
@@ -135,8 +147,7 @@ export class NavGrid {
   }
 
   walkable(x: number, z: number): boolean {
-    const b = this.bounds;
-    return x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ && !this.grid[this.rowOf(z) * this.cols + this.colOf(x)];
+    return this.on(x, z, 0) && !this.grid[this.rowOf(z) * this.cols + this.colOf(x)];
   }
 
   /** Whether it can trot straight from a to b: every cell the line crosses is clear. */
@@ -266,8 +277,11 @@ export class NavGrid {
         ? [deskPoint(seat, side * 1.05, 0.1), deskPoint(seat, side * 1.05, 1.25)]
         : seat.station
           ? [deskPoint(seat, side * 0.95, KIOSK.stand), deskPoint(seat, side * 0.95, -1)]
-          : // At the meeting table there's less room behind the chair, before the glass.
-            [deskPoint(seat, side * 0.7, 0.95), deskPoint(seat, side * 0.7, seat.room ? 1.4 : 1.75)];
+          : seat.wing
+            ? // In the back office the chair has its back to a wall or the next row: out to the side of it instead.
+              [deskPoint(seat, side * 0.7, 0.95), deskPoint(seat, side * 0.95, 1.25)]
+            : // At the meeting table there's less room behind the chair, before the glass.
+              [deskPoint(seat, side * 0.7, 0.95), deskPoint(seat, side * 0.7, seat.room ? 1.4 : 1.75)];
       // A bean bag or a kiosk can stand with one side up against something (the elevator, by the queue).
       const blocked = !!(seat.beanbag || seat.station) && !this.walkable(down[0], down[1]);
       const pts = [down, ...this.route(back, to)];
@@ -292,21 +306,32 @@ export class NavGrid {
 /** How far it is along `pts`, corner to corner. */
 export const pathLength = (pts: Pt[]) => pts.reduce((n, p, i) => (i ? n + Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : 0), 0);
 
-/** The office floor downstairs (no stairs, no loft, no elevator). */
-export const OFFICE_NAV = new NavGrid(FLOOR, obstacles());
+/** The office floor downstairs (no stairs, no loft, no elevator), built out `wing` rows, made the first time it's needed. */
+const OFFICE_NAVS: NavGrid[] = [];
+export function officeNav(wing = 0): NavGrid {
+  const level = wingLevel(wing);
+  // Through where the north wall was, into the back office: between its walls, short of its back one.
+  const on: Floorplan = (x, z, m) =>
+    (x > FLOOR.minX + m && x < FLOOR.maxX - m && z > FLOOR.minZ + m && z < FLOOR.maxZ - m) ||
+    (level > 0 && x > WING.minX + m && x < WING.maxX - m && z > wingMinZ(level) + m && z < FLOOR.maxZ - m);
+  return (OFFICE_NAVS[level] ??= new NavGrid({ ...FLOOR, minZ: wingMinZ(level) }, obstacles(level), on));
+}
 
-export function walkable(x: number, z: number): boolean {
-  return OFFICE_NAV.walkable(x, z);
+/** The office floor as it is until it's built out. */
+export const OFFICE_NAV = officeNav(0);
+
+export function walkable(x: number, z: number, wing = 0): boolean {
+  return officeNav(wing).walkable(x, z);
 }
 
 /** The middle of the nearest cell it can stand in on the office floor. */
-export function nearestWalkable(p: Pt): Pt {
-  return OFFICE_NAV.nearestWalkable(p);
+export function nearestWalkable(p: Pt, wing = 0): Pt {
+  return officeNav(wing).nearestWalkable(p);
 }
 
 /** A* over the office floor's grid, then pulled tight: the corners of a route from `from` to `to`, both included. */
-export function route(from: Pt, to: Pt): Pt[] {
-  return OFFICE_NAV.route(from, to);
+export function route(from: Pt, to: Pt, wing = 0): Pt[] {
+  return officeNav(wing).route(from, to);
 }
 
 class Heap {
@@ -374,8 +399,8 @@ const IN_FROM: Pt = [ELEVATOR.x, ELEVATOR_FRONT + 0.5];
  * A worker's walk in to its seat when it's called to a meeting: out of the elevator and round the
  * furniture to beside its chair (the last point), on whichever side is the shorter way, where it hops on.
  */
-export function wayIn(seat: DeskDef): Pt[] {
-  return OFFICE_NAV.wayTo(IN_FROM, seat);
+export function wayIn(seat: DeskDef, wing = 0): Pt[] {
+  return officeNav(wing).wayTo(IN_FROM, seat);
 }
 
 /**
@@ -384,8 +409,8 @@ export function wayIn(seat: DeskDef): Pt[] {
  * furniture to the exit door in the west wall, across the landing outside, down the steps to the
  * street and off along the sidewalk.
  */
-export function wayHome(seat: DeskDef): Pt[] {
-  const inside = wayTo(seat, EXIT);
+export function wayHome(seat: DeskDef, wing = 0): Pt[] {
+  const inside = wayTo(seat, EXIT, wing);
   const { landingZ1, steps, run } = EXIT_STAIRS;
   return [...inside, [STEPS_X, EXIT_DOOR.u], ...walkOff([STEPS_X, landingZ1 + (steps - 1) * run + 0.6])];
 }
@@ -394,8 +419,8 @@ export function wayHome(seat: DeskDef): Pt[] {
  * The same walk on a floor above the bottom one, which has no exit door: round the furniture to the
  * balcony doors, out across the balcony and up to its railing (PARACHUTE.jump), where it goes over.
  */
-export function wayToBalcony(seat: DeskDef): Pt[] {
-  const inside = wayTo(seat, BALCONY_IN);
+export function wayToBalcony(seat: DeskDef, wing = 0): Pt[] {
+  const inside = wayTo(seat, BALCONY_IN, wing);
   return [...inside, [BALCONY_DOOR.u, BALCONY.minZ + 0.4], [PARACHUTE.jump.x, PARACHUTE.jump.z]];
 }
 
@@ -405,6 +430,6 @@ export function walkOff(from: Pt): Pt[] {
 }
 
 /** From beside `seat`, where it hops down, round the furniture to `door` on the office floor. */
-function wayTo(seat: DeskDef, door: Pt): Pt[] {
-  return OFFICE_NAV.wayFrom(seat, door);
+function wayTo(seat: DeskDef, door: Pt, wing: number): Pt[] {
+  return officeNav(wing).wayFrom(seat, door);
 }

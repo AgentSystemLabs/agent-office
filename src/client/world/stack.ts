@@ -216,6 +216,8 @@ export interface StackState {
 export interface Stack {
   group: THREE.Group;
   interactables: Interactable[];
+  /** The ceiling's tiles, for the back office's ceiling to match (its uvs are meters, like a ShapeGeometry's). */
+  ceiling: THREE.Material;
   /** The floor you're on: the ladder, the hatches and the poles go where there are floors to go to. */
   set(s: StackState): void;
   state: StackState;
@@ -535,6 +537,7 @@ export function buildStack(colliders: Collider[], planks: THREE.Material): Stack
   const stack: Stack = {
     group,
     interactables,
+    ceiling: ceilingMat,
     set,
     state,
     poles: () => (state.count > 1 ? POLES : []),

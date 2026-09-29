@@ -84,7 +84,7 @@ test("a map that can't be used says why, and the building stays on the office", 
   ]);
   const why = Object.fromEntries(checked.map((m) => [m.file, m.error ?? '']));
   assert.match(why['office.json'], /office is built in code/);
-  assert.match(why['small.json'], /seat 4, and a map needs 28/);
+  assert.match(why['small.json'], /seat 4, and a map needs 32/);
   assert.match(why['far.json'], /outside the hall/);
   assert.match(why['thing.json'], /spaceship/);
   assert.match(why['dupe.json'], /built-in map/);

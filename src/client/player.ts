@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FLOOR, SLAB, STREET_Y, WALL_T, type SeatPlace } from '../shared/layout';
+import { FLOOR, SLAB, STREET_Y, WALL_T, WING, inWing, wingMinZ, type SeatPlace } from '../shared/layout';
 import type { ViewMode } from './state';
 import type { Collider } from './world/office';
 
@@ -54,6 +54,8 @@ export class PlayerController {
    * with no street or garage under it to see from.
    */
   room: { minX: number; maxX: number; minZ: number; maxZ: number; wall: number; enclosed: boolean } = { ...FLOOR, wall: WALL_T, enclosed: false };
+  /** How many rows the floor's back office is built out (see WING): the camera keeps inside it too. */
+  wing = 0;
   private jitterT = 0;
   /** How drunk you are (see booze.ts): the view rolls and sways, and you stagger as you walk. */
   drunk = 0;
@@ -524,8 +526,13 @@ export class PlayerController {
     // On the ladder or a pole you can be down in a shaft under the floor, but you're still indoors.
     const rigged = !!this.rig && !this.riding;
     const under = this.pos.x > R.minX && this.pos.x < R.maxX && this.pos.z > R.minZ && this.pos.z < R.maxZ;
-    const indoors = (rigged || this.pos.y > -SLAB - 0.5) && under;
-    if (indoors) {
+    // In the office's back office, between its walls, and out through where the north wall was into the room.
+    const back = !R.enclosed && this.pos.y > -SLAB - 0.5 && inWing(this.pos.x, this.pos.z, this.wing);
+    const indoors = ((rigged || this.pos.y > -SLAB - 0.5) && under) || back;
+    if (back) {
+      cam.x = THREE.MathUtils.clamp(cam.x, WING.minX + m, WING.maxX - m);
+      cam.z = THREE.MathUtils.clamp(cam.z, wingMinZ(this.wing) + m, FLOOR.maxZ - m);
+    } else if (indoors) {
       cam.x = THREE.MathUtils.clamp(cam.x, R.minX + m, R.maxX - m);
       cam.z = THREE.MathUtils.clamp(cam.z, R.minZ + m, R.maxZ - m);
     }
