@@ -72,10 +72,6 @@ export class PlayerController {
    */
   onClick: ((ndc: THREE.Vector2) => void) | null = null;
   private keys = new Set<string>();
-  /** A control currently held, for things which temporarily take over from walking. */
-  key(code: string): boolean {
-    return this.enabled && this.keys.has(code);
-  }
   private drag: { x: number; y: number; moved: number } | null = null;
   /** Set when this browser won't lock the pointer; first person falls back to drag-to-look. */
   private lockFailed = false;

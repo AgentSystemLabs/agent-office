@@ -558,8 +558,21 @@ const remotes = new Map<string, RemotePeer>();
 
 // ---- Garage cars -------------------------------------------------------------------------------
 let driveSpeed = 0;
+const driveKeys = new Set<string>();
+const DRIVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space']);
 const carAt = (id: string) => office.vehicles.get(id);
 const driverFor = (id: string) => [...store.peers.values()].find((p) => p.vehicle?.id === id && p.vehicle.driver);
+
+// Kept apart from PlayerController's walking keys: office actions deliberately clear those keys.
+window.addEventListener(
+  'keydown',
+  (e) => {
+    if (DRIVE_KEYS.has(e.code) && !modalOpen() && !isTyping(e)) driveKeys.add(e.code);
+  },
+  true,
+);
+window.addEventListener('keyup', (e) => driveKeys.delete(e.code), true);
+window.addEventListener('blur', () => driveKeys.clear());
 
 function nearestVehicle(): string | undefined {
   let best: { id: string; d: number } | undefined;
@@ -610,6 +623,7 @@ function updateVehicles(dt: number) {
   if (!mine) {
     player.rig = null;
     driveSpeed = 0;
+    driveKeys.clear();
     return;
   }
   const live = driverFor(mine.id)?.vehicle ?? mine;
@@ -618,12 +632,12 @@ function updateVehicles(dt: number) {
     return;
   }
   player.rig = (step) => {
-    const gas = player.key('KeyW') ? 1 : player.key('KeyS') ? -0.65 : 0;
-    const brake = player.key('Space');
+    const gas = driveKeys.has('KeyW') || driveKeys.has('ArrowUp') ? 1 : driveKeys.has('KeyS') || driveKeys.has('ArrowDown') ? -0.65 : 0;
+    const brake = driveKeys.has('Space');
     driveSpeed += gas * 12 * step;
     driveSpeed *= Math.exp(-(brake ? 7 : gas ? 0.45 : 1.5) * step);
     driveSpeed = THREE.MathUtils.clamp(driveSpeed, -6, 14);
-    const steer = (player.key('KeyA') ? 1 : 0) - (player.key('KeyD') ? 1 : 0);
+    const steer = (driveKeys.has('KeyA') || driveKeys.has('ArrowLeft') ? 1 : 0) - (driveKeys.has('KeyD') || driveKeys.has('ArrowRight') ? 1 : 0);
     if (Math.abs(driveSpeed) > 0.15) mine.rotY += steer * 1.7 * step * Math.sign(driveSpeed);
     mine.x += Math.sin(mine.rotY) * driveSpeed * step;
     mine.z += Math.cos(mine.rotY) * driveSpeed * step;
