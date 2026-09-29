@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FLOOR, ROAD, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
 import { CAR, supercar, type CarKind } from './cars';
+import { VEHICLES } from '../../shared/vehicles';
 import type { Collider } from './office';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
 
@@ -116,7 +117,7 @@ function garageFloorTexture(): THREE.CanvasTexture {
  * walls at the back and on the west side, columns along the open front and east side, strip
  * lights, and a row of Lambos and a row of Ferraris.
  */
-export function buildGarage(group: THREE.Group, colliders: Collider[]) {
+export function buildGarage(group: THREE.Group, colliders: Collider[]): Map<string, THREE.Group> {
   const w = B.maxX - B.minX;
   const d = B.maxZ - B.minZ;
   const cx = (B.minX + B.maxX) / 2;
@@ -162,28 +163,15 @@ export function buildGarage(group: THREE.Group, colliders: Collider[]) {
   group.add(mergeByMaterial(parts));
 
   // The cars: Lambos nose-in along the back wall, Ferraris backed in facing the street.
-  const cars: [CarKind, string, number, number][] = [
-    ['lambo', '#8ac926', -14.4, -1],
-    ['lambo', '#ff7b00', -8, -1],
-    ['lambo', '#ffd000', 1.6, -1],
-    ['lambo', '#7b2cbf', 11.2, -1],
-    ['ferrari', '#d90429', -14.4, 1],
-    ['ferrari', '#d90429', -4.8, 1],
-    ['ferrari', '#ffc300', 4.8, 1],
-    ['ferrari', '#e5383b', 14.4, 1],
-  ];
   const lot = new THREE.Group();
-  for (const [kind, color, x, face] of cars) {
-    const z = face < 0 ? B.minZ + WALL_T + 0.4 + CAR.length / 2 : B.maxZ - 0.5 - CAR.length / 2;
-    park(lot, colliders, kind, color, x, z, face < 0 ? Math.PI : 0);
-  }
-  // One left out front, for everyone upstairs to look at.
-  park(lot, colliders, 'lambo', '#00b4d8', 9, 18.2, Math.PI / 2);
-  group.add(mergeByMaterial(lot));
+  const vehicles = new Map<string, THREE.Group>();
+  for (const def of VEHICLES) vehicles.set(def.id, park(lot, colliders, def.kind, def.color, def.x, def.z, def.rotY));
+  group.add(lot);
+  return vehicles;
 }
 
 /** Parks a car at (x, z) turned by `rotY` (a multiple of 90°), with colliders you can hop up on. */
-function park(group: THREE.Group, colliders: Collider[], kind: CarKind, color: string, x: number, z: number, rotY: number) {
+function park(group: THREE.Group, colliders: Collider[], kind: CarKind, color: string, x: number, z: number, rotY: number): THREE.Group {
   const car = supercar(kind, color);
   car.position.set(x, G, z);
   car.rotation.y = rotY;
@@ -198,6 +186,7 @@ function park(group: THREE.Group, colliders: Collider[], kind: CarKind, color: s
   };
   rect(-CAR.width / 2 + 0.08, CAR.width / 2 - 0.08, -CAR.length / 2 + 0.08, CAR.length / 2 - 0.08, CAR.body);
   rect(-0.6, 0.6, -1.3, 0.1, CAR.roof);
+  return car;
 }
 
 export function tree(scale: number): THREE.Group {

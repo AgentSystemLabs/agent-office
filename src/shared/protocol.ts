@@ -241,6 +241,8 @@ export interface PeerInfo {
   z: number;
   rotY: number;
   moving: boolean;
+  /** A garage supercar this peer occupies; its driver owns the synchronized pose. */
+  vehicle?: { id: string; driver: boolean; x: number; z: number; rotY: number; speed: number };
   voice: boolean;
   muted: boolean;
   sharing: boolean;
@@ -956,7 +958,9 @@ export interface SearchResults {
 export type GongWhy = 'hit' | 'merged' | 'queue';
 
 export type ClientMsg =
-  | { t: 'move'; x: number; y: number; z: number; rotY: number; moving: boolean }
+  | { t: 'move'; x: number; y: number; z: number; rotY: number; moving: boolean; vehicle?: { x: number; z: number; rotY: number; speed: number } }
+  | { t: 'vehicle.enter'; id: string }
+  | { t: 'vehicle.leave' }
   /**
    * You reached out to use something; everyone else sees your character's arm do it. With `smoke`,
    * you lit a cigarette (or put it out) on the balcony instead; with `golf`, you took a club out at
@@ -1159,7 +1163,7 @@ export type ServerMsg =
   | { t: 'projectsDir'; state: ProjectsDirState }
   | { t: 'peer.join'; peer: PeerInfo }
   | { t: 'peer.update'; peer: PeerInfo }
-  | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }
+  | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean; vehicle?: PeerInfo['vehicle'] }
   | { t: 'peer.leave'; id: string }
   | { t: 'peer.act'; id: string; smoke?: boolean; golf?: boolean; drink?: DrinkId | null }
   /** Someone on your floor hit a golf ball off the tee (see the client's 'golf'). */

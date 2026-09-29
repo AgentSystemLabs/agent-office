@@ -42,6 +42,7 @@ import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
 import { isThemePick } from '../shared/theme.js';
 import { PROMPTS, PROMPT_MAX, isPromptId } from '../shared/prompts.js';
 import { ROOF, isDrink } from '../shared/rooftop.js';
+import { VEHICLES, VEHICLE_IDS } from '../shared/vehicles.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -1099,6 +1100,7 @@ export async function startServer(cfg: Config) {
     // An issue card belongs to the board it came off, which is on the floor they left; a drink stays at the bar.
     delete c.peer.carrying;
     delete c.peer.drink;
+    delete c.peer.vehicle;
     return { was, wasDrawing, ballLeft };
   };
 
@@ -1139,7 +1141,36 @@ export async function startServer(cfg: Config) {
         p.z = num(msg.z);
         p.rotY = num(msg.rotY);
         p.moving = !!msg.moving;
-        toNeighbors(c, { t: 'peer.move', id: c.id, x: p.x, y: p.y, z: p.z, rotY: p.rotY, moving: p.moving }, true);
+        if (p.vehicle?.driver && msg.vehicle) {
+          p.vehicle.x = Math.max(-45, Math.min(45, num(msg.vehicle.x)));
+          p.vehicle.z = Math.max(-9, Math.min(34, num(msg.vehicle.z)));
+          p.vehicle.rotY = num(msg.vehicle.rotY);
+          p.vehicle.speed = Math.max(-8, Math.min(18, num(msg.vehicle.speed)));
+        }
+        toNeighbors(c, { t: 'peer.move', id: c.id, x: p.x, y: p.y, z: p.z, rotY: p.rotY, moving: p.moving, vehicle: p.vehicle }, true);
+        break;
+      }
+      case 'vehicle.enter': {
+        if (c.peer.vehicle || !VEHICLE_IDS.has(msg.id) || c.peer.floor === ROOF) break;
+        const driver = [...clients.values()].find((other) => other.peer.floor === c.peer.floor && other.peer.vehicle?.id === msg.id && other.peer.vehicle.driver);
+        const pose = driver?.peer.vehicle ?? VEHICLES.find((v) => v.id === msg.id)!;
+        if (Math.hypot(c.peer.x - pose.x, c.peer.z - pose.z) > 3) break;
+        c.peer.vehicle = { id: msg.id, driver: !driver, x: pose.x, z: pose.z, rotY: pose.rotY, speed: 'speed' in pose ? pose.speed : 0 };
+        broadcast({ t: 'peer.update', peer: c.peer });
+        break;
+      }
+      case 'vehicle.leave': {
+        if (!c.peer.vehicle) break;
+        const departed = c.peer.vehicle;
+        delete c.peer.vehicle;
+        broadcast({ t: 'peer.update', peer: c.peer });
+        if (departed.driver) {
+          const passenger = [...clients.values()].find((other) => other.peer.floor === c.peer.floor && other.peer.vehicle?.id === departed.id);
+          if (passenger?.peer.vehicle) {
+            Object.assign(passenger.peer.vehicle, departed, { driver: true });
+            broadcast({ t: 'peer.update', peer: passenger.peer });
+          }
+        }
         break;
       }
       case 'act': {

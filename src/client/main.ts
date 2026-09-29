@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, LOFT, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, STOREY, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, roofDrop, seatAt, seatPlace, streetBelow, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, LOFT, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, STOREY, STREET_Y, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, roofDrop, seatAt, seatPlace, streetBelow, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { floorPalette } from '../shared/floors';
 import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
 import { MEETING_PATTERNS } from '../shared/meetings';
@@ -77,6 +77,7 @@ import { whereabouts } from './ui/whereabouts';
 import { wayTo } from './walkto';
 import { MeetingBoardTexture, MeetingSignTexture, meetingStage } from './world/meeting';
 import { issueMeeting, openMeeting, type MeetingPreset } from './ui/meeting';
+import { VEHICLES } from '../shared/vehicles';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -555,6 +556,78 @@ interface RemotePeer {
 }
 const remotes = new Map<string, RemotePeer>();
 
+// ---- Garage cars -------------------------------------------------------------------------------
+let driveSpeed = 0;
+const carAt = (id: string) => office.vehicles.get(id);
+const driverFor = (id: string) => [...store.peers.values()].find((p) => p.vehicle?.id === id && p.vehicle.driver);
+
+function nearestVehicle(): string | undefined {
+  let best: { id: string; d: number } | undefined;
+  for (const def of VEHICLES) {
+    const pose = driverFor(def.id)?.vehicle ?? def;
+    const d = Math.hypot(player.pos.x - pose.x, player.pos.z - pose.z);
+    if (d < 2.4 && (!best || d < best.d)) best = { id: def.id, d };
+  }
+  return best?.id;
+}
+
+function vehicleKey(code: string): boolean {
+  const mine = store.peers.get(store.you)?.vehicle;
+  if (code === 'KeyE') {
+    if (mine) net.send({ t: 'vehicle.leave' });
+    else {
+      const id = nearestVehicle();
+      if (!id) return false;
+      net.send({ t: 'vehicle.enter', id });
+    }
+    return true;
+  }
+  if (mine && code === 'KeyH') {
+    toast('📣 HONK!');
+    return true;
+  }
+  return !!mine && ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space'].includes(code);
+}
+
+function updateVehicles(dt: number) {
+  const mine = store.peers.get(store.you)?.vehicle;
+  // Each car is parked at its spawn unless its current driver supplies a live pose.
+  for (const def of VEHICLES) {
+    const car = carAt(def.id);
+    if (!car) continue;
+    const pose = driverFor(def.id)?.vehicle ?? def;
+    car.position.set(pose.x, STREET_Y, pose.z);
+    car.rotation.y = pose.rotY;
+  }
+  if (!mine) {
+    player.rig = null;
+    driveSpeed = 0;
+    return;
+  }
+  const live = driverFor(mine.id)?.vehicle ?? mine;
+  if (!mine.driver) {
+    player.rig = () => player.pos.set(live.x, player.street + 0.45, live.z);
+    return;
+  }
+  player.rig = (step) => {
+    const gas = player.key('KeyW') ? 1 : player.key('KeyS') ? -0.65 : 0;
+    const brake = player.key('Space');
+    driveSpeed += gas * 12 * step;
+    driveSpeed *= Math.exp(-(brake ? 7 : gas ? 0.45 : 1.5) * step);
+    driveSpeed = THREE.MathUtils.clamp(driveSpeed, -6, 14);
+    const steer = (player.key('KeyA') ? 1 : 0) - (player.key('KeyD') ? 1 : 0);
+    if (Math.abs(driveSpeed) > 0.15) mine.rotY += steer * 1.7 * step * Math.sign(driveSpeed);
+    mine.x += Math.sin(mine.rotY) * driveSpeed * step;
+    mine.z += Math.cos(mine.rotY) * driveSpeed * step;
+    mine.x = THREE.MathUtils.clamp(mine.x, -44, 44);
+    mine.z = THREE.MathUtils.clamp(mine.z, -8.5, 33.5);
+    mine.speed = driveSpeed;
+    player.pos.set(mine.x, player.street + 0.45, mine.z);
+    player.facing = mine.rotY;
+    player.moving = Math.abs(driveSpeed) > 0.1;
+  };
+}
+
 interface WorkerView {
   model: Worker;
   laptop: Laptop;
@@ -1023,6 +1096,7 @@ function syncPeers() {
     r.person.read(!!peer.reading);
     r.person.sit(peer.seat ? (seatAt(peer.seat)?.hips ?? null) : null);
     r.person.setDoing(whereabouts(peer));
+    r.person.root.visible = !peer.vehicle;
   }
   for (const [id, r] of remotes) {
     const peer = store.peers.get(id);
@@ -2742,6 +2816,10 @@ window.addEventListener('blur', () => voice.stopTalking());
 
 /** The office's own keys; false for any other key, which is left to walking and the browser. */
 function officeKey(e: KeyboardEvent): boolean {
+  if (vehicleKey(e.code)) {
+    e.preventDefault();
+    return true;
+  }
   const deskKey = DESK_KEYS[e.code as keyof typeof DESK_KEYS];
   if (deskKey) {
     // P opens a text box, which the key mustn't land in.
@@ -3217,6 +3295,7 @@ function frame(ts?: number) {
   const drunk = drinking(now);
 
   walkTick(now);
+  updateVehicles(dt);
   player.update(dt);
   // Walked into a pole's hole: you grab the pole on your way down it.
   const hole = office.stack.polesGoDown() ? office.stack.poles().find((s) => Math.hypot(player.pos.x - s.x, player.pos.z - s.z) < POLE.hole - 0.15) : undefined;
@@ -3238,7 +3317,7 @@ function frame(ts?: number) {
   const firstPerson = player.view === 'first';
   // In first person you are the camera; in third, hide yourself when it's zoomed in right behind your head.
   // At the tee the camera's behind the ball, and you're the one holding the club.
-  me.root.visible = golf.active || (!firstPerson && camera.position.distanceTo(headPos.set(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5);
+  me.root.visible = !store.peers.get(store.you)?.vehicle && (golf.active || (!firstPerson && camera.position.distanceTo(headPos.set(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5));
   if (firstPerson && !golf.active) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded, jitter: player.jitter, grip });
   // Down a pole: the view widens and the edges streak past.
   const rush = reduceMotion.matches ? 0 : climber.rush;
@@ -3266,7 +3345,8 @@ function frame(ts?: number) {
   const moved = Math.abs(player.pos.x - lastSent.x) + Math.abs(player.pos.y - lastSent.y) + Math.abs(player.pos.z - lastSent.z) > 0.01 || Math.abs(player.facing - lastSent.rotY) > 0.02;
   if ((moved || player.moving !== lastSent.moving) && now - lastSent.at > 66) {
     lastSent = { x: player.pos.x, y: player.pos.y, z: player.pos.z, rotY: player.facing, moving: player.moving, at: now };
-    net.send({ t: 'move', x: player.pos.x, y: player.pos.y, z: player.pos.z, rotY: player.facing, moving: player.moving });
+    const vehicle = store.peers.get(store.you)?.vehicle;
+    net.send({ t: 'move', x: player.pos.x, y: player.pos.y, z: player.pos.z, rotY: player.facing, moving: player.moving, ...(vehicle?.driver ? { vehicle: { x: vehicle.x, z: vehicle.z, rotY: vehicle.rotY, speed: vehicle.speed } } : {}) });
   }
 
   for (const [id, r] of remotes) {

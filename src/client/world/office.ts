@@ -98,6 +98,7 @@ export interface Office {
   /** The golf tee on the balcony, and the hole across the street it's hit at. */
   tee: Tee;
   green: Green;
+  vehicles: Map<string, THREE.Group>;
   /** The basketball hoop on the west wall (the ball is main.ts's: see world/hoop.ts). */
   hoop: HoopView;
   /** The ceiling, the floor, and the ladder and fire poles between the floors of the building. */
@@ -988,7 +989,7 @@ export function buildOffice(): Office {
   ground.add(mergeByMaterial(stairs));
   // The door, its frame and the EXIT sign over it.
   fixture(EXIT_DOOR.wall, EXIT_DOOR.u, (EXIT_DOOR.y1 + 0.7) / 2, EXIT_DOOR.width + 0.3, EXIT_DOOR.y1 + 0.7);
-  buildGarage(ground, groundColliders);
+  const vehicles = buildGarage(ground, groundColliders);
   // The clouds stay up in the sky, however far down the street is.
   buildStreet(ground, groundColliders, night, group);
   const green = buildGreen(ground, groundColliders, night);
@@ -1312,7 +1313,7 @@ export function buildOffice(): Office {
     hoop.update(dt);
   };
 
-  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, elevator, gong, jukebox, cabinet, whiteboard, tee, green, hoop, stack, setProjectName, setLook, setLevel, night, plants, update };
+  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, elevator, gong, jukebox, cabinet, whiteboard, tee, green, vehicles, hoop, stack, setProjectName, setLook, setLevel, night, plants, update };
 }
 
 /** A chair at the meeting table, with its laptop on the table in front of it. */

@@ -315,7 +315,7 @@ class Store {
         break;
       case 'peer.move': {
         const p = this.peers.get(msg.id);
-        if (p) Object.assign(p, { x: msg.x, y: msg.y, z: msg.z, rotY: msg.rotY, moving: msg.moving });
+        if (p) Object.assign(p, { x: msg.x, y: msg.y, z: msg.z, rotY: msg.rotY, moving: msg.moving, vehicle: msg.vehicle });
         break;
       }
       case 'peer.leave':
