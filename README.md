@@ -39,6 +39,8 @@ curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/i
 - **GitHub on the walls.** Issues and pull requests hang on cork boards. Hand an issue to a worker, queue tasks, give a worker its own git worktree and open its PR with one key. One task can span several projects: the worker gets a worktree of each, and a PR in each that links the others.
 - **Together.** Voice, chat, screen sharing on the lounge TV and a shared whiteboard.
 
+- **Other maps.** Turn the whole building into a castle: sit on a throne of iron blades while your workers line up before you when they're done, send new ones off through the Hand of the King, and watch their beards grow long and grey as they toil. Or make a map of your own in JSON ([docs/maps.md](docs/maps.md)).
+
 There's a lot more (a rooftop bar, an office dog, an arcade): see [docs/features.md](docs/features.md).
 
 ## Requirements
@@ -351,6 +353,7 @@ Every change to the app that lands on `main` is published as a GitHub release by
 - [Features](docs/features.md): everything in the office, room by room
 - [Agents](docs/agents.md): Claude Code, Codex and OpenCode, models and effort, and the office's prompts
 - [Configuration](docs/configuration.md): every command-line option, and where the office keeps its data
+- [Maps](docs/maps.md): the castle, and making a map of your own
 - [AWS reference](docs/aws.md): Tailscale, service tunnels, upgrades, and everything `deploy/aws.sh` does
 - [Railway reference](docs/railway.md): what `deploy/railway.sh` sets up, and what the volume keeps
 - [Fly.io reference](docs/fly.md): what `deploy/fly.sh` sets up, machine sizes, pausing and what the volume keeps

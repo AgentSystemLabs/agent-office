@@ -87,6 +87,11 @@ export class Arcade {
     return this.view.zoomed;
   }
 
+  /** Puts it down, if you're at it (the building changed maps under you). */
+  stop() {
+    this.modal?.close();
+  }
+
   play() {
     if (this.modal) return;
     const game = this.game;

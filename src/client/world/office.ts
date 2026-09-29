@@ -32,7 +32,7 @@ export interface Collider {
   fence?: boolean;
 }
 
-export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'cabinet' | 'ladder' | 'pole' | 'meeting' | 'bar' | 'dj' | 'golf' | 'ball' | 'bookshelf' | 'darts' | 'axe' | 'telescope' | 'car';
+export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'cabinet' | 'ladder' | 'pole' | 'meeting' | 'bar' | 'dj' | 'golf' | 'ball' | 'bookshelf' | 'darts' | 'axe' | 'telescope' | 'car' | 'herald';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -51,6 +51,8 @@ export interface Interactable {
   car?: number;
   /** Put away for now (a bean bag nobody needs yet): can't be used. */
   off?: boolean;
+  /** What the hint calls it, where a map's own looks differ from the office's (the castle's ale for the coffee machine). */
+  label?: string;
 }
 
 /** A desk, a bean bag, a board agent's kiosk or a chair at the meeting table: somewhere a worker sits (or stands). */
@@ -913,7 +915,7 @@ export function buildDesk(def: DeskDef, index: number, trimMat: THREE.Material):
 }
 
 /** The floating green "+" over an empty seat. */
-function vacancyMarker(y: number): THREE.Group {
+export function vacancyMarker(y: number): THREE.Group {
   const vacancy = new THREE.Group();
   const plusMat = toon('#7cf29a', { emissive: '#1f7a3a' });
   vacancy.add(mesh(box(0.28, 0.08, 0.08), plusMat, 0, 0, 0, false));

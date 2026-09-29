@@ -1,4 +1,4 @@
-import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, LeaveOnMergeState, MachineState, MeetingState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, PromptsState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SignInsState, SkyState, TeamState, ThemeState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
+import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, LeaveOnMergeState, MachineState, MapState, MeetingState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, PromptsState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SignInsState, SkyState, TeamState, ThemeState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
@@ -8,8 +8,9 @@ import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
 import type { BallState } from '../shared/hoop';
 import { parked, type CarSeat, type CarState } from '../shared/garage';
+import { OFFICE_MAP, planOf, type MapPlan } from '../shared/maps';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'signins' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'leaveOnMerge' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting' | 'prompts' | 'ball' | 'cars';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'signins' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'map' | 'leaveOnMerge' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting' | 'prompts' | 'ball' | 'cars';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -98,6 +99,10 @@ export interface Spot {
   floor: string;
   /** What that floor was called, to say so if it's gone by then. */
   name: string;
+  /** The building's map then (see shared/maps): a spot on another map is nowhere on this one. */
+  map?: string;
+  /** Sitting on its throne. */
+  throne?: boolean;
   x: number;
   y: number;
   z: number;
@@ -110,7 +115,7 @@ export function lastSpot(): Spot | null {
     const s = JSON.parse(localStorage.getItem(SPOT_KEY) ?? 'null');
     const finite = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
     if (s && typeof s.floor === 'string' && s.floor && finite(s.x) && finite(s.y) && finite(s.z) && finite(s.facing)) {
-      return { floor: s.floor, name: typeof s.name === 'string' ? s.name : '', x: s.x, y: s.y, z: s.z, facing: s.facing };
+      return { floor: s.floor, name: typeof s.name === 'string' ? s.name : '', ...(typeof s.map === 'string' ? { map: s.map } : {}), ...(s.throne === true ? { throne: true } : {}), x: s.x, y: s.y, z: s.z, facing: s.facing };
     }
   } catch {
     // storage blocked
@@ -228,6 +233,8 @@ class Store {
   sky: SkyState | null = null;
   /** The building's holiday decorations: the same on every floor. */
   theme: ThemeState = { pick: 'auto', active: null };
+  /** What the building looks like inside (see shared/maps): the same on every floor. */
+  map: MapState = { pick: OFFICE_MAP, custom: [] };
   /** The office's prompts as rewritten in ⚙️ Settings, and the worker everyone starts on: the same on every floor. */
   prompts: PromptsState = { custom: {} };
   /** Whether workers whose pull request merged go home by themselves (⚙️ Settings). */
@@ -243,6 +250,11 @@ class Store {
 
   emit(topic: Topic) {
     this.subs.get(topic)?.forEach((fn) => fn());
+  }
+
+  /** Where everything is on the building's map. */
+  plan(): MapPlan {
+    return planOf(this.map.pick, this.map.custom);
   }
 
   /** The floor you're on. */
@@ -352,6 +364,9 @@ class Store {
         this.theme = msg.theme;
         this.prompts = msg.prompts ?? { custom: {} };
         this.leaveOnMerge = msg.leaveOnMerge ?? { on: false };
+        // The map first, so the floor's workers sit down in its seats and not the last one's.
+        this.map = msg.map ?? { pick: OFFICE_MAP, custom: [] };
+        this.emit('map');
         this.enter(msg);
         for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'floors', 'projectsDir', 'sky', 'theme', 'prompts', 'leaveOnMerge'] as Topic[]) this.emit(t);
         break;
@@ -525,6 +540,15 @@ class Store {
         this.theme = msg.state;
         this.emit('theme');
         break;
+      case 'map': {
+        // Onto another map: nobody's on a seat of the last one any more (the office forgot them too).
+        const moved = msg.state.pick !== this.map.pick;
+        this.map = msg.state;
+        if (moved) for (const p of this.peers.values()) delete p.seat;
+        this.emit('map');
+        if (moved) this.emit('peers');
+        break;
+      }
       case 'prompts':
         this.prompts = msg.state;
         this.emit('prompts');

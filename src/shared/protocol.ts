@@ -9,6 +9,7 @@ import type { EmoteId } from './emotes.js';
 import type { CarSeat, CarState } from './garage.js';
 import type { BallState } from './hoop.js';
 import type { JukeboxState } from './jukebox.js';
+import type { CustomMap } from './maps/index.js';
 import type { PromptId } from './prompts.js';
 import type { DrinkId } from './rooftop.js';
 import type { WbElement, WbPointer, WhiteboardView } from './whiteboard.js';
@@ -136,6 +137,14 @@ export interface WorkerInfo {
   lastInput?: { by: string; at: number };
   /** The meeting it was called to, for a worker at the meeting room's table (see Meeting). */
   meeting?: string;
+  /**
+   * How long it has spent working (ms), over the stretches that have ended, and when the one it's in
+   * now started (while it's working): on the castle map, the longer it has worked, the more worn out it looks.
+   */
+  workedMs?: number;
+  workingSince?: number;
+  /** Sent out by a map's herald (the castle's Hand of the King), so every browser has it run to its seat from beside them. */
+  via?: 'herald';
 }
 
 /** Another floor's repository a worker also works in (see WorkerInfo.repos): a worktree of it in the worker's workspace. */
@@ -995,6 +1004,19 @@ export interface ThemeState {
 }
 
 /**
+ * The building's map: what every floor looks like inside (the office, the castle, or one of your
+ * own), the same for everyone (see shared/maps). Custom maps come from the office's
+ * .agent-office/maps/ folder, each with its whole config, or why it won't load.
+ */
+export interface MapState {
+  pick: string;
+  custom: CustomMap[];
+  /** Who picked it, and when. Unset for the default (the office). */
+  by?: string;
+  at?: number;
+}
+
+/**
  * Whether a worker whose pull request merged goes home by itself (⚙️ Settings), for every floor:
  * once it's at rest and nobody has its terminal open, it leaves and its worktree and branch are deleted.
  */
@@ -1065,7 +1087,7 @@ export type ClientMsg =
   | { t: 'profile'; name: string; color: string; look: Look }
   /** With `issue`, the worker is there for that GitHub issue: it's assigned on GitHub (so it moves to In progress) and taken off the queue. */
   /** With `repos` (other floors' ids), the worker works in their repositories too, each in a worktree of its own (see WorkerInfo.repos). */
-  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: number; repos?: string[] }
+  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: number; repos?: string[]; via?: 'herald' }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
@@ -1205,6 +1227,8 @@ export type ClientMsg =
   | { t: 'floor.remove'; floor: string }
   /** Dress the building up for a holiday, take the decorations down ('off'), or follow the calendar ('auto'). */
   | { t: 'theme.set'; pick: ThemePick }
+  /** Change the building's map (see MapState), or with no map, read the custom maps' folder again. */
+  | { t: 'map.set'; map?: string }
   /** Workers whose pull request merged go home by themselves (true), or wait to be sent home. */
   | { t: 'leaveOnMerge.set'; on: boolean }
   /** Where new floors are cloned from now on (admins only); '' goes back to the default. */
@@ -1256,6 +1280,8 @@ export type ServerMsg =
       sky: SkyState;
       /** Halloween or Christmas decorations, all over the building, or none. */
       theme: ThemeState;
+      /** What the building looks like inside. */
+      map: MapState;
       /** The office's prompts and the worker everyone starts on. */
       prompts: PromptsState;
       leaveOnMerge: LeaveOnMergeState;
@@ -1340,6 +1366,9 @@ export type ServerMsg =
   | { t: 'machine'; state: MachineState }
   | { t: 'sky'; state: SkyState }
   | { t: 'theme'; state: ThemeState }
+  | { t: 'map'; state: MapState }
+  /** Sent to whoever tried to sit where someone on the floor already is. */
+  | { t: 'sit.refused'; seat: string; by: string }
   | { t: 'prompts'; state: PromptsState }
   | { t: 'leaveOnMerge'; state: LeaveOnMergeState }
   /** Sent to whoever watches that worker's changes, whenever they change. */
