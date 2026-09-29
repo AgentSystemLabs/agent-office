@@ -339,6 +339,15 @@ img.glyph { display: inline-block; width: 1em; height: 1em; vertical-align: -0.1
 .share-thumb { width: 220px; border: 1px solid var(--border-strong); border-radius: var(--radius); overflow: hidden; background: #000; cursor: pointer; position: relative; }
 .share-thumb video { width: 100%; display: block; aspect-ratio: 16/9; object-fit: contain; background: #111; }
 .share-thumb .who { position: absolute; left: 6px; bottom: 6px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-xs); padding: 1px 6px; font: 500 10px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--text); }
+/* YouTube on the lounge TV: the embed is a CSS 3D layer over the screen, clicks pass through unless Controls is on. */
+.yt-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.yt-host { width: 1280px; height: 720px; background: #0f0f0f; overflow: hidden; pointer-events: none; }
+.yt-host iframe { width: 1280px; height: 720px; border: 0; background: #0f0f0f; pointer-events: none; }
+.yt-host.live, .yt-host.live iframe { pointer-events: auto; }
+.tv-volume { position: absolute; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 8px; padding: 8px 10px; }
+.tv-volume .lbl { font: 500 10px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--text-secondary); }
+.tv-volume input[type='range'] { width: 110px; accent-color: var(--accent); }
+.tv-volume .btn { padding: 6px 8px; }
 
 /* ---------- Modals ---------- */
 .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .62); display: grid; place-items: center; padding: 16px; z-index: 50; animation: fade .15s; }

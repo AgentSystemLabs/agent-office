@@ -188,7 +188,7 @@ export const BOARDS = {
   services: { x: FLOOR.maxX - 0.08, y: 2.1, z: -8.2, rotY: -Math.PI / 2, width: 6, height: 3, label: '🌐 Services' },
 } as const;
 
-/** The big TV on the east wall that shows whoever is screen sharing. */
+/** The big TV on the east wall. A pasted YouTube link plays on it; a shared screen shows there when nothing is. */
 export const TV = { x: FLOOR.maxX - 0.1, y: 2.2, z: 0, width: 6.4, height: 3.6 } as const;
 /**
  * The monitor on the west wall, between the first two windows from the north (the ladder has the

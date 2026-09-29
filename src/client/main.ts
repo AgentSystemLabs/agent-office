@@ -113,6 +113,7 @@ import { whereabouts } from './ui/whereabouts';
 import { wayTo } from './walkto';
 import { MeetingBoardTexture, MeetingSignTexture, meetingStage } from './world/meeting';
 import { issueMeeting, openMeeting, type MeetingPreset } from './ui/meeting';
+import { mountYoutubeTv } from './ui/youtube-tv';
 import { VRSession } from './vr/session';
 import { attachVrUi, type VrUiHandle } from './vr/attach';
 import type { MenuView, VrMergeInfo, VrSearchState } from './vr/menu';
@@ -277,15 +278,15 @@ const tvIdle = (() => {
     g.fillRect(0, 0, 1280, 720);
     g.fillStyle = 'rgba(255, 255, 255, .045)';
     for (let y = 16; y < 720; y += 32) for (let x = 16; x < 1280; x += 32) g.fillRect(x, y, 2, 2);
-    g.fillStyle = '#ee6018';
+    g.fillStyle = '#ff0000';
     g.fillRect(80, 316, 10, 80);
     g.fillStyle = '#eeeeee';
     g.textAlign = 'left';
     g.font = `700 72px ${MONO}`;
-    g.fillText('OFFICE TV', 116, 376);
+    g.fillText('YOUTUBE', 116, 376);
     g.fillStyle = '#8c8c8c';
     g.font = `500 30px ${MONO}`;
-    g.fillText('CLICK “SHARE SCREEN” TO PUT SOMETHING UP HERE', 116, 432);
+    g.fillText('PRESS E TO PASTE A LINK', 116, 432);
     t.needsUpdate = true;
   };
   const t = new THREE.CanvasTexture(c);
@@ -297,6 +298,8 @@ const tvMat = office.tvScreen.material as THREE.MeshBasicMaterial;
 tvMat.color.set('#ffffff');
 tvMat.map = tvIdle.tex;
 tvMat.toneMapped = false;
+// A pasted YouTube link plays on the screen itself. Screen share still paints the texture behind it.
+const youtube = mountYoutubeTv(office.tvScreen, camera, $('app'), $('hud'));
 // The world's canvases drew at boot, before the bundled fonts were necessarily in: repaint them
 // once Geist and Geist Mono are loaded, so nothing is left in a fallback typeface.
 void loadFonts().then(() => {
@@ -2848,7 +2851,7 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote, s
   else if (target.kind === 'pulls') openBoard('pulls', net, boardActions());
   else if (target.kind === 'services') openServices();
   else if (target.kind === 'queue') showQueue();
-  else if (target.kind === 'tv') watchShare();
+  else if (target.kind === 'tv') youtube.ask();
   else if (target.kind === 'jukebox') showJukebox();
   else if (target.kind === 'bookshelf') showBookshelf();
   else if (target.kind === 'decor' && target.decorId) hanger.view(target.decorId);
@@ -3584,8 +3587,8 @@ function hintFor(it: Interactable): Hint {
       return { k: String(n), parts: [title(`📋 Task queue${n ? ` · ${n}` : ''}`), key('E', 'Open')] };
     }
     case 'tv': {
-      const any = currentShares().length > 0;
-      return { k: String(any), parts: [title('📺 Office TV'), key('E', any ? 'Watch full screen' : 'Share your screen')] };
+      const on = youtube.hasVideo();
+      return { k: String(on), parts: [title('📺 Office TV'), key('E', on ? 'Change the video' : 'Paste a YouTube link')] };
     }
     case 'coffee': {
       const buzzed = caffeine.buzzed(performance.now() / 1000);
@@ -4494,6 +4497,7 @@ function resize() {
   const w = window.innerWidth;
   const hgt = window.innerHeight;
   renderer.setSize(w, hgt, false);
+  youtube.resize(w, hgt);
   camera.aspect = w / hgt;
   camera.updateProjectionMatrix();
   hands.setAspect(w / hgt);
@@ -4723,6 +4727,8 @@ function frame(ts?: number, xrFrame?: XRFrame) {
   else if (drunkVisionOn) drunkVision.release();
   drunkVisionOn = blurry;
   renderer.render(scene, camera);
+  // After the WebGL pass, so the screen's world matrix is this frame's.
+  youtube.frame(!inVR && !upTop && player.pos.y > -1);
   pointToWaiting(now);
   // Not while the camera's up at the boss's monitor or the arcade, where they'd cover the screen.
   if (firstPerson && !inVR && !arcade.zoomed && !cabinet.zoomed && !golf.active) {
