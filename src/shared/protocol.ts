@@ -299,6 +299,8 @@ export interface GhIssue {
   priority?: number;
   /** The branch the tracker suggests for it (Linear), when it does. */
   branch?: string;
+  /** The project it belongs to (Linear), or its milestone (GitHub), when it has one. */
+  project?: string;
 }
 
 export interface GhPull {
@@ -542,6 +544,8 @@ export interface GhState<T> {
   error?: string;
   fetchedAt: number;
   loading: boolean;
+  /** Who the office acts as on the tracker (gh's login, the Linear key's owner), for the board's "Mine" filter. Issues only. */
+  viewer?: string;
 }
 
 export type GhMergeMethod = 'squash' | 'merge' | 'rebase';

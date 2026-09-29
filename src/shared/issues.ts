@@ -63,3 +63,57 @@ export function stationVarsFor(tracker: IssueTracker) {
     ? { tracker: 'Linear', issueTool: 'the Linear MCP tools (list_issues, get_issue, save_issue, save_comment)', issueList: 'list_issues', issueExample: 'FOUND-2' }
     : { tracker: 'GitHub', issueTool: 'the gh CLI', issueList: 'gh issue list', issueExample: '12' };
 }
+
+/** What the 📌 board is narrowed to, on top of each column's labels: Linear's My issues, assignee and search. */
+export interface IssueFilter {
+  /** Only issues assigned to whoever the office acts as (the tracker's viewer). */
+  mine?: boolean;
+  /** Only issues assigned to, or opened by, this person. */
+  user?: string;
+  /** Only issues in this project (Linear) or milestone (GitHub). */
+  project?: string;
+  /** Words that must all appear in the id, title, body, labels, project or people. */
+  search?: string;
+}
+
+/** Whether a filter narrows the board at all. */
+export function filterActive(f: IssueFilter): boolean {
+  return !!(f.mine || f.user || f.project || f.search?.trim());
+}
+
+type Filterable = { id: string; title: string; body: string; author: string; assignees: string[]; labels: { name: string }[]; project?: string };
+
+/**
+ * The cards a filter keeps. `viewer` is who "mine" means; with none known, "mine" keeps nothing rather
+ * than everything, so the button never quietly shows the whole board. Search is case-insensitive and
+ * every word must be found somewhere on the card.
+ */
+export function filterIssues<T extends Filterable>(items: T[], f: IssueFilter, viewer?: string): T[] {
+  const words = (f.search ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+  const me = viewer?.toLowerCase();
+  const user = f.user?.toLowerCase();
+  const project = f.project?.toLowerCase();
+  return items.filter((it) => {
+    if (f.mine && !(me && it.assignees.some((a) => a.toLowerCase() === me))) return false;
+    if (user && !(it.assignees.some((a) => a.toLowerCase() === user) || it.author.toLowerCase() === user)) return false;
+    if (project && (it.project ?? '').toLowerCase() !== project) return false;
+    if (words.length) {
+      const hay = [it.id, issueLabel(it.id), it.title, it.body, it.project ?? '', it.author, ...it.assignees, ...it.labels.map((l) => l.name)].join('\n').toLowerCase();
+      if (!words.every((w) => hay.includes(w))) return false;
+    }
+    return true;
+  });
+}
+
+/** Everyone on the board's cards (assignees and authors) and every project, each sorted, for the filter menus. */
+export function boardPeople(items: Filterable[]): { people: string[]; projects: string[] } {
+  const people = new Set<string>();
+  const projects = new Set<string>();
+  for (const it of items) {
+    if (it.author) people.add(it.author);
+    for (const a of it.assignees) people.add(a);
+    if (it.project) projects.add(it.project);
+  }
+  const sort = (xs: Iterable<string>) => [...xs].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  return { people: sort(people), projects: sort(projects) };
+}

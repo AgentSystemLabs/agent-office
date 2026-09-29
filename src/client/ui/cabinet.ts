@@ -36,7 +36,7 @@ const KEYS: Record<string, 'left' | 'right' | 'down' | 'turn' | 'back' | 'drop' 
 
 /**
  * The arcade cabinet in the lounge. Press E there and the camera glides up to its screen, where you
- * play BLOCKFALL (ui/blocks.ts) on the keyboard. Everyone else on the floor sees your game on the
+ * play FOURBLOX (ui/blocks.ts) on the keyboard. Everyone else on the floor sees your game on the
  * cabinet as you play, and can walk up and press E to watch it up close. One of your workers needing
  * input pauses it and says who; walking away leaves it paused for when you come back. Its score goes
  * on the building's high-score table when you walk away and when the game ends.

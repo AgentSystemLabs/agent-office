@@ -3,7 +3,7 @@
 // browsers that watch. And its high-score table, which is the whole building's (see server/cabinet.ts).
 
 /** The game on the cabinet (see client/ui/blocks.ts). */
-export const GAME = 'BLOCKFALL';
+export const GAME = 'FOURBLOX';
 /** The well the blocks fall into: 10 wide, 20 deep. */
 export const WELL_COLS = 10;
 export const WELL_ROWS = 20;

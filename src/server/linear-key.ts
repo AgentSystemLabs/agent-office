@@ -26,6 +26,8 @@ export interface KeyCheck {
 export interface KeySource {
   key(): string | undefined;
   viewerId(): string | undefined;
+  /** The key owner's display name, as Linear shows it on assignees. */
+  viewer(): string | undefined;
   failed(why: string): void;
 }
 
@@ -56,6 +58,10 @@ export class LinearKey implements KeySource {
 
   viewerId(): string | undefined {
     return this.saved?.viewerId;
+  }
+
+  viewer(): string | undefined {
+    return this.saved?.viewer;
   }
 
   state(): LinearKeyState {

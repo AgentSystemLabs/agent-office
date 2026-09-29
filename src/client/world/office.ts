@@ -91,7 +91,7 @@ export interface Office {
   /** The merge gong by the PR board. */
   gong: Gong;
   jukebox: JukeboxView;
-  /** The arcade cabinet in the lounge, where BLOCKFALL plays (ui/cabinet.ts). */
+  /** The arcade cabinet in the lounge, where FOURBLOX plays (ui/cabinet.ts). */
   cabinet: CabinetModel;
   /** The rolling whiteboard everyone draws on together. */
   whiteboard: WhiteboardStand;

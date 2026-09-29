@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GAME } from '../../shared/cabinet';
 import { CABINET, FLOOR } from '../../shared/layout';
 import { mesh, roundedBox, toon } from './toon';
 import type { Collider, Interactable } from './office';
@@ -154,7 +155,7 @@ function paintMarquee(c: HTMLCanvasElement) {
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.font = '900 84px Nunito, ui-rounded, system-ui, sans-serif';
-  const letters = [...'BLOCKFALL'];
+  const letters = [...GAME];
   const widths = letters.map((ch) => g.measureText(ch).width);
   let x = c.width / 2 - widths.reduce((a, b) => a + b, 0) / 2;
   letters.forEach((ch, i) => {
