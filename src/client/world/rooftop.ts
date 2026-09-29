@@ -35,8 +35,11 @@ export interface Rooftop {
   interactables: Interactable[];
   elevator: Elevator;
   city: City;
-  /** The building has `floors` floors under the roof: the street is as far down as that is tall (see City). */
-  setFloors(floors: number): void;
+  /**
+   * The building has `floors` floors under the roof: the street is as far down as that is tall (see
+   * City). `wings` is how far each one's back office is built out.
+   */
+  setFloors(floors: number, wings?: readonly number[]): void;
   /** What looking or clicking can land on: everything but the city far below. */
   pickables: THREE.Object3D[];
   /** Where drinks are poured, for the sound of one. */
@@ -848,7 +851,7 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
     interactables,
     elevator,
     city,
-    setFloors: (n) => city.setFloors(n),
+    setFloors: (n, wings) => city.setFloors(n, wings),
     pickables: group.children.filter((c) => c !== city.group),
     pourAt: { x: bx + 0.2, y: ROOF_BAR.height + 0.2, z: bz },
     games,

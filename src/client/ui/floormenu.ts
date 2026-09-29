@@ -13,8 +13,8 @@ export interface FloorMenuOptions {
   go(floorId: string): void;
   /** Open the elevator's panel, to add a project. */
   elevator(): void;
-  /** Up to the rooftop bar, by elevator. */
-  roof(): void;
+  /** Up to the rooftop bar, by elevator; null on a map with no roof to go up to. */
+  roof: (() => void) | null;
 }
 
 let current: { el: HTMLElement; close(): void } | null = null;
@@ -82,9 +82,9 @@ export function toggleFloorMenu(anchor: HTMLElement, opts: FloorMenuOptions): vo
     roof.addEventListener('click', () => {
       if (onRoof) return;
       close();
-      opts.roof();
+      opts.roof?.();
     });
-    el.replaceChildren(h('div.floor-menu-head', {}, `🏢 ${floors.length} floor${floors.length === 1 ? '' : 's'}`), ...(floors.length ? [roof] : []), ...items, add);
+    el.replaceChildren(h('div.floor-menu-head', {}, `🏢 ${floors.length} floor${floors.length === 1 ? '' : 's'}`), ...(floors.length && opts.roof ? [roof] : []), ...items, add);
   };
 
   const place = () => {

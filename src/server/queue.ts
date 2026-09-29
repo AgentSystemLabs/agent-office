@@ -13,6 +13,8 @@ export interface QueueWorkers {
   readonly officeDefault?: AgentChoice;
   list(): WorkerInfo[];
   deskOccupied(deskId: string): boolean;
+  /** How many rows the floor's back office is built out, for its desks (see WING). */
+  wing?(): number;
   spawn(deskId: string, by: string, prompt: string, worktree: boolean, kind: 'agent', provider: AgentProvider, model?: string, effort?: AgentEffort, meeting?: undefined, owner?: string): WorkerInfo | string;
   /** Resolves with a line about what became of the worker's worktree. */
   kill(id: string): Promise<{ note?: string; error?: string }>;
@@ -276,9 +278,9 @@ export class TaskQueue {
     return this.tasks.filter((t) => t.status === 'running').length;
   }
 
-  /** A free desk, else a free bean bag. */
+  /** A free desk (in the back office too, as far as it's built), else a free bean bag. */
   private freeDesk(): string | undefined {
-    return nextFreeSeat((id) => this.workers.deskOccupied(id))?.id;
+    return nextFreeSeat((id) => this.workers.deskOccupied(id), this.workers.wing?.() ?? 0)?.id;
   }
 
   /**

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MEETING_PATTERNS, meetingSummary } from '../../shared/meetings';
+import { MEETING_PATTERNS, meetingStage, meetingSummary } from '../../shared/meetings';
 import { fmtCost, fmtTokens, type Meeting, type MeetingState } from '../../shared/protocol';
 
 const FONT = 'Nunito, ui-rounded, system-ui, sans-serif';
@@ -40,12 +40,6 @@ function wrap(g: CanvasRenderingContext2D, text: string, maxW: number): string[]
 /** Who has the floor right now: the roles on the parts being worked on. */
 export function speaking(m: Meeting): string[] {
   return m.turns.filter((t) => t.state !== 'done').map((t) => m.seats[t.seat]?.role ?? '?');
-}
-
-/** What's on the table in a line: "Round 2 of 3 · critiquing". */
-export function meetingStage(m: Meeting): string {
-  const doing = [...new Set(m.turns.filter((t) => t.state !== 'done').map((t) => t.doing))].join(', ');
-  return `Round ${m.round} of ${m.rounds}${doing ? ` · ${doing}` : ''}`;
 }
 
 /**
