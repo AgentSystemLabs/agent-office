@@ -41,7 +41,7 @@ browser ──HTTPS/WSS──▶ agent-office (Node)
 
 ## Security notes
 
-Anyone who can sign in can drive Claude Code, OpenCode or Codex in that directory, and through it run commands as the user that runs the office. Treat the password, the accounts and the invite links like SSH access:
+Anyone who can sign in can drive Claude Code, OpenCode, Codex, Grok or Muse in that directory, and through it run commands as the user that runs the office. Treat the password, the accounts and the invite links like SSH access:
 
 - The office listens on `127.0.0.1` unless you pass `--host`, and `deploy/provision.sh` keeps it there, behind SSH, Caddy or Tailscale Serve. The sign-in link the terminal prints works once, and the office keeps only a hash of it, in memory.
 - Use a strong password and HTTPS. With `--trust-proxy`, cookies are `Secure` once the proxy says the request came over https.

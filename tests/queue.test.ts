@@ -102,16 +102,62 @@ test('queue preserves the selected OpenCode model through seating, retry, and re
   assert.equal(f.workers[2].model, 'anthropic/claude-sonnet-4');
 });
 
-test('queue rejects models unless they are valid Claude aliases or OpenCode model ids', (t) => {
+test('queue rejects models unless they are valid Claude aliases, OpenCode model ids, or Grok/Muse model ids', (t) => {
   const f = fixture(); t.after(() => f.close());
   const q = f.open();
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'claude', 'openai/gpt-5') ?? '', /model/i);
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', 'gpt-5') ?? '', /model|format|provider/i);
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', 'openai/gpt 5') ?? '', /model|format|whitespace/i);
+  assert.match(q.add('Task', 'Tester', undefined, undefined, 'grok', 'openai/gpt-5') ?? '', /model/i);
+  assert.match(q.add('Task', 'Tester', undefined, undefined, 'muse', 'openai/gpt-5') ?? '', /model/i);
   assert.equal(q.state().tasks.length, 0);
 });
 
-test('queue rejects reasoning effort unless the task is Claude and the level is known', (t) => {
+test('queue preserves a Grok model and effort through seating, retry, and restart', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open();
+  assert.equal(q.add('Fix login', 'Tester', undefined, undefined, 'grok', 'grok-4.6', 'high'), undefined);
+  assert.equal(f.workers[0].model, 'grok-4.6');
+  assert.equal(f.workers[0].effort, 'high');
+  assert.equal(q.state().tasks[0].model, 'grok-4.6');
+  assert.equal(q.state().tasks[0].effort, 'high');
+  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  q.retry(q.state().tasks[0].id);
+  assert.equal(f.workers[1].model, 'grok-4.6');
+  assert.equal(f.workers[1].effort, 'high');
+
+  q.setLimit(0);
+  q.add('Queued', 'Tester', undefined, undefined, 'grok', 'grok-4.5', 'low');
+  q.shutdown();
+  const restored = f.open();
+  restored.setLimit(2);
+  assert.equal(f.workers[2].model, 'grok-4.5');
+  assert.equal(f.workers[2].effort, 'low');
+});
+
+test('queue preserves a Muse model and effort through seating, retry, and restart', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open();
+  assert.equal(q.add('Fix login', 'Tester', undefined, undefined, 'muse', 'muse-spark-1.3-contributor', 'high'), undefined);
+  assert.equal(f.workers[0].model, 'muse-spark-1.3-contributor');
+  assert.equal(f.workers[0].effort, 'high');
+  assert.equal(q.state().tasks[0].model, 'muse-spark-1.3-contributor');
+  assert.equal(q.state().tasks[0].effort, 'high');
+  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  q.retry(q.state().tasks[0].id);
+  assert.equal(f.workers[1].model, 'muse-spark-1.3-contributor');
+  assert.equal(f.workers[1].effort, 'high');
+
+  q.setLimit(0);
+  q.add('Queued', 'Tester', undefined, undefined, 'muse', 'muse-spark-1.3-contributor', 'low');
+  q.shutdown();
+  const restored = f.open();
+  restored.setLimit(2);
+  assert.equal(f.workers[2].model, 'muse-spark-1.3-contributor');
+  assert.equal(f.workers[2].effort, 'low');
+});
+
+test('queue rejects reasoning effort unless the task is Claude, Grok or Muse and the level is known', (t) => {
   const f = fixture(); t.after(() => f.close());
   const q = f.open();
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', undefined, 'high' as AgentEffort) ?? '', /effort|Claude/i);

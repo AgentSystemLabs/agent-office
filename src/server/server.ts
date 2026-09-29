@@ -12,7 +12,7 @@ import { Accounts } from './accounts.js';
 import { MAX_REPOS, childEnv, resolveCommand, type RepoSource } from './workers.js';
 import { SignIns, type GhAs } from './signins.js';
 import { agentProviders, configuredProvider, OPEN_CODE_MODEL_MAX } from './agents.js';
-import { createOpenCodeModelCatalogue } from './models.js';
+import { createGrokModelCatalogue, createOpenCodeModelCatalogue } from './models.js';
 import { Tailnet } from './tailnet.js';
 import { Team } from './team.js';
 import { Upgrader } from './upgrade.js';
@@ -221,6 +221,11 @@ export async function startServer(cfg: Config) {
     modelCommand.includes('/') ? path.resolve(modelCommand) : modelCommand,
     cfg.dir,
   );
+  const grokCommand = configuredProvider(cfg.agentCmd) === 'grok' ? cfg.agentCmd : 'grok';
+  const grokModels = createGrokModelCatalogue(
+    grokCommand.includes('/') ? path.resolve(grokCommand) : grokCommand,
+    cfg.dir,
+  );
 
   const sendTo = (c: Client, msg: ServerMsg) => {
     if (c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify(msg));
@@ -292,7 +297,7 @@ export async function startServer(cfg: Config) {
       return send(res, 400, {});
     }
     if (url.pathname === '/office/queue') return officeQueue(req, res, url);
-    if (req.method !== 'POST' || !['/hooks/claude', '/hooks/opencode', '/hooks/codex'].includes(url.pathname)) return send(res, 404, { ok: false });
+    if (req.method !== 'POST' || !['/hooks/claude', '/hooks/opencode', '/hooks/codex', '/hooks/grok', '/hooks/muse'].includes(url.pathname)) return send(res, 404, { ok: false });
     let payload: unknown = {};
     try {
       const body = await readBody(req);
@@ -305,11 +310,16 @@ export async function startServer(cfg: Config) {
     const workerId = url.searchParams.get('worker') ?? '';
     const workers = workerFloor(workerId)?.workers;
     if (!workers) return send(res, 401, {});
+    const event = url.searchParams.get('event') ?? '';
     const ok = url.pathname === '/hooks/opencode'
       ? workers.handleOpenCodeHook(workerId, token, payload)
       : url.pathname === '/hooks/codex'
-        ? workers.handleCodexHook(workerId, token, url.searchParams.get('event') ?? '', payload)
-        : workers.handleHook(workerId, token, url.searchParams.get('event') ?? '', payload);
+        ? workers.handleCodexHook(workerId, token, event, payload)
+        : url.pathname === '/hooks/grok'
+          ? workers.handleGrokHook(workerId, token, event, payload)
+          : url.pathname === '/hooks/muse'
+            ? workers.handleMuseHook(workerId, token, event, payload)
+            : workers.handleHook(workerId, token, event, payload);
     send(res, ok ? 200 : 401, {});
   });
   /**
@@ -784,6 +794,13 @@ export async function startServer(cfg: Config) {
           return send(res, 200, { models: await openCodeModels.get() });
         } catch {
           return send(res, 502, { error: 'Could not load OpenCode models' });
+        }
+      }
+      if (p === '/api/agents/grok/models' && req.method === 'GET') {
+        try {
+          return send(res, 200, { models: await grokModels.get() });
+        } catch {
+          return send(res, 502, { error: 'Could not load Grok models' });
         }
       }
       if (p === '/api/image' && req.method === 'GET') {

@@ -20,6 +20,11 @@ type Invocation = {
     hookToken?: string;
     hookUrl?: string;
     opencodeConfig?: string;
+    grokHome?: string;
+    grokAuth?: string;
+    xdgConfig?: string;
+    xdgData?: string;
+    xdgState?: string;
     path?: string;
   };
 };
@@ -31,6 +36,8 @@ type Fixture = {
   claude: string;
   opencode: string;
   codex: string;
+  grok: string;
+  muse: string;
   custom: string;
   read(): Invocation[];
   close(): void;
@@ -49,6 +56,7 @@ function isolateProviderEnvironment(f: Fixture, t: { after(fn: () => void): void
     CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
     OPENCODE_CONFIG_DIR: process.env.OPENCODE_CONFIG_DIR,
     CODEX_HOME: process.env.CODEX_HOME,
+    GROK_HOME: process.env.GROK_HOME,
   };
   const home = path.join(f.root, 'home');
   const config = path.join(f.root, 'config');
@@ -65,6 +73,7 @@ function isolateProviderEnvironment(f: Fixture, t: { after(fn: () => void): void
   process.env.CLAUDE_CONFIG_DIR = path.join(config, 'claude');
   process.env.OPENCODE_CONFIG_DIR = path.join(config, 'opencode');
   process.env.CODEX_HOME = path.join(config, 'codex');
+  process.env.GROK_HOME = path.join(home, '.grok');
   // Delete by variable name only. Do not read or log any credential value.
   for (const key of Object.keys(process.env)) {
     // These are the office hook variables used by the in-process OpenCode
@@ -95,6 +104,11 @@ const record = (extra = {}) => fs.appendFileSync(log, JSON.stringify({
     hookToken: process.env.AGENT_OFFICE_HOOK_TOKEN,
     hookUrl: process.env.AGENT_OFFICE_HOOK_URL,
     opencodeConfig: process.env.OPENCODE_CONFIG_CONTENT,
+    grokHome: process.env.GROK_HOME,
+    grokAuth: process.env.GROK_AUTH_PATH,
+    xdgConfig: process.env.XDG_CONFIG_HOME,
+    xdgData: process.env.XDG_DATA_HOME,
+    xdgState: process.env.XDG_STATE_HOME,
     path: process.env.PATH,
   },
 }) + '\\n');
@@ -124,15 +138,21 @@ function fixture(): Fixture {
   const opencode = path.join(bin, 'opencode');
   const custom = path.join(bin, 'custom-agent');
   const codex = path.join(bin, 'codex');
+  const grok = path.join(bin, 'grok');
+  const muse = path.join(bin, 'muse');
   mkdirSync(data, { recursive: true });
   mkdirSync(bin, { recursive: true });
   writeFileSync(claude, fakeAgent, { mode: 0o700 });
   writeFileSync(opencode, fakeAgent, { mode: 0o700 });
   writeFileSync(custom, fakeAgent, { mode: 0o700 });
   writeFileSync(codex, fakeAgent, { mode: 0o700 });
+  writeFileSync(grok, fakeAgent, { mode: 0o700 });
+  writeFileSync(muse, fakeAgent, { mode: 0o700 });
   chmodSync(claude, 0o700);
   chmodSync(opencode, 0o700);
   chmodSync(custom, 0o700);
+  chmodSync(grok, 0o700);
+  chmodSync(muse, 0o700);
   writeFileSync(log, '');
   return {
     root,
@@ -141,6 +161,8 @@ function fixture(): Fixture {
     claude,
     opencode,
     codex,
+    grok,
+    muse,
     custom,
     read() {
       if (!existsSync(log)) return [];
@@ -401,7 +423,7 @@ test('OpenCode keeps configured model flags when no explicit model is selected, 
   assert.ok(resumed.args.includes('--keep'));
 });
 
-test('workers reject models for non-OpenCode/Claude providers and malformed model ids', (t) => {
+test('workers reject models for providers that cannot select one and malformed model ids', (t) => {
   const f = fixture();
   t.after(() => f.close());
   const workers = manager(f, f.claude, []);
@@ -409,10 +431,12 @@ test('workers reject models for non-OpenCode/Claude providers and malformed mode
   assert.match(workers.spawn('desk-1', 'test', 'bad', false, 'agent', 'claude', 'openai/gpt-5') as string, /model/i);
   assert.match(workers.spawn('desk-2', 'test', 'bad', false, 'agent', 'opencode', 'gpt-5') as string, /model|format|provider/i);
   assert.match(workers.spawn('desk-3', 'test', 'bad', false, 'agent', 'opencode', 'openai/gpt 5') as string, /model|format|whitespace/i);
-  assert.match(workers.spawn('desk-4', 'test', 'bad', false, 'shell', undefined, 'openai/gpt-5') as string, /shell|model/i);
+  assert.match(workers.spawn('desk-4', 'test', 'bad', false, 'agent', 'grok', 'openai/gpt-5') as string, /model/i);
+  assert.match(workers.spawn('desk-5', 'test', 'bad', false, 'agent', 'muse', 'openai/gpt-5') as string, /model/i);
+  assert.match(workers.spawn('desk-6', 'test', 'bad', false, 'shell', undefined, 'openai/gpt-5') as string, /shell|model/i);
 });
 
-test('workers reject reasoning effort for non-Claude providers and unknown levels', (t) => {
+test('workers reject reasoning effort for providers without one and unknown levels', (t) => {
   const f = fixture();
   t.after(() => f.close());
   const workers = manager(f, f.claude, []);
@@ -638,6 +662,161 @@ test('Codex workers preserve native approvals, follow authenticated root hooks, 
   assert.equal(restored.handleCodexHook(worker.id, token, 'Stop', { session_id: 'codex-root' }), false);
   assert.equal(restored.handleCodexHook(worker.id, next.env.hookToken!, 'SessionStart', { session_id: 'codex-root', source: 'resume' }), true);
   assert.equal(restored.get(worker.id)?.status, 'idle');
+});
+
+
+test('Grok workers isolate GROK_HOME, follow authenticated hooks, and resume their session', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const oldLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => { if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG; else process.env.FAKE_AGENT_LOG = oldLog; f.close(); });
+  const book = ledger(f.data);
+  const workers = new WorkerManager(f.root, f.data, f.claude, ['--claude-only'], { url: 'http://127.0.0.1:1', token: '' }, events([]), book);
+  t.after(() => workers.shutdown());
+  const worker = workers.spawn('desk-1', 'test', '- fix the login', false, 'agent', 'grok', 'grok-4.6', 'high');
+  assert.notEqual(typeof worker, 'string'); if (typeof worker === 'string') return;
+  const calls = await waitFor(f.read, x => x.some(r => r.kind === 'grok'));
+  const first = calls.find(r => r.kind === 'grok')!;
+  const token = first.env.hookToken!;
+  assert.equal(worker.status, 'starting');
+  assert.equal(worker.model, 'grok-4.6');
+  assert.equal(worker.effort, 'high');
+  assert.ok(first.args.includes('--no-alt-screen'));
+  assert.ok(first.args.includes('--trust'));
+  assert.ok(first.args.includes('--session-id'));
+  assert.ok(first.args.includes('--model'));
+  assert.ok(first.args.includes('grok-4.6'));
+  assert.ok(first.args.includes('--effort'));
+  assert.ok(first.args.includes('high'));
+  assert.deepEqual(first.args.slice(-2), ['--', '- fix the login']);
+  assert.equal(first.args.includes('--claude-only'), false);
+  assert.equal(first.env.grokHome, path.join(f.data, 'grok-home'));
+  assert.equal(calls.some(r => r.kind === 'claude'), false);
+  const sessionId = worker.sessionId!;
+  assert.match(sessionId, /^[0-9a-f-]{36}$/i);
+  const hook = (event: string, extra = {}) => workers.handleGrokHook(worker.id, token, event, { sessionId, ...extra });
+  assert.equal(workers.handleGrokHook(worker.id, 'wrong', 'SessionStart', { sessionId }), false);
+  assert.equal(hook('SessionStart', { source: 'startup' }), true);
+  assert.equal(worker.status, 'idle');
+  assert.equal(hook('UserPromptSubmit', { prompt: 'Implement the actual task' }), true);
+  assert.equal(worker.status, 'working');
+  assert.equal(hook('PreToolUse', { toolName: 'run_terminal_command' }), true);
+  assert.equal(hook('Notification', { notificationType: 'permission_prompt' }), true);
+  assert.equal(worker.status, 'needs_input');
+  assert.equal(hook('Stop', { subagentType: 'explore' }), false);
+  assert.equal(worker.status, 'needs_input');
+  assert.equal(hook('Stop'), true);
+  assert.equal(worker.status, 'done');
+  assert.equal(workers.handleHook(worker.id, token, 'Stop', { session_id: 'claude' }), false);
+  assert.equal(workers.handleCodexHook(worker.id, token, 'Stop', { session_id: sessionId }), false);
+  assert.equal(worker.usage, undefined);
+  assert.equal(book.state().total.calls, 0);
+  workers.shutdown();
+  const restored = manager(f, f.claude, [], []);
+  t.after(() => restored.shutdown());
+  await restored.start();
+  const nextCalls = await waitFor(f.read, x => x.filter(r => r.kind === 'grok' && !r.stdin).length >= 2);
+  const next = nextCalls.filter(r => r.kind === 'grok' && !r.stdin).at(-1)!;
+  assert.ok(next.args.includes('--resume'));
+  assert.ok(next.args.includes(sessionId));
+  assert.equal(next.args.includes('--session-id'), false);
+  assert.equal(next.args.includes('--model'), false);
+  assert.notEqual(next.env.hookToken, token);
+  assert.equal(restored.get(worker.id)?.provider, 'grok');
+  assert.equal(restored.get(worker.id)?.model, 'grok-4.6');
+  assert.equal(restored.get(worker.id)?.effort, 'high');
+  assert.equal(restored.handleGrokHook(worker.id, token, 'Stop', { sessionId }), false);
+  assert.equal(restored.handleGrokHook(worker.id, next.env.hookToken!, 'SessionStart', { sessionId, source: 'resume' }), true);
+  assert.equal(restored.get(worker.id)?.status, 'idle');
+});
+
+
+test('Muse workers isolate XDG, follow authenticated hooks, resume by uuid, and paste a follow-up prompt', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const oldLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG; else process.env.FAKE_AGENT_LOG = oldLog;
+    delete process.env.FAKE_AGENT_EXIT_MS;
+    f.close();
+  });
+  const book = ledger(f.data);
+  const workers = new WorkerManager(f.root, f.data, f.claude, ['--claude-only'], { url: 'http://127.0.0.1:1', token: '' }, events([]), book);
+  t.after(() => workers.shutdown());
+  const worker = workers.spawn('desk-1', 'test', '- fix the login', false, 'agent', 'muse', 'muse-spark-1.3-contributor', 'high');
+  assert.notEqual(typeof worker, 'string'); if (typeof worker === 'string') return;
+  const calls = await waitFor(f.read, x => x.some(r => r.kind === 'muse'));
+  const first = calls.find(r => r.kind === 'muse')!;
+  const token = first.env.hookToken!;
+  assert.equal(worker.status, 'starting');
+  assert.equal(worker.model, 'muse-spark-1.3-contributor');
+  assert.equal(worker.effort, 'high');
+  assert.equal(worker.sessionId, undefined);
+  assert.ok(first.args.includes('--trust-workspace'));
+  assert.ok(first.args.includes('--model'));
+  assert.ok(first.args.includes('muse-spark-1.3-contributor'));
+  assert.ok(first.args.includes('--reasoning-effort'));
+  assert.ok(first.args.includes('high'));
+  assert.deepEqual(first.args.slice(-2), ['--', '- fix the login']);
+  assert.equal(first.args.includes('resume'), false);
+  assert.equal(first.args.includes('--yolo'), false);
+  assert.equal(first.args.includes('--claude-only'), false);
+  assert.equal(first.env.xdgConfig, path.join(f.data, 'muse-home', 'config'));
+  assert.equal(first.env.xdgData, path.join(f.data, 'muse-home', 'share'));
+  assert.equal(first.env.xdgState, path.join(f.data, 'muse-home', 'state'));
+  assert.equal(calls.some(r => r.kind === 'claude'), false);
+  const sessionId = 'muse-root';
+  const hook = (event: string, extra = {}) => workers.handleMuseHook(worker.id, token, event, { session_id: sessionId, ...extra });
+  assert.equal(workers.handleMuseHook(worker.id, 'wrong', 'SessionStart', { session_id: sessionId }), false);
+  assert.equal(hook('SessionStart', { source: 'startup' }), true);
+  assert.equal(worker.status, 'idle');
+  assert.equal(worker.sessionId, sessionId);
+  assert.equal(hook('UserPromptSubmit', { prompt: 'Implement the actual task' }), true);
+  assert.equal(worker.status, 'working');
+  assert.equal(hook('PreToolUse', { tool_name: 'run_terminal_command' }), true);
+  assert.equal(hook('PermissionRequest', { tool_name: 'shell' }), true);
+  assert.equal(worker.status, 'needs_input');
+  assert.equal(hook('PostToolUseFailure', { tool_name: 'shell' }), true);
+  assert.equal(worker.status, 'working');
+  assert.equal(hook('Stop', { subagent_type: 'explore' }), false);
+  assert.equal(worker.status, 'working');
+  assert.equal(hook('Stop'), true);
+  assert.equal(worker.status, 'done');
+  assert.equal(workers.handleHook(worker.id, token, 'Stop', { session_id: 'claude' }), false);
+  assert.equal(workers.handleGrokHook(worker.id, token, 'Stop', { sessionId }), false);
+  assert.equal(worker.usage, undefined);
+  assert.equal(book.state().total.calls, 0);
+  workers.shutdown();
+  process.env.FAKE_AGENT_EXIT_MS = '1500';
+  const restored = manager(f, f.claude, [], []);
+  t.after(() => restored.shutdown());
+  await restored.start();
+  const nextCalls = await waitFor(f.read, x => x.filter(r => r.kind === 'muse' && !r.stdin).length >= 2);
+  const next = nextCalls.filter(r => r.kind === 'muse' && !r.stdin).at(-1)!;
+  assert.ok(next.args.includes('--trust-workspace'));
+  assert.ok(next.args.includes('resume'));
+  assert.ok(next.args.includes(sessionId));
+  assert.equal(next.args.includes('--model'), false);
+  assert.equal(next.args.includes('- fix the login'), false);
+  assert.notEqual(next.env.hookToken, token);
+  assert.equal(restored.get(worker.id)?.provider, 'muse');
+  assert.equal(restored.get(worker.id)?.model, 'muse-spark-1.3-contributor');
+  assert.equal(restored.get(worker.id)?.effort, 'high');
+  assert.equal(restored.handleMuseHook(worker.id, token, 'Stop', { session_id: sessionId }), false);
+  assert.equal(restored.handleMuseHook(worker.id, next.env.hookToken!, 'SessionStart', { session_id: sessionId, source: 'resume' }), true);
+  assert.equal(restored.get(worker.id)?.status, 'idle');
+  await waitFor(() => restored.get(worker.id)?.status, (status) => status === 'exited');
+  delete process.env.FAKE_AGENT_EXIT_MS;
+  assert.equal(restored.resume(worker.id, 'follow-up from the queue'), undefined);
+  const pastedLaunch = await waitFor(f.read, x => x.filter(r => r.kind === 'muse' && !r.stdin).length >= 3);
+  const launched = pastedLaunch.filter(r => r.kind === 'muse' && !r.stdin).at(-1)!;
+  assert.ok(launched.args.includes('resume'));
+  assert.ok(launched.args.includes(sessionId));
+  assert.equal(launched.args.includes('follow-up from the queue'), false);
+  assert.equal(restored.handleMuseHook(worker.id, launched.env.hookToken!, 'SessionStart', { session_id: sessionId, source: 'resume' }), true);
+  await waitFor(f.read, x => x.some(r => r.kind === 'muse' && r.stdin?.includes('follow-up from the queue') === true));
 });
 
 
