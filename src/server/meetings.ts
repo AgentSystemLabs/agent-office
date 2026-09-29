@@ -28,7 +28,7 @@ export interface MeetingWorkers {
 
 /** Git for the meeting's own worktree: made when it starts, tidied away once everyone has gone home. */
 export interface MeetingTrees {
-  create(slug: string): (Required<WorktreeRef> & { from?: string }) | string;
+  create(slug: string): (Required<Omit<WorktreeRef, 'made'>> & { from?: string }) | string;
   inspect(wt: WorktreeRef): Promise<WorktreeState>;
   remove(wt: WorktreeRef, cleanup: 'worktree' | 'all'): Promise<string | undefined>;
 }

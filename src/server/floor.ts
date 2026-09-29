@@ -177,6 +177,8 @@ export class Floor {
         ctx.emit(this, { t: 'gh.pulls', state });
         this.queue?.onPulls(state.items);
         if (state.loading || state.error) return;
+        // A worker may have opened one from a branch it made itself, mid-turn or from a shell.
+        void this.workers.syncBranches();
         for (const p of this.merges.look(state.items)) {
           ctx.toast(this, `🎉 PR #${p.number} merged: ${p.title}`);
           this.merged(p.number);

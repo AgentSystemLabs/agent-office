@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Ledger } from '../src/server/usage.js';
 import { CARRY_ON_PROMPT, WorkerManager, type WorkerEvents } from '../src/server/workers.js';
+import { Worktrees } from '../src/server/worktrees.js';
 import type { AgentProvider, WorkerInfo } from '../src/shared/protocol.js';
 import type { PromptSource } from '../src/server/prompts.js';
 import { PROMPTS } from '../src/shared/prompts.js';
@@ -1054,4 +1055,86 @@ test('stopping the office on purpose (Ctrl+C) leaves nothing to carry on', async
   const resumed = (await waitFor(() => launches(f), (x) => x.length >= 2))[1];
   assert.ok(resumed.args.includes('stopped'));
   assert.equal(promptOf(resumed), undefined);
+});
+
+test('a worktree worker that makes its own branch is followed there: O finds the PR it opened, and sending it home tidies both branches', async (t) => {
+  const f = carryOnFixture(t);
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd, encoding: 'utf8' }).trim();
+  git(f.root, 'init', '-q', '-b', 'main');
+  writeFileSync(path.join(f.root, 'a.txt'), 'a');
+  git(f.root, 'add', 'a.txt');
+  git(f.root, 'commit', '-qm', 'init');
+  // GitHub has one open pull request, from the branch the worker is about to make.
+  writeFileSync(path.join(path.dirname(f.claude), 'gh'), `#!/bin/sh\ncase "$*" in *"--head fix-x "*) echo '[{"number":242,"url":"https://github.com/o/r/pull/242"}]';; *) echo '[]';; esac\n`, { mode: 0o700 });
+  const updates: WorkerInfo[] = [];
+  const workers = manager(f, f.claude, updates);
+  t.after(() => workers.shutdown());
+  const worker = workers.spawn('desk-1', 'test', 'fix x on a new branch and open a PR', true);
+  assert.notEqual(typeof worker, 'string'); if (typeof worker === 'string') return;
+  const office = worker.worktree!.branch;
+  assert.match(office, /^office\//);
+  const token = (await waitFor(() => launches(f), (x) => x.length > 0))[0].env.hookToken!;
+  const hook = (event: string, extra = {}) => assert.equal(workers.handleHook(worker.id, token, event, { session_id: 'own-branch', ...extra }), true);
+  hook('SessionStart');
+  hook('UserPromptSubmit', { prompt: 'fix x on a new branch and open a PR' });
+  // What the task (or the repo's CLAUDE.md) told it to do: a branch of its own, a commit, a PR from there.
+  const cwd = path.join(f.root, worker.worktree!.path);
+  git(cwd, 'checkout', '-qb', 'fix-x');
+  writeFileSync(path.join(cwd, 'x.txt'), 'x');
+  git(cwd, 'add', 'x.txt');
+  git(cwd, 'commit', '-qm', 'fix x');
+  hook('Stop');
+  const info = await waitFor(() => workers.get(worker.id)!, (w) => w.worktree?.branch === 'fix-x');
+  assert.equal(info.worktree!.made, office);
+  assert.equal(updates.at(-1)?.worktree?.branch, 'fix-x');
+  // Saved, for a restarted office and for `agent-office prune`.
+  const saved = JSON.parse(readFileSync(path.join(f.data, 'workers.json'), 'utf8')) as WorkerInfo[];
+  assert.deepEqual(saved.find((w) => w.id === worker.id)?.worktree, info.worktree);
+  // O at the desk: the PR it opened, not "has no commits on office/… yet".
+  const pr = await workers.openPr(worker.id, 'Cody');
+  assert.deepEqual(pr, { number: 242, url: 'https://github.com/o/r/pull/242', existed: true, dirty: false });
+  assert.deepEqual(workers.get(worker.id)?.pr, { number: 242, url: 'https://github.com/o/r/pull/242' });
+  // Sent home: the worktree goes, with its branch and the office's (which holds nothing fix-x lacks).
+  const home = await workers.kill(worker.id, 'all');
+  assert.equal(home.error, undefined);
+  assert.equal(home.note, `Deleted ${worker.name}'s worktree and branch fix-x`);
+  assert.equal(git(f.root, 'branch', '--list', 'fix-x', office), '');
+  assert.ok(!existsSync(cwd));
+  // One that checked out a branch from before it was hired leaves that branch be.
+  execFileSync('git', ['branch', 'release'], { cwd: f.root, env: { ...process.env, GIT_COMMITTER_DATE: '@1000000000 +0000' } });
+  const other = workers.spawn('desk-2', 'test', 'look at the release branch', true);
+  assert.notEqual(typeof other, 'string'); if (typeof other === 'string') return;
+  git(path.join(f.root, other.worktree!.path), 'checkout', '-q', 'release');
+  const left = await workers.kill(other.id, 'all');
+  assert.equal(left.note, `Deleted ${other.name}'s worktree and branch ${other.worktree!.branch}`);
+  assert.equal(git(f.root, 'branch', '--list', '--format=%(refname:short)', 'release', other.worktree!.branch), 'release');
+});
+
+test("only a branch the worker made is its own to delete, and the office's stays when it has commits that one doesn't", async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'office-made-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const git = (...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: dir, encoding: 'utf8' }).trim();
+  git('init', '-q', '-b', 'main');
+  writeFileSync(path.join(dir, 'a.txt'), 'a');
+  git('add', 'a.txt');
+  git('commit', '-qm', 'init');
+  // A branch that was there long before any worker (its reflog says it was made in 2001).
+  execFileSync('git', ['branch', 'release'], { cwd: dir, env: { ...process.env, GIT_COMMITTER_DATE: '@1000000000 +0000' } });
+  const trees = new Worktrees(dir);
+  const made = trees.create('mochi-1234');
+  assert.notEqual(typeof made, 'string'); if (typeof made === 'string') return;
+  const cwd = path.join(dir, made.path);
+  const gitIn = (...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd, encoding: 'utf8' }).trim();
+  // A commit on the office's branch, then a fresh branch from main that doesn't have it.
+  writeFileSync(path.join(cwd, 'o.txt'), 'o');
+  gitIn('add', 'o.txt');
+  gitIn('commit', '-qm', 'on the office branch');
+  gitIn('checkout', '-qb', 'fix-y', 'main');
+  assert.equal(await trees.branchOf(made), 'fix-y');
+  assert.equal(await trees.madeSince('fix-y', made.branch), true);
+  assert.equal(await trees.madeSince('release', made.branch), false);
+  assert.equal(await trees.madeSince('main', made.branch), false);
+  assert.equal(await trees.remove({ ...made, branch: 'fix-y', made: made.branch }, 'all'), undefined);
+  assert.equal(git('branch', '--list', 'fix-y'), '');
+  assert.equal(git('branch', '--list', made.branch).replace(/^\*?\s+/, ''), made.branch);
 });

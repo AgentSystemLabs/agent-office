@@ -20,6 +20,8 @@ export interface WorktreeRef {
   branch: string;
   /** The commit it was branched from, when known. */
   base?: string;
+  /** The branch the office made for it, when the worker has since switched to `branch`, one of its own. */
+  made?: string;
 }
 
 export interface ListedWorktree {
@@ -42,7 +44,7 @@ export class Worktrees {
    * A new branch and worktree at the project's current HEAD. `from` is the branch the project was
    * on, which the worker's pull request targets. Returns what went wrong as a string.
    */
-  create(slug: string): (Required<WorktreeRef> & { from?: string }) | string {
+  create(slug: string): (Required<Omit<WorktreeRef, 'made'>> & { from?: string }) | string {
     try {
       const base = this.gitSync(['rev-parse', 'HEAD']);
       const from = this.currentBranch();
@@ -63,6 +65,34 @@ export class Worktrees {
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * The branch a worktree is on now, which may be one the worker made itself; undefined when HEAD
+   * is detached (mid-rebase, say) or the folder is gone.
+   */
+  async branchOf(wt: WorktreeRef): Promise<string | undefined> {
+    if (!wt.path) return undefined;
+    const abs = path.join(this.dir, wt.path);
+    if (!existsSync(abs)) return undefined;
+    const b = await this.git(['rev-parse', '--abbrev-ref', 'HEAD'], abs).catch(() => '');
+    return b && b !== 'HEAD' ? b : undefined;
+  }
+
+  /**
+   * Whether `branch` was made since `than` was, going by the first line of each one's reflog: a
+   * worker's own branch, made after the office made it one. False when git can't say.
+   */
+  async madeSince(branch: string, than: string): Promise<boolean> {
+    const [a, b] = await Promise.all([this.createdAt(branch), this.createdAt(than)]);
+    return a !== undefined && b !== undefined && a >= b;
+  }
+
+  /** When a branch was made (seconds), while its reflog still starts there. */
+  private async createdAt(branch: string): Promise<number | undefined> {
+    const log = await this.git(['log', '-g', '--date=unix', '--format=%gd %gs', `refs/heads/${branch}`, '--']).catch(() => '');
+    const first = /@\{(\d+)\} branch: Created from /.exec(log.split('\n').filter(Boolean).pop() ?? '');
+    return first ? Number(first[1]) : undefined;
   }
 
   /**
@@ -104,7 +134,13 @@ export class Worktrees {
       }
       // Forget worktrees whose folders are gone: this one, and any someone rm -rf'd by hand.
       await this.git(['worktree', 'prune']);
-      if (cleanup === 'all') await this.git(['branch', '-D', wt.branch]);
+      if (cleanup === 'all') {
+        // The office's own branch, left behind when the worker made one of its own: it goes too,
+        // unless it has commits that one doesn't.
+        const made = wt.made && wt.made !== wt.branch && (await this.git(['merge-base', '--is-ancestor', wt.made, wt.branch]).then(() => wt.made, () => undefined));
+        await this.git(['branch', '-D', wt.branch]);
+        if (made) await this.git(['branch', '-D', made]).catch(() => undefined);
+      }
       return undefined;
     } catch (err) {
       return gitError(err);
