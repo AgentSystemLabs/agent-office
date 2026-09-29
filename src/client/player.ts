@@ -322,18 +322,28 @@ export class PlayerController {
 
   /** Gets you up off your seat onto the floor beside it: out in front (or behind), else wherever there's room. */
   stand() {
-    const s = this.seat;
-    if (!s) return;
+    const at = this.standingSpot();
     this.seat = null;
+    if (at) this.pos.set(at.x, at.y, at.z);
+  }
+
+  /** Where getting up would put you (see stand), or where you're standing if you aren't sitting. Null if there's no room. */
+  standingSpot(): { x: number; y: number; z: number } | null {
+    const s = this.seat;
+    if (!s) return { x: this.pos.x, y: this.pos.y, z: this.pos.z };
     const ahead = s.rotY + (s.out < 0 ? Math.PI : 0);
     const d = Math.abs(s.out);
     for (const turn of [0, 0.6, -0.6, 1.2, -1.2, Math.PI / 2, -Math.PI / 2, Math.PI]) {
       const x = s.x + Math.sin(ahead + turn) * d;
       const z = s.z + Math.cos(ahead + turn) * d;
-      if (this.blocker(x, z, s.y)) continue;
-      this.pos.set(x, s.y, z);
-      return;
+      if (!this.blocker(x, z, s.y)) return { x, y: s.y, z };
     }
+    return null;
+  }
+
+  /** Whether there's room to stand at (x, z) with your feet at `y`. */
+  fits(x: number, z: number, y: number): boolean {
+    return !this.blocker(x, z, y);
   }
 
   /** Walks you through these corners by yourself until you get there, or take a step or a jump of your own. */

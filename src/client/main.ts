@@ -8,7 +8,7 @@ import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, Gong
 import { MEETING_PATTERNS } from '../shared/meetings';
 import { isAsleep, isBusy, workerPr } from '../shared/status';
 import { Net } from './net';
-import { store, loadProfile, loadSettings, saveSettings, workerForPull, type Profile, type Topic } from './state';
+import { store, lastFloor, lastSpot, loadProfile, loadSettings, rememberSpot, saveSettings, workerForPull, type Profile, type Spot, type Topic } from './state';
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { Climber, gripOf, type Arrival, type Grip, type Way } from './climb';
 import { Caffeine } from './caffeine';
@@ -282,7 +282,7 @@ const booze = new Booze();
 const drunkVision = new DrunkVision(renderer);
 
 // ---- Networking & state -------------------------------------------------------------------------
-const net = new Net(() => store.profile);
+const net = new Net(() => store.profile, whereNow);
 const voice = new Voice(net);
 
 const me = new Person(store.profile.name, store.profile.color, store.profile.look);
@@ -588,6 +588,8 @@ let upgradePhase = '';
 
 net.onStatus((up) => $('conn').classList.toggle('hidden', up));
 net.onMessage((msg) => {
+  // The floor you asked to come back to (see Net.connect), to tell if the office put you somewhere else.
+  const wasOn = msg.t === 'welcome' ? (store.floor ?? lastFloor()) : null;
   if (msg.t === 'welcome') voice.reset();
   if (msg.t === 'welcome' || msg.t === 'floor.enter') {
     departures.clear();
@@ -611,9 +613,24 @@ net.onMessage((msg) => {
       for (let i = 0; i < 5; i++) setTimeout(() => net.send({ t: 'ping', at: performance.now() }), 200 + i * 500);
       const mine = store.peers.get(store.you);
       if (firstWelcome && mine) {
-        placeInCar(mine);
         firstWelcome = false;
+        // Where the office put you: back in the spot you left (if there's still room there), or in the elevator car.
+        setPlace();
+        syncStack();
+        if (!inElevator(mine.x, mine.z) && player.fits(mine.x, mine.z, mine.y)) {
+          placeAt(mine);
+          arrive('back');
+        } else {
+          placeInCar(mine);
+          arrive();
+        }
+        floorWentWhileAway(wasOn);
+      } else if (store.floor && store.floor !== wasOn) {
+        // Back after the office restarted, but not on your floor: it went while the office was down.
+        takenAway();
+        if (carrying) setCarrying(null);
         arrive();
+        floorWentWhileAway(wasOn);
       } else if (!store.floor) arrive();
       if (voice.inVoice || voice.sharing) net.send({ t: 'voice', voice: voice.inVoice, muted: voice.muted, sharing: voice.sharing });
       if (player.seat) net.send({ t: 'sit', seat: player.seat.key });
@@ -639,13 +656,7 @@ net.onMessage((msg) => {
     }
     case 'floor.enter':
       // Not a trip of yours: the floor you were on was taken off the building, and the elevator took you away.
-      if (!trip) {
-        closeAllModals();
-        if (hanger.active) hanger.cancel();
-        if (climber.active) climber.abort();
-        if (walkingTo) stopWalking();
-        placeInCar();
-      }
+      if (!trip) takenAway();
       // The card belongs to the board downstairs (or up): the office already put it back there.
       if (carrying) {
         toast(`📌 #${carrying.issue} stayed behind on the other floor's board`);
@@ -778,14 +789,56 @@ function renderTitle() {
 // ---- Floors & the elevator ----------------------------------------------------------------------
 /** In the car, facing out through the doors: where you are when you arrive on a floor. */
 function placeInCar(at?: { x: number; z: number }) {
-  // You arrive on your feet.
-  if (player.seat) standUp();
   const spot = at && inElevator(at.x, at.z) ? at : { x: ELEVATOR.x, z: (ELEVATOR_CAR.minZ + ELEVATOR_CAR.maxZ) / 2 };
-  player.pos.set(spot.x, 0, spot.z);
+  placeAt({ x: spot.x, y: 0, z: spot.z, rotY: 0 });
+}
+
+/** On your feet at `at`, facing `rotY` and looking straight ahead. */
+function placeAt(at: { x: number; y: number; z: number; rotY: number }) {
+  if (player.seat) standUp();
+  player.pos.set(at.x, at.y, at.z);
   player.vy = 0;
-  player.facing = 0;
+  player.facing = at.rotY;
   player.camYaw = player.facing - Math.PI;
   player.lookPitch = -0.08;
+}
+
+/** Not a trip of yours: the office put you on another floor (yours went), in its elevator car. Whatever you were doing stops. */
+function takenAway() {
+  closeAllModals();
+  if (hanger.active) hanger.cancel();
+  if (climber.active) climber.abort();
+  if (walkingTo) stopWalking();
+  placeInCar();
+}
+
+/** Where you're standing, to come back to (see lastSpot): nowhere while you're between floors, or climbing between them. */
+function spotHere(): Spot | null {
+  if (!store.floor || trip || climber.active) return null;
+  // Sitting, it's where you'd get up to.
+  const at = player.standingSpot() ?? player.pos;
+  const name = store.floor === ROOF ? ROOF_NAME : (store.currentFloor()?.name ?? '');
+  return { floor: store.floor, name, x: at.x, y: at.y, z: at.z, facing: player.facing };
+}
+
+/** Where to put you back when the office lets you in: where you are now, or before this page was loaded, where you were last time. */
+function whereNow(): Spot | null {
+  return firstWelcome ? lastSpot() : spotHere();
+}
+
+function saveSpot() {
+  const s = spotHere();
+  if (s) rememberSpot(s);
+}
+// Closing the tab, or reloading: the frame loop saves it every second, and here's the last word.
+window.addEventListener('pagehide', saveSpot);
+
+/** You asked to come back to floor `was`, and it's gone (taken off the building, or its checkout deleted): the office sent you up to the roof. */
+function floorWentWhileAway(was: string | null) {
+  if (!was || was === ROOF || store.floor !== ROOF || store.floors.some((f) => f.id === was)) return;
+  const saved = lastSpot();
+  const name = saved?.floor === was && saved.name ? saved.name : 'Your floor';
+  toast(`🛗 ${name} isn't in the building any more, so the elevator brought you up to the roof`, 'warn');
 }
 
 function fade(on: boolean, quick = false) {
@@ -931,8 +984,11 @@ function usable(): Interactable[][] {
   return upTop && roof ? [roof.interactables] : [office.interactables, gallery.interactables, dog.interactables, ball.interactables];
 }
 
-/** You're on a floor (or in the building without one): paint it, and open the doors (or carry on down the pole…). */
-function arrive() {
+/**
+ * You're on a floor (or in the building without one): paint it, and open the doors (or carry on down
+ * the pole…). `back` is standing in the spot you left from last time, the doors open already.
+ */
+function arrive(how: TripKind | 'back' = trip?.how ?? 'elevator') {
   // The balls lying about were this floor's.
   balls.clear();
   setPlace();
@@ -940,7 +996,6 @@ function arrive() {
   renderProject();
   noticeWaiting();
   syncStack();
-  const how = trip?.how ?? 'elevator';
   if (trip) {
     clearTimeout(trip.timer);
     trip = null;
@@ -954,6 +1009,13 @@ function arrive() {
     return;
   }
   fade(false);
+  if (how === 'back') {
+    // The doors stand open, the way the last one out left them.
+    lift().setOpen(true);
+    player.enabled = !modalOpen();
+    if (!upTop) unstick();
+    return;
+  }
   if (how !== 'elevator') {
     player.enabled = !modalOpen();
     if (how === 'switch') unstick();
@@ -2318,7 +2380,8 @@ function renderHint() {
   if (golf.active && !modalOpen()) return renderGolfHint(el);
   const withBall = holdingBall();
   if ((!target && !carrying && !withBall) || modalOpen()) {
-    if (hintKey) {
+    // Still up after a redraw was asked for (hintKey cleared) just as you walked away from it, too.
+    if (hintKey || !el.classList.contains('hidden')) {
       el.classList.add('hidden');
       hintKey = '';
     }
@@ -3185,6 +3248,7 @@ resize();
 
 const timer = new THREE.Timer();
 let lastSent = { x: 0, y: 0, z: 0, rotY: 0, moving: false, at: 0 };
+let spotSavedAt = 0;
 let speakTick = 0;
 /** Which half-stride your walk is on, so each one plays a footstep. */
 let stride = 0;
@@ -3267,6 +3331,11 @@ function frame(ts?: number) {
   if ((moved || player.moving !== lastSent.moving) && now - lastSent.at > 66) {
     lastSent = { x: player.pos.x, y: player.pos.y, z: player.pos.z, rotY: player.facing, moving: player.moving, at: now };
     net.send({ t: 'move', x: player.pos.x, y: player.pos.y, z: player.pos.z, rotY: player.facing, moving: player.moving });
+  }
+  // Where you are, to come back to next time.
+  if (now - spotSavedAt > 1000) {
+    spotSavedAt = now;
+    saveSpot();
   }
 
   for (const [id, r] of remotes) {
