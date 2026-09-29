@@ -5,6 +5,7 @@ import { deskPoint } from '../../shared/nav';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
 import { buildGarage, buildStreet, bulb, type NightParts } from './outside';
 import { mergeByMaterial, mesh, roundedBox, textPlane, toon, toonUnique } from './toon';
+import { palette, piece } from './models';
 import { buildElevator, type Elevator } from './elevator';
 import { buildGong, type Gong } from './gong';
 import { buildJukebox, type JukeboxView } from './jukebox';
@@ -15,6 +16,7 @@ import { buildGreen, buildTee, type Green, type Tee } from './golf';
 import { buildStack, type Stack } from './stack';
 import { buildTower } from './tower';
 import { buildHoop, type HoopView } from './hoop';
+import { buildKitchen } from './kitchen';
 import { HOOP } from '../../shared/hoop';
 
 export interface Collider {
@@ -116,7 +118,7 @@ export interface Office {
   setLevel(index: number, count: number): void;
   /** Lights, windows and glass for the sky to change with the time of day and the weather. */
   night: NightParts;
-  /** The potted plants round the room, in PLANTS' order: pot first, then the leaves (world/holiday.ts trims them for Christmas). */
+  /** The potted plants round the room, in PLANTS' order. At Christmas world/holiday.ts hides their leaves (plantLeaves()) and stands a little tree in each pot. */
   plants: THREE.Group[];
   /** Animates the office; doors open for anyone in `people` who comes up to them. */
   update(t: number, dt: number, people: Iterable<{ x: number; y: number; z: number }>): void;
@@ -220,14 +222,120 @@ function box(w: number, h: number, d: number) {
   return new THREE.BoxGeometry(w, h, d);
 }
 
-function plant(scale = 1): THREE.Group {
+// The potted plants are modelled in Blender (blender/scripts/build_plants.py): each plant is a painted
+// copy of one species in plants.glb (see piece()). A species is its pot, named after it, with everything that
+// grows out of the pot hung under it as `<species>_leaves` (see plantLeaves()). The colors are the old
+// code-built plants' pot and greens, the Christmas tree's trunk brown for the soil, the street trees'
+// trunk brown for the ficus's, and the kitchen cupboards' blue for the snake plant's glazed pot.
+export type PlantSpecies = 'monstera' | 'snake_plant' | 'ficus' | 'succulent';
+/** The species that stand on the floor, which a row of plants takes turns with (see floorPlant()). */
+export const FLOOR_PLANTS = ['monstera', 'snake_plant', 'ficus'] as const satisfies readonly PlantSpecies[];
+const PLANT_COLORS = { Pot: PALETTE.pot, Glaze: '#8ecae6', Soil: '#6b4226', Bark: '#8a5a3b', Leaf: PALETTE.plant, LeafDark: PALETTE.plantDark };
+const paintPlant = palette(PLANT_COLORS);
+
+/**
+ * A potted plant of `species`, `scale` times its modelled size, its origin on the floor in the middle of
+ * its pot. At scale 1 a floor species' pot is the old one's size (0.28 round at the top, 0.5 tall, its
+ * soil at 0.45), so colliders of 0.3 * scale still fit it; the succulent is desk-sized as it is. If the
+ * model didn't load, an empty group: the office opens without it.
+ */
+export function plant(species: PlantSpecies, scale = 1): THREE.Group {
   const g = new THREE.Group();
-  g.add(mesh(new THREE.CylinderGeometry(0.28, 0.22, 0.5, 12), toon(PALETTE.pot), 0, 0.25, 0));
-  g.add(mesh(new THREE.SphereGeometry(0.42, 12, 10), toon(PALETTE.plant), 0, 0.85, 0));
-  g.add(mesh(new THREE.SphereGeometry(0.3, 12, 10), toon(PALETTE.plantDark), 0.22, 1.1, 0.1));
-  g.add(mesh(new THREE.SphereGeometry(0.26, 12, 10), toon(PALETTE.plant), -0.2, 1.15, -0.08));
+  g.add(piece('plants', species, paintPlant));
   g.scale.setScalar(scale);
   return g;
+}
+
+/** The floor species for the `i`th of a row of plants: they take turns, so no two neighbours match. */
+function floorPlant(i: number): PlantSpecies {
+  return FLOOR_PLANTS[i % FLOOR_PLANTS.length];
+}
+
+/**
+ * A plant's leaves, and whatever else grows out of its pot (stalks, a trunk): everything but the pot and
+ * its soil. Christmas hides them and stands a little tree in the pot instead (world/holiday.ts). None if
+ * the model didn't load.
+ */
+export function plantLeaves(potted: THREE.Object3D): THREE.Object3D[] {
+  const leaves: THREE.Object3D[] = [];
+  potted.traverse((o) => {
+    if (o.name.endsWith('_leaves')) leaves.push(o);
+  });
+  return leaves;
+}
+
+// The desks' knick-knacks are modelled in Blender (blender/scripts/build_desk_props.py): a mug of coffee,
+// and books in a few arrangements, each a piece of desk_props.glb (see piece()). The colors are the old
+// code-built books' covers, book.ts's page edges and the coffee in a worker's mug (coffeeMug() in
+// character.ts); the mug itself is painted whatever color it's given.
+const DESK_PROP_COLORS = { CoverRed: '#e63946', CoverBlue: '#457b9d', CoverOrange: '#f4a261', Pages: '#f3ead8', Coffee: '#6f4518' };
+const paintDeskProp = palette(DESK_PROP_COLORS);
+/** The arrangements of books, which the desks with books take turns with (see deskBooks()). */
+export const DESK_BOOKS = ['books_upright', 'books_leaning', 'books_stack'] as const;
+
+/**
+ * A mug of coffee, its body `color`, its origin on the desk under the middle of its body and its handle out
+ * to +x. The body is the old code-built mug's size (0.06 round at the top, 0.12 tall). If the model didn't
+ * load, an empty group.
+ */
+export function deskMug(color: string): THREE.Object3D {
+  const body = toon(color);
+  return piece('desk_props', 'mug', (name) => (name === 'Mug' ? body : paintDeskProp(name)));
+}
+
+/**
+ * The `i`th arrangement of books (they take turns, see DESK_BOOKS), spines to +z, its origin on the desk in
+ * the middle of its footprint, which is at most the old code-built books' 0.26 by 0.18, and 0.24 tall. If
+ * the model didn't load, an empty group.
+ */
+export function deskBooks(i: number): THREE.Object3D {
+  return piece('desk_props', DESK_BOOKS[i % DESK_BOOKS.length], paintDeskProp);
+}
+
+// The lounge's furniture is modelled in Blender (blender/scripts/build_lounge.py): the sofa, a throw pillow, a
+// floor pouf and the coffee table, each a piece of lounge.glb placed on its own (see piece()), so they can be
+// moved round one by one. Sofa is the old couch's blue, Wood and Frame the old coffee table's top and pedestal,
+// and WoodDark the sofa's feet (the desk furniture's darker wood). A pillow's or a pouf's Cloth is each copy's
+// own color, so it has none here: a copy that forgets its color comes out magenta.
+const LOUNGE_COLORS = { Sofa: '#5b8def', WoodDark: '#8a5a3b', Wood: PALETTE.wood, Frame: PALETTE.deskLeg };
+const paintLounge = palette(LOUNGE_COLORS);
+
+/** A pillow or a pouf, its Cloth in `color`. */
+function upholstered(part: 'pillow' | 'pouf', color: string): THREE.Object3D {
+  const cloth = toon(color);
+  return piece('lounge', part, (name) => (name === 'Cloth' ? cloth : paintLounge(name)));
+}
+
+/**
+ * The lounge's couch: the sofa, facing +z like every model, with a throw pillow leaning on its back cushions
+ * either side of its middle, halfway between its places (SEATING's couch, 1.2 apart), clear of whoever sits
+ * there. Its origin is on the floor under its middle, it's 4.2 long across x and 1.0 deep, and its seat
+ * cushions' tops are 0.47 up. The pillows hang under it, so a click on one is a click on the couch.
+ */
+export function loungeCouch(): THREE.Group {
+  const g = new THREE.Group();
+  g.add(piece('lounge', 'sofa', paintLounge));
+  for (const [x, color] of [
+    [0.6, '#ffd166'],
+    [-0.6, '#ef476f'],
+  ] as const) {
+    const pillow = upholstered('pillow', color);
+    // Standing on the seat, sunk in a little, its top tipped back onto the back cushions.
+    pillow.position.set(x, 0.46, -0.08);
+    pillow.rotation.x = -0.15;
+    g.add(pillow);
+  }
+  return g;
+}
+
+/** A floor pouf in `color`, about 1.05 round and 0.4 tall, its origin on the floor under its middle. */
+export function pouf(color: string): THREE.Object3D {
+  return upholstered('pouf', color);
+}
+
+/** The lounge's round coffee table, 0.9 round, its top 0.46 up (where the holiday pumpkin stands). */
+export function coffeeTable(): THREE.Object3D {
+  return piece('lounge', 'coffee_table', paintLounge);
 }
 
 /** A pendant lamp, its shade at 0, on a cord `cord` meters long. */
@@ -508,11 +616,12 @@ function buildBalcony(group: THREE.Group, colliders: Collider[], interactables: 
     colliders.push({ minX: x - 0.2, maxX: x + 0.2, minZ: tz - 0.2, maxZ: tz + 0.2, top: 0.49 });
     seatable(stool, sx < 0 ? 'stool-1' : 'stool-2', 0.9, interactables);
   }
-  for (const [px, pz, sc] of [
+  for (const [i, [px, pz, sc]] of [
     [maxX - 0.55, minZ + 0.5, 1.1],
     [minX + 0.55, maxZ - 0.55, 0.9],
-  ]) {
-    const p = plant(sc);
+  ].entries()) {
+    // Starting past the monstera, which spreads too wide for a spot this near the rail.
+    const p = plant(floorPlant(i + 1), sc);
     p.position.set(px, 0, pz);
     parts.add(p);
     const r = 0.3 * sc;
@@ -733,7 +842,11 @@ function chair(color: string): THREE.Group {
   return g;
 }
 
-function buildDesk(def: DeskDef, index: number, trimMat: THREE.Material): DeskView {
+/**
+ * The `index`th desk (of DESKS) at `def`: its top, legs and modesty panel (in `trimMat`), its knick-knack,
+ * its chair, and the anchors its worker and laptop go in.
+ */
+export function buildDesk(def: DeskDef, index: number, trimMat: THREE.Material): DeskView {
   const group = new THREE.Group();
   group.position.set(def.x, 0, def.z);
   group.rotation.y = def.rotY;
@@ -747,19 +860,22 @@ function buildDesk(def: DeskDef, index: number, trimMat: THREE.Material): DeskVi
   }
   // Modesty panel facing away from the worker
   group.add(mesh(box(width - 0.3, 0.32, 0.03), trimMat, 0, height - 0.26, -depth / 2 + 0.06));
-  // Little desk decorations
+  // Little desk decorations. Which desk gets which stays as it is: the holiday present goes in whichever
+  // back corner it leaves free (DESK_SPOTS in holiday.ts).
   const deco = index % 3;
   if (deco === 0) {
-    const mug = mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.12, 10), toon(PALETTE.chairs[index % 6]), width / 2 - 0.25, height + 0.06, -0.2);
+    // In the chair's color.
+    const mug = deskMug(PALETTE.chairs[index % 6]);
+    mug.position.set(width / 2 - 0.25, height, -0.2);
     group.add(mug);
   } else if (deco === 1) {
-    const p = plant(0.35);
+    const p = plant('succulent');
     p.position.set(-width / 2 + 0.25, height, -0.25);
     group.add(p);
   } else {
-    const books = new THREE.Group();
-    ['#e63946', '#457b9d', '#f4a261'].forEach((c, i) => books.add(mesh(box(0.08, 0.24, 0.18), toon(c), i * 0.09, 0.12, 0)));
-    books.position.set(width / 2 - 0.35, height, -0.3);
+    // Where the old three boxes stood, the desks with books taking turns with the arrangements.
+    const books = deskBooks(Math.floor(index / 3));
+    books.position.set(width / 2 - 0.26, height, -0.3);
     group.add(books);
   }
 
@@ -1126,37 +1242,38 @@ export function buildOffice(): Office {
   group.add(monitor);
   fixture('west', MACHINE_MONITOR.z, MACHINE_MONITOR.y, MACHINE_MONITOR.width + 0.2, MACHINE_MONITOR.height + 0.2);
 
-  const couch = new THREE.Group();
-  const couchMat = toon('#5b8def');
-  couch.add(mesh(roundedBox(1, 0.45, 4.2, 0.2), couchMat, 0, 0.3, 0));
-  couch.add(mesh(roundedBox(0.35, 0.9, 4.2, 0.15), couchMat, -0.45, 0.55, 0));
-  couch.add(mesh(roundedBox(1, 0.7, 0.35, 0.15), couchMat, 0, 0.45, -2.0));
-  couch.add(mesh(roundedBox(1, 0.7, 0.35, 0.15), couchMat, 0, 0.45, 2.0));
-  ['#ffd166', '#ef476f'].forEach((c, i) => couch.add(mesh(roundedBox(0.2, 0.45, 0.5, 0.1), toon(c), -0.2, 0.75, i ? 0.9 : -0.9)));
+  // The couch, its back to the room, turned from the model's +z to face the TV on the east wall (+x).
+  const couch = loungeCouch();
   couch.position.set(10.5, 0, 0);
+  couch.rotation.y = Math.PI / 2;
   group.add(couch);
-  colliders.push({ minX: 10, maxX: 11, minZ: -2.2, maxZ: 2.2, top: 0.55 });
+  // Its top on the seat cushions, so someone standing on the couch stands on them.
+  colliders.push({ minX: 10, maxX: 11, minZ: -2.2, maxZ: 2.2, top: 0.47 });
   seatable(couch, 'couch', 2.6, interactables);
 
-  const table = new THREE.Group();
-  table.add(mesh(new THREE.CylinderGeometry(0.9, 0.9, 0.08, 24), toon(PALETTE.wood), 0, 0.42, 0));
-  table.add(mesh(new THREE.CylinderGeometry(0.12, 0.2, 0.4, 12), toon(PALETTE.deskLeg), 0, 0.2, 0));
+  const table = coffeeTable();
   table.position.set(13, 0, 0);
   group.add(table);
   colliders.push({ minX: 12.2, maxX: 13.8, minZ: -0.8, maxZ: 0.8, top: 0.46 });
   const lounge = mesh(roundedBox(7, 0.02, 7, 1.2), toon('#ffc6ff'), 13.4, 0.011, 0, false);
   group.add(lounge);
 
-  [
-    ['#06d6a0', 12.5, 3.5],
-    ['#ffd166', 14.5, -3.4],
-  ].forEach(([c, x, z], i) => {
-    const bean = mesh(new THREE.SphereGeometry(0.6, 16, 12), toon(c as string), x as number, 0.35, z as number);
-    bean.scale.y = 0.6;
-    group.add(bean);
-    colliders.push({ minX: (x as number) - 0.5, maxX: (x as number) + 0.5, minZ: (z as number) - 0.5, maxZ: (z as number) + 0.5, top: 0.6 });
-    seatable(bean, `lounge-beanbag-${i + 1}`, 1.4, interactables);
-  });
+  // A pouf either side of the lounge (the seats still called beanbags), turned to the TV like whoever sits on it.
+  for (const [i, [color, x, z]] of (
+    [
+      ['#06d6a0', 12.5, 3.5],
+      ['#ffd166', 14.5, -3.4],
+    ] as const
+  ).entries()) {
+    const id = `lounge-beanbag-${i + 1}`;
+    const seat = pouf(color);
+    seat.position.set(x, 0, z);
+    seat.rotation.y = SEATING_BY_ID.get(id)!.rotY;
+    group.add(seat);
+    // Its top on the pouf's, the button in the middle of it.
+    colliders.push({ minX: x - 0.5, maxX: x + 0.5, minZ: z - 0.5, maxZ: z + 0.5, top: 0.42 });
+    seatable(seat, id, 1.4, interactables);
+  }
   const jukebox = buildJukebox();
   group.add(jukebox.group);
   colliders.push(jukebox.collider);
@@ -1176,32 +1293,10 @@ export function buildOffice(): Office {
   fixture('south', BOOKSHELF.x, (BOOKSHELF.height + 0.55) / 2, BOOKSHELF.width + 0.2, BOOKSHELF.height + 0.55);
 
   // Kitchen corner: counter + coffee machine + fridge
-  const kitchen = new THREE.Group();
-  kitchen.add(mesh(box(5, 0.95, 1), toon('#8ecae6'), 0, 0.475, 0));
-  kitchen.add(mesh(box(5.1, 0.08, 1.1), toon(PALETTE.desk), 0, 0.99, 0));
-  const coffee = new THREE.Group();
-  coffee.add(mesh(roundedBox(0.6, 0.7, 0.5, 0.08), toon('#343a40'), 0, 0.35, 0));
-  coffee.add(mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.14, 10), toon('#ffffff'), 0, 0.1, 0.12));
-  coffee.add(mesh(new THREE.SphereGeometry(0.05, 8, 8), toon('#ef476f', { emissive: '#ef476f' }), 0.18, 0.55, 0.26));
-  coffee.position.set(-1.2, 1.03, 0);
-  kitchen.add(coffee);
-  const fridge = new THREE.Group();
-  fridge.add(mesh(roundedBox(1.1, 2.2, 1, 0.1), toon('#e9ecef'), 0, 1.1, 0));
-  // The doors and handles sit on the room-facing side (-z); +z is tight against the south wall.
-  fridge.add(mesh(roundedBox(1, 1.25, 0.05, 0.06), toon('#f8f9fa'), 0, 1.49, -0.5));
-  fridge.add(mesh(roundedBox(1, 0.73, 0.05, 0.06), toon('#f1f3f5'), 0, 0.45, -0.5));
-  fridge.add(mesh(box(0.94, 0.035, 0.025), toon('#adb5bd'), 0, 0.84, -0.535));
-  fridge.add(mesh(roundedBox(0.09, 0.43, 0.09, 0.025), toon('#6c757d'), -0.35, 1.26, -0.57));
-  fridge.add(mesh(roundedBox(0.09, 0.3, 0.09, 0.025), toon('#6c757d'), -0.35, 0.62, -0.57));
-  fridge.position.x = 3.2;
-  kitchen.add(fridge);
-  kitchen.position.set(-14.5, 0, 12.2);
-  group.add(kitchen);
-  colliders.push({ minX: -17, maxX: -12, minZ: 11.7, maxZ: 12.7, top: 1.03 });
-  colliders.push({ minX: -11.85, maxX: -10.75, minZ: 11.7, maxZ: 12.7, top: 2.2 });
-  const cup: Interactable = { kind: 'coffee', x: -15.7, z: 10.9, radius: 1.4 };
-  interactables.push(cup);
-  coffee.userData.interact = cup;
+  const kitchen = buildKitchen();
+  group.add(kitchen.group);
+  colliders.push(...kitchen.colliders);
+  interactables.push(kitchen.interactable);
   // Counter, coffee machine and fridge, in front of the south wall.
   fixture('south', -14.5, 0.55, 5.1, 1.1);
   fixture('south', -15.7, 0.9, 0.6, 1.8);
@@ -1209,8 +1304,8 @@ export function buildOffice(): Office {
 
   // Plants around the room
   const plants: THREE.Group[] = [];
-  for (const [x, z, s] of PLANTS) {
-    const p = plant(s);
+  for (const [i, [x, z, s]] of PLANTS.entries()) {
+    const p = plant(floorPlant(i), s);
     p.position.set(x, 0, z);
     group.add(p);
     plants.push(p);
@@ -1673,11 +1768,12 @@ function buildLoft(group: THREE.Group, colliders: Collider[], interactables: Int
   interactables.push(telescope);
   colliders.push({ minX: minX + 0.65, maxX: minX + 1.15, minZ: minZ + 0.65, maxZ: minZ + 1.15, bottom: floorY, top: floorY + 1.3 });
 
-  for (const [px, pz, s] of [
+  for (const [i, [px, pz, s]] of [
     [maxX - 0.6, minZ + 0.6, 1],
     [maxX - 0.6, maxZ - 0.6, 1.2],
-  ]) {
-    const p = plant(s);
+  ].entries()) {
+    // Starting past the monstera, which spreads too wide for a corner this tight.
+    const p = plant(floorPlant(i + 1), s);
     p.position.set(px, floorY, pz);
     group.add(p);
     const r = 0.3 * s;
