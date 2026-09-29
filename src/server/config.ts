@@ -18,6 +18,8 @@ export interface Config {
   project?: string;
   host: string;
   port: number;
+  /** Open the office in a browser, signed in, when it's started in a terminal (--no-open: don't). */
+  open: boolean;
   /** Plaintext password, only when known: from --password, or generated and not yet claimed. */
   password?: string;
   passwordGenerated: boolean;
@@ -35,7 +37,7 @@ export interface Config {
   tls?: { cert: string; key: string };
   trustProxy: boolean;
   iceServers: RTCIceServerLike[];
-  /** Address teammates SSH-tunnel to (set by deploy/aws.sh); enables invites from the office. */
+  /** Address teammates SSH-tunnel to (set by deploy/provision.sh); enables invites from the office. */
   publicHost?: string;
   /** Daily tracked Claude Code spend budget, USD. OpenCode/Codex spend is excluded. */
   budget?: number;
@@ -62,6 +64,7 @@ const HELP = `agent-office — a 3D office for your team and its Claude Code / O
 Usage:
   agent-office [options]
   agent-office [dir] [options]
+  agent-office setup [--projects <dir>] [--project <owner/repo>]...
   agent-office prune [dir] [--dry-run] [--force]
   agent-office accounts [list|invite|revoke|role|password] ...
 
@@ -70,11 +73,18 @@ pick one of the repositories your \`gh\` login can see, and the office clones it
 into the projects folder as a new floor. Workers, terminals, boards and the
 task queue on a floor all belong to that floor's checkout.
 
+The first time it starts in a terminal with no floors, it walks you through
+where projects are cloned, signing the GitHub CLI in, and your first project.
+
 Started from anywhere, the office keeps its data in --home. Given a [dir] (or
 started in a project where an office already ran), it keeps its data in
-<dir>/.agent-office as it always has, and that project is one of the floors.
+<dir>/.agent-office as it always has, and that project starts out as a floor
+(an admin can take it off in the elevator like any other).
 
 Commands:
+  setup                   Pick the folder projects are cloned into and clone
+                          projects as floors: a walkthrough in a terminal, or
+                          just --projects / --project for scripts (see setup --help)
   prune                   Remove leftover worker worktrees (.agent-office/worktrees/)
                           and their office/* branches. Anything with uncommitted
                           changes or unpushed commits is kept unless --force is given.
@@ -88,7 +98,8 @@ Options:
                           (default ~/agent-office, env AGENT_OFFICE_PROJECTS).
                           Also settable from ⚙️ Settings in the office
   -p, --port <n>          Port to listen on (default 4600, env PORT)
-  -H, --host <addr>       Address to bind (default 0.0.0.0)
+  -H, --host <addr>       Address to bind (default 127.0.0.1: only this machine).
+                          0.0.0.0 lets other computers on your network in
       --password <pw>     Office password (env AGENT_OFFICE_PASSWORD).
                           Without one, a random password is generated once and
                           saved in <dir>/.agent-office/config.json
@@ -97,6 +108,8 @@ Options:
                           is kept and the password is never displayed again.
       --reset-password    Forget the generated password (a new one is made on the
                           next start) and exit
+      --no-open           Don't open the office in your browser when it starts
+                          (env AGENT_OFFICE_NO_OPEN=1)
       --agent <cmd>       Default agent command (default "claude", env AGENT_OFFICE_AGENT)
       --agent-args <str>  Extra args for the configured agent, e.g. "--model opus"
                           Workers can also select Claude Code, OpenCode or Codex in the UI
@@ -126,6 +139,10 @@ Options:
       --weather <kind>    Pin the weather: clear, cloudy, rain, storm, snow or
                           fog (env AGENT_OFFICE_WEATHER)
   -h, --help              Show this help
+
+Started in a terminal, the office opens in your browser already signed in, with
+a link that works once. Only this machine can reach it unless you pass --host.
+To run it on a server for your team, see deploy/provision.sh.
 
 Voice and screen sharing need a secure context: use https (a reverse proxy,
 --tls-cert/--tls-key or --self-signed) unless everyone is on localhost.
@@ -181,7 +198,9 @@ export function loadConfig(argv: string[]): Config {
   let homeGiven = !!process.env.AGENT_OFFICE_HOME;
   let projects = process.env.AGENT_OFFICE_PROJECTS ? path.resolve(process.env.AGENT_OFFICE_PROJECTS) : '';
   let port = Number(process.env.PORT) || 4600;
-  let host = '0.0.0.0';
+  // Loopback unless asked: an office lets whoever signs in run commands on this machine.
+  let host = '127.0.0.1';
+  let open = !process.env.AGENT_OFFICE_NO_OPEN || process.env.AGENT_OFFICE_NO_OPEN === '0';
   let password = process.env.AGENT_OFFICE_PASSWORD || '';
   let agentCmd = process.env.AGENT_OFFICE_AGENT || 'claude';
   let agentArgs: string[] = splitArgs(process.env.AGENT_OFFICE_AGENT_ARGS || '');
@@ -242,6 +261,9 @@ export function loadConfig(argv: string[]): Config {
         break;
       case '--reset-password':
         resetPassword = true;
+        break;
+      case '--no-open':
+        open = false;
         break;
       case '--turn':
         iceServers.push(parseTurn(takeValue(argv, i++, a)));
@@ -377,6 +399,7 @@ export function loadConfig(argv: string[]): Config {
     project: project || undefined,
     host,
     port,
+    open,
     password: password || undefined,
     passwordGenerated,
     verifier,

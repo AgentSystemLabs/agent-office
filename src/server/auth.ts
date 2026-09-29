@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual, randomBytes, scrypt } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual, randomBytes, scrypt } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import type { Account, Accounts } from './accounts.js';
 
@@ -7,6 +7,8 @@ const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14;
 
 const MAX_ATTEMPTS = 10;
 const WINDOW_MS = 5 * 60_000;
+/** Sign-in links not used yet; making one more forgets the oldest. */
+const MAX_LINKS = 8;
 
 /** A signed-in browser: with its own account, or (no account) with the shared office password. */
 export interface Session {
@@ -15,6 +17,8 @@ export interface Session {
 
 export class Auth {
   private attempts = new Map<string, { count: number; resetAt: number }>();
+  /** Hashes of the one-time sign-in links' keys that haven't been used yet. */
+  private links = new Set<string>();
   /** Signs shared-password sessions. Derived from the password too, so changing it logs those out. */
   private key: Buffer;
   /** Signs account sessions, which outlive a change of the shared password. */
@@ -60,6 +64,22 @@ export class Auth {
 
   recordSuccess(ip: string) {
     this.attempts.delete(ip);
+  }
+
+  /**
+   * The key of a sign-in link that works once, for whoever started the office in a terminal: it
+   * signs in like the shared password. Only its hash is kept, in memory, so a restart forgets it.
+   */
+  linkKey(): string {
+    const key = randomBytes(24).toString('base64url');
+    if (this.links.size >= MAX_LINKS) this.links.delete(this.links.values().next().value!);
+    this.links.add(linkHash(key));
+    return key;
+  }
+
+  /** Uses up a sign-in link: true the first time its key is given, never again. */
+  useLinkKey(key: string): boolean {
+    return !!key && this.links.delete(linkHash(key));
   }
 
   /** A session cookie's value: for that account, or for the shared password when there's none. */
@@ -121,6 +141,8 @@ export class Auth {
     return createHmac('sha256', account ? this.accountKey : this.key).update(payload).digest('base64url');
   }
 }
+
+const linkHash = (key: string) => createHash('sha256').update(key).digest('hex');
 
 /** Cookies ignore ports, so offices sharing a host (e.g. SSH tunnels on localhost:4600 and :4601) each get their own. */
 function cookieName(req: IncomingMessage): string {

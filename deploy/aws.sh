@@ -77,8 +77,9 @@ Options
   --allow <ip|cidr>         With up or invite: also allow this IP to SSH in (repeatable).
                             Your own IP is always allowed.
   --port <n>                Local port for the tunnel (default: 4600, or the next free one)
-  --project <owner/repo>    GitHub repo the office works on (default: this directory's GitHub
-                            origin; otherwise an empty project)
+  --project <owner/repo>    Also clone this GitHub repo as the office's first floor. Without it
+                            the office opens on its elevator, which lists every repo your GitHub
+                            token can see: pick one there. Projects go in ~/workspace on the box
   --app-repo <url>          agent-office repo to install (default: this checkout's GitHub origin)
   --app-ref <ref>           Branch or tag to install (default: main)
   --github-token <token>    GitHub token for private repos + the issue/PR boards
@@ -407,17 +408,14 @@ cmd_up() {
   preflight
   need ssh-keygen
 
-  # What to install, and which project the office works on.
+  # What to install. The office starts with no project (never the checkout this script is in):
+  # everyone picks theirs in its elevator, unless --project names a first one.
   if [[ -z "$APP_REPO" ]]; then
     APP_REPO=$(github_https "$(git -C "$SCRIPT_DIR/.." remote get-url origin 2>/dev/null || true)" || echo "https://github.com/AgentSystemLabs/agent-office")
   fi
-  local project_repo="" project_name="office"
-  if [[ -z "$PROJECT" ]]; then
-    PROJECT=$(git remote get-url origin 2>/dev/null || true)
-  fi
+  local project_repo=""
   if [[ -n "$PROJECT" ]]; then
     project_repo=$(github_https "$PROJECT") || die "--project must be a GitHub repo (owner/name or URL), got: $PROJECT"
-    project_name=$(basename "$project_repo")
   fi
 
   local gh_token="$GH_TOKEN_ARG"
@@ -435,7 +433,7 @@ cmd_up() {
   say "Agent Office \"$NAME\" in $AWS_REGION (account $ACCOUNT)"
   echo "   machine:  $INSTANCE_TYPE, ${DISK_GB} GiB disk, Ubuntu 24.04"
   echo "   app:      $APP_REPO @ $APP_REF"
-  echo "   project:  ${project_repo:-(empty project)}"
+  echo "   projects: ${project_repo:+$project_repo, then }pick them in the office's elevator (cloned into ~/workspace)"
   echo "   access:   SSH tunnel only (the office is never exposed); SSH from ${cidrs[*]}"
   if [[ -n "$gh_token" ]]; then
     echo "   github:   your GitHub token goes on the machine (private clones, issue/PR boards, pushes)"
@@ -527,7 +525,7 @@ cmd_up() {
   git_name=$(git config user.name 2>/dev/null || true)
   git_email=$(git config user.email 2>/dev/null || true)
   {
-    printf 'export APP_REPO=%q APP_REF=%q PROJECT_REPO=%q PROJECT_NAME=%q\n' "$APP_REPO" "$APP_REF" "$project_repo" "$project_name"
+    printf 'export APP_REPO=%q APP_REF=%q PROJECT_REPO=%q\n' "$APP_REPO" "$APP_REF" "$project_repo"
     printf 'export CLAIM_TOKEN=%q PUBLIC_HOST=%q GH_TOKEN=%q CLAUDE_CODE_OAUTH_TOKEN=%q ANTHROPIC_API_KEY=%q\n' "$(cat "$CLAIM_FILE")" "$IP" "$gh_token" "$CLAUDE_TOKEN" "$ANTHROPIC_KEY"
     printf 'export GIT_NAME=%q GIT_EMAIL=%q\n' "$git_name" "$git_email"
     cat "$SCRIPT_DIR/provision.sh"
@@ -744,7 +742,7 @@ cmd_resume() {
   ensure_eip "$INSTANCE_ID"
   say "Waiting for the office to answer"
   wait_healthy || die "the office didn't come back — check: deploy/aws.sh logs$NAME_FLAG"
-  ok "Your office is back (workers wake up asleep; press R at a desk to resume them)"
+  ok "Your office is back (workers pick up where they left off)"
   [[ $NO_OPEN -eq 1 ]] && return
   open_office
 }
@@ -759,9 +757,15 @@ cmd_update() {
     git -C /opt/agent-office reset --hard FETCH_HEAD -q
     echo \"   at \$(git -C /opt/agent-office log -1 --format='%h %s')\"
     cd /opt/agent-office && npm install --no-audit --no-fund --loglevel=error >/dev/null
+    # Offices provisioned before KillMode=process: without it the restart stops every worker too.
+    if [ \"\$(systemctl show --property=KillMode --value agent-office)\" != process ]; then
+      sudo mkdir -p /etc/systemd/system/agent-office.service.d
+      printf '[Service]\nKillMode=process\n' | sudo tee /etc/systemd/system/agent-office.service.d/keep-workers.conf >/dev/null
+      sudo systemctl daemon-reload
+    fi
     sudo systemctl restart agent-office" || die "update failed"
   wait_healthy || die "the office didn't come back — check: deploy/aws.sh logs"
-  ok "Updated and restarted (workers wake up asleep; press R at a desk to resume them)"
+  ok "Updated and restarted (workers carry on through it)"
 }
 
 cmd_reset_password() {
@@ -770,10 +774,11 @@ cmd_reset_password() {
   (umask 077 && random_token >"$CLAIM_FILE")
   say "Resetting the office password"
   remote "set -e
-    dir=\$(cat /etc/agent-office/dir)
+    # An office from before ~/agent-office keeps its data in its project (/etc/agent-office/dir).
+    if [ -f /etc/agent-office/dir ]; then set -- \"\$(cat /etc/agent-office/dir)\"; else set -- --home \"\$(cat /etc/agent-office/home)\"; fi
     sudo sed -i 's/^AGENT_OFFICE_CLAIM_TOKEN=.*/AGENT_OFFICE_CLAIM_TOKEN=\"$(cat "$CLAIM_FILE")\"/' /etc/agent-office/env
     sudo systemctl stop agent-office
-    node /opt/agent-office/bin/agent-office.js \"\$dir\" --reset-password >/dev/null
+    node /opt/agent-office/bin/agent-office.js \"\$@\" --reset-password >/dev/null
     sudo systemctl start agent-office" || die "reset failed"
   wait_healthy || die "the office didn't come back — check: deploy/aws.sh logs"
   ok "Everyone has been signed out"

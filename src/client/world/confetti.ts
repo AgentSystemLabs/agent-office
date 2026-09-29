@@ -88,7 +88,8 @@ export class Confetti {
         new THREE.Vector3(x + (Math.random() - 0.5) * 0.3, y + Math.random() * 0.2, z + (Math.random() - 0.5) * 0.3),
         new THREE.Vector3(Math.cos(a) * out, (4 + Math.random() * 4) * power, Math.sin(a) * out),
         4 + Math.random() * 3,
-        1.5,
+        // Looks for what it lands on once it's coming down past here (a burst down on the street is below the floor).
+        Math.min(1.5, y - 0.8),
       );
     }
   }
@@ -171,7 +172,7 @@ export class Confetti {
         b.angle += b.spin * dt;
         // Low enough to land: look once at what's underneath (a desk, the counter, the floor).
         if (b.vel.y < 0 && Number.isNaN(b.ground) && b.pos.y < b.look) b.ground = this.groundAt(b.pos.x, b.pos.z, b.pos.y);
-        const floor = (Number.isNaN(b.ground) ? 0 : b.ground) + 0.01;
+        const floor = Number.isNaN(b.ground) ? -Infinity : b.ground + 0.01;
         if (b.pos.y <= floor) {
           b.pos.y = floor;
           b.landed = true;

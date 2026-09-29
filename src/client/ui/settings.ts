@@ -5,6 +5,8 @@ import type { ThemePick, WebhookKind } from '../../shared/protocol';
 import { THEME_PICKS } from '../../shared/theme';
 import { DOG_NAME_MAX, cleanDogName } from '../../shared/dog';
 import { h, openModal, timeAgo } from './dom';
+import { agentFields, choiceLabel, officeChoice } from './provider';
+import { openPromptEditor, rewrittenPrompts } from './prompts';
 
 const VIEWS: [ViewMode, string, string][] = [
   ['first', '👀 First person', 'See through your own eyes. Click the office to look around with the mouse and click things to use them. Esc frees the mouse.'],
@@ -76,6 +78,37 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     return row;
   };
   const soundRow = volumeRow('Office sounds volume', 'volume', 'muted', previewSound);
+
+  // Voice chat: an open mic, or muted until you hold V.
+  const talkRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Voice chat' });
+  const paintTalk = () => {
+    talkRow.replaceChildren(
+      ...(
+        [
+          [false, '🎙️ Open mic'],
+          [true, '✋ Push to talk'],
+        ] as const
+      ).map(([ptt, label]) =>
+        h(
+          'button.btn',
+          {
+            type: 'button',
+            role: 'radio',
+            'aria-checked': String(settings.pushToTalk === ptt),
+            class: settings.pushToTalk === ptt ? 'on' : '',
+            onclick: () => {
+              if (settings.pushToTalk === ptt) return;
+              settings = { ...settings, pushToTalk: ptt };
+              onChange(settings);
+              paintTalk();
+            },
+          },
+          label,
+        ),
+      ),
+    );
+  };
+  paintTalk();
   const musicRow = volumeRow('Jukebox volume', 'music', 'musicMuted');
 
   // The building's holiday theme, for everyone.
@@ -202,6 +235,56 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   hookTest.addEventListener('click', () => net.send({ t: 'notify.test' }));
   hookRemove.addEventListener('click', () => net.send({ t: 'notify.webhook', url: '' }));
 
+  // The worker everyone starts on, unless whoever starts one picks another. Admins pick it.
+  const agent = agentFields(store.project, 'office-agent', officeChoice(store.project));
+  let agentTouched = false;
+  agent.element.addEventListener('change', () => (agentTouched = true));
+  agent.element.addEventListener('input', () => (agentTouched = true));
+  const agentSave = h('button.btn.primary', { type: 'button' }, 'Save');
+  const agentBack = h('button.btn', { type: 'button' });
+  const agentActions = h('div.seg', { style: 'margin-top:8px' }, agentSave, agentBack);
+  const agentNow = h('p.outside-now');
+  const agentNote = h('p.setting-note');
+  const paintAgent = () => {
+    const admin = store.me.admin;
+    const picked = store.prompts.agent;
+    const now = officeChoice(store.project);
+    agent.element.classList.toggle('hidden', !admin);
+    agentActions.classList.toggle('hidden', !admin);
+    agentNow.classList.toggle('hidden', admin);
+    agentNow.textContent = choiceLabel(now);
+    agentBack.classList.toggle('hidden', !picked);
+    agentBack.textContent = `Back to ${store.project?.agentCmd.split(' ')[0].split(/[\\/]/).pop() ?? 'the --agent'}`;
+    if (!agentTouched) agent.set(now);
+    agentNote.textContent =
+      'Every worker starts on this: hired at a desk, handed an issue or a pull request from the boards, taken off the queue, the board agents and meetings. Where you start one, ✏️ Edit picks another just for it.' +
+      (picked ? ` Set by ${picked.by} ${timeAgo(picked.at)}.` : ' It’s the agent the office was started with, on its own default model.') +
+      (admin ? '' : ' Admins can change it.');
+  };
+  paintAgent();
+  agentSave.addEventListener('click', () => {
+    if (!agent.valid()) return;
+    agentTouched = false;
+    net.send({ t: 'prompts.agent', choice: agent.choice() });
+  });
+  agentBack.addEventListener('click', () => {
+    agentTouched = false;
+    net.send({ t: 'prompts.agent', choice: null });
+  });
+
+  // The prompts the office writes for workers by itself, for the whole office. Admins rewrite them.
+  const promptsOpen = h('button.btn', { type: 'button', onclick: () => openPromptEditor(net) });
+  const promptsNote = h('p.setting-note');
+  const paintPrompts = () => {
+    const n = rewrittenPrompts();
+    promptsOpen.textContent = store.me.admin ? '📝 Edit the prompts…' : '📝 Read the prompts…';
+    promptsNote.textContent =
+      'What 🤖 Hand to a worker, 🔍 Review and the boards’ other buttons tell a worker, the note the queue adds to a task, the board agents’ briefs, the meeting room’s parts and the sign writer’s instructions. ' +
+      (n ? `${n} of them rewritten.` : 'All as the office wrote them.') +
+      (store.me.admin ? '' : ' Admins can rewrite them.');
+  };
+  paintPrompts();
+
   // The most workers the office runs at once, across every floor. Admins set it.
   const limitInput = h('input', { type: 'text', inputmode: 'numeric', 'aria-label': 'Most workers at once', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
   const limitSave = h('button.btn.primary', { type: 'button' }, 'Set limit');
@@ -235,6 +318,38 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     if (e.key === 'Enter') saveLimit();
   });
   limitClear.addEventListener('click', () => net.send({ t: 'machine.limit', limit: null }));
+
+  // Whether a worker whose pull request merged goes home by itself, for everyone.
+  const leaveRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Workers whose pull request merged' });
+  const leaveNote = h('p.setting-note');
+  const paintLeave = () => {
+    const { on, by, at } = store.leaveOnMerge;
+    leaveRow.replaceChildren(
+      ...([
+        [true, '🏠 Go home by themselves'],
+        [false, '🪑 Stay until sent home'],
+      ] as const).map(([value, label]) =>
+        h(
+          'button.btn',
+          {
+            type: 'button',
+            role: 'radio',
+            'aria-checked': String(on === value),
+            class: on === value ? 'on' : '',
+            onclick: () => {
+              if (store.leaveOnMerge.on !== value) net.send({ t: 'leaveOnMerge.set', on: value });
+            },
+          },
+          label,
+        ),
+      ),
+    );
+    const now = on
+      ? 'Once a worker’s pull request merges, it goes home as soon as it isn’t working or waiting on you and nobody has its terminal open, and its worktree and branch are deleted. A worktree with uncommitted changes, or commits that aren’t on GitHub, is kept.'
+      : 'A worker whose pull request merged stays at its desk, outlined in purple, until someone sends it home. Turned on, the ones already merged go too.';
+    leaveNote.textContent = `${now} It’s the same for everyone in the building${by ? `, set by ${by}${at ? ` ${timeAgo(at)}` : ''}` : ''}.`;
+  };
+  paintLeave();
 
   // Where the elevator clones new projects on the office's machine. Admins move it.
   const dirInput = h('input', { type: 'text', placeholder: '~/Workspace', 'aria-label': 'Workspace folder', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
@@ -308,6 +423,9 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       h('label', { style: 'margin-top:18px' }, 'Office sounds'),
       soundRow,
       h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds and rain outside, the dog, and the ding when a worker is done. Voice chat isn’t affected.'),
+      h('label', { style: 'margin-top:18px' }, 'Voice chat'),
+      talkRow,
+      h('p.setting-note', {}, 'Either way, V joins voice, holding V talks and you’re muted once you let go, and M mutes or unmutes. With push to talk you join muted. Leave voice from the ☰ menu.'),
       h('label', { style: 'margin-top:18px' }, '🎵 Jukebox'),
       musicRow,
       h('p.setting-note', {}, 'The jukebox in the lounge. Everyone on the floor hears the same song, louder the closer they are to it; this is how loud it is for you alone.'),
@@ -328,9 +446,20 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       h('div.webhook', {}, hookInput, hookSave),
       hookActions,
       hookStatus,
+      h('label', { style: 'margin-top:18px' }, '🤖 Default worker'),
+      agentNow,
+      agent.element,
+      agentActions,
+      agentNote,
+      h('label', { style: 'margin-top:18px' }, '📝 Prompts'),
+      promptsOpen,
+      promptsNote,
       h('label', { style: 'margin-top:18px' }, '👷 Worker limit'),
       limitRow,
       limitNote,
+      h('label', { style: 'margin-top:18px' }, '🎉 Workers whose pull request merged'),
+      leaveRow,
+      leaveNote,
       h('label', { style: 'margin-top:18px' }, '📁 Workspace folder'),
       dirRow,
       dirActions,
@@ -346,16 +475,20 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const offNotify = store.on('notify', paintHook);
   const offDog = store.on('dog', paintDog);
   const offTheme = store.on('theme', paintTheme);
+  const offLeave = store.on('leaveOnMerge', paintLeave);
   const offLimit = [store.on('machine', paintLimit), store.on('me', paintLimit)];
   const offDir = [store.on('projectsDir', paintDir), store.on('me', paintDir)];
+  const offPrompts = [store.on('prompts', paintAgent), store.on('prompts', paintPrompts), store.on('me', paintAgent), store.on('me', paintPrompts)];
   const modal = openModal(el, {
     doing: '⚙️ in settings',
     onClose: () => {
       offNotify();
       offDog();
       offTheme();
+      offLeave();
       offLimit.forEach((off) => off());
       offDir.forEach((off) => off());
+      offPrompts.forEach((off) => off());
     },
   });
   close.addEventListener('click', () => modal.close());

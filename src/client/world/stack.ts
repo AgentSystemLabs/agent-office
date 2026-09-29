@@ -181,7 +181,7 @@ function trapdoor(down: boolean): Trapdoor {
   return { pivot, open: 0, down };
 }
 
-/** One of the two spots a pole can be: what's there on this floor. */
+/** A spot a pole can be (see POLES): what's there on this floor. */
 interface PoleView {
   spot: PoleSpot;
   index: number;

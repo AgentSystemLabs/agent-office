@@ -1,12 +1,69 @@
 #!/usr/bin/env bash
-# Runs ON the EC2 instance (piped over ssh by deploy/aws.sh). Idempotent: safe to re-run.
-# Expects these to be exported by the caller: APP_REPO APP_REF PROJECT_REPO PROJECT_NAME
-# CLAIM_TOKEN PUBLIC_HOST GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY GIT_NAME GIT_EMAIL
+# Puts Agent Office on an Ubuntu or Debian server, with one line run on it (as root or a sudo user):
+#
+#   curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/deploy/provision.sh | bash
+#
+# or from your own computer:
+#
+#   ssh root@203.0.113.7 'curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/deploy/provision.sh | bash'
+#
+# It installs Node.js, git, the GitHub CLI and Claude Code, and runs the office as a systemd service
+# that listens on the server's loopback only. You reach it through an SSH tunnel, or, given
+# `--domain office.example.com` (after `bash -s --`), on https://office.example.com through Caddy,
+# which gets the certificate by itself. At the end it prints a link that shows the office password
+# exactly once. As root, it makes an `agentoffice` user to run the office, so workers never run as
+# root. Run it again to update; it's idempotent.
+#
+# deploy/aws.sh pipes this over SSH to the EC2 machine it creates, with these exported: APP_REPO
+# APP_REF PROJECT_REPO CLAIM_TOKEN PUBLIC_HOST GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY
+# GIT_NAME GIT_EMAIL. They all have defaults, and the options below set the common ones.
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
+
+usage() {
+  cat <<'EOF'
+Usage: provision.sh [options]      (curl … | bash -s -- [options])
+
+  --domain <name>       Serve the office on https://<name> through Caddy (its DNS must point here,
+                        and ports 80 and 443 be open). Without it, only an SSH tunnel reaches it
+  --project <repo>      Clone this GitHub repository (owner/name) as the first floor
+  --public-host <addr>  The address teammates SSH to (default: --domain, else this server's public IP)
+  --user <name>         Who runs the office when this runs as root (default agentoffice)
+  -h, --help            Show this help
+
+Run in a terminal, it offers to sign the GitHub CLI in; otherwise run `gh auth login` in a shell at
+any desk in the office. The first Claude worker asks you to type /login in its terminal.
+EOF
+}
+
+DOMAIN="${AGENT_OFFICE_DOMAIN:-}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --domain) DOMAIN="${2:?--domain needs a name}"; shift 2 ;;
+    --project) PROJECT_REPO="${2:?--project needs owner/name}"; shift 2 ;;
+    --public-host) PUBLIC_HOST="${2:?--public-host needs an address}"; shift 2 ;;
+    --user) AGENT_OFFICE_USER="${2:?--user needs a name}"; shift 2 ;;
+    -h | --help) usage; exit 0 ;;
+    *) echo "provision: unknown option $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+# Run again to update, this keeps serving the domain it was given before.
+[[ -n "$DOMAIN" ]] || DOMAIN=$(cat /etc/agent-office/domain 2>/dev/null || true)
+if [[ -n "$DOMAIN" && ! "$DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]]; then
+  echo "provision: not a domain name: $DOMAIN" >&2
+  exit 2
+fi
+
+APP_REPO="${APP_REPO:-https://github.com/AgentSystemLabs/agent-office.git}"
+APP_REF="${APP_REF:-main}"
+# deploy/aws.sh brings its own claim token and shows the way in itself; run by hand, this does.
+STANDALONE=0
+[[ -n "${CLAIM_TOKEN:-}" ]] || STANDALONE=1
+
 APT=(sudo -E apt-get -y -q -o DPkg::Lock::Timeout=600)
 
 step() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
+die() { printf '\033[1;31mprovision:\033[0m %s\n' "$*" >&2; exit 1; }
 # Run quietly; show the output only when something fails.
 quiet() {
   local log
@@ -19,25 +76,75 @@ quiet() {
   rm -f "$log"
 }
 
-step "Waiting for the instance to finish booting"
+command -v apt-get >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 ||
+  die "this sets up Ubuntu or Debian servers (apt and systemd). Elsewhere, see the README."
+# As root, other users' commands would start in /root, which they can't read.
+cd /
+
+if [[ $EUID -eq 0 ]] && ! command -v sudo >/dev/null 2>&1; then
+  step "Installing sudo"
+  quiet apt-get -y -q update
+  quiet apt-get -y -q install sudo
+fi
+
+step "Waiting for the machine to finish booting"
 sudo cloud-init status --wait >/dev/null 2>&1 || true
 
-if ! command -v node >/dev/null 2>&1 || [[ "$(node -v)" != v22* ]]; then
+# Who runs the office: whoever runs this, or as root a user of its own, so workers never run as root.
+RUN_USER="$(id -un)"
+if [[ $EUID -eq 0 ]]; then
+  RUN_USER="${AGENT_OFFICE_USER:-agentoffice}"
+  [[ "$RUN_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ && "$RUN_USER" != root && "$RUN_USER" != office ]] || die "can't run the office as $RUN_USER"
+  if ! id "$RUN_USER" >/dev/null 2>&1; then
+    step "Creating the $RUN_USER user to run the office"
+    useradd --create-home --shell /bin/bash "$RUN_USER"
+  fi
+fi
+RUN_HOME="$(getent passwd "$RUN_USER" | cut -d: -f6)"
+RUN_GROUP="$(id -gn "$RUN_USER")"
+RUN_PATH="$RUN_HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# Runs a command as that user, in its home and with the service's PATH (Claude Code is in ~/.local/bin).
+as_user() {
+  if [[ "$RUN_USER" == "$(id -un)" ]]; then env PATH="$RUN_PATH" "$@"
+  else sudo -u "$RUN_USER" -H --preserve-env=ANTHROPIC_API_KEY env PATH="$RUN_PATH" "$@"; fi
+}
+
+if ! node_major=$(as_user node -p 'process.versions.node.split(".")[0]' 2>/dev/null) || [[ "$node_major" -lt 20 ]]; then
   step "Installing Node.js 22"
+  quiet "${APT[@]}" update
+  quiet "${APT[@]}" install ca-certificates curl
   quiet bash -c 'curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -'
   quiet "${APT[@]}" install nodejs
 fi
 
 step "Installing git, GitHub CLI and build tools"
+# gh from GitHub's own apt repo: Ubuntu's archive freezes it at whatever shipped with the release.
+# install upgrades it to the newest on every re-run.
+sudo install -d -m 755 /etc/apt/keyrings
+quiet sudo curl -fsSLo /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg
+sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+  | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
 quiet "${APT[@]}" update
 quiet "${APT[@]}" install git gh curl ca-certificates build-essential python3
+echo "    $(gh --version | head -1)"
 
-if [[ ! -x "$HOME/.local/bin/claude" ]]; then
+if [[ ! -x "$RUN_HOME/.local/bin/claude" ]]; then
   step "Installing Claude Code"
-  quiet bash -c 'curl -fsSL https://claude.ai/install.sh | bash'
+  quiet as_user bash -c 'curl -fsSL https://claude.ai/install.sh | bash'
 fi
-export PATH="$HOME/.local/bin:$PATH"
-echo "    claude $(claude --version 2>/dev/null | head -1)"
+echo "    claude $(as_user claude --version 2>/dev/null | head -1)"
+
+# The claim link shows the generated password once. Run again, this keeps the link it printed.
+if [[ -z "${CLAIM_TOKEN:-}" ]]; then
+  CLAIM_TOKEN=$(sudo sed -n 's/^AGENT_OFFICE_CLAIM_TOKEN="\(.*\)"$/\1/p' /etc/agent-office/env 2>/dev/null || true)
+  [[ -n "$CLAIM_TOKEN" ]] || CLAIM_TOKEN=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
+fi
+if [[ -z "${PUBLIC_HOST:-}" ]]; then
+  PUBLIC_HOST="$DOMAIN"
+  [[ -n "$PUBLIC_HOST" ]] || PUBLIC_HOST=$(curl -fsS --max-time 5 https://checkip.amazonaws.com 2>/dev/null | tr -d '[:space:]' || true)
+  [[ -n "$PUBLIC_HOST" ]] || PUBLIC_HOST=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
+fi
 
 step "Writing secrets to /etc/agent-office/env"
 sudo install -d -m 755 /etc/agent-office
@@ -57,50 +164,80 @@ if [[ -n "${GH_TOKEN:-}" ]]; then
   step "Signing the GitHub CLI in"
   # Stored in gh's own config, so gh, git (via gh's credential helper), the office's boards, the
   # workers and your ssh sessions all use it — and the token never lands in a .git/config.
-  printf '%s' "$GH_TOKEN" | quiet env -u GH_TOKEN gh auth login --hostname github.com --git-protocol https --with-token
-  quiet env -u GH_TOKEN gh auth setup-git --hostname github.com
-  echo "    $(env -u GH_TOKEN gh api user --jq '"as " + .login' 2>/dev/null || echo 'signed in')"
-fi
-[[ -n "${GIT_NAME:-}" ]] && git config --global user.name "$GIT_NAME"
-[[ -n "${GIT_EMAIL:-}" ]] && git config --global user.email "$GIT_EMAIL"
-git config --global init.defaultBranch main
-
-step "Installing agent-office ($APP_REF) from $APP_REPO"
-sudo install -d -o "$USER" -g "$USER" /opt/agent-office
-if [[ -d /opt/agent-office/.git ]]; then
-  quiet git -C /opt/agent-office fetch --depth 1 origin "$APP_REF"
-  quiet git -C /opt/agent-office reset --hard FETCH_HEAD
-else
-  quiet git clone --depth 1 --branch "$APP_REF" "$APP_REPO" /opt/agent-office
-fi
-echo "    at $(git -C /opt/agent-office log -1 --format='%h %s')"
-step "npm install (builds the office)"
-(cd /opt/agent-office && quiet npm install --no-audit --no-fund)
-
-WORKDIR="$HOME/workspace/$PROJECT_NAME"
-mkdir -p "$HOME/workspace"
-if [[ ! -d "$WORKDIR" ]]; then
-  if [[ -n "$PROJECT_REPO" ]]; then
-    step "Cloning your project $PROJECT_REPO"
-    quiet git clone "$PROJECT_REPO" "$WORKDIR"
+  printf '%s' "$GH_TOKEN" | quiet as_user env -u GH_TOKEN gh auth login --hostname github.com --git-protocol https --with-token
+  quiet as_user env -u GH_TOKEN gh auth setup-git --hostname github.com
+  echo "    $(as_user env -u GH_TOKEN gh api user --jq '"as " + .login' 2>/dev/null || echo 'signed in')"
+elif (: </dev/tty) 2>/dev/null && ! as_user gh auth status --hostname github.com >/dev/null 2>&1; then
+  # Run by hand in a terminal: sign in now, so the elevator can list your repositories.
+  step "Signing the GitHub CLI in (the office clones your projects and reads issues and PRs with it)"
+  if as_user gh auth login --hostname github.com --git-protocol https </dev/tty; then
+    quiet as_user gh auth setup-git --hostname github.com
   else
-    step "Creating an empty project at $WORKDIR"
-    mkdir -p "$WORKDIR"
-    git -C "$WORKDIR" init -q
+    echo "    (skipped: sign in later with gh auth login, from a shell at any desk in the office)"
   fi
 fi
-echo "$WORKDIR" | sudo tee /etc/agent-office/dir >/dev/null
+[[ -n "${GIT_NAME:-}" ]] && as_user git config --global user.name "$GIT_NAME"
+[[ -n "${GIT_EMAIL:-}" ]] && as_user git config --global user.email "$GIT_EMAIL"
+as_user git config --global init.defaultBranch main
+
+step "Installing agent-office ($APP_REF) from $APP_REPO"
+sudo install -d -o "$RUN_USER" -g "$RUN_GROUP" /opt/agent-office
+if [[ -d /opt/agent-office/.git ]]; then
+  quiet as_user git -C /opt/agent-office fetch --depth 1 origin "$APP_REF"
+  quiet as_user git -C /opt/agent-office reset --hard FETCH_HEAD
+else
+  quiet as_user git clone --depth 1 --branch "$APP_REF" "$APP_REPO" /opt/agent-office
+fi
+echo "    at $(as_user git -C /opt/agent-office log -1 --format='%h %s')"
+step "npm install (builds the office)"
+quiet as_user sh -c 'cd /opt/agent-office && npm install --no-audit --no-fund'
+
+# The office keeps its data (password, accounts, the list of floors) in ~/agent-office and clones
+# projects into ~/workspace/<owner>/<repo>. It starts with no project: its elevator lists every
+# repository the GitHub token can see, and cloning one makes it the first floor.
+OFFICE_HOME="$RUN_HOME/agent-office"
+WORKSPACE="$RUN_HOME/workspace"
+as_user mkdir -p "$WORKSPACE"
+# Offices provisioned before that ran in one project's checkout, with their data in it: they carry
+# on there, so nobody loses their account. That project can be taken off in the elevator.
+LEGACY_DIR=""
+if [[ -f /etc/agent-office/dir ]]; then
+  legacy=$(cat /etc/agent-office/dir)
+  [[ -f "$legacy/.agent-office/config.json" ]] && LEGACY_DIR="$legacy"
+fi
+if [[ -n "$LEGACY_DIR" ]]; then
+  step "Keeping the office in $LEGACY_DIR (its accounts and floors are there)"
+  RUN_DIR="$LEGACY_DIR"
+  OFFICE_ARGS="$LEGACY_DIR "
+else
+  RUN_DIR="$RUN_HOME"
+  OFFICE_ARGS=""
+  setup_args=()
+  # Once: after that, the folder is the admins' to move in ⚙️ Settings.
+  [[ -f "$OFFICE_HOME/.agent-office/projects-folder.json" ]] || setup_args+=(--projects "$WORKSPACE")
+  [[ -n "${PROJECT_REPO:-}" ]] && setup_args+=(--project "$PROJECT_REPO")
+  if [[ ${#setup_args[@]} -gt 0 ]]; then
+    step "Setting up the office${PROJECT_REPO:+: cloning $PROJECT_REPO as a floor}"
+    # It won't touch a running office's floors (the service restarts below anyway).
+    sudo systemctl stop agent-office >/dev/null 2>&1 || true
+    as_user node /opt/agent-office/bin/agent-office.js setup "${setup_args[@]}" </dev/null ||
+      echo "    (carrying on: add projects from the office's elevator)"
+  fi
+  sudo rm -f /etc/agent-office/dir
+fi
+echo "$OFFICE_HOME" | sudo tee /etc/agent-office/home >/dev/null
+[[ -n "$LEGACY_DIR" ]] && echo "$LEGACY_DIR" | sudo tee /etc/agent-office/dir >/dev/null
 
 step "Pre-accepting Claude Code onboarding and folder trust"
-node - "$WORKDIR" <<'NODE'
+# The workspace (every project is cloned under it), and an older office's own project.
+as_user node - "$WORKSPACE" ${LEGACY_DIR:+"$LEGACY_DIR"} <<'NODE'
 const fs = require('fs');
 const file = `${process.env.HOME}/.claude.json`;
 let c = {};
 try { c = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
 c.hasCompletedOnboarding = true;
 c.projects = c.projects || {};
-const dir = process.argv[2];
-c.projects[dir] = { ...(c.projects[dir] || {}), hasTrustDialogAccepted: true };
+for (const dir of process.argv.slice(2)) c.projects[dir] = { ...(c.projects[dir] || {}), hasTrustDialogAccepted: true };
 const key = process.env.ANTHROPIC_API_KEY;
 if (key) {
   c.customApiKeyResponses = c.customApiKeyResponses || { approved: [], rejected: [] };
@@ -170,7 +307,7 @@ SH
 sudo install -m 755 -o root -g root "$team_sh" /usr/local/bin/agent-office-team
 rm -f "$team_sh"
 sudoers=$(mktemp)
-echo "$USER ALL=(root) NOPASSWD: /usr/local/bin/agent-office-team" >"$sudoers"
+echo "$RUN_USER ALL=(root) NOPASSWD: /usr/local/bin/agent-office-team" >"$sudoers"
 sudo visudo -cqf "$sudoers"
 sudo install -m 440 -o root -g root "$sudoers" /etc/sudoers.d/agent-office
 rm -f "$sudoers"
@@ -185,10 +322,47 @@ Match User office
     X11Forwarding no
     ForceCommand /usr/local/bin/agent-office-tunnel
 CONF
+sudo install -d -m 755 /etc/ssh/sshd_config.d
 sudo install -m 644 "$sshd_conf" /etc/ssh/sshd_config.d/agent-office.conf
 rm -f "$sshd_conf"
-sudo sshd -t
-sudo systemctl reload ssh 2>/dev/null || sudo systemctl restart ssh
+if [[ -x /usr/sbin/sshd ]]; then
+  sudo /usr/sbin/sshd -t
+  sudo systemctl reload ssh 2>/dev/null || sudo systemctl restart ssh 2>/dev/null || true
+fi
+
+PROXY_ARGS=""
+if [[ -n "$DOMAIN" ]]; then
+  step "Serving it on https://$DOMAIN (Caddy fetches the certificate)"
+  if ! command -v caddy >/dev/null 2>&1; then
+    quiet "${APT[@]}" install gnupg
+    quiet sh -c 'curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/gpg.key | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg'
+    sudo chmod go+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+    curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt | sudo tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
+    quiet "${APT[@]}" update
+    quiet "${APT[@]}" install caddy
+  fi
+  # Caddy's own sample page, or a Caddyfile this wrote before: anything else is someone's setup.
+  marker="# Written by agent-office's deploy/provision.sh"
+  if [[ -s /etc/caddy/Caddyfile ]] && ! grep -qF -e "$marker" -e 'root * /usr/share/caddy' /etc/caddy/Caddyfile; then
+    die "/etc/caddy/Caddyfile is already set up for something else. Add this to it, then run this again without --domain:
+    $DOMAIN {
+        reverse_proxy 127.0.0.1:4600
+    }"
+  fi
+  caddyfile=$(mktemp)
+  printf '%s\n%s {\n    reverse_proxy 127.0.0.1:4600\n}\n' "$marker" "$DOMAIN" >"$caddyfile"
+  sudo install -m 644 "$caddyfile" /etc/caddy/Caddyfile
+  rm -f "$caddyfile"
+  sudo systemctl enable caddy >/dev/null 2>&1
+  sudo systemctl reload-or-restart caddy
+  if command -v ufw >/dev/null 2>&1 && sudo ufw status 2>/dev/null | grep -q '^Status: active'; then
+    quiet sudo ufw allow 80/tcp
+    quiet sudo ufw allow 443/tcp
+  fi
+  echo "$DOMAIN" | sudo tee /etc/agent-office/domain >/dev/null
+  # Cookies go Secure, and sign-in limits count the visitor's address rather than Caddy's.
+  PROXY_ARGS=" --trust-proxy"
+fi
 
 step "Installing the agent-office service (restarts itself if it ever crashes)"
 unit=$(mktemp)
@@ -201,20 +375,25 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-User=$USER
-Group=$USER
-WorkingDirectory=$WORKDIR
+User=$RUN_USER
+Group=$RUN_GROUP
+WorkingDirectory=$RUN_DIR
 EnvironmentFile=/etc/agent-office/env
-Environment=HOME=$HOME
+Environment=HOME=$RUN_HOME
+Environment=AGENT_OFFICE_HOME=$OFFICE_HOME
 Environment=SHELL=/bin/bash
-Environment=PATH=$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PATH=$RUN_PATH
 # Lets the office upgrade itself from its UI: it builds the new version, then exits, and
 # Restart=always brings it back up on that version.
 Environment=AGENT_OFFICE_SELF_UPDATE=1
-# Loopback only: the office is reached through an SSH tunnel, never from the internet.
-ExecStart=/usr/bin/node /opt/agent-office/bin/agent-office.js $WORKDIR --host 127.0.0.1 --port 4600
+# Loopback only: the office is reached through an SSH tunnel (or Caddy), never straight from the internet.
+ExecStart=/usr/bin/env node /opt/agent-office/bin/agent-office.js ${OFFICE_ARGS}--host 127.0.0.1 --port 4600${PROXY_ARGS}
 Restart=always
 RestartSec=3
+# Stopping or restarting the office stops the office, not its workers: their terminals run in a
+# process of their own that the next office picks back up. The default, control-group, would stop
+# every worker mid-task on each upgrade.
+KillMode=process
 LimitNOFILE=65536
 
 [Install]
@@ -226,4 +405,39 @@ sudo systemctl daemon-reload
 sudo systemctl enable agent-office >/dev/null 2>&1
 sudo systemctl restart agent-office
 
-step "Done"
+[[ $STANDALONE -eq 1 ]] || { step "Done"; exit 0; }
+
+step "Waiting for the office to answer"
+for _ in $(seq 60); do
+  curl -fs --max-time 4 http://127.0.0.1:4600/api/health >/dev/null && break
+  sleep 2
+done
+curl -fs --max-time 4 http://127.0.0.1:4600/api/health >/dev/null ||
+  die "the office didn't come up. Its logs: sudo journalctl -u agent-office -n 50"
+
+bold=$'\033[1m' reset=$'\033[0m'
+base="http://localhost:4600"
+[[ -z "$DOMAIN" ]] || base="https://$DOMAIN"
+if grep -qs '"claimedAt"' "${LEGACY_DIR:-$OFFICE_HOME}/.agent-office/config.json"; then
+  open_line="open ${bold}$base${reset} and sign in with the office password you saved."
+else
+  open_line="open ${bold}$base/claim?t=$CLAIM_TOKEN${reset}
+  It shows the office password ${bold}once${reset}: write it down."
+fi
+echo
+echo "  🏢 Agent Office is running, as $RUN_USER, on 127.0.0.1:4600 only."
+echo
+if [[ -n "$DOMAIN" ]]; then
+  echo "  Now $open_line"
+  echo "  ($DOMAIN has to point at this server, with ports 80 and 443 open, for Caddy to get its certificate.)"
+else
+  echo "  On your computer, open a tunnel and leave it running:"
+  echo
+  echo "    ${bold}ssh -N -L 4600:localhost:4600 ${SUDO_USER:-$(id -un)}@$PUBLIC_HOST${reset}"
+  echo
+  echo "  then $open_line"
+  echo
+  echo "  Teammates: 👥 Invite teammates in the office's ☰ menu lets their SSH keys open the same tunnel."
+fi
+echo "  Update: run this again, or ⬆️ Upgrade the office from its ☰ menu."
+echo

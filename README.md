@@ -20,7 +20,7 @@ and jump into any of them together. Every GitHub repo is a floor of the building
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square)](#run-locally)
 [![Built with TypeScript](https://img.shields.io/badge/built%20with-TypeScript-3178c6?style=flat-square)](https://www.typescriptlang.org)
 
-[**Run locally**](#run-locally) · [**Deploy to AWS**](#deploy-to-aws-ec2) · [**Add users**](#add-users) · [**Controls**](#controls) · [**Features**](docs/features.md) · [**How it works**](docs/how-it-works.md)
+[**Run locally**](#run-locally) · [**Deploy to AWS**](#deploy-to-aws-ec2) · [**Any server**](#deploy-to-any-ubuntu-or-debian-server) · [**Add users**](#add-users) · [**Controls**](#controls) · [**Features**](docs/features.md) · [**How it works**](docs/how-it-works.md)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.sh | bash
@@ -64,12 +64,15 @@ irm https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.
 
 This puts an `agent-office` command on your PATH, so next time just run `agent-office`. Run the install line again to update. The installer's settings (a particular release, install without starting) are listed at the top of [`install.sh`](install.sh) and [`install.ps1`](install.ps1).
 
-Then:
+The first time it starts, it walks you through setting up, right in the terminal:
 
-1. Open **http://localhost:4600**.
-2. Sign in with the office password. The first start prints it in the terminal (it's saved in `~/agent-office/.agent-office/config.json`).
-3. The elevator asks for your first project. Pick a repo (or type `owner/name`) and the office clones it into `~/agent-office/<owner>/<repo>`.
-4. Walk to an empty desk, press **E** and hire a worker.
+1. **Where to clone your projects.** It suggests a code folder you already have (`~/Workspace`, `~/code`…), else `~/agent-office`. Each project goes in `<folder>/<owner>/<repo>`.
+2. **GitHub.** If the GitHub CLI isn't signed in, it offers to run `gh auth login` for you.
+3. **Your first project.** Pick one of your repos by number, or type `owner/name`, and the office clones it as the first floor.
+
+Press Enter to skip a step: the elevator in the office asks for your first project too. Then the office opens in your browser, **already signed in**, with a link that works once. The terminal also prints the office password, for signing in from another browser (it's saved in `~/agent-office/.agent-office/config.json`).
+
+Walk to an empty desk, press **E** and hire a worker.
 
 Common options:
 
@@ -78,6 +81,8 @@ agent-office ~/code/my-project              # use a project you already have as 
 agent-office --password 'correct horse'     # choose the password
 agent-office --port 4700
 agent-office --agent codex                  # default agent: claude, codex or opencode
+agent-office --no-open                      # print the sign-in link instead of opening a browser
+agent-office setup                          # the first-start walkthrough again (office stopped)
 ```
 
 Every option is in [docs/configuration.md](docs/configuration.md). Choosing models and providers per worker is in [docs/agents.md](docs/agents.md).
@@ -91,7 +96,7 @@ npm install -g .     # puts `agent-office` on your PATH
 agent-office
 ```
 
-> Teammates on your network can open the LAN address it prints, but voice and screen sharing only work over HTTPS or `localhost`. To share the office with a team, deploy it to AWS (below) or see [docs/self-hosting.md](docs/self-hosting.md).
+> Only your computer can reach the office: it listens on `127.0.0.1`. `--host 0.0.0.0` lets your network in, but over plain http, where voice and screen sharing don't work. To share the office with a team, put it on a server: [AWS](#deploy-to-aws-ec2) or [any Ubuntu or Debian machine](#deploy-to-any-ubuntu-or-debian-server).
 
 ## Deploy to AWS (EC2)
 
@@ -106,8 +111,10 @@ In about two minutes, `up`:
 
 1. Launches a **t3.xlarge** (4 vCPU, 16 GiB) Ubuntu 24.04 instance with a 50 GiB disk and a fixed Elastic IP.
 2. Creates a security group that opens **only SSH, only to your IP**. The office listens on `127.0.0.1:4600` on the machine and is never on the internet. Everyone reaches it through an SSH tunnel, so there are no certificates to manage, and voice and screen sharing work.
-3. Installs Node 22, git, the GitHub CLI, Claude Code and the office, and runs it under systemd so it comes back after a crash or reboot.
+3. Runs [`deploy/provision.sh`](deploy/provision.sh) on it: Node 22, git, the GitHub CLI, Claude Code and the office, under systemd, so it comes back after a crash or reboot and workers keep running through a restart.
 4. Opens a tunnel and your browser at http://localhost:4600. **The first page shows the office password once. Write it down.**
+
+`--project` is optional: it clones that repo as the first floor. Leave it out and pick projects in the elevator.
 
 **Signing in the agents.** `--claude-token` uses your Claude subscription; `--anthropic-api-key <key>` uses an API key instead. Leave both out and run `/login` in the first worker's terminal. Codex and OpenCode aren't installed by the script: `deploy/aws.sh ssh` and install them yourself.
 
@@ -129,11 +136,23 @@ deploy/aws.sh destroy             # delete everything it created (asks first)
 
 You can also upgrade from inside the office: **☰ → ⬆️ Upgrade the office**. Other flags (`--region`, `--instance-type`, `--disk`, `--name` for several offices) are in `deploy/aws.sh help`, and the details are in [docs/aws.md](docs/aws.md).
 
+## Deploy to any Ubuntu or Debian server
+
+No AWS? Run one line on the server, as root or as a user with sudo:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/deploy/provision.sh | bash
+```
+
+It installs Node 22, git, the GitHub CLI, Claude Code and the office as a systemd service. Run as root, it creates an `agentoffice` user to run the office, so workers never run as root. The office listens on `127.0.0.1:4600` only, and the script ends by printing the SSH tunnel command and a link that shows the office password once. Run the same line again to update.
+
+For HTTPS on your own domain, point a DNS record at the server and add `bash -s -- --domain office.example.com`: it sets up Caddy, which gets the certificate by itself. The details, and setting it up by hand behind Caddy or nginx, are in [docs/self-hosting.md](docs/self-hosting.md).
+
 ## Add users
 
 Everyone gets their own account, so their name is on their character, in chat and on every terminal they type into.
 
-**1. On AWS, let them in first.** The office is only reachable through the SSH tunnel, so a teammate needs their SSH key on the machine. In the office, open **☰ → 👥 Invite teammates** and type their GitHub username, or from your terminal:
+**1. On a server, let them in first.** The office is only reachable through an SSH tunnel, so a teammate needs their SSH key on the machine. In the office, open **☰ → 👥 Invite teammates** and type their GitHub username. On AWS you can also do it from your terminal:
 
 ```bash
 deploy/aws.sh invite octocat        # installs the keys from github.com/octocat.keys
@@ -146,7 +165,7 @@ It prints the command to send them. They leave it running and open http://localh
 ssh -L 4600:localhost:4600 office@<your-office-ip>
 ```
 
-Their key logs in as a locked-down `office` user that can only forward to the office port: no shell, no other ports. Running the office locally or on your own server? Skip this step.
+Their key logs in as a locked-down `office` user that can only forward to the office port: no shell, no other ports. Running the office on your own computer, or on your own domain over HTTPS? Skip this step.
 
 **2. Make them an account.** Open **☰ → 🔑 Accounts** and make an invite link. Name it (or let them pick) and make them a *Member* or an *Admin*. The link works once, for 7 days, and they choose their own password. Make one for yourself too, as an admin.
 
@@ -162,12 +181,12 @@ agent-office accounts revoke ada           # signed out within seconds
 On the EC2 machine, run it through `deploy/aws.sh ssh`:
 
 ```bash
-deploy/aws.sh ssh 'node /opt/agent-office/bin/agent-office.js accounts invite ada --dir "$(cat /etc/agent-office/dir)"'
+deploy/aws.sh ssh 'node /opt/agent-office/bin/agent-office.js accounts invite ada --dir "$(cat /etc/agent-office/home)"'
 ```
 
 **3. Turn off the shared password.** Until you do, anyone who knows the office password can get in, as an admin. Once everyone has an account, switch it off in **🔑 Accounts** (signed in with your own admin account), or `agent-office accounts password off`.
 
-**Removing someone.** Revoke their account in **🔑 Accounts** (or `agent-office accounts revoke <name>`), and on AWS also run `deploy/aws.sh uninvite <name>` to remove their SSH keys and drop open tunnels (other teammates just reconnect). If the shared password is still on, change it with `deploy/aws.sh reset-password`.
+**Removing someone.** Revoke their account in **🔑 Accounts** (or `agent-office accounts revoke <name>`), and on a server also remove them in **👥 Invite teammates** (on AWS, `deploy/aws.sh uninvite <name>`) to take away their SSH keys and drop open tunnels (other teammates just reconnect). If the shared password is still on, change it with `deploy/aws.sh reset-password`.
 
 ## Controls
 
@@ -182,7 +201,8 @@ deploy/aws.sh ssh 'node /opt/agent-office/bin/agent-office.js accounts invite ad
 | N | Go to the next worker that's waiting on you |
 | X | Send a worker home |
 | T / Enter | Chat |
-| V / M | Join voice / mute |
+| V | Join voice; then hold V to talk |
+| M | Mute / unmute in voice |
 | Tab | The ☰ menu: every window |
 | Esc | Close any window |
 | Ctrl + [ | Send Esc to a terminal (e.g. to interrupt Claude) |
@@ -205,10 +225,10 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## More
 
 - [Features](docs/features.md): everything in the office, room by room
-- [Agents](docs/agents.md): Claude Code, Codex and OpenCode, models and effort
+- [Agents](docs/agents.md): Claude Code, Codex and OpenCode, models and effort, and the office's prompts
 - [Configuration](docs/configuration.md): every command-line option, and where the office keeps its data
 - [AWS reference](docs/aws.md): service tunnels, upgrades, and everything `deploy/aws.sh` does
-- [Self-hosting](docs/self-hosting.md): your own server, behind Caddy or nginx
+- [Your own server](docs/self-hosting.md): the one-line setup for any Ubuntu or Debian server, or by hand behind Caddy or nginx
 - [How it works](docs/how-it-works.md): the architecture, and security notes
 
 ## License

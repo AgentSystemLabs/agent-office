@@ -1,6 +1,9 @@
+import { spawn } from 'node:child_process';
 import os from 'node:os';
+import path from 'node:path';
 import { loadConfig, ensureSelfSigned } from './config.js';
 import { startServer } from './server.js';
+import { tildify } from './building.js';
 
 const argv = process.argv.slice(2);
 if (argv[0] === 'prune') {
@@ -11,9 +14,17 @@ if (argv[0] === 'accounts') {
   const { accountsCommand } = await import('./accounts.js');
   process.exit(accountsCommand(argv.slice(1)));
 }
+if (argv[0] === 'setup') {
+  const { setupCommand } = await import('./setup.js');
+  process.exit(await setupCommand(argv.slice(1)));
+}
 
 const cfg = loadConfig(argv);
 await ensureSelfSigned(cfg);
+const { interactive, welcome } = await import('./setup.js');
+const atTerminal = interactive();
+// A new office started in a terminal: where projects go, GitHub, and the first floor, before it opens.
+if (!cfg.project && atTerminal) await welcome(cfg);
 
 let office: Awaited<ReturnType<typeof startServer>>;
 try {
@@ -26,17 +37,21 @@ try {
 }
 
 const scheme = cfg.tls ? 'https' : 'http';
-const urls = new Set<string>([`${scheme}://localhost:${cfg.port}`]);
-if (cfg.host === '0.0.0.0' || cfg.host === '::') {
+const everywhere = cfg.host === '0.0.0.0' || cfg.host === '::';
+const loopback = cfg.host === 'localhost' || cfg.host === '::1' || cfg.host.startsWith('127.');
+// Where this machine's browser finds the office: localhost, unless it's bound to one other address.
+const here = `${scheme}://${everywhere || loopback ? 'localhost' : cfg.host}:${cfg.port}`;
+const urls = new Set<string>([here]);
+if (everywhere) {
   for (const list of Object.values(os.networkInterfaces())) {
     for (const ni of list ?? []) if (ni.family === 'IPv4' && !ni.internal) urls.add(`${scheme}://${ni.address}:${cfg.port}`);
   }
-} else urls.add(`${scheme}://${cfg.host}:${cfg.port}`);
+}
 
 const agent = office.resolvedAgent;
 function floorsLine() {
   const floors = office.floors();
-  const where = `new ones are cloned into ${office.projectsDir()}`;
+  const where = `new ones are cloned into ${tildify(office.projectsDir())}`;
   if (!floors.length) return `🛗 no floors yet — ride the elevator in the office to add a project (${where})`;
   return `🛗 ${floors.length} floor${floors.length === 1 ? '' : 's'}: ${floors.map((f) => f.def.name).join(', ')} (${where})`;
 }
@@ -48,22 +63,50 @@ function passwordLine() {
   if (cfg.claimed || !cfg.password) return '(already claimed — never shown again; reset with --reset-password)';
   return cfg.password;
 }
+/**
+ * Opens the office in this computer's browser. Not over SSH, in CI, or on a Linux box without a
+ * desktop: nobody would see it there.
+ */
+function openBrowser(url: string): boolean {
+  if (process.env.SSH_CONNECTION || process.env.SSH_TTY || process.env.CI) return false;
+  if (process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) return false;
+  const [cmd, args] =
+    process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', url]] : ['xdg-open', [url]];
+  spawn(cmd, args, { stdio: 'ignore', detached: true })
+    .on('error', () => {})
+    .unref();
+  return true;
+}
+
+// Someone started it in a terminal: a link that signs them in once, opened in their browser, so
+// there's no password to copy. Not for an office that's claimed from a link (deploy/provision.sh)
+// or signed in to with accounts only.
+let signIn = '';
+let opened = false;
+if (atTerminal && office.accounts.sharedPassword && !cfg.claimToken) {
+  signIn = here + office.signInLink();
+  if (cfg.open) opened = openBrowser(signIn);
+}
+
+// Started in a project that's still one of the floors (it can be taken off like any other).
+const local = cfg.project && office.floors().some((f) => path.resolve(f.def.dir) === cfg.project);
 console.log(`
-  🏢  agent-office is open${cfg.project ? ` for ${cfg.project}` : ''}
+  🏢  agent-office is open${local ? ` for ${cfg.project}` : ''}
 
   ${floorsLine()}
 
-  ${[...urls].join('\n  ')}
-
+  ${[...urls].join('\n  ')}${loopback ? '\n  (only this computer can open it: --host 0.0.0.0 lets your network in)' : ''}
+${signIn ? `\n  sign in: ${signIn}\n           ${opened ? 'opened in your browser; ' : ''}the link works once\n` : ''}
   password: ${passwordLine()}
   default agent: ${[agent ?? `${cfg.agentCmd} (via login shell)`, ...cfg.agentArgs].join(' ')}
   choose Claude Code or OpenCode when hiring or queueing a task
-${cfg.tls ? '' : '\n  tip: voice & screen share need https off localhost — use a reverse proxy or --self-signed\n'}`);
+${cfg.tls || loopback ? '' : '\n  tip: voice & screen share need https off localhost — use a reverse proxy or --self-signed\n'}`);
 
 let closing = false;
-// SIGTERM is a restart (tsx watch reloading, a plain `kill`): workers keep running in their terminal
-// host and the next office picks them back up. Ctrl+C closes the office and stops them. (A systemd
-// restart stops the whole service, host included.)
+// SIGTERM is a restart (tsx watch reloading, a plain `kill`, systemd): workers keep running in their
+// terminal host and the next office picks them back up. Ctrl+C closes the office and stops them.
+// (Under systemd that needs KillMode=process, or stopping the service stops the host with it; see
+// deploy/provision.sh. Workers cut off that way are resumed and carry on.)
 const stop = (signal: NodeJS.Signals) => {
   if (closing) process.exit(1);
   closing = true;

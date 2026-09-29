@@ -6,7 +6,7 @@ Back to the [README](../README.md).
 
 The office keeps its data in `~/agent-office` (`--home` or `AGENT_OFFICE_HOME` to move it) and clones projects next to it, as `~/agent-office/<owner>/<repo>`. To clone them somewhere else, like `~/Workspace`, an admin picks the **Workspace folder** in ⚙️ Settings (or start with `--projects` or `AGENT_OFFICE_PROJECTS`). Floors you already have stay where they are, and a checkout of the same repository that's already in the new folder is used as it is. The list of floors is `~/agent-office/.agent-office/floors.json`. Each floor keeps its workers, queue, pictures and worktrees in its own checkout's `.agent-office/`.
 
-To start the office in a project you already have, pass its folder: `agent-office ~/code/my-project`. That project becomes a floor, and the office keeps its data in `~/code/my-project/.agent-office` as it always did. An office that already ran in a project (from before there were floors) carries on in it when you start `agent-office` there again.
+Already have a checkout? Pick its repository anyway: a checkout of it that's already where the workspace folder would clone it is used as it is. You can still start the office in a project, `agent-office ~/code/my-project`: that project becomes a floor, and the office keeps its data in `~/code/my-project/.agent-office` as it did before there were floors. An office that already ran in a project carries on in it when you start `agent-office` there again. An admin can take that project off the building in the elevator like any other floor.
 
 ## Command line
 
@@ -17,8 +17,9 @@ agent-office [dir] [options]
       --projects <dir>    Where new floors are cloned, as <dir>/<owner>/<repo> (default ~/agent-office;
                           also settable from ⚙️ Settings)
   -p, --port <n>          Port (default 4600, env PORT)
-  -H, --host <addr>       Bind address (default 0.0.0.0)
+  -H, --host <addr>       Bind address (default 127.0.0.1; 0.0.0.0 lets your network in)
       --password <pw>     Office password (env AGENT_OFFICE_PASSWORD)
+      --no-open           Don't open the office in your browser when it starts
       --agent <cmd>       Default agent command (default "claude")
       --agent-args <str>  Extra args for the configured agent, e.g. "--model opus"
       --tls-cert <file>   Serve HTTPS with this cert…
@@ -32,6 +33,12 @@ agent-office [dir] [options]
       --webhook <url>     Post to this Slack / Discord webhook when a worker needs input or finishes
       --city <name>       Put the office in a real city: its sun and live weather (open-meteo.com)
       --weather <kind>    Pin the weather: clear, cloudy, rain, storm, snow or fog
+
+agent-office setup [--projects <dir>] [--project <owner/repo>]... [--home <dir>]
+
+  The first-start walkthrough again: the workspace folder, GitHub sign-in and
+  repositories to clone as floors. With --projects / --project it asks nothing.
+  Run it while the office is stopped.
 
 agent-office prune [dir] [-n|--dry-run] [-f|--force]
 

@@ -88,6 +88,10 @@ export class PlayerController {
   private letGo = false;
   /** Asked for while the page was still letting go of it: taken back as soon as it's free. */
   private lockAfter = false;
+  /** When Esc last went down and hasn't come up yet (0 once it has). */
+  private escDownAt = 0;
+  /** Asked for while Esc was down: taken once it comes up (see lock). */
+  private lockOnEscUp = false;
   enabled = true;
   /** False while the mouse picks something else (an emote on the wheel), so it doesn't turn the camera. */
   mouseLook = true;
@@ -105,7 +109,28 @@ export class PlayerController {
       if (e.code === 'Space') e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
-    window.addEventListener('blur', () => this.keys.clear());
+    window.addEventListener('blur', () => {
+      this.keys.clear();
+      this.escDownAt = 0;
+      this.lockOnEscUp = false;
+    });
+    // Captured, since the window an Esc closes stops it going any further.
+    window.addEventListener('keydown', (e) => e.key === 'Escape' && (this.escDownAt = performance.now()), true);
+    window.addEventListener(
+      'keyup',
+      (e) => {
+        if (e.key !== 'Escape') return;
+        this.escDownAt = 0;
+        const again = this.lockOnEscUp && this.enabled && this.canLock;
+        this.lockOnEscUp = false;
+        if (!again) return;
+        // Taken here, the browser doesn't also treat this Esc as its own shortcut once the page is done
+        // with it, which would let go of the mouse just taken.
+        e.preventDefault();
+        this.lock();
+      },
+      true,
+    );
 
     dom.addEventListener('pointerdown', (e) => {
       if (!this.enabled) return;
@@ -208,6 +233,7 @@ export class PlayerController {
 
   unlock() {
     this.lockAfter = false;
+    this.lockOnEscUp = false;
     if (!this.locked) return;
     this.letting = true;
     document.exitPointerLock();
@@ -239,6 +265,15 @@ export class PlayerController {
     // Still being let go of, for a window that closed again at once: taken back once it's free.
     if (this.locked && this.letting) this.lockAfter = true;
     if (this.locked || this.lockPending) return;
+    // The browser lets go of the mouse on Esc coming up as well as going down, so a lock taken
+    // between the two (the Esc that closed a window) is gone again at once, and with it the leave
+    // to take it back without a click. Asked for once Esc is up instead, from its keyup (see there).
+    // A second on, Esc being held would have repeated, so its keyup went missing.
+    if (this.escDownAt && performance.now() - this.escDownAt < 1000) {
+      this.lockOnEscUp = true;
+      return;
+    }
+    this.lockOnEscUp = false;
     if (typeof this.dom.requestPointerLock !== 'function') {
       this.lockFailed = true;
       return;

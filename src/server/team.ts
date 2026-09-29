@@ -27,7 +27,7 @@ function helper(args: string[], input = ''): Promise<Run> {
   });
 }
 
-/** Who may open the SSH tunnel to this office, for offices deployed with deploy/aws.sh. */
+/** Who may open the SSH tunnel to this office, for offices set up with deploy/provision.sh (or deploy/aws.sh). */
 export class Team {
   private fingerprint?: string;
 
@@ -48,7 +48,7 @@ export class Team {
 
   async state(): Promise<TeamState> {
     const base = { port: this.port, members: [] };
-    if (!this.available) return { ...base, unavailable: 'Invites work on offices deployed with deploy/aws.sh (re-run `deploy/aws.sh up` on one made before invites).' };
+    if (!this.available) return { ...base, unavailable: 'Invites work on offices set up with deploy/provision.sh or deploy/aws.sh (run it again on one made before invites).' };
     this.fingerprint ??= (await helper(['fingerprint'])).out.trim() || undefined;
     const list = await helper(['list']);
     if (list.code) return { ...base, ssh: this.ssh, fingerprint: this.fingerprint, error: `Couldn't list the team: ${list.err}` };
@@ -62,7 +62,7 @@ export class Team {
 
   /** Installs the SSH keys on github.com/<user>.keys, each limited to opening the tunnel. */
   async invite(github: string): Promise<{ name: string; keys: number } | { error: string }> {
-    if (!this.available) return { error: 'Invites work on offices deployed with deploy/aws.sh' };
+    if (!this.available) return { error: 'Invites work on offices set up with deploy/provision.sh or deploy/aws.sh' };
     const user = github.trim().replace(/^@/, '');
     if (!GITHUB_USER.test(user)) return { error: `"${github}" isn't a GitHub username` };
     let text: string;
@@ -83,7 +83,7 @@ export class Team {
 
   /** Removes their keys. Open tunnels drop for everyone (they just re-run the command). */
   async remove(name: string): Promise<string | undefined> {
-    if (!this.available) return 'Invites work on offices deployed with deploy/aws.sh';
+    if (!this.available) return 'Invites work on offices set up with deploy/provision.sh or deploy/aws.sh';
     if (!MEMBER.test(name)) return `"${name}" isn't a teammate name`;
     const r = await helper(['remove', name]);
     if (r.code === 66) return `${name} isn't invited`;

@@ -65,15 +65,21 @@ export class Worktrees {
     }
   }
 
-  /** What a worktree holds: uncommitted changes, commits since it was made, and the commits only it has. */
-  async inspect(wt: WorktreeRef): Promise<WorktreeState> {
+  /**
+   * What a worktree holds: uncommitted changes, commits since it was made, and the commits only it has.
+   * `landed` is a commit already delivered (the head of its merged pull request): it and the commits
+   * before it don't count as unpushed, even once GitHub has deleted the branch.
+   */
+  async inspect(wt: WorktreeRef, landed?: string): Promise<WorktreeState> {
     const abs = wt.path ? path.join(this.dir, wt.path) : undefined;
     const exists = !!abs && existsSync(abs);
     const state: WorktreeState = { exists, dirty: 0, ahead: 0, unpushed: 0 };
     try {
       if (exists) state.dirty = (await this.git(['status', '--porcelain'], abs)).split('\n').filter(Boolean).length;
+      // A commit this checkout never fetched (GitHub updated the branch itself) can't be left out.
+      const known = landed && /^[0-9a-f]{40,64}$/.test(landed) && (await this.git(['cat-file', '-e', `${landed}^{commit}`]).then(() => true, () => false));
       // On no remote and not in the project's own checkout either: what deleting the branch would lose.
-      state.unpushed = Number(await this.git(['rev-list', '--count', wt.branch, '--not', 'HEAD', '--remotes']));
+      state.unpushed = Number(await this.git(['rev-list', '--count', wt.branch, '--not', 'HEAD', '--remotes', ...(known ? [landed] : [])]));
       state.ahead = Number(await this.git(['rev-list', '--count', wt.branch, '--not', wt.base ?? 'HEAD']).catch(() => state.unpushed));
     } catch (err) {
       state.error = gitError(err);

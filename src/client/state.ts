@@ -1,14 +1,14 @@
-import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, MachineState, MeetingState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, ThemeState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
+import type { AccountsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, LeaveOnMergeState, MachineState, MeetingState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, PromptsState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SkyState, TeamState, ThemeState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
-import type { WorkerPr } from './world/character';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
 import { newer, type WbElement } from '../shared/whiteboard';
 import type { DogState } from '../shared/dog';
 import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
+import type { BallState } from '../shared/hoop';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'leaveOnMerge' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting' | 'prompts' | 'ball';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -57,6 +57,8 @@ export interface Settings {
   /** The lounge jukebox, 0–1, apart from the office sounds. */
   music: number;
   musicMuted: boolean;
+  /** Voice chat starts muted and V is held down to talk, instead of an open mic. */
+  pushToTalk: boolean;
   /** Desktop notifications when a worker needs input or finishes while you're in another tab (once the browser allows them). */
   notify: boolean;
   /** Which panels show on screen. */
@@ -86,7 +88,7 @@ function rememberFloor(id: string | null) {
 }
 
 export function loadSettings(): Settings {
-  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, notify: true, hud: { ...HUD_DEFAULTS }, pins: [] };
+  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, pushToTalk: false, notify: true, hud: { ...HUD_DEFAULTS }, pins: [] };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
     if (saved?.view === 'first' || saved?.view === 'third') s.view = saved.view;
@@ -94,6 +96,7 @@ export function loadSettings(): Settings {
     if (typeof saved?.muted === 'boolean') s.muted = saved.muted;
     if (typeof saved?.music === 'number' && Number.isFinite(saved.music)) s.music = Math.max(0, Math.min(1, saved.music));
     if (typeof saved?.musicMuted === 'boolean') s.musicMuted = saved.musicMuted;
+    if (typeof saved?.pushToTalk === 'boolean') s.pushToTalk = saved.pushToTalk;
     if (typeof saved?.notify === 'boolean') s.notify = saved.notify;
     for (const k of Object.keys(s.hud) as HudPanel[]) if (typeof saved?.hud?.[k] === 'boolean') s.hud[k] = saved.hud[k];
     if (Array.isArray(saved?.pins)) s.pins = saved.pins.filter((p: unknown): p is string => typeof p === 'string').slice(0, 30);
@@ -115,26 +118,6 @@ export function saveSettings(s: Settings) {
 export function workerForPull(workers: Iterable<WorkerInfo>, pr: { number: number; headRefName: string }): WorkerInfo | undefined {
   for (const w of workers) if (w.pr?.number === pr.number || (w.worktree && w.worktree.branch === pr.headRefName)) return w;
   return undefined;
-}
-
-/**
- * Where its work stands on GitHub: a pull request from its desk, its worktree branch or its queue
- * task is open (one still open wins, e.g. a follow-up on the same branch), or merged, so it can be
- * sent home. Undefined when it has none, or only closed ones.
- */
-export function workerPr(w: WorkerInfo, pulls: GhPull[], tasks: QueueTask[]): WorkerPr | undefined {
-  const mine = new Set<number>();
-  if (w.pr) mine.add(w.pr.number);
-  for (const t of tasks) if (t.workerId === w.id && t.pr) mine.add(t.pr.number);
-  const seen = pulls.filter((p) => mine.has(p.number) || (w.worktree && w.worktree.branch === p.headRefName)).map((p) => ({ number: p.number, state: p.state }));
-  // Its task's PR can drop off the list GitHub sends (the last 30 merged): keep what the queue saw.
-  for (const t of tasks) if (t.workerId === w.id && t.pr && !seen.some((p) => p.number === t.pr!.number)) seen.push({ number: t.pr.number, state: t.pr.state });
-  // Opened from its desk but not on the list yet (still loading, or no gh to ask): it's open.
-  if (w.pr && !seen.some((p) => p.number === w.pr!.number)) seen.push({ number: w.pr.number, state: 'OPEN' });
-  const open = seen.find((p) => p.state === 'OPEN' || p.state === 'DRAFT');
-  if (open) return { state: 'open', number: open.number };
-  const merged = seen.find((p) => p.state === 'MERGED');
-  return merged && { state: 'merged', number: merged.number };
 }
 
 class Store {
@@ -191,10 +174,16 @@ class Store {
   /** The dog on your floor, and when (performance.now()) the leg it's on began. */
   dog: DogState | null = null;
   dogStart = 0;
+  /** The basketball on this floor, as the office last said (see world/hoop.ts). */
+  ball: BallState = {};
   /** Outside the windows; null until the server says. */
   sky: SkyState | null = null;
   /** The building's holiday decorations: the same on every floor. */
   theme: ThemeState = { pick: 'auto', active: null };
+  /** The office's prompts as rewritten in ⚙️ Settings, and the worker everyone starts on: the same on every floor. */
+  prompts: PromptsState = { custom: {} };
+  /** Whether workers whose pull request merged go home by themselves (⚙️ Settings). */
+  leaveOnMerge: LeaveOnMergeState = { on: false };
   private subs = new Map<Topic, Set<() => void>>();
 
   on(topic: Topic, fn: () => void) {
@@ -264,7 +253,8 @@ class Store {
     this.cabinetFrame = v.cabinet.frame;
     this.setDog(v.dog);
     this.setJukebox(v.jukebox);
-    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame'] as Topic[]) this.emit(t);
+    this.ball = v.ball ?? {};
+    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'ball'] as Topic[]) this.emit(t);
   }
 
   private setDog(dog: DogState | null) {
@@ -296,8 +286,10 @@ class Store {
         this.clock = undefined; // compared again, in case it's another office (or the same one, restarted)
         this.sky = msg.sky;
         this.theme = msg.theme;
+        this.prompts = msg.prompts ?? { custom: {} };
+        this.leaveOnMerge = msg.leaveOnMerge ?? { on: false };
         this.enter(msg);
-        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'floors', 'projectsDir', 'sky', 'theme'] as Topic[]) this.emit(t);
+        for (const t of ['peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'floors', 'projectsDir', 'sky', 'theme', 'prompts', 'leaveOnMerge'] as Topic[]) this.emit(t);
         break;
       case 'floor.enter':
         this.peers = new Map(msg.peers.map((p) => [p.id, p]));
@@ -442,6 +434,10 @@ class Store {
         this.setDog(msg.dog);
         this.emit('dog');
         break;
+      case 'ball':
+        this.ball = msg.ball;
+        this.emit('ball');
+        break;
       case 'sky':
         this.sky = msg.state;
         this.emit('sky');
@@ -449,6 +445,14 @@ class Store {
       case 'theme':
         this.theme = msg.state;
         this.emit('theme');
+        break;
+      case 'prompts':
+        this.prompts = msg.state;
+        this.emit('prompts');
+        break;
+      case 'leaveOnMerge':
+        this.leaveOnMerge = msg.state;
+        this.emit('leaveOnMerge');
         break;
       case 'chat':
         this.chat.push(msg);
