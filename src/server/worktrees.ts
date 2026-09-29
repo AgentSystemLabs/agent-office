@@ -13,6 +13,8 @@ const execFileP = promisify(execFile);
 export const WORKTREES_DIR = path.join('.agent-office', 'worktrees');
 /** Their branches are office/<worker>-<id>. */
 export const BRANCH_PREFIX = 'office/';
+/** What the office writes into a worker's workspace (see WorkerInfo.repos), besides the worktrees. */
+export const WORKSPACE_FILES = new Set(['AGENTS.md', 'CLAUDE.md']);
 
 export interface WorktreeRef {
   /** Folder relative to the project dir; missing for a branch whose worktree is already gone. */
@@ -41,17 +43,30 @@ export class Worktrees {
   /**
    * A new branch and worktree at the project's current HEAD. `from` is the branch the project was
    * on, which the worker's pull request targets. Returns what went wrong as a string.
+   *
+   * For a worker across repositories, `sub` puts it in the folder of that name in the workspace
+   * `slug`, which is in `root` (the worker's own floor, when that isn't this project). The path it
+   * returns is relative to `root`.
    */
-  create(slug: string): (Required<WorktreeRef> & { from?: string }) | string {
+  create(slug: string, sub?: string, root = this.dir): (Required<WorktreeRef> & { from?: string }) | string {
     try {
       const base = this.gitSync(['rev-parse', 'HEAD']);
       const from = this.currentBranch();
-      const rel = path.join(WORKTREES_DIR, slug);
+      const rel = path.join(WORKTREES_DIR, slug, sub ?? '');
       const branch = `${BRANCH_PREFIX}${slug}`;
-      this.gitSync(['worktree', 'add', '-b', branch, rel, base]);
+      this.gitSync(['worktree', 'add', '-b', branch, path.resolve(root, rel), base]);
       return { path: rel, branch, base, from };
     } catch (err) {
       return `Could not create a git worktree: ${gitError(err)}`;
+    }
+  }
+
+  /** The git folder every worktree of this project shares, to tell two checkouts of one repository apart from two repositories. */
+  commonDir(): string | undefined {
+    try {
+      return real(path.resolve(this.dir, this.gitSync(['rev-parse', '--git-common-dir'])));
+    } catch {
+      return undefined;
     }
   }
 
@@ -111,28 +126,39 @@ export class Worktrees {
     }
   }
 
-  /** The worktrees git has under .agent-office/worktrees, every office/* branch, and folders there git doesn't know. */
-  async list(): Promise<{ worktrees: ListedWorktree[]; branches: string[]; strays: string[] }> {
+  /**
+   * The worktrees git has under .agent-office/worktrees, every office/* branch, and folders there git
+   * doesn't know. A workspace (a worker across repositories) is a folder there with worktrees in it,
+   * not a stray. `elsewhere` are office/* branches checked out somewhere else: in another floor's
+   * workspace, by a worker across repositories that this project's office doesn't list.
+   */
+  async list(): Promise<{ worktrees: ListedWorktree[]; branches: string[]; strays: string[]; elsewhere: Map<string, string> }> {
     const home = path.join(this.root, WORKTREES_DIR);
     const worktrees: ListedWorktree[] = [];
+    const elsewhere = new Map<string, string>();
     let cur: ListedWorktree | undefined;
+    let abs = '';
     for (const line of (await this.git(['worktree', 'list', '--porcelain'])).split('\n')) {
       if (line.startsWith('worktree ')) {
-        const abs = real(line.slice('worktree '.length));
+        abs = real(line.slice('worktree '.length));
         cur = within(home, abs) ? { path: path.relative(this.root, abs), head: '' } : undefined;
         if (cur) worktrees.push(cur);
       } else if (cur && line.startsWith('HEAD ')) cur.head = line.slice('HEAD '.length);
-      else if (cur && line.startsWith('branch ')) cur.branch = line.slice('branch '.length).replace(/^refs\/heads\//, '');
+      else if (line.startsWith('branch ')) {
+        const branch = line.slice('branch '.length).replace(/^refs\/heads\//, '');
+        if (cur) cur.branch = branch;
+        else if (branch.startsWith(BRANCH_PREFIX)) elsewhere.set(branch, abs);
+      }
     }
     const branches = (await this.git(['for-each-ref', '--format=%(refname:short)', `refs/heads/${BRANCH_PREFIX}`])).split('\n').filter(Boolean);
-    const known = new Set(worktrees.map((w) => path.join(this.root, w.path)));
+    const known = worktrees.map((w) => path.join(this.root, w.path));
     const strays = existsSync(home)
       ? readdirSync(home)
           .map((n) => path.join(home, n))
-          .filter((p) => !known.has(p) && isDir(p))
+          .filter((p) => !known.some((k) => k === p || within(p, k)) && isDir(p))
           .map((p) => path.relative(this.root, p))
       : [];
-    return { worktrees, branches, strays };
+    return { worktrees, branches, strays, elsewhere };
   }
 
   /** True for a folder inside .agent-office/worktrees, the only place this class deletes on its own. */
@@ -148,6 +174,15 @@ export class Worktrees {
     const { stdout } = await execFileP('git', args, { cwd, encoding: 'utf8', timeout: 60_000, maxBuffer: 16 * 1024 * 1024 });
     return stdout.trim();
   }
+}
+
+/**
+ * Where a worker works: its worktree, or for a worker across repositories the workspace folder its
+ * worktrees are in. Relative to its floor's dir; undefined for the floor's own checkout.
+ */
+export function workspaceOf(info: { worktree?: { path: string }; repos?: unknown[] }): string | undefined {
+  if (!info.worktree) return undefined;
+  return info.repos?.length ? path.dirname(info.worktree.path) : info.worktree.path;
 }
 
 /** Why deleting this would lose something ("2 uncommitted changes, 1 unpushed commit"), or '' when it wouldn't. */

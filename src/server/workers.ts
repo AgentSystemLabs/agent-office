@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync, accessSync, chmodSync, mkdirSync, constants } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, accessSync, chmodSync, mkdirSync, readdirSync, rmdirSync, unlinkSync, constants } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { homedir } from 'node:os';
@@ -7,10 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { CodexUsageReader } from './codex-usage.js';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
-import type { AgentChoice, AgentEffort, AgentProvider, Run, TerminalHit, WorkerInfo, WorkerKind, WorkerStatus, WorkerTask } from '../shared/protocol.js';
+import type { AgentChoice, AgentEffort, AgentProvider, Run, TerminalHit, WorkerInfo, WorkerKind, WorkerRepo, WorkerStatus, WorkerTask } from '../shared/protocol.js';
 import { FAILS_TO_DESPAIR, outputFailed, toolAction } from '../shared/actions.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, isAgentEffort, isClaudeModel } from '../shared/protocol.js';
-import { Worktrees, describeWork, type WorktreeCleanup, type WorktreeState } from './worktrees.js';
+import { WORKSPACE_FILES, WORKTREES_DIR, Worktrees, describeWork, workspaceOf, type WorktreeCleanup, type WorktreeRef, type WorktreeState } from './worktrees.js';
+import { normalizeRepo } from '../shared/floors.js';
 import { DESK_BY_ID, STATION_AGENT } from '../shared/layout.js';
 import { QUEUE_AGENT_DISALLOWED_TOOLS, stationBrief } from './stations.js';
 import { officePrompt, type PromptSource } from './prompts.js';
@@ -64,6 +65,11 @@ const TASK_REFRESH_TOOLS = 8;
 const TASK_REFRESH_MS = 90_000;
 const PR_TITLE_MAX = 72;
 const PR_TASK_MAX = 2500;
+/** The most other repositories one worker can take on (see WorkerInfo.repos). */
+export const MAX_REPOS = 8;
+/** Around the list of a change's pull requests in each of their descriptions, so it can be brought up to date. */
+const RELATED_START = '<!-- agent-office:related -->';
+const RELATED_END = '<!-- /agent-office:related -->';
 /**
  * A hook finding the office restarting (its workers keep running through that) retries, once a
  * second, this many times in all: long enough for a dev-server reload.
@@ -85,6 +91,29 @@ export const CARRY_ON_PROMPT = 'continue — the office restarted and interrupte
 export interface HookEnv {
   url: string;
   token: string;
+}
+
+/** Another floor's repository for a worker to work in too (see WorkerInfo.repos). */
+export interface RepoSource {
+  floor: string;
+  /** The floor's name, for messages. */
+  name: string;
+  /** owner/name on GitHub, when known. */
+  repo?: string;
+  /** Its checkout. */
+  dir: string;
+}
+
+/** A pull request 'worker.pr' opened, or found already open, for a worker's branch. */
+export interface OpenedPr {
+  /** For a worker across repositories: which of its repositories (the folder in its workspace). */
+  repo?: string;
+  number: number;
+  url: string;
+  /** The branch already had it. */
+  existed: boolean;
+  /** The worktree still has uncommitted changes, which aren't in it. */
+  dirty: boolean;
 }
 
 /**
@@ -277,7 +306,7 @@ export class WorkerManager {
       workerId: w.info.id,
       pid: w.pty?.pid,
       agent: w.info.kind === 'agent',
-      cwd: w.info.worktree ? path.join(this.dir, w.info.worktree.path) : this.dir,
+      cwd: this.cwd(w.info),
       root: this.dir,
     }));
   }
@@ -289,9 +318,10 @@ export class WorkerManager {
 
   /**
    * Hires a worker at a desk. `meeting` seats one at the meeting room's table instead, for that meeting
-   * (see meetings.ts), in the meeting's own worktree, which everyone at the table shares.
+   * (see meetings.ts), in the meeting's own worktree, which everyone at the table shares. `repos` are
+   * other floors' repositories a worker in its own worktree works in too (see makeWorkspace).
    */
-  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }, owner?: string): WorkerInfo | string {
+  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }, owner?: string, repos: RepoSource[] = []): WorkerInfo | string {
     // Nobody picked (a board agent, say): the office's default worker, model and effort included.
     if (kind === 'agent' && provider === undefined) ({ provider, model, effort } = this.officeDefault);
     const selectedProvider = kind === 'agent' ? provider : undefined;
@@ -306,6 +336,8 @@ export class WorkerManager {
     if (seat.station && !prompt?.trim()) return 'Tell the board agent what to do';
     if (!seat.room !== !meeting) return seat.room ? 'Only a meeting seats workers at the meeting table: call one in the meeting room' : 'A meeting seats its workers at the meeting table';
     if (meeting && (kind !== 'agent' || worktree)) return 'A meeting seats agents, in its own worktree';
+    if (repos.length && (kind !== 'agent' || !worktree || seat.station || meeting)) return 'Only a worker in its own worktree can work in other repositories too';
+    if (repos.length > MAX_REPOS) return `A worker can take on at most ${MAX_REPOS} other repositories`;
     if (kind === 'shell' && provider !== undefined) return 'Shell workers do not have an agent provider';
     if (kind === 'agent' && selectedProvider === 'custom' && this.defaultProvider !== 'custom') return 'Custom is not the configured agent provider';
     if (kind === 'agent') {
@@ -320,10 +352,13 @@ export class WorkerManager {
     const name = agent ? agent.name : (NAMES.find((n) => !used.has(n)) ?? `Worker ${this.workers.size + 1}`);
     const id = randomBytes(6).toString('hex');
     let wt: WorkerInfo['worktree'] = meeting?.worktree;
+    let others: WorkerRepo[] | undefined;
     if (worktree) {
-      const made = this.trees.create(`${name.toLowerCase()}-${id.slice(0, 4)}`);
+      const slug = `${name.toLowerCase()}-${id.slice(0, 4)}`;
+      const made = repos.length ? this.makeWorkspace(slug, repos) : this.trees.create(slug);
       if (typeof made === 'string') return made;
-      wt = made;
+      if ('repos' in made) ({ worktree: wt, repos: others } = made);
+      else wt = made;
     }
     const info: WorkerInfo = {
       id,
@@ -340,6 +375,7 @@ export class WorkerManager {
       createdAt: Date.now(),
       prompt: kind === 'shell' ? undefined : prompt?.trim() || undefined,
       worktree: wt,
+      repos: others,
       cols: 100,
       rows: 30,
       viewers: [],
@@ -355,6 +391,61 @@ export class WorkerManager {
     this.launch(w, seat.station && info.prompt ? `${stationBrief(seat.station, this.prompts)}\n\n${info.prompt}` : info.prompt, undefined);
     this.persist();
     return info;
+  }
+
+  /**
+   * The workspace of a worker across repositories: `.agent-office/worktrees/<slug>`, with a worktree of
+   * this floor's project and of each of `repos` in it, all on office/<slug>, and a brief for the agent
+   * (the 'worker.repos' prompt, as CLAUDE.md and AGENTS.md). All or nothing: when one repository
+   * can't have its worktree, the ones already made are taken out again.
+   */
+  private makeWorkspace(slug: string, repos: RepoSource[]): { worktree: NonNullable<WorkerInfo['worktree']>; repos: WorkerRepo[] } | string {
+    // A branch can only be checked out once per repository, and two floors can be checkouts of the same one.
+    const seen = new Map<string, string>();
+    const own = this.trees.commonDir();
+    if (!own) return "This floor's project isn't a git checkout";
+    seen.set(own, "this floor's project");
+    for (const r of repos) {
+      const common = new Worktrees(r.dir).commonDir();
+      if (!common) return `${r.name} isn't a git checkout`;
+      const twin = seen.get(common);
+      if (twin) return `${r.name} is the same repository as ${twin}`;
+      seen.set(common, r.name);
+    }
+    const names = workspaceNames([this.dir, ...repos.map((r) => r.dir)]);
+    const made: { trees: Worktrees; ref: WorktreeRef }[] = [];
+    const fail = (why: string) => {
+      // Fresh branches with nothing on them: nothing is lost taking them out again.
+      void (async () => {
+        for (const m of made.reverse()) await m.trees.remove(m.ref, 'all');
+        clearWorkspace(path.join(this.dir, path.join(WORKTREES_DIR, slug)));
+      })();
+      return why;
+    };
+    const primary = this.trees.create(slug, names[0]);
+    if (typeof primary === 'string') return fail(primary);
+    made.push({ trees: this.trees, ref: primary });
+    const others: WorkerRepo[] = [];
+    for (const [i, r] of repos.entries()) {
+      const trees = new Worktrees(r.dir);
+      const wt = trees.create(slug, names[i + 1], this.dir);
+      if (typeof wt === 'string') return fail(`${r.name}: ${wt}`);
+      made.push({ trees, ref: { ...wt, path: path.relative(r.dir, path.join(this.dir, wt.path)) } });
+      others.push({ floor: r.floor, name: names[i + 1], repo: r.repo, dir: r.dir, path: wt.path, branch: wt.branch, base: wt.base, from: wt.from });
+    }
+    const home = originRepo(this.dir) ?? path.basename(this.dir);
+    const line = (name: string, project: string, from?: string, note = '') => `- \`${name}/\`: ${project}${from ? `, cut from ${from}` : ''}${note}`;
+    const brief = officePrompt(this.prompts, 'worker.repos', {
+      branch: primary.branch,
+      home,
+      repos: [line(names[0], home, primary.from, " (this floor's project)"), ...repos.map((r, i) => line(names[i + 1], r.repo ?? r.name, others[i].from))].join('\n'),
+    });
+    try {
+      for (const file of WORKSPACE_FILES) writeFileSync(path.join(this.dir, path.join(WORKTREES_DIR, slug), file), `${brief.trim()}\n`);
+    } catch (err) {
+      return fail(`Could not write the workspace's brief: ${(err as Error).message}`);
+    }
+    return { worktree: primary, repos: others };
   }
 
   /** Starts a worker that isn't running again, carrying on its session, with `prompt` as its next message. */
@@ -416,7 +507,7 @@ export class WorkerManager {
    * pull request's head commit) is work delivered. Resolves once that's done, with a line for the team
    * about the worktree.
    */
-  async kill(id: string, cleanup?: WorktreeCleanup, landed?: string): Promise<{ note?: string; error?: string }> {
+  async kill(id: string, cleanup?: WorktreeCleanup, landed?: string, landedRepos?: Record<string, string | undefined>): Promise<{ note?: string; error?: string }> {
     const w = this.workers.get(id);
     if (!w) return {};
     this.workers.delete(id);
@@ -437,6 +528,7 @@ export class WorkerManager {
     // A meeting's worktree is everyone at the table's: the meeting tidies it away once they've all gone.
     if (!wt || w.info.meeting) return {};
     const name = w.info.name;
+    if (w.info.repos?.length) return this.clearRepos(w.info, cleanup, landed, landedRepos);
     if (!cleanup) {
       const work = describeWork(await this.trees.inspect(wt, landed));
       if (work) return { note: `Kept ${name}'s worktree and branch ${wt.branch} — it has ${work}` };
@@ -448,10 +540,66 @@ export class WorkerManager {
     return { note: cleanup === 'all' ? `Deleted ${name}'s worktree and branch ${wt.branch}` : `Deleted ${name}'s worktree and kept branch ${wt.branch}` };
   }
 
+  /** Sending home a worker across repositories: what `kill` does with a worktree, for each of its worktrees, and then its workspace. */
+  private async clearRepos(info: WorkerInfo, cleanup: WorktreeCleanup | undefined, landed?: string, landedRepos?: Record<string, string | undefined>): Promise<{ note?: string; error?: string }> {
+    const trees = this.treesOf(info, landed, landedRepos);
+    const { name } = info;
+    const branch = info.worktree!.branch;
+    const where = trees.map((t) => t.name).join(', ');
+    if (!cleanup) {
+      const held = (await Promise.all(trees.map(async (t) => ({ name: t.name, work: describeWork(await t.trees.inspect(t.ref, t.landed)) })))).filter((t) => t.work);
+      if (held.length) return { note: `Kept ${name}'s worktrees and branch ${branch} in ${where} — ${held.map((t) => `${t.name} has ${t.work}`).join('; ')}` };
+      cleanup = 'all';
+    }
+    if (cleanup === 'keep') return { note: `Kept ${name}'s worktrees and branch ${branch} in ${where}` };
+    const how = cleanup;
+    const errors = (await Promise.all(trees.map(async (t) => {
+      const error = await t.trees.remove(t.ref, how);
+      return error && `${t.name}: ${error}`;
+    }))).filter(Boolean);
+    if (errors.length) return { error: `Couldn't delete all of ${name}'s worktrees: ${errors.join('; ')}` };
+    clearWorkspace(path.join(this.dir, workspaceOf(info)!));
+    return { note: how === 'all' ? `Deleted ${name}'s worktrees and branch ${branch} in ${where}` : `Deleted ${name}'s worktrees in ${where} and kept branch ${branch}` };
+  }
+
+  /**
+   * Each worktree a worker across repositories has, its own floor's first: its folder in the
+   * workspace, git plumbing for its repository, its worktree in that repository's terms, and the
+   * commit its merged pull request delivered, when known.
+   */
+  private treesOf(info: WorkerInfo, landed?: string, landedRepos?: Record<string, string | undefined>): { name: string; trees: Worktrees; ref: WorktreeRef; landed?: string }[] {
+    const wt = info.worktree!;
+    return [
+      { name: path.basename(wt.path), trees: this.trees, ref: wt, landed },
+      ...(info.repos ?? []).map((r) => ({
+        name: r.name,
+        trees: new Worktrees(r.dir),
+        ref: { path: path.relative(r.dir, path.join(this.dir, r.path)), branch: r.branch, base: r.base },
+        landed: landedRepos?.[r.floor],
+      })),
+    ];
+  }
+
+  /**
+   * Whether any worktree of a worker across repositories holds work its merged pull requests didn't
+   * deliver (`landed` and `landedRepos`, as for kill): then it doesn't go home by itself yet.
+   */
+  async holdsWork(id: string, landed?: string, landedRepos?: Record<string, string | undefined>): Promise<boolean> {
+    const info = this.workers.get(id)?.info;
+    if (!info?.worktree) return false;
+    const states = await Promise.all(this.treesOf(info, landed, landedRepos).map(async (t) => describeWork(await t.trees.inspect(t.ref, t.landed))));
+    return states.some(Boolean);
+  }
+
   /** What a worker's worktree holds, so whoever sends it home knows what deleting it would lose. */
-  inspectWorktree(id: string): Promise<WorktreeState | undefined> {
-    const wt = this.workers.get(id)?.info.worktree;
-    return wt ? this.trees.inspect(wt) : Promise.resolve(undefined);
+  async inspectWorktree(id: string): Promise<WorktreeState | undefined> {
+    const info = this.workers.get(id)?.info;
+    if (!info?.worktree) return undefined;
+    if (!info.repos?.length) return this.trees.inspect(info.worktree);
+    const repos = await Promise.all(this.treesOf(info).map(async (t) => ({ name: t.name, state: await t.trees.inspect(t.ref) })));
+    const sum = (k: 'dirty' | 'ahead' | 'unpushed') => repos.reduce((n, r) => n + r.state[k], 0);
+    const errors = repos.filter((r) => r.state.error).map((r) => `${r.name}: ${r.state.error}`);
+    return { exists: repos.every((r) => r.state.exists), dirty: sum('dirty'), ahead: sum('ahead'), unpushed: sum('unpushed'), error: errors.length ? errors.join('; ') : undefined, repos };
   }
 
   attach(id: string, clientId: string, name: string): { data: string; cols: number; rows: number } | undefined {
@@ -539,9 +687,10 @@ export class WorkerManager {
    * Pushes a worktree worker's branch and opens a pull request for it, with a title and body
    * drafted from its task, as `as` (whoever pressed the button) or else the office. Resolves to the
    * PR, or to a message saying why there is none. The branch may already have an open PR (a second
-   * press, or one opened by hand): that one is used.
+   * press, or one opened by hand): that one is used. A worker across repositories gets one in each
+   * repository it committed to (see openPrs).
    */
-  async openPr(id: string, by: string, as?: GhAs): Promise<{ number: number; url: string; existed: boolean; dirty: boolean } | string> {
+  async openPr(id: string, by: string, as?: GhAs): Promise<{ prs: OpenedPr[]; failed: string[] } | string> {
     const w = this.workers.get(id);
     if (!w) return 'No such worker';
     const { info } = w;
@@ -551,6 +700,7 @@ export class WorkerManager {
     if (isBusy(info.status)) {
       return `${info.name} is still ${info.status === 'needs_input' ? 'waiting on input' : info.status} — wait until it's done`;
     }
+    if (info.repos?.length) return this.openPrs(w, by, as);
     const cwd = path.join(this.dir, wt.path);
     if (!existsSync(cwd)) return `${info.name}'s worktree is gone (${wt.path})`;
     info.prOpening = true;
@@ -563,18 +713,15 @@ export class WorkerManager {
       if (open) {
         info.pr = open;
         this.persist();
-        return { ...open, existed: true, dirty };
+        return { prs: [{ ...open, existed: true, dirty }], failed: [] };
       }
       await run('git', ['push', '-u', 'origin', wt.branch], cwd, 90_000, as?.env);
       const base = await this.pushedBranch([wt.from, this.trees.currentBranch()], wt.branch);
       const { title, body } = draftPr(info, commits, by);
-      const out = await gh(['pr', 'create', '--head', wt.branch, ...(base ? ['--base', base] : []), '--title', title, '--body', body], cwd, 60_000, as?.env);
-      const url = out.trim().split('\n').pop() ?? '';
-      const number = Number(/\/pull\/(\d+)/.exec(url)?.[1]);
-      if (!number) throw new Error(`gh did not return a pull request URL (${truncate(out, 120)})`);
+      const { number, url } = await createPr(wt.branch, base, title, body, cwd, as);
       info.pr = { number, url };
       this.persist();
-      return { number, url, existed: false, dirty };
+      return { prs: [{ number, url, existed: false, dirty }], failed: [] };
     } catch (err) {
       return `Couldn't open a PR for ${info.name}: ${(err as Error).message}`;
     } finally {
@@ -584,12 +731,83 @@ export class WorkerManager {
     }
   }
 
-  /** The first of these branches that exists on origin, for a PR base. None: gh picks the default branch. */
-  private async pushedBranch(candidates: (string | undefined)[], not: string): Promise<string | undefined> {
+  /**
+   * 'worker.pr' for a worker across repositories: a pull request in each repository it committed to
+   * (or the one its branch already has there), with every one of them listed in each one's
+   * description, so they're reviewed and merged together. The issue its task came from is closed by
+   * its own floor's pull request; the others only mention it.
+   */
+  private async openPrs(w: Worker, by: string, as?: GhAs): Promise<{ prs: OpenedPr[]; failed: string[] } | string> {
+    const { info } = w;
+    const wt = info.worktree!;
+    const home = originRepo(this.dir);
+    const parts = [
+      { name: path.basename(wt.path), dir: this.dir, ...wt, pr: info.pr, own: true, set: (pr: { number: number; url: string }) => (info.pr = pr) },
+      ...info.repos!.map((r) => ({ ...r, own: false, set: (pr: { number: number; url: string }) => (r.pr = pr) })),
+    ];
+    const gone = parts.filter((p) => !existsSync(path.join(this.dir, p.path)));
+    if (gone.length) return `${info.name}'s worktree${gone.length > 1 ? 's' : ''} of ${gone.map((p) => p.name).join(', ')} ${gone.length > 1 ? 'are' : 'is'} gone`;
+    info.prOpening = true;
+    this.emitUpdate(w);
+    const prs: (OpenedPr & { cwd: string })[] = [];
+    const failed: string[] = [];
+    const uncommitted: string[] = [];
+    try {
+      for (const p of parts) {
+        const cwd = path.join(this.dir, p.path);
+        try {
+          const dirty = (await run('git', ['status', '--porcelain'], cwd)) !== '';
+          const known = p.pr ?? (await findOpenPr(p.branch, cwd));
+          if (known) {
+            p.set(known);
+            prs.push({ repo: p.name, ...known, existed: true, dirty, cwd });
+            continue;
+          }
+          const commits = (await run('git', ['log', '--reverse', '--format=%h %s', `${p.base}..${p.branch}`], cwd)).split('\n').filter(Boolean);
+          if (!commits.length) {
+            if (dirty) uncommitted.push(p.name);
+            continue;
+          }
+          await run('git', ['push', '-u', 'origin', p.branch], cwd, 90_000, as?.env);
+          const base = await this.pushedBranch([p.from, new Worktrees(p.dir).currentBranch()], p.branch, p.dir);
+          const { title, body } = draftPr(info, commits, by, p.own ? undefined : { home });
+          const pr = await createPr(p.branch, base, title, body, cwd, as);
+          p.set(pr);
+          this.persist();
+          prs.push({ repo: p.name, ...pr, existed: false, dirty, cwd });
+        } catch (err) {
+          failed.push(`Couldn't open a PR in ${p.name}: ${(err as Error).message}`);
+        }
+      }
+      if (!prs.length) {
+        if (failed.length) return failed.join('; ');
+        return uncommitted.length ? `${info.name} hasn't committed anything yet in ${uncommitted.join(', ')} — ask it to commit first` : `${info.name} has no commits on ${wt.branch} yet in any of its repositories`;
+      }
+      if (prs.length > 1 && prs.some((p) => !p.existed)) {
+        for (const p of prs) {
+          try {
+            const body = await gh(['pr', 'view', p.url, '--json', 'body', '--jq', '.body'], p.cwd, 30_000, as?.env);
+            const next = withRelated(body, relatedBlock(prs, p.url, wt.branch));
+            if (next !== body) await gh(['pr', 'edit', p.url, '--body', next], p.cwd, 60_000, as?.env);
+          } catch (err) {
+            failed.push(`Couldn't list the other pull requests on ${p.repo} #${p.number}: ${(err as Error).message}`);
+          }
+        }
+      }
+      this.persist();
+      return { prs: prs.map(({ cwd: _, ...p }) => p), failed };
+    } finally {
+      info.prOpening = false;
+      if (this.workers.get(info.id) === w) this.emitUpdate(w);
+    }
+  }
+
+  /** The first of these branches that exists on origin (of `dir`'s repository), for a PR base. None: gh picks the default branch. */
+  private async pushedBranch(candidates: (string | undefined)[], not: string, dir = this.dir): Promise<string | undefined> {
     for (const c of candidates) {
       if (!c || c === not) continue;
       try {
-        await run('git', ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${c}`], this.dir);
+        await run('git', ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${c}`], dir);
         return c;
       } catch {
         // not on the remote (or never fetched)
@@ -977,6 +1195,9 @@ export class WorkerManager {
     }
 
     const cwd = this.cwd(info);
+    // A workspace isn't a repository, but it's inside this floor's checkout: git run in it must not
+    // find that checkout (and switch its branch, say) instead of saying it's no repository.
+    if (info.repos?.length) env.GIT_CEILING_DIRECTORIES = [path.dirname(cwd), env.GIT_CEILING_DIRECTORIES].filter(Boolean).join(path.delimiter);
     if (w.owner && this.runAs) {
       if (isClaude && !this.runAs.claudeReady(w.owner)) {
         this.startFailed(w, `whoever hired ${info.name} (${info.createdBy}) isn't signed in to Claude — they can sign in under ☰ → 🔐 Your sign-ins, then press R here`);
@@ -1151,8 +1372,10 @@ export class WorkerManager {
     return info.provider === this.defaultProvider ? this.agentCmd : info.provider ?? this.agentCmd;
   }
 
+  /** Where a worker works: its worktree, a workspace for a worker across repositories, or the project itself. */
   private cwd(info: WorkerInfo): string {
-    return info.worktree ? path.join(this.dir, info.worktree.path) : this.dir;
+    const rel = workspaceOf(info);
+    return rel ? path.join(this.dir, rel) : this.dir;
   }
 
   /** Hooks fire in bursts (every tool call); one read a moment later covers the whole burst. */
@@ -1372,6 +1595,7 @@ process.stdin.on('end', () => {
       createdAt: info.createdAt,
       prompt: info.prompt,
       worktree: info.worktree,
+      repos: info.repos,
       title: info.title,
       sessionId: info.sessionId,
       activity: info.activity,
@@ -1423,6 +1647,7 @@ process.stdin.on('end', () => {
           createdAt: s.createdAt ?? Date.now(),
           prompt: s.prompt,
           worktree: s.worktree,
+          repos: s.worktree ? validRepos(s.repos) : undefined,
           title: s.title,
           sessionId: s.sessionId,
           activity: s.activity,
@@ -1670,18 +1895,97 @@ function run(cmd: string, args: string[], cwd: string, timeout = 30_000, env?: R
   });
 }
 
+/**
+ * The folder each checkout gets in a workspace: its folder's name, made safe, with -2, -3… when two
+ * checkouts share one (owner-a/api and owner-b/api).
+ */
+export function workspaceNames(dirs: string[]): string[] {
+  const used = new Set<string>();
+  return dirs.map((dir) => {
+    let base = path.basename(path.resolve(dir)).replace(/[^\w.-]+/g, '-').replace(/^[.-]+/, '') || 'project';
+    if (WORKSPACE_FILES.has(base)) base = `${base}-repo`;
+    let name = base;
+    for (let n = 2; used.has(name.toLowerCase()); n++) name = `${base}-${n}`;
+    used.add(name.toLowerCase());
+    return name;
+  });
+}
+
+/** Takes a workspace folder away once its worktrees are gone: only the brief the office wrote, never anything else left in it. */
+function clearWorkspace(abs: string) {
+  try {
+    for (const name of readdirSync(abs)) if (WORKSPACE_FILES.has(name)) unlinkSync(path.join(abs, name));
+    rmdirSync(abs);
+  } catch {
+    // already gone, or something else is in it: it stays
+  }
+}
+
+/** The other repositories of a worker across repositories, as workers.json kept them. */
+function validRepos(raw: unknown): WorkerRepo[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+  const repos = raw.flatMap((r): WorkerRepo[] => {
+    const floor = str(r?.floor), name = str(r?.name), dir = str(r?.dir), rel = str(r?.path), branch = str(r?.branch), base = str(r?.base);
+    if (!floor || !name || !dir || !rel || !branch || !base) return [];
+    const pr = r.pr && typeof r.pr.number === 'number' && typeof r.pr.url === 'string' ? { number: r.pr.number, url: r.pr.url } : undefined;
+    return [{ floor, name, repo: str(r.repo), dir, path: rel, branch, base, from: str(r.from), pr }];
+  });
+  return repos.length ? repos : undefined;
+}
+
+/** owner/name of a checkout's origin on GitHub, when it has one. */
+function originRepo(dir: string): string | undefined {
+  try {
+    return normalizeRepo(execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }).trim());
+  } catch {
+    return undefined;
+  }
+}
+
 async function findOpenPr(branch: string, cwd: string): Promise<{ number: number; url: string } | undefined> {
   const out = await gh(['pr', 'list', '--head', branch, '--state', 'open', '--limit', '1', '--json', 'number,url'], cwd);
   const found = (JSON.parse(out || '[]') as { number: number; url: string }[])[0];
   return found ? { number: found.number, url: found.url } : undefined;
 }
 
+/** `gh pr create` for a pushed branch; resolves to the new pull request. */
+async function createPr(branch: string, base: string | undefined, title: string, body: string, cwd: string, as?: GhAs): Promise<{ number: number; url: string }> {
+  const out = await gh(['pr', 'create', '--head', branch, ...(base ? ['--base', base] : []), '--title', title, '--body', body], cwd, 60_000, as?.env);
+  const url = out.trim().split('\n').pop() ?? '';
+  const number = Number(/\/pull\/(\d+)/.exec(url)?.[1]);
+  if (!number) throw new Error(`gh did not return a pull request URL (${truncate(out, 120)})`);
+  return { number, url };
+}
+
+/** owner/name#12 for a pull request on GitHub (which links it with its title), else its URL. */
+function prRef(url: string): string {
+  const m = /github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/.exec(url);
+  return m ? `${m[1]}#${m[2]}` : url;
+}
+
+/** The list of a change's pull requests across repositories, for the description of the one at `self`. */
+export function relatedBlock(prs: { repo?: string; url: string }[], self: string, branch: string): string {
+  const lines = prs.map((p) => `- ${p.repo ? `**${p.repo}**: ` : ''}${prRef(p.url)}${p.url === self ? ' (this one)' : ''}`);
+  return [RELATED_START, `**One change across ${prs.length} repositories**, each on \`${branch}\`: review and merge them together.`, '', ...lines, RELATED_END].join('\n');
+}
+
+/** A description with its list of related pull requests put in, or brought up to date. */
+export function withRelated(body: string, block: string): string {
+  const at = body.indexOf(RELATED_START);
+  const end = at < 0 ? -1 : body.indexOf(RELATED_END, at);
+  if (end >= 0) return body.slice(0, at) + block + body.slice(end + RELATED_END.length);
+  return body.trim() ? `${body.trimEnd()}\n\n${block}` : block;
+}
+
 /**
  * A pull request title and body from what the worker was asked to do. The title is the issue's
  * title when the task came off the issues board, else the task's first line; the body carries the
- * task, the commits, a "Closes #n" when the task asked for one, and which desk it came from.
+ * task, the commits, a "Closes #n" when the task asked for one, and which desk it came from. With
+ * `other`, it's for one of the other repositories of a worker across repositories: the issue is its
+ * own floor's (`home`), so this one only mentions it.
  */
-function draftPr(info: WorkerInfo, commits: string[], by: string): { title: string; body: string } {
+function draftPr(info: WorkerInfo, commits: string[], by: string, other?: { home?: string }): { title: string; body: string } {
   const task = (info.prompt ?? '').replace(/\r\n?/g, '\n').trim();
   const firstLine = task.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
   // The issues board hands work over as: Work on GitHub issue #12: "Title".
@@ -1691,7 +1995,8 @@ function draftPr(info: WorkerInfo, commits: string[], by: string): { title: stri
   const parts: string[] = [];
   if (task) parts.push(`## Task\n\n${task.length > PR_TASK_MAX ? `${task.slice(0, PR_TASK_MAX)}…` : task}`);
   parts.push(`## Commits\n\n${commits.map((c) => `- \`${c.slice(0, c.indexOf(' '))}\` ${c.slice(c.indexOf(' ') + 1)}`).join('\n')}`);
-  if (closes) parts.push(`Closes #${closes}`);
+  if (closes && !other) parts.push(`Closes #${closes}`);
+  else if (closes && other?.home) parts.push(`Part of ${other.home}#${closes}`);
   parts.push(`_Opened from Agent Office by ${by} · ${info.name} at ${DESK_BY_ID.get(info.deskId)?.label ?? info.deskId}_`);
   return { title, body: parts.join('\n\n') };
 }

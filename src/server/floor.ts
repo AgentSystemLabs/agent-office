@@ -57,6 +57,18 @@ export interface FloorContext {
   peers(floor: Floor): PeerInfo[];
   /** ⚙️ Settings: a worker whose pull request merged goes home by itself. */
   leaveOnMerge(): boolean;
+  /** Another floor of the building: a worker across repositories works in its project too (see WorkerInfo.repos). */
+  floor(id: string): Floor | undefined;
+  /** This floor's pull requests came back: a worker on another floor with a repository here may have landed. */
+  pullsChanged(floor: Floor): void;
+  /** Whether a worker on another floor works in this floor's project too. */
+  lent(floor: Floor): boolean;
+}
+
+/** The open pull request on a floor's board whose head is `branch`. */
+function openPull(floor: Floor, branch: string): { number: number; url: string } | undefined {
+  const pr = floor.github.pulls.items.find((p) => p.state === 'OPEN' && p.headRefName === branch);
+  return pr ? { number: pr.number, url: pr.url } : undefined;
 }
 
 /** How long after a PR list or a worker's change the office looks for workers whose PR merged. */
@@ -115,6 +127,8 @@ export class Floor {
   private merges = new MergeWatch();
   /** A look for workers whose pull request merged, due shortly (see sendLandedHome). */
   private landedTimer?: NodeJS.Timeout;
+  /** Workers across repositories whose worktrees are being checked before they go home. */
+  private landing = new Set<string>();
 
   constructor(
     readonly def: FloorDef,
@@ -182,6 +196,7 @@ export class Floor {
           this.merged(p.number);
         }
         this.sendLandedHome();
+        ctx.pullsChanged(this);
       },
     );
     // The 📋 task queue seats workers by itself: it watches the workers and links PRs from GitHub.
@@ -239,15 +254,25 @@ export class Floor {
     this.changes = new Changes(
       def.dir,
       this.project.branch,
-      (workerId) => {
+      (workerId, repo) => {
         const w = this.workers.get(workerId);
         if (!w) return undefined;
-        return { name: w.name, cwd: w.worktree ? path.join(def.dir, w.worktree.path) : def.dir, rel: w.worktree?.path ?? '', worktreeBase: w.worktree?.base };
+        if (!repo) return { name: w.name, cwd: w.worktree ? path.join(def.dir, w.worktree.path) : def.dir, rel: w.worktree?.path ?? '', worktreeBase: w.worktree?.base };
+        // One of the other floors' repositories it works in: diffed against, and PRs opened against, that floor's branch.
+        const r = w.repos?.find((x) => x.floor === repo);
+        if (!r) return undefined;
+        const other = ctx.floor(r.floor);
+        return {
+          name: w.name,
+          cwd: path.join(def.dir, r.path),
+          rel: r.path,
+          worktreeBase: r.base,
+          baseBranch: r.from ?? null,
+          openPull: (branch) => (other ? openPull(other, branch) : undefined),
+          refreshGitHub: () => void other?.github.refresh(),
+        };
       },
-      (branch) => {
-        const pr = this.github.pulls.items.find((p) => p.state === 'OPEN' && p.headRefName === branch);
-        return pr ? { number: pr.number, url: pr.url } : undefined;
-      },
+      (branch) => openPull(this, branch),
       {
         state: (state, ids) => ctx.changes(state, ids),
         toast: (text, level) => ctx.toast(this, text, level),
@@ -283,15 +308,32 @@ export class Floor {
     this.landedTimer = setTimeout(() => {
       this.landedTimer = undefined;
       if (!this.ctx.leaveOnMerge()) return;
-      for (const { worker, pr, head } of landedWorkers(this.workers.list(), this.github.pulls.items, this.queue.state().tasks)) {
-        const done = this.workers.kill(worker.id, undefined, head);
-        this.ctx.toast(this, `🏠 ${worker.name} went home: PR #${pr} merged`);
-        void done.then(({ note, error }) => {
-          if (note) this.ctx.toast(this, note);
-          if (error) this.ctx.toast(this, error, 'warn');
+      const pullsOf = (id: string) => this.ctx.floor(id)?.github.pulls.items;
+      for (const landed of landedWorkers(this.workers.list(), this.github.pulls.items, this.queue.state().tasks, pullsOf)) {
+        const { worker, head, heads } = landed;
+        if (!worker.repos?.length) {
+          this.goHome(worker, `PR #${landed.pr} merged`, head);
+          continue;
+        }
+        // Across repositories, one PR can merge before another repository's work even has one:
+        // it goes once nothing is left that its merged PRs didn't deliver.
+        if (this.landing.has(worker.id)) continue;
+        this.landing.add(worker.id);
+        void this.workers.holdsWork(worker.id, head, heads).then((held) => {
+          this.landing.delete(worker.id);
+          if (!held && this.workers.get(worker.id) === worker) this.goHome(worker, `its pull requests merged (${landed.prs?.join(', ')})`, head, heads);
         });
       }
     }, LANDED_DELAY_MS);
+  }
+
+  private goHome(worker: WorkerInfo, why: string, head?: string, heads?: Record<string, string | undefined>) {
+    const done = this.workers.kill(worker.id, undefined, head, heads);
+    this.ctx.toast(this, `🏠 ${worker.name} went home: ${why}`);
+    void done.then(({ note, error }) => {
+      if (note) this.ctx.toast(this, note);
+      if (error) this.ctx.toast(this, error, 'warn');
+    });
   }
 
   /** Someone just walked in: boards that haven't been looked at in a while get fetched again. */
@@ -300,7 +342,7 @@ export class Floor {
   }
 
   private active(): boolean {
-    return this.ctx.people(this) > 0 || this.workers.list().some((w) => isBusy(w.status)) || this.queue.state().tasks.some((t) => t.status !== 'done') || this.meetings.state().current?.status === 'running';
+    return this.ctx.people(this) > 0 || this.ctx.lent(this) || this.workers.list().some((w) => isBusy(w.status)) || this.queue.state().tasks.some((t) => t.status !== 'done') || this.meetings.state().current?.status === 'running';
   }
 
   info(): FloorInfo {
@@ -310,6 +352,7 @@ export class Floor {
       name: this.def.name,
       repo: this.def.repo,
       dir: this.dir,
+      branch: this.project.branch,
       palette: this.def.palette,
       addedBy: this.def.addedBy,
       addedAt: this.def.addedAt,
