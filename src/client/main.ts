@@ -81,6 +81,7 @@ import { wayTo } from './walkto';
 import { DESK_KEYS, interactionAvailable, type DeskKey } from './interaction';
 import { MeetingBoardTexture, MeetingSignTexture, meetingStage } from './world/meeting';
 import { issueMeeting, openMeeting, type MeetingPreset } from './ui/meeting';
+import { TelescopeView } from './telescope';
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -297,6 +298,30 @@ scene.add(me.root);
 noOutline(me.root);
 const settings = loadSettings();
 const player = new PlayerController(camera, canvas, office.colliders);
+const telescope = new TelescopeView(
+  camera,
+  $('telescope-view'),
+  $('telescope-exit'),
+  window,
+  () => {
+    player.enabled = false;
+    player.clearKeys();
+    player.stopWalking();
+    player.yieldMouse();
+    document.body.classList.add('telescope-active');
+    $('telescope-view').setAttribute('aria-hidden', 'false');
+    target = null;
+    hintKey = 'stale';
+  },
+  () => {
+    document.body.classList.remove('telescope-active');
+    $('telescope-view').setAttribute('aria-hidden', 'true');
+    player.enabled = !modalOpen() && !trip;
+    player.clearKeys();
+    hintKey = 'stale';
+    if (!modalOpen()) setTimeout(backToGame, 0);
+  },
+);
 // Everyone arrives by elevator (the welcome says exactly where).
 placeInCar();
 player.view = settings.view;
@@ -1121,6 +1146,7 @@ store.on('floors', paintFloor);
  * looks as it does there.
  */
 function setPlace() {
+  telescope.exit();
   const up = store.floor === ROOF;
   if (up === upTop) return;
   upTop = up;
@@ -1944,6 +1970,7 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   else if (target.kind === 'golf') teeOff();
   else if (target.kind === 'darts' || target.kind === 'axe') stepUp(target.kind);
   else if (target.kind === 'ball') takeBall();
+  else if (target.kind === 'telescope') telescope.enter();
 }
 
 // ---- The rooftop bar ---------------------------------------------------------------------------------
@@ -2703,6 +2730,8 @@ function hintFor(it: Interactable): Hint {
       );
       return { k: `${dog.name}|${doing}`, parts: [title(`🐶 ${dog.name}`), doing ? aside(doing) : '', key('E', 'Pet')] };
     }
+    case 'telescope':
+      return { k: '', parts: [title('🔭 Office telescope'), aside('overlooks the worker floor'), key('E', 'Look through')] };
   }
 }
 
@@ -2960,6 +2989,11 @@ function use(it: Interactable | null, key: DeskKey, note = aimedNote): boolean {
 
 // ---- Input ----------------------------------------------------------------------------------------
 window.addEventListener('keydown', (e) => {
+  if (telescope.active) {
+    if (e.code === 'Escape' || e.code === 'KeyE' || e.code === 'KeyF') telescope.exit();
+    e.preventDefault();
+    return;
+  }
   if (modalOpen() || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
   if (relookOnKey && e.key !== 'Escape' && player.canLock) player.lock();
   if (hanger.active && hangingKey(e.code)) {
@@ -3116,6 +3150,7 @@ onDoingChange(() => sendDoing());
  */
 let relookOnKey = false;
 onModalChange((open) => {
+  if (open) telescope.exit();
   player.enabled = !open;
   player.clearKeys();
   sendDoing();
@@ -3158,7 +3193,7 @@ document.addEventListener('pointerlockchange', () => {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */
@@ -3522,6 +3557,7 @@ function frame(ts?: number) {
     camera.fov += (fov - camera.fov) * Math.min(1, dt * 8);
     camera.updateProjectionMatrix();
   }
+  telescope.update();
   whoosh.style.opacity = rush > 0.02 ? String(rush * 0.85) : '0';
 
   // Your ears are in your head, facing wherever the camera looks.
@@ -3623,7 +3659,7 @@ function frame(ts?: number) {
   }
 
   aimedNote = null;
-  if (modalOpen() || hanger.active || climber.active || golf.active || thrower.active) target = null;
+  if (modalOpen() || telescope.active || hanger.active || climber.active || golf.active || thrower.active) target = null;
   else if (firstPerson) {
     const aim = aimedAt(CROSSHAIR);
     target = aim?.near ? aim.it : (mySeat() ?? ballAtFeet());
@@ -3661,7 +3697,7 @@ function frame(ts?: number) {
   effect.render(scene, camera);
   pointToWaiting(now);
   // Not while the camera's up at the boss's monitor or the arcade, where they'd cover the screen.
-  if (firstPerson && !arcade.zoomed && !cabinet.zoomed && !golf.active && !thrower.active) {
+  if (firstPerson && !telescope.active && !arcade.zoomed && !cabinet.zoomed && !golf.active && !thrower.active) {
     // Hands go on top of everything, so they never clip into a desk you walk up to. They have
     // lights of their own, turned down to match wherever you're standing.
     renderer.clearDepth();

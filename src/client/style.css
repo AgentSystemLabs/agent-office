@@ -202,6 +202,24 @@ button { font-family: inherit; }
 }
 .crosshair.free .look-hint { display: block; }
 .crosshair.on .look-hint { transform: translateX(-50%) scale(.625); transform-origin: top center; }
+/* The boss-loft telescope: a dark ocular housing, glass tint and a subtle focus reticle. */
+.telescope-view { display: none; position: absolute; inset: 0; z-index: 40; pointer-events: none; overflow: hidden; }
+.telescope-view.active { display: block; }
+.telescope-view::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(circle at center, transparent 0, transparent 39vmin, rgba(8,10,18,.72) 43vmin, #080a12 48vmin);
+}
+.telescope-glass {
+  position: absolute; inset: 5vmin; border-radius: 50%;
+  background: radial-gradient(circle, transparent 52%, rgba(8,18,28,.3) 72%, rgba(3,7,14,.76) 100%);
+  box-shadow: inset 0 0 4vmin rgba(100,190,220,.2); mix-blend-mode: multiply;
+}
+.telescope-reticle { position: absolute; left: 50%; top: 50%; width: 8vmin; height: 8vmin; transform: translate(-50%,-50%); border: 1px solid rgba(230,245,245,.3); border-radius: 50%; }
+.telescope-reticle::before, .telescope-reticle::after { content: ''; position: absolute; background: rgba(230,245,245,.28); }
+.telescope-reticle::before { left: 50%; top: -2vmin; width: 1px; height: 12vmin; }
+.telescope-reticle::after { top: 50%; left: -2vmin; height: 1px; width: 12vmin; }
+.telescope-exit { position: absolute; z-index: 2; left: 50%; bottom: 5vmin; transform: translateX(-50%); pointer-events: auto; white-space: nowrap; }
+body.telescope-active #hud { visibility: hidden; }
 /* The emote wheel (hold G): six emotes round a ring in the middle of the screen, over the crosshair. */
 .emote-wheel { position: absolute; inset: 0; display: grid; place-items: center; background: radial-gradient(circle, rgba(43,45,66,.28), transparent 45%); }
 .emote-wheel .ring {
