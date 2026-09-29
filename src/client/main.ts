@@ -15,7 +15,7 @@ import { Climber, gripOf, type Arrival, type Grip, type Way } from './climb';
 import { Caffeine } from './caffeine';
 import { buildOffice, type DeskView, type InteractKind, type Interactable } from './world/office';
 import { officeWorld, type World } from './world/world';
-import { buildCastle, type Castle } from './world/castle';
+import { BUILDERS } from './world/styles';
 import { Court } from './world/court';
 import { buildRooftop, type Rooftop } from './world/rooftop';
 import { DrunkVision } from './world/drunk';
@@ -132,10 +132,10 @@ scene.add(office.group);
  * The building's map as it's built (see shared/maps and world/world.ts): the office, or a map of
  * its own (the castle). Only one is in the scene at a time, like the office and the rooftop.
  */
-const officeWorld_ = officeWorld(office, () => office.stack.state.index > 0);
-let world: World = officeWorld_;
+const theOffice = officeWorld(office, () => office.stack.state.index > 0);
+let world: World = theOffice;
 /** Whether the building's on the office's own map, with everything that has (the elevator, the balcony, the lounge…). */
-const inOffice = () => world === officeWorld_;
+const inOffice = () => world === theOffice;
 /** Where everything is on the building's map: its seats by id, and places to sit. */
 const plan = (): MapPlan => world.plan;
 /** On a castle-style map: its workers walking between their seats and the line for the throne. */
@@ -165,8 +165,13 @@ const STATION_INFO: Record<StationKind, { icon: string; offer: string; does: str
   pulls: { icon: '🔀', offer: 'Ask me about PRs', does: 'I sum up, review, comment on and merge them', example: 'Review the newest PR and tell me if it’s ready to merge' },
   queue: { icon: '📋', offer: 'Ask me to queue work', does: 'I turn it into tasks for fresh workers', example: 'Queue every open bug issue, most important first' },
 };
-/** The board agents waiting by their boards before anyone has asked them anything (see buildKiosk), in `w`. */
-function idleAgentsIn(w: World) {
+/** A board agent waiting by its board before anyone has asked it anything (see buildKiosk), and where. */
+interface IdleAgent {
+  model: Worker;
+  view: DeskView;
+}
+/** The board agents waiting by their boards in `w`. */
+function idleAgentsIn(w: World): IdleAgent[] {
   return w.plan.stations.map((def) => {
     const kind = def.station!;
     const agent = STATION_AGENT[kind];
@@ -1357,37 +1362,22 @@ function arrive(how: TripKind | 'back' = trip?.how ?? 'elevator') {
 /** The board agents waiting at the office's kiosks (the ones made at the start). */
 const officeIdle = idleAgents;
 /** The worlds built for maps of their own, by map id, with the plan each was built from (a custom map can change). */
-const built = new Map<string, { plan: MapPlan; world: Castle; court: Court; idle: ReturnType<typeof idleAgentsIn> }>();
+const built = new Map<string, { plan: MapPlan; world: World; court: Court; idle: IdleAgent[] }>();
 
-/** The world for `p`: the office, or the one built for it, the first time it's wanted. */
-function worldFor(p: MapPlan): { world: World; court: Court | null; idle: ReturnType<typeof idleAgentsIn> } {
-  if (p.style === 'office') return { world: officeWorld_, court: null, idle: officeIdle };
+/** The world for `p`: the office, or the one its style's builder puts up for it, the first time it's wanted. */
+function worldFor(p: MapPlan): { world: World; court: Court | null; idle: IdleAgent[] } {
+  if (p.style === 'office') return { world: theOffice, court: null, idle: officeIdle };
   let b = built.get(p.id);
   // A map of your own was edited since: it's built again.
   if (b && b.plan !== p) {
     scene.remove(b.world.group);
-    // Its geometry, and the materials with a picture of their own (walls, banners, glass); the shared
-    // toon materials stay, being everyone's. Geometry shared with other worlds is never disposed
-    // (three.js uploads it again if it's drawn after).
-    const freed = new Set<THREE.Material>();
-    b.world.group.traverse((o) => {
-      const m = o as THREE.Mesh;
-      m.geometry?.dispose();
-      for (const mat of Array.isArray(m.material) ? m.material : m.material ? [m.material] : []) {
-        const map = (mat as THREE.MeshBasicMaterial).map;
-        if (map instanceof THREE.CanvasTexture && !freed.has(mat)) {
-          map.dispose();
-          mat.dispose();
-          freed.add(mat);
-        }
-      }
-    });
+    b.world.dispose?.();
     for (const a of b.idle) a.model.dispose();
     built.delete(p.id);
     b = undefined;
   }
   if (!b) {
-    const w = buildCastle(p);
+    const w = BUILDERS[p.style](p);
     w.group.visible = false;
     scene.add(w.group);
     noOutline(w.group);
@@ -1430,20 +1420,10 @@ function applyMap() {
   idleAgents = next.idle;
   world.group.visible = !upTop;
   if (!upTop) player.colliders = world.colliders;
-  player.room = inOffice() ? { ...FLOOR, wall: WALL_T, enclosed: false } : { ...plan().bounds, wall: 0.6, enclosed: true };
-  sky.setIndoors(!inOffice());
+  player.room = { ...plan().bounds, ...world.room };
+  sky.setIndoors(world.room.enclosed);
   // What you hear: the office's phones and fridge, or the hall's own windows and gong.
-  const cfg = plan().config;
-  const gongAt = world.gong?.top;
-  sound.setHall(
-    inOffice()
-      ? null
-      : {
-          bounds: plan().bounds,
-          gong: gongAt ? { x: gongAt.x, y: gongAt.y - 1.8, z: gongAt.z } : null,
-          windows: (cfg?.props ?? []).filter((p) => p.kind === 'window').map((p) => ({ x: p.x, y: (p.y ?? 6) + (p.height ?? 5) / 2, z: p.z })),
-        },
-  );
+  sound.setHall(world.acoustics ? { bounds: plan().bounds, ...world.acoustics } : null);
   // The office's own: the holiday decorations round it and the street, the dog, the jukebox.
   holiday.group.visible = inOffice() && !upTop;
   dog.root.visible = inOffice() && !!store.dog;
@@ -1756,8 +1736,7 @@ const heraldHires = new Set<string>();
 
 /** Where a worker just hired comes in from, running to its seat: the herald, the doors (off the queue), or nowhere (it's just there). */
 function cameFrom(w: WorkerInfo): [number, number] | undefined {
-  const c = world as Castle;
-  if (heraldHires.delete(w.deskId) && c.herald) {
+  if (heraldHires.delete(w.deskId) && plan().herald) {
     const h = plan().herald!;
     return [h.x + Math.sin(h.rotY) * 1.1, h.z + Math.cos(h.rotY) * 1.1];
   }
@@ -1837,7 +1816,7 @@ function dressUp() {
   for (const r of remotes.values()) r.person.setCostume(theme);
   for (const v of workerViews.values()) v.model.setCostume(theme);
   for (const a of idleAgents) a.model.setCostume(theme);
-  (world as Castle).herald?.person.setCostume(theme);
+  world.herald?.person.setCostume(theme);
 }
 store.on('theme', dressUp);
 store.on('usage', renderUsage);
@@ -2364,11 +2343,11 @@ function hireFromHerald() {
   if (!h || officeIsFull()) return;
   if (!firstFreeSeat()) return toast(`${h.name}: every seat at the tables is taken — send someone home first`, 'warn');
   openPrompt({
-    title: `📜 ${h.name}: send out a worker`,
-    subtitle: 'Say what it’s to do. A new worker runs off to a free seat at the tables and gets started, and comes back to line up before your throne once it’s done or needs you.',
+    title: `${plan().icon} ${h.name}: send out a worker`,
+    subtitle: `Say what it’s to do. A new worker runs off to a free seat and gets started${plan().lineup.length ? `, and comes back to line up${plan().throne ? ' before your throne' : ''} once it’s done or needs you` : ''}.`,
     warning: pressureNote(store.machine),
-    placeholder: 'What shall they toil on, my liege?',
-    submitLabel: 'Send them out ⚔️',
+    placeholder: h.ask,
+    submitLabel: h.button,
     allowEmpty: true,
     providerOption: true,
     worktreeOption: !!store.project?.branch,
@@ -3050,7 +3029,7 @@ function hintFor(it: Interactable): Hint {
     case 'herald': {
       const h = plan().herald;
       const full = !firstFreeSeat();
-      return { k: `${h?.name}|${full}`, parts: [title(`🫅 ${h?.name ?? 'Herald'}`), aside(full ? 'every seat is taken' : (h?.says ?? '')), full ? '' : key('E', 'Send out a new worker')] };
+      return { k: `${h?.name}|${full}`, parts: [title(`${plan().icon} ${h?.name ?? 'Herald'}`), aside(full ? 'every seat is taken' : (h?.says ?? '')), full ? '' : key('E', 'Send out a new worker')] };
     }
     case 'smoke':
       return { k: String(smokeBreakUntil > 0), parts: [title('🚬 Ashtray'), key('E', smokeBreakUntil ? 'Stub it out' : 'Take a smoke break')] };
@@ -3676,7 +3655,7 @@ function throneTarget(): Interactable | null {
   const id = plan().throne?.id;
   if (!id || player.seat?.seatId !== id) return null;
   const first = court?.interactables.find((it) => !it.off);
-  return first ?? (world as Castle).herald?.interactable ?? null;
+  return first ?? world.herald?.interactable ?? null;
 }
 
 /** The issue whose note on the issues board an aim lands on, or null (bare cork, the frame, anything else). */

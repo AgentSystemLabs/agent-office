@@ -11,6 +11,10 @@ import type { Bounds, Obstacles } from '../nav.js';
  * work the same on any of them, and a worker keeps its seat when the building changes maps.
  */
 
+/** The styles there's a builder for (the client's world/styles.ts): a map's `style` is one of them. */
+export const MAP_STYLES = ['castle'] as const;
+export type MapStyle = (typeof MAP_STYLES)[number];
+
 /** The boards on the walls. */
 export type BoardKey = 'issues' | 'queue' | 'pulls' | 'services';
 export const BOARD_KEYS: readonly BoardKey[] = ['issues', 'queue', 'pulls', 'services'];
@@ -90,9 +94,9 @@ export interface MapConfig {
   /** Just inside the way in and out, where workers come in and go home. */
   door: Place;
   /** Your seat of honour, on a dais against a wall. */
-  throne?: (Place & { dais?: { width: number; depth: number; height: number; steps: number } | null }) | null;
+  throne?: (Place & { dais?: { width: number; depth: number; height: number; steps: number } | null; label?: string }) | null;
   /** Whoever stands by the throne and sends new workers out when you speak to them. */
-  herald?: (Place & { name?: string; says?: string }) | null;
+  herald?: (Place & { name?: string; says?: string; ask?: string; button?: string }) | null;
   /** Where workers waiting on someone line up: the first spot, each next one `step` further on, `count` of them, facing `rotY`. */
   lineup?: { x: number; z: number; rotY: number; step: [number, number]; count: number } | null;
   /** Where the workers sit. The sides toward the middle of the hall fill first. */
@@ -121,7 +125,7 @@ export interface MapPlan {
   icon: string;
   description: string;
   /** 'office' is the office built in code; any other is built from `config` by its style's builder. */
-  style: string;
+  style: 'office' | MapStyle;
   config?: MapConfig;
   bounds: Bounds;
   /** How high the walls are. */
@@ -143,8 +147,13 @@ export interface MapPlan {
   dais?: { width: number; depth: number; height: number; steps: number };
   /** The spots workers waiting on someone stand in, first in line first. */
   lineup: { x: number; z: number; rotY: number }[];
-  herald?: { x: number; z: number; rotY: number; name: string; says: string };
+  /** Who sends out new workers: where, what the card over them says, and what they ask and the button in their window. */
+  herald?: { x: number; z: number; rotY: number; name: string; says: string; ask: string; button: string };
   door: { x: number; z: number };
+  /** The tables as checked, with what was left out filled in: the sides with seats (1 is the table's right, -1 its left). */
+  tables: { x: number; z: number; length: number; width: number; rotY: number; seats: number; sides: (1 | -1)[]; name: string }[];
+  /** The meeting table's middle, and the way its head faces. */
+  council?: { x: number; z: number; rotY: number };
   boards: Record<BoardKey, BoardDef>;
   /** What's in the way on the floor, for walking round it (the office has its own: OFFICE_NAV). */
   obstacles?: Obstacles;

@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { CASTLE } from '../src/shared/maps/castle.js';
 import { DESK_BY_ID } from '../src/shared/layout.js';
 import { NavGrid, pathLength } from '../src/shared/nav.js';
 import { BUILTIN_MAPS, OFFICE_PLAN, checkCustomMaps, mapChoices, planMap, planOf, seatHereOn } from '../src/shared/maps/index.js';
@@ -127,4 +130,41 @@ test('a worker keeps count of how long it has worked, over every stretch', () =>
   // Asleep, it doesn't count.
   clockWork(info, 'offline', 90_000);
   assert.equal(workedMs(info, 100_000), 15_000);
+});
+
+/** Numbers to 4 places, so the JSON reads like someone wrote it. */
+function rounded(v: unknown): unknown {
+  if (typeof v === 'number') return Math.round(v * 1e4) / 1e4;
+  if (Array.isArray(v)) return v.map(rounded);
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, rounded(x)]));
+  return v;
+}
+
+/** The castle as a map of your own: its own id, one table or prop a line. */
+function castleJson(): string {
+  const { tables, props, ...rest } = rounded({ ...CASTLE, id: 'my-castle', name: 'My castle', description: 'A copy of the castle, to make your own.' }) as typeof CASTLE;
+  const list = (xs: unknown[]) => `[\n${xs.map((x) => `    ${JSON.stringify(x)}`).join(',\n')}\n  ]`;
+  return `${JSON.stringify({ ...rest, tables: '@tables', props: '@props' }, null, 2).replace('"@tables"', list(tables)).replace('"@props"', list(props ?? []))}\n`;
+}
+
+test('docs/maps/castle.json is the castle, ready to copy into .agent-office/maps/ and change', () => {
+  const file = path.join(import.meta.dirname, '..', 'docs', 'maps', 'castle.json');
+  const want = castleJson();
+  // After changing the castle: UPDATE_CASTLE_JSON=1 node --import tsx --test tests/maps.test.ts
+  if (process.env.UPDATE_CASTLE_JSON) writeFileSync(file, want);
+  assert.equal(readFileSync(file, 'utf8'), want, 'docs/maps/castle.json is out of date: write it again with UPDATE_CASTLE_JSON=1');
+  const [mine] = checkCustomMaps([{ file: 'castle.json', json: JSON.parse(want) }]);
+  assert.equal(mine.error, undefined);
+  const plan = planOf('my-castle', [mine]);
+  const castle = planOf('castle');
+  assert.equal(plan.desks.length, castle.desks.length);
+  for (const d of plan.desks) assert.ok(Math.abs(d.x - castle.byId.get(d.id)!.x) < 1e-3 && Math.abs(d.z - castle.byId.get(d.id)!.z) < 1e-3, `${d.id} is where the castle has it`);
+});
+
+test('every map in docs/maps.md loads', () => {
+  const doc = readFileSync(path.join(import.meta.dirname, '..', 'docs', 'maps.md'), 'utf8');
+  const maps = [...doc.matchAll(/```json\n([\s\S]*?)\n```/g)].map((m) => JSON.parse(m[1]) as { id: string });
+  assert.ok(maps.length >= 2);
+  const checked = checkCustomMaps(maps.map((json) => ({ file: `${json.id}.json`, json })));
+  for (const m of checked) assert.equal(m.error, undefined, `${m.file}: ${m.error}`);
 });

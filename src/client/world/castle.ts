@@ -2,9 +2,11 @@ import * as THREE from 'three';
 import type { FloorPalette } from '../../shared/floors';
 import { KIOSK, STATION_AGENT, deskSeat, type DeskDef, type StationKind } from '../../shared/layout';
 import { BENCH_OUT, BOARD_KEYS, COUNCIL, THRONE_SIZE, type BoardKey, type MapPlan, type PropConfig } from '../../shared/maps';
+import type { PropKind } from '../../shared/maps/props';
 import { PROP_SIZE, boxFootprint } from '../../shared/maps/props';
 import { NavGrid, deskPoint, type Pt } from '../../shared/nav';
 import { Person } from './character';
+import { glowTexture } from './costumes';
 import { buildGong, type Gong } from './gong';
 import { vacancyMarker, type Collider, type DeskView, type Interactable } from './office';
 import { mergeByMaterial, mesh, roundedBox, textPlane, toon, toonUnique } from './toon';
@@ -23,13 +25,6 @@ const MAX_LIGHTS = 8;
 const TABLE_TOP = 0.78;
 const BENCH_TOP = 0.45;
 const DOORWAY = { width: 5, height: 6.6 } as const;
-
-export interface Castle extends World {
-  /** Whoever stands by the throne and sends out new workers (the map's herald). */
-  herald?: { person: Person; interactable: Interactable; at: THREE.Vector3 };
-  /** The throne, somewhere to sit (kind 'seat'). */
-  throne?: Interactable;
-}
 
 // ---- Textures -------------------------------------------------------------------------------------
 
@@ -343,6 +338,15 @@ interface Kit {
   lights: { light: THREE.PointLight; base: number; phase: number }[];
   mats: Mats;
   height: number;
+  /** Every seat by id, as it's built. */
+  desks: Map<string, DeskView>;
+  /** What paints itself over later: the stained glass (dimmer at night), the banners and the shields (in a floor's colors). */
+  glass: THREE.MeshBasicMaterial[];
+  banners: Banner[];
+  shields: THREE.MeshToonMaterial[];
+  /** How many windows so far, so each one's glass is its own pattern. */
+  windows: number;
+  gong?: Gong;
 }
 
 interface Mats {
@@ -368,19 +372,6 @@ interface Flame {
   phase: number;
 }
 
-let glowTex: THREE.Texture | null = null;
-function glowTexture(): THREE.Texture {
-  glowTex ??= canvasTexture(64, 64, (g) => {
-    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-    grad.addColorStop(0, 'rgba(255,220,150,1)');
-    grad.addColorStop(0.35, 'rgba(255,170,70,0.45)');
-    grad.addColorStop(1, 'rgba(255,120,30,0)');
-    g.fillStyle = grad;
-    g.fillRect(0, 0, 64, 64);
-  });
-  return glowTex;
-}
-
 /** Every flame's cones: the same two shapes, scaled. */
 const FLAME_OUTER = new THREE.ConeGeometry(0.45, 1, 8).translate(0, 0.5, 0);
 const FLAME_INNER = new THREE.ConeGeometry(0.25, 0.7, 8).translate(0, 0.35, 0);
@@ -399,7 +390,7 @@ function flame(kit: Kit, parent: THREE.Object3D, x: number, y: number, z: number
   f.add(outer, inner);
   f.scale.setScalar(size);
   parent.add(f);
-  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#ffb45a', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
   glow.material.userData.outlineParameters = { visible: false };
   glow.position.set(x, y + size * 0.45, z);
   glow.scale.setScalar(size * 5);
@@ -570,7 +561,7 @@ interface Banner {
   great: boolean;
 }
 
-function banner(kit: Kit, p: PropConfig, banners: Banner[], color: string) {
+function banner(kit: Kit, p: PropConfig, color: string) {
   const w = p.width ?? 1.2;
   const h = p.height ?? 4;
   const g = placed(p, p.y ?? kit.height - 2);
@@ -578,7 +569,7 @@ function banner(kit: Kit, p: PropConfig, banners: Banner[], color: string) {
   const pw = 256;
   const ph = Math.min(2048, Math.max(64, Math.round((256 * h) / w)));
   const tex = canvasTexture(pw, ph, (c) => paintBanner(c, pw, ph, color));
-  banners.push({ tex, w: pw, h: ph, great });
+  kit.banners.push({ tex, w: pw, h: ph, great });
   // Cut to a swallowtail at the foot.
   const s = new THREE.Shape();
   s.moveTo(-w / 2, 0);
@@ -599,7 +590,7 @@ function banner(kit: Kit, p: PropConfig, banners: Banner[], color: string) {
   kit.group.add(g);
 }
 
-function glassWindow(kit: Kit, p: PropConfig, seed: number, glass: THREE.MeshBasicMaterial[]) {
+function glassWindow(kit: Kit, p: PropConfig, seed: number) {
   const w = p.width ?? 2.2;
   const h = p.height ?? 5;
   const g = placed(p, p.y ?? 6);
@@ -608,7 +599,7 @@ function glassWindow(kit: Kit, p: PropConfig, seed: number, glass: THREE.MeshBas
   const tex = canvasTexture(256, th, stainedGlass(seed, 256, th));
   const mat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
   mat.userData.outlineParameters = { visible: false };
-  glass.push(mat);
+  kit.glass.push(mat);
   g.add(mesh(archPane(w, h), mat, 0, 0, 0.02, false));
   // A stone frame round it: the jambs, the sill, and the arch over it.
   const r = w * 0.85;
@@ -623,12 +614,12 @@ function glassWindow(kit: Kit, p: PropConfig, seed: number, glass: THREE.MeshBas
   kit.group.add(g);
 }
 
-function rose(kit: Kit, p: PropConfig, glass: THREE.MeshBasicMaterial[]) {
+function rose(kit: Kit, p: PropConfig) {
   const d = p.width ?? 4.5;
   const g = placed(p, p.y ?? kit.height - 3);
   const mat = new THREE.MeshBasicMaterial({ map: canvasTexture(512, 512, roseGlass), toneMapped: false });
   mat.userData.outlineParameters = { visible: false };
-  glass.push(mat);
+  kit.glass.push(mat);
   g.add(mesh(new THREE.CircleGeometry(d / 2, 40), mat, 0, 0, 0.03, false));
   g.add(mesh(new THREE.TorusGeometry(d / 2 + 0.1, 0.22, 8, 40), kit.mats.stoneDark, 0, 0, 0.08));
   for (let i = 0; i < 8; i++) {
@@ -699,7 +690,7 @@ function armor(kit: Kit, p: PropConfig) {
   kit.colliders.push({ minX: p.x - r, maxX: p.x + r, minZ: p.z - r, maxZ: p.z + r, top: 99 });
 }
 
-function shield(kit: Kit, p: PropConfig, shields: THREE.MeshToonMaterial[]) {
+function shield(kit: Kit, p: PropConfig) {
   const g = placed(p, p.y ?? 3.5);
   const s = new THREE.Shape();
   s.moveTo(-0.5, 0.5);
@@ -707,7 +698,7 @@ function shield(kit: Kit, p: PropConfig, shields: THREE.MeshToonMaterial[]) {
   s.quadraticCurveTo(0.5, -0.3, 0, -0.75);
   s.quadraticCurveTo(-0.5, -0.3, -0.5, 0.5);
   const field = toonUnique('#9b1c1c');
-  shields.push(field);
+  kit.shields.push(field);
   g.add(mesh(new THREE.ExtrudeGeometry(s, { depth: 0.06, bevelEnabled: false }), field, 0, 0, 0.12));
   g.add(mesh(box(0.16, 1.05, 0.02), kit.mats.gold, 0, -0.1, 0.19, false));
   g.add(mesh(box(0.8, 0.16, 0.02), kit.mats.gold, 0, 0.15, 0.19, false));
@@ -899,19 +890,35 @@ function ironThrone(mats: Mats): THREE.Group {
 
 // ---- Building it ---------------------------------------------------------------------------------
 
-/** Puts up the hall in `plan` (a castle-style map). */
-export function buildCastle(plan: MapPlan): Castle {
-  const c = plan.config!;
-  const b = plan.bounds;
-  const H = plan.height;
-  const W = b.maxX - b.minX;
-  const L = b.maxZ - b.minZ;
-  const pal = { stone: '#9a9186', floor: '#7b746a', carpet: '#8e1b1b', wood: '#6b4526', trim: '#d9ab2e', ...(c.palette ?? {}) };
-  const group = new THREE.Group();
-  const still = new THREE.Group();
-  const stoneTex = canvasTexture(512, 256, ashlar(pal.stone, 5), [W / 4, H / 2]);
-  const toonMap = (map: THREE.Texture, color = '#ffffff') => new THREE.MeshToonMaterial({ color, map, gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap });
-  const mats: Mats = {
+/** Each kind of prop, put up (every kind there is has one: see PROP_KINDS). */
+const PROPS: Record<PropKind, (kit: Kit, p: PropConfig) => void> = {
+  pillar,
+  torch,
+  brazier,
+  chandelier,
+  banner: (kit, p) => banner(kit, p, '#9b1c1c'),
+  window: (kit, p) => glassWindow(kit, p, kit.windows++),
+  rose,
+  carpet,
+  statue,
+  armor,
+  shield,
+  hearth,
+  gong: (kit, p) => {
+    const gong = buildGong({ x: p.x, y: kit.floorAt(p.x, p.z), z: p.z, rotY: p.rotY ?? 0 });
+    kit.group.add(gong.group);
+    kit.colliders.push(...gong.colliders);
+    kit.interactables.push(gong.interactable);
+    kit.gong = gong;
+  },
+  cask: (kit, p) => kit.interactables.push(cask(kit, p)),
+  table: plainTable,
+  candles,
+};
+
+/** The colors of the stone and the rest, as the map's palette has them. */
+function materials(pal: { stone: string; wood: string; trim: string; carpet: string }): Mats {
+  return {
     stone: toon(pal.stone),
     stoneDark: toon(shade(pal.stone, -0.1)),
     wood: toon(pal.wood),
@@ -924,28 +931,26 @@ export function buildCastle(plan: MapPlan): Castle {
     parchment: toon('#efe3c2'),
     candle: toon('#f3ead2'),
   };
-  const kit: Kit = {
-    group,
-    still,
-    colliders: [],
-    interactables: [],
-    flames: [],
-    lights: [],
-    mats,
-    height: H,
-    floorAt(x, z) {
-      let top = 0;
-      for (const cc of kit.colliders) if (cc.top < 50 && !cc.fence && cc.top > top && x > cc.minX && x < cc.maxX && z > cc.minZ && z < cc.maxZ) top = cc.top;
-      return top;
-    },
-  };
-  const glass: THREE.MeshBasicMaterial[] = [];
-  const banners: Banner[] = [];
-  const shields: THREE.MeshToonMaterial[] = [];
+}
 
-  // ---- The floor, the walls and the roof ----
-  const floorTex = canvasTexture(512, 512, flagstones(pal.floor), [W / 4, L / 4]);
-  const floor = mesh(new THREE.PlaneGeometry(W, L), toonMap(floorTex), 0, 0, 0, false);
+/** A toon material with a picture on it (stone, flagstones, boards). */
+const toonMap = (map: THREE.Texture) => new THREE.MeshToonMaterial({ color: '#ffffff', map, gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap });
+
+/** The hall's outside walls are this thick. */
+const WALL = 0.6;
+
+/**
+ * The shell of the hall: the floor, the four walls (a doorway in the one nearest the map's door,
+ * with its great doors), and the timber roof. Returns where the doorway is, which way is out through
+ * it, and how to swing the doors (0 shut, 1 open).
+ */
+function buildShell(kit: Kit, plan: MapPlan, pal: Mats & { floorColor: string; stoneColor: string }): { doorAt: THREE.Vector3; out: Pt; swing(open: number): void } {
+  const b = plan.bounds;
+  const H = plan.height;
+  const W = b.maxX - b.minX;
+  const L = b.maxZ - b.minZ;
+  const { group, still, mats } = kit;
+  const floor = mesh(new THREE.PlaneGeometry(W, L), toonMap(canvasTexture(512, 512, flagstones(pal.floorColor), [W / 4, L / 4])), 0, 0, 0, false);
   floor.rotation.x = -Math.PI / 2;
   floor.position.set((b.minX + b.maxX) / 2, 0, (b.minZ + b.maxZ) / 2);
   group.add(floor);
@@ -956,8 +961,9 @@ export function buildCastle(plan: MapPlan): Castle {
   const gaps = { west: door.x - b.minX, east: b.maxX - door.x, north: door.z - b.minZ, south: b.maxZ - door.z };
   const doorWall = (Object.keys(gaps) as (keyof typeof gaps)[]).reduce((a, k) => (gaps[k] < gaps[a] ? k : a), 'south');
   const out: Pt = doorWall === 'west' ? [-1, 0] : doorWall === 'east' ? [1, 0] : doorWall === 'north' ? [0, -1] : [0, 1];
-  const T = 0.6;
-  const wallMats = (along: number) => {
+  const T = WALL;
+  const stoneTex = canvasTexture(512, 256, ashlar(pal.stoneColor, 5), [W / 4, H / 2]);
+  const wallMat = (along: number) => {
     const t = stoneTex.clone();
     t.repeat.set(along / 4, H / 2);
     t.needsUpdate = true;
@@ -971,8 +977,7 @@ export function buildCastle(plan: MapPlan): Castle {
   ];
   for (const [side, x, z, w, d] of walls) {
     const alongX = side === 'north' || side === 'south';
-    const len = alongX ? w : d;
-    const mat = wallMats(len);
+    const mat = wallMat(alongX ? w : d);
     if (side !== doorWall) {
       group.add(mesh(box(w, H, d), mat, x, H / 2, z));
       kit.colliders.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2, top: 99 });
@@ -991,8 +996,7 @@ export function buildCastle(plan: MapPlan): Castle {
       const m = (a + bb) / 2;
       const span = bb - a;
       if (span <= 0) continue;
-      const piece = alongX ? mesh(box(span, H, d), mat, m, H / 2, z) : mesh(box(w, H, span), mat, x, H / 2, m);
-      group.add(piece);
+      group.add(alongX ? mesh(box(span, H, d), mat, m, H / 2, z) : mesh(box(w, H, span), mat, x, H / 2, m));
       kit.colliders.push(alongX ? { minX: a, maxX: bb, minZ: z - d / 2, maxZ: z + d / 2, top: 99 } : { minX: x - w / 2, maxX: x + w / 2, minZ: a, maxZ: bb, top: 99 });
     }
     group.add(alongX ? mesh(box(DOORWAY.width, H - DOORWAY.height, d), mat, u, (H + DOORWAY.height) / 2, z) : mesh(box(w, H - DOORWAY.height, DOORWAY.width), mat, x, (H + DOORWAY.height) / 2, u));
@@ -1010,56 +1014,52 @@ export function buildCastle(plan: MapPlan): Castle {
   // Outside the doors: a landing, so workers have somewhere to walk off to, and the grass beyond.
   const lx = doorWall === 'west' ? b.minX - 3 : doorWall === 'east' ? b.maxX + 3 : door.x;
   const lz = doorWall === 'north' ? b.minZ - 3 : doorWall === 'south' ? b.maxZ + 3 : door.z;
-  const land = mesh(box(Math.abs(out[0]) ? 6 : 7, 0.2, Math.abs(out[0]) ? 7 : 6), mats.stoneDark, lx, -0.1, lz);
-  group.add(land);
+  group.add(mesh(box(Math.abs(out[0]) ? 6 : 7, 0.2, Math.abs(out[0]) ? 7 : 6), mats.stoneDark, lx, -0.1, lz));
   kit.colliders.push({ minX: lx - 3.5, maxX: lx + 3.5, minZ: lz - 3.5, maxZ: lz + 3.5, top: 0 });
   const grass = mesh(new THREE.PlaneGeometry(240, 240), toon('#5d7a3a'), (b.minX + b.maxX) / 2, -0.25, (b.minZ + b.maxZ) / 2, false);
   grass.rotation.x = -Math.PI / 2;
   group.add(grass);
 
   // The great doors, swinging in when someone comes up to them.
-  const doorLeaves: THREE.Group[] = [];
+  const leaves: THREE.Group[] = [];
   const doorAt = new THREE.Vector3(doorWall === 'west' ? b.minX : doorWall === 'east' ? b.maxX : door.x, 0, doorWall === 'north' ? b.minZ : doorWall === 'south' ? b.maxZ : door.z);
-  const doorFrame = new THREE.Group();
-  doorFrame.position.copy(doorAt);
-  doorFrame.rotation.y = Math.atan2(out[0], out[1]);
-  {
-    const r = DOORWAY.width * 0.7;
-    const feet = DOORWAY.height - archRise(DOORWAY.width, r);
-    // Each leaf is half the arch: square up to where the arch springs, then following its curve up to the point.
-    const half = new THREE.Shape();
-    half.moveTo(0, 0);
-    half.lineTo(DOORWAY.width / 2, 0);
-    const arc = new THREE.Shape();
-    arc.moveTo(-DOORWAY.width / 2, 0);
-    archPath(arc, DOORWAY.width, r, 0);
-    const curve = arc.getPoints(12).filter((v) => v.x <= 0.001);
-    for (const v of [...curve].reverse()) half.lineTo(v.x + DOORWAY.width / 2, v.y + feet);
-    half.lineTo(0, 0);
-    const leafGeo = new THREE.ExtrudeGeometry(half, { depth: 0.16, bevelEnabled: false, curveSegments: 12 });
-    leafGeo.translate(0, 0, -0.08);
-    const oak = toon('#4a2d18');
-    for (const side of [-1, 1]) {
-      const hinge = new THREE.Group();
-      hinge.position.set(side * (DOORWAY.width / 2), 0, 0.1);
-      const leaf = new THREE.Group();
-      leaf.add(mesh(leafGeo, oak, 0, 0, 0));
-      for (const y of [1.1, 2.6]) leaf.add(mesh(box(DOORWAY.width / 2 - 0.1, 0.12, 0.2), mats.iron, DOORWAY.width / 4, y, 0, false));
-      leaf.add(mesh(new THREE.TorusGeometry(0.16, 0.035, 6, 14), mats.iron, DOORWAY.width / 2 - 0.35, 2.0, -0.12, false));
-      // The right one is the left one turned over.
-      leaf.scale.x = -side;
-      hinge.add(leaf);
-      doorFrame.add(hinge);
-      doorLeaves.push(hinge);
-    }
-    // A pointed arch of stone over the doorway, filling it in above the arch, and the jambs under it.
-    doorFrame.add(mesh(archFill(DOORWAY.width + 1, DOORWAY.height - feet + 0.4, DOORWAY.width, T + 0.24, r), mats.stoneDark, 0, feet, T / 2));
-    for (const sx of [-1, 1]) doorFrame.add(mesh(box(0.5, feet, T + 0.24), mats.stoneDark, sx * (DOORWAY.width / 2 + 0.25), feet / 2, T / 2));
+  const frame = new THREE.Group();
+  frame.position.copy(doorAt);
+  frame.rotation.y = Math.atan2(out[0], out[1]);
+  const r = DOORWAY.width * 0.7;
+  const feet = DOORWAY.height - archRise(DOORWAY.width, r);
+  // Each leaf is half the arch: square up to where the arch springs, then following its curve up to the point.
+  const half = new THREE.Shape();
+  half.moveTo(0, 0);
+  half.lineTo(DOORWAY.width / 2, 0);
+  const arc = new THREE.Shape();
+  arc.moveTo(-DOORWAY.width / 2, 0);
+  archPath(arc, DOORWAY.width, r, 0);
+  const curve = arc.getPoints(12).filter((v) => v.x <= 0.001);
+  for (const v of [...curve].reverse()) half.lineTo(v.x + DOORWAY.width / 2, v.y + feet);
+  half.lineTo(0, 0);
+  const leafGeo = new THREE.ExtrudeGeometry(half, { depth: 0.16, bevelEnabled: false, curveSegments: 12 });
+  leafGeo.translate(0, 0, -0.08);
+  const oak = toon('#4a2d18');
+  for (const side of [-1, 1]) {
+    const hinge = new THREE.Group();
+    hinge.position.set(side * (DOORWAY.width / 2), 0, 0.1);
+    const leaf = new THREE.Group();
+    leaf.add(mesh(leafGeo, oak, 0, 0, 0));
+    for (const y of [1.1, 2.6]) leaf.add(mesh(box(DOORWAY.width / 2 - 0.1, 0.12, 0.2), mats.iron, DOORWAY.width / 4, y, 0, false));
+    leaf.add(mesh(new THREE.TorusGeometry(0.16, 0.035, 6, 14), mats.iron, DOORWAY.width / 2 - 0.35, 2.0, -0.12, false));
+    // The right one is the left one turned over.
+    leaf.scale.x = -side;
+    hinge.add(leaf);
+    frame.add(hinge);
+    leaves.push(hinge);
   }
-  group.add(doorFrame);
-  let doorOpen = 0;
+  // A pointed arch of stone over the doorway, filling it in above the arch, and the jambs under it.
+  frame.add(mesh(archFill(DOORWAY.width + 1, DOORWAY.height - feet + 0.4, DOORWAY.width, T + 0.24, r), mats.stoneDark, 0, feet, T / 2));
+  for (const sx of [-1, 1]) frame.add(mesh(box(0.5, feet, T + 0.24), mats.stoneDark, sx * (DOORWAY.width / 2 + 0.25), feet / 2, T / 2));
+  group.add(frame);
 
-  // The roof: trusses across the hall on every other pillar, and boarding over them up to the ridge.
+  // The roof: a truss across the hall over each pair of pillars, and boarding over them up to the ridge.
   const rise = W * 0.3;
   const pitch = Math.atan2(rise, W / 2);
   const roofWood = toonMap(canvasTexture(256, 256, boards('#3b2618'), [L / 4, W / 4]));
@@ -1075,11 +1075,10 @@ export function buildCastle(plan: MapPlan): Castle {
     tri.lineTo(W / 2 + T, 0);
     tri.lineTo(0, rise + 0.2);
     tri.closePath();
-    const gable = mesh(new THREE.ExtrudeGeometry(tri, { depth: T, bevelEnabled: false }), mats.stone, (b.minX + b.maxX) / 2, H, z - T / 2, false);
-    group.add(gable);
+    group.add(mesh(new THREE.ExtrudeGeometry(tri, { depth: T, bevelEnabled: false }), mats.stone, (b.minX + b.maxX) / 2, H, z - T / 2, false));
   }
   // Over the pillars, where there are pillars, else every 6 m.
-  const pillarZs = [...new Set((c.props ?? []).filter((p) => p.kind === 'pillar').map((p) => Math.round(p.z * 10) / 10))].sort((a, z) => a - z);
+  const pillarZs = [...new Set((plan.config?.props ?? []).filter((q) => q.kind === 'pillar').map((q) => Math.round(q.z * 10) / 10))].sort((a, z) => a - z);
   const trussZs: number[] = pillarZs.length >= 2 ? pillarZs : [];
   if (!trussZs.length) for (let z = b.minZ + 3; z < b.maxZ - 1; z += 6) trussZs.push(z);
   for (const z of trussZs) {
@@ -1099,253 +1098,178 @@ export function buildCastle(plan: MapPlan): Castle {
   }
   still.add(mesh(box(0.4, 0.4, L), mats.woodDark, (b.minX + b.maxX) / 2, H + rise - 0.3, (b.minZ + b.maxZ) / 2, false));
 
-  // ---- The dais and the throne ----
-  let throne: Interactable | undefined;
-  if (plan.throne && plan.dais) {
-    const t = plan.throne;
-    const dais = plan.dais;
+  return {
+    doorAt,
+    out,
+    swing(open) {
+      const e = open * open * (3 - 2 * open);
+      leaves.forEach((h, i) => (h.rotation.y = (i ? -1 : 1) * e * 1.4));
+    },
+  };
+}
+
+/** The dais at the throne's end of the hall, its steps and runner, and the throne of blades on it. Returns somewhere to sit. */
+function buildDais(kit: Kit, plan: MapPlan): Interactable | undefined {
+  const t = plan.throne;
+  const dais = plan.dais;
+  if (!t || !dais) return undefined;
+  const { mats } = kit;
+  const g = new THREE.Group();
+  g.position.set(t.x, 0, t.z);
+  g.rotation.y = t.rotY;
+  // It runs 2.4 m in front of the throne (the rest behind), with its steps down from there.
+  const front = 2.4;
+  const stepD = 0.7;
+  const top = dais.height;
+  const at = (lx: number, lz: number) => [t.x + Math.cos(t.rotY) * lx + Math.sin(t.rotY) * lz, t.z - Math.sin(t.rotY) * lx + Math.cos(t.rotY) * lz] as const;
+  g.add(mesh(box(dais.width, top, dais.depth), mats.stoneDark, 0, top / 2, front - dais.depth / 2));
+  g.add(mesh(box(dais.width + 0.06, 0.1, 0.12), mats.gold, 0, top - 0.04, front, false));
+  const [cx, cz] = at(0, front - dais.depth / 2);
+  collide(kit, cx, cz, dais.width, dais.depth, t.rotY, top);
+  for (let k = 1; k <= dais.steps; k++) {
+    const y = (top * (dais.steps + 1 - k)) / (dais.steps + 1);
+    const lz = front + (k - 0.5) * stepD;
+    g.add(mesh(box(dais.width - k * 0.4, y, stepD), mats.stoneDark, 0, y / 2, lz));
+    const [sx, sz] = at(0, lz);
+    collide(kit, sx, sz, dais.width - k * 0.4, stepD, t.rotY, y);
+    g.add(mesh(box(2.6, 0.03, stepD), mats.carpet, 0, y + 0.012, lz, false));
+  }
+  // A runner up the dais to the throne.
+  g.add(mesh(box(2.6, 0.03, front + 0.2), mats.carpet, 0, top + 0.012, front / 2 - 0.1, false));
+  for (const sx of [-1, 1]) g.add(mesh(box(0.12, 0.035, front + dais.steps * stepD), mats.gold, sx * 1.2, top + 0.014, (front + dais.steps * stepD) / 2 - 0.2, false));
+  const iron = ironThrone(mats);
+  iron.position.set(0, top, 0);
+  g.add(iron);
+  kit.group.add(g);
+  collide(kit, t.x - Math.sin(t.rotY) * 0.2, t.z - Math.cos(t.rotY) * 0.2, THRONE_SIZE.width, THRONE_SIZE.depth, t.rotY, 99);
+  const seat: Interactable = { kind: 'seat', seatId: t.id, x: t.x, y: t.y, z: t.z, radius: 1.7 };
+  iron.userData.interact = seat;
+  kit.interactables.push(seat);
+  return seat;
+}
+
+/** The long tables and their benches, as the plan has them, with candles down the middle. */
+function buildTables(kit: Kit, plan: MapPlan) {
+  const { mats } = kit;
+  for (const t of plan.tables) {
     const g = new THREE.Group();
     g.position.set(t.x, 0, t.z);
     g.rotation.y = t.rotY;
-    const front = 2.4;
-    const stepD = 0.7;
-    const top = dais.height;
-    g.add(mesh(box(dais.width, top, dais.depth), mats.stoneDark, 0, top / 2, front - dais.depth / 2));
-    g.add(mesh(box(dais.width + 0.06, 0.1, 0.12), mats.gold, 0, top - 0.04, front, false));
-    const at = (lx: number, lz: number) => [t.x + Math.cos(t.rotY) * lx + Math.sin(t.rotY) * lz, t.z - Math.sin(t.rotY) * lx + Math.cos(t.rotY) * lz] as const;
-    {
-      const [cx, cz] = at(0, front - dais.depth / 2);
-      collide(kit, cx, cz, dais.width, dais.depth, t.rotY, top);
-    }
-    for (let k = 1; k <= dais.steps; k++) {
-      const y = (top * (dais.steps + 1 - k)) / (dais.steps + 1);
-      const lz = front + (k - 0.5) * stepD;
-      g.add(mesh(box(dais.width - k * 0.4, y, stepD), mats.stoneDark, 0, y / 2, lz));
-      const [cx, cz] = at(0, lz);
-      collide(kit, cx, cz, dais.width - k * 0.4, stepD, t.rotY, y);
-      g.add(mesh(box(2.6, 0.03, stepD), mats.carpet, 0, y + 0.012, lz, false));
-    }
-    // A runner up the dais to the throne.
-    g.add(mesh(box(2.6, 0.03, front + 0.2), mats.carpet, 0, top + 0.012, front / 2 - 0.1, false));
-    for (const sx of [-1, 1]) g.add(mesh(box(0.12, 0.035, front + dais.steps * stepD), mats.gold, sx * 1.2, top + 0.014, (front + dais.steps * stepD) / 2 - 0.2, false));
-    const iron = ironThrone(mats);
-    iron.position.set(0, top, 0);
-    g.add(iron);
-    group.add(g);
-    collide(kit, t.x - Math.sin(t.rotY) * 0.2, t.z - Math.cos(t.rotY) * 0.2, THRONE_SIZE.width, THRONE_SIZE.depth, t.rotY, 99);
-    throne = { kind: 'seat', seatId: t.id, x: t.x, y: t.y, z: t.z, radius: 1.7 };
-    iron.userData.interact = throne;
-    kit.interactables.push(throne);
-  }
-
-  // ---- The props ----
-  const props = c.props ?? [];
-  let gong: Gong | undefined;
-  let seed = 1;
-  for (const p of props) {
-    switch (p.kind) {
-      case 'pillar':
-        pillar(kit, p);
-        break;
-      case 'torch':
-        torch(kit, p);
-        break;
-      case 'brazier':
-        brazier(kit, p);
-        break;
-      case 'chandelier':
-        chandelier(kit, p);
-        break;
-      case 'banner':
-        banner(kit, p, banners, '#9b1c1c');
-        break;
-      case 'window':
-        glassWindow(kit, p, seed++, glass);
-        break;
-      case 'rose':
-        rose(kit, p, glass);
-        break;
-      case 'carpet':
-        carpet(kit, p);
-        break;
-      case 'statue':
-        statue(kit, p);
-        break;
-      case 'armor':
-        armor(kit, p);
-        break;
-      case 'shield':
-        shield(kit, p, shields);
-        break;
-      case 'hearth':
-        hearth(kit, p);
-        break;
-      case 'gong': {
-        gong = buildGong({ x: p.x, y: kit.floorAt(p.x, p.z), z: p.z, rotY: p.rotY ?? 0 });
-        group.add(gong.group);
-        kit.colliders.push(...gong.colliders);
-        kit.interactables.push(gong.interactable);
-        break;
-      }
-      case 'cask':
-        kit.interactables.push(cask(kit, p));
-        break;
-      case 'table':
-        plainTable(kit, p);
-        break;
-      case 'candles':
-        candles(kit, p);
-        break;
-    }
-  }
-  arcade(
-    kit,
-    props.filter((p) => p.kind === 'pillar'),
-  );
-
-  // ---- The tables, where the workers sit ----
-  const desks = new Map<string, DeskView>();
-  for (const t of c.tables) {
-    const w = t.width ?? 1.4;
-    const r = t.rotY ?? 0;
-    const g = new THREE.Group();
-    g.position.set(t.x, 0, t.z);
-    g.rotation.y = r;
     // Along local z; the benches along its sides.
-    g.add(mesh(roundedBox(w, 0.1, t.length, 0.05), mats.wood, 0, TABLE_TOP - 0.05, 0));
+    g.add(mesh(roundedBox(t.width, 0.1, t.length, 0.05), mats.wood, 0, TABLE_TOP - 0.05, 0));
     g.add(mesh(box(0.16, 0.12, t.length - 0.8), mats.woodDark, 0, 0.22, 0));
     const legs = Math.max(2, Math.round(t.length / 3.2) + 1);
     for (let i = 0; i < legs; i++) {
       const lz = -t.length / 2 + 0.35 + (i * (t.length - 0.7)) / (legs - 1);
-      g.add(mesh(box(w - 0.3, TABLE_TOP - 0.1, 0.12), mats.woodDark, 0, (TABLE_TOP - 0.1) / 2, lz));
+      g.add(mesh(box(t.width - 0.3, TABLE_TOP - 0.1, 0.12), mats.woodDark, 0, (TABLE_TOP - 0.1) / 2, lz));
     }
     // Candles down the middle, between the places.
-    for (let i = 0; i < t.seats; i++) {
-      const lz = (i - (t.seats - 1) / 2) * (t.length / t.seats) + t.length / t.seats / 2;
-      if (lz > t.length / 2 - 0.3) continue;
+    for (let i = 0; i < t.seats - 1; i++) {
+      const lz = (i + 1 - t.seats / 2) * (t.length / t.seats);
       g.add(mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.05, 8), mats.iron, 0, TABLE_TOP + 0.025, lz, false));
       g.add(mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.22, 6), mats.candle, 0, TABLE_TOP + 0.16, lz, false));
       flame(kit, g, 0, TABLE_TOP + 0.28, lz, 0.08);
     }
-    const right = t.x * Math.cos(r) - t.z * Math.sin(r) <= 0;
-    for (const s of [1, -1]) {
-      const inner = (s === 1) === right;
-      const sides = t.sides ?? 'both';
-      if (sides !== 'both' && (sides === 'inner') !== inner) continue;
-      const bx = s * (w / 2 + BENCH_OUT);
+    for (const s of t.sides) {
+      const bx = s * (t.width / 2 + BENCH_OUT);
       g.add(mesh(roundedBox(0.44, 0.08, t.length - 0.2, 0.03), mats.wood, bx, BENCH_TOP - 0.04, 0));
       for (let i = 0; i < legs; i++) {
         const lz = -t.length / 2 + 0.4 + (i * (t.length - 0.8)) / (legs - 1);
         g.add(mesh(box(0.34, BENCH_TOP - 0.08, 0.08), mats.woodDark, bx, (BENCH_TOP - 0.08) / 2, lz));
       }
-      const [cx, cz] = [t.x + Math.cos(r) * bx, t.z - Math.sin(r) * bx];
-      collide(kit, cx, cz, 0.44, t.length - 0.2, r, BENCH_TOP);
+      collide(kit, t.x + Math.cos(t.rotY) * bx, t.z - Math.sin(t.rotY) * bx, 0.44, t.length - 0.2, t.rotY, BENCH_TOP);
     }
     kit.group.add(g);
-    collide(kit, t.x, t.z, w, t.length, r, TABLE_TOP);
+    collide(kit, t.x, t.z, t.width, t.length, t.rotY, TABLE_TOP);
   }
-  const place = (def: DeskDef, overflow: boolean): DeskView => {
-    const g = new THREE.Group();
-    g.position.set(def.x, 0, def.z);
-    g.rotation.y = def.rotY;
-    const laptopAnchor = new THREE.Object3D();
-    laptopAnchor.position.set(0, TABLE_TOP, -0.02);
-    laptopAnchor.scale.setScalar(1.1);
-    g.add(laptopAnchor);
-    // On the bench, facing the table.
-    const seatAnchor = new THREE.Object3D();
-    seatAnchor.position.set(0, BENCH_TOP - 0.08, 0.85);
-    seatAnchor.rotation.y = Math.PI;
-    seatAnchor.scale.setScalar(0.82);
-    g.add(seatAnchor);
-    // Up on the table beside the tome.
-    const stage = new THREE.Object3D();
-    stage.position.set(0.66, TABLE_TOP - 0.07, 0.12);
-    g.add(stage);
-    // A pewter plate and a goblet at every place.
-    g.add(mesh(new THREE.CylinderGeometry(0.16, 0.13, 0.02, 14), toon('#8d939c'), -0.62, TABLE_TOP + 0.01, 0.12, false));
-    g.add(mesh(new THREE.CylinderGeometry(0.045, 0.03, 0.14, 8), mats.gold, -0.62, TABLE_TOP + 0.08, -0.12, false));
-    const vacancy = vacancyMarker(1.35);
-    g.add(vacancy);
-    g.visible = !overflow;
-    const it: Interactable = { kind: 'desk', deskId: def.id, ...xz(deskSeat(def, 1.25)), radius: 1.3, off: overflow };
-    kit.interactables.push(it);
-    g.userData.interact = it;
-    group.add(g);
-    const view: DeskView = { def, group: g, laptopAnchor, seatAnchor, stage, chair: new THREE.Group(), vacancy, vacancyY: 1.35 };
-    return Object.assign(view, { it });
-  };
-  const overflowIts = new Map<string, Interactable>();
-  for (const def of plan.desks) desks.set(def.id, place(def, false));
-  for (const def of plan.overflow) {
-    const v = place(def, true);
-    desks.set(def.id, v);
-    overflowIts.set(def.id, (v as DeskView & { it: Interactable }).it);
+}
+
+/** A place at a table: its tome, the worker on the bench, a plate and a goblet, and the '+' while it's free. */
+function placeSetting(kit: Kit, def: DeskDef, overflow: boolean): { view: DeskView; it: Interactable } {
+  const g = new THREE.Group();
+  g.position.set(def.x, 0, def.z);
+  g.rotation.y = def.rotY;
+  const laptopAnchor = new THREE.Object3D();
+  laptopAnchor.position.set(0, TABLE_TOP, -0.02);
+  laptopAnchor.scale.setScalar(1.1);
+  g.add(laptopAnchor);
+  // On the bench, facing the table.
+  const seatAnchor = new THREE.Object3D();
+  seatAnchor.position.set(0, BENCH_TOP - 0.08, 0.85);
+  seatAnchor.rotation.y = Math.PI;
+  seatAnchor.scale.setScalar(0.82);
+  g.add(seatAnchor);
+  // Up on the table beside the tome.
+  const stage = new THREE.Object3D();
+  stage.position.set(0.66, TABLE_TOP - 0.07, 0.12);
+  g.add(stage);
+  g.add(mesh(new THREE.CylinderGeometry(0.16, 0.13, 0.02, 14), toon('#8d939c'), -0.62, TABLE_TOP + 0.01, 0.12, false));
+  g.add(mesh(new THREE.CylinderGeometry(0.045, 0.03, 0.14, 8), kit.mats.gold, -0.62, TABLE_TOP + 0.08, -0.12, false));
+  const vacancy = vacancyMarker(1.35);
+  g.add(vacancy);
+  // An overflow seat is put away until they're all taken (see setBeanbags).
+  g.visible = !overflow;
+  const it: Interactable = { kind: 'desk', deskId: def.id, ...xz(deskSeat(def, 1.25)), radius: 1.3, off: overflow };
+  kit.interactables.push(it);
+  g.userData.interact = it;
+  kit.group.add(g);
+  return { view: { def, group: g, laptopAnchor, seatAnchor, stage, chair: new THREE.Group(), vacancy, vacancyY: 1.35 }, it };
+}
+
+/** The round meeting table, its chairs, and the easel with the meeting's board and sign. */
+function buildCouncil(kit: Kit, plan: MapPlan): { board?: THREE.Mesh; sign?: THREE.Mesh } {
+  const cp = plan.council;
+  if (!cp) return {};
+  const { mats } = kit;
+  const t = new THREE.Group();
+  t.position.set(cp.x, 0, cp.z);
+  t.add(mesh(new THREE.CylinderGeometry(COUNCIL.radius, COUNCIL.radius, 0.1, 32), mats.wood, 0, COUNCIL.height - 0.05, 0));
+  t.add(mesh(new THREE.TorusGeometry(COUNCIL.radius, 0.04, 6, 32).rotateX(Math.PI / 2), mats.gold, 0, COUNCIL.height - 0.05, 0, false));
+  t.add(mesh(new THREE.CylinderGeometry(0.18, 0.28, COUNCIL.height - 0.1, 10), mats.woodDark, 0, (COUNCIL.height - 0.1) / 2, 0));
+  t.add(mesh(new THREE.CylinderGeometry(0.55, 0.6, 0.08, 14), mats.woodDark, 0, 0.04, 0));
+  // A map of the realm on the table.
+  const chart = mesh(new THREE.CircleGeometry(0.55, 24), mats.parchment, 0, COUNCIL.height + 0.006, 0, false);
+  chart.rotation.x = -Math.PI / 2;
+  t.add(chart);
+  kit.group.add(t);
+  kit.colliders.push({ minX: cp.x - COUNCIL.radius, maxX: cp.x + COUNCIL.radius, minZ: cp.z - COUNCIL.radius, maxZ: cp.z + COUNCIL.radius, top: COUNCIL.height });
+  const meeting: Interactable = { kind: 'meeting', x: cp.x, z: cp.z, radius: 2.2 };
+  t.userData.interact = meeting;
+  kit.interactables.push(meeting);
+  for (const def of plan.meeting) kit.desks.set(def.id, councilChair(kit, def));
+  // An easel behind the table, away from its head, with the meeting's board and how it's going.
+  const easel = new THREE.Group();
+  easel.position.set(cp.x - Math.sin(cp.rotY) * COUNCIL.easel, 0, cp.z - Math.cos(cp.rotY) * COUNCIL.easel);
+  easel.rotation.y = cp.rotY;
+  for (const sx of [-1, 1]) {
+    const leg = mesh(box(0.1, 2.9, 0.1), mats.woodDark, sx * 1.05, 1.42, 0);
+    leg.rotation.z = sx * -0.05;
+    easel.add(leg);
   }
-  const setBeanbags = (outNow: Set<string>) => {
-    for (const def of plan.overflow) {
-      const v = desks.get(def.id)!;
-      const show = outNow.has(def.id);
-      v.group.visible = show;
-      overflowIts.get(def.id)!.off = !show;
-    }
-    return [];
-  };
+  easel.add(mesh(box(0.1, 2.5, 0.1), mats.woodDark, 0, 1.2, -0.45));
+  easel.add(mesh(box(2.5, 1.6, 0.08), mats.woodDark, 0, 1.95, 0.02));
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 1.4), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
+  board.position.set(0, 1.95, 0.07);
+  easel.add(board);
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.34), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
+  sign.position.set(0, 0.92, 0.07);
+  easel.add(mesh(box(1.3, 0.42, 0.06), mats.woodDark, 0, 0.92, 0.02));
+  easel.add(sign);
+  const title = textPlane('🤝 The small council', { bg: '#efe3c2', size: 56 });
+  title.scale.multiplyScalar(0.62);
+  title.position.set(0, 2.98, 0.06);
+  easel.add(title);
+  easel.userData.interact = meeting;
+  kit.group.add(easel);
+  const [minX, maxX, minZ, maxZ] = boxFootprint(easel.position.x, easel.position.z, 2.6, 0.5, cp.rotY);
+  kit.colliders.push({ minX, maxX, minZ, maxZ, top: 99 });
+  return { board, sign };
+}
 
-  // ---- The board agents' lecterns ----
-  for (const def of plan.stations) desks.set(def.id, lectern(kit, def));
-
-  // ---- The meeting table ----
-  let meetingBoard: THREE.Mesh | undefined;
-  let meetingSign: THREE.Mesh | undefined;
-  {
-    const cp = { x: c.council.x, z: c.council.z, rotY: c.council.rotY ?? 0 };
-    const t = new THREE.Group();
-    t.position.set(cp.x, 0, cp.z);
-    t.add(mesh(new THREE.CylinderGeometry(COUNCIL.radius, COUNCIL.radius, 0.1, 32), mats.wood, 0, COUNCIL.height - 0.05, 0));
-    t.add(mesh(new THREE.TorusGeometry(COUNCIL.radius, 0.04, 6, 32).rotateX(Math.PI / 2), mats.gold, 0, COUNCIL.height - 0.05, 0, false));
-    t.add(mesh(new THREE.CylinderGeometry(0.18, 0.28, COUNCIL.height - 0.1, 10), mats.woodDark, 0, (COUNCIL.height - 0.1) / 2, 0));
-    t.add(mesh(new THREE.CylinderGeometry(0.55, 0.6, 0.08, 14), mats.woodDark, 0, 0.04, 0));
-    // A map of the realm on the table.
-    const chart = mesh(new THREE.CircleGeometry(0.55, 24), mats.parchment, 0, COUNCIL.height + 0.006, 0, false);
-    chart.rotation.x = -Math.PI / 2;
-    t.add(chart);
-    group.add(t);
-    kit.colliders.push({ minX: cp.x - COUNCIL.radius, maxX: cp.x + COUNCIL.radius, minZ: cp.z - COUNCIL.radius, maxZ: cp.z + COUNCIL.radius, top: COUNCIL.height });
-    const meeting: Interactable = { kind: 'meeting', x: cp.x, z: cp.z, radius: 2.2 };
-    t.userData.interact = meeting;
-    kit.interactables.push(meeting);
-    for (const def of plan.meeting) desks.set(def.id, councilChair(kit, def));
-    // An easel behind the table, away from its head, with the meeting's board and how it's going.
-    const easel = new THREE.Group();
-    easel.position.set(cp.x - Math.sin(cp.rotY) * COUNCIL.easel, 0, cp.z - Math.cos(cp.rotY) * COUNCIL.easel);
-    easel.rotation.y = cp.rotY;
-    for (const sx of [-1, 1]) {
-      const leg = mesh(box(0.1, 2.9, 0.1), mats.woodDark, sx * 1.05, 1.42, 0);
-      leg.rotation.z = sx * -0.05;
-      easel.add(leg);
-    }
-    easel.add(mesh(box(0.1, 2.5, 0.1), mats.woodDark, 0, 1.2, -0.45));
-    easel.add(mesh(box(2.5, 1.6, 0.08), mats.woodDark, 0, 1.95, 0.02));
-    meetingBoard = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 1.4), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
-    meetingBoard.position.set(0, 1.95, 0.07);
-    easel.add(meetingBoard);
-    meetingSign = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.34), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
-    meetingSign.position.set(0, 0.92, 0.07);
-    easel.add(mesh(box(1.3, 0.42, 0.06), mats.woodDark, 0, 0.92, 0.02));
-    easel.add(meetingSign);
-    const title = textPlane('🤝 The small council', { bg: '#efe3c2', size: 56 });
-    title.scale.multiplyScalar(0.62);
-    title.position.set(0, 2.98, 0.06);
-    easel.add(title);
-    easel.userData.interact = meeting;
-    group.add(easel);
-    const [minX, maxX, minZ, maxZ] = boxFootprint(easel.position.x, easel.position.z, 2.6, 0.5, cp.rotY);
-    kit.colliders.push({ minX, maxX, minZ, maxZ, top: 99 });
-  }
-
-  // ---- The boards on the walls ----
-  const boardMeshes = {} as Record<BoardKey, THREE.Mesh>;
+/** The four boards, framed in wood and iron on the walls, with a painted sign over each. */
+function buildBoards(kit: Kit, plan: MapPlan): Record<BoardKey, THREE.Mesh> {
+  const { mats } = kit;
+  const faces = {} as Record<BoardKey, THREE.Mesh>;
   for (const k of BOARD_KEYS) {
     const bd = plan.boards[k];
     const nx = Math.sin(bd.rotY);
@@ -1358,7 +1282,7 @@ export function buildCastle(plan: MapPlan): Castle {
     const face = new THREE.Mesh(new THREE.PlaneGeometry(bd.width, bd.height), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
     face.position.z = 0.07;
     g.add(face);
-    boardMeshes[k] = face;
+    faces[k] = face;
     const label = textPlane(bd.label, { bg: '#efe3c2', color: '#3b2618', size: 64, border: '#6b4526' });
     label.scale.multiplyScalar(1.15);
     label.position.set(0, bd.height / 2 + 0.55, 0.06);
@@ -1366,56 +1290,104 @@ export function buildCastle(plan: MapPlan): Castle {
     const it: Interactable = { kind: k, x: bd.x + nx * 1.6, z: bd.z + nz * 1.6, radius: 2.4 };
     kit.interactables.push(it);
     g.userData.interact = it;
-    group.add(g);
+    kit.group.add(g);
   }
+  return faces;
+}
 
-  // ---- The herald ----
-  let herald: Castle['herald'];
-  if (plan.herald) {
-    const hd = plan.herald;
-    const person = new Person(hd.name, '#1f4d3a', { skin: 2, hair: 5, style: 0 });
-    const y = kit.floorAt(hd.x, hd.z);
-    person.root.position.set(hd.x, y, hd.z);
-    person.root.rotation.y = hd.rotY;
-    person.setLabel(hd.name, null);
-    person.setDoing(hd.says);
-    // His robe of office, a gold chain, and the pin of the Hand.
-    const robe = mesh(
-      new THREE.LatheGeometry(
-        [
-          [0.36, 0.02],
-          [0.3, 0.5],
-          [0.27, 0.95],
-        ].map(([r, yy]) => new THREE.Vector2(r, yy)),
-        20,
-      ),
-      toon('#1f4d3a'),
-    );
-    person.root.add(robe);
-    const chain = mesh(new THREE.TorusGeometry(0.24, 0.025, 6, 20), mats.gold, 0, 0.98, 0.04, false);
-    chain.rotation.x = Math.PI / 2 - 0.35;
-    person.root.add(chain);
-    person.root.add(mesh(box(0.1, 0.12, 0.03), mats.gold, 0.1, 0.86, 0.27, false));
-    group.add(person.root);
-    const at = new THREE.Vector3(hd.x, y, hd.z);
-    const interactable: Interactable = { kind: 'herald', x: hd.x + Math.sin(hd.rotY) * 0.9, y, z: hd.z + Math.cos(hd.rotY) * 0.9, radius: 1.9 };
-    person.root.userData.interact = interactable;
-    kit.interactables.push(interactable);
-    kit.colliders.push({ minX: hd.x - 0.35, maxX: hd.x + 0.35, minZ: hd.z - 0.35, maxZ: hd.z + 0.35, top: 99 });
-    herald = { person, interactable, at };
+/** The herald (the Hand of the King), in a robe of office with a gold chain, where the plan has him. */
+function buildHerald(kit: Kit, plan: MapPlan): World['herald'] {
+  const hd = plan.herald;
+  if (!hd) return undefined;
+  const person = new Person(hd.name, '#1f4d3a', { skin: 2, hair: 5, style: 0 });
+  const y = kit.floorAt(hd.x, hd.z);
+  person.root.position.set(hd.x, y, hd.z);
+  person.root.rotation.y = hd.rotY;
+  person.setLabel(hd.name, null);
+  person.setDoing(hd.says);
+  const robe = mesh(
+    new THREE.LatheGeometry(
+      [
+        [0.36, 0.02],
+        [0.3, 0.5],
+        [0.27, 0.95],
+      ].map(([r, yy]) => new THREE.Vector2(r, yy)),
+      20,
+    ),
+    toon('#1f4d3a'),
+  );
+  person.root.add(robe);
+  const chain = mesh(new THREE.TorusGeometry(0.24, 0.025, 6, 20), kit.mats.gold, 0, 0.98, 0.04, false);
+  chain.rotation.x = Math.PI / 2 - 0.35;
+  person.root.add(chain);
+  // The pin of his office.
+  person.root.add(mesh(box(0.1, 0.12, 0.03), kit.mats.gold, 0.1, 0.86, 0.27, false));
+  kit.group.add(person.root);
+  const interactable: Interactable = { kind: 'herald', x: hd.x + Math.sin(hd.rotY) * 0.9, y, z: hd.z + Math.cos(hd.rotY) * 0.9, radius: 1.9 };
+  person.root.userData.interact = interactable;
+  kit.interactables.push(interactable);
+  kit.colliders.push({ minX: hd.x - 0.35, maxX: hd.x + 0.35, minZ: hd.z - 0.35, maxZ: hd.z + 0.35, top: 99 });
+  return { person, interactable };
+}
+
+/** Puts up the hall in `plan` (a castle-style map). */
+export function buildCastle(plan: MapPlan): World {
+  const c = plan.config!;
+  const b = plan.bounds;
+  const H = plan.height;
+  const pal = { stone: '#9a9186', floor: '#7b746a', carpet: '#8e1b1b', wood: '#6b4526', trim: '#d9ab2e', ...(c.palette ?? {}) };
+  const group = new THREE.Group();
+  const kit: Kit = {
+    group,
+    still: new THREE.Group(),
+    colliders: [],
+    interactables: [],
+    flames: [],
+    lights: [],
+    mats: materials(pal),
+    height: H,
+    desks: new Map(),
+    glass: [],
+    banners: [],
+    shields: [],
+    windows: 1,
+    floorAt(x, z) {
+      let top = 0;
+      for (const cc of kit.colliders) if (cc.top < 50 && !cc.fence && cc.top > top && x > cc.minX && x < cc.maxX && z > cc.minZ && z < cc.maxZ) top = cc.top;
+      return top;
+    },
+  };
+
+  const shell = buildShell(kit, plan, { ...kit.mats, floorColor: pal.floor, stoneColor: pal.stone });
+  // The dais before the props, so what stands on it stands on its top (see Kit.floorAt).
+  buildDais(kit, plan);
+  const props = c.props ?? [];
+  for (const p of props) PROPS[p.kind as PropKind](kit, p);
+  arcade(
+    kit,
+    props.filter((p) => p.kind === 'pillar'),
+  );
+  buildTables(kit, plan);
+  const overflow = new Map<string, Interactable>();
+  for (const def of plan.desks) kit.desks.set(def.id, placeSetting(kit, def, false).view);
+  for (const def of plan.overflow) {
+    const { view, it } = placeSetting(kit, def, true);
+    kit.desks.set(def.id, view);
+    overflow.set(def.id, it);
   }
+  for (const def of plan.stations) kit.desks.set(def.id, lectern(kit, def));
+  const council = buildCouncil(kit, plan);
+  const boardMeshes = buildBoards(kit, plan);
+  const herald = buildHerald(kit, plan);
+  group.add(mergeByMaterial(kit.still));
 
-  group.add(mergeByMaterial(still));
-
-  // ---- Walking about ----
+  // Walking about: in through the doors and out again, round what's in the way.
   const nav = new NavGrid(b, plan.obstacles!);
-  const inside: Pt = [door.x, door.z];
+  const { doorAt, out } = shell;
+  const inside: Pt = [plan.door.x, plan.door.z];
   const threshold: Pt = [doorAt.x + out[0] * 0.2, doorAt.z + out[1] * 0.2];
   const beyond: Pt = [doorAt.x + out[0] * 3, doorAt.z + out[1] * 3];
-  const ways: World['ways'] = {
-    home: (seat, from) => ({ way: [...(from ? nav.route(from, inside) : nav.wayFrom(seat, inside)), threshold, beyond], chute: false }),
-    in: (seat) => [beyond, threshold, ...nav.wayTo(inside, seat)],
-  };
+  let doorOpen = 0;
 
   // How the day's light and the fires light the room: see mood.
   const warmSky = new THREE.Color('#ffe2bc');
@@ -1427,6 +1399,14 @@ export function buildCastle(plan: MapPlan): Castle {
   // What setLook and setProjectName were last told, which the great banner shows.
   let name = '';
   let look: FloorPalette = { name: '', wall: pal.stone, trim: '#9b1c1c', floor: pal.floor, floorAlt: pal.floor, seam: pal.floor };
+  const repaint = () => {
+    for (const bn of kit.banners) {
+      paintBanner(bn.tex.image.getContext('2d') as CanvasRenderingContext2D, bn.w, bn.h, heraldry(look), bn.great ? name : undefined);
+      bn.tex.needsUpdate = true;
+    }
+    for (const s of kit.shields) s.color.set(heraldry(look));
+  };
+  const gongAt = kit.gong?.top;
 
   return {
     plan,
@@ -1434,31 +1414,41 @@ export function buildCastle(plan: MapPlan): Castle {
     colliders: kit.colliders,
     interactables: kit.interactables,
     pickables: [group],
-    desks,
+    desks: kit.desks,
     boardMeshes,
-    meetingBoard,
-    meetingSign,
-    gong,
+    meetingBoard: council.board,
+    meetingSign: council.sign,
+    gong: kit.gong,
     nav,
-    ways,
+    ways: {
+      home: (seat, from) => ({ way: [...(from ? nav.route(from, inside) : nav.wayFrom(seat, inside)), threshold, beyond], chute: false }),
+      in: (seat) => [beyond, threshold, ...nav.wayTo(inside, seat)],
+    },
     rain: [{ area: b, top: () => Math.min(H - 1, 9) }],
     device: 'tome',
-    setBeanbags,
-    setLook(p: FloorPalette) {
+    room: { wall: WALL, enclosed: true },
+    acoustics: {
+      gong: gongAt ? { x: gongAt.x, y: gongAt.y - 1.8, z: gongAt.z } : null,
+      windows: props.filter((p) => p.kind === 'window').map((p) => ({ x: p.x, y: (p.y ?? 6) + (p.height ?? 5) / 2, z: p.z })),
+    },
+    herald,
+    setBeanbags(outNow) {
+      for (const [id, it] of overflow) {
+        const show = outNow.has(id);
+        kit.desks.get(id)!.group.visible = show;
+        it.off = !show;
+      }
+      return [];
+    },
+    setLook(p) {
       // The banners and shields take the floor's own color, so each project's hall is its own.
       look = p;
-      for (const bn of banners) {
-        paintBanner(bn.tex.image.getContext('2d') as CanvasRenderingContext2D, bn.w, bn.h, heraldry(p), bn.great ? name : undefined);
-        bn.tex.needsUpdate = true;
-      }
-      for (const s of shields) s.color.set(heraldry(p));
+      repaint();
     },
-    setProjectName(n: string) {
+    setProjectName(n) {
+      if (n === name) return;
       name = n;
-      const great = banners.find((bn) => bn.great);
-      if (!great) return;
-      paintBanner(great.tex.image.getContext('2d') as CanvasRenderingContext2D, great.w, great.h, heraldry(look), n);
-      great.tex.needsUpdate = true;
+      repaint();
     },
     update(t, dt, people) {
       for (const f of kit.flames) {
@@ -1474,15 +1464,14 @@ export function buildCastle(plan: MapPlan): Castle {
       const want = near ? 1 : 0;
       if (doorOpen !== want) {
         doorOpen = want > doorOpen ? Math.min(1, doorOpen + dt * 1.2) : Math.max(0, doorOpen - dt * 0.8);
-        const e = doorOpen * doorOpen * (3 - 2 * doorOpen);
-        doorLeaves.forEach((h, i) => (h.rotation.y = (i ? -1 : 1) * e * 1.4));
+        shell.swing(doorOpen);
       }
-      for (const d of desks.values()) {
+      for (const d of kit.desks.values()) {
         if (!d.vacancy.visible || !d.group.visible || d.def.station) continue;
         d.vacancy.position.y = d.vacancyY + Math.sin(t * 2 + d.def.x) * 0.06;
         d.vacancy.rotation.y = t * 1.2;
       }
-      gong?.update(dt);
+      kit.gong?.update(dt);
       herald?.person.update(dt, t, false, false);
     },
     mood(lights, daylight) {
@@ -1499,10 +1488,24 @@ export function buildCastle(plan: MapPlan): Castle {
         fog.near = 45;
         fog.far = 140;
       }
-      for (const g of glass) g.color.copy(glassNight).lerp(glassDay, 0.25 + 0.75 * daylight);
+      for (const g of kit.glass) g.color.copy(glassNight).lerp(glassDay, 0.25 + 0.75 * daylight);
     },
-    herald,
-    throne,
+    dispose() {
+      // Its geometry, and every material with a picture of its own (walls, banners, glass, signs); the
+      // cached toon materials are everyone's, and stay.
+      const freed = new Set<THREE.Material>();
+      group.traverse((o) => {
+        const m = o as THREE.Mesh;
+        m.geometry?.dispose();
+        for (const mat of Array.isArray(m.material) ? m.material : m.material ? [m.material] : []) {
+          const map = (mat as THREE.MeshBasicMaterial).map;
+          if (!map || freed.has(mat)) continue;
+          map.dispose();
+          mat.dispose();
+          freed.add(mat);
+        }
+      });
+    },
   };
 }
 

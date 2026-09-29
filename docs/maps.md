@@ -35,30 +35,67 @@ The easy way is to start from the castle and change only what you want. This one
 
 `extends` fills in everything you leave out from the map you name. Objects are merged key by key (so `boards.issues.z` changes one number of one board), and lists replace the whole list (give `tables` or `props` and they're all yours). `null` takes away one of the optional parts (`"herald": null`: no Hand of the King). A map can extend another map of your own, a few deep. The office itself is built in code, so it can't be extended; extend `castle` instead.
 
+To change the lists (move a pillar, resize the hall and everything in it), start from a copy of the whole castle instead: [`docs/maps/castle.json`](maps/castle.json) is it, as a map of your own called *My castle*. Copy it into the folder and it's in Settings; change what you like from there.
+
+Or write one from nothing. This is about the least a map can be: a hall, a door, tables to seat 28, the board agents, a meeting table and the four boards. Everything else (the throne, the line, the herald, the props) is optional:
+
+```json
+{
+  "id": "barn",
+  "name": "The barn",
+  "icon": "🐄",
+  "style": "castle",
+  "hall": { "width": 20, "length": 30, "height": 8 },
+  "door": { "x": 0, "z": 13.6 },
+  "tables": [
+    { "name": "West table", "x": -5, "z": 0, "length": 12, "seats": 5 },
+    { "name": "Middle table", "x": 0, "z": -2, "length": 10, "seats": 4 },
+    { "name": "East table", "x": 5, "z": 0, "length": 12, "seats": 5 }
+  ],
+  "stations": {
+    "issues": { "x": -8.6, "z": -11, "rotY": -1.5708 },
+    "queue": { "x": -8.6, "z": 9, "rotY": -1.5708 },
+    "pulls": { "x": 8.6, "z": -11, "rotY": 1.5708 }
+  },
+  "council": { "x": 0, "z": -11, "rotY": 0 },
+  "boards": {
+    "issues": { "x": -9.92, "y": 3, "z": -6, "rotY": 1.5708, "width": 4, "height": 2.4 },
+    "queue": { "x": -9.92, "y": 3, "z": 5, "rotY": 1.5708, "width": 4, "height": 2.4 },
+    "pulls": { "x": 9.92, "y": 3, "z": -6, "rotY": -1.5708, "width": 4, "height": 2.4 },
+    "services": { "x": 9.92, "y": 3, "z": 5, "rotY": -1.5708, "width": 4, "height": 2.4 }
+  },
+  "props": [{ "kind": "brazier", "x": 0, "z": 6, "light": true }]
+}
+```
+
 The folder's first 24 files are read, up to 256 KB each, and a map can have up to 40 tables, 12 seats a side and 400 props.
 
-Units are meters. The hall runs from `x = -width/2` (west) to `width/2` (east) and from `z = -length/2` (north) to `length/2` (south); `y` is up. Angles (`rotY`) are in radians: `0` faces south (+z), `π/2` (1.5708) east, `π` north and `-π/2` west. The castle's config, [`src/shared/maps/castle.ts`](../src/shared/maps/castle.ts), is a full example of every part.
+Units are meters. The hall runs from `x = -width/2` (west) to `width/2` (east) and from `z = -length/2` (north) to `length/2` (south); `y` is up. Angles (`rotY`) are in radians: `0` faces south (+z), `π/2` (1.5708) east, `π` north and `-π/2` west. Put the boards on the inside of a wall (`±(width/2 - 0.08)`), facing into the hall.
+
+### When a map breaks
+
+A map that won't load (bad JSON, something outside the hall, too few seats, a prop reaching over the walls…) is listed in Settings in red, with the reason, and can't be picked. If it's the one the building is on, the building goes back to the office, for everyone, with a note saying why, and comes back to your map by itself once the file loads again. The folder is read again when someone opens Settings or joins. To put the building back to the office by hand, pick 🏢 Office in Settings, or delete `.agent-office/map.json`.
 
 ### What a map has
 
 | Field | What it is |
 | --- | --- |
-| `id` | Lowercase letters, digits and dashes. The building's pick is saved by it. |
-| `name`, `icon`, `description` | What Settings shows. |
+| `id` | Lowercase letters, digits and dashes, up to 40. The building's pick is saved by it. **Required.** |
+| `name`, `icon`, `description` | What Settings shows. `name` is **required**. |
 | `extends` | Another map's `id` to start from. |
-| `style` | Which builder puts it up. `"castle"` is the only one so far. |
-| `hall` | `{ width, length, height }`: the room, and how high its walls are (up to 110 m either way). |
-| `spawn` | `{ x, z, rotY }`: where you stand when you arrive and the throne's taken. |
-| `door` | `{ x, z }`: just inside the way in and out. The doorway goes in the nearest wall; workers come in and go home through it. |
-| `throne` | `{ x, z, rotY, dais: { width, depth, height, steps } }`: your seat, on a dais that runs 2.4 m in front of it and the rest behind, with `steps` (up to 10) down its front. Without a `dais` it's 8 m by 4.5 m and 0.9 m high, with 3 steps. Optional. |
-| `herald` | `{ x, z, rotY, name, says }`: who sends out new workers. Optional. |
+| `style` | Which builder puts it up. `"castle"` is the only one so far. **Required.** |
+| `hall` | `{ width, length, height }`: the room (8 to 110 m either way), and how high its walls are (4 to 40 m). **Required.** |
+| `spawn` | `{ x, z, rotY }`: where you stand when you arrive and the throne's taken. Without it, at the door, facing the middle. |
+| `door` | `{ x, z }`: just inside the way in and out. The doorway goes in the nearest wall; workers come in and go home through it. **Required.** |
+| `throne` | `{ x, z, rotY, dais: { width, depth, height, steps }, label }`: your seat, on a dais that runs 2.4 m in front of it and the rest behind, with `steps` (up to 10) down its front. Without a `dais` it's 8 m by 4.5 m and 0.9 m high, with 3 steps. `label` is what its hint says (`👑 Throne`). Optional. |
+| `herald` | `{ x, z, rotY, name, says, ask, button }`: who sends out new workers. `says` goes under their name, `ask` in the box you type in, and `button` on the button. Optional. |
 | `lineup` | `{ x, z, rotY, step: [dx, dz], count }`: the first spot in line, and each next one `step` further on, all facing `rotY`. Optional. |
-| `tables` | `[{ x, z, length, seats, width?, rotY?, sides?, name? }]`: where the workers sit. `seats` is per side; `sides` is `"both"` (the default), `"inner"` or `"outer"`; `rotY` 0 runs the table along z. |
-| `stations` | `{ issues, queue, pulls }`, each `{ x, z, rotY }`: the board agents' lecterns. `rotY` is the way the agent faces; it stands 0.55 m behind its lectern. |
-| `council` | `{ x, z, rotY }`: the meeting table. Five chairs go round it, the head of the table at `rotY`'s side, and its easel 2.5 m behind the other way. |
-| `boards` | `{ issues, queue, pulls, services }`, each `{ x, y, z, rotY, width, height, label? }`: the boards on the walls, `rotY` the way each faces. |
+| `tables` | `[{ x, z, length, seats, width?, rotY?, sides?, name? }]`: where the workers sit. `seats` is per side (1 to 12); `width` is 1.4 m unless you say; `sides` is `"both"` (the default), `"inner"` or `"outer"`; `rotY` 0 runs the table along z. **Required.** |
+| `stations` | `{ issues, queue, pulls }`, each `{ x, z, rotY }`: the board agents' lecterns. `rotY` is the way the agent faces; it stands 0.55 m behind its lectern. **Required.** |
+| `council` | `{ x, z, rotY }`: the meeting table. Five chairs go round it, the head of the table at `rotY`'s side, and its easel 2.5 m behind the other way. **Required.** |
+| `boards` | `{ issues, queue, pulls, services }`, each `{ x, y, z, rotY, width, height, label? }`: the boards on the walls, `rotY` the way each faces. **Required.** |
 | `props` | `[{ kind, x, z, … }]`: everything else, from the list below. |
-| `agents` | `{ outfit: "peasant" \| "none", ageMinutes }`: how the workers dress, and how many minutes of work until they look spent (`0`: never). |
+| `agents` | `{ outfit: "peasant" \| "none", ageMinutes }`: how the workers dress, and how many minutes of work until they look spent (`0`, the default: never). |
 | `palette` | `{ stone, floor, carpet, wood, trim }`: CSS colors. The banners and shields take each floor's own color. |
 
 ### Seats
@@ -88,9 +125,15 @@ Every map has the same seats, by id, so that the server, the task queue, meeting
 
 Give a `torch`, `brazier` or `hearth` `"light": true` and it lights the room for real (the first eight do; the rest glow). What stands on the floor is walked round by the workers and bumped into by you; what hangs on a wall isn't in the way.
 
+### What it can't do (yet)
+
+- Arches only join pillars in a row along z, and the roof's trusses run across x: a hall is long along z.
+- To resize the castle, change its props too: `extends` can't move a list's items one by one, so start from [`castle.json`](maps/castle.json).
+- The workers' looks are the office's or the peasant's, and they work at the castle's tomes.
+
 ## Adding to the code
 
-- **The model** is in [`src/shared/maps/`](../src/shared/maps): `types.ts` is the schema, `index.ts` checks a config and works out its plan (every seat, the line, the boards and what's in the way for walking round), `props.ts` has the props and the floor each takes, and `castle.ts` is the castle. The server keeps the building's pick in `.agent-office/map.json` ([`src/server/maps.ts`](../src/server/maps.ts)) and checks where people sit against the map.
-- **A new prop kind** is its name and footprint in `props.ts`, and how it looks in the style's builder ([`src/client/world/castle.ts`](../src/client/world/castle.ts)).
-- **A new style** is a builder that turns a plan into a `World` ([`src/client/world/world.ts`](../src/client/world/world.ts)): a scene group, colliders, what can be used, a view for every seat, the four boards, a walk grid, the ways in and out, and optionally a gong, the meeting's board, a mood (how it's lit) and a herald. Add it to `MAP_STYLES` and to `worldFor` in `main.ts`.
-- **Workers walking about** (lining up, coming back, running to their seats) is [`src/client/world/court.ts`](../src/client/world/court.ts), for any map with a `lineup`.
+- **The model** is in [`src/shared/maps/`](../src/shared/maps): `types.ts` is the schema, `index.ts` checks a config and works out its plan (every seat, the line, the tables and the meeting table with what was left out filled in, the boards and what's in the way for walking round), `props.ts` has the props, the floor each takes and how high it reaches, and `castle.ts` is the castle ([`docs/maps/castle.json`](maps/castle.json) is written from it: `UPDATE_CASTLE_JSON=1 node --import tsx --test tests/maps.test.ts`). The server keeps the building's pick in `.agent-office/map.json` ([`src/server/maps.ts`](../src/server/maps.ts)) and checks where people sit against the map.
+- **A new prop kind** is its name in `PROP_KINDS`, the floor it takes (`propFootprint`) and how high it reaches (`propTop`) in `props.ts`, and how it looks in the style's builder's `PROPS` table ([`src/client/world/castle.ts`](../src/client/world/castle.ts)), which won't compile without it.
+- **A new style** is its name in `MAP_STYLES` and a builder in [`src/client/world/styles.ts`](../src/client/world/styles.ts) that turns a plan into a `World` ([`src/client/world/world.ts`](../src/client/world/world.ts)): a scene group, colliders, what can be used, a view for every seat, the four boards, a walk grid, the ways in and out, its room (wall thickness, roofed or not), and optionally a gong, the meeting's board, a herald, how it sounds, how it's lit (`mood`) and `dispose`. `main.ts` needs nothing else. The plan puts the seats, lecterns, meeting chairs and throne where the castle's furniture has them (a bench 0.85 m out from each place at a table, and so on), and that's what the workers walk round, so a new style builds its furniture there.
+- **Workers walking about** (lining up, coming back, running to their seats) is [`src/client/world/court.ts`](../src/client/world/court.ts), for any map other than the office.

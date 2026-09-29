@@ -1485,7 +1485,6 @@ export class Worker {
   private age = 0;
   private whiskers: Beard | null = null;
   private dirt: { part: THREE.Object3D; at: number }[] = [];
-  private readonly tint = new THREE.Color();
 
   constructor(
     name: string,

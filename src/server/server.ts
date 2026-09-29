@@ -35,7 +35,7 @@ import { Arcade, HighScores } from './cabinet.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState, SignInKind } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import { DESK_BY_ID, elevatorSpot, streetBelow } from '../shared/layout.js';
-import { seatHereOn } from '../shared/maps/index.js';
+import { OFFICE_MAP, seatHereOn } from '../shared/maps/index.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
 import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
@@ -393,7 +393,9 @@ export async function startServer(cfg: Config) {
     broadcast({ t: 'map', state: maps.state() });
     if (now === was) return;
     const plan = maps.plan();
-    toastAll(who ? `${plan.icon} ${who} changed the building's map to the ${plan.name.toLowerCase()}` : `${plan.icon} The building's map is the ${plan.name.toLowerCase()} now: the one it was on won't load`);
+    // Without a pick, a map of your own broke (back to the office) or was fixed (back to it).
+    const why = now === OFFICE_MAP ? `: the map "${was}" won't load (see ⚙️ Settings)` : ': it loads again';
+    toastAll(who ? `${plan.icon} ${who} changed the building's map to the ${plan.name.toLowerCase()}` : `${plan.icon} The building's map is the ${plan.name.toLowerCase()} now${why}`);
   };
   // The prompts the office writes for workers by itself, and the worker everyone starts on (⚙️ Settings).
   const configured = configuredProvider(cfg.agentCmd);

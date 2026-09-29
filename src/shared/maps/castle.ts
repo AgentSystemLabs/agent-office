@@ -73,7 +73,7 @@ export const CASTLE: MapConfig = {
   spawn: { x: -2.6, z: -21, rotY: Math.PI },
   door: { x: 0, z: L / 2 - 1.4 },
   throne: { x: 0, z: -27.4, rotY: 0, dais: { width: 12, depth: 5, height: 0.9, steps: 3 } },
-  herald: { x: 3.3, z: -26.3, rotY: -0.35, name: 'Hand of the King', says: 'Speak to me to send out a new worker' },
+  herald: { x: 3.3, z: -26.3, rotY: -0.35, name: 'Hand of the King', says: 'Speak to me to send out a new worker', ask: 'What shall they toil on, my liege?', button: 'Send them out ⚔️' },
   lineup: { x: 0, z: -25.6, rotY: Math.PI, step: [0, 1.3], count: 8 },
   tables: [
     { name: 'North-west table', x: -6.8, z: -8, length: 10, seats: 4 },

@@ -1,8 +1,9 @@
 import type * as THREE from 'three';
 import type { FloorPalette } from '../../shared/floors';
-import { LOFT, WALL_HEIGHT, FLOOR, type DeskDef } from '../../shared/layout';
+import { LOFT, WALL_HEIGHT, WALL_T, FLOOR, type DeskDef } from '../../shared/layout';
 import { OFFICE_PLAN, type BoardKey, type MapPlan } from '../../shared/maps';
 import { OFFICE_NAV, wayHome, wayIn, wayToBalcony, type NavGrid, type Pt } from '../../shared/nav';
+import type { Person } from './character';
 import type { Area } from './confetti';
 import type { Gong } from './gong';
 import type { Collider, DeskView, Interactable, Office } from './office';
@@ -48,6 +49,15 @@ export interface World {
   rain: { area: Area; top: (x: number, z: number) => number }[];
   /** What the workers work on: laptops, or the castle's tomes. */
   device: 'laptop' | 'tome';
+  /**
+   * How thick its outside walls are, for keeping the camera on your side of them; `enclosed`: walled
+   * and roofed all round, so no rain falls in it and there's no street or garage under it.
+   */
+  room: { wall: number; enclosed: boolean };
+  /** Where the sounds are, when it isn't the office: its gong, and the windows sounds from outside come in at. */
+  acoustics?: { gong: { x: number; y: number; z: number } | null; windows: { x: number; y: number; z: number }[] };
+  /** Whoever stands by the throne and sends out new workers (the map's herald), and where to speak to them. */
+  herald?: { person: Person; interactable: Interactable };
   /** Brings out the overflow seats in `out` and puts the rest away: the colliders of the ones that just came out. */
   setBeanbags(out: Set<string>): Collider[];
   /** Paints it in a floor's colors, so each project looks like itself. */
@@ -57,6 +67,8 @@ export interface World {
   update(t: number, dt: number, people: Iterable<{ x: number; y: number; z: number }>): void;
   /** Lights it its own way, after the sky's had its say (the castle's torchlit hall). `daylight` is 1 by day, 0 at night. */
   mood?(lights: SkyLights & { scene: THREE.Scene }, daylight: number, t: number): void;
+  /** Frees what it's made of: it's been taken down for good (a map of your own was edited, and is built again). */
+  dispose?(): void;
 }
 
 /** Where confetti rains from over (x, z) downstairs in the office: the ceiling, or under the loft, the underside of its floor. */
@@ -88,6 +100,7 @@ export function officeWorld(office: Office, upstairs: () => boolean): World {
       { area: LOFT, top: () => LOFT.y + LOFT.height - 0.1 },
     ],
     device: 'laptop',
+    room: { wall: WALL_T, enclosed: false },
     setBeanbags: (out) => office.setBeanbags(out),
     setLook: (p) => office.setLook(p),
     setProjectName: (name) => office.setProjectName(name),

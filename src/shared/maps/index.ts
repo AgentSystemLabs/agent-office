@@ -2,7 +2,7 @@ import { BEANBAGS, BOARDS, DESKS, ELEVATOR, ELEVATOR_CAR, EXIT_DOOR, FLOOR, MEET
 import type { Circle, Rect } from '../nav.js';
 import { CASTLE } from './castle.js';
 import { boxFootprint, isPropKind, propFootprint, propTop } from './props.js';
-import { BOARD_KEYS, type BoardDef, type BoardKey, type MapChoice, type MapConfig, type MapPlan, type TableConfig } from './types.js';
+import { BOARD_KEYS, MAP_STYLES, type BoardDef, type BoardKey, type MapChoice, type MapConfig, type MapPlan, type MapStyle, type TableConfig } from './types.js';
 
 export * from './types.js';
 
@@ -10,8 +10,6 @@ export * from './types.js';
 export const OFFICE_MAP = 'office';
 /** The maps that come with the office, besides the office itself. */
 export const BUILTIN_MAPS: readonly MapConfig[] = [CASTLE];
-/** The builders there are for a config map's `style`. */
-export const MAP_STYLES = ['castle'] as const;
 
 const STATION_KINDS: readonly StationKind[] = ['issues', 'pulls', 'queue'];
 /** How far in from a table's edge a seat's place setting is; the worker sits 0.85 out from it (see deskSeat), on the bench. */
@@ -23,7 +21,7 @@ export const BENCH_OUT = 0.52;
  * and how far behind it (away from the head of the table) the easel with the meeting's board stands.
  */
 export const COUNCIL = { radius: 1.15, height: 0.78, place: 0.5, chairs: 1.35, easel: 2.5 } as const;
-/** The throne's footprint, and the lectern each board agent stands behind (the office's kiosk's size). */
+/** The throne's footprint. */
 export const THRONE_SIZE = { width: 1.9, depth: 1.9 } as const;
 
 /** A map that can't be used: why, in words for Settings. */
@@ -60,6 +58,7 @@ function officePlan(): MapPlan {
     seatingById: new Map(SEATING.map((s) => [s.id, s])),
     lineup: [],
     door: { x: FLOOR.minX + 0.45, z: EXIT_DOOR.u },
+    tables: [],
     boards,
     agents: { outfit: 'none', ageMinutes: 0 },
   };
@@ -115,9 +114,13 @@ function str(v: unknown, what: string, max = 80): string {
   return v.trim().slice(0, max);
 }
 
-/** Checks a map's config is complete and sane, and works out where everything goes. */
-export function planMap(c: MapConfig): MapPlan {
-  if (!isObj(c)) throw new MapError('it isn’t a JSON object');
+/**
+ * Checks a map's config is complete and sane, and works out where everything goes. `input` is
+ * whatever a file had in it: nothing is taken on trust, least of all that it's a MapConfig.
+ */
+export function planMap(input: unknown): MapPlan {
+  if (!isObj(input)) throw new MapError('it isn’t a JSON object');
+  const c = input as unknown as MapConfig;
   if (typeof c.id !== 'string' || c.id.length > 40 || !/^[a-z0-9][a-z0-9-]*$/.test(c.id)) throw new MapError('its id should be up to 40 lowercase letters, digits and dashes');
   const id = c.id;
   if (id === OFFICE_MAP) throw new MapError('"office" is the office’s own id');
@@ -149,6 +152,7 @@ export function planMap(c: MapConfig): MapPlan {
   if (c.tables.length > MAP_LIMITS.tables) throw new MapError(`it has ${c.tables.length} tables, and a map can have ${MAP_LIMITS.tables}`);
   const inner: { def: Omit<DeskDef, 'id' | 'label'>; table: string }[] = [];
   const outer: typeof inner = [];
+  const tables: MapPlan['tables'] = [];
   c.tables.forEach((t: TableConfig, i) => {
     const what = `tables[${i}]`;
     if (!isObj(t)) throw new MapError(`${what} should be { x, z, length, seats }`);
@@ -168,9 +172,12 @@ export function planMap(c: MapConfig): MapPlan {
     if (sides !== 'both' && sides !== 'inner' && sides !== 'outer') throw new MapError(`${what}.sides should be "both", "inner" or "outer"`);
     const table = typeof t.name === 'string' && t.name.trim() ? t.name.trim().slice(0, 40) : `Table ${i + 1}`;
     rects.push(boxFootprint(x, z, w, len, r));
-    for (const s of [1, -1]) {
+    const seated: (1 | -1)[] = [];
+    tables.push({ x, z, length: len, width: w, rotY: r, seats: n, sides: seated, name: table });
+    for (const s of [1, -1] as const) {
       const isInner = (s === 1) === rightInner;
       if (sides !== 'both' && (sides === 'inner') !== isInner) continue;
+      seated.push(s);
       const nx = right[0] * s;
       const nz = right[1] * s;
       // The bench down that side.
@@ -255,14 +262,22 @@ export function planMap(c: MapConfig): MapPlan {
         }
       : { ...DEFAULT_DAIS };
     if (!Number.isInteger(dais.steps)) throw new MapError('throne.dais.steps should be a whole number');
-    throne = { id: 'throne', label: '👑 Throne', x: p.x, y: dais.height, z: p.z, rotY: p.rotY, places: [0], hips: 0.74, depth: 0.12, out: 1.1 };
+    const label = typeof c.throne.label === 'string' && c.throne.label.trim() ? c.throne.label.trim().slice(0, 40) : '👑 Throne';
+    throne = { id: 'throne', label, x: p.x, y: dais.height, z: p.z, rotY: p.rotY, places: [0], hips: 0.74, depth: 0.12, out: 1.1 };
     seating.push(throne);
     rects.push(boxFootprint(p.x, p.z - Math.cos(p.rotY) * 0.2, THRONE_SIZE.width, THRONE_SIZE.depth, p.rotY));
   }
   let herald: MapPlan['herald'];
   if (c.herald != null) {
     const p = place(c.herald, 'herald');
-    herald = { ...p, name: typeof c.herald.name === 'string' && c.herald.name.trim() ? c.herald.name.trim().slice(0, 40) : 'Herald', says: typeof c.herald.says === 'string' ? c.herald.says.slice(0, 80) : 'Speak to me to send out a new worker' };
+    const text = (v: unknown, max: number, dflt: string) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : dflt);
+    herald = {
+      ...p,
+      name: text(c.herald.name, 40, 'Herald'),
+      says: text(c.herald.says, 80, 'Speak to me to send out a new worker'),
+      ask: text(c.herald.ask, 80, 'What should they work on?'),
+      button: text(c.herald.button, 30, 'Send them out'),
+    };
     circles.push([p.x, p.z, 0.35]);
   }
   const lineup: MapPlan['lineup'] = [];
@@ -321,7 +336,7 @@ export function planMap(c: MapConfig): MapPlan {
     name,
     icon: typeof c.icon === 'string' && c.icon.trim() ? c.icon.trim().slice(0, 8) : '🗺️',
     description: typeof c.description === 'string' ? c.description.slice(0, 400) : '',
-    style: c.style,
+    style: c.style as MapStyle,
     config: c,
     bounds,
     height,
@@ -338,6 +353,8 @@ export function planMap(c: MapConfig): MapPlan {
     lineup,
     herald,
     door,
+    tables,
+    council,
     boards,
     obstacles: { rects, circles },
     agents: { outfit, ageMinutes },
