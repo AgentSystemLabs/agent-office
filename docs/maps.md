@@ -33,7 +33,9 @@ The easy way is to start from the castle and change only what you want. This one
 }
 ```
 
-`extends` fills in everything you leave out from the map you name. Objects are merged key by key (so `boards.issues.z` changes one number of one board), and lists replace the whole list (give `tables` or `props` and they're all yours). A map can extend another map of your own, a few deep. The office itself is built in code, so it can't be extended; extend `castle` instead.
+`extends` fills in everything you leave out from the map you name. Objects are merged key by key (so `boards.issues.z` changes one number of one board), and lists replace the whole list (give `tables` or `props` and they're all yours). `null` takes away one of the optional parts (`"herald": null`: no Hand of the King). A map can extend another map of your own, a few deep. The office itself is built in code, so it can't be extended; extend `castle` instead.
+
+The folder's first 24 files are read, up to 256 KB each, and a map can have up to 40 tables, 12 seats a side and 400 props.
 
 Units are meters. The hall runs from `x = -width/2` (west) to `width/2` (east) and from `z = -length/2` (north) to `length/2` (south); `y` is up. Angles (`rotY`) are in radians: `0` faces south (+z), `π/2` (1.5708) east, `π` north and `-π/2` west. The castle's config, [`src/shared/maps/castle.ts`](../src/shared/maps/castle.ts), is a full example of every part.
 
@@ -48,7 +50,7 @@ Units are meters. The hall runs from `x = -width/2` (west) to `width/2` (east) a
 | `hall` | `{ width, length, height }`: the room, and how high its walls are (up to 110 m either way). |
 | `spawn` | `{ x, z, rotY }`: where you stand when you arrive and the throne's taken. |
 | `door` | `{ x, z }`: just inside the way in and out. The doorway goes in the nearest wall; workers come in and go home through it. |
-| `throne` | `{ x, z, rotY, dais: { width, depth, height, steps } }`: your seat, on a dais that runs 2.4 m in front of it and the rest behind. Optional. |
+| `throne` | `{ x, z, rotY, dais: { width, depth, height, steps } }`: your seat, on a dais that runs 2.4 m in front of it and the rest behind, with `steps` (up to 10) down its front. Without a `dais` it's 8 m by 4.5 m and 0.9 m high, with 3 steps. Optional. |
 | `herald` | `{ x, z, rotY, name, says }`: who sends out new workers. Optional. |
 | `lineup` | `{ x, z, rotY, step: [dx, dz], count }`: the first spot in line, and each next one `step` further on, all facing `rotY`. Optional. |
 | `tables` | `[{ x, z, length, seats, width?, rotY?, sides?, name? }]`: where the workers sit. `seats` is per side; `sides` is `"both"` (the default), `"inner"` or `"outer"`; `rotY` 0 runs the table along z. |

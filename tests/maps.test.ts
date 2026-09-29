@@ -74,6 +74,42 @@ test("a map that can't be used says why, and the building stays on the office", 
   assert.equal(planOf('nowhere'), OFFICE_PLAN);
 });
 
+test("a custom map can't ask a browser to build what would hang it, and says why", () => {
+  const brazier = { kind: 'brazier', x: 0, z: 0 };
+  const checked = checkCustomMaps([
+    { file: 'thin.json', json: { id: 'thin', name: 'Thin', extends: 'castle', props: [{ kind: 'window', x: 0, z: -29.9, y: 1, width: 0 }] } },
+    { file: 'steps.json', json: { id: 'steps', name: 'Steps', extends: 'castle', throne: { dais: { steps: 1e9 } } } },
+    { file: 'many.json', json: { id: 'many', name: 'Many', extends: 'castle', props: Array.from({ length: 5000 }, () => brazier) } },
+    { file: 'crowd.json', json: { id: 'crowd', name: 'Crowd', extends: 'castle', tables: [{ x: 0, z: 0, length: 20, seats: 40 }] } },
+    { file: 'word.json', json: { id: 'word', name: 'Word', extends: 'castle', props: [{ kind: 'torch', x: -12.9, z: 0, y: 'high' }] } },
+    { file: 'spaced.json', json: { id: ' spaced ', name: 'Spaced', extends: 'castle' } },
+    { file: 'sides.json', json: { id: 'sides', name: 'Sides', extends: 'castle', tables: [{ x: 0, z: 0, length: 20, seats: 12, sides: 'left' }] } },
+  ]);
+  const why = Object.fromEntries(checked.map((m) => [m.file, m.error ?? '']));
+  assert.match(why['thin.json'], /props\[\d+\]\.width should be between/);
+  assert.match(why['steps.json'], /throne\.dais\.steps should be between 0 and 10/);
+  assert.match(why['many.json'], /5000 props, and a map can have 400/);
+  assert.match(why['crowd.json'], /seats should be between 1 and 12/);
+  assert.match(why['word.json'], /\.y should be a number/);
+  assert.match(why['spaced.json'], /id should be up to 40 lowercase/);
+  assert.match(why['sides.json'], /sides should be "both", "inner" or "outer"/);
+});
+
+test('a custom map takes away what it extends with null, and merges no prototype keys', () => {
+  const [plain] = checkCustomMaps([{ file: 'plain.json', json: JSON.parse('{"id":"plain","name":"Plain","extends":"castle","throne":null,"herald":null,"lineup":null,"door":{"__proto__":{"rotY":1.2}}}') }]);
+  assert.equal(plain.error, undefined);
+  const plan = planOf('plain', [plain]);
+  assert.equal(plan.throne, undefined);
+  assert.equal(plan.herald, undefined);
+  assert.deepEqual(plan.lineup, []);
+  assert.equal(Object.getPrototypeOf(plain.config!.door), Object.prototype);
+  // With no dais given, the throne sits on the default one, the height the plan says.
+  const [low] = checkCustomMaps([{ file: 'low.json', json: { id: 'low', name: 'Low', extends: 'castle', throne: { dais: null } } }]);
+  assert.equal(low.error, undefined);
+  const p = planOf('low', [low]);
+  assert.equal(p.throne!.y, p.dais!.height);
+});
+
 test('a worker keeps count of how long it has worked, over every stretch', () => {
   const info = { status: 'idle' } as WorkerInfo;
   clockWork(info, 'working', 1000);

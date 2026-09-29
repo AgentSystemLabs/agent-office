@@ -1346,6 +1346,8 @@ export type ServerMsg =
   | { t: 'sky'; state: SkyState }
   | { t: 'theme'; state: ThemeState }
   | { t: 'map'; state: MapState }
+  /** Sent to whoever tried to sit where someone on the floor already is. */
+  | { t: 'sit.refused'; seat: string; by: string }
   | { t: 'prompts'; state: PromptsState }
   | { t: 'leaveOnMerge'; state: LeaveOnMergeState }
   /** Sent to whoever watches that worker's changes, whenever they change. */

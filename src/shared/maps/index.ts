@@ -29,6 +29,11 @@ export const THRONE_SIZE = { width: 1.9, depth: 1.9 } as const;
 /** A map that can't be used: why, in words for Settings. */
 export class MapError extends Error {}
 
+/** The most tables, seats a side and props a map can have: plenty for a hall, and not so many a browser chokes building it. */
+export const MAP_LIMITS = { tables: 40, seats: 12, props: 400 } as const;
+/** The dais a throne stands on when its map doesn't say. */
+export const DEFAULT_DAIS = { width: 8, depth: 4.5, height: 0.9, steps: 3 } as const;
+
 const DEFAULT_BOARD_LABEL: Record<BoardKey, string> = { issues: 'Issues', queue: '📋 Task queue', pulls: 'Pull Requests', services: '🌐 Services' };
 
 // ---- The office -----------------------------------------------------------------------------------
@@ -66,11 +71,17 @@ export const OFFICE_PLAN: MapPlan = officePlan();
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
-/** `over` on top of `base`: objects merged key by key, anything else (lists included) replaced. */
+/** Keys a JSON object could use to reach an object's prototype, which a merge skips. */
+const UNSAFE = new Set(['__proto__', 'constructor', 'prototype']);
+
+/** `over` on top of `base`: objects merged key by key, anything else (lists included, and null) replaced. */
 export function mergeConfig<T>(base: T, over: unknown): T {
   if (!isObj(base) || !isObj(over)) return (over === undefined ? base : over) as T;
   const out: Record<string, unknown> = { ...base };
-  for (const [k, v] of Object.entries(over)) out[k] = k in out ? mergeConfig(out[k], v) : v;
+  for (const [k, v] of Object.entries(over)) {
+    if (UNSAFE.has(k)) continue;
+    out[k] = Object.hasOwn(out, k) ? mergeConfig(out[k], v) : v;
+  }
   return out as T;
 }
 
@@ -107,8 +118,8 @@ function str(v: unknown, what: string, max = 80): string {
 /** Checks a map's config is complete and sane, and works out where everything goes. */
 export function planMap(c: MapConfig): MapPlan {
   if (!isObj(c)) throw new MapError('it isn’t a JSON object');
-  const id = str(c.id, 'id', 40);
-  if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) throw new MapError('its id should be lowercase letters, digits and dashes');
+  if (typeof c.id !== 'string' || c.id.length > 40 || !/^[a-z0-9][a-z0-9-]*$/.test(c.id)) throw new MapError('its id should be up to 40 lowercase letters, digits and dashes');
+  const id = c.id;
   if (id === OFFICE_MAP) throw new MapError('"office" is the office’s own id');
   const name = str(c.name, 'name', 40);
   if (!(MAP_STYLES as readonly string[]).includes(c.style)) throw new MapError(`its style "${String(c.style)}" isn’t one there’s a builder for (${MAP_STYLES.join(', ')})`);
@@ -128,11 +139,14 @@ export function planMap(c: MapConfig): MapPlan {
     inside(x, z, what);
     return { x, z, rotY };
   };
+  /** An optional number: undefined when it's left out, else checked like num. */
+  const opt = (v: unknown, what: string, min: number, max: number) => (v === undefined ? undefined : num(v, what, min, max));
   const rects: Rect[] = [];
   const circles: Circle[] = [];
 
   // The seats at the tables: every table's side toward the middle of the hall first, then the far sides.
   if (!Array.isArray(c.tables) || !c.tables.length) throw new MapError('it needs tables for the workers to sit at');
+  if (c.tables.length > MAP_LIMITS.tables) throw new MapError(`it has ${c.tables.length} tables, and a map can have ${MAP_LIMITS.tables}`);
   const inner: { def: Omit<DeskDef, 'id' | 'label'>; table: string }[] = [];
   const outer: typeof inner = [];
   c.tables.forEach((t: TableConfig, i) => {
@@ -143,13 +157,15 @@ export function planMap(c: MapConfig): MapPlan {
     const len = num(t.length, `${what}.length`, 1, 100);
     const w = t.width === undefined ? 1.4 : num(t.width, `${what}.width`, 0.6, 4);
     const r = t.rotY === undefined ? 0 : num(t.rotY, `${what}.rotY`);
-    const n = Math.round(num(t.seats, `${what}.seats`, 1, 40));
+    const n = num(t.seats, `${what}.seats`, 1, MAP_LIMITS.seats);
+    if (!Number.isInteger(n)) throw new MapError(`${what}.seats should be a whole number`);
     const along = [Math.sin(r), Math.cos(r)];
     const right = [Math.cos(r), -Math.sin(r)];
     for (const end of [-1, 1]) inside(x + (along[0] * len * end) / 2, z + (along[1] * len * end) / 2, `the end of ${what}`);
     // The side facing the middle of the hall is the inner one.
     const rightInner = right[0] * x + right[1] * z <= 0;
     const sides = t.sides ?? 'both';
+    if (sides !== 'both' && sides !== 'inner' && sides !== 'outer') throw new MapError(`${what}.sides should be "both", "inner" or "outer"`);
     const table = typeof t.name === 'string' && t.name.trim() ? t.name.trim().slice(0, 40) : `Table ${i + 1}`;
     rects.push(boxFootprint(x, z, w, len, r));
     for (const s of [1, -1]) {
@@ -222,27 +238,39 @@ export function planMap(c: MapConfig): MapPlan {
   }
 
   // The throne, the Hand beside it, and the line in front of it.
+  // Each of these can be left out (or set to null, to take away one a map it extends has).
   const seating: SeatDef[] = [];
   let throne: SeatDef | undefined;
-  if (c.throne !== undefined) {
+  let dais: MapPlan['dais'];
+  if (c.throne != null) {
     const p = place(c.throne, 'throne');
-    const dais = isObj(c.throne.dais) ? c.throne.dais : undefined;
-    const y = dais ? num(dais.height, 'throne.dais.height', 0, 3) : 0;
-    throne = { id: 'throne', label: '👑 Throne', x: p.x, y, z: p.z, rotY: p.rotY, places: [0], hips: 0.74, depth: 0.12, out: 1.1 };
+    const d = c.throne.dais;
+    if (d != null && !isObj(d)) throw new MapError('throne.dais should be { width, depth, height, steps }');
+    dais = d
+      ? {
+          width: num(d.width, 'throne.dais.width', 2, 40),
+          depth: num(d.depth, 'throne.dais.depth', 2.6, 20),
+          height: num(d.height, 'throne.dais.height', 0, 3),
+          steps: num(d.steps, 'throne.dais.steps', 0, 10),
+        }
+      : { ...DEFAULT_DAIS };
+    if (!Number.isInteger(dais.steps)) throw new MapError('throne.dais.steps should be a whole number');
+    throne = { id: 'throne', label: '👑 Throne', x: p.x, y: dais.height, z: p.z, rotY: p.rotY, places: [0], hips: 0.74, depth: 0.12, out: 1.1 };
     seating.push(throne);
     rects.push(boxFootprint(p.x, p.z - Math.cos(p.rotY) * 0.2, THRONE_SIZE.width, THRONE_SIZE.depth, p.rotY));
   }
   let herald: MapPlan['herald'];
-  if (c.herald !== undefined) {
+  if (c.herald != null) {
     const p = place(c.herald, 'herald');
     herald = { ...p, name: typeof c.herald.name === 'string' && c.herald.name.trim() ? c.herald.name.trim().slice(0, 40) : 'Herald', says: typeof c.herald.says === 'string' ? c.herald.says.slice(0, 80) : 'Speak to me to send out a new worker' };
     circles.push([p.x, p.z, 0.35]);
   }
   const lineup: MapPlan['lineup'] = [];
-  if (c.lineup !== undefined) {
+  if (c.lineup != null) {
     const l = c.lineup;
     if (!isObj(l) || !Array.isArray(l.step)) throw new MapError('lineup should be { x, z, rotY, step: [dx, dz], count }');
-    const count = Math.round(num(l.count, 'lineup.count', 1, 30));
+    const count = num(l.count, 'lineup.count', 1, 30);
+    if (!Number.isInteger(count)) throw new MapError('lineup.count should be a whole number');
     const [dx, dz] = [num(l.step[0], 'lineup.step[0]', -5, 5), num(l.step[1], 'lineup.step[1]', -5, 5)];
     for (let i = 0; i < count; i++) {
       const x = num(l.x, 'lineup.x') + dx * i;
@@ -255,11 +283,20 @@ export function planMap(c: MapConfig): MapPlan {
   // Everything else.
   const props = c.props ?? [];
   if (!Array.isArray(props)) throw new MapError('props should be a list');
+  if (props.length > MAP_LIMITS.props) throw new MapError(`it has ${props.length} props, and a map can have ${MAP_LIMITS.props}`);
   props.forEach((p, i) => {
-    if (!isObj(p) || typeof p.kind !== 'string') throw new MapError(`props[${i}] should be { kind, x, z }`);
-    if (!isPropKind(p.kind)) throw new MapError(`props[${i}] is a "${p.kind}", which isn’t a kind of prop there is`);
-    num(p.x, `props[${i}].x`);
-    num(p.z, `props[${i}].z`);
+    const what = `props[${i}]`;
+    if (!isObj(p) || typeof p.kind !== 'string') throw new MapError(`${what} should be { kind, x, z }`);
+    if (!isPropKind(p.kind)) throw new MapError(`${what} is a "${p.kind}", which isn’t a kind of prop there is`);
+    inside(num(p.x, `${what}.x`), num(p.z, `${what}.z`), `${what} (a ${p.kind})`, 0);
+    // Everything the builder reads, in sizes it can build.
+    opt(p.y, `${what}.y`, 0, 100);
+    opt(p.rotY, `${what}.rotY`, -1e4, 1e4);
+    opt(p.scale, `${what}.scale`, 0.2, 5);
+    opt(p.width, `${what}.width`, 0.3, 20);
+    opt(p.height, `${what}.height`, 0.3, 20);
+    opt(p.length, `${what}.length`, 0.3, 120);
+    if (p.light !== undefined && typeof p.light !== 'boolean') throw new MapError(`${what}.light should be true or false`);
     // What hangs on a wall, or from the roof, has to fit under the walls' top.
     const top = propTop(p);
     if (top > height) throw new MapError(`props[${i}] (a ${p.kind}) reaches ${top.toFixed(1)} m up, over the hall's ${height} m walls: lower its y, or raise hall.height`);
@@ -269,6 +306,10 @@ export function planMap(c: MapConfig): MapPlan {
   });
   if (props.filter((p) => p.kind === 'gong').length > 1) throw new MapError('it has more than one gong');
 
+  if (c.palette != null) {
+    if (!isObj(c.palette)) throw new MapError('palette should be { stone, floor, carpet, wood, trim }');
+    for (const [k, v] of Object.entries(c.palette)) if (typeof v !== 'string' || v.length > 40) throw new MapError(`palette.${k} should be a CSS color`);
+  }
   const door = place(c.door, 'door');
   const spawn = c.spawn ? place(c.spawn, 'spawn') : { x: door.x, z: door.z, rotY: Math.atan2(-door.x, -door.z) };
   const outfit = c.agents?.outfit === 'peasant' ? 'peasant' : 'none';
@@ -293,6 +334,7 @@ export function planMap(c: MapConfig): MapPlan {
     seating,
     seatingById: new Map(seating.map((s) => [s.id, s])),
     throne,
+    dais,
     lineup,
     herald,
     door,

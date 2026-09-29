@@ -573,7 +573,7 @@ function banner(kit: Kit, p: PropConfig, banners: Banner[], color: string) {
   const g = placed(p, p.y ?? kit.height - 2);
   const great = w >= 3;
   const pw = 256;
-  const ph = Math.round((256 * h) / w);
+  const ph = Math.min(2048, Math.max(64, Math.round((256 * h) / w)));
   const tex = canvasTexture(pw, ph, (c) => paintBanner(c, pw, ph, color));
   banners.push({ tex, w: pw, h: ph, great });
   // Cut to a swallowtail at the foot.
@@ -600,7 +600,9 @@ function glassWindow(kit: Kit, p: PropConfig, seed: number, glass: THREE.MeshBas
   const w = p.width ?? 2.2;
   const h = p.height ?? 5;
   const g = placed(p, p.y ?? 6);
-  const tex = canvasTexture(256, Math.round((256 * h) / w), stainedGlass(seed, 256, Math.round((256 * h) / w)));
+  // The picture's as tall as the window is for its width, within reason.
+  const th = Math.min(1024, Math.max(64, Math.round((256 * h) / w)));
+  const tex = canvasTexture(256, th, stainedGlass(seed, 256, th));
   const mat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
   mat.userData.outlineParameters = { visible: false };
   glass.push(mat);
@@ -1096,9 +1098,9 @@ export function buildCastle(plan: MapPlan): Castle {
 
   // ---- The dais and the throne ----
   let throne: Interactable | undefined;
-  if (plan.throne && c.throne) {
+  if (plan.throne && plan.dais) {
     const t = plan.throne;
-    const dais = c.throne.dais ?? { width: 8, depth: 4.5, height: 0.9, steps: 3 };
+    const dais = plan.dais;
     const g = new THREE.Group();
     g.position.set(t.x, 0, t.z);
     g.rotation.y = t.rotY;

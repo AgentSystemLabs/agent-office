@@ -90,11 +90,11 @@ export interface MapConfig {
   /** Just inside the way in and out, where workers come in and go home. */
   door: Place;
   /** Your seat of honour, on a dais against a wall. */
-  throne?: Place & { dais?: { width: number; depth: number; height: number; steps: number } };
+  throne?: (Place & { dais?: { width: number; depth: number; height: number; steps: number } | null }) | null;
   /** Whoever stands by the throne and sends new workers out when you speak to them. */
-  herald?: Place & { name?: string; says?: string };
+  herald?: (Place & { name?: string; says?: string }) | null;
   /** Where workers waiting on someone line up: the first spot, each next one `step` further on, `count` of them, facing `rotY`. */
-  lineup?: { x: number; z: number; rotY: number; step: [number, number]; count: number };
+  lineup?: { x: number; z: number; rotY: number; step: [number, number]; count: number } | null;
   /** Where the workers sit. The sides toward the middle of the hall fill first. */
   tables: TableConfig[];
   /** The board agents, each at a lectern: where the lectern is, and the way the agent faces. */
@@ -139,6 +139,8 @@ export interface MapPlan {
   seating: SeatDef[];
   seatingById: Map<string, SeatDef>;
   throne?: SeatDef;
+  /** The dais the throne stands on (its front is 2.4 m in front of the throne, and the steps down go on from there). */
+  dais?: { width: number; depth: number; height: number; steps: number };
   /** The spots workers waiting on someone stand in, first in line first. */
   lineup: { x: number; z: number; rotY: number }[];
   herald?: { x: number; z: number; rotY: number; name: string; says: string };

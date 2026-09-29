@@ -382,6 +382,19 @@ export async function startServer(cfg: Config) {
   themes.start();
   // What the building looks like inside: the office, the castle, or a map of your own (⚙️ Settings).
   const maps = new Maps(cfg.dataDir);
+  /**
+   * Tells everyone about the maps, after a pick or a read of the folder. When the map everyone's on
+   * changed (`was` before), everyone's off their seats (each browser forgets them too, see the
+   * client's 'map'), and hears what it is now: `who` picked it, or a map of your own broke or came back.
+   */
+  const mapNews = (was: string, who?: string) => {
+    const now = maps.pick();
+    if (now !== was) for (const other of clients.values()) delete other.peer.seat;
+    broadcast({ t: 'map', state: maps.state() });
+    if (now === was) return;
+    const plan = maps.plan();
+    toastAll(who ? `${plan.icon} ${who} changed the building's map to the ${plan.name.toLowerCase()}` : `${plan.icon} The building's map is the ${plan.name.toLowerCase()} now: the one it was on won't load`);
+  };
   // The prompts the office writes for workers by itself, and the worker everyone starts on (⚙️ Settings).
   const configured = configuredProvider(cfg.agentCmd);
   const prompts = new OfficePrompts(cfg.dataDir, { list: agentProviders(configured), configured }, (state) => broadcast({ t: 'prompts', state }));
@@ -1042,7 +1055,8 @@ export async function startServer(cfg: Config) {
       },
     };
     // Maps of your own may have been added or edited since: everyone already in hears first.
-    if (maps.reload()) broadcast({ t: 'map', state: maps.state() });
+    const mapWas = maps.pick();
+    if (maps.reload()) mapNews(mapWas);
     clients.set(id, client);
     if (account) accounts.seen(account.id);
     ws.on('pong', () => (client.isAlive = true));
@@ -1371,6 +1385,12 @@ export async function startServer(cfg: Config) {
         const key = str(msg.seat, 40);
         const seat = seatHereOn(maps.plan(), key, c.peer.floor === ROOF) ? key : undefined;
         if (seat === c.peer.seat) break;
+        // Somebody on the floor got there first (two people arriving at an empty throne at once).
+        const there = seat && [...clients.values()].find((o) => o !== c && o.peer.seat === seat && o.peer.floor === c.peer.floor);
+        if (there) {
+          sendTo(c, { t: 'sit.refused', seat: key, by: there.peer.name });
+          break;
+        }
         if (seat) c.peer.seat = seat;
         else delete c.peer.seat;
         broadcast({ t: 'peer.update', peer: c.peer }, c.id);
@@ -1847,24 +1867,15 @@ export async function startServer(cfg: Config) {
         break;
       }
       case 'map.set': {
-        // No map: someone opened the list, so the folder of maps of your own is read again.
-        if (msg.map === undefined) {
-          if (maps.reload()) broadcast({ t: 'map', state: maps.state() });
+        // Someone opened the list, or picked a map: either way the folder of maps of your own is read again first.
+        const was = maps.pick();
+        const reloaded = maps.reload();
+        if (msg.map === undefined || !maps.set(str(msg.map, 64), who)) {
+          if (reloaded) mapNews(was);
+          if (msg.map !== undefined) warn(c, 'There’s no map by that name, or it won’t load: see ⚙️ Settings');
           break;
         }
-        const was = maps.pick();
-        if (!maps.set(str(msg.map, 64), who)) return warn(c, 'There’s no map by that name, or it won’t load: see ⚙️ Settings');
-        broadcast({ t: 'map', state: maps.state() });
-        if (maps.pick() !== was) {
-          const plan = maps.plan();
-          // Everyone gets up: the seats they were on aren't there any more.
-          for (const other of clients.values()) {
-            if (!other.peer.seat) continue;
-            delete other.peer.seat;
-            broadcast({ t: 'peer.update', peer: other.peer });
-          }
-          toastAll(`${plan.icon} ${who} changed the building's map to the ${plan.name.toLowerCase()}`);
-        }
+        mapNews(was, who);
         break;
       }
       case 'prompts.set': {

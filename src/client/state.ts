@@ -500,10 +500,15 @@ class Store {
         this.theme = msg.state;
         this.emit('theme');
         break;
-      case 'map':
+      case 'map': {
+        // Onto another map: nobody's on a seat of the last one any more (the office forgot them too).
+        const moved = msg.state.pick !== this.map.pick;
         this.map = msg.state;
+        if (moved) for (const p of this.peers.values()) delete p.seat;
         this.emit('map');
+        if (moved) this.emit('peers');
         break;
+      }
       case 'prompts':
         this.prompts = msg.state;
         this.emit('prompts');

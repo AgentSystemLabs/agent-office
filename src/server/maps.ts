@@ -39,7 +39,9 @@ export class Maps {
   }
 
   state(): MapState {
-    return { pick: this.pick(), custom: this.custom, ...(this.saved ? { by: this.saved.by, at: this.saved.at } : {}) };
+    const pick = this.pick();
+    // Who picked it, while it's what they picked (not the office, while their map won't load).
+    return { pick, custom: this.custom, ...(this.saved?.pick === pick ? { by: this.saved.by, at: this.saved.at } : {}) };
   }
 
   /** The map everyone's on: the one picked, while it's there to be had. */
@@ -53,9 +55,8 @@ export class Maps {
     return planOf(this.pick(), this.custom);
   }
 
-  /** False when there's no such map (or it won't load). */
+  /** False when there's no such map (or it won't load). Read the folder first (reload), so a map just added counts. */
   set(pick: string, by: string): boolean {
-    this.reload();
     if (!isMapChoice(pick, this.custom)) return false;
     this.saved = { pick, by, at: Date.now() };
     this.persist();
@@ -65,11 +66,13 @@ export class Maps {
   /** Reads the custom maps again; true if anything in the folder changed. */
   reload(): boolean {
     let names: string[] = [];
+    let extra: string[] = [];
     try {
       names = readdirSync(this.dir)
         .filter((f) => f.endsWith('.json'))
-        .sort()
-        .slice(0, MAX_FILES);
+        .sort();
+      extra = names.slice(MAX_FILES);
+      names = names.slice(0, MAX_FILES);
     } catch {
       // no folder: no maps of your own
     }
@@ -81,7 +84,7 @@ export class Maps {
         return { f, size: -1, mtime: 0 };
       }
     });
-    const stamp = JSON.stringify(stats);
+    const stamp = JSON.stringify([stats, extra]);
     if (stamp === this.stamp) return false;
     this.stamp = stamp;
     const files = stats.map(({ f, size }) => {
@@ -94,6 +97,7 @@ export class Maps {
     });
     const checked = checkCustomMaps(files.filter((f) => !f.error));
     this.custom = files.map((f) => (f.error ? { file: f.file, error: f.error } : checked.find((c) => c.file === f.file)!));
+    for (const f of extra) this.custom.push({ file: f, error: `only the first ${MAX_FILES} maps in the folder are read` });
     return true;
   }
 

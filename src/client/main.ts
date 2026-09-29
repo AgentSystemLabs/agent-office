@@ -986,6 +986,14 @@ net.onMessage((msg) => {
     case 'gong':
       gongRang(msg.why, msg.pr);
       break;
+    case 'sit.refused':
+      // Somebody on the floor got there first: back on your feet, next to them.
+      if (player.seat?.key === msg.seat) {
+        player.stand();
+        me.sit(null);
+        toast(`${msg.by} got there first`, 'warn');
+      }
+      break;
     case 'horn':
       if (!upTop) break;
       sound.horn();
@@ -1425,7 +1433,11 @@ function applyMap() {
   seatedAlready = true;
   syncWorkers();
   seatedAlready = false;
-  if (store.floor && !upTop && !trip) placeInCar();
+  if (store.floor && !upTop && !trip) {
+    placeInCar();
+    // Back in the office, in its elevator: the doors open onto it.
+    lift()?.setOpen(true);
+  }
   offTheRoof();
   hintKey = 'stale';
   hud.refresh();
