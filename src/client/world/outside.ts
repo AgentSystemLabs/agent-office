@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FLOOR, ROAD, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
+import { ELEVATOR, ELEVATOR_FRONT, FLOOR, ROAD, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
 import { CAR, supercar, type CarKind } from './cars';
 import type { Collider } from './office';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
@@ -71,7 +71,10 @@ function groundPlane(w: number, d: number, x: number, y: number, z: number, map:
   return m;
 }
 
-/** Polished concrete with painted bays along the back wall and along the front. */
+/**
+ * Polished concrete with painted bays along the back wall and along the front, and a hatched box
+ * to keep clear in front of the elevator, which takes up a bay at the back.
+ */
 function garageFloorTexture(): THREE.CanvasTexture {
   const w = B.maxX - B.minX;
   const d = B.maxZ - B.minZ;
@@ -88,13 +91,35 @@ function garageFloorTexture(): THREE.CanvasTexture {
     }
     const X = (x: number) => (x - B.minX) * px;
     const Z = (z: number) => (z - B.minZ) * px;
+    const lift = { minX: ELEVATOR.x - ELEVATOR.width / 2, maxX: ELEVATOR.x + ELEVATOR.width / 2, minZ: ELEVATOR_FRONT, maxZ: ELEVATOR_FRONT + 2.2 };
     g.fillStyle = '#fffaf0';
     for (const [z0, z1] of [
       [B.minZ + 0.3, B.minZ + 5.8],
       [B.maxZ - 5.8, B.maxZ - 0.3],
     ]) {
-      for (let x = -16; x <= 16.01; x += BAY) g.fillRect(X(x) - 2, Z(z0), 4, (z1 - z0) * px);
+      for (let x = -16; x <= 16.01; x += BAY) {
+        // Not out of the elevator's shaft and across the box in front of it.
+        if (z0 < lift.maxZ && x > lift.minX - 0.1 && x < lift.maxX + 0.1) continue;
+        g.fillRect(X(x) - 2, Z(z0), 4, (z1 - z0) * px);
+      }
     }
+    // The box in front of the elevator's doors: a yellow outline, hatched across.
+    g.save();
+    g.beginPath();
+    g.rect(X(lift.minX), Z(lift.minZ), (lift.maxX - lift.minX) * px, (lift.maxZ - lift.minZ) * px);
+    g.clip();
+    g.strokeStyle = '#ffd166';
+    g.lineWidth = 7;
+    for (let d = -3; d < 6; d += 0.45) {
+      g.beginPath();
+      g.moveTo(X(lift.minX + d), Z(lift.minZ));
+      g.lineTo(X(lift.minX + d + 3), Z(lift.maxZ));
+      g.stroke();
+    }
+    g.restore();
+    g.strokeStyle = '#ffd166';
+    g.lineWidth = 8;
+    g.strokeRect(X(lift.minX) + 4, Z(lift.minZ) + 4, (lift.maxX - lift.minX) * px - 8, (lift.maxZ - lift.minZ) * px - 8);
     // Arrows down the aisle, pointing out to the street.
     g.fillStyle = '#ffd166';
     for (const x of [-8, 8]) {

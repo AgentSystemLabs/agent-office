@@ -61,7 +61,7 @@ import { Compass, type Bearing } from './ui/compass';
 import { openCharacter } from './ui/character';
 import { openSettings, type SettingsPane } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
-import { elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
+import { GARAGE, elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
 import { toggleFloorMenu } from './ui/floormenu';
 import { providerLabel, officeChoice, resolvedProvider, modelBadge } from './ui/provider';
 import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
@@ -783,7 +783,8 @@ net.onMessage((msg) => {
           placeAt(mine);
           arrive('back');
         } else {
-          placeInCar(mine);
+          // The car you were in (or nearest): the garage's, if you were down there.
+          placeInCar(mine, !upTop && mine.y < -SLAB - 1);
           arrive();
         }
         floorWentWhileAway(wasOn);
@@ -973,10 +974,15 @@ function renderTitle() {
 }
 
 // ---- Floors & the elevator ----------------------------------------------------------------------
-/** In the car, facing out through the doors: where you are when you arrive on a floor. */
-function placeInCar(at?: { x: number; z: number }) {
+/** In the car, facing out through the doors: where you are when you arrive on a floor, or down in the `garage`. */
+function placeInCar(at?: { x: number; z: number }, garage = false) {
   const spot = at && inElevator(at.x, at.z) ? at : { x: ELEVATOR.x, z: (ELEVATOR_CAR.minZ + ELEVATOR_CAR.maxZ) / 2 };
-  placeAt({ x: spot.x, y: 0, z: spot.z, rotY: 0 });
+  placeAt({ x: spot.x, y: garage ? player.street : 0, z: spot.z, rotY: 0 });
+}
+
+/** Down in the garage (or out on the street) under the floor you're on. */
+function downstairs(): boolean {
+  return !upTop && player.pos.y < -SLAB - 1;
 }
 
 /** On your feet at `at`, facing `rotY` and looking straight ahead. */
@@ -1034,28 +1040,39 @@ function fade(on: boolean, quick = false) {
 
 /** How you're going to another floor: by elevator, straight there from the floor list, or by the ladder or a pole. */
 type TripKind = 'elevator' | 'switch' | Grip;
-/** A trip under way: the lights are down (and by elevator the doors are shut) until the next floor arrives. */
-let trip: { floor: string; how: TripKind; timer: number } | null = null;
+/**
+ * A trip under way: the lights are down (and by elevator the doors are shut) until the next floor
+ * arrives. `garage` is down to the garage under it.
+ */
+let trip: { floor: string; how: TripKind; timer: number; garage?: boolean } | null = null;
 
 function showElevator() {
-  openElevator({ net, ride });
+  openElevator({ net, ride, downstairs });
 }
 
-/** The elevator where you are: the office's, or the one up on the roof. */
+/** The elevator where you are: the office's, its stop down in the garage, or the one up on the roof. */
 function lift() {
-  return upTop && roof ? roof.elevator : office.elevator;
+  return upTop && roof ? roof.elevator : downstairs() ? office.garageLift : office.elevator;
 }
 
-/** Rides the elevator to another floor (or up to the roof). From outside the car, you step in while the lights are down. */
-function ride(floorId: string) {
-  if (trip || floorId === store.floor) return;
+/**
+ * Rides the elevator to another floor, up to the roof or down to the garage (GARAGE). From outside
+ * the car, you step in while the lights are down. Between your floor and the garage under it you
+ * stay on that floor, just further down the shaft (or back up it); from the roof, the garage is the
+ * bottom floor's.
+ */
+function ride(to: string) {
+  const garage = to === GARAGE;
+  const floorId = garage ? (upTop || !store.floor ? builtFloors()[0]?.id : store.floor) : to;
+  if (trip || !floorId || (floorId === store.floor && garage === downstairs())) return;
   closeAllModals();
   if (hanger.active) hanger.cancel();
   if (climber.active) climber.abort();
   if (golf.active) golf.stop();
   if (thrower.active) thrower.stop();
   const inside = inElevator(player.pos.x, player.pos.z);
-  trip = { floor: floorId, how: 'elevator', timer: window.setTimeout(tripFailed, 10_000) };
+  const within = floorId === store.floor;
+  trip = { floor: floorId, how: 'elevator', garage, timer: window.setTimeout(tripFailed, 10_000) };
   player.enabled = false;
   player.clearKeys();
   lift().setOpen(false);
@@ -1064,12 +1081,32 @@ function ride(floorId: string) {
     () => {
       fade(true);
       setTimeout(() => {
-        placeInCar(inside ? player.pos : undefined);
-        net.send({ t: 'floor.go', floor: floorId });
+        placeInCar(inside ? player.pos : undefined, garage && within);
+        if (within) setTimeout(rodeWithin, 700);
+        // Down to the garage from the roof: the bottom floor, and down its shaft once it's here (see arrive).
+        else net.send({ t: 'floor.go', floor: floorId, ...(garage ? { at: { x: player.pos.x, y: streetBelow(0), z: player.pos.z, rotY: 0 } } : {}) });
       }, 320);
     },
     inside ? 650 : 0,
   );
+}
+
+/** Down to the garage under your floor, or back up from it: still the same floor, so the lights come up and the doors open. */
+function rodeWithin() {
+  if (!trip) return;
+  clearTimeout(trip.timer);
+  trip = null;
+  fade(false);
+  doorsOpen();
+}
+
+/** There: the doors open onto it, with a ding. */
+function doorsOpen() {
+  setTimeout(() => {
+    lift().setOpen(true);
+    sound.ding('done');
+    player.enabled = !modalOpen();
+  }, 450);
 }
 
 /** Where you are, to arrive at the same spot on floor `to`. Down on the street (or the steps to it), that's the street there too. */
@@ -1194,6 +1231,8 @@ function arrive(how: TripKind | 'back' = trip?.how ?? 'elevator') {
   noticeWaiting();
   syncStack();
   if (trip) {
+    // Down to the garage: into the car at the bottom of the shaft, now that the street is where this floor has it.
+    if (trip.garage && store.floor) placeInCar(player.pos, true);
     clearTimeout(trip.timer);
     trip = null;
   }
@@ -1219,11 +1258,7 @@ function arrive(how: TripKind | 'back' = trip?.how ?? 'elevator') {
     else climber.arrived();
     return;
   }
-  setTimeout(() => {
-    lift().setOpen(true);
-    sound.ding('done');
-    player.enabled = !modalOpen();
-  }, 450);
+  doorsOpen();
 }
 
 /** Workers waiting on someone, per floor, the last time the elevator said so. */
@@ -2541,13 +2576,15 @@ let target: Interactable | null = null;
 let hintKey = '';
 
 function pickTarget(): Interactable | null {
-  // Everything you can use is upstairs; down on the street you're under it all.
-  if (player.pos.y < -SLAB - 1) return null;
+  // Nearly everything you can use is upstairs; down on the street you're under it all, but for the
+  // elevator's stop in the garage.
+  const below = player.pos.y < -SLAB - 1;
   let best: Interactable | null = null;
   let bestD = Infinity;
   for (const list of usable()) {
     for (const it of list) {
       if (it.off) continue;
+      if (below !== (it.y ?? 0) < -SLAB - 1) continue;
       // Up on the loft, or down underneath it.
       if (Math.abs((it.y ?? 0) - player.pos.y) > 1.5) continue;
       const d = Math.hypot(it.x - player.pos.x, it.z - player.pos.z);
@@ -2681,6 +2718,7 @@ function hintFor(it: Interactable): Hint {
     case 'elevator': {
       const f = store.currentFloor();
       const n = store.floors.length;
+      if (it === office.garageLift.interactable) return { k: `garage|${f?.name}|${n}`, parts: [title('🛗 Elevator'), aside(f ? `Garage · up to ${clip(f.name, 24)}` : 'Garage'), key('E', 'Choose a floor')] };
       return { k: `${f?.name}|${n}`, parts: [title('🛗 Elevator'), f ? aside(`${f.name} · ${n} floor${n === 1 ? '' : 's'}`) : '', key('E', n > 1 ? 'Choose a floor' : 'Floors & projects')] };
     }
     case 'decor': {
