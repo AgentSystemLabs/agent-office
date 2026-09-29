@@ -865,6 +865,7 @@ a.when:hover { text-decoration: underline; }
 .modal.bookshelf { width: min(1240px, 100%); height: min(880px, calc(100vh - 32px)); }
 .modal.bookshelf .body { flex: 1; min-height: 0; display: grid; grid-template-columns: 300px minmax(0, 1fr); padding: 0; overflow: hidden; }
 .modal.bookshelf header .bs-project { color: var(--muted); font-weight: 800; }
+.modal.bookshelf header .bs-sound { padding: 4px 10px; font-size: 15px; }
 .bs-side { display: flex; flex-direction: column; min-height: 0; border-right: 3px solid var(--ink); background: var(--paper-2); }
 .bs-find { padding: 12px 12px 6px; }
 .modal .bs-find input[type=text] { font-size: 14px; padding: 8px 12px; }

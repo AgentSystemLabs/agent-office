@@ -1925,18 +1925,28 @@ function githubUrl(remote?: string): string | undefined {
 
 function showBookshelf() {
   if (!store.floor) return toast('Take the elevator to a floor first');
-  openBookshelf({ floor: store.floor, project: store.project?.name, repoUrl: githubUrl(store.project?.remote), onTurn: turnPage });
+  openBookshelf({
+    floor: store.floor,
+    project: store.project?.name,
+    repoUrl: githubUrl(store.project?.remote),
+    onTurn: turnPage,
+    pageSound: settings.pageTurns,
+    onPageSound: (on) => {
+      settings.pageTurns = on;
+      saveSettings(settings);
+    },
+  });
 }
 
-/** When a page last rustled, so a quick scroll through a doc isn't one long rustle. */
-let rustledAt = 0;
+/** When a page last turned, so flicking through a doc is one swish rather than a swish a screenful. */
+let turnedAt = 0;
 /** You turned a page on the bookshelf: so does the book in your hands, for everyone watching it too. */
 function turnPage() {
   me.turnPage();
   hands.turnPage();
   const now = performance.now();
-  if (now - rustledAt > 400) sound.paper();
-  rustledAt = now;
+  if (settings.pageTurns && now - turnedAt > 1000) sound.pageTurn();
+  turnedAt = now;
 }
 
 /** A prompt from the boards goes to a new worker at a free desk, or to one already at a desk. */
