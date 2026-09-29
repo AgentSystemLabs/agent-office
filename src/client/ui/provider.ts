@@ -7,6 +7,8 @@ export const PROVIDER_LABEL: Record<AgentProvider, string> = {
   claude: 'Claude Code',
   opencode: 'OpenCode',
   codex: 'Codex',
+  grok: 'Grok',
+  muse: 'Muse Code',
   custom: 'Custom',
 };
 
@@ -25,11 +27,11 @@ export const EFFORT_LABEL: Record<AgentEffort, string> = {
   max: 'Max',
 };
 
-/** A short badge for the task card / sidebar: "Opus", "Opus · High", or the raw OpenCode model id. */
+/** A short badge for the task card / sidebar: "Opus", "Opus · High", or the raw OpenCode/Grok/Muse model id. */
 export function modelBadge(provider: AgentProvider | undefined, model: string | undefined, effort: AgentEffort | undefined): string | undefined {
   if (!model && !effort) return undefined;
-  if (provider === 'claude') {
-    const label = model && model in CLAUDE_MODEL_LABEL ? CLAUDE_MODEL_LABEL[model as ClaudeModel] : undefined;
+  if (provider === 'claude' || provider === 'grok' || provider === 'muse') {
+    const label = provider === 'claude' && model && model in CLAUDE_MODEL_LABEL ? CLAUDE_MODEL_LABEL[model as ClaudeModel] : model;
     const parts = [label, effort ? EFFORT_LABEL[effort] : undefined].filter((v): v is string => !!v);
     return parts.length ? parts.join(' · ') : undefined;
   }
@@ -38,7 +40,7 @@ export function modelBadge(provider: AgentProvider | undefined, model: string | 
 
 /** Providers the server says this project can start. */
 export function supportedProviders(project: ProjectInfo | null): AgentProvider[] {
-  const values = project?.agentProviders?.filter((p): p is AgentProvider => p === 'claude' || p === 'opencode' || p === 'codex' || p === 'custom') ?? [];
+  const values = project?.agentProviders?.filter((p): p is AgentProvider => p === 'claude' || p === 'opencode' || p === 'codex' || p === 'grok' || p === 'muse' || p === 'custom') ?? [];
   if (values.length) return [...new Set(values)];
   return project?.defaultProvider && PROVIDER_LABEL[project.defaultProvider] ? [project.defaultProvider] : ['claude'];
 }
@@ -58,7 +60,7 @@ export function providerLabel(provider: AgentProvider | undefined, project: Proj
 
 export function providerUsageTracked(provider: AgentProvider | undefined, project: ProjectInfo | null, usage?: Usage): boolean {
   const selected = resolvedProvider(provider, project);
-  return selected === 'claude' || ((selected === 'opencode' || selected === 'codex' || selected === 'custom') && usage !== undefined);
+  return selected === 'claude' || ((selected === 'opencode' || selected === 'codex' || selected === 'grok' || selected === 'muse' || selected === 'custom') && usage !== undefined);
 }
 
 export type ProviderUsageState = 'tracked' | 'waiting' | 'untracked';
@@ -69,6 +71,8 @@ export function providerUsageState(provider: AgentProvider | undefined, project:
   if (selected === 'claude') return usage ? 'tracked' : 'waiting';
   if (selected === 'opencode') return usage ? 'tracked' : 'waiting';
   if (selected === 'codex') return usage ? 'tracked' : 'waiting';
+  if (selected === 'grok') return usage ? 'tracked' : 'untracked';
+  if (selected === 'muse') return usage ? 'tracked' : 'untracked';
   if (selected === 'custom') return usage ? 'tracked' : 'untracked';
   return 'untracked';
 }
@@ -76,6 +80,8 @@ export function providerUsageState(provider: AgentProvider | undefined, project:
 export function providerUsageNote(provider: AgentProvider): string {
   if (provider === 'claude') return 'Office usage and budget track Claude Code.';
   if (provider === 'codex') return 'Review Office hooks in /hooks to enable tracking. Codex reports root-session tokens; subagents are excluded and cost is unavailable.';
+  if (provider === 'grok') return 'Grok spend is not metered by the office; token totals stay in the worker terminal.';
+  if (provider === 'muse') return 'Muse spend is not metered by the office; token totals stay in the worker terminal.';
   if (provider === 'custom') return 'Usage is untracked unless compatible Claude Code hooks report it.';
   return 'OpenCode reports model/provider estimates; they are not billing, and arrive after the first report.';
 }
@@ -92,7 +98,7 @@ export function officeChoice(project: ProjectInfo | null): AgentChoice {
   return { provider: resolvedProvider(project?.defaultProvider, project) };
 }
 
-/** "Claude Code · Opus · High", "Claude Code", "OpenCode · anthropic/claude-sonnet-4". */
+/** "Claude Code · Opus · High", "Claude Code", "OpenCode · anthropic/claude-sonnet-4", "Grok · grok-4.6". */
 export function choiceLabel(choice: AgentChoice): string {
   const badge = modelBadge(choice.provider, choice.model, choice.effort);
   return badge ? `${PROVIDER_LABEL[choice.provider]} · ${badge}` : PROVIDER_LABEL[choice.provider];
@@ -101,9 +107,9 @@ export function choiceLabel(choice: AgentChoice): string {
 export interface ProviderPicker {
   element: HTMLElement;
   value(): AgentProvider;
-  /** The optional initial model override: an OpenCode provider/model id, or a Claude model alias. */
+  /** The optional initial model override: an OpenCode provider/model id, a Claude model alias, or a Grok/Muse model id. */
   model(): string | undefined;
-  /** The optional Claude reasoning effort. */
+  /** The optional Claude, Grok or Muse reasoning effort. */
   effort(): AgentEffort | undefined;
   /** Reports a visible field error for an invalid nonempty OpenCode model. */
   valid(): boolean;
@@ -117,14 +123,45 @@ export interface AgentFields extends ProviderPicker {
 }
 
 const MODEL_MAX = 256;
+const GROK_MODEL_MAX = 64;
+const MUSE_MODEL_MAX = 128;
 let modelList: string[] | null = null;
 let modelListAt = 0;
 let modelRequest: Promise<string[]> | null = null;
+let grokModelList: string[] | null = null;
+let grokModelListAt = 0;
+let grokModelRequest: Promise<string[]> | null = null;
 
 function validModel(value: string): boolean {
   if (value.length === 0 || value.length > MODEL_MAX || /[\s\p{Cc}\p{Cf}]/u.test(value)) return false;
   const parts = value.split('/');
   return parts.length >= 2 && /^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/.test(parts[0]) && parts.slice(1).every((part) => part.length > 0);
+}
+
+function validGrokModel(value: string): boolean {
+  return value.length > 0 && value.length <= GROK_MODEL_MAX && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value) && !/[\s\p{Cc}\p{Cf}]/u.test(value);
+}
+
+function validMuseModel(value: string): boolean {
+  return value.length > 0 && value.length <= MUSE_MODEL_MAX && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value) && !/[\s\p{Cc}\p{Cf}]/u.test(value);
+}
+
+function fetchGrokModels(): Promise<string[]> {
+  if (grokModelList && Date.now() - grokModelListAt < 60_000) return Promise.resolve(grokModelList);
+  if (grokModelRequest) return grokModelRequest;
+  grokModelRequest = fetch('/api/agents/grok/models', { credentials: 'same-origin', cache: 'no-store' })
+    .then(async (res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = (await res.json()) as { models?: unknown };
+      const models = Array.isArray(body.models) ? body.models.filter((m): m is string => typeof m === 'string' && validGrokModel(m)) : [];
+      grokModelList = [...new Set(models)];
+      grokModelListAt = Date.now();
+      return grokModelList;
+    })
+    .finally(() => {
+      grokModelRequest = null;
+    });
+  return grokModelRequest;
 }
 
 function fetchOpenCodeModels(): Promise<string[]> {
@@ -147,7 +184,7 @@ function fetchOpenCodeModels(): Promise<string[]> {
 
 /**
  * The provider, model and effort fields: a provider selector that never offers a provider outside
- * the server's metadata, with a model (and, for Claude, reasoning effort) picker underneath.
+ * the server's metadata, with a model (and, for Claude, Grok or Muse, reasoning effort) picker underneath.
  */
 export function agentFields(project: ProjectInfo | null, id: string, initial: AgentChoice, label = 'Provider'): AgentFields {
   const options = supportedProviders(project);
@@ -184,9 +221,71 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     h('small.provider-model-hint', {}, 'The cost panel tracks each model separately.'),
   );
 
-  const element = h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice, claudeChoice);
+  const grokModelSelect = h('select', { id: `${id}-grok-model`, 'aria-label': 'Grok model' }) as HTMLSelectElement;
+  grokModelSelect.append(h('option', { value: '' }, 'Default (Grok settings)'));
+  const grokEffortSelect = h('select', { id: `${id}-grok-effort`, 'aria-label': 'Grok reasoning effort' }) as HTMLSelectElement;
+  grokEffortSelect.append(h('option', { value: '' }, 'Default'));
+  for (const e of AGENT_EFFORTS) grokEffortSelect.append(h('option', { value: e }, EFFORT_LABEL[e]));
+  const grokHint = h('small.provider-model-hint', {}, 'Suggestions load from `grok models` when Grok is selected.');
+  const grokChoice = h(
+    'div.provider-model.grok-model',
+    {},
+    h('label', { for: `${id}-grok-model` }, 'Model'),
+    grokModelSelect,
+    h('label', { for: `${id}-grok-effort` }, 'Effort'),
+    grokEffortSelect,
+    grokHint,
+  );
+
+  const museModelInput = h('input', {
+    type: 'text',
+    id: `${id}-muse-model`,
+    placeholder: 'Default (Muse settings)',
+    'aria-label': 'Muse model',
+    autocomplete: 'off',
+    maxlength: MUSE_MODEL_MAX,
+  }) as HTMLInputElement;
+  const museEffortSelect = h('select', { id: `${id}-muse-effort`, 'aria-label': 'Muse reasoning effort' }) as HTMLSelectElement;
+  museEffortSelect.append(h('option', { value: '' }, 'Default'));
+  for (const e of AGENT_EFFORTS) museEffortSelect.append(h('option', { value: e }, EFFORT_LABEL[e]));
+  const museChoice = h(
+    'div.provider-model.muse-model',
+    {},
+    h('label', { for: `${id}-muse-model` }, 'Model'),
+    museModelInput,
+    h('label', { for: `${id}-muse-effort` }, 'Effort'),
+    museEffortSelect,
+    h('small.provider-model-hint', {}, 'Optional model id (for example muse-spark-1.3-contributor) and effort for this worker.'),
+  );
+
+  const element = h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice, claudeChoice, grokChoice, museChoice);
+  const fillGrokModels = (models: string[], selected?: string) => {
+    const keep = selected && validGrokModel(selected) ? selected : '';
+    grokModelSelect.replaceChildren(h('option', { value: '' }, 'Default (Grok settings)'));
+    const seen = new Set<string>();
+    for (const model of models) {
+      if (!validGrokModel(model) || seen.has(model)) continue;
+      seen.add(model);
+      grokModelSelect.append(h('option', { value: model }, model));
+    }
+    if (keep && !seen.has(keep)) grokModelSelect.append(h('option', { value: keep }, keep));
+    grokModelSelect.value = keep;
+  };
   /** OpenCode's model suggestions, asked for only once someone can see the field. */
   const loadModels = () => {
+    if (select.value === 'grok') {
+      if (!element.isConnected || element.closest('.hidden')) return;
+      grokHint.textContent = grokModelList ? 'Optional model and effort for this worker.' : 'Loading Grok models…';
+      void fetchGrokModels()
+        .then((models) => {
+          fillGrokModels(models, grokModelSelect.value);
+          grokHint.textContent = 'Optional model and effort for this worker.';
+        })
+        .catch(() => {
+          grokHint.textContent = 'Model list unavailable; leave Default or pick a known Grok model id.';
+        });
+      return;
+    }
     if (select.value !== 'opencode' || !element.isConnected || element.closest('.hidden')) return;
     modelHint.textContent = modelList ? 'Optional provider/model override; choose a suggestion or enter one manually.' : 'Loading OpenCode models… You can enter a provider/model manually.';
     void fetchOpenCodeModels()
@@ -204,25 +303,45 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     modelChoice.classList.toggle('hidden', !openCode);
     modelInput.disabled = !openCode;
     claudeChoice.classList.toggle('hidden', provider !== 'claude');
+    grokChoice.classList.toggle('hidden', provider !== 'grok');
+    museChoice.classList.toggle('hidden', provider !== 'muse');
     loadModels();
   };
   const set = (c: AgentChoice) => {
     select.value = options.includes(c.provider) ? c.provider : options.includes(fallback) ? fallback : options[0];
     const claude = select.value === 'claude';
+    const grok = select.value === 'grok';
+    const muse = select.value === 'muse';
     claudeModelSelect.value = claude && c.model && (CLAUDE_MODELS as readonly string[]).includes(c.model) ? c.model : '';
     effortSelect.value = claude && c.effort ? c.effort : '';
+    fillGrokModels(grokModelList ?? [], grok ? c.model : undefined);
+    grokEffortSelect.value = grok && c.effort ? c.effort : '';
+    museModelInput.value = muse && c.model ? c.model : '';
+    museEffortSelect.value = muse && c.effort ? c.effort : '';
     modelInput.value = select.value === 'opencode' && c.model ? c.model : '';
     modelInput.setCustomValidity('');
+    museModelInput.setCustomValidity('');
     setModelVisibility(select.value as AgentProvider);
   };
   set(initial);
   select.addEventListener('change', () => setModelVisibility(select.value as AgentProvider));
   modelInput.addEventListener('focus', loadModels);
   modelInput.addEventListener('input', () => modelInput.setCustomValidity(''));
+  museModelInput.addEventListener('input', () => museModelInput.setCustomValidity(''));
   const value = () => (options.includes(select.value as AgentProvider) ? (select.value as AgentProvider) : fallback);
-  const effort = () => (select.value === 'claude' && effortSelect.value ? (effortSelect.value as AgentEffort) : undefined);
+  const effort = () => {
+    if (select.value === 'claude' && effortSelect.value) return effortSelect.value as AgentEffort;
+    if (select.value === 'grok' && grokEffortSelect.value) return grokEffortSelect.value as AgentEffort;
+    if (select.value === 'muse' && museEffortSelect.value) return museEffortSelect.value as AgentEffort;
+    return undefined;
+  };
   const model = () => {
     if (select.value === 'claude') return claudeModelSelect.value || undefined;
+    if (select.value === 'grok') return grokModelSelect.value || undefined;
+    if (select.value === 'muse') {
+      const v = museModelInput.value;
+      return validMuseModel(v) ? v : undefined;
+    }
     if (select.value !== 'opencode') return undefined;
     const v = modelInput.value;
     return validModel(v) ? v : undefined;
@@ -235,6 +354,16 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     set,
     choice: () => ({ provider: value(), ...(model() ? { model: model() } : {}), ...(effort() ? { effort: effort() } : {}) }),
     valid: () => {
+      if (select.value === 'muse') {
+        if (!museModelInput.value) {
+          museModelInput.setCustomValidity('');
+          return true;
+        }
+        const okay = validMuseModel(museModelInput.value);
+        museModelInput.setCustomValidity(okay ? '' : 'Use a Muse model id without whitespace or control characters (up to 128 characters).');
+        if (!okay) museModelInput.reportValidity();
+        return okay;
+      }
       if (select.value !== 'opencode' || !modelInput.value) {
         modelInput.setCustomValidity('');
         return true;

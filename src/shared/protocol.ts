@@ -32,10 +32,10 @@ export type WorkerKind = 'agent' | 'shell';
  */
 export type WorkerAction = 'read' | 'edit' | 'test' | 'web' | 'failing';
 
-export type AgentProvider = 'claude' | 'opencode' | 'codex' | 'custom';
+export type AgentProvider = 'claude' | 'opencode' | 'codex' | 'grok' | 'muse' | 'custom';
 
 export function isAgentProvider(value: unknown): value is AgentProvider {
-  return value === 'claude' || value === 'opencode' || value === 'codex' || value === 'custom';
+  return value === 'claude' || value === 'opencode' || value === 'codex' || value === 'grok' || value === 'muse' || value === 'custom';
 }
 
 /** A Claude model alias the hire dialog and queue can request explicitly (see server/agents.ts). */
@@ -52,10 +52,10 @@ export function isAgentEffort(value: unknown): value is AgentEffort {
   return value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' || value === 'max';
 }
 
-/** Which agent a worker runs: its provider, and optionally the model and (Claude only) the reasoning effort. */
+/** Which agent a worker runs: its provider, and optionally the model and (Claude/Grok/Muse) the reasoning effort. */
 export interface AgentChoice {
   provider: AgentProvider;
-  /** An OpenCode provider/model id, or a Claude model alias; unset for the provider's own default. */
+  /** An OpenCode provider/model id, a Claude model alias, or a Grok/Muse model id; unset for the provider's own default. */
   model?: string;
   effort?: AgentEffort;
 }
@@ -85,9 +85,9 @@ export interface WorkerInfo {
   /** 'agent' runs the selected provider; 'shell' is a plain shared login shell. */
   kind: WorkerKind;
   provider?: AgentProvider;
-  /** Model requested for this worker, instead of the office's configured default: an OpenCode provider/model id, or a Claude model alias. */
+  /** Model requested for this worker, instead of the office's configured default: an OpenCode provider/model id, a Claude model alias, or a Grok/Muse model id. */
   model?: string;
-  /** Reasoning effort requested for this worker, when one was chosen (Claude only). */
+  /** Reasoning effort requested for this worker, when one was chosen (Claude, Grok or Muse). */
   effort?: AgentEffort;
   deskId: string;
   name: string;

@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, accessSync, chmodSync, mkdirSync, readdirSync, rmdirSync, unlinkSync, constants } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import path from 'node:path';
@@ -23,8 +23,10 @@ import { TaskNamer, fallbackTask } from './tasks.js';
 import { addUsage, newTracker, restoreTracker, scanTracker, trackerUsage, zeroUsage, type Ledger, type UsageTracker } from './usage.js';
 import { PtyHost, SCROLLBACK, type Adopted, type Pty } from './ptys.js';
 import { codexHookArgs, normalizeCodexHook, writeCodexHook } from './codex.js';
+import { normalizeGrokHook, withoutGrokLaunchArgs, writeGrokHome } from './grok.js';
+import { normalizeMuseHook, withoutMuseLaunchArgs, writeMuseHome } from './muse.js';
 import { reportedUsage } from './reported-usage.js';
-import { configuredProvider, isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel } from './agents.js';
+import { configuredProvider, isValidGrokModel, isValidMuseModel, isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeStatusEvent } from './opencode.js';
 import { ScrollbackStore, searchTerminal, terminalTail } from './history.js';
 import { DropStore } from './drops.js';
@@ -47,6 +49,9 @@ const COLORS = ['#ff8a5b', '#5bc0eb', '#9bc53d', '#fde74c', '#c3423f', '#b388eb'
 const SCRUB_ENV = new Set([
   'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_CODE_EXECPATH', 'CLAUDE_PID', 'CLAUDE_EFFORT',
   'CODEX_THREAD_ID', 'CODEX_INTERNAL_ORIGINATOR_OVERRIDE',
+  'GROK_SESSION_ID', 'GROK_AGENT_ID', 'GROK_HOOK_EVENT', 'GROK_HOOK_NAME', 'GROK_WORKSPACE_ROOT',
+  'GROK_PLUGIN_ROOT', 'GROK_PLUGIN_DATA', 'GROK_AUTH', 'GROK_AUTH_PATH',
+  'MUSE_BIN', 'MUSE_AGENTS_THREAD', 'MUSE_AGENTS_ROLE', 'MUSE_PROJECTS_HOME',
   'NO_COLOR', 'FORCE_COLOR', 'VSCODE_INJECTION', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION',
 ]);
 const SCRUB_PREFIXES = ['CLAUDE_CODE_SESSION', 'CLAUDE_CODE_CHILD', 'CLAUDE_CODE_MESSAGING', 'NEBULA_', 'AGENT_OFFICE_'];
@@ -172,6 +177,8 @@ interface Worker {
   saved?: { ptyId: string; status: WorkerStatus; acked: boolean; waitingSince?: number };
   /** Its process went away mid-turn with the office or the terminal host: its next start carries on (CARRY_ON_PROMPT). */
   interrupted?: boolean;
+  /** Muse resume cannot take a prompt on argv; paste this into the TUI after SessionStart. */
+  pendingPrompt?: string;
   /** Output since its scrollback was last saved to disk. */
   unsaved?: boolean;
   /** Where this run's own output starts, below the scrollback carried over from before. */
@@ -195,6 +202,12 @@ export class WorkerManager {
   readonly defaultProvider: AgentProvider;
   private openCodePlugin: string;
   private codexHook: string;
+  private grokHome: string;
+  private grokSocket: string;
+  private grokAuthPath?: string;
+  private museConfigHome: string;
+  private museDataHome: string;
+  private museStateHome: string;
   /** Where the office-queue command is, for the board agents' PATH (see writeQueueCommand). */
   private queueBin: string | undefined;
   private screenTimer: NodeJS.Timeout;
@@ -235,6 +248,17 @@ export class WorkerManager {
     this.writeHookSettings();
     this.openCodePlugin = writeOpenCodePlugin(dataDir);
     this.codexHook = writeCodexHook(dataDir);
+    const grok = writeGrokHome(dataDir);
+    this.grokHome = grok.home;
+    this.grokSocket = grok.socket;
+    const userGrok = process.env.GROK_HOME || path.join(homedir(), '.grok');
+    const auth = path.join(userGrok, 'auth.json');
+    this.grokAuthPath = existsSync(auth) ? auth : undefined;
+    const userMuse = path.join(process.env.XDG_CONFIG_HOME || path.join(homedir(), '.config'), 'muse');
+    const muse = writeMuseHome(dataDir, existsSync(userMuse) ? userMuse : undefined);
+    this.museConfigHome = muse.configHome;
+    this.museDataHome = muse.dataHome;
+    this.museStateHome = muse.stateHome;
     this.queueBin = this.writeQueueCommand();
     this.agentPath = resolveCommand(agentCmd);
     const claude = this.defaultProvider === 'claude' ? this.agentPath : resolveCommand('claude');
@@ -388,8 +412,8 @@ export class WorkerManager {
       id,
       kind,
       provider: selectedProvider,
-      model: selectedProvider === 'opencode' || selectedProvider === 'claude' ? model : undefined,
-      effort: selectedProvider === 'claude' ? effort : undefined,
+      model: selectedProvider === 'opencode' || selectedProvider === 'claude' || selectedProvider === 'grok' || selectedProvider === 'muse' ? model : undefined,
+      effort: selectedProvider === 'claude' || selectedProvider === 'grok' || selectedProvider === 'muse' ? effort : undefined,
       deskId,
       name: kind === 'shell' ? `${name} 🐚` : name,
       color: kind === 'shell' ? '#8d99ae' : agent ? agent.color : COLORS[Math.floor(Math.random() * COLORS.length)],
@@ -1080,6 +1104,133 @@ export class WorkerManager {
     return true;
   }
 
+  /** Grok lifecycle hooks, isolated under the office's GROK_HOME so they never edit ~/.grok. */
+  handleGrokHook(workerId: string, token: string, event: string, payload: unknown): boolean {
+    const w = this.workers.get(workerId);
+    if (!w || !w.pty || w.info.kind !== 'agent' || w.info.provider !== 'grok' || !safeEq(token, w.hookToken)) return false;
+    const report = normalizeGrokHook(event, payload);
+    if (!report) return false;
+    if (w.info.sessionId && w.info.sessionId !== report.sessionId && event !== 'SessionStart') return false;
+    if (!w.info.sessionId || w.info.sessionId !== report.sessionId) {
+      if (w.info.sessionId && w.info.sessionId !== report.sessionId) this.clearTask(w);
+      w.info.sessionId = report.sessionId;
+      this.persist();
+    }
+    w.bootBlocked = false;
+    switch (report.event) {
+      case 'SessionStart':
+        if (report.source === 'clear') this.clearTask(w);
+        w.info.activity = undefined;
+        if (w.info.status === 'starting' || w.info.status === 'needs_input') this.setStatus(w, 'idle');
+        break;
+      case 'UserPromptSubmit':
+        w.info.action = undefined;
+        if (report.prompt) {
+          w.info.activity = truncate(report.prompt, 80);
+          this.notePrompt(w, report.prompt);
+        }
+        this.setStatus(w, 'working');
+        break;
+      case 'PreToolUse':
+        w.info.activity = report.tool ? truncate(report.tool, 80) : 'Using a tool';
+        w.info.action = toolAction(report.tool);
+        this.noteTool(w, w.info.activity);
+        if (/(?:^|[._])(?:AskUserQuestion|ask_user_question|request_user_input)$/.test(report.tool ?? '')) this.setStatus(w, 'needs_input');
+        else if (w.info.status !== 'working') this.setStatus(w, 'working');
+        else this.emitUpdate(w);
+        break;
+      case 'PostToolUse':
+        if (w.info.status === 'needs_input') {
+          w.leftNeedsInputAt = Date.now();
+          this.setStatus(w, 'working');
+        }
+        break;
+      case 'Notification':
+        if (report.notificationType === 'permission_prompt') {
+          if (Date.now() - w.leftNeedsInputAt > LATE_PROMPT_GRACE_MS) this.setStatus(w, 'needs_input');
+        } else if (report.notificationType === 'idle_prompt') {
+          if (w.info.status === 'working') this.setStatus(w, 'done');
+        }
+        break;
+      case 'Stop':
+      case 'StopFailure':
+      case 'StopCancelled':
+        this.setStatus(w, 'done');
+        break;
+    }
+    this.emitUpdate(w);
+    this.persist();
+    return true;
+  }
+
+  /** Muse lifecycle hooks, isolated under the office's XDG dirs so they never edit ~/.config/muse. */
+  handleMuseHook(workerId: string, token: string, event: string, payload: unknown): boolean {
+    const w = this.workers.get(workerId);
+    if (!w || !w.pty || w.info.kind !== 'agent' || w.info.provider !== 'muse' || !safeEq(token, w.hookToken)) return false;
+    const report = normalizeMuseHook(event, payload);
+    if (!report) return false;
+    if (w.info.sessionId && w.info.sessionId !== report.sessionId && report.event !== 'SessionStart') return false;
+    if (!w.info.sessionId || w.info.sessionId !== report.sessionId) {
+      if (w.info.sessionId && w.info.sessionId !== report.sessionId) this.clearTask(w);
+      w.info.sessionId = report.sessionId;
+      this.persist();
+    }
+    w.bootBlocked = false;
+    switch (report.event) {
+      case 'SessionStart':
+        if (report.source === 'clear') this.clearTask(w);
+        w.info.activity = undefined;
+        if (w.info.status === 'starting' || w.info.status === 'needs_input') this.setStatus(w, 'idle');
+        if (w.pendingPrompt) {
+          const text = w.pendingPrompt;
+          w.pendingPrompt = undefined;
+          this.prompt(w.info.id, text);
+        }
+        break;
+      case 'UserPromptSubmit':
+        w.info.action = undefined;
+        if (report.prompt) {
+          w.info.activity = truncate(report.prompt, 80);
+          this.notePrompt(w, report.prompt);
+        }
+        this.setStatus(w, 'working');
+        break;
+      case 'PreToolUse':
+        w.info.activity = report.tool ? truncate(report.tool, 80) : 'Using a tool';
+        w.info.action = toolAction(report.tool);
+        this.noteTool(w, w.info.activity);
+        if (/(?:^|[._])(?:AskUserQuestion|ask_user_question|request_user_input)$/.test(report.tool ?? '')) this.setStatus(w, 'needs_input');
+        else if (w.info.status !== 'working') this.setStatus(w, 'working');
+        else this.emitUpdate(w);
+        break;
+      case 'PermissionRequest':
+        w.info.activity = `Wants permission: ${truncate(report.tool ?? 'tool', 80)}`;
+        this.setStatus(w, 'needs_input');
+        break;
+      case 'PostToolUse':
+      case 'PostToolUseFailure':
+        if (w.info.status === 'needs_input') {
+          w.leftNeedsInputAt = Date.now();
+          this.setStatus(w, 'working');
+        }
+        break;
+      case 'Notification':
+        if (report.notificationType === 'permission_prompt') {
+          if (Date.now() - w.leftNeedsInputAt > LATE_PROMPT_GRACE_MS) this.setStatus(w, 'needs_input');
+        } else if (report.notificationType === 'idle_prompt') {
+          if (w.info.status === 'working') this.setStatus(w, 'done');
+        }
+        break;
+      case 'Stop':
+      case 'StopFailure':
+        this.setStatus(w, 'done');
+        break;
+    }
+    this.emitUpdate(w);
+    this.persist();
+    return true;
+  }
+
   /** OpenCode plugin callback. The plugin has already filtered child sessions before this bridge. */
   handleOpenCodeHook(workerId: string, token: string, payload: unknown): boolean {
     const w = this.workers.get(workerId);
@@ -1240,6 +1391,8 @@ export class WorkerManager {
     const isClaude = !isShell && provider === 'claude';
     const isOpenCode = !isShell && provider === 'opencode';
     const isCodex = !isShell && provider === 'codex';
+    const isGrok = !isShell && provider === 'grok';
+    const isMuse = !isShell && provider === 'muse';
     const configured = !isShell && provider === this.defaultProvider;
     const station = DESK_BY_ID.get(info.deskId)?.station;
     const command = this.command(info);
@@ -1264,13 +1417,36 @@ export class WorkerManager {
       args.push(...codexHookArgs(this.codexHook), '--no-alt-screen');
       if (resumeSessionId) args.push('resume', resumeSessionId);
       if (prompt) args.push('--', prompt);
+    } else if (isGrok) {
+      args = withoutGrokLaunchArgs(args);
+      args.push('--no-alt-screen', '--trust', '--leader-socket', this.grokSocket);
+      if (resumeSessionId) {
+        args.push('--resume', resumeSessionId);
+      } else {
+        if (!info.sessionId) info.sessionId = randomUUID();
+        args.push('--session-id', info.sessionId);
+        if (info.model) args.push('--model', info.model);
+        if (info.effort) args.push('--effort', info.effort);
+      }
+      if (prompt) args.push('--', prompt);
+    } else if (isMuse) {
+      args = withoutMuseLaunchArgs(args);
+      args.push('--trust-workspace');
+      if (resumeSessionId) {
+        args.push('resume', resumeSessionId);
+        w.pendingPrompt = prompt;
+      } else {
+        if (info.model) args.push('--model', info.model);
+        if (info.effort) args.push('--reasoning-effort', info.effort);
+        if (prompt) args.push('--', prompt);
+      }
     }
     if (isCodex) {
       w.codexTools.clear();
       w.codexPending.clear();
       w.codexPermissionUnknown = false;
     }
-    if (isOpenCode || isCodex) {
+    if (isOpenCode || isCodex || isGrok || isMuse) {
       w.hookToken = randomBytes(16).toString('hex');
       w.openCodeError = false;
     }
@@ -1282,6 +1458,15 @@ export class WorkerManager {
       AGENT_OFFICE_HOOK_URL: this.hook.url,
       AGENT_OFFICE_HOOK_TOKEN: w.hookToken,
     });
+    if (isGrok) {
+      env.GROK_HOME = this.grokHome;
+      if (this.grokAuthPath) env.GROK_AUTH_PATH = this.grokAuthPath;
+    }
+    if (isMuse) {
+      env.XDG_CONFIG_HOME = this.museConfigHome;
+      env.XDG_DATA_HOME = this.museDataHome;
+      env.XDG_STATE_HOME = this.museStateHome;
+    }
     // A board agent reaches the queue with the office-queue command, whichever agent it runs.
     if (station && this.queueBin) {
       // Windows spells it Path.
@@ -1323,7 +1508,7 @@ export class WorkerManager {
       this.startFailed(w, (err as Error).message);
       return;
     }
-    if (!isClaude && !isCodex) {
+    if (!isClaude && !isCodex && !isGrok && !isMuse) {
       clockWork(info, 'idle');
       info.status = 'idle';
     }
@@ -1388,7 +1573,7 @@ export class WorkerManager {
 
   private setTitle(w: Worker, title: string) {
     const clean = title.replace(/^[^\p{L}\p{N}]+/u, '').trim();
-    if (clean && clean !== w.info.title && !/^claude( code)?$/i.test(clean)) {
+    if (clean && clean !== w.info.title && !/^(claude( code)?|grok( build)?|muse( code)?)$/i.test(clean)) {
       w.info.title = clean;
       this.emitUpdate(w);
     }
@@ -1399,6 +1584,8 @@ export class WorkerManager {
     const { info } = w;
     const isClaude = info.kind === 'agent' && info.provider === 'claude';
     const isCodex = info.kind === 'agent' && info.provider === 'codex';
+    const isGrok = info.kind === 'agent' && info.provider === 'grok';
+    const isMuse = info.kind === 'agent' && info.provider === 'muse';
     w.pty = proc;
     proc.onData((data) => {
       term.write(data);
@@ -1444,11 +1631,15 @@ export class WorkerManager {
     // blocked on a human: folder trust dialog, login, first-run onboarding. Flag it so it jumps.
     setTimeout(() => {
       if (info.status !== 'starting' || w.pty !== proc) return;
-      if (isClaude || isCodex) {
+      if (isClaude || isCodex || isGrok || isMuse) {
         w.bootBlocked = true;
         info.activity = isCodex
           ? 'Open the terminal: complete login and review Office hooks in /hooks'
-          : 'Waiting on a setup prompt (trust / login) — open the terminal';
+          : isGrok
+            ? 'Open the terminal: complete login if Grok asks'
+            : isMuse
+              ? 'Open the terminal: complete login if Muse asks'
+              : 'Waiting on a setup prompt (trust / login) — open the terminal';
         this.setStatus(w, 'needs_input');
       } else this.setStatus(w, 'idle');
     }, 12000);
@@ -1733,7 +1924,7 @@ process.stdin.on('end', () => {
         const tracker = restoreTracker(s.tracker);
         const provider = s.kind === 'shell'
           ? undefined
-          : s.provider === 'claude' || s.provider === 'opencode' || s.provider === 'codex' || s.provider === 'custom'
+          : s.provider === 'claude' || s.provider === 'opencode' || s.provider === 'codex' || s.provider === 'grok' || s.provider === 'muse' || s.provider === 'custom'
             ? s.provider
             : tracker.transcript
               ? 'claude'
@@ -1742,8 +1933,8 @@ process.stdin.on('end', () => {
           id: s.id,
           kind: s.kind === 'shell' ? 'shell' : 'agent',
           provider,
-          model: provider === 'opencode' && isValidOpenCodeModel(s.model) ? s.model : provider === 'claude' && isClaudeModel(s.model) ? s.model : undefined,
-          effort: provider === 'claude' && isAgentEffort(s.effort) ? s.effort : undefined,
+          model: provider === 'opencode' && isValidOpenCodeModel(s.model) ? s.model : provider === 'claude' && isClaudeModel(s.model) ? s.model : provider === 'grok' && isValidGrokModel(s.model) ? s.model : provider === 'muse' && isValidMuseModel(s.model) ? s.model : undefined,
+          effort: (provider === 'claude' || provider === 'grok' || provider === 'muse') && isAgentEffort(s.effort) ? s.effort : undefined,
           deskId: s.deskId,
           name: s.name ?? 'Worker',
           color: s.color ?? COLORS[0],
