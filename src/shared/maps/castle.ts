@@ -21,6 +21,8 @@ const PILLARS_Z = [-24, -18, -12, -6, 0, 6, 12, 18, 24];
 const BAYS_Z = [-21, -15, -9, -3, 3, 9, 15, 21];
 /** Just off the inside of each side wall. */
 const WALL_X = W / 2 - 0.08;
+/** Where the hearth is on the west wall. */
+const HEARTH_Z = 15;
 
 const props: PropConfig[] = [
   // Pillars down both sides, a torch on every other one, banners on the rest.
@@ -32,7 +34,8 @@ const props: PropConfig[] = [
     [-1, 1].map((side) => ({ kind: 'banner', x: side * (PILLAR_X - 0.67), z, y: 11.2, width: 1.25, height: 5, rotY: side < 0 ? Math.PI / 2 : -Math.PI / 2 })),
   ),
   // Tall stained glass high up in every bay, and a rose window over the throne and over the doors.
-  ...BAYS_Z.flatMap((z) => [-1, 1].map((side) => ({ kind: 'window', x: side * WALL_X, z, y: 6.4, width: 2.3, height: 5.2, rotY: side < 0 ? Math.PI / 2 : -Math.PI / 2 }))),
+  // (Not over the hearth, whose chimney goes up the west wall there.)
+  ...BAYS_Z.flatMap((z) => [-1, 1].filter((side) => !(side < 0 && z === HEARTH_Z)).map((side) => ({ kind: 'window', x: side * WALL_X, z, y: 6.4, width: 2.3, height: 5.2, rotY: side < 0 ? Math.PI / 2 : -Math.PI / 2 }))),
   { kind: 'rose', x: 0, z: -L / 2 + 0.08, y: 10.4, width: 4.6, rotY: 0 },
   { kind: 'rose', x: 0, z: L / 2 - 0.08, y: 10.3, width: 4.2, rotY: Math.PI },
   // The great banner behind the throne.
@@ -46,7 +49,7 @@ const props: PropConfig[] = [
   { kind: 'brazier', x: 3.7, z: -21.4, light: true },
   { kind: 'brazier', x: -3.7, z: 17 },
   { kind: 'brazier', x: 3.7, z: 17 },
-  { kind: 'hearth', x: -W / 2 + 0.55, z: 15, rotY: Math.PI / 2, light: true },
+  { kind: 'hearth', x: -W / 2 + 0.55, z: HEARTH_Z, rotY: Math.PI / 2, light: true },
   { kind: 'candles', x: -2.1, z: -28.9 },
   { kind: 'candles', x: 2.1, z: -28.9 },
   // Chandeliers down the middle.

@@ -12,7 +12,7 @@ A long stone hall with a timber roof, pillars and pointed arches down both sides
 
 - **The throne.** At the far end, up on a dais, is a throne of iron blades. You arrive on it (if nobody else is sitting there). Walk off, or jump, to get up; **E** at it sits you back down.
 - **The line.** A worker that's done, or waiting on you, gets up from its table and comes to stand in line before the throne, the one that has waited longest at the front. From the throne, **E** is for whoever's first in line (its terminal; **P** to prompt it, **O** for its PR, **X** to send it home, as at a desk). Once it's been seen to, it walks back to its seat and the rest shuffle up. There's room for eight: anyone past that waits at their table, jumping, as in the office.
-- **The Hand of the King.** He stands at your left. Speak to him (**E** by him, or from the throne when nobody's in line) and say what a new worker should do: it runs off to the first free seat at the tables and gets started. A worker the task queue sends comes in through the great doors.
+- **The Hand of the King.** He stands at your left. Speak to him (**E** by him, **K** from the throne, or **E** from the throne when nobody's in line) and say what a new worker should do: it runs off to the first free seat at the tables and gets started. Hand him an issue card and he sends someone out for it. A worker the task queue sends comes in through the great doors.
 - **The tables.** Two long tables down each side of the hall, benches along them. The workers work at open tomes, whose pages show their terminals. The seats toward the middle of the hall fill first; the ones along the walls come out when they're all taken, as the office's bean bags do.
 - **Wear and tear.** Workers here dress as peasants, and the longer one works the more worn out it looks: a beard that grows out and goes from brown to grey to white, down to the floor, dirt and patched clothes, bags under its eyes, a hunch and a slower walk. It's fully spent after 30 minutes of work (`agents.ageMinutes`). Only time spent working counts, over the worker's whole stay, and the office keeps it through a restart.
 - **The boards** hang on the side walls, with a scribe at a lectern under each of the issues, queue and PR boards (the board agents). The **small council**'s round table, near the dais, is the meeting room: **E** at it calls a meeting, and its easel shows what the meeting writes. The gong is by the dais, and there's ale by the hearth (it works like the office's coffee).
@@ -21,14 +21,15 @@ A long stone hall with a timber roof, pillars and pointed arches down both sides
 
 A map is plain JSON. Put a file in the office's `.agent-office/maps/` folder: `~/agent-office/.agent-office/maps/` for an office started without a project, or `<dir>/.agent-office/maps/` for `agent-office <dir>`. It's read whenever someone opens ⚙️ Settings or joins, so there's nothing to restart: open Settings and it's in the list. A map that won't load is listed with why.
 
-The easy way is to start from the castle and change only what you want. This one moves the issues board to the first bay and makes the line shorter:
+The easy way is to start from the castle and change only what you want. This one moves the issues board, and the Issues agent's lectern under it, three bays down the west wall, and makes the line shorter:
 
 ```json
 {
   "id": "my-hall",
   "name": "My hall",
   "extends": "castle",
-  "boards": { "issues": { "z": -21 } },
+  "boards": { "issues": { "z": 3 } },
+  "stations": { "issues": { "z": 3 } },
   "lineup": { "count": 5 }
 }
 ```
@@ -91,7 +92,7 @@ A map that won't load (bad JSON, something outside the hall, too few seats, a pr
 | `herald` | `{ x, z, rotY, name, says, ask, button }`: who sends out new workers. `says` goes under their name, `ask` in the box you type in, and `button` on the button. Optional. |
 | `lineup` | `{ x, z, rotY, step: [dx, dz], count }`: the first spot in line, and each next one `step` further on, all facing `rotY`. Optional. |
 | `tables` | `[{ x, z, length, seats, width?, rotY?, sides?, name? }]`: where the workers sit. `seats` is per side (1 to 12); `width` is 1.4 m unless you say; `sides` is `"both"` (the default), `"inner"` or `"outer"`; `rotY` 0 runs the table along z. **Required.** |
-| `stations` | `{ issues, queue, pulls }`, each `{ x, z, rotY }`: the board agents' lecterns. `rotY` is the way the agent faces; it stands 0.55 m behind its lectern. **Required.** |
+| `stations` | `{ issues, queue, pulls }`, each `{ x, z, rotY }`: the board agents' lecterns. The agent stands 0.55 m from its lectern the way `rotY` points (toward the wall, usually) and faces back across it into the hall. **Required.** |
 | `council` | `{ x, z, rotY }`: the meeting table. Five chairs go round it, the head of the table at `rotY`'s side, and its easel 2.5 m behind the other way. **Required.** |
 | `boards` | `{ issues, queue, pulls, services }`, each `{ x, y, z, rotY, width, height, label? }`: the boards on the walls, `rotY` the way each faces. **Required.** |
 | `props` | `[{ kind, x, z, … }]`: everything else, from the list below. |

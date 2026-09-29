@@ -235,9 +235,11 @@ store.on('workers', () => {
   renderPullsBoard();
 });
 const servicesTex = new ServicesBoardTexture();
-mountBoard(office.boardMeshes.services, servicesTex.texture, () => servicesTex.render(store.services.items, store.workers), ['services', 'workers']);
+const renderServicesBoard = () => servicesTex.render(store.services.items, store.workers);
+mountBoard(office.boardMeshes.services, servicesTex.texture, renderServicesBoard, ['services', 'workers']);
 const queueTex = new QueueBoardTexture();
-mountBoard(office.boardMeshes.queue, queueTex.texture, () => queueTex.render(store.queue, store.workers), ['queue', 'workers']);
+const renderQueueBoard = () => queueTex.render(store.queue, store.workers);
+mountBoard(office.boardMeshes.queue, queueTex.texture, renderQueueBoard, ['queue', 'workers']);
 // The machine monitor on the west wall.
 const machineTex = new MachineTexture();
 mountBoard(office.machineScreen, machineTex.texture, () => machineTex.render(store.machine), ['machine']);
@@ -910,6 +912,7 @@ net.onMessage((msg) => {
         offRoof = false;
         placeOnArrival = false;
         placeInCar();
+        lift()?.setOpen(true);
       }
       offTheRoof();
       break;
@@ -1092,7 +1095,7 @@ function spotHere(): Spot | null {
   // Sitting, it's where you'd get up to.
   const at = player.standingSpot() ?? player.pos;
   const name = store.floor === ROOF ? ROOF_NAME : (store.currentFloor()?.name ?? '');
-  return { floor: store.floor, name, map: plan().id, x: at.x, y: at.y, z: at.z, facing: player.facing };
+  return { floor: store.floor, name, map: plan().id, x: at.x, y: at.y, z: at.z, facing: player.facing, ...(onThrone() ? { throne: true } : {}) };
 }
 
 /** Where to put you back when the office lets you in: where you are now, or before this page was loaded, where you were last time. */
@@ -1149,7 +1152,7 @@ function ride(to: string, keepWalking = false): void {
   if (!inOffice()) {
     if (to === ROOF || to === GARAGE) {
       if (walkingTo) stopWalking();
-      toast(`${plan().icon} There's no ${to === ROOF ? 'rooftop bar' : 'garage'} in the ${plan().name.toLowerCase()}`, 'warn');
+      toast(`There's no ${to === ROOF ? 'rooftop bar' : 'garage'} on this map (${plan().icon} ${plan().name})`, 'warn');
       return;
     }
     // Still up on a roof this map doesn't have: straight down to that floor.
@@ -1219,6 +1222,9 @@ function standingAt(to: string): Arrival {
 }
 
 /** Straight to another floor from the floor list: a blink, and you're standing in the same spot there. */
+/** You were on the throne when you left for another floor: you sit back down on that one's, if it's free. */
+let backToThrone = false;
+
 function switchFloor(floorId: string, keepWalking = false): void {
   // The roof isn't laid out like a floor: to and from it, it's the elevator (and on a map with no
   // roof, straight down off it).
@@ -1230,6 +1236,7 @@ function switchFloor(floorId: string, keepWalking = false): void {
   if (climber.active) climber.abort();
   if (golf.active) golf.stop();
   if (thrower.active) thrower.stop();
+  backToThrone = onThrone();
   if (player.seat) standUp();
   // The floor list isn't a window, so nothing else stops a walk over to someone on this floor.
   if (walkingTo && !keepWalking) stopWalking();
@@ -1257,10 +1264,14 @@ function tripFailed() {
   if (t.how === 'elevator') lift()?.setOpen(!!store.floor);
   if (t.how === 'ladder' || t.how === 'pole') climber.abort();
   player.enabled = !modalOpen();
-  // The map changed on the way: back where it has you come in.
+  // The map changed on the way: back where it has you come in (or down off a roof it doesn't have).
   if (placeOnArrival && !upTop) {
     placeOnArrival = false;
     placeInCar();
+    lift()?.setOpen(true);
+  } else if (placeOnArrival) {
+    placeOnArrival = false;
+    offTheRoof();
   }
   // Down off a roof the map doesn't have: try again.
   if (offRoof) {
@@ -1363,12 +1374,16 @@ function arrive(how: TripKind | 'back' = trip?.how ?? 'elevator') {
     lift()?.setOpen(true);
     player.enabled = !modalOpen();
     if (!upTop) unstick();
+    // Back on the throne you were on when you left (if nobody's taken it since).
+    if (lastSpot()?.throne) sitOnThrone();
     return;
   }
   if (how !== 'elevator') {
     player.enabled = !modalOpen();
     if (how === 'switch') unstick();
     else climber.arrived();
+    if (how === 'switch' && backToThrone) sitOnThrone();
+    backToThrone = false;
     return;
   }
   doorsOpen();
@@ -1461,6 +1476,10 @@ function applyMap() {
   seatedAlready = true;
   syncWorkers();
   seatedAlready = already;
+  // The boards name seats the way this map does.
+  renderPullsBoard();
+  renderServicesBoard();
+  renderQueueBoard();
   if (store.floor && !upTop && !trip) {
     placeInCar();
     // Back in the office, in its elevator: the doors open onto it.
@@ -1482,12 +1501,17 @@ function placeAtSpawn() {
   const at = p.spawn;
   placeAt({ x: at.x, y: groundHere(at.x, at.z, 1.5), z: at.z, rotY: at.rotY });
   // Not on the way to another floor: the throne's this one's.
-  if (trip) return;
-  const seat = p.throne && freePlace(p.throne);
-  if (!seat) return;
+  if (!trip) sitOnThrone();
+}
+
+/** Up onto the map's throne, if it has one and nobody's on it. */
+function sitOnThrone() {
+  const seat = plan().throne && freePlace(plan().throne!);
+  if (!seat || upTop) return;
+  if (player.seat) player.stand();
   player.sit(seat);
   me.sit(seat.hips);
-  if (store.floor && !upTop) net.send({ t: 'sit', seat: seat.key });
+  if (store.floor) net.send({ t: 'sit', seat: seat.key });
 }
 
 /** Down off the roof, on a map with no roof to be up on (it changed while you were up there). */
@@ -1497,7 +1521,7 @@ function offTheRoof() {
   const f = builtFloors()[0];
   if (!f) return;
   leaveRoofFor(f.id);
-  toast(`${plan().icon} The building's the ${plan().name.toLowerCase()} now, with no rooftop bar: down you go`);
+  toast(`The building's ${plan().icon} ${plan().name} now, with no rooftop bar: down you go`);
 }
 
 /** Off a roof the map doesn't have, down to `floorId`, arriving where the map has you come in (see floor.enter). */
@@ -1759,17 +1783,27 @@ function inCourt(w: WorkerInfo): boolean {
   return w.kind === 'agent' && !!d && !d.station && !d.room && !w.meeting;
 }
 
-/** Seats you've just sent a worker out to from the herald (see hireFromHerald): it runs there from beside him. */
+/**
+ * The seat a worker sent out from the herald goes to: the first free one, not counting one you've
+ * just sent someone else to (it isn't taken until the office says so).
+ */
+function heraldSeat(): string | undefined {
+  const now = performance.now();
+  for (const [id, s] of heraldHires) if (now - s.at > HERALD_WAIT) heraldHires.delete(id);
+  return [...plan().desks, ...plan().overflow].find((d) => !store.workerAtDesk(d.id) && !heraldHires.has(d.id))?.id;
+}
+
+/** Seats you've just sent a worker out to from the herald (see hireFromHerald), so a second goes elsewhere. */
 const heraldHires = new Map<string, { floor: string | null; at: number }>();
 /** How long a worker sent out from the herald has to turn up before its seat's forgotten. */
 const HERALD_WAIT = 30_000;
 
 /** Where a worker just hired comes in from, running to its seat: the herald, the doors (off the queue), or nowhere (it's just there). */
 function cameFrom(w: WorkerInfo): [number, number] | undefined {
-  const sent = heraldHires.get(w.deskId);
   heraldHires.delete(w.deskId);
+  // Sent out by the herald (by anyone: the office says so): from beside him.
   const h = plan().herald;
-  if (sent && h && sent.floor === store.floor && performance.now() - sent.at < HERALD_WAIT) return [h.x + Math.sin(h.rotY) * 1.1, h.z + Math.cos(h.rotY) * 1.1];
+  if (w.via === 'herald' && h) return [h.x + Math.sin(h.rotY) * 1.1, h.z + Math.cos(h.rotY) * 1.1];
   if (w.createdBy.endsWith('(queue)')) return [plan().door.x, plan().door.z];
   return undefined;
 }
@@ -1886,8 +1920,8 @@ function officeIsFull(): boolean {
   return true;
 }
 
-function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string, effort?: AgentEffort, issue?: number, repos?: string[]) {
-  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort, issue, repos: repos?.length ? repos : undefined });
+function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string, effort?: AgentEffort, issue?: number, repos?: string[], via?: 'herald') {
+  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort, issue, repos: repos?.length ? repos : undefined, via });
   // The moment notifications start to matter: ask once (it has to come from a key press or click).
   if (settings.notify && notifyPermission() === 'default' && !askedToNotify) {
     askedToNotify = true;
@@ -2115,7 +2149,7 @@ function standAt(desk: DeskDef) {
   }
   let spot = deskSeat(desk, desk.station ? -1.6 : desk.beanbag ? 1.6 : 2.4);
   // On a map of its own, the office's distances can land in a pillar: the nearest open floor to it.
-  if (!inOffice() && !player.fits(spot.x, spot.z, 0)) {
+  if (!inOffice() && (!player.fits(spot.x, spot.z, 0) || !world.nav.walkable(spot.x, spot.z))) {
     const [x, z] = world.nav.nearestWalkable([spot.x, spot.z]);
     spot = { x, z };
   }
@@ -2388,14 +2422,11 @@ function hireFromHerald() {
     worktreeOption: !!store.project?.branch,
     repoOptions: repoChoices(),
     onSubmit: (text, o) => {
-      // Whichever seat is free now (someone may have sat down while you were thinking), and not one
-      // you've just sent someone else to.
-      const now = performance.now();
-      for (const [id, s] of heraldHires) if (now - s.at > HERALD_WAIT) heraldHires.delete(id);
-      const deskId = [...plan().desks, ...plan().overflow].find((d) => !store.workerAtDesk(d.id) && !heraldHires.has(d.id))?.id;
+      // Whichever seat is free now (someone may have sat down while you were thinking).
+      const deskId = heraldSeat();
       if (!deskId) return toast('Every seat at the tables is taken now', 'warn');
-      heraldHires.set(deskId, { floor: store.floor, at: now });
-      hire(deskId, text || undefined, o.worktree, o.provider, o.model, o.effort, undefined, o.repos);
+      heraldHires.set(deskId, { floor: store.floor, at: performance.now() });
+      hire(deskId, text || undefined, o.worktree, o.provider, o.model, o.effort, undefined, o.repos, 'herald');
     },
   });
 }
@@ -2786,6 +2817,19 @@ function dropCard(it: Interactable, card: CarriedIssue, note: GhIssue | null): b
     showMeeting(issueMeeting(card.issue, card.title));
     return true;
   }
+  // To the herald: someone's sent out for it, to the first free seat.
+  if (it.kind === 'herald') {
+    const deskId = heraldSeat();
+    if (!deskId) toast('Every seat at the tables is taken', 'warn');
+    else if (hiringPaused()) toast('💸 Budget spent — hiring resumes tomorrow', 'warn');
+    else if (!officeIsFull()) {
+      const { provider, model, effort } = officeChoice(store.project);
+      heraldHires.set(deskId, { floor: store.floor, at: performance.now() });
+      hire(deskId, prompt, !!store.project?.branch && worktreePref(), provider, model, effort, card.issue, undefined, 'herald');
+      putDown();
+    }
+    return true;
+  }
   if (it.kind !== 'desk' || !it.deskId) return false;
   const w = store.workerAtDesk(it.deskId);
   const why = w ? cantTakeCard(w) : hiringPaused() ? '💸 Budget spent — hiring resumes tomorrow' : '';
@@ -3029,7 +3073,13 @@ function renderHint() {
     return;
   }
   const hint = withBall ? ballHint() : carrying ? carryHint(carrying, target) : hintFor(target!);
-  const k = `${withBall ? 'ball!' : `${target?.kind}${target?.deskId ?? ''}`}|${carrying?.issue ?? ''}|${hint.k}`;
+  // On the throne, whoever's in line: the herald's a key away, and how to get up.
+  const throne = onThrone() && !carrying && !withBall;
+  if (throne) {
+    if (world.herald && target?.kind !== 'herald') hint.parts.push(key('K', plan().herald!.name));
+    if (target?.kind !== 'seat') hint.parts.push(key('W A S D', 'Get up'));
+  }
+  const k = `${withBall ? 'ball!' : `${target?.kind}${target?.deskId ?? ''}`}|${carrying?.issue ?? ''}|${throne}|${hint.k}`;
   if (k === hintKey) return;
   hintKey = k;
   el.replaceChildren(...hint.parts);
@@ -3065,9 +3115,11 @@ function hintFor(it: Interactable): Hint {
       return { k: String(buzzed), parts: [title(it.label ?? '☕ Coffee machine'), key('E', buzzed ? 'Another cup' : 'Grab a cup')] };
     }
     case 'herald': {
-      const h = plan().herald;
+      const hd = plan().herald;
       const full = !firstFreeSeat();
-      return { k: `${h?.name}|${full}`, parts: [title(`${plan().icon} ${h?.name ?? 'Herald'}`), aside(full ? 'every seat is taken' : (h?.says ?? '')), full ? '' : key('E', 'Send out a new worker')] };
+      const m = store.machine;
+      const why = full ? 'every seat is taken' : officeFull(m) ? `🚫 Office full · ${m.workers} of ${m.limit} workers` : hiringPaused() ? '💸 Budget spent — hiring resumes tomorrow' : '';
+      return { k: `${hd?.name}|${why}`, parts: [title(`${plan().icon} ${hd?.name ?? 'Herald'}`), why ? h('span.cost', {}, why) : aside(hd?.says ?? ''), why ? '' : key('E', 'Send out a new worker')] };
     }
     case 'smoke':
       return { k: String(smokeBreakUntil > 0), parts: [title('🚬 Ashtray'), key('E', smokeBreakUntil ? 'Stub it out' : 'Take a smoke break')] };
@@ -3187,6 +3239,10 @@ function carryHint(card: CarriedIssue, it: Interactable | null): Hint {
   if (it?.kind === 'queue') {
     const on = onQueue(card.issue);
     return { k: String(on), parts: parts(on ? aside('already on the queue') : key('E', 'Put it on the queue')) };
+  }
+  if (it?.kind === 'herald') {
+    const paused = hiringPaused();
+    return { k: `herald|${paused}`, parts: parts(paused ? h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow') : key('E', 'Send someone out for it')) };
   }
   if (it?.kind === 'meeting' || (it?.kind === 'desk' && it.deskId && plan().byId.get(it.deskId)?.room && !store.workerAtDesk(it.deskId))) {
     return { k: 'meeting', parts: parts(key('E', 'Call a meeting about it')) };
@@ -3531,6 +3587,12 @@ function officeKey(e: KeyboardEvent): boolean {
     case 'KeyN':
       goToNextWaiting();
       return true;
+    case 'KeyK':
+      // On the throne: the herald beside you, whoever's in line.
+      if (!onThrone() || !world.herald) return false;
+      reach();
+      hireFromHerald();
+      return true;
     case 'KeyQ':
       if (!carrying) return false;
       reach();
@@ -3666,6 +3728,12 @@ function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boole
     return { it, near: hit.point.distanceTo(eye) <= REACH[it.kind] + slack, hit };
   }
   return null;
+}
+
+/** Sitting on the map's throne. */
+function onThrone(): boolean {
+  const id = plan().throne?.id;
+  return !!id && player.seat?.seatId === id;
 }
 
 /**
@@ -3839,6 +3907,8 @@ const hud = mountHud(
       run: () => showMeeting(),
     },
     { id: 'search', icon: '🔎', label: 'Search', section: 'Open', key: '/', title: () => 'Search the chat and every terminal', run: showSearch },
+    // The office has its bookshelf for them; a map of its own may not.
+    { id: 'docs', icon: '📚', label: 'Docs', section: 'Open', shown: () => !inOffice(), title: () => 'Read the project’s docs', run: showBookshelf },
     { id: 'elevator', icon: '🛗', label: () => (inOffice() ? 'Elevator' : 'Floors'), section: 'Open', count: () => store.floors.reduce((n, f) => n + (f.id === store.floor ? 0 : f.waiting), 0), title: () => (inOffice() ? 'Ride to another project' : 'Go to another project, or add one'), run: showElevator },
     { id: 'roof', icon: '🍸', label: 'Rooftop bar', section: 'Open', shown: () => !upTop && inOffice() && builtFloors().length > 0, title: () => 'Ride the elevator up to the roof: a DJ, drinks and the city', run: () => ride(ROOF) },
     // In voice, V is push to talk, so leaving is only from here.
@@ -3899,7 +3969,7 @@ const hud = mountHud(
 /** F: hang a picture on a wall of this floor. There are no walls for them up on the roof. */
 function startHanging() {
   if (upTop) return toast('No walls to hang pictures on up here — take the elevator down to a floor', 'warn');
-  if (!inOffice()) return toast(`${plan().icon} The ${plan().name.toLowerCase()}'s walls are hung already — pictures go up in the office`, 'warn');
+  if (!inOffice()) return toast(`${plan().icon} ${plan().name}'s walls are hung already — pictures go up in the office`, 'warn');
   hanger.start();
 }
 function showSettings(pane?: SettingsPane) {

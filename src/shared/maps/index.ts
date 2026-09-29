@@ -271,6 +271,7 @@ export function planMap(input: unknown): MapPlan {
     rects.push(boxFootprint(p.x, p.z - Math.cos(p.rotY) * 0.2, THRONE_SIZE.width, THRONE_SIZE.depth, p.rotY));
   }
   let herald: MapPlan['herald'];
+  let heraldAt: Circle | undefined;
   if (c.herald != null) {
     const p = place(c.herald, 'herald');
     const text = (v: unknown, max: number, dflt: string) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : dflt);
@@ -281,7 +282,8 @@ export function planMap(input: unknown): MapPlan {
       ask: text(c.herald.ask, 80, 'What should they work on?'),
       button: text(c.herald.button, 30, 'Send them out'),
     };
-    circles.push([p.x, p.z, 0.35]);
+    heraldAt = [p.x, p.z, 0.35];
+    circles.push(heraldAt);
   }
   const lineup: MapPlan['lineup'] = [];
   if (c.lineup != null) {
@@ -330,6 +332,15 @@ export function planMap(input: unknown): MapPlan {
   }
   const door = place(c.door, 'door');
   const spawn = c.spawn ? place(c.spawn, 'spawn') : { x: door.x, z: door.z, rotY: Math.atan2(-door.x, -door.z) };
+  // Where people and workers stand has to be clear of what's in the way (the herald's own spot aside).
+  const clear = (x: number, z: number, what: string) => {
+    const hit = rects.some(([x0, x1, z0, z1]) => x > x0 && x < x1 && z > z0 && z < z1) || circles.some((o) => o !== heraldAt && Math.hypot(x - o[0], z - o[1]) < o[2]);
+    if (hit) throw new MapError(`${what} (${x.toFixed(1)}, ${z.toFixed(1)}) is inside something: a table, a bench, a pillar or the like`);
+  };
+  lineup.forEach((s, i) => clear(s.x, s.z, `lineup spot ${i + 1}`));
+  if (herald) clear(herald.x, herald.z, 'the herald');
+  clear(spawn.x, spawn.z, 'spawn');
+  clear(door.x, door.z, 'door');
   const outfit = c.agents?.outfit === 'peasant' ? 'peasant' : 'none';
   const ageMinutes = c.agents?.ageMinutes === undefined ? 0 : num(c.agents.ageMinutes, 'agents.ageMinutes', 0, 100000);
   const byId = new Map([...desks, ...overflow, ...stations, ...meeting].map((d) => [d.id, d]));

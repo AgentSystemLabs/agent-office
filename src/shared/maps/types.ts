@@ -101,7 +101,7 @@ export interface MapConfig {
   lineup?: { x: number; z: number; rotY: number; step: [number, number]; count: number } | null;
   /** Where the workers sit. The sides toward the middle of the hall fill first. */
   tables: TableConfig[];
-  /** The board agents, each at a lectern: where the lectern is, and the way the agent faces. */
+  /** The board agents, each at a lectern: where the lectern is, and `rotY` from it to where the agent stands (it faces back across the lectern, into the hall). */
   stations: Record<StationKind, Place>;
   /** The meeting table: five chairs round it, the head of the table's on its `rotY` side (facing back across it), and the easel on the other. */
   council: Place;

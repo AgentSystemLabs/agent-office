@@ -395,7 +395,7 @@ export async function startServer(cfg: Config) {
     const plan = maps.plan();
     // Without a pick, a map of your own broke (back to the office) or was fixed (back to it).
     const why = now === OFFICE_MAP ? `: the map "${was}" won't load (see ⚙️ Settings)` : ': it loads again';
-    toastAll(who ? `${plan.icon} ${who} changed the building's map to the ${plan.name.toLowerCase()}` : `${plan.icon} The building's map is the ${plan.name.toLowerCase()} now${why}`);
+    toastAll(who ? `${who} changed the building's map to ${plan.icon} ${plan.name}` : `The building's map is ${plan.icon} ${plan.name} now${why}`);
   };
   // The prompts the office writes for workers by itself, and the worker everyone starts on (⚙️ Settings).
   const configured = configuredProvider(cfg.agentCmd);
@@ -1388,7 +1388,9 @@ export async function startServer(cfg: Config) {
         const seat = seatHereOn(maps.plan(), key, c.peer.floor === ROOF) ? key : undefined;
         if (seat === c.peer.seat) break;
         // Somebody on the floor got there first (two people arriving at an empty throne at once).
-        const there = seat && [...clients.values()].find((o) => o !== c && o.peer.seat === seat && o.peer.floor === c.peer.floor);
+        // (Not yourself, on a connection that hasn't timed out yet after a reconnect.)
+        const same = (o: typeof c) => o.peer.name === c.peer.name || (!!o.accountId && o.accountId === c.accountId);
+        const there = seat && [...clients.values()].find((o) => o !== c && !same(o) && o.peer.seat === seat && o.peer.floor === c.peer.floor);
         if (there) {
           sendTo(c, { t: 'sit.refused', seat: key, by: there.peer.name });
           break;
@@ -1530,7 +1532,7 @@ export async function startServer(cfg: Config) {
         }
         // A shell is theirs too: `claude auth login` or `gh auth login` typed there signs them in.
         const hire = () => {
-          const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort, undefined, c.accountId, repos);
+          const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort, undefined, c.accountId, repos, msg.via === 'herald' ? 'herald' : undefined);
           const issue = kind === 'agent' ? issueNumber(msg.issue) : undefined;
           const across = repos.length ? ` across ${[floor.def.name, ...repos.map((x) => x.name)].join(' + ')}` : '';
           if (typeof r === 'string') warn(c, r);

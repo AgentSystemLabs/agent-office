@@ -104,6 +104,8 @@ test("a custom map can't ask a browser to build what would hang it, and says why
     { file: 'word.json', json: { id: 'word', name: 'Word', extends: 'castle', props: [{ kind: 'torch', x: -12.9, z: 0, y: 'high' }] } },
     { file: 'spaced.json', json: { id: ' spaced ', name: 'Spaced', extends: 'castle' } },
     { file: 'sides.json', json: { id: 'sides', name: 'Sides', extends: 'castle', tables: [{ x: 0, z: 0, length: 20, seats: 12, sides: 'left' }] } },
+    { file: 'pillar.json', json: { id: 'pillar', name: 'Pillar', extends: 'castle', herald: { x: -10.4, z: -18 } } },
+    { file: 'line.json', json: { id: 'line', name: 'Line', extends: 'castle', lineup: { x: 6.8, z: -12 } } },
   ]);
   const why = Object.fromEntries(checked.map((m) => [m.file, m.error ?? '']));
   assert.match(why['thin.json'], /props\[\d+\]\.width should be between/);
@@ -113,6 +115,8 @@ test("a custom map can't ask a browser to build what would hang it, and says why
   assert.match(why['word.json'], /\.y should be a number/);
   assert.match(why['spaced.json'], /id should be up to 40 lowercase/);
   assert.match(why['sides.json'], /sides should be "both", "inner" or "outer"/);
+  assert.match(why['pillar.json'], /the herald \(-10\.4, -18\.0\) is inside something/);
+  assert.match(why['line.json'], /lineup spot 1 \(6\.8, -12\.0\) is inside something/);
 });
 
 test('a custom map takes away what it extends with null, and merges no prototype keys', () => {

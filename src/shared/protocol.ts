@@ -142,6 +142,8 @@ export interface WorkerInfo {
    */
   workedMs?: number;
   workingSince?: number;
+  /** Sent out by a map's herald (the castle's Hand of the King), so every browser has it run to its seat from beside them. */
+  via?: 'herald';
 }
 
 /** Another floor's repository a worker also works in (see WorkerInfo.repos): a worktree of it in the worker's workspace. */
@@ -1080,7 +1082,7 @@ export type ClientMsg =
   | { t: 'profile'; name: string; color: string; look: Look }
   /** With `issue`, the worker is there for that GitHub issue: it's assigned on GitHub (so it moves to In progress) and taken off the queue. */
   /** With `repos` (other floors' ids), the worker works in their repositories too, each in a worktree of its own (see WorkerInfo.repos). */
-  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: number; repos?: string[] }
+  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: number; repos?: string[]; via?: 'herald' }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
