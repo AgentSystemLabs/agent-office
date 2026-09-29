@@ -22,7 +22,7 @@ Options:
 
 interface SavedWorker {
   name?: string;
-  worktree?: { path: string; branch: string; base?: string };
+  worktree?: { path: string; branch: string; base?: string; made?: string };
 }
 
 /** `agent-office prune`: exits 0 when done, 1 when the dir is not a git repo, 2 for a usage error. */
@@ -61,6 +61,7 @@ export async function prune(argv: string[]): Promise<number> {
     for (const w of saved) {
       if (!w.worktree) continue;
       ownerOfBranch.set(w.worktree.branch, w.name ?? 'a worker');
+      if (w.worktree.made) ownerOfBranch.set(w.worktree.made, w.name ?? 'a worker');
       ownerOfPath.set(path.normalize(w.worktree.path), w.name ?? 'a worker');
     }
   } catch {

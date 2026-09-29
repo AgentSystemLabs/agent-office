@@ -31,6 +31,7 @@ import { screenSnapshot } from './screen.js';
 import type { Capacity } from './machine.js';
 
 type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
+type Worktree = NonNullable<WorkerInfo['worktree']>;
 
 const NAMES = [
   'Pixel', 'Byte', 'Nibble', 'Sprocket', 'Widget', 'Gizmo', 'Bolt', 'Cosmo', 'Dot', 'Echo',
@@ -249,6 +250,8 @@ export class WorkerManager {
     // Terminals nobody saved a claim on (their worker was sent home as the office went down).
     this.host.killUnclaimed();
     this.wakeAll();
+    // It may have switched branches while the office was down, its terminal still going.
+    void this.syncBranches();
   }
 
   get resolvedAgent(): string | null {
@@ -448,9 +451,10 @@ export class WorkerManager {
     this.drops.remove(id);
     this.events.remove(id);
     this.persist();
-    const wt = w.info.worktree;
     // A meeting's worktree is everyone at the table's: the meeting tidies it away once they've all gone.
-    if (!wt || w.info.meeting) return {};
+    if (!w.info.worktree || w.info.meeting) return {};
+    // On the branch its work is on, should it have switched since it last came to rest.
+    const wt = await this.current(w.info.worktree);
     const name = w.info.name;
     if (!cleanup) {
       const work = describeWork(await this.trees.inspect(wt, landed));
@@ -458,15 +462,68 @@ export class WorkerManager {
       cleanup = 'all';
     }
     if (cleanup === 'keep') return { note: `Kept ${name}'s worktree and branch ${wt.branch}` };
-    const error = await this.trees.remove(wt, cleanup);
+    let gone = wt;
+    let kept = '';
+    if (cleanup === 'all' && wt.made) {
+      if (!(await this.trees.hasBranch(wt.made))) {
+        // The agent deleted the office's branch (a rename is followed, see current), so git can't say
+        // whether the one it's on is its own or was there before it: that one stays.
+        cleanup = 'worktree';
+      } else {
+        // The office's own branch stays while it has commits that no remote, the project's checkout
+        // or the branch it's on has.
+        const work = await this.trees.wouldLose(wt.made, [wt.branch]);
+        if (work) kept = ` and kept branch ${wt.made} — it has ${work}`;
+        // A branch it made itself goes with it; one that was there before it (main, say) isn't the office's to delete.
+        if (await this.trees.madeSince(wt.branch, wt.made)) gone = work ? { ...wt, made: undefined } : wt;
+        else if (work) cleanup = 'worktree';
+        else gone = { ...wt, branch: wt.made, made: undefined };
+      }
+    }
+    const error = await this.trees.remove(gone, cleanup);
     if (error) return { error: `Couldn't delete ${name}'s worktree: ${error}` };
-    return { note: cleanup === 'all' ? `Deleted ${name}'s worktree and branch ${wt.branch}` : `Deleted ${name}'s worktree and kept branch ${wt.branch}` };
+    if (cleanup === 'worktree') return { note: `Deleted ${name}'s worktree${kept || ` and kept branch ${wt.branch}`}` };
+    return { note: `Deleted ${name}'s worktree and branch ${gone.branch}${kept && `,${kept}`}` };
   }
 
   /** What a worker's worktree holds, so whoever sends it home knows what deleting it would lose. */
-  inspectWorktree(id: string): Promise<WorktreeState | undefined> {
-    const wt = this.workers.get(id)?.info.worktree;
-    return wt ? this.trees.inspect(wt) : Promise.resolve(undefined);
+  async inspectWorktree(id: string): Promise<WorktreeState | undefined> {
+    const w = this.workers.get(id);
+    if (!w?.info.worktree) return undefined;
+    await this.syncBranch(w);
+    return this.trees.inspect(w.info.worktree);
+  }
+
+  /** Every worker's worktree branch, looked at again (see syncBranch): for when new pull requests may have come in. */
+  async syncBranches(): Promise<void> {
+    await Promise.all([...this.workers.values()].map((w) => this.syncBranch(w)));
+  }
+
+  /**
+   * Keeps `worktree.branch` on the branch the worktree is actually on. Agents often make their own
+   * (`git checkout -b fix-x`, because the task or the repo's CLAUDE.md says to) and open the pull
+   * request from there with gh, and the PR badge, O at the desk and sending it home go by it. A
+   * meeting's worktree stays the meeting's.
+   */
+  private async syncBranch(w: Worker): Promise<void> {
+    const wt = w.info.worktree;
+    if (!wt || w.info.meeting) return;
+    const now = await this.current(wt);
+    // Sent home meanwhile, or another look got there first.
+    if (now === wt || this.workers.get(w.info.id) !== w || w.info.worktree !== wt) return;
+    w.info.worktree = now;
+    this.emitUpdate(w);
+    this.persist();
+  }
+
+  /** A worktree on the branch it's on now, with the office's own branch kept in `made`; the same one when nothing moved. */
+  private async current(wt: Worktree): Promise<Worktree> {
+    const live = await this.trees.branchOf(wt);
+    if (!live) return wt;
+    let made = wt.made ?? (live === wt.branch ? undefined : wt.branch);
+    // Back on it, or renamed it (`git branch -m fix-x`): the branch it's on is the office's own.
+    if (made === live || (made && (await this.trees.renamedTo(made, live)))) made = undefined;
+    return live === wt.branch && made === wt.made ? wt : { ...wt, branch: live, made };
   }
 
   attach(id: string, clientId: string, name: string): { data: string; cols: number; rows: number } | undefined {
@@ -576,19 +633,22 @@ export class WorkerManager {
     info.prOpening = true;
     this.emitUpdate(w);
     try {
-      const commits = (await run('git', ['log', '--reverse', '--format=%h %s', `${wt.base}..${wt.branch}`], cwd)).split('\n').filter(Boolean);
+      // The PR comes from the branch its work is on, which may be one it made itself.
+      await this.syncBranch(w);
+      const branch = info.worktree?.branch ?? wt.branch;
+      const commits = (await run('git', ['log', '--reverse', '--format=%h %s', `${wt.base}..${branch}`], cwd)).split('\n').filter(Boolean);
       const dirty = (await run('git', ['status', '--porcelain'], cwd)) !== '';
-      if (!commits.length) return dirty ? `${info.name} hasn't committed anything yet — ask it to commit first` : `${info.name} has no commits on ${wt.branch} yet`;
-      const open = await findOpenPr(wt.branch, cwd);
+      if (!commits.length) return dirty ? `${info.name} hasn't committed anything yet — ask it to commit first` : `${info.name} has no commits on ${branch} yet`;
+      const open = await findOpenPr(branch, cwd);
       if (open) {
         info.pr = open;
         this.persist();
         return { ...open, existed: true, dirty };
       }
-      await run('git', ['push', '-u', 'origin', wt.branch], cwd, 90_000, as?.env);
-      const base = await this.pushedBranch([wt.from, this.trees.currentBranch()], wt.branch);
+      await run('git', ['push', '-u', 'origin', branch], cwd, 90_000, as?.env);
+      const base = await this.pushedBranch([wt.from, this.trees.currentBranch()], branch);
       const { title, body } = draftPr(info, commits, by);
-      const out = await gh(['pr', 'create', '--head', wt.branch, ...(base ? ['--base', base] : []), '--title', title, '--body', body], cwd, 60_000, as?.env);
+      const out = await gh(['pr', 'create', '--head', branch, ...(base ? ['--base', base] : []), '--title', title, '--body', body], cwd, 60_000, as?.env);
       const url = out.trim().split('\n').pop() ?? '';
       const number = Number(/\/pull\/(\d+)/.exec(url)?.[1]);
       if (!number) throw new Error(`gh did not return a pull request URL (${truncate(out, 120)})`);
@@ -1137,6 +1197,7 @@ export class WorkerManager {
       w.unsaved = true;
       this.emitUpdate(w);
       this.persist();
+      void this.syncBranch(w);
     });
     // SessionStart fires as soon as Claude can take input. Still silent after a while means it is
     // blocked on a human: folder trust dialog, login, first-run onboarding. Flag it so it jumps.
@@ -1233,6 +1294,8 @@ export class WorkerManager {
     this.emitUpdate(w);
     // What a restarted office picks the worker back up as, should its terminal outlive this one.
     if (w.pty?.id) this.persist();
+    // At rest: it may have made a branch of its own this turn, and opened its PR from there.
+    if (status === 'done' || status === 'idle') void this.syncBranch(w);
   }
 
   private syncViewers(w: Worker): boolean {

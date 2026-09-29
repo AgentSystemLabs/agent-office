@@ -176,6 +176,11 @@ export class TaskQueue {
 
   /** A worker changed. Cheap unless its status moved, which can free a slot or finish a task. */
   onWorker(info: WorkerInfo) {
+    // It switched to a branch of its own (see Workers.syncBranch): its task's pull request comes from there.
+    const branch = info.worktree?.branch;
+    const moved = branch ? this.tasks.filter((t) => t.workerId === info.id && t.branch && t.branch !== branch) : [];
+    for (const t of moved) t.branch = branch;
+    if (moved.length) this.changed();
     if (this.lastStatus.get(info.id) === info.status) return;
     this.lastStatus.set(info.id, info.status);
     this.pump();

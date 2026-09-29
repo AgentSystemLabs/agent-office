@@ -100,8 +100,10 @@ export interface WorkerInfo {
   /**
    * Set when the worker runs in its own git worktree (path relative to the office dir). `from` is
    * the branch the office was on when the worktree was cut, which its pull request targets.
+   * `branch` is the branch the worktree is on: the office's own office/<name>-<id> until the worker
+   * switches to one of its own (`git checkout -b fix-x`), which `made` then remembers.
    */
-  worktree?: { path: string; branch: string; base: string; from?: string };
+  worktree?: { path: string; branch: string; base: string; from?: string; made?: string };
   /** The pull request opened from this desk for the worktree branch (see 'worker.pr'). */
   pr?: { number: number; url: string };
   /** True while the branch is being pushed and its pull request opened. */
