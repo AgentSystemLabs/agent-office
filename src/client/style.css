@@ -424,6 +424,12 @@ body.telescope-active #hud { visibility: hidden; }
 .modal.term header .typed.now { color: var(--ink); }
 @media (prefers-reduced-motion: reduce) { .avatar.typing { animation: none; } }
 .modal.term header .cost { font-size: 12px; font-weight: 800; color: var(--muted); white-space: nowrap; }
+/* A narrow window: the name and ✕ keep the top row and the rest wraps under them, rather than pushing ✕ off the edge. */
+@media (max-width: 640px) {
+  .modal.term header { flex-wrap: wrap; row-gap: 8px; }
+  .modal.term header h2 { flex-basis: calc(100% - 80px); }
+  .modal.term header > :not(.dot, h2, .close) { order: 1; }
+}
 
 /* Changes window: changed files + diff at a desk */
 .modal.desk-changes { width: min(1300px, 100%); height: min(860px, calc(100vh - 32px)); outline: none; }

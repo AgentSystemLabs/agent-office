@@ -75,19 +75,21 @@ export function setDoing(modal: Modal, doing: string | undefined) {
  * Opens a modal. Esc closes it unless `escCloses` is false (for dialogs you mustn't skip), and so
  * does a ✕ in its top right corner unless `closeButton` is false (it follows `escCloses`). `doing`
  * is what teammates see under your name tag while it's open, like "reading PR #12", and `reading`
- * puts an open book in your character's hands.
+ * puts an open book in your character's hands. `onClose` hears whether it was the Esc key.
  */
-export function openModal(content: HTMLElement, opts: { escCloses?: boolean; onClose?: () => void; backdropCloses?: boolean; closeButton?: boolean; doing?: string; reading?: boolean } = {}): Modal {
+export function openModal(content: HTMLElement, opts: { escCloses?: boolean; onClose?: (byEsc: boolean) => void; backdropCloses?: boolean; closeButton?: boolean; doing?: string; reading?: boolean } = {}): Modal {
   const backdrop = h('div.backdrop', {}, content);
   const root = document.getElementById('modal-root')!;
   root.append(backdrop);
   let closed = false;
+  let byEsc = false;
   const onKey = (e: KeyboardEvent) => {
     if (stack[stack.length - 1] !== modal) return;
     if (e.key === 'Escape' && opts.escCloses !== false) {
       // Stop it here so the Esc that closes a terminal isn't also typed into it.
       e.preventDefault();
       e.stopPropagation();
+      byEsc = true;
       modal.close();
     }
   };
@@ -103,7 +105,7 @@ export function openModal(content: HTMLElement, opts: { escCloses?: boolean; onC
       window.removeEventListener('keydown', onKey, true);
       const i = stack.indexOf(modal);
       if (i >= 0) stack.splice(i, 1);
-      opts.onClose?.();
+      opts.onClose?.(byEsc);
       listeners.forEach((fn) => fn(stack.length > 0));
     },
   };

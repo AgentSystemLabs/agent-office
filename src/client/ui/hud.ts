@@ -163,7 +163,7 @@ export function openHelp() {
     ['M', 'Mute or unmute your mic in voice. ⚙️ Settings can have you join muted, for push to talk'],
     ['Tab', 'The ☰ menu, top right: every window, and what shows on screen. Pin what you use most to the top bar'],
     ['Esc', 'Close any window and get back to looking around'],
-    ['Ctrl + [', 'Send Esc to a terminal (e.g. to interrupt Claude)'],
+    ['Ctrl + [', 'Send Esc to a terminal instead, to close a menu like Claude’s /skills or interrupt Claude. ⎋ Esc in the terminal’s header does the same'],
     ['⚙️', 'Settings (in the ☰ menu): switch between first and third person'],
   ];
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');

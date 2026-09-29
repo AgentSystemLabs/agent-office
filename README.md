@@ -207,7 +207,7 @@ deploy/aws.sh ssh 'node /opt/agent-office/bin/agent-office.js accounts invite ad
 | M | Mute / unmute in voice |
 | Tab | The ☰ menu: every window |
 | Esc | Close any window |
-| Ctrl + [ | Send Esc to a terminal (e.g. to interrupt Claude) |
+| Ctrl + [ | Send Esc to a terminal, to close a menu like Claude's `/skills` or interrupt Claude (or **⎋ Esc** in its header) |
 
 The full list is in [docs/controls.md](docs/controls.md).
 

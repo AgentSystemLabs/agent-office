@@ -24,6 +24,6 @@ Back to the [README](../README.md).
 | M | Mute / unmute in voice |
 | Tab | The ☰ menu: every window, and what shows on screen |
 | Esc | Close any window (a terminal too) and get back to looking around |
-| Ctrl + [ | Send Esc to a terminal (e.g. to interrupt Claude) |
+| Ctrl + [ | Send Esc to a terminal instead, to close a menu like Claude's `/skills` or interrupt Claude. **⎋ Esc** in the terminal's header does the same |
 
 You can also click a nearby desk to interact with it, or click a worker in the Workers panel (**🤖 Workers**, top right) to open its terminal.
