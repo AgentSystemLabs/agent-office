@@ -4,7 +4,9 @@
 
 # Droid Office
 
-**A 3D office in your browser where your team hires [Factory Droid](https://factory.ai) and other AI coding agents at desks, and shares their live terminals.**
+### Your AI agents deserve a desk. Your team deserves to see them work.
+
+**A 3D office in your browser where you and your teammates hire Factory Droid, Claude Code, Codex and OpenCode workers, walk over to their desks and step into their live terminals.**
 
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/nikships/droid-office?style=for-the-badge)](https://github.com/nikships/droid-office/releases)
@@ -12,79 +14,83 @@
 
 </div>
 
-## What is this?
+---
 
-A fork of [AgentSystemLabs/agent-office](https://github.com/AgentSystemLabs/agent-office), built around **Droid** and the way a team using Factory actually works. You walk a cartoon office with your teammates, seat an agent at a desk, and watch its real terminal on the laptop in front of it. Every project is a floor of the building, with its own desks, issue and PR boards, task queue and workers.
+## Stop babysitting tabs
 
-The original has Claude Code, OpenCode and Codex. This fork keeps all three and changes what sits around them.
+Five agents in five terminals is a mess. You lose track of who is stuck, who finished and who is waiting on you. Nobody else on the team can see any of it.
 
-## What makes this fork different
+Droid Office turns that into a place. Every agent sits at a desk with a laptop showing its real terminal. A worker that needs you jumps up and dings. A worker that is done does a little spin and throws confetti. You see the whole picture from across the room, and so does everyone you invite.
 
-**Droid is the default agent.** New workers, board agents and queue tasks start on Droid unless you pick otherwise. Every hire, queue task and meeting can pin a Droid model and reasoning effort, read from your own `~/.factory/settings.json`, custom and [DroidProxy](https://github.com/anand-92/droidproxy) models included. The choice is kept per desk and stays with the worker across resumes. Ctrl+Enter queues and Shift+Enter adds a newline in Droid terminals. Droid workers report status through hooks, so the office knows when one is working, needs you or is done.
+<img src="docs/desk.jpg" alt="A robot worker at its desk with a green terminal, confetti bursting because it just finished, two teammates watching" width="100%">
 
-**DroidProxy limits on the wall.** When DroidProxy runs on the machine, the machine monitor shows every Claude, Codex and Grok sign-in it holds: how much of each 5-hour, weekly and per-model limit is used, when it resets, and which accounts are out. It shows no emails or tokens. Worker cards, the queue and the workers list draw DroidProxy models with the Factory pinwheel.
+## What you get
 
-**GitLab floors as well as GitHub.** A floor can be a GitLab project, including self-managed hosts. Its board shows merge requests, its workers open them with `glab`, and every prompt the office sends is in GitLab's words (`glab`, merge request, `!12`). Adding a project lists your `gh` and `glab` repositories together.
+- **A desk for every agent.** Walk up, press **E**, pick Droid, Claude Code, Codex or OpenCode, and a worker sits down. Its live terminal opens on the laptop in front of it.
+- **One terminal, many hands.** Teammates can step into the same session at the same time and see who is typing. Late joiners get the full scrollback.
+- **A floor per project.** Ride the elevator, pick a GitHub or GitLab repository, and the office clones it and opens a new floor. Each floor has its own desks, boards, task queue and workers.
+- **Boards you can touch.** Issues and pull requests hang on the wall. Take a card off the board, carry it across the room, and hand it to a worker.
+- **A task queue that works while you don't.** Queue tasks and walk away. Each one gets a fresh worker on its own git branch, and the PR shows up on the board when it's ready.
+- **Meetings between agents.** Seat two to five workers at the glass meeting table for a debate, a lead-and-team split, a red-versus-blue attack on your change, or a review panel that posts one merged review on the PR.
+- **Voice, screen share and a whiteboard.** Talk to your team, put your screen on the lounge TV and draw together.
+- **A place worth being in.** A rooftop bar, a basketball hoop, a golf tee, an arcade cabinet, a jukebox, a dog that runs to any worker who needs an answer, and weather outside the windows that follows a real city if you ask.
 
-**A Jira epic board.** An admin connects Jira Cloud once with a read-only token and gives a floor an epic. The floor's issue board gets a **Jira** tab with the epic's tickets, and so does the board on the wall. **Hand to a worker** seats a worker with the ticket as its prompt. The office never changes a ticket.
+<img src="docs/meeting.jpg" alt="Robot workers and a person around a glass meeting table with a whiteboard of diagrams behind them" width="100%">
 
-**Real VR.** The office runs in a headset browser over WebXR, tuned for Galaxy XR controllers and hand tracking. You can hire, terminal, queue, review PRs, join voice, ride the elevator, climb the ladder and grab coffee or an issue card by hand. Read [docs/vr-webxr.md](docs/vr-webxr.md).
+## Why Droid Office
 
-**A dark, Factory-style look.** The whole UI is a dark industrial theme in Factory's orange, with plain labels and no decorative emoji.
+This started as a fork of [agent-office](https://github.com/AgentSystemLabs/agent-office) and went its own way. It's built for teams that live in Factory.
 
-**Install it as an app.** In Chrome or Edge, install the office and it opens in its own window with its own icon. Closing the window or reloading asks first, so a stray Cmd+W doesn't drop you out.
+### Droid is the star
+Droid is the default agent. Hire a worker on any Droid model, including custom and [DroidProxy](https://github.com/anand-92/droidproxy) ones, at the reasoning effort you choose. The office remembers your pick per desk and keeps it with the worker across restarts. It shows you when a Droid worker is working, waiting on you or done.
 
-**Upstream features, kept in step.** New features from the original repo are ported in as code that fits this fork, not merged as commits, so nothing here gets overwritten. Most recently: editable office prompts and a default worker, editing and filtering by label on the boards, workers that survive upgrades, workers that go home when their PR merges, removing a floor, a first-run walkthrough, and a basketball hoop, golf tee and docs bookshelf.
+### See your limits before you hit them
+Run DroidProxy on the machine and the monitor on the wall shows every Claude, Codex and Grok sign-in it holds: how much of each 5-hour, weekly and per-model limit is used, when it resets, and which accounts are out. No emails, no tokens.
 
-## Quick start
+### GitLab is a first-class citizen
+A floor can be a GitLab project, on gitlab.com or your own host. Merge requests fill the PR board, workers open them with `glab`, and every prompt the office sends speaks GitLab.
 
-You need Node.js 20+, `git`, and at least one agent CLI signed in: [`droid`](https://docs.factory.ai/droid-cli/cli-reference.md), `claude`, `opencode` or `codex`. For boards, sign in to `gh` (GitHub) and/or `glab` (GitLab).
+### Jira on the wall
+Connect Jira Cloud once with a read-only token, give a floor an epic, and its tickets appear as a **Jira** tab on the board. Hand any ticket to a worker with one click. The office never writes to Jira.
 
-macOS and Linux:
+### Step inside in VR
+Open the office in your headset's browser and walk in. Hire workers, read terminals, review PRs, join voice, climb the ladder and pick up an issue card with your own hands. It's tuned for Galaxy XR controllers and hand tracking. See the [VR guide](docs/vr-webxr.md).
+
+<img src="docs/vr.jpg" alt="A person in a VR headset reaching out to take an issue card off the office board" width="100%">
+
+### Built like a Factory
+A dark, industrial look in Factory orange. Install it as an app from Chrome or Edge, and it asks before a stray Cmd+W closes your office.
+
+### Always improving
+Every new feature that ships in the original project is brought over, adapted to this fork and its Droid, GitLab and VR work. The latest additions: rewrite every prompt the office sends, set a default worker, edit and filter issues by label on the boards, keep workers running through upgrades, send workers home when their PR merges, and browse your project's docs at the office bookshelf.
+
+<img src="docs/rooftop.jpg" alt="The rooftop bar at night with a fire pit, a DJ robot, people and robots with drinks, and a golf tee looking over the city" width="100%">
+
+## Get started in a minute
+
+You need Node.js 20+, `git`, and one agent CLI signed in ([`droid`](https://docs.factory.ai/droid-cli/cli-reference.md), `claude`, `codex` or `opencode`). For the boards, sign in to `gh` for GitHub or `glab` for GitLab.
+
+**macOS and Linux**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nikships/droid-office/main/install.sh | bash
 ```
 
-Windows (PowerShell):
+**Windows (PowerShell)**
 
 ```powershell
 irm https://raw.githubusercontent.com/nikships/droid-office/main/install.ps1 | iex
 ```
 
-The first start in a terminal walks you through a workspace folder, a `gh` or `glab` sign-in and your first project. After that, `agent-office` starts the office and prints the URLs to share. Run the install line again to update.
+That installs the latest release and starts the office. It asks where to keep your projects, helps you sign in, and clones your first repository. Then it prints the link to share with your team. Run the same line again any time to update.
 
-From a clone:
+## Take it further
 
-```bash
-git clone https://github.com/nikships/droid-office && cd droid-office
-npm ci                        # also builds the client and server
-node bin/agent-office.js --password 'correct horse battery staple'
-```
-
-Two more ways to run it, both in the [guide](docs/guide.md): [one command on AWS](docs/guide.md#one-command-on-aws) (`deploy/aws.sh up`), and [a VPS for your team](docs/guide.md#running-it-on-a-vps-for-your-team).
-
-## Documentation
-
-| Resource | What's in it |
+| Guide | What's in it |
 | --- | --- |
-| [docs/guide.md](docs/guide.md) | Every feature, the install and account options, controls, AWS and VPS setup, security notes, and how each subsystem works |
-| [docs/vr-webxr.md](docs/vr-webxr.md) | Running the office in a headset: requirements, controls, and what is desktop only |
-| [AGENTS.md](AGENTS.md) | Rules for changing the code: commands, conventions, and validation before a PR |
-| [.env.example](.env.example) | Every environment variable the office and the installers read |
-
-## Development
-
-```bash
-npm ci               # installs, builds, and sets up the pre-commit hook
-npm run lint         # Biome; any warning fails
-npm run typecheck
-npm run test:coverage
-npm run dev          # Vite with hot reload on :5173, server on :4600, password "dev"
-```
-
-`node bin/agent-office.js` runs the built `dist/`, so run `npm run build` after changing source. More in the guide's [Development](docs/guide.md#development) section and in [AGENTS.md](AGENTS.md).
+| [The full guide](docs/guide.md) | Every feature, accounts and invites for your team, controls, running it on AWS in one command or on your own server, and how it all works |
+| [VR guide](docs/vr-webxr.md) | Running the office in a headset, with controls and what's desktop only |
 
 ## Credits and license
 
-Started from [AgentSystemLabs/agent-office](https://github.com/AgentSystemLabs/agent-office), whose authors built the office, the desks, the terminals and the boards. This fork is released under the same [MIT license](LICENSE).
+Droid Office began as a fork of [AgentSystemLabs/agent-office](https://github.com/AgentSystemLabs/agent-office), whose authors built the office, the desks, the terminals and the boards. It's released under the same [MIT license](LICENSE).

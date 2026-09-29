@@ -16,7 +16,7 @@ Read [docs/guide.md "How it works"](docs/guide.md#how-it-works) before changing 
 | `tests/` | `node:test` suites run through `tsx` |
 | `deploy/` | `aws.sh` (EC2 lifecycle) and `provision.sh` (machine setup it runs) |
 | `install.sh`, `install.ps1` | Release installers for macOS/Linux and Windows |
-| `docs/` | `guide.md` (every feature, setup and how each subsystem works), `vr-webxr.md`, and the README banner |
+| `docs/` | `guide.md` (every feature, setup and how each subsystem works), `vr-webxr.md`, and the README pictures |
 
 ## Commands
 
