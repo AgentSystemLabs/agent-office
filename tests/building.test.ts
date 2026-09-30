@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Building, type FloorDef } from '../src/server/building.js';
+import { originRepo } from '../src/server/forge.js';
 
 function office(t: { after(fn: () => void): void }) {
   const root = mkdtempSync(path.join(tmpdir(), 'agent-office-building-'));
@@ -82,4 +83,30 @@ test('the floor the office was started in comes off too, stays off after a resta
   const third = new Building(dataDir, root);
   assert.equal(third.ensureLocal(defs[0].dir, 'the office')?.id, 'api');
   assert.deepEqual(third.list().map((d) => d.id), ['web', 'docs', 'api']);
+});
+
+// --- The forge a checkout is on ---------------------------------------------------------------------
+
+/** A checkout whose origin is `url`, in a folder nothing else has. */
+function checkout(t: { after(fn: () => void): void }, url: string): string {
+  const root = mkdtempSync(path.join(tmpdir(), 'agent-office-origin-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const dir = path.join(root, 'project');
+  mkdirSync(dir, { recursive: true });
+  execFileSync('git', ['init', '-q', dir]);
+  execFileSync('git', ['-C', dir, 'remote', 'add', 'origin', url]);
+  return dir;
+}
+
+test('a checkout of a GitHub or Bitbucket repository is a floor; anything else is not', (t) => {
+  assert.equal(originRepo(checkout(t, 'https://github.com/acme/api.git')), 'acme/api');
+  assert.equal(originRepo(checkout(t, 'git@github.com:acme/api.git')), 'acme/api');
+  assert.equal(originRepo(checkout(t, 'https://bitbucket.org/acme/web.git')), 'acme/web');
+  assert.equal(originRepo(checkout(t, 'git@bitbucket.org:acme/web.git')), 'acme/web');
+  // Some other host (a self-hosted GitLab, say) has no forge the office can read.
+  assert.equal(originRepo(checkout(t, 'https://gitlab.com/acme/app.git')), undefined);
+  // Not a git checkout at all.
+  const plain = mkdtempSync(path.join(tmpdir(), 'agent-office-plain-'));
+  t.after(() => rmSync(plain, { recursive: true, force: true }));
+  assert.equal(originRepo(plain), undefined);
 });

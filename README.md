@@ -36,7 +36,7 @@ curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/i
 - **Workers at desks.** Walk up to an empty desk, press **E**, and pick Claude Code, Codex, OpenCode, Grok, Muse or DeepSeek Harness. The agent's live terminal shows on its laptop, and anyone can open it and type.
 - **You can see who needs you.** A worker that needs input or has finished jumps up and down and dings. Press **N** to go straight to the one that has waited longest.
 - **From your phone, too.** `/lite` is the office in 2D: every worker and what it's waiting on, its terminal with the keys a phone keyboard lacks, and the boards. The 3D office offers it on a phone or a slow computer.
-- **GitHub on the walls.** Issues and pull requests hang on cork boards, for the repository the checkout's `origin` points at (your own, for a fork). Hand an issue to a worker, queue tasks, give a worker its own git worktree and open its PR with one key (if one gets deleted behind the office's back, the worker waits at its desk until you rebuild it). One task can span several projects: the worker gets a worktree of each, and a PR in each that links the others.
+- **GitHub or Bitbucket on the walls.** Issues and pull requests hang on cork boards, for the repository the checkout's `origin` points at (your own, for a fork). Hand an issue to a worker, queue tasks, give a worker its own git worktree and open its PR with one key (if one gets deleted behind the office's back, the worker waits at its desk until you rebuild it). One task can span several projects: the worker gets a worktree of each, and a PR in each that links the others.
 - **Agents that manage agents.** Every worker can list, hire, message and send home the others, through an `agent-office` MCP server (Claude Code, Codex, OpenCode) or the `office-workers` command. Ask one to "send everyone whose PR merged home" and it does, deleting their worktrees and branches unless they hold unpushed work.
 - **Together.** Voice, chat, screen sharing on the lounge TV and a shared whiteboard.
 
@@ -50,7 +50,7 @@ On the machine that runs the office:
 
 - **Node.js 20+**
 - At least one agent CLI, signed in as the user that runs the office: **Claude Code** (`claude`), **Codex** (`codex`), **OpenCode** (`opencode`), **Grok** (`grok`), **Muse** (`muse`) or **DeepSeek Harness** (`dsh`). With [accounts](#add-users), everyone can sign in to their own Claude from the office instead.
-- **git**, and the **GitHub CLI** (`gh auth login`) for cloning repos and the issue and PR boards
+- **git**, and a forge CLI for cloning repos and the issue and PR boards: the **GitHub CLI** (`gh auth login`) for GitHub projects, or the [Bitbucket CLI](https://bitbucket-cli.paulvanderlei.com) (`bb`, `npm install -g @pilatos/bitbucket-cli`) for Bitbucket ones. Each floor works out which one from its own remote, so you can use GitHub, Bitbucket or both.
 
 ## Run locally
 
@@ -71,7 +71,7 @@ This puts an `agent-office` command on your PATH, so next time just run `agent-o
 The first time it starts, it walks you through setting up, right in the terminal:
 
 1. **Where to clone your projects.** It suggests a code folder you already have (`~/Workspace`, `~/code`…), else `~/agent-office`. Each project goes in `<folder>/<owner>/<repo>`.
-2. **GitHub.** If the GitHub CLI isn't signed in, it offers to run `gh auth login` for you.
+2. **GitHub and Bitbucket.** For each one whose CLI is installed but not signed in, it offers to run the sign-in for you. Either one is enough to go on; the projects it offers are the ones that login can see.
 3. **Your first project.** Pick one of your repos by number, or type `owner/name`, and the office clones it as the first floor.
 
 Press Enter to skip a step: the elevator in the office asks for your first project too. Then the office opens in your browser, **already signed in**, with a link that works once. The terminal also prints the office password, for signing in from another browser (it's saved in `~/agent-office/.agent-office/config.json`).
@@ -115,14 +115,14 @@ In about two minutes, `up`:
 
 1. Launches a **t3.xlarge** (4 vCPU, 16 GiB) Ubuntu 24.04 instance with a 50 GiB disk and a fixed Elastic IP.
 2. Creates a security group that opens **only SSH, only to your IP**. The office listens on `127.0.0.1:4600` on the machine and is never on the internet. Everyone reaches it through an SSH tunnel, so there are no certificates to manage, and voice and screen sharing work.
-3. Runs [`deploy/provision.sh`](deploy/provision.sh) on it: Node 22, git, the GitHub CLI, Claude Code and the office, under systemd, so it comes back after a crash or reboot and workers keep running through a restart.
+3. Runs [`deploy/provision.sh`](deploy/provision.sh) on it: Node 22, git, the GitHub CLI, the Bitbucket CLI, Claude Code and the office, under systemd, so it comes back after a crash or reboot and workers keep running through a restart.
 4. Opens a tunnel and your browser at http://localhost:4600. **The first page shows the office password once. Write it down.**
 
 `--project` is optional: it clones that repo as the first floor. Leave it out and pick projects in the elevator.
 
 **Signing in the agents.** `--claude-token` uses your Claude subscription; `--anthropic-api-key <key>` uses an API key instead. Leave both out and run `/login` in the first worker's terminal. Codex and OpenCode aren't installed by the script: `deploy/aws.sh ssh` and install them yourself.
 
-**GitHub.** Your local `gh auth token` is copied to the machine so the office can clone private repos, show the boards and push PRs. Anyone in the office can use it, so pass `--github-token <fine-grained token>` or `--no-github-token` to limit that.
+**GitHub.** Your local `gh auth token` is copied to the machine so the office can clone private repos, show the boards and push PRs. Anyone in the office can use it, so pass `--github-token <fine-grained token>` or `--no-github-token` to limit that. Bitbucket is signed in separately, by hand on the machine (`bb auth login`), and the same `--github-token` / `--no-github-token` switches cover it.
 
 **On Tailscale, no tunnels.** If your team uses [Tailscale](https://tailscale.com), add `--tailscale`:
 
@@ -309,7 +309,7 @@ deploy/fly.sh ssh 'node /opt/agent-office/bin/agent-office.js accounts invite ad
 deploy/dokploy.sh ssh 'node /opt/agent-office/bin/agent-office.js accounts invite ada'   # on Dokploy
 ```
 
-**Their own Claude and GitHub.** With accounts, everyone's workers run on their own Claude plan, and the office acts on GitHub as them: comments, merges, labels, pushes and pull requests show up under their name. The first time someone comes in, **🔐 Your sign-ins** opens (it's in the **☰** menu too). *Sign in with Claude* gives them Claude's sign-in page and takes back the code it shows. *Sign in with GitHub* shows a one-time code for github.com/login/device. They can paste a token from `claude setup-token`, or a GitHub token, instead. A 🐚 shell they open at a desk runs as them, so `claude auth login` and `gh auth login` typed there work too. Admins can use the office machine's own sign-ins instead. Each account's sign-ins live in `.agent-office/homes/<account>/`, and revoking the account deletes them. The boards are read with the machine's own `gh`, so that account needs read access to the repos. Running it just for yourself, with no accounts, none of this applies.
+**Their own Claude and code host.** With accounts, everyone's workers run on their own Claude plan, and the office acts on their code host as them: comments, merges, pushes and pull requests show up under their name. The first time someone comes in, **🔐 Your sign-ins** opens (it's in the **☰** menu too). *Sign in with Claude* gives them Claude's sign-in page and takes back the code it shows. *Sign in with GitHub* shows a one-time code for github.com/login/device. Bitbucket has no such page to hand out, so that card takes a pasted Atlassian API token — type it as `myusername ATBB…`. They can paste a token from `claude setup-token` or a GitHub token instead too. A 🐚 shell they open at a desk runs as them, so `claude auth login`, `gh auth login` and `bb auth login` typed there work as well. Admins can use the office machine's own sign-ins instead. Each account's sign-ins live in `.agent-office/homes/<account>/`, and revoking the account deletes them. The sign-in that matters on a floor is the one for that floor's host, so someone signed in to GitHub is asked for their Bitbucket sign-in when they go to a Bitbucket floor. The boards are read with the machine's own CLI, so that account needs read access to the repos. Running it just for yourself, with no accounts, none of this applies.
 
 **3. Turn off the shared password.** Until you do, anyone who knows the office password can get in, as an admin. Once everyone has an account, switch it off in **🔑 Accounts** (signed in with your own admin account), or `agent-office accounts password off`.
 

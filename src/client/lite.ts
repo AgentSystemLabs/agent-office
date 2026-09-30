@@ -70,7 +70,7 @@ net.onMessage((msg) => {
       toast(msg.text, msg.level);
       break;
     case 'signins.needed':
-      openSignIns(net, msg.why);
+      openSignIns(net, msg.why, msg.which);
       break;
     case 'upgrade':
       if (msg.state.phase === 'restarting') {

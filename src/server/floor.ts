@@ -1,15 +1,17 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import type { ChangesState, FloorInfo, PeerInfo, ProjectInfo, ServerMsg, WorkerInfo } from '../shared/protocol.js';
+import type { ChangesState, FloorInfo, ForgeKind, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, ServerMsg, WorkerInfo } from '../shared/protocol.js';
 import { isBusy } from '../shared/status.js';
 import { DESK_BY_ID } from '../shared/layout.js';
 import type { FloorDef } from './building.js';
 import { excludeFromGit } from './config.js';
 import { agentProviders, configuredProvider } from './agents.js';
 import { WorkerManager, workedMs, type HookEnv, type RunAs } from './workers.js';
-import { GitHub, MergeWatch } from './github.js';
-import type { GhAs } from './signins.js';
+import { Bitbucket } from './bitbucket.js';
+import { forgeOf, MergeWatch, type Forge } from './forge.js';
+import { GitHub } from './github.js';
+import type { ForgeAs } from './signins.js';
 import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { Decor } from './decor.js';
@@ -45,8 +47,8 @@ export interface FloorContext {
   prompts: PromptSource;
   /** Workers hired by an account run on its own sign-ins (see signins.ts). */
   runAs?: RunAs;
-  /** How to run gh as an account: its own sign-in, the office's (undefined), or why it can't. */
-  ghAs(owner: string | undefined): GhAs | undefined | string;
+  /** How to run a forge's CLI as an account: its own sign-in, the office's (undefined), or why it can't. */
+  forgeAs(owner: string | undefined, kind: ForgeKind): ForgeAs | undefined | string;
   /** To everyone on this floor. */
   emit(floor: Floor, msg: ServerMsg, droppable?: boolean): void;
   toast(floor: Floor, text: string, level?: ToastLevel): void;
@@ -74,7 +76,7 @@ export interface FloorContext {
 
 /** The open pull request on a floor's board whose head is `branch`. */
 function openPull(floor: Floor, branch: string): { number: number; url: string } | undefined {
-  const pr = floor.github.pulls.items.find((p) => p.state === 'OPEN' && p.headRefName === branch);
+  const pr = floor.forge.pulls.items.find((p) => p.state === 'OPEN' && p.headRefName === branch);
   return pr ? { number: pr.number, url: pr.url } : undefined;
 }
 
@@ -113,7 +115,8 @@ export class Floor {
   readonly dir: string;
   readonly project: ProjectInfo;
   readonly workers: WorkerManager;
-  readonly github: GitHub;
+  /** Where this floor's code is hosted: its issues and pull requests, read with that forge's CLI. */
+  readonly forge: Forge;
   readonly queue: TaskQueue;
   readonly changes: Changes;
   readonly decor: Decor;
@@ -205,11 +208,14 @@ export class Floor {
       ctx.dshProfile,
     );
     this.workers.wing = () => this.plan.wing;
+    // Which forge this floor is on, so PRs open on the right one and board agents are told the right CLI.
+    this.workers.forge = forgeOf(this.project.remote);
 
-    this.github = new GitHub(
-      def.dir,
-      (state) => ctx.emit(this, { t: 'gh.issues', state }),
-      (state) => {
+    // Whichever forge the checkout's origin points at: GitHub through gh, Bitbucket through bb.
+    const kind = forgeOf(this.project.remote);
+    const boards = {
+      issues: (state: GhState<GhIssue>) => ctx.emit(this, { t: 'gh.issues', state }),
+      pulls: (state: GhState<GhPull>) => {
         ctx.emit(this, { t: 'gh.pulls', state });
         this.queue?.onPulls(state.items);
         if (state.loading || state.error) return;
@@ -222,7 +228,8 @@ export class Floor {
         this.sendLandedHome();
         ctx.pullsChanged(this);
       },
-    );
+    };
+    this.forge = kind === 'bitbucket' ? new Bitbucket(def.dir, boards.issues, boards.pulls) : new GitHub(def.dir, boards.issues, boards.pulls);
     // The 📋 task queue seats workers by itself: it watches the workers and links PRs from GitHub.
     this.queue = new TaskQueue(dataDir, this.workers, !!this.project.branch, {
       update: (state) => {
@@ -232,10 +239,10 @@ export class Floor {
       },
       toast: (text, level) => ctx.toast(this, text, level),
       claimIssue: (issue, owner) => {
-        const as = ctx.ghAs(owner);
-        return typeof as === 'string' ? Promise.resolve(as) : this.github.claim(issue, as);
+        const as = ctx.forgeAs(owner, kind);
+        return typeof as === 'string' ? Promise.resolve(as) : this.forge.claim(issue, as);
       },
-      refreshGitHub: () => void this.github.refresh(),
+      refreshGitHub: () => void this.forge.refresh(),
       hiringPaused: () => ctx.ledger.hiringPaused,
       room: () => ctx.capacity.room(),
       emptied: () => {
@@ -267,8 +274,8 @@ export class Floor {
         toast: (text, level) => ctx.toast(this, text, level),
         hiringPaused: () => ctx.ledger.hiringPaused,
         postReview: (pr, file, owner) => {
-          const as = ctx.ghAs(owner);
-          return typeof as === 'string' ? Promise.reject(new Error(as)) : this.github.review(pr, file, as);
+          const as = ctx.forgeAs(owner, kind);
+          return typeof as === 'string' ? Promise.reject(new Error(as)) : this.forge.review(pr, file, as);
         },
         prompt: (id) => ctx.prompts.text(id),
       },
@@ -293,14 +300,14 @@ export class Floor {
           worktreeBase: r.base,
           baseBranch: r.from ?? null,
           openPull: (branch) => (other ? openPull(other, branch) : undefined),
-          refreshGitHub: () => void other?.github.refresh(),
+          refreshGitHub: () => void other?.forge.refresh(),
         };
       },
       (branch) => openPull(this, branch),
       {
         state: (state, ids) => ctx.changes(state, ids),
         toast: (text, level) => ctx.toast(this, text, level),
-        refreshGitHub: () => void this.github.refresh(),
+        refreshGitHub: () => void this.forge.refresh(),
       },
     );
 
@@ -309,10 +316,10 @@ export class Floor {
     this.whiteboard = new Whiteboard(dataDir);
     this.ready = this.workers.start();
 
-    void this.github.refresh();
+    void this.forge.refresh();
     // A floor with people on it, or work under way, keeps its boards fresh; the others check in now and then.
     this.timer = setInterval(() => {
-      if (this.active() || Date.now() - this.github.issues.fetchedAt > IDLE_REFRESH_MS) void this.github.refresh();
+      if (this.active() || Date.now() - this.forge.issues.fetchedAt > IDLE_REFRESH_MS) void this.forge.refresh();
     }, REFRESH_MS);
   }
 
@@ -332,8 +339,8 @@ export class Floor {
     this.landedTimer = setTimeout(() => {
       this.landedTimer = undefined;
       if (!this.ctx.leaveOnMerge()) return;
-      const pullsOf = (id: string) => this.ctx.floor(id)?.github.pulls.items;
-      for (const landed of landedWorkers(this.workers.list(), this.github.pulls.items, this.queue.state().tasks, pullsOf)) {
+      const pullsOf = (id: string) => this.ctx.floor(id)?.forge.pulls.items;
+      for (const landed of landedWorkers(this.workers.list(), this.forge.pulls.items, this.queue.state().tasks, pullsOf)) {
         const { worker, head, heads } = landed;
         if (!worker.repos?.length) {
           this.goHome(worker, `PR #${landed.pr} merged`, head);
@@ -356,7 +363,7 @@ export class Floor {
    * and, for a worker across repositories, on the others too (see landedWork).
    */
   landed(worker: WorkerInfo): Landed | undefined {
-    return landedWork(worker, this.github.pulls.items, this.queue.state().tasks, (id) => this.ctx.floor(id)?.github.pulls.items);
+    return landedWork(worker, this.forge.pulls.items, this.queue.state().tasks, (id) => this.ctx.floor(id)?.forge.pulls.items);
   }
 
   /**
@@ -381,7 +388,7 @@ export class Floor {
 
   /** Someone just walked in: boards that haven't been looked at in a while get fetched again. */
   arrived() {
-    if (Date.now() - Math.max(this.github.issues.fetchedAt, this.github.pulls.fetchedAt) > REFRESH_MS) void this.github.refresh();
+    if (Date.now() - Math.max(this.forge.issues.fetchedAt, this.forge.pulls.fetchedAt) > REFRESH_MS) void this.forge.refresh();
   }
 
   private active(): boolean {
@@ -412,7 +419,6 @@ export class Floor {
     clearInterval(this.timer);
     clearTimeout(this.landedTimer);
     this.dog.stop();
-    this.github.stop();
     this.queue.shutdown();
     this.meetings.shutdown();
     this.changes.stop();

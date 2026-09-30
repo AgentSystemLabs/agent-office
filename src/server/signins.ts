@@ -3,31 +3,34 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import os from 'node:os';
 import path from 'node:path';
 import * as pty from '@lydell/node-pty';
-import type { SignInKind, SignInState, SignInsState } from '../shared/protocol.js';
+import type { ForgeKind, SignInKind, SignInState, SignInsState } from '../shared/protocol.js';
 
 /*
- * Everyone's own Claude and GitHub
- * --------------------------------
- * In an office with accounts, each person's workers run on that person's own Claude plan and
- * GitHub account. Every account gets a folder, .agent-office/homes/<id>/, holding its own Claude
- * config (CLAUDE_CONFIG_DIR), gh config (GH_CONFIG_DIR) and git config (GIT_CONFIG_GLOBAL), and
- * whatever runs for that account gets those in its environment in place of the office's: its
- * workers, and what the office does on GitHub when they click (comment, merge, open a PR). Nothing
- * global changes, so any number of people can be signed in to different accounts at once.
+ * Everyone's own Claude and forges
+ * -------------------------------
+ * In an office with accounts, each person's workers run on that person's own Claude plan, and the
+ * office acts on their code host as them rather than as the machine. Every account gets a folder,
+ * .agent-office/homes/<id>/, holding its own Claude config (CLAUDE_CONFIG_DIR), gh config
+ * (GH_CONFIG_DIR), bb config (BB's own home, see bitbucketEnv) and git config (GIT_CONFIG_GLOBAL),
+ * and whatever runs for that account gets those in its environment in place of the office's: its
+ * workers, and what the office does on the forge when they click (comment, merge, open a PR).
+ * Nothing global changes, so any number of people can be signed in to different accounts at once.
  *
  * Signing in happens from the office: it runs `claude auth login` or `gh auth login --web` against
  * the account's folders and hands the browser the page to open (and GitHub's one-time code). A
- * token from `claude setup-token`, or a GitHub token, can be pasted instead, and a shell at a desk
- * runs with the same folders, so `claude auth login` typed there works too. Admins may keep using
- * the office machine's own sign-ins.
+ * token from `claude setup-token`, a GitHub token or a Bitbucket API token can be pasted instead,
+ * and a shell at a desk runs with the same folders, so `claude auth login` typed there works too.
+ * Admins may keep using the office machine's own sign-ins.
  *
  * An office without accounts (you alone, on the shared password) never comes here: everything runs
- * on the machine's own `claude` and `gh`, exactly as before.
+ * on the machine's own `claude`, `gh` and `bb`, exactly as before.
  */
 
 /** Credentials the office's own environment may carry. None of them reach anything run as someone else. */
 const CLAUDE_VARS = ['CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CODE_OAUTH_REFRESH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CONFIG_DIR', 'CLAUDE_SECURESTORAGE_CONFIG_DIR'];
 const GITHUB_VARS = ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'GH_CONFIG_DIR', 'GIT_CONFIG_GLOBAL'];
+/** bb keeps no configuration directory variable: it reads $BB_USERNAME and $BB_API_TOKEN when logging in, and nothing else. */
+const BITBUCKET_VARS = ['BB_USERNAME', 'BB_API_TOKEN', 'BB_WORKSPACE', 'BB_API_BASE_URL', 'GIT_CONFIG_GLOBAL'];
 /** GitHub's one-time codes last 15 minutes; a Claude sign-in link gets as long. */
 const FLOW_MS = 15 * 60_000;
 /** Someone's sign-ins are looked at again at most this often, unless they ask. */
@@ -38,15 +41,21 @@ const CLAUDE_TOKEN = /^sk-ant-[a-z]+\d*-[A-Za-z0-9_-]{20,}$/;
 const API_KEY = /^sk-ant-api/;
 /** ghp_…, github_pat_…, gho_… and the like. */
 const GITHUB_TOKEN = /^[A-Za-z0-9_]{20,255}$/;
+/** Atlassian API tokens: ATBB…, and the older ATATT… app passwords. */
+const BITBUCKET_TOKEN = /^(ATBB|ATATT)[A-Za-z0-9_-]{16,}$/;
 const ACCOUNT_ID = /^[A-Za-z0-9]{6,64}$/;
+/** A Bitbucket username, as bb's --username takes it. */
+const BITBUCKET_USER = /^[A-Za-z0-9._-]{1,64}$/;
 const HELP_WHERE = '☰ → 🔐 Your sign-ins';
 
 interface Saved {
   /** Unset: its own login, in its folder. A token pasted from `claude setup-token` (or an API key). The office machine's own (admins). */
   claude?: { use: 'token'; token: string } | { use: 'office' };
   github?: { use: 'office' };
+  /** bb has no browser flow the office can hand out, so a Bitbucket sign-in is a pasted token. */
+  bitbucket?: { use: 'token'; token: string; username: string } | { use: 'office' };
   /** Who the last look found each signed in as, so workers can start before the next look. */
-  seen?: { claude?: string; github?: string };
+  seen?: { claude?: string; github?: string; bitbucket?: string };
 }
 
 /** A sign-in the office is running for someone. */
@@ -59,14 +68,20 @@ interface Flow {
 interface Live {
   claude: Omit<SignInState, 'how'>;
   github: Omit<SignInState, 'how'>;
+  bitbucket: Omit<SignInState, 'how'>;
   flows: Partial<Record<SignInKind, Flow>>;
   looking?: Promise<void>;
   lookedAt: number;
 }
 
-/** Whose gh the office runs for someone: their own sign-in's environment (`key` tells logins apart). */
-export interface GhAs {
+/** Whose forge CLI the office runs for someone: their own sign-in's environment. */
+export interface ForgeAs {
+  /** Who the sign-in belongs to (`key` tells logins apart). */
   key: string;
+  /** Which forge it signs in to. */
+  kind: ForgeKind;
+  /** Who it is, so comments from the office can be shown under that name. */
+  name: string;
   env: Record<string, string>;
 }
 
@@ -76,9 +91,10 @@ export class SignIns {
 
   constructor(
     dataDir: string,
-    /** The `claude` and `gh` binaries, or null when they aren't installed. */
+    /** The `claude`, `gh` and `bb` binaries, or null when they aren't installed. */
     private claude: string | null,
     private gh: string | null,
+    private bb: string | null,
     /** The office's own environment, which everyone's is built on. */
     private base: () => Record<string, string>,
     /** Whether the account may use the office's own sign-ins (admins). */
@@ -94,6 +110,7 @@ export class SignIns {
     return {
       claude: { ...l.claude, how: this.how(id, s, 'claude') },
       github: { ...l.github, how: this.how(id, s, 'github') },
+      bitbucket: { ...l.bitbucket, how: this.how(id, s, 'bitbucket') },
       office: this.mayUseOffice(id),
     };
   }
@@ -109,11 +126,21 @@ export class SignIns {
     return this.how(id, s, 'github') === 'office' || !!s.seen?.github;
   }
 
+  bitbucketReady(id: string): boolean {
+    const s = this.load(id);
+    return this.how(id, s, 'bitbucket') === 'office' || !!s.seen?.bitbucket;
+  }
+
+  /** Whether `id` is signed in to `kind` far enough for the office to act on it for them. */
+  ready(id: string, kind: SignInKind): boolean {
+    return kind === 'claude' ? this.claudeReady(id) : kind === 'github' ? this.githubReady(id) : this.bitbucketReady(id);
+  }
+
   /** What to tell someone who needs `which` signed in first. */
   why(which: SignInKind): string {
-    return which === 'claude'
-      ? `Sign in to Claude first (${HELP_WHERE}): your workers run on your own Claude plan`
-      : `Sign in to GitHub first (${HELP_WHERE}): the office acts on GitHub as you`;
+    if (which === 'claude') return `Sign in to Claude first (${HELP_WHERE}): your workers run on your own Claude plan`;
+    const forge = which === 'github' ? 'GitHub' : 'Bitbucket';
+    return `Sign in to ${forge} first (${HELP_WHERE}): the office acts on ${forge} as you`;
   }
 
   /**
@@ -127,10 +154,20 @@ export class SignIns {
     return `${how}:${s.claude?.use === 'token' ? s.claude.token.slice(-12) : ''}:${s.seen?.claude ?? ''}`;
   }
 
+  /** The login `id` acts as on `kind` (for "you" on comments); undefined when it's the office's own or none. */
+  forgeLogin(id: string, kind: ForgeKind): string | undefined {
+    const s = this.load(id);
+    return this.how(id, s, kind) === 'login' ? s.seen?.[kind]?.replace(/^@/, '') : undefined;
+  }
+
   /** The GitHub login `id` acts as (for "you" on comments); undefined when it's the office's own or none. */
   githubLogin(id: string): string | undefined {
-    const s = this.load(id);
-    return this.how(id, s, 'github') === 'login' ? s.seen?.github?.replace(/^@/, '') : undefined;
+    return this.forgeLogin(id, 'github');
+  }
+
+  /** The Bitbucket username `id` acts as; undefined when it's the office's own or none. */
+  bitbucketLogin(id: string): string | undefined {
+    return this.forgeLogin(id, 'bitbucket');
   }
 
   /**
@@ -140,26 +177,46 @@ export class SignIns {
   apply(id: string, env: Record<string, string>, dirs: string[] = [], only?: SignInKind): Record<string, string> {
     const s = this.load(id);
     const home = this.prepare(id);
-    if (only !== 'github' && this.how(id, s, 'claude') !== 'office') {
+    if (only !== 'github' && only !== 'bitbucket' && this.how(id, s, 'claude') !== 'office') {
       for (const k of CLAUDE_VARS) delete env[k];
       env.CLAUDE_CONFIG_DIR = path.join(home, 'claude');
       if (s.claude?.use === 'token') env[API_KEY.test(s.claude.token) ? 'ANTHROPIC_API_KEY' : 'CLAUDE_CODE_OAUTH_TOKEN'] = s.claude.token;
       if (dirs.length) this.trust(env.CLAUDE_CONFIG_DIR, dirs);
     }
-    if (only !== 'claude' && this.how(id, s, 'github') !== 'office') {
+    if (only !== 'claude' && only !== 'bitbucket' && this.how(id, s, 'github') !== 'office') {
       for (const k of GITHUB_VARS) delete env[k];
       env.GH_CONFIG_DIR = path.join(home, 'gh');
       env.GIT_CONFIG_GLOBAL = path.join(home, 'gitconfig');
     }
+    if (only !== 'claude' && only !== 'github' && this.how(id, s, 'bitbucket') !== 'office') {
+      for (const k of BITBUCKET_VARS) delete env[k];
+      // See bitbucketEnv: bb keeps its config under the home folder, not under a directory of its own.
+      const home2 = this.bitbucketHome(id);
+      env.HOME = env.USERPROFILE = env.XDG_CONFIG_HOME = home2;
+    }
     return env;
   }
 
-  /** How the office runs gh for `id`: as them (GhAs), as itself (undefined, an admin's choice), or a reason it can't. */
-  ghAs(id: string): GhAs | undefined | string {
+  /**
+   * How the office runs the forge's CLI for `id`: as them (ForgeAs), as itself (undefined, an
+   * admin's choice), or a reason it can't.
+   */
+  forgeAs(id: string, kind: ForgeKind): ForgeAs | undefined | string {
     const s = this.load(id);
-    if (this.how(id, s, 'github') === 'office') return undefined;
-    if (!s.seen?.github) return this.why('github');
-    return { key: id, env: this.apply(id, this.base(), [], 'github') };
+    if (this.how(id, s, kind) === 'office') return undefined;
+    const who = s.seen?.[kind];
+    if (!who) return this.why(kind);
+    return { key: id, kind, name: who.replace(/^@/, ''), env: this.apply(id, this.base(), [], kind) };
+  }
+
+  /** How the office runs gh for `id`; see forgeAs. */
+  ghAs(id: string): ForgeAs | undefined | string {
+    return this.forgeAs(id, 'github');
+  }
+
+  /** How the office runs bb for `id`; see forgeAs. */
+  bbAs(id: string): ForgeAs | undefined | string {
+    return this.forgeAs(id, 'bitbucket');
   }
 
   /** Looks at who `id` is signed in as, now if `force`, else unless it just did. */
@@ -167,7 +224,7 @@ export class SignIns {
     const l = this.get(id);
     if (l.looking) return l.looking;
     if (!force && Date.now() - l.lookedAt < LOOK_GAP_MS) return Promise.resolve();
-    l.looking = Promise.all([this.lookClaude(id), this.lookGithub(id)]).then(() => {
+    l.looking = Promise.all([this.lookClaude(id), this.lookGithub(id), this.lookBitbucket(id)]).then(() => {
       l.lookedAt = Date.now();
       l.looking = undefined;
       this.onChange(id);
@@ -177,7 +234,11 @@ export class SignIns {
 
   /** Starts signing `id` in from the office. The page to open comes through state(). Returns why it can't. */
   start(id: string, which: SignInKind): string | undefined {
-    return which === 'claude' ? this.startClaude(id) : this.startGithub(id);
+    if (which === 'claude') return this.startClaude(id);
+    // bb's OAuth needs a browser that can reach a loopback server on the office machine, which is
+    // where the person already is: so signing in to Bitbucket is pasting an API token instead.
+    if (which === 'bitbucket') return "Bitbucket has no sign-in page this office can hand out — paste an Atlassian API token instead";
+    return this.startGithub(id);
   }
 
   /** The code Claude's sign-in page showed, typed in where `claude auth login` waits for it. */
@@ -198,7 +259,7 @@ export class SignIns {
     void this.look(id, true);
   }
 
-  /** A pasted token: from `claude setup-token` (or an API key), or a GitHub token. Resolves to why it didn't take. */
+  /** A pasted token: from `claude setup-token` (or an API key), or a forge's own. Resolves to why it didn't take. */
   async token(id: string, which: SignInKind, raw: string): Promise<string | undefined> {
     const token = raw.trim();
     this.stop(id, which);
@@ -218,6 +279,7 @@ export class SignIns {
       await this.look(id, true);
       return undefined;
     }
+    if (which === 'bitbucket') return this.bitbucketToken(id, token);
     if (!this.gh) return "The GitHub CLI (gh) isn't installed on the office's machine";
     if (!GITHUB_TOKEN.test(token)) return "That doesn't look like a GitHub token (ghp_…, github_pat_…)";
     const s = this.load(id);
@@ -226,6 +288,26 @@ export class SignIns {
     const r = await run(this.gh, ['auth', 'login', '--hostname', 'github.com', '--with-token', '--insecure-storage'], this.githubEnv(id), `${token}\n`);
     await this.look(id, true);
     return r.code === 0 ? undefined : `GitHub didn't take that token: ${r.last || 'gh auth login failed'}`;
+  }
+
+  /**
+   * Signs `id` in to Bitbucket with an Atlassian API token. bb takes the token on stdin and the
+   * username beside it, and only ever keeps credentials in its own config file, which lives under
+   * the home folder (see bitbucketEnv).
+   */
+  private async bitbucketToken(id: string, token: string): Promise<string | undefined> {
+    if (!this.bb) return "The Bitbucket CLI (bb) isn't installed on the office's machine";
+    const [username, ...rest] = token.split(/\s+/);
+    if (!BITBUCKET_USER.test(username ?? '')) return "That doesn't look like a Bitbucket username and token — type your username, a space, then the token (ATBB…)";
+    const secret = rest.join('').trim();
+    if (!BITBUCKET_TOKEN.test(secret)) return 'That doesn’t look like an Atlassian API token (ATBB…)';
+    const s = this.load(id);
+    delete s.bitbucket;
+    this.save(id, s);
+    const r = await run(this.bb, ['auth', 'login', '--username', username, '--with-token'], this.bitbucketEnv(id), `${secret}\n`);
+    await this.look(id, true);
+    if (r.code === 0) return undefined;
+    return `Bitbucket didn't take that token: ${r.last || 'bb auth login failed'}`;
   }
 
   /** Uses the office machine's own sign-in (admins only). */
@@ -256,6 +338,7 @@ export class SignIns {
     if (!ACCOUNT_ID.test(id)) return;
     this.stop(id, 'claude');
     this.stop(id, 'github');
+    this.stop(id, 'bitbucket');
     this.live.delete(id);
     const home = path.join(this.homes, id);
     if (!existsSync(home)) return;
@@ -284,6 +367,7 @@ export class SignIns {
     for (const [id] of this.live) {
       this.stop(id, 'claude');
       this.stop(id, 'github');
+      this.stop(id, 'bitbucket');
     }
   }
 
@@ -303,6 +387,7 @@ export class SignIns {
       l = {
         claude: seen.claude ? { status: 'ok', who: seen.claude } : { status: 'none' },
         github: seen.github ? { status: 'ok', who: seen.github } : { status: 'none' },
+        bitbucket: seen.bitbucket ? { status: 'ok', who: seen.bitbucket } : { status: 'none' },
         flows: {},
         lookedAt: 0,
       };
@@ -320,7 +405,7 @@ export class SignIns {
   private prepare(id: string): string {
     const home = this.home(id);
     if (!existsSync(path.join(home, 'gitconfig'))) {
-      for (const d of [this.homes, home, path.join(home, 'claude'), path.join(home, 'gh')]) mkdirSync(d, { recursive: true, mode: 0o700 });
+      for (const d of [this.homes, home, path.join(home, 'claude'), path.join(home, 'gh'), path.join(home, 'bb')]) mkdirSync(d, { recursive: true, mode: 0o700 });
       this.seed(path.join(home, 'claude'));
       this.writeGitConfig(id);
     }
@@ -369,6 +454,31 @@ export class SignIns {
     env.GH_CONFIG_DIR = path.join(home, 'gh');
     env.GIT_CONFIG_GLOBAL = path.join(home, 'gitconfig');
     return env;
+  }
+
+  /**
+   * The environment bb runs in as `id`'s own sign-in.
+   *
+   * bb has no configuration directory variable and no environment credentials: it keeps its
+   * username and token in one file under the home folder (bb/config.json on macOS and Linux,
+   * %APPDATA%\bb\config.json on Windows), and reads nothing but its own file. So the account's
+   * sign-in is kept by pointing bb at a home folder of its own, which is the only lever it leaves.
+   * Only bb's own commands get it, never git, so a worker's pushes still use the office's SSH keys.
+   */
+  private bitbucketEnv(id: string): Record<string, string> {
+    const env = this.base();
+    for (const k of BITBUCKET_VARS) delete env[k];
+    const home = this.bitbucketHome(id);
+    env.HOME = env.USERPROFILE = env.XDG_CONFIG_HOME = home;
+    return env;
+  }
+
+  /** The folder bb keeps an account's sign-in in: a home folder, made on first use. */
+  private bitbucketHome(id: string): string {
+    const dir = path.join(this.prepare(id), 'bb');
+    // The place bb looks on macOS and Linux, and the one it would make for itself anyway.
+    mkdirSync(path.join(dir, '.config', 'bb'), { recursive: true, mode: 0o700 });
+    return dir;
   }
 
   private startClaude(id: string): string | undefined {
@@ -540,6 +650,32 @@ export class SignIns {
     this.remember(id, 'github', how === 'office' ? undefined : l.github.who);
   }
 
+  private async lookBitbucket(id: string) {
+    const l = this.get(id);
+    if (l.flows.bitbucket) return;
+    const s = this.load(id);
+    const how = this.how(id, s, 'bitbucket');
+    if (!this.bb) {
+      l.bitbucket = { status: 'none', error: "The Bitbucket CLI (bb) isn't installed on the office's machine" };
+      return;
+    }
+    const r = await run(this.bb, ['auth', 'status', '--json'], how === 'office' ? this.base() : this.bitbucketEnv(id));
+    if (l.flows.bitbucket) return;
+    let user: { authenticated?: boolean; user?: { username?: string; displayName?: string } } = {};
+    try {
+      user = r.code === 0 ? JSON.parse(r.out) : {};
+    } catch {
+      // not JSON: treated as not signed in
+    }
+    const name = user.user?.username?.trim();
+    if (user.authenticated && name) l.bitbucket = { status: 'ok', who: name };
+    else {
+      const signedOut = /auth login|not (logged in|authenticated)|1001|authenticat|credentials/i.test(r.last || r.out);
+      l.bitbucket = { status: 'none', error: signedOut || !r.last ? undefined : r.last };
+    }
+    this.remember(id, 'bitbucket', how === 'office' ? undefined : l.bitbucket.who);
+  }
+
   /** Keeps who the last look found, for the next start of the office. */
   private remember(id: string, which: SignInKind, who: string | undefined) {
     const s = this.load(id);
@@ -552,10 +688,16 @@ export class SignIns {
   private async logout(id: string, which: SignInKind) {
     if (which === 'claude') {
       if (this.claude) await run(this.claude, ['auth', 'logout'], this.claudeEnv(id));
-    } else {
-      if (this.gh) await run(this.gh, ['auth', 'logout', '--hostname', 'github.com'], this.githubEnv(id));
-      rmSync(path.join(this.home(id), 'gh', 'hosts.yml'), { force: true });
+      return;
     }
+    if (which === 'bitbucket') {
+      if (this.bb) await run(this.bb, ['auth', 'logout'], this.bitbucketEnv(id));
+      // bb's own file, wherever this platform keeps it under the account's home (see bitbucketEnv).
+      rmSync(path.join(this.bitbucketHome(id), '.config', 'bb', 'config.json'), { force: true });
+      return;
+    }
+    if (this.gh) await run(this.gh, ['auth', 'logout', '--hostname', 'github.com'], this.githubEnv(id));
+    rmSync(path.join(this.home(id), 'gh', 'hosts.yml'), { force: true });
   }
 
   /** Claude's own settings in an account's folder: its first-run questions already answered. */

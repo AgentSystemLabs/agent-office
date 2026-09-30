@@ -10,7 +10,7 @@ import type { Config } from './config.js';
 import { Auth, type Session } from './auth.js';
 import { Accounts } from './accounts.js';
 import { MAX_REPOS, childEnv, resolveCommand, type RepoSource } from './workers.js';
-import { SignIns, type GhAs } from './signins.js';
+import { SignIns, type ForgeAs } from './signins.js';
 import { agentProviders, configuredProvider, OPEN_CODE_MODEL_MAX } from './agents.js';
 import { createGrokModelCatalogue, createOpenCodeModelCatalogue } from './models.js';
 import { Tailnet } from './tailnet.js';
@@ -34,7 +34,7 @@ import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunne
 import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState, SignInKind, WorkerInfo } from '../shared/protocol.js';
-import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
+import { FORGE_COMMENT_MAX, FORGE_LABEL, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import { DESK_BY_ID, elevatorSpot, nextFreeSeat, streetBelow } from '../shared/layout.js';
 import { OFFICE_MAP, seatHereOn } from '../shared/maps/index.js';
 import { EMPTY_PLAN } from '../shared/floorplan.js';
@@ -378,7 +378,7 @@ export async function startServer(cfg: Config) {
     const me = floor?.workers.authenticate(workerId, token);
     if (!floor || !me) return send(res, 401, { error: 'Send your own AGENT_OFFICE_WORKER_ID as ?worker= and AGENT_OFFICE_HOOK_TOKEN as the bearer token' });
     const who = me.name;
-    const view: PullsView = { pulls: floor.github.pulls.items, tasks: floor.queue.state().tasks, pullsOf: (id) => floors.get(id)?.github.pulls.items };
+    const view: PullsView = { pulls: floor.forge.pulls.items, tasks: floor.queue.state().tasks, pullsOf: (id) => floors.get(id)?.forge.pulls.items };
     const row = (id: string) => {
       const w = floor.workers.get(id);
       return w && workerRow(w, view, me.id);
@@ -478,9 +478,9 @@ export async function startServer(cfg: Config) {
     if (ask.issue) {
       const n = ask.issue;
       floor.queue.dropIssue(n);
-      const as = owner ? signins.ghAs(owner) : undefined;
-      if (typeof as === 'string') toastFloor(floor, `Couldn't assign issue #${n} on GitHub: ${as}`, 'warn');
-      else void floor.github.claim(n, as).then((e) => e && toastFloor(floor, `Couldn't assign issue #${n} on GitHub: ${e}`, 'warn'));
+      const as = owner ? signins.forgeAs(owner, floor.forge.kind) : undefined;
+      if (typeof as === 'string') toastFloor(floor, `Couldn't assign issue #${n} on ${FORGE_LABEL[floor.forge.kind]}: ${as}`, 'warn');
+      else void floor.forge.claim(n, as).then((e) => e && toastFloor(floor, `Couldn't assign issue #${n} on ${FORGE_LABEL[floor.forge.kind]}: ${e}`, 'warn'));
     }
     send(res, 200, { ok: true, worker: row(r.id) });
   };
@@ -544,12 +544,13 @@ export async function startServer(cfg: Config) {
   );
 
   const claudeBin = configuredProvider(cfg.agentCmd) === 'claude' ? resolveCommand(cfg.agentCmd) : resolveCommand('claude');
-  // Everyone with an account runs on their own Claude and GitHub sign-ins (see signins.ts). On the
-  // shared password, with no accounts, the office's own are used, as they always were.
+  // Everyone with an account runs on their own Claude, GitHub and Bitbucket sign-ins (see
+  // signins.ts). On the shared password, with no accounts, the office's own are used, as they were.
   const signins = new SignIns(
     cfg.dataDir,
     claudeBin,
     resolveCommand('gh'),
+    resolveCommand('bb'),
     childEnv,
     (id) => accounts.get(id)?.role === 'admin',
     (id) => {
@@ -670,7 +671,7 @@ export async function startServer(cfg: Config) {
     lent: (floor) => [...floors.values()].some((f) => f !== floor && worksIn(f, floor)),
     locksUp: () => !!maps.plan().sendHome?.keeps,
     runAs: signins,
-    ghAs: (owner) => (owner ? signins.ghAs(owner) : undefined),
+    forgeAs: (owner, kind) => (owner ? signins.forgeAs(owner, kind) : undefined),
   };
   /** Whether a worker on `from` works in `on`'s project too (see WorkerInfo.repos). */
   const worksIn = (from: Floor, on: Floor) => from.workers.list().some((w) => w.repos?.some((r) => r.floor === on.id));
@@ -744,8 +745,8 @@ export async function startServer(cfg: Config) {
     floor: floor?.id ?? null,
     project: floor?.project ?? null,
     workers: floor?.workers.list() ?? [],
-    issues: floor?.github.issues ?? { items: [], fetchedAt: 0, loading: false },
-    pulls: floor?.github.pulls ?? { items: [], fetchedAt: 0, loading: false },
+    issues: floor?.forge.issues.state ?? { items: [], fetchedAt: 0, loading: false },
+    pulls: floor?.forge.pulls.state ?? { items: [], fetchedAt: 0, loading: false },
     queue: floor?.queue.state() ?? { tasks: [], maxWorkers: 0 },
     decor: floor?.decor.list() ?? [],
     plan: floor?.plan.state() ?? EMPTY_PLAN,
@@ -1056,21 +1057,22 @@ export async function startServer(cfg: Config) {
         return send(res, 404, { error: 'Not found' });
       }
       if (p === '/api/search' && req.method === 'GET') return send(res, 200, search(url.searchParams.get('q') ?? '', floor));
+      // The boards' own API: what the issue and PR windows show beyond the board cards, read from
+      // whichever forge the floor is on (see forge.ts). Kept at /api/gh/ since it predates Bitbucket.
       if (p.startsWith('/api/gh/') && req.method === 'GET') {
-        // What the issue and PR windows show beyond the board cards (see github.ts).
         const n = Number(url.searchParams.get('number'));
         // The repo's labels (for the label picker) are the one thing not about a single issue or PR.
         if (p !== '/api/gh/labels' && (!Number.isSafeInteger(n) || n <= 0)) return send(res, 400, { error: 'Bad number' });
         if (!floor) return send(res, 404, { error: 'No such floor' });
-        const github = floor.github;
+        const forge = floor.forge;
         try {
-          // "You" on comments is your own GitHub login once you've signed in to it.
-          const me = session.account ? signins.githubLogin(session.account.id) : undefined;
-          if (p === '/api/gh/pull') return send(res, 200, await github.pullDetail(n, me));
-          if (p === '/api/gh/issue') return send(res, 200, await github.issueDetail(n, me));
-          if (p === '/api/gh/labels') return send(res, 200, await github.repoLabels());
+          // "You" on comments is your own login on that forge, once you've signed in to it.
+          const me = session.account ? signins.forgeLogin(session.account.id, forge.kind) : undefined;
+          if (p === '/api/gh/pull') return send(res, 200, await forge.pullDetail(n, me));
+          if (p === '/api/gh/issue') return send(res, 200, await forge.issueDetail(n, me));
+          if (p === '/api/gh/labels') return send(res, 200, await forge.repoLabels());
           if (p === '/api/gh/pull/diff') {
-            const diff = await github.pullDiff(n);
+            const diff = await forge.pullDiff(n);
             res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
             res.end(diff);
             return;
@@ -1401,9 +1403,9 @@ export async function startServer(cfg: Config) {
    */
   const takeIssue = (c: Client, floor: Floor, n: number) => {
     floor.queue.dropIssue(n);
-    const as = c.accountId ? signins.ghAs(c.accountId) : undefined;
-    if (typeof as === 'string') return warn(c, `Couldn't assign issue #${n} on GitHub: ${as}`);
-    void floor.github.claim(n, as).then((err) => warn(c, err && `Couldn't assign issue #${n} on GitHub: ${err}`));
+    const as = c.accountId ? signins.forgeAs(c.accountId, floor.forge.kind) : undefined;
+    if (typeof as === 'string') return warn(c, `Couldn't assign issue #${n} on ${FORGE_LABEL[floor.forge.kind]}: ${as}`);
+    void floor.forge.claim(n, as).then((err) => warn(c, err && `Couldn't assign issue #${n} on ${FORGE_LABEL[floor.forge.kind]}: ${err}`));
   };
 
   /**
@@ -1413,7 +1415,7 @@ export async function startServer(cfg: Config) {
    */
   const withSignIn = (c: Client, which: SignInKind | undefined, go: () => void, refused?: (why: string) => void) => {
     const id = c.accountId;
-    const ready = (a: string) => (which === 'claude' ? signins.claudeReady(a) : signins.githubReady(a));
+    const ready = (a: string) => (which ? signins.ready(a, which) : true);
     if (!which || !id || ready(id)) return go();
     void signins.look(id, true).then(() => {
       if (c.out || c.ws.readyState !== WebSocket.OPEN) return;
@@ -1438,13 +1440,17 @@ export async function startServer(cfg: Config) {
       go();
     });
   };
-  /** Runs `go` with how the office acts on GitHub for `c`: as them, or as itself (no account, or an admin's choice). */
-  const withGitHub = (c: Client, go: (as: GhAs | undefined) => void, refused?: (why: string) => void) =>
+  /**
+   * Runs `go` with how the office acts on `floor`'s forge for `c`: as them, or as itself (no
+   * account, or an admin's choice). Someone signed in to GitHub but standing on a Bitbucket floor is
+   * asked for their Bitbucket sign-in, which is the one that floor acts with.
+   */
+  const withForge = (c: Client, floor: Floor, go: (as: ForgeAs | undefined) => void, refused?: (why: string) => void) =>
     withSignIn(
       c,
-      'github',
+      floor.forge.kind,
       () => {
-        const as = c.accountId ? signins.ghAs(c.accountId) : undefined;
+        const as = c.accountId ? signins.forgeAs(c.accountId, floor.forge.kind) : undefined;
         if (typeof as !== 'string') return go(as);
         if (refused) refused(as);
         else warn(c, as);
@@ -1821,7 +1827,7 @@ export async function startServer(cfg: Config) {
         const w = worker(msg.workerId);
         if (!w) break;
         const { floor, wid } = w;
-        withGitHub(c, (as) => void floor.workers.openPr(wid, who, as).then((r) => {
+        withForge(c, floor, (as) => void floor.workers.openPr(wid, who, as).then((r) => {
           if (typeof r === 'string') return warn(c, r);
           const info = floor.workers.get(wid);
           const name = info?.name ?? 'the worker';
@@ -1838,10 +1844,10 @@ export async function startServer(cfg: Config) {
           // Put it on the board now rather than at the next poll. A refresh already in flight
           // returns at once and can miss it, so look again shortly after.
           const own = r.prs.find((p) => !p.repo || p.repo === info?.worktree?.path.split(/[\\/]/).pop());
-          void floor.github.refresh().then(() => {
-            if (own && !floor.github.pulls.items.some((p) => p.number === own.number)) setTimeout(() => void floor.github.refresh(), 3000);
+          void floor.forge.refresh().then(() => {
+            if (own && !floor.forge.pulls.items.some((p) => p.number === own.number)) setTimeout(() => void floor.forge.refresh(), 3000);
           });
-          for (const x of info?.repos ?? []) void floors.get(x.floor)?.github.refresh();
+          for (const x of info?.repos ?? []) void floors.get(x.floor)?.forge.refresh();
         }));
         break;
       }
@@ -1875,21 +1881,22 @@ export async function startServer(cfg: Config) {
         if (c.attached.has(msg.workerId)) workerFloor(msg.workerId)?.workers.resize(msg.workerId, num(msg.cols), num(msg.rows));
         break;
       case 'gh.refresh':
-        void floorOf(c)?.github.refresh();
+        void floorOf(c)?.forge.refresh();
         break;
       case 'gh.merge': {
         const floor = here();
         const n = num(msg.number);
         const method = (['squash', 'merge', 'rebase'] as const).find((m) => m === msg.method);
         if (!floor || !Number.isSafeInteger(n) || n <= 0 || !method) break;
-        withGitHub(
+        withForge(
           c,
+          floor,
           (as) =>
-            void floor.github.merge(n, method, msg.deleteBranch === true, msg.auto === true, as).then((error) => {
+            void floor.forge.merge(n, method, msg.deleteBranch === true, msg.auto === true, as).then((error) => {
               sendTo(c, { t: 'gh.merged', number: n, error });
               if (error) return;
               toastFloor(floor, msg.auto ? `${who} set PR #${n} to merge once its checks pass` : `🎉 ${who} merged PR #${n}`);
-              // An auto-merge rings once GitHub gets round to it and the boards see it merged.
+              // An auto-merge rings once the forge gets round to it and the boards see it merged.
               if (!msg.auto) floor.merged(n, who);
             }),
           (error) => sendTo(c, { t: 'gh.merged', number: n, error }),
@@ -1903,15 +1910,17 @@ export async function startServer(cfg: Config) {
         if (!floor || !Number.isSafeInteger(n) || n <= 0) break;
         const body = typeof msg.body === 'string' ? msg.body : '';
         // Refused rather than cut short: a comment that silently lost its end would read as finished.
-        const invalid = !body.trim() ? 'The comment is empty' : body.length > GH_COMMENT_MAX ? `GitHub takes comments of up to ${GH_COMMENT_MAX} characters` : '';
+        const max = FORGE_COMMENT_MAX[floor.forge.kind];
+        const invalid = !body.trim() ? 'The comment is empty' : body.length > max ? `${FORGE_LABEL[floor.forge.kind]} takes comments of up to ${max} characters` : '';
         if (invalid) {
           sendTo(c, { t: 'gh.commented', kind, number: n, error: invalid });
           break;
         }
-        withGitHub(
+        withForge(
           c,
+          floor,
           (as) =>
-            void floor.github.comment(kind, n, body, as).then((r) => {
+            void floor.forge.comment(kind, n, body, as).then((r) => {
               sendTo(c, { t: 'gh.commented', kind, number: n, ...r });
               if (r.comment) toastFloor(floor, `💬 ${who} commented on ${kind === 'pull' ? 'PR' : 'issue'} #${n}`);
             }),
@@ -1940,10 +1949,11 @@ export async function startServer(cfg: Config) {
         const kind = msg.kind === 'issue' || msg.kind === 'pull' ? msg.kind : undefined;
         if (!floor || !Number.isSafeInteger(n) || n <= 0 || !kind) break;
         const reason = msg.reason === 'not planned' ? 'not planned' : 'completed';
-        withGitHub(
+        withForge(
           c,
+          floor,
           (as) =>
-            void floor.github.close(kind, n, { comment: str(msg.comment, 20000).trim() || undefined, reason, deleteBranch: msg.deleteBranch === true }, as).then((error) => {
+            void floor.forge.close(kind, n, { comment: str(msg.comment, 20000).trim() || undefined, reason, deleteBranch: msg.deleteBranch === true }, as).then((error) => {
               sendTo(c, { t: 'gh.closed', kind, number: n, error });
               if (error) return;
               if (kind === 'pull') return toastFloor(floor, `${who} closed PR #${n} without merging`);
@@ -1967,10 +1977,11 @@ export async function startServer(cfg: Config) {
           sendTo(c, { t: 'gh.labeled', kind, number: n, error: 'No labels to change' });
           break;
         }
-        withGitHub(
+        withForge(
           c,
+          floor,
           (as) =>
-            void floor.github.setLabels(kind, n, add, remove, as).then((r) => {
+            void floor.forge.setLabels(kind, n, add, remove, as).then((r) => {
               sendTo(c, { t: 'gh.labeled', kind, number: n, ...r });
               if (r.labels) toastFloor(floor, `🏷️ ${who} labeled ${kind === 'pull' ? 'PR' : 'issue'} #${n}: ${[...add.map((l) => `+${l}`), ...remove.map((l) => `−${l}`)].join(' ')}`);
             }),
@@ -2163,8 +2174,8 @@ export async function startServer(cfg: Config) {
       }
       case 'changes.commit': {
         const w = worker(msg.workerId);
-        // Committed as whoever pressed it: their GitHub name and email, once they've signed in to it.
-        const env = c.accountId ? signins.apply(c.accountId, childEnv(), [], 'github') : undefined;
+        // Committed as whoever pressed it: their name and email, once they've signed in to that forge.
+        const env = c.accountId ? signins.apply(c.accountId, childEnv(), [], w?.floor.forge.kind) : undefined;
         if (w) void w.floor.changes.commit(w.wid, str(msg.message, 5000), who, env, repoOf(msg.repo)).then((err) => warn(c, err));
         break;
       }
@@ -2175,7 +2186,7 @@ export async function startServer(cfg: Config) {
       }
       case 'changes.pr': {
         const w = worker(msg.workerId);
-        if (w) withGitHub(c, (as) => void w.floor.changes.pullRequest(w.wid, str(msg.title, 300), str(msg.body, 20000), who, as?.env, repoOf(msg.repo)).then((err) => warn(c, err)));
+        if (w) withForge(c, w.floor, (as) => void w.floor.changes.pullRequest(w.wid, str(msg.title, 300), str(msg.body, 20000), who, as?.env, repoOf(msg.repo)).then((err) => warn(c, err)));
         break;
       }
       case 'upgrade.check':

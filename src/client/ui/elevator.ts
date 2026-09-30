@@ -1,4 +1,5 @@
-import type { FloorInfo, RepoChoice, ServerMsg } from '../../shared/protocol';
+import type { FloorInfo, ForgeKind, RepoChoice, ServerMsg } from '../../shared/protocol';
+import { FORGE_LABEL } from '../../shared/protocol';
 import { floorPalette, normalizeRepo, sameRepo } from '../../shared/floors';
 import { ROOF, ROOF_NAME } from '../../shared/rooftop';
 import type { Net } from '../net';
@@ -7,7 +8,8 @@ import { h, openModal, timeAgo, type Modal } from './dom';
 import { confirmDialog } from './prompt';
 
 // The elevator's panel: a button for every floor (every project), and "add a project", which clones
-// one of the repositories the office's gh login can see and makes it a new floor. The first time
+// one of the repositories the office's GitHub and Bitbucket sign-ins can see, and makes it a new
+// floor. The first time
 // the office runs there are no floors, and this is where you start. Admins can take a floor off the
 // building here too; its checkout stays on disk. Under the floors, it goes down to the garage.
 
@@ -27,7 +29,7 @@ export interface ElevatorOptions {
 
 /** How many repositories the list shows at once; typing narrows it down. */
 const SHOWN = 60;
-/** Ask gh for the repositories again after this long. */
+/** Ask the office's forge sign-ins for the repositories again after this long. */
 const REPOS_STALE_MS = 5 * 60_000;
 
 const addedWaiters = new Set<(msg: Extract<ServerMsg, { t: 'floor.added' }>) => void>();
@@ -99,6 +101,9 @@ export function openElevator(opts: ElevatorOptions): void {
 
   /** What "Add floor" would add: the row picked, else what's typed if it's owner/name. */
   const choice = (): string | undefined => selected ?? normalizeRepo(filter);
+
+  /** Which forge the picked repository is on (a name typed in by hand could be either). */
+  const choiceForge = (): ForgeKind | undefined => (selected ? store.repos.list.find((r) => r.name === selected)?.forge : undefined);
 
   const floorButton = (f: FloorInfo, i: number) => {
     // Down in the garage, your floor is somewhere to go back up to.
@@ -201,7 +206,7 @@ export function openElevator(opts: ElevatorOptions): void {
     const row = h(
       'div.repo',
       { role: 'option', class: selected && sameRepo(selected, r.name) ? 'sel' : '', 'aria-selected': String(!!selected && sameRepo(selected, r.name)), title: r.description ?? r.name },
-      h('span.nm', {}, r.name),
+      h('span.nm', {}, r.name, r.forge ? h('span.forge', { title: `On ${FORGE_LABEL[r.forge]}` }, r.forge === 'bitbucket' ? '🧱' : '🐙') : null),
       r.private ? h('span', { title: 'Private' }, '🔒') : null,
       h('span.desc', {}, r.description ?? ''),
       floor ? h('span.pill', {}, floor.id === store.floor ? 'you are here' : `floor ${store.floors.indexOf(floor) + 1}`) : r.pushedAt ? h('span.when', {}, timeAgo(r.pushedAt)) : null,
@@ -220,7 +225,7 @@ export function openElevator(opts: ElevatorOptions): void {
       renderAdd();
     });
     row.addEventListener('dblclick', () => {
-      if (!floor) add(r.name);
+      if (!floor) add(r.name, r.forge);
     });
     return row;
   };
@@ -247,7 +252,7 @@ export function openElevator(opts: ElevatorOptions): void {
     // owner/name that isn't in the list (someone else's public repository): offer it anyway.
     if (typed && !r.list.some((x) => sameRepo(x.name, typed))) rows.push(repoRow({ name: typed, private: false, description: 'Not in your list — the office will try to clone it' }));
     rows.push(...matches.slice(0, SHOWN).map(repoRow));
-    if (!rows.length) rows.push(h('p.empty', { style: 'padding:10px' }, r.loading ? 'Asking GitHub for your repositories…' : r.error ? '' : q ? 'Nothing matches. Type owner/name to clone any repository.' : 'No repositories.'));
+    if (!rows.length) rows.push(h('p.empty', { style: 'padding:10px' }, r.loading ? 'Asking GitHub and Bitbucket for your repositories…' : r.error ? '' : q ? 'Nothing matches. Type owner/name to clone any repository.' : 'No repositories.'));
     if (matches.length > SHOWN) rows.push(h('p.empty', { style: 'padding:8px 10px' }, `…and ${matches.length - SHOWN} more — type to narrow it down`));
     listEl.replaceChildren(...rows);
     const pick = choice();
@@ -257,7 +262,7 @@ export function openElevator(opts: ElevatorOptions): void {
     statusEl.replaceChildren(
       adding
         ? h('p.note.busy', {}, `⏳ Cloning ${adding} into ${store.projectsDir.dir}/${adding}… A big repository can take a minute.`)
-        : h('p.note', {}, `Cloned into ${dest} with this machine's gh login. Everything on the new floor works in that checkout.`, change),
+        : h('p.note', {}, `Cloned into ${dest} with this machine's GitHub and Bitbucket sign-ins. Everything on the new floor works in that checkout.`, change),
       ...[r.error, error].filter(Boolean).map((e) => h('p.err', {}, e)),
     );
     addBtn.disabled = !!adding || !pick || store.floors.some((f) => sameRepo(f.repo, pick));
@@ -275,12 +280,12 @@ export function openElevator(opts: ElevatorOptions): void {
     }
   };
 
-  const add = (repo: string) => {
+  const add = (repo: string, forge?: ForgeKind) => {
     if (adding) return;
     adding = repo;
     error = '';
     renderAdd();
-    net.send({ t: 'floor.add', repo });
+    net.send({ t: 'floor.add', repo, forge });
   };
 
   const onAdded = (msg: Extract<ServerMsg, { t: 'floor.added' }>) => {
@@ -308,11 +313,11 @@ export function openElevator(opts: ElevatorOptions): void {
     const q = filter.trim().toLowerCase();
     const matches = store.repos.list.filter((x) => !store.floors.some((f) => sameRepo(f.repo, x.name)) && (x.name.toLowerCase().includes(q) || (x.description ?? '').toLowerCase().includes(q)));
     const pick = choice() ?? (q && matches.length === 1 ? matches[0].name : undefined);
-    if (pick) add(pick);
+    if (pick) add(pick, choiceForge());
   });
   addBtn.addEventListener('click', () => {
     const pick = choice();
-    if (pick) add(pick);
+    if (pick) add(pick, choiceForge());
   });
   refreshBtn.addEventListener('click', () => {
     store.repos = { ...store.repos, loading: true, error: undefined };

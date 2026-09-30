@@ -1121,6 +1121,8 @@ a.when:hover { text-decoration: underline; }
 .elevator .repo:hover { background: var(--paper-2); }
 .elevator .repo.sel { background: #ffe3d6; }
 .elevator .repo .nm { font-weight: 800; white-space: nowrap; }
+/** Which forge a repository is on, so a Bitbucket project is told apart from a GitHub one with the same name. */
+.elevator .repo .nm .forge { margin-left: 5px; font-size: 12px; }
 .elevator .repo .desc { flex: 1; min-width: 0; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .elevator .repo .when { font-size: 11px; color: var(--muted); white-space: nowrap; }
 .elevator .note { margin: 8px 0 0; font-size: 12px; font-weight: 700; color: var(--muted); overflow-wrap: anywhere; }

@@ -76,12 +76,13 @@ Usage:
   agent-office accounts [list|invite|revoke|role|password] ...
 
 Runs the office. Every project is a floor of the building: ride the elevator,
-pick one of the repositories your \`gh\` login can see, and the office clones it
-into the projects folder as a new floor. Workers, terminals, boards and the
-task queue on a floor all belong to that floor's checkout.
+pick one of the repositories your GitHub or Bitbucket login can see, and the
+office clones it into the projects folder as a new floor. Workers, terminals,
+boards and the task queue on a floor all belong to that floor's checkout.
 
-The first time it starts in a terminal with no floors, it walks you through
-where projects are cloned, signing the GitHub CLI in, and your first project.
+The first time it starts in a terminal with no floors, it walks you through where
+projects are cloned, signing the GitHub and Bitbucket CLIs in, and your first
+project.
 
 Started from anywhere, the office keeps its data in --home. Given a [dir] (or
 started in a project where an office already ran), it keeps its data in

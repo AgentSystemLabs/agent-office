@@ -330,7 +330,23 @@ export const FLAG_BOLD = 1;
 export const FLAG_INVERSE = 2;
 export const FLAG_DIM = 4;
 
-/** A GitHub label; `color` is a CSS color ("#d73a4a"). */
+/**
+ * Where a floor's code is hosted. The office talks to whichever one a checkout's remote points at,
+ * through that forge's own CLI: GitHub's `gh` or the Bitbucket CLI's `bb` (see server/forge.ts).
+ *
+ * The `Gh*` types and the `gh.*` messages below are the shape both forges are read into, so they are
+ * about "the forge a floor is on" rather than about GitHub in particular; a PR's `state` is OPEN,
+ * MERGED or CLOSED however the forge words it.
+ */
+export type ForgeKind = 'github' | 'bitbucket';
+
+/** What a forge is called, in the office. */
+export const FORGE_LABEL: Record<ForgeKind, string> = { github: 'GitHub', bitbucket: 'Bitbucket' };
+
+/** The CLI that talks to a forge, as the office runs it. */
+export const FORGE_CLI: Record<ForgeKind, string> = { github: 'gh', bitbucket: 'bb' };
+
+/** A label on an issue or PR, as the forge's own (`GhLabel` predates the Bitbucket CLI). */
 export interface GhLabel {
   name: string;
   color: string;
@@ -590,6 +606,8 @@ export interface GhState<T> {
   error?: string;
   fetchedAt: number;
   loading: boolean;
+  /** Which forge this list came from, once the office has looked. */
+  forge?: ForgeKind;
 }
 
 export type GhMergeMethod = 'squash' | 'merge' | 'rebase';
@@ -601,6 +619,7 @@ export type GhCloseReason = 'completed' | 'not planned';
 export interface GhRepoInfo {
   nameWithOwner: string;
   methods: GhMergeMethod[];
+  forge: ForgeKind;
 }
 
 /** A comment on an issue or on a PR's conversation, or a submitted review. */
@@ -655,7 +674,9 @@ export interface GhPullDetail {
   reviewComments: GhReviewComment[];
   checks: GhCheck[];
   repo: GhRepoInfo;
-  /** Who gh is signed in as on the server, and so who comments from the office appear from ('' if unknown). */
+  /** Which forge this pull request is on, so the window says so and hides what it can't do. */
+  forge: ForgeKind;
+  /** Who the forge's CLI is signed in as on the server, and so who comments from the office appear from ('' if unknown). */
   viewer: string;
 }
 
@@ -666,12 +687,14 @@ export interface GhIssueDetail {
   state: string;
   body: string;
   comments: GhComment[];
+  /** See GhPullDetail.forge. */
+  forge: ForgeKind;
   /** See GhPullDetail.viewer. */
   viewer: string;
 }
 
-/** GitHub turns away comments longer than this. */
-export const GH_COMMENT_MAX = 65536;
+/** How long a comment may be before the forge turns it away (GitHub 65536, Bitbucket 32768). */
+export const FORGE_COMMENT_MAX: Record<ForgeKind, number> = { github: 65536, bitbucket: 32768 };
 /** Longer than any label name: GitHub stops at 50 characters, and JS counts an emoji as two. */
 export const GH_LABEL_MAX = 100;
 
@@ -730,7 +753,7 @@ export interface ProjectsDirState {
   at?: number;
 }
 
-/** A repository the office's `gh` login can clone, for the elevator's "add a project". */
+/** A repository one of the office's forge sign-ins can clone, for the elevator's "add a project". */
 export interface RepoChoice {
   /** owner/name */
   name: string;
@@ -738,6 +761,8 @@ export interface RepoChoice {
   private: boolean;
   /** ISO time of the last push. */
   pushedAt?: string;
+  /** Which forge it came from, and so which CLI clones it. GitHub when it isn't said. */
+  forge?: ForgeKind;
 }
 
 /** Everything that belongs to the floor you're on: sent when you walk in, and when you change floors. */
@@ -802,8 +827,8 @@ export interface Me {
   admin: boolean;
 }
 
-/** What someone signs in to for their own workers: Claude Code, and the GitHub CLI. */
-export type SignInKind = 'claude' | 'github';
+/** What someone signs in to for their own workers: Claude Code, and a forge's CLI. */
+export type SignInKind = 'claude' | 'github' | 'bitbucket';
 
 /** One of your sign-ins, as the office sees it (see server/signins.ts). */
 export interface SignInState {
@@ -811,7 +836,7 @@ export interface SignInState {
   status: 'ok' | 'none' | 'busy';
   /** Its own login in your folder on the office's machine, a pasted token, or the machine's own (admins). */
   how: 'login' | 'token' | 'office';
-  /** Who it signs in as: an email and plan for Claude, @login for GitHub. */
+  /** Who it signs in as: an email and plan for Claude, @login for GitHub, a username for Bitbucket. */
   who?: string;
   /** A sign-in under way: the page to open, GitHub's one-time code to type there, and whether Claude's code was sent back. */
   pending?: { url?: string; code?: string; sent?: boolean };
@@ -819,12 +844,13 @@ export interface SignInState {
 }
 
 /**
- * Your own Claude and GitHub sign-ins, which your workers run with and the office acts on GitHub
+ * Your own Claude and forge sign-ins, which your workers run with and the office acts on the forge
  * with for you. Only accounts have them: on the shared password, the office's own are used.
  */
 export interface SignInsState {
   claude: SignInState;
   github: SignInState;
+  bitbucket: SignInState;
   /** You may use the office machine's own sign-ins instead of yours (admins). */
   office: boolean;
 }
@@ -1267,7 +1293,7 @@ export type ClientMsg =
   /** The repositories that could become a floor; answered with `floor.repos`. */
   | { t: 'floor.repos'; refresh?: boolean }
   /** Clone a repository and make it a new floor; answered with `floor.added` once it's there. */
-  | { t: 'floor.add'; repo: string }
+  | { t: 'floor.add'; repo: string; forge?: ForgeKind }
   /** Take a floor off the building (admins only). Its checkout stays on disk; everyone on it rides to another floor. */
   | { t: 'floor.remove'; floor: string }
   /** Dress the building up for a holiday, take the decorations down ('off'), or follow the calendar ('auto'). */
