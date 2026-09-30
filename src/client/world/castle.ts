@@ -6,6 +6,7 @@ import type { PropKind } from '../../shared/maps/props';
 import { PROP_SIZE, boxFootprint } from '../../shared/maps/props';
 import { NavGrid, deskPoint, type Pt } from '../../shared/nav';
 import { Person } from './character';
+import { buildDungeon, holedPlane, type DungeonView } from './dungeon';
 import { glowTexture } from './costumes';
 import { buildGong, type Gong } from './gong';
 import { vacancyMarker, type Collider, type DeskView, type Interactable } from './office';
@@ -950,11 +951,28 @@ function buildShell(kit: Kit, plan: MapPlan, pal: Mats & { floorColor: string; s
   const W = b.maxX - b.minX;
   const L = b.maxZ - b.minZ;
   const { group, still, mats } = kit;
-  const floor = mesh(new THREE.PlaneGeometry(W, L), toonMap(canvasTexture(512, 512, flagstones(pal.floorColor), [W / 4, L / 4])), 0, 0, 0, false);
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.set((b.minX + b.maxX) / 2, 0, (b.minZ + b.maxZ) / 2);
-  group.add(floor);
-  kit.colliders.push({ minX: b.minX - 1, maxX: b.maxX + 1, minZ: b.minZ - 1, maxZ: b.maxZ + 1, top: 0 });
+  const hole = plan.dungeon?.opening;
+  if (hole) {
+    // A hole in the floor over the dungeon stairs, and the floor round it is the dungeon's ceiling.
+    const tex = canvasTexture(512, 512, flagstones(pal.floorColor), [0.25, 0.25]);
+    group.add(holedPlane([b.minX, b.maxX, b.minZ, b.maxZ], hole, 0, toonMap(tex)));
+    const [h0, h1, k0, k1] = hole;
+    const bottom = plan.dungeon!.ceiling;
+    for (const [x0, x1, z0, z1] of [
+      [b.minX - 1, h0, b.minZ - 1, b.maxZ + 1],
+      [h1, b.maxX + 1, b.minZ - 1, b.maxZ + 1],
+      [h0, h1, b.minZ - 1, k0],
+      [h0, h1, k1, b.maxZ + 1],
+    ]) {
+      kit.colliders.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, top: 0, bottom });
+    }
+  } else {
+    const floor = mesh(new THREE.PlaneGeometry(W, L), toonMap(canvasTexture(512, 512, flagstones(pal.floorColor), [W / 4, L / 4])), 0, 0, 0, false);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set((b.minX + b.maxX) / 2, 0, (b.minZ + b.maxZ) / 2);
+    group.add(floor);
+    kit.colliders.push({ minX: b.minX - 1, maxX: b.maxX + 1, minZ: b.minZ - 1, maxZ: b.maxZ + 1, top: 0 });
+  }
 
   // Which wall the doors are in: the one nearest the door.
   const door = plan.door;
@@ -1016,9 +1034,9 @@ function buildShell(kit: Kit, plan: MapPlan, pal: Mats & { floorColor: string; s
   const lz = doorWall === 'north' ? b.minZ - 3 : doorWall === 'south' ? b.maxZ + 3 : door.z;
   group.add(mesh(box(Math.abs(out[0]) ? 6 : 7, 0.2, Math.abs(out[0]) ? 7 : 6), mats.stoneDark, lx, -0.1, lz));
   kit.colliders.push({ minX: lx - 3.5, maxX: lx + 3.5, minZ: lz - 3.5, maxZ: lz + 3.5, top: 0 });
-  const grass = mesh(new THREE.PlaneGeometry(240, 240), toon('#5d7a3a'), (b.minX + b.maxX) / 2, -0.25, (b.minZ + b.maxZ) / 2, false);
-  grass.rotation.x = -Math.PI / 2;
-  group.add(grass);
+  // Round the hall, not under it, where it'd show through the hole down to the dungeon.
+  const [cx, cz] = [(b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2];
+  group.add(holedPlane([cx - 120, cx + 120, cz - 120, cz + 120], hole ? [b.minX - T, b.maxX + T, b.minZ - T, b.maxZ + T] : null, -0.25, toon('#5d7a3a')));
 
   // The great doors, swinging in when someone comes up to them.
   const leaves: THREE.Group[] = [];
@@ -1332,6 +1350,58 @@ function buildHerald(kit: Kit, plan: MapPlan): World['herald'] {
   return { person, interactable };
 }
 
+/**
+ * One of the Kingsguard (the map's escort, see MapPlan.sendHome): a kettle helm, a surcoat in `color`
+ * over mail, and a halberd in the left hand, so the right's free to take a worker by the shoulder.
+ */
+function guard(mats: Mats, name: string, color: string): Person {
+  const person = new Person(name, color, { skin: 3, hair: 1, style: 6 });
+  person.setLabel(name, null);
+  const helm = new THREE.Group();
+  helm.add(mesh(new THREE.SphereGeometry(0.37, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), mats.steel, 0, 0.04, 0));
+  const brim = mesh(new THREE.CylinderGeometry(0.5, 0.52, 0.04, 20), mats.steel, 0, 0.06, 0);
+  helm.add(brim);
+  helm.add(mesh(new THREE.SphereGeometry(0.05, 8, 6), mats.steel, 0, 0.41, 0, false));
+  person.wear(helm, 'head');
+  const surcoat = mesh(
+    new THREE.LatheGeometry(
+      [
+        [0.33, 0.36],
+        [0.3, 0.7],
+        [0.28, 1.0],
+      ].map(([r, y]) => new THREE.Vector2(r, y)),
+      18,
+    ),
+    toon(color),
+  );
+  person.wear(surcoat, 'body');
+  person.wear(mesh(new THREE.TorusGeometry(0.29, 0.05, 6, 18).rotateX(Math.PI / 2), mats.gold, 0, 0.66, 0, false), 'body');
+  // The realm's crown on the chest.
+  person.wear(mesh(box(0.14, 0.1, 0.03), mats.gold, 0, 0.84, 0.29, false), 'body');
+  const halberd = new THREE.Group();
+  halberd.add(mesh(new THREE.CylinderGeometry(0.025, 0.025, 2.1, 6), mats.woodDark, 0, 0.35, 0));
+  halberd.add(mesh(new THREE.ConeGeometry(0.035, 0.28, 6), mats.steel, 0, 1.54, 0));
+  const blade = mesh(box(0.03, 0.26, 0.22), mats.steel, 0, 1.22, 0.12);
+  halberd.add(blade);
+  halberd.add(mesh(box(0.025, 0.08, 0.1), mats.steel, 0, 1.22, -0.08, false));
+  halberd.position.set(0, -0.38, 0.02);
+  halberd.rotation.x = 0.08;
+  person.wear(halberd, 'offhand');
+  return person;
+}
+
+/** The map's escort (MapPlan.sendHome), on watch at its post, and how to call out another when it's busy. */
+function buildEscort(kit: Kit, plan: MapPlan): World['escort'] {
+  const e = plan.sendHome?.escort;
+  if (!e) return undefined;
+  const make = () => guard(kit.mats, e.name, e.color);
+  const person = make();
+  person.root.position.set(e.post.x, e.post.y, e.post.z);
+  person.root.rotation.y = e.post.rotY;
+  kit.group.add(person.root);
+  return { post: e.post, guard: person, make };
+}
+
 /** Puts up the hall in `plan` (a castle-style map). */
 export function buildCastle(plan: MapPlan): World {
   const c = plan.config!;
@@ -1381,7 +1451,39 @@ export function buildCastle(plan: MapPlan): World {
   const council = buildCouncil(kit, plan);
   const boardMeshes = buildBoards(kit, plan);
   const herald = buildHerald(kit, plan);
+  // The dungeon under the floor, the torches down there, and whoever keeps watch over it.
+  const walls = new Map<string, THREE.Material>();
+  const cellar = canvasTexture(512, 256, ashlar(shade(pal.stone, -0.16), 11));
+  const flags = toonMap(canvasTexture(512, 512, flagstones(shade(pal.floor, -0.2)), [0.25, 0.25]));
+  const dungeon: DungeonView | undefined = plan.dungeon
+    ? buildDungeon(
+        {
+          group,
+          still: kit.still,
+          colliders: kit.colliders,
+          mats: kit.mats,
+          wall(along, high) {
+            const k = `${along.toFixed(1)}x${high.toFixed(1)}`;
+            let m = walls.get(k);
+            if (!m) {
+              const t = cellar.clone();
+              t.repeat.set(Math.max(0.25, along / 4), high / 2);
+              t.needsUpdate = true;
+              walls.set(k, (m = toonMap(t)));
+            }
+            return m;
+          },
+          flags: () => flags,
+        },
+        plan.dungeon,
+      )
+    : undefined;
+  for (const t of plan.dungeon?.torches ?? []) torch(kit, { kind: 'torch', x: t.x, z: t.z, y: plan.dungeon!.floor + 2.3, rotY: t.rotY });
+  const escort = buildEscort(kit, plan);
   group.add(mergeByMaterial(kit.still));
+  // The hall's fires, which light the dungeon's torches instead while you're down there (see mood).
+  const hearths = kit.lights.map((l) => l.light.position.clone());
+  let lampsDown = false;
 
   // Walking about: in through the doors and out again, round what's in the way.
   const nav = new NavGrid(b, plan.obstacles!);
@@ -1395,6 +1497,7 @@ export function buildCastle(plan: MapPlan): World {
   const warmSky = new THREE.Color('#ffe2bc');
   const warmGround = new THREE.Color('#4a3322');
   const haze = new THREE.Color('#2a1e16');
+  const dank = new THREE.Color('#0c0907');
   const glassDay = new THREE.Color('#ffffff');
   const glassNight = new THREE.Color('#5a4a6a');
 
@@ -1428,7 +1531,9 @@ export function buildCastle(plan: MapPlan): World {
     },
     rain: [{ area: b, top: () => Math.min(H - 1, 9) }],
     device: 'tome',
-    room: { wall: WALL, enclosed: true },
+    room: { wall: WALL, enclosed: true, ...(plan.dungeon ? { vault: { ...plan.dungeon.bounds, top: plan.dungeon.ceiling } } : {}) },
+    dungeon,
+    escort,
     acoustics: {
       gong: gongAt ? { x: gongAt.x, y: gongAt.y - 1.8, z: gongAt.z } : null,
       windows: props.filter((p) => p.kind === 'window').map((p) => ({ x: p.x, y: (p.y ?? 6) + (p.height ?? 5) / 2, z: p.z })),
@@ -1476,7 +1581,38 @@ export function buildCastle(plan: MapPlan): World {
       kit.gong?.update(dt);
       herald?.person.update(dt, t, false, false);
     },
-    mood(lights, daylight) {
+    mood(lights, daylight, _t, eye) {
+      // Down in the dungeon: dark, but for the torches, which the hall's fires are lent to.
+      const d = plan.dungeon;
+      const below = !!d && !!eye && eye.y < d.ceiling - 0.1;
+      if (dungeon && d && eye) {
+        const [o0, o1, p0, p1] = d.opening;
+        const near = eye.x > o0 - 7 && eye.x < o1 + 7 && eye.z > p0 - 7 && eye.z < p1 + 7;
+        dungeon.inside.visible = below || near;
+      }
+      if (below || lampsDown) {
+        const lamps = below ? [...dungeon!.lamps].sort((p, q) => p.distanceToSquared(eye!) - q.distanceToSquared(eye!)) : [];
+        kit.lights.forEach((l, i) => {
+          const lamp = lamps[i];
+          l.light.position.copy(lamp ? l.light.parent!.worldToLocal(lamp.clone()) : hearths[i]);
+        });
+        lampsDown = below;
+      }
+      if (below) {
+        lights.hemi.color.copy(warmSky);
+        lights.hemi.groundColor.copy(warmGround);
+        lights.hemi.intensity = 0.5;
+        lights.ambient.color.copy(warmSky);
+        lights.ambient.intensity = 0.34;
+        lights.sun.intensity = 0;
+        const fog = lights.scene.fog as THREE.Fog | null;
+        if (fog) {
+          fog.color.copy(dank);
+          fog.near = 6;
+          fog.far = 34;
+        }
+        return;
+      }
       // Torchlit: a warm, dim hall whatever the weather, a little brighter by day through the glass.
       lights.hemi.color.copy(warmSky);
       lights.hemi.groundColor.copy(warmGround);
