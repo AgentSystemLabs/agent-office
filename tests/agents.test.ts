@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { configuredProvider, isValidDshModel, validateWorkerEffort, validateWorkerModel } from '../src/server/agents.js';
+import { configuredProvider, validateWorkerEffort, validateWorkerModel } from '../src/server/agents.js';
+import { isValidDshModel } from '../src/shared/providers.js';
 import { isAgentProvider } from '../src/shared/protocol.js';
 
 test('detects the configured provider from Unix and Windows command paths', () => {

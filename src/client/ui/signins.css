@@ -1,0 +1,15 @@
+/* Signing the office's agents in to their providers. */
+.signins { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.signin { border: 3px solid var(--ink); border-radius: 14px; padding: 4px 14px 14px; background: #fff; }
+.signin.ok { background: #f3fbf6; }
+.signin .team-head { margin-top: 10px; }
+.signin-who { font-weight: 800; font-size: 14px; overflow-wrap: anywhere; text-align: right; }
+.signin-who.none { color: var(--muted); }
+.signin-body > * { margin-top: 10px; }
+.signin-body .team-status { margin-top: 10px; }
+.signin-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.signin-steps { margin: 10px 0 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; font-weight: 700; font-size: 14px; line-height: 1.5; }
+.signin-steps .btn { display: inline-block; text-decoration: none; }
+.signin-steps .invite-row, .signin-steps .cmd { margin-top: 6px; }
+.signin-code { font-size: 20px !important; letter-spacing: .12em; text-align: center; }
+.team .note.lead { margin-top: 0; }

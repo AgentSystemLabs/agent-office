@@ -1,3 +1,4 @@
+import './search.css';
 import type { ChatLine, SearchResults, TerminalHit } from '../../shared/protocol';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../../shared/search';
 import { store } from '../state';

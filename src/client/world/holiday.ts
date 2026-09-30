@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { BALCONY, DESKS, DESK_SIZE, EXIT_STAIRS, FLOOR, PLANTS, STREET_Y, WALL_HEIGHT, WINDOWS } from '../../shared/layout';
 import type { Theme } from '../../shared/protocol';
+import { mulberry32 } from '../../shared/rng';
 import { batWingGeometry, glowTexture } from './costumes';
-import { plantLeaves, type Collider, type Office } from './office';
+import { plantLeaves } from './office';
+import type { Collider, Office } from './types';
 import { SPOOKY_MOON } from './sky';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
 
@@ -363,7 +365,8 @@ function christmasTree(h: number, lights: THREE.MeshToonMaterial[], lit?: THREE.
   if (trunk) g.add(mesh(new THREE.CylinderGeometry(h * 0.035, h * 0.045, base + 0.1, 10), toon('#6b4226'), 0, (base + 0.1) / 2, 0));
   const tierH = ((h - base) * 0.92) / (tiers * 0.72);
   const baubles = ['#e63946', '#ffd166', '#4cc9f0', '#f1faee', '#c77dff'].map((c) => toon(c));
-  const rand = mulberry(Math.round(h * 1000));
+  // Seeded, so the trees look the same every time.
+  const rand = mulberry32(Math.round(h * 1000));
   for (let i = 0; i < tiers; i++) {
     const r = (h * 0.34 * (tiers - i)) / tiers + h * 0.05;
     const y0 = base + i * tierH * 0.72;
@@ -459,18 +462,6 @@ function snowman(): THREE.Group {
   return g;
 }
 
-/** A small seeded random, so the trees look the same every time. */
-function mulberry(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 // -----------------------------------------------------------------------------------------------
 
 export class Holiday {
@@ -559,7 +550,7 @@ export class Holiday {
     }
 
     const batMat = new THREE.MeshBasicMaterial({ color: '#150b1f', side: THREE.DoubleSide });
-    const rand = mulberry(31);
+    const rand = mulberry32(31);
     for (let i = 0; i < 12; i++) {
       const b = bat(batMat, 1.2 + rand() * 0.8);
       this.halloween.add(b.root);

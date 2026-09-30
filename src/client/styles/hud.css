@@ -1,0 +1,254 @@
+/* The HUD over the 3D office (index.html's #hud, filled by the features: features/hud and the rest): the floor's name and
+   the dock, the side panels, the chat, hints and meters, the telescope, coffee, golf and darts. Only the
+   office loads it, through style.css. */
+
+#app { position: fixed; inset: 0; }
+#scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; outline: none; }
+#hud { position: absolute; inset: 0; pointer-events: none; }
+#hud > * { pointer-events: auto; }
+
+.topbar { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; pointer-events: none; }
+.topbar > * { pointer-events: auto; }
+.project { padding: 8px 14px; min-width: 0; max-width: 40vw; cursor: pointer; }
+.project-name { display: flex; align-items: center; }
+.project-name #project-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.project:hover { background: var(--paper-2); }
+.project-name { font-weight: 900; font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.project-meta { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The dock: what you pinned, what needs you now, the workers, and the ☰ menu (ui/menu.ts). */
+.dock { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; max-width: 100%; }
+.dock-btn { height: 44px; padding: 0 12px; font-size: 17px; gap: 6px; }
+.dock-btn .lbl { font-size: 14px; }
+.dock-btn .n { font-size: 14px; font-variant-numeric: tabular-nums; }
+.dock-btn .svc-count { margin-left: 0; }
+.dock-btn.dim, .menu-item.dim { opacity: .5; }
+/* A panel that's showing: its button stays pressed in. */
+.dock-panel[aria-pressed=true] { background: var(--paper-2); transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+.dock-menu { width: 44px; padding: 0; justify-content: center; }
+.dock-menu[aria-expanded=true] { background: var(--paper-2); }
+.burger { display: flex; flex-direction: column; gap: 3px; }
+.burger i { display: block; width: 18px; height: 3px; border-radius: 2px; background: var(--ink); }
+
+/* Panels you turned off from the ☰ menu. The chat still shows while you type in it. */
+.hud-off { display: none !important; }
+.chat.hud-off.peek { display: flex !important; }
+.project-meta.hud-off.lobby { display: block !important; }
+.panel-x { flex: none; margin-left: auto; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 7px; background: none; color: var(--muted); font: 900 12px/1 var(--font); cursor: pointer; opacity: 0; transition: opacity .12s; align-self: center; }
+.side h3 :is(.cost, .plan) ~ .panel-x { margin-left: 2px; }
+.side section:hover .panel-x, .panel-x:focus-visible { opacity: 1; }
+.panel-x:hover { background: var(--paper-2); color: var(--ink); }
+@media (hover: none) { .panel-x { opacity: .6; } }
+
+.side { position: absolute; top: 72px; right: 12px; width: 250px; display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 90px); pointer-events: none; }
+.side > * { pointer-events: auto; }
+.side h3 { margin: 0 0 6px; font-size: 14px; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; display: flex; align-items: baseline; gap: 5px; }
+.side .count { color: var(--muted); font-weight: 700; }
+.side section { padding: 10px 12px; overflow: auto; }
+.side ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.people li, .workers li { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; padding: 3px 4px; border-radius: 8px; }
+.workers li { cursor: pointer; }
+.workers li:hover { background: var(--paper-2); }
+.people .you { color: var(--muted); font-weight: 600; }
+.people .mic { margin-left: auto; font-size: 12px; }
+.people li.walk { cursor: pointer; }
+.people li.walk:hover { background: var(--paper-2); }
+.people .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.people .sub { display: block; font-size: 11px; font-weight: 600; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.people .speaking { color: var(--good); }
+.workers .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workers .sub { display: block; font-size: 11px; font-weight: 600; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workers h3 .cost { margin-left: auto; font-size: 12px; text-transform: none; letter-spacing: 0; }
+.workers .cost { font-size: 11px; font-weight: 800; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.workers .name .cost { display: block; white-space: normal; overflow-wrap: anywhere; }
+/* Spend: today, the budget and all time. Its panel only shows once there's something to say. */
+.side .spend { flex: none; }
+.spend:has(> .usage.hidden) { display: none; }
+.usage { font-size: 12px; font-weight: 700; display: flex; flex-direction: column; gap: 5px; }
+.usage .row { display: flex; align-items: baseline; gap: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.usage .row.muted { display: block; white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+.usage .row b { font-weight: 900; font-variant-numeric: tabular-nums; }
+.usage .muted { color: var(--muted); font-weight: 600; }
+.usage.over .row b { color: var(--bad); }
+.budget, .meter { height: 10px; border: 2px solid var(--ink); border-radius: 999px; background: #fff; overflow: hidden; }
+.budget .fill, .meter .fill { height: 100%; background: var(--good); transition: width .3s; }
+.budget.near .fill, .meter.near .fill { background: var(--warn); }
+.budget.over .fill, .meter.over .fill { background: var(--bad); }
+/* Claude plan limits: the 5-hour session and the week */
+.side .limits { flex: none; cursor: pointer; font-size: 12px; font-weight: 700; display: flex; flex-direction: column; gap: 4px; }
+.limits h3 { margin-bottom: 2px; }
+.limits .plan { margin-left: auto; font-size: 12px; text-transform: none; letter-spacing: 0; color: var(--muted); font-weight: 800; }
+.limits .row { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; }
+.limits .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.limits .row b { font-weight: 900; font-variant-numeric: tabular-nums; }
+.limits .row b.over { color: var(--bad); }
+.limits .reset { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.limits .meter + .row { margin-top: 3px; }
+.limits .muted { color: var(--muted); font-weight: 600; }
+
+/* Workers waiting on you: a count in the Workers panel (click or N to go to them) and arrows at the edge of the screen. */
+#waiting { display: flex; align-items: center; gap: 6px; width: 100%; margin: 0 0 8px; padding: 5px 8px; border: 2px solid var(--ink); border-radius: 10px; background: #ffe3ea; color: var(--ink); font: inherit; font-size: 13px; font-weight: 900; text-align: left; cursor: pointer; }
+#waiting:hover { background: #ffd0dc; }
+#waiting.all-done { background: #d8f5e3; }
+#waiting.all-done:hover { background: #c3efd5; }
+#waiting .key { margin: 0 0 0 auto; background: var(--ink); color: var(--paper); box-shadow: none; }
+
+/* The chat: lines float up and fade after a while; hover it or press T to read back. */
+.chat { position: absolute; left: 12px; bottom: 12px; width: 330px; max-width: calc(100vw - 24px); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+#hud > .chat { pointer-events: none; }
+#chat-log { list-style: none; margin: 0; padding: 0 0 3px; max-height: 190px; width: 100%; overflow: auto; font-size: 13px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; scrollbar-width: none; }
+#chat-log:empty { display: none; }
+#chat-log li { max-width: 100%; padding: 3px 9px; background: rgba(255, 250, 243, .94); border: 2px solid var(--ink); border-radius: 10px; box-shadow: 0 2px 0 var(--ink); overflow-wrap: anywhere; animation: chat-out .6s ease-in forwards; }
+@keyframes chat-out { to { opacity: 0; visibility: hidden; } }
+.chat:is(:hover, :focus-within) #chat-log { pointer-events: auto; scrollbar-width: thin; }
+.chat:is(:hover, :focus-within) #chat-log li { animation: none; }
+#chat-log b { font-weight: 900; }
+#chat-log .sys { color: var(--muted); font-style: italic; }
+#chat-input { pointer-events: auto; width: 180px; border: 2px solid var(--ink); border-radius: 10px; padding: 7px 10px; font: inherit; font-size: 14px; background: rgba(255, 255, 255, .92); box-shadow: 0 2px 0 var(--ink); outline: none; transition: width .15s; }
+#chat-input:focus { width: 100%; border-color: var(--accent); background: #fff; }
+
+.hint {
+  position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%);
+  background: var(--ink); color: var(--paper); border: 3px solid var(--paper); border-radius: 14px;
+  padding: 10px 16px; font-weight: 800; font-size: 15px; box-shadow: 0 4px 0 rgba(0,0,0,.35);
+  display: flex; gap: 14px; align-items: center; flex-wrap: wrap; justify-content: center; max-width: min(720px, calc(100vw - 380px));
+  pointer-events: none !important;
+}
+.hint .title { color: #ffd166; }
+.hint .cost { color: #a5ecfb; font-weight: 700; }
+/* Winding up a shot with the basketball: the marker runs up and down; let go in the green. */
+.shot-meter {
+  position: absolute; left: 50%; bottom: 92px; width: 240px; height: 18px; transform: translateX(-50%);
+  background: var(--ink); border: 3px solid var(--paper); border-radius: 10px; box-shadow: 0 4px 0 rgba(0,0,0,.35);
+  overflow: hidden; pointer-events: none !important;
+}
+.shot-meter .sweet {
+  display: none; position: absolute; top: 0; bottom: 0; left: calc((var(--sweet) - var(--width) / 2) * 100%); width: calc(var(--width) * 100%);
+  background: var(--good);
+}
+.shot-meter.aimed .sweet { display: block; }
+.shot-meter .mark {
+  position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--at) * 100%);
+  background: linear-gradient(90deg, rgba(255,209,102,.25), rgba(255,138,91,.75)); border-right: 4px solid var(--paper);
+}
+
+.crosshair {
+  position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px;
+  border-radius: 50%; background: var(--paper); border: 2px solid var(--ink); opacity: .85;
+  transition: transform .1s, background .1s; pointer-events: none !important;
+}
+.crosshair.on { transform: scale(1.6); background: var(--accent); opacity: 1; }
+.crosshair .look-hint {
+  display: none; position: absolute; top: 18px; left: 50%; transform: translateX(-50%); white-space: nowrap;
+  background: var(--ink); color: var(--paper); border-radius: 10px; padding: 4px 10px; font-size: 13px; font-weight: 800;
+}
+.crosshair.free .look-hint { display: block; }
+.crosshair.on .look-hint { transform: translateX(-50%) scale(.625); transform-origin: top center; }
+/* The boss-loft telescope: a dark ocular housing, glass tint and a subtle focus reticle. */
+.telescope-view { display: none; position: absolute; inset: 0; z-index: 40; pointer-events: none; overflow: hidden; }
+.telescope-view.active { display: block; }
+.telescope-view::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(circle at center, transparent 0, transparent 39vmin, rgba(8,10,18,.72) 43vmin, #080a12 48vmin);
+}
+.telescope-glass {
+  position: absolute; inset: 5vmin; border-radius: 50%;
+  background: radial-gradient(circle, transparent 52%, rgba(8,18,28,.3) 72%, rgba(3,7,14,.76) 100%);
+  box-shadow: inset 0 0 4vmin rgba(100,190,220,.2); mix-blend-mode: multiply;
+}
+.telescope-reticle { position: absolute; left: 50%; top: 50%; width: 8vmin; height: 8vmin; transform: translate(-50%,-50%); border: 1px solid rgba(230,245,245,.3); border-radius: 50%; }
+.telescope-reticle::before, .telescope-reticle::after { content: ''; position: absolute; background: rgba(230,245,245,.28); }
+.telescope-reticle::before { left: 50%; top: -2vmin; width: 1px; height: 12vmin; }
+.telescope-reticle::after { top: 50%; left: -2vmin; height: 1px; width: 12vmin; }
+.telescope-exit { position: absolute; z-index: 2; left: 50%; bottom: 5vmin; transform: translateX(-50%); pointer-events: auto; white-space: nowrap; }
+body.telescope-active #hud { visibility: hidden; }
+/* Your own emote's emoji in first person, where you can't see it over your head. */
+.emote-pop { position: absolute; left: 50%; bottom: 96px; font-size: 56px; line-height: 1; pointer-events: none !important; animation: emote-pop var(--secs, 2s) ease-out forwards; }
+@keyframes emote-pop {
+  0% { transform: translateX(-50%) scale(0); opacity: 1; }
+  12% { transform: translateX(-50%) scale(1.25); }
+  20% { transform: translateX(-50%) scale(1); }
+  80% { opacity: 1; }
+  100% { transform: translateX(-50%) translateY(-40px); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .emote-pop { animation: emote-fade var(--secs, 2s) linear forwards; transform: translateX(-50%); }
+}
+@keyframes emote-fade { 80% { opacity: 1; } 100% { opacity: 0; } }
+
+#shares { position: absolute; left: 12px; top: 72px; display: flex; flex-direction: column; gap: 8px; }
+/* Coffee: how much of the buzz is left, under the project name (screen shares move down under it). */
+.caffeine { position: absolute; left: 12px; top: 72px; display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 13px; font-weight: 900; pointer-events: none !important; }
+.caffeine .bar { width: 96px; height: 12px; border: 2px solid var(--ink); border-radius: 999px; background: #f1e4d3; overflow: hidden; }
+.caffeine .bar span { display: block; width: 0; height: 100%; background: #9c6644; transition: width 1s linear; }
+.caffeine .left { min-width: 24px; font-variant-numeric: tabular-nums; }
+.caffeine.jittery { animation: jitters .1s steps(2) infinite; }
+.golf { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); width: min(300px, calc(100vw - 32px)); padding: 8px 12px 9px; display: grid; gap: 6px; font-size: 13px; font-weight: 900; text-align: center; pointer-events: none !important; }
+.golf-meter { position: relative; height: 16px; border: 3px solid var(--ink); border-radius: 999px; background: linear-gradient(90deg, #caffbf, #ffd166 70%, #ef476f); overflow: hidden; }
+/* Covers the part of the meter's colors that isn't filled, from the right. */
+.golf-rest { position: absolute; inset: 0 0 0 auto; width: 100%; background: #f1e4d3; }
+.golf-last { position: absolute; top: -2px; bottom: -2px; width: 3px; margin-left: -1px; background: var(--ink); }
+.golf-info { font-weight: 800; font-variant-numeric: tabular-nums; }
+#hud:has(.golf:not(.hidden)) #toasts { translate: 0 48px; }
+/* At the rooftop bar's dart board or axe lane (see features/bargames/controller.ts): the meter with its green, and the round so far. */
+.throw { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); width: min(320px, calc(100vw - 32px)); padding: 8px 12px 9px; display: grid; gap: 6px; font-size: 13px; font-weight: 900; text-align: center; pointer-events: none !important; }
+.throw-meter { position: relative; height: 16px; border: 3px solid var(--ink); border-radius: 999px; background: #f1e4d3; overflow: hidden; }
+.throw-sweet { position: absolute; top: 0; bottom: 0; background: var(--good); }
+.throw-fill { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, rgba(255,209,102,.3), rgba(255,138,91,.75)); border-right: 3px solid var(--ink); }
+.throw-last { position: absolute; top: -2px; bottom: -2px; width: 3px; margin-left: -1px; background: var(--ink); opacity: .45; }
+.throw-info { font-weight: 800; font-variant-numeric: tabular-nums; }
+#hud:has(.throw:not(.hidden)) #toasts { translate: 0 48px; }
+.caffeine.jittery .bar span { background: var(--bad); }
+@keyframes jitters { 50% { transform: translate(1px, -1px) rotate(-1.5deg); } }
+@media (prefers-reduced-motion: reduce) { .caffeine.jittery { animation: none; } }
+.caffeine:not(.hidden) ~ #shares { top: 120px; }
+/* The floor details make the name taller: what's under it moves down. */
+#hud:has(#project-meta:not(.hud-off)) :is(.caffeine, #shares) { translate: 0 16px; }
+.share-thumb { width: 220px; border: 3px solid var(--ink); border-radius: 12px; overflow: hidden; background: #000; box-shadow: var(--shadow); cursor: pointer; position: relative; }
+.share-thumb video { width: 100%; display: block; aspect-ratio: 16/9; object-fit: contain; background: #111; }
+.share-thumb .who { position: absolute; left: 6px; bottom: 6px; background: var(--paper); border: 2px solid var(--ink); border-radius: 8px; padding: 1px 6px; font-size: 12px; font-weight: 800; }
+
+/* Screen share viewer */
+.modal.viewer { width: min(1400px, 100%); background: #111; }
+.modal.viewer video { width: 100%; max-height: calc(100vh - 120px); background: #111; display: block; }
+
+@media (max-width: 800px) {
+  .side { width: min(250px, calc(100vw - 24px)); max-height: calc(100vh - 290px); }
+  .dock-btn .lbl { display: none; }
+  .hint { max-width: calc(100vw - 24px); bottom: 190px; }
+  .shot-meter { bottom: 254px; }
+  .chat { width: calc(100vw - 24px); }
+}
+
+/* A teammate with their own account, in the people panel. */
+.acct { font-size: 11px; color: var(--good); font-weight: 900; }
+/* A count on a dock button or a ☰ menu item, and by the floor's name the floors waiting on you. */
+.svc-count { margin-left: 6px; background: var(--accent); color: #fff; border-radius: 999px; padding: 0 7px; font-size: 12px; }
+
+/* Sliding down a fire pole: streaks of speed round the edge of the screen. */
+#whoosh { position: fixed; inset: 0; pointer-events: none; z-index: 5; opacity: 0; background: repeating-conic-gradient(from 0deg at 50% 50%, rgba(255, 255, 255, .55) 0deg 1.2deg, transparent 1.2deg 9deg); -webkit-mask: radial-gradient(circle at 50% 50%, transparent 38%, #000 78%); mask: radial-gradient(circle at 50% 50%, transparent 38%, #000 78%); }
+#fade.quick { transition-duration: .16s; }
+
+/* The lights going down on the way to another floor, and where each person is in the people panel. */
+#fade { position: fixed; inset: 0; background: #1b1d2e; opacity: 0; pointer-events: none; transition: opacity .3s ease; z-index: 40; }
+#fade.on { opacity: 1; }
+.people .where { font-size: 11px; font-weight: 800; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* The games over the 3D office: features/arcade/ui.ts and features/cabinet/ui.ts. They're here rather
+   than beside their modules from when the tests, which load features/cabinet/ui.ts (and with it
+   features/arcade/ui.ts) under Node, couldn't import a stylesheet. They can now (tests/support/css.mjs
+   hands them an empty one), so these can move next to their modules, minding the order they'd load
+   in (see the end of styles/base.css). */
+/* Minesweeper on the boss's monitor (features/arcade/ui.ts): the office stays in view around the game, which sits right over the screen. */
+.backdrop.clear { background: none; padding: 0; animation: none; }
+/* The game would cut through the HUD's panels, so they step aside while you play. */
+#app:has(.backdrop.clear) :is(.topbar, .side, .chat) { visibility: hidden; }
+.arcade { position: relative; animation: fade .25s .3s both; }
+.arcade-screen { width: 100%; height: 100%; overflow: hidden; background: #0b1320; }
+.arcade canvas { display: block; width: 100%; height: 100%; cursor: pointer; touch-action: none; }
+.arcade-bar { position: absolute; top: calc(100% + 10px); left: 50%; translate: -50% 0; display: flex; align-items: center; gap: 12px; white-space: nowrap; padding: 6px 6px 6px 14px; background: var(--paper); border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 4px 0 var(--ink); font-weight: 800; font-size: 14px; }
+.arcade-bar .tip { color: var(--muted); font-size: 12px; }
+/* Its ✕ hangs off the screen's top right corner rather than over the game. */
+.arcade > .close.corner { top: 0; right: auto; left: calc(100% + 10px); }
+/* The arcade cabinet in the lounge (features/cabinet/ui.ts) plays on the keyboard, and says so over the game when a worker of yours needs input. */
+.arcade.cabinet canvas { cursor: default; }
+.cabinet-call { position: absolute; bottom: calc(100% + 10px); left: 50%; translate: -50% 0; display: flex; align-items: center; gap: 10px; white-space: nowrap; padding: 6px 6px 6px 14px; background: var(--warn); border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 4px 0 var(--ink); font-weight: 900; font-size: 15px; animation: pop .18s ease-out; }

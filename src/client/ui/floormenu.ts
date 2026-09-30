@@ -1,3 +1,4 @@
+import './floormenu.css';
 import { floorPalette } from '../../shared/floors';
 import { ROOF, ROOF_NAME } from '../../shared/rooftop';
 import type { FloorInfo } from '../../shared/protocol';

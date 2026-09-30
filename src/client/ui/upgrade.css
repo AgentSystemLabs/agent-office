@@ -1,0 +1,17 @@
+/* Upgrading the office */
+.conn.upgrading { background: var(--warn); color: var(--ink); }
+.upgrade .version { display: block; font-weight: 700; }
+.upgrade .version small { color: var(--muted); font-weight: 600; }
+.upgrade code, .restart code { font: 12px ui-monospace, Menlo, monospace; background: var(--paper-2); border-radius: 5px; padding: 1px 5px; }
+.upgrade .note { margin: 12px 0 0; font-size: 13px; font-weight: 600; color: var(--muted); line-height: 1.45; }
+.upgrade-status { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; padding: 8px 12px; border: 2px solid var(--ink); border-radius: 10px; font-weight: 800; font-size: 14px; background: #e0f2fe; }
+.upgrade-status.ok { background: #d8f5e3; }
+.upgrade-status.error { background: #ffd6e0; }
+.upgrade-error { margin: 12px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.45 ui-monospace, Menlo, monospace; background: #ffd6e0; border: 2px solid var(--ink); border-radius: 10px; padding: 10px; max-height: 240px; overflow: auto; }
+.changes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 700; max-height: 220px; overflow: auto; }
+.modal.restart { width: min(480px, 100%); text-align: center; }
+.modal.restart .body p { margin: 10px 0 0; font-weight: 700; }
+.modal.restart .upgrade-status { justify-content: center; }
+.modal.restart .note { font-size: 13px; color: var(--muted); }
+.restart-art { font-size: 64px; line-height: 1; animation: bob 1.6s ease-in-out infinite; }
+@keyframes bob { 50% { transform: translateY(-6px); } }

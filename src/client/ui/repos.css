@@ -1,0 +1,7 @@
+/* O at the desk of a worker across repositories: a row per repository. */
+.repo-pulls { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.repo-pulls li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 3px solid var(--ink); border-radius: 12px; background: #fff; font-weight: 800; }
+.repo-pulls li .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repo-pulls li .name small { display: block; font-size: 12px; font-weight: 600; color: var(--muted); }
+.repo-pulls li .none { color: var(--muted); font-weight: 700; font-size: 13px; }
+.repo-pulls li .btn { padding: 3px 10px; font-size: 13px; }

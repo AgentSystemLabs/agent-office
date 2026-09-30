@@ -1,5 +1,5 @@
 """The desks' knick-knacks: a mug of coffee and a few books, modelled by this script and exported
-to src/client/models/desk_props.glb for src/client/world/office.ts, which puts one of them in a
+to src/client/models/desk_props.glb for src/client/world/office/, which puts one of them in a
 back corner of most desks. The shared helpers are in aokit.py and the conventions in
 blender/README.md.
 
@@ -22,7 +22,7 @@ side by side), `books_leaning` (two standing and one leaning on them) and `books
 lying in a pile). Each stands on the desk at its origin and faces forward like every model: the
 books' spines face whoever sits there. A pile of books has its origin in the middle of its
 footprint; the mug has its in the middle of its body, with the handle out to +X. The object and
-material names are a contract with office.ts and tests/desk-props-model.test.ts, so rename them in
+material names are a contract with world/office/props.ts and tests/desk-props-model.test.ts, so rename them in
 all three places.
 
 They keep the old code-built knick-knacks' sizes: the mug is the old 0.12 m cylinder with a
@@ -37,9 +37,9 @@ from mathutils import Matrix, Vector
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import aokit as ao
 
-# Preview colours only: office.ts paints every material by name with the same colours (the old
-# code-built books' covers, book.ts's page edges, and the coffee in the mug a worker carries,
-# character.ts's coffeeMug()). It paints the mug's body in the colour of the desk's chair; the
+# Preview colours only: world/office/props.ts paints every material by name with the same colours (the old
+# code-built books' covers, features/bookshelf/book.ts's page edges, and the coffee in the mug a worker carries,
+# world/character/props.ts's coffeeMug()). It paints the mug's body in the colour of the desk's chair; the
 # first chair's is here.
 COLORS = {
     "Mug": "#ff8a5b",

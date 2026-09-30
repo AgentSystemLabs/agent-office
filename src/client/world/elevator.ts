@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { ELEVATOR, ELEVATOR_CAR, ELEVATOR_FRONT, FLOOR, WALL_HEIGHT } from '../../shared/layout';
+import { ELEVATOR, ELEVATOR_CAR, ELEVATOR_FRONT, FLOOR, SLAB, STREET_Y, WALL_HEIGHT, streetBelow } from '../../shared/layout';
 import { mesh, roundedBox, textPlane, toon } from './toon';
-import type { Collider, Interactable } from './office';
+import type { Collider, Interactable } from './types';
+import type { Fixture } from './office/fixture';
 
 // The elevator: a steel shaft against the north wall, doors facing into the room. Every floor has
 // it in the same place; riding it swaps the floor around you while the doors are shut. The shaft
@@ -207,3 +208,43 @@ export function buildElevator(height = WALL_HEIGHT): Elevator {
     update,
   };
 }
+
+declare module './types' {
+  interface OfficeHandles {
+    elevator: Elevator;
+    /** The elevator's stop down in the garage, under the building. */
+    garageLift: Elevator;
+    /** The sign over the elevator doors: which floor you're on. */
+    setProjectName(name: string): void;
+  }
+}
+
+/** The elevator to the other floors, against the north wall between the PR board and the gong. */
+export const elevator: Fixture<'elevator' | 'setProjectName'> = (site) => {
+  const built = buildElevator();
+  site.wall('north', ELEVATOR.x, WALL_HEIGHT / 2, ELEVATOR.width + 0.1, WALL_HEIGHT);
+  return {
+    group: built.group,
+    colliders: built.colliders,
+    interactables: [built.interactable],
+    update: (_t, dt) => built.update(dt),
+    handle: { elevator: built, setProjectName: (name) => built.setSign(`🛗 ${name}`) },
+  };
+};
+
+/**
+ * Its stop in the garage, at the bottom of the same shaft: as tall as the garage, and as far down
+ * as the street is (see Office.setLevel).
+ */
+export const garageLift: Fixture<'garageLift'> = () => {
+  const built = buildElevator(-SLAB - STREET_Y);
+  built.setSign('🛗 Garage');
+  return {
+    group: built.group,
+    colliders: built.colliders,
+    interactables: [built.interactable],
+    update: (_t, dt) => built.update(dt),
+    setLevel: (index) => built.setFloor(streetBelow(index)),
+    handle: { garageLift: built },
+  };
+};

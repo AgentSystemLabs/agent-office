@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FLOOR, LADDER, POLE, POLES, SLAB, WALL_HEIGHT, WALL_T, WINDOWS, type PoleSpot } from '../../shared/layout';
-import type { Collider, Interactable } from './office';
+import type { Collider, Interactable } from './types';
+import type { Fixture } from './office/fixture';
 import { mesh, textPlane, toon } from './toon';
 
 // The floors above and below this one: the ceiling (and the hatches and holes in it and in the floor),
@@ -576,3 +577,19 @@ export function buildStack(colliders: Collider[], planks: THREE.Material): Stack
   };
   return stack;
 }
+
+declare module './types' {
+  interface OfficeHandles {
+    /** The ceiling, the floor, and the ladder and fire poles between the floors of the building. */
+    stack: Stack;
+  }
+}
+
+/** The office floor's floor and ceiling, with the ways up and down to the other floors through them. */
+export const stack: Fixture<'stack'> = (site) => {
+  const built = buildStack(site.colliders, site.planks);
+  built.set({ index: 0, count: 1 });
+  // The ladder and its sign, up the west wall.
+  site.wall('west', LADDER.z + 0.6, WALL_HEIGHT / 2, LADDER.width + 2.4, WALL_HEIGHT);
+  return { group: built.group, interactables: built.interactables, handle: { stack: built } };
+};

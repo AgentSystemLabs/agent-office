@@ -9,7 +9,7 @@ import { BOARD_KEYS, MAP_STYLES, type BoardDef, type BoardKey, type MapChoice, t
 export * from './types.js';
 export { DUNGEON_SLAB, SEND_HOME_STEPS, dungeonClear, levelRoute, prisonSeat, wasting } from './dungeon.js';
 
-/** The office: built in code (world/office.ts), and what the building is until someone picks another map. */
+/** The office: built in code (world/office/), and what the building is until someone picks another map. */
 export const OFFICE_MAP = 'office';
 /** The maps that come with the office, besides the office itself. */
 export const BUILTIN_MAPS: readonly MapConfig[] = [CASTLE];

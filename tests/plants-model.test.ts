@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Box3, Quaternion, Vector3 } from 'three';
 import { openModel } from './glb';
 
-// plants.glb (exported by blender/scripts/build_plants.py) against what world/office.ts counts on: each
+// plants.glb (exported by blender/scripts/build_plants.py) against what world/office/props.ts counts on: each
 // species by name, its pot a root standing on the floor at the origin with its leaves hung under it as
 // `<species>_leaves` (Christmas hides those, see holiday.ts), the materials it paints, and the old
 // code-built pot's footprint, which the plants' colliders, nav circles and Christmas trees are placed by.
@@ -13,7 +13,7 @@ const { gltf, nodes, byName } = plants;
 
 const FLOOR = ['monstera', 'snake_plant', 'ficus'];
 const SPECIES = [...FLOOR, 'succulent'];
-/** PLANT_COLORS in office.ts. */
+/** PLANT_COLORS in world/office/props.ts. */
 const MATERIALS = ['Pot', 'Glaze', 'Soil', 'Bark', 'Leaf', 'LeafDark'];
 const POTS = ['Pot', 'Glaze'];
 
@@ -60,7 +60,7 @@ test('each species is its pot, a root node at the origin, with its leaves hung u
   }
 });
 
-test('its materials are the ones office.ts paints, the pot and soil on the pot and the rest on the leaves', () => {
+test('its materials are the ones world/office/props.ts paints, the pot and soil on the pot and the rest on the leaves', () => {
   const names = plants.materials();
   for (const m of MATERIALS) assert.ok(names.includes(m), `a material called ${m}`);
   for (const m of names) assert.ok(MATERIALS.includes(m), `${m} isn't a material the code knows (it would come out magenta)`);
@@ -89,7 +89,7 @@ test('the floor pots are the old pot\'s size, standing on the floor, their soil 
 });
 
 test('the floor plants grow out of their pots, under 1.5 m tall and clear of the walls where they stand', () => {
-  // PLANTS stand 0.8 m from the walls at up to 1.4 times this size for the monstera (office.ts takes
+  // PLANTS stand 0.8 m from the walls at up to 1.4 times this size for the monstera (world/office/props.ts takes
   // turns with the species), and the snake plant and the ficus go by the balcony rail and in the loft's
   // corners, about 0.5 m in at up to 1.2 times.
   const most: Record<string, number> = { monstera: 0.8 / 1.4, snake_plant: 0.5 / 1.2, ficus: 0.5 / 1.1 };

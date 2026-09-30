@@ -1,6 +1,6 @@
 // The games in the rooftop bar's north-west corner: an axe-throwing lane and a dart board. You step
 // up to the line (or the oche) and throw. Your page works out where it lands; the office passes that
-// on to everyone else up there (see the client's throwing.ts), and every page scores it the same way
+// on to everyone else up there (see the client's features/bargames/controller.ts), and every page scores it the same way
 // from here. Shared by the server (which checks a throw is one anyone could make) and the client.
 
 import { FLOOR } from './layout.js';

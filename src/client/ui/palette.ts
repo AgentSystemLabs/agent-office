@@ -1,3 +1,4 @@
+import './palette.css';
 import { rankItems, type PaletteItem, type PaletteMatch } from '../../shared/palette';
 import { h, openModal, type Modal } from './dom';
 

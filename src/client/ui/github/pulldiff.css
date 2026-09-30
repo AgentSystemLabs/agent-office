@@ -1,0 +1,79 @@
+/* PR diff (ui/github/pulldiff.ts): the Files tab of a PR window. */
+.pd { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.pd > .gh-loading, .pd > .gh-error { margin: auto; }
+.pd-side { width: 310px; flex: none; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px; border-right: 3px solid var(--ink); background: var(--paper-2); }
+.pd-side-head { display: flex; flex-direction: column; gap: 6px; }
+/* .seg.pd-mode outranks the shared .seg row, whatever order the sheets load in. */
+.seg.pd-mode { gap: 6px; flex-wrap: nowrap; }
+.pd-mode .btn { flex: 1; justify-content: center; padding: 3px 10px; font-size: 13px; }
+.pd-bar { height: 10px; border: 2px solid var(--ink); border-radius: 999px; background: #fff; overflow: hidden; }
+.pd-bar i { display: block; height: 100%; width: 0; background: var(--good); transition: width .25s; }
+.pd-done-txt { font-size: 12px; font-weight: 800; color: var(--muted); }
+/* The filter box is styled in styles/base.css, after the frame's text box rule. */
+.pd-side input[type=text]:focus { border-color: var(--accent); }
+.pd-files { list-style: none; margin: 0; padding: 0; flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 1px; }
+.pd-files li { display: flex; align-items: center; gap: 6px; padding: 3px 6px 3px calc(6px + var(--depth, 0) * 14px); border: 2px solid transparent; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; min-width: 0; }
+.pd-files li:hover { background: rgba(255, 255, 255, .75); }
+.pd-files li.on { background: #fff; border-color: var(--ink); }
+.pd-files li.reviewed .pd-path { color: var(--muted); }
+.pd-files li.pd-none { justify-content: center; color: var(--muted); cursor: default; }
+.pd-caret { width: 12px; flex: none; font-size: 11px; color: var(--muted); }
+.pd-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-path .dir { color: var(--muted); font-weight: 600; }
+.pd-done { color: #2a9d4b; font-weight: 900; }
+.pd-c { font-size: 11px; white-space: nowrap; }
+.pd-tick { width: 18px; height: 18px; flex: none; padding: 0; display: grid; place-items: center; border: 2px solid var(--ink); border-radius: 50%; background: #fff; color: #fff; font: 900 11px/1 var(--font); cursor: pointer; }
+.pd-tick:hover { background: #d8f5e3; }
+.pd-tick.reviewed { background: var(--good); }
+.pd-tick.stale { background: var(--warn); color: var(--ink); }
+.pd-st { width: 18px; height: 18px; flex: none; border: 2px solid var(--ink); border-radius: 5px; background: #fff; font: 900 10px/14px ui-monospace, Menlo, monospace; text-align: center; }
+.pd-st.M { background: var(--warn); }
+.pd-st.A { background: var(--good); color: #fff; }
+.pd-st.D { background: var(--bad); color: #fff; }
+.pd-st.R { background: var(--info); }
+.pd-keys { font-size: 11px; font-weight: 700; color: var(--muted); }
+.pd-keys .key { min-width: 18px; padding: 0 5px; margin-right: 3px; background: #fff; border: 1.5px solid var(--ink); box-shadow: none; font-size: 11px; }
+.pd-main { flex: 1; min-width: 0; overflow: auto; position: relative; padding: 0 12px 16px; background: #efe6da; outline: none; }
+.pd-main > .pd-note { margin-top: 12px; }
+.pd-file { margin-top: 12px; background: #fff; border: 2px solid var(--ink); border-radius: 12px; box-shadow: 0 3px 0 var(--ink); overflow: clip; }
+.pd-fh { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--paper-2); border-bottom: 2px solid var(--ink); font-size: 13px; font-weight: 800; }
+.pd-file.closed .pd-fh { border-bottom: 0; }
+.pd-file.closed .pd-fbody { display: none; }
+.pd-file.reviewed .pd-fh { background: #d8f5e3; }
+.pd-fold { width: 22px; height: 22px; flex: none; padding: 0; border: 0; background: none; color: var(--ink); font-size: 12px; cursor: pointer; }
+.pd-fold::before { content: '▾'; }
+.pd-file.closed .pd-fold::before { content: '▸'; }
+.pd-fpath { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 12.5px ui-monospace, Menlo, monospace; }
+.pd-stale { font-size: 11px; background: var(--warn); border: 2px solid var(--ink); border-radius: 999px; padding: 0 8px; white-space: nowrap; }
+.modal label.pd-viewed { display: flex; align-items: center; gap: 6px; margin: 0; padding: 2px 9px; font-size: 12.5px; font-weight: 800; background: #fff; border: 2px solid var(--ink); border-radius: 8px; cursor: pointer; user-select: none; white-space: nowrap; }
+.pd-file.reviewed label.pd-viewed { background: var(--good); color: #fff; }
+.pd-viewed input { margin: 0; accent-color: #2a9d4b; }
+.pd-lines { font: 12.5px/1.5 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; tab-size: 4; }
+.pd-l { display: flex; min-height: 1.5em; }
+.pd-n { width: 48px; flex: none; padding-right: 8px; text-align: right; color: #a39a91; background: #faf6f0; user-select: none; }
+.pd-code { flex: 1; min-width: 0; position: relative; padding: 0 10px 0 22px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pd-code::before { content: attr(data-sign); position: absolute; left: 8px; color: #a39a91; user-select: none; }
+.pd-l.add { background: #e6f8ec; }
+.pd-l.add .pd-n { background: #cdf0d8; }
+.pd-l.add .pd-code::before { color: #2a9d4b; }
+.pd-l.del { background: #ffebee; }
+.pd-l.del .pd-n { background: #ffd3dc; }
+.pd-l.del .pd-code::before { color: #c3423f; }
+.pd-l.hunk { background: #e8f2ff; color: #3a6ea5; }
+.pd-l.hunk .pd-n { background: #dbe9fb; }
+.pd-l.note { color: var(--muted); font-style: italic; }
+.pd-l.flash { animation: pd-flash 1.6s ease-out; }
+@keyframes pd-flash { 0%, 50% { background: #ffe8a3; box-shadow: inset 4px 0 0 var(--accent); } }
+.pd-note, .pd-big { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 14px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.pd-big .btn { padding: 3px 10px; font-size: 13px; }
+.pd-thread { margin: 6px 12px 8px 108px; background: #fff; border: 2px solid var(--ink); border-radius: 10px; box-shadow: 0 2px 0 var(--ink); overflow: clip; font-family: var(--font); }
+.pd-comment + .pd-comment { border-top: 1.5px solid #ebe1d4; }
+.pd-comment-head { display: flex; align-items: baseline; gap: 8px; padding: 7px 12px 0; font-size: 12.5px; }
+.pd-comment-head b { font-weight: 900; }
+.pd-comment-head a { color: var(--muted); font-size: 12px; font-weight: 700; text-decoration: none; }
+.pd-thread .md { padding: 4px 12px 10px; font-size: 13.5px; }
+@media (max-width: 800px) {
+  .pd { flex-direction: column; }
+  .pd-side { width: auto; max-height: 38%; border-right: 0; border-bottom: 3px solid var(--ink); }
+  .pd-thread { margin-left: 12px; }
+}

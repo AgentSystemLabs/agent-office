@@ -4,7 +4,7 @@ import { Vector3 } from 'three';
 import { DOG_BREEDS, dogBreed, dogDefaults, type DogBreed } from '../src/shared/dog.js';
 import { openModel } from './glb';
 
-// Each breed's dog-<breed>.glb (exported by blender/scripts/build_dog.py) against what world/dog.ts counts
+// Each breed's dog-<breed>.glb (exported by blender/scripts/build_dog.py) against what features/dog/world.ts counts
 // on: the names it finds the model's parts by, the same for every breed, and roughly the size and shape of
 // dog the office was laid out for.
 

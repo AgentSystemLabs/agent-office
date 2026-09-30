@@ -1,0 +1,14 @@
+/* Search: the chat and every terminal */
+.modal.search { width: min(820px, 100%); height: min(720px, calc(100vh - 32px)); }
+.modal.search .body { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.search-status { margin: 10px 0 4px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.search-results { overflow: auto; min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 14px; padding: 4px 2px 2px; }
+.search-group h4 { margin: 0 0 6px; font-size: 13px; font-weight: 900; display: flex; align-items: center; gap: 6px; }
+.search-group ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.search-hit { padding: 6px 10px; border: 2px solid rgba(43,45,66,.15); border-radius: 10px; background: #fff; font-size: 14px; min-width: 0; }
+.search-hit.term { background: #1e1f2e; color: #e6e6f0; border-color: #1e1f2e; cursor: pointer; }
+.search-hit.term:hover, .search-hit.term:focus-visible { outline: 3px solid var(--accent); outline-offset: 0; }
+.search-hit code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.search-meta { display: flex; gap: 8px; align-items: baseline; font-size: 12px; font-weight: 700; color: var(--muted); }
+.search-text { overflow-wrap: anywhere; }
+.search-hit mark { background: var(--warn); color: var(--ink); border-radius: 3px; padding: 0 1px; }
