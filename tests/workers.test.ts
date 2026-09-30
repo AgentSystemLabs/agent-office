@@ -19,6 +19,7 @@ type Invocation = {
     workerId?: string;
     hookToken?: string;
     hookUrl?: string;
+    codexHome?: string;
     opencodeConfig?: string;
     grokHome?: string;
     grokAuth?: string;
@@ -103,6 +104,7 @@ const record = (extra = {}) => fs.appendFileSync(log, JSON.stringify({
     workerId: process.env.AGENT_OFFICE_WORKER_ID,
     hookToken: process.env.AGENT_OFFICE_HOOK_TOKEN,
     hookUrl: process.env.AGENT_OFFICE_HOOK_URL,
+    codexHome: process.env.CODEX_HOME,
     opencodeConfig: process.env.OPENCODE_CONFIG_CONTENT,
     grokHome: process.env.GROK_HOME,
     grokAuth: process.env.GROK_AUTH_PATH,
@@ -669,6 +671,49 @@ test('Codex workers preserve native approvals, follow authenticated root hooks, 
   assert.equal(restored.handleCodexHook(worker.id, token, 'Stop', { session_id: 'codex-root' }), false);
   assert.equal(restored.handleCodexHook(worker.id, next.env.hookToken!, 'SessionStart', { session_id: 'codex-root', source: 'resume' }), true);
   assert.equal(restored.get(worker.id)?.status, 'idle');
+});
+
+test('one Codex worker switches between isolated accounts after each limit resets', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const oldLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => { if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG; else process.env.FAKE_AGENT_LOG = oldLog; f.close(); });
+  const homes = [path.join(f.root, 'account-a'), path.join(f.root, 'account-b')];
+  for (const home of homes) { mkdirSync(home, { recursive: true }); writeFileSync(path.join(home, 'auth.json'), '{}'); }
+  writeFileSync(path.join(f.data, 'codex-accounts.json'), JSON.stringify({ workers: { Pixel: homes } }));
+  const workers = manager(f, f.codex, []);
+  t.after(() => workers.shutdown());
+  const worker = workers.spawn('desk-1', 'test', 'Lead engineer; wait for work');
+  assert.notEqual(typeof worker, 'string'); if (typeof worker === 'string') return;
+  const first = (await waitFor(f.read, x => x.some(r => r.kind === 'codex'))).find(r => r.kind === 'codex')!;
+  assert.equal(first.env.codexHome, homes[0]);
+  const transcript = (home: string, id: string, reset: number) => {
+    const dir = path.join(home, 'sessions', '2026', '09', '30');
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `rollout-fixture-${id}.jsonl`);
+    writeFileSync(file, JSON.stringify({ type: 'session_meta', payload: { id } }) + '\n' + JSON.stringify({ type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: {
+      input_tokens: 100, cached_input_tokens: 20, output_tokens: 30, reasoning_output_tokens: 10, total_tokens: 130,
+    } }, rate_limits: { primary: { used_percent: 100, resets_at: reset }, secondary: { used_percent: 10, resets_at: reset + 1000 } } } }) + '\n');
+    return file;
+  };
+  const resetA = Math.ceil(Date.now() / 1000) + 1;
+  const a = transcript(homes[0], 'account-a-session', resetA);
+  workers.handleCodexHook(worker.id, first.env.hookToken!, 'SessionStart', { session_id: 'account-a-session', transcript_path: a });
+  workers.handleCodexHook(worker.id, first.env.hookToken!, 'UserPromptSubmit', { session_id: 'account-a-session', prompt: 'Implement the assigned feature' });
+  workers.handleCodexHook(worker.id, first.env.hookToken!, 'Stop', { session_id: 'account-a-session' });
+  const second = (await waitFor(f.read, x => x.filter(r => r.kind === 'codex' && !r.stdin).length >= 2)).filter(r => r.kind === 'codex' && !r.stdin).at(-1)!;
+  assert.equal(second.env.codexHome, homes[1]);
+  assert.equal(second.args.includes('resume'), false);
+  assert.ok(second.args.at(-1)?.includes('Implement the assigned feature'));
+  assert.equal(workers.get(worker.id)?.name, 'Pixel');
+  const b = transcript(homes[1], 'account-b-session', Math.ceil(Date.now() / 1000) + 3600);
+  workers.handleCodexHook(worker.id, second.env.hookToken!, 'SessionStart', { session_id: 'account-b-session', transcript_path: b });
+  workers.handleCodexHook(worker.id, second.env.hookToken!, 'Stop', { session_id: 'account-b-session' });
+  await new Promise((resolve) => setTimeout(resolve, Math.max(0, resetA * 1000 - Date.now() + 20)));
+  const third = (await waitFor(f.read, x => x.filter(r => r.kind === 'codex' && !r.stdin).length >= 3, 12000)).filter(r => r.kind === 'codex' && !r.stdin).at(-1)!;
+  assert.equal(third.env.codexHome, homes[0]);
+  assert.equal(workers.get(worker.id)?.id, worker.id);
 });
 
 

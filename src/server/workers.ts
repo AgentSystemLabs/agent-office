@@ -5,6 +5,7 @@ import path from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { CodexUsageReader } from './codex-usage.js';
+import { availableProfile, codexProfileReady, codexProfiles } from './codex-profiles.js';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
 import type { AgentChoice, AgentEffort, AgentProvider, Run, TerminalHit, WorkerInfo, WorkerKind, WorkerRepo, WorkerStatus, WorkerTask } from '../shared/protocol.js';
@@ -165,6 +166,14 @@ interface Worker {
   codexUsage: CodexUsageReader;
   codexHome?: string;
   codexTranscript?: string;
+  /** Only workers listed in codex-accounts.json use two isolated Codex sign-ins. */
+  codexProfile?: 0 | 1;
+  codexBlockedUntil: [number, number];
+  codexSwitching?: boolean;
+  codexSwitchTo?: 0 | 1;
+  codexFailoverWarned?: boolean;
+  codexLastPrompt?: string;
+  codexHandoffPrompt?: string;
   codexTools: Map<string, string>;
   codexPending: Set<string>;
   codexPermissionUnknown?: boolean;
@@ -1193,7 +1202,7 @@ export class WorkerManager {
   /** Native Codex lifecycle hooks register the root rollout for bounded metric reads. */
   handleCodexHook(workerId: string, token: string, event: string, payload: unknown): boolean {
     const w = this.workers.get(workerId);
-    if (!w || !w.pty || w.info.kind !== 'agent' || w.info.provider !== 'codex' || !safeEq(token, w.hookToken)) return false;
+    if (!w || !w.pty || w.codexSwitching || w.info.kind !== 'agent' || w.info.provider !== 'codex' || !safeEq(token, w.hookToken)) return false;
     const report = normalizeCodexHook(event, payload);
     if (!report) return false;
     if (w.info.sessionId && w.info.sessionId !== report.sessionId && event !== 'SessionStart') return false;
@@ -1227,6 +1236,8 @@ export class WorkerManager {
         clearPending();
         w.info.action = undefined;
         if (report.prompt) {
+          if (report.prompt !== w.codexHandoffPrompt) w.codexLastPrompt = report.prompt.slice(0, 8000);
+          else w.codexHandoffPrompt = undefined;
           w.info.activity = truncate(report.prompt, 80);
           this.notePrompt(w, report.prompt);
         }
@@ -1673,7 +1684,14 @@ export class WorkerManager {
       }
       this.runAs.apply(w.owner, env, [this.dir, cwd]);
     }
-    if (isCodex) w.codexHome = codexHome(cwd, env);
+    if (isCodex) {
+      const profiles = codexProfiles(this.dataDir, info.id, info.name);
+      if (profiles) {
+        w.codexProfile ??= 0;
+        env.CODEX_HOME = profiles[w.codexProfile];
+      }
+      w.codexHome = codexHome(cwd, env);
+    }
 
     if (isDsh) {
       // No PTY and no argv for prompts or resume: the office owns an ACP connection instead, and
@@ -1826,7 +1844,15 @@ export class WorkerManager {
       info.acked = saved.acked;
       info.waitingSince = saved.waitingSince;
     }
-    if (info.provider === 'codex') w.codexHome = codexHome(this.cwd(info), childEnv());
+    if (info.provider === 'codex') {
+      const env = childEnv();
+      const profiles = codexProfiles(this.dataDir, info.id, info.name);
+      if (profiles) {
+        w.codexProfile ??= 0;
+        env.CODEX_HOME = profiles[w.codexProfile];
+      }
+      w.codexHome = codexHome(this.cwd(info), env);
+    }
     this.follow(w, adopted.pty, term, undefined);
     // A turn that ended while the office was down says so with its Stop hook, which retries until
     // the office is back. Claude's progress report, where it gives one, says a turn is still going.
@@ -1886,6 +1912,21 @@ export class WorkerManager {
       w.pty = undefined;
       if (error) {
         this.startFailed(w, error);
+        return;
+      }
+      if (w.codexSwitching && !this.closing) {
+        w.codexSwitching = false;
+        w.codexProfile = w.codexSwitchTo;
+        w.codexSwitchTo = undefined;
+        w.codexTranscript = undefined;
+        w.codexUsage = new CodexUsageReader();
+        info.sessionId = undefined;
+        info.usage = undefined;
+        clockWork(info, 'starting');
+        info.status = 'starting';
+        info.exitCode = undefined;
+        w.codexHandoffPrompt = this.codexHandoff(w);
+        this.launch(w, w.codexHandoffPrompt, undefined);
         return;
       }
       // The terminal host died and took the process with it: nothing the worker did.
@@ -1972,12 +2013,18 @@ export class WorkerManager {
   private scanUsage(w: Worker) {
     if (w.info.kind === 'agent' && w.info.provider === 'codex') {
       if (this.workers.get(w.info.id) !== w || !w.codexTranscript || !w.codexHome || !w.info.sessionId) return;
-      const usage = w.codexUsage.read(w.codexTranscript, w.info.sessionId, w.codexHome);
+      const snapshot = w.codexUsage.readSnapshot(w.codexTranscript, w.info.sessionId, w.codexHome);
+      const usage = snapshot?.usage;
       if (usage && JSON.stringify(usage) !== JSON.stringify(w.info.usage)) {
         w.info.usage = usage;
         this.emitUpdate(w);
         this.persist();
       }
+      if (snapshot?.blockedUntil && w.codexProfile !== undefined) {
+        w.codexBlockedUntil[w.codexProfile] = snapshot.blockedUntil;
+        this.persist();
+      }
+      this.maybeSwitchCodex(w);
       return;
     }
     if (w.info.kind !== 'agent' || (w.info.provider !== 'claude' && w.info.provider !== 'custom') || !w.tracker.transcript || this.workers.get(w.info.id) !== w) return;
@@ -1992,6 +2039,49 @@ export class WorkerManager {
     this.ledger.add(addUsage(after, before, -1));
     this.emitUpdate(w);
     this.persist();
+  }
+
+  /** Leave the desk and worker identity intact; change credentials only between Codex sessions. */
+  private maybeSwitchCodex(w: Worker) {
+    const current = w.codexProfile;
+    if (current === undefined || w.codexSwitching || !w.pty || !['done', 'idle'].includes(w.info.status)) return;
+    const profiles = codexProfiles(this.dataDir, w.info.id, w.info.name);
+    if (!profiles || w.codexBlockedUntil[current] <= Date.now()) return;
+    const next = availableProfile(current, w.codexBlockedUntil);
+    if (next === undefined) {
+      if (!w.codexFailoverWarned) {
+        this.events.toast(`${w.info.name}: both Codex accounts are at their limits; waiting for a reset`, 'warn');
+        w.codexFailoverWarned = true;
+      }
+      return;
+    }
+    if (!codexProfileReady(profiles[next])) {
+      if (!w.codexFailoverWarned) {
+        this.events.toast(`${w.info.name}: Codex account ${next + 1} needs sign-in before automatic switching`, 'warn');
+        w.codexFailoverWarned = true;
+      }
+      return;
+    }
+    w.codexFailoverWarned = false;
+    w.codexSwitching = true;
+    w.codexSwitchTo = next;
+    this.events.toast(`${w.info.name} is switching to Codex account ${next + 1}`, 'info');
+    this.persist();
+    try { w.pty.kill(); } catch {
+      w.codexSwitching = false;
+      w.codexSwitchTo = undefined;
+      this.events.toast(`${w.info.name}: could not stop the exhausted Codex session`, 'error');
+    }
+  }
+
+  private codexHandoff(w: Worker): string {
+    const latest = w.codexLastPrompt && w.codexLastPrompt !== w.info.prompt ? w.codexLastPrompt : undefined;
+    return [
+      `You are ${w.info.name}, continuing as the same Agent Office worker after a Codex account limit.`,
+      w.info.prompt ? `Original role and instructions:\n${w.info.prompt}` : '',
+      latest ? `Most recent assignment:\n${latest}` : '',
+      'Inspect the current repository and git state. Continue unfinished assigned work without repeating completed changes. If no task is unfinished, wait for an assignment. Ask for missing context when necessary.',
+    ].filter(Boolean).join('\n\n');
   }
 
   private onProgress(w: Worker, busy: boolean) {
@@ -2171,7 +2261,7 @@ process.stdin.on('end', () => {
   }
 
   private persist() {
-    const saved = [...this.workers.values()].map(({ info, owner, tracker, codexTranscript, hookToken, pty, bootBlocked, interrupted }) => ({
+    const saved = [...this.workers.values()].map(({ info, owner, tracker, codexTranscript, codexProfile, codexBlockedUntil, codexLastPrompt, hookToken, pty, bootBlocked, interrupted }) => ({
       id: info.id,
       owner,
       kind: info.kind,
@@ -2196,6 +2286,9 @@ process.stdin.on('end', () => {
       tracker: info.kind === 'agent' ? tracker : undefined,
       usage: info.provider === 'opencode' || info.provider === 'codex' || info.provider === 'dsh' ? info.usage : undefined,
       codexTranscript: info.provider === 'codex' ? codexTranscript : undefined,
+      codexProfile: info.provider === 'codex' ? codexProfile : undefined,
+      codexBlockedUntil: info.provider === 'codex' ? codexBlockedUntil : undefined,
+      codexLastPrompt: info.provider === 'codex' ? codexLastPrompt : undefined,
       // A terminal still running in the host, to pick back up after a restart. Its hooks keep the token.
       hookToken,
       pty: pty?.id ? { id: pty.id, status: info.status, acked: info.acked, waitingSince: info.waitingSince } : undefined,
@@ -2212,7 +2305,7 @@ process.stdin.on('end', () => {
   private restore() {
     if (!existsSync(this.statePath)) return;
     try {
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { owner?: unknown; tracker?: unknown; codexTranscript?: unknown; hookToken?: unknown; pty?: any; midTurn?: unknown })[];
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { owner?: unknown; tracker?: unknown; codexTranscript?: unknown; codexProfile?: unknown; codexBlockedUntil?: unknown; codexLastPrompt?: unknown; hookToken?: unknown; pty?: any; midTurn?: unknown })[];
       for (const s of saved) {
         if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || this.deskOccupied(s.deskId)) continue;
         const tracker = restoreTracker(s.tracker);
@@ -2255,6 +2348,11 @@ process.stdin.on('end', () => {
         const w = newWorker(info, tracker, typeof s.hookToken === 'string' && s.hookToken ? s.hookToken : undefined);
         if (typeof s.owner === 'string' && s.owner) w.owner = s.owner;
         if (provider === 'codex' && typeof s.codexTranscript === 'string') w.codexTranscript = s.codexTranscript;
+        if (provider === 'codex' && (s.codexProfile === 0 || s.codexProfile === 1)) w.codexProfile = s.codexProfile;
+        if (provider === 'codex' && Array.isArray(s.codexBlockedUntil) && s.codexBlockedUntil.length === 2) {
+          w.codexBlockedUntil = s.codexBlockedUntil.map((v) => typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0) as [number, number];
+        }
+        if (provider === 'codex' && typeof s.codexLastPrompt === 'string') w.codexLastPrompt = s.codexLastPrompt.slice(0, 8000);
         w.screenDirty = false;
         if (typeof s.pty?.id === 'string') {
           const status: WorkerStatus = RUNNING.has(s.pty.status) ? s.pty.status : 'idle';
@@ -2289,6 +2387,7 @@ function newWorker(info: WorkerInfo, tracker: UsageTracker, hookToken = randomBy
     keyframeAt: 0,
     hookToken,
     codexUsage: new CodexUsageReader(),
+    codexBlockedUntil: [0, 0],
     codexTools: new Map(),
     codexPending: new Set(),
     failStreak: 0,
