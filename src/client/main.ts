@@ -10,7 +10,7 @@ import type { AgentEffort, AgentProvider, CarriedIssue, GhIssue, PeerInfo, Worke
 import { MEETING_PATTERNS, meetingStage } from '../shared/meetings';
 import { isAsleep, isBusy, workerPr } from '../shared/status';
 import { Net } from './net';
-import { store, lastFloor, lastSpot, loadProfile, loadSettings, rememberSpot, saveSettings, type Profile, type Spot, type Topic } from './state';
+import { store, lastFloor, lastSpot, loadProfile, loadSettings, rememberSpot, saveSettings, type Profile, type Spot } from './state';
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { gripOf, type Arrival, type Grip } from './climb';
 import { buildOffice, type DeskView, type InteractKind, type Interactable } from './world/office';
@@ -25,7 +25,6 @@ import { SEAT_HIPS } from '../shared/garage';
 import { Smoke } from './world/smoke';
 import { HAZE_MAX, Sky, describeSky } from './world/sky';
 import { Laptop } from './world/laptop';
-import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import { Holiday } from './world/holiday';
 import { Arrivals, Departures } from './world/leaving';
 import { Jail } from './world/jail';
@@ -41,8 +40,8 @@ import { openTerminal, openTerminalFor, routeTerminalMessage, type TerminalFind 
 import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { openRepoPulls, workerRepos } from './ui/repos';
-import { openPrompt, confirmDialog, sendHomeDialog, lostWorktreeDialog, routeWorktreeMessage, worktreePref } from './ui/prompt';
-import { issuePrompt, openBoard } from './ui/boards';
+import { openPrompt, confirmDialog, sendHomeDialog, lostWorktreeDialog, routeWorktreeMessage } from './ui/prompt';
+import { openBoard } from './ui/boards';
 import { openIssue, openPull, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
@@ -61,18 +60,16 @@ import { openSettings, type SettingsPane } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 import { GARAGE, elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
 import { toggleFloorMenu } from './ui/floormenu';
-import { providerLabel, officeChoice, resolvedProvider, modelBadge } from './ui/provider';
+import { providerLabel, resolvedProvider, modelBadge } from './ui/provider';
 import { openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
 import { renderLimits } from './ui/limits';
-import { MachineTexture } from './world/machine';
 import { officeFull, pressureNote } from '../shared/machine';
 import { mountHud } from './ui/menu';
 import { openBookshelf } from './ui/bookshelf';
 import { whereabouts } from './ui/whereabouts';
 import { wayTo } from './walkto';
 import { DESK_KEYS, interactionAvailable, type DeskKey } from './interaction';
-import { MeetingBoardTexture, MeetingSignTexture } from './world/meeting';
-import { issueMeeting, openMeeting, type MeetingPreset } from './ui/meeting';
+import { openMeeting, type MeetingPreset } from './ui/meeting';
 import { onModelsProgress, preloadModels } from './world/models';
 import { loadingScreen } from './ui/loading';
 import { SlowFrames } from './framerate';
@@ -81,13 +78,15 @@ import { openDeskLabel, openExpand } from './ui/floorplan';
 import { Activities, Interactions, Keys, Messages, Ticks, View, type Frame } from './core/registry';
 import type { Ctx, Hint, OfficeInteraction, StopWhy, Trip, TripKind } from './core/context';
 import { builtFloors, floorWings } from './core/floors';
-import { aside, boardHint, hintTitle, key, onE } from './core/hint';
+import { aside, hintTitle, key, onE } from './core/hint';
 import { noOutline } from './core/outline';
 import { installArcade } from './features/arcade';
 import { installBar } from './features/bar';
 import { installBarGames } from './features/bargames';
 import { installBasketball } from './features/basketball';
+import { installBoards } from './features/boards';
 import { installCabinet } from './features/cabinet';
+import { installCarrying } from './features/carrying';
 import { installCars } from './features/cars';
 import { installClimbing } from './features/climbing';
 import { installCoffee } from './features/coffee';
@@ -122,6 +121,8 @@ await preloadModels();
 let hintKey = '';
 /** How hard the view shakes (a landing off a pole, a bump in a car, a hiccup), easing off to 0. */
 let thud = 0;
+/** The issue card in your hands, taken off this floor's issues board (see features/carrying), or null. */
+let carrying: CarriedIssue | null = null;
 /** Where you are now: up on the roof (true), or on a floor of the office. */
 let upTop = false;
 /** What you can be in the middle of, in the order it gets keys, has the hint bar and stops in (see Activities). */
@@ -305,106 +306,8 @@ function idleAgentsIn(w: World): IdleAgent[] {
 /** The ones in the world you're in. */
 let idleAgents = idleAgentsIn(world);
 
-// Boards: each draws onto a canvas texture, redrawn whenever what it shows changes. The same
-// texture goes on that board in whichever world you're in (see dressBoards).
-function mountBoard(mesh: THREE.Mesh | undefined, texture: THREE.Texture, render: () => void, topics: Topic[]) {
-  if (mesh) showOn(mesh, texture);
-  for (const topic of topics) store.on(topic, render);
-  render();
-}
-function showOn(mesh: THREE.Mesh, texture: THREE.Texture) {
-  const mat = mesh.material as THREE.MeshBasicMaterial;
-  if (mat.map === texture) return;
-  mat.map = texture;
-  mat.needsUpdate = true;
-}
-/** The issue card in your hands, taken off this floor's issues board (see Carrying an issue card), or null. */
-let carrying: CarriedIssue | null = null;
-/** Issues whose cards someone on this floor is carrying around, so they're missing from the board. */
-function offBoard(): Set<number> {
-  const off = new Set<number>();
-  if (carrying) off.add(carrying.issue);
-  for (const p of store.peers.values()) if (p.carrying && p.id !== store.you && store.onMyFloor(p)) off.add(p.carrying.issue);
-  return off;
-}
-const issuesTex = new BoardTexture('issues');
-const renderIssuesBoard = () => {
-  const off = offBoard();
-  issuesTex.render(off.size ? { ...store.issues, items: store.issues.items.filter((i) => !off.has(i.number)) } : store.issues);
-};
-mountBoard(office.boardMeshes.issues, issuesTex.texture, renderIssuesBoard, ['issues']);
-let carriedOff = '';
-store.on('peers', () => {
-  const k = [...offBoard()].join(',');
-  if (k === carriedOff) return;
-  carriedOff = k;
-  renderIssuesBoard();
-});
-const pullsTex = new BoardTexture('pulls');
-const renderPullsBoard = () => pullsTex.render(store.pulls, store.workers);
-mountBoard(office.boardMeshes.pulls, pullsTex.texture, renderPullsBoard, ['pulls']);
-// PR notes name the desk they came from. Redraw when that changes, not on every worker update.
-let deskLinks = '';
-store.on('workers', () => {
-  const k = JSON.stringify([...store.workers.values()].filter((w) => w.worktree).map((w) => [w.worktree!.branch, w.pr?.number, w.name, w.color, w.deskId]));
-  if (k === deskLinks) return;
-  deskLinks = k;
-  renderPullsBoard();
-});
-const servicesTex = new ServicesBoardTexture();
-const renderServicesBoard = () => servicesTex.render(store.services.items, store.workers);
-mountBoard(office.boardMeshes.services, servicesTex.texture, renderServicesBoard, ['services', 'workers']);
-const queueTex = new QueueBoardTexture();
-const renderQueueBoard = () => queueTex.render(store.queue, store.workers);
-mountBoard(office.boardMeshes.queue, queueTex.texture, renderQueueBoard, ['queue', 'workers']);
-ctx.interactions.define('issues', {
-  reach: 9,
-  hint: () => {
-    if (aimedNote) return { k: String(aimedNote.number), parts: [hintTitle(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', 'Take it'), key('O', 'Read it')] };
-    return issuesTex.hasNotes ? { k: 'notes', parts: [hintTitle('📌 Issues board'), key('E', 'Open'), aside('or point at a note to take it')] } : boardHint('📌 Issues board');
-  },
-  use: (_it, key, note) => {
-    // A note on the issues board: E takes it straight off the cork, O opens it to read first.
-    if (note && key === 'E') return pickUp(note);
-    if (note && key === 'O') return openIssue(note, net, boardActions());
-    if (key === 'E') openBoard('issues', net, boardActions());
-  },
-});
-ctx.interactions.define('pulls', {
-  reach: 9,
-  hint: () => boardHint('🔀 Pull request board'),
-  use: onE(() => openBoard('pulls', net, boardActions())),
-});
-ctx.interactions.define('services', {
-  reach: 9,
-  hint: () => boardHint('🌐 Services board'),
-  use: onE(() => openServices()),
-});
-ctx.interactions.define('queue', {
-  reach: 9,
-  hint: () => {
-    const n = store.queue.tasks.filter((t) => t.status !== 'done').length;
-    return { k: String(n), parts: [hintTitle(`📋 Task queue${n ? ` · ${n}` : ''}`), key('E', 'Open')] };
-  },
-  use: onE(() => showQueue()),
-});
-// The machine monitor on the west wall.
-const machineTex = new MachineTexture();
-mountBoard(office.machineScreen, machineTex.texture, () => machineTex.render(store.machine), ['machine']);
-// The meeting room: its output as it's written on the back wall, and how it's going on the door.
-const meetingBoardTex = new MeetingBoardTexture();
-mountBoard(office.meetingBoard, meetingBoardTex.texture, () => meetingBoardTex.render(store.meeting), ['meeting']);
-const meetingSignTex = new MeetingSignTexture();
-mountBoard(office.meetingSign, meetingSignTex.texture, () => meetingSignTex.render(store.meeting), ['meeting']);
-/** Puts every board's texture up on `w`'s boards. */
-function dressBoards(w: World) {
-  showOn(w.boardMeshes.issues, issuesTex.texture);
-  showOn(w.boardMeshes.pulls, pullsTex.texture);
-  showOn(w.boardMeshes.services, servicesTex.texture);
-  showOn(w.boardMeshes.queue, queueTex.texture);
-  if (w.meetingBoard) showOn(w.meetingBoard, meetingBoardTex.texture);
-  if (w.meetingSign) showOn(w.meetingSign, meetingSignTex.texture);
-}
+// The boards on the walls (see features/boards).
+const boards = installBoards(ctx, { aimedNote: () => aimedNote, pickUp: (it) => cards.pickUp(it), boardActions, showQueue });
 
 const gallery = installGallery(ctx);
 
@@ -656,7 +559,7 @@ ctx.messages.on('welcome', (msg) => {
   } else if (store.floor && store.floor !== wasOn) {
     // Back after the office restarted, but not on your floor: it went while the office was down.
     takenAway();
-    if (carrying) setCarrying(null);
+    if (carrying) cards.setCarrying(null);
     arrive();
     floorWentWhileAway(wasOn);
   } else if (!store.floor) arrive();
@@ -691,7 +594,7 @@ ctx.messages.on('floor.enter', () => {
   // The card belongs to the board downstairs (or up): the office already put it back there.
   if (carrying) {
     toast(`📌 #${carrying.issue} stayed behind on the other floor's board`);
-    setCarrying(null);
+    cards.setCarrying(null);
   }
   // So does the ball: it's back under that floor's hoop.
   if (hoops.holding()) toast('🏀 The ball stayed behind, back under the other floor’s hoop');
@@ -1205,7 +1108,7 @@ function applyMap() {
   holiday.group.visible = inOffice() && !upTop;
   dog.root.visible = inOffice() && !!store.dog;
   jukebox.playJukebox();
-  dressBoards(world);
+  boards.dressBoards(world);
   painted = -1;
   paintFloor();
   renderProject();
@@ -1218,9 +1121,9 @@ function applyMap() {
   seatedAlready = already;
   syncJail();
   // The boards name seats the way this map does.
-  renderPullsBoard();
-  renderServicesBoard();
-  renderQueueBoard();
+  boards.renderPullsBoard();
+  boards.renderServicesBoard();
+  boards.renderQueueBoard();
   if (store.floor && !upTop && !trip) {
     placeInCar();
     // Back in the office, in its elevator: the doors open onto it.
@@ -2653,7 +2556,7 @@ function boardActions() {
     ask: (context: string, title: string) => sendToWorker(`✍️ ${title}`, { context }),
     meeting: (preset: MeetingPreset) => showMeeting(preset),
     goToDesk,
-    pickUp,
+    pickUp: cards.pickUp,
   };
 }
 
@@ -2661,7 +2564,7 @@ function boardActions() {
 function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   if (!target) return;
   if (target.kind !== 'issues') note = null;
-  if (key === 'E' && carrying && dropCard(target, carrying, note)) return;
+  if (key === 'E' && carrying && cards.dropCard(target, carrying, note)) return;
   // What each kind of thing does is defined with it (see ctx.interactions).
   ctx.interactions.use(target, key, note);
 }
@@ -2726,119 +2629,18 @@ const smoking = installSmoke(ctx);
 const hoops = installBasketball(ctx, { remotes, reach });
 
 // ---- Carrying an issue card ------------------------------------------------------------------------
-function setCarrying(card: CarriedIssue | null) {
-  if ((card?.issue ?? 0) === (carrying?.issue ?? 0)) return;
-  carrying = card;
-  me.carry(card);
-  hands.carry(card);
-  net.send({ t: 'carry', issue: card?.issue, title: card?.title });
-  carriedOff = [...offBoard()].join(',');
-  renderIssuesBoard();
-  ctx.hint.invalidate();
-}
-
-/** ✋ in an issue's window, or E at its note on the board: its card comes off the board and into your hands. */
-function pickUp(it: GhIssue) {
-  closeAllModals();
-  hoops.dropBall();
-  if (carrying?.issue === it.number) return;
-  if (carrying) toast(`📌 #${carrying.issue} went back on the board`);
-  setCarrying({ issue: it.number, title: it.title });
-  sound.paper();
-  toast(`✋ You took #${it.number} off the board: take it to an empty desk, a worker or the 📋 queue and press E`);
-}
-
-/** Q, or E at the issues board: the card goes back where it came from. */
-function putBack() {
-  if (!carrying) return;
-  toast(`📌 #${carrying.issue} is back on the board`);
-  setCarrying(null);
-  sound.paper();
-}
-ctx.keys.bind({
-  code: 'KeyQ',
-  when: () => !!carrying,
-  run: () => {
-    reach();
-    putBack();
-  },
+const cards = installCarrying(ctx, {
+  hold: (card) => void (carrying = card),
+  boards,
+  aimedNote: () => aimedNote,
+  reach,
+  dropBall: hoops.dropBall,
+  hire,
+  heraldSeat,
+  heraldHires,
+  officeIsFull,
+  showMeeting,
 });
-
-/**
- * E with a card in your hands: an empty desk hires a worker for the issue (with the prompt 🤖 Hand
- * to a worker uses), an agent at a desk gets it as its next prompt, the queue board queues it, and
- * the issues board takes it back (or swaps it for the `note` you point at there). False when it's none
- * of those, so E does what it always does there.
- */
-function dropCard(it: Interactable, card: CarriedIssue, note: GhIssue | null): boolean {
-  if (it.kind === 'issues') {
-    if (note) pickUp(note);
-    else putBack();
-    return true;
-  }
-  const prompt = issuePrompt({ number: card.issue, title: card.title });
-  if (it.kind === 'queue') {
-    if (onQueue(card.issue)) toast(`#${card.issue} is already on the queue`, 'warn');
-    else {
-      const { provider, model, effort } = officeChoice(store.project);
-      net.send({ t: 'queue.add', prompt, title: `#${card.issue} ${card.title}`, issue: card.issue, provider, model, effort });
-      putDown();
-    }
-    return true;
-  }
-  // At the meeting room: a meeting about it, and the card goes back up on the board.
-  if (it.kind === 'meeting' || (it.kind === 'desk' && it.deskId && plan().byId.get(it.deskId)?.room && !store.workerAtDesk(it.deskId))) {
-    putBack();
-    showMeeting(issueMeeting(card.issue, card.title));
-    return true;
-  }
-  // To the herald: someone's sent out for it, to the first free seat.
-  if (it.kind === 'herald') {
-    const deskId = heraldSeat();
-    if (!deskId) toast('Every seat at the tables is taken', 'warn');
-    else if (hiringPaused()) toast('💸 Budget spent — hiring resumes tomorrow', 'warn');
-    else if (!officeIsFull()) {
-      const { provider, model, effort } = officeChoice(store.project);
-      heraldHires.set(deskId, { floor: store.floor, at: performance.now() });
-      hire(deskId, prompt, !!store.project?.branch && worktreePref(), provider, model, effort, card.issue, undefined, 'herald');
-      putDown();
-    }
-    return true;
-  }
-  if (it.kind !== 'desk' || !it.deskId) return false;
-  const w = store.workerAtDesk(it.deskId);
-  const why = w ? cantTakeCard(w) : hiringPaused() ? '💸 Budget spent — hiring resumes tomorrow' : '';
-  if (why) toast(why, 'warn');
-  else if (w) {
-    net.send({ t: 'worker.prompt', workerId: w.id, prompt, issue: card.issue });
-    putDown();
-  } else if (!officeIsFull()) {
-    const { provider, model, effort } = officeChoice(store.project);
-    hire(it.deskId, prompt, !!store.project?.branch && worktreePref(), provider, model, effort, card.issue);
-    putDown();
-  }
-  return true;
-}
-
-/** The card left your hands for a desk or the queue (the office says who took it). */
-function putDown() {
-  setCarrying(null);
-  sound.paper();
-}
-
-function onQueue(issue: number): boolean {
-  const t = store.taskForIssue(issue);
-  return !!t && t.status !== 'done';
-}
-
-/** Why the worker at a desk can't be handed an issue card right now, or '' when it can. */
-function cantTakeCard(w: WorkerInfo): string {
-  if (w.kind === 'shell') return `${w.name} is a shell, not an agent`;
-  if (w.lost) return `${w.name}'s worktree was deleted — press E at its desk to fix it`;
-  if (isAsleep(w.status)) return `${w.name} is asleep — press R to resume first`;
-  if (w.status === 'needs_input') return `${w.name} is waiting on an answer — open the terminal first`;
-  return '';
-}
 
 // ---- Sitting ----------------------------------------------------------------------------------------
 const seating = installSeating(ctx, { shares: () => talk.currentShares(), watchShare: () => talk.watchShare(), arcade, showBar: bar.showBar, usable });
@@ -2898,7 +2700,7 @@ function renderHint() {
     }
     return;
   }
-  const hint = withBall ? hoops.ballHint() : carrying ? carryHint(carrying, target) : ctx.interactions.hint(target!);
+  const hint = withBall ? hoops.ballHint() : carrying ? cards.carryHint(carrying, target) : ctx.interactions.hint(target!);
   // On the throne, whoever's in line: the herald's a key away, and how to get up.
   const throne = onThrone() && !carrying && !withBall;
   if (throne) {
@@ -2912,39 +2714,6 @@ function renderHint() {
   el.classList.remove('hidden');
 }
 
-
-/** With an issue card in your hands: what E does with it here, and how to put it back. */
-function carryHint(card: CarriedIssue, it: Interactable | null): Hint {
-  const parts = (...mid: (HTMLElement | string)[]) => [h('span.title', {}, `🗂️ #${card.issue} in hand`), ...mid, key('Q', 'Put it back')];
-  if (it?.kind === 'issues') return aimedNote ? { k: String(aimedNote.number), parts: parts(key('E', `Swap it for #${aimedNote.number}`)) } : { k: '', parts: parts(key('E', 'Pin it back up')) };
-  if (it?.kind === 'ball') return { k: 'ball', parts: parts(aside('🏀 hands full')) };
-  if (it?.kind === 'queue') {
-    const on = onQueue(card.issue);
-    return { k: String(on), parts: parts(on ? aside('already on the queue') : key('E', 'Put it on the queue')) };
-  }
-  if (it?.kind === 'herald') {
-    const paused = hiringPaused();
-    return { k: `herald|${paused}`, parts: parts(paused ? h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow') : key('E', 'Send someone out for it')) };
-  }
-  if (it?.kind === 'meeting' || (it?.kind === 'desk' && it.deskId && plan().byId.get(it.deskId)?.room && !store.workerAtDesk(it.deskId))) {
-    return { k: 'meeting', parts: parts(key('E', 'Call a meeting about it')) };
-  }
-  if (it?.kind === 'desk' && it.deskId) {
-    const w = store.workerAtDesk(it.deskId);
-    if (!w) {
-      const paused = hiringPaused();
-      return { k: String(paused), parts: parts(paused ? h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow') : key('E', 'Hire a worker for it')) };
-    }
-    const why = cantTakeCard(w);
-    return { k: w.id + w.status + why, parts: parts(why ? aside(why) : key('E', `Hand it to ${w.name}`)) };
-  }
-  // Anything else works as usual, card in hand.
-  if (it) {
-    const rest = ctx.interactions.hint(it);
-    return { k: rest.k, parts: parts(...rest.parts) };
-  }
-  return { k: '', parts: parts(aside('take it to an empty desk, a worker or the 📋 queue')) };
-}
 
 let crossKey = '';
 const finePointer = window.matchMedia('(pointer: fine)').matches;
@@ -3142,7 +2911,7 @@ function throneTarget(): Interactable | null {
 /** The issue whose note on the issues board an aim lands on, or null (bare cork, the frame, anything else). */
 function noteUnder(aim: { it: Interactable; hit: THREE.Intersection } | null): GhIssue | null {
   if (aim?.it.kind !== 'issues' || aim.hit.object !== world.boardMeshes.issues || !aim.hit.uv) return null;
-  const n = issuesTex.noteAt(aim.hit.uv);
+  const n = boards.issuesTex.noteAt(aim.hit.uv);
   return n === undefined ? null : (store.issues.items.find((i) => i.number === n) ?? null);
 }
 
@@ -3172,7 +2941,7 @@ ctx.ticks.add('aim', () => {
       if (aim?.near) aimedNote = noteUnder(aim);
     }
   }
-  issuesTex.lift(aimedNote?.number ?? null);
+  boards.issuesTex.lift(aimedNote?.number ?? null);
   renderHint();
   renderCrosshair();
 });
