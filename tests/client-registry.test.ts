@@ -354,29 +354,59 @@ test('interactions: one definition per kind, with its reach, hint and use', () =
   assert.throws(() => things.hint({ kind: 'tv' }));
 });
 
-/** The kinds of thing you can use, as world/types.ts's InteractKind union lists them. */
-function interactKinds(): string[] {
-  const src = readFileSync(path.join(import.meta.dirname, '../src/client/world/types.ts'), 'utf8');
-  const m = /export type InteractKind =([^;]+);/.exec(src);
-  assert.ok(m, 'InteractKind is in world/types.ts');
-  return [...m[1].matchAll(/'([a-z]+)'/g)].map((x) => x[1]);
+/** Every .ts file in the client, by its path under src/client, with its code (its comments taken out). */
+function clientSources(): { file: string; src: string }[] {
+  const root = path.join(import.meta.dirname, '../src/client');
+  const code = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  return (readdirSync(root, { recursive: true }) as string[]).filter((rel) => rel.endsWith('.ts')).map((file) => ({ file, src: code(readFileSync(path.join(root, file), 'utf8')) }));
 }
 
-/** Every `interactions.define('kind', …)` in the client, wherever it lives, with the file it's in. */
-function definedKinds(): { kind: string; file: string }[] {
-  const root = path.join(import.meta.dirname, '../src/client');
+/**
+ * The kinds of thing you can use, as the client adds them to world/types.ts's InteractKinds (each
+ * where it's defined), with the file each is added in. Every `interface InteractKinds` in the client
+ * is read, and each line in one must be a kind (`name: true;`), so none can slip past.
+ */
+function interactKinds(): { kind: string; file: string }[] {
   const out: { kind: string; file: string }[] = [];
-  for (const rel of readdirSync(root, { recursive: true }) as string[]) {
-    if (!rel.endsWith('.ts')) continue;
-    const src = readFileSync(path.join(root, rel), 'utf8');
-    for (const m of src.matchAll(/interactions\.define\(\s*'([a-z]+)'/g)) out.push({ kind: m[1], file: rel });
+  for (const { file, src } of clientSources()) {
+    for (const m of src.matchAll(/interface InteractKinds\b([^{]*)\{([^}]*)\}/g)) {
+      assert.equal(m[1].trim(), '', `${file}: InteractKinds is only ever augmented, never extended`);
+      for (const line of m[2].split('\n').map((l) => l.trim())) {
+        if (!line) continue;
+        const k = /^([a-z]+): true;$/.exec(line);
+        assert.ok(k, `${file}: "${line}" in InteractKinds isn't a kind (name: true;)`);
+        out.push({ kind: k[1], file });
+      }
+    }
+    // Declared any other way, the scan above wouldn't see it.
+    assert.equal([...src.matchAll(/\bInteractKinds\b/g)].length - [...src.matchAll(/interface InteractKinds\b/g)].length, file === 'world/types.ts' ? 1 : 0, `${file} names InteractKinds other than to add kinds to it`);
   }
   return out;
 }
 
-test('every kind of thing you can use has exactly one definition, and nothing else is defined', () => {
-  const kinds = interactKinds();
+/** Every `interactions.define('kind', …)` in the client, wherever it lives, with the file it's in. */
+function definedKinds(): { kind: string; file: string }[] {
+  const out: { kind: string; file: string }[] = [];
+  for (const { file, src } of clientSources()) for (const m of src.matchAll(/interactions\.define\(\s*'([a-z]+)'/g)) out.push({ kind: m[1], file });
+  return out;
+}
+
+test('InteractKind is the kinds added to InteractKinds, and world/types.ts adds none itself', () => {
+  const src = readFileSync(path.join(import.meta.dirname, '../src/client/world/types.ts'), 'utf8');
+  assert.match(src, /^export interface InteractKinds \{\}$/m);
+  assert.match(src, /^export type InteractKind = keyof InteractKinds;$/m);
+  assert.deepEqual(interactKinds().filter((k) => k.file === 'world/types.ts'), []);
+});
+
+test('every kind of thing you can use has exactly one definition, in the file that adds the kind, and nothing else is defined', () => {
+  const added = interactKinds();
+  const kinds = added.map((k) => k.kind);
   assert.ok(kinds.length >= 31, `found ${kinds.length} kinds`);
+  assert.deepEqual(
+    kinds.filter((k, i) => kinds.indexOf(k) !== i),
+    [],
+    'kinds added more than once',
+  );
   const defined = definedKinds();
   const count = new Map<string, number>();
   for (const d of defined) count.set(d.kind, (count.get(d.kind) ?? 0) + 1);
@@ -393,6 +423,11 @@ test('every kind of thing you can use has exactly one definition, and nothing el
   assert.deepEqual(
     [...count.keys()].filter((k) => !kinds.includes(k)),
     [],
-    'definitions for kinds InteractKind does not have',
+    'definitions for kinds InteractKinds does not have',
+  );
+  assert.deepEqual(
+    defined.filter((d) => !added.some((a) => a.kind === d.kind && a.file === d.file)).map((d) => `${d.kind} in ${d.file}`),
+    [],
+    'kinds defined somewhere other than where they are added',
   );
 });

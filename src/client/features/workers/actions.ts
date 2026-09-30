@@ -29,6 +29,14 @@ import { openRepoPulls, workerRepos } from '../../ui/repos';
 import { openTerminal } from '../../ui/terminal';
 import { hiringPaused, usageLabel, usageTitle } from '../../ui/usage';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    desk: true;
+    station: true;
+  }
+}
+
 export type WorkerActionsParts = Pick<Parts, 'worlds' | 'seating' | 'walking' | 'waiting' | 'meeting' | 'cards'>;
 
 /** Registers the worktree answer (worker.worktree), and defines what's done at a desk and at a board agent. */

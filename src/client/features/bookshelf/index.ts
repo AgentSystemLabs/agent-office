@@ -5,6 +5,13 @@ import { saveSettings, store } from '../../state';
 import { openBookshelf } from '../../ui/bookshelf';
 import { clip, toast } from '../../ui/dom';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    bookshelf: true;
+  }
+}
+
 /** The project on GitHub, from the floor's origin remote, when that's where it is. */
 function githubUrl(remote?: string): string | undefined {
   const m = /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/.exec(remote ?? '');

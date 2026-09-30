@@ -4,6 +4,13 @@ import { noOutline } from '../../core/outline';
 import { store } from '../../state';
 import { Dog } from '../../world/dog';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    dog: true;
+  }
+}
+
 /** The floor's dog, the office's own: it walks about, barks at workers waiting on someone, and E pets it. */
 export function installDog(ctx: Ctx): Dog {
   // The floor's dog. It goes quiet once someone has the terminal of the worker it's barking at open.

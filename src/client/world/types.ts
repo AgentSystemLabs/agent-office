@@ -30,7 +30,21 @@ export interface Collider {
   fence?: boolean;
 }
 
-export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'cabinet' | 'ladder' | 'pole' | 'meeting' | 'bar' | 'dj' | 'golf' | 'ball' | 'bookshelf' | 'darts' | 'axe' | 'telescope' | 'car' | 'expand' | 'herald';
+/**
+ * The kinds of thing you can use, a key each (always `true`). None are listed here: each kind is added
+ * where it's defined (its `ctx.interactions.define`), by augmenting this interface in that file:
+ *
+ *   declare module '../../world/types' {
+ *     interface InteractKinds {
+ *       gong: true;
+ *     }
+ *   }
+ *
+ * tests/client-registry.test.ts checks that every kind added is defined once, in the file that adds it.
+ */
+export interface InteractKinds {}
+
+export type InteractKind = keyof InteractKinds;
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {

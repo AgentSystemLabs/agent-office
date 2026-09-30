@@ -3,6 +3,13 @@ import type { Ctx } from '../../core/context';
 import { hintTitle, key, onE } from '../../core/hint';
 import { toast } from '../../ui/dom';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    smoke: true;
+  }
+}
+
 /** Smoke breaks out on the balcony, at the ashtray: the cigarette burns down by itself, and goes out if you take it inside. */
 export function installSmoke(ctx: Ctx) {
   /** When your smoke break ends by itself (performance.now()), or 0 when you're not on one. */

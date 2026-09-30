@@ -12,6 +12,13 @@ import { clip, h, toast } from '../../ui/dom';
 import { BACKSWING_TIME, IMPACT, type Person } from '../../world/character';
 import { GolfBalls, PIN_DISTANCE, TEE_BALL, fly, pinText, type Flight, type Hit, type Shot } from '../../world/golf';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    golf: true;
+  }
+}
+
 export interface GolfDeps {
   /** Up off whatever you're sitting on (see features/seating). */
   standUp(): void;

@@ -7,6 +7,13 @@ import { store } from '../../state';
 import { clip } from '../../ui/dom';
 import { openMeeting, type MeetingPreset } from '../../ui/meeting';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    meeting: true;
+  }
+}
+
 export function installMeeting(ctx: Ctx, parts: Pick<Parts, 'waiting' | 'actions'>) {
   /** The meeting room's window: how the meeting's going, or the form to call one (prefilled from an issue or a PR). */
   function showMeeting(preset?: MeetingPreset) {

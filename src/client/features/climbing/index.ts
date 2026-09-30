@@ -13,6 +13,14 @@ import { DESK_KEYS } from '../../interaction';
 import { store } from '../../state';
 import { $, h, toast } from '../../ui/dom';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    ladder: true;
+    pole: true;
+  }
+}
+
 export interface ClimbingDeps {
   /** Through the ceiling up the ladder, or through the floor down one (see travel in core/travel.ts). */
   travel(floorId: string, how: Grip, at: Arrival): void;

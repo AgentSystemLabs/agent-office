@@ -6,6 +6,13 @@ import { clip } from '../../ui/dom';
 import { openJukebox } from '../../ui/jukebox';
 import type { SettingsPane } from '../../ui/settings';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    jukebox: true;
+  }
+}
+
 export interface JukeboxDeps {
   /** Settings, open at `pane` (the music's volume is under Sound). */
   showSettings(pane?: SettingsPane): void;

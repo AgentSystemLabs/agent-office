@@ -4,6 +4,13 @@ import { aside, hintTitle, key, onE } from '../../core/hint';
 import { TelescopeView } from '../../telescope';
 import { $, modalOpen } from '../../ui/dom';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    telescope: true;
+  }
+}
+
 export interface TelescopeDeps {
   /** Lets go of what you were pointing at (see the aim tick in input/pointer.ts). */
   clearTarget(): void;

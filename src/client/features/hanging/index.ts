@@ -9,6 +9,13 @@ import { store } from '../../state';
 import { h, toast } from '../../ui/dom';
 import type { Gallery } from '../../world/gallery';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    decor: true;
+  }
+}
+
 export { installGallery } from './gallery';
 
 export interface HangingDeps {

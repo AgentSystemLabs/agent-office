@@ -5,6 +5,13 @@ import { store } from '../../state';
 import { Cabinet } from '../../ui/cabinet';
 import { clip } from '../../ui/dom';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    cabinet: true;
+  }
+}
+
 export interface CabinetDeps {
   /** A worker's terminal: one of yours needing you stops the game, with a button to it. */
   openTerminal(id: string): void;

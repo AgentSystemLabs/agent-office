@@ -13,6 +13,14 @@ import { clip, h, toast } from '../../ui/dom';
 import type { Person } from '../../world/character';
 import type { Rooftop } from '../../world/rooftop';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    darts: true;
+    axe: true;
+  }
+}
+
 export interface BarGamesDeps {
   /** The roof, once it's built (see features/rooftop). */
   roof(): Rooftop | null;

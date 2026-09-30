@@ -3,6 +3,13 @@ import type { Ctx } from '../../core/context';
 import { hintTitle, key, onE } from '../../core/hint';
 import { toast } from '../../ui/dom';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    coffee: true;
+  }
+}
+
 /**
  * The kitchen's coffee machine: a cup is a minute of quicker feet and higher jumps (and one too many,
  * the jitters). What the caffeine does to you each frame is feelTheCoffee's, in core/loop.ts.
