@@ -101,7 +101,7 @@ Useful options for `up`:
 
 **Running `up` again** re-provisions the VM, which is how `--size`, `--project` or a new `--claude-token` get applied. Without `--claude-token` or `--anthropic-api-key`, it keeps the Claude sign-in it was given before.
 
-**Settings.** Like on AWS, office settings go in `/etc/agent-office/env` on the VM (`deploy/azure.sh ssh`, then `sudo nano /etc/agent-office/env` and `sudo systemctl restart agent-office`). The VM's clock is UTC, so set `AGENT_OFFICE_CITY="Portland, Oregon"` there for the office's sky to follow your time of day.
+**Settings.** Like on AWS, office settings go in `/etc/agent-office/env` on the VM (`deploy/azure.sh ssh`, then `sudo nano /etc/agent-office/env` and `sudo systemctl restart agent-office`). The VM's clock is UTC, so set `AGENT_OFFICE_CITY="Portland, Oregon"` there for the office's weather, and its holiday calendar, to be yours.
 
 ## When Azure says no
 

@@ -157,7 +157,7 @@ const inOffice = () => world === theOffice;
 const plan = (): MapPlan => world.plan;
 /** On a castle-style map: its workers walking between their seats and the line for the throne. */
 let court: Court | null = null;
-const sky = new Sky(scene, { sun, hemi, ambient }, office.night);
+const sky = new Sky(scene, { sun, hemi, ambient }, office.night, () => store.officeNow());
 store.on('sky', () => store.sky && sky.set(store.sky));
 // Halloween or Christmas decorations, up while the building's dressed up for one (see dressUp).
 const holiday = new Holiday(office);
@@ -4473,7 +4473,7 @@ function showSettings(pane?: SettingsPane) {
     () => sound.ding('done'),
     notifier,
     signOut,
-    store.sky ? { now: describeSky(store.sky), live: !!store.sky.city } : undefined,
+    store.sky ? { now: describeSky(store.sky, store.officeNow()), live: !!store.sky.city } : undefined,
     pane,
   );
 }

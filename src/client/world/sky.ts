@@ -1,14 +1,14 @@
 import * as THREE from 'three';
 import { FLOOR, SLAB, STREET_Y, WALL_HEIGHT, WALL_T, WING, wingMinZ } from '../../shared/layout';
 import type { SkyState, Theme, Weather } from '../../shared/protocol';
-import { guessPlace, sunPosition } from '../../shared/sun';
+import { guessPlace, skyTime, sunPosition } from '../../shared/sun';
 import type { NightParts } from './outside';
 
 /*
  * Day, night and the weather outside the windows. The server says where the office is and what the
- * weather is doing (server/sky.ts). From that and the clock, this works out where the sun is, and
- * every frame it sets the sky's color, the fog, the sun (or the moon), the lamps that come on at
- * night, and the rain or snow.
+ * weather is doing (server/sky.ts). From that and the office's clock, sped up so a whole day and
+ * night go by every hour (see skyTime), this works out where the sun is, and every frame it sets
+ * the sky's color, the fog, the sun (or the moon), the lamps that come on at night, and the rain or snow.
  *
  * The office has no roof, and the sun and the sky light everything, inside and out, so at night the
  * room would go as dark as the street. A few lines added to every lit material (below) give light
@@ -200,13 +200,14 @@ THREE.Material.prototype.onBeforeCompile = function (shader) {
 const LABEL: Record<Weather, string> = { clear: 'Clear', cloudy: 'Cloudy', rain: 'Rain', storm: 'Thunderstorm', snow: 'Snow', fog: 'Fog' };
 const ICON: Record<Weather, string> = { clear: '☀️', cloudy: '☁️', rain: '🌧️', storm: '⛈️', snow: '🌨️', fog: '🌫️' };
 
-/** "🌙 Clear · 9:41 PM office time · Berlin, Germany, 11 °C", for Settings. */
+/** "🌙 Clear · 9:41 PM outside · Berlin, Germany, 11 °C", for Settings: the time of day in the sky (see skyTime). */
 export function describeSky(s: SkyState, now = Date.now()): string {
-  const night = sunPosition(now, s.lat, s.lon).el < -4 * DEG;
+  const sky = skyTime(now, s.utcOffset);
+  const night = sunPosition(sky, s.lat, s.lon).el < -4 * DEG;
   const icon = s.weather === 'clear' && night ? '🌙' : ICON[s.weather];
-  const time = new Date(now + s.utcOffset * 60_000).toLocaleTimeString([], { timeZone: 'UTC', hour: 'numeric', minute: '2-digit' });
+  const time = new Date(sky + s.utcOffset * 60_000).toLocaleTimeString([], { timeZone: 'UTC', hour: 'numeric', minute: '2-digit' });
   const where = s.city ? ` · ${s.city}${s.temp !== undefined ? `, ${s.temp} °C` : ''}` : '';
-  return `${icon} ${LABEL[s.weather]} · ${time} office time${where}`;
+  return `${icon} ${LABEL[s.weather]} · ${time} outside${where}`;
 }
 
 const lerp = THREE.MathUtils.lerp;
@@ -438,6 +439,8 @@ export class Sky {
     private scene: THREE.Scene,
     private lights: SkyLights,
     private night: NightParts,
+    /** The office's clock (ms since 1970), which everyone's sky keeps time by. */
+    private clock: () => number = Date.now,
   ) {
     const here = guessPlace();
     this.state = { ...here, utcOffset: -new Date().getTimezoneOffset(), weather: 'clear', intensity: 0 };
@@ -613,12 +616,12 @@ export class Sky {
     return Math.min(1, Math.max(this.level, lamp * this.lampsOn));
   }
 
-  /** The office's clock (ms), or the previewed hour today. */
+  /** The time of day in the sky (see skyTime), or the previewed hour today. */
   private now(): number {
     const h = this.preview.hour;
-    if (h === undefined) return Date.now();
+    if (h === undefined) return skyTime(this.clock(), this.state.utcOffset);
     const off = this.state.utcOffset * 60_000;
-    const midnight = Math.floor((Date.now() + off) / 86_400_000) * 86_400_000;
+    const midnight = Math.floor((this.clock() + off) / 86_400_000) * 86_400_000;
     return midnight - off + h * 3_600_000;
   }
 
