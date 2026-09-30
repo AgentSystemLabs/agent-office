@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { DESKS } from '../../shared/layout';
 import { buildCabinet } from '../world/cabinet';
 import { supercar } from '../world/cars';
+import { buildFridge } from '../world/fridge';
 import { buildGong } from '../world/gong';
 import { modernFurniture } from '../world/holiday';
 import { buildJukebox } from '../world/jukebox';
@@ -43,6 +44,16 @@ const SHOW: Record<string, () => Shown> = {
   },
   cabinet: () => ({ object: buildCabinet().group }),
   kitchen: () => ({ object: buildKitchen().group }),
+  fridge: () => {
+    const f = buildFridge({ x: 0, z: 0 });
+    return { object: f.group, update: (dt) => f.update(dt) };
+  },
+  'fridge-open': () => {
+    // The same fridge with its doors swung wide, to check the shelves and their stock by eye.
+    const f = buildFridge({ x: 0, z: 0 });
+    f.toggle(true);
+    return { object: f.group, update: (dt) => f.update(dt) };
+  },
   modern: () => {
     // The modern office's furniture (see holiday.ts): a screen between two benches, the server rack
     // and the water cooler, the rack's LEDs flickering as they do in the office.

@@ -4,18 +4,22 @@ import { Box3, Vector3 } from 'three';
 import { openModel } from './glb';
 
 // kitchen.glb (exported by blender/scripts/build_kitchen.py) against what world/kitchen.ts counts on: the
-// three parts it's made of, by name, the materials it paints, and the old code-built kitchen's footprint,
+// two parts it's made of, by name, the materials it paints, and the old code-built kitchen's footprint,
 // which the office's colliders, sounds and holiday pumpkins are placed by.
 //
 // The model faces +z like every other; kitchen.ts stands it at x -14.5, z 12.2 turned round to face into
-// the room, so what's at +x here ends up on the west side. That's why the machine is at +1.2 and the
-// fridge at -3.2: in the office they land at x -15.7 and -11.3, where the old ones stood.
+// the room, so what's at +x here ends up on the west side. That's why the machine is at +1.2: in the
+// office it lands at x -15.7, where the old one stood.
+//
+// The fridge that stood beside it at -3.2 is built in code instead (world/fridge.ts), so its doors can
+// open: the .glb deliberately has no `fridge` part, and the code-built one stands at the same spot and
+// footprint (x -11.3 in the office), where the collider below and the fridge's hum are.
 
 const kitchen = openModel('kitchen');
 const { gltf, nodes, byName } = kitchen;
 
-const PARTS = ['counter', 'coffee_machine', 'fridge'];
-const MATERIALS = ['Cabinet', 'Wood', 'Chrome', 'Dark', 'White', 'Glow', 'Fridge', 'Note', 'Memo', 'Red'];
+const PARTS = ['counter', 'coffee_machine'];
+const MATERIALS = ['Cabinet', 'Wood', 'Chrome', 'Dark', 'White', 'Glow'];
 
 /** A part's bounds in the model, from its mesh's primitives (only those in `material`, if given). */
 function boundsOf(name: string, material?: string): Box3 {
@@ -34,12 +38,16 @@ function boundsOf(name: string, material?: string): Box3 {
 const near = (a: number, b: number, tolerance = 0.005) => Math.abs(a - b) <= tolerance;
 const fmt = (v: Vector3) => v.toArray().map((n) => n.toFixed(3)).join(', ');
 
-test('it is three parts side by side, each its own root node, found by name', () => {
+test('it is two parts side by side, each its own root node, found by name', () => {
   for (const name of PARTS) {
     const i = byName(name);
     assert.ok(i >= 0, `a node called ${name}`);
     assert.equal(kitchen.parentName(i), undefined, `${name} hangs from nothing`);
   }
+});
+
+test('it has no fridge: that one is code-built so it can open (world/fridge.ts)', () => {
+  assert.equal(byName('fridge'), -1, 'the .glb would be an unopenable fridge standing in the same spot');
 });
 
 test('its materials are the ones kitchen.ts paints, and only those', () => {
@@ -77,22 +85,10 @@ test('the machine sits on the counter where the old one did, and its front faces
   assert.ok(box.min.x > -1.5 + 0.14 && box.max.x < 2.15 - 0.11, `runs ${box.min.x.toFixed(3)} to ${box.max.x.toFixed(3)} across`);
 });
 
-test('the fridge stands where the old one did, inside its collider, handles out the front', () => {
-  const { at } = kitchen.placed(byName('fridge'));
-  assert.ok(at.distanceTo(new Vector3(-3.2, 0, 0)) < 1e-3, `the fridge's origin is at ${fmt(at)}`);
-  const body = boundsOf('fridge', 'Fridge');
-  assert.ok(near(body.min.x, -3.75) && near(body.max.x, -2.65), `the body runs ${body.min.x.toFixed(3)} to ${body.max.x.toFixed(3)} across`);
-  assert.ok(near(body.max.y, 2.2), `${body.max.y.toFixed(3)} m tall`);
-  assert.ok(body.min.z >= -0.5 - 0.005 && body.max.z <= 0.5 + 0.005, `the body runs ${body.min.z.toFixed(3)} to ${body.max.z.toFixed(3)} front to back`);
-  const all = boundsOf('fridge');
-  assert.ok(near(all.min.y, 0), 'on its feet on the floor');
-  assert.ok(all.max.z > body.max.z && all.max.z < 0.58, `the handles reach ${all.max.z.toFixed(3)} forward`);
-});
-
-test('the whole kitchen is the old one\'s footprint: 6.3 m long, 2.2 m tall', () => {
+test('the counter and machine are the old kitchen\'s place and size: 5.1 m across, 1.71 m tall', () => {
   const box = kitchen.bounds();
-  assert.ok(near(box.min.x, -3.75) && near(box.max.x, 2.55), `runs ${box.min.x.toFixed(3)} to ${box.max.x.toFixed(3)} across`);
-  assert.ok(near(box.max.y, 2.2), `${box.max.y.toFixed(3)} m tall`);
+  assert.ok(near(box.min.x, -2.55) && near(box.max.x, 2.55), `runs ${box.min.x.toFixed(3)} to ${box.max.x.toFixed(3)} across`);
+  assert.ok(near(box.max.y, 1.71), `${box.max.y.toFixed(3)} m tall (the cup warmer on the machine)`);
   assert.ok(box.min.z > -0.56 && box.max.z < 0.58, `runs ${box.min.z.toFixed(3)} to ${box.max.z.toFixed(3)} front to back`);
   assert.ok(kitchen.triangles() < 9000, `${kitchen.triangles()} triangles`);
 });

@@ -29,11 +29,14 @@ function fixture(opts: { git?: boolean; rewritten?: Partial<Record<PromptId, str
   const typed: { id: string; data: string }[] = [];
   const toasts: string[] = [];
   const reviews: { pr: number; file: string }[] = [];
+  /** When each worker last wrote to its terminal (see MeetingWorkers.activeSince). */
+  const outputAt = new Map<string, number>();
   let ids = 0;
   const manager: MeetingWorkers = {
     defaultProvider: 'claude',
     officeDefault: opts.officeDefault,
     list: () => workers,
+    activeSince: (id, at) => (outputAt.get(id) ?? -1) >= at,
     seat(deskId, by, prompt, provider, model, effort, meeting) {
       if (workers.some((w) => w.deskId === deskId)) return 'taken';
       const worker: WorkerInfo = {
@@ -98,7 +101,9 @@ function fixture(opts: { git?: boolean; rewritten?: Partial<Record<PromptId, str
     }
   };
   const start = (req: Partial<MeetingRequest>) => room.start({ pattern: 'debate', prompt: 'Which cache should we use?', roles: [], ...req } as MeetingRequest, 'Ada');
-  return { dir, room, workers, prompts, typed, toasts, reviews, take, settle, start, cwd, kill: (id: string) => manager.kill(id), close() { room.shutdown(); rmSync(dir, { recursive: true, force: true }); } };
+  /** A worker writes to its terminal: the sign of work the meeting can see without a status hook. */
+  const output = (id: string, at = Date.now()) => outputAt.set(id, at);
+  return { dir, room, workers, prompts, typed, toasts, reviews, take, settle, start, output, cwd, kill: (id: string) => manager.kill(id), close() { room.shutdown(); rmSync(dir, { recursive: true, force: true }); } };
 }
 
 test('a debate runs its rounds and ends when the chair writes the decision', (t) => {
@@ -220,6 +225,48 @@ test('a reviewer with no part left may end its session without stopping the pane
   m = f.room.state().current!;
   assert.equal(m.status, 'done');
   assert.deepEqual(f.reviews, [{ pr: 7, file: path.join(f.dir, 'reviews/pr-7.md') }]);
+});
+
+test('a provider that never reports going busy is not cut off while its terminal is working', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({ pattern: 'review', prompt: 'Review it', pr: 9 }), undefined);
+  let m = f.room.state().current!;
+  // The provider's status hook never fires: the workers sit idle. Their terminals, though, show
+  // them working (OpenCode v2 is one such provider, and this is what used to stop the panel).
+  f.settle();
+  for (const s of m.seats) f.output(s.workerId!);
+  // Three grace windows pass: with no sign of work, the part would have been reminded and the
+  // panel stopped by now.
+  for (const _ of [0, 1, 2]) {
+    t.mock.timers.tick(61_000);
+    f.room.pump();
+  }
+  assert.equal(f.room.state().current!.status, 'running');
+  // Each writes its note, then the head combines them, and the review is posted.
+  for (const i of [0, 1, 2]) f.take(i, '- a.ts:1 — something');
+  assert.match(f.prompts.at(-1)!.text, /\*\*\[Security\]\*\*/);
+  f.take(0, 'Looks fine. **[Security]** a.ts:1 — something');
+  await new Promise((r) => setImmediate(r));
+  m = f.room.state().current!;
+  assert.equal(m.status, 'done');
+  assert.deepEqual(f.reviews, [{ pr: 9, file: path.join(f.dir, 'reviews/pr-9.md') }]);
+});
+
+test('a worker that shows no output at all is still reminded once, then the meeting stops', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({}), undefined);
+  f.settle(); // ready and idle, but the terminal shows nothing
+  t.mock.timers.tick(61_000);
+  f.room.pump(); // the part is handed over again
+  t.mock.timers.tick(61_000);
+  f.room.pump();
+  t.mock.timers.tick(61_000);
+  f.room.pump();
+  const m = f.room.state().current!;
+  assert.equal(m.status, 'stopped');
+  assert.match(m.reason!, /never started on its part of round 1/);
 });
 
 test('a part that is already written counts even if its agent ended before the office looked', (t) => {
