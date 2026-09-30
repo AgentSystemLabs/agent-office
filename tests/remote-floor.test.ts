@@ -31,7 +31,20 @@ function fakeHost() {
 }
 
 const make = (host = fakeHost()) =>
-  new RemoteFloor('f1', 'a machine', 'h1', host.registry, { id: 'f1', name: 'API', dir: '/on/the/host', palette: 0, addedBy: 'alice', addedAt: 1 }, 'main', ['claude']);
+  new RemoteFloor('f1', 'a machine', 'h1', host.registry, { id: 'f1', name: 'API', dir: '/on/the/host', palette: 0, addedBy: 'alice', addedAt: 1 });
+
+test('a hosted demo without a repository exposes the providers reported by its host', async () => {
+  const host = fakeHost();
+  const floor = make(host);
+  floor.deliver({ t: 'ready', floor: { floorId: 'f1', name: 'API', seats: 2, accepting: false, workers: [], forge: 'github', providers: ['claude', 'codex'] } });
+  assert.equal(floor.project.name, 'API');
+  assert.equal(floor.project.dir, '');
+  assert.equal(floor.project.agentProviders.includes('codex'), true, 'spawn validation can find the selected provider without a repo');
+  const spawned = floor.workers.spawn('desk-1', 'Sam', 'demo', false, 'agent', 'codex');
+  assert.equal(host.sent[0].provider, 'codex');
+  floor.deliver({ t: 'result', floorId: 'f1', seq: host.sent[0].seq as number, value: { id: 'demo-worker' } });
+  assert.deepEqual(await spawned, { id: 'demo-worker' });
+});
 
 test('a state event with the same sequence as a call does not settle the call', async () => {
   const host = fakeHost();

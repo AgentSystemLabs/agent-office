@@ -10,6 +10,9 @@ your laptop runs there, as you, on your disk, with your sign-ins.
 The laptop dials the office. Nothing listens on your machine, and nothing inbound is needed: no port,
 no firewall change, no NAT traversal.
 
+A hosted floor does not need a repository name in its saved definition to hire workers. Its agent
+choices come from the connected host; a demo checkout without a repository uses its floor name.
+
 Terminal output reaches attached viewers, and room and worker updates reach people on the hosted
 floor. Changes previews go only to the viewers watching them. When a host disconnects or leaves a
 floor, pending calls stop waiting immediately. Restart `agent-office floor-host --office <address>`
