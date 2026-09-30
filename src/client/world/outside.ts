@@ -254,7 +254,7 @@ export function streetLamp(parts: THREE.Group, night: NightParts, glass: THREE.M
 /**
  * How far the grass goes, every way from the office: from the top floor the haze is up to HAZE_MAX
  * off (see world/sky.ts), and out at the far corners of the scenic loop too, so its edges must be
- * further than that even at the edge of the view. To the west it stops at the beach (world/scenic.ts).
+ * further than that even at the edge of the view. To the west it stops at the beach (world/scenic/).
  */
 const REACH = 900;
 /** Where the grass stops to the west, under the beach's sand, whose flat top is everywhere past here. */
@@ -324,7 +324,7 @@ export function buildStreet(group: THREE.Group, colliders: Collider[], night: Ni
     group.add(groundPlane(b.maxX - b.minX, b.maxZ - b.minZ, (b.minX + b.maxX) / 2, y, (b.minZ + b.maxZ) / 2, null, '#9a9ea8'));
   }
 
-  // The road, out to either end of the street, where the scenic loop takes over (world/scenic.ts).
+  // The road, out to either end of the street, where the scenic loop takes over (world/scenic/).
   const road = roadTexture();
   road.repeat.set((STREET_END * 2) / 8, 1);
   group.add(groundPlane(STREET_END * 2, ROAD.maxZ - ROAD.minZ, 0, G - 0.008, (ROAD.minZ + ROAD.maxZ) / 2, road));
