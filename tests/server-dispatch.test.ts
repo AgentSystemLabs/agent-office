@@ -315,7 +315,7 @@ test('welcomes a browser and dispatches what it sends', async () => {
   assert.equal((await a.take('accounts')).state.sharedPassword, true);
 
   // Frames that aren't messages, or whose type isn't one, are dropped; the office carries on.
-  for (const odd of ['not json', '42', 'null', '"text"', '[]', {}, { t: 'nope' }, { t: 'constructor' }, { t: '__proto__' }, { t: 'toString' }, { t: 'hasOwnProperty' }, { t: '__defineGetter__' }, { t: 7 }]) a.send(odd);
+  for (const odd of ['not json', '42', 'null', '"text"', '[]', {}, { t: 'nope' }, { t: 'constructor' }, { t: '__proto__' }, { t: 'toString' }, { t: 'hasOwnProperty' }, { t: '__defineGetter__' }, { t: 7 }, { t: ['ping'], at: 99 }]) a.send(odd);
   a.send({ t: 'ping', at: 43 });
   assert.equal((await a.take('pong')).at, 43);
   assert.deepEqual(a.pending('toast'), []);
