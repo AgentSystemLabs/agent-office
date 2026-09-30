@@ -204,8 +204,13 @@ const SIGNED_OUT = 4001;
 const SEARCH_CHAT_HITS = 50;
 const SEARCH_TERMINAL_HITS = 25;
 
-export async function startServer(cfg: Config) {
-  const publicDir = findPublicDir();
+/** What a test can set about how the office starts: the client bundle it serves, instead of the built one. */
+export interface StartOptions {
+  publicDir?: string;
+}
+
+export async function startServer(cfg: Config, opts: StartOptions = {}) {
+  const publicDir = opts.publicDir ?? findPublicDir();
   const accounts = new Accounts(cfg.dataDir);
   const auth = new Auth(cfg.verifier, cfg.salt, cfg.secret, accounts);
   const clients = new Map<string, Client>();
