@@ -1109,6 +1109,9 @@ a.when:hover { text-decoration: underline; }
 .elevator .floor-sub { font-size: 12px; font-weight: 700; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .elevator .floor-stats { font-size: 13px; font-weight: 800; white-space: nowrap; }
 .elevator .floor-stats .waiting { color: var(--bad); }
+.elevator .clone-bar { display: block; height: 7px; margin-top: 5px; border: 2px solid var(--ink); border-radius: 6px; background: var(--paper-2); overflow: hidden; }
+.elevator .clone-bar > span { display: block; height: 100%; background: var(--good); transition: width .6s ease; }
+.elevator .note + .clone-bar { margin-top: 6px; }
 .elevator .add { margin-top: 16px; }
 .elevator .add h3 { margin: 0 0 8px; font-size: 15px; font-weight: 900; }
 .elevator .repo-search { display: flex; gap: 8px; }

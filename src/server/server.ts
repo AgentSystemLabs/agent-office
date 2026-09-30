@@ -270,7 +270,7 @@ export async function startServer(cfg: Config) {
   };
   const floorInfos = (): FloorInfo[] => [
     ...[...floors.values()].map((f) => ({ ...f.info(), ...(building.isLocal(f.id) ? { local: true } : {}) })),
-    ...building.pending().map((d) => ({ id: d.id, name: d.name, repo: d.repo, dir: d.dir, palette: d.palette, addedBy: d.addedBy, addedAt: d.addedAt, cloning: true, workers: 0, busy: 0, waiting: 0, people: 0, wing: 0 })),
+    ...building.pending().map((d) => ({ id: d.id, name: d.name, repo: d.repo, dir: d.dir, palette: d.palette, addedBy: d.addedBy, addedAt: d.addedAt, cloning: true, clone: building.cloneProgress(d.id), workers: 0, busy: 0, waiting: 0, people: 0, wing: 0 })),
   ];
   // The elevator's counts change with every worker update; tell everyone at most a few times a second.
   let floorsSent = '';
@@ -569,6 +569,18 @@ export async function startServer(cfg: Config) {
   // Started in a project: it's a floor too (the one it has always been).
   if (cfg.project) building.ensureLocal(cfg.project, 'the office');
   for (const def of building.list()) openFloor(def);
+  // Clones keep the elevator's progress up to date, and ones the last office left running carry on.
+  building.watchClones(floorsChanged);
+  building.resumeClones((r) => {
+    floorsChanged();
+    if (typeof r === 'string') {
+      console.error(`agent-office: ${r}`);
+      return toastAll(`🛗 ${r}`, 'warn');
+    }
+    if (!openFloor(r)) return;
+    console.log(`  the ${r.name} floor's clone finished (${r.dir})`);
+    toastAll(`🛗 New floor: ${r.name}, added by ${r.addedBy}`);
+  });
   // Workers still running from the last office are back at their desks before anyone walks in.
   await Promise.all([...floors.values()].map((f) => f.ready));
 
@@ -1491,10 +1503,15 @@ export async function startServer(cfg: Config) {
       case 'floor.add': {
         const repo = str(msg.repo, 200);
         void building
-          .add(repo, who, (def) => {
-            floorsChanged();
-            toastAll(`🛗 ${who} is adding a floor for ${def.repo ?? def.name}…`);
-          })
+          .add(
+            repo,
+            who,
+            (def) => {
+              floorsChanged();
+              toastAll(`🛗 ${who} is adding a floor for ${def.repo ?? def.name}…`);
+            },
+            c.accountId,
+          )
           .then((r) => {
             floorsChanged();
             if (typeof r === 'string') return sendTo(c, { t: 'floor.added', repo, error: r });
@@ -1504,6 +1521,15 @@ export async function startServer(cfg: Config) {
             toastAll(`🛗 New floor: ${r.name}, added by ${who}`);
             sendTo(c, { t: 'floor.added', repo, floor: floor.id });
           });
+        break;
+      }
+      case 'floor.cancel': {
+        const admin = meOf(c.accountId).admin;
+        const id = str(msg.floor, 64);
+        const def = building.pending().find((d) => d.id === id);
+        const err = building.cancel(id, `${who} stopped the clone`, (owner) => admin || (!!owner && owner === c.accountId));
+        if (err) warn(c, err);
+        else toastAll(`🛗 ${who} stopped cloning ${def?.repo ?? def?.name ?? 'a floor'}`);
         break;
       }
       case 'floor.remove': {
@@ -2365,6 +2391,7 @@ export async function startServer(cfg: Config) {
     sky.stop();
     themes.stop();
     for (const f of floors.values()) f.shutdown(keep);
+    building.shutdown(keep);
     ledger.flush();
     limits.close();
     for (const a of accountLimits.values()) a.reader.close();
