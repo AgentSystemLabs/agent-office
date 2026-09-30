@@ -234,8 +234,10 @@ body.telescope-active #hud { visibility: hidden; }
 .people .where { font-size: 11px; font-weight: 800; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* The games over the 3D office: features/arcade/ui.ts and features/cabinet/ui.ts. They're here rather
-   than beside their modules because the tests load features/cabinet/ui.ts (and with it
-   features/arcade/ui.ts) under Node, which can't import a stylesheet. */
+   than beside their modules from when the tests, which load features/cabinet/ui.ts (and with it
+   features/arcade/ui.ts) under Node, couldn't import a stylesheet. They can now (tests/support/css.mjs
+   hands them an empty one), so these can move next to their modules, minding the order they'd load
+   in (see the end of styles/base.css). */
 /* Minesweeper on the boss's monitor (features/arcade/ui.ts): the office stays in view around the game, which sits right over the screen. */
 .backdrop.clear { background: none; padding: 0; animation: none; }
 /* The game would cut through the HUD's panels, so they step aside while you play. */
