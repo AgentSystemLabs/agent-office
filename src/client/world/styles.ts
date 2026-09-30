@@ -1,5 +1,6 @@
 import type { MapPlan, MapStyle } from '../../shared/maps';
 import { buildCastle } from './castle';
+import { buildCyberpunk } from './cyberpunk';
 import type { World } from './world';
 
 /*
@@ -9,4 +10,5 @@ import type { World } from './world';
  */
 export const BUILDERS: Record<MapStyle, (plan: MapPlan) => World> = {
   castle: buildCastle,
+  cyberpunk: buildCyberpunk,
 };

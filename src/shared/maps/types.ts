@@ -12,7 +12,7 @@ import type { Bounds, Obstacles, Pt, Rect } from '../nav.js';
  */
 
 /** The styles there's a builder for (the client's world/styles.ts): a map's `style` is one of them. */
-export const MAP_STYLES = ['castle'] as const;
+export const MAP_STYLES = ['castle', 'cyberpunk'] as const;
 export type MapStyle = (typeof MAP_STYLES)[number];
 
 /** The boards on the walls. */
@@ -63,7 +63,7 @@ export interface PropConfig {
   kind: string;
   x: number;
   z: number;
-  /** Up off the floor (a banner, a window, a chandelier). */
+  /** Up off the floor (a banner, a window, a chandelier), or where a sign or a screen hangs from (its top). */
   y?: number;
   rotY?: number;
   scale?: number;
@@ -71,6 +71,8 @@ export interface PropConfig {
   height?: number;
   length?: number;
   color?: string;
+  /** What a sign says, in short. */
+  text?: string;
   /** A torch or a brazier that lights the room (a few at most: see MAX_LIGHTS). */
   light?: boolean;
 }
