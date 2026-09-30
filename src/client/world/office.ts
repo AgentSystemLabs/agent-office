@@ -18,6 +18,7 @@ import { buildGreen, buildTee, type Green, type Tee } from './golf';
 import { buildStack, type Stack } from './stack';
 import { buildTower, wingWindows } from './tower';
 import { buildHoop, type HoopView } from './hoop';
+import { buildDanceFloor, type DanceFloorView } from './disco';
 import { buildKitchen } from './kitchen';
 import type { Fridge } from './fridge';
 import { buildDeskSigns, type DeskSigns } from './desksigns';
@@ -121,6 +122,8 @@ export interface Office {
   fridge: Fridge;
   /** The rolling whiteboard everyone draws on together. */
   whiteboard: WhiteboardStand;
+  /** The optional dance floor with disco lights in front of the lounge TV (see world/disco.ts). */
+  danceFloor: DanceFloorView;
   /** The golf tee on the balcony, and the hole across the street it's hit at. */
   tee: Tee;
   green: Green;
@@ -1629,6 +1632,11 @@ export function buildOffice(): Office {
   interactables.push(cabinet.interactable);
   fixture('east', CABINET.z, CABINET.height / 2, CABINET.width + 0.1, CABINET.height);
 
+  // The optional dance floor with disco lights, out in front of the TV (see world/disco.ts and the
+  // TV window's Dance floor option): flush with the floor, so it needs no collider.
+  const danceFloor = buildDanceFloor();
+  group.add(danceFloor.group);
+
   // The bookshelf of the project's docs, on the south wall between the middle window and the balcony doors.
   const shelf = buildBookshelf();
   group.add(shelf.group);
@@ -1843,9 +1851,10 @@ export function buildOffice(): Office {
     green.update(t);
     scenic.update(t);
     hoop.update(dt);
+    danceFloor.update(t);
   };
 
-  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, wallColliders, elevator, garageLift, cars, scenic, gong, jukebox, cabinet, fridge: kitchen.fridge, whiteboard, tee, green, hoop, stack, wing, setWing, signs, setProjectName, setLook, setLevel, night, plants, update };
+  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, wallColliders, elevator, garageLift, cars, scenic, gong, jukebox, cabinet, fridge: kitchen.fridge, whiteboard, danceFloor, tee, green, hoop, stack, wing, setWing, signs, setProjectName, setLook, setLevel, night, plants, update };
 }
 
 /** A chair at the meeting table, with its laptop on the table in front of it. */

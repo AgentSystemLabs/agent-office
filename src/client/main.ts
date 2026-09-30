@@ -508,6 +508,14 @@ sound.onMusicError = (text) => toast(text, 'warn');
 // or from ⚙️ Settings and it stays down. The autoplay fallback muting the player comes back through
 // here as well, so the row in the window, the ⚙️ one and what you hear all agree.
 tvScreen.setVolume(settings.tv, settings.tvMuted);
+// The dance floor with disco lights in front of the TV is yours to put out or bring back (the TV
+// window and ⚙️ Settings both switch it; see world/disco.ts).
+function applyDanceFloor(on: boolean) {
+  settings.danceFloor = on;
+  saveSettings(settings);
+  office.danceFloor.setOn(on);
+}
+office.danceFloor.setOn(settings.danceFloor);
 tvScreen.onSound = () => {
   settings.tv = tvScreen.volume;
   settings.tvMuted = tvScreen.muted;
@@ -3061,7 +3069,7 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   else if (target.kind === 'tv') {
     // Someone's screen share is watched full screen; anything else is put on from the TV's window.
     if (tvShowing()) watchShare();
-    else openTv(net, tvScreen, () => void toggleShare());
+    else openTv(net, tvScreen, () => void toggleShare(), { on: () => settings.danceFloor, set: applyDanceFloor });
   }
   else if (target.kind === 'jukebox') showJukebox();
   else if (target.kind === 'bookshelf') showBookshelf();
@@ -4978,6 +4986,7 @@ function showSettings(pane?: SettingsPane) {
       sound.setVolume(settings.volume, settings.muted);
       sound.setMusicVolume(settings.music, settings.musicMuted);
       tvScreen.setVolume(settings.tv, settings.tvMuted);
+      office.danceFloor.setOn(settings.danceFloor);
     },
     editProfile,
     () => sound.ding('done'),
