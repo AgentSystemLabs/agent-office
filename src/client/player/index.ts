@@ -17,8 +17,8 @@ const JUMP_V = 6.4;
 const GRAVITY = 18;
 
 // What the rest of the client takes from here, wherever it lives now: the eye height (camera.ts), the
-// Person's hips (world/character/rig.ts), the ground under someone (collide.ts) and isTyping (pointer.ts).
-export { EYE_HEIGHT, HIPS, groundAt, isTyping };
+// ground under someone (collide.ts) and isTyping (pointer.ts).
+export { EYE_HEIGHT, groundAt, isTyping };
 /** Keys that get you up off a seat: walking away, or jumping up. */
 const GET_UP = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
 
