@@ -1,10 +1,10 @@
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync, chmodSync, mkdirSync } from 'node:fs';
+import { existsSync, writeFileSync, chmodSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
-import type { AgentChoice, AgentEffort, AgentProvider, Run, TerminalHit, WorkerInfo, WorkerKind, WorkerRepo, WorkerStatus, WorkerTask } from '../../shared/protocol.js';
-import { AGENT_PROVIDERS, isAgentProvider, savedEffort, savedModel, takesEffort, takesModel } from '../../shared/providers.js';
+import type { AgentChoice, AgentEffort, AgentProvider, TerminalHit, WorkerInfo, WorkerKind, WorkerRepo, WorkerStatus } from '../../shared/protocol.js';
+import { AGENT_PROVIDERS, takesEffort, takesModel } from '../../shared/providers.js';
 import { WORKSPACE_FILES, WORKTREES_DIR, Worktrees, describeWork, workspaceOf, type WorktreeCleanup, type WorktreeRef, type WorktreeState } from '../worktrees.js';
 import { DESK_BY_ID, STATION_AGENT, deskBuilt } from '../../shared/layout.js';
 import { stationBrief } from '../stations.js';
@@ -14,9 +14,8 @@ import { gh } from '../github.js';
 import type { GhAs } from '../signins.js';
 import type { ServiceOwner } from '../services.js';
 import { TaskNamer, fallbackTask } from '../tasks.js';
-import { addUsage, newTracker, restoreTracker, scanTracker, trackerUsage, zeroUsage, type Ledger, type UsageTracker } from '../usage.js';
+import { addUsage, newTracker, scanTracker, trackerUsage, zeroUsage, type Ledger } from '../usage.js';
 import { PtyHost, SCROLLBACK, type Adopted, type Pty } from '../ptys.js';
-import { reportedUsage } from '../reported-usage.js';
 import { configuredProvider, validateWorkerEffort, validateWorkerModel } from '../agents.js';
 import { ScrollbackStore, searchTerminal, terminalTail } from '../history.js';
 import { DSH_PROFILE_DEFAULT, DshSession, terminalSafe } from '../dsh.js';
@@ -24,27 +23,19 @@ import { DropStore } from '../drops.js';
 import { screenSnapshot } from '../screen.js';
 import type { Capacity } from '../machine.js';
 import { PROVIDERS, providerAdapter, titleNoise, type LaunchPlan, type ProviderFloor } from '../providers/index.js';
-import { clockWork, workedMs } from './clock.js';
+import { clockWork } from './clock.js';
 import { childEnv } from './env.js';
 import { WIN, binScript, defaultShell, resolveCommand, run, shellRun, shq } from './process.js';
 import { createPr, draftPr, findOpenPr, relatedBlock, withRelated } from './pr.js';
 import { offlineBanner, screenText, snapshotScreen, type HeadlessTerminal } from './terminal.js';
-import type { WorkerHandle } from './types.js';
+import { midTurn } from './lifecycle.js';
+import { restoreWorkers, saveWorkers } from './persist.js';
+import type { HookEnv, OpenedPr, RepoSource, RunAs, Worker, WorkerEvents, WorkerHandle, Worktree } from './types.js';
 import { clamp, safeEq, truncate } from './util.js';
-import { clearWorkspace, lostMessage, originRepo, validRepos, workspaceNames } from './worktree.js';
-
-type Worktree = NonNullable<WorkerInfo['worktree']>;
-
-const NAMES = [
-  'Pixel', 'Byte', 'Nibble', 'Sprocket', 'Widget', 'Gizmo', 'Bolt', 'Cosmo', 'Dot', 'Echo',
-  'Fizz', 'Glitch', 'Hopper', 'Jinx', 'Kilo', 'Lumen', 'Mochi', 'Noodle', 'Orbit', 'Pip',
-  'Quark', 'Rivet', 'Sparky', 'Tofu', 'Uno', 'Volt', 'Waffle', 'Zippy',
-];
-const COLORS = ['#ff8a5b', '#5bc0eb', '#9bc53d', '#fde74c', '#c3423f', '#b388eb', '#f7aef8', '#72ddf7', '#ffb400', '#00a6a6'];
+import { COLORS, NAMES, newWorker } from './worker.js';
+import { clearWorkspace, lostMessage, originRepo, workspaceNames } from './worktree.js';
 
 const SCREEN_INTERVAL_MS = 250;
-/** What a worker with a live terminal can be doing. */
-const RUNNING = new Set<unknown>(['starting', 'idle', 'working', 'done', 'needs_input'] satisfies WorkerStatus[]);
 const KEYFRAME_MS = 8000;
 /** How often a steady typist's "last typed" time is refreshed for everyone. */
 const TYPED_REFRESH_MS = 15_000;
@@ -68,108 +59,6 @@ const RESTORED_NOTE = '\x1b[2m──── the office restarted · earlier outpu
  * by itself instead of waiting at every desk for someone to type "continue".
  */
 export const CARRY_ON_PROMPT = 'continue — the office restarted and interrupted you. Pick up where you left off; if you were waiting on an answer or a permission, ask again.';
-
-export interface HookEnv {
-  url: string;
-  token: string;
-}
-
-/** Another floor's repository for a worker to work in too (see WorkerInfo.repos). */
-export interface RepoSource {
-  floor: string;
-  /** The floor's name, for messages. */
-  name: string;
-  /** owner/name on GitHub, when known. */
-  repo?: string;
-  /** Its checkout. */
-  dir: string;
-}
-
-/** A pull request 'worker.pr' opened, or found already open, for a worker's branch. */
-export interface OpenedPr {
-  /** For a worker across repositories: which of its repositories (the folder in its workspace). */
-  repo?: string;
-  number: number;
-  url: string;
-  /** The branch already had it. */
-  existed: boolean;
-  /** The worktree still has uncommitted changes, which aren't in it. */
-  dirty: boolean;
-}
-
-/**
- * Runs a worker as the account that hired it, on that account's own Claude and GitHub sign-ins
- * (see signins.ts). Workers hired without an account run as the office, as they always have.
- */
-export interface RunAs {
-  /** Whether the account has a Claude sign-in its workers can start on. */
-  claudeReady(owner: string): boolean;
-  /** What to tell the account when it hasn't. */
-  why(which: 'claude'): string;
-  /** Puts the account's sign-ins in place of the office's in `env`; `dirs` are where the worker starts. */
-  apply(owner: string, env: Record<string, string>, dirs: string[]): Record<string, string>;
-}
-
-interface Worker {
-  info: WorkerInfo;
-  /** The account that hired it, whose sign-ins it runs on. None: the office's own. */
-  owner?: string;
-  pty?: Pty;
-  /**
-   * A DeepSeek Harness worker's ACP connection. It has no PTY: ACP updates are rendered into the
-   * same headless terminal the other providers mirror a process into (see dsh.ts).
-   */
-  dsh?: DshSession;
-  term?: HeadlessTerminal;
-  ser?: InstanceType<typeof serialize.SerializeAddon>;
-  /** The screen so far, for a browser opening the terminal (see screen.ts). */
-  snapshot?: () => string;
-  viewers: Map<string, string>; // clientId -> name
-  screenDirty: boolean;
-  lastLines: string[];
-  leftNeedsInputAt: number;
-  keyframeAt: number;
-  hookToken: string;
-  /** Claude never reported SessionStart: it's stuck on a trust/login/onboarding screen. */
-  bootBlocked?: boolean;
-  /** Its provider's own state on it (see ProviderAdapter.createState). */
-  state: unknown;
-  /** What its provider's adapter is handed of it (see WorkerHandle), once asked for. */
-  handle?: WorkerHandle;
-  /** Test runs and builds that have failed in a row (see FAILS_TO_DESPAIR). */
-  failStreak: number;
-  /** Its latest prompts and tool calls, for naming its task. */
-  prompts: string[];
-  tools: string[];
-  toolsSinceNamed: number;
-  namedAt: number;
-  /** Bumped by /clear: a new conversation, so a new task. */
-  taskEpoch: number;
-  /** Where the session's tokens and cost are read from (see usage.ts). */
-  tracker: UsageTracker;
-  scanTimer?: NodeJS.Timeout;
-  /** Its terminal in the host as of the last save, and how it was doing, to pick back up after a restart. */
-  saved?: { ptyId: string; status: WorkerStatus; acked: boolean; waitingSince?: number };
-  /** Its process went away mid-turn with the office or the terminal host: its next start carries on (CARRY_ON_PROMPT). */
-  interrupted?: boolean;
-  /** A prompt its start couldn't pass on the command line (a Muse resume): typed into its session after SessionStart. */
-  pendingPrompt?: string;
-  /** Output since its scrollback was last saved to disk. */
-  unsaved?: boolean;
-  /** Where this run's own output starts, below the scrollback carried over from before. */
-  fresh?: { readonly line: number };
-  /** Its lost worktree is being put back (see rebuild): the folder coming back mustn't wake it before that's done. */
-  rebuilding?: boolean;
-}
-
-export interface WorkerEvents {
-  update(info: WorkerInfo): void;
-  /** It's gone (sent home), and what it was as it went. */
-  remove(workerId: string, info?: WorkerInfo): void;
-  data(workerId: string, data: string, viewers: string[]): void;
-  screen(workerId: string, frame: { cols: number; rows: number; lines: Record<number, Run[]>; full: boolean; cursor: [number, number] }): void;
-  toast(text: string, level: 'info' | 'warn' | 'error'): void;
-}
 
 export class WorkerManager {
   private workers = new Map<string, Worker>();
@@ -233,7 +122,7 @@ export class WorkerManager {
     this.host = new PtyHost(dataDir, () => this.events.toast("The workers' terminal host stopped — resuming them", 'warn'));
     this.scrollback = new ScrollbackStore(dataDir);
     this.drops = new DropStore(dataDir);
-    this.restore();
+    restoreWorkers(this.statePath, this.workers, this.defaultProvider, (deskId) => this.deskOccupied(deskId));
     this.scrollback.prune(new Set(this.workers.keys()));
     this.drops.prune(new Set(this.workers.keys()));
     // A session may have ended (and written its final tally) while the office was down.
@@ -1725,136 +1614,6 @@ export class WorkerManager {
   }
 
   private persist() {
-    const saved = [...this.workers.values()].map(({ info, owner, tracker, state, hookToken, pty, bootBlocked, interrupted }) => ({
-      id: info.id,
-      owner,
-      kind: info.kind,
-      provider: info.provider,
-      model: info.model,
-      effort: info.effort,
-      deskId: info.deskId,
-      name: info.name,
-      color: info.color,
-      createdBy: info.createdBy,
-      createdAt: info.createdAt,
-      prompt: info.prompt,
-      worktree: info.worktree,
-      repos: info.repos,
-      title: info.title,
-      sessionId: info.sessionId,
-      activity: info.activity,
-      task: info.task,
-      pr: info.pr,
-      meeting: info.meeting,
-      workedMs: workedMs(info),
-      tracker: info.kind === 'agent' ? tracker : undefined,
-      usage: providerAdapter(info.provider)?.usage?.persisted ? info.usage : undefined,
-      ...providerAdapter(info.provider)?.usage?.save?.(state),
-      // A terminal still running in the host, to pick back up after a restart. Its hooks keep the token.
-      hookToken,
-      pty: pty?.id ? { id: pty.id, status: info.status, acked: info.acked, waitingSince: info.waitingSince } : undefined,
-      // In the middle of something: if its terminal doesn't make it through a restart, it carries on after.
-      midTurn: !this.stopping && (!!interrupted || midTurn({ info, bootBlocked })),
-    }));
-    try {
-      writeFileSync(this.statePath, JSON.stringify(saved, null, 2), { mode: 0o600 });
-    } catch {
-      // disk issues shouldn't take the office down
-    }
+    saveWorkers(this.statePath, this.workers.values(), this.stopping);
   }
-
-  private restore() {
-    if (!existsSync(this.statePath)) return;
-    try {
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { owner?: unknown; tracker?: unknown; hookToken?: unknown; pty?: any; midTurn?: unknown } & Record<string, unknown>)[];
-      for (const s of saved) {
-        if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || this.deskOccupied(s.deskId)) continue;
-        const tracker = restoreTracker(s.tracker);
-        const provider = s.kind === 'shell'
-          ? undefined
-          : isAgentProvider(s.provider)
-            ? s.provider
-            : tracker.transcript
-              ? 'claude'
-              : this.defaultProvider;
-        const usage = providerAdapter(provider)?.usage;
-        const info: WorkerInfo = {
-          id: s.id,
-          kind: s.kind === 'shell' ? 'shell' : 'agent',
-          provider,
-          model: savedModel(provider, s.model),
-          effort: savedEffort(provider, s.effort),
-          deskId: s.deskId,
-          name: s.name ?? 'Worker',
-          color: s.color ?? COLORS[0],
-          status: 'offline',
-          acked: true,
-          createdBy: s.createdBy ?? '?',
-          createdAt: s.createdAt ?? Date.now(),
-          prompt: s.prompt,
-          worktree: s.worktree,
-          repos: s.worktree ? validRepos(s.repos) : undefined,
-          title: s.title,
-          sessionId: s.sessionId,
-          activity: s.activity,
-          task: validTask(s.task),
-          pr: s.pr && typeof s.pr.number === 'number' && typeof s.pr.url === 'string' ? { number: s.pr.number, url: s.pr.url } : undefined,
-          usage: usage?.persisted ? reportedUsage(s.usage) : usage?.transcript && tracker.transcript ? trackerUsage(tracker) : undefined,
-          cols: 100,
-          rows: 30,
-          viewers: [],
-          viewerIds: [],
-          meeting: typeof s.meeting === 'string' && DESK_BY_ID.get(s.deskId)?.room ? s.meeting : undefined,
-          workedMs: typeof s.workedMs === 'number' && Number.isFinite(s.workedMs) && s.workedMs > 0 ? s.workedMs : undefined,
-        };
-        const w = newWorker(info, tracker, typeof s.hookToken === 'string' && s.hookToken ? s.hookToken : undefined);
-        if (typeof s.owner === 'string' && s.owner) w.owner = s.owner;
-        usage?.restore?.(w.state, s);
-        w.screenDirty = false;
-        if (typeof s.pty?.id === 'string') {
-          const status: WorkerStatus = RUNNING.has(s.pty.status) ? s.pty.status : 'idle';
-          w.saved = { ptyId: s.pty.id, status, acked: s.pty.acked !== false, waitingSince: typeof s.pty.waitingSince === 'number' ? s.pty.waitingSince : undefined };
-        }
-        // Mid-turn as the office went down: cut off, unless its terminal is picked back up still
-        // running (adopt). An office from before midTurn only said so for a terminal in the host.
-        w.interrupted = typeof s.midTurn === 'boolean' ? s.midTurn : s.pty?.status === 'working' || s.pty?.status === 'needs_input';
-        if (info.prompt) w.prompts = [info.prompt.replace(/\s+/g, ' ').trim()];
-        this.workers.set(info.id, w);
-      }
-    } catch {
-      // corrupt state file: start fresh
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-
-/** In the middle of a turn: working, or asking something (not stuck on a trust or login screen). */
-function midTurn({ info, bootBlocked }: Pick<Worker, 'info' | 'bootBlocked'>): boolean {
-  return info.kind === 'agent' && (info.status === 'working' || (info.status === 'needs_input' && !bootBlocked));
-}
-
-function newWorker(info: WorkerInfo, tracker: UsageTracker, hookToken = randomBytes(16).toString('hex')): Worker {
-  return {
-    info,
-    viewers: new Map(),
-    screenDirty: true,
-    lastLines: [],
-    leftNeedsInputAt: 0,
-    keyframeAt: 0,
-    hookToken,
-    state: providerAdapter(info.provider)?.createState?.(),
-    failStreak: 0,
-    prompts: [],
-    tools: [],
-    toolsSinceNamed: 0,
-    namedAt: 0,
-    taskEpoch: 0,
-    tracker,
-  };
-}
-
-function validTask(t: unknown): WorkerTask | undefined {
-  const v = t as Partial<WorkerTask> | undefined;
-  return typeof v?.name === 'string' && typeof v.summary === 'string' ? { name: v.name, summary: v.summary } : undefined;
 }

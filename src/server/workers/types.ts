@@ -1,6 +1,114 @@
 // The shapes the workers' modules and the provider adapters (server/providers/) share.
-import type { WorkerInfo, WorkerStatus } from '../../shared/protocol.js';
+import type serialize from '@xterm/addon-serialize';
+import type { Run, WorkerInfo, WorkerStatus } from '../../shared/protocol.js';
+import type { DshSession } from '../dsh.js';
+import type { Pty } from '../ptys.js';
 import type { UsageTracker } from '../usage.js';
+import type { HeadlessTerminal } from './terminal.js';
+
+export type Worktree = NonNullable<WorkerInfo['worktree']>;
+
+export interface HookEnv {
+  url: string;
+  token: string;
+}
+
+/** Another floor's repository for a worker to work in too (see WorkerInfo.repos). */
+export interface RepoSource {
+  floor: string;
+  /** The floor's name, for messages. */
+  name: string;
+  /** owner/name on GitHub, when known. */
+  repo?: string;
+  /** Its checkout. */
+  dir: string;
+}
+
+/** A pull request 'worker.pr' opened, or found already open, for a worker's branch. */
+export interface OpenedPr {
+  /** For a worker across repositories: which of its repositories (the folder in its workspace). */
+  repo?: string;
+  number: number;
+  url: string;
+  /** The branch already had it. */
+  existed: boolean;
+  /** The worktree still has uncommitted changes, which aren't in it. */
+  dirty: boolean;
+}
+
+/**
+ * Runs a worker as the account that hired it, on that account's own Claude and GitHub sign-ins
+ * (see signins.ts). Workers hired without an account run as the office, as they always have.
+ */
+export interface RunAs {
+  /** Whether the account has a Claude sign-in its workers can start on. */
+  claudeReady(owner: string): boolean;
+  /** What to tell the account when it hasn't. */
+  why(which: 'claude'): string;
+  /** Puts the account's sign-ins in place of the office's in `env`; `dirs` are where the worker starts. */
+  apply(owner: string, env: Record<string, string>, dirs: string[]): Record<string, string>;
+}
+
+export interface Worker {
+  info: WorkerInfo;
+  /** The account that hired it, whose sign-ins it runs on. None: the office's own. */
+  owner?: string;
+  pty?: Pty;
+  /**
+   * A DeepSeek Harness worker's ACP connection. It has no PTY: ACP updates are rendered into the
+   * same headless terminal the other providers mirror a process into (see dsh.ts).
+   */
+  dsh?: DshSession;
+  term?: HeadlessTerminal;
+  ser?: InstanceType<typeof serialize.SerializeAddon>;
+  /** The screen so far, for a browser opening the terminal (see screen.ts). */
+  snapshot?: () => string;
+  viewers: Map<string, string>; // clientId -> name
+  screenDirty: boolean;
+  lastLines: string[];
+  leftNeedsInputAt: number;
+  keyframeAt: number;
+  hookToken: string;
+  /** Claude never reported SessionStart: it's stuck on a trust/login/onboarding screen. */
+  bootBlocked?: boolean;
+  /** Its provider's own state on it (see ProviderAdapter.createState). */
+  state: unknown;
+  /** What its provider's adapter is handed of it (see WorkerHandle), once asked for. */
+  handle?: WorkerHandle;
+  /** Test runs and builds that have failed in a row (see FAILS_TO_DESPAIR). */
+  failStreak: number;
+  /** Its latest prompts and tool calls, for naming its task. */
+  prompts: string[];
+  tools: string[];
+  toolsSinceNamed: number;
+  namedAt: number;
+  /** Bumped by /clear: a new conversation, so a new task. */
+  taskEpoch: number;
+  /** Where the session's tokens and cost are read from (see usage.ts). */
+  tracker: UsageTracker;
+  scanTimer?: NodeJS.Timeout;
+  /** Its terminal in the host as of the last save, and how it was doing, to pick back up after a restart. */
+  saved?: { ptyId: string; status: WorkerStatus; acked: boolean; waitingSince?: number };
+  /** Its process went away mid-turn with the office or the terminal host: its next start carries on (CARRY_ON_PROMPT). */
+  interrupted?: boolean;
+  /** A prompt its start couldn't pass on the command line (a Muse resume): typed into its session after SessionStart. */
+  pendingPrompt?: string;
+  /** Output since its scrollback was last saved to disk. */
+  unsaved?: boolean;
+  /** Where this run's own output starts, below the scrollback carried over from before. */
+  fresh?: { readonly line: number };
+  /** Its lost worktree is being put back (see rebuild): the folder coming back mustn't wake it before that's done. */
+  rebuilding?: boolean;
+}
+
+export interface WorkerEvents {
+  update(info: WorkerInfo): void;
+  /** It's gone (sent home), and what it was as it went. */
+  remove(workerId: string, info?: WorkerInfo): void;
+  data(workerId: string, data: string, viewers: string[]): void;
+  screen(workerId: string, frame: { cols: number; rows: number; lines: Record<number, Run[]>; full: boolean; cursor: [number, number] }): void;
+  toast(text: string, level: 'info' | 'warn' | 'error'): void;
+}
 
 /**
  * One worker, as its provider's adapter sees it: what it is and how it's doing, its provider's own
@@ -40,3 +148,4 @@ export interface WorkerHandle<S = unknown> {
   /** Types a prompt into its session; says what went wrong, if anything. */
   prompt(text: string): string | undefined;
 }
+

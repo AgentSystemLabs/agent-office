@@ -4,7 +4,7 @@
 // following its tool calls one by one; Claude Code's own hook is built from the same steps (see
 // providers/claude.ts). OpenCode's plugin reports statuses instead (see providers/opencode.ts).
 import { toolAction } from '../../shared/actions.js';
-import type { WorkerHandle } from './types.js';
+import type { Worker, WorkerHandle } from './types.js';
 import { truncate } from './util.js';
 
 /** A permission prompt this soon after the worker stopped needing input is the late one for what was just answered. */
@@ -12,6 +12,11 @@ export const LATE_PROMPT_GRACE_MS = 5000;
 
 /** Tools that ask the person something: the worker needs input until they're answered. */
 const ASKS = /(?:^|[._])(?:AskUserQuestion|ask_user_question|request_user_input)$/;
+
+/** In the middle of a turn: working, or asking something (not stuck on a trust or login screen). */
+export function midTurn({ info, bootBlocked }: Pick<Worker, 'info' | 'bootBlocked'>): boolean {
+  return info.kind === 'agent' && (info.status === 'working' || (info.status === 'needs_input' && !bootBlocked));
+}
 
 /** A lifecycle hook event as a provider's normalizer compacts it. */
 export interface LifecycleReport {
