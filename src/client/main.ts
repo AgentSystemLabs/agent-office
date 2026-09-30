@@ -2248,7 +2248,7 @@ store.on('queue', paintPrs);
 store.on('workers', renderUsage);
 
 /**
- * Dresses the building up for the holiday it's set to (⚙️ Settings), or takes it all down: the sky and
+ * Dresses the building up for the theme it's set to (⚙️ Settings), or takes it all down: the sky and
  * the decorations, the dog, your hands and your character, everyone else, and every worker.
  */
 function dressUp() {

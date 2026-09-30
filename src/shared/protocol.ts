@@ -1052,12 +1052,12 @@ export interface SkyState {
   temp?: number;
 }
 
-/** A holiday the whole building dresses up for (see shared/theme.ts). */
-export type Theme = 'halloween' | 'christmas';
-/** What someone picked in ⚙️ Settings: a holiday, none, or whichever the calendar says. */
+/** A look the whole building puts on (see shared/theme.ts): a holiday, or the modern office. */
+export type Theme = 'halloween' | 'christmas' | 'modern';
+/** What someone picked in ⚙️ Settings: a look, none, or whichever holiday the calendar says. */
 export type ThemePick = Theme | 'auto' | 'off';
 
-/** The building's holiday theme: the same on every floor, for everyone. */
+/** The building's theme: the same on every floor, for everyone. */
 export interface ThemeState {
   pick: ThemePick;
   /** What's up right now: the pick, or for 'auto' the holiday it is at the office. Null for none. */

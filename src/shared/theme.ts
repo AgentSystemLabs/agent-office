@@ -1,9 +1,9 @@
 import type { Theme, ThemePick } from './protocol.js';
 
-// Holiday themes: the whole building dresses up for Halloween or Christmas. The server keeps
-// what's picked (server/theme.ts); every browser dresses its own scene up from that.
+// Themes: the whole building dresses up for Halloween or Christmas, or puts on the modern office.
+// The server keeps what's picked (server/theme.ts); every browser dresses its own scene up from that.
 
-export const THEME_PICKS: readonly ThemePick[] = ['auto', 'halloween', 'christmas', 'off'];
+export const THEME_PICKS: readonly ThemePick[] = ['auto', 'halloween', 'christmas', 'modern', 'off'];
 
 /**
  * The holiday it is on the office's calendar, if any: Halloween all through October, Christmas all

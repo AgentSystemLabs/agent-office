@@ -1,20 +1,22 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { BALCONY, DESKS, DESK_SIZE, EXIT_STAIRS, FLOOR, PLANTS, STREET_Y, WALL_HEIGHT, WINDOWS } from '../../shared/layout';
+import { BALCONY, DESKS, DESK_SIZE, EXIT_STAIRS, FLOOR, PLANTS, STREET_Y, WALL_HEIGHT, WINDOWS, type DeskDef } from '../../shared/layout';
 import type { Theme } from '../../shared/protocol';
 import { batWingGeometry, glowTexture } from './costumes';
-import { plantLeaves, type Collider, type Office } from './office';
+import { buildDesk, plantLeaves, type Collider, type Office } from './office';
 import { SPOOKY_MOON } from './sky';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
 
 /*
- * The building dressed up for a holiday (the costumes are in world/costumes.ts). Halloween puts
+ * The building dressed up for its theme (the costumes are in world/costumes.ts). Halloween puts
  * jack-o'-lanterns everywhere, on the desks, the sills, the counter, the balcony rail and all down
  * the street, with gravestones on the lawn, cobwebs in the corners and bats circling the building
  * and crossing the moon. Christmas turns the potted plants into little decorated trees with presents
  * under them, puts a present on every desk, a big lit tree out front and snowmen in the snow (the
- * sky makes it snow, see Sky.setTheme). Everything's built once and shown for its holiday. What's
- * down on the street goes further down the higher your floor is, as the street does (Office.setLevel).
+ * sky makes it snow, see Sky.setTheme). The modern office restyles the room itself: frosted screens
+ * between the benches, LED coves round the ceiling, and a server rack and a water cooler (see the
+ * modern section below). Everything's built once and shown for its theme. What's down on the street
+ * goes further down the higher your floor is, as the street does (Office.setLevel).
  */
 
 const G = STREET_Y;
@@ -471,6 +473,144 @@ function mulberry(seed: number): () => number {
   };
 }
 
+// ---- The modern office -------------------------------------------------------------------------
+
+/** The cool white the modern office's LED strips and coves glow in. */
+function ledMaterial(color: string): THREE.MeshToonMaterial {
+  const m = toonUnique(color);
+  m.emissive.set(color);
+  m.emissiveIntensity = 0.7;
+  m.userData.outlineParameters = { visible: false };
+  return m;
+}
+
+/** Frosted glass, for the screens between the benches and the server rack's door. */
+const FROST = new THREE.MeshBasicMaterial({ color: '#e6f4fa', transparent: true, opacity: 0.45, depthWrite: false });
+const RACK_GLASS = new THREE.MeshBasicMaterial({ color: '#173042', transparent: true, opacity: 0.55, depthWrite: false });
+
+/**
+ * The seam down the middle of each pod, where a modern office stands a frosted-glass screen between
+ * two back-to-back benches. The pods are the ones buildDesks lays out (shared/layout.ts): two
+ * clusters down the room, each with a back and a front row meeting at `z`.
+ */
+const BENCH_SCREENS: readonly [x: number, z: number][] = [
+  [-10.5, -4],
+  [-1.5, -4],
+  [-10.5, 4],
+  [-1.5, 4],
+];
+/** A pod's two 2.2 m desks, side by side, and how high its screen stands over them. */
+const SCREEN_LEN = 4.4;
+const SCREEN_H = 0.5;
+/** Where the modern office stands its water cooler, against the south wall by the kitchen. */
+const WATER_COOLER = { x: -8.7, z: 12.25 } as const;
+
+/** A frosted-glass desk screen: a pane in the seam between two benches, on a slim rail, lit underneath. */
+function benchScreen(led: THREE.Material): THREE.Group {
+  const g = new THREE.Group();
+  const y0 = DESK_SIZE.height;
+  const rail = toon('#c3ccd4');
+  g.add(mesh(new THREE.BoxGeometry(SCREEN_LEN, SCREEN_H, 0.035), FROST, 0, y0 + SCREEN_H / 2, 0, false));
+  g.add(mesh(new THREE.BoxGeometry(SCREEN_LEN + 0.08, 0.045, 0.07), rail, 0, y0 + SCREEN_H + 0.02, 0));
+  g.add(mesh(new THREE.BoxGeometry(SCREEN_LEN - 0.12, 0.014, 0.02), led, 0, y0 + SCREEN_H - 0.03, 0.03, false));
+  for (const sx of [-1, 1]) g.add(mesh(new THREE.BoxGeometry(0.08, 0.1, 0.13), rail, (sx * SCREEN_LEN) / 2, y0 + 0.03, 0));
+  return g;
+}
+
+/** A server rack: a dark cabinet with a glass door and rows of status LEDs, facing +z. */
+function serverRack(): { group: THREE.Group; leds: THREE.MeshToonMaterial[] } {
+  const g = new THREE.Group();
+  const W = 0.8;
+  const D = 0.7;
+  const H = 1.5;
+  const shell = toon('#3b4249');
+  g.add(mesh(new THREE.BoxGeometry(W, H, D), shell, 0, H / 2, 0));
+  // A recessed front, with the door glass over it, a vent grille on top and feet under it.
+  g.add(mesh(new THREE.BoxGeometry(W - 0.1, H - 0.16, 0.06), toon('#20252a'), 0, H / 2, D / 2 - 0.02, false));
+  g.add(mesh(new THREE.BoxGeometry(W - 0.14, H - 0.2, 0.02), RACK_GLASS, 0, H / 2, D / 2 + 0.01, false));
+  const trim = toon('#59636c');
+  for (let i = 0; i < 5; i++) g.add(mesh(new THREE.BoxGeometry(W - 0.16, 0.02, 0.03), trim, 0, H + 0.005, -0.2 + i * 0.1, false));
+  for (const sx of [-1, 1]) g.add(mesh(new THREE.BoxGeometry(0.07, 0.06, 0.07), trim, sx * (W / 2 - 0.06), 0.03, 0));
+  // The status LEDs, in rows in front of the glass, in three colors that flicker apart (see update).
+  const leds = ['#5dff8a', '#6ee7ff', '#ffd166'].map(ledMaterial);
+  const blink = new THREE.Group();
+  const bulb = new THREE.BoxGeometry(0.028, 0.02, 0.012);
+  for (let r = 0; r < 6; r++) {
+    for (let i = 0; i < 5; i++) blink.add(mesh(bulb, leds[(r + i) % leds.length], -0.28 + i * 0.14, 0.2 + r * 0.22, D / 2 + 0.035, false));
+  }
+  g.add(mergeByMaterial(blink));
+  return { group: g, leds };
+}
+
+/** A water cooler: a stand with two taps and a big bottle on top, facing +z. */
+function waterCooler(): THREE.Group {
+  const g = new THREE.Group();
+  const body = toon('#e9eef2');
+  const trim = toon('#b9c2c9');
+  const W = 0.4;
+  const D = 0.4;
+  const H = 0.95;
+  g.add(mesh(new THREE.BoxGeometry(W, H, D), body, 0, H / 2, 0));
+  g.add(mesh(new THREE.BoxGeometry(W * 0.8, 0.22, 0.02), trim, 0, H - 0.18, D / 2 + 0.005, false));
+  for (const [sx, color] of [
+    [-0.07, '#3a86ff'],
+    [0.07, '#ef476f'],
+  ] as const) {
+    g.add(mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.07, 8), toon(color), sx, H - 0.3, D / 2 + 0.05, false));
+  }
+  g.add(mesh(new THREE.BoxGeometry(0.3, 0.03, 0.14), trim, 0, 0.02, D / 2 + 0.05));
+  // The bottle, neck down in its collar on top.
+  const water = toon('#8ecae6');
+  g.add(mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.12, 12), trim, 0, H + 0.06, 0));
+  g.add(mesh(new THREE.CylinderGeometry(0.17, 0.15, 0.42, 16), water, 0, H + 0.3, 0));
+  g.add(mesh(new THREE.SphereGeometry(0.17, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), water, 0, H + 0.51, 0));
+  return g;
+}
+
+/** Slim LED coves tucked in where each wall meets the ceiling. */
+function ceilingCoves(led: THREE.Material): THREE.Group {
+  const y = WALL_HEIGHT - 0.24;
+  const inset = 0.3;
+  const t = 0.06;
+  const along = (w: number, d: number, x: number, z: number) => mesh(new THREE.BoxGeometry(w, 0.05, d), led, x, y, z, false);
+  const g = new THREE.Group();
+  g.add(along(FLOOR.maxX - FLOOR.minX - 2 * inset, t, 0, FLOOR.minZ + inset), along(FLOOR.maxX - FLOOR.minX - 2 * inset, t, 0, FLOOR.maxZ - inset));
+  g.add(along(t, FLOOR.maxZ - FLOOR.minZ - 2 * inset, FLOOR.minX + inset, 0), along(t, FLOOR.maxZ - FLOOR.minZ - 2 * inset, FLOOR.maxX - inset, 0));
+  return mergeByMaterial(g);
+}
+
+/** How bright the server rack's LED `i` is at `t`: a slow flicker, each in a rhythm of its own. */
+function rackGlow(t: number, i: number): number {
+  return 0.25 + 1.5 * (0.5 + 0.5 * Math.sin(t * (7 + i * 4) + i * 2.1));
+}
+
+/**
+ * The modern office's furniture, laid out as the props lab shows it: a frosted screen standing in
+ * the seam between two back-to-back benches, the server rack and the water cooler. `update` flickers
+ * the rack's LEDs, as Holiday.update does in the office.
+ */
+export function modernFurniture(): { group: THREE.Group; update: (t: number) => void } {
+  const group = new THREE.Group();
+  const led = ledMaterial('#9fdcff');
+  const bench = new THREE.Group();
+  const desk = (def: DeskDef, z: number, rotY: number) => {
+    const d = buildDesk({ ...def, x: 0, z, rotY }, 1, toon('#8ecae6'));
+    d.vacancy.visible = false;
+    return d.group;
+  };
+  bench.add(desk(DESKS[0], 0.55, 0), desk(DESKS[0], -0.55, Math.PI), benchScreen(led));
+  group.add(bench);
+  const rack = serverRack();
+  rack.group.position.set(3.4, 0, 0);
+  group.add(rack.group);
+  const cooler = waterCooler();
+  cooler.position.set(-2.7, 0, 0);
+  group.add(mergeByMaterial(cooler));
+  const update = (t: number) => rack.leds.forEach((m, i) => (m.emissiveIntensity = rackGlow(t, i)));
+  update(0);
+  return { group, update };
+}
+
 // -----------------------------------------------------------------------------------------------
 
 export class Holiday {
@@ -478,19 +618,24 @@ export class Holiday {
   theme: Theme | null = null;
   private halloween = new THREE.Group();
   private christmas = new THREE.Group();
+  private modern = new THREE.Group();
   private pumpkin: THREE.MeshToonMaterial;
   private pumpkinGlow: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>[] = [];
   private treeGlow: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>[] = [];
+  /** The modern office's LED strips, its blinking server rack, and the glow of its coves at night. */
+  private modernLed: THREE.MeshToonMaterial;
+  private rackLeds: THREE.MeshToonMaterial[] = [];
+  private modernGlow: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>[] = [];
   private bats: Bat[] = [];
   /** Bats far off round the moon, which ride along with you like the moon does. */
   private moonBats = new THREE.Group();
   private lights: THREE.MeshToonMaterial[];
-  private colliders: Record<Theme, Collider[]> = { halloween: [], christmas: [] };
+  private colliders: Record<Theme, Collider[]> = { halloween: [], christmas: [], modern: [] };
   /**
    * Each holiday's things down on the street (and on the landing outside the bottom floor's exit),
    * how far down the street is from the floor you're on, and where their colliders are from the bottom floor.
    */
-  private street: Record<Theme, THREE.Group> = { halloween: new THREE.Group(), christmas: new THREE.Group() };
+  private street: Record<'halloween' | 'christmas', THREE.Group> = { halloween: new THREE.Group(), christmas: new THREE.Group() };
   private drop = 0;
   private base = new Map<Collider, { top: number; bottom: number }>();
   /** The plants' leaves, and the tree each becomes at Christmas. */
@@ -498,8 +643,8 @@ export class Holiday {
   private readonly camPos = new THREE.Vector3();
 
   constructor(private office: Office) {
-    this.halloween.visible = this.christmas.visible = false;
-    this.group.add(this.halloween, this.christmas);
+    this.halloween.visible = this.christmas.visible = this.modern.visible = false;
+    this.group.add(this.halloween, this.christmas, this.modern);
     this.halloween.add(this.street.halloween);
     this.christmas.add(this.street.christmas);
 
@@ -649,11 +794,38 @@ export class Holiday {
       this.colliders.christmas.push({ minX: x - 0.55, maxX: x + 0.55, minZ: z - 0.55, maxZ: z + 0.55, bottom: G, top: G + 2.5 });
     }
     this.street.christmas.add(mergeByMaterial(men));
+    // ---- The modern office ----
+    // A cool, glassy, open-plan look: frosted screens between the benches, LED coves round the
+    // ceiling, and the trappings of a working office — a server rack and a water cooler.
+    this.modernLed = ledMaterial('#9fdcff');
+    const screens = new THREE.Group();
+    for (const [x, z] of BENCH_SCREENS) screens.add(benchScreen(this.modernLed).translateX(x).translateZ(z));
+    this.modern.add(mergeByMaterial(screens));
+    this.modern.add(ceilingCoves(this.modernLed));
+    const rack = serverRack();
+    this.rackLeds = rack.leds;
+    rack.group.position.set(FLOOR.maxX - 0.5, 0, 3.4);
+    rack.group.rotation.y = -Math.PI / 2;
+    this.modern.add(rack.group);
+    this.colliders.modern.push({ minX: FLOOR.maxX - 0.95, maxX: FLOOR.maxX - 0.05, minZ: 3.0, maxZ: 3.8, top: 1.5 });
+    const cooler = waterCooler();
+    cooler.position.set(WATER_COOLER.x, 0, WATER_COOLER.z);
+    cooler.rotation.y = Math.PI;
+    this.modern.add(mergeByMaterial(cooler));
+    this.colliders.modern.push({ minX: WATER_COOLER.x - 0.28, maxX: WATER_COOLER.x + 0.28, minZ: WATER_COOLER.z - 0.24, maxZ: WATER_COOLER.z + 0.24, top: 1.6 });
+    // The coves' light pooling where they meet the walls, at night.
+    const covePts: THREE.Vector3[] = [];
+    const coveY = WALL_HEIGHT - 0.34;
+    const coveIn = 0.3;
+    for (let x = FLOOR.minX + 1.5; x <= FLOOR.maxX - 1.5; x += 2.5) covePts.push(new THREE.Vector3(x, coveY, FLOOR.minZ + coveIn), new THREE.Vector3(x, coveY, FLOOR.maxZ - coveIn));
+    for (let z = FLOOR.minZ + 1.5; z <= FLOOR.maxZ - 1.5; z += 2.5) covePts.push(new THREE.Vector3(FLOOR.minX + coveIn, coveY, z), new THREE.Vector3(FLOOR.maxX - coveIn, coveY, z));
+    this.modernGlow = halos(covePts.map((p) => ({ p, size: 1.6, color: '#bfe6ff' })));
+    this.modern.add(...this.modernGlow);
     // Every collider here is down on the street.
     for (const c of [...this.colliders.halloween, ...this.colliders.christmas]) this.base.set(c, { top: c.top, bottom: c.bottom ?? 0 });
   }
 
-  /** Puts up a holiday's decorations (taking down the other's), or none. */
+  /** Puts up a theme's decorations (taking down the other's), or none. */
   set(theme: Theme | null) {
     if (theme === this.theme) return;
     const colliders = this.office.colliders;
@@ -662,6 +834,7 @@ export class Holiday {
     if (theme) colliders.push(...this.colliders[theme]);
     this.halloween.visible = theme === 'halloween';
     this.christmas.visible = theme === 'christmas';
+    this.modern.visible = theme === 'modern';
     for (const p of this.plants) {
       p.tree.visible = theme === 'christmas';
       for (const l of p.leaves) l.visible = theme !== 'christmas';
@@ -704,6 +877,14 @@ export class Holiday {
       this.lights.forEach((m, i) => (m.emissiveIntensity = base * (0.55 + 0.45 * Math.sin(t * 2.2 + i * 1.7))));
       for (const h of this.treeGlow) {
         h.material.opacity = lampsOn * 0.8;
+        h.visible = h.material.opacity > 0.01;
+      }
+    } else if (this.theme === 'modern') {
+      // The strips run all day; the coves' glow only shows once the lamps are on.
+      this.modernLed.emissiveIntensity = 0.35 + 0.75 * lampsOn;
+      this.rackLeds.forEach((m, i) => (m.emissiveIntensity = rackGlow(t, i)));
+      for (const h of this.modernGlow) {
+        h.material.opacity = 0.1 + 0.4 * lampsOn;
         h.visible = h.material.opacity > 0.01;
       }
     }

@@ -13,8 +13,9 @@ interface Saved {
 }
 
 /**
- * The building's holiday theme (Halloween, Christmas, none, or whichever the calendar says), picked
- * in ⚙️ Settings by anyone and kept in .agent-office/theme.json. Everyone sees the same one.
+ * The building's theme (Halloween, Christmas, the modern office, none, or whichever holiday the
+ * calendar says), picked in ⚙️ Settings by anyone and kept in .agent-office/theme.json. Everyone
+ * sees the same one.
  */
 export class Themes {
   private saved?: Saved;

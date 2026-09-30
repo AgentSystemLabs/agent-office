@@ -2082,9 +2082,11 @@ export async function startServer(cfg: Config) {
             ? `🎃 ${who} dressed the office up for Halloween`
             : msg.pick === 'christmas'
               ? `🎄 ${who} dressed the office up for Christmas`
-              : msg.pick === 'off'
-                ? `${who} took the holiday decorations down`
-                : `📅 ${who} set the decorations to follow the calendar${now ? ` (it's ${now === 'halloween' ? 'Halloween 🎃' : 'Christmas 🎄'} season)` : ''}`,
+              : msg.pick === 'modern'
+                ? `🏙️ ${who} turned the office into a modern-day office`
+                : msg.pick === 'off'
+                  ? `${who} took the decorations down`
+                  : `📅 ${who} set the decorations to follow the calendar${now ? ` (it's ${now === 'halloween' ? 'Halloween 🎃' : 'Christmas 🎄'} season)` : ''}`,
         );
         break;
       }

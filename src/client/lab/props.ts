@@ -15,6 +15,7 @@ import { DESKS } from '../../shared/layout';
 import { buildCabinet } from '../world/cabinet';
 import { supercar } from '../world/cars';
 import { buildGong } from '../world/gong';
+import { modernFurniture } from '../world/holiday';
 import { buildJukebox } from '../world/jukebox';
 import { buildKitchen } from '../world/kitchen';
 import { preloadModels } from '../world/models';
@@ -42,6 +43,12 @@ const SHOW: Record<string, () => Shown> = {
   },
   cabinet: () => ({ object: buildCabinet().group }),
   kitchen: () => ({ object: buildKitchen().group }),
+  modern: () => {
+    // The modern office's furniture (see holiday.ts): a screen between two benches, the server rack
+    // and the water cooler, the rack's LEDs flickering as they do in the office.
+    const m = modernFurniture();
+    return { object: m.group, update: (_dt, t) => m.update(t) };
+  },
   plants: () => {
     // The floor plants at scale 1 side by side, then the desk succulent, to compare them. A param of
     // its own: plant=<species> keeps just that one.
