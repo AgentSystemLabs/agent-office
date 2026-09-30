@@ -47,6 +47,7 @@ import { openTerminal, openTerminalFor, routeTerminalMessage, type TerminalFind 
 import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { openRepoPulls, workerRepos } from './ui/repos';
+import { answerOpen, openAnswer, syncAnswers } from './ui/answer';
 import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage, worktreePref } from './ui/prompt';
 import { issuePrompt, openBoard } from './ui/boards';
 import { openIssue, openPull, routePullMessage } from './ui/pull';
@@ -148,6 +149,7 @@ const STATION_INFO: Record<StationKind, { icon: string; offer: string; does: str
   issues: { icon: '📌', offer: 'Ask me about issues', does: 'I file, find, triage, label and close them', example: 'File an issue: the dog walks straight through the jukebox' },
   pulls: { icon: '🔀', offer: 'Ask me about PRs', does: 'I sum up, review, comment on and merge them', example: 'Review the newest PR and tell me if it’s ready to merge' },
   queue: { icon: '📋', offer: 'Ask me to queue work', does: 'I turn it into tasks for fresh workers', example: 'Queue every open bug issue, most important first' },
+  study: { icon: '📖', offer: 'Ask me to plan', does: 'I interview you, one question at a time, into a PRD', example: 'Interview me about letting people sign up with a magic link' },
 };
 /** The board agents waiting by their boards before anyone has asked them anything (see buildKiosk). */
 const idleAgents = STATIONS.map((def) => {
@@ -1539,6 +1541,19 @@ function arrangeSeats() {
   for (const c of appeared) if (p.y > -0.1 && p.y < c.top && p.x > c.minX - 0.3 && p.x < c.maxX + 0.3 && p.z > c.minZ - 0.3 && p.z < c.maxZ + 0.3) p.y = c.top;
 }
 store.on('workers', syncWorkers);
+// A question an agent put through office-ask: the window opens for whoever it's talking to (or for
+// everyone while nobody has been), once per question; closing it doesn't lose it: E at the agent opens it again.
+const askedOnce = new Set<string>();
+store.on('workers', () => {
+  syncAnswers(store.workers.values());
+  const me = store.peers.get(store.you)?.name;
+  for (const w of store.workers.values()) {
+    const ask = w.asking;
+    if (!ask || askedOnce.has(ask.id) || answerOpen(ask.id) || (w.lastInput && w.lastInput.by !== me)) continue;
+    askedOnce.add(ask.id);
+    openAnswer(w, ask, net);
+  }
+});
 // A worker at the meeting table shows its role and round over its head (see meetingCard).
 store.on('meeting', syncWorkers);
 // A worker's bubble shows whether it has a pull request open (green) or merged (purple: send it home).
@@ -1708,6 +1723,8 @@ function askStation(deskId: string) {
   const w = store.workerAtDesk(deskId);
   const name = STATION_AGENT[kind].name;
   const info = STATION_INFO[kind];
+  // A question it put through office-ask: answer it here.
+  if (w?.asking) return openAnswer(w, w.asking, net);
   // A prompt typed into a question it's asking would answer it.
   if (w?.status === 'needs_input') {
     toast(`The ${name} is waiting on an answer — here's its terminal`, 'warn');

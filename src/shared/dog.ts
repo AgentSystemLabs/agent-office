@@ -31,7 +31,7 @@ export interface DogState {
 export const DOG_NAME_MAX = 24;
 
 /** A new floor's dog is called one of these until someone names it in ⚙️ Settings (none is a worker's name). */
-export const DOG_NAMES = ['Biscuit', 'Pancake', 'Peanut', 'Pepper', 'Cookie', 'Bagel', 'Ziggy', 'Pretzel', 'Maple', 'Scout'];
+export const DOG_NAMES = ['Dzsoki'];
 
 /** A floor's dog is one of these, each its own model (dog-<breed>.glb) with the same rig and clips. */
 export const DOG_BREEDS = ['pup', 'corgi', 'dachshund', 'pug', 'shiba'] as const;

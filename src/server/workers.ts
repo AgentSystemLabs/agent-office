@@ -14,6 +14,7 @@ import { WORKSPACE_FILES, WORKTREES_DIR, Worktrees, describeWork, workspaceOf, t
 import { normalizeRepo } from '../shared/floors.js';
 import { DESK_BY_ID, STATION_AGENT } from '../shared/layout.js';
 import { QUEUE_AGENT_DISALLOWED_TOOLS, stationBrief } from './stations.js';
+import { Asks } from './asks.js';
 import { officePrompt, type PromptSource } from './prompts.js';
 import { isBusy } from '../shared/status.js';
 import { gh } from './github.js';
@@ -197,6 +198,8 @@ export class WorkerManager {
   private codexHook: string;
   /** Where the office-queue command is, for the board agents' PATH (see writeQueueCommand). */
   private queueBin: string | undefined;
+  /** The questions agents have put to the office with office-ask, until they're answered. */
+  private readonly asks = new Asks();
   private screenTimer: NodeJS.Timeout;
   /** The office is shutting down: workers exiting now are being stopped, not failing to resume. */
   private closing = false;
@@ -514,6 +517,43 @@ export class WorkerManager {
     return err ?? { info: w.info, hired: false };
   }
 
+  /**
+   * A question from an agent, through office-ask: shown to the office as a dialog, with the worker
+   * flagged as waiting on someone, until it's answered. Resolves with the answer, or null when none
+   * came within `holdMs` (the command asks again).
+   */
+  async ask(id: string, q: Parameters<Asks['ask']>[1], holdMs: number): Promise<string | null> {
+    const w = this.workers.get(id);
+    if (!w) return null;
+    const r = this.asks.ask(id, q, holdMs);
+    if (r.fresh) {
+      w.info.asking = r.ask;
+      w.info.activity = `Asks: ${truncate(q.question, 80)}`;
+      this.setStatus(w, 'needs_input');
+      this.emitUpdate(w);
+    }
+    const answer = await r.answer;
+    if (answer !== null) this.settleAsk(w, r.ask.id);
+    return answer;
+  }
+
+  /** Someone's answer to the question a worker is waiting on. Returns what went wrong, if anything. */
+  answerAsk(id: string, askId: string, answer: string): string | undefined {
+    const w = this.workers.get(id);
+    if (!w?.info.asking || w.info.asking.id !== askId) return 'That question has already been answered';
+    if (!this.asks.answer(id, askId, answer)) return answer.trim() ? 'That question has already been answered' : 'Type or pick an answer';
+    this.settleAsk(w, askId);
+    return undefined;
+  }
+
+  /** The question is answered: the worker is back at work. */
+  private settleAsk(w: Worker, askId: string) {
+    if (w.info.asking?.id !== askId) return;
+    w.info.asking = undefined;
+    if (w.info.status === 'needs_input') this.setStatus(w, 'working');
+    else this.emitUpdate(w);
+  }
+
   /** The worker whose terminal holds this hook token: how a worker proves it's asking for itself. */
   authenticate(id: string, token: string): WorkerInfo | undefined {
     const w = this.workers.get(id);
@@ -535,6 +575,7 @@ export class WorkerManager {
     const w = this.workers.get(id);
     if (!w) return {};
     this.workers.delete(id);
+    this.asks.drop(id);
     this.namer.forget(id);
     clearTimeout(w.scanTimer);
     const proc = w.pty;
@@ -953,6 +994,11 @@ export class WorkerManager {
       case 'UserPromptSubmit':
         w.bootBlocked = false;
         w.info.action = undefined;
+        // Someone typed in its terminal instead of answering the question.
+        if (w.info.asking) {
+          this.asks.drop(w.info.id);
+          w.info.asking = undefined;
+        }
         if (typeof payload?.prompt === 'string') {
           w.info.activity = truncate(payload.prompt, 80);
           this.notePrompt(w, payload.prompt);
@@ -1215,6 +1261,8 @@ export class WorkerManager {
   // ---------------------------------------------------------------------------
 
   private launch(w: Worker, prompt: string | undefined, resumeSessionId: string | undefined) {
+    // Whatever it was waiting on died with its last terminal.
+    w.info.asking = undefined;
     const { info } = w;
     // The new terminal starts with what the last one showed (on a resume), or with what was saved
     // when the office last stopped, so earlier output is still there to scroll back to and search.
@@ -1247,6 +1295,8 @@ export class WorkerManager {
       if (info.effort) args.push('--effort', info.effort);
       // The queue agent only ever adds to the queue: without these it can't touch the checkout's files.
       if (station === 'queue') args.push('--disallowedTools', ...QUEUE_AGENT_DISALLOWED_TOOLS);
+      // These two ask their questions through the office, so that command must not stop to ask for permission itself.
+      if (station === 'study' || station === 'issues') args.push('--allowedTools', 'Bash(office-ask:*)');
       if (resumeSessionId) args.push('--resume', resumeSessionId);
       // `--` so a prompt like "- fix login" is never parsed as a CLI option.
       if (prompt) args.push('--', prompt);
@@ -1659,11 +1709,16 @@ process.stdin.on('end', () => {
     if (!script) return undefined;
     const dir = path.join(this.dataDir, 'bin');
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const file = path.join(dir, 'office-queue');
-    writeFileSync(file, `#!/bin/sh\n# Agent Office's task queue, for the board agents (see bin/office-queue.js).\nexec ${shq(process.execPath)} ${shq(script)} "$@"\n`, { mode: 0o700 });
-    chmodSync(file, 0o700);
-    // cmd.exe and PowerShell find it by PATHEXT; Git Bash (Claude Code's shell there) runs the sh one.
-    if (WIN) writeFileSync(`${file}.cmd`, `@"${process.execPath}" "${script}" %*\r\n`);
+    const commands: [name: string, script: string, what: string][] = [['office-queue', script, "task queue"]];
+    const ask = binScript('office-ask.js');
+    if (ask) commands.push(['office-ask', ask, 'questions for the office']);
+    for (const [name, js, what] of commands) {
+      const file = path.join(dir, name);
+      writeFileSync(file, `#!/bin/sh\n# Agent Office's ${what}, for the board agents (see bin/${name}.js).\nexec ${shq(process.execPath)} ${shq(js)} "$@"\n`, { mode: 0o700 });
+      chmodSync(file, 0o700);
+      // cmd.exe and PowerShell find it by PATHEXT; Git Bash (Claude Code's shell there) runs the sh one.
+      if (WIN) writeFileSync(`${file}.cmd`, `@"${process.execPath}" "${js}" %*\r\n`);
+    }
     return dir;
   }
 
@@ -1907,15 +1962,16 @@ function screenText(term: HeadlessTerminal, from = 0): string {
   return out.join('\n');
 }
 
-/** bin/office-queue.js in the install this office runs from (src/server under tsx, dist/server/server built). */
-function queueScript(): string | undefined {
+/** A script from bin/ in the install this office runs from (src/server under tsx, dist/server/server built). */
+function binScript(name: string): string | undefined {
   let dir = path.dirname(fileURLToPath(import.meta.url));
   for (let i = 0; i < 4; i++, dir = path.dirname(dir)) {
-    const file = path.join(dir, 'bin', 'office-queue.js');
+    const file = path.join(dir, 'bin', name);
     if (existsSync(file)) return file;
   }
   return undefined;
 }
+const queueScript = () => binScript('office-queue.js');
 
 const WIN = process.platform === 'win32';
 

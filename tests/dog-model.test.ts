@@ -96,17 +96,15 @@ test('the breeds are built as they should be: a corgi and a dachshund low, a dac
 test("a floor's dog keeps its name and coat, and gets a breed, from its id", () => {
   // Floors called much alike, as a repo cloned twice is ("app", "app-2", ...).
   const seen = new Set<DogBreed>();
-  const pancakes = new Set<DogBreed>();
   for (let i = 0; i < 200; i++) {
     const d = dogDefaults(`floor-${i}`);
     assert.equal(dogDefaults(`floor-${i}`).breed, d.breed, 'the same breed every time');
     seen.add(d.breed);
-    if (d.name === 'Pancake') pancakes.add(d.breed);
+    assert.equal(d.name, 'Dzsoki', 'every floor starts with the same dog name');
   }
   assert.equal(seen.size, DOG_BREEDS.length, 'every breed turns up');
-  assert.ok(pancakes.size > 1, "a dog's breed doesn't go with its name");
   // What these floors were called and wore before there were breeds.
-  assert.deepEqual({ ...dogDefaults('main'), breed: undefined }, { name: 'Pancake', coat: 5, breed: undefined });
+  assert.deepEqual({ ...dogDefaults('main'), breed: undefined }, { name: 'Dzsoki', coat: 5, breed: undefined });
   assert.equal(dogBreed(undefined), 'pup', 'an office that sends no breed has the pup');
   assert.equal(dogBreed('wolf'), 'pup', "a breed this page doesn't know is the pup");
   assert.equal(dogBreed('corgi'), 'corgi');

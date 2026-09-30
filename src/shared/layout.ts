@@ -60,7 +60,7 @@ export const BEANBAGS: DeskDef[] = (
   [
     // Out in the north-east corner past the gong, and between the PR board and the elevator, clear of
     // the gong's front and the elevator doors.
-    [15, -9.8, 0],
+    [15, -7.4, 0],
     [5.4, -9.8, 0],
     [-16.1, -9, Math.PI / 2],
     [-16.1, -3, Math.PI / 2],
@@ -80,7 +80,7 @@ export const BEANBAGS: DeskDef[] = (
 export const SEATS: DeskDef[] = [...DESKS, ...BEANBAGS];
 
 /** The boards with an agent standing by: the Issues board, the PR board and the task queue. */
-export type StationKind = 'issues' | 'pulls' | 'queue';
+export type StationKind = 'issues' | 'pulls' | 'queue' | 'study';
 
 /**
  * The board agents: a worker standing behind a little kiosk just west of each of those boards (see
@@ -94,14 +94,17 @@ export const STATIONS: DeskDef[] = [
   { id: 'station-pulls', station: 'pulls', x: 0, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'PR board' },
   // Between the Issues board and the task queue.
   { id: 'station-queue', station: 'queue', x: -7.8, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'Task queue' },
+  // The Study, in the north-east pocket between the gong and the corner plant, clear of the bean bags out there.
+  { id: 'station-study', station: 'study', x: 16.05, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'The Study' },
 ];
 /** A board agent's kiosk: its top, and how far behind its middle (toward the wall) the agent stands. */
 export const KIOSK = { width: 0.8, depth: 0.5, height: 0.55, stand: 0.55 } as const;
 /** Each board agent's name and its color, the same whenever it's hired. */
 export const STATION_AGENT: Record<StationKind, { name: string; color: string }> = {
-  issues: { name: 'Issues agent', color: '#ef476f' },
+  issues: { name: 'Tonye', color: '#ef476f' },
   pulls: { name: 'PR agent', color: '#118ab2' },
   queue: { name: 'Queue agent', color: '#06d6a0' },
+  study: { name: 'GIM', color: '#8d6cc4' },
 };
 
 /** The upstairs office: a glass-walled loft on posts in the south-east corner, looking down on the desks. */
@@ -185,7 +188,7 @@ export const BOARDS = {
   queue: { x: -3.9, y: 2.1, z: FLOOR.minZ + 0.08, rotY: 0, width: 6, height: 3, label: '📋 Task queue' },
   pulls: { x: 3.9, y: 2.1, z: FLOOR.minZ + 0.08, rotY: 0, width: 6, height: 3, label: 'Pull Requests' },
   // East wall, north of the lounge TV.
-  services: { x: FLOOR.maxX - 0.08, y: 2.1, z: -8.2, rotY: -Math.PI / 2, width: 6, height: 3, label: '🌐 Services' },
+  services: { x: FLOOR.maxX - 0.08, y: 2.1, z: -7.2, rotY: -Math.PI / 2, width: 4, height: 2.2, label: '🌐 Services' },
 } as const;
 
 /** The big TV on the east wall that shows whoever is screen sharing. */

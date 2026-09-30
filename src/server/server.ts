@@ -17,6 +17,7 @@ import { Tailnet } from './tailnet.js';
 import { Team } from './team.js';
 import { Upgrader } from './upgrade.js';
 import { Services } from './services.js';
+import { ASK_ANSWER_MAX, cleanAsk } from './asks.js';
 import { ImageProxy } from './decor.js';
 import { Ledger } from './usage.js';
 import { PlanLimitsReader } from './limits.js';
@@ -130,6 +131,9 @@ function isSecure(req: http.IncomingMessage, cfg: Config): boolean {
   if (cfg.tls) return true;
   return cfg.trustProxy && req.headers['x-forwarded-proto'] === 'https';
 }
+
+/** How long one office-ask request waits for an answer before saying there's none yet (the command asks again). */
+const ASK_HOLD_MS = 240_000;
 
 function readBody(req: http.IncomingMessage, limit = 1024 * 1024): Promise<string> {
   return readBytes(req, limit).then((b) => b.toString('utf8'));
@@ -292,6 +296,7 @@ export async function startServer(cfg: Config) {
       return send(res, 400, {});
     }
     if (url.pathname === '/office/queue') return officeQueue(req, res, url);
+    if (url.pathname === '/office/ask') return officeAsk(req, res, url);
     if (req.method !== 'POST' || !['/hooks/claude', '/hooks/opencode', '/hooks/codex'].includes(url.pathname)) return send(res, 404, { ok: false });
     let payload: unknown = {};
     try {
@@ -349,6 +354,30 @@ export async function startServer(cfg: Config) {
     const task = floor.queue.state().tasks.at(-1)!;
     toastFloor(floor, `📋 The ${agent.name} queued ${issue !== undefined ? `issue #${issue}` : `“${task.title}”`}`);
     send(res, 200, { ok: true, task: { id: task.id, title: task.title, status: task.status } });
+  };
+  /**
+   * A question from the agent in the Study or at the Issues board (bin/office-ask.js): POST {question, options?, multi?, header?}
+   * holds until someone answers in the office, then replies {answer}, or {answer: null} if nobody has yet.
+   */
+  const officeAsk = async (req: http.IncomingMessage, res: http.ServerResponse, url: URL) => {
+    const workerId = url.searchParams.get('worker') ?? '';
+    const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+    const floor = workerFloor(workerId);
+    const agent = floor?.workers.authenticate(workerId, token);
+    if (!floor || !agent) return send(res, 401, { error: 'Send your own AGENT_OFFICE_WORKER_ID as ?worker= and AGENT_OFFICE_HOOK_TOKEN as the bearer token' });
+    const station = DESK_BY_ID.get(agent.deskId)?.station;
+    if (station !== 'study' && station !== 'issues') return send(res, 403, { error: 'Only the agents in the Study and at the Issues board can ask the office questions' });
+    if (req.method !== 'POST') return send(res, 405, { error: 'POST' });
+    let body: unknown;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      return send(res, 400, { error: 'Send JSON: {"question": "…", "options": ["…", "…"]}' });
+    }
+    const q = cleanAsk(body);
+    if (typeof q === 'string') return send(res, 400, { error: q });
+    // A dropped connection (the agent's command timing out) is fine: asking again picks the question back up.
+    send(res, 200, { answer: await floor.workers.ask(agent.id, q, ASK_HOLD_MS) });
   };
   // Workers' terminals outlive a restart of the office (see ptys.ts) with this address in their
   // environment, so listen where the last office did when that port is free.
@@ -1516,6 +1545,13 @@ export async function startServer(cfg: Config) {
       case 'worker.resume': {
         const w = worker(msg.workerId);
         warn(c, w ? w.floor.workers.resume(w.wid) : 'No such worker');
+        break;
+      }
+      case 'worker.answer': {
+        const w = worker(msg.workerId);
+        if (!w) break;
+        const err = w.floor.workers.answerAsk(w.info.id, str(msg.askId, 40), str(msg.answer, ASK_ANSWER_MAX));
+        if (err) sendTo(c, { t: 'toast', text: err, level: 'warn' });
         break;
       }
       case 'worker.kill': {

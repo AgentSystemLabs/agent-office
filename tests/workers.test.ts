@@ -723,12 +723,12 @@ test('a board agent is hired with its brief on the first prompt, then prompted, 
   assert.equal(typeof hired, 'object');
   if (typeof hired === 'string') return;
   assert.equal(hired.hired, true);
-  assert.equal(hired.info.name, 'Issues agent');
+  assert.equal(hired.info.name, 'Tonye');
   assert.equal(hired.info.deskId, 'station-issues');
   assert.equal(hired.info.activity, 'File an issue about the dog');
   const [first] = await waitFor(launches, (l) => l.length === 1);
   const initial = first.args.at(-1)!;
-  assert.match(initial, /Issues agent/);
+  assert.match(initial, /Tonye/);
   assert.match(initial, /office-queue add/);
   // Only the queue agent loses its file-editing tools.
   assert.equal(first.args.includes('--disallowedTools'), false);

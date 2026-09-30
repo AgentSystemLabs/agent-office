@@ -1259,3 +1259,12 @@ a.when:hover { text-decoration: underline; }
   .loading-paw, .loading-shadow { animation: none; }
   #loading, .loading-fill { transition: none; }
 }
+
+/* A question an agent asked with office-ask */
+.modal.ask .ask-question { margin: 0 0 12px; font-weight: 700; white-space: pre-wrap; }
+.ask-options { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; }
+.ask-option { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 12px; font: inherit; color: var(--ink); background: var(--paper); border: 3px solid var(--ink); border-radius: 12px; cursor: pointer; }
+.ask-option span { font-size: 13px; color: var(--muted); }
+.ask-option:hover, .ask-option:focus-visible, .ask-option.picked { background: var(--paper-2); box-shadow: 0 3px 0 var(--ink); }
+.ask-option.picked { outline: 3px solid var(--ink); outline-offset: 1px; }
+.modal.ask textarea { width: 100%; box-sizing: border-box; }

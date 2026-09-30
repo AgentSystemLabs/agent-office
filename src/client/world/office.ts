@@ -853,7 +853,7 @@ function buildBeanbag(def: DeskDef, index: number): DeskView {
   return { def, group, laptopAnchor, seatAnchor, stage, chair: bag, vacancy, vacancyY };
 }
 
-const KIOSK_SIGN: Record<StationKind, string> = { issues: '📌 Ask me', pulls: '🔀 Ask me', queue: '📋 Ask me' };
+const KIOSK_SIGN: Record<StationKind, string> = { issues: '📌 Ask me', pulls: '🔀 Ask me', queue: '📋 Ask me', study: '📖 Ask me' };
 
 /**
  * A board agent's kiosk: a little counter in its color with a sign on the front, and the agent standing
@@ -1047,14 +1047,16 @@ export function buildOffice(): Office {
     const corners = [-1, 1].flatMap((t) => [-KIOSK.depth / 2, KIOSK.stand + 0.35].map((sz) => deskPoint(def, (t * KIOSK.width) / 2, sz)));
     const xs = corners.map(([x]) => x);
     const zs = corners.map(([, z]) => z);
-    colliders.push({ minX: Math.min(...xs), maxX: Math.max(...xs), minZ: FLOOR.minZ, maxZ: Math.max(...zs), top: 1.5, fence: true });
+    // Back to whichever wall the agent stands against (rotY 0: the south one, else the north one).
+    const south = def.rotY === 0;
+    colliders.push({ minX: Math.min(...xs), maxX: Math.max(...xs), minZ: south ? Math.min(...zs) : FLOOR.minZ, maxZ: south ? FLOOR.maxZ : Math.max(...zs), top: 1.5, fence: true });
     // Walk up to its front.
     const [fx, fz] = deskPoint(def, 0, -1);
     const it: Interactable = { kind: 'station', deskId: def.id, x: fx, z: fz, radius: 1.3 };
     interactables.push(it);
     view.group.userData.interact = it;
     // The agent, its name tag and the card over its head, up against the wall.
-    fixture('north', def.x, 1.45, 1.4, 2.9);
+    fixture(def.rotY === 0 ? 'south' : 'north', def.x, 1.45, 1.4, 2.9);
   }
   const setBeanbags = (out: Set<string>) => {
     const appeared: Collider[] = [];

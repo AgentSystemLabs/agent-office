@@ -77,6 +77,18 @@ export interface WorkerTask {
   summary: string;
 }
 
+/** A question an agent has put to the people in the office (see server/asks.ts): pick an option, or type an answer. */
+export interface WorkerAsk {
+  id: string;
+  question: string;
+  /** A few words over the question, like a tab title. */
+  header?: string;
+  /** The choices, at least two, or none for a question that wants typing. Typing an answer instead is always allowed. */
+  options: { label: string; description?: string }[];
+  /** More than one option may be picked. */
+  multi: boolean;
+}
+
 export interface WorkerInfo {
   id: string;
   /** 'agent' runs the selected provider; 'shell' is a plain shared login shell. */
@@ -92,6 +104,8 @@ export interface WorkerInfo {
   status: WorkerStatus;
   /** True once someone opened the terminal after the last done / needs_input. */
   acked: boolean;
+  /** The question it's waiting on an answer to, put through `office-ask` rather than its terminal. */
+  asking?: WorkerAsk;
   /** When it last went to done or needs_input (ms), so N goes to whoever has waited longest first. */
   waitingSince?: number;
   createdBy: string;
@@ -1063,6 +1077,7 @@ export type ClientMsg =
   | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: number; repos?: string[] }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
+  | { t: 'worker.answer'; workerId: string; askId: string; answer: string }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
   | { t: 'worker.worktree'; workerId: string }
   | { t: 'worker.attach'; workerId: string }
