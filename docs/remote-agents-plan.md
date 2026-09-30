@@ -4,7 +4,18 @@ The plan for building what [remote-agents.md](remote-agents.md) proposes — **w
 revised.** The proposal's bridge is replaced by the floor host below, for the reasons in
 [the departure](#the-departure-from-the-proposal).
 
-Status: **plan**, nothing implemented yet. Target: agent-office `main`.
+Status: **partly built.** Phases A–B and the first half of C are done and tested; the host does not yet
+run a real `Floor`, and a hosted floor is not yet reachable from the office's screens. What is done,
+what is left, and how to try it are in [floor-hosts.md](floor-hosts.md). Target: agent-office `main`.
+
+| Phase | | State |
+|---|---|---|
+| **A** spike | latency, reconnect, and whether `workerPr` needs a bypass | **superseded** — the `workerPr` question was answered from the code (finding 3); the two latency questions still need two machines |
+| **B** the wire | frames, validators, pairing, the socket, `FloorActions`, `PtyExit.gone` | **done**, tested |
+| **C** a floor elsewhere | `FloorDef.host`, `RemoteFloor`, the host CLI, pairing end to end | **half done** — everything but the host running a real `Floor` |
+| **D** who may hire | seats, the accepting toggle, the queue staying queued | **partly** — seats and accepting exist on the registry and the CLI; the office does not consult them on a hire yet |
+| **E** the surfaces | the elevator, ⚙️ Settings, the desk signs | **not started** |
+| **F** the docs | this file, `AGENTS.md`, `floor-hosts.md` | **done for what is built** |
 
 Back to the [README](../README.md).
 
