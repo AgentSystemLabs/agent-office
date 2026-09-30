@@ -11,6 +11,7 @@ export interface VoiceDeps {
   tv: { show(stream: MediaStream | null): void };
 }
 
+/** Registers V and M, voice's messages, and listens for V coming up (captured) and the window losing focus. */
 export function installVoice(ctx: Ctx, deps: VoiceDeps) {
   const { voice } = ctx;
 
@@ -26,13 +27,17 @@ export function installVoice(ctx: Ctx, deps: VoiceDeps) {
   }
   ctx.keys.bind({
     code: 'KeyV',
-    // Joins voice; in it, it's push to talk (let go and you're muted, see the keyup under Input in main.ts).
+    // Joins voice; in it, it's push to talk (let go and you're muted, see the keyup below).
     repeat: false,
     run: () => {
       if (voice.inVoice) voice.startTalking();
       else void joinVoice();
     },
   });
+  // Letting go of V mutes you again, wherever the key comes up: a window or a terminal opened meanwhile,
+  // or another app (the browser never says the key came up there).
+  window.addEventListener('keyup', (e) => e.code === 'KeyV' && voice.stopTalking(), true);
+  window.addEventListener('blur', () => voice.stopTalking());
   ctx.keys.bind({
     code: 'KeyM',
     run: () => {

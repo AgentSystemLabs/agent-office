@@ -2773,10 +2773,6 @@ window.addEventListener('blur', () => hoops.stopWinding());
 window.addEventListener('pointerup', (e) => {
   if (e.button === 0 && hoops.winding() && player.locked) hoops.letFly();
 });
-// Letting go of V mutes you again, wherever the key comes up: a window or a terminal opened meanwhile,
-// or another app (the browser never says the key came up there).
-window.addEventListener('keyup', (e) => e.code === 'KeyV' && voice.stopTalking(), true);
-window.addEventListener('blur', () => voice.stopTalking());
 
 // Keys that use what you're facing: at a desk, each does something else (see interact).
 ctx.keys.bind({
