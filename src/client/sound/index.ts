@@ -34,9 +34,6 @@ import { toss, type TossSound } from '../features/bargames/sound';
 import { fidgeting, Typing } from './typing';
 import { Rain, thunder } from './weather';
 
-export type { Listener } from './core';
-export type { JukeboxPlay } from '../features/jukebox/sound';
-
 export class OfficeSound {
   private readonly a: AudioCore = new AudioCore({ start: (ctx) => this.start(ctx), touched: () => this.music.touched() });
   private readonly music = new Jukebox(this.a, (text) => this.onMusicError?.(text));
