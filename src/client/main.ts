@@ -103,6 +103,8 @@ import { loadingScreen } from './ui/loading';
 import { SlowFrames } from './framerate';
 import { offerLite, touchOnly } from './ui/litesuggest';
 import { openDeskLabel, openExpand } from './ui/floorplan';
+import { Activities, Interactions, Keys, Messages, Ticks } from './core/registry';
+import type { Ctx, Hint, OfficeInteraction, StopWhy, Trip, TripKind } from './core/context';
 
 // The loading screen stays up until there's an office to see (see boot and whoami at the end).
 const loading = loadingScreen(onModelsProgress);
@@ -115,6 +117,84 @@ const offer2d = (why: 'touch' | 'slow') => chose3d || offerLite(why);
 if (touchOnly()) offer2d('touch');
 // The models made in Blender, loaded before the world they're in is built (see world/models.ts).
 await preloadModels();
+
+// ---- The context every part of the office plugs into (see core/context.ts) ----------------------------
+/** What the hint bar last drew (see renderHint): anything else has it draw again. */
+let hintKey = '';
+/** How hard the view shakes (a landing off a pole, a bump in a car, a hiccup), easing off to 0. */
+let thud = 0;
+/** What you can be in the middle of, in the order it gets keys, has the hint bar and stops in (see Activities). */
+const ACTIVITY_ORDER = ['hanger', 'climber', 'golf', 'thrower', 'driver'];
+// Built before the things it hands out, which are there by the time anything asks for them.
+const ctx: Ctx = {
+  get scene() {
+    return scene;
+  },
+  get camera() {
+    return camera;
+  },
+  get renderer() {
+    return renderer;
+  },
+  get office() {
+    return office;
+  },
+  get sky() {
+    return sky;
+  },
+  get player() {
+    return player;
+  },
+  get me() {
+    return me;
+  },
+  get hands() {
+    return hands;
+  },
+  get net() {
+    return net;
+  },
+  get voice() {
+    return voice;
+  },
+  get sound() {
+    return sound;
+  },
+  get settings() {
+    return settings;
+  },
+  get confetti() {
+    return confetti;
+  },
+  get smoke() {
+    return smoke;
+  },
+  get reduceMotion() {
+    return reduceMotion;
+  },
+  get hud() {
+    return hud;
+  },
+  world: () => world,
+  plan: () => plan(),
+  inOffice: () => inOffice(),
+  upTop: () => upTop,
+  trip: () => trip,
+  carrying: () => carrying,
+  holdingBall: () => holdingBall(),
+  hint: {
+    // Not '': that reads as "no hint shown", and a hint still up (the golf one, say) would stay up.
+    invalidate: () => void (hintKey = 'stale'),
+  },
+  shake: (amount, replace = false) => {
+    if (!reduceMotion.matches) thud = replace ? amount : Math.max(thud, amount);
+  },
+  messages: new Messages((m) => store.apply(m)),
+  keys: new Keys<KeyboardEvent>(),
+  ticks: new Ticks(),
+  activities: new Activities<StopWhy, KeyboardEvent, HTMLElement>(ACTIVITY_ORDER),
+  interactions: new Interactions<OfficeInteraction>(),
+};
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -375,7 +455,7 @@ const driver = new Driver(player, office.cars, {
   moved: (car, p) => net.send({ t: 'car.drive', car, x: p.x, z: p.z, rotY: p.rotY, speed: p.speed, steer: p.steer }),
   bump: (at, speed) => {
     sound.crash({ x: at.x, y: player.street + 0.5, z: at.z }, speed);
-    if (!reduceMotion.matches) thud = Math.max(thud, Math.min(0.8, speed / 15));
+    ctx.shake(Math.min(0.8, speed / 15));
   },
 });
 const telescope = new TelescopeView(
@@ -391,14 +471,14 @@ const telescope = new TelescopeView(
     document.body.classList.add('telescope-active');
     $('telescope-view').setAttribute('aria-hidden', 'false');
     target = null;
-    hintKey = 'stale';
+    ctx.hint.invalidate();
   },
   () => {
     document.body.classList.remove('telescope-active');
     $('telescope-view').setAttribute('aria-hidden', 'true');
     player.enabled = !modalOpen() && !trip;
     player.clearKeys();
-    hintKey = 'stale';
+    ctx.hint.invalidate();
     if (!modalOpen()) setTimeout(backToGame, 0);
   },
 );
@@ -481,10 +561,7 @@ const golf = new Golfer(player, me, camera, {
   },
   ball: () => balls.mine,
   street: () => player.street,
-  done: () => {
-    // Not '': that reads as "no hint shown", and the golf hint would stay up.
-    hintKey = 'stale';
-  },
+  done: () => ctx.hint.invalidate(),
 });
 balls.onHit = (hit: Hit, mine: boolean) => {
   // Your own ball's heard wherever it lands (the camera's following it); anyone else's from where it is.
@@ -574,10 +651,7 @@ const thrower = new Thrower(player, me, camera, canvas, {
     tossHere(store.you, toss, from, turn);
   },
   aim: (game, u, v) => roof?.games.aim(game, u, v),
-  done: () => {
-    // Not '': that reads as "no hint shown", and the throwing hint would stay up.
-    hintKey = 'stale';
-  },
+  done: () => ctx.hint.invalidate(),
 });
 
 /** Who's at a game's line up here already, if anyone. */
@@ -679,8 +753,7 @@ const hanger = new Hanger(net, camera, canvas, player, office, gallery);
 scene.add(hanger.ghost.group);
 hanger.onChange = () => {
   hud.refresh();
-  // Not '': that reads as "no hint shown", and the hanging hint would stay up.
-  hintKey = 'stale';
+  ctx.hint.invalidate();
 };
 
 // ---- The ladder and the fire poles ----------------------------------------------------------------
@@ -714,16 +787,11 @@ const climber = new Climber(player, {
       landed(speed);
     }
   },
-  done: () => {
-    // Not '': that reads as "no hint shown", and the climbing hint would stay up.
-    hintKey = 'stale';
-  },
+  done: () => ctx.hint.invalidate(),
 });
-/** How hard the view shakes from landing off a pole, easing off to 0. */
-let thud = 0;
 /** Down the pole onto the mat: the view shakes, dust flies, and there's the floor you're on now. */
 function landed(speed: number) {
-  if (!reduceMotion.matches) thud = Math.min(1, speed / 7);
+  ctx.shake(Math.min(1, speed / 7), true);
   const at = new THREE.Vector3();
   const dir = new THREE.Vector3();
   for (let i = 0; i < 10; i++) {
@@ -787,7 +855,7 @@ function getIn(i: number) {
   carPending++;
   net.send({ t: 'car.enter', car: i, seat });
   sound.carDoor(carAt(i));
-  hintKey = 'stale';
+  ctx.hint.invalidate();
 }
 
 /** E in a car: out onto your feet beside it; `anyway`, even with no room there. False if you couldn't. */
@@ -815,7 +883,7 @@ function leftCar(i: number) {
   carPending++;
   net.send({ t: 'car.leave' });
   sound.carDoor(carAt(i));
-  hintKey = 'stale';
+  ctx.hint.invalidate();
 }
 
 /** H in a car: its horn, for everyone on the floor. */
@@ -1378,13 +1446,8 @@ function fade(on: boolean, quick = false) {
   $('fade').classList.toggle('on', on);
 }
 
-/** How you're going to another floor: by elevator, straight there from the floor list, or by the ladder or a pole. */
-type TripKind = 'elevator' | 'switch' | Grip;
-/**
- * A trip under way: the lights are down (and by elevator the doors are shut) until the next floor
- * arrives. `garage` is down to the garage under it.
- */
-let trip: { floor: string; how: TripKind; timer: number; garage?: boolean } | null = null;
+/** A trip to another floor under way (see Trip). */
+let trip: Trip | null = null;
 
 function showElevator() {
   openElevator({ net, ride, downstairs });
@@ -1600,7 +1663,7 @@ function setPlace() {
     }
   }
   if (hanger.active) hanger.cancel();
-  hintKey = 'stale';
+  ctx.hint.invalidate();
 }
 
 /** What you can use where you are, and what's in the way of looking at it. */
@@ -1757,7 +1820,7 @@ function applyMap() {
   } else if (trip) placeOnArrival = true;
   heraldHires.clear();
   offTheRoof();
-  hintKey = 'stale';
+  ctx.hint.invalidate();
   hud.refresh();
 }
 store.on('map', applyMap);
@@ -3064,7 +3127,7 @@ function drinking(now: number) {
   if (amount > 0.5 && now > nextHiccup) {
     if (nextHiccup) {
       sound.hiccup();
-      if (!reduceMotion.matches) thud = Math.max(thud, 0.25);
+      ctx.shake(0.25);
     }
     nextHiccup = now + 5000 + Math.random() * 12000;
   }
@@ -3126,7 +3189,7 @@ function ballNews(answer: boolean) {
   if (!answer) ballPending = 0;
   else if (ballPending > 0 && --ballPending > 0) return;
   ball.set(store.ball, performance.now());
-  hintKey = '';
+  ctx.hint.invalidate();
 }
 const holdingBall = () => ball.holder === store.you;
 /** Baskets of yours in a row, and whether your last throw was a shot at the hoop (a miss of a pass or a drop doesn't count). */
@@ -3144,7 +3207,7 @@ function takeBall() {
   ball.takeNow(store.you);
   ballPending++;
   net.send({ t: 'ball.take' });
-  hintKey = '';
+  ctx.hint.invalidate();
 }
 
 /** How a shot of yours goes from where you are: out of your hands, which way (a heading), how steep, and how hard it takes to sink it (null: you're not shooting at the hoop). */
@@ -3206,7 +3269,7 @@ function release(from: THREE.Vector3, heading: number, pitch: number, speed: num
   ball.throwNow({ ...s, by: store.you }, performance.now());
   ballPending++;
   net.send({ t: 'ball.throw', ...s });
-  hintKey = '';
+  ctx.hint.invalidate();
 }
 
 /** Where the ball is in `id`'s hands, or null when you can't see it there (your own, in first person, is in your view instead). */
@@ -3323,7 +3386,7 @@ function setCarrying(card: CarriedIssue | null) {
   net.send({ t: 'carry', issue: card?.issue, title: card?.title });
   carriedOff = [...offBoard()].join(',');
   renderIssuesBoard();
-  hintKey = '';
+  ctx.hint.invalidate();
 }
 
 /** ✋ in an issue's window, or E at its note on the board: its card comes off the board and into your hands. */
@@ -3575,7 +3638,6 @@ function gongRang(why: GongWhy, pr?: number) {
 
 // ---- Interaction targeting & hint -----------------------------------------------------------------
 let target: Interactable | null = null;
-let hintKey = '';
 
 function pickTarget(): Interactable | null {
   // Nearly everything you can use is upstairs; down on the street you're under it all, but for the
@@ -3606,12 +3668,6 @@ function key(k: string, label: string) {
 /** Secondary text in the hint bar. */
 function aside(text: string) {
   return h('span', { style: 'opacity:.75;font-weight:600' }, text);
-}
-
-interface Hint {
-  /** Changes whenever the hint needs redrawing. */
-  k: string;
-  parts: (HTMLElement | string)[];
 }
 
 function renderHint() {
@@ -4289,7 +4345,7 @@ onModalChange((open) => {
     // A tick later, so closing one window to open the next (Settings → character) doesn't grab the mouse in between.
     setTimeout(backToGame, 0);
   }
-  hintKey = '';
+  ctx.hint.invalidate();
 });
 
 /** Once the last window is closed, the game has the keyboard again and, in first person, the mouse. */
@@ -4470,7 +4526,7 @@ function refreshShares() {
         return h('div.share-thumb', { onclick: () => watchShare(), title: 'Watch full screen' }, v, h('span.who', {}, `🖥️ ${who}`));
       }),
   );
-  hintKey = '';
+  ctx.hint.invalidate();
 }
 
 voice.onChange(() => {
@@ -4684,7 +4740,7 @@ function frame(ts?: number) {
     if (hit > 1.5 && now - shovedAt > 600) {
       shovedAt = now;
       sound.crash({ x: player.pos.x, y: player.pos.y + 0.8, z: player.pos.z }, hit / 2);
-      if (!reduceMotion.matches) thud = Math.max(thud, Math.min(0.7, hit / 12));
+      ctx.shake(Math.min(0.7, hit / 12));
     }
   }
   // Walked into a pole's hole: you grab the pole on your way down it.
