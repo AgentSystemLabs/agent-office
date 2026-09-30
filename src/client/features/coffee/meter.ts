@@ -1,5 +1,5 @@
-import { BUZZ_SECONDS, type Caffeine } from '../caffeine';
-import { $ } from './dom';
+import { BUZZ_SECONDS, type Caffeine } from './caffeine';
+import { $ } from '../../ui/dom';
 
 let caffeineKey = '';
 /** The caffeine meter: a cup per coffee in a row, and a bar that drains over the buzz's minute. */

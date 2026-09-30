@@ -1,6 +1,6 @@
-import type { AudioCore } from './core';
-import { biquad, envelope, rand } from './dsp';
-import { COFFEE_MACHINE } from './places';
+import type { AudioCore } from '../../sound/core';
+import { biquad, envelope, rand } from '../../sound/dsp';
+import { COFFEE_MACHINE } from '../../sound/places';
 
 // ---- The coffee machine -------------------------------------------------------------------------
 

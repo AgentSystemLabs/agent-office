@@ -21,7 +21,7 @@ import { ball, type BallSound } from './ball';
 import { Dj, hiccup, pour } from '../features/bar/sound';
 import { carDoor, crash, honk, Motors, type Engine } from '../features/cars/sound';
 import { bonk, hatch, poleLanding, rung, slide, twirl } from '../features/climbing/sound';
-import { coffee } from './coffee';
+import { coffee } from '../features/coffee/sound';
 import { AudioCore, type Hall, type Listener } from './core';
 import { bark, yip } from './dog';
 import { cellDoor, thud } from './dungeon';

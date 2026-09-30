@@ -1,4 +1,4 @@
-import { Caffeine } from '../../caffeine';
+import { Caffeine } from './caffeine';
 import type { Ctx } from '../../core/context';
 import { hintTitle, key, onE } from '../../core/hint';
 import { toast } from '../../ui/dom';
