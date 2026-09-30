@@ -105,6 +105,9 @@ import { offerLite, touchOnly } from './ui/litesuggest';
 import { openDeskLabel, openExpand } from './ui/floorplan';
 import { Activities, Interactions, Keys, Messages, Ticks, View, type Frame } from './core/registry';
 import type { Ctx, Hint, OfficeInteraction, StopWhy, Trip, TripKind } from './core/context';
+import { builtFloors, floorWings } from './core/floors';
+import { aside, boardHint, hintTitle, key, onE } from './core/hint';
+import { noOutline } from './core/outline';
 
 // The loading screen stays up until there's an office to see (see boot and whoami at the end).
 const loading = loadingScreen(onModelsProgress);
@@ -288,15 +291,6 @@ store.on('sky', () => store.sky && sky.set(store.sky));
 const holiday = new Holiday(office);
 scene.add(holiday.group);
 
-const noOutline = (obj: THREE.Object3D) =>
-  obj.traverse((o) => {
-    const m = o as THREE.Mesh;
-    if (!m.isMesh) return;
-    const geo = m.geometry;
-    const flat = geo instanceof THREE.PlaneGeometry || geo instanceof THREE.CircleGeometry;
-    const mats = Array.isArray(m.material) ? m.material : [m.material];
-    for (const mat of mats) if (flat || mat instanceof THREE.MeshBasicMaterial) mat.userData.outlineParameters = { visible: false };
-  });
 noOutline(office.group);
 noOutline(holiday.group);
 
@@ -1009,10 +1003,6 @@ ctx.interactions.define('decor', {
 });
 
 // ---- The ladder and the fire poles ----------------------------------------------------------------
-/** The floors of the building from the bottom up (not the ones still being cloned: nobody can go there yet). */
-function builtFloors(): FloorInfo[] {
-  return store.floors.filter((f) => !f.cloning);
-}
 /** The floor above yours (1) or below it (-1), if there is one. */
 function floorThere(way: Way): FloorInfo | undefined {
   const floors = builtFloors();
@@ -1404,10 +1394,6 @@ function syncStack() {
   wingsShown = wings.join();
   if (!same) office.stack.set({ index: Math.max(0, index), count, up, down });
   office.setLevel(Math.max(0, index), count, wings);
-}
-/** How far each floor's back office goes, for the building's outside (the one you're on as you see it). */
-function floorWings(floors: FloorInfo[]): number[] {
-  return floors.map((f) => (f.id === store.floor ? store.floorPlan.wing : (f.wing ?? 0)));
 }
 let wingsShown = '';
 store.on('floors', syncStack);
@@ -3579,13 +3565,6 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   ctx.interactions.use(target, key, note);
 }
 
-/** A use that's E only: every other key does nothing there. */
-function onE(fn: (it: Interactable) => void): (it: Interactable, key: DeskKey) => void {
-  return (it, key) => {
-    if (key === 'E') fn(it);
-  };
-}
-
 // On the throne: the herald beside you, whoever's in line.
 ctx.keys.bind({
   code: 'KeyK',
@@ -4357,25 +4336,6 @@ function pickTarget(): Interactable | null {
     }
   }
   return best;
-}
-
-function key(k: string, label: string) {
-  return h('span', {}, h('span.key', {}, k), label);
-}
-
-/** Secondary text in the hint bar. */
-function aside(text: string) {
-  return h('span', { style: 'opacity:.75;font-weight:600' }, text);
-}
-
-/** What the hint bar calls the thing you're facing. */
-function hintTitle(text: string) {
-  return h('span.title', {}, text);
-}
-
-/** A board you open with E. */
-function boardHint(name: string): Hint {
-  return { k: '', parts: [hintTitle(name), key('E', 'Open')] };
 }
 
 function renderHint() {
