@@ -177,7 +177,7 @@ Decision 9 asks what office-wide state a floor host learns. The answer is alread
 | `capacity` | the office's worker limit, so the host can refuse locally |
 | `leaveOnMerge()` | whether a landed worker goes home by itself |
 | `people(floor)`, `peers(floor)` | presence — office-wide by nature, and meetings need it |
-| `hook` | a **host-local** `127.0.0.1` endpoint, per finding 2 — not the office's |
+| `hook` | a **host-local** `127.0.0.1` endpoint, per finding 2 — not the office's. `HookEnv.token` stays unused (`server.ts:629`), because the host puts the worker's own token in the worker's env instead (`:1646-1650`) |
 
 **Withheld from the host, deliberately:**
 
@@ -346,6 +346,29 @@ is the finding's real content.
 Note what this buys: today `/office/workers` requires `?worker=<id>`, the per-worker bearer token,
 *and* a live PTY or ACP session (`workers.ts:584`). Over a floor host those checks are unchanged and
 now enforced where the processes actually are.
+
+**Which is also the whole of decision 7.** The proposal made it *"a forwarded hook frame carries its
+bridge's token or the worker's own?"* — a real question for the bridge, whose hook listener is a proxy
+and so must speak on a worker's behalf. **A floor host has no such proxy.** Traced:
+
+- The hook server is `http.createServer` inside the office process (`server.ts:296`), bound to loopback
+  on an ephemeral port written to `hook-port` (`:505-506`). **There is no module-level export that a
+  host could construct a second one from.**
+- `launch()` mints `w.hookToken = randomBytes(16)` (`:1640`) and injects three variables — 
+  `AGENT_OFFICE_WORKER_ID`, `AGENT_OFFICE_HOOK_URL: this.hook.url`, `AGENT_OFFICE_HOOK_TOKEN`
+  (`:1646-1650`).
+- Every provider status reader re-checks it locally: `:1128` (Claude), `:1199` (Codex), `:1278` (Grok),
+  `:1337` (Muse), `:1405` (OpenCode), all via `safeEq(token, w.hookToken)`.
+
+So on a hosted floor the hook server, the token, the worker process and the check are **all on the
+host's laptop**, talking over that machine's own loopback. The host is authoritative for its own floor,
+exactly as the office is authoritative for its own. Nothing is forwarded, so nothing needs to be
+attributed.
+
+`ctx.hook` (`floor.ts:41`) is the one context member that must therefore be **host-local**: the host
+mints its own ephemeral loopback URL, and `HookEnv.token` (`:99-102`) stays unused on that path — it
+is already `''` office-side (`server.ts:629`), because the office puts the *worker's* token in the env
+instead.
 
 ### 3. PR discovery breaks silently, in four separate places ✅ resolved — no shortcut needed
 
@@ -606,16 +629,15 @@ system, and should not add a role check anywhere else without asking first.
 | 4 | Two offices, one machine — supported, tolerated or refused? (risk 8) | **Tolerated**, tested | Refusing breaks a legitimate setup; supporting it properly is more work than it looks |
 | 5 | Whose git identity does a hosted floor push with? (risk 10) | **The host's**, shown in the pairing dialog and the desk sign | The office's identity would put a stranger's commits in the operator's name |
 | 6 | Is a floor's `host` scoped to that floor only, or may one host serve several? | **One floor per host connection** for Phase C; several later | Several floors per connection is cheaper later and confusing now — it makes revocation ambiguous |
-| 7 | Does a forwarded frame carry the worker's hook token, or the host's token? | **The worker's own token**, checked with `safeEq` per worker id | A host-wide token would let one worker's compromised host speak for another |
+| 7 | Does a forwarded frame carry the worker's hook token, or the host's token? | **Settled — finding 2.** There is no forwarding and no proxy: the hook server, the `randomBytes(16)` token (`:1640`), the worker and every `safeEq` check (`:1128`–`:1405`) are on the host's loopback. `ctx.hook` must be host-local; no attribution problem arises | — the bridge's proxy is what created it, and there is no equivalent to build |
 | 8 | **New:** does the office keep a scrollback mirror for a hosted floor? | **No.** Search and join-replay are served by the host | A mirror costs every byte twice and re-creates the retention decision finding 4 was meant to remove |
 | 9 | **New:** what office-wide state does the host receive (finding 2)? | **Answered** in [What the host receives](#what-the-host-receives-and-what-it-must-not): `agentCmd`, `agentArgs`, `dshProfile`, `prompts`, `capacity`, `leaveOnMerge`, `people`, `peers`. **`runAs`, `forgeAs` and `floor(id)` are withheld** — the first two are sign-ins, the third is cross-floor reach | Shipping `runAs` puts a member's Claude credentials on another machine, which is the one thing the design exists to prevent |
 
-Question 7 is the one to be most careful about, because it is the difference between "a host is
-trusted" and "a host is trusted only for the workers it is paired to seat". Carrying the worker's own
-token makes that check the existing one, unchanged.
-
-Question 9 is the new one, and it is the mirror image of the bridge's problem: not what the office
-will do for the host, but what the host is allowed to know.
+Two of the nine were open questions and are now **answered from the tree**, which leaves six needing
+judgment. Question 7 was the one flagged sharpest — the difference between "a host is trusted" and "a
+host is trusted only for the workers it is paired to seat" — and the floor boundary dissolves it,
+because there is no proxy to attribute frames on. Question 9 is the mirror image of the bridge's
+problem: not what the office will do for the host, but what the host is allowed to know.
 
 ## The plan
 
@@ -770,7 +792,7 @@ to test the generated payload and normalisation, not the upstream CLI; a hosted 
 
 | File | What it covers |
 |---|---|
-| `tests/floorhost.test.ts` (new) | A fake host — a `WebSocketServer` on an ephemeral port — driven through the real proxy and the real pairing check. Message round trips, byte and resize round trips, exit codes. **A forwarded frame for another floor's worker is refused** (decision 7). **The office never opens a hosted floor's `def.dir`.** A dropped socket leaves the floor and its workers `offline` and asleep, not spinning. |
+| `tests/floorhost.test.ts` (new) | A fake host — a `WebSocketServer` on an ephemeral port — driven through the real pairing check. Message round trips, byte and resize round trips, exit codes. **`ctx.hook` is host-local and no hook frame ever crosses the socket** (decision 7). **The office never opens a hosted floor's `def.dir`.** A dropped socket leaves the floor and its workers `offline` and asleep, not spinning. |
 | `tests/floorhost.test.ts` (new) | **The count.** Exactly 44 cases in `handleMessage` act on a `Floor`, and every one of them routes to a hosted floor. A 45th case added to the switch without a decision fails the build rather than silently staying office-side. |
 | `tests/floorhost.test.ts` (new) | **No sign-ins cross the wire.** A hosted floor's `FloorContext` carries `agentCmd`, `prompts`, `capacity`, `leaveOnMerge`, `people`, `peers` — and no `runAs`, no `forgeAs`, and a `floor(id)` that refuses to reach across an office boundary (decision 9). |
 | `tests/floorhost.test.ts` (new) | **The permission model, as a test.** A plain member — not an admin — can spawn onto a hosted desk, type into it, prompt it, and send it home, and every refusal is about seats or kind rather than role. Send-home sends `stop` and the host, not the office, removes the worktree. A member may spawn onto a floor that is *not* accepting; an agent on `/office/workers` may not. |
