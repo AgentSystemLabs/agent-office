@@ -110,10 +110,9 @@ export class RemoteFloor implements FloorActions {
    * report is left unset rather than guessed: a floor that claims a branch or an agent it has not got
    * is worse than one that admits it does not know.
    */
-  get project(): ProjectInfo | null {
-    if (!this.def.repo) return null;
+  get project(): ProjectInfo {
     return {
-      name: this.def.repo,
+      name: this.def.repo ?? this.def.name,
       dir: '',
       branch: this.announced.branch,
       agentCmd: '',
