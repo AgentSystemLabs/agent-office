@@ -2,7 +2,8 @@ import path from 'node:path';
 import type { Config } from '../config.js';
 import { Auth } from '../auth.js';
 import { Accounts } from '../accounts.js';
-import { configuredProvider } from '../agents.js';
+import { providerCommand } from '../agents.js';
+import type { AgentProvider } from '../../shared/providers.js';
 import { createGrokModelCatalogue, createOpenCodeModelCatalogue } from '../models.js';
 import { Building } from '../building.js';
 import type { Floor } from '../floor.js';
@@ -29,16 +30,13 @@ export function createCore(ctx: Ctx, cfg: Config, publicDir: string): Core {
   });
   /** What the office is called where it has no project of its own to go by (webhooks, invites). */
   const officeName = cfg.project ? path.basename(cfg.project) : 'the office';
-  const modelCommand = configuredProvider(cfg.agentCmd) === 'opencode' ? cfg.agentCmd : 'opencode';
-  const openCodeModels = createOpenCodeModelCatalogue(
-    modelCommand.includes('/') ? path.resolve(modelCommand) : modelCommand,
-    cfg.dir,
-  );
-  const grokCommand = configuredProvider(cfg.agentCmd) === 'grok' ? cfg.agentCmd : 'grok';
-  const grokModels = createGrokModelCatalogue(
-    grokCommand.includes('/') ? path.resolve(grokCommand) : grokCommand,
-    cfg.dir,
-  );
+  // The model lists come from the provider's own CLI: the office's --agent when it's that one.
+  const cli = (provider: AgentProvider) => {
+    const command = providerCommand(provider, cfg.agentCmd);
+    return command.includes('/') ? path.resolve(command) : command;
+  };
+  const openCodeModels = createOpenCodeModelCatalogue(cli('opencode'), cfg.dir);
+  const grokModels = createGrokModelCatalogue(cli('grok'), cfg.dir);
 
   // --- The building: a floor per project, each with its own workers, boards and queue -----------
   const building = new Building(cfg.dataDir, cfg.projectsDir);

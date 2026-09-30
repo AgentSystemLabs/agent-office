@@ -7,6 +7,8 @@ import type { Ctx } from '../office/context.js';
 import { readBody, send } from '../http/util.js';
 import { officeQueue } from './office-queue.js';
 import { officeWorkers } from './office-workers.js';
+import { providerHook } from '../providers/index.js';
+import type { AgentProvider } from '../../shared/providers.js';
 
 /** Starts the hook server, and says which port it listens on. */
 export async function startHookServer(ctx: Ctx): Promise<{ hookServer: http.Server; hookPort: number }> {
@@ -19,13 +21,16 @@ export async function startHookServer(ctx: Ctx): Promise<{ hookServer: http.Serv
     }
     if (url.pathname === '/office/queue') return officeQueue(ctx, req, res, url);
     if (url.pathname === '/office/workers' || url.pathname.startsWith('/office/workers/')) return officeWorkers(ctx, req, res, url);
-    if (req.method !== 'POST' || !['/hooks/claude', '/hooks/opencode', '/hooks/codex', '/hooks/grok', '/hooks/muse'].includes(url.pathname)) return send(res, 404, { ok: false });
+    // Each provider with hooks has its route, /hooks/<provider> (see providers/).
+    const route = url.pathname.startsWith('/hooks/') ? url.pathname.slice('/hooks/'.length) : '';
+    const hook = providerHook(route);
+    if (req.method !== 'POST' || !hook) return send(res, 404, { ok: false });
     let payload: unknown = {};
     try {
       const body = await readBody(req);
       payload = body ? JSON.parse(body) : {};
     } catch {
-      if (url.pathname !== '/hooks/claude') return send(res, 400, { ok: false });
+      if (hook.strictJson) return send(res, 400, { ok: false });
       // permissive: a bad payload still counts as the event
     }
     const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
@@ -33,15 +38,7 @@ export async function startHookServer(ctx: Ctx): Promise<{ hookServer: http.Serv
     const workers = ctx.workerFloor(workerId)?.workers;
     if (!workers) return send(res, 401, {});
     const event = url.searchParams.get('event') ?? '';
-    const ok = url.pathname === '/hooks/opencode'
-      ? workers.handleOpenCodeHook(workerId, token, payload)
-      : url.pathname === '/hooks/codex'
-        ? workers.handleCodexHook(workerId, token, event, payload)
-        : url.pathname === '/hooks/grok'
-          ? workers.handleGrokHook(workerId, token, event, payload)
-          : url.pathname === '/hooks/muse'
-            ? workers.handleMuseHook(workerId, token, event, payload)
-            : workers.handleHook(workerId, token, event, payload);
+    const ok = workers.handleProviderHook(route as AgentProvider, workerId, token, event, payload);
     send(res, ok ? 200 : 401, {});
   });
   // Workers' terminals outlive a restart of the office (see ptys.ts) with this address in their
