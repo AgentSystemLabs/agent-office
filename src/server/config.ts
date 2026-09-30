@@ -142,10 +142,11 @@ Options:
                           needs input or finishes (env AGENT_OFFICE_WEBHOOK).
                           Also settable from ⚙️ Settings in the office; "" turns it off
       --city <name>       Put the office in a real city, e.g. "Berlin" or
-                          "Portland, Oregon" (env AGENT_OFFICE_CITY): day, night
-                          and the weather outside follow its live forecast from
-                          open-meteo.com. Without it the sun follows this
-                          machine's clock and the weather is made up
+                          "Portland, Oregon" (env AGENT_OFFICE_CITY): the sun
+                          keeps its hours of daylight and the weather outside
+                          follows its live forecast from open-meteo.com.
+                          Without it the weather is made up. Either way a
+                          whole day and night go by every hour
       --weather <kind>    Pin the weather: clear, cloudy, rain, storm, snow or
                           fog (env AGENT_OFFICE_WEATHER)
   -h, --help              Show this help
