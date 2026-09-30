@@ -63,7 +63,7 @@ test('a write ships a frame and resolves with the host answer', async () => {
   // The host turns the hire down, naming the call it answers so the caller is not left waiting.
   floor.deliver({ t: 'refused', floorId: 'f1', workerId: 'w1', reason: 'seats', seq: frame.seq as number });
   const r = await pending;
-  assert.equal(r, 'Alice’s laptop refused: seats', 'the refusal reaches the person who asked, naming the machine');
+  assert.equal(r, 'seats', 'the reason comes through unchanged, so the office shows what the floor said');
 });
 
 test('reads are answered from the mirror, so they cost no round trip', () => {
@@ -95,7 +95,7 @@ test('a merge or a queue add that the office branches on is awaited', async () =
   const added = floor.queue.add('do a thing', 'bob');
   assert.equal(host.sent[0].t, 'queue.add');
   floor.deliver({ t: 'refused', floorId: 'f1', reason: 'not-accepting', seq: host.sent[0].seq as number });
-  assert.equal(await added, 'Alice’s laptop refused: not-accepting', 'the refusal reaches the person who asked');
+  assert.equal(await added, 'not-accepting', 'the refusal reaches the person who asked');
 });
 
 test('a write nobody reads the answer to still ships', () => {
@@ -128,4 +128,27 @@ test('presence stays office-side: a hosted floor does not own the room', () => {
   floor.sendLandedHome();
   assert.equal(host.sent.length, 0, 'none of that crossed the wire');
   assert.equal(floor.landed({ id: 'w1' } as never), undefined, 'and the office does not guess at a landing');
+});
+
+test('an empty refusal is not a refusal: it is the host saying the call worked', () => {
+  // The office settles every call with one frame, and a call whose result nobody branches on reports
+  // itself with no reason. Reading that as "refused" would turn every successful keystroke into a
+  // warning.
+  const host = fakeHost();
+  const floor = make(host);
+  const added = floor.queue.add('do a thing', 'bob');
+  const seq = host.sent[0].seq as number;
+  floor.deliver({ t: 'refused', floorId: 'f1', reason: '', seq });
+  return added.then((r) => assert.ok(!r, `a call that worked must not read as refused, got "${r}"`));
+});
+
+test('a read answers with the payload, not the frame around it', () => {
+  // A `queue` event carries `{ t: 'queue', state }`. Mirroring the frame would hand the office a
+  // wrapper, and every `state().tasks` would be undefined — which is exactly what happened first.
+  const host = fakeHost();
+  const floor = make(host);
+  const state = { tasks: [{ id: 't1', prompt: 'write the migration' }], maxWorkers: 3 };
+  floor.deliver({ t: 'event', floorId: 'f1', seq: 1, msg: { t: 'queue', state } });
+  assert.deepEqual(floor.queue.state(), state);
+  assert.equal((floor.queue.state() as { tasks: unknown[] }).tasks.length, 1);
 });

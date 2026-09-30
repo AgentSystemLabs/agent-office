@@ -10,10 +10,9 @@ your laptop runs there, as you, on your disk, with your sign-ins.
 The laptop dials the office. Nothing listens on your machine, and nothing inbound is needed: no port,
 no firewall change, no NAT traversal.
 
-> **Status: the mechanism is built and tested; the office's screens are not wired to it yet.** A
-> machine can pair, connect, and be asked for floors, and the office holds a proxy for each one — but
-> a hosted floor does not appear in the elevator yet, so it cannot be entered from the browser. See
-> [what is not done](#what-is-not-done) before relying on this.
+> **Status: a machine pairs, connects, runs a real floor, and answers calls against it. The office's
+> screens are not wired to it yet** — a hosted floor does not appear in the elevator, so it cannot be
+> entered from the browser. See [what is not done](#what-is-not-done) before relying on this.
 
 ## Pairing
 
@@ -99,6 +98,22 @@ The office decides *what* runs on a machine; the machine decides *whether to ans
 The machine is told which floors the office wants when it connects, and serves the ones whose `dir`
 exists there. One that does not is skipped and said so, rather than pretended.
 
+## What runs where
+
+A hosted floor is the same `Floor` class the office runs, so nothing about a floor forks for being
+hosted. What differs is its **context** — what it can see and what it reports to — and the split is
+the point:
+
+| | |
+|---|---|
+| **Local to the machine** | which agent CLI to run, its arguments, the DSH profile, its own hook endpoint, its own spend ledger, its own prompts. A floor cannot be built without these. |
+| **Sent up the socket** | everything the floor would have said to the room: terminal output, status changes, boards, toasts, what a worker changed. |
+| **Never given** | `runAs` and `forgeAs` — both per-account **sign-ins**. Their absence is the guarantee that a hosted floor runs on the host's own, and the office has no way to hand it anyone else's. |
+
+One consequence worth knowing: a hosted floor **cannot hold a meeting**, because a meeting needs the
+people in the room and the host machine does not know who they are. It refuses by kind, and the
+office refuses it too.
+
 ## What is not done
 
 Stated plainly, because the alternative is someone finding out the hard way:
@@ -106,7 +121,8 @@ Stated plainly, because the alternative is someone finding out the hard way:
 | | |
 |---|---|
 | **A hosted floor does not appear in the elevator.** | The office holds the proxy and knows the machine, but the screens read the local floor list. Selecting one from the browser is not wired yet. |
-| **The host does not yet run a real `Floor`.** | It opens the checkout and announces the floor, and answers a call with a refusal that names the machine rather than doing nothing. Running the floor's own workers, queue and forge there is the next piece. |
+| ~~The host does not run a real `Floor`.~~ | **Done.** The host opens a real `Floor` — the same class the office runs — with its own `WorkerManager`, `TaskQueue`, `Forge` and `Changes` on this disk, and answers the office's calls against it. |
+| **An agent's office tools are unavailable.** | The host serves `/hooks/*` so a worker's status reaches it, but not the office's `/office/*` MCP endpoints. An agent on a hosted floor cannot use its `office-workers` tools; everything else works. |
 | **A machine is not yet told its floors by the office's building list at startup** in every path. | `floorsFor` reads the building, so it is correct for a floor added with a `host`; adding one from the UI is not wired. |
 
 None of these is a design problem — each is a piece of wiring with a named place to land. What is

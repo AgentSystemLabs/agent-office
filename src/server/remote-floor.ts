@@ -121,7 +121,13 @@ export class RemoteFloor implements FloorActions {
       const payload = msg.msg as { t?: string; worker?: WorkerInfo; workerId?: string } | undefined;
       if (payload?.t === 'worker.update' && payload.worker) this.known.set(payload.worker.id, payload.worker);
       if (payload?.t === 'worker.remove' && payload.workerId) this.known.delete(payload.workerId);
-      if (payload?.t) this.mirror.set(payload.t, msg.msg);
+      if (payload?.t) {
+        // What a read answers with is the *payload*, not the frame around it: a `queue` event carries
+        // `{ t: 'queue', state }`, and `queue.state()` must return the state. Storing the frame here
+        // would hand the office a wrapper and every `.tasks` would be undefined.
+        const inner = payload as { state?: unknown };
+        this.mirror.set(payload.t, inner.state !== undefined ? inner.state : payload);
+      }
       return;
     }
     // An unaddressed refusal (no floor) is about the connection, not a call, so it never settles one.
@@ -133,8 +139,9 @@ export class RemoteFloor implements FloorActions {
     clearTimeout(pending.timer);
     this.pending.delete(seq);
     // A refusal settles the call it answers, so the person who asked hears why rather than waiting
-    // out the timeout. Whether the host refused or went quiet, the answer names the machine.
-    if (refusal) pending.resolve(`${this.machine} refused: ${refusal.reason}`);
+    // out the timeout. An empty reason is not a refusal: it is the host saying the call worked, which
+    // is how a call whose result nobody branches on reports itself.
+    if (refusal) pending.resolve(refusal.reason || undefined);
     else pending.resolve(msg);
   }
 
