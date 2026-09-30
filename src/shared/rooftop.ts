@@ -26,19 +26,26 @@ export interface Drink {
    * and past BOOZE_LIMIT the bartender pours you a water instead. Water takes some of it away again.
    */
   strength: number;
+  /**
+   * What it does for you besides the buzz: energy put back and stress taken off, 0–1 each (see
+   * client/vitals.ts). Nothing here has much energy in it — that's a cup from a coffee machine —
+   * but the alcohol is what takes the stress off, and the stronger the drink the more of it.
+   */
+  energy: number;
+  calm: number;
   /** The drink in the glass. */
   color: string;
   glass: Glass;
 }
 
 export const DRINKS: readonly Drink[] = [
-  { id: 'beer', name: 'Lager', emoji: '🍺', blurb: 'Cold, from the tap', strength: 0.28, color: '#f2b134', glass: 'pint' },
-  { id: 'wine', name: 'Red wine', emoji: '🍷', blurb: 'A generous pour', strength: 0.34, color: '#8e1c3c', glass: 'wine' },
-  { id: 'martini', name: 'Martini', emoji: '🍸', blurb: 'Shaken, with an olive', strength: 0.45, color: '#e6f0c8', glass: 'martini' },
-  { id: 'maitai', name: 'Mai tai', emoji: '🍹', blurb: 'Rum, lime, a little umbrella', strength: 0.45, color: '#ff8c42', glass: 'highball' },
-  { id: 'shot', name: 'Tequila shot', emoji: '🥃', blurb: 'Salt, shot, lime. Careful', strength: 0.6, color: '#f7d488', glass: 'shot' },
-  { id: 'mojito', name: 'Virgin mojito', emoji: '🍃', blurb: 'All of the mint, none of the rum', strength: 0, color: '#b7e4a0', glass: 'highball' },
-  { id: 'water', name: 'Water', emoji: '💧', blurb: 'Clears your head a little', strength: -0.3, color: '#d6f1ff', glass: 'highball' },
+  { id: 'beer', name: 'Lager', emoji: '🍺', blurb: 'Cold, from the tap', strength: 0.28, energy: 0, calm: 0.2, color: '#f2b134', glass: 'pint' },
+  { id: 'wine', name: 'Red wine', emoji: '🍷', blurb: 'A generous pour', strength: 0.34, energy: 0, calm: 0.25, color: '#8e1c3c', glass: 'wine' },
+  { id: 'martini', name: 'Martini', emoji: '🍸', blurb: 'Shaken, with an olive', strength: 0.45, energy: 0, calm: 0.3, color: '#e6f0c8', glass: 'martini' },
+  { id: 'maitai', name: 'Mai tai', emoji: '🍹', blurb: 'Rum, lime, a little umbrella', strength: 0.45, energy: 0, calm: 0.3, color: '#ff8c42', glass: 'highball' },
+  { id: 'shot', name: 'Tequila shot', emoji: '🥃', blurb: 'Salt, shot, lime. Careful', strength: 0.6, energy: 0, calm: 0.45, color: '#f7d488', glass: 'shot' },
+  { id: 'mojito', name: 'Virgin mojito', emoji: '🍃', blurb: 'All of the mint, none of the rum', strength: 0, energy: 0, calm: 0.05, color: '#b7e4a0', glass: 'highball' },
+  { id: 'water', name: 'Water', emoji: '💧', blurb: 'Clears your head a little', strength: -0.3, energy: 0.02, calm: 0.12, color: '#d6f1ff', glass: 'highball' },
 ];
 
 export const DRINK_BY_ID = new Map(DRINKS.map((d) => [d.id, d]));

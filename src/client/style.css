@@ -278,9 +278,21 @@ body.telescope-active #hud { visibility: hidden; }
 
 .conn { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--bad); color: #fff; font-weight: 900; padding: 6px 14px; border-radius: 12px; border: 3px solid var(--ink); }
 
-#shares { position: absolute; left: 12px; top: 72px; display: flex; flex-direction: column; gap: 8px; }
-/* Coffee: how much of the buzz is left, under the project name (screen shares move down under it). */
-.caffeine { position: absolute; left: 12px; top: 72px; display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 13px; font-weight: 900; pointer-events: none !important; }
+#shares { position: absolute; left: 12px; top: 106px; display: flex; flex-direction: column; gap: 8px; }
+/* Your own energy and stress, under the project name: what a cup of coffee and a drink at the bar are for. */
+.vitals { position: absolute; left: 12px; top: 72px; display: flex; align-items: center; gap: 10px; padding: 5px 10px; font-size: 13px; font-weight: 900; pointer-events: none !important; }
+.vitals .meter { display: flex; align-items: center; gap: 5px; }
+.vitals .bar { width: 76px; height: 12px; border: 2px solid var(--ink); border-radius: 999px; background: #f1e4d3; overflow: hidden; }
+.vitals .bar span { display: block; width: 0; height: 100%; transition: width 1s linear; }
+#energy-fill { background: #52b788; }
+#stress-fill { background: var(--info); }
+.vitals.low #energy-fill { background: var(--bad); }
+.vitals.wound #stress-fill { background: var(--bad); }
+/* Wound up past half, it shakes like the coffee jitters do. */
+.vitals.wound { animation: jitters .1s steps(2) infinite; }
+@media (prefers-reduced-motion: reduce) { .vitals.wound { animation: none; } }
+/* Coffee: how much of the buzz is left, under the energy and stress (screen shares move down under it). */
+.caffeine { position: absolute; left: 12px; top: 106px; display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 13px; font-weight: 900; pointer-events: none !important; }
 .caffeine .bar { width: 96px; height: 12px; border: 2px solid var(--ink); border-radius: 999px; background: #f1e4d3; overflow: hidden; }
 .caffeine .bar span { display: block; width: 0; height: 100%; background: #9c6644; transition: width 1s linear; }
 .caffeine .left { min-width: 24px; font-variant-numeric: tabular-nums; }
@@ -303,9 +315,9 @@ body.telescope-active #hud { visibility: hidden; }
 .caffeine.jittery .bar span { background: var(--bad); }
 @keyframes jitters { 50% { transform: translate(1px, -1px) rotate(-1.5deg); } }
 @media (prefers-reduced-motion: reduce) { .caffeine.jittery { animation: none; } }
-.caffeine:not(.hidden) ~ #shares { top: 120px; }
+.caffeine:not(.hidden) ~ #shares { top: 140px; }
 /* The floor details make the name taller: what's under it moves down. */
-#hud:has(#project-meta:not(.hud-off)) :is(.caffeine, #shares) { translate: 0 16px; }
+#hud:has(#project-meta:not(.hud-off)) :is(.vitals, .caffeine, #shares) { translate: 0 16px; }
 .share-thumb { width: 220px; border: 3px solid var(--ink); border-radius: 12px; overflow: hidden; background: #000; box-shadow: var(--shadow); cursor: pointer; position: relative; }
 .share-thumb video { width: 100%; display: block; aspect-ratio: 16/9; object-fit: contain; background: #111; }
 .share-thumb .who { position: absolute; left: 6px; bottom: 6px; background: var(--paper); border: 2px solid var(--ink); border-radius: 8px; padding: 1px 6px; font-size: 12px; font-weight: 800; }

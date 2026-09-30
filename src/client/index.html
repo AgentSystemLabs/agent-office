@@ -68,6 +68,17 @@
         <div id="hint" class="hint hidden"></div>
         <div id="shot-meter" class="shot-meter hidden" aria-hidden="true"><span class="sweet"></span><span class="mark"></span></div>
         <div id="toasts"></div>
+        <!-- Your own energy and stress, under the project name: what a cup of coffee and a drink at the bar are for. -->
+        <div id="vitals" class="vitals panel" aria-label="Your energy and stress">
+          <span class="meter" title="Energy: a cup from the coffee machine in the kitchen puts some back">
+            <span class="ico">⚡</span>
+            <span class="bar"><span id="energy-fill"></span></span>
+          </span>
+          <span class="meter" title="Stress: a drink from the rooftop bar takes some off">
+            <span class="ico">😰</span>
+            <span class="bar"><span id="stress-fill"></span></span>
+          </span>
+        </div>
         <div id="caffeine" class="caffeine panel hidden" aria-label="Coffee buzz left">
           <span id="caffeine-cups"></span>
           <span class="bar"><span id="caffeine-fill"></span></span>
