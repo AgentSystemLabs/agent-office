@@ -1,6 +1,6 @@
-import type { GhReviewComment } from '../../shared/protocol';
-import { h, timeAgo } from './dom';
-import { markdown } from './markdown';
+import type { GhReviewComment } from '../../../shared/protocol';
+import { h, timeAgo } from '../dom';
+import { markdown } from '../markdown';
 
 // A PR's unified diff (`gh pr diff`), split into files, and the pieces the Files tab draws with it:
 // each file's lines with inline review comments, the file list/tree, and which files you've reviewed.

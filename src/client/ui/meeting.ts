@@ -6,7 +6,7 @@ import { h, openModal, timeAgo, toast, STATUS_LABEL, type Modal } from './dom';
 import { confirmDialog } from './prompt';
 import { providerPicker } from './provider';
 import { officePrompt } from './prompts';
-import { issueVars } from './boards';
+import { issueVars } from './github/prompts';
 
 /** What a meeting called from an issue, a PR or a task starts out with. */
 export interface MeetingPreset {

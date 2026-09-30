@@ -1,12 +1,14 @@
 /**
  * The jukebox's own tunes: lo-fi beats synthesized with Web Audio, like the office's other sounds
- * (see sound.ts). A tune is four bars of chords played on a warm electric piano over swung drums
+ * (see index.ts). A tune is four bars of chords played on a warm electric piano over swung drums
  * and a round bass, with a little melody, the crackle of an old record and a wobbly tape. It runs
  * in 32-bar rounds so it breathes: the keys alone at first, then the beat, a melody, a breakdown.
  *
  * Every note follows from the tune and how far into it you are, so everyone on the floor who starts
  * from the same moment hears exactly the same bar.
  */
+import { mulberry32 } from '../../shared/rng';
+import { biquad } from './dsp';
 
 interface Tune {
   bpm: number;
@@ -169,7 +171,7 @@ type Note = [step: number, len: number, midi: number];
 
 /** Eight bars of melody, picked from each bar's chord tones by the tune's seed, then repeated. */
 function melodyFor(t: Tune): Note[][] {
-  const rand = mulberry(t.seed);
+  const rand = mulberry32(t.seed);
   let prev = 74;
   const bars: Note[][] = [];
   for (let b = 0; b < 8; b++) {
@@ -504,14 +506,6 @@ export class TunePlayer {
 
 export const mtof = (m: number) => 440 * 2 ** ((m - 69) / 12);
 
-export function biquad(ctx: BaseAudioContext, type: BiquadFilterType, freq: number, q: number): BiquadFilterNode {
-  const f = ctx.createBiquadFilter();
-  f.type = type;
-  f.frequency.value = freq;
-  f.Q.value = q;
-  return f;
-}
-
 /** The same 0–1 for the same numbers, on everyone's machine. */
 export function hash(a: number, b: number): number {
   let h = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x632be5ab, 0xc2b2ae35);
@@ -519,17 +513,6 @@ export function hash(a: number, b: number): number {
   h = Math.imul(h, 0x2c1b3c6d);
   h ^= h >>> 12;
   return (h >>> 0) / 4294967296;
-}
-
-export function mulberry(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
 }
 
 interface Buffers {
