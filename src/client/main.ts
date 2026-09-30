@@ -2,12 +2,13 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, POLE, POLES, SLAB, STATION_AGENT, STOREY, WAKE_UP, WALL_HEIGHT, WALL_T, WING, WING_DESKS, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, seatPlace, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, FUGDI_HOME, GOLF_HOLE, LADDER, POLE, POLES, SLAB, STATION_AGENT, STOREY, WAKE_UP, WALL_HEIGHT, WALL_T, WING, WING_DESKS, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, seatPlace, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { OFFICE_PLAN, seatOn, type MapPlan } from '../shared/maps';
 import { canLabel } from '../shared/floorplan';
 import { floorPalette } from '../shared/floors';
 import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
 import { MEETING_PATTERNS, meetingStage } from '../shared/meetings';
+import { BEAT as FUGDI_BEAT, FUGDI, fugdiPlan, type FugdiPlan } from '../shared/fugdi';
 import { isAsleep, isBusy, workerPr } from '../shared/status';
 import { Net } from './net';
 import { store, lastFloor, lastSpot, loadProfile, loadSettings, rememberSpot, saveSettings, workerForPull, type Profile, type Spot, type Topic } from './state';
@@ -3758,6 +3759,43 @@ function danceParty() {
   for (const a of idleAgents) if (a.view.vacancy.visible) a.model.dance(stageOf(a.view, a.model));
 }
 
+/** A point on the floor `at` (world) and the way to face there, in a model's own seat's frame. */
+function ringSpot(parent: THREE.Object3D, at: { x: number; y?: number; z: number }, yaw = 0): Stage {
+  parent.updateWorldMatrix(true, false);
+  const pos = new THREE.Vector3(at.x, at.y ?? 0, at.z);
+  parent.worldToLocal(pos);
+  const turn = new THREE.Quaternion();
+  parent.getWorldQuaternion(turn);
+  const seatYaw = Math.atan2(2 * (turn.w * turn.y + turn.x * turn.z), 1 - 2 * (turn.y * turn.y + turn.z * turn.z));
+  return { pos, yaw: yaw - seatYaw };
+}
+
+/**
+ * The gong: every bot on the office floor sets off from its seat and dances a Fugdi together, in
+ * rings on the open floor south of the desks (see shared/fugdi.ts). Returns the plan, so the caller
+ * can throw confetti over each ring, or null when there's nobody to dance or nowhere to do it.
+ */
+function fugdiParty(): FugdiPlan | null {
+  if (!inOffice() || upTop) return null;
+  const bots: { id: string; model: Worker; parent: THREE.Object3D }[] = [];
+  for (const [id, v] of workerViews) {
+    // On its way in to a meeting: it gets there first, and dances the next one.
+    if (arrivals.arriving(v.model)) continue;
+    bots.push({ id, model: v.model, parent: v.model.root.parent! });
+  }
+  // The board agents still waiting to be asked join in too.
+  for (const a of idleAgents) if (a.view.vacancy.visible) bots.push({ id: `station:${a.view.def.id}`, model: a.model, parent: a.model.root.parent! });
+  if (!bots.length) return null;
+  // The same order on every browser, so everyone is in the same ring with everyone else.
+  bots.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const plan = fugdiPlan(bots.length, FUGDI_HOME);
+  bots.forEach((b, i) => {
+    const spot = plan.spots[i];
+    b.model.fugdi(ringSpot(b.parent, plan.rings[spot.ring]), spot.ring, spot.member, spot.count);
+  });
+  return plan;
+}
+
 /** Confetti a square meter of floor gets when a pull request merges, and the most there is in all. */
 const CONFETTI_DENSITY = 3.5;
 const CONFETTI_MOST = 4000;
@@ -3794,6 +3832,18 @@ function gongRang(why: GongWhy, pr?: number) {
       gong?.strike(1.2);
       confetti.burst(top.x, top.y, top.z, 450, 1.5);
     }, 1700);
+  } else if (why === 'hit') {
+    // E at the gong: the whole office sets off into a Fugdi. A puff over each ring to call them in,
+    // then a cannon over the finale, hands up.
+    const plan = fugdiParty();
+    if (!plan) return;
+    const n = plan.spots.length;
+    toast(`🪕 Fugdi! ${n} bot${n === 1 ? '' : 's'} gather in the circle`);
+    for (const ring of plan.rings) confetti.burst(ring.x, 2.6, ring.z, 80);
+    setTimeout(() => {
+      if (!inOffice()) return;
+      for (const ring of plan.rings) confetti.burst(ring.x, 3.4, ring.z, 150, 1.4);
+    }, (FUGDI.gather + FUGDI.circle + FUGDI.centre) * FUGDI_BEAT * 1000);
   }
 }
 
