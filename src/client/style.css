@@ -1111,6 +1111,11 @@ a.when:hover { text-decoration: underline; }
 .elevator .floor-sub { font-size: 12px; font-weight: 700; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .elevator .floor-stats { font-size: 13px; font-weight: 800; white-space: nowrap; }
 .elevator .floor-stats .waiting { color: var(--bad); }
+/* A floor that runs on someone else's machine: whose it is, and whether it is answering. Offline is
+   a state, not a failure — the floor and its workers are still there, asleep. */
+.elevator .floor-stats .host-tag { color: var(--muted); }
+.elevator .floor-btn.offline { opacity: 0.65; }
+.elevator .floor-btn.offline .floor-name { text-decoration: line-through dotted; text-decoration-color: var(--muted); }
 .elevator .add { margin-top: 16px; }
 .elevator .add h3 { margin: 0 0 8px; font-size: 15px; font-weight: 900; }
 .elevator .repo-search { display: flex; gap: 8px; }

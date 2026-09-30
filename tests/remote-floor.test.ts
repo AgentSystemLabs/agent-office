@@ -13,18 +13,34 @@ function fakeHost() {
   const registry = {
     serves: () => (reachable ? socket : undefined),
     isReachable: () => reachable,
+    // The registry holds the paired machines, so the name is read from it rather than remembered: a
+    // floor is registered from the building before its machine has necessarily paired.
+    nameOf: () => (named ? 'Alice’s laptop' : undefined),
   } as unknown as HostRegistry;
+  let named = true;
   return {
     sent,
     registry,
     setReachable(v: boolean) {
       reachable = v;
     },
+    setNameKnown(v: boolean) {
+      named = v;
+    },
   };
 }
 
 const make = (host = fakeHost()) =>
-  new RemoteFloor('f1', 'Alice’s laptop', 'h1', host.registry, { id: 'f1', name: 'API', dir: '/on/the/host', palette: 0, addedBy: 'alice', addedAt: 1 }, 'main', ['claude']);
+  new RemoteFloor('f1', 'a machine', 'h1', host.registry, { id: 'f1', name: 'API', dir: '/on/the/host', palette: 0, addedBy: 'alice', addedAt: 1 }, 'main', ['claude']);
+
+test('a floor whose machine has not paired yet has a placeholder name, not an empty one', () => {
+  // The building knows a floor's host id before the machine has ever connected, so the proxy is built
+  // with a fallback. The panel says something honest rather than nothing.
+  const host = fakeHost();
+  host.setNameKnown(false);
+  const floor = make(host);
+  assert.equal(floor.info().host?.name, 'a machine');
+});
 
 test('a floor on another machine says so, and never hands out its checkout', () => {
   // The whole point of the proxy: the office holds the host's path only to identify the floor, and

@@ -284,6 +284,10 @@ export async function startServer(cfg: Config) {
   };
   const floorInfos = (): FloorInfo[] => [
     ...[...floors.values()].map((f) => ({ ...f.info(), ...(building.isLocal(f.id) ? { local: true } : {}) })),
+    // Floors that run on someone else's machine. They are on the panel like any other, and each one
+    // says whose machine it is and whether that machine is answering right now — so nobody has to ride
+    // up to an empty floor to find out its owner's laptop is shut.
+    ...[...remoteFloors.values()].map((f) => f.info()),
     ...building.pending().map((d) => ({ id: d.id, name: d.name, repo: d.repo, dir: d.dir, palette: d.palette, addedBy: d.addedBy, addedAt: d.addedAt, cloning: true, workers: 0, busy: 0, waiting: 0, people: 0, wing: 0 })),
   ];
   // The elevator's counts change with every worker update; tell everyone at most a few times a second.
@@ -734,6 +738,15 @@ export async function startServer(cfg: Config) {
   // Where a machine's answers and events go: the proxy for the floor they are about. A machine tells
   // us a floor is gone through `leave`, and the socket closing is handled per floor by the registry.
   registry.onUpward = (floorId, msg) => remoteFloors.get(floorId)?.deliver(msg);
+  // A machine arriving or leaving changes what the elevator shows, so the panel is refreshed the same
+  // way a worker coming or going refreshes it.
+  registry.onFloorGone = (floorId) => {
+    // The proxy stops answering at once, so the elevator says offline rather than letting a call wait
+    // out its timeout to find out. Its workers stay on the panel, asleep, until someone resumes them.
+    remoteFloors.get(floorId)?.onGone(floorId);
+    floorsChanged();
+  };
+  registry.onFloorUp = () => floorsChanged();
   // Workers still running from the last office are back at their desks before anyone walks in.
   await Promise.all([...floors.values()].map((f) => f.ready));
 

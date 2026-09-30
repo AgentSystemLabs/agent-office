@@ -10,9 +10,9 @@ your laptop runs there, as you, on your disk, with your sign-ins.
 The laptop dials the office. Nothing listens on your machine, and nothing inbound is needed: no port,
 no firewall change, no NAT traversal.
 
-> **Status: a machine pairs, connects, runs a real floor, and answers calls against it. The office's
-> screens are not wired to it yet** — a hosted floor does not appear in the elevator, so it cannot be
-> entered from the browser. See [what is not done](#what-is-not-done) before relying on this.
+> **Status: a machine pairs, connects, runs a real floor, answers calls against it, and the floor
+> appears in the elevator with its machine's name and whether that machine is answering.** Riding
+> into one is not wired yet. See [what is not done](#what-is-not-done) before relying on this.
 
 ## Pairing
 
@@ -120,7 +120,7 @@ Stated plainly, because the alternative is someone finding out the hard way:
 
 | | |
 |---|---|
-| **A hosted floor does not appear in the elevator.** | The office holds the proxy and knows the machine, but the screens read the local floor list. Selecting one from the browser is not wired yet. |
+| **Riding into a hosted floor is not wired.** | It is on the elevator panel, with its machine and its online state, but `floor.go` still resolves floors from the local building, so clicking it does not take you there yet. |
 | ~~The host does not run a real `Floor`.~~ | **Done.** The host opens a real `Floor` — the same class the office runs — with its own `WorkerManager`, `TaskQueue`, `Forge` and `Changes` on this disk, and answers the office's calls against it. |
 | **An agent's office tools are unavailable.** | The host serves `/hooks/*` so a worker's status reaches it, but not the office's `/office/*` MCP endpoints. An agent on a hosted floor cannot use its `office-workers` tools; everything else works. |
 | **A machine is not yet told its floors by the office's building list at startup** in every path. | `floorsFor` reads the building, so it is correct for a floor added with a `host`; adding one from the UI is not wired. |
@@ -128,6 +128,22 @@ Stated plainly, because the alternative is someone finding out the hard way:
 None of these is a design problem — each is a piece of wiring with a named place to land. What is
 built is the hard part: the pairing, the socket, the direction, the proxy and the refusals, with the
 tests to match.
+
+## In the elevator
+
+A hosted floor is on the panel like any other, and its row says whose machine it runs on:
+
+```
+  🖥 Alice's laptop                 💻 2   ← connected
+  🖥 Bob's desktop · offline        💻 1   ← machine away
+```
+
+Offline is a state, not a failure. The floor and its workers are still there, asleep; it comes back
+when that machine does, and **R** resumes whoever was mid-turn. The panel is refreshed when a machine
+connects or goes, the same way it is when a worker comes or goes.
+
+A floor whose machine has never paired says *"a machine"* rather than something invented — the
+building knows a floor's host id long before anyone claims the code.
 
 ## Trying it without two machines
 

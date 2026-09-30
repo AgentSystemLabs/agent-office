@@ -14,7 +14,7 @@ what is left, and how to try it are in [floor-hosts.md](floor-hosts.md). Target:
 | **B** the wire | frames, validators, pairing, the socket, `FloorActions`, `PtyExit.gone` | **done**, tested |
 | **C** a floor elsewhere | `FloorDef.host`, `RemoteFloor`, the host CLI, pairing end to end | **half done** — everything but the host running a real `Floor` |
 | **D** who may hire | seats, the accepting toggle, the queue staying queued | **partly** — seats and accepting exist on the registry and the CLI; the office does not consult them on a hire yet |
-| **E** the surfaces | the elevator, ⚙️ Settings, the desk signs | **not started** |
+| **E** the surfaces | a hosted floor on the elevator panel with its machine and its online state | **partly** — the panel and the status are done; riding in, ⚙️ Settings and the desk signs are not |
 | **F** the docs | this file, `AGENTS.md`, `floor-hosts.md` | **done for what is built** |
 
 Back to the [README](../README.md).

@@ -77,8 +77,11 @@ export class RemoteFloor implements FloorActions {
 
   constructor(
     readonly id: string,
-    /** The machine's name, so every refusal can name it. */
-    readonly machine: string,
+    /**
+     * The machine's name, so every refusal can name it. Read through the registry rather than kept,
+     * because a floor is registered from the building before its machine has necessarily paired.
+     */
+    machine: string,
     readonly hostId: string,
     private registry: HostRegistry,
     /** The floor's identity, as the host announced it. Named so refusals and the elevator can use it. */
@@ -88,8 +91,16 @@ export class RemoteFloor implements FloorActions {
   ) {
     // The office keeps this for identity, and must never use it: it is a path on the host.
     this.dir = '';
+    this.fallbackName = machine;
     this.onGone = () => this.dropPending();
   }
+
+  /** The machine's name, as it is now. */
+  private get machine(): string {
+    return this.registry.nameOf(this.hostId) ?? this.fallbackName;
+  }
+
+  private readonly fallbackName: string;
 
   /** Called when the socket carrying this floor closes. Every floor it had, in one pass. */
   onGone: (floorId: string) => void = () => {};

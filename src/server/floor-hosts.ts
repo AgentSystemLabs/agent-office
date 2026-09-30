@@ -42,6 +42,9 @@ export class HostRegistry {
   /** Told once per floor when the socket carrying it goes, so the office can hold its workers asleep. */
   onFloorGone: (floorId: string) => void = () => {};
 
+  /** Told once per floor when a machine says it is serving it, so the elevator can show it. */
+  onFloorUp: (floorId: string) => void = () => {};
+
   /**
    * The floors the office wants a machine to serve, taken from the building: every floor whose
    * `FloorDef.host` names it. `dir` is the path on *that* machine, which is the only place it means
@@ -50,6 +53,15 @@ export class HostRegistry {
   floorsFor: (hostId: string) => { id: string; dir: string; name: string }[] = () => [];
 
   constructor(private hosts: Hosts) {}
+
+  /**
+   * A machine's name, read now rather than remembered: a floor can be registered before its machine
+   * has paired (the building knows the host id, not the name), so capturing it at construction would
+   * leave the elevator saying "a machine" forever.
+   */
+  nameOf(hostId: string): string | undefined {
+    return this.hosts.get(hostId)?.name;
+  }
 
   /** How many floors a connected machine is serving, for ⚙️ Settings. */
   floorsOf(hostId: string): number {
@@ -174,6 +186,7 @@ export class HostRegistry {
           ready,
         });
         entry.workerFloor.set(ready.floorId, ready.floorId);
+        this.onFloorUp(ready.floorId);
         break;
       }
       case 'leave':
