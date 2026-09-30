@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { FLOOR, SLAB, STREET_Y, WALL_T, roofDrop } from '../../shared/layout';
+import { mulberry32 } from '../../shared/rng';
 import type { NightParts } from './outside';
 import { mergeByMaterial, mesh, toon } from './toon';
 import { buildTower } from './tower';
@@ -40,18 +41,6 @@ export interface City {
   setFloors(floors: number, wings?: readonly number[]): void;
   /** The cars along the streets, the blinking lights on the towers: `night` is how dark it is (0–1). */
   update(t: number, dt: number, night: number): void;
-}
-
-/** The same numbers every time, so everyone sees the same city. */
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
 }
 
 function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
@@ -113,7 +102,7 @@ function bayTexture(p: Paint): THREE.CanvasTexture {
 function litTexture(p: Paint, seed: number): THREE.CanvasTexture {
   const N = 16;
   const C = 16;
-  const r = rng(seed);
+  const r = mulberry32(seed);
   return canvasTexture(N * C, N * C, (g) => {
     g.fillStyle = '#000000';
     g.fillRect(0, 0, N * C, N * C);
@@ -281,7 +270,8 @@ export function buildCity(night: NightParts): City {
   /** Everything down on the street, which is as far below the roof as the building is tall. */
   const street = new THREE.Group();
   group.add(street);
-  const r = rng(20260927);
+  // The same numbers every time, so everyone sees the same city.
+  const r = mulberry32(20260927);
 
   // The ground: every block and street, repeated out to the haze.
   const size = PERIOD * 24;

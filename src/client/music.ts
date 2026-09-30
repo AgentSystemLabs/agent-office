@@ -7,6 +7,7 @@
  * Every note follows from the tune and how far into it you are, so everyone on the floor who starts
  * from the same moment hears exactly the same bar.
  */
+import { mulberry32 } from '../shared/rng';
 
 interface Tune {
   bpm: number;
@@ -169,7 +170,7 @@ type Note = [step: number, len: number, midi: number];
 
 /** Eight bars of melody, picked from each bar's chord tones by the tune's seed, then repeated. */
 function melodyFor(t: Tune): Note[][] {
-  const rand = mulberry(t.seed);
+  const rand = mulberry32(t.seed);
   let prev = 74;
   const bars: Note[][] = [];
   for (let b = 0; b < 8; b++) {
@@ -519,17 +520,6 @@ export function hash(a: number, b: number): number {
   h = Math.imul(h, 0x2c1b3c6d);
   h ^= h >>> 12;
   return (h >>> 0) / 4294967296;
-}
-
-export function mulberry(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
 }
 
 interface Buffers {

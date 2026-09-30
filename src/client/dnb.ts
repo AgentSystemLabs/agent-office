@@ -8,7 +8,8 @@
  * at the same moment, and the lights on the rig flash on the same kicks and snares (see djFrame),
  * even for someone who has the music turned off.
  */
-import { biquad, buffers, hash, mtof, mulberry } from './music';
+import { mulberry32 } from '../shared/rng';
+import { biquad, buffers, hash, mtof } from './music';
 
 export const DJ_BPM = 172;
 /** A 16th, a beat and a bar, in seconds. */
@@ -100,7 +101,7 @@ let cached: { n: number; track: Track } | null = null;
 
 function trackAt(n: number): Track {
   if (cached?.n === n) return cached.track;
-  const r = mulberry(n * 7919 + 13);
+  const r = mulberry32(n * 7919 + 13);
   const pick = <T>(xs: readonly T[]) => xs[Math.floor(r() * xs.length)];
   const track: Track = {
     root: pick([28, 29, 30, 31, 33]),

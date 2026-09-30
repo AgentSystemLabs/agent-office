@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { STREET_Y } from '../../shared/layout';
+import { mulberry32 } from '../../shared/rng';
 import {
   CREEK,
   FARM,
@@ -35,18 +36,6 @@ import { mergeByColor, mesh, textPlane, toon } from './toon';
 
 const G = STREET_Y;
 const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
-
-/** The same numbers every time, so everyone drives past the same trees. */
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
   const c = document.createElement('canvas');
@@ -283,7 +272,7 @@ function boulder(into: THREE.Group, x: number, z: number, r: number, turn: numbe
  * three lists by what they're made of, for merging.
  */
 function mountain(out: Record<'grass' | 'rock' | 'dark' | 'snow', number[]>, x: number, z: number, r: number, h: number, seed: number, hill = false) {
-  const rand = rng(seed);
+  const rand = mulberry32(seed);
   const n = r > 60 ? 14 : 11;
   const rings = 6;
   const ring: THREE.Vector3[][] = [];
@@ -367,7 +356,8 @@ export function buildScenic(group: THREE.Group, colliders: Collider[], night: Ni
   group.add(root);
   const labels = new THREE.Group();
   root.add(labels);
-  const rand = rng(20260929);
+  // The same numbers every time, so everyone drives past the same trees.
+  const rand = mulberry32(20260929);
   /** What's built along each stretch, before it's all sorted into squares of the map and merged (see the end). */
   const parts: Record<'road' | 'farm' | 'forest' | 'mountains' | 'beach' | 'meadow' | 'coast', THREE.Group> = {
     road: new THREE.Group(),
@@ -660,7 +650,7 @@ export function buildScenic(group: THREE.Group, colliders: Collider[], night: Ni
       g.fillRect(0, 0, 128, 128);
       g.strokeStyle = light;
       g.lineWidth = 2.5;
-      const r = rng(7);
+      const r = mulberry32(7);
       for (let k = 0; k < 10; k++) {
         const x = r() * 128;
         const y = r() * 128;
