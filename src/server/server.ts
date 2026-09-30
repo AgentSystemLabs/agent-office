@@ -32,6 +32,7 @@ import { LeaveOnMerge, notLeaving } from './leave-on-merge.js';
 import { findWorker, readHireRequest, readHomeRequest, workerRow, type PullsView } from './office-workers.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import { ChatLog } from './history.js';
+import { Discussions } from './discussions.js';
 import { Arcade, HighScores } from './cabinet.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState, SignInKind, WorkerInfo } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
@@ -251,6 +252,8 @@ export async function startServer(cfg: Config) {
     if (err) console.error(`agent-office: --projects: ${err}`);
   }
   const floors = new Map<string, Floor>();
+  const discussions = new Map<string, Discussions>();
+  const delivering = new Set<string>();
   const floorOf = (c: Client): Floor | undefined => (c.peer.floor ? floors.get(c.peer.floor) : undefined);
   /** The floor a worker sits on. Worker ids are unique across the building. */
   const workerFloor = (workerId: string): Floor | undefined => {
@@ -268,6 +271,38 @@ export async function startServer(cfg: Config) {
   };
   const toastFloor = (floor: Floor | undefined, text: string, level: ToastLevel = 'info') => {
     if (floor) toFloor(floor, { t: 'toast', text, level });
+  };
+  const discussionLine = (floor: Floor, name: string, color: string, text: string) => {
+    const line: ChatLine = { from: `discussion:${floor.id}`, name: `${name} · ${floor.def.name}`, color, text, at: Date.now() };
+    chat.add(line);
+    broadcast({ t: 'chat', ...line });
+  };
+  const pumpDiscussion = (floor: Floor) => {
+    const d = discussions.get(floor.id);
+    const pending = d?.pending();
+    if (!d || !pending || delivering.has(floor.id)) return;
+    const active = d.active();
+    if (!active || !floor.workers.get(active.first) || !floor.workers.get(active.second)) {
+      d.cancel();
+      toastFloor(floor, 'Discussion stopped: a participant left the floor', 'warn');
+      return;
+    }
+    const w = floor.workers.get(pending.to);
+    if (!w || w.kind !== 'agent' || w.lost) {
+      d.cancel();
+      toastFloor(floor, 'Discussion stopped: a participant is unavailable', 'warn');
+      return;
+    }
+    if (!['done', 'idle', 'exited', 'offline'].includes(w.status)) return;
+    delivering.add(floor.id);
+    try {
+      let err = floor.workers.prompt(w.id, pending.prompt, 'Office discussion');
+      if (err === 'Worker is not running') err = floor.workers.resume(w.id, pending.prompt);
+      if (err) toastFloor(floor, `Discussion waiting for ${w.name}: ${err}`, 'warn');
+      else d.delivered();
+    } finally {
+      delivering.delete(floor.id);
+    }
   };
   const floorInfos = (): FloorInfo[] => [
     ...[...floors.values()].map((f) => ({ ...f.info(), ...(building.isLocal(f.id) ? { local: true } : {}) })),
@@ -398,7 +433,7 @@ export async function startServer(cfg: Config) {
         workers: list.map((w) => workerRow(w, view, me.id)),
       });
     }
-    if (req.method !== 'POST' || !['', '/home', '/tell'].includes(action)) return send(res, 405, { error: 'GET /office/workers, or POST to /office/workers, /office/workers/home or /office/workers/tell' });
+    if (req.method !== 'POST' || !['', '/home', '/tell', '/discuss'].includes(action)) return send(res, 405, { error: 'GET /office/workers, or POST to /office/workers, /office/workers/home, /office/workers/tell or /office/workers/discuss' });
     let body: unknown;
     try {
       body = JSON.parse((await readBody(req)) || '{}');
@@ -458,6 +493,21 @@ export async function startServer(cfg: Config) {
       if (err === 'Worker is not running') err = floor.workers.resume(w.id, text);
       if (err) return send(res, 400, { error: err });
       return send(res, 200, { ok: true, worker: row(w.id) });
+    }
+
+    if (action === '/discuss') {
+      const b = (body ?? {}) as { id?: unknown; message?: unknown };
+      const id = str(b.id, 32);
+      const message = str(b.message, 1000).replace(/\r\n?/g, '\n').trim();
+      if (!message) return send(res, 400, { error: 'Say what to discuss: message' });
+      const d = discussions.get(floor.id);
+      const result = d?.post(id, me.id, message) ?? 'No active discussion';
+      if (typeof result === 'string') return send(res, 409, { error: result });
+      const to = me.id === result.first ? result.second : result.first;
+      discussionLine(floor, me.name, me.color, `→ ${floor.workers.get(to)?.name ?? 'partner'} · ${message}`);
+      if (result.finished) toastFloor(floor, `Discussion complete: ${result.messages.length} messages`);
+      else pumpDiscussion(floor);
+      return send(res, 200, { ok: true, finished: !!result.finished, remaining: result.limit - result.messages.length });
     }
 
     const ask = readHireRequest(body, floor.project.agentProviders);
@@ -655,6 +705,7 @@ export async function startServer(cfg: Config) {
       } else webhook.onWorker(w);
       machine.workersChanged();
       floorsChanged();
+      queueMicrotask(() => pumpDiscussion(floor));
     },
     people: (floor) => {
       let n = 0;
@@ -681,6 +732,7 @@ export async function startServer(cfg: Config) {
     try {
       const floor = new Floor(def, floorContext);
       floors.set(def.id, floor);
+      discussions.set(def.id, new Discussions(path.join(def.dir, '.agent-office')));
       return floor;
     } catch (err) {
       console.error(`agent-office: couldn't open the ${def.name} floor: ${(err as Error).message}`);
@@ -692,6 +744,7 @@ export async function startServer(cfg: Config) {
   for (const def of building.list()) openFloor(def);
   // Workers still running from the last office are back at their desks before anyone walks in.
   await Promise.all([...floors.values()].map((f) => f.ready));
+  for (const floor of floors.values()) pumpDiscussion(floor);
 
   const team = new Team(cfg.publicHost, cfg.port, cfg.tailnet);
   const tailnet = new Tailnet(cfg.tailnet);
@@ -1800,6 +1853,23 @@ export async function startServer(cfg: Config) {
           toastFloor(w.floor, `${who} handed issue #${issue} to ${w.info.name}`);
           takeIssue(c, w.floor, issue);
         }
+        break;
+      }
+      case 'discussion.start': {
+        const floor = here();
+        if (!floor) break;
+        const first = floor.workers.get(str(msg.first, 32));
+        const second = floor.workers.get(str(msg.second, 32));
+        const topic = str(msg.topic, 1000).trim();
+        if (!first || !second || first.id === second.id || first.kind !== 'agent' || second.kind !== 'agent') return warn(c, 'Choose two different agents on this floor');
+        if (!topic) return warn(c, 'Give the discussion a topic');
+        if (first.lost || second.lost) return warn(c, 'A participant has a missing worktree');
+        const d = discussions.get(floor.id);
+        const result = d?.start(first.id, second.id, topic, 6) ?? 'Floor is not ready';
+        if (typeof result === 'string') return warn(c, result);
+        discussionLine(floor, 'Office', '#7a87a6', `Discussion ${result.id}: ${first.name} implements, ${second.name} reviews · ${topic}`);
+        toastFloor(floor, `💬 ${first.name} and ${second.name} started a discussion. Open Chat to follow it.`);
+        pumpDiscussion(floor);
         break;
       }
       case 'station.prompt': {
