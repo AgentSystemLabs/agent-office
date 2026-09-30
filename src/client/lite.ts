@@ -28,7 +28,7 @@ import { repoChoices } from './shared/hiring';
 // The tab title counts the workers waiting on someone, on every floor, as the 3D office's does.
 import { renderTitle } from './shared/title';
 
-// Sent here because this browser can't draw the 3D office (see main.ts).
+// Sent here because this browser can't draw the 3D office (see noWebGL in core/scene.ts).
 if (new URLSearchParams(location.search).get('why') === 'webgl') {
   history.replaceState(null, '', location.pathname);
   toast("This browser can't draw the 3D office (WebGL is off or missing), so here's the 2D view", 'warn');
