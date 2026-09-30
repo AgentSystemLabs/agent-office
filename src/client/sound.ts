@@ -10,7 +10,7 @@
  */
 import { CABINET, DESKS, DJ_BOOTH, FLOOR, GONG, JUKEBOX, WINDOWS as OPENINGS, inWing } from '../shared/layout';
 import type { GongWhy } from '../shared/protocol';
-import { STREAM, type JukeboxSpot } from '../shared/jukebox';
+import { STREAM, stationUrl, type JukeboxSpot } from '../shared/jukebox';
 import { TunePlayer } from './music';
 import { DjPlayer } from './dnb';
 
@@ -1703,7 +1703,9 @@ export class OfficeSound {
     clearInterval(this.musicTimer);
     const j = this.jukebox;
     if (!j) return;
-    if (j.track === STREAM && j.url) return this.startStream(j.url);
+    // A pasted stream carries its own url; a built-in station's url ships with the office.
+    const url = j.track === STREAM ? j.url : stationUrl(j.track);
+    if (url) return this.startStream(url);
     const tune = (this.tune = new TunePlayer(ctx, this.musicIn, j.track));
     this.count('tune');
     // On a timer rather than every frame, so it carries on in a background tab.

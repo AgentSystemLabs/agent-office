@@ -9,6 +9,12 @@ export interface JukeboxTune {
   title: string;
   /** A few words on the card in its list. */
   mood: string;
+  /**
+   * The internet radio stream this entry stands for, when it's a built-in station rather than a tune
+   * the browser synthesizes. A station is put on and listed like any other entry, but plays like a
+   * pasted stream (see isStreamTrack, and client/sound.ts).
+   */
+  url?: string;
 }
 
 export const JUKEBOX_TUNES: readonly JukeboxTune[] = [
@@ -16,6 +22,7 @@ export const JUKEBOX_TUNES: readonly JukeboxTune[] = [
   { id: 'coffee-break', title: 'Coffee Break', mood: 'jazzy, easy swing' },
   { id: 'late-commit', title: 'Late Commit', mood: 'minor key, 2 a.m.' },
   { id: 'green-build', title: 'Green Build', mood: 'bright and bouncy' },
+  { id: 'suno-fm', title: 'SUNO FM', mood: 'internet radio · 128 kbps', url: 'https://eu8.fastcast4u.com/proxy/clyedupq?mp=/1' },
 ];
 
 /** The `track` of a stream someone pasted. */
@@ -94,9 +101,9 @@ export function sanitizeSpot(input: unknown): JukeboxSpot | string {
 
 export interface JukeboxState {
   on: boolean;
-  /** One of JUKEBOX_TUNES, or STREAM for `url`. It stays put while the jukebox is off, to turn back on. */
+  /** One of JUKEBOX_TUNES (a tune, or a built-in station), or STREAM for `url`. It stays put while the jukebox is off, to turn back on. */
   track: string;
-  /** Internet radio or an audio file someone pasted. */
+  /** Internet radio or an audio file someone pasted. A built-in station carries its own url instead. */
   url?: string;
   /** Where its cabinet stands; where it stood until somebody moved it. */
   spot?: JukeboxSpot;
@@ -109,6 +116,12 @@ export interface JukeboxState {
 }
 
 export const tuneById = (id: string): JukeboxTune | undefined => JUKEBOX_TUNES.find((t) => t.id === id);
+
+/** The stream a built-in station stands for, if `track` is a station rather than a synthesized tune. */
+export const stationUrl = (track: string): string | undefined => tuneById(track)?.url;
+
+/** Whether a track plays from the internet rather than being synthesized: a pasted stream, or a built-in station. */
+export const isStreamTrack = (track: string): boolean => track === STREAM || Boolean(stationUrl(track));
 
 /** What's on, for the hint bar and the jukebox's own display: a tune's title, or where the stream comes from. */
 export function trackTitle(s: Pick<JukeboxState, 'track' | 'url'>): string {

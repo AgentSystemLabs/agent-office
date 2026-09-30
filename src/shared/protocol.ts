@@ -1305,7 +1305,7 @@ export type ClientMsg =
   /** Knock the back office out another row, with two more desks; or wall its last row back up. */
   | { t: 'floor.expand' }
   | { t: 'floor.shrink' }
-  /** Put a tune on the jukebox (a JUKEBOX_TUNES id), or a stream; with neither, turn it back on. */
+  /** Put a tune — or a built-in station — on the jukebox (a JUKEBOX_TUNES id), or a stream; with neither, turn it back on. */
   | { t: 'jukebox.play'; track?: string; url?: string }
   /** On to the next tune. */
   | { t: 'jukebox.skip' }
