@@ -6,24 +6,21 @@ import type { Duplex } from 'node:stream';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Config } from './config.js';
 import type { Session } from './auth.js';
-import { MAX_REPOS, childEnv, resolveCommand, type RepoSource } from './workers.js';
+import { MAX_REPOS, resolveCommand, type RepoSource } from './workers.js';
 import { OPEN_CODE_MODEL_MAX } from './agents.js';
-import { MAX_WORKER_LIMIT, parseWorkerLimit } from './machine.js';
 import { relayUpgrade, tunneledPort } from './relay.js';
-import type { ChatLine, ClientMsg, MeetingRequest, SignInKind } from '../shared/protocol.js';
-import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
+import type { ChatLine, ClientMsg } from '../shared/protocol.js';
+import { isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import { DESK_BY_ID, elevatorSpot } from '../shared/layout.js';
-import { OFFICE_MAP, seatHereOn } from '../shared/maps/index.js';
+import { seatHereOn } from '../shared/maps/index.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 import { isEmote } from '../shared/emotes.js';
-import { isThemePick } from '../shared/theme.js';
-import { PROMPTS, PROMPT_MAX, isPromptId } from '../shared/prompts.js';
 import { ROOF, isDrink } from '../shared/rooftop.js';
 import { isBarGame } from '../shared/bargames.js';
 import type { Floor } from './floor.js';
 import type { Ctx } from './office/context.js';
 import { SLOW_CLIENT_BYTES, newClient, throttle, type Client } from './office/client.js';
-import { COLOR_RE, arrivalSpot, issueNumber, num, repoOf, spotFrom, str } from './office/input.js';
+import { COLOR_RE, arrivalSpot, issueNumber, num, spotFrom, str } from './office/input.js';
 import { messaging } from './office/messaging.js';
 import { createCore } from './office/core.js';
 import { floorHelpers, openFloors } from './office/floors.js';
@@ -39,6 +36,7 @@ import { startHookServer } from './hooks/server.js';
 import { floorView, roofView, screensOf } from './office/views.js';
 import { dispatch } from './ws/dispatch.js';
 import { features } from './ws/handlers/index.js';
+import { mapNews } from './ws/handlers/settings.js';
 
 const CLEANUPS = new Set(['keep', 'worktree', 'all']);
 
@@ -63,28 +61,13 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
   Object.assign(ctx, messaging(ctx), floorHelpers(ctx), people(ctx), navigation(ctx), gates(ctx));
   Object.assign(ctx, createCore(ctx, cfg, publicDir));
   const { sendTo, broadcast, toastAll, toFloor, toastFloor, toNeighbors, warn, floorOf, workerFloor, floorInfos, floorsChanged, arrivalFloor, closeFloor } = ctx;
-  const { meOf, onlineAccounts, accountsChanged, stillIn, goToFloor, goToRoof, takeIssue, withSignIn, withFreshBase, withGitHub, claudeFor } = ctx;
+  const { meOf, accountsChanged, stillIn, goToFloor, goToRoof, takeIssue, withSignIn, withFreshBase, withGitHub, claudeFor } = ctx;
   const { accounts, auth, clients, chat, arcade, building, floors } = ctx;
 
   const { hookServer, hookPort } = await startHookServer(ctx);
 
   Object.assign(ctx, createServices(ctx));
-  const { themes, maps, prompts, leaveOnMerge, ledger, signins, accountLimits, webhook, machine, limitsOf, pumpQueues } = ctx;
-  /**
-   * Tells everyone about the maps, after a pick or a read of the folder. When the map everyone's on
-   * changed (`was` before), everyone's off their seats (each browser forgets them too, see the
-   * client's 'map'), and hears what it is now: `who` picked it, or a map of your own broke or came back.
-   */
-  const mapNews = (was: string, who?: string) => {
-    const now = maps.pick();
-    if (now !== was) for (const other of clients.values()) delete other.peer.seat;
-    broadcast({ t: 'map', state: maps.state() });
-    if (now === was) return;
-    const plan = maps.plan();
-    // Without a pick, a map of your own broke (back to the office) or was fixed (back to it).
-    const why = now === OFFICE_MAP ? `: the map "${was}" won't load (see ⚙️ Settings)` : ': it loads again';
-    toastAll(who ? `${who} changed the building's map to ${plan.icon} ${plan.name}` : `The building's map is ${plan.icon} ${plan.name} now${why}`);
-  };
+  const { themes, maps, prompts, leaveOnMerge, ledger, signins, accountLimits, webhook, machine, limitsOf } = ctx;
   Object.assign(ctx, await openFloors(ctx, hookPort));
   const { openFloor } = ctx;
 
@@ -156,7 +139,7 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
     });
     // Maps of your own may have been added or edited since: everyone already in hears first.
     const mapWas = maps.pick();
-    if (maps.reload()) mapNews(mapWas);
+    if (maps.reload()) mapNews(ctx, mapWas);
     clients.set(id, client);
     if (account) accounts.seen(account.id);
     ws.on('pong', () => (client.isAlive = true));
@@ -226,8 +209,6 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
     toFloor(floor, { t: 'plan', plan: floor.plan.state() });
     floorsChanged();
   };
-  const teamState = async () => ({ ...(await team.state()), deploy: cfg.deployScript });
-  const teamChanged = async () => broadcast({ t: 'team', state: await teamState() });
 
   const handleMessage = (c: Client, msg: ClientMsg) => {
     if (dispatch(ctx, c, msg)) return;
@@ -589,346 +570,6 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
       case 'term.resize':
         if (c.attached.has(msg.workerId)) workerFloor(msg.workerId)?.workers.resize(msg.workerId, num(msg.cols), num(msg.rows));
         break;
-      case 'gh.refresh':
-        void floorOf(c)?.github.refresh();
-        break;
-      case 'gh.merge': {
-        const floor = here();
-        const n = num(msg.number);
-        const method = (['squash', 'merge', 'rebase'] as const).find((m) => m === msg.method);
-        if (!floor || !Number.isSafeInteger(n) || n <= 0 || !method) break;
-        withGitHub(
-          c,
-          (as) =>
-            void floor.github.merge(n, method, msg.deleteBranch === true, msg.auto === true, as).then((error) => {
-              sendTo(c, { t: 'gh.merged', number: n, error });
-              if (error) return;
-              toastFloor(floor, msg.auto ? `${who} set PR #${n} to merge once its checks pass` : `🎉 ${who} merged PR #${n}`);
-              // An auto-merge rings once GitHub gets round to it and the boards see it merged.
-              if (!msg.auto) floor.merged(n, who);
-            }),
-          (error) => sendTo(c, { t: 'gh.merged', number: n, error }),
-        );
-        break;
-      }
-      case 'gh.comment': {
-        const floor = here();
-        const n = num(msg.number);
-        const kind = msg.kind === 'pull' ? 'pull' : 'issue';
-        if (!floor || !Number.isSafeInteger(n) || n <= 0) break;
-        const body = typeof msg.body === 'string' ? msg.body : '';
-        // Refused rather than cut short: a comment that silently lost its end would read as finished.
-        const invalid = !body.trim() ? 'The comment is empty' : body.length > GH_COMMENT_MAX ? `GitHub takes comments of up to ${GH_COMMENT_MAX} characters` : '';
-        if (invalid) {
-          sendTo(c, { t: 'gh.commented', kind, number: n, error: invalid });
-          break;
-        }
-        withGitHub(
-          c,
-          (as) =>
-            void floor.github.comment(kind, n, body, as).then((r) => {
-              sendTo(c, { t: 'gh.commented', kind, number: n, ...r });
-              if (r.comment) toastFloor(floor, `💬 ${who} commented on ${kind === 'pull' ? 'PR' : 'issue'} #${n}`);
-            }),
-          (error) => sendTo(c, { t: 'gh.commented', kind, number: n, error }),
-        );
-        break;
-      }
-      case 'gh.close': {
-        const floor = here();
-        const n = num(msg.number);
-        const kind = msg.kind === 'issue' || msg.kind === 'pull' ? msg.kind : undefined;
-        if (!floor || !Number.isSafeInteger(n) || n <= 0 || !kind) break;
-        const reason = msg.reason === 'not planned' ? 'not planned' : 'completed';
-        withGitHub(
-          c,
-          (as) =>
-            void floor.github.close(kind, n, { comment: str(msg.comment, 20000).trim() || undefined, reason, deleteBranch: msg.deleteBranch === true }, as).then((error) => {
-              sendTo(c, { t: 'gh.closed', kind, number: n, error });
-              if (error) return;
-              if (kind === 'pull') return toastFloor(floor, `${who} closed PR #${n} without merging`);
-              // Nobody should be seated for an issue that's closed.
-              const dropped = floor.queue.dropIssue(n);
-              toastFloor(floor, `${who} closed issue #${n}${reason === 'not planned' ? ' as not planned' : ''}${dropped ? ' and took it off the queue' : ''}`);
-            }),
-          (error) => sendTo(c, { t: 'gh.closed', kind, number: n, error }),
-        );
-        break;
-      }
-      case 'gh.labels': {
-        const floor = here();
-        const n = num(msg.number);
-        const kind = msg.kind === 'issue' || msg.kind === 'pull' ? msg.kind : undefined;
-        if (!floor || !Number.isSafeInteger(n) || n <= 0 || !kind) break;
-        const names = (v: unknown) => [...new Set((Array.isArray(v) ? v : []).map((l) => str(l, GH_LABEL_MAX + 1)).filter((l) => l && l.length <= GH_LABEL_MAX))].slice(0, 100);
-        const add = names(msg.add);
-        const remove = names(msg.remove).filter((l) => !add.includes(l));
-        if (!add.length && !remove.length) {
-          sendTo(c, { t: 'gh.labeled', kind, number: n, error: 'No labels to change' });
-          break;
-        }
-        withGitHub(
-          c,
-          (as) =>
-            void floor.github.setLabels(kind, n, add, remove, as).then((r) => {
-              sendTo(c, { t: 'gh.labeled', kind, number: n, ...r });
-              if (r.labels) toastFloor(floor, `🏷️ ${who} labeled ${kind === 'pull' ? 'PR' : 'issue'} #${n}: ${[...add.map((l) => `+${l}`), ...remove.map((l) => `−${l}`)].join(' ')}`);
-            }),
-          (error) => sendTo(c, { t: 'gh.labeled', kind, number: n, error }),
-        );
-        break;
-      }
-      case 'queue.add': {
-        const floor = here();
-        if (!floor) break;
-        if (msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider))) {
-          warn(c, 'Unknown agent provider');
-          break;
-        }
-        const issue = Number.isInteger(msg.issue) && (msg.issue as number) > 0 ? (msg.issue as number) : undefined;
-        const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
-        const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
-        // Its worker runs on the sign-ins of whoever queued it, whenever it gets a desk.
-        withSignIn(c, claudeFor(msg.provider ?? floor.workers.officeDefault.provider), () => {
-          const err = floor.queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model, effort, c.accountId);
-          if (err) warn(c, err);
-          else toastFloor(floor, `📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`);
-        });
-        break;
-      }
-      case 'queue.remove': {
-        const floor = here();
-        if (floor) warn(c, floor.queue.remove(str(msg.taskId, 32)));
-        break;
-      }
-      case 'queue.move':
-        floorOf(c)?.queue.move(str(msg.taskId, 32), num(msg.delta) < 0 ? -1 : 1);
-        break;
-      case 'queue.retry': {
-        const floor = here();
-        if (floor) warn(c, floor.queue.retry(str(msg.taskId, 32)));
-        break;
-      }
-      case 'queue.clear':
-        floorOf(c)?.queue.clear();
-        break;
-      case 'queue.limit':
-        floorOf(c)?.queue.setLimit(num(msg.maxWorkers));
-        break;
-      case 'meeting.start': {
-        const floor = here();
-        if (!floor) break;
-        if (msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider))) {
-          warn(c, 'Unknown agent provider');
-          break;
-        }
-        const count = (v: unknown) => (Number.isInteger(v) && (v as number) > 0 ? (v as number) : undefined);
-        const request: MeetingRequest = {
-          pattern: msg.pattern,
-          prompt: str(msg.prompt, 20000),
-          title: str(msg.title, 200) || undefined,
-          output: str(msg.output, 300) || undefined,
-          roles: Array.isArray(msg.roles) ? msg.roles.slice(0, 8).map((r) => str(r, 80)) : [],
-          parts: Array.isArray(msg.parts) ? msg.parts.slice(0, 200).map((p) => str(p, 500)) : undefined,
-          pr: count(msg.pr),
-          issue: count(msg.issue),
-          rounds: count(msg.rounds),
-          budget: count(msg.budget),
-          provider: msg.provider,
-          model: msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1),
-          effort: isAgentEffort(msg.effort) ? msg.effort : undefined,
-        };
-        withSignIn(c, claudeFor(request.provider ?? floor.workers.officeDefault.provider), () => withFreshBase(c, floor, () => warn(c, floor.meetings.start(request, who, c.accountId))));
-        break;
-      }
-      case 'meeting.stop': {
-        const floor = here();
-        if (floor) warn(c, floor.meetings.stop(who));
-        break;
-      }
-      case 'meeting.clear': {
-        const floor = here();
-        if (floor) warn(c, floor.meetings.clear(who));
-        break;
-      }
-      case 'notify.webhook': {
-        const url = str(msg.url, 4096).trim();
-        const err = webhook.set(url, who);
-        warn(c, err);
-        if (!err) toastAll(url ? `📣 ${who} set up team notifications` : `${who} turned off team notifications`);
-        break;
-      }
-      case 'notify.test':
-        void webhook.test(who).then((err) => sendTo(c, { t: 'toast', text: err ?? '📣 Sent a test message', level: err ? 'warn' : 'info' }));
-        break;
-      case 'theme.set': {
-        if (!isThemePick(msg.pick)) return;
-        if (msg.pick === themes.state().pick) break;
-        themes.set(msg.pick, who);
-        const now = themes.state().active;
-        toastAll(
-          msg.pick === 'halloween'
-            ? `🎃 ${who} dressed the office up for Halloween`
-            : msg.pick === 'christmas'
-              ? `🎄 ${who} dressed the office up for Christmas`
-              : msg.pick === 'off'
-                ? `${who} took the holiday decorations down`
-                : `📅 ${who} set the decorations to follow the calendar${now ? ` (it's ${now === 'halloween' ? 'Halloween 🎃' : 'Christmas 🎄'} season)` : ''}`,
-        );
-        break;
-      }
-      case 'map.set': {
-        // Someone opened the list, or picked a map: either way the folder of maps of your own is read again first.
-        const was = maps.pick();
-        const reloaded = maps.reload();
-        if (msg.map === undefined || !maps.set(str(msg.map, 64), who)) {
-          if (reloaded) mapNews(was);
-          if (msg.map !== undefined) warn(c, 'There’s no map by that name, or it won’t load: see ⚙️ Settings');
-          break;
-        }
-        mapNews(was, who);
-        break;
-      }
-      case 'prompts.set': {
-        if (!meOf(c.accountId).admin) return warn(c, 'Only admins can change the office’s prompts');
-        if (!isPromptId(msg.id) || (msg.text !== null && typeof msg.text !== 'string')) return;
-        const custom = !!prompts.state().custom[msg.id];
-        const err = prompts.setPrompt(msg.id, msg.text === null ? null : str(msg.text, PROMPT_MAX + 1), who);
-        if (err) return warn(c, err);
-        const now = !!prompts.state().custom[msg.id];
-        const { label } = PROMPTS[msg.id];
-        if (now) toastAll(`📝 ${who} rewrote the “${label}” prompt`);
-        else if (custom) toastAll(`📝 ${who} put the default “${label}” prompt back`);
-        break;
-      }
-      case 'prompts.agent': {
-        if (!meOf(c.accountId).admin) return warn(c, 'Only admins can pick the office’s default worker');
-        const ch = msg.choice;
-        if (ch !== null && (!ch || typeof ch !== 'object')) return;
-        const choice = ch && {
-          provider: ch.provider,
-          model: ch.model === undefined || ch.model === '' ? undefined : str(ch.model, OPEN_CODE_MODEL_MAX + 1),
-          effort: ch.effort === undefined ? undefined : ch.effort,
-        };
-        const err = prompts.setAgent(choice, who);
-        if (err) return warn(c, err);
-        toastAll(choice ? `🤖 ${who} set the office’s default worker` : `🤖 ${who} put the office’s default worker back to ${path.basename(cfg.agentCmd)}`);
-        break;
-      }
-      case 'leaveOnMerge.set': {
-        const on = msg.on === true;
-        if (on === leaveOnMerge.on) break;
-        leaveOnMerge.set(on, who);
-        toastAll(on ? `🏠 ${who} set workers to go home by themselves once their pull request merges` : `🪑 ${who} set workers whose pull request merged to stay until they're sent home`);
-        // The ones already merged go now.
-        if (on) for (const f of floors.values()) f.sendLandedHome();
-        break;
-      }
-      case 'machine.limit': {
-        if (!meOf(c.accountId).admin) return warn(c, 'Only admins can change the worker limit');
-        const limit = msg.limit === null ? undefined : parseWorkerLimit(msg.limit);
-        if (msg.limit !== null && limit === undefined) return warn(c, `The worker limit is a whole number from 1 to ${MAX_WORKER_LIMIT}`);
-        const err = machine.setLimit(limit, who);
-        if (err) return warn(c, err);
-        const now = machine.limit;
-        toastAll(limit !== undefined ? `⚙️ ${who} set the worker limit to ${now}` : now === undefined ? `⚙️ ${who} took the worker limit off` : `⚙️ ${who} put the worker limit back to ${now} (--max-workers)`);
-        pumpQueues();
-        break;
-      }
-      case 'changes.watch': {
-        const w = worker(msg.workerId);
-        if (w) w.floor.changes.watch(w.wid, c.id, repoOf(msg.repo));
-        break;
-      }
-      case 'changes.unwatch': {
-        const wid = str(msg.workerId, 32);
-        // Its worker may have gone home already; stop watching wherever it was.
-        for (const f of floors.values()) f.changes.unwatch(wid, c.id, repoOf(msg.repo));
-        break;
-      }
-      case 'changes.diff': {
-        const workerId = str(msg.workerId, 32);
-        const file = str(msg.path, 4096);
-        const repo = repoOf(msg.repo);
-        const floor = workerFloor(workerId);
-        if (!floor) {
-          sendTo(c, { t: 'changes.diff', workerId, repo, path: file, diff: '', truncated: false, error: 'No such worker' });
-          break;
-        }
-        void floor.changes.diff(workerId, file, repo).then((r) => {
-          if (typeof r === 'string') sendTo(c, { t: 'changes.diff', workerId, repo, path: file, diff: '', truncated: false, error: r });
-          else sendTo(c, { t: 'changes.diff', workerId, repo, path: file, ...r });
-        });
-        break;
-      }
-      case 'changes.commit': {
-        const w = worker(msg.workerId);
-        // Committed as whoever pressed it: their GitHub name and email, once they've signed in to it.
-        const env = c.accountId ? signins.apply(c.accountId, childEnv(), [], 'github') : undefined;
-        if (w) void w.floor.changes.commit(w.wid, str(msg.message, 5000), who, env, repoOf(msg.repo)).then((err) => warn(c, err));
-        break;
-      }
-      case 'changes.discard': {
-        const w = worker(msg.workerId);
-        if (w) void w.floor.changes.discard(w.wid, typeof msg.path === 'string' ? str(msg.path, 4096) : undefined, who, repoOf(msg.repo)).then((err) => warn(c, err));
-        break;
-      }
-      case 'changes.pr': {
-        const w = worker(msg.workerId);
-        if (w) withGitHub(c, (as) => void w.floor.changes.pullRequest(w.wid, str(msg.title, 300), str(msg.body, 20000), who, as?.env, repoOf(msg.repo)).then((err) => warn(c, err)));
-        break;
-      }
-      case 'upgrade.check':
-        void upgrader.check();
-        break;
-      case 'upgrade.start':
-        void upgrader.start(who).then((err) => {
-          if (err) warn(c, err);
-          else toastAll(`${who} is upgrading the office — it restarts when the new version is built`);
-        });
-        break;
-      case 'limits.refresh':
-        limitsOf(c).refresh();
-        break;
-      case 'team.get':
-        void teamState().then((state) => sendTo(c, { t: 'team', state }));
-        break;
-      case 'team.invite': {
-        const user = str(msg.github, 64);
-        void team.invite(user).then(async (r) => {
-          sendTo(c, { t: 'team.invited', github: user, ...r });
-          if ('error' in r) return;
-          toastAll(`${who} invited ${r.name} to the office`);
-          await teamChanged();
-        });
-        break;
-      }
-      case 'team.remove': {
-        const name = str(msg.name, 64);
-        void team.remove(name).then(async (err) => {
-          if (err) return warn(c, err);
-          toastAll(`${who} removed ${name}'s access`);
-          await teamChanged();
-        });
-        break;
-      }
-      case 'accounts.get':
-      case 'accounts.invite':
-      case 'accounts.cancel':
-      case 'accounts.revoke':
-      case 'accounts.role':
-      case 'accounts.shared':
-        handleAccounts(c, msg);
-        break;
-      case 'signins.get':
-      case 'signins.start':
-      case 'signins.code':
-      case 'signins.cancel':
-      case 'signins.token':
-      case 'signins.office':
-      case 'signins.signout':
-        handleSignIns(c, msg);
-        break;
       case 'desk.label': {
         const floor = here();
         if (!floor) break;
@@ -963,92 +604,6 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
       case 'ping':
         sendTo(c, { t: 'pong', at: num(msg.at), now: Date.now() });
         break;
-    }
-  };
-
-  /** Inviting, listing and revoking people. Admins only: an admin account, or the shared password. */
-  /** Your own Claude and GitHub sign-ins (see signins.ts). Accounts only: the shared password runs on the office's. */
-  const handleSignIns = (c: Client, msg: Extract<ClientMsg, { t: `signins.${string}` }>) => {
-    const id = c.accountId;
-    if (!id) return warn(c, "On the shared office password, workers run on the office's own sign-ins");
-    const which: SignInKind = 'which' in msg && msg.which === 'github' ? 'github' : 'claude';
-    switch (msg.t) {
-      case 'signins.get':
-        sendTo(c, { t: 'signins', state: signins.state(id) });
-        void signins.look(id, true);
-        break;
-      case 'signins.start':
-        warn(c, signins.start(id, which));
-        break;
-      case 'signins.code':
-        warn(c, signins.code(id, str(msg.code, 4096)));
-        break;
-      case 'signins.cancel':
-        signins.cancel(id, which);
-        break;
-      case 'signins.token':
-        void signins.token(id, which, str(msg.token, 4096)).then((err) => warn(c, err));
-        break;
-      case 'signins.office':
-        warn(c, signins.useOffice(id, which));
-        break;
-      case 'signins.signout':
-        void signins.signOut(id, which);
-        break;
-    }
-  };
-
-  const handleAccounts = (c: Client, msg: Extract<ClientMsg, { t: `accounts.${string}` }>) => {
-    const who = c.peer.name;
-    if (!meOf(c.accountId).admin) return warn(c, 'Only admins can manage accounts');
-    switch (msg.t) {
-      case 'accounts.get':
-        sendTo(c, { t: 'accounts', state: accounts.state(onlineAccounts()) });
-        break;
-      case 'accounts.invite': {
-        const r = accounts.invite(who, msg.role === 'admin' ? 'admin' : 'member', typeof msg.name === 'string' ? msg.name : undefined);
-        if (typeof r === 'string') return sendTo(c, { t: 'accounts.invited', error: r });
-        sendTo(c, { t: 'accounts.invited', invite: r });
-        accountsChanged();
-        break;
-      }
-      case 'accounts.cancel':
-        if (accounts.cancel(str(msg.inviteId, 32))) accountsChanged();
-        break;
-      case 'accounts.revoke': {
-        const id = str(msg.accountId, 32);
-        if (id === c.accountId) return warn(c, "You can't revoke your own account");
-        const a = accounts.revoke(id);
-        if (!a) break;
-        console.log(`  ${who} revoked ${a.name}'s account`);
-        toastAll(`${who} revoked ${a.name}'s account`);
-        accountsChanged(); // signs them out everywhere
-        signins.forget(a.id); // and their Claude and GitHub sign-ins go with the account
-        accountLimits.get(a.id)?.reader.close();
-        accountLimits.delete(a.id);
-        break;
-      }
-      case 'accounts.role': {
-        const id = str(msg.accountId, 32);
-        if (id === c.accountId) return warn(c, "You can't change your own role");
-        const a = accounts.setRole(id, msg.role === 'admin' ? 'admin' : 'member');
-        if (!a) break;
-        toastAll(a.role === 'admin' ? `${who} made ${a.name} an admin` : `${a.name} is no longer an admin`);
-        accountsChanged();
-        // Only admins may use the office's own sign-ins: a demoted one is back on their own.
-        void signins.look(a.id, true);
-        break;
-      }
-      case 'accounts.shared': {
-        if (msg.on === accounts.sharedPassword) break;
-        // Only someone who can still get in without it may switch it off.
-        if (!msg.on && !c.accountId) return warn(c, 'Sign in with an admin account of your own first, or nobody could get back in');
-        accounts.setSharedPassword(!!msg.on);
-        console.log(`  ${who} switched the shared office password ${msg.on ? 'on' : 'off'}`);
-        toastAll(msg.on ? `${who} switched the shared office password back on` : `🔑 ${who} switched off the shared office password — everyone signs in with their own account now`);
-        accountsChanged(); // signs out whoever came in with it
-        break;
-      }
     }
   };
 

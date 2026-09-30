@@ -1,27 +1,44 @@
 // Every message a browser can send, by type, and the features that keep something per person on a
 // floor. A new feature adds its handler file and a line here.
 import type { ClientMsg } from '../../../shared/protocol.js';
+import { accountsHandlers } from './accounts.js';
 import { ballHandlers, ballHooks } from './ball.js';
 import { cabinetHandlers, cabinetHooks } from './cabinet.js';
 import { carHandlers, carHooks } from './car.js';
-import { changesHooks } from './changes.js';
+import { changesHandlers, changesHooks } from './changes.js';
 import { decorHandlers } from './decor.js';
 import { dogHandlers } from './dog.js';
+import { githubHandlers } from './github.js';
 import { jukeboxHandlers } from './jukebox.js';
+import { meetingHandlers } from './meetings.js';
+import { queueHandlers } from './queue.js';
 import { rooftopHandlers } from './rooftop.js';
+import { settingsHandlers } from './settings.js';
+import { signinsHandlers } from './signins.js';
+import { teamHandlers } from './team.js';
+import { usageHandlers } from './usage.js';
 import { whiteboardHandlers, whiteboardHooks } from './whiteboard.js';
 import { workerHooks } from './workers.js';
 import type { FeatureHooks, HandlerMap } from './types.js';
 
 /** Each domain's handlers put together, in alphabetical order. */
 export const handlers: Partial<HandlerMap<ClientMsg>> = {
+  ...accountsHandlers,
   ...ballHandlers,
   ...cabinetHandlers,
   ...carHandlers,
+  ...changesHandlers,
   ...decorHandlers,
   ...dogHandlers,
+  ...githubHandlers,
   ...jukeboxHandlers,
+  ...meetingHandlers,
+  ...queueHandlers,
   ...rooftopHandlers,
+  ...settingsHandlers,
+  ...signinsHandlers,
+  ...teamHandlers,
+  ...usageHandlers,
   ...whiteboardHandlers,
 };
 

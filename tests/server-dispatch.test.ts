@@ -384,6 +384,72 @@ test('the toys on a floor, and letting go of them on leaving the floor or the of
   await b.close();
 });
 
+test('settings, accounts, sign-ins and the boards answer as before', async () => {
+  const a = await Browser.open('?name=Eve');
+  await a.take('welcome');
+  const warned = async (text: string) => assert.equal((await a.take('toast', (m) => m.level === 'warn')).text, text);
+  const told = async (start: string) => (await a.take('toast', (m) => m.level === 'info' && m.text.startsWith(start))).text;
+
+  a.send({ t: 'theme.set', pick: 'nope' });
+  a.send({ t: 'theme.set', pick: 'off' });
+  assert.equal((await a.take('theme')).state.pick, 'off');
+  assert.equal(await told('Eve took'), 'Eve took the holiday decorations down');
+  a.send({ t: 'map.set', map: 'nowhere' });
+  await warned('There’s no map by that name, or it won’t load: see ⚙️ Settings');
+  a.send({ t: 'machine.limit', limit: 0 });
+  await warned('The worker limit is a whole number from 1 to 500');
+  a.send({ t: 'machine.limit', limit: 3 });
+  assert.equal((await a.take('machine', (m) => m.state.limit === 3)).state.limit, 3);
+  assert.equal(await told('⚙️'), '⚙️ Eve set the worker limit to 3');
+  a.send({ t: 'prompts.set', id: 'nope', text: 'x' });
+  a.send({ t: 'prompts.agent', choice: null });
+  assert.equal(await told('🤖'), '🤖 Eve put the office’s default worker back to claude');
+  a.send({ t: 'notify.webhook', url: 'not a url' });
+  assert.match((await a.take('toast', (m) => m.level === 'warn')).text, /./);
+  a.send({ t: 'upgrade.check' });
+  a.send({ t: 'limits.refresh' });
+
+  a.send({ t: 'accounts.invite', name: 'Fay', role: 'member' });
+  const invite = (await a.take('accounts.invited')).invite;
+  assert.equal(invite?.name, 'Fay');
+  assert.equal((await a.take('accounts')).state.invites.length, 1);
+  a.send({ t: 'accounts.cancel', inviteId: invite?.id });
+  assert.equal((await a.take('accounts')).state.invites.length, 0);
+  a.send({ t: 'accounts.revoke', accountId: 'nobody' });
+  for (const t of ['signins.start', 'signins.cancel', 'signins.signout'] as const) {
+    a.send({ t, which: 'github' });
+    await warned("On the shared office password, workers run on the office's own sign-ins");
+  }
+
+  a.send({ t: 'gh.merge', number: 0, method: 'squash', deleteBranch: false });
+  a.send({ t: 'gh.close', kind: 'nope', number: 3 });
+  a.send({ t: 'gh.comment', kind: 'issue', number: 3, body: '  ' });
+  assert.deepEqual(await a.take('gh.commented'), { t: 'gh.commented', kind: 'issue', number: 3, error: 'The comment is empty' });
+  a.send({ t: 'gh.labels', kind: 'pull', number: 3, add: [], remove: [''] });
+  assert.deepEqual(await a.take('gh.labeled'), { t: 'gh.labeled', kind: 'pull', number: 3, error: 'No labels to change' });
+  a.send({ t: 'queue.add', prompt: 'x', provider: 'nope' });
+  await warned('Unknown agent provider');
+  a.send({ t: 'meeting.start', pattern: 'debate', prompt: 'x', roles: [], provider: 'nope' });
+  await warned('Unknown agent provider');
+  a.send({ t: 'queue.move', taskId: 'nope', delta: 1 });
+  a.send({ t: 'changes.watch', workerId: 'nope' });
+  a.send({ t: 'changes.unwatch', workerId: 'nope' });
+  a.send({ t: 'changes.diff', workerId: 'nope', path: 'a.ts' });
+  assert.deepEqual(await a.take('changes.diff'), { t: 'changes.diff', workerId: 'nope', path: 'a.ts', diff: '', truncated: false, error: 'No such worker' });
+  a.send({ t: 'worker.resume', workerId: 'nope' });
+  await warned('No such worker');
+  a.send({ t: 'worker.prompt', workerId: 'nope', prompt: 'hi' });
+  await warned('No such worker');
+
+  // The last word: nothing else came back for any of it.
+  a.send({ t: 'ping', at: 44 });
+  assert.equal((await a.take('pong')).at, 44);
+  assert.deepEqual([...a.pending('toast'), ...a.pending('gh.merged'), ...a.pending('gh.closed')], []);
+  a.send({ t: 'machine.limit', limit: null });
+  await a.take('machine', (m) => m.state.limit === undefined);
+  await a.close();
+});
+
 test('the hook server answers only workers, with their own token', async () => {
   const hook = (p: string, init: RequestInit = {}) => fetch(hooks + p, init);
   assert.equal((await hook('/hooks/claude?worker=nobody', { method: 'POST', body: '{}' })).status, 401);
