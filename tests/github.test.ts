@@ -4,7 +4,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { originRepo, repoArgs, workRepo } from '../src/server/forge.js';
+import { originRepo, repoArgs, saidOf, workRepo } from '../src/server/forge.js';
+import { closesIn } from '../src/server/github.js';
 
 // A floor works on the repository its origin points at, so a fork's boards and pull requests are its
 // own. The gong, which both forges share, is tested in tests/bitbucket.test.ts.
@@ -54,4 +55,37 @@ test('every gh call is told which repository it is about', () => {
   // gh repo view takes the repository as an argument, and this checkout's already named when asked.
   assert.deepEqual(repoArgs(['repo', 'view', '--json', 'nameWithOwner'], 'o/r'), ['repo', 'view', 'o/r', '--json', 'nameWithOwner']);
   assert.deepEqual(repoArgs(['repo', 'view', 'o/other', '--json', 'nameWithOwner'], 'o/r'), ['repo', 'view', 'o/other', '--json', 'nameWithOwner']);
+});
+
+test('the issues a pull request closes are read out of its description', () => {
+  // gh's --json has no closingIssuesReferences, so the list that asks for it comes back empty and the
+  // whole pull request board says it couldn't load. These are the keywords GitHub itself links on.
+  assert.deepEqual(closesIn('The fridge opens on E now. Fixes #7'), [7], 'the usual one');
+  assert.deepEqual(closesIn('Some summary\n\nResolves #42\n\nAnd more prose.'), [42], 'on a line of its own');
+  assert.deepEqual(closesIn('Closes #3 and fixes #4'), [3, 4], 'a keyword each');
+  assert.deepEqual(closesIn('Fixed #5, closed #6'), [5, 6], 'the word forms of both');
+  // One keyword takes the first issue named after it, as on GitHub.
+  assert.deepEqual(closesIn('closes: #12, #13'), [12]);
+  assert.deepEqual(closesIn('fixes #7 and again fixes #7'), [7], 'the same issue once');
+  // A number with no keyword on its line is a mention, not a close.
+  assert.deepEqual(closesIn('## Summary\n\n#99 is related but I am not closing it'), []);
+  assert.deepEqual(closesIn('see #7 for context'), []);
+  // And the keyword only counts where it really is one: not across a sentence's own words.
+  assert.deepEqual(closesIn('not a fix, see #7'), []);
+  assert.deepEqual(closesIn('closes #0'), [], 'there is no issue zero');
+  assert.deepEqual(closesIn(''), []);
+});
+
+test("a CLI's failure is read where it says why, not off the end of it", () => {
+  // gh answers an unknown --json field with the reason and then an alphabet of every field it does
+  // know. Reading the last lines of that leaves the board blaming "updatedAt url".
+  const fieldError = ['Unknown JSON field: "closingIssuesReferences"', 'Available fields:', '  additions', '  author', '  updatedAt', '  url', ''].join('\n');
+  assert.equal(saidOf(fieldError), 'Unknown JSON field: "closingIssuesReferences"');
+  // A plain one-line failure is itself.
+  assert.equal(saidOf("the 'o/r' repository has disabled issues"), "the 'o/r' repository has disabled issues");
+  assert.equal(saidOf('  \n no git remotes found \n\n'), 'no git remotes found', 'read from the first line with words in it');
+  assert.equal(saidOf(''), '', 'a failure that said nothing reads as nothing');
+  // bb's errors arrive as a JSON envelope spread over lines, and are left whole for bbSaid to open.
+  const envelope = '{\n  "name": "AuthError",\n  "code": 1001,\n  "message": "not authenticated"\n}';
+  assert.equal(saidOf(envelope), envelope);
 });
