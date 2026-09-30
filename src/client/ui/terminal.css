@@ -1,0 +1,33 @@
+@import '@xterm/xterm/css/xterm.css';
+
+/* Terminal modal */
+.modal.term { width: min(1200px, 100%); height: min(820px, calc(100vh - 32px)); background: #1e1f2e; }
+.modal.term header { background: var(--paper); }
+.modal.term .term-host { flex: 1; min-height: 0; padding: 8px 4px 4px 10px; background: #1e1f2e; }
+.modal.term .term-host .xterm { height: 100%; }
+/* Files dragged over a terminal, and on their way to the office: they go in where its cursor is. */
+.modal.term .term-host { position: relative; }
+.modal.term.dropping .term-host::after, .modal.term.uploading .term-host::after { content: attr(data-drop); position: absolute; inset: 10px; z-index: 10; display: grid; place-items: center; padding: 16px; text-align: center; border: 3px dashed var(--accent); border-radius: 14px; background: rgba(30, 31, 46, .85); color: #fff; font-size: 18px; font-weight: 900; pointer-events: none; }
+.modal.term.uploading:not(.dropping) .term-host::after { content: '📎 Putting it in the terminal…'; }
+/* Who's in the terminal: a face per person, and a pencil on whoever's typing. */
+.viewers { display: flex; align-items: center; gap: 4px; }
+.avatar { position: relative; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--ink); display: grid; place-items: center; flex: none; font-size: 10px; font-weight: 900; letter-spacing: -.02em; color: var(--ink); cursor: default; }
+.avatar.typing { margin-right: 4px; animation: typing-bob .9s ease-in-out infinite; }
+.avatar.typing::after { content: '✎'; position: absolute; right: -9px; bottom: -7px; width: 11px; height: 11px; border-radius: 50%; background: var(--paper); border: 2px solid var(--ink); font-size: 7px; line-height: 11px; text-align: center; }
+@keyframes typing-bob { 50% { transform: translateY(-3px); } }
+.modal.term header .typed.now { color: var(--ink); }
+@media (prefers-reduced-motion: reduce) { .avatar.typing { animation: none; } }
+.modal.term header .cost { font-size: 12px; font-weight: 800; color: var(--muted); white-space: nowrap; }
+/* A narrow window: the name and ✕ keep the top row and the rest wraps under them, rather than pushing ✕ off the edge. */
+@media (max-width: 640px) {
+  .modal.term header { flex-wrap: wrap; row-gap: 8px; }
+  .modal.term header h2 { flex-basis: calc(100% - 80px); }
+  .modal.term header > :not(.dot, h2, .close) { order: 1; }
+}
+/* Under a terminal on the 2D view (TerminalOptions.keypad): the keys a phone's keyboard hasn't got, and a prompt box. */
+.term-keypad { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; padding-bottom: max(8px, env(safe-area-inset-bottom)); background: var(--paper); border-top: 3px solid var(--ink); }
+.term-keys { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 3px; }
+.term-keys .btn { flex: 1 1 0; min-width: 34px; height: 42px; padding: 0 4px; justify-content: center; border-radius: 10px; font-variant-numeric: tabular-nums; }
+.term-say { display: flex; gap: 8px; }
+.modal .term-say input[type=text] { flex: 1; min-width: 0; padding: 8px 10px; }
+.modal.term header .typed { font-size: 12px; font-weight: 800; color: var(--muted); white-space: nowrap; }

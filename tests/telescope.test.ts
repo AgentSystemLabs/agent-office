@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { TelescopeView } from '../src/client/telescope.js';
+import { TelescopeView } from '../src/client/features/telescope/controller.js';
 
 class Classes {
   values = new Set<string>();

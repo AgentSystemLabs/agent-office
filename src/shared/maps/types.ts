@@ -2,9 +2,9 @@ import type { DeskDef, SeatDef, StationKind } from '../layout.js';
 import type { Bounds, Obstacles, Pt, Rect } from '../nav.js';
 
 /*
- * Maps: what the building looks like inside. The office (world/office.ts) is built in code and is
+ * Maps: what the building looks like inside. The office (world/office/) is built in code and is
  * the default; any other map is plain data, a MapConfig, which planMap (./index.ts) checks and turns
- * into a MapPlan, and a builder for its `style` (the castle's is world/castle.ts) puts up. A config
+ * into a MapPlan, and a builder for its `style` (the castle's is world/castle/) puts up. A config
  * can come from this folder (the built-in ones, like ./castle.ts) or from a JSON file in the office's
  * `.agent-office/maps/` (see docs/maps.md). Every map places the same seats (the desks, the overflow
  * seats, the board agents' kiosks and the meeting chairs, by id), so workers, the queue and meetings

@@ -1,4 +1,4 @@
-@import './style.css';
+@import './styles/base.css';
 
 /* The 2D view (lite.html): a page that scrolls, made for a phone, rather than a HUD over the 3D office. */
 html, body { height: auto; min-height: 100%; overflow: auto; }
@@ -67,10 +67,12 @@ body.lite { min-height: 100dvh; background: var(--paper); -webkit-tap-highlight-
 @media (max-width: 640px) {
   .backdrop { padding: 8px; }
   .backdrop:has(> .modal.term, > .modal.board, > .modal.gh-window, > .modal.desk-changes, > .modal.meeting-window, > .modal[aria-label="Task queue"]) { padding: 0; }
-  .modal.term, .modal.board, .modal.gh-window, .modal.desk-changes, .modal.meeting-window, .modal[aria-label="Task queue"] { width: 100%; height: 100dvh; max-height: 100dvh; border: 0; border-radius: 0; box-shadow: none; }
+  /* body.lite outranks the windows' own sizes and padding, whatever order the sheets load in. */
+  body.lite .modal.term, body.lite .modal.board, body.lite .modal.gh-window, body.lite .modal.desk-changes, body.lite .modal.meeting-window,
+  body.lite .modal[aria-label="Task queue"] { width: 100%; height: 100dvh; max-height: 100dvh; border: 0; border-radius: 0; box-shadow: none; }
   .modal { max-height: calc(100dvh - 16px); }
-  .modal.term .term-host { padding: 6px 2px 2px 6px; }
-  .modal.board .body { padding: 10px; overflow-x: auto; }
+  body.lite .modal.term .term-host { padding: 6px 2px 2px 6px; }
+  body.lite .modal.board .body { padding: 10px; overflow-x: auto; }
   .modal.board .column { min-width: 78vw; }
   .modal.board header .board-status { display: none; }
 }

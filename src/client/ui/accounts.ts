@@ -1,3 +1,4 @@
+import './accounts.css';
 import type { AccountInvite, AccountRole, ServerMsg } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store } from '../state';

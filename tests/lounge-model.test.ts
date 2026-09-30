@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { Box3, Quaternion, Vector3 } from 'three';
 import { openModel } from './glb';
 
-// lounge.glb (exported by blender/scripts/build_lounge.py) against what world/office.ts counts on: its four
+// lounge.glb (exported by blender/scripts/build_lounge.py) against what world/office/props.ts counts on: its four
 // pieces by name, each a root standing on the floor at the origin and facing +z, the materials it paints, and
 // the old code-built lounge's sizes, which the couch's and the table's colliders, the seats' hips (SEATING in
 // shared/layout.ts) and the holiday pumpkin on the table (holiday.ts) are placed by.
@@ -14,7 +14,7 @@ const lounge = openModel('lounge');
 const { gltf, nodes, byName } = lounge;
 
 const PIECES = ['sofa', 'pillow', 'pouf', 'coffee_table'];
-/** LOUNGE_COLORS in office.ts, and Cloth, which each pillow and pouf there paints its own color. */
+/** LOUNGE_COLORS in world/office/props.ts, and Cloth, which each pillow and pouf there paints its own color. */
 const MATERIALS = ['Sofa', 'WoodDark', 'Wood', 'Frame', 'Cloth'];
 const MADE_OF: Record<string, string[]> = { sofa: ['Sofa', 'WoodDark'], pillow: ['Cloth'], pouf: ['Cloth'], coffee_table: ['Wood', 'Frame'] };
 
@@ -74,7 +74,7 @@ test('it is four pieces, each a root node at the origin, facing +z as modelled',
   }
 });
 
-test('its materials are the ones office.ts paints, and each piece is made of its own', () => {
+test('its materials are the ones world/office/props.ts paints, and each piece is made of its own', () => {
   const names = lounge.materials();
   for (const m of MATERIALS) assert.ok(names.includes(m), `a material called ${m}`);
   for (const m of names) assert.ok(MATERIALS.includes(m), `${m} isn't a material the code knows (it would come out magenta)`);

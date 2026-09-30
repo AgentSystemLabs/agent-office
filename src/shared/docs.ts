@@ -1,5 +1,5 @@
 // The bookshelf: the project's Markdown files, listed by the office (server/docs.ts) and read in a
-// window in the office (ui/bookshelf.ts).
+// window in the office (features/bookshelf/ui.ts).
 
 /** One Markdown file in the project. */
 export interface DocFile {

@@ -1,3 +1,4 @@
+import './markdown.css';
 import { Marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { h } from './dom';
@@ -107,7 +108,7 @@ export function markdown(src: string, itemUrl?: string): HTMLElement {
 /**
  * Renders a Markdown file from the project into a `.md` block, the way GitHub shows it in the repo:
  * a lone newline is only a space, and #123 is just text. Its links and pictures are left as written,
- * for the bookshelf to point at the project (see ui/bookshelf.ts).
+ * for the bookshelf to point at the project (see features/bookshelf/ui.ts).
  */
 export function markdownFile(src: string): HTMLElement {
   const el = h('div.md');

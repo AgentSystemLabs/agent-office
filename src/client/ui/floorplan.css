@@ -1,0 +1,12 @@
+/* Signs over the desks, and the back office */
+.modal.desklabel { width: min(520px, 100%); }
+.sign-preview { display: grid; place-items: center; min-height: 92px; padding: 12px 18px; border: 3px solid var(--ink); border-radius: 14px; box-shadow: inset 0 0 0 6px rgba(255, 255, 255, .18); font-size: 34px; font-weight: 900; text-align: center; line-height: 1.1; overflow-wrap: anywhere; }
+.sign-preview.placeholder { opacity: .45; }
+.label-ideas { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.label-ideas .btn { padding: 3px 10px; font-size: 13px; }
+.desklabel .swatches { margin-top: 0; }
+.modal.expand { width: min(500px, 100%); }
+.expand-status p { margin: 0 0 10px; font-weight: 700; }
+.expand-rows { display: flex; gap: 8px; margin: 4px 0 12px; }
+.expand-rows span { flex: 1; text-align: center; padding: 8px 0; border: 3px dashed var(--muted); border-radius: 12px; font-weight: 800; color: var(--muted); }
+.expand-rows span.on { border-style: solid; border-color: var(--ink); background: var(--paper-2); color: var(--ink); }

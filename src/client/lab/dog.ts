@@ -23,7 +23,7 @@
 import * as THREE from 'three';
 import { DOG_BREEDS, dogBreed, type DogBreed, type DogState } from '../../shared/dog';
 import type { Theme } from '../../shared/protocol';
-import { Dog } from '../world/dog';
+import { Dog } from '../features/dog/world';
 import { loadModel } from '../world/models';
 import { stage } from './stage';
 

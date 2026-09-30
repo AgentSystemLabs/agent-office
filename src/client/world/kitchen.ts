@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { model, paintModel, palette } from './models';
 import { toon } from './toon';
-import type { Collider, Interactable } from './office';
+import type { Collider, Interactable } from './types';
+import type { Fixture } from './office/fixture';
 
 // The kitchen corner against the south wall, modelled in Blender (blender/scripts/build_kitchen.py): a
 // counter with a wooden top and a sink under the window, a chunky espresso machine (E at it pours you
@@ -50,3 +51,13 @@ export function buildKitchen(): Kitchen {
   ];
   return { group, colliders, interactable };
 }
+
+/** The kitchen corner: the counter, the coffee machine and the fridge. */
+export const kitchen: Fixture = (site) => {
+  const built = buildKitchen();
+  // Counter, coffee machine and fridge, in front of the south wall.
+  site.wall('south', -14.5, 0.55, 5.1, 1.1);
+  site.wall('south', -15.7, 0.9, 0.6, 1.8);
+  site.wall('south', -11.3, 1.1, 1.1, 2.2);
+  return { group: built.group, colliders: built.colliders, interactables: [built.interactable] };
+};

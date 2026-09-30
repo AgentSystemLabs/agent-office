@@ -1,0 +1,40 @@
+/* ⚙️ Settings: the categories down the side, the one picked on the right, a card per setting. */
+.modal.settings { width: min(960px, 100%); height: min(760px, calc(100vh - 32px)); }
+.settings-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr); }
+.settings-nav { display: flex; flex-direction: column; gap: 4px; padding: 12px 10px; overflow: auto; background: var(--paper-2); border-right: 3px solid var(--ink); }
+.settings-tab { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; text-align: left; font: inherit; font-size: 15px; font-weight: 800; color: var(--ink); background: none; border: 2px solid transparent; border-radius: 12px; cursor: pointer; }
+.settings-tab .icon { flex: none; width: 22px; font-size: 18px; text-align: center; }
+.settings-tab:hover { background: #fff; }
+.settings-tab.on { background: #fff; border-color: var(--ink); box-shadow: 0 3px 0 var(--ink); }
+.settings-tab:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+.settings-pane { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; padding: 18px 22px 24px; overflow: auto; }
+.settings-head h3 { margin: 0; font-size: 20px; font-weight: 900; }
+.settings-head p { margin: 4px 0 0; font-size: 13.5px; font-weight: 600; line-height: 1.4; color: var(--muted); }
+.setting { flex: none; padding: 14px 16px; background: #fff; border: 2px solid rgba(43, 45, 66, .18); border-radius: 14px; }
+.setting-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.setting-head h4 { margin: 0; font-size: 15px; font-weight: 900; }
+.scope { margin-left: auto; padding: 1px 8px; font-size: 11px; font-weight: 900; white-space: nowrap; border: 2px solid var(--ink); border-radius: 999px; cursor: default; }
+.scope.you { background: #dff3fb; }
+.scope.floor { background: #d7f7ec; }
+.scope.office { background: #ffe6d9; }
+@media (max-width: 720px) {
+  .settings-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .settings-nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 3px solid var(--ink); }
+  .settings-tab { flex: none; width: auto; white-space: nowrap; }
+  .settings-pane { padding: 14px; }
+}
+.outside-now { margin: 0; font-size: 15px; font-weight: 800; }
+
+/* Settings: office sounds volume */
+.volume { display: flex; align-items: center; gap: 12px; }
+.volume .btn { flex: none; min-width: 112px; justify-content: center; }
+.vol-pct { flex: none; min-width: 52px; text-align: right; font-weight: 900; font-size: 14px; }
+.volume input[type=range] { flex: 1; min-width: 0; height: 28px; margin: 0; background: transparent; cursor: pointer; -webkit-appearance: none; appearance: none; --fill: 70%; }
+.volume input[type=range]:focus { outline: none; }
+.volume input[type=range]::-webkit-slider-runnable-track { height: 14px; border: 3px solid var(--ink); border-radius: 999px; background: linear-gradient(to right, var(--accent) var(--fill), #fff var(--fill)); }
+.volume input[type=range]::-moz-range-track { height: 8px; border: 3px solid var(--ink); border-radius: 999px; background: #fff; }
+.volume input[type=range]::-moz-range-progress { height: 8px; border-radius: 999px; background: var(--accent); }
+.volume input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; margin-top: -8px; border-radius: 50%; border: 3px solid var(--ink); background: var(--paper); box-shadow: 0 2px 0 var(--ink); }
+.volume input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; border: 3px solid var(--ink); background: var(--paper); box-shadow: 0 2px 0 var(--ink); }
+.volume input[type=range]:focus-visible::-webkit-slider-thumb { border-color: var(--accent); }
+.volume.muted input[type=range], .volume.muted .vol-pct { opacity: .45; }

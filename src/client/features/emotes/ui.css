@@ -1,0 +1,23 @@
+/* The emote wheel (hold G): six emotes round a ring in the middle of the screen, over the crosshair. */
+.emote-wheel { position: absolute; inset: 0; display: grid; place-items: center; background: radial-gradient(circle, rgba(43,45,66,.28), transparent 45%); }
+.emote-wheel .ring {
+  position: relative; width: 288px; height: 288px; border-radius: 50%;
+  background: rgba(255,250,243,.88); border: 3px solid var(--ink); box-shadow: var(--shadow); animation: wheel-in .12s ease-out;
+}
+.emote-wheel .emote {
+  position: absolute; left: 50%; top: 50%; width: 64px; height: 64px; margin: -32px 0 0 -32px; padding: 0;
+  transform: translate(var(--x), var(--y)); border-radius: 50%; border: 3px solid var(--ink); background: #fff;
+  font-size: 32px; line-height: 1; cursor: pointer; box-shadow: 0 3px 0 var(--ink); transition: transform .08s, background .08s;
+}
+.emote-wheel .emote.on { background: var(--accent); transform: translate(var(--x), var(--y)) scale(1.18); }
+.emote-wheel .num {
+  position: absolute; right: -6px; bottom: -6px; min-width: 20px; height: 20px; border-radius: 999px; background: var(--ink); color: var(--paper);
+  font-size: 12px; font-weight: 900; line-height: 20px;
+}
+.emote-wheel .middle { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: none; }
+.emote-wheel .middle b { font-size: 17px; font-weight: 900; }
+.emote-wheel .middle small { font-size: 12px; font-weight: 800; color: var(--muted); white-space: nowrap; }
+@keyframes wheel-in { from { transform: scale(.85); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .emote-wheel .ring { animation: none; }
+}

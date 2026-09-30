@@ -420,7 +420,7 @@ cmd_up() {
   fi
   [[ $NO_GH_TOKEN -eq 1 ]] && gh_token=""
 
-  say "Agent Office \"$NAME\" on Railway ($(railway whoami 2>/dev/null | sed -n 's/^Logged in as \(.*\) (.*/\1/p'))"
+  say "Agent Office \"$NAME\" on Railway ($(railway whoami --json 2>/dev/null | json 'j.name || j.email' || true))"
   echo "   app:      this checkout, built with $DOCKERFILE"
   echo "   data:     a volume on /data: accounts, floors, projects (~/workspace), sign-ins, team keys"
   echo "   access:   SSH tunnel only (the office is never exposed), through Railway's TCP proxy"

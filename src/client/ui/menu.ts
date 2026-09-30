@@ -1,3 +1,4 @@
+import './menu.css';
 import { store, type HudPanel, type Settings, type Topic } from '../state';
 import { waitingOnSomeone } from '../notify';
 import { DESK_BY_ID } from '../../shared/layout';
