@@ -609,6 +609,7 @@ function teeOff() {
   golf.start();
 }
 
+ctx.messages.on('golf', (msg) => theirShot(msg.id, { yaw: msg.yaw, loft: msg.loft, power: msg.power }));
 /** Someone else on the floor hit one: their swing, then their ball, off the same tee. */
 function theirShot(id: string, shot: Shot) {
   const p = store.peers.get(id);
@@ -738,6 +739,7 @@ function roundOver(game: BarGame, name: string, mine: boolean, total: number) {
   toast(`${icon} ${what}${beat && best !== undefined ? ' — your best yet!' : ''}`);
 }
 
+ctx.messages.on('toss', (msg) => theirToss(msg.id, { game: msg.game, u: msg.u, v: msg.v, stick: msg.stick, n: msg.n }));
 /** Someone else up here threw one: their arm goes, then it flies from their hand. */
 function theirToss(id: string, toss: Toss) {
   const p = store.peers.get(id);
@@ -943,6 +945,16 @@ function carNews(answer: boolean) {
   }
 }
 
+ctx.messages.on('cars', (msg) => carNews(!!msg.answer));
+ctx.messages.on('car.honk', (msg) => {
+  if (msg.car >= 0 && msg.car < CARS.length) sound.honk(carAt(msg.car), CARS[msg.car].kind === 'lambo');
+});
+// A floor's cars where they are before anything asks if there's room to stand beside one (see welcome):
+// right after the store has them, before any other message handler.
+ctx.messages.onAny((msg) => {
+  if (msg.t === 'welcome' || msg.t === 'floor.enter') office.cars.snap(store.cars);
+});
+
 /** Back after a reconnect, which let go of your seat for you: back into it if it's still free. */
 function carAgain() {
   carPending = 0;
@@ -1098,6 +1110,13 @@ const arrivals = new Arrivals(
 );
 /** Set while a floor's workers arrive with it (a welcome, an elevator ride): they're in their seats already. */
 let seatedAlready = false;
+/** A floor arriving (a welcome, a floor.enter): nobody's still leaving or coming in, and its workers are seated already. */
+function seatedOnArrival() {
+  departures.clear();
+  sendoffs.clear();
+  arrivals.clear();
+  seatedAlready = true;
+}
 let firstWelcome = true;
 /** The server version this page was loaded with. */
 let bootVersion = '';
@@ -1106,220 +1125,121 @@ let upgradePhase = '';
 net.onStatus((up) => $('conn').classList.toggle('hidden', up));
 /** Whether this page has shown someone their sign-ins yet (it greets a newcomer once). */
 let signInsGreeted = false;
-net.onMessage((msg) => {
-  // The floor you asked to come back to (see Net.connect), to tell if the office put you somewhere else.
-  const wasOn = msg.t === 'welcome' ? (store.floor ?? lastFloor()) : null;
-  if (msg.t === 'welcome') voice.reset();
-  if (msg.t === 'welcome' || msg.t === 'floor.enter') {
-    departures.clear();
-    sendoffs.clear();
-    arrivals.clear();
-    seatedAlready = true;
-  }
-  if (msg.t === 'worker.remove') sentHome.add(msg.workerId);
-  store.apply(msg);
-  // A floor's cars where they are before anything asks if there's room to stand beside one (see welcome).
-  if (msg.t === 'welcome' || msg.t === 'floor.enter') office.cars.snap(store.cars);
+// ---- Server messages ---------------------------------------------------------------------------------
+// Everything the office says goes through ctx.messages (see core/registry.ts): each type's `before`
+// handlers, the store, the routers, then its `after` handlers. Arriving (a welcome, a floor.enter) is
+// here; the rest are registered with what they're about.
+net.onMessage((msg) => ctx.messages.dispatch(msg));
+/** The floor you asked to come back to (see Net.connect), to tell if the office put you somewhere else. */
+let wasOn: string | null = null;
+ctx.messages.on(
+  'welcome',
+  () => {
+    wasOn = store.floor ?? lastFloor();
+    voice.reset();
+    seatedOnArrival();
+  },
+  'before',
+);
+ctx.messages.on('floor.enter', seatedOnArrival, 'before');
+ctx.messages.on('worker.remove', (msg) => sentHome.add(msg.workerId), 'before');
+// Once the store has it (the cars have their own, registered with them, first).
+ctx.messages.onAny(() => {
   seatedAlready = false;
   sentHome.clear();
-  routeTerminalMessage(msg);
-  routeChangesMessage(msg);
-  routeTeamMessage(msg);
-  routeAccountsMessage(msg);
-  routePullMessage(msg);
-  routeElevatorMessage(msg);
-  routeWhiteboardMessage(msg, net);
-  switch (msg.t) {
-    case 'welcome': {
-      // A few pings, to line this page's clock up with the office's for the jukebox.
-      for (let i = 0; i < 5; i++) setTimeout(() => net.send({ t: 'ping', at: performance.now() }), 200 + i * 500);
-      const mine = store.peers.get(store.you);
-      if (firstWelcome && mine) {
-        firstWelcome = false;
-        // Where the office put you: back in the spot you left (if there's still room there), or in the elevator car.
-        setPlace();
-        syncStack();
-        // Back to where you were, if that was on this map (and not in the elevator: that's arriving).
-        const saved = lastSpot();
-        const sameMap = !!saved && (saved.map ?? OFFICE_PLAN.id) === plan().id;
-        // A hall of its own has nothing outside it to come back to (and its walls may have moved since).
-        const b = plan().bounds;
-        const inRoom = inOffice() || (mine.x > b.minX + 0.3 && mine.x < b.maxX - 0.3 && mine.z > b.minZ + 0.3 && mine.z < b.maxZ - 0.3);
-        if (sameMap && inRoom && !(inOffice() && (inElevator(mine.x, mine.z) || pastTheWing(mine, officeWing()))) && player.fits(mine.x, mine.z, mine.y)) {
-          placeAt(mine);
-          arrive('back');
-        } else {
-          // The car you were in (or nearest): the garage's, if you were down there.
-          placeInCar(mine, !upTop && mine.y < -SLAB - 1);
-          arrive();
-        }
-        floorWentWhileAway(wasOn);
-      } else if (store.floor && store.floor !== wasOn) {
-        // Back after the office restarted, but not on your floor: it went while the office was down.
-        takenAway();
-        if (carrying) setCarrying(null);
-        arrive();
-        floorWentWhileAway(wasOn);
-      } else if (!store.floor) arrive();
-      offTheRoof();
-      if (voice.inVoice || voice.sharing) net.send({ t: 'voice', voice: voice.inVoice, muted: voice.muted, sharing: voice.sharing });
-      if (player.seat) net.send({ t: 'sit', seat: player.seat.key });
-      if (carrying) net.send({ t: 'carry', issue: carrying.issue, title: carrying.title });
-      if (shownDrink) net.send({ t: 'act', drink: shownDrink });
-      if (golf.active) net.send({ t: 'act', golf: true });
-      if (thrower.playing) net.send({ t: 'act', throwing: thrower.playing });
-      // The office let go of the ball for you while you were away, and of your seat in a car.
-      ballNews(false);
-      carAgain();
-      // After a reconnect the server has forgotten which terminal we had open, and what we're doing.
-      sendDoing(true);
-      const openId = openTerminalFor();
-      if (openId && store.workers.has(openId)) net.send({ t: 'worker.attach', workerId: openId });
-      const watching = openChangesFor();
-      if (watching && store.workers.has(watching.workerId)) net.send({ t: 'changes.watch', ...watching });
-      renderProject();
-      hud.refresh();
-      // Back from a restart on another version: this page's code is stale, so load the new one.
-      if (!bootVersion) bootVersion = msg.version;
-      else if (msg.version !== bootVersion || restarting()) showUpgraded(msg.upgrade);
-      upgradePhase = msg.upgrade.phase;
-      voice.syncPeers();
-      break;
-    }
-    case 'signins':
-      // Someone who just joined starts here: their workers need their own Claude sign-in first.
-      if (!signInsGreeted) {
-        signInsGreeted = true;
-        if (needsSigningIn()) openSignIns(net, 'Welcome! Sign in to Claude so the workers you hire run on your own plan, and to GitHub so what you do on the boards is yours.');
-      }
-      break;
-    case 'signins.needed':
-      openSignIns(net, msg.why);
-      break;
-    case 'floor.enter':
-      // Not a trip of yours: the floor you were on was taken off the building, and the elevator took you away.
-      if (!trip) takenAway();
-      // The card belongs to the board downstairs (or up): the office already put it back there.
-      if (carrying) {
-        toast(`📌 #${carrying.issue} stayed behind on the other floor's board`);
-        setCarrying(null);
-      }
-      // So does the ball: it's back under that floor's hoop.
-      if (holdingBall()) toast('🏀 The ball stayed behind, back under the other floor’s hoop');
-      ballNews(false);
+});
+ctx.messages.onAny(routeTerminalMessage);
+ctx.messages.onAny(routeChangesMessage);
+ctx.messages.onAny(routeTeamMessage);
+ctx.messages.onAny(routeAccountsMessage);
+ctx.messages.onAny(routePullMessage);
+ctx.messages.onAny(routeElevatorMessage);
+ctx.messages.onAny((msg) => routeWhiteboardMessage(msg, net));
+ctx.messages.on('welcome', (msg) => {
+  // A few pings, to line this page's clock up with the office's for the jukebox.
+  for (let i = 0; i < 5; i++) setTimeout(() => net.send({ t: 'ping', at: performance.now() }), 200 + i * 500);
+  const mine = store.peers.get(store.you);
+  if (firstWelcome && mine) {
+    firstWelcome = false;
+    // Where the office put you: back in the spot you left (if there's still room there), or in the elevator car.
+    setPlace();
+    syncStack();
+    // Back to where you were, if that was on this map (and not in the elevator: that's arriving).
+    const saved = lastSpot();
+    const sameMap = !!saved && (saved.map ?? OFFICE_PLAN.id) === plan().id;
+    // A hall of its own has nothing outside it to come back to (and its walls may have moved since).
+    const b = plan().bounds;
+    const inRoom = inOffice() || (mine.x > b.minX + 0.3 && mine.x < b.maxX - 0.3 && mine.z > b.minZ + 0.3 && mine.z < b.maxZ - 0.3);
+    if (sameMap && inRoom && !(inOffice() && (inElevator(mine.x, mine.z) || pastTheWing(mine, officeWing()))) && player.fits(mine.x, mine.z, mine.y)) {
+      placeAt(mine);
+      arrive('back');
+    } else {
+      // The car you were in (or nearest): the garage's, if you were down there.
+      placeInCar(mine, !upTop && mine.y < -SLAB - 1);
       arrive();
-      // Down off a roof that isn't there any more, or the map changed on the way: where you come in on this map.
-      if (offRoof || placeOnArrival) {
-        offRoof = false;
-        placeOnArrival = false;
-        placeInCar();
-        lift()?.setOpen(true);
-      }
-      offTheRoof();
-      break;
-    case 'ball':
-      ballNews(true);
-      break;
-    case 'cars':
-      carNews(!!msg.answer);
-      break;
-    case 'car.honk':
-      if (msg.car >= 0 && msg.car < CARS.length) sound.honk(carAt(msg.car), CARS[msg.car].kind === 'lambo');
-      break;
-    case 'floors':
-      noticeWaiting();
-      break;
-    case 'peer.join':
-    case 'peer.leave':
-      voice.syncPeers();
-      break;
-    case 'rtc':
-      void voice.handleSignal(msg.from, msg.data as never);
-      break;
-    case 'worker.worktree':
-      routeWorktreeMessage(msg);
-      break;
-    case 'toast':
-      toast(msg.text, msg.level);
-      break;
-    case 'upgrade':
-      if (msg.state.phase === 'restarting') showRestarting(msg.state, net);
-      if (msg.state.phase === 'failed' && upgradePhase === 'building') toast(`The upgrade failed, so the office stays on ${msg.state.current?.sha ?? 'this version'}`, 'error');
-      upgradePhase = msg.state.phase;
-      break;
-    case 'chat':
-      sayBubble(msg.from, msg.text);
-      break;
-    case 'peer.act': {
-      const r = remotes.get(msg.id);
-      if (msg.drink !== undefined) {
-        // A drink from the rooftop bar in their hand, or put down.
-        const p = store.peers.get(msg.id);
-        if (p) {
-          if (msg.drink) p.drink = msg.drink;
-          else delete p.drink;
-        }
-        if (msg.drink) r?.person.reach();
-        r?.person.holdDrink(msg.drink ? (DRINK_BY_ID.get(msg.drink) ?? null) : null);
-        break;
-      }
-      if (msg.throwing !== undefined) {
-        // Stepped up to the dart board or the axe lane, or back from it.
-        const p = store.peers.get(msg.id);
-        if (p) {
-          if (msg.throwing) p.throwing = msg.throwing;
-          else delete p.throwing;
-        }
-        r?.person.setThrowing(msg.throwing);
-        break;
-      }
-      if (msg.golf !== undefined) {
-        // A club out at the tee, or back in the bag.
-        const p = store.peers.get(msg.id);
-        if (p) {
-          if (msg.golf) p.golfing = true;
-          else delete p.golfing;
-        }
-        r?.person.setGolf(msg.golf);
-        break;
-      }
-      if (msg.smoke === undefined) {
-        r?.person.reach();
-        break;
-      }
-      const p = store.peers.get(msg.id);
-      if (p) p.smoking = msg.smoke;
-      r?.person.setSmoking(msg.smoke);
-      break;
     }
-    case 'peer.emote':
-      remotes.get(msg.id)?.person.emote(msg.emote);
-      break;
-    case 'golf':
-      theirShot(msg.id, { yaw: msg.yaw, loft: msg.loft, power: msg.power });
-      break;
-    case 'toss':
-      theirToss(msg.id, { game: msg.game, u: msg.u, v: msg.v, stick: msg.stick, n: msg.n });
-      break;
-    case 'gong':
-      gongRang(msg.why, msg.pr);
-      break;
-    case 'sit.refused':
-      // Somebody on the floor got there first: back on your feet, next to them.
-      if (player.seat?.key === msg.seat) {
-        player.stand();
-        // On your feet as far as everyone's concerned (the office still has you where you sat before).
-        gotUp();
-        toast(`${msg.by} got there first`, 'warn');
-      }
-      break;
-    case 'horn':
-      if (!upTop) break;
-      sound.horn();
-      if (msg.by !== store.profile.name) toast(`📯 ${msg.by} blew the air horn!`);
-      break;
+    floorWentWhileAway(wasOn);
+  } else if (store.floor && store.floor !== wasOn) {
+    // Back after the office restarted, but not on your floor: it went while the office was down.
+    takenAway();
+    if (carrying) setCarrying(null);
+    arrive();
+    floorWentWhileAway(wasOn);
+  } else if (!store.floor) arrive();
+  offTheRoof();
+  if (voice.inVoice || voice.sharing) net.send({ t: 'voice', voice: voice.inVoice, muted: voice.muted, sharing: voice.sharing });
+  if (player.seat) net.send({ t: 'sit', seat: player.seat.key });
+  if (carrying) net.send({ t: 'carry', issue: carrying.issue, title: carrying.title });
+  if (shownDrink) net.send({ t: 'act', drink: shownDrink });
+  if (golf.active) net.send({ t: 'act', golf: true });
+  if (thrower.playing) net.send({ t: 'act', throwing: thrower.playing });
+  // The office let go of the ball for you while you were away, and of your seat in a car.
+  ballNews(false);
+  carAgain();
+  // After a reconnect the server has forgotten which terminal we had open, and what we're doing.
+  sendDoing(true);
+  const openId = openTerminalFor();
+  if (openId && store.workers.has(openId)) net.send({ t: 'worker.attach', workerId: openId });
+  const watching = openChangesFor();
+  if (watching && store.workers.has(watching.workerId)) net.send({ t: 'changes.watch', ...watching });
+  renderProject();
+  hud.refresh();
+  // Back from a restart on another version: this page's code is stale, so load the new one.
+  if (!bootVersion) bootVersion = msg.version;
+  else if (msg.version !== bootVersion || restarting()) showUpgraded(msg.upgrade);
+  upgradePhase = msg.upgrade.phase;
+  voice.syncPeers();
+});
+ctx.messages.on('floor.enter', () => {
+  // Not a trip of yours: the floor you were on was taken off the building, and the elevator took you away.
+  if (!trip) takenAway();
+  // The card belongs to the board downstairs (or up): the office already put it back there.
+  if (carrying) {
+    toast(`📌 #${carrying.issue} stayed behind on the other floor's board`);
+    setCarrying(null);
+  }
+  // So does the ball: it's back under that floor's hoop.
+  if (holdingBall()) toast('🏀 The ball stayed behind, back under the other floor’s hoop');
+  ballNews(false);
+  arrive();
+  // Down off a roof that isn't there any more, or the map changed on the way: where you come in on this map.
+  if (offRoof || placeOnArrival) {
+    offRoof = false;
+    placeOnArrival = false;
+    placeInCar();
+    lift()?.setOpen(true);
+  }
+  offTheRoof();
+});
+ctx.messages.on('signins', () => {
+  // Someone who just joined starts here: their workers need their own Claude sign-in first.
+  if (!signInsGreeted) {
+    signInsGreeted = true;
+    if (needsSigningIn()) openSignIns(net, 'Welcome! Sign in to Claude so the workers you hire run on your own plan, and to GitHub so what you do on the boards is yours.');
   }
 });
+ctx.messages.on('signins.needed', (msg) => openSignIns(net, msg.why));
+ctx.messages.on('toast', (msg) => toast(msg.text, msg.level));
 
 function renderUpgrade() {
   const u = store.upgrade;
@@ -1328,6 +1248,11 @@ function renderUpgrade() {
   banner.textContent = `🛠️ ${u.by ?? 'Someone'} is upgrading the office. It restarts on the new version in a minute or two.`;
 }
 store.on('upgrade', renderUpgrade);
+ctx.messages.on('upgrade', (msg) => {
+  if (msg.state.phase === 'restarting') showRestarting(msg.state, net);
+  if (msg.state.phase === 'failed' && upgradePhase === 'building') toast(`The upgrade failed, so the office stays on ${msg.state.current?.sha ?? 'this version'}`, 'error');
+  upgradePhase = msg.state.phase;
+});
 
 function renderProject() {
   const p = store.project;
@@ -1868,6 +1793,7 @@ function leaveRoofFor(floorId: string) {
   net.send({ t: 'floor.go', floor: floorId });
 }
 
+ctx.messages.on('floors', () => noticeWaiting());
 /** Workers waiting on someone, per floor, the last time the elevator said so. */
 const waitingOn = new Map<string, number>();
 /** Someone's waiting on another floor: say so, since you can't see or hear it from here. */
@@ -1939,6 +1865,49 @@ function syncPeers() {
 store.on('peers', syncPeers);
 // Into a car or out of one: sitting in it, or back on their feet.
 store.on('cars', syncPeers);
+
+ctx.messages.on('chat', (msg) => sayBubble(msg.from, msg.text));
+ctx.messages.on('peer.act', (msg) => {
+  const r = remotes.get(msg.id);
+  if (msg.drink !== undefined) {
+    // A drink from the rooftop bar in their hand, or put down.
+    const p = store.peers.get(msg.id);
+    if (p) {
+      if (msg.drink) p.drink = msg.drink;
+      else delete p.drink;
+    }
+    if (msg.drink) r?.person.reach();
+    r?.person.holdDrink(msg.drink ? (DRINK_BY_ID.get(msg.drink) ?? null) : null);
+    return;
+  }
+  if (msg.throwing !== undefined) {
+    // Stepped up to the dart board or the axe lane, or back from it.
+    const p = store.peers.get(msg.id);
+    if (p) {
+      if (msg.throwing) p.throwing = msg.throwing;
+      else delete p.throwing;
+    }
+    r?.person.setThrowing(msg.throwing);
+    return;
+  }
+  if (msg.golf !== undefined) {
+    // A club out at the tee, or back in the bag.
+    const p = store.peers.get(msg.id);
+    if (p) {
+      if (msg.golf) p.golfing = true;
+      else delete p.golfing;
+    }
+    r?.person.setGolf(msg.golf);
+    return;
+  }
+  if (msg.smoke === undefined) {
+    r?.person.reach();
+    return;
+  }
+  const p = store.peers.get(msg.id);
+  if (p) p.smoking = msg.smoke;
+  r?.person.setSmoking(msg.smoke);
+});
 
 function sayBubble(from: string, text: string) {
   if (from === store.you) return;
@@ -2437,6 +2406,7 @@ function hireAtDesk(deskId: string) {
   });
 }
 
+ctx.messages.on('worker.worktree', routeWorktreeMessage);
 function killWorker(id: string) {
   const w = store.workers.get(id);
   if (!w) return;
@@ -3085,6 +3055,11 @@ function orderDrink(d: Drink) {
   }, 1500);
 }
 
+ctx.messages.on('horn', (msg) => {
+  if (!upTop) return;
+  sound.horn();
+  if (msg.by !== store.profile.name) toast(`📯 ${msg.by} blew the air horn!`);
+});
 let lastHorn = 0;
 /** E at the DJ booth: the air horn, for everyone on the roof. */
 function blowHorn() {
@@ -3191,6 +3166,7 @@ function ballNews(answer: boolean) {
   ball.set(store.ball, performance.now());
   ctx.hint.invalidate();
 }
+ctx.messages.on('ball', () => ballNews(true));
 const holdingBall = () => ball.holder === store.you;
 /** Baskets of yours in a row, and whether your last throw was a shot at the hoop (a miss of a pass or a drop doesn't count). */
 let streak = 0;
@@ -3534,6 +3510,15 @@ function standUp() {
   player.stand();
   gotUp();
 }
+ctx.messages.on('sit.refused', (msg) => {
+  // Somebody on the floor got there first: back on your feet, next to them.
+  if (player.seat?.key === msg.seat) {
+    player.stand();
+    // On your feet as far as everyone's concerned (the office still has you where you sat before).
+    gotUp();
+    toast(`${msg.by} got there first`, 'warn');
+  }
+});
 
 /** On your feet again, by E or by walking off. */
 function gotUp() {
@@ -3602,6 +3587,7 @@ const CONFETTI_DENSITY = 3.5;
 const CONFETTI_MOST = 4000;
 const floorArea = (a: Area) => (a.maxX - a.minX) * (a.maxZ - a.minZ);
 
+ctx.messages.on('gong', (msg) => gongRang(msg.why, msg.pr));
 /** Someone hit the gong, a pull request merged (a dance party under a confetti rain), or the queue emptied (a party). */
 function gongRang(why: GongWhy, pr?: number) {
   const gong = world.gong;
@@ -4105,6 +4091,7 @@ function emote(id: EmoteId) {
   if (player.view === 'first') popEmoji(id);
   net.send({ t: 'emote', emote: id });
 }
+ctx.messages.on('peer.emote', (msg) => remotes.get(msg.id)?.person.emote(msg.emote));
 const emoteWheel = new EmoteWheel(emote, (open) => (player.mouseLook = !open));
 $('hud').append(emoteWheel.el);
 
@@ -4533,6 +4520,9 @@ voice.onChange(() => {
   hud.refresh();
   refreshShares();
 });
+ctx.messages.on('peer.join', () => voice.syncPeers());
+ctx.messages.on('peer.leave', () => voice.syncPeers());
+ctx.messages.on('rtc', (msg) => void voice.handleSignal(msg.from, msg.data as never));
 
 // Buttons must not keep focus, or Space (jump) would click them again.
 $('hud').addEventListener('click', (e) => {
