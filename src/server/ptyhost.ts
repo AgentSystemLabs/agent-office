@@ -13,6 +13,7 @@ import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
 import { PTY_PROTOCOL, SCROLLBACK, readMessages, type FromHost, type SpawnOpts, type ToHost } from './ptys.js';
 import { screenSnapshot } from './screen.js';
+import { safeEq } from './secrets.js';
 
 /** How long terminals keep running with no office connected before the host gives up on it. */
 const ORPHAN_MS = 30 * 60_000;
@@ -243,10 +244,3 @@ server.listen(socketPath);
 idleTimer = setTimeout(() => {
   if (!office && !live()) process.exit(0);
 }, UNCLAIMED_MS);
-
-function safeEq(a: string, b: string) {
-  if (a.length !== b.length) return false;
-  let r = 0;
-  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return r === 0;
-}

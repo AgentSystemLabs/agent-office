@@ -35,6 +35,12 @@ export interface PtyExit {
   error?: string;
   /** The host went away under it; the process is gone. */
   lost?: boolean;
+  /**
+   * The far end walked and it may come back. A lost local PTY host is relaunched because the host
+   * restarts on its own; a dropped floor-host socket is not, so the worker is held `offline` and
+   * asleep for a human to resume with **R** rather than spinning on relaunch/refuse/exit.
+   */
+  gone?: boolean;
 }
 
 /** A worker's terminal process, wherever it runs. */

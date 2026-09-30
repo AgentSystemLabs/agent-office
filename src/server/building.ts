@@ -16,6 +16,14 @@ export interface FloorDef {
   palette: number;
   addedBy: string;
   addedAt: number;
+  /**
+   * The machine this floor runs on, when that is not the office. Absent — the ordinary case, and the
+   * only one an office-side floor has ever had — means it runs here.
+   *
+   * `dir` stays a real path even for a hosted floor: it is the path on *that* machine, so the office
+   * must never read it. `RemoteFloor` is what the office holds instead (see floor-actions.ts).
+   */
+  host?: string;
 }
 
 /** A projects folder picked in ⚙️ Settings (or with --projects), as projects-folder.json keeps it. */
@@ -287,6 +295,10 @@ export class Building {
           palette: Number.isInteger(s.palette) && (s.palette as number) >= 0 ? (s.palette as number) : 0,
           addedBy: typeof s.addedBy === 'string' ? s.addedBy : '?',
           addedAt: typeof s.addedAt === 'number' ? s.addedAt : Date.now(),
+          // A hosted floor's checkout is on another machine, so `dir` is that machine's path and is
+          // kept only to identify the floor. Keep the host too: dropping it here would silently turn
+          // a hosted floor into an office-side one on the next restart, pointed at a path it cannot read.
+          host: typeof s.host === 'string' && s.host ? s.host.slice(0, 64) : undefined,
         });
       }
     } catch (err) {

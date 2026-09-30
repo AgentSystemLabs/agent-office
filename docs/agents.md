@@ -46,7 +46,7 @@ OpenCode metrics come from assistant-message token/cost records exposed by its p
 
 DeepSeek Harness metrics come from ACP `usage_update`: tokens in context and the window's size, shown per worker and for the current desks, plus a session cost only when the harness reports one. The daily budget and historical ledger remain Claude-only.
 
-Every worker is a process on the machine running the office, with the environment the office sets for it, so an agent from a different machine cannot take a desk today. The bridge that would let one — bringing your own agent, and what it could and could not do — is [proposed in remote-agents.md](remote-agents.md), not built.
+Every worker is a process on the machine running the office, with the environment the office sets for it, so an agent from a different machine cannot take a desk today. The bridge that would let one — bringing your own agent, and what it could and could not do — is [proposed in remote-agents.md](remote-agents.md), and the plan is [remote-agents-plan.md](remote-agents-plan.md). A **floor host** can now be paired and connected, and the office holds a proxy for each floor it serves, but a hosted floor does not appear in the elevator yet and the machine does not yet run the floor for real: see [floor-hosts.md](floor-hosts.md) for exactly how far it goes.
 
 ## The office's prompts
 
