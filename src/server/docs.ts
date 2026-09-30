@@ -6,7 +6,7 @@ import type { ImageResult } from './decor.js';
 import { changedImageType } from '../shared/protocol.js';
 import { isDocPath, type DocFile, type DocList, type DocText } from '../shared/docs.js';
 
-// The bookshelf: every Markdown file in a floor's project, to read in the office (ui/bookshelf.ts).
+// The bookshelf: every Markdown file in a floor's project, to read in the office (features/bookshelf/ui.ts).
 // Git says which files are the project's (tracked, or new and not ignored), so node_modules, build
 // output and the office's own .agent-office stay off the shelf. A folder that isn't a git checkout
 // is walked instead, skipping the usual suspects.
