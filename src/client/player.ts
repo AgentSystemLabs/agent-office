@@ -22,10 +22,11 @@ const LOOK_SPEED = 0.0022; // radians per pixel of mouse movement while the poin
 const DRAG_LOOK_SPEED = 0.005;
 /**
  * Taking the mouse back from a click (see lock's `settle`): how long it must rest once it's taken
- * before it looks around, in ms, and how long at most the view is held still for.
+ * before it looks around, in ms, and how long at most the view is held still for. Just the flick of
+ * the hand that clicked: any longer and looking around straight away feels like the mouse is gone.
  */
-const SETTLE_REST = 250;
-const SETTLE_MAX = 1000;
+const SETTLE_REST = 100;
+const SETTLE_MAX = 150;
 const CENTER = new THREE.Vector2(0, 0);
 
 export class PlayerController {
