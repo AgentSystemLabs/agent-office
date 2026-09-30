@@ -153,7 +153,7 @@ export class Keys<E extends KeyPress = KeyPress> {
 // ---- The frame ------------------------------------------------------------------------------------
 
 /**
- * The phases of a frame, in the order they run (see frame() in main.ts, which runs them all). Within a
+ * The phases of a frame, in the order they run (see frame() in core/loop.ts, which runs them all). Within a
  * phase, callbacks run in the order they were registered: the office's own before any feature's.
  *
  * - pre: before anything moves: the frame rate, coffee and the view's shake, then drinks

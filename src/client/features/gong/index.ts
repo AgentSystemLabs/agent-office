@@ -14,7 +14,7 @@ import type { Court } from '../../world/court';
 import type { DeskView } from '../../world/office';
 
 export interface GongDeps {
-  /** Confetti over a desk: above its worker's head, wherever it is (see burstOver in main.ts). */
+  /** Confetti over a desk: above its worker's head, wherever it is (see burstOver in features/workers/views.ts). */
   burstOver(deskId: string, n: number): void;
   /** The workers on this floor, as they're drawn at their desks. */
   workerViews: ReadonlyMap<string, { deskId: string; model: Worker }>;

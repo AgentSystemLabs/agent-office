@@ -1,7 +1,7 @@
 /**
  * The cars in the garage: getting in (behind the wheel, or beside whoever's driving), driving, the
  * horn, laps of the scenic loop, and a car shoving you out of its way. Placing you anywhere gets you
- * out first: see the driver's activity, and placeAt in main.ts.
+ * out first: see the driver's activity, and placeAt in core/place.ts.
  */
 import { CARS, SEAT_HIPS, type CarSeat } from '../../../shared/garage';
 import { PLACES, placeAt as loopPlace } from '../../../shared/scenic';

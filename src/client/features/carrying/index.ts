@@ -21,15 +21,15 @@ export interface CarryingDeps {
   hold(card: CarriedIssue | null): void;
   /** The issues board, which leaves off the cards someone's carrying around (see features/boards). */
   boards: { cardMoved(): void };
-  /** The note on the issues board you're pointing at, if any (see aimedNote in main.ts). */
+  /** The note on the issues board you're pointing at, if any (see aimedNote in input/pointer.ts). */
   aimedNote(): GhIssue | null;
   /** Plays the reach on your hands and your character, and shows it to everyone else. */
   reach(): void;
   /** Drops the ball, if it's in your hands (see features/basketball). */
   dropBall(): void;
-  /** Hires a worker at `deskId` (see hire in main.ts). */
+  /** Hires a worker at `deskId` (see hire in features/workers/actions.ts). */
   hire(deskId: string, prompt?: string, worktree?: boolean, provider?: AgentProvider, model?: string, effort?: AgentEffort, issue?: number, repos?: string[], via?: 'herald'): void;
-  /** The seat the herald sends a new worker to (see heraldSeat in main.ts). */
+  /** The seat the herald sends a new worker to (see heraldSeat in features/workers/views.ts). */
   heraldSeat(): string | undefined;
   /** Seats you've just sent a worker out to from the herald, so a second goes elsewhere. */
   heraldHires: Map<string, { floor: string | null; at: number }>;

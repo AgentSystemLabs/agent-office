@@ -77,7 +77,7 @@ export function installGolf(ctx: Ctx, deps: GolfDeps) {
     hint: (el) => renderGolfHint(el),
     takesCamera: true,
     hidesHands: true,
-    // Both hands are on the club at the tee: no mug in them (see feelTheCoffee in main.ts).
+    // Both hands are on the club at the tee: no mug in them (see feelTheCoffee in core/loop.ts).
     bothHands: true,
   });
   ctx.ticks.add('play', ({ dt }) => {

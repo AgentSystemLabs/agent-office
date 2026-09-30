@@ -5,7 +5,7 @@ import { toast } from '../../ui/dom';
 
 /**
  * The kitchen's coffee machine: a cup is a minute of quicker feet and higher jumps (and one too many,
- * the jitters). What the caffeine does to you each frame is feelTheCoffee's, in main.ts.
+ * the jitters). What the caffeine does to you each frame is feelTheCoffee's, in core/loop.ts.
  */
 export function installCoffee(ctx: Ctx) {
   const caffeine = new Caffeine();

@@ -1,7 +1,7 @@
 /**
  * What every part of the office gets to work with: the scene and everyone's shared objects, where you
  * are and what you're holding, and the registries to plug into (see registry.ts). Types only: a feature
- * takes a `Ctx` (`import type { Ctx }`) and never imports main.ts, which builds the one there is.
+ * takes a `Ctx` (`import type { Ctx }`) and never imports main.ts; core/ctx.ts builds the one there is.
  */
 import type * as THREE from 'three';
 import type { MapPlan } from '../../shared/maps';
@@ -41,7 +41,7 @@ export interface Hint {
  * - walk: you're walking over to someone
  * - errand: you're walking over to something to use it (Shift+Enter in the palette)
  * - desk: you're put in front of a desk (the PR board's "Go to desk", N), or placed anywhere else
- *   (only the car hears that: see placeAt in main.ts)
+ *   (only the car hears that: see placeAt in core/place.ts)
  */
 export type StopWhy = 'start' | 'taken' | 'trip' | 'map' | 'walk' | 'errand' | 'desk';
 
@@ -133,9 +133,9 @@ export interface Ctx {
   readonly view: View<Grip>;
   /**
    * What else there is to use on the office's own map, and to aim at: the pictures on the walls, the
-   * dog, the ball (see usable and aimedAt in main.ts).
+   * dog, the ball (see usable and aimedAt in input/pointer.ts).
    */
   readonly usables: Usables<Interactable, THREE.Object3D>;
-  /** What lets go when a window opens: the shot you were winding up, the emote wheel (see onModalChange in main.ts). */
+  /** What lets go when a window opens: the shot you were winding up, the emote wheel (see input/focus.ts). */
   readonly windowOpened: Hooks;
 }

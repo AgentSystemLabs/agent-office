@@ -19,7 +19,7 @@ export interface SeatingDeps {
   arcade: Arcade;
   /** The bar's menu (see features/bar). */
   showBar(): void;
-  /** What you can use where you are, and what's in the way of looking at it (see usable in main.ts). */
+  /** What you can use where you are, and what's in the way of looking at it (see usable in input/pointer.ts). */
   usable(): (readonly Interactable[])[];
 }
 

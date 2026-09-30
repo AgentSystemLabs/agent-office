@@ -5,9 +5,9 @@ import { TelescopeView } from '../../telescope';
 import { $, modalOpen } from '../../ui/dom';
 
 export interface TelescopeDeps {
-  /** Lets go of what you were pointing at (see the aim tick in main.ts). */
+  /** Lets go of what you were pointing at (see the aim tick in input/pointer.ts). */
   clearTarget(): void;
-  /** Gives the game the keyboard and, in first person, the mouse back (see backToGame in main.ts). */
+  /** Gives the game the keyboard and, in first person, the mouse back (see backToGame in input/focus.ts). */
   backToGame(): void;
 }
 
