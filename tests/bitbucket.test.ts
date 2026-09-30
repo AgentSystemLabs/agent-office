@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Bitbucket } from '../src/server/bitbucket.js';
-import { forgeOf, forgeOfDir, MergeWatch, openPull, prRef } from '../src/server/forge.js';
+import { bb, forgeOf, forgeOfDir, MergeWatch, openPull, prRef, WRONG_BB } from '../src/server/forge.js';
 import type { GhIssue, GhPull, GhState } from '../src/shared/protocol.js';
 
 // A floor on Bitbucket: the same boards, pull request window and merge dialog the office has for
@@ -267,6 +267,42 @@ test('a pull request is named the same way on either forge, so a description rea
   assert.equal(prRef('https://github.com/acme/web/pull/12'), 'acme/web#12');
   assert.equal(prRef('https://bitbucket.org/acme/web/pull-requests/12'), 'acme/web#12');
   assert.equal(prRef('https://example.com/other/12'), 'https://example.com/other/12', 'an unrecognised URL is left alone');
+});
+
+// --- The wrong bb ----------------------------------------------------------------------------------
+
+/** Atlassian's own Bitbucket CLI, which answers to `bb` and shares no subcommand with ours. */
+const OTHER_BB = `#!/usr/bin/env node
+const a = process.argv.slice(2);
+const die = (m) => { process.stderr.write('Error: ' + m + '\\nRun \\'bb --help\\' for usage.\\n'); process.exit(1); };
+if (a[0] === 'auth') die('unknown command "auth" for "bb"');
+if (a[0] === 'status') die('unknown command "status" for "bb"');
+if (a.includes('--json')) die('unknown flag: --json');
+if (a[0] === 'pr' && a[1] === 'list') die('invalid argument "' + a[3] + '" for "--state" flag: Flag value "' + a[3] + '" is invalid. Expected values are all, declined, merged, open, superseded');
+process.exit(0);
+`;
+
+test('a bb that is not the CLI the office reads is named as such, not passed on as an error', async (t) => {
+  const f = fixture(t);
+  writeFileSync(path.join(f.dir, '..', 'bin', 'bb'), OTHER_BB, { mode: 0o755 });
+  const { forge, seen } = board(f, PRS);
+  await forge.refresh();
+  // What the board says, rather than "unknown flag: --json" or a lower-case state complaint.
+  assert.equal(seen.pulls.at(-1)?.error, WRONG_BB);
+});
+
+test('the wrong bb is caught whichever way the office asks it something', async (t) => {
+  const f = fixture(t);
+  writeFileSync(path.join(f.dir, '..', 'bin', 'bb'), OTHER_BB, { mode: 0o755 });
+  // Each of these is one a real machine produced, and each is turned into the same sentence.
+  for (const [args, what] of [
+    [['auth', 'status', '--json'], 'auth status'],
+    [['pr', 'list', '--state', 'OPEN', '--json'], 'the board'],
+    [['repo', 'view', '--json'], 'the repository'],
+  ] as const) {
+    const err = await bb(args, f.dir).then(() => undefined, (e: Error) => e.message);
+    assert.equal(err, WRONG_BB, what);
+  }
 });
 
 // --- The gong -------------------------------------------------------------------------------------

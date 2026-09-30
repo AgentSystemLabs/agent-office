@@ -2811,10 +2811,10 @@ function showJukebox() {
   openJukebox(net, () => showSettings('sound'));
 }
 
-/** The project on GitHub, from the floor's origin remote, when that's where it is. */
-function githubUrl(remote?: string): string | undefined {
-  const m = /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/.exec(remote ?? '');
-  return m ? `https://github.com/${m[1]}` : undefined;
+/** The project on its forge, from the floor's origin remote, when it's a forge the office knows. */
+function projectUrl(remote?: string): string | undefined {
+  const m = /(github\.com|bitbucket\.org)[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/.exec(remote ?? '');
+  return m ? `https://${m[1]}/${m[2]}` : undefined;
 }
 
 function showBookshelf() {
@@ -2822,7 +2822,7 @@ function showBookshelf() {
   openBookshelf({
     floor: store.floor,
     project: store.project?.name,
-    repoUrl: githubUrl(store.project?.remote),
+    repoUrl: projectUrl(store.project?.remote),
     onTurn: turnPage,
     pageSound: settings.pageTurns,
     onPageSound: (on) => {

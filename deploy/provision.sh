@@ -163,14 +163,19 @@ echo "    $(gh --version | head -1)"
 
 # The Bitbucket CLI (bb), for floors whose code is on Bitbucket instead of GitHub. It is a Bun
 # program, so it needs Bun as well as npm, and it is optional: without it the office still clones
-# and reads GitHub, and only a Bitbucket floor is out of reach.
-if ! as_user bb --version >/dev/null 2>&1; then
+# and reads GitHub, and only a Bitbucket floor is out of reach. Atlassian's own Bitbucket CLI
+# answers to the same `bb`, so this asks for a command only ours has rather than trusting --version.
+bb_ours() { as_user bb pr list --help >/dev/null 2>&1; }
+if ! bb_ours; then
   step "Installing the Bitbucket CLI (bb) for Bitbucket projects"
+  if as_user bb --version >/dev/null 2>&1; then
+    echo "    The bb already installed is a different CLI (see https://bitbucket-cli.paulvanderlei.com); leaving it alone."
+  fi
   if as_user bun --version >/dev/null 2>&1 || quiet bash -c 'curl -fsSL https://bun.sh/install | bash'; then
     as_user npm install -g @pilatos/bitbucket-cli >/dev/null 2>&1 || true
   fi
-  if as_user bb --version >/dev/null 2>&1; then echo "    $(as_user bb --version | head -1)";
-  else echo "    Not installed: only GitHub projects are available (see https://bitbucket-cli.paulvanderlei.com)"; fi
+  if bb_ours; then echo "    $(as_user bb --version | head -1)";
+  else echo "    Not available: only GitHub projects are (see https://bitbucket-cli.paulvanderlei.com)"; fi
 fi
 
 # A field of `tailscale status --json`, e.g. BackendState or Self.DNSName ('' if there's none).
