@@ -136,7 +136,7 @@ The 44 are exactly the `worker.*`, `station.prompt`, `term.input`/`resize`, `gh.
 `worker.kill` — which resolves through `worker()` and calls `floor.sendHome(...)` (`:1743`), so it
 ships even though nothing else about its body looks floor-shaped.
 
-Two accessors do the resolving, and both must learn to work without a local `Floor`:
+Three accessors do the resolving, and all of them must learn to work without a local `Floor`:
 
 ```ts
 // server.ts:1466 — the floor the client is standing on
