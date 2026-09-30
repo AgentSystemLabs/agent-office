@@ -2,37 +2,33 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, POLE, POLES, SLAB, STATION_AGENT, STOREY, WALL_HEIGHT, WING, WING_DESKS, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, seatPlace, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, POLE, POLES, SLAB, STATION_AGENT, STOREY, WALL_HEIGHT, WING, WING_DESKS, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, seatPlace, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { OFFICE_PLAN, seatOn, type MapPlan } from '../shared/maps';
 import { canLabel } from '../shared/floorplan';
 import { floorPalette } from '../shared/floors';
-import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
+import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
 import { MEETING_PATTERNS, meetingStage } from '../shared/meetings';
 import { isAsleep, isBusy, workerPr } from '../shared/status';
 import { Net } from './net';
-import { store, lastFloor, lastSpot, loadProfile, loadSettings, rememberSpot, saveSettings, workerForPull, type Profile, type Spot, type Topic } from './state';
+import { store, lastFloor, lastSpot, loadProfile, loadSettings, rememberSpot, saveSettings, type Profile, type Spot, type Topic } from './state';
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { Climber, gripOf, type Arrival, type Grip, type Way } from './climb';
 import { Driver } from './driving';
-import { Caffeine } from './caffeine';
 import { buildOffice, type DeskView, type InteractKind, type Interactable } from './world/office';
 import { officeWorld, type World } from './world/world';
 import { BUILDERS } from './world/styles';
 import { Court } from './world/court';
-import { buildRooftop, type Rooftop } from './world/rooftop';
 import { DrunkVision } from './world/drunk';
 import { Booze, type Stage as Feeling } from './booze';
-import { djFrame, djTime } from './dnb';
+import { djFrame } from './dnb';
 import { openBar } from './ui/bar';
 import { DRINK_BY_ID, ROOF, ROOF_NAME, type Drink, type DrinkId } from '../shared/rooftop';
-import { BACKSWING_TIME, IMPACT, Person, Worker, type Stage } from './world/character';
+import { BACKSWING_TIME, IMPACT, Person, Worker } from './world/character';
 import { GolfBalls, PIN_DISTANCE, TEE_BALL, fly, pinText, type Flight, type Hit, type Shot } from './world/golf';
 import { Golfer } from './golf';
 import { Thrower } from './throwing';
 import { ROUND, score, targetFrame, type BarGame, type Score, type Toss } from '../shared/bargames';
 import { Hands } from './world/hands';
-import { Basketball, IN_HANDS } from './world/hoop';
-import { HOOP, SWEET, idealSpeed, lookAtRim, meter, shotSpeed, throwPitch, tossSpeed, underCeiling } from '../shared/hoop';
 import { CARS, SEAT_HIPS, type CarSeat } from '../shared/garage';
 import { PLACES, placeAt as loopPlace } from '../shared/scenic';
 import { LapTimer, lapTime } from './laps';
@@ -45,7 +41,7 @@ import { Holiday } from './world/holiday';
 import { Arrivals, Departures } from './world/leaving';
 import { Jail } from './world/jail';
 import { Sendoffs } from './world/sendhome';
-import { Confetti, type Area } from './world/confetti';
+import { Confetti } from './world/confetti';
 import { Hanger } from './hanging';
 import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
@@ -84,8 +80,6 @@ import { MachineTexture } from './world/machine';
 import { officeFull, pressureNote } from '../shared/machine';
 import { mountHud } from './ui/menu';
 import { openBookshelf } from './ui/bookshelf';
-import { EMOTES, EMOTE_BY_ID, EmoteBucket, type EmoteId } from '../shared/emotes';
-import { EmoteWheel } from './ui/emotes';
 import { whereabouts } from './ui/whereabouts';
 import { wayTo } from './walkto';
 import { DESK_KEYS, interactionAvailable, type DeskKey } from './interaction';
@@ -102,9 +96,15 @@ import { builtFloors, floorWings } from './core/floors';
 import { aside, boardHint, hintTitle, key, onE } from './core/hint';
 import { noOutline } from './core/outline';
 import { installArcade } from './features/arcade';
+import { installBasketball } from './features/basketball';
 import { installCabinet } from './features/cabinet';
+import { installCoffee } from './features/coffee';
 import { installDog } from './features/dog';
+import { installEmotes } from './features/emotes';
+import { installGong } from './features/gong';
 import { installJukebox } from './features/jukebox';
+import { installRooftop } from './features/rooftop';
+import { installSmoke } from './features/smoke';
 import { installTelescope } from './features/telescope';
 import { installWhiteboard } from './features/whiteboard';
 
@@ -125,6 +125,8 @@ await preloadModels();
 let hintKey = '';
 /** How hard the view shakes (a landing off a pole, a bump in a car, a hiccup), easing off to 0. */
 let thud = 0;
+/** Where you are now: up on the roof (true), or on a floor of the office. */
+let upTop = false;
 /** What you can be in the middle of, in the order it gets keys, has the hint bar and stops in (see Activities). */
 const ACTIVITY_ORDER = ['hanger', 'climber', 'golf', 'thrower', 'driver'];
 // Built before the things it hands out, which are there by the time anything asks for them.
@@ -186,7 +188,7 @@ const ctx: Ctx = {
   upTop: () => upTop,
   trip: () => trip,
   carrying: () => carrying,
-  holdingBall: () => holdingBall(),
+  holdingBall: () => hoops.holding(),
   hint: {
     // Not '': that reads as "no hint shown", and a hint still up (the golf one, say) would stay up.
     invalidate: () => void (hintKey = 'stale'),
@@ -459,46 +461,10 @@ ctx.interactions.define('tv', {
 const arcade = installArcade(ctx);
 
 // ---- The rooftop bar ------------------------------------------------------------------------------
-/** Up on the roof: built the first time anyone goes up there. */
-let roof: Rooftop | null = null;
-function theRoof(): Rooftop {
-  if (!roof) {
-    roof = buildRooftop(office.night, roofFloors());
-    roof.setFloors(roofFloors(), floorWings(builtFloors()));
-    roof.group.visible = false;
-    roof.games.onDrop = (at) => sound.toss('drop', at);
-    scene.add(roof.group);
-    noOutline(roof.group);
-  }
-  return roof;
-}
-/** How many floors the roof stands on: every one that's built. */
-function roofFloors(): number {
-  return Math.max(1, builtFloors().length);
-}
-/** Floors come and go: the roof goes up or down with them, and the street's that much further down from it. */
-function syncRoof() {
-  if (!roof) return;
-  const floors = roofFloors();
-  roof.setFloors(floors, floorWings(builtFloors()));
-  if (upTop) sky.setRoof(true, roofDrop(floors));
-}
-store.on('floors', syncRoof);
-/** Where you are now: up on the roof (true), or on a floor of the office. */
-let upTop = false;
-/** How far into the DJ's set it is, on the office's clock, so everyone up there hears the same bar. */
-const djAt = () => djTime(store.officeNow());
+const rooftop = installRooftop(ctx, { ambient, hemi });
 /** Drinks from the bar, and how they make the world look (see booze.ts, world/drunk.ts). */
 const booze = new Booze();
 const drunkVision = new DrunkVision(renderer);
-ctx.ticks.add('env', ({ dt, t }) => {
-  if (upTop && roof) {
-    // Everything up there moves to the DJ's set; strobes flash the whole roof as a drop lands.
-    const strobe = roof.update(t, dt, djFrame(djAt()), { dark: sky.lampsOn, motion: !reduceMotion.matches });
-    ambient.intensity += strobe * 1.5;
-    hemi.intensity += strobe * 0.8;
-  }
-});
 
 // ---- Networking & state -------------------------------------------------------------------------
 const net = new Net(() => store.profile, whereNow);
@@ -537,7 +503,6 @@ ctx.keys.add('activity', (e) => ctx.activities.key(e));
 placeInCar();
 player.view = settings.view;
 const hands = new Hands(store.profile.color, me.skinColor);
-const caffeine = new Caffeine();
 /** No shaking the view for the coffee jitters when the system asks for less motion. */
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 // Cigarette smoke, from anyone on a smoke break.
@@ -667,7 +632,7 @@ function teeOff() {
   if (player.seat) standUp();
   ctx.activities.stopAll('start');
   if (walkingTo) stopWalking();
-  if (smokeBreakUntil) setSmoking(false);
+  smoking.stop();
   golf.start();
 }
 
@@ -724,7 +689,7 @@ const thrower = new Thrower(player, me, camera, canvas, {
     net.send({ t: 'toss', ...toss });
     tossHere(store.you, toss, from, turn);
   },
-  aim: (game, u, v) => roof?.games.aim(game, u, v),
+  aim: (game, u, v) => rooftop.roof()?.games.aim(game, u, v),
   done: () => ctx.hint.invalidate(),
 });
 ctx.activities.add({
@@ -797,7 +762,7 @@ function tossPop(game: BarGame, s: Score): string {
 
 /** A throw at a game up here, by you or anyone else: it flies, lands, and goes up on the chalkboard. */
 function tossHere(by: string, toss: Toss, from: THREE.Vector3, turn: number) {
-  const r = roof;
+  const r = rooftop.roof();
   if (!r || !upTop) return;
   const { game } = toss;
   const mine = by === store.you;
@@ -1030,7 +995,7 @@ function getIn(i: number) {
   const def = CARS[i];
   if (trip || ctx.activities.running('climber') || driver.active || !c || !def) return;
   if (carrying) return toast('🗂️ Your hands are full: put the card back first (Q)', 'warn');
-  if (holdingBall()) return toast('🏀 Put the ball down first (Q)', 'warn');
+  if (hoops.holding()) return toast('🏀 Put the ball down first (Q)', 'warn');
   const seat: CarSeat | null = !c.driver ? 'driver' : !c.passenger ? 'passenger' : null;
   if (!seat) return toast(`🏎️ The ${def.name} is full`, 'warn');
   if (player.seat) standUp();
@@ -1449,7 +1414,7 @@ ctx.messages.on('welcome', (msg) => {
   if (golf.active) net.send({ t: 'act', golf: true });
   if (thrower.playing) net.send({ t: 'act', throwing: thrower.playing });
   // The office let go of the ball for you while you were away, and of your seat in a car.
-  ballNews(false);
+  hoops.ballNews(false);
   carAgain();
   // After a reconnect the server has forgotten which terminal we had open, and what we're doing.
   sendDoing(true);
@@ -1474,8 +1439,8 @@ ctx.messages.on('floor.enter', () => {
     setCarrying(null);
   }
   // So does the ball: it's back under that floor's hoop.
-  if (holdingBall()) toast('🏀 The ball stayed behind, back under the other floor’s hoop');
-  ballNews(false);
+  if (hoops.holding()) toast('🏀 The ball stayed behind, back under the other floor’s hoop');
+  hoops.ballNews(false);
   arrive();
   // Down off a roof that isn't there any more, or the map changed on the way: where you come in on this map.
   if (offRoof || placeOnArrival) {
@@ -1646,6 +1611,7 @@ ctx.interactions.define('elevator', {
 /** The elevator where you are: the office's, its stop down in the garage, or the one up on the roof. None on a map of its own. */
 function lift() {
   if (!inOffice()) return null;
+  const roof = rooftop.roof();
   return upTop && roof ? roof.elevator : downstairs() ? office.garageLift : office.elevator;
 }
 
@@ -1832,15 +1798,15 @@ function setPlace() {
   const up = store.floor === ROOF;
   if (up === upTop) return;
   upTop = up;
-  const r = up ? theRoof() : roof;
+  const r = up ? rooftop.theRoof() : rooftop.roof();
   world.group.visible = !up;
   // The holiday decorations are dressed round the office and the street below it, not up here.
   holiday.group.visible = !up && inOffice();
   if (r) r.group.visible = up;
   player.colliders = up ? r!.colliders : world.colliders;
-  sky.setRoof(up, roofDrop(roofFloors()));
+  sky.setRoof(up, roofDrop(rooftop.roofFloors()));
   sound.setOutdoors(up);
-  sound.setDj(up ? djAt : null);
+  sound.setDj(up ? rooftop.djAt : null);
   // You can see the whole city from up there (and its clouds); from the top floors, as far as the haze.
   camera.far = up ? 700 : FAR;
   camera.updateProjectionMatrix();
@@ -1860,8 +1826,9 @@ function setPlace() {
 
 /** What you can use where you are, and what's in the way of looking at it. */
 function usable(): Interactable[][] {
+  const roof = rooftop.roof();
   if (upTop && roof) return [roof.interactables];
-  return inOffice() ? [office.interactables, gallery.interactables, dog.interactables, ball.interactables] : [world.interactables, court?.interactables ?? []];
+  return inOffice() ? [office.interactables, gallery.interactables, dog.interactables, hoops.ball.interactables] : [world.interactables, court?.interactables ?? []];
 }
 
 /**
@@ -1964,9 +1931,9 @@ function applyMap() {
   telescope.exit();
   ctx.activities.stopAll('map');
   if (walkingTo) stopWalking();
-  if (smokeBreakUntil) setSmoking(false);
+  smoking.stop();
   // The office's things: the ball goes down (out of everyone's hands, since its sync is the office's), the games stop.
-  if (holdingBall()) dropBall();
+  if (hoops.holding()) hoops.dropBall();
   me.holdBall(false);
   hands.holdBall(false);
   for (const r of remotes.values()) r.person.holdBall(false);
@@ -2612,7 +2579,7 @@ function syncPlan() {
   player.wing = sound.wing = level;
   sky.setWing(level);
   syncStack();
-  syncRoof();
+  rooftop.syncRoof();
   arrangeSeats();
   if (was.floor === store.floor && was.map === shownPlan.map && level > was.wing) {
     const at = { x: (WING.minX + WING.maxX) / 2, y: 1.2, z: wingRowZ(level) };
@@ -3527,7 +3494,7 @@ function showBar() {
 
 /** The bartender comes over and pours it (a water, if you've had enough), and slides it across to you. */
 function orderDrink(d: Drink) {
-  const r = roof;
+  const r = rooftop.roof();
   if (!r || !upTop) return;
   const cut = d.strength > 0 && booze.cutOff(performance.now() / 1000);
   const drink = cut ? DRINK_BY_ID.get('water')! : d;
@@ -3568,7 +3535,7 @@ ctx.interactions.define('bar', {
 ctx.interactions.define('dj', {
   reach: 6,
   hint: () => {
-    const f = djFrame(djAt());
+    const f = djFrame(rooftop.djAt());
     const what = f.part === 'drop' ? '🔥 the drop' : f.part === 'build' ? 'building up…' : f.part === 'breakdown' ? 'the breakdown' : 'mixing in the next track';
     return { k: what, parts: [hintTitle('🎧 DJ Merge Conflict'), aside(`drum & bass · ${what}`), key('E', '📯 Air horn!')] };
   },
@@ -3621,290 +3588,13 @@ ctx.ticks.add('pre', ({ now }) => {
   drunkNow = drinking(now);
 });
 
-/** A cup from the kitchen machine: a minute of quicker feet and higher jumps, and a mug in your hand. */
-function drinkCoffee() {
-  const jittery = caffeine.drink(performance.now() / 1000);
-  sound.coffee();
-  if (player.view === 'first') hands.sip();
-  if (jittery) toast('☕ One cup too many… you’ve got the jitters!', 'warn');
-  else if (caffeine.cups > 1) toast('☕ Another cup: back to a full minute of buzz');
-  else toast('☕ Fresh coffee! A minute of quicker feet and higher jumps');
-}
-
-ctx.interactions.define('coffee', {
-  reach: 3,
-  hint: (it) => {
-    const buzzed = caffeine.buzzed(performance.now() / 1000);
-    return { k: String(buzzed), parts: [hintTitle(it.label ?? '☕ Coffee machine'), key('E', buzzed ? 'Another cup' : 'Grab a cup')] };
-  },
-  use: onE(() => drinkCoffee()),
-});
+const coffee = installCoffee(ctx);
 
 // ---- Smoke breaks ------------------------------------------------------------------------------------
-/** When your smoke break ends by itself (performance.now()), or 0 when you're not on one. */
-let smokeBreakUntil = 0;
-const SMOKE_BREAK_MS = 90_000;
-
-function setSmoking(on: boolean) {
-  if (on === smokeBreakUntil > 0) return;
-  smokeBreakUntil = on ? performance.now() + SMOKE_BREAK_MS : 0;
-  me.setSmoking(on);
-  hands.setSmoking(on);
-  net.send({ t: 'act', smoke: on });
-}
-
-/** Out on the balcony (a little slack at the door), where smoking is allowed. */
-function onBalcony(): boolean {
-  const p = player.pos;
-  return inOffice() && p.y > -0.5 && p.y < 2 && p.x > BALCONY.minX - 0.5 && p.x < BALCONY.maxX + 0.5 && p.z > BALCONY.minZ - 0.8 && p.z < BALCONY.maxZ + 0.5;
-}
-
-/** Ends the break when the cigarette burns down, or when you take it back inside. */
-function checkSmokeBreak(now: number) {
-  if (!smokeBreakUntil) return;
-  if (!onBalcony()) {
-    setSmoking(false);
-    toast('🚭 No smoking inside, so you put it out');
-  } else if (now > smokeBreakUntil) {
-    setSmoking(false);
-    toast("That one's done. Back to work!");
-  }
-}
-ctx.ticks.add('world', ({ now }) => checkSmokeBreak(now));
-ctx.interactions.define('smoke', {
-  reach: 3,
-  hint: () => ({ k: String(smokeBreakUntil > 0), parts: [hintTitle('🚬 Ashtray'), key('E', smokeBreakUntil ? 'Stub it out' : 'Take a smoke break')] }),
-  use: onE(() => {
-    if (smokeBreakUntil) {
-      setSmoking(false);
-      toast('You stub it out in the ashtray');
-    } else {
-      setSmoking(true);
-      toast('🚬 Smoke break');
-    }
-  }),
-});
+const smoking = installSmoke(ctx);
 
 // ---- The basketball --------------------------------------------------------------------------------
-/** The floor's basketball, by the hoop on the west wall (see world/hoop.ts). */
-const ball = new Basketball(() => office.colliders);
-office.group.add(ball.group);
-/**
- * Ball messages of yours the office hasn't answered yet (it answers every one): until it has, what
- * you did stands, so picking it up and shooting quickly doesn't snap it back into your hands.
- */
-let ballPending = 0;
-/** The office said where the ball is; `answer` when it's answering one of yours (it may be someone else's news). */
-function ballNews(answer: boolean) {
-  if (!answer) ballPending = 0;
-  else if (ballPending > 0 && --ballPending > 0) return;
-  ball.set(store.ball, performance.now());
-  ctx.hint.invalidate();
-}
-ctx.messages.on('ball', () => ballNews(true));
-const holdingBall = () => ball.holder === store.you;
-/** Baskets of yours in a row, and whether your last throw was a shot at the hoop (a miss of a pass or a drop doesn't count). */
-let streak = 0;
-let shooting = false;
-/** When you started winding up a shot (performance.now()), or 0. */
-let windFrom = 0;
-
-// With the ball in your hands, E winds up a shot (let go to shoot) and Q drops it.
-ctx.keys.add('activity', (e) => {
-  if (!holdingBall() || (e.code !== 'KeyE' && e.code !== 'KeyQ')) return false;
-  if (e.repeat) return true;
-  if (e.code === 'KeyE') windUp();
-  else dropBall();
-  return true;
-});
-
-/** E at the ball: it's yours, if nobody beats you to it. */
-function takeBall() {
-  if (carrying) return toast('🗂️ Your hands are full: put the card back first (Q)', 'warn');
-  if (ball.holder) return;
-  reach();
-  sound.ball('bounce', ball.at, 1.5);
-  ball.takeNow(store.you);
-  ballPending++;
-  net.send({ t: 'ball.take' });
-  ctx.hint.invalidate();
-}
-
-ctx.interactions.define('ball', {
-  reach: 3.2,
-  hint: () => ({ k: String(ball.still), parts: [hintTitle('🏀 Basketball'), ball.still ? aside('shoot some hoops') : '', key('E', ball.still ? 'Pick it up' : 'Catch it!')] }),
-  use: onE(() => takeBall()),
-});
-
-/** How a shot of yours goes from where you are: out of your hands, which way (a heading), how steep, and how hard it takes to sink it (null: you're not shooting at the hoop). */
-function shotAim(): { from: THREE.Vector3; heading: number; pitch: number; ideal: number | null } {
-  const rim = HOOP.rim;
-  const first = player.view === 'first';
-  // First person, the ball goes where you look; third, from over your head the way you face.
-  const facing = first ? player.camYaw + Math.PI : player.facing;
-  const from = first ? camera.position.clone() : new THREE.Vector3(player.pos.x, player.pos.y + 1.95, player.pos.z);
-  from.x += Math.sin(facing) * 0.3;
-  from.z += Math.cos(facing) * 0.3;
-  const toRim = Math.atan2(rim.x - from.x, rim.z - from.z);
-  const off = Math.abs(Math.atan2(Math.sin(toRim - facing), Math.cos(toRim - facing)));
-  const far = Math.hypot(rim.x - from.x, rim.z - from.z);
-  const atHoop = off < (first ? 0.35 : 0.6) && far < 16 && far > 0.4;
-  if (first) {
-    const look = throwPitch(player.lookPitch);
-    const pitch = atHoop ? underCeiling(from, look) : look;
-    return { from, heading: facing, pitch, ideal: atHoop ? idealSpeed(from, pitch) : null };
-  }
-  // Facing about the right way, your character squares up to the hoop.
-  if (!atHoop) return { from, heading: facing, pitch: throwPitch(0.15), ideal: null };
-  const pitch = underCeiling(from, throwPitch(lookAtRim(from)));
-  return { from, heading: toRim, pitch, ideal: idealSpeed(from, pitch) };
-}
-
-/** Hold E (or the mouse) with the ball: the meter goes up and down until you let go. */
-function windUp() {
-  if (!holdingBall() || windFrom) return;
-  windFrom = performance.now();
-}
-
-/** Let go: it flies as hard as the meter says (right in the green, it drops in). */
-function letFly() {
-  if (!windFrom) return;
-  const power = meter((performance.now() - windFrom) / 1000);
-  windFrom = 0;
-  if (!holdingBall()) return;
-  const a = shotAim();
-  shooting = a.ideal !== null;
-  release(a.from, a.heading, a.pitch, shooting ? shotSpeed(a.ideal!, power) : tossSpeed(power));
-  if (player.view === 'first') hands.shoot();
-  else me.shoot();
-}
-
-/** Q with the ball: it drops out of your hands in front of you. */
-function dropBall() {
-  if (!holdingBall()) return;
-  windFrom = 0;
-  const f = player.view === 'first' ? player.camYaw + Math.PI : player.facing;
-  const from = handsOf(store.you, new THREE.Vector3()) ?? camera.localToWorld(new THREE.Vector3(0, -0.25, -0.45));
-  shooting = false;
-  release(from, f, 0, 0.25);
-}
-
-function release(from: THREE.Vector3, heading: number, pitch: number, speed: number) {
-  const c = Math.cos(pitch);
-  const s = { x: from.x, y: from.y, z: from.z, vx: Math.sin(heading) * c * speed, vy: Math.sin(pitch) * speed, vz: Math.cos(heading) * c * speed };
-  ball.throwNow({ ...s, by: store.you }, performance.now());
-  ballPending++;
-  net.send({ t: 'ball.throw', ...s });
-  ctx.hint.invalidate();
-}
-
-/** Where the ball is in `id`'s hands, or null when you can't see it there (your own, in first person, is in your view instead). */
-function handsOf(id: string, out: THREE.Vector3): THREE.Vector3 | null {
-  const who = id === store.you ? (player.view === 'first' ? null : me) : (remotes.get(id)?.person ?? null);
-  if (!who) return null;
-  who.root.updateMatrixWorld();
-  return who.root.localToWorld(out.copy(IN_HANDS));
-}
-
-ball.onHit = (hit, at) => {
-  if (hit.kind === 'score') {
-    office.hoop.swish();
-    sound.ball('score', HOOP.rim, hit.speed);
-  } else if (hit.speed > 0.6) sound.ball(hit.kind, at, hit.speed);
-};
-ball.onThrow = (by) => remotes.get(by)?.person.shoot();
-ball.onMiss = (by) => {
-  if (by === store.you && shooting) streak = 0;
-};
-ball.onBasket = (b) => {
-  const mine = b.by === store.you;
-  const points = b.three ? 3 : 2;
-  const peer = store.peers.get(b.by);
-  const how = b.swish ? 'SWISH! ' : b.bank ? 'BANK! ' : '';
-  popScore(mine ? `${how}+${points}` : `${clip(peer?.name ?? 'Someone', 16)} ${how}+${points}`, mine ? store.profile.color : (peer?.color ?? '#ff6b1a'));
-  if (mine) {
-    streak++;
-    const said = b.swish ? 'Swish!' : b.bank ? 'Off the glass!' : 'In off the rim!';
-    toast(`🏀 ${said} +${points} from ${b.distance.toFixed(1)} m${streak > 1 ? ` · 🔥 ${streak} in a row` : ''}`);
-  }
-  if (b.three || (mine && streak >= 3)) confetti.burst(HOOP.rim.x + 0.3, HOOP.rim.y, HOOP.rim.z, 140, 0.7);
-};
-
-/** Points floating up off the hoop, and fading. */
-const scorePops: { sprite: THREE.Sprite; t: number }[] = [];
-function popScore(text: string, bg: string) {
-  const sprite = textSprite(text, { bg, color: '#ffffff', size: 64, border: '#2b2d42' });
-  sprite.position.set(HOOP.rim.x + 0.4, HOOP.rim.y + 0.9, HOOP.rim.z);
-  office.group.add(sprite);
-  scorePops.push({ sprite, t: 0 });
-}
-function updateScorePops(dt: number) {
-  for (let i = scorePops.length - 1; i >= 0; i--) {
-    const p = scorePops[i];
-    p.t += dt;
-    p.sprite.position.y = HOOP.rim.y + 0.9 + p.t * 0.45;
-    p.sprite.material.opacity = Math.min(1, (2 - p.t) / 0.5);
-    if (p.t < 2) continue;
-    office.group.remove(p.sprite);
-    disposeSprite(p.sprite);
-    scorePops.splice(i, 1);
-  }
-}
-
-/** Every frame: the ball flies on (or goes wherever whoever has it goes), and your hands and everyone's arms hold it. */
-function updateBall(now: number, dt: number) {
-  ball.update(now, handsOf);
-  const mine = holdingBall();
-  if (!mine) windFrom = 0;
-  me.holdBall(mine);
-  hands.holdBall(mine);
-  hands.windUp(windFrom ? meter((now - windFrom) / 1000) : 0);
-  for (const [id, r] of remotes) r.person.holdBall(ball.holder === id);
-  updateScorePops(dt);
-  renderShotMeter(now);
-}
-ctx.ticks.add('others', ({ dt, now }) => {
-  if (!upTop && inOffice()) updateBall(now, dt);
-});
-
-/** The wind-up meter over the hint, while you hold E: a green band where the shot drops in, when you're shooting at the hoop. */
-let meterKey = '';
-function renderShotMeter(now: number) {
-  const on = windFrom > 0 && !modalOpen();
-  const at = on ? meter((now - windFrom) / 1000) : 0;
-  const sweet = on && shotAim().ideal !== null;
-  const k = `${on}|${sweet}|${at.toFixed(3)}`;
-  if (k === meterKey) return;
-  meterKey = k;
-  const el = $('shot-meter');
-  el.classList.toggle('hidden', !on);
-  el.classList.toggle('aimed', sweet);
-  el.style.setProperty('--at', String(at));
-  el.style.setProperty('--sweet', String(SWEET.at));
-  el.style.setProperty('--width', String(SWEET.width));
-}
-
-/** With the ball in your hands: how to shoot, and how to put it down. */
-function ballHint(): Hint {
-  const first = player.view === 'first';
-  return {
-    k: `${streak}|${first}|${!!windFrom}`,
-    parts: [
-      h('span.title', {}, '🏀 Ball in hand'),
-      streak > 1 ? aside(`🔥 ${streak} in a row`) : '',
-      windFrom ? aside('let go in the green!') : key(first ? 'E / Click' : 'E', 'Hold to shoot'),
-      key('Q', 'Drop it'),
-    ],
-  };
-}
-
-/** In first person, a ball at your feet is yours to pick up without looking right at it. */
-function ballAtFeet(): Interactable | null {
-  const it = ball.interactable;
-  if (it.off) return null;
-  const p = ball.at;
-  return Math.hypot(p.x - player.pos.x, p.z - player.pos.z) < 1.1 && p.y - player.pos.y < 1.2 && p.y - player.pos.y > -0.5 ? it : null;
-}
+const hoops = installBasketball(ctx, { remotes, reach });
 
 // ---- Carrying an issue card ------------------------------------------------------------------------
 function setCarrying(card: CarriedIssue | null) {
@@ -3921,7 +3611,7 @@ function setCarrying(card: CarriedIssue | null) {
 /** ✋ in an issue's window, or E at its note on the board: its card comes off the board and into your hands. */
 function pickUp(it: GhIssue) {
   closeAllModals();
-  dropBall();
+  hoops.dropBall();
   if (carrying?.issue === it.number) return;
   if (carrying) toast(`📌 #${carrying.issue} went back on the board`);
   setCarrying({ issue: it.number, title: it.title });
@@ -4113,21 +3803,6 @@ ctx.interactions.define('seat', {
 });
 
 // ---- The gong -------------------------------------------------------------------------------------
-let lastHit = 0;
-/** E at the gong. The office rings it for everyone on the floor, you included (see gongRang). */
-function hitGong() {
-  const now = performance.now();
-  if (now - lastHit < 500) return;
-  lastHit = now;
-  net.send({ t: 'gong' });
-}
-
-ctx.interactions.define('gong', {
-  reach: 3.5,
-  hint: () => ({ k: '', parts: [hintTitle('🎉 Merge gong'), aside('rings when a PR merges'), key('E', 'Bang it')] }),
-  use: onE(() => hitGong()),
-});
-
 /** Where confetti comes from over a desk: above the worker's head. */
 function burstOver(deskId: string, n: number) {
   // Up and about in the castle: over wherever it is.
@@ -4141,71 +3816,7 @@ function burstOver(deskId: string, n: number) {
   if (d) confetti.burst(d.x, 2.3, d.z, n);
 }
 
-/** Where a worker at `desk` climbs up to dance, in the frame of whatever it sits or stands in. */
-function stageOf(desk: DeskView, model: Worker): Stage {
-  const seat = model.root.parent!;
-  seat.updateWorldMatrix(true, false);
-  desk.stage.updateWorldMatrix(true, false);
-  const m = seat.matrixWorld.clone().invert().multiply(desk.stage.matrixWorld);
-  const pos = new THREE.Vector3();
-  const turn = new THREE.Quaternion();
-  m.decompose(pos, turn, new THREE.Vector3());
-  const ahead = new THREE.Vector3(0, 0, 1).applyQuaternion(turn);
-  return { pos, yaw: Math.atan2(ahead.x, ahead.z) };
-}
-
-/** A pull request merged: every worker awake on the floor gets up on its desk and dances. */
-function danceParty() {
-  for (const [id, v] of workerViews) {
-    const desk = world.desks.get(v.deskId);
-    if (!desk || isAsleep(store.workers.get(id)?.status ?? 'offline')) continue;
-    // Up and about, away from its desk: a jump for joy where it stands.
-    if (court?.away(id)) v.model.cheer(4);
-    else v.model.dance(stageOf(desk, v.model));
-  }
-  // The board agents still waiting to be asked, too.
-  for (const a of idleAgents) if (a.view.vacancy.visible) a.model.dance(stageOf(a.view, a.model));
-}
-
-/** Confetti a square meter of floor gets when a pull request merges, and the most there is in all. */
-const CONFETTI_DENSITY = 3.5;
-const CONFETTI_MOST = 4000;
-const floorArea = (a: Area) => (a.maxX - a.minX) * (a.maxZ - a.minZ);
-
-ctx.messages.on('gong', (msg) => gongRang(msg.why, msg.pr));
-/** Someone hit the gong, a pull request merged (a dance party under a confetti rain), or the queue emptied (a party). */
-function gongRang(why: GongWhy, pr?: number) {
-  const gong = world.gong;
-  gong?.strike(why === 'hit' ? 0.7 : 1);
-  sound.gong(why);
-  // Where confetti bursts from: over the gong, or with no gong, over where you are.
-  const top = gong?.top ?? new THREE.Vector3(player.pos.x, player.pos.y + 3, player.pos.z);
-  if (why === 'merged') {
-    // Confetti rains down all over the floor, and pops over the desk the PR came from while its worker's still there.
-    const area = world.rain.reduce((n, r) => n + floorArea(r.area), 0);
-    const density = Math.min(CONFETTI_DENSITY, CONFETTI_MOST / Math.max(1, area));
-    for (const r of world.rain) confetti.rain(r.area, floorArea(r.area) * density, 3, r.top);
-    const it = store.pulls.items.find((p) => p.number === pr);
-    const w = pr === undefined ? undefined : workerForPull(store.workers.values(), it ?? { number: pr, headRefName: '' });
-    if (w && workerViews.has(w.id)) burstOver(w.deskId, 220);
-    else confetti.burst(top.x, top.y, top.z, 220);
-    danceParty();
-  } else if (why === 'queue') {
-    // Three strokes (sound.gong plays them): a burst at the gong, then every desk, then a cannon.
-    confetti.burst(top.x, top.y, top.z, 160);
-    setTimeout(() => {
-      gong?.strike(0.85);
-      for (const [id, v] of workerViews) {
-        burstOver(v.deskId, 120);
-        if (!isAsleep(store.workers.get(id)?.status ?? 'offline')) v.model.cheer(4);
-      }
-    }, 850);
-    setTimeout(() => {
-      gong?.strike(1.2);
-      confetti.burst(top.x, top.y, top.z, 450, 1.5);
-    }, 1700);
-  }
-}
+installGong(ctx, { burstOver, workerViews, court: () => court, idleAgents: () => idleAgents });
 
 // ---- Interaction targeting & hint -----------------------------------------------------------------
 let target: Interactable | null = null;
@@ -4237,7 +3848,7 @@ function renderHint() {
   // Whatever you're in the middle of has the hint bar to itself: the picture you're hanging, the ladder, the tee…
   const doing = modalOpen() ? undefined : ctx.activities.current((a) => !!a.hint);
   if (doing) return doing.hint!(el);
-  const withBall = holdingBall();
+  const withBall = hoops.holding();
   if ((!target && !carrying && !withBall) || modalOpen()) {
     // Still up after a redraw was asked for (hintKey cleared) just as you walked away from it, too.
     if (hintKey || !el.classList.contains('hidden')) {
@@ -4246,7 +3857,7 @@ function renderHint() {
     }
     return;
   }
-  const hint = withBall ? ballHint() : carrying ? carryHint(carrying, target) : ctx.interactions.hint(target!);
+  const hint = withBall ? hoops.ballHint() : carrying ? carryHint(carrying, target) : ctx.interactions.hint(target!);
   // On the throne, whoever's in line: the herald's a key away, and how to get up.
   const throne = onThrone() && !carrying && !withBall;
   if (throne) {
@@ -4387,55 +3998,7 @@ function reach() {
 }
 
 // ---- Emotes ---------------------------------------------------------------------------------------
-/** The same limit the server keeps, so an emote you see yourself do is one everyone else sees too. */
-const emoteLimit = new EmoteBucket();
-let emoteWarnedAt = 0;
-/** Plays an emote on your character and your hands, and shows it to everyone else on the floor. */
-function emote(id: EmoteId) {
-  const now = performance.now();
-  if (!emoteLimit.take(now)) {
-    if (now - emoteWarnedAt > 3000) {
-      emoteWarnedAt = now;
-      toast('Easy there, one emote at a time', 'warn');
-    }
-    return;
-  }
-  me.emote(id);
-  hands.emote(id);
-  if (player.view === 'first') popEmoji(id);
-  net.send({ t: 'emote', emote: id });
-}
-ctx.messages.on('peer.emote', (msg) => remotes.get(msg.id)?.person.emote(msg.emote));
-const emoteWheel = new EmoteWheel(emote, (open) => (player.mouseLook = !open));
-$('hud').append(emoteWheel.el);
-
-/** In first person you can't see the emoji over your head, so it pops up on the screen instead. */
-function popEmoji(id: EmoteId) {
-  const e = EMOTE_BY_ID.get(id)!;
-  document.querySelector('.emote-pop')?.remove();
-  const el = h('div.emote-pop', { style: `--secs:${e.seconds}s`, 'aria-hidden': 'true' }, e.emoji);
-  el.addEventListener('animationend', () => el.remove());
-  $('hud').append(el);
-}
-
-/** G opens the emote wheel (hold it and point, or tap it and click); 1–6 play one straight away. */
-function emoteKey(e: KeyboardEvent): boolean {
-  if (e.code === 'KeyG') {
-    if (!e.repeat) emoteWheel.press();
-    return true;
-  }
-  if (e.code === 'Escape' && emoteWheel.isOpen) {
-    emoteWheel.close();
-    return true;
-  }
-  const n = /^(?:Digit|Numpad)([1-6])$/.exec(e.code);
-  if (!n) return false;
-  emoteWheel.close();
-  emote(EMOTES[Number(n[1]) - 1].id);
-  return true;
-}
-
-ctx.keys.add('emote', emoteKey);
+const emotes = installEmotes(ctx, { personOf: (id) => remotes.get(id)?.person });
 
 /** Keys that use what you're facing: at a desk, each does something else (see interact). */
 function use(it: Interactable | null, key: DeskKey, note = aimedNote): boolean {
@@ -4454,13 +4017,13 @@ window.addEventListener('keydown', (e) => {
   if (ctx.keys.handle(e) === 'bound') player.clearKeys();
 });
 window.addEventListener('keyup', (e) => {
-  if (e.code === 'KeyG') emoteWheel.release();
-  if (e.code === 'KeyE') letFly();
+  if (e.code === 'KeyG') emotes.emoteWheel.release();
+  if (e.code === 'KeyE') hoops.letFly();
 });
-window.addEventListener('blur', () => (windFrom = 0));
+window.addEventListener('blur', () => hoops.stopWinding());
 // First person with the mouse captured, the button winds up a shot like E does (see player.onClick).
 window.addEventListener('pointerup', (e) => {
-  if (e.button === 0 && windFrom && player.locked) letFly();
+  if (e.button === 0 && hoops.winding() && player.locked) hoops.letFly();
 });
 // Letting go of V mutes you again, wherever the key comes up: a window or a terminal opened meanwhile,
 // or another app (the browser never says the key came up there).
@@ -4551,8 +4114,8 @@ onModalChange((open) => {
   // Opening something on the way over to someone is stopping there.
   if (open && walkingTo && !trip) stopWalking();
   if (open) {
-    windFrom = 0;
-    emoteWheel.close();
+    hoops.stopWinding();
+    emotes.emoteWheel.close();
     // A phone has no mouse to take back afterwards.
     if (finePointer) player.yieldMouse();
     else player.unlock();
@@ -4590,6 +4153,7 @@ function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boole
   raycaster.setFromCamera(ndc, camera);
   eye.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
   // (Workers standing in line in the castle carry their spot's interactable: see Court.)
+  const roof = rooftop.roof();
   for (const hit of raycaster.intersectObjects(upTop && roof ? roof.pickables : inOffice() ? [office.group, dog.root] : world.pickables, true)) {
     let it: Interactable | undefined;
     let shown = true;
@@ -4645,7 +4209,7 @@ ctx.ticks.add('aim', () => {
   if (modalOpen() || telescope.active || ctx.activities.busy()) target = null;
   else if (firstPerson) {
     const aim = aimedAt(CROSSHAIR);
-    target = aim?.near ? aim.it : (throneTarget() ?? mySeat() ?? (inOffice() ? ballAtFeet() : null));
+    target = aim?.near ? aim.it : (throneTarget() ?? mySeat() ?? (inOffice() ? hoops.ballAtFeet() : null));
     if (aim?.near) aimedNote = noteUnder(aim);
   } else {
     target = throneTarget() ?? mySeat() ?? pickTarget();
@@ -4664,11 +4228,11 @@ player.onClick = (ndc) => {
   // At the tee, a click is you steadying the mouse to aim: nothing else is in reach.
   // At the dart board or the axe lane, the button throws (see Thrower).
   if (modalOpen() || ctx.activities.any('takesCamera')) return;
-  if (emoteWheel.isOpen) return emoteWheel.click();
+  if (emotes.emoteWheel.isOpen) return emotes.emoteWheel.click();
   // The ball in your hands: press to wind up, let go (or click again, with no mouse captured) to shoot.
-  if (holdingBall()) {
-    if (windFrom && !player.locked) letFly();
-    else windUp();
+  if (hoops.holding()) {
+    if (hoops.winding() && !player.locked) hoops.letFly();
+    else hoops.windUp();
     return;
   }
   if (hanger.active) {
@@ -4996,6 +4560,7 @@ function watchFrameRate({ now, delta }: Frame) {
 /** Coffee, and the view's shake easing off. */
 function feelTheCoffee({ dt, now }: Frame) {
   // Coffee: quicker feet, higher jumps, a mug in hand, and maybe the jitters.
+  const { caffeine } = coffee;
   const secs = now / 1000;
   player.speedBoost = caffeine.speed(secs);
   player.jumpBoost = caffeine.jump(secs);
@@ -5187,7 +4752,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { world: () => world, court: () => court, sendoffs, jail, plan, applyMap, roof: () => roof, booze, dj: () => djFrame(djAt()), store, player, caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, driver, getIn, getOut, golf, balls, thrower, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote, ball };
+(window as any).__office = { world: () => world, court: () => court, sendoffs, jail, plan, applyMap, roof: rooftop.roof, booze, dj: () => djFrame(rooftop.djAt()), store, player, caffeine: coffee.caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, driver, getIn, getOut, golf, balls, thrower, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel: emotes.emoteWheel, emote: emotes.emote, ball: hoops.ball };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;
