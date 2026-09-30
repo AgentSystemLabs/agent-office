@@ -1,6 +1,8 @@
-# Remote agents: implementation plan
+# Remote floors: implementation plan
 
-The plan for building what [remote-agents.md](remote-agents.md) proposes.
+The plan for building what [remote-agents.md](remote-agents.md) proposes — **with the architecture
+revised.** The proposal's bridge is replaced by the floor host below, for the reasons in
+[the departure](#the-departure-from-the-proposal).
 
 Status: **plan**, nothing implemented yet. Target: agent-office `main`.
 
@@ -9,13 +11,132 @@ Back to the [README](../README.md).
 ## What this document is
 
 `docs/remote-agents.md` is the **proposal**: the requirement, the trust-model analysis, the refusal
-table, the alternatives. It is a good document and this plan does not argue with it. This is the
-engineering pass: every claim in it checked against the tree as it stands, the places where the
-proposal turns out to be wrong or optimistic, the decisions that have to be made before code is
-written, and then the work broken into tasks a person can pick up one at a time.
+table, the alternatives. It is a good document and this plan does not argue with its requirements or
+its permission model. This is the engineering pass: every claim in it checked against the tree as it
+stands, the places where the proposal turns out to be wrong or optimistic, the decisions that have to
+be made before code is written, and then the work broken into tasks a person can pick up one at a
+time.
 
-Read this next to the proposal, not instead of it. Where the two disagree, this one is right and the
-proposal should be corrected as each phase lands.
+Read this next to the proposal, not instead of it. Where the two disagree **on architecture**, this
+one is right; where they disagree on a citation, the correction is listed below and the proposal
+should be corrected as each phase lands.
+
+## The design, in one page
+
+Everyone joins **one office** — one URL, one chat log, one presence map, one set of boards. That is
+not negotiable, because "we are all in the same building" is the requirement.
+
+A **floor** gets a new field saying where it runs:
+
+```ts
+// src/server/building.ts
+interface FloorDef {
+  dir: string;
+  // ...existing fields
+  /** The floor host this floor executes on; absent, it runs here. */
+  host?: HostRef;
+}
+```
+
+A floor with no `host` behaves exactly as today. A floor **with** a host runs its entire `Floor`
+object — checkout, worktrees, PTYs, `gh`, the queue, the Changes window — on someone else's machine.
+The office keeps only what is shared: chat, presence, and the browser connections.
+
+```
+   Browser ──wss──▶ office (his server)
+                      ├─ chat, presence, floors list
+                      ├─ Floor A  ── local, runs here
+                      └─ Floor B ──┐
+                                   │ wss /floor-host
+                                   ▼
+                          floor host (her laptop)
+                            ├─ Floor B: checkout, worktrees
+                            ├─ PTYs, scrollback, search
+                            ├─ gh, git, Changes window
+                            └─ queue, board, spend
+```
+
+**The connection is outbound.** Her laptop dials *him*, not the reverse — one WSS connection to
+`wss://<office>/floor-host`, authenticated with a pairing token, held open. No open port on her
+machine, no NAT traversal, no firewall configuration, nothing inbound. This is the self-hosted-CI
+runner pattern, and it is the single most important property in the design.
+
+It also hands her a kill switch that is physically hers: **close the laptop and the floor stops
+receiving work immediately**, with no cooperation from the office.
+
+### The two seams
+
+The design rests on two interfaces that already exist.
+
+**Seam 1 — `FloorContext` (`floor.ts:36`).** A `Floor` talks to the office through exactly five
+calls, every one addressed by floor or worker:
+
+```ts
+emit(floor: Floor, msg: ServerMsg, droppable?: boolean): void;
+toast(floor: Floor, text: string, level?: ToastLevel): void;
+termData(workerId: string, data: string, viewers: string[]): void;
+changes(state: ChangesState, clients: string[]): void;
+workerChanged(floor: Floor, w: WorkerInfo | string): void;
+```
+
+Today there is one literal implementation, built at `server.ts:625` and handed to every
+`new Floor(def, floorContext)` at `server.ts:684`. Make it **per floor**: local floors get today's
+object, remote floors get a proxy that serializes over the host socket. `Floor` does not change.
+
+**Seam 2 — `handleMessage` (`server.ts:1477`).** The office's 117-case switch resolves a floor with
+`floorOf(c)` (`server.ts:254`) and then calls into it. Those floor-scoped cases become a function
+over a `Floor`: called directly for a local floor, shipped verbatim to the host for a remote one.
+
+This matters because `server.ts` makes **66 distinct floor-scoped calls**
+(`floor.workers.spawn`, `floor.queue.add`, `floor.forge.claim`, `floor.jukebox.title`, …).
+Enumerating those as 66 RPC methods would be the wrong shape and the wrong amount of work. Forwarding
+the unions that already exist is not.
+
+### The wire is mostly already written
+
+| Direction | Payload | Notes |
+|---|---|---|
+| office → host | `ClientMsg`, floor-scoped subset | already JSON, already validated at the top |
+| host → office | `ServerMsg` via `FloorContext.emit` | already JSON |
+| host → office | control: `hello`, `ready`, `bye`, `heartbeat` | new, small |
+| either | terminal bytes, screen frames | ride the two channels above |
+
+Flow control is already signalled: `droppable` is on the `emit` signature and `toFloor`
+(`server.ts:261-265`) already skips clients whose `bufferedAmount > 4 * 1024 * 1024`. A transport
+that honors `droppable` gets back-pressure for free.
+
+## The departure from the proposal
+
+The proposal builds a **bridge**: a process seated in the office that reaches out to a laptop and
+lets workers be hired onto it. This plan builds a **floor host**: the laptop dials in and hosts a
+whole floor.
+
+| | The proposal's bridge | This plan's floor host |
+|---|---|---|
+| Unit of remoteness | a worker, seated onto a bridge | **a floor** — checkout, board, queue, PTYs |
+| Who dials whom | the office reaches the laptop | **the laptop dials the office** |
+| Number of offices | two, plus a bridge between them | **one** |
+| Shared chat / presence | needs federation to merge | **free** |
+| Whose checkout | the bridge's, cut per worker | **the floor's**, unchanged |
+| Board and Changes window | the office's `gh` on the office's disk | **the host's**, streamed up |
+
+Why the change:
+
+1. **One server is the requirement, not a preference.** Two offices need Level-2 federation to share
+   chat and presence; a floor host needs nothing, because there is only one office.
+2. **A floor is already the right boundary.** `floor.ts:111` describes it as *"a project's checkout
+   with its own desks and workers, issues and PR boards, task queue, pictures and jukebox, all kept
+   in that checkout's `.agent-office` folder."* The queue is already constructed per floor from the
+   floor's own `dataDir` (`floor.ts:234`, `queue.ts:73`). You are relocating a component that is
+   already whole, not carving one out of a monolith.
+3. **Outbound-only beats inbound.** The bridge's direction implied the office reaching a laptop,
+   which requires the laptop to be reachable. The floor host removes that entirely.
+4. **The kill switch is physical.** Pull the connection; the floor stops. Nothing in the bridge
+   design was that immediate or that clearly hers.
+
+What does **not** change: the permission model, the refusal table, the accepting toggle, seats, the
+`--isolate` question, and every finding below about what the code actually does. Those were written
+for a bridge and they hold for a floor host with the unit renamed.
 
 ## What was checked, and what came back
 
@@ -35,9 +156,7 @@ Every `file:line` citation in the proposal's appendix was checked against the tr
 | Scrollback is retained per worker and searchable | holds, with a correction — see finding 4 |
 | Cost and the budget are Claude-only, read office-side | holds |
 
-The claims that need correcting are all citation drift, not design errors. These are worth fixing in
-the proposal as each phase lands, because a plan that points at the wrong line teaches the next
-reader the wrong place:
+The claims that need correcting are all citation drift, not design errors:
 
 | Proposal says | Actually |
 |---|---|
@@ -51,28 +170,30 @@ reader the wrong place:
 
 Two substantive corrections, not drift:
 
-1. **`WorkerInfo.owner` does not exist.** The proposal's hire section says "`WorkerInfo.owner` and
-   `createdBy` already record who asked and whose sign-ins a worker runs as". `createdBy` is on
-   `WorkerInfo`. `owner` is on the **internal** `Worker` interface only, is persisted as a separate
-   top-level key in `workers.json`, and reaches the office through `WorkerManager.ownerOf(id)`. It is
-   never sent to a browser. Any plan that needs "whose machine is this" on the client has to add it to
-   `WorkerInfo` rather than read it.
+1. **`WorkerInfo.owner` does not exist.** The proposal says "`WorkerInfo.owner` and `createdBy`
+   already record who asked". `createdBy` is on `WorkerInfo`. `owner` is on the **internal**
+   `Worker` interface only, is persisted as a separate top-level key in `workers.json`, and reaches
+   the office through `WorkerManager.ownerOf(id)`. It is never sent to a browser. Any plan that needs
+   "whose machine is this" on the client has to add it to `WorkerInfo` rather than read it.
 2. **Search reads the live terminal, not the stored scrollback.** `WorkerManager.search()` walks
-   `w.term` in memory. `ScrollbackStore` is only the on-disk copy that survives a restart. This is
-   good news for the retention decision: "no retained scrollback" is one decision with two
-   independent halves, and they can be made separately.
+   `w.term` in memory; `ScrollbackStore` is only the on-disk copy that survives a restart. For a
+   remote floor this means search must be answered **by the host**, not by the office — see
+   finding 9.
 
 ## What the proposal misses
 
-These are the findings that change the work. Ordered by how much they change it.
+These are the findings that change the work, ordered by how much they change it. Each is marked with
+what happened to it when the bridge became a floor host.
 
-### 1. There is no "offline until its bridge returns" mechanism, and the existing one fights it
+### 1. There is no "offline until it returns" mechanism, and the existing one fights it ✅ stands
 
-The proposal's risk 9 says a laptop that sleeps mid-turn is a worker whose terminal was lost, and that
-the office should reuse its existing honest answer: `offline`, resumable with **R**. The existing
-answer is not reachable from the code as written.
+**Stands unchanged, and gets bigger: it is per floor now, not per worker.**
 
-`follow`'s lost branch (`workers.ts:1900-1905`) does this:
+The proposal's risk 9 says a laptop that sleeps mid-turn is a worker whose terminal was lost, and
+that the office should reuse its existing honest answer: `offline`, resumable with **R**. The
+existing answer is not reachable from the code as written.
+
+`follow`'s lost branch (`workers.ts:1900-1905`):
 
 ```ts
 if (lost && !this.closing) {
@@ -82,11 +203,11 @@ if (lost && !this.closing) {
 }
 ```
 
-It **immediately relaunches**. For a lost local PTY host that is right — the host restarts. For a lost
-bridge it is wrong, and it will spin: relaunch, seat, refuse, exit, relaunch.
+It **immediately relaunches**. For a lost local PTY host that is right — the host restarts. For a
+dropped host socket it will spin: relaunch, seat, refuse, exit, relaunch.
 
 The boot path has the same problem. `restore()` sets every restored worker to `offline`, and then
-`start()` calls `wakeAll()`, which resumes every worker that has neither a pty nor a dsh session:
+`start()` calls `wakeAll()`:
 
 ```ts
 wakeAll() {
@@ -94,11 +215,11 @@ wakeAll() {
 }
 ```
 
-So the proposal's stated precedent — "restores as `offline` until its bridge returns, like a DeepSeek
-Harness worker today" — describes a mechanism that does not exist, and the nearest neighbour it names
-does not work that way either.
+So the proposal's stated precedent — *"restores as `offline` until its bridge returns, like a
+DeepSeek Harness worker today"* — describes a mechanism that does not exist, and the nearest
+neighbour it names does not work that way either.
 
-**Resolution:** `PtyExit` gains a third shape. `PtyExit` is already `{ exitCode, error?, lost? }` and
+**Resolution:** `PtyExit` gains a third shape. It is already `{ exitCode, error?, lost? }` and
 `follow` already branches on `lost`, so widening it is small and honest:
 
 ```ts
@@ -107,70 +228,71 @@ export interface PtyExit {
   error?: string;
   /** The host went away under it; the process is gone. */
   lost?: boolean;
-  /** The far end walked (a bridge socket dropped). It may come back: hold, don't relaunch. */
+  /** The far end walked. It may come back: hold, don't relaunch. */
   gone?: boolean;
 }
 ```
 
-`gone` means: set `interrupted` if mid-turn, leave `w.pty` undefined, set status `offline`, **do not
-resume**, do not surface an exit code in the terminal. `wakeAll` gains the same guard — a worker with
-`info.remote` and no bridge is left asleep. Resume is then an explicit human act (**R**), which is what
-the proposal wants anyway. This is the single most important change in the whole feature and it should
-land in Phase 1, not Phase 3.
+`gone` means: set `interrupted` if mid-turn, leave `w.pty` undefined, status `offline`, **do not
+resume**, do not surface an exit code. `wakeAll` gains the same guard — a worker whose floor has no
+host connection stays asleep. Resume becomes an explicit human act (**R**).
 
-### 2. `/office/*` has to be forwarded too, not just hooks
+Add to it: when the socket drops, **the floor** goes offline, not only its workers. Every floor-scoped
+call from `server.ts` then answers with a refusal naming the machine rather than an exception —
+*"the laptop is asleep"* — and the queue stays queued (finding 10).
 
-The proposal's authority rule says a remote worker may hire, tell and send home office-local workers
-and workers on its own bridge, and that "a forwarded `/office/*` call carries its bridge; the handler
-refuses workers on another bridge". The frames table lists only `hook`.
+This is the single most important change in the feature. It lands in Phase B, not Phase C.
 
-But `/office/workers` and `/office/queue` are **HTTP endpoints on the office's loopback hook server**
-(`server.ts:303-304`), not frames. `bin/office-workers.js` builds its URL from
-`AGENT_OFFICE_HOOK_URL` — the same variable the status bridges read. Point that at the bridge and the
-agent's MCP server and CLI both call the bridge, not the office. So the bridge's loopback listener has
-to be a **reverse proxy for the whole hook server surface**: `/hooks/*`, `/office/workers*` and
-`/office/queue`, not just `/hooks/*`.
+### 2. `/office/*` has to be forwarded too 🔄 reverses
 
-That changes the security story in a way worth stating plainly. Today `/office/workers` requires
-`?worker=<id>` plus the per-worker bearer token, and `WorkerManager.authenticate` additionally requires
-that worker to have a live PTY or ACP session. Over a bridge those checks are unchanged, which is good,
-but the office now has to add the bridge identity to the forwarded request and compare it. See the
-task list; the point for the plan is that the proxy surface is larger than the proposal's frames table
-implies.
+**Dissolves as written, and inverts.** The bridge needed the office's loopback hook server proxied
+because workers ran beside the office while their processes were elsewhere. In a floor host the
+**whole floor is on the laptop**, so the hook server, `/office/workers` and `/office/queue` all live
+there too. `AGENT_OFFICE_HOOK_URL` points at `127.0.0.1` **on the laptop**, for the workers, hooks
+and MCP servers that are also on the laptop. Nothing is forwarded; nothing needs to be.
 
-### 3. PR discovery breaks silently, in four separate places
+The finding's substance survives as its mirror image: **what does the host need from the office?**
+The office-wide things a floor cannot see for itself — other floors' state, the chat log it must
+replay on join, the spend ledger, the default worker and prompts, the account's sign-ins. That list
+has to be written down deliberately, because it is the set of things that leak office-wide knowledge
+to a member's machine. It is a much smaller and more reviewable list than "every hook call", and it
+is the finding's real content.
 
-The proposal is right that "pull requests are required, not optional" and right that it is Phase 1
-work. It does not say why it is hard, and the reason is that `workerPr` is **derived**, not stored:
+Note what this buys: today `/office/workers` requires `?worker=<id>`, the per-worker bearer token,
+*and* a live PTY or ACP session (`workers.ts:584`). Over a floor host those checks are unchanged and
+now enforced where the processes actually are.
+
+### 3. PR discovery breaks silently, in four separate places 🔄 mostly dissolves
+
+**Probably dissolves — and the spike must confirm it.** The bridge had no office-side worktree, so
+`workerPr` could not match a branch and needed a `remote.pr` shortcut:
 
 ```ts
 export function workerPr(w: WorkerInfo, pulls: GhPull[], tasks: QueueTask[]): WorkerPr | undefined
 ```
 
-It matches a worker to a pull request by PR number, or by `w.worktree.branch === p.headRefName`. A
-remote worker has no office-side worktree path, so:
+It matches by PR number or `w.worktree.branch === p.headRefName`. A floor host **runs `gh` itself**
+and already streams board state upward through `ctx.emit`:
 
-- the branch match never fires;
-- the bridge's `report { pr }` frame has nowhere to land, because `WorkerInfo.pr` is set by the
-  office's own `worker.pr` handler after the office runs `gh`;
-- `landedWork` (`leave-on-merge.ts:104`) is how a merged PR sends its worker home, so a remote worker
-  would sit at a desk forever after landing its work;
-- the gong never rings, which the proposal names as the difference between collaboration and a stranger's
-  machine being quietly busy.
+```ts
+// floor.ts:218-219
+issues: (state: GhState<GhIssue>) => ctx.emit(this, { t: 'gh.issues', state }),
+pulls:  (state: GhState<GhPull>)  => ctx.emit(this, { t: 'gh.pulls', state }),
+```
 
-`workerPr` has four call sites — `office-workers.ts:66`, `leave-on-merge.ts:104`, and two in
-`client/main.ts` — and **no test coverage at all**, which is why this would have been found late.
+So the office *has* the pulls for that floor, and if the host reports `worktree.branch` in
+`WorkerInfo` — a string, no filesystem involved — `workerPr` matches the branch it always matched.
+No `remote.pr` field, no synthesised `GhPull`.
 
-**Resolution:** `WorkerInfo.remote` carries `{ bridgeId, host, branch?, pr? }`. `workerPr` gains a remote
-branch that trusts `remote.pr` directly, because the bridge is the only party that can have set it and
-the office has nothing to cross-check it against. That is one function and one union field, and it
-fixes all four call sites at once. Synthesising a `GhPull` and appending it at each call site also
-works and is worse: four edits, each one a chance to forget.
+Four call sites still matter and still have **no test coverage at all**
+(`office-workers.ts:66`, `leave-on-merge.ts:104`, two in `client/main.ts`): `landedWork` is how a
+merged PR sends its worker home, so a miss means a worker sits at a desk forever, and the gong never
+rings. Keep the `remote.pr` fallback for the case where the branch genuinely cannot be reported, and
+**write the test either way** — this is spike question 3.
 
-### 4. "No retained scrollback" is four switches, not one
+### 4. "No retained scrollback" is four switches, not one 🔄 becomes structural
 
-The proposal says remote workers should default to no retained scrollback, and is right about why. The
-code has retention in four independent places:
+**The office-side half stops being a setting.** Retention today is in four independent places:
 
 | Where | What |
 |---|---|
@@ -179,15 +301,17 @@ code has retention in four independent places:
 | `workers.ts:2176` `saveScrollback` | the 15-second timer writing `.agent-office/scrollback/<id>.ansi` |
 | `workers.ts:1564` `launch` | the prelude read that puts it back on resume |
 
-Search (`workers.ts:875`) walks the live `w.term`, so it follows the first switch for free. The fourth
-needs the load suppressed as well as the save, or a resume will resurrect a transcript the retention
-decision was meant to drop. `SCROLLBACK` is one exported constant; make the retention decision per
-worker and thread it through all four.
+For a remote floor the office never has the bytes in the first place: the headless mirror, the
+snapshot and the save all belong to the host, which is where the PTYs are. So **office-side retention
+is zero by construction**, and the four switches become a question the laptop owner answers about
+their own disk — which is their decision and not the office's.
 
-### 5. `resize` is unthrottled, and a bridge turns that into a real problem
+One consequence needs stating: `search` (`workers.ts:875`) walks `w.term`, which for a remote floor
+is on the laptop. Search becomes an RPC to the host. That is finding 9's territory.
 
-The proposal's risk 6 says debouncing resize office-side is "likely necessary" without saying where.
-`WorkerManager.resize` clamps the dimensions and calls through on every single `term.resize` frame:
+### 5. `resize` is unthrottled, and a remote floor makes that a real problem ✅ stands
+
+**Stands, and matters more** — the round trip now crosses the internet.
 
 ```ts
 resize(id: string, cols: number, rows: number) {
@@ -197,300 +321,368 @@ resize(id: string, cols: number, rows: number) {
 }
 ```
 
-On a local PTY that is free. On a bridge socket it is a round trip per frame, from every viewer, and
-xterm.js emits those continuously during a drag-resize. Put the debounce in `BridgePty` (coalesce to
-one outstanding resize, send the latest 80 ms after the last request) rather than in
-`WorkerManager.resize`, so only bridges pay for it.
+On a local PTY that is free. Over a host socket it is a round trip per frame, from every viewer, and
+xterm.js emits those continuously during a drag-resize. Put the debounce in the host transport
+(coalesce to one outstanding resize, send the latest 80 ms after the last request) rather than in
+`WorkerManager.resize`, so local floors pay nothing.
 
-### 6. `spawn()` is at 13 positional arguments and needs a 14th
+### 6. `spawn()` is at 13 positional arguments ❌ dissolves
 
-`spawn(deskId, by, prompt?, worktree?, kind?, provider?, model?, effort?, meeting?, owner?, repos?, via?)`
-has five call sites: `server.ts:1721` (browsers), `server.ts:475` (an agent hiring through
-`/office/workers`), `queue.ts:336` (the queue), `floor.ts:266` (meetings), and `workers.ts:570`
-(`station`, board agents). Adding `remote` as a fourteenth positional is possible and will be
-regretted.
+**No fourteenth parameter is needed.** All five call sites are already floor-scoped:
 
-**Resolution:** do the small refactor in the same PR. Replace the tail
-`meeting?, owner?, repos?, via?, remote?` with one `opts?: SpawnOptions` object, update the five call
-sites in one commit, and leave the leading required parameters alone. This is the moment where it is
-cheap; after Phase 1 it is a migration across a live protocol. `server.ts:475` matters most here: it is
-the agent-driven hire, so it is the one that must never get a `remote` target it did not intend.
+| Site | What |
+|---|---|
+| `server.ts:1721` | a browser hiring |
+| `server.ts:475` | an agent hiring through `/office/workers` |
+| `queue.ts:336` | the queue — constructed per floor (`floor.ts:234`) |
+| `floor.ts:266` | meetings |
+| `workers.ts:570` | `station`, board agents |
 
-### 7. Model and effort validation has no notion of "remote"
+Each already went through `floor.workers.spawn(...)`. Where the floor runs is a property of the
+**floor**, not of the call. `launch()` branches on `this.floor.host` and nothing upstream changes.
 
-The proposal's mapping table says `validateWorkerModel` / `validateWorkerEffort` "must refuse an
-office-side model or effort for a remote worker". Both are pure and take `(kind, provider, value)`; they
-have nothing to plug a bridge into, and threading a fourth parameter through `queue.ts:91-94` and
+Do the `SpawnOptions` refactor anyway, as hygiene, in its own commit before Phase C — thirteen
+positionals is already a hazard and `server.ts:475` is the agent-driven hire, the one that must never
+get a target it did not intend. But it is no longer on the critical path.
+
+### 7. Model and effort validation has no notion of "remote" 🔄 moves to the host
+
+**Validate where the truth is.** `validateWorkerModel` / `validateWorkerEffort` are pure and take
+`(kind, provider, value)`; threading a fourth parameter through `queue.ts:91-94` and
 `workers.ts:393-396` makes them lie about what they check.
 
-**Resolution:** do not touch them. Refuse at the call sites, where the bridge is known — in `spawn`,
-once the target bridge is resolved, before anything is written. The message should name the reason:
-*"laptop chooses its own model; the office can't set it"*. The same call site is where meetings,
-`repos` and board agents get their refusals, so it is one gate, not four.
+Do not touch them. Office-side validation keeps checking provider syntax, which is knowable here. The
+**host** validates what only it knows — whether its machine has that model at all, whether the
+account behind it can run it — and refuses with a message that names the reason: *"the laptop
+chooses its own model"*. One gate, at the seat, where the host is already being asked.
 
-### 8. Smaller things worth knowing before starting
+### 8. Smaller things worth knowing before starting ✅ mostly stands
 
-- **The upgrade path has exactly one listener.** `server.ts:1101-1119` is the whole `upgrade` handler and
-  the only `WebSocketServer`. `/bridge` must be branched **before** the session gate on `:1117`, and
-  note that `:1116` computes `session` only for `pathname === '/ws'`, so a `/bridge` request falls
-  straight through to the refusal. Prefer a second `WebSocketServer` instance for `/bridge` so bridge
-  frames are a separate type domain with their own payload cap and their own connection lifecycle, rather
-  than sharing `maxPayload: 2 MiB` and the `ServerMsg` union with browser traffic.
+- **The upgrade path has exactly one listener.** `server.ts:1101-1119` is the whole `upgrade` handler
+  and the only `WebSocketServer`. `/floor-host` must be branched **before** the session gate on
+  `:1117`, and note that `:1116` computes `session` only for `pathname === '/ws'`, so a
+  `/floor-host` request falls straight through to the refusal. Prefer a **second `WebSocketServer`
+  instance** so host frames are a separate type domain with their own payload cap and lifecycle,
+  rather than sharing `maxPayload: 2 MiB` and the `ServerMsg` union with browser traffic.
 - **There is no runtime schema anywhere.** `ws.on('message')` does `JSON.parse` and `handleMessage`'s
   `switch (msg.t)` has no `default` — an unknown `t` is silently dropped. Every case re-coerces with
-  `str`/`num`/type guards. A bridge frame protocol therefore needs **its own** validation from scratch.
-  There is nothing to piggyback on.
-- **`readMessages` is typed against `net.Socket`.** The newline-delimited JSON framing is reusable and
-  worth reusing; the WebSocket variant is a five-line change, but do not pretend the types line up.
-- **`Pty` has no unsubscribe.** `onData`/`onExit` return `void` and hold their callbacks forever. One
-  bridge socket holds N `BridgePty` instances; lifetime has to be managed by the bridge registry, not by
-  the callbacks.
-- **`Worktrees` is reusable as-is.** It holds one `dir` and no office state, so the bridge can
-  `new Worktrees(projectDir)` and get identical behaviour. It has no method that reports a branch
-  without creating a folder, so the office learns the branch over the socket.
-- **`safeEq` exists twice, file-local, and is exported by neither** (`workers.ts:2588`,
-  `ptyhost.ts:247`). The bridge registry needs a third. Lift one copy into `src/shared/` in the same
-  PR rather than adding a third.
+  `str`/`num`/type guards. The host protocol therefore needs **its own** validation from scratch.
+- **`readMessages` is typed against `net.Socket`** (`ptys.ts:81`). The newline-delimited JSON framing
+  is reusable and worth reusing; the WebSocket variant is a five-line change, but do not pretend the
+  types line up.
+- **`Pty` has no unsubscribe.** `onData`/`onExit` return `void` and hold callbacks forever. Lifetime
+  has to be managed by the host registry, not by the callbacks.
+- **`Worktrees` is reusable as-is** — it holds one `dir` and no office state. On a floor host it is
+  simply constructed on the laptop. It has no method that reports a branch without creating a folder,
+  so the branch is reported once at seat time.
+- **`safeEq` exists twice, file-local, exported by neither** (`workers.ts:2588`, `ptyhost.ts:247`).
+  The host registry needs a third. Lift one copy into `src/shared/` rather than adding a third.
 - **Costs are structurally excluded from the budget already.** `ledger.add(...)` runs only on the
-  Claude transcript path, so a bridge-reported cost cannot reach `--budget` or `usage.json` even by
-  accident. Route it through `reportedUsage()` — it already validates the exact shape a
-  `report { cost, tokens }` frame wants and **rejects the whole snapshot rather than zeroing it**, which
-  is the right behaviour for a number the office cannot verify.
-- **`ws` is already a runtime dependency**, so `bin/agent-office-bridge.js` needs no new dependency, and
-  `bin/` is already in `package.json` `files`. The only packaging change is one `bin` entry.
-- **No test in the repo has ever opened a socket.** `tests/bridge.test.ts` would be the first. It gets
-  to pick its own pattern; the closest precedents are a real `http.Server` on an ephemeral port
-  (`tests/office-queue.test.ts`) and a narrow interface faked rather than a class (`tests/queue.test.ts`).
+  Claude transcript path, so a host-reported cost cannot reach `--budget` or `usage.json` by
+  accident. Route it through `reportedUsage()` — it validates the shape a report wants and
+  **rejects the whole snapshot rather than zeroing it**, which is right for a number the office
+  cannot verify.
+- **`ws` is already a runtime dependency**, and `bin/` is already in `package.json` `files`. The only
+  packaging change is one `bin` entry for the host CLI.
+- **No test in the repo has ever opened a socket.** `tests/floorhost.test.ts` would be the first. The
+  closest precedents are a real `http.Server` on an ephemeral port (`tests/office-queue.test.ts`) and
+  a narrow interface faked rather than a class (`tests/queue.test.ts`).
+
+### 9. 66 floor-scoped calls, and the office must not touch a remote floor's disk 🆕
+
+This is the new one, and it is where the work actually is.
+
+`server.ts` makes **66 distinct calls into a floor** — `floor.workers.get`, `.list`, `.spawn`,
+`.resume`, `.prompt`, `.ownerOf`, `.deskOccupied`, `.station`, `.rebuild`, `.openPr`,
+`.inspectWorktree`, `.fetchBase`; `floor.queue.state/.add/.remove/.dropIssue`; `floor.forge.refresh`
+/`.claim`; `floor.jukebox.*`, `floor.garage.*`, `floor.court.*`, `floor.sendHome`, `floor.arrived`.
+Enumerating them as RPCs would be the wrong shape.
+
+The right shape is the one above: **classify `handleMessage`'s 117 cases** into floor-scoped,
+office-wide, and client-local, then forward the floor-scoped ones verbatim. That classification is a
+concrete, reviewable task, and it *is* the protocol surface.
+
+Three rules follow, and each needs an explicit task:
+
+1. **The office never touches a remote floor's `def.dir`.** `floor.ts:155` puts the floor's `dataDir`
+   at `path.join(def.dir, '.agent-office')` — checkout, queue, scrollback and `worktrees/` all live
+   under it — and `building.ts:273` silently **drops** a floor whose `dir` is not an absolute string
+   (`continue`, no error). A hosted floor's `dir` is a path on the host's machine: absolute, so it
+   loads, but unreadable here. Loading, listing and opening it have to ask the host, and the floor
+   must survive a host that is not currently connected — which is why this rides alongside finding 1
+   rather than after it.
+2. **The Changes window reads disk.** `changes.ts` shells out with `execFile(..., { cwd })`
+   (`:70`, `:84`) and `readFile`s the working tree (`:130`). It must run on the laptop;
+   `FloorContext.changes(state, clients)` (`floor.ts:58`) is already the seam that carries the result.
+3. **Search runs on the laptop** for the same reason (finding 4).
+
+### 10. The queue must not fail a task whose laptop is asleep 🆕
+
+`queue.ts:338-344` turns any `spawn` refusal into `failed`. A host that is disconnected must not
+produce a refusal that reaches it. The gate belongs **before** `spawn`, in the desk choice: a task
+aimed at a floor with no connected host stays **queued**, visibly, with the machine named — never
+`failed`. Same shape as the bridge plan's, and it is the difference between a sleeping laptop and a
+broken feature.
+
+### 11. Latency and bandwidth are now real 🆕
+
+Screen frames go out at `SCREEN_INTERVAL_MS = 250` (`workers.ts:61`) — 4 fps of screenshots per
+followed worker — and now cross the internet twice: laptop → office → browser. Terminal output,
+`gh` refreshes, and Changes diffs all take the same path.
+
+Honor `droppable` (already on the emit signature, already honored by `toFloor` at
+`server.ts:261-265` with a 4 MiB client threshold) so a slow link sheds screen frames instead of
+queueing unbounded data in office memory. Measure the two-hop cost in the spike; it is the finding
+most likely to change what is feasible.
+
+### 12. Two floors must never share one checkout ✅ stands
+
+`dataDir = path.join(def.dir, '.agent-office')`. Two floors pointed at one folder share
+`workers.json`, `queue.json`, the scrollback and each other's `worktrees/` — silent, confusing
+corruption. **Separate clones, different paths, different `.git`.** This is independent of where
+either floor runs and it holds today.
 
 ## The permission model, stated plainly
 
 The proposal leaves this implied in a single sentence — *"Agents may only hire onto a bridge that is
 accepting; people may always hire"* — and it is the kind of thing that gets quietly narrowed while
-someone is wiring up seats and toggles. So it is written out here as a fixed constraint, not a
-decision to revisit.
+someone is wiring up seats and toggles. It is written out here as a fixed constraint, not a decision
+to revisit. **The unit changed from bridge to floor host; the model did not.**
 
-**The office has no per-desk permissions, and this feature does not add any.** Every member of a floor
-can do every one of these to every worker on that floor, office-local or remote, without asking anyone:
+**The office has no per-desk permissions, and this feature does not add any.** Every member of a
+floor can do every one of these to every worker on that floor, local or remote, without asking
+anyone:
 
-| | Today | With a bridge |
+| | Today | With a floor host |
 |---|---|---|
-| Spawn a worker on any free desk | anyone, no role check | anyone, on an office desk or a remote one |
-| Send a worker home, with cleanup | anyone | anyone; the office sends `stop` and the bridge tidies its own worktree |
+| Spawn a worker on any free desk | anyone, no role check | anyone, on a local desk or a hosted one |
+| Send a worker home, with cleanup | anyone | anyone; the office sends `stop` and the host tidies its own worktree |
 | Type into a worker's terminal | anyone who has it open | anyone — including into a shell on someone else's laptop |
 | Prompt, resume, abort (Ctrl+C), attach, rebuild, open a PR | anyone | anyone |
-| Be the account a worker runs as (`owner`) | their own sign-ins | the **bridge owner's** sign-ins, always; remote workers never use `runAs` |
+| Be the account a worker runs as (`owner`) | their own sign-ins | the **host owner's** sign-ins, always; hosted workers never use `runAs` |
 
 Verified in the tree: `worker.kill` asks only `worker(msg.workerId)` — does it exist — and nothing
-else (`server.ts:1738-1750`). `worker.spawn` likewise (`server.ts:1702-1732`). The only admin gates in
-the office are accounts, prompts, the default worker, the worker limit, floors and the workspace
+else (`server.ts:1738-1750`). `worker.spawn` likewise (`server.ts:1702-1732`). The only admin gates
+in the office are accounts, prompts, the default worker, the worker limit, floors and the workspace
 folder. Nothing about workers.
 
-**The single asymmetry is who is doing the hiring.** A person clicking **Hire** has chosen to run their
-own prompt on that machine, and may always spawn onto any bridge. A queue task or board agent has not —
-it is a stranger's prompt arriving by automation — so it may only spawn onto a bridge whose owner has
-flipped `--accept`. This is decision 2 below, and it is the *only* place the two differ.
+**The single asymmetry is who is doing the hiring.** A person clicking **Hire** has chosen to run
+their own prompt on that machine, and may always spawn onto a hosted floor. A queue task or board
+agent has not — it is a stranger's prompt arriving by automation — so it may only spawn onto a floor
+whose owner has flipped `--accept`. This is decision 2 below, and it is the *only* place the two
+differ.
 
-**Refusals are about capacity and kind, never about who you are.** A remote desk still refuses a hire
-past `--seats` (*"Bolt's laptop has no free desk"*), a taken desk, `--max-workers`, meetings (one
-shared worktree on office disk), and an office-chosen model or effort (the bridge decides those). None of
+**Refusals are about capacity and kind, never about who you are.** A hosted desk still refuses a hire
+past `--seats` (*"the laptop has no free desk"*), a taken desk, `--max-workers`, meetings (one shared
+worktree on office disk), and an office-chosen model or effort (the host decides those). None of
 those look at the member's role.
 
-What a bridge genuinely changes is **blast radius, not permission**. Today everyone typing into a
-worker is typing into a shell on the office's own machine, under the office's own operator. With a
-bridge seated, the same open door leads to a shell on a member's laptop, as them, written by whoever
-typed the prompt. Every containment measure in this feature — seats, the accepting toggle,
-`--isolate container`, no retained scrollback — exists for that reason and for no other. Anyone
-implementing Phase D should read the accepting-toggle task as *an automation gate*, not as a
-permission system, and should not add a role check anywhere else without asking first.
+What a hosted floor genuinely changes is **blast radius, not permission**. Today everyone typing into
+a worker is typing into a shell on the office's own machine, under the office's own operator. With a
+floor hosted on a member's laptop, the same open door leads to a shell on that member's laptop, as
+them, written by whoever typed the prompt. Every containment measure in this feature — seats, the
+accepting toggle, `--isolate container`, no office-side scrollback — exists for that reason and for
+no other.
+
+One thing is better than the bridge here and should be said plainly: **the floor's owner holds the
+connection.** An accepting toggle can be read as a policy; a closed socket is not. Anyone
+implementing Phase D should read the accepting toggle as *an automation gate*, not as a permission
+system, and should not add a role check anywhere else without asking first.
 
 ## Decisions to lock before writing code
 
-These are the questions the proposal explicitly leaves open. Each has a recommended answer and a
-consequence; they are listed as questions because a human has to own them, not because they are hard.
-
 | # | Question | Recommendation | Consequence of the other way |
 |---|---|---|---|
-| 1 | Does the office refuse a bridge without `--isolate container` from anyone who is not the operator? (proposal risk 1) | **No**, refuse nothing; make the setting loud and default it on | Refusing makes the feature unusable for the group it is for, and the isolation flag is a bridge-side choice the office cannot verify anyway |
-| 2 | Does a bridge without a bridge seat also need a per-hire human approval? (proposal risk 2) | **No.** The accepting toggle is the control — see [the permission model](#the-permission-model-stated-plainly) | Per-hire approval kills the queue automation that is the reason to build this |
-| 3 | Do remote workers count against `--max-workers` and the queue's *workers at once*? (risk 7) | **Yes**, both | Not counting them is how a five-person office spends five people's money on one laptop |
+| 1 | Does the office refuse a floor host without `--isolate container` from anyone who is not the operator? (proposal risk 1) | **No**, refuse nothing; make the setting loud and default it on | Refusing makes the feature unusable for the group it is for, and the isolation flag is a host-side choice the office cannot verify anyway |
+| 2 | Does a hosted floor without seats also need per-hire human approval? (risk 2) | **No.** The accepting toggle is the control — see [the permission model](#the-permission-model-stated-plainly) | Per-hire approval kills the queue automation that is the reason to build this |
+| 3 | Do hosted workers count against `--max-workers` and the queue's *workers at once*? (risk 7) | **Yes**, both | Not counting them is how a five-person office spends five people's money on one laptop |
 | 4 | Two offices, one machine — supported, tolerated or refused? (risk 8) | **Tolerated**, tested | Refusing breaks a legitimate setup; supporting it properly is more work than it looks |
-| 5 | Whose git identity does a bridge push with? (risk 10) | **The bridge's**, shown in the pairing dialog and the desk sign | The office's identity would put a stranger's commits in the operator's name |
-| 6 | Is the bridge token scoped to one floor or the whole office? | **The whole office**, with a floor id chosen at pair time | A per-floor token means an admin approving a machine cannot see which floor admitted it |
-| 7 | Does a hook frame carry the worker's hook token, or the bridge's token? | **The worker's own token**, checked with `safeEq` per worker id | A bridge-wide token would let one worker's compromised bridge speak for another |
+| 5 | Whose git identity does a hosted floor push with? (risk 10) | **The host's**, shown in the pairing dialog and the desk sign | The office's identity would put a stranger's commits in the operator's name |
+| 6 | Is a floor's `host` scoped to that floor only, or may one host serve several? | **One floor per host connection** for Phase C; several later | Several floors per connection is cheaper later and confusing now — it makes revocation ambiguous |
+| 7 | Does a forwarded frame carry the worker's hook token, or the host's token? | **The worker's own token**, checked with `safeEq` per worker id | A host-wide token would let one worker's compromised host speak for another |
+| 8 | **New:** does the office keep a scrollback mirror for a hosted floor? | **No.** Search and join-replay are served by the host | A mirror costs every byte twice and re-creates the retention decision finding 4 was meant to remove |
+| 9 | **New:** what office-wide state does the host receive (finding 2)? | **Written down as a list, in the protocol doc, reviewed like a permission** | An unbounded "send whatever it asks for" is office-wide knowledge handed to a member's machine |
 
-Question 7 is the one to be most careful about, because it is the difference between "a bridge is
-trusted" and "a bridge is trusted only for the workers it is paired to seat". The proposal is right that
-a forwarded hook should be accepted only for the worker id that socket is paired to; carrying the
-worker's own token makes that check the existing one, unchanged.
+Question 7 is the one to be most careful about, because it is the difference between "a host is
+trusted" and "a host is trusted only for the workers it is paired to seat". Carrying the worker's own
+token makes that check the existing one, unchanged.
+
+Question 9 is the new one, and it is the mirror image of the bridge's problem: not what the office
+will do for the host, but what the host is allowed to know.
 
 ## The plan
 
-Six phases. Phase A is a throwaway spike that must happen before anything else, because two of its
+Six phases. Phase A is a throwaway spike that must happen before anything else, because three of its
 questions can invalidate the design.
 
 ### Phase A — spike (throwaway, no shipped code)
 
-The proposal's Phase 0, with the exit criteria written down so it can actually end.
-
-A hand-written bridge: connects, seats a Claude in a local PTY, forwards bytes and answers one
-synthetic `hook` frame. Throwaway — it does not become `bin/agent-office-bridge.js`.
+A hand-written floor host: dials `wss://<office>/floor-host`, presents a token, opens one local PTY
+for a worker the office asked for, forwards bytes, answers one synthetic `hello`/`ready` pair.
+Throwaway — it does not become `bin/agent-office-floors.js`.
 
 **Measure, and write the numbers down:**
 
-1. Does the headless-xterm mirror stay correct through a laptop's latency and a reconnecting socket?
-   Force a reconnect mid-stream and confirm the office does not double-render or drop the last screen.
-2. Does `data` racing `hook` visibly corrupt the status machine? If yes, frames need a sequence number.
-   Learn that here, not after the UI exists.
-3. **How does the office learn the branch?** This is the finding-3 question in miniature, and it is the
-   one most likely to change the frame design. If PR discovery needs a synthesised `GhPull` rather than
-   a `remote.pr` field, the frame shape changes and every later phase inherits that.
+1. **Does the headless-xterm mirror stay correct through real latency and a reconnecting socket?**
+   Force a reconnect mid-stream and confirm the office does not double-render or drop the last
+   screen. This is also where the two-hop cost (finding 11) gets its first number.
+2. **Does `data` racing status visibly corrupt the status machine?** If yes, frames get a sequence
+   number. Learn that here, not after the UI exists.
+3. **Does `workerPr` work when the host reports `worktree.branch` and streams `gh.pulls`?** This is
+   finding 3 in miniature and it decides whether `remote.pr` exists at all. If PR discovery needs the
+   shortcut after all, the frame shape changes and every later phase inherits it.
 
 **Exit criteria:** all three answered, in a comment on the issue. If (2) is real, `seq` goes on every
-bridge frame in Phase B and costs nothing to add.
+host frame in Phase B and costs nothing to add.
 
 ### Phase B — the wire
 
-The pieces everything else needs. No UI.
+The pieces everything else needs. No UI, no hosted floor in the product yet.
 
-1. **`src/shared/bridge.ts`** (new) — `BRIDGE_PROTOCOL` version constant, the `ToBridge` / `FromBridge`
-   frame unions, and the small validators. Written from scratch: there is no schema to reuse, per
-   finding 8.
-2. **`readMessages` for WebSockets** in `ptys.ts`, or a `frameReader()` in the new file that both can
-   use. Keep the newline-delimited JSON framing; it is already the office's shape.
-3. **`src/server/bridges.ts`** (new) — the registry, modelled on `accounts.ts`: `sync()` on
+1. **`src/shared/floorhost.ts`** (new) — `FLOORHOST_PROTOCOL` version, the `ToHost` / `FromHost`
+   frame unions, and the small validators. Written from scratch: there is no schema to reuse
+   (finding 8).
+2. **`readMessages` for WebSockets** in `ptys.ts`, or a `frameReader()` both can use. Keep the
+   newline-delimited JSON framing; it is already the office's shape.
+3. **`src/server/hosts.ts`** (new) — the pairing registry, modelled on `accounts.ts`: `sync()` on
    `mtimeMs:size`, write-tmp-then-rename at `0600`, the `T | string` union return for errors,
    `INVITE_TTL_MS` and `MAX_*` caps. Pairing codes, approve, revoke, token lookup. Plus
-   `bridgesCommand(argv)` for `agent-office bridges`, slotting into `cli.ts` beside `accounts`.
-4. **`bridges.json`** at `cfg.dataDir` — office-level, beside `accounts.json`, not per floor. A bridge
-   is admitted to an office, and `Accounts` already establishes that precedent at `server.ts:209`.
-5. **`/bridge` upgrade** in `server.ts` — a second `WebSocketServer`, branched before the session
-   check, refusing anything whose presented token does not match a live bridge. The socket then
-   presents its token, per decision 6.
-6. **`BridgePty`** in a new `src/server/bridge-ptys.ts`, beside `RemotePty`. Copy its three patterns
-   exactly: held output drained on first subscribe, memoized exit delivered to a late subscriber, and
-   a `gone` exit that does not relaunch (finding 1). Coalesce resizes (finding 5).
+   `hostsCommand(argv)` for `agent-office hosts`, slotting into `cli.ts` beside `accounts`.
+4. **`hosts.json`** at `cfg.dataDir` — office-level, beside `accounts.json`.
+5. **`/floor-host` upgrade** in `server.ts` — a second `WebSocketServer`, branched before the
+   session check, refusing anything whose presented token does not match a live host.
+6. **Per-floor `FloorContext`** — `contextFor(def)` returning today's object for a local floor and a
+   serializing proxy for a hosted one. The literal at `server.ts:625` becomes the local case.
+7. **The `handleMessage` classification** (finding 9) — split the 117 cases into floor-scoped,
+   office-wide, client-local, and extract the floor-scoped ones into a function over a `Floor`.
+   This is the protocol surface and it should land as its own reviewable commit.
+8. **`PtyExit.gone` + the `wakeAll` guard** (finding 1). Landing here, not in Phase C, because every
+   later test depends on a dropped socket not spinning.
+9. **`RemoteFloor`** — the proxy the office uses in place of a `Floor` for a hosted floor,
+   implementing the action surface by shipping messages rather than calling methods.
 
-**Exit:** a fake bridge on an ephemeral port seats a worker, bytes and resizes round trip, and a
-dropped socket leaves the worker `offline` and asleep rather than spinning.
+**Exit:** a fake host on an ephemeral port takes a `ClientMsg`, runs it against a real `Floor`,
+streams `ServerMsg` back, and a dropped socket leaves the floor and its workers `offline` and asleep
+rather than spinning.
 
-### Phase C — seat a remote worker (the value)
+### Phase C — a floor that runs somewhere else (the value)
 
-This is Phase 1 in the proposal, and per the proposal it is **the whole of the value in one phase**.
+1. `FloorDef.host?: HostRef` in `building.ts`, with a validator beside the existing fields.
+2. **The host CLI** — `bin/agent-office-floor-host.js`: dials out, pairs, and on `ready` constructs a
+   real `Floor` locally with a `FloorContext` that serializes upward. **It runs the same `Floor`
+   class**; nothing about floors forks.
+3. **`server.ts:267-288`'s `existsSync` gate** learns to ask the host for a hosted floor, and a
+   hosted floor with no connection is **listed but inert** — never dropped from the building
+   (finding 9).
+4. **Board and Changes stream up** through `ctx.emit` (`gh.issues`, `gh.pulls`, `changes`).
+   `workerPr` then works unchanged (finding 3), with `remote.pr` as the fallback.
+5. **The PTY path** — laptop → office → browser. Resizes debounced at the transport (finding 5),
+   `droppable` honored (finding 11), search served by the host (findings 4, 9).
+6. **`gone` handling in `WorkerManager`** — workers on a disconnected floor go `offline` and stay
+   asleep until **R** (finding 1).
+7. **Spend** through `reportedUsage()` so an implausible snapshot is dropped rather than zeroed.
+8. **The office never opens `def.dir`** for a hosted floor — a lint-able rule, and worth a test.
 
-1. `WorkerInfo.remote?: { bridgeId; host; branch?; pr? }` in `protocol.ts`, threaded through
-   `persist()` and `restore()` — both are hand-rolled projections, so both need it, plus a validator
-   beside the existing `validRepos`.
-2. The `spawn` signature refactor (finding 6) in its own commit, before `remote` is used.
-3. `launch()` branches on `info.remote`: instead of `this.host.spawn(...)`, send a `seat` frame with the
-   worker id, the bridge's cwd, the branch, and the prompt. Everything downstream — `follow`,
-   `newTerm`, `adopt`, the snapshot on join, screen sharing — is transport-agnostic already and does
-   not change.
-4. **The hook loopback listener in the bridge**, and the office's `AGENT_OFFICE_HOOK_URL` pointed at
-   it. This is the trick the proposal is most right about: because every provider reads its endpoint
-   from the environment and none of them assumes loopback, no provider bridge changes at all. Bind
-   `127.0.0.1` only and **refuse a routable bind** rather than trusting the flag.
-5. **`gone` / `wakeAll` guards** (finding 1). Phase B's `BridgePty` emits it; this is where the worker
-   manager learns what to do with it.
-6. **`report { pr, cost, tokens }`** landing in `remote.pr` and `info.usage`, the latter through
-   `reportedUsage()` so an implausible snapshot is dropped rather than zeroed. Plus the `workerPr`
-   change (finding 3) so the boards, the PR window and `landedWork` see the PR at all.
-7. **No retained scrollback** by default, all four switches (finding 4).
-8. The bridge cutting a worktree per worker — reuse `Worktrees` as-is.
+**Exit:** a member's agent at a desk on a floor that physically lives on another machine, with a
+terminal, status, `needs_input`, a PR on the boards, resume and send-home — and a laptop that sleeps
+mid-turn leaves everything `offline`, not spinning.
 
-**Exit:** a member's agent at a desk in someone else's office, with a terminal, status, `needs_input`,
-a PR on the boards, resume and send-home.
+### Phase D — who may hire, and whose machine it is
 
-### Phase D — who may hire, and who may reach across
-
-Phase 2 in the proposal.
-
-1. **Seats and the refusing message.** `--seats` declared at `ready`; a hire beyond capacity names the
-   machine: *"Bolt's laptop has no free desk"*.
-2. **The accepting toggle.** Agents may only hire onto an accepting bridge; people may always hire,
-   without asking the bridge's owner and without a toggle of their own. Refused at the same call-site
-   gate as meetings and `repos` (finding 7), not in the queue. This is the *only* place people and
-   agents differ — the whole rule is in
+1. **Seats and the refusing message.** `--seats` declared at `ready`; a hire beyond capacity names
+   the machine: *"the laptop has no free desk"*.
+2. **The accepting toggle, defaulting off for a floor host.** Agents may only hire onto an accepting
+   floor; people may always hire, without asking the owner and without a toggle of their own.
+   Refused at the same call-site gate as meetings and `repos` (finding 7), not in the queue. This is
+   the *only* place people and agents differ — the whole rule is in
    [the permission model](#the-permission-model-stated-plainly), and it must not quietly grow.
-3. **Queue behaviour when a laptop is asleep.** A remote-targeted task with no bridge connected stays
-   **queued**, visibly, with the machine named — never `failed`. `queue.ts:338-345` turns any `spawn`
-   refusal into `failed`, so the gate must reject *before* `spawn`, in `seat()`'s desk choice.
-4. **The authority rule.** The bridge's loopback listener proxies `/office/workers*` and `/office/queue`
-   as well as `/hooks/*` (finding 2), and the office's handler refuses workers on another bridge. The
-   check goes right after `authenticate` resolves the caller, which is the only handle on "which bridge
-   asked".
+3. **Queue behaviour when the laptop is asleep** (finding 10) — stays queued, visibly, machine named,
+   never `failed`.
+4. **The office-wide state list** (finding 2 / decision 9), written down and enforced in one place.
 5. **`--isolate container`**, and the office refusing meetings, `repos`, the changes window and the
-   budget for a remote worker as refusals rather than degraded modes.
+   budget for a hosted worker as refusals rather than degraded modes — where the refusal cannot be
+   served by the host.
+6. **Revocation is immediate**: dropping a host connection makes the floor inert and its workers
+   `offline`, with no way for the office to restart them.
 
-**Exit:** two members bridging into one office, with the authority rules enforced by test.
+**Exit:** two members hosting floors in one office, with the authority rules enforced by test.
 
 ### Phase E — the surfaces
 
-Phase 3 in the proposal, plus the parts the proposal lists without saying where.
-
-1. ⚙️ Settings → **🌉 Bridges**, modelled on `src/client/ui/accounts.ts` — list, approve, revoke, and
-   the one sentence about what an admin is admitting.
-2. `bridges.*` messages in `protocol.ts`, the `bridges.get` group mirroring `accounts.get`, admin-gated
+1. ⚙️ Settings → **Floors** shows where each floor runs, with the pairing flow — list, approve,
+   revoke, and the one sentence about what someone is admitting.
+2. `hosts.*` messages in `protocol.ts`, the `hosts.get` group mirroring `accounts.get`, admin-gated
    the same way.
-3. The sign over a remote desk — *💻 Bolt's laptop* — and the office default worker name carrying the
-   machine. Needs `owner` on `WorkerInfo` or an equivalent field in `remote`.
-4. Toasts when a bridge pairs, is revoked or goes away.
-5. "2 bridges, 1 seat free" in the Workers panel.
+3. The sign over a hosted desk — *💻 the laptop* — and the desk sign carrying the host's name. Needs
+   `owner` on `WorkerInfo` or an equivalent field on `host`.
+4. Toasts when a host pairs, is revoked, or goes away.
+5. "2 floors hosted, 1 asleep" in the Workers panel.
 6. The hire dialog's sentence about whose machine is being used.
-7. Reconnecting sockets with backoff, and a lost-socket test that leaves nothing in `working` forever.
+7. Reconnecting with backoff, and a lost-socket test that leaves nothing in `working` forever.
 
 ### Phase F — the docs, in the same PR as the code
 
-Per `CLAUDE.md`, a change that affects how people use the office updates the docs in the same PR. The
-surface is small and known:
+Per `CLAUDE.md`, a change that affects how people use the office updates the docs in the same PR.
+The surface is small and known:
 
-- `docs/AGENTS.md` — its closing paragraph ("Every worker is a process on the machine running the
-  office… [proposed in remote-agents.md], not built") becomes false in Phase C. This is the first
-  thing to fix and the easiest to forget.
-- `docs/remote-agents.md` — Status flips from *proposed* to *built*, with the phase it landed in. The
-  citation corrections in the table above land here too, so the next reader is sent to the right lines.
-- `docs/how-it-works.md` — the security notes gain a bridge: a bridge is among the most privileged
-  things the office holds and should be named alongside the sign-in link.
-- `docs/agents.md` — a remote worker's model and effort are the bridge's, not the office's.
-- `README.md` — only if it becomes a headline feature. It is deliberately **not** in the README doc list
-  today, and that is right for a proposal; decide at Phase E, not now.
+- **`docs/AGENTS.md`** — its closing paragraph becomes false in Phase C, and it is the first thing to
+  fix and the easiest to forget:
+
+  > Every worker is a process on the machine running the office, with the environment the office sets
+  > for it, so an agent from a different machine cannot take a desk today. The bridge that would let
+  > one — bringing your own agent, and what it could and could not do — is
+  > [proposed in remote-agents.md](remote-agents.md), not built.
+
+  It needs a replacement that says where a worker runs follows the floor, and links here.
+- **`docs/remote-agents.md`** — Status flips from *proposed* to *built*, with the phase it landed in.
+  Its architecture section changes from bridge to floor host; the citation corrections in the table
+  above land here too, so the next reader is sent to the right lines.
+- **`docs/how-it-works.md`** — the security notes gain a hosted floor: among the most privileged
+  things the office holds, named alongside the sign-in link.
+- **`docs/agents.md`** — a hosted worker's model and effort are the host's, not the office's
+  (finding 7).
+- **`README.md`** — only if it becomes a headline feature. It is deliberately **not** in the README
+  doc list today, and that is right for a plan; decide at Phase E, not now.
 
 ## Test plan
 
-`node --test` over `tests/*.test.ts`, never needing a real agent installed. The house convention is to
-test the generated bridge and payload normalisation, not the upstream CLI; a remote worker follows it.
+`node --test` over `tests/*.test.ts`, never needing a real agent installed. The house convention is
+to test the generated payload and normalisation, not the upstream CLI; a hosted floor follows it.
 
 | File | What it covers |
 |---|---|
-| `tests/bridge.test.ts` (new) | A fake bridge — a `WebSocketServer` on an ephemeral port — driven through the real `BridgePty` and the real pairing check. Seat handshake, byte and resize round trips, exit codes, hook forwarding. **A forwarded hook for another worker's id is refused** (decision 7). **A forwarded `/office/*` call cannot touch another bridge's worker.** A dropped socket leaves the worker `offline` and asleep, not spinning. |
-| `tests/bridge.test.ts` (new) | **The permission model, as a test.** A plain member — not an admin — can spawn onto a remote desk, type into it, prompt it, and send it home, and every refusal is about seats or kind rather than role. Send-home sends `stop` and the bridge, not the office, removes the worktree. A member may spawn onto a bridge that is *not* accepting; an agent on `/office/workers` may not. |
-| `tests/bridges.test.ts` (new) | Pairing codes: single-use, expiring, capped, revocable at once. A revoked token is refused on the next upgrade. The `mtimeMs:size` sync picks up `agent-office bridges approve` while the office runs. |
-| `tests/worktrees.test.ts` (extend) | Two seated workers get two directories; send-home removes only its own. Mirrors the existing `fixture(t)` pattern — a real git triple in a tmpdir. |
-| `tests/workers.test.ts` (extend) | Persistence and restore of a remote worker, including the `offline`-until-the-bridge-returns boot path and the interrupted-mid-turn flag on a dropped socket. No retained scrollback unless the bridge opted in. |
-| `tests/queue.test.ts` (extend) | A remote-targeted task with no bridge connected stays queued and is **not** failed. A task aimed at a bridge that is not accepting is refused with a message naming the machine. |
-| `tests/agents.test.ts` (extend) | Model and effort refused for a remote worker, with a message that says the bridge decides. |
-| `tests/status.test.ts` (new) | `workerPr` returns the bridge-reported PR for a remote worker, so `landedWork` can send it home. There is no such test file today; `workerPr` has none at all. |
+| `tests/floorhost.test.ts` (new) | A fake host — a `WebSocketServer` on an ephemeral port — driven through the real proxy and the real pairing check. Message round trips, byte and resize round trips, exit codes. **A forwarded frame for another floor's worker is refused** (decision 7). **The office never opens a hosted floor's `def.dir`.** A dropped socket leaves the floor and its workers `offline` and asleep, not spinning. |
+| `tests/floorhost.test.ts` (new) | **The permission model, as a test.** A plain member — not an admin — can spawn onto a hosted desk, type into it, prompt it, and send it home, and every refusal is about seats or kind rather than role. Send-home sends `stop` and the host, not the office, removes the worktree. A member may spawn onto a floor that is *not* accepting; an agent on `/office/workers` may not. |
+| `tests/hosts.test.ts` (new) | Pairing codes: single-use, expiring, capped, revocable at once. A revoked token is refused on the next upgrade. The `mtimeMs:size` sync picks up `agent-office hosts approve` while the office runs. |
+| `tests/worktrees.test.ts` (extend) | Two hosted workers get two directories; send-home removes only its own. Mirrors the existing `fixture(t)` pattern — a real git triple in a tmpdir. |
+| `tests/workers.test.ts` (extend) | Persistence and restore of a hosted worker, including the `offline`-until-the-host-returns boot path and the interrupted-mid-turn flag on a dropped socket. |
+| `tests/queue.test.ts` (extend) | A task aimed at a floor whose host is disconnected stays queued and is **not** failed. A task aimed at a floor that is not accepting is refused with a message naming the machine. |
+| `tests/agents.test.ts` (extend) | Model and effort refused by the host with a message that says the host decides. |
+| `tests/status.test.ts` (new) | `workerPr` returns the PR for a hosted worker from the streamed board state, so `landedWork` can send it home. There is no such test file today; `workerPr` has none at all — this is finding 3's guard. |
+| `tests/changes.test.ts` (extend) | The Changes window for a hosted floor is served by the host, not by reading `def.dir` office-side. |
 
-Two properties deserve their own test names because they are the ones that would silently rot:
-*no remote worker is left in `working` forever*, and *a remote worker keeps no retained scrollback
-unless its bridge opted in*.
+Three properties deserve their own test names because they are the ones that would silently rot:
+*no hosted worker is left in `working` forever*; *the office never reads a hosted floor's checkout*;
+and *a disconnected host leaves a floor listed but inert, never dropped from the building*.
 
 The permission model gets the same treatment, for the same reason. It is the easiest thing in the
 feature to break by accident — a seat check or an accepting toggle written one role check too early —
-and nobody notices until a member is refused something they have always been able to do. The test above
-is the guard.
+and nobody notices until a member is refused something they have always been able to do. The test
+above is the guard.
 
 ## Open questions for the maintainer
 
-Beyond the seven decisions above, three things this plan cannot settle:
+Beyond the nine decisions above, three things this plan cannot settle:
 
-1. **Is `--isolate container` a Phase 1 requirement or a Phase 2 one?** The proposal puts it in Phase 2
-   and its risk 1 calls the bridge "the sharpest surface in the project". Those pull in opposite
-   directions. The plan follows the proposal (Phase 2) on the grounds that `Worktrees` reuse and the
-   hook proxy carry the value, and isolation is a Dockerfile — but if the answer is Phase 1, the frame
-   design needs the isolation mode in `ready` from the start.
-2. **Who runs the Phase A spike?** It needs two machines and someone who can sleep a laptop on purpose.
-   It is the only phase that is not parallelisable, and everything after it depends on its answer.
-3. **Should the bridge ever be able to run something the office did not ask for?** The proposal's
-   refusal table says no, and this plan assumes no. If the answer is ever yes — a bridge that offers a
-   desk without the office hiring into it — the whole authority model inverts and none of the above
-   holds.
+1. **Is `--isolate container` a Phase C requirement or a Phase D one?** The proposal puts it in Phase
+   2 and its risk 1 calls the bridge "the sharpest surface in the project". Those pull in opposite
+   directions. This plan follows the proposal (Phase D) on the grounds that the wire and the seam
+   carry the value and isolation is a Dockerfile — but if the answer is Phase C, the frame design
+   needs the isolation mode in `ready` from the start.
+2. **Who runs the Phase A spike?** It needs two machines and someone who can sleep a laptop on
+   purpose. It is the only phase that is not parallelisable, and everything after it depends on its
+   answer.
+3. **Should a hosted floor ever be able to run something the office did not ask for?** The
+   proposal's refusal table says no, and this plan assumes no. If the answer is ever yes — a host
+   that offers a desk without the office hiring into it — the whole authority model inverts and none
+   of the above holds.
