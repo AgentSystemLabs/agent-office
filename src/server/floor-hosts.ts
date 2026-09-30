@@ -42,6 +42,13 @@ export class HostRegistry {
   /** Told once per floor when the socket carrying it goes, so the office can hold its workers asleep. */
   onFloorGone: (floorId: string) => void = () => {};
 
+  /**
+   * The floors the office wants a machine to serve, taken from the building: every floor whose
+   * `FloorDef.host` names it. `dir` is the path on *that* machine, which is the only place it means
+   * anything — the office holds it to identify the floor and never reads it.
+   */
+  floorsFor: (hostId: string) => { id: string; dir: string; name: string }[] = () => [];
+
   constructor(private hosts: Hosts) {}
 
   /** How many floors a connected machine is serving, for ⚙️ Settings. */
@@ -114,22 +121,39 @@ export class HostRegistry {
     ws.on('error', () => ws.close());
   }
 
-  /** The first frame: a token, a protocol version, and which floors this machine intends to serve. */
+  /**
+   * The first frame. A machine that has paired before presents its token; one pairing for the first
+   * time presents the code from `agent-office hosts pair` instead. Either way the office answers with
+   * `welcome`, carrying the token — which is how a first-time machine gets one without anyone
+   * carrying it between machines.
+   */
   private onHello(ws: WebSocket, msg: unknown): HostSocket | undefined {
-    if (!isToOffice(msg) || msg.t !== 'hello') return undefined;
-    const host = this.hosts.authenticate(msg.token);
-    if (!host) return undefined;
+    if (!isFromFloor(msg) || msg.t !== 'hello') return undefined;
     if (msg.protocol !== FLOORHOST_PROTOCOL) {
       // Refuse rather than guess: the shapes are not compatible, and a half-understood frame is worse
       // than none. The host is told what it is speaking so it can say something useful.
-      ws.send(JSON.stringify({ t: 'refused', why: `This office speaks floor-host protocol ${FLOORHOST_PROTOCOL}` } satisfies Partial<FromFloor>));
+      ws.send(JSON.stringify({ t: 'bye', why: `This office speaks floor-host protocol ${FLOORHOST_PROTOCOL}; this machine speaks ${msg.protocol}` } satisfies ToOffice));
       return undefined;
     }
+    // Pairing for the first time: swap the code for a token here, so the machine never had to be told
+    // one. A spent or expired code is refused the same way a bad token is.
+    let host = msg.token ? this.hosts.authenticate(msg.token) : undefined;
+    let fresh: string | undefined;
+    if (!host && msg.code) {
+      const claimed = this.hosts.claim(msg.code, msg.name, msg.owner);
+      if (typeof claimed === 'string') {
+        ws.send(JSON.stringify({ t: 'bye', why: claimed } satisfies ToOffice));
+        return undefined;
+      }
+      host = claimed.host;
+      fresh = claimed.token;
+    }
+    if (!host || host.revokedAt) return undefined;
     // One connection per machine. A second socket from a host already connected is dropped, because
     // "which socket owns these floors" must never be ambiguous — that ambiguity is what makes
     // revocation unclear, which is why decision 6 keeps the socket the unit of trust.
     if (this.byHost.has(host.id)) return undefined;
-    const entry = new HostSocket(host, ws);
+    const entry = new HostSocket(host, ws, fresh, this.floorsFor(host.id));
     this.byHost.set(host.id, entry);
     this.hosts.seen(host.id);
     return entry;
@@ -200,7 +224,22 @@ export class HostSocket {
   constructor(
     readonly host: Host,
     readonly ws: WebSocket,
-  ) {}
+    /** The token minted at this pairing, for a machine that has never had one. Sent in `welcome`. */
+    readonly freshToken?: string,
+    /** The floors the building has for this machine. The office asks for them here. */
+    wanted: { id: string; dir: string; name: string }[] = [],
+  ) {
+    // The office asks for the floors it has for this machine; the host says `ready` for each one it
+    // can actually open, and stays quiet about the rest rather than pretending.
+    ws.send(
+      JSON.stringify({
+        t: 'welcome',
+        hostId: host.id,
+        token: freshToken ?? '',
+        floors: wanted,
+      } satisfies ToOffice),
+    );
+  }
 
   send(msg: ToOffice) {
     if (this.dropped || this.ws.readyState !== WebSocket.OPEN) return;

@@ -80,11 +80,13 @@ test('FLOOR_CASES matches the cases server.ts actually acts on a Floor with', ()
   assert.deepEqual(expected, [...FLOOR_CASES].sort(), 'FLOOR_CASES has drifted from what server.ts acts on');
 });
 
-test('ToHost frames are validated, not trusted', () => {
+test('the office validates what a machine sends, rather than trusting it', () => {
   // There is no runtime schema in the office to inherit, so the frames check themselves.
-  assert.equal(isToOffice({ t: 'hello', token: 'x', protocol: FLOORHOST_PROTOCOL, floors: [], hostId: 'h' }), true);
-  assert.equal(isToOffice({ t: 'hello', protocol: 1 }), false, 'a hello without a token is refused');
+  // The office's frames: a welcome, a goodbye, and the floor calls.
+  assert.equal(isToOffice({ t: 'welcome', hostId: 'h1', token: 'x', floors: [] }), true);
+  assert.equal(isToOffice({ t: 'welcome', hostId: 'h1', floors: [] }), false, 'a welcome with no token is not one');
   assert.equal(isToOffice({ t: 'bye' }), true);
+  assert.equal(isToOffice({ t: 'bye', why: 'wrong protocol' }), true);
 
   // A floor case needs its envelope, or the host cannot tell which floor it is for.
   assert.equal(isToOffice({ t: 'worker.spawn', floorId: 'f1', seq: 1, deskId: 'desk-1' }), true);
@@ -93,11 +95,21 @@ test('ToHost frames are validated, not trusted', () => {
 
   assert.equal(isToOffice({ t: 'made.up' }), false);
   assert.equal(isToOffice({ t: 'move' }), false, 'client-local cases never travel');
+  // And a machine's frames are not the office's, in either direction.
+  assert.equal(isToOffice({ t: 'hello', token: 'x', protocol: 1 }), false, 'a hello comes from the machine');
+  assert.equal(isToOffice({ t: 'ready', floor: {} }), false);
   assert.equal(isToOffice('worker.spawn'), false);
   assert.equal(isToOffice(null), false);
 });
 
-test('FromHost frames are validated the same way', () => {
+test('a machine frames are validated the same way', () => {
+  // A machine's first frame: a token, or a code if it has never paired.
+  assert.equal(isFromFloor({ t: 'hello', protocol: FLOORHOST_PROTOCOL, token: 'x' }), true);
+  assert.equal(isFromFloor({ t: 'hello', protocol: FLOORHOST_PROTOCOL, code: 'ABCD-2345', name: 'Laptop' }), true);
+  assert.equal(isFromFloor({ t: 'hello', protocol: 1 }), false, 'neither a token nor a code');
+  assert.equal(isFromFloor({ t: 'hello', token: 'x' }), false, 'no protocol');
+  assert.equal(isFromFloor({ t: 'welcome', hostId: 'h', token: 'x', floors: [] }), false, 'a welcome comes from the office');
+
   assert.equal(isFromFloor({ t: 'ready', floor: { floorId: 'f1', name: 'API', seats: 2 } }), true);
   assert.equal(isFromFloor({ t: 'ready', floor: { floorId: 'f1' } }), false, 'a floor with no name or seat count is not ready');
   assert.equal(isFromFloor({ t: 'ready', floor: {} }), false);

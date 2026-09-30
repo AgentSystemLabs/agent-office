@@ -50,13 +50,18 @@ export interface FloorReady {
 
 /** Office → host. Everything a browser asked for, aimed at a floor. */
 export type ToOffice =
-  | { t: 'hello'; token: string; hostId: FloorHostId; protocol: number; floors: string[] }
   /**
    * The floor-scoped subset of ClientMsg, verbatim: the host runs it against its own `Floor`, so the
    * office's dispatch and the host's are the same code. The payload is left as the union member of
    * `ClientMsg` rather than narrowed here, so a case that gains a field needs no change here.
    */
   | ({ floorId: string; seq: number; t: FloorCase } & Record<string, unknown>)
+  /**
+   * The office's answer to a hello: the token to keep (empty when the machine already had one), and
+   * the floors it wants this machine to serve, with the path on *this* machine for each. The office
+   * holds those paths to identify the floors and never reads them.
+   */
+  | { t: 'welcome'; hostId: string; token: string; floors: { id: string; dir: string; name: string }[] }
   | { t: 'config'; floorId: string; prompts: unknown; capacity: unknown; leaveOnMerge: boolean }
   | { t: 'bye'; floorId?: string; why?: string };
 
@@ -123,6 +128,12 @@ export type FloorCase = (typeof FLOOR_CASES)[number];
  * everything the office needs at the moment a floor appears on a connection.
  */
 export type FromFloor =
+  /**
+   * The first frame, from the machine. One that has paired before presents its `token`; one pairing
+   * for the first time presents the `code` from the office instead, so nobody has to carry a token
+   * between machines. The office answers with `welcome`.
+   */
+  | { t: 'hello'; hostId: FloorHostId; protocol: number; token?: string; code?: string; name?: string; owner?: string }
   | { t: 'ready'; floor: FloorReady }
   | { t: 'leave'; floorId: string; why?: string }
   /** Whatever `ctx.emit` would have sent. `droppable` says what the office may shed under pressure. */
@@ -136,7 +147,10 @@ export type FromFloor =
   | { t: 'ping'; at: number }
   | { t: 'pong'; at: number };
 
-const HOST_FRAME_TYPES = new Set(['hello', 'bye', 'config', 'bye']);
+// The frames the office sends that are not floor cases: the handshake and a goodbye.
+const OFFICE_FRAME_TYPES = new Set(['welcome', 'bye', 'config']);
+// The frames a machine sends that are not floor cases.
+const HOST_FRAME_TYPES = new Set(['hello', 'ping', 'pong']);
 const HOST_CASES = new Set<string>(FLOOR_CASES);
 const MAX_FRAME_BYTES = 2 * 1024 * 1024;
 
@@ -147,8 +161,11 @@ export function isToOffice(msg: unknown): msg is ToOffice {
   if (typeof m.t !== 'string') return false;
   // A floor case and a control frame share the envelope, so both must carry floorId and a seq.
   if (HOST_CASES.has(m.t)) return typeof m.floorId === 'string' && typeof m.seq === 'number';
-  if (!HOST_FRAME_TYPES.has(m.t)) return false;
-  return m.t === 'hello' ? typeof m.token === 'string' && typeof m.protocol === 'number' : true;
+  if (!OFFICE_FRAME_TYPES.has(m.t)) return false;
+  if (m.t === 'welcome') {
+    return typeof m.hostId === 'string' && typeof m.token === 'string' && Array.isArray(m.floors);
+  }
+  return true;
 }
 
 export function isFromFloor(msg: unknown): msg is FromFloor {
@@ -165,6 +182,8 @@ export function isFromFloor(msg: unknown): msg is FromFloor {
       return typeof m.at === 'number';
     case 'event':
       return addressed && typeof m.seq === 'number';
+    case 'hello':
+      return typeof m.protocol === 'number' && (typeof m.token === 'string' || typeof m.code === 'string');
     case 'ready': {
       const f = m.floor as Partial<FloorReady> | undefined;
       return !!f && typeof f.floorId === 'string' && typeof f.name === 'string' && typeof f.seats === 'number';

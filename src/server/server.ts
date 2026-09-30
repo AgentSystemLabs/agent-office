@@ -26,6 +26,7 @@ import { Building, type FloorDef } from './building.js';
 import { Floor, type FloorContext } from './floor.js';
 import { Hosts } from './hosts.js';
 import { HostRegistry } from './floor-hosts.js';
+import { RemoteFloor } from './remote-floor.js';
 import { Sky } from './sky.js';
 import { Themes } from './theme.js';
 import { Maps } from './maps.js';
@@ -256,6 +257,13 @@ export async function startServer(cfg: Config) {
     if (err) console.error(`agent-office: --projects: ${err}`);
   }
   const floors = new Map<string, Floor>();
+  /**
+   * Floors that run on someone else's machine, by id. Kept apart from `floors` because everything in
+   * `floors` is a real `Floor` on this disk — its checkout, its workers, its own data directory — and
+   * a hosted one has none of that here. What the two share is the surface `server.ts` calls on them
+   * (see floor-actions.ts), which is what makes the swap something the office does not notice.
+   */
+  const remoteFloors = new Map<string, RemoteFloor>();
   const floorOf = (c: Client): Floor | undefined => (c.peer.floor ? floors.get(c.peer.floor) : undefined);
   /** The floor a worker sits on. Worker ids are unique across the building. */
   const workerFloor = (workerId: string): Floor | undefined => {
@@ -681,6 +689,25 @@ export async function startServer(cfg: Config) {
   /** Whether a worker on `from` works in `on`'s project too (see WorkerInfo.repos). */
   const worksIn = (from: Floor, on: Floor) => from.workers.list().some((w) => w.repos?.some((r) => r.floor === on.id));
   const openFloor = (def: FloorDef): Floor | undefined => {
+    // A hosted floor's `dir` is a path on the machine that runs it, so it is not ours to check: asking
+    // existsSync here would ask the wrong machine and keep the floor closed forever. Instead it is
+    // registered as a proxy, and it opens when its machine connects and says `ready` (finding 9).
+    if (def.host) {
+      const machine = hosts.get(def.host);
+      remoteFloors.set(
+        def.id,
+        new RemoteFloor(
+          def.id,
+          machine?.name ?? 'a machine',
+          def.host,
+          registry,
+          { id: def.id, name: def.name, dir: def.dir, repo: def.repo, palette: def.palette, addedBy: def.addedBy, addedAt: def.addedAt },
+          undefined,
+          [],
+        ),
+      );
+      return undefined;
+    }
     if (!existsSync(def.dir)) {
       console.error(`agent-office: the ${def.name} floor's checkout is gone (${def.dir}) — it stays closed until it's back`);
       return undefined;
@@ -697,6 +724,16 @@ export async function startServer(cfg: Config) {
   // Started in a project: it's a floor too (the one it has always been).
   if (cfg.project) building.ensureLocal(cfg.project, 'the office');
   for (const def of building.list()) openFloor(def);
+  // What the office asks a machine for: every floor whose `FloorDef.host` names it, with the path on
+  // *that* machine. The office holds those paths to identify the floors and never reads them.
+  registry.floorsFor = (hostId) =>
+    building
+      .list()
+      .filter((d) => d.host === hostId)
+      .map((d) => ({ id: d.id, dir: d.dir, name: d.name }));
+  // Where a machine's answers and events go: the proxy for the floor they are about. A machine tells
+  // us a floor is gone through `leave`, and the socket closing is handled per floor by the registry.
+  registry.onUpward = (floorId, msg) => remoteFloors.get(floorId)?.deliver(msg);
   // Workers still running from the last office are back at their desks before anyone walks in.
   await Promise.all([...floors.values()].map((f) => f.ready));
 

@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { HostState, PairingCode } from '../shared/protocol.js';
 import { FLOORHOST_PROTOCOL } from '../shared/floorhost.js';
 import { safeEq } from './secrets.js';
+import { officeHome } from './config.js';
 
 /** A pairing code is short-lived by design: it is a one-time bearer for a machine you are admitting. */
 export const PAIRING_TTL_MS = 30 * 60 * 1000;
@@ -286,3 +287,116 @@ export const SEATS_MAX = 32;
 
 /** The protocol this office speaks, for a host that asks before pairing. */
 export { FLOORHOST_PROTOCOL };
+
+const HOSTS_HELP = `Usage: agent-office hosts <command> [options]
+
+The machines allowed to host floors in this office. A machine pairs once with a code, and is then
+admitted until it is revoked. Its token is shown once, at pairing, and never stored.
+
+Commands:
+  list                        the machines allowed to host floors here, and whether each is connected
+  pair [--name <name>]        make a pairing code (single use, 30 minutes). --name pre-labels the machine
+  revoke <id|name>            end it: the machine is refused at the next connection, and cannot be re-claimed
+  seats <id|name> <n>         how many workers that machine will seat across all its floors
+  accept <id|name> <on|off>   whether an automation hire may seat there. A person may always hire.
+
+Options:
+  -d, --dir <path>            the office's directory (default: the office in this folder, or ~/agent-office)
+
+A pairing code is read by the person on the other machine. Only its holder can claim it, and it is
+spent whether or not they keep the token.`;
+
+/** `agent-office hosts` — the same file the office reads, edited while it runs (see hosts.ts). */
+export function hostsCommand(argv: string[]): number {
+  const fail = (msg: string) => {
+    console.error(`agent-office hosts: ${msg}`);
+    return 1;
+  };
+  let dir = existsSync(path.join(process.cwd(), '.agent-office', 'config.json')) ? process.cwd() : officeHome();
+  let name: string | undefined;
+  const args: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '-h' || a === '--help') {
+      console.log(HOSTS_HELP);
+      return 0;
+    } else if (a === '-d' || a === '--dir') {
+      if (!argv[i + 1]) return fail('--dir needs a value');
+      dir = path.resolve(argv[++i]);
+    } else if (a === '--name') {
+      if (!argv[i + 1]) return fail('--name needs a value');
+      name = argv[++i];
+    } else if (a.startsWith('-')) return fail(`unknown option ${a}`);
+    else args.push(a);
+  }
+  const dataDir = path.join(dir, '.agent-office');
+  try {
+    statSync(dataDir);
+  } catch {
+    return fail(`no office has run in ${dir} yet — start it once with \`agent-office\` there`);
+  }
+  const hosts = new Hosts(dataDir);
+  if (hosts.unreadableFile) return fail(`${hosts.unreadableFile} couldn't be read (see above) — fix or move it first`);
+  const [cmd = 'list', arg, arg2] = args;
+  const find = (which: string | undefined) => {
+    if (!which) return undefined;
+    return hosts.list().find((h) => h.id === which || h.name.toLowerCase() === which.toLowerCase());
+  };
+  switch (cmd) {
+    case 'list': {
+      const list = hosts.list();
+      const live = list.filter((h) => !h.revokedAt);
+      console.log(`Machines that may host floors here (${live.length}):`);
+      for (const h of list) {
+        const state = h.revokedAt ? 'revoked' : h.lastSeenAt ? `last seen ${new Date(h.lastSeenAt).toISOString().slice(0, 16).replace('T', ' ')}` : 'never connected';
+        console.log(`  ${h.id}  ${h.name.padEnd(24)}  ${String(h.seats).padStart(2)} seats  ${h.accepting ? 'accepting' : 'people only'}  ${state}`);
+        if (h.owner) console.log(`              ${h.owner}'s machine${h.consentedAt ? '' : ' — has not confirmed what hosting it means'}`);
+      }
+      if (!live.length) console.log('  none yet: `agent-office hosts pair` makes a code for someone to claim');
+      return 0;
+    }
+    case 'pair': {
+      const made = hosts.pair('the terminal');
+      if (typeof made === 'string') return fail(made);
+      console.log(`Pairing code${name ? ` for ${name}` : ''}, single use, valid for 30 minutes:\n\n  ${made.code}\n`);
+      console.log('Give it to whoever is hosting a floor. On their machine, pointed at this office:\n');
+      console.log(`  agent-office floor-host --office <this office's address>${name ? ` --name "${name}"` : ''} --code ${made.code}\n`);
+      console.log(`The address is whatever reaches this office: ws://localhost:4600 here, or the tunnel's host if it is behind one.`);
+      console.log(`Floors are served by whoever added them to the building with \`agent-office hosts\` in mind — this machine only answers.\n`);
+      return 0;
+    }
+    case 'revoke': {
+      const host = find(arg);
+      if (!host) return fail(arg ? `there's no machine called ${arg}` : 'revoke needs a machine');
+      const r = hosts.revoke(host.id);
+      if (typeof r === 'string') return fail(r);
+      console.log(`Revoked ${host.name}. Its floors go offline at once, and it cannot be paired again — a new code makes a new machine.`);
+      return 0;
+    }
+    case 'seats': {
+      const host = find(arg);
+      if (!host) return fail(arg ? `there's no machine called ${arg}` : 'seats needs a machine and a number');
+      const n = Number(arg2);
+      if (!Number.isInteger(n) || n < 0) return fail('seats takes a whole number, 0 or more');
+      const r = hosts.configure(host.id, { seats: n });
+      if (typeof r === 'string' || !r) return fail(typeof r === 'string' ? r : 'that machine is gone');
+      console.log(`${host.name} will seat ${r.seats} worker${r.seats === 1 ? '' : 's'}.`);
+      return 0;
+    }
+    case 'accept': {
+      const host = find(arg);
+      if (!host) return fail(arg ? `there's no machine called ${arg}` : 'accept needs a machine and on or off');
+      if (arg2 !== 'on' && arg2 !== 'off') return fail('accept takes on or off');
+      const r = hosts.configure(host.id, { accepting: arg2 === 'on' });
+      if (typeof r === 'string' || !r) return fail(typeof r === 'string' ? r : 'that machine is gone');
+      console.log(
+        r.accepting
+          ? `${host.name} is accepting: a queue task or board agent may hire there. People always could.`
+          : `${host.name} is people-only: a queue task or board agent will not hire there. People still can.`,
+      );
+      return 0;
+    }
+    default:
+      return fail(`there's no \`${cmd}\` — try \`agent-office hosts --help\``);
+  }
+}
