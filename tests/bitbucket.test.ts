@@ -305,6 +305,105 @@ test('the wrong bb is caught whichever way the office asks it something', async 
   }
 });
 
+// --- Answering with more than a pipe can hold -------------------------------------------------------
+
+/**
+ * bb loses whatever it hasn't written by the time it exits when stdout is a pipe, so the office
+ * gives it a file instead. This one writes well over a pipe buffer, which is what reaches a board
+ * as `Unterminated string in JSON` when it is read through one.
+ */
+const VOLUMINOUS_BB = `#!/usr/bin/env node
+const prs = Array.from({ length: 30 }, (_, i) => ({
+  type: 'pullrequest', id: 100 + i, title: 'A pull request with a title long enough to add up',
+  state: 'MERGED', draft: false, description: 'x'.repeat(4000), summary: { raw: 'x'.repeat(4000) },
+  author: { nickname: 'someone', display_name: 'Someone' },
+  source: { branch: { name: 'feature/' + i }, commit: { hash: 'a'.repeat(40) } },
+  destination: { branch: { name: 'main' } }, participants: [],
+  links: { html: { href: 'https://bitbucket.org/acme/web/pull-requests/' + (100 + i) } },
+}));
+process.stdout.write(JSON.stringify({ workspace: 'acme', repoSlug: 'web', count: prs.length, pullRequests: prs }));
+process.exit(0);
+`;
+
+/** Puts `script` in as this floor's bb. The fixture is thrown away whole afterwards, so there's
+ * nothing to put back. */
+function asBb(dir: string, script: string) {
+  writeFileSync(path.join(dir, '..', 'bin', 'bb'), script, { mode: 0o755 });
+}
+
+test('a bb answer larger than a pipe buffer is read whole, and the board fills', async (t) => {
+  const f = fixture(t);
+  asBb(f.dir, VOLUMINOUS_BB);
+  // Over 250 kB of JSON, several times a pipe buffer.
+  const answer = await bb(['pr', 'list', '--state', 'MERGED', '--limit', '30', '--json'], f.dir, 30_000);
+  assert.doesNotMatch(answer, /Unterminated string/, 'the whole answer arrives, not a pipe buffer of it');
+  assert.equal((JSON.parse(answer) as { pullRequests: unknown[] }).pullRequests.length, 30);
+
+  const { forge, seen } = board(f, PRS);
+  await forge.refresh();
+  const last = seen.pulls.at(-1)!;
+  assert.equal(last.error, undefined, `the board reads it whole: ${last.error}`);
+  assert.equal(last.items.length, 30, 'and shows every pull request in it');
+  assert.equal(last.items[0].number, 100, 'the first card is the first one bb listed');
+});
+
+test('bb that is not installed, and a bb that is not the CLI, are each named as themselves', async (t) => {
+  const f = fixture(t);
+  asBb(f.dir, OTHER_BB);
+  const wrong = await bb(['pr', 'list', '--state', 'OPEN', '--json'], f.dir, 5_000).then(() => undefined, (e: Error) => e.message);
+  assert.equal(wrong, WRONG_BB);
+
+  // bb not on the path at all: there is nothing to read Bitbucket with.
+  const empty = mkdtempSync(path.join(tmpdir(), 'agent-office-nobb-'));
+  const savedPath = process.env.PATH;
+  process.env.PATH = empty;
+  t.after(() => {
+    process.env.PATH = savedPath;
+    rmSync(empty, { recursive: true, force: true });
+  });
+  const missing = await bb(['pr', 'list'], f.dir, 5_000).then(() => undefined, (e: Error) => e.message);
+  assert.equal(missing, 'Bitbucket CLI (bb) is not installed on the server');
+});
+
+test('a repository bb cannot see is reported as that, not as a sign-in that stopped working', async (t) => {
+  const f = fixture(t);
+  // bb's real answer, which ends "…make sure you are authenticated" and so reads as a sign-in
+  // problem unless the code and the hint beside the message are looked at too.
+  asBb(
+    f.dir,
+    `#!/usr/bin/env node
+// bb writes its error envelope to stderr, as the real one does.
+process.stderr.write(JSON.stringify({ name: 'APIError', code: 2002, message: 'Repository acme/missing not found.',
+  context: { statusCode: 404 }, statusCode: 404,
+  response: { error: { message: 'You may not have access to this repository or it no longer exists in this workspace. If you think this repository exists and you have access, make sure you are authenticated.' } } }));
+process.exit(1);
+`,
+  );
+  const err = await bb(['repo', 'view', 'acme/missing', '--json'], f.dir, 5_000).then(() => undefined, (e: Error) => e.message);
+  assert.match(err ?? '', /can't find this repository on Bitbucket/);
+  assert.doesNotMatch(err ?? '', /isn't signed in/, 'and not as a sign-in that needs doing again');
+});
+
+test('a bb that takes too long is said to have taken too long', async (t) => {
+  const f = fixture(t);
+  asBb(f.dir, `#!/usr/bin/env node\nsetTimeout(() => process.exit(0), 30000);\n`);
+  const err = await bb(['pr', 'list', '--json'], f.dir, 1_200).then(() => undefined, (e: Error) => e.message);
+  assert.match(err ?? '', /bb didn't answer within 1s/);
+});
+
+test('an error bb writes to stdout is read, since that is where it may have put it', async (t) => {
+  const f = fixture(t);
+  asBb(
+    f.dir,
+    `#!/usr/bin/env node
+process.stdout.write('Error: this bb explains itself on stdout\\n');
+process.exit(1);
+`,
+  );
+  const err = await bb(['pr', 'list', '--json'], f.dir, 5_000).then(() => undefined, (e: Error) => e.message);
+  assert.match(err ?? '', /explains itself on stdout/, 'and not left as an unexplained exit code');
+});
+
 // --- The gong -------------------------------------------------------------------------------------
 
 test('a pull request that was open at the last look and is merged now rings once, on any forge', () => {
