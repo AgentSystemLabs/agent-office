@@ -30,9 +30,6 @@ function color(c: number, fallback: string): string {
   return PALETTE[c] ?? fallback;
 }
 
-// The store keeps the screens (store.screens), so their type lives with it; the laptop only paints them.
-export type { ScreenState };
-
 const runLen = (runs: Run[] | undefined) => (runs ? runs.reduce((n, r) => n + [...r[0]].length, 0) : 0);
 const CHAR_WIDTH = 0.6;
 const LINE_HEIGHT = 1.25;
