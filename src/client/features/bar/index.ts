@@ -11,7 +11,7 @@ import { store } from '../../state';
 import { openBar } from './ui';
 import { toast } from '../../ui/dom';
 import { DrunkVision } from './drunk';
-import type { Rooftop } from '../../world/rooftop';
+import type { Rooftop } from '../rooftop/world';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {
