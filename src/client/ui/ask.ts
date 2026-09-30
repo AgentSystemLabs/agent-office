@@ -1,3 +1,4 @@
+import './ask.css';
 import type { AgentEffort, AgentProvider, WorkerStatus } from '../../shared/protocol';
 import { h, openModal, STATUS_LABEL } from './dom';
 import { store } from '../state';

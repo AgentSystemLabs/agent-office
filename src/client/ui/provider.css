@@ -1,0 +1,25 @@
+/* Picking which agent a new worker runs (ui/provider.ts): in the hire dialog, the queue and an issue.
+   Its labels, the model box's red border when it's wrong and the ✏️ Edit button are in
+   styles/base.css, after the frame's rules they restyle. */
+.provider-choice { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; min-width: 190px; }
+.provider-select { min-width: 132px; padding: 6px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; font-weight: 800; }
+.provider-note { display: block; flex: 1 1 160px; min-width: 0; color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1.25; }
+.provider-model { display: flex; flex: 1 1 220px; flex-direction: column; gap: 3px; min-width: 180px; margin-top: 4px; }
+.provider-model input { width: 100%; padding: 6px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; }
+.provider-model-hint { color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1.25; }
+.provider-model.claude-model { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 8px; }
+.provider-model.claude-model label { white-space: nowrap; }
+.provider-model.claude-model select { width: 100%; padding: 6px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; font-weight: 800; }
+.provider-model.claude-model .provider-model-hint { grid-column: 1 / -1; }
+/* Which worker to start: the office's default on a line, and the fields under it once ✏️ Edit opens them. */
+.provider-pick { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; min-width: 0; }
+.provider-pick > .provider-choice { margin-top: 0; }
+.provider-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.provider-label { font-weight: 800; font-size: 14px; white-space: nowrap; }
+.provider-current { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 3px 10px; font-size: 13px; font-weight: 800; background: var(--paper-2); border: 2px dashed rgba(43, 45, 66, .35); border-radius: 9px; }
+.modal.gh-window.issue footer .provider-pick { margin: 0; gap: 4px; }
+.modal.gh-window.issue footer .provider-label { font-size: 12px; }
+.modal.gh-window.issue footer .provider-choice { margin: 0; flex-direction: column; align-items: flex-start; gap: 2px; }
+.modal.gh-window.issue footer .provider-choice label { font-size: 12px; }
+.modal.gh-window.issue footer .provider-note { flex: 0 1 auto; max-width: 150px; }
+.modal.gh-window.issue footer .provider-model { flex: 0 1 auto; min-width: 190px; }

@@ -1,3 +1,4 @@
+import './provider.css';
 import type { AgentChoice, AgentEffort, AgentProvider, ClaudeModel, ProjectInfo, Usage } from '../../shared/protocol';
 import { AGENT_EFFORTS, CLAUDE_MODELS } from '../../shared/protocol';
 import { store } from '../state';

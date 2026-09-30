@@ -1,3 +1,4 @@
+import './boards.css';
 import type { GhIssue, GhLabel, GhPull, WorkerInfo } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store, workerForPull } from '../state';

@@ -116,5 +116,13 @@ a.when:hover { text-decoration: underline; }
 /* Window pieces that restyle the frame's labels, text boxes and buttons with selectors no stronger than
    the frame's own. Those win by coming later, and a window's sheet loads in no fixed order against
    this one, so they sit here, after the rules they override. */
+.provider-choice label { margin: 0; white-space: nowrap; }
+.provider-model label { margin: 0; font-size: 12px; }
+.provider-model input:invalid { border-color: var(--bad); }
+.provider-summary .btn { padding: 3px 9px; font-size: 12px; border-width: 2px; border-radius: 9px; box-shadow: 0 2px 0 var(--ink); }
 .charsel-opts label { margin: 14px 0 8px; }
+.col-search input[type=text] { font-size: 13px; border-width: 2px; border-radius: 9px; padding: 5px 26px 5px 9px; }
+.gh-label-edit { padding: 1px 9px; font-size: 12px; box-shadow: 0 2px 0 var(--ink); }
+.pd-side input[type=text] { width: 100%; font: inherit; font-size: 13px; border: 2px solid var(--ink); border-radius: 10px; padding: 5px 9px; background: #fff; outline: none; }
 .elevator .dir-change { margin-left: 6px; padding: 1px 8px; font-size: 12px; border-width: 2px; border-radius: 9px; box-shadow: 0 2px 0 var(--ink); vertical-align: baseline; }
+.meeting-field label { margin: 0; }

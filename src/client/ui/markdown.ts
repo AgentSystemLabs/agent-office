@@ -1,3 +1,4 @@
+import './markdown.css';
 import { Marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { h } from './dom';

@@ -1,3 +1,4 @@
+import './pulldiff.css';
 import type { GhReviewComment } from '../../../shared/protocol';
 import { h, timeAgo } from '../dom';
 import { markdown } from '../markdown';
