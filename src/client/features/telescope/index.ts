@@ -1,7 +1,7 @@
 /** The office telescope up on the loft, overlooking the worker floor: E looks through it. */
 import type { Ctx } from '../../core/context';
 import { aside, hintTitle, key, onE } from '../../core/hint';
-import { TelescopeView } from '../../telescope';
+import { TelescopeView } from './controller';
 import { $, modalOpen } from '../../ui/dom';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
