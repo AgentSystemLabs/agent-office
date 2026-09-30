@@ -15,7 +15,7 @@ import { DESK_BY_ID, STATION_AGENT, deskBuilt } from '../shared/layout.js';
 import { QUEUE_AGENT_DISALLOWED_TOOLS, stationBrief } from './stations.js';
 import { officePrompt, type PromptSource } from './prompts.js';
 import { isBusy } from '../shared/status.js';
-import { findPull, forgeOfDir, openPull, originUrl, prRef, pullBody, setPullBody, workRepo } from './forge.js';
+import { findPull, forgeOfDir, openPull, originRepo, prRef, pullBody, setPullBody, workRepo } from './forge.js';
 import type { ForgeAs } from './signins.js';
 import type { ServiceOwner } from './services.js';
 import { TaskNamer, fallbackTask } from './tasks.js';
@@ -2533,11 +2533,6 @@ function validRepos(raw: unknown): WorkerRepo[] | undefined {
     return [{ floor, name, repo: str(r.repo), dir, path: rel, branch, base, from: str(r.from), pr }];
   });
   return repos.length ? repos : undefined;
-}
-
-/** owner/name of a checkout's origin on a forge, when it has one. */
-function originRepo(dir: string): string | undefined {
-  return normalizeRepo(originUrl(dir, 5000));
 }
 
 /** The list of a change's pull requests across repositories, for the description of the one at `self`. */

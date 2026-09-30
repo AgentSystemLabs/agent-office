@@ -350,7 +350,6 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
   if (kind === 'pulls') unsubs.push(store.on('workers', render));
   const timer = setInterval(() => {
     const st = kind === 'issues' ? store.issues : store.pulls;
-    // Named after the forge the floor turned out to be on, once a look has said which.
     refresh.title = `Refresh from ${FORGE_LABEL[st.forge ?? 'github']}`;
     status.textContent = st.loading ? 'Refreshing…' : st.fetchedAt ? `Updated ${timeAgo(st.fetchedAt)}` : '';
   }, 15000);

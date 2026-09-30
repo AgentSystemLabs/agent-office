@@ -4,7 +4,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { Building, originRepo, type FloorDef } from '../src/server/building.js';
+import { Building, type FloorDef } from '../src/server/building.js';
+import { originRepo } from '../src/server/forge.js';
 
 function office(t: { after(fn: () => void): void }) {
   const root = mkdtempSync(path.join(tmpdir(), 'agent-office-building-'));
