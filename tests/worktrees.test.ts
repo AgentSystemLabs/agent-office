@@ -135,3 +135,31 @@ test("the Changes window doesn't count PRs merged on origin as the worker's chan
   assert.deepEqual(state.files.map((x) => x.path), ['mine.txt']);
   assert.equal(state.ahead, 1);
 });
+
+test('a worktree deleted with its branch comes back from origin when it was pushed', async (t) => {
+  const f = fixture(t);
+  const trees = new Worktrees(f.dir);
+  const made = trees.create('rex-9');
+  assert.ok(typeof made !== 'string', String(made));
+  const abs = path.join(f.dir, made.path);
+  const run = (...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: abs, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  writeFileSync(path.join(abs, 'pushed.txt'), 'pushed');
+  run('add', '.');
+  run('commit', '-qm', 'pushed');
+  run('push', '-q', 'origin', made.branch);
+  const pushed = run('rev-parse', 'HEAD');
+  assert.equal(trees.branchState(made.branch), 'here');
+  rmSync(abs, { recursive: true, force: true });
+  f.git('worktree', 'prune');
+  f.git('branch', '-D', made.branch);
+  assert.equal(trees.branchState(made.branch), 'origin');
+  assert.deepEqual(await trees.restore(made), { from: 'origin' });
+  assert.equal(run('rev-parse', 'HEAD'), pushed);
+  assert.equal(run('rev-parse', '--abbrev-ref', 'HEAD'), made.branch);
+  // Checked out somewhere else already, it can't come back here: git says why.
+  rmSync(abs, { recursive: true, force: true });
+  f.git('worktree', 'prune');
+  f.git('checkout', '-q', made.branch);
+  const refused = await trees.restore(made);
+  assert.ok('error' in refused && /already (checked out|used by worktree)/.test(refused.error), JSON.stringify(refused));
+});

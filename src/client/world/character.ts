@@ -9,7 +9,7 @@ import { HIPS } from '../player';
 import { axeModel, dartModel } from './bargames';
 import { OpenBook } from './book';
 import { HeldCard } from './card';
-import { UNDEAD_SKIN, elfBoot, elfHat, elfWorker, santaHat, warlockHat, zombieWorker } from './costumes';
+import { GRIME, UNDEAD_SKIN, beard, beardColor, elfBoot, elfHat, elfWorker, grime, peasantGarb, santaHat, warlockHat, zombieWorker, type Beard, type PeasantGarb } from './costumes';
 import { cardSprite, disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
 
 export type Pose = 'stand' | 'walk' | 'sit' | 'type';
@@ -399,6 +399,10 @@ export class Person {
   /** Dressed up for a holiday (see setCostume): a warlock's hat and undead skin, or a Santa hat. */
   private costume: Theme | null = null;
   private hat: THREE.Object3D[] = [];
+  /** A hand on someone's shoulder, marching them along (see holdOn). */
+  private gripping = false;
+  /** Something they're saying (see say), and for how many more seconds. */
+  private speech: { sprite: THREE.Sprite; left: number } | null = null;
 
   constructor(
     private name: string,
@@ -662,6 +666,33 @@ export class Person {
   /** Reach out with the right hand, as if pressing or grabbing something in front of you. */
   reach() {
     this.reachT = 0;
+  }
+
+  /** Puts something on them to stay: on their head (a helm), their body, or in their right hand or their left (a halberd). */
+  wear(o: THREE.Object3D, on: 'head' | 'body' | 'hand' | 'offhand') {
+    o.traverse((m) => ((m as THREE.Mesh).castShadow = true));
+    // Forward is +z, so the character's right arm is the one on -x (see reach).
+    (on === 'head' ? this.head : on === 'hand' ? this.armL : on === 'offhand' ? this.armR : this.body).add(o);
+  }
+
+  /** Keeps a hand out in front, on the shoulder of someone they're marching along (or lets go). */
+  holdOn(on: boolean) {
+    this.gripping = on;
+  }
+
+  /** Says something in a bubble over their head for `seconds` (the one before goes). */
+  say(text: string, seconds = 3.5) {
+    this.hush();
+    this.speech = { sprite: textSprite(text, { bg: '#fffaf3', size: 34 }), left: seconds };
+    this.speech.sprite.position.y = this.bubbleY;
+    this.root.add(this.speech.sprite);
+  }
+
+  private hush() {
+    if (!this.speech) return;
+    this.root.remove(this.speech.sprite);
+    disposeSprite(this.speech.sprite);
+    this.speech = null;
   }
 
   /** A mug of coffee in the left hand, or not. */
@@ -1151,6 +1182,15 @@ export class Person {
       this.armL.rotation.z = THREE.MathUtils.lerp(this.armL.rotation.z, 0.22, reach);
       if (this.reachT >= REACH_TIME) this.reachT = -1;
     }
+    if (this.gripping && !this.book && !this.card.held && !this.ball) {
+      // The right arm out and a little down, onto the shoulder of whoever's in front.
+      this.armL.rotation.x = THREE.MathUtils.lerp(this.armL.rotation.x, -1.15, Math.min(1, dt * 10));
+      this.armL.rotation.z = THREE.MathUtils.lerp(this.armL.rotation.z, 0.3, Math.min(1, dt * 10));
+    }
+    if (this.speech) {
+      this.speech.left -= dt;
+      if (this.speech.left <= 0) this.hush();
+    }
     // Lean into the reach a little.
     this.body.rotation.x = reach * 0.12;
     this.body.rotation.z = 0;
@@ -1214,6 +1254,9 @@ const TASK_CHIP: Record<string, [string, string, string]> = {
   exited: ['💤 ASLEEP', STATUS_BULB.exited, '#ffffff'],
   offline: ['💤 ASLEEP', STATUS_BULB.offline, '#ffffff'],
 };
+
+/** The chip (or bubble) of a worker whose worktree was deleted outside the office. */
+const LOST_CHIP: [string, string, string] = ['🌿 WORKTREE DELETED', '#ffb703', '#2b2d42'];
 
 /** The outline of a worker's bubble, and its pill, once it has a pull request: GitHub's open green, or the PR board's merged purple. */
 const PR_INK: Record<WorkerPr['state'], string> = { open: '#2da44e', merged: '#9d4edd' };
@@ -1415,6 +1458,56 @@ const DANCE = { up: 0.5, moves: 8 * BEAT, down: 0.5 } as const;
 /** How high a hop between the seat and the desk goes, over the straight line. */
 const HOP = 0.5;
 
+/** What a worker's skin goes toward as it starves in a cell, and once it's dead. */
+const STARVED = new THREE.Color('#cfc7b2');
+const DEAD = new THREE.Color('#7d8a6a');
+const BONE = toon('#e9e1c9');
+const SOCKET = toon('#241c16');
+
+/**
+ * What's left of a worker that has rotted away in a cell: a skull, a spine and ribs, a pelvis, and
+ * the bones of its arms and feet, the size of the bean it was, in its body's space (forward is +z).
+ */
+function bones(): THREE.Group {
+  const g = new THREE.Group();
+  const bone = (a: [number, number, number], b: [number, number, number], r = 0.022) => {
+    const va = new THREE.Vector3(...a);
+    const vb = new THREE.Vector3(...b);
+    const along = vb.clone().sub(va);
+    const m = mesh(new THREE.CapsuleGeometry(r, along.length(), 3, 6), BONE, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), along.normalize());
+    g.add(m);
+    for (const end of [va, vb]) g.add(mesh(new THREE.SphereGeometry(r * 1.7, 6, 5), BONE, end.x, end.y, end.z, false));
+  };
+  // The skull, its sockets and its grin.
+  const skull = mesh(new THREE.SphereGeometry(0.15, 14, 12), BONE, 0, 0.74, 0.02);
+  skull.scale.set(1, 1.05, 0.95);
+  g.add(skull);
+  for (const sx of [-1, 1]) g.add(mesh(new THREE.SphereGeometry(0.042, 8, 6), SOCKET, sx * 0.06, 0.76, 0.14, false));
+  g.add(mesh(new THREE.ConeGeometry(0.018, 0.04, 3), SOCKET, 0, 0.7, 0.155, false));
+  const jaw = mesh(new THREE.BoxGeometry(0.16, 0.05, 0.12), BONE, 0, 0.6, 0.05);
+  g.add(jaw);
+  for (let i = 0; i < 5; i++) g.add(mesh(new THREE.BoxGeometry(0.018, 0.03, 0.01), SOCKET, -0.05 + i * 0.025, 0.635, 0.113, false));
+  // The spine, the ribs round it, and the pelvis at the bottom.
+  bone([0, 0.2, -0.06], [0, 0.6, -0.04], 0.022);
+  for (let i = 0; i < 4; i++) {
+    const rib = mesh(new THREE.TorusGeometry(0.12 - i * 0.012, 0.014, 5, 14, Math.PI * 1.35), BONE, 0, 0.52 - i * 0.065, 0.0);
+    rib.rotation.set(Math.PI / 2, 0, -Math.PI * 0.175 + Math.PI / 2);
+    g.add(rib);
+  }
+  const pelvis = mesh(new THREE.TorusGeometry(0.09, 0.025, 6, 12), BONE, 0, 0.2, 0);
+  pelvis.rotation.x = Math.PI / 2.4;
+  g.add(pelvis);
+  // Arms hanging, and the feet stuck out in front.
+  for (const sx of [-1, 1]) {
+    bone([sx * 0.16, 0.55, 0], [sx * 0.26, 0.4, 0.06]);
+    bone([sx * 0.26, 0.4, 0.06], [sx * 0.24, 0.26, 0.16]);
+    bone([sx * 0.07, 0.18, 0.02], [sx * 0.12, 0.12, 0.24], 0.026);
+  }
+  g.visible = false;
+  return g;
+}
+
 /** The little Claude worker that sits at a desk. Forward is +z. */
 export class Worker {
   readonly root = new THREE.Group();
@@ -1430,6 +1523,8 @@ export class Worker {
   private task: WorkerTask | undefined;
   /** Its pull request, open or merged: its bubble is outlined (and labelled, while it rests) to match. */
   private pr: WorkerPr | undefined;
+  /** Its worktree was deleted outside the office (WorkerInfo.lost): its bubble says so until it's fixed. */
+  private lost = false;
   private nameTag: THREE.Sprite | null = null;
   private eyes: THREE.Mesh[] = [];
   private blinkAt = Math.random() * 4;
@@ -1475,6 +1570,25 @@ export class Worker {
   private phase = Math.random() * Math.PI * 2;
   /** How far through its stride it is, walking in. */
   private stride = 0;
+  /** How quick its steps are, next to a walk: more running, less shuffling (see Court). */
+  gait = 1;
+  /** Its headset, which a peasant doesn't wear. */
+  private headset: THREE.Object3D[] = [];
+  /** What it wears on the map it's on (see setOutfit): a peasant's smock and coif, or its own skin. */
+  private garb: PeasantGarb | null = null;
+  /** How worn out it looks, 0–1 (see setAge), and the beard, brows and dirt that show it. */
+  private age = 0;
+  private whiskers: Beard | null = null;
+  private dirt: { part: THREE.Object3D; at: number }[] = [];
+  /** Locked up in a dungeon (see setJailed): how thin it's got, whether it's starved to death yet, and how far it has rotted since. */
+  private jailed: { thin: number; dead: boolean; rot: number } | null = null;
+  /** Which way it keeled over when it died, and what's left of it after: X for eyes, and its bones. */
+  private fell = 1;
+  private crosses: THREE.Object3D[] = [];
+  private skeleton: THREE.Group | null = null;
+  /** Something it's muttering in its cell, and for how many more seconds. */
+  private mutterT = 0;
+  private label = '';
 
   constructor(
     name: string,
@@ -1502,7 +1616,12 @@ export class Worker {
     const band = mesh(new THREE.TorusGeometry(0.29, 0.025, 6, 20, Math.PI), toon('#2b2d42'), 0, 0.72, 0, false);
     band.rotation.y = Math.PI / 2;
     this.body.add(band);
-    for (const sx of [-1, 1]) this.body.add(mesh(new THREE.SphereGeometry(0.07, 10, 8), toon('#2b2d42'), sx * 0.29, 0.72, 0, false));
+    this.headset.push(band);
+    for (const sx of [-1, 1]) {
+      const cup = mesh(new THREE.SphereGeometry(0.07, 10, 8), toon('#2b2d42'), sx * 0.29, 0.72, 0, false);
+      this.body.add(cup);
+      this.headset.push(cup);
+    }
     // Antenna with status bulb
     this.body.add(mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.22, 6), toon('#2b2d42'), 0, 1.07, 0, false));
     this.bulb = toonUnique(STATUS_BULB.starting);
@@ -1572,9 +1691,74 @@ export class Worker {
       wear(this.body, elfWorker(this.skin));
       for (const f of this.feet) wear(f, elfBoot());
     }
+    // An elf's hat goes on over the coif.
+    if (this.garb) this.garb.cap.visible = theme !== 'christmas';
+  }
+
+  /**
+   * Dresses it for the map it's on: a peasant's smock, rope belt and coif, in place of its headset,
+   * or back in just its own skin (null).
+   */
+  setOutfit(outfit: 'peasant' | null) {
+    if (!!this.garb === (outfit === 'peasant')) return;
+    if (this.garb) {
+      undress([this.garb.body, this.garb.cap]);
+      this.garb.cloth.dispose();
+      this.garb = null;
+    }
+    if (outfit === 'peasant') {
+      let seed = 0;
+      for (const ch of this.color) seed = (seed * 31 + ch.charCodeAt(0)) | 0;
+      this.garb = peasantGarb(seed);
+      this.body.add(this.garb.body, this.garb.cap);
+      this.garb.cap.visible = this.costume !== 'christmas';
+    }
+    for (const h of this.headset) h.visible = !this.garb;
+    this.setAge(this.age, true);
+  }
+
+  /**
+   * How worn out it looks, 0 (fresh) to 1 (it's worked for as long as the map says a worker can
+   * before it's spent): its beard grows out and goes grey, it gets grubby and patched, it droops,
+   * and it slows down.
+   */
+  setAge(k: number, force = false) {
+    const age = Math.max(0, Math.min(1, k));
+    if (!force && Math.abs(age - this.age) < 0.004) return;
+    this.age = age;
+    if (age > 0.02 && !this.whiskers) {
+      this.whiskers = beard();
+      this.body.add(this.whiskers.group);
+      this.dirt = grime();
+      for (const d of this.dirt) this.body.add(d.part);
+    }
+    const w = this.whiskers;
+    if (w) {
+      w.group.visible = age > 0.02;
+      beardColor(age, w.hair.color);
+      w.chin.scale.set(1.2 * (0.45 + 0.55 * Math.min(1, age * 3)), 0.75 * (0.45 + 0.55 * Math.min(1, age * 3)), 0.45);
+      w.hang.visible = age > 0.08;
+      // It grows from a short beard under the chin down to the floor; the smock bulges, so it leans out a little as it grows.
+      w.hang.scale.set(0.7 + 0.3 * Math.min(1, age * 2), 0.08 + 0.5 * age, 1);
+      w.hang.rotation.x = 0.06 - 0.12 * age;
+      w.mustache.visible = age > 0.05;
+      w.brows.visible = age > 0.45;
+      w.bags.visible = age > 0.6;
+    }
+    for (const d of this.dirt) d.part.visible = age >= d.at;
+    if (this.garb) {
+      this.garb.cloth.color.copy(this.garb.clean).lerp(GRIME, 0.5 * age);
+      for (const p of this.garb.patches) p.part.visible = age >= p.at;
+    }
+  }
+
+  /** How fast it walks, next to a fresh worker: a worn-out one shuffles. */
+  get pace(): number {
+    return 1 - 0.3 * this.age;
   }
 
   setName(name: string) {
+    this.label = name;
     if (this.nameTag) {
       this.root.remove(this.nameTag);
       disposeSprite(this.nameTag);
@@ -1637,6 +1821,11 @@ export class Worker {
     this.drawBubble();
   }
 
+  setLost(lost: boolean) {
+    this.lost = lost;
+    this.drawBubble();
+  }
+
   /** Sent home: its light goes out, its face falls, and its things pop into a box in its arms. `farewell` goes over its head. */
   leave(farewell: string) {
     if (this.leaving) return;
@@ -1674,28 +1863,31 @@ export class Worker {
     this.leaving = { box, boxT: 0, stride: 0 };
   }
 
-  /** On its way out: says something else over its head in place of its farewell. */
+  /** On its way out: says something else over its head in place of its farewell (or whatever was over it, before it packed up). */
   say(text: string) {
-    if (!this.leaving) return;
     if (this.bubble) {
       this.root.remove(this.bubble);
       disposeSprite(this.bubble);
     }
+    this.bubbleKey = 'said';
+    this.bubbleIsCard = false;
     this.bubble = textSprite(text, { bg: '#e9ecef', size: 34 });
+    if (!this.leaving) this.bubble.position.y = 1.95;
     this.root.add(this.bubble);
   }
 
   private drawBubble() {
     if (this.leaving) return;
-    const { status, bouncing: bounce, task, pr } = this;
+    const { status, bouncing: bounce, task, pr, lost } = this;
     const hot = status === 'needs_input' || (status === 'done' && bounce);
     const bg = hot ? (status === 'done' ? '#caffbf' : '#ffd6e0') : status === 'working' ? '#ffec99' : '#fffaf3';
     const border = pr && PR_INK[pr.state];
     // Not working on or waiting for something more: its pull request in place of ready / done / asleep.
     const prLabel = pr && status !== 'working' && status !== 'needs_input' && status !== 'starting' ? `${PR_ICON[pr.state]} PR #${pr.number} ${pr.state}` : undefined;
-    const bubble =
-      prLabel ?? (status === 'needs_input' ? '❗ needs you' : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤' : '');
-    const key = `${border}|${prLabel}|${task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble}`;
+    const bubble = lost
+      ? '🌿 worktree deleted'
+      : prLabel ?? (status === 'needs_input' ? '❗ needs you' : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤' : '');
+    const key = `${lost}|${border}|${prLabel}|${task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble}`;
     if (key === this.bubbleKey) return;
     this.bubbleKey = key;
     if (this.bubble) {
@@ -1705,13 +1897,120 @@ export class Worker {
     }
     this.bubbleIsCard = !!task;
     if (task) {
-      const [text, chipBg, color] = prLabel ? [prLabel.toUpperCase(), border!, '#ffffff'] : (TASK_CHIP[status] ?? TASK_CHIP.idle);
+      const [text, chipBg, color] = lost ? LOST_CHIP : prLabel ? [prLabel.toUpperCase(), border!, '#ffffff'] : (TASK_CHIP[status] ?? TASK_CHIP.idle);
       this.bubble = cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: task.summary, bg: isAsleep(status) ? '#e9ecef' : bg, border });
-    } else if (bubble) this.bubble = textSprite(bubble, { bg, size: 38, border });
+    } else if (bubble) this.bubble = textSprite(bubble, { bg: lost ? LOST_CHIP[1] : bg, size: 38, border });
     if (this.bubble) this.root.add(this.bubble);
   }
 
+  /**
+   * Locked up in a dungeon for good (see shared/maps/dungeon.ts): sitting slumped on the floor of its
+   * cell, thinner the longer it's been there (`thin`, 0–1), then dead, keeled over, then rotting down
+   * to its bones (`rot`, 0–1). Its light's out, and nothing it was doing shows any more.
+   */
+  setJailed(k: { thin: number; dead: boolean; rot: number }) {
+    const first = !this.jailed;
+    const was = this.jailed;
+    this.jailed = { ...k };
+    if (first) {
+      this.bouncing = false;
+      this.cheerT = 0;
+      this.twirlT = -1;
+      this.dancing = null;
+      for (const prop of [this.papers.group, this.globe.group]) prop.visible = false;
+      this.bulb.color.set(STATUS_BULB.exited);
+      this.bulb.emissive.set('#000000');
+      if (this.bubble) {
+        this.root.remove(this.bubble);
+        disposeSprite(this.bubble);
+        this.bubble = null;
+      }
+      this.bubbleKey = 'jailed';
+      this.fell = Math.random() < 0.5 ? -1 : 1;
+    }
+    // Pale and sallow as it starves, grey-green once it's dead, and darker as it rots.
+    this.skin.color.set(this.color).lerp(STARVED, 0.55 * k.thin);
+    if (k.dead) this.skin.color.lerp(DEAD, 0.55 + 0.35 * k.rot);
+    if (k.dead && !this.crosses.length) {
+      const ink = toon('#1d1d1d');
+      for (const sx of [-1, 1]) {
+        for (const r of [-1, 1]) {
+          const bar = mesh(new THREE.CapsuleGeometry(0.014, 0.1, 4, 6), ink, sx * 0.11, 0.7, 0.25, false);
+          bar.rotation.z = r * 0.8;
+          this.body.add(bar);
+          this.crosses.push(bar);
+        }
+      }
+    }
+    for (const e of this.eyes) e.visible = !k.dead;
+    for (const c of this.crosses) c.visible = k.dead;
+    if (k.dead && k.rot > 0.2 && !this.skeleton) {
+      this.skeleton = bones();
+      this.root.add(this.skeleton);
+    }
+    const stage = !k.dead ? 0 : k.rot < 1 ? 1 : 2;
+    const wasStage = !was ? -1 : !was.dead ? 0 : was.rot < 1 ? 1 : 2;
+    if (stage !== wasStage) this.setName(this.label.replace(/^[☠💀]\uFE0F? /u, '').replace(/^/, stage === 1 ? '☠️ ' : stage === 2 ? '💀 ' : ''));
+  }
+
+  /** Mutters something in its cell (only while it's alive). */
+  mutter(text: string, seconds = 4) {
+    if (!this.jailed || this.jailed.dead) return;
+    if (this.bubble) {
+      this.root.remove(this.bubble);
+      disposeSprite(this.bubble);
+    }
+    this.bubble = textSprite(text, { bg: '#e9ecef', size: 30 });
+    this.bubble.position.y = 1.5;
+    this.root.add(this.bubble);
+    this.mutterT = seconds;
+  }
+
+  /** In its cell: slumped against the wall, breathing slow, or keeled over and rotting. */
+  private languish(dt: number, t: number) {
+    const { thin, dead, rot } = this.jailed!;
+    const girth = 1 - 0.48 * thin;
+    // What's left of its flesh as it rots, shrinking away off its bones.
+    const flesh = dead ? Math.max(0.02, 1 - 0.95 * rot) : 1;
+    this.body.visible = flesh > 0.08;
+    const breath = dead ? 0 : Math.sin(t * 1.1 + this.phase) * 0.025 * (1 - 0.5 * thin);
+    this.body.scale.set(girth * flesh, (1 + breath) * (dead ? 0.35 + 0.65 * flesh : 1), girth * flesh);
+    this.feet.forEach((f, i) => f.position.set(i ? 0.13 : -0.13, 0.12, 0.2));
+    if (dead) {
+      // On its side on the straw, where it fell.
+      const lie = this.fell * 1.4;
+      this.body.rotation.set(0.1, 0, lie);
+      this.body.position.set(this.fell * -0.04, 0.3 * girth * flesh - 0.06, 0);
+      this.armL.rotation.set(-0.4, 0, -0.3);
+      this.armR.rotation.set(-0.2, 0, 0.5);
+    } else {
+      // Sat against the wall, head hung, arms limp in its lap, swaying a little now and then.
+      this.body.rotation.set(0.18 + 0.32 * thin + Math.sin(t * 0.37 + this.phase) * 0.03, 0, Math.sin(t * 0.23 + this.phase) * 0.05);
+      this.body.position.set(0, -0.08, 0);
+      this.armL.rotation.set(-0.35, 0, -0.12);
+      this.armR.rotation.set(-0.35, 0, 0.12);
+      for (const p of this.pupils) p.position.y = 0.66 - 0.02 * thin;
+    }
+    if (this.skeleton) {
+      this.skeleton.visible = dead && rot > 0.2;
+      this.skeleton.position.copy(this.body.position);
+      this.skeleton.rotation.copy(this.body.rotation);
+    }
+    this.bulbMesh.scale.setScalar(1);
+    this.blink(dt, dead ? 1 : 1 - 0.55 * thin);
+    if (this.mutterT > 0) {
+      this.mutterT -= dt;
+      if (this.mutterT <= 0 && this.bubble) {
+        this.root.remove(this.bubble);
+        disposeSprite(this.bubble);
+        this.bubble = null;
+      }
+    }
+    if (this.nameTag) this.nameTag.position.y = dead ? 0.95 : 1.4;
+  }
+
   update(dt: number, t: number) {
+    if (this.jailed) return this.languish(dt, t);
     if (this.leaving) return this.carry(this.leaving, dt, t);
     if (this.dancing) return this.boogie(this.dancing, dt, t);
     this.cheerT = Math.max(0, this.cheerT - dt);
@@ -1753,8 +2052,10 @@ export class Worker {
     this.armL.position.set(-0.3 + s.reach * 0.07, 0.55 - s.drop, 0.05 + s.reach * 0.12);
     this.armR.position.set(0.3 - s.reach * 0.07, 0.55 - s.drop + s.reach * 0.04, 0.05 + s.reach * 0.14);
     this.feet.forEach((f, i) => f.position.set(i ? 0.12 : -0.12, 0.2 + (i ? s.tap * 0.07 : 0), 0.05 + s.kick + (i ? s.tap * 0.03 : 0)));
-    for (const p of this.pupils) p.position.y = 0.7 + s.look;
-    this.body.rotation.x = s.lean;
+    for (const p of this.pupils) p.position.y = 0.7 + s.look - 0.02 * this.age;
+    // Worn out, it hunches over and its eyes droop.
+    this.body.rotation.x = s.lean + 0.2 * this.age;
+    s.lid = Math.min(s.lid, 1 - 0.38 * this.age);
     let twirl = 0;
     if (this.twirlT >= 0) {
       this.twirlT += dt;
@@ -1781,7 +2082,7 @@ export class Worker {
     if (this.nameTag) this.nameTag.position.y = 1.55 + (hopping ? this.body.position.y : 0);
     // Walking in to a meeting: the same waddle as on the way out, without the box.
     if (this.walking || this.stride) {
-      this.stride = this.walking ? this.stride + dt * 9 : 0;
+      this.stride = this.walking ? this.stride + dt * 9 * this.pace * this.gait : 0;
       const s = Math.sin(this.stride);
       this.feet.forEach((f, i) => {
         const step = i ? -s : s;
@@ -1970,6 +2271,16 @@ export class Worker {
   dispose() {
     if (this.bubble) disposeSprite(this.bubble);
     if (this.nameTag) disposeSprite(this.nameTag);
+    undress(this.crosses);
+    if (this.skeleton) undress([this.skeleton]);
     undress(this.outfit);
+    if (this.garb) {
+      undress([this.garb.body, this.garb.cap]);
+      this.garb.cloth.dispose();
+    }
+    if (this.whiskers) {
+      undress([this.whiskers.group, ...this.dirt.map((d) => d.part)]);
+      this.whiskers.hair.dispose();
+    }
   }
 }

@@ -1,14 +1,14 @@
 import * as THREE from 'three';
-import { FLOOR, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
+import { FLOOR, SLAB, STREET_Y, WALL_HEIGHT, WALL_T, WING, wingMinZ } from '../../shared/layout';
 import type { SkyState, Theme, Weather } from '../../shared/protocol';
-import { guessPlace, sunPosition } from '../../shared/sun';
+import { guessPlace, skyTime, sunPosition } from '../../shared/sun';
 import type { NightParts } from './outside';
 
 /*
  * Day, night and the weather outside the windows. The server says where the office is and what the
- * weather is doing (server/sky.ts). From that and the clock, this works out where the sun is, and
- * every frame it sets the sky's color, the fog, the sun (or the moon), the lamps that come on at
- * night, and the rain or snow.
+ * weather is doing (server/sky.ts). From that and the office's clock, sped up so a whole day and
+ * night go by every hour (see skyTime), this works out where the sun is, and every frame it sets
+ * the sky's color, the fog, the sun (or the moon), the lamps that come on at night, and the rain or snow.
  *
  * The office has no roof, and the sun and the sky light everything, inside and out, so at night the
  * room would go as dark as the street. A few lines added to every lit material (below) give light
@@ -30,6 +30,14 @@ export const HAZE_MAX = 300;
  */
 const HAZE_CLEAR = 6;
 const HAZE_ABOVE = 17.5;
+
+/**
+ * How far off something's lost in the haze (with the fog's far edge down on the street at `far`),
+ * seen from or standing `above` meters over the street, whichever's higher (see HAZE).
+ */
+export function hazeReach(above: number, far: number): number {
+  return Math.min(HAZE_MAX, far * (1 + Math.max(0, above - HAZE_CLEAR) / HAZE_ABOVE));
+}
 /** The building, walls included: the office upstairs and the garage under it. */
 const B = { minX: FLOOR.minX - WALL_T, maxX: FLOOR.maxX + WALL_T, minZ: FLOOR.minZ - WALL_T, maxZ: FLOOR.maxZ + WALL_T } as const;
 
@@ -55,6 +63,8 @@ const uniforms = {
   skyDrop: { value: 0 },
   /** Where the street is, which the haze thins out with height over. */
   skyStreet: { value: STREET_Y },
+  /** The back office, when the floor's built out into one (see WING): minX, maxX, minZ, maxZ. Empty without. */
+  skyWing: { value: new THREE.Vector4(1, 0, 1, 0) },
 };
 
 const v3 = (x: number, y: number, z: number) => `vec3(${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)})`;
@@ -73,11 +83,15 @@ uniform vec3 skyLampMax;
 uniform float skyWet;
 uniform float skySnow;
 uniform float skyDrop;
+uniform vec4 skyWing;
 
-// Inside the office's walls (and up through its open top).
+// Inside the office's walls (and up through its open top), or the back office's, up to its ceiling
+// and no further: its roof, and the cornice over where the wall came down, are outdoors.
 float skyInOffice( vec3 p ) {
   vec3 d = max( ${v3(FLOOR.minX - 0.02, -0.06, FLOOR.minZ - 0.02)} - p, p - ${v3(FLOOR.maxX + 0.02, 40, FLOOR.maxZ + 0.02)} );
-  return 1.0 - smoothstep( 0.0, 0.12, length( max( d, 0.0 ) ) );
+  vec3 w = max( vec3( skyWing.x, -0.06, skyWing.z ) - p, p - vec3( skyWing.y, ${(WALL_HEIGHT + 0.005).toFixed(3)}, skyWing.w ) );
+  float wing = length( max( w, 0.0 ) ) + step( ${(WALL_HEIGHT + 0.005).toFixed(3)}, p.y );
+  return 1.0 - smoothstep( 0.0, 0.12, min( length( max( d, 0.0 ) ), wing ) );
 }
 
 // Under the bottom floor: walled at the back and on the west side, open to the street on the south and east.
@@ -194,13 +208,14 @@ THREE.Material.prototype.onBeforeCompile = function (shader) {
 const LABEL: Record<Weather, string> = { clear: 'Clear', cloudy: 'Cloudy', rain: 'Rain', storm: 'Thunderstorm', snow: 'Snow', fog: 'Fog' };
 const ICON: Record<Weather, string> = { clear: '☀️', cloudy: '☁️', rain: '🌧️', storm: '⛈️', snow: '🌨️', fog: '🌫️' };
 
-/** "🌙 Clear · 9:41 PM office time · Berlin, Germany, 11 °C", for Settings. */
+/** "🌙 Clear · 9:41 PM outside · Berlin, Germany, 11 °C", for Settings: the time of day in the sky (see skyTime). */
 export function describeSky(s: SkyState, now = Date.now()): string {
-  const night = sunPosition(now, s.lat, s.lon).el < -4 * DEG;
+  const sky = skyTime(now, s.utcOffset);
+  const night = sunPosition(sky, s.lat, s.lon).el < -4 * DEG;
   const icon = s.weather === 'clear' && night ? '🌙' : ICON[s.weather];
-  const time = new Date(now + s.utcOffset * 60_000).toLocaleTimeString([], { timeZone: 'UTC', hour: 'numeric', minute: '2-digit' });
+  const time = new Date(sky + s.utcOffset * 60_000).toLocaleTimeString([], { timeZone: 'UTC', hour: 'numeric', minute: '2-digit' });
   const where = s.city ? ` · ${s.city}${s.temp !== undefined ? `, ${s.temp} °C` : ''}` : '';
-  return `${icon} ${LABEL[s.weather]} · ${time} office time${where}`;
+  return `${icon} ${LABEL[s.weather]} · ${time} outside${where}`;
 }
 
 const lerp = THREE.MathUtils.lerp;
@@ -358,8 +373,12 @@ function blobTexture(inner: number): THREE.CanvasTexture {
   return new THREE.CanvasTexture(c);
 }
 
+/** The back office, walls included, when the floor you're on is built out into one (see Sky.setWing). */
+let wingBox: { minX: number; maxX: number; minZ: number; maxZ: number } | null = null;
+
 /** Is (x, z) under the building, where no rain or snow falls? */
-const sheltered = (x: number, z: number) => x > B.minX - 0.05 && x < B.maxX + 0.05 && z > B.minZ - 0.05 && z < B.maxZ + 0.05;
+const sheltered = (x: number, z: number) =>
+  (x > B.minX - 0.05 && x < B.maxX + 0.05 && z > B.minZ - 0.05 && z < B.maxZ + 0.05) || (!!wingBox && x > wingBox.minX - 0.05 && x < wingBox.maxX + 0.05 && z > wingBox.minZ - 0.05 && z < wingBox.maxZ);
 
 export class Sky {
   private preview: { hour?: number; weather?: Weather; intensity?: number } = {};
@@ -375,6 +394,13 @@ export class Sky {
   lampsOn = 0;
   /** Up on the roof: out in the open, over the whole city (see setRoof). */
   private roof = false;
+  /** In a hall with a roof and walls all round (a map other than the office's, see setIndoors). */
+  private indoors = false;
+  /**
+   * How far out into the country you are, 0–1 (out on the scenic loop, see shared/scenic.ts): the
+   * haze near the ground thins out to more than twice as far, so the mountains and the sea show from the road.
+   */
+  open = 0;
   /** Where the street is from up there (the roof is at 0), for the haze. */
   private roofStreet = 0;
 
@@ -426,6 +452,8 @@ export class Sky {
     private scene: THREE.Scene,
     private lights: SkyLights,
     private night: NightParts,
+    /** The office's clock (ms since 1970), which everyone's sky keeps time by. */
+    private clock: () => number = Date.now,
   ) {
     const here = guessPlace();
     this.state = { ...here, utcOffset: -new Date().getTimezoneOffset(), weather: 'clear', intensity: 0 };
@@ -554,12 +582,33 @@ export class Sky {
   setRoof(on: boolean, drop = 0) {
     this.roof = on;
     this.roofStreet = -drop;
-    uniforms.skyInside.value = on ? 0 : 1;
+    uniforms.skyInside.value = on || this.indoors ? 0 : 1;
+  }
+
+  /**
+   * Inside a hall of a map of its own (the castle), walled and roofed all round, or back in the
+   * office (false): no rain or snow falls where you are, nothing gets wet or snowy, and the office's
+   * lamps and the street's don't light it (it lights itself: see World.mood).
+   */
+  setIndoors(on: boolean) {
+    this.indoors = on;
+    uniforms.skyInside.value = on || this.roof ? 0 : 1;
+  }
+
+  /**
+   * The floor you're on is built out `level` rows into the back office (see WING): lit like the
+   * office inside, and out of the rain.
+   */
+  setWing(level: number) {
+    const minZ = wingMinZ(level);
+    wingBox = level > 0 ? { minX: WING.minX - WALL_T, maxX: WING.maxX + WALL_T, minZ: minZ - WALL_T, maxZ: FLOOR.minZ } : null;
+    if (level > 0) uniforms.skyWing.value.set(WING.minX - 0.02, WING.maxX + 0.02, minZ - 0.02, FLOOR.minZ);
+    else uniforms.skyWing.value.set(1, 0, 1, 0);
   }
 
   /** Under a roof, out of the rain: the building, unless you're up on top of it. */
   private sheltered(x: number, z: number): boolean {
-    return !this.roof && sheltered(x, z);
+    return this.indoors || (!this.roof && sheltered(x, z));
   }
 
   /** Whether the lamps' light (and wet and snow) apply: off while your hands are drawn. */
@@ -569,7 +618,8 @@ export class Sky {
 
   /** How lit it is at `p`, 0–1 (1 is a clear day, or a room with its lights on), for your hands. */
   lightAt(p: THREE.Vector3): number {
-    const inside = !this.roof && ((p.x > FLOOR.minX && p.x < FLOOR.maxX && p.z > FLOOR.minZ && p.z < FLOOR.maxZ) || (sheltered(p.x, p.z) && p.y < 0));
+    if (this.indoors) return 1;
+    const inside = !this.roof && ((p.x > FLOOR.minX && p.x < FLOOR.maxX && p.z > FLOOR.minZ && p.z < FLOOR.maxZ) || (sheltered(p.x, p.z) && (p.y < 0 || p.z < FLOOR.minZ)));
     if (inside) return 1;
     let lamp = 0;
     if (!this.roof) {
@@ -579,12 +629,12 @@ export class Sky {
     return Math.min(1, Math.max(this.level, lamp * this.lampsOn));
   }
 
-  /** The office's clock (ms), or the previewed hour today. */
+  /** The time of day in the sky (see skyTime), or the previewed hour today. */
   private now(): number {
     const h = this.preview.hour;
-    if (h === undefined) return Date.now();
+    if (h === undefined) return skyTime(this.clock(), this.state.utcOffset);
     const off = this.state.utcOffset * 60_000;
-    const midnight = Math.floor((Date.now() + off) / 86_400_000) * 86_400_000;
+    const midnight = Math.floor((this.clock() + off) / 86_400_000) * 86_400_000;
     return midnight - off + h * 3_600_000;
   }
 
@@ -626,8 +676,8 @@ export class Sky {
     // Wet ground dries off slowly; snow piles up over a few minutes and takes a while to melt.
     this.wet = snap ? (this.rain > 0.05 ? 1 : 0) : ease(this.wet, this.rain > 0.05 ? 1 : 0, dt, this.rain > 0.05 ? 30 : 400);
     this.lying = snap ? (this.snow > 0.05 ? 1 : 0) : ease(this.lying, this.snow > 0.05 ? 1 : 0, dt, (this.snow > 0.05 ? 120 : 900) * (this.rush > 0 ? 0.04 : 1));
-    uniforms.skyWet.value = this.wet * (1 - this.lying);
-    uniforms.skySnow.value = this.lying * 0.9;
+    uniforms.skyWet.value = this.indoors ? 0 : this.wet * (1 - this.lying);
+    uniforms.skySnow.value = this.indoors ? 0 : this.lying * 0.9;
 
     // The sun, and how much light it and the sky give.
     const { el, az } = sunPosition(this.now(), s.lat, s.lon);
@@ -672,7 +722,7 @@ export class Sky {
     uniforms.skyOffice.value.copy(C.office).lerp(C.officeNight, 1 - day).multiplyScalar(need * 3.2);
     uniforms.skyGarage.value.copy(C.garage).multiplyScalar(need * 2);
     const lamps = Math.min(this.night.lamps.length, MAX_LAMPS);
-    uniforms.skyLampCount.value = this.lampsOn > 0.005 && !this.roof ? lamps : 0;
+    uniforms.skyLampCount.value = this.lampsOn > 0.005 && !this.roof && !this.indoors ? lamps : 0;
     for (let i = 0; i < lamps; i++) {
       const l = this.night.lamps[i];
       uniforms.skyLampColors.value[i].set(l.color).multiplyScalar(l.power * this.lampsOn);
@@ -681,7 +731,11 @@ export class Sky {
     for (const m of this.night.windows) m.emissiveIntensity = this.lampsOn * 1.1;
     for (const h of this.halos) {
       h.material.opacity = this.lampsOn * 0.85;
-      h.visible = this.lampsOn > 0.01 && !this.roof;
+      h.visible = this.lampsOn > 0.01 && !this.roof && !this.indoors;
+    }
+    for (const g of this.night.glows) {
+      g.mat.opacity = g.max * this.lampsOn;
+      g.mat.visible = this.lampsOn > 0.01 && !this.roof && !this.indoors;
     }
 
     // The sky's color, and the fog, which fades far things into it. Halloween's is its own.
@@ -699,9 +753,11 @@ export class Sky {
     const precip = Math.max(this.rain, this.snow);
     // How far off the haze is down on the street; the higher up, the thinner it is (see HAZE), so
     // the street never goes into it from the top floors, and from the roof you see across the city.
-    fog.near = lerp(40, 3, this.fog) * (1 - 0.4 * precip);
-    fog.far = lerp(90, 28, this.fog) * (1 - 0.3 * precip);
-    uniforms.skyStreet.value = this.roof ? this.roofStreet : this.night.street;
+    // Out in the country (see open) it's further off again.
+    const open = 1 + 1.4 * this.open;
+    fog.near = lerp(40, 3, this.fog) * (1 - 0.4 * precip) * open;
+    fog.far = lerp(90, 28, this.fog) * (1 - 0.3 * precip) * open;
+    uniforms.skyStreet.value = this.roof ? this.roofStreet : this.indoors ? 0 : this.night.street;
     this.night.clouds.color.copy(C.white).lerp(C.cloudGrey, this.cover).lerp(SPOOKY.cloud, sp);
     this.night.clouds.visible = this.fog < 0.6;
     // Halloween's gradient, over the flat sky: dark overhead, the sky's color at the horizon, which the fog fades into.

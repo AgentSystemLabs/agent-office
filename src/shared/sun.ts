@@ -1,7 +1,23 @@
 // Where the sun is, for day and night outside the office. Shared: the server guesses where the
-// office is, and every browser works out the sun from that and its own clock.
+// office is, and every browser works out the sun from that and the office's clock.
 
 const RAD = Math.PI / 180;
+const DAY = 86_400_000;
+
+/** How long the sky takes over a whole day and night: an hour, so you see the sun go down and come back up. */
+export const SKY_DAY_MS = 3_600_000;
+
+/**
+ * The time of day in the sky at `ms` (Unix time) on the office's clock, `utcOffset` minutes east of
+ * UTC: it goes round a whole day every SKY_DAY_MS, midnight on the hour and noon at half past. It
+ * stays on today's date, so the sun rises and sets as early or as late as it does there this time of year.
+ */
+export function skyTime(ms: number, utcOffset: number): number {
+  const local = ms + utcOffset * 60_000;
+  const midnight = Math.floor(local / DAY) * DAY;
+  const into = (((local % SKY_DAY_MS) + SKY_DAY_MS) % SKY_DAY_MS) / SKY_DAY_MS;
+  return midnight + into * DAY - utcOffset * 60_000;
+}
 
 /**
  * The sun's elevation above the horizon and its azimuth (clockwise from north, so east is +π/2),

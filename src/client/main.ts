@@ -2,17 +2,23 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, LOFT, POLE, POLES, SEATING_BY_ID, SLAB, STATIONS, STATION_AGENT, STOREY, WALL_HEIGHT, beanbagsOut, deskSeat, inElevator, nextFreeSeat, roofDrop, seatAt, seatPlace, streetBelow, vacantSeats, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, POLE, POLES, SLAB, STATION_AGENT, STOREY, WALL_HEIGHT, WALL_T, WING, WING_DESKS, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, seatPlace, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { OFFICE_PLAN, seatOn, type MapPlan } from '../shared/maps';
+import { canLabel } from '../shared/floorplan';
 import { floorPalette } from '../shared/floors';
 import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
-import { MEETING_PATTERNS } from '../shared/meetings';
+import { MEETING_PATTERNS, meetingStage } from '../shared/meetings';
 import { isAsleep, isBusy, workerPr } from '../shared/status';
 import { Net } from './net';
 import { store, lastFloor, lastSpot, loadProfile, loadSettings, rememberSpot, saveSettings, workerForPull, type Profile, type Spot, type Topic } from './state';
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { Climber, gripOf, type Arrival, type Grip, type Way } from './climb';
+import { Driver } from './driving';
 import { Caffeine } from './caffeine';
 import { buildOffice, type DeskView, type InteractKind, type Interactable } from './world/office';
+import { officeWorld, type World } from './world/world';
+import { BUILDERS } from './world/styles';
+import { Court } from './world/court';
 import { buildRooftop, type Rooftop } from './world/rooftop';
 import { DrunkVision } from './world/drunk';
 import { Booze, type Stage as Feeling } from './booze';
@@ -27,6 +33,9 @@ import { ROUND, score, targetFrame, type BarGame, type Score, type Toss } from '
 import { Hands } from './world/hands';
 import { Basketball, IN_HANDS } from './world/hoop';
 import { HOOP, SWEET, idealSpeed, lookAtRim, meter, shotSpeed, throwPitch, tossSpeed, underCeiling } from '../shared/hoop';
+import { CARS, SEAT_HIPS, type CarSeat } from '../shared/garage';
+import { PLACES, placeAt as loopPlace } from '../shared/scenic';
+import { LapTimer, lapTime } from './laps';
 import { Smoke } from './world/smoke';
 import { HAZE_MAX, Sky, describeSky } from './world/sky';
 import { Laptop } from './world/laptop';
@@ -35,6 +44,8 @@ import { Gallery } from './world/gallery';
 import { Dog } from './world/dog';
 import { Holiday } from './world/holiday';
 import { Arrivals, Departures } from './world/leaving';
+import { Jail } from './world/jail';
+import { Sendoffs } from './world/sendhome';
 import { Confetti, type Area } from './world/confetti';
 import { Hanger } from './hanging';
 import { disposeSprite, textSprite } from './world/toon';
@@ -48,14 +59,17 @@ import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { openRepoPulls, workerRepos } from './ui/repos';
 import { answerOpen, openAnswer, syncAnswers } from './ui/answer';
-import { openPrompt, confirmDialog, sendHomeDialog, routeWorktreeMessage, worktreePref } from './ui/prompt';
+import { openPrompt, confirmDialog, sendHomeDialog, lostWorktreeDialog, routeWorktreeMessage, worktreePref } from './ui/prompt';
 import { issuePrompt, openBoard } from './ui/boards';
 import { openIssue, openPull, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { openAccounts, routeAccountsMessage } from './ui/accounts';
 import { needsSigningIn, openSignIns } from './ui/signins';
-import { openServices } from './ui/services';
+import { openServices, serviceUrl } from './ui/services';
+import { paletteOpen, togglePalette, type PaletteEntry } from './ui/palette';
+import { isPaletteKey } from '../shared/palette';
+import { IS_MAC } from './ui/termkeys';
 import { openQueue } from './ui/queue';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
 import { openHelp, renderCaffeine, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
@@ -68,7 +82,8 @@ import { toggleFloorMenu } from './ui/floormenu';
 import { providerLabel, officeChoice, resolvedProvider, modelBadge } from './ui/provider';
 import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
 import { renderLimits } from './ui/limits';
-import { MachineTexture, officeFull, pressureNote } from './world/machine';
+import { MachineTexture } from './world/machine';
+import { officeFull, pressureNote } from '../shared/machine';
 import { mountHud } from './ui/menu';
 import { openJukebox } from './ui/jukebox';
 import { openBookshelf } from './ui/bookshelf';
@@ -81,20 +96,30 @@ import { EmoteWheel } from './ui/emotes';
 import { whereabouts } from './ui/whereabouts';
 import { wayTo } from './walkto';
 import { DESK_KEYS, interactionAvailable, type DeskKey } from './interaction';
-import { MeetingBoardTexture, MeetingSignTexture, meetingStage } from './world/meeting';
+import { MeetingBoardTexture, MeetingSignTexture } from './world/meeting';
 import { issueMeeting, openMeeting, type MeetingPreset } from './ui/meeting';
 import { TelescopeView } from './telescope';
 import { onModelsProgress, preloadModels } from './world/models';
 import { loadingScreen } from './ui/loading';
+import { SlowFrames } from './framerate';
+import { offerLite, touchOnly } from './ui/litesuggest';
+import { openDeskLabel, openExpand } from './ui/floorplan';
 
 // The loading screen stays up until there's an office to see (see boot and whoami at the end).
 const loading = loadingScreen(onModelsProgress);
+// Came here from the 2D view's 🏢 3D button: it isn't offered straight back.
+const chose3d = new URLSearchParams(location.search).has('3d');
+if (chose3d) history.replaceState(null, '', location.pathname);
+/** Offers the 2D view (/lite) where the 3D is hard going. */
+const offer2d = (why: 'touch' | 'slow') => chose3d || offerLite(why);
+// A phone can't walk around the office: the 2D view is made for it.
+if (touchOnly()) offer2d('touch');
 // The models made in Blender, loaded before the world they're in is built (see world/models.ts).
 await preloadModels();
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+const renderer = makeRenderer() ?? (await noWebGL());
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -125,7 +150,19 @@ scene.add(sun);
 
 const office = buildOffice();
 scene.add(office.group);
-const sky = new Sky(scene, { sun, hemi, ambient }, office.night);
+/**
+ * The building's map as it's built (see shared/maps and world/world.ts): the office, or a map of
+ * its own (the castle). Only one is in the scene at a time, like the office and the rooftop.
+ */
+const theOffice = officeWorld(office, () => office.stack.state.index > 0, () => officeWing());
+let world: World = theOffice;
+/** Whether the building's on the office's own map, with everything that has (the elevator, the balcony, the lounge…). */
+const inOffice = () => world === theOffice;
+/** Where everything is on the building's map: its seats by id, and places to sit. */
+const plan = (): MapPlan => world.plan;
+/** On a castle-style map: its workers walking between their seats and the line for the throne. */
+let court: Court | null = null;
+const sky = new Sky(scene, { sun, hemi, ambient }, office.night, () => store.officeNow());
 store.on('sky', () => store.sky && sky.set(store.sky));
 // Halloween or Christmas decorations, up while the building's dressed up for one (see dressUp).
 const holiday = new Holiday(office);
@@ -151,26 +188,41 @@ const STATION_INFO: Record<StationKind, { icon: string; offer: string; does: str
   queue: { icon: '📋', offer: 'Ask me to queue work', does: 'I turn it into tasks for fresh workers', example: 'Queue every open bug issue, most important first' },
   study: { icon: '📖', offer: 'Ask me to plan', does: 'I interview you, one question at a time, into a PRD', example: 'Interview me about letting people sign up with a magic link' },
 };
-/** The board agents waiting by their boards before anyone has asked them anything (see buildKiosk). */
-const idleAgents = STATIONS.map((def) => {
-  const kind = def.station!;
-  const agent = STATION_AGENT[kind];
-  const model = new Worker(agent.name, agent.color);
-  model.setStatus('idle', false);
-  model.setTask({ name: STATION_INFO[kind].offer, summary: STATION_INFO[kind].does });
-  const view = office.desks.get(def.id)!;
-  view.vacancy.children[0].add(model.root);
-  noOutline(model.root);
-  return { model, view };
-});
+/** A board agent waiting by its board before anyone has asked it anything (see buildKiosk), and where. */
+interface IdleAgent {
+  model: Worker;
+  view: DeskView;
+}
+/** The board agents waiting by their boards in `w`. */
+function idleAgentsIn(w: World): IdleAgent[] {
+  return w.plan.stations.map((def) => {
+    const kind = def.station!;
+    const agent = STATION_AGENT[kind];
+    const model = new Worker(agent.name, agent.color);
+    model.setStatus('idle', false);
+    model.setTask({ name: STATION_INFO[kind].offer, summary: STATION_INFO[kind].does });
+    model.setOutfit(w.plan.agents.outfit === 'peasant' ? 'peasant' : null);
+    const view = w.desks.get(def.id)!;
+    view.vacancy.children[0].add(model.root);
+    noOutline(model.root);
+    return { model, view };
+  });
+}
+/** The ones in the world you're in. */
+let idleAgents = idleAgentsIn(world);
 
-// Boards: each draws onto a canvas texture, redrawn whenever what it shows changes.
-function mountBoard(mesh: THREE.Mesh, texture: THREE.Texture, render: () => void, topics: Topic[]) {
-  const mat = mesh.material as THREE.MeshBasicMaterial;
-  mat.map = texture;
-  mat.needsUpdate = true;
+// Boards: each draws onto a canvas texture, redrawn whenever what it shows changes. The same
+// texture goes on that board in whichever world you're in (see dressBoards).
+function mountBoard(mesh: THREE.Mesh | undefined, texture: THREE.Texture, render: () => void, topics: Topic[]) {
+  if (mesh) showOn(mesh, texture);
   for (const topic of topics) store.on(topic, render);
   render();
+}
+function showOn(mesh: THREE.Mesh, texture: THREE.Texture) {
+  const mat = mesh.material as THREE.MeshBasicMaterial;
+  if (mat.map === texture) return;
+  mat.map = texture;
+  mat.needsUpdate = true;
 }
 /** The issue card in your hands, taken off this floor's issues board (see Carrying an issue card), or null. */
 let carrying: CarriedIssue | null = null;
@@ -206,9 +258,11 @@ store.on('workers', () => {
   renderPullsBoard();
 });
 const servicesTex = new ServicesBoardTexture();
-mountBoard(office.boardMeshes.services, servicesTex.texture, () => servicesTex.render(store.services.items, store.workers), ['services', 'workers']);
+const renderServicesBoard = () => servicesTex.render(store.services.items, store.workers);
+mountBoard(office.boardMeshes.services, servicesTex.texture, renderServicesBoard, ['services', 'workers']);
 const queueTex = new QueueBoardTexture();
-mountBoard(office.boardMeshes.queue, queueTex.texture, () => queueTex.render(store.queue, store.workers), ['queue', 'workers']);
+const renderQueueBoard = () => queueTex.render(store.queue, store.workers);
+mountBoard(office.boardMeshes.queue, queueTex.texture, renderQueueBoard, ['queue', 'workers']);
 // The machine monitor on the west wall.
 const machineTex = new MachineTexture();
 mountBoard(office.machineScreen, machineTex.texture, () => machineTex.render(store.machine), ['machine']);
@@ -217,6 +271,15 @@ const meetingBoardTex = new MeetingBoardTexture();
 mountBoard(office.meetingBoard, meetingBoardTex.texture, () => meetingBoardTex.render(store.meeting), ['meeting']);
 const meetingSignTex = new MeetingSignTexture();
 mountBoard(office.meetingSign, meetingSignTex.texture, () => meetingSignTex.render(store.meeting), ['meeting']);
+/** Puts every board's texture up on `w`'s boards. */
+function dressBoards(w: World) {
+  showOn(w.boardMeshes.issues, issuesTex.texture);
+  showOn(w.boardMeshes.pulls, pullsTex.texture);
+  showOn(w.boardMeshes.services, servicesTex.texture);
+  showOn(w.boardMeshes.queue, queueTex.texture);
+  if (w.meetingBoard) showOn(w.meetingBoard, meetingBoardTex.texture);
+  if (w.meetingSign) showOn(w.meetingSign, meetingSignTex.texture);
+}
 
 // Pictures people hung on the walls
 const gallery = new Gallery();
@@ -271,6 +334,7 @@ let roof: Rooftop | null = null;
 function theRoof(): Rooftop {
   if (!roof) {
     roof = buildRooftop(office.night, roofFloors());
+    roof.setFloors(roofFloors(), floorWings(builtFloors()));
     roof.group.visible = false;
     roof.games.onDrop = (at) => sound.toss('drop', at);
     scene.add(roof.group);
@@ -286,7 +350,7 @@ function roofFloors(): number {
 function syncRoof() {
   if (!roof) return;
   const floors = roofFloors();
-  roof.setFloors(floors);
+  roof.setFloors(floors, floorWings(builtFloors()));
   if (upTop) sky.setRoof(true, roofDrop(floors));
 }
 store.on('floors', syncRoof);
@@ -308,6 +372,14 @@ scene.add(me.root);
 noOutline(me.root);
 const settings = loadSettings();
 const player = new PlayerController(camera, canvas, office.colliders);
+// Behind the wheel of one of the garage's cars (see "The cars in the garage" below). Up here, since placing you anywhere gets you out first.
+const driver = new Driver(player, office.cars, {
+  moved: (car, p) => net.send({ t: 'car.drive', car, x: p.x, z: p.z, rotY: p.rotY, speed: p.speed, steer: p.steer }),
+  bump: (at, speed) => {
+    sound.crash({ x: at.x, y: player.street + 0.5, z: at.z }, speed);
+    if (!reduceMotion.matches) thud = Math.max(thud, Math.min(0.8, speed / 15));
+  },
+});
 const telescope = new TelescopeView(
   camera,
   $('telescope-view'),
@@ -356,15 +428,21 @@ sound.setVolume(settings.volume, settings.muted);
 const dog = new Dog(sound, (id) => (store.workers.get(id)?.viewers.length ?? 0) > 0);
 scene.add(dog.root);
 noOutline(dog.root);
-store.on('dog', () => dog.sync(store.dog, store.dogStart));
+store.on('dog', () => {
+  dog.sync(store.dog, store.dogStart);
+  // The dog lives in the office: on a map of its own it stays home.
+  if (!inOffice()) dog.root.visible = false;
+});
 sound.setMusicVolume(settings.music, settings.musicMuted);
 sound.onMusicError = (text) => toast(text, 'warn');
 // The jukebox on your floor: everyone there hears it from the same bar, and its lights say what's on.
-store.on('jukebox', () => {
+// It's the office's: on a map of its own there's none to hear.
+function playJukebox() {
   const j = store.jukebox;
-  sound.setJukebox(j.on ? { track: j.track, url: j.url, startedAt: j.startedAt, since: j.since } : null);
+  sound.setJukebox(j.on && inOffice() ? { track: j.track, url: j.url, startedAt: j.startedAt, since: j.since } : null);
   office.jukebox.show(j.on, trackTitle(j));
-});
+}
+store.on('jukebox', playJukebox);
 // The arcade cabinet next to it: BLOCKFALL up close, and on its screen for everyone else on the floor.
 const cabinet = new Cabinet(office.cabinet.screen, net, { openTerminal: (id) => openWorkerTerminal(id), sound: (kind, lines) => sound.arcade(kind, lines) });
 const notifier = new DesktopNotifier(() => settings.notify, (id) => openWorkerTerminal(id));
@@ -684,10 +762,183 @@ function usePole(i: number) {
   else climber.twirl(spot);
 }
 
+// ---- The cars in the garage ------------------------------------------------------------------------
+/** car.enter and car.leave of yours the office hasn't answered yet: until it has, you're where you say you are. */
+let carPending = 0;
+
+/** Where car `i` is, at about the height of its horn. */
+function carAt(i: number): { x: number; y: number; z: number } {
+  const p = office.cars.cars[i]?.pose ?? CARS[i];
+  return { x: p.x, y: player.street + 0.6, z: p.z };
+}
+
+/** E at a car: behind the wheel if nobody's driving it, else beside whoever is. */
+function getIn(i: number) {
+  const c = store.cars[i];
+  const def = CARS[i];
+  if (trip || climber.active || driver.active || !c || !def) return;
+  if (carrying) return toast('🗂️ Your hands are full: put the card back first (Q)', 'warn');
+  if (holdingBall()) return toast('🏀 Put the ball down first (Q)', 'warn');
+  const seat: CarSeat | null = !c.driver ? 'driver' : !c.passenger ? 'passenger' : null;
+  if (!seat) return toast(`🏎️ The ${def.name} is full`, 'warn');
+  if (player.seat) standUp();
+  if (hanger.active) hanger.cancel();
+  if (walkingTo) stopWalking();
+  driver.enter(i, seat);
+  me.sit(SEAT_HIPS);
+  carPending++;
+  net.send({ t: 'car.enter', car: i, seat });
+  sound.carDoor(carAt(i));
+  hintKey = 'stale';
+}
+
+/** E in a car: out onto your feet beside it; `anyway`, even with no room there. False if you couldn't. */
+function getOut(anyway = false): boolean {
+  const i = driver.car;
+  if (i === null) return true;
+  if (!driver.leave(anyway)) {
+    toast('🚪 No room to open the door here', 'warn');
+    return false;
+  }
+  leftCar(i);
+  return true;
+}
+
+/** Out of the car wherever you are: something else is moving you (to another floor, a desk). */
+function dropCar() {
+  const i = driver.car;
+  if (i === null) return;
+  driver.drop();
+  leftCar(i);
+}
+
+function leftCar(i: number) {
+  me.sit(null);
+  carPending++;
+  net.send({ t: 'car.leave' });
+  sound.carDoor(carAt(i));
+  hintKey = 'stale';
+}
+
+/** H in a car: its horn, for everyone on the floor. */
+let honkedAt = 0;
+function honk() {
+  const i = driver.car;
+  const now = performance.now();
+  if (i === null || now - honkedAt < 300) return;
+  honkedAt = now;
+  sound.honk(carAt(i), CARS[i].kind === 'lambo');
+  net.send({ t: 'car.honk' });
+}
+
+/** Laps of the scenic loop you've driven (see LapTimer), and your fastest, kept in this browser. */
+const LAP_KEY = 'agent-office.bestLap';
+const laps = new LapTimer(
+  (() => {
+    try {
+      const best = Number(localStorage.getItem(LAP_KEY));
+      return best > 0 ? best : null;
+    } catch {
+      return null;
+    }
+  })(),
+);
+function lapDone(time: number) {
+  const done = laps.done;
+  if (done?.best) {
+    try {
+      localStorage.setItem(LAP_KEY, String(time));
+    } catch {
+      // private window: it's only for this visit then
+    }
+  }
+  if (done?.best) sound.golf('cheer');
+  else sound.arcade('clear');
+  toast(done?.best ? `🏁 Lap of the scenic loop: ${lapTime(time)}, your best yet!` : `🏁 Lap of the scenic loop: ${lapTime(time)} (best ${lapTime(laps.best ?? time)})`, 'info');
+}
+
+/**
+ * The office said who's in which car (`answer`: answering a car.enter or car.leave of yours). Once
+ * it has answered them all, where it has you is where you are: out, if someone got in first.
+ */
+function carNews(answer: boolean) {
+  if (answer) carPending = Math.max(0, carPending - 1);
+  if (carPending > 0) return;
+  const mine = store.carOf(store.you);
+  if (driver.active) {
+    if (mine?.car === driver.car && mine.seat === driver.seat) return;
+    const who = store.cars[driver.car!]?.[driver.seat!];
+    getOut(true);
+    toast(`🏎️ ${(who && store.peers.get(who)?.name) || 'Someone'} got in there first`, 'warn');
+  } else if (mine) {
+    // You got out while it was answering something else of yours.
+    carPending++;
+    net.send({ t: 'car.leave' });
+  }
+}
+
+/** Back after a reconnect, which let go of your seat for you: back into it if it's still free. */
+function carAgain() {
+  carPending = 0;
+  const i = driver.car;
+  const seat = driver.seat;
+  if (i === null || seat === null) return;
+  const c = store.cars[i];
+  if (!c || c[seat]) {
+    getOut(true);
+    return;
+  }
+  carPending++;
+  net.send({ t: 'car.enter', car: i, seat });
+  const p = driver.driving ? driver.pose : null;
+  if (p) net.send({ t: 'car.drive', car: i, x: p.x, z: p.z, rotY: p.rotY, speed: p.speed, steer: p.steer });
+}
+
+/** Where someone on your floor is sitting in a car, if they're in one. */
+function rideOf(id: string): { x: number; y: number; z: number; rotY: number } | undefined {
+  const at = store.carOf(id);
+  return at && office.cars.seatAt(at.car, at.seat);
+}
+
+/** In a car: how fast, who with, and the keys. */
+function renderDriveHint(el: HTMLElement) {
+  const i = driver.car!;
+  const c = store.cars[i];
+  const name = (id?: string) => (id && id !== store.you ? (store.peers.get(id)?.name ?? '') : '');
+  let hint: Hint;
+  // Where you are on the scenic loop, and how the lap's going.
+  const pose = office.cars.cars[i]?.pose;
+  const place = pose ? loopPlace(pose.x, pose.z) : null;
+  const where = place ? ` · ${PLACES[place].icon} ${PLACES[place].name}` : '';
+  if (driver.driving) {
+    const kmh = Math.round(Math.abs(driver.pose?.speed ?? 0) * 3.6);
+    const other = name(c?.passenger);
+    const now = performance.now() / 1000;
+    const done = laps.done && now - laps.done.at < 6 ? laps.done : null;
+    const running = laps.running(now);
+    const lap = done ? ` · 🏁 ${lapTime(done.time)}${done.best ? ' best!' : ''}` : running !== null ? ` · ⏱ ${lapTime(running)}` : '';
+    hint = {
+      k: `drive|${kmh}|${other}|${where}|${lap}`,
+      parts: [h('span.title', {}, `🏎️ ${CARS[i].name}`), aside(`${kmh} km/h${where}${lap}${other ? ` · with ${clip(other, 20)}` : ''}`), key('W A S D', 'Drive'), key('Space', 'Brake'), key('H', 'Honk'), key('E', 'Get out')],
+    };
+  } else {
+    const at = name(c?.driver);
+    hint = { k: `ride|${at}|${where}`, parts: [h('span.title', {}, `🏎️ ${CARS[i].name}`), aside(`${at ? `${clip(at, 24)} is driving` : 'nobody at the wheel'}${where}`), key('H', 'Honk'), key('E', 'Get out')] };
+  }
+  const k = `car|${hint.k}`;
+  if (k === hintKey) return;
+  hintKey = k;
+  el.replaceChildren(...hint.parts);
+  el.classList.remove('hidden');
+}
+
 /**
  * The ladder and the poles go where there are floors to go to from this one, and the building is as
  * tall as there are floors, with the street as far down as this one is up.
  */
+/** How far down there's anything to stand on, on a map of its own: its dungeon's floor, or the hall's. */
+const streetOf = (w: World) => w.dungeon?.plan.floor ?? 0;
+
 function syncStack() {
   const floors = builtFloors();
   const index = floors.findIndex((f) => f.id === store.floor);
@@ -695,12 +946,21 @@ function syncStack() {
   const up = store.floor === ROOF ? undefined : floors[index + 1]?.name;
   const down = index > 0 ? floors[index - 1]?.name : undefined;
   const count = index < 0 ? 1 : floors.length;
+  const wings = floorWings(floors);
+  // A map of its own is a hall on the ground: nothing under its floor to fall to, but its dungeon's.
+  player.street = inOffice() ? streetBelow(index) : streetOf(world);
   const s = office.stack.state;
-  if (s.index === Math.max(0, index) && s.count === count && s.up === up && s.down === down) return;
-  office.stack.set({ index: Math.max(0, index), count, up, down });
-  office.setLevel(Math.max(0, index), count);
-  player.street = streetBelow(index);
+  const same = s.index === Math.max(0, index) && s.count === count && s.up === up && s.down === down;
+  if (same && wings.join() === wingsShown) return;
+  wingsShown = wings.join();
+  if (!same) office.stack.set({ index: Math.max(0, index), count, up, down });
+  office.setLevel(Math.max(0, index), count, wings);
 }
+/** How far each floor's back office goes, for the building's outside (the one you're on as you see it). */
+function floorWings(floors: FloorInfo[]): number[] {
+  return floors.map((f) => (f.id === store.floor ? store.floorPlan.wing : (f.wing ?? 0)));
+}
+let wingsShown = '';
 store.on('floors', syncStack);
 
 function showMyProfile(p: Profile) {
@@ -735,19 +995,40 @@ interface WorkerView {
 const workerViews = new Map<string, WorkerView>();
 /** Workers a `worker.remove` is taking out of the store right now. They walk out of the building; a worker that's gone because you changed floors just vanishes. */
 const sentHome = new Set<string>();
+/** The top of whatever's underfoot at (x, z) for feet at `y`, in the world you're in: its floor, a step, the street. */
+const groundHere = (x: number, z: number, y: number) => Math.max(groundAt(world.colliders, x, z, y), player.street);
 // Workers sent home, packing up and walking out with a box of their things.
 const departures = new Departures(
   scene,
-  (x, z, y) => groundAt(office.colliders, x, z, y),
+  groundHere,
   (x, y, z) => sound.stepAt(x, z, y),
   () => arrangeSeats(),
-  () => office.stack.state.index > 0,
+  () => world.ways,
 );
-// Workers called to a meeting, walking in from the elevator to the meeting table.
+// Workers locked up in the dungeon, on a map that has one, wasting away in their cells.
+const jail = new Jail(
+  () => store.jail,
+  () => store.officeNow(),
+  (model, p) => {
+    model.setOutfit(plan().agents.outfit === 'peasant' ? 'peasant' : null);
+    model.setAge(agedBy(p.workedMs ?? 0));
+  },
+);
+// Workers sent home on a map with a script for it (the castle's Kingsguard marching them down to the dungeon).
+const sendoffs = new Sendoffs(
+  scene,
+  groundHere,
+  { step: (x, y, z) => sound.stepAt(x, z, y), door: (at, open) => sound.cellDoor(at, open), thud: (at) => sound.thud(at) },
+  () => arrangeSeats(),
+  () => world,
+  jail,
+);
+// Workers called to a meeting, walking in from the elevator (or the doors) to the meeting table.
 const arrivals = new Arrivals(
   scene,
-  (x, z, y) => groundAt(office.colliders, x, z, y),
+  groundHere,
   (x, y, z) => sound.stepAt(x, z, y),
+  () => world.ways,
 );
 /** Set while a floor's workers arrive with it (a welcome, an elevator ride): they're in their seats already. */
 let seatedAlready = false;
@@ -765,11 +1046,14 @@ net.onMessage((msg) => {
   if (msg.t === 'welcome') voice.reset();
   if (msg.t === 'welcome' || msg.t === 'floor.enter') {
     departures.clear();
+    sendoffs.clear();
     arrivals.clear();
     seatedAlready = true;
   }
   if (msg.t === 'worker.remove') sentHome.add(msg.workerId);
   store.apply(msg);
+  // A floor's cars where they are before anything asks if there's room to stand beside one (see welcome).
+  if (msg.t === 'welcome' || msg.t === 'floor.enter') office.cars.snap(store.cars);
   seatedAlready = false;
   sentHome.clear();
   routeTerminalMessage(msg);
@@ -789,7 +1073,13 @@ net.onMessage((msg) => {
         // Where the office put you: back in the spot you left (if there's still room there), or in the elevator car.
         setPlace();
         syncStack();
-        if (!inElevator(mine.x, mine.z) && player.fits(mine.x, mine.z, mine.y)) {
+        // Back to where you were, if that was on this map (and not in the elevator: that's arriving).
+        const saved = lastSpot();
+        const sameMap = !!saved && (saved.map ?? OFFICE_PLAN.id) === plan().id;
+        // A hall of its own has nothing outside it to come back to (and its walls may have moved since).
+        const b = plan().bounds;
+        const inRoom = inOffice() || (mine.x > b.minX + 0.3 && mine.x < b.maxX - 0.3 && mine.z > b.minZ + 0.3 && mine.z < b.maxZ - 0.3);
+        if (sameMap && inRoom && !(inOffice() && (inElevator(mine.x, mine.z) || pastTheWing(mine, officeWing()))) && player.fits(mine.x, mine.z, mine.y)) {
           placeAt(mine);
           arrive('back');
         } else {
@@ -805,14 +1095,16 @@ net.onMessage((msg) => {
         arrive();
         floorWentWhileAway(wasOn);
       } else if (!store.floor) arrive();
+      offTheRoof();
       if (voice.inVoice || voice.sharing) net.send({ t: 'voice', voice: voice.inVoice, muted: voice.muted, sharing: voice.sharing });
       if (player.seat) net.send({ t: 'sit', seat: player.seat.key });
       if (carrying) net.send({ t: 'carry', issue: carrying.issue, title: carrying.title });
       if (shownDrink) net.send({ t: 'act', drink: shownDrink });
       if (golf.active) net.send({ t: 'act', golf: true });
       if (thrower.playing) net.send({ t: 'act', throwing: thrower.playing });
-      // The office let go of the ball for you while you were away.
+      // The office let go of the ball for you while you were away, and of your seat in a car.
       ballNews(false);
+      carAgain();
       // After a reconnect the server has forgotten which terminal we had open, and what we're doing.
       sendDoing(true);
       const openId = openTerminalFor();
@@ -850,9 +1142,23 @@ net.onMessage((msg) => {
       if (holdingBall()) toast('🏀 The ball stayed behind, back under the other floor’s hoop');
       ballNews(false);
       arrive();
+      // Down off a roof that isn't there any more, or the map changed on the way: where you come in on this map.
+      if (offRoof || placeOnArrival) {
+        offRoof = false;
+        placeOnArrival = false;
+        placeInCar();
+        lift()?.setOpen(true);
+      }
+      offTheRoof();
       break;
     case 'ball':
       ballNews(true);
+      break;
+    case 'cars':
+      carNews(!!msg.answer);
+      break;
+    case 'car.honk':
+      if (msg.car >= 0 && msg.car < CARS.length) sound.honk(carAt(msg.car), CARS[msg.car].kind === 'lambo');
       break;
     case 'floors':
       noticeWaiting();
@@ -932,6 +1238,15 @@ net.onMessage((msg) => {
     case 'gong':
       gongRang(msg.why, msg.pr);
       break;
+    case 'sit.refused':
+      // Somebody on the floor got there first: back on your feet, next to them.
+      if (player.seat?.key === msg.seat) {
+        player.stand();
+        // On your feet as far as everyone's concerned (the office still has you where you sat before).
+        gotUp();
+        toast(`${msg.by} got there first`, 'warn');
+      }
+      break;
     case 'horn':
       if (!upTop) break;
       sound.horn();
@@ -963,14 +1278,14 @@ function renderProject() {
     $('project-meta').textContent = store.floors.length ? '🛗 Take the elevator to a floor' : '🛗 No floors yet — add a project in the elevator';
     // Where to go next, so it shows even with the floor details turned off.
     $('project-meta').classList.add('lobby');
-    office.setProjectName(store.floors.length ? 'Pick a floor' : 'Lobby');
+    world.setProjectName(store.floors.length ? 'Pick a floor' : 'Lobby');
     return;
   }
   const n = store.floors.findIndex((f) => f.id === store.floor);
   $('project-meta').classList.remove('lobby');
   $('project-name').textContent = `🏢 ${p.name}`;
   $('project-meta').textContent = [n >= 0 && `🛗 floor ${n + 1} of ${store.floors.length}`, p.branch && `⎇ ${p.branch}`, p.dir, `default: ${providerLabel(p.defaultProvider, p)}`].filter(Boolean).join(' · ');
-  office.setProjectName(p.name);
+  world.setProjectName(p.name);
 }
 store.on('floors', renderProject);
 store.on('project', renderProject);
@@ -986,6 +1301,7 @@ function renderTitle() {
 // ---- Floors & the elevator ----------------------------------------------------------------------
 /** In the car, facing out through the doors: where you are when you arrive on a floor, or down in the `garage`. */
 function placeInCar(at?: { x: number; z: number }, garage = false) {
+  if (!inOffice()) return placeAtSpawn();
   const spot = at && inElevator(at.x, at.z) ? at : { x: ELEVATOR.x, z: (ELEVATOR_CAR.minZ + ELEVATOR_CAR.maxZ) / 2 };
   placeAt({ x: spot.x, y: garage ? player.street : 0, z: spot.z, rotY: 0 });
 }
@@ -995,9 +1311,20 @@ function downstairs(): boolean {
   return !upTop && player.pos.y < -SLAB - 1;
 }
 
+/**
+ * Inside the office on your floor, its back office as far as it's built out too: not out on the
+ * balcony, the fire escape, the street or the golf course across it, nor down in the garage.
+ */
+function indoors(): boolean {
+  const p = player.pos;
+  if (upTop || !inOffice() || p.y < -1 || p.y > WALL_HEIGHT) return false;
+  return (p.x > FLOOR.minX && p.x < FLOOR.maxX && p.z > FLOOR.minZ && p.z < FLOOR.maxZ) || inWing(p.x, p.z, officeWing());
+}
+
 /** On your feet at `at`, facing `rotY` and looking straight ahead. */
 function placeAt(at: { x: number; y: number; z: number; rotY: number }) {
   if (player.seat) standUp();
+  dropCar();
   player.pos.set(at.x, at.y, at.z);
   player.vy = 0;
   player.facing = at.rotY;
@@ -1017,10 +1344,10 @@ function takenAway() {
 /** Where you're standing, to come back to (see lastSpot): nowhere while you're between floors, or climbing between them. */
 function spotHere(): Spot | null {
   if (!store.floor || trip || climber.active) return null;
-  // Sitting, it's where you'd get up to.
-  const at = player.standingSpot() ?? player.pos;
+  // Sitting, it's where you'd get up to; in a car, where you'd get out.
+  const at = (driver.active ? driver.wayOut() : player.standingSpot()) ?? player.pos;
   const name = store.floor === ROOF ? ROOF_NAME : (store.currentFloor()?.name ?? '');
-  return { floor: store.floor, name, x: at.x, y: at.y, z: at.z, facing: player.facing };
+  return { floor: store.floor, name, map: plan().id, x: at.x, y: at.y, z: at.z, facing: player.facing, ...(onThrone() ? { throne: true } : {}) };
 }
 
 /** Where to put you back when the office lets you in: where you are now, or before this page was loaded, where you were last time. */
@@ -1033,7 +1360,12 @@ function saveSpot() {
   if (s) rememberSpot(s);
 }
 // Closing the tab, or reloading: the frame loop saves it every second, and here's the last word.
-window.addEventListener('pagehide', saveSpot);
+window.addEventListener('pagehide', () => {
+  saveSpot();
+  // Mid-drive, the car stops right where you left it, not where the office last heard it was.
+  const p = driver.driving ? driver.pose : null;
+  if (p) net.send({ t: 'car.drive', car: driver.car!, x: p.x, z: p.z, rotY: p.rotY, speed: 0, steer: p.steer });
+});
 
 /** You asked to come back to floor `was`, and it's gone (taken off the building, or its checkout deleted): the office sent you up to the roof. */
 function floorWentWhileAway(was: string | null) {
@@ -1060,8 +1392,9 @@ function showElevator() {
   openElevator({ net, ride, downstairs });
 }
 
-/** The elevator where you are: the office's, its stop down in the garage, or the one up on the roof. */
+/** The elevator where you are: the office's, its stop down in the garage, or the one up on the roof. None on a map of its own. */
 function lift() {
+  if (!inOffice()) return null;
   return upTop && roof ? roof.elevator : downstairs() ? office.garageLift : office.elevator;
 }
 
@@ -1071,13 +1404,26 @@ function lift() {
  * stay on that floor, just further down the shaft (or back up it); from the roof, the garage is the
  * bottom floor's.
  */
-function ride(to: string) {
+function ride(to: string, keepWalking = false): void {
+  // A map of its own has no elevator: straight there, and no roof or garage to go to.
+  if (!inOffice()) {
+    if (to === ROOF || to === GARAGE) {
+      if (walkingTo) stopWalking();
+      toast(`There's no ${to === ROOF ? 'rooftop bar' : 'garage'} on this map (${plan().icon} ${plan().name})`, 'warn');
+      return;
+    }
+    // Still up on a roof this map doesn't have: straight down to that floor.
+    if (upTop) return leaveRoofFor(to);
+    // Straight there (and on over to whoever you were walking to, if that's why).
+    return switchFloor(to, keepWalking);
+  }
   const garage = to === GARAGE;
   const floorId = garage ? (upTop || !store.floor ? builtFloors()[0]?.id : store.floor) : to;
   if (trip || !floorId || (floorId === store.floor && garage === downstairs())) return;
   closeAllModals();
   if (hanger.active) hanger.cancel();
   if (climber.active) climber.abort();
+  getOut(true);
   if (golf.active) golf.stop();
   if (thrower.active) thrower.stop();
   const inside = inElevator(player.pos.x, player.pos.z);
@@ -1085,7 +1431,7 @@ function ride(to: string) {
   trip = { floor: floorId, how: 'elevator', garage, timer: window.setTimeout(tripFailed, 10_000) };
   player.enabled = false;
   player.clearKeys();
-  lift().setOpen(false);
+  lift()?.setOpen(false);
   // Wait for the doors to shut on you, then dim the lights and go.
   setTimeout(
     () => {
@@ -1106,6 +1452,11 @@ function rodeWithin() {
   if (!trip) return;
   clearTimeout(trip.timer);
   trip = null;
+  // The map changed on the ride down (or up): where it has you come in.
+  if (placeOnArrival) {
+    placeOnArrival = false;
+    placeInCar();
+  }
   fade(false);
   doorsOpen();
 }
@@ -1113,34 +1464,51 @@ function rodeWithin() {
 /** There: the doors open onto it, with a ding. */
 function doorsOpen() {
   setTimeout(() => {
-    lift().setOpen(true);
+    lift()?.setOpen(true);
     sound.ding('done');
     player.enabled = !modalOpen();
   }, 450);
 }
 
-/** Where you are, to arrive at the same spot on floor `to`. Down on the street (or the steps to it), that's the street there too. */
+/**
+ * Where you are, to arrive at the same spot on floor `to`. Down on the street (or the steps to it),
+ * that's the street there too. On a map of its own every floor's the same hall on the ground, so down
+ * in its dungeon is down in the other one's.
+ */
 function standingAt(to: string): Arrival {
   const floors = builtFloors();
   const from = floors.findIndex((f) => f.id === store.floor);
   const there = floors.findIndex((f) => f.id === to);
-  const below = player.pos.y < -SLAB - 0.05 && from >= 0 && there >= 0;
+  const below = inOffice() && player.pos.y < -SLAB - 0.05 && from >= 0 && there >= 0;
   return { x: player.pos.x, y: below ? player.pos.y + (from - there) * STOREY : player.pos.y, z: player.pos.z, rotY: player.facing };
 }
 
 /** Straight to another floor from the floor list: a blink, and you're standing in the same spot there. */
-function switchFloor(floorId: string) {
-  // The roof isn't laid out like a floor: to and from it, it's the elevator.
+/** You were on the throne when you left for another floor: you sit back down on that one's, if it's free. */
+let backToThrone = false;
+
+function switchFloor(floorId: string, keepWalking = false): void {
+  // The roof isn't laid out like a floor: to and from it, it's the elevator (and on a map with no
+  // roof, straight down off it).
+  if (upTop && !inOffice()) return leaveRoofFor(floorId);
   if (upTop || floorId === ROOF) return ride(floorId);
   if (trip || floorId === store.floor) return;
+  // Outside, the same spot on another floor looks just like this one: the elevator brings you in
+  // to that floor instead, into its car.
+  if (inOffice() && !indoors()) {
+    if (walkingTo && !keepWalking) stopWalking();
+    return ride(floorId, keepWalking);
+  }
   closeAllModals();
   if (hanger.active) hanger.cancel();
   if (climber.active) climber.abort();
+  getOut(true);
   if (golf.active) golf.stop();
   if (thrower.active) thrower.stop();
+  backToThrone = onThrone();
   if (player.seat) standUp();
   // The floor list isn't a window, so nothing else stops a walk over to someone on this floor.
-  if (walkingTo) stopWalking();
+  if (walkingTo && !keepWalking) stopWalking();
   trip = { floor: floorId, how: 'switch', timer: window.setTimeout(tripFailed, 10_000) };
   player.enabled = false;
   player.clearKeys();
@@ -1162,14 +1530,28 @@ function tripFailed() {
   if (!t) return;
   trip = null;
   fade(false);
-  if (t.how === 'elevator') lift().setOpen(!!store.floor);
+  if (t.how === 'elevator') lift()?.setOpen(!!store.floor);
   if (t.how === 'ladder' || t.how === 'pole') climber.abort();
   player.enabled = !modalOpen();
+  // The map changed on the way: back where it has you come in (or down off a roof it doesn't have).
+  if (placeOnArrival && !upTop) {
+    placeOnArrival = false;
+    placeInCar();
+    lift()?.setOpen(true);
+  } else if (placeOnArrival) {
+    placeOnArrival = false;
+    offTheRoof();
+  }
+  // Down off a roof the map doesn't have: try again.
+  if (offRoof) {
+    offRoof = false;
+    offTheRoof();
+  }
 }
 
 /** Arrived in a spot that's a pole's hole on this floor: step out of it, the way in. */
 function unstick() {
-  if (!office.stack.polesGoDown()) return;
+  if (!inOffice() || !office.stack.polesGoDown()) return;
   const p = player.pos;
   const spot = office.stack.poles().find((s) => Math.max(Math.abs(p.x - s.x), Math.abs(p.z - s.z)) <= POLE.rail + 0.35);
   if (!spot) return;
@@ -1183,7 +1565,7 @@ function paintFloor() {
   const p = store.currentFloor()?.palette ?? 0;
   if (p === painted) return;
   painted = p;
-  office.setLook(floorPalette(p));
+  world.setLook(floorPalette(p));
 }
 // A brand-new floor can arrive before the elevator's list says what color it is.
 store.on('floors', paintFloor);
@@ -1198,11 +1580,11 @@ function setPlace() {
   if (up === upTop) return;
   upTop = up;
   const r = up ? theRoof() : roof;
-  office.group.visible = !up;
+  world.group.visible = !up;
   // The holiday decorations are dressed round the office and the street below it, not up here.
-  holiday.group.visible = !up;
+  holiday.group.visible = !up && inOffice();
   if (r) r.group.visible = up;
-  player.colliders = up ? r!.colliders : office.colliders;
+  player.colliders = up ? r!.colliders : world.colliders;
   sky.setRoof(up, roofDrop(roofFloors()));
   sound.setOutdoors(up);
   sound.setDj(up ? djAt : null);
@@ -1225,7 +1607,8 @@ function setPlace() {
 
 /** What you can use where you are, and what's in the way of looking at it. */
 function usable(): Interactable[][] {
-  return upTop && roof ? [roof.interactables] : [office.interactables, gallery.interactables, dog.interactables, ball.interactables];
+  if (upTop && roof) return [roof.interactables];
+  return inOffice() ? [office.interactables, gallery.interactables, dog.interactables, ball.interactables] : [world.interactables, court?.interactables ?? []];
 }
 
 /**
@@ -1248,7 +1631,7 @@ function arrive(how: TripKind | 'back' = trip?.how ?? 'elevator') {
   }
   if (!store.floor) {
     // Nowhere to go yet: the doors stay shut until there's a floor, and the panel says how to add one.
-    office.elevator.setOpen(false);
+    lift()?.setOpen(false);
     fade(false);
     player.enabled = !modalOpen();
     showElevator();
@@ -1257,18 +1640,171 @@ function arrive(how: TripKind | 'back' = trip?.how ?? 'elevator') {
   fade(false);
   if (how === 'back') {
     // The doors stand open, the way the last one out left them.
-    lift().setOpen(true);
+    lift()?.setOpen(true);
     player.enabled = !modalOpen();
     if (!upTop) unstick();
+    // Back on the throne you were on when you left (if nobody's taken it since).
+    if (lastSpot()?.throne) sitOnThrone();
     return;
   }
   if (how !== 'elevator') {
     player.enabled = !modalOpen();
     if (how === 'switch') unstick();
     else climber.arrived();
+    if (how === 'switch' && backToThrone) sitOnThrone();
+    backToThrone = false;
     return;
   }
   doorsOpen();
+}
+
+// ---- The building's map --------------------------------------------------------------------------
+/** The board agents waiting at the office's kiosks (the ones made at the start). */
+const officeIdle = idleAgents;
+/** The worlds built for maps of their own, by map id, with the plan each was built from (a custom map can change). */
+const built = new Map<string, { plan: MapPlan; world: World; court: Court; idle: IdleAgent[] }>();
+
+/** The world for `p`: the office, or the one its style's builder puts up for it, the first time it's wanted. */
+function worldFor(p: MapPlan): { world: World; court: Court | null; idle: IdleAgent[] } {
+  if (p.style === 'office') return { world: theOffice, court: null, idle: officeIdle };
+  let b = built.get(p.id);
+  // A map of your own was edited since: it's built again.
+  if (b && b.plan !== p) {
+    scene.remove(b.world.group);
+    b.world.dispose?.();
+    for (const a of b.idle) a.model.dispose();
+    built.delete(p.id);
+    b = undefined;
+  }
+  if (!b) {
+    const w = BUILDERS[p.style](p);
+    w.group.visible = false;
+    scene.add(w.group);
+    noOutline(w.group);
+    const ground = (x: number, z: number, y: number) => Math.max(groundAt(w.colliders, x, z, y), w.dungeon?.plan.floor ?? 0);
+    b = { plan: p, world: w, court: new Court(w.group, p, w.nav, ground, (x, y, z) => sound.stepAt(x, z, y)), idle: idleAgentsIn(w) };
+    built.set(p.id, b);
+  }
+  return b;
+}
+
+/**
+ * The building changed maps (or you arrived and it's not the office): the old world goes, the new
+ * one's put up, every worker sits down in its seat there, and you come in where it has you arrive.
+ */
+function applyMap() {
+  const next = worldFor(store.plan());
+  if (next.world === world) return;
+  // Everyone gets up from the old map's seats; they sit down in the new one's below.
+  for (const [id, v] of workerViews) {
+    court?.release(id);
+    v.model.root.removeFromParent();
+    v.laptop.root.removeFromParent();
+    v.model.dispose();
+    v.laptop.dispose();
+    sound.removeTypist(id);
+  }
+  workerViews.clear();
+  departures.clear();
+  sendoffs.clear();
+  arrivals.clear();
+  telescope.exit();
+  if (hanger.active) hanger.cancel();
+  if (climber.active) climber.abort();
+  if (walkingTo) stopWalking();
+  if (golf.active) golf.stop();
+  if (smokeBreakUntil) setSmoking(false);
+  // The office's things: the ball goes down (out of everyone's hands, since its sync is the office's), the games stop.
+  if (holdingBall()) dropBall();
+  me.holdBall(false);
+  hands.holdBall(false);
+  for (const r of remotes.values()) r.person.holdBall(false);
+  arcade.stop();
+  cabinet.stop();
+  world.group.visible = false;
+  world = next.world;
+  court = next.court;
+  idleAgents = next.idle;
+  world.group.visible = !upTop;
+  if (!upTop) player.colliders = world.colliders;
+  player.room = { ...plan().bounds, ...world.room };
+  if (!upTop && !inOffice()) player.street = streetOf(world);
+  sky.setIndoors(world.room.enclosed);
+  // What you hear: the office's phones and fridge, or the hall's own windows and gong.
+  sound.setHall(world.acoustics ? { bounds: plan().bounds, ...world.acoustics } : null);
+  // The office's own: the holiday decorations round it and the street, the dog, the jukebox.
+  holiday.group.visible = inOffice() && !upTop;
+  dog.root.visible = inOffice() && !!store.dog;
+  playJukebox();
+  dressBoards(world);
+  painted = -1;
+  paintFloor();
+  renderProject();
+  dressUp();
+  syncPlan();
+  // They were there already: nobody walks in (and on a welcome, the floor's workers that come next weren't either).
+  const already = seatedAlready;
+  seatedAlready = true;
+  syncWorkers();
+  seatedAlready = already;
+  syncJail();
+  // The boards name seats the way this map does.
+  renderPullsBoard();
+  renderServicesBoard();
+  renderQueueBoard();
+  if (store.floor && !upTop && !trip) {
+    placeInCar();
+    // Back in the office, in its elevator: the doors open onto it.
+    lift()?.setOpen(true);
+  } else if (trip) placeOnArrival = true;
+  heraldHires.clear();
+  offTheRoof();
+  hintKey = 'stale';
+  hud.refresh();
+}
+store.on('map', applyMap);
+
+/** The map changed while you were on your way to a floor: wherever you land, you arrive where the map has you come in. */
+let placeOnArrival = false;
+
+/** Where you come in on a map of its own: on the throne if nobody's on it, else on your feet where the map says. */
+function placeAtSpawn() {
+  const p = plan();
+  const at = p.spawn;
+  placeAt({ x: at.x, y: groundHere(at.x, at.z, 1.5), z: at.z, rotY: at.rotY });
+  // Not on the way to another floor: the throne's this one's.
+  if (!trip) sitOnThrone();
+}
+
+/** Up onto the map's throne, if it has one and nobody's on it. */
+function sitOnThrone() {
+  const seat = plan().throne && freePlace(plan().throne!);
+  if (!seat || upTop) return;
+  if (player.seat) player.stand();
+  player.sit(seat);
+  me.sit(seat.hips);
+  if (store.floor) net.send({ t: 'sit', seat: seat.key });
+}
+
+/** Down off the roof, on a map with no roof to be up on (it changed while you were up there). */
+let offRoof = false;
+function offTheRoof() {
+  if (!upTop || inOffice() || trip) return;
+  const f = builtFloors()[0];
+  if (!f) return;
+  leaveRoofFor(f.id);
+  toast(`The building's ${plan().icon} ${plan().name} now, with no rooftop bar: down you go`);
+}
+
+/** Off a roof the map doesn't have, down to `floorId`, arriving where the map has you come in (see floor.enter). */
+function leaveRoofFor(floorId: string) {
+  if (trip) return;
+  offRoof = true;
+  trip = { floor: floorId, how: 'switch', timer: window.setTimeout(tripFailed, 10_000) };
+  player.enabled = false;
+  player.clearKeys();
+  fade(true, true);
+  net.send({ t: 'floor.go', floor: floorId });
 }
 
 /** Workers waiting on someone, per floor, the last time the elevator said so. */
@@ -1295,8 +1831,8 @@ function noticeWaiting() {
 // ---- Peers --------------------------------------------------------------------------------------
 function syncPeers() {
   for (const [id, peer] of store.peers) {
-    // Only who's on your floor is in the room with you.
-    if (id === store.you || !store.onMyFloor(peer)) continue;
+    // Only who's on your floor is in the room with you, and not someone on the 2D view: they're not standing anywhere.
+    if (id === store.you || !store.onMyFloor(peer) || peer.lite) continue;
     let r = remotes.get(id);
     if (!r) {
       const person = new Person(peer.name, peer.color, peer.look);
@@ -1326,12 +1862,12 @@ function syncPeers() {
     r.person.holdDrink(peer.drink ? (DRINK_BY_ID.get(peer.drink) ?? null) : null);
     r.person.carry(peer.carrying);
     r.person.read(!!peer.reading);
-    r.person.sit(peer.seat ? (seatAt(peer.seat)?.hips ?? null) : null);
-    r.person.setDoing(whereabouts(peer));
+    r.person.sit(store.carOf(id) ? SEAT_HIPS : peer.seat ? (seatOn(plan(), peer.seat)?.hips ?? null) : null);
+    r.person.setDoing(whereabouts(peer, store.carOf(id), plan()));
   }
   for (const [id, r] of remotes) {
     const peer = store.peers.get(id);
-    if (!peer || !store.onMyFloor(peer)) {
+    if (!peer || !store.onMyFloor(peer) || peer.lite) {
       scene.remove(r.person.root);
       remotes.delete(id);
     }
@@ -1340,6 +1876,8 @@ function syncPeers() {
   refreshShares();
 }
 store.on('peers', syncPeers);
+// Into a car or out of one: sitting in it, or back on their feet.
+store.on('cars', syncPeers);
 
 function sayBubble(from: string, text: string) {
   if (from === store.you) return;
@@ -1365,15 +1903,18 @@ let walkingTo: { id: string; replanAt: number } | null = null;
 function walkTo(id: string) {
   const p = store.peers.get(id);
   if (!p || id === store.you) return;
+  if (p.lite) return void toast(`📱 ${p.name} is on the 2D view, not anywhere in the office itself`);
   if (!store.onMyFloor(p) && !p.floor) return;
+  if (!getOut()) return;
   if (player.seat) standUp();
   if (golf.active) golf.stop();
   if (thrower.active) thrower.stop();
+  errand = null;
   walkingTo = { id, replanAt: 0 };
   if (store.onMyFloor(p)) toast(`🚶 Walking over to ${p.name}`);
   else {
     toast(`🛗 Taking the elevator to ${p.name}, on the ${store.floors.find((f) => f.id === p.floor)?.name ?? 'other'} floor`);
-    ride(p.floor!);
+    ride(p.floor!, true);
   }
 }
 
@@ -1384,7 +1925,7 @@ function stopWalking() {
 
 /** Where they are, sitting or standing. */
 function whereIs(p: PeerInfo): { x: number; y: number; z: number } {
-  return (p.seat && seatAt(p.seat)) || p;
+  return rideOf(p.id) ?? ((p.seat && seatOn(plan(), p.seat)) || p);
 }
 
 /** There: stop, and turn to them. */
@@ -1397,7 +1938,7 @@ function arrivedAt(at: { x: number; z: number }) {
 
 /** Each frame: keep heading for them, looking again every so often in case they've moved on. */
 function walkTick(now: number) {
-  if (!walkingTo || trip || climber.active || !player.enabled) return;
+  if (!walkingTo || trip || climber.active || driver.active || !player.enabled) return;
   // Sitting down on the way is stopping there.
   if (player.seat) return stopWalking();
   const p = store.peers.get(walkingTo.id);
@@ -1409,10 +1950,12 @@ function walkTick(now: number) {
   if (Math.hypot(at.x - player.pos.x, at.z - player.pos.z) < NEAR_ENOUGH && Math.abs(at.y - player.pos.y) < 1) return arrivedAt(at);
   if (now < walkingTo.replanAt) return;
   walkingTo.replanAt = now + 800;
-  player.walkPath(wayTo(player.pos, at));
+  // Round the office's rooms and up its stairs; on a map of its own, round what's in the way on its floor.
+  player.walkPath(inOffice() ? wayTo(player.pos, at, officeWing()) : world.nav.route([player.pos.x, player.pos.z], [at.x, at.z]).slice(1).map(([x, z]) => ({ x, z })));
 }
 
 player.onPathEnd = (why) => {
+  if (errand) return errandEnd(why);
   if (!walkingTo) return;
   if (why === 'cancelled') return void (walkingTo = null);
   const p = store.peers.get(walkingTo.id);
@@ -1426,6 +1969,41 @@ player.onPathEnd = (why) => {
   } else walkingTo.replanAt = 0;
 };
 
+
+// ---- Walking over to something, then using it (Shift+Enter in the palette) -----------------------
+/** What you're on your way to (see walkThen): where to stand, what it's called, what to turn to and what to do there. */
+let errand: { at: { x: number; z: number }; what: string; face?: { x: number; z: number }; then: () => void } | null = null;
+
+/**
+ * Walks you over to `at` on this floor and does `then` when you get there, as if you'd walked up
+ * and pressed E. Where there's no walking to be done (up on the roof, riding the elevator, on the
+ * ladder, driving a car) it just does it. A key of yours takes over, and then it doesn't happen.
+ */
+function walkThen(at: { x: number; y?: number; z: number }, what: string, then: () => void, face?: { x: number; z: number }) {
+  if (upTop || trip || climber.active || driver.active) return then();
+  closeAllModals();
+  if (player.seat) standUp();
+  if (hanger.active) hanger.cancel();
+  if (golf.active) golf.stop();
+  if (thrower.active) thrower.stop();
+  if (walkingTo) stopWalking();
+  errand = { at, what, face, then };
+  toast(`🚶 Walking over to ${what}`);
+  const to = { x: at.x, y: at.y ?? 0, z: at.z };
+  // As walkTick does: round the office's rooms (and its back office), or round what's in the way on a map of its own.
+  player.walkPath(inOffice() ? wayTo(player.pos, to, officeWing()) : world.nav.route([player.pos.x, player.pos.z], [to.x, to.z]).slice(1).map(([x, z]) => ({ x, z })));
+}
+
+function errandEnd(why: 'arrived' | 'cancelled' | 'stuck') {
+  const e = errand!;
+  errand = null;
+  if (why === 'cancelled') return;
+  if (why === 'stuck') toast(`🚧 Couldn't find a way over to ${e.what}, so here it is from where you are`, 'warn');
+  else if (e.face) arrivedAt(e.face);
+  else stopWalking();
+  e.then();
+}
+
 // ---- Workers ------------------------------------------------------------------------------------
 /** How close (meters) you stop a worker jumping, and how far you go before it starts again. */
 const HOLD_NEAR = 4;
@@ -1434,12 +2012,15 @@ const HOLD_LEAVE = 5;
 function syncWorkers() {
   for (const w of store.workers.values()) {
     let v = workerViews.get(w.id);
-    const desk = office.desks.get(w.deskId);
+    const desk = world.desks.get(w.deskId);
     if (!desk) continue;
     if (!v) {
       departures.vacate(w.deskId);
+      sendoffs.vacate(w.deskId);
       const model = new Worker(w.name, w.color);
       model.setCostume(store.theme.active);
+      model.setOutfit(plan().agents.outfit === 'peasant' ? 'peasant' : null);
+      model.setAge(ageOf(w));
       desk.seatAnchor.add(model.root);
       // Its globe floats beside the laptop (or the kiosk's counter), out from behind the card over
       // its head and the back of its chair, so it shows from across the room.
@@ -1447,7 +2028,9 @@ function syncWorkers() {
       model.setPropSpot(model.root.worldToLocal(desk.laptopAnchor.localToWorld(beside)));
       // Called to a meeting just now: out of the elevator and over to the table, one after another.
       if (desk.def.room && !seatedAlready) arrivals.add(model, desk);
-      const laptop = new Laptop();
+      // In the castle, a worker at the tables gets up and walks about (see Court): a new one runs in to its seat.
+      else if (court && inCourt(w)) court.add(w.id, model, desk, seatedAlready ? undefined : cameFrom(w));
+      const laptop = new Laptop(world.device);
       desk.laptopAnchor.add(laptop.root);
       noOutline(desk.group);
       desk.chair.rotation.y = 0;
@@ -1474,20 +2057,26 @@ function syncWorkers() {
     }
     v.model.setAction(w.action);
     v.model.setPr(workerPr(w, store.pulls.items, store.queue.tasks));
+    v.model.setLost(!!w.lost);
     const engineBadge = w.kind === 'agent' ? modelBadge(w.provider, w.model, w.effort) : undefined;
     v.model.setTask(meetingCard(w) ?? (w.task && w.kind === 'agent' ? { ...w.task, name: `${providerLabel(w.provider, store.project)}${engineBadge ? ` · ${engineBadge}` : ''} · ${w.task.name}` } : w.task));
-    const deskDef = DESK_BY_ID.get(w.deskId);
+    const deskDef = plan().byId.get(w.deskId);
     // Keys clack while it types, not while it reads, watches its tests or browses.
     if (deskDef) sound.setTyping(w.id, deskDef.x, deskDef.z, w.status === 'working' && (!w.action || w.action === 'edit'));
     const again = w.kind === 'shell' ? 'restart' : 'resume';
-    v.laptop.setPlaceholder(w.status === 'offline' ? `💤 ${w.name} is asleep — press R to ${again}` : w.status === 'exited' ? `${w.name} exited` : 'booting…');
+    v.laptop.setPlaceholder(w.lost ? `🌿 ${w.name}'s worktree was deleted — press E to fix it` : w.status === 'offline' ? `💤 ${w.name} is asleep — press R to ${again}` : w.status === 'exited' ? `${w.name} exited` : 'booting…');
   }
   for (const [id, v] of workerViews) {
     if (store.workers.has(id)) continue;
     arrivals.forget(v.model);
-    const desk = office.desks.get(v.deskId);
-    // Sent home: it packs up and walks out, and the seat shows as free once it's up (see departures).
-    if (desk && sentHome.has(id)) departures.add(v.model, v.laptop, desk);
+    const desk = world.desks.get(v.deskId);
+    // Up and about in the castle: it sets off from where it's standing.
+    const up = court?.release(id);
+    // Sent home: it packs up and walks out, and the seat shows as free once it's up (see departures), or
+    // on a map with its own way of seeing workers off, that (the castle's dungeon, for one it locks up).
+    const send = plan().sendHome;
+    if (desk && sentHome.has(id) && send && (!send.keeps || store.jail.prisoners.some((p) => p.id === id))) sendoffs.add(id, v.model, v.laptop, desk, up);
+    else if (desk && sentHome.has(id)) departures.add(v.model, v.laptop, desk, up);
     else {
       v.model.root.removeFromParent();
       v.laptop.root.removeFromParent();
@@ -1498,11 +2087,61 @@ function syncWorkers() {
     workerViews.delete(id);
   }
   arrangeSeats();
+  // Whoever's waiting on someone lines up for the throne, the one who's waited longest first.
+  court?.line(waitingInOrder(store.workers.values()).filter(inCourt).map((w) => w.id));
   renderWorkers((id) => openWorkerTerminal(id));
   renderWaiting();
   notifier.sync(store.workers);
   renderTitle();
 }
+
+/** A worker that sits at the tables (not a board agent or at the meeting table): it gets up and lines up for the throne. */
+function inCourt(w: WorkerInfo): boolean {
+  const d = plan().byId.get(w.deskId);
+  return w.kind === 'agent' && !!d && !d.station && !d.room && !w.meeting;
+}
+
+/**
+ * The seat a worker sent out from the herald goes to: the first free one, not counting one you've
+ * just sent someone else to (it isn't taken until the office says so).
+ */
+function heraldSeat(): string | undefined {
+  const now = performance.now();
+  for (const [id, s] of heraldHires) if (now - s.at > HERALD_WAIT) heraldHires.delete(id);
+  return [...plan().desks, ...plan().overflow].find((d) => !store.workerAtDesk(d.id) && !heraldHires.has(d.id))?.id;
+}
+
+/** Seats you've just sent a worker out to from the herald (see hireFromHerald), so a second goes elsewhere. */
+const heraldHires = new Map<string, { floor: string | null; at: number }>();
+/** How long a worker sent out from the herald has to turn up before its seat's forgotten. */
+const HERALD_WAIT = 30_000;
+
+/** Where a worker just hired comes in from, running to its seat: the herald, the doors (off the queue), or nowhere (it's just there). */
+function cameFrom(w: WorkerInfo): [number, number] | undefined {
+  heraldHires.delete(w.deskId);
+  // Sent out by the herald (by anyone: the office says so): from beside him.
+  const h = plan().herald;
+  if (w.via === 'herald' && h) return [h.x + Math.sin(h.rotY) * 1.1, h.z + Math.cos(h.rotY) * 1.1];
+  if (w.createdBy.endsWith('(queue)')) return [plan().door.x, plan().door.z];
+  return undefined;
+}
+
+/** How worn out a worker looks on this map, 0–1: how long it has worked, of the map's ageMinutes. */
+function ageOf(w: WorkerInfo): number {
+  return agedBy((w.workedMs ?? 0) + (w.workingSince !== undefined && w.status === 'working' ? Math.max(0, store.officeNow() - w.workingSince) : 0));
+}
+
+/** How worn out `worked` ms of work makes a worker look on this map, 0–1. */
+function agedBy(worked: number): number {
+  const full = plan().agents.ageMinutes;
+  return full ? Math.min(1, worked / (full * 60_000)) : 0;
+}
+
+/** Whoever's locked up in this floor's dungeon, in their cells. */
+function syncJail() {
+  jail.sync(world.dungeon, plan().sendHome);
+}
+store.on('jail', syncJail);
 
 /** Hired by you (at a desk, or through the queue), or last given something to do by you. */
 function yours(w: WorkerInfo): boolean {
@@ -1533,9 +2172,9 @@ function meetingCard(w: WorkerInfo): WorkerTask | undefined {
  */
 function arrangeSeats() {
   // Someone sent home still counts until they get up, so a bean bag stays out under them.
-  const free = vacantSeats(store.workers.values(), (id) => departures.seated(id));
-  for (const [id, desk] of office.desks) desk.vacancy.visible = free.has(id);
-  const appeared = office.setBeanbags(beanbagsOut((id) => !free.has(id)));
+  const free = vacantSeats(store.workers.values(), (id) => departures.seated(id) || sendoffs.seated(id));
+  for (const [id, desk] of world.desks) desk.vacancy.visible = free.has(id) && seatBuilt(id);
+  const appeared = world.setBeanbags(beanbagsOut((id) => !free.has(id), store.floorPlan.wing));
   // One came out right where you're standing (on the office floor, not down in the garage): you end up on top of it.
   const p = player.pos;
   for (const c of appeared) if (p.y > -0.1 && p.y < c.top && p.x > c.minX - 0.3 && p.x < c.maxX + 0.3 && p.z > c.minZ - 0.3 && p.z < c.maxZ + 0.3) p.y = c.top;
@@ -1554,6 +2193,62 @@ store.on('workers', () => {
     openAnswer(w, ask, net);
   }
 });
+
+/** The floor plan last shown, to tell someone knocking through from arriving on a floor already built out (or back on the office's map). */
+let shownPlan: { floor: string | null; map: string; wing: number } = { floor: null, map: OFFICE_PLAN.id, wing: 0 };
+/**
+ * How many rows the office's back office is built out where you are: the floor's plan in the office,
+ * none on the roof or on a map of its own (its hall is its own shape).
+ */
+function officeWing(): number {
+  return inOffice() && store.floor !== ROOF ? store.floorPlan.wing : 0;
+}
+/**
+ * Whether seat `id` is there to sit at on this floor: a back office desk only once the floor's built
+ * out that far, on whichever map (the castle names seats for them too, so a worker hired there has
+ * one on every map).
+ */
+function seatBuilt(id: string): boolean {
+  const d = DESK_BY_ID.get(id);
+  return !d || deskBuilt(d, store.floorPlan.wing);
+}
+/**
+ * Standing where a back office would be, further back than this floor's goes (`level` rows): a row
+ * walled up round you, or a floor you switched to that isn't built out as far as the one you left.
+ */
+function pastTheWing(p: { x: number; y: number; z: number }, level: number): boolean {
+  return p.y > -1 && p.y < 3 && p.x > WING.minX - 0.3 && p.x < WING.maxX + 0.3 && p.z < FLOOR.minZ && !inWing(p.x, p.z, level);
+}
+/**
+ * The floor's back office, as far as it's built out, and the signs over its desks. Everything that
+ * finds its way round the floor learns how far it goes; a row knocked through goes up in a puff of
+ * dust, and anyone standing past where it goes now steps back in first.
+ */
+function syncPlan() {
+  const fp = store.floorPlan;
+  const level = officeWing();
+  const was = shownPlan;
+  shownPlan = { floor: store.floor, map: plan().id, wing: level };
+  const p = player.pos;
+  if (inOffice() && pastTheWing(p, level)) {
+    // Out to the side aisle of what's left, or back into the room.
+    const side = p.x < (WING.minX + WING.maxX) / 2 ? WING.minX + 0.6 : WING.maxX - 0.6;
+    p.set(level ? side : p.x, 0, level ? wingMinZ(level) + 0.6 : FLOOR.minZ + 1.6);
+  }
+  office.setWing(level);
+  office.signs.set(fp.labels, (d) => deskBuilt(d, level));
+  player.wing = sound.wing = level;
+  sky.setWing(level);
+  syncStack();
+  syncRoof();
+  arrangeSeats();
+  if (was.floor === store.floor && was.map === shownPlan.map && level > was.wing) {
+    const at = { x: (WING.minX + WING.maxX) / 2, y: 1.2, z: wingRowZ(level) };
+    confetti.burst(at.x, 2.4, at.z, 140, 0.8);
+    sound.toss('thunk', at);
+  }
+}
+store.on('floorPlan', syncPlan);
 // A worker at the meeting table shows its role and round over its head (see meetingCard).
 store.on('meeting', syncWorkers);
 // A worker's bubble shows whether it has a pull request open (green) or merged (purple: send it home).
@@ -1581,6 +2276,7 @@ function dressUp() {
   for (const r of remotes.values()) r.person.setCostume(theme);
   for (const v of workerViews.values()) v.model.setCostume(theme);
   for (const a of idleAgents) a.model.setCostume(theme);
+  world.herald?.person.setCostume(theme);
 }
 store.on('theme', dressUp);
 store.on('usage', renderUsage);
@@ -1594,7 +2290,8 @@ function freeDesk(): string | null {
   // Prefer the empty desk nearest to you; when they're all taken, the bean bag that's out.
   let best: string | null = null;
   let bestD = Infinity;
-  for (const d of DESKS) {
+  for (const d of plan().desks) {
+    if (!seatBuilt(d.id)) continue;
     if (store.workerAtDesk(d.id)) continue;
     const dist = Math.hypot(d.x - player.pos.x, d.z - player.pos.z);
     if (dist < bestD) {
@@ -1602,7 +2299,12 @@ function freeDesk(): string | null {
       best = d.id;
     }
   }
-  return best ?? nextFreeSeat((id) => !!store.workerAtDesk(id))?.id ?? null;
+  return best ?? firstFreeSeat() ?? null;
+}
+
+/** The first seat nobody's at, in the map's order: the desks (as far as the floor's built out), then the overflow seats. */
+function firstFreeSeat(): string | undefined {
+  return [...plan().desks, ...plan().overflow].find((d) => seatBuilt(d.id) && !store.workerAtDesk(d.id))?.id;
 }
 
 let askedToNotify = false;
@@ -1615,8 +2317,8 @@ function officeIsFull(): boolean {
   return true;
 }
 
-function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string, effort?: AgentEffort, issue?: number, repos?: string[]) {
-  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort, issue, repos: repos?.length ? repos : undefined });
+function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string, effort?: AgentEffort, issue?: number, repos?: string[], via?: 'herald') {
+  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort, issue, repos: repos?.length ? repos : undefined, via });
   // The moment notifications start to matter: ask once (it has to come from a key press or click).
   if (settings.notify && notifyPermission() === 'default' && !askedToNotify) {
     askedToNotify = true;
@@ -1636,7 +2338,7 @@ function openShell(deskId: string) {
 
 function promptAtDesk(deskId: string) {
   const w = store.workerAtDesk(deskId);
-  const desk = DESK_BY_ID.get(deskId)!;
+  const desk = plan().byId.get(deskId)!;
   if (!w) {
     if (officeIsFull()) return;
     openPrompt({
@@ -1649,6 +2351,8 @@ function promptAtDesk(deskId: string) {
       repoOptions: repoChoices(),
       onSubmit: (text, o) => hire(deskId, text, o.worktree, o.provider, o.model, o.effort, undefined, o.repos),
     });
+  } else if (w.lost) {
+    fixLostWorktree(w);
   } else if (isAsleep(w.status)) {
     toast(`${w.name} is asleep — press R to resume first`, 'warn');
   } else if (w.kind === 'shell') {
@@ -1669,7 +2373,7 @@ function promptAtDesk(deskId: string) {
 
 /** Direct hire from an empty desk, with an optional first prompt and provider choice. */
 function hireAtDesk(deskId: string) {
-  const desk = DESK_BY_ID.get(deskId)!;
+  const desk = plan().byId.get(deskId)!;
   if (officeIsFull()) return;
   openPrompt({
     title: `✨ Hire a worker at ${desk.label}`,
@@ -1688,7 +2392,7 @@ function hireAtDesk(deskId: string) {
 function killWorker(id: string) {
   const w = store.workers.get(id);
   if (!w) return;
-  const where = DESK_BY_ID.get(w.deskId)?.label ?? 'the desk';
+  const where = plan().byId.get(w.deskId)?.label ?? 'the desk';
   const session = w.kind === 'shell' ? 'shared shell' : `${providerLabel(w.provider, store.project)} session`;
   if (w.meeting) {
     // The meeting's worktree is the whole table's: it's tidied away once they've all gone.
@@ -1710,7 +2414,7 @@ function killWorker(id: string) {
     });
     return;
   }
-  const body = DESK_BY_ID.get(w.deskId)?.station
+  const body = plan().byId.get(w.deskId)?.station
     ? `This stops its ${session} for everyone, and it forgets what it was asked. The next prompt at the ${where} starts a fresh one.`
     : `This stops the ${session} at ${where} for everyone and frees the desk.`;
   confirmDialog(`Send ${w.name} home?`, body, 'Send home', () => net.send({ t: 'worker.kill', workerId: id }));
@@ -1718,7 +2422,7 @@ function killWorker(id: string) {
 
 /** E at a board agent: type it a request. It's hired with it when nobody is there yet. */
 function askStation(deskId: string) {
-  const kind = DESK_BY_ID.get(deskId)?.station;
+  const kind = plan().byId.get(deskId)?.station;
   if (!kind) return;
   const w = store.workerAtDesk(deskId);
   const name = STATION_AGENT[kind].name;
@@ -1750,13 +2454,37 @@ function askStation(deskId: string) {
 }
 
 function resumeWorker(w: WorkerInfo) {
+  if (w.lost) return fixLostWorktree(w);
   if (!w.sessionId && w.kind !== 'shell') toast(`${w.name} has no saved Claude session — starting a fresh one`, 'warn');
   net.send({ t: 'worker.resume', workerId: w.id });
 }
 
-/** Whether a worker's branch can become a PR: it has its own worktree and isn't mid-turn. */
+/**
+ * Anything done with a worker whose worktree was deleted outside agent-office (see WorkerInfo.lost):
+ * it can't work there, so this says so and offers to put the folder back, everyone's at once when
+ * more are lost, or to send it home.
+ */
+function fixLostWorktree(w: WorkerInfo) {
+  if (!w.lost || !w.worktree) return;
+  const others = [...store.workers.values()].filter((o) => o.lost && o.id !== w.id);
+  lostWorktreeDialog({
+    name: w.name,
+    worktree: w.worktree,
+    lost: w.lost,
+    workspace: w.repos?.length ? w.worktree.path.replace(/[\\/][^\\/]*$/, '') : undefined,
+    others: others.map((o) => o.name),
+    openTerminal: isAsleep(w.status) ? undefined : () => openTerminal(net, w.id, () => openWorkerChanges(w.id)),
+    rebuild: (all) => {
+      toast(all ? `Rebuilding ${others.length + 1} worktrees…` : `Rebuilding ${w.name}'s worktree…`);
+      net.send({ t: 'worker.rebuild', workerId: w.id, all });
+    },
+    sendHome: () => killWorker(w.id),
+  });
+}
+
+/** Whether a worker's branch can become a PR: it has its own worktree, still there, and isn't mid-turn. */
 function prReady(w: WorkerInfo) {
-  return !!w.worktree && !isBusy(w.status);
+  return !!w.worktree && !w.lost && !isBusy(w.status);
 }
 
 /** O at a desk: see the worker's pull request, or push its branch and open one. */
@@ -1769,6 +2497,7 @@ function pullRequestFor(w: WorkerInfo) {
     return;
   }
   if (!w.worktree) return toast(`${w.name} works in the main checkout — only workers with their own worktree can open a PR`, 'warn');
+  if (w.lost) return fixLostWorktree(w);
   if (w.prOpening) return;
   if (!prReady(w)) return toast(`${w.name} is still ${STATUS_LABEL[w.status]} — wait until it's done`, 'warn');
   toast(`Pushing ${w.worktree.branch} and opening a pull request…`);
@@ -1784,6 +2513,7 @@ function pullRequestsFor(w: WorkerInfo) {
   const open = () => {
     const now = store.workers.get(w.id);
     if (!now || now.prOpening) return;
+    if (now.lost) return fixLostWorktree(now);
     if (!prReady(now)) return toast(`${now.name} is still ${STATUS_LABEL[now.status]} — wait until it's done`, 'warn');
     toast(`Pushing ${now.worktree?.branch ?? 'its branch'} in each of ${now.name}'s repositories and opening pull requests…`);
     net.send({ t: 'worker.pr', workerId: now.id });
@@ -1802,7 +2532,7 @@ function pullRequestsFor(w: WorkerInfo) {
 
 /** Puts you in front of a desk, looking at it: the PR board's "Go to desk". */
 function goToDesk(deskId: string) {
-  const desk = DESK_BY_ID.get(deskId);
+  const desk = plan().byId.get(deskId);
   if (!desk) return;
   closeAllModals();
   standAt(desk);
@@ -1813,12 +2543,44 @@ function goToDesk(deskId: string) {
 /** Behind the worker, looking over their shoulder at the laptop (or in front of a board agent's kiosk). */
 function standAt(desk: DeskDef) {
   if (player.seat) standUp();
+  dropCar();
   if (hanger.active) hanger.cancel();
   if (climber.active) climber.abort();
   if (golf.active) golf.stop();
   if (thrower.active) thrower.stop();
   if (walkingTo) stopWalking();
-  const spot = deskSeat(desk, desk.station ? -1.6 : desk.beanbag ? 1.6 : 2.4);
+  // In line for the throne: in front of it, where it stands.
+  const w = store.workerAtDesk(desk.id);
+  const inLine = w && court ? court.spotOf(w.id) : -1;
+  if (inLine >= 0) {
+    // At the front: up on the throne, if it's free, where E is for them.
+    const throne = inLine === 0 && plan().throne ? freePlace(plan().throne!) : null;
+    if (throne) {
+      player.pos.set(throne.x, throne.y, throne.z);
+      player.sit(throne);
+      me.sit(throne.hips);
+      net.send({ t: 'sit', seat: throne.key });
+      player.camYaw = throne.rotY - Math.PI;
+      player.lookPitch = -0.2;
+      return;
+    }
+    // Else beside it in line, turned to it.
+    const at = plan().lineup[inLine];
+    const x = at.x + Math.cos(at.rotY) * 1.3;
+    const z = at.z - Math.sin(at.rotY) * 1.3;
+    player.pos.set(x, groundHere(x, z, 1.5), z);
+    player.vy = 0;
+    player.facing = Math.atan2(at.x - x, at.z - z);
+    player.camYaw = player.facing - Math.PI;
+    player.lookPitch = -0.2;
+    return;
+  }
+  let spot = deskSeat(desk, desk.station ? -1.6 : desk.beanbag ? 1.6 : 2.4);
+  // On a map of its own, the office's distances can land in a pillar: the nearest open floor to it.
+  if (!inOffice() && (!player.fits(spot.x, spot.z, 0) || !world.nav.walkable(spot.x, spot.z))) {
+    const [x, z] = world.nav.nearestWalkable([spot.x, spot.z]);
+    spot = { x, z };
+  }
   player.pos.set(spot.x, 0, spot.z);
   player.vy = 0;
   player.facing = Math.atan2(desk.x - spot.x, desk.z - spot.z);
@@ -1836,7 +2598,7 @@ let nextToast: HTMLElement | null = null;
 function goToNextWaiting() {
   if (trip) return;
   const w = nextUp.next(store.workers.values(), waitingBeside());
-  const desk = w && DESK_BY_ID.get(w.deskId);
+  const desk = w && plan().byId.get(w.deskId);
   nextToast?.remove();
   if (!w || !desk) {
     const other = store.floors.find((f) => f.id !== store.floor && f.waiting > 0);
@@ -1896,6 +2658,7 @@ function pointToWaiting(now: number) {
 function openWorkerTerminal(id: string, find?: TerminalFind) {
   const w = store.workers.get(id);
   if (!w) return;
+  if (w.lost) return fixLostWorktree(w);
   if (isAsleep(w.status)) resumeWorker(w);
   openTerminal(net, id, () => openWorkerChanges(id), find);
 }
@@ -1907,13 +2670,144 @@ function showSearch() {
 
 /** What the worker changed: changed files, diff, commit / discard / open a PR; `repo` for another floor's repository it works in. */
 function openWorkerChanges(id: string, repo?: string) {
-  if (!store.workers.has(id)) return;
+  const w = store.workers.get(id);
+  if (!w) return;
+  if (w.lost) return fixLostWorktree(w);
   openChanges(net, id, () => openWorkerTerminal(id), repo);
 }
 
 function showQueue() {
   openQueue(net, { openTerminal: openWorkerTerminal });
 }
+
+// ---- The command palette (Ctrl+K, ⌘K on a Mac) ------------------------------------------------------
+/** Where you stand to use something of this kind on this floor, like the Issues board. */
+function spotOf(kind: InteractKind): Interactable | undefined {
+  return office.interactables.find((it) => it.kind === kind && !it.off);
+}
+
+/** Where you stand at a desk: behind the worker, looking over their shoulder (as standAt), or by a chair at the meeting table. */
+function deskSpot(desk: DeskDef): { x: number; z: number } | undefined {
+  if (desk.room) return office.interactables.find((it) => it.deskId === desk.id);
+  return deskSeat(desk, desk.station ? -1.6 : desk.beanbag ? 1.6 : 2.4);
+}
+
+/** The free desk nearest you, for hiring from the palette. */
+function nearestFreeDesk(): DeskDef | undefined {
+  let best: DeskDef | undefined;
+  let bestD = Infinity;
+  for (const d of [...DESKS, ...WING_DESKS]) {
+    if (store.workerAtDesk(d.id) || !office.desks.has(d.id) || !seatBuilt(d.id)) continue;
+    const dist = Math.hypot(d.x - player.pos.x, d.z - player.pos.z);
+    if (dist < bestD) {
+      best = d;
+      bestD = dist;
+    }
+  }
+  return best;
+}
+
+/** An entry that walks you over to `kind`'s spot (Shift+Enter) before doing what Enter does. */
+function at(kind: InteractKind, what: string, entry: Omit<PaletteEntry, 'walk'>): PaletteEntry {
+  const it = spotOf(kind);
+  return { ...entry, walk: it ? () => walkThen(it, what, entry.open) : undefined };
+}
+
+/** Everything the palette finds, in the order it lists them before you type. */
+function paletteEntries(): PaletteEntry[] {
+  const out: PaletteEntry[] = [];
+  for (const w of store.workers.values()) {
+    const desk = DESK_BY_ID.get(w.deskId);
+    const spot = desk && deskSpot(desk);
+    const open = () => openWorkerTerminal(w.id);
+    out.push({
+      icon: desk?.station ? STATION_INFO[desk.station].icon : w.kind === 'shell' ? '🐚' : '🧑‍💻',
+      kind: 'Worker',
+      title: w.name,
+      detail: [w.task?.name, desk?.label, STATUS_LABEL[w.status]].filter(Boolean).join(' · '),
+      keywords: [w.title, w.worktree?.branch],
+      open,
+      walk: desk && spot ? () => walkThen(spot, `${w.name} at ${desk.label}`, open, desk) : undefined,
+    });
+  }
+
+  const free = nearestFreeDesk();
+  const hireAt = (d: DeskDef) => () => hireAtDesk(d.id);
+  out.push({
+    icon: '✨',
+    kind: 'Action',
+    title: 'Hire a worker',
+    detail: free ? `At ${free.label}, the free desk nearest you` : 'Every desk is taken',
+    keywords: ['new worker', 'spawn an agent'],
+    open: free ? hireAt(free) : () => toast('Every desk on this floor is taken', 'warn'),
+    walk: free ? () => walkThen(deskSpot(free)!, free.label, hireAt(free), free) : undefined,
+  });
+  out.push(at('queue', 'the task queue', { icon: '📋', kind: 'Action', title: 'Open the task queue', detail: 'Issues and tasks waiting for a worker', keywords: ['backlog', 'tasks'], open: showQueue }));
+  out.push({ icon: '⚙️', kind: 'Action', title: 'Settings', keywords: ['preferences', 'options'], open: () => showSettings() });
+  if (store.invites) out.push({ icon: '👥', kind: 'Action', title: 'Invite teammates', keywords: ['team', 'add people'], open: () => openTeam(net) });
+  else if (store.me.admin) out.push({ icon: '👥', kind: 'Action', title: 'Invite people', detail: 'Accounts', keywords: ['invite teammates', 'accounts', 'team'], open: () => openAccounts(net) });
+  out.push({ icon: '🖼️', kind: 'Action', title: 'Hang a picture', detail: 'On a wall of this floor', keywords: ['decorate', 'frame', 'art'], open: startHanging });
+  out.push({ icon: '🔎', kind: 'Action', title: 'Search the chat and every terminal', keywords: ['find'], open: showSearch });
+
+  out.push(at('issues', 'the Issues board', { icon: '📌', kind: 'Board', title: 'Issues board', open: () => openBoard('issues', net, boardActions()) }));
+  out.push(at('pulls', 'the PR board', { icon: '🔀', kind: 'Board', title: 'PR board', keywords: ['pull requests'], open: () => openBoard('pulls', net, boardActions()) }));
+  out.push(at('services', 'the Services board', { icon: '🌐', kind: 'Board', title: 'Services board', detail: 'Web servers the workers are running', open: () => openServices() }));
+  out.push(at('whiteboard', 'the whiteboard', { icon: '📝', kind: 'Board', title: 'Whiteboard', open: () => openWhiteboard(net) }));
+  out.push(at('meeting', 'the meeting room', { icon: '🤝', kind: 'Board', title: 'Meeting room', keywords: ['call a meeting'], open: () => showMeeting() }));
+
+  for (const pr of store.pulls.items) {
+    out.push(
+      at('pulls', 'the PR board', {
+        icon: '🔀',
+        kind: 'PR',
+        title: `#${pr.number} ${pr.title}`,
+        detail: [pr.isDraft ? 'Draft' : pr.state.toLowerCase(), pr.headRefName, pr.author].join(' · '),
+        open: () => openPull(pr, net, boardActions()),
+      }),
+    );
+  }
+  for (const issue of store.issues.items) {
+    out.push(
+      at('issues', 'the Issues board', {
+        icon: '📌',
+        kind: 'Issue',
+        title: `#${issue.number} ${issue.title}`,
+        detail: [issue.state.toLowerCase(), ...issue.labels.map((l) => l.name), issue.author].join(' · '),
+        open: () => openIssue(issue, net, boardActions()),
+      }),
+    );
+  }
+  for (const svc of store.services.items) {
+    const board = spotOf('services');
+    out.push({
+      icon: '🌐',
+      kind: 'Service',
+      title: svc.title || svc.command,
+      detail: [`:${svc.port}`, svc.title && svc.command, store.workers.get(svc.workerId)?.name].filter(Boolean).join(' · '),
+      keywords: [String(svc.port)],
+      // As its Open ↗ button does. A new tab needs the key press itself, so walking there shows the board instead.
+      open: () => window.open(serviceUrl(svc.port), '_blank', 'noopener'),
+      walk: board ? () => walkThen(board, 'the Services board', () => openServices()) : undefined,
+    });
+  }
+  for (const p of store.peers.values()) {
+    if (p.id === store.you) continue;
+    const floor = store.onMyFloor(p) ? 'On this floor' : `On the ${store.floors.find((f) => f.id === p.floor)?.name ?? 'other'} floor`;
+    // As clicking them under "In the office" does: over to them, by elevator if need be.
+    out.push({ icon: '🙂', kind: 'Teammate', title: p.name, detail: floor, open: () => walkTo(p.id) });
+  }
+  return out;
+}
+
+// Ctrl+K (⌘K on a Mac), from anywhere but a text box or a terminal, where the key is theirs: in a
+// shell, Ctrl+K cuts to the end of the line. In the palette's own box it puts the palette away.
+window.addEventListener('keydown', (e) => {
+  if (!isPaletteKey(e, IS_MAC)) return;
+  const inPalette = paletteOpen() && !!(e.target as HTMLElement | null)?.closest?.('.modal.palette');
+  if (!inPalette && (isTyping(e) || telescope.active)) return;
+  e.preventDefault();
+  if (!e.repeat) togglePalette(paletteEntries);
+});
 
 /** The meeting room's window: how the meeting's going, or the form to call one (prefilled from an issue or a PR). */
 function showMeeting(preset?: MeetingPreset) {
@@ -1942,18 +2836,28 @@ function githubUrl(remote?: string): string | undefined {
 
 function showBookshelf() {
   if (!store.floor) return toast('Take the elevator to a floor first');
-  openBookshelf({ floor: store.floor, project: store.project?.name, repoUrl: githubUrl(store.project?.remote), onTurn: turnPage });
+  openBookshelf({
+    floor: store.floor,
+    project: store.project?.name,
+    repoUrl: githubUrl(store.project?.remote),
+    onTurn: turnPage,
+    pageSound: settings.pageTurns,
+    onPageSound: (on) => {
+      settings.pageTurns = on;
+      saveSettings(settings);
+    },
+  });
 }
 
-/** When a page last rustled, so a quick scroll through a doc isn't one long rustle. */
-let rustledAt = 0;
+/** When a page last turned, so flicking through a doc is one swish rather than a swish a screenful. */
+let turnedAt = 0;
 /** You turned a page on the bookshelf: so does the book in your hands, for everyone watching it too. */
 function turnPage() {
   me.turnPage();
   hands.turnPage();
   const now = performance.now();
-  if (now - rustledAt > 400) sound.paper();
-  rustledAt = now;
+  if (settings.pageTurns && now - turnedAt > 1000) sound.pageTurn();
+  turnedAt = now;
 }
 
 /** A prompt from the boards goes to a new worker at a free desk, or to one already at a desk. */
@@ -1967,7 +2871,7 @@ function sendToWorker(title: string, text: { context?: string; initial?: string 
   openAsk({
     title,
     ...text,
-    newDesk: desk ? DESK_BY_ID.get(desk)!.label : undefined,
+    newDesk: desk ? plan().byId.get(desk)!.label : undefined,
     workers: awake.map((w) => ({ id: w.id, name: w.name, color: w.color, status: w.status })),
     worktreeOption: !!store.project?.branch,
     providerOption: true,
@@ -2012,9 +2916,10 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   if (target.kind !== 'issues') note = null;
   if (key === 'E' && carrying && dropCard(target, carrying, note)) return;
   if (target.kind === 'desk' && target.deskId) {
+    if (key === 'L') return openDeskLabel(net, target.deskId);
     const w = store.workerAtDesk(target.deskId);
     // Nobody is hired at the meeting table: a meeting seats its own workers there.
-    if (!w && DESK_BY_ID.get(target.deskId)?.room) return key === 'E' ? showMeeting() : undefined;
+    if (!w && plan().byId.get(target.deskId)?.room) return key === 'E' ? showMeeting() : undefined;
     if (key === 'B' && !w) return openShell(target.deskId);
     if (key === 'P') return promptAtDesk(target.deskId);
     if (key === 'E') return w ? openWorkerTerminal(w.id) : hireAtDesk(target.deskId);
@@ -2066,6 +2971,37 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   else if (target.kind === 'darts' || target.kind === 'axe') stepUp(target.kind);
   else if (target.kind === 'ball') takeBall();
   else if (target.kind === 'telescope') telescope.enter();
+  else if (target.kind === 'car' && target.car !== undefined) getIn(target.car);
+  else if (target.kind === 'expand') openExpand(net);
+  else if (target.kind === 'herald') hireFromHerald();
+}
+
+/**
+ * E at the herald (the castle's Hand of the King): what should a new worker do? It's hired at the
+ * first free seat at the tables, and runs off there from beside him (see cameFrom).
+ */
+function hireFromHerald() {
+  const h = plan().herald;
+  if (!h || officeIsFull()) return;
+  if (!firstFreeSeat()) return toast(`${h.name}: every seat at the tables is taken — send someone home first`, 'warn');
+  openPrompt({
+    title: `${plan().icon} ${h.name}: send out a worker`,
+    subtitle: `Say what it’s to do. A new worker runs off to a free seat and gets started${plan().lineup.length ? `, and comes back to line up${plan().throne ? ' before your throne' : ''} once it’s done or needs you` : ''}.`,
+    warning: pressureNote(store.machine),
+    placeholder: h.ask,
+    submitLabel: h.button,
+    allowEmpty: true,
+    providerOption: true,
+    worktreeOption: !!store.project?.branch,
+    repoOptions: repoChoices(),
+    onSubmit: (text, o) => {
+      // Whichever seat is free now (someone may have sat down while you were thinking).
+      const deskId = heraldSeat();
+      if (!deskId) return toast('Every seat at the tables is taken now', 'warn');
+      heraldHires.set(deskId, { floor: store.floor, at: performance.now() });
+      hire(deskId, text || undefined, o.worktree, o.provider, o.model, o.effort, undefined, o.repos, 'herald');
+    },
+  });
 }
 
 // ---- The rooftop bar ---------------------------------------------------------------------------------
@@ -2178,7 +3114,7 @@ function setSmoking(on: boolean) {
 /** Out on the balcony (a little slack at the door), where smoking is allowed. */
 function onBalcony(): boolean {
   const p = player.pos;
-  return p.y > -0.5 && p.y < 2 && p.x > BALCONY.minX - 0.5 && p.x < BALCONY.maxX + 0.5 && p.z > BALCONY.minZ - 0.8 && p.z < BALCONY.maxZ + 0.5;
+  return inOffice() && p.y > -0.5 && p.y < 2 && p.x > BALCONY.minX - 0.5 && p.x < BALCONY.maxX + 0.5 && p.z > BALCONY.minZ - 0.8 && p.z < BALCONY.maxZ + 0.5;
 }
 
 /** Ends the break when the cigarette burns down, or when you take it back inside. */
@@ -2449,9 +3385,22 @@ function dropCard(it: Interactable, card: CarriedIssue, note: GhIssue | null): b
     return true;
   }
   // At the meeting room: a meeting about it, and the card goes back up on the board.
-  if (it.kind === 'meeting' || (it.kind === 'desk' && it.deskId && DESK_BY_ID.get(it.deskId)?.room && !store.workerAtDesk(it.deskId))) {
+  if (it.kind === 'meeting' || (it.kind === 'desk' && it.deskId && plan().byId.get(it.deskId)?.room && !store.workerAtDesk(it.deskId))) {
     putBack();
     showMeeting(issueMeeting(card.issue, card.title));
+    return true;
+  }
+  // To the herald: someone's sent out for it, to the first free seat.
+  if (it.kind === 'herald') {
+    const deskId = heraldSeat();
+    if (!deskId) toast('Every seat at the tables is taken', 'warn');
+    else if (hiringPaused()) toast('💸 Budget spent — hiring resumes tomorrow', 'warn');
+    else if (!officeIsFull()) {
+      const { provider, model, effort } = officeChoice(store.project);
+      heraldHires.set(deskId, { floor: store.floor, at: performance.now() });
+      hire(deskId, prompt, !!store.project?.branch && worktreePref(), provider, model, effort, card.issue, undefined, 'herald');
+      putDown();
+    }
     return true;
   }
   if (it.kind !== 'desk' || !it.deskId) return false;
@@ -2483,6 +3432,7 @@ function onQueue(issue: number): boolean {
 /** Why the worker at a desk can't be handed an issue card right now, or '' when it can. */
 function cantTakeCard(w: WorkerInfo): string {
   if (w.kind === 'shell') return `${w.name} is a shell, not an agent`;
+  if (w.lost) return `${w.name}'s worktree was deleted — press E at its desk to fix it`;
   if (isAsleep(w.status)) return `${w.name} is asleep — press R to resume first`;
   if (w.status === 'needs_input') return `${w.name} is waiting on an answer — open the terminal first`;
   return '';
@@ -2513,7 +3463,7 @@ function tvShowing(): boolean {
 
 /** E at a seat: sit down on it. Sitting there already, get up, or on the couch facing the TV, watch it. */
 function useSeat(seatId: string) {
-  const seat = SEATING_BY_ID.get(seatId);
+  const seat = plan().seatingById.get(seatId);
   if (!seat) return;
   if (player.seat?.seatId === seatId) {
     if (seat.tv && tvShowing()) watchShare();
@@ -2564,7 +3514,14 @@ function hitGong() {
 
 /** Where confetti comes from over a desk: above the worker's head. */
 function burstOver(deskId: string, n: number) {
-  const d = DESK_BY_ID.get(deskId);
+  // Up and about in the castle: over wherever it is.
+  const w = store.workerAtDesk(deskId);
+  const v = w && court?.away(w.id) ? workerViews.get(w.id) : undefined;
+  if (v) {
+    const at = v.model.root.position;
+    return confetti.burst(at.x, at.y + 2.1, at.z, n);
+  }
+  const d = plan().byId.get(deskId);
   if (d) confetti.burst(d.x, 2.3, d.z, n);
 }
 
@@ -2584,31 +3541,33 @@ function stageOf(desk: DeskView, model: Worker): Stage {
 /** A pull request merged: every worker awake on the floor gets up on its desk and dances. */
 function danceParty() {
   for (const [id, v] of workerViews) {
-    const desk = office.desks.get(v.deskId);
-    if (desk && !isAsleep(store.workers.get(id)?.status ?? 'offline')) v.model.dance(stageOf(desk, v.model));
+    const desk = world.desks.get(v.deskId);
+    if (!desk || isAsleep(store.workers.get(id)?.status ?? 'offline')) continue;
+    // Up and about, away from its desk: a jump for joy where it stands.
+    if (court?.away(id)) v.model.cheer(4);
+    else v.model.dance(stageOf(desk, v.model));
   }
   // The board agents still waiting to be asked, too.
   for (const a of idleAgents) if (a.view.vacancy.visible) a.model.dance(stageOf(a.view, a.model));
 }
 
-/** Where confetti rains from downstairs over (x, z): the ceiling, or under the loft, the underside of its floor. */
-function ceilingOver(x: number, z: number): number {
-  const loft = x > LOFT.minX && x < LOFT.maxX && z > LOFT.minZ && z < LOFT.maxZ;
-  return loft ? LOFT.y - 0.35 : WALL_HEIGHT - 0.1;
-}
-/** Confetti a square meter of floor gets when a pull request merges. */
+/** Confetti a square meter of floor gets when a pull request merges, and the most there is in all. */
 const CONFETTI_DENSITY = 3.5;
+const CONFETTI_MOST = 4000;
 const floorArea = (a: Area) => (a.maxX - a.minX) * (a.maxZ - a.minZ);
 
 /** Someone hit the gong, a pull request merged (a dance party under a confetti rain), or the queue emptied (a party). */
 function gongRang(why: GongWhy, pr?: number) {
-  office.gong.strike(why === 'hit' ? 0.7 : 1);
+  const gong = world.gong;
+  gong?.strike(why === 'hit' ? 0.7 : 1);
   sound.gong(why);
-  const top = office.gong.top;
+  // Where confetti bursts from: over the gong, or with no gong, over where you are.
+  const top = gong?.top ?? new THREE.Vector3(player.pos.x, player.pos.y + 3, player.pos.z);
   if (why === 'merged') {
     // Confetti rains down all over the floor, and pops over the desk the PR came from while its worker's still there.
-    confetti.rain(FLOOR, floorArea(FLOOR) * CONFETTI_DENSITY, 3, ceilingOver);
-    confetti.rain(LOFT, floorArea(LOFT) * CONFETTI_DENSITY, 3, () => LOFT.y + LOFT.height - 0.1);
+    const area = world.rain.reduce((n, r) => n + floorArea(r.area), 0);
+    const density = Math.min(CONFETTI_DENSITY, CONFETTI_MOST / Math.max(1, area));
+    for (const r of world.rain) confetti.rain(r.area, floorArea(r.area) * density, 3, r.top);
     const it = store.pulls.items.find((p) => p.number === pr);
     const w = pr === undefined ? undefined : workerForPull(store.workers.values(), it ?? { number: pr, headRefName: '' });
     if (w && workerViews.has(w.id)) burstOver(w.deskId, 220);
@@ -2618,14 +3577,14 @@ function gongRang(why: GongWhy, pr?: number) {
     // Three strokes (sound.gong plays them): a burst at the gong, then every desk, then a cannon.
     confetti.burst(top.x, top.y, top.z, 160);
     setTimeout(() => {
-      office.gong.strike(0.85);
+      gong?.strike(0.85);
       for (const [id, v] of workerViews) {
         burstOver(v.deskId, 120);
         if (!isAsleep(store.workers.get(id)?.status ?? 'offline')) v.model.cheer(4);
       }
     }, 850);
     setTimeout(() => {
-      office.gong.strike(1.2);
+      gong?.strike(1.2);
       confetti.burst(top.x, top.y, top.z, 450, 1.5);
     }, 1700);
   }
@@ -2678,6 +3637,7 @@ function renderHint() {
   if (climber.active && !modalOpen()) return renderClimbHint(el);
   if (golf.active && !modalOpen()) return renderGolfHint(el);
   if (thrower.active && !modalOpen()) return renderThrowHint(el);
+  if (driver.active && !modalOpen()) return renderDriveHint(el);
   const withBall = holdingBall();
   if ((!target && !carrying && !withBall) || modalOpen()) {
     // Still up after a redraw was asked for (hintKey cleared) just as you walked away from it, too.
@@ -2688,7 +3648,13 @@ function renderHint() {
     return;
   }
   const hint = withBall ? ballHint() : carrying ? carryHint(carrying, target) : hintFor(target!);
-  const k = `${withBall ? 'ball!' : `${target?.kind}${target?.deskId ?? ''}`}|${carrying?.issue ?? ''}|${hint.k}`;
+  // On the throne, whoever's in line: the herald's a key away, and how to get up.
+  const throne = onThrone() && !carrying && !withBall;
+  if (throne) {
+    if (world.herald && target?.kind !== 'herald') hint.parts.push(key('K', plan().herald!.name));
+    if (target?.kind !== 'seat') hint.parts.push(key('W A S D', 'Get up'));
+  }
+  const k = `${withBall ? 'ball!' : `${target?.kind}${target?.deskId ?? ''}`}|${carrying?.issue ?? ''}|${throne}|${hint.k}`;
   if (k === hintKey) return;
   hintKey = k;
   el.replaceChildren(...hint.parts);
@@ -2721,7 +3687,14 @@ function hintFor(it: Interactable): Hint {
     }
     case 'coffee': {
       const buzzed = caffeine.buzzed(performance.now() / 1000);
-      return { k: String(buzzed), parts: [title('☕ Coffee machine'), key('E', buzzed ? 'Another cup' : 'Grab a cup')] };
+      return { k: String(buzzed), parts: [title(it.label ?? '☕ Coffee machine'), key('E', buzzed ? 'Another cup' : 'Grab a cup')] };
+    }
+    case 'herald': {
+      const hd = plan().herald;
+      const full = !firstFreeSeat();
+      const m = store.machine;
+      const why = full ? 'every seat is taken' : officeFull(m) ? `🚫 Office full · ${m.workers} of ${m.limit} workers` : hiringPaused() ? '💸 Budget spent — hiring resumes tomorrow' : '';
+      return { k: `${hd?.name}|${why}`, parts: [title(`${plan().icon} ${hd?.name ?? 'Herald'}`), why ? h('span.cost', {}, why) : aside(hd?.says ?? ''), why ? '' : key('E', 'Send out a new worker')] };
     }
     case 'smoke':
       return { k: String(smokeBreakUntil > 0), parts: [title('🚬 Ashtray'), key('E', smokeBreakUntil ? 'Stub it out' : 'Take a smoke break')] };
@@ -2786,7 +3759,7 @@ function hintFor(it: Interactable): Hint {
       return { k: `${d?.title}|${d?.by}`, parts: [title(`🖼️ ${d?.title || 'A picture'}`), d ? aside(`hung by ${d.by}`) : '', key('E', 'Look closer')] };
     }
     case 'seat': {
-      const seat = SEATING_BY_ID.get(it.seatId ?? '');
+      const seat = plan().seatingById.get(it.seatId ?? '');
       if (!seat) return { k: '', parts: [] };
       if (player.seat?.seatId === seat.id) {
         const tv = !!seat.tv && tvShowing();
@@ -2830,6 +3803,22 @@ function hintFor(it: Interactable): Hint {
     }
     case 'telescope':
       return { k: '', parts: [title('🔭 Office telescope'), aside('overlooks the worker floor'), key('E', 'Look through')] };
+    case 'car': {
+      const c = store.cars[it.car ?? -1];
+      const def = CARS[it.car ?? -1];
+      if (!c || !def) return { k: '', parts: [] };
+      const name = (id?: string) => (id ? clip(store.peers.get(id)?.name ?? 'Someone', 20) : '');
+      const [at, beside] = [name(c.driver), name(c.passenger)];
+      const k = `${it.car}|${at}|${beside}`;
+      if (!at) return { k, parts: [title(`🏎️ ${def.name}`), aside(beside ? `${beside} is waiting in it` : 'keys in the ignition'), key('E', 'Drive it')] };
+      if (!beside) return { k, parts: [title(`🏎️ ${def.name}`), aside(`${at} is driving`), key('E', 'Hop in')] };
+      return { k, parts: [title(`🏎️ ${def.name}`), aside(`${at} and ${beside} · full`)] };
+    }
+    case 'expand': {
+      const level = store.floorPlan.wing;
+      if (level >= WING.rows) return { k: 'full', parts: [title('🏢 Back office'), aside('built all the way out'), key('E', 'Wall a row up')] };
+      return { k: String(level), parts: [title(level ? '🚧 Room to grow' : '🚧 Room to grow through the wall'), aside(level ? `${level} of ${WING.rows} rows built` : 'the office can get bigger here'), key('E', level ? 'Another row: 2 more desks' : 'Knock through: 2 more desks')] };
+    }
   }
 }
 
@@ -2842,7 +3831,11 @@ function carryHint(card: CarriedIssue, it: Interactable | null): Hint {
     const on = onQueue(card.issue);
     return { k: String(on), parts: parts(on ? aside('already on the queue') : key('E', 'Put it on the queue')) };
   }
-  if (it?.kind === 'meeting' || (it?.kind === 'desk' && it.deskId && DESK_BY_ID.get(it.deskId)?.room && !store.workerAtDesk(it.deskId))) {
+  if (it?.kind === 'herald') {
+    const paused = hiringPaused();
+    return { k: `herald|${paused}`, parts: parts(paused ? h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow') : key('E', 'Send someone out for it')) };
+  }
+  if (it?.kind === 'meeting' || (it?.kind === 'desk' && it.deskId && plan().byId.get(it.deskId)?.room && !store.workerAtDesk(it.deskId))) {
     return { k: 'meeting', parts: parts(key('E', 'Call a meeting about it')) };
   }
   if (it?.kind === 'desk' && it.deskId) {
@@ -2864,15 +3857,19 @@ function carryHint(card: CarriedIssue, it: Interactable | null): Hint {
 
 function deskHint(deskId: string): Hint {
   const w = store.workerAtDesk(deskId);
-  if (!w && DESK_BY_ID.get(deskId)?.room) return { k: 'room', parts: [h('span.title', {}, `🤝 ${DESK_BY_ID.get(deskId)!.label} · free`), key('E', 'Call a meeting')] };
+  if (!w && plan().byId.get(deskId)?.room) return { k: 'room', parts: [h('span.title', {}, `🤝 ${plan().byId.get(deskId)!.label} · free`), key('E', 'Call a meeting')] };
+  // The sign over it, if it has one, and L to hang one (or change it).
+  const sign = store.floorPlan.labels[deskId]?.text;
+  const labelKey = canLabel(deskId) ? key('L', sign ? 'Sign' : 'Label') : '';
+  const deskName = `${sign ? `🪧 ${sign} · ` : ''}${plan().byId.get(deskId)!.label}`;
   if (!w) {
     const paused = hiringPaused();
     const m = store.machine;
     const full = officeFull(m);
     return {
-      k: `${paused}|${full}|${m.workers}|${m.limit}|${!!m.pressure}`,
+      k: `${paused}|${full}|${m.workers}|${m.limit}|${!!m.pressure}|${sign}`,
       parts: [
-        h('span.title', {}, `${DESK_BY_ID.get(deskId)!.label} · empty`),
+        h('span.title', {}, `${deskName} · empty`),
         ...(full
           ? [h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`)]
           : [
@@ -2880,6 +3877,19 @@ function deskHint(deskId: string): Hint {
               ...(paused ? [h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow')] : [key('E', 'Hire a worker'), key('P', 'Hire with a task')]),
               key('B', 'Shell'),
             ]),
+        labelKey,
+      ],
+    };
+  }
+  if (w.lost && w.worktree) {
+    return {
+      k: `lost|${w.id}|${w.lost.branch}|${sign}`,
+      parts: [
+        h('span.title', {}, `${sign ? `🪧 ${sign} · ` : ''}${w.name} · 🌿 worktree deleted`),
+        aside('deleted outside agent-office'),
+        key('E', 'Fix it'),
+        key('X', 'Send home'),
+        labelKey,
       ],
     };
   }
@@ -2888,9 +3898,9 @@ function deskHint(deskId: string): Hint {
   const spent = w.kind === 'agent' && w.usage ? usageLabel(w.usage, workerProvider) : '';
   const shell = w.kind === 'shell';
   return {
-    k: w.status + w.id + (w.pr?.number ?? '') + (w.repos?.map((r) => r.pr?.number ?? '-').join() ?? '') + (w.prOpening ? '!' : '') + doing + spent,
+    k: w.status + w.id + (w.pr?.number ?? '') + (w.repos?.map((r) => r.pr?.number ?? '-').join() ?? '') + (w.prOpening ? '!' : '') + doing + spent + (sign ?? ''),
     parts: [
-      h('span.title', {}, `${w.name} · ${STATUS_LABEL[w.status]}`),
+      h('span.title', {}, `${sign ? `🪧 ${sign} · ` : ''}${w.name} · ${STATUS_LABEL[w.status]}`),
       doing ? aside(doing) : '',
       spent ? h('span.cost', { title: usageTitle(w.usage!, workerProvider) }, spent) : '',
       key('E', 'Open terminal'),
@@ -2898,6 +3908,7 @@ function deskHint(deskId: string): Hint {
       isAsleep(w.status) ? key('R', shell ? 'Restart' : 'Resume') : key('P', shell ? 'Run command' : 'Prompt'),
       w.repos?.length ? reposKey(w) : w.pr ? key('O', `PR #${w.pr.number}`) : w.prOpening ? aside('⏳ Opening PR…') : prReady(w) ? key('O', 'Open PR') : '',
       key('X', 'Send home'),
+      labelKey,
     ],
   };
 }
@@ -2912,7 +3923,7 @@ function reposKey(w: WorkerInfo) {
 }
 
 function stationHint(deskId: string): Hint {
-  const kind = DESK_BY_ID.get(deskId)?.station;
+  const kind = plan().byId.get(deskId)?.station;
   if (!kind) return { k: '', parts: [] };
   const w = store.workerAtDesk(deskId);
   const info = STATION_INFO[kind];
@@ -3087,7 +4098,7 @@ function emoteKey(e: KeyboardEvent): boolean {
 /** Keys that use what you're facing: at a desk, each does something else (see interact). */
 function use(it: Interactable | null, key: DeskKey, note = aimedNote): boolean {
   const worker = it?.deskId ? store.workerAtDesk(it.deskId) : undefined;
-  const room = !!(it?.deskId && DESK_BY_ID.get(it.deskId)?.room);
+  const room = !!(it?.deskId && plan().byId.get(it.deskId)?.room);
   if (!interactionAvailable(it, key, { worker, room, note, carrying: !!carrying })) return false;
   reach();
   interact(it, key, note);
@@ -3122,6 +4133,13 @@ window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyE') thrower.stop();
     return;
   }
+  // In a car, E gets you out and H honks (W A S D and Space drive, see Driver); nothing else is in reach.
+  if (driver.active && (e.code === 'KeyE' || e.code === 'KeyH' || e.code === 'KeyF' || e.code in DESK_KEYS)) {
+    if (e.repeat) return;
+    if (e.code === 'KeyE') getOut();
+    else if (e.code === 'KeyH') honk();
+    return;
+  }
   // With the ball in your hands, E winds up a shot (let go to shoot) and Q drops it.
   if (holdingBall() && (e.code === 'KeyE' || e.code === 'KeyQ')) {
     if (e.repeat) return;
@@ -3151,8 +4169,8 @@ function officeKey(e: KeyboardEvent): boolean {
   const deskKey = DESK_KEYS[e.code as keyof typeof DESK_KEYS];
   if (deskKey) {
     const handled = use(target, deskKey);
-    // P opens a text box, which the key mustn't land in.
-    if (handled && deskKey === 'P') e.preventDefault();
+    // P and L open a text box, which the key mustn't land in.
+    if (handled && (deskKey === 'P' || deskKey === 'L')) e.preventDefault();
     return handled;
   }
   switch (e.code) {
@@ -3184,6 +4202,12 @@ function officeKey(e: KeyboardEvent): boolean {
       return true;
     case 'KeyN':
       goToNextWaiting();
+      return true;
+    case 'KeyK':
+      // On the throne: the herald beside you, whoever's in line.
+      if (!onThrone() || !world.herald) return false;
+      reach();
+      hireFromHerald();
       return true;
     case 'KeyQ':
       if (!carrying) return false;
@@ -3256,6 +4280,10 @@ onDoingChange(() => sendDoing());
  * takes it instead (a key counts for the browser, where the Esc that closed the window doesn't).
  */
 let relookOnKey = false;
+/** Whether the last thing you pressed was a mouse button rather than a key (see backToGame). Captured, before a window acts on it. */
+let pressedMouse = false;
+window.addEventListener('pointerdown', () => (pressedMouse = true), true);
+window.addEventListener('keydown', () => (pressedMouse = false), true);
 onModalChange((open) => {
   if (open) telescope.exit();
   player.enabled = !open;
@@ -3289,7 +4317,8 @@ function backToGame() {
   // The browser lets a page re-capture the mouse it let go of itself (see yieldMouse), even on Esc
   // (which it doesn't count as a click or key), and any time after a click, like one on ✕. When it
   // won't (nothing of yours opened the window, or a stricter browser), the next key you press does.
-  player.lock();
+  // Closed with a click (Send home, ✕), the view waits for the hand that clicked to come to rest.
+  player.lock(pressedMouse);
   relookOnKey = true;
 }
 document.addEventListener('pointerlockchange', () => {
@@ -3300,14 +4329,15 @@ document.addEventListener('pointerlockchange', () => {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5, car: 4, expand: 8, herald: 5 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */
 function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boolean; hit: THREE.Intersection } | null {
   raycaster.setFromCamera(ndc, camera);
   eye.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
-  for (const hit of raycaster.intersectObjects(upTop && roof ? roof.pickables : [office.group, dog.root], true)) {
+  // (Workers standing in line in the castle carry their spot's interactable: see Court.)
+  for (const hit of raycaster.intersectObjects(upTop && roof ? roof.pickables : inOffice() ? [office.group, dog.root] : world.pickables, true)) {
     let it: Interactable | undefined;
     let shown = true;
     for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) {
@@ -3315,15 +4345,32 @@ function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boole
       it ??= o.userData.interact as Interactable | undefined;
     }
     if (!shown) continue;
-    if (!it) return null; // a wall, the floor, a plant… is in the way
+    if (!it || it.off) return null; // a wall, the floor, a plant… is in the way
     return { it, near: hit.point.distanceTo(eye) <= REACH[it.kind] + slack, hit };
   }
   return null;
 }
 
+/** Sitting on the map's throne. */
+function onThrone(): boolean {
+  const id = plan().throne?.id;
+  return !!id && player.seat?.seatId === id;
+}
+
+/**
+ * On the throne, E is for whoever's first in line (or, with nobody waiting, the herald beside you):
+ * what you'd be facing, sat there. Null when you're not on the throne.
+ */
+function throneTarget(): Interactable | null {
+  const id = plan().throne?.id;
+  if (!id || player.seat?.seatId !== id) return null;
+  const first = court?.interactables.find((it) => !it.off);
+  return first ?? world.herald?.interactable ?? null;
+}
+
 /** The issue whose note on the issues board an aim lands on, or null (bare cork, the frame, anything else). */
 function noteUnder(aim: { it: Interactable; hit: THREE.Intersection } | null): GhIssue | null {
-  if (aim?.it.kind !== 'issues' || aim.hit.object !== office.boardMeshes.issues || !aim.hit.uv) return null;
+  if (aim?.it.kind !== 'issues' || aim.hit.object !== world.boardMeshes.issues || !aim.hit.uv) return null;
   const n = issuesTex.noteAt(aim.hit.uv);
   return n === undefined ? null : (store.issues.items.find((i) => i.number === n) ?? null);
 }
@@ -3456,7 +4503,7 @@ $('hud').addEventListener('click', (e) => {
 // The project in the corner is the floor you're on; click it for the list of floors to go to.
 $('project').addEventListener('click', () => {
   if (!store.floor) return showElevator();
-  toggleFloorMenu($('project'), { go: switchFloor, elevator: showElevator, roof: () => ride(ROOF) });
+  toggleFloorMenu($('project'), { go: switchFloor, indoors: () => (!inOffice() && !upTop) || indoors(), elevator: showElevator, roof: inOffice() ? () => ride(ROOF) : null });
 });
 
 // ---- The HUD: a few buttons on the top bar, everything else in the ☰ menu ----------------------------
@@ -3481,8 +4528,10 @@ const hud = mountHud(
       run: () => showMeeting(),
     },
     { id: 'search', icon: '🔎', label: 'Search', section: 'Open', key: '/', title: () => 'Search the chat and every terminal', run: showSearch },
-    { id: 'elevator', icon: '🛗', label: 'Elevator', section: 'Open', count: () => store.floors.reduce((n, f) => n + (f.id === store.floor ? 0 : f.waiting), 0), title: () => 'Ride to another project', run: showElevator },
-    { id: 'roof', icon: '🍸', label: 'Rooftop bar', section: 'Open', shown: () => !upTop && builtFloors().length > 0, title: () => 'Ride the elevator up to the roof: a DJ, drinks and the city', run: () => ride(ROOF) },
+    // The office has its bookshelf for them; a map of its own may not.
+    { id: 'docs', icon: '📚', label: 'Docs', section: 'Open', shown: () => !inOffice(), title: () => 'Read the project’s docs', run: showBookshelf },
+    { id: 'elevator', icon: '🛗', label: () => (inOffice() ? 'Elevator' : 'Floors'), section: 'Open', count: () => store.floors.reduce((n, f) => n + (f.id === store.floor ? 0 : f.waiting), 0), title: () => (inOffice() ? 'Ride to another project' : 'Go to another project, or add one'), run: showElevator },
+    { id: 'roof', icon: '🍸', label: 'Rooftop bar', section: 'Open', shown: () => !upTop && inOffice() && builtFloors().length > 0, title: () => 'Ride the elevator up to the roof: a DJ, drinks and the city', run: () => ride(ROOF) },
     // In voice, V is push to talk, so leaving is only from here.
     { id: 'voice', icon: '🎙️', label: () => (voice.inVoice ? 'Leave voice' : 'Join voice'), section: 'Together', key: () => (voice.inVoice ? undefined : 'V'), on: () => voice.inVoice, blocked: noMedia, run: () => void toggleVoice() },
     // While you're in voice, the top bar keeps the mute button handy. Muted is the usual with push to talk, so it doesn't stand out then.
@@ -3500,12 +4549,13 @@ const hud = mountHud(
       run: () => voice.toggleMute(),
     },
     { id: 'share', icon: '🖥️', label: () => (voice.sharing ? 'Stop sharing' : 'Share screen'), section: 'Together', on: () => voice.sharing, status: () => voice.sharing, chip: () => 'Sharing', blocked: noMedia, run: () => void toggleShare() },
-    { id: 'decor', icon: '🖼️', label: () => (hanger.active ? 'Stop hanging the picture' : 'Hang a picture'), section: 'Together', key: 'F', on: () => hanger.active, status: () => hanger.active, run: () => (hanger.active ? hanger.cancel() : startHanging()) },
+    { id: 'decor', icon: '🖼️', label: () => (hanger.active ? 'Stop hanging the picture' : 'Hang a picture'), section: 'Together', key: 'F', shown: () => inOffice(), on: () => hanger.active, status: () => hanger.active, run: () => (hanger.active ? hanger.cancel() : startHanging()) },
     { id: 'team', icon: '👥', label: 'Invite teammates', section: 'Together', shown: () => store.invites, run: () => openTeam(net) },
     { id: 'accounts', icon: '🔑', label: 'Accounts', section: 'Together', shown: () => store.me.admin, title: () => 'Invite people, see who has an account, revoke them', run: () => openAccounts(net) },
     { id: 'signins', icon: '🔐', label: 'Your sign-ins', section: 'Together', shown: () => !!store.me.account, tone: () => (needsSigningIn() ? 'danger' : undefined), status: needsSigningIn, chip: () => 'Sign in to Claude', title: () => 'The Claude plan and GitHub account your workers run on: your own', run: () => openSignIns(net) },
     { id: 'settings', icon: '⚙️', label: 'Settings', section: 'Office', run: showSettings },
     { id: 'help', icon: '❓', label: 'Controls', section: 'Office', key: 'H', run: openHelp },
+    { id: 'lite', icon: '📱', label: '2D view', section: 'Office', title: () => 'The workers, their terminals and the boards without the 3D: for a phone or a slow computer', run: () => location.assign('/lite') },
     {
       id: 'upgrade',
       icon: '⬆️',
@@ -3541,6 +4591,7 @@ const hud = mountHud(
 /** F: hang a picture on a wall of this floor. There are no walls for them up on the roof. */
 function startHanging() {
   if (upTop) return toast('No walls to hang pictures on up here — take the elevator down to a floor', 'warn');
+  if (!inOffice()) return toast(`${plan().icon} ${plan().name}'s walls are hung already — pictures go up in the office`, 'warn');
   hanger.start();
 }
 function showSettings(pane?: SettingsPane) {
@@ -3564,7 +4615,7 @@ function showSettings(pane?: SettingsPane) {
     () => sound.ding('done'),
     notifier,
     signOut,
-    store.sky ? { now: describeSky(store.sky), live: !!store.sky.city } : undefined,
+    store.sky ? { now: describeSky(store.sky, store.officeNow()), live: !!store.sky.city } : undefined,
     pane,
   );
 }
@@ -3606,12 +4657,20 @@ const workerPos = new THREE.Vector3();
 const headPos = new THREE.Vector3();
 /** Last frame went through the drunk vision. */
 let drunkVisionOn = false;
+/** When (performance.now()) the workers' looks were last brought up to how long they've worked. */
+let agedAt = 0;
+/** Frames coming too slowly for the 3D to be any fun: the 2D view is offered. */
+const slowFrames = new SlowFrames();
+/** When a car last shoved you out of its way. */
+let shovedAt = 0;
 
 function frame(ts?: number) {
   timer.update(ts);
-  const dt = Math.min(timer.getDelta(), 0.1);
+  const delta = timer.getDelta();
+  const dt = Math.min(delta, 0.1);
   const t = timer.getElapsed();
   const now = performance.now();
+  if (slowFrames.frame(now, delta * 1000)) offer2d('slow');
 
   // Coffee: quicker feet, higher jumps, a mug in hand, and maybe the jitters.
   const secs = now / 1000;
@@ -3628,9 +4687,25 @@ function frame(ts?: number) {
   const drunk = drinking(now);
 
   walkTick(now);
+  // The cars first, so whoever's riding in one sits in it where it's got to.
+  office.cars.update(dt, store.cars, store.carsAt, now, driver.active ? { car: driver.car!, driving: driver.driving } : null, camera.position);
   player.update(dt);
+  // Timing a lap of the scenic loop, behind the wheel.
+  if (driver.driving && driver.pose) {
+    const lap = laps.update(driver.pose.x, driver.pose.z, now / 1000);
+    if (lap !== null) lapDone(lap);
+  } else laps.reset();
+  // A car coming at you where you stand: out of its way, with a thump if it was going.
+  if (inOffice() && !driver.active && !upTop && !trip) {
+    const hit = office.cars.shove(player.pos, null);
+    if (hit > 1.5 && now - shovedAt > 600) {
+      shovedAt = now;
+      sound.crash({ x: player.pos.x, y: player.pos.y + 0.8, z: player.pos.z }, hit / 2);
+      if (!reduceMotion.matches) thud = Math.max(thud, Math.min(0.7, hit / 12));
+    }
+  }
   // Walked into a pole's hole: you grab the pole on your way down it.
-  const hole = office.stack.polesGoDown() ? office.stack.poles().find((s) => Math.hypot(player.pos.x - s.x, player.pos.z - s.z) < POLE.hole - 0.15) : undefined;
+  const hole = inOffice() && office.stack.polesGoDown() ? office.stack.poles().find((s) => Math.hypot(player.pos.x - s.x, player.pos.z - s.z) < POLE.hole - 0.15) : undefined;
   if (hole && !climber.active && !trip && !player.seat && player.enabled && player.pos.y > -1.35 && player.pos.y < 0.6) climber.slide(hole);
   arcade.update(camera, dt);
   cabinet.update(camera, dt);
@@ -3648,14 +4723,15 @@ function frame(ts?: number) {
   me.root.rotation.y = player.facing;
   const grip = climber.grip;
   me.setGrip(grip);
-  me.update(dt, t, (player.moving && player.grounded) || (grip === 'ladder' && player.moving), !player.grounded && !grip && !golf.active && !thrower.active, player.speedBoost);
+  me.update(dt, t, (player.moving && player.grounded) || (grip === 'ladder' && player.moving), !player.grounded && !grip && !golf.active && !thrower.active && !driver.active, player.speedBoost);
   me.setVoiceLevel(voice.inVoice ? voice.localLevel : 0);
   const firstPerson = player.view === 'first';
   // In first person you are the camera; in third, hide yourself when it's zoomed in right behind your head.
   // At the tee the camera's behind the ball, and you're the one holding the club.
   // So is the camera over your shoulder at the dart board or the axe lane.
   me.root.visible = golf.active || thrower.active || (!firstPerson && camera.position.distanceTo(headPos.set(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5);
-  if (firstPerson && !golf.active && !thrower.active) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded, jitter: player.jitter, grip });
+  // In a car, your hands are on the wheel, out of sight.
+  if (firstPerson && !golf.active && !thrower.active && !driver.active) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded, jitter: player.jitter, grip });
   // Down a pole: the view widens and the edges streak past.
   const rush = reduceMotion.matches ? 0 : climber.rush;
   // At the oche or the line, the view narrows onto the target.
@@ -3695,20 +4771,26 @@ function frame(ts?: number) {
   for (const [id, r] of remotes) {
     const p = store.peers.get(id);
     if (!p) continue;
-    // Sitting, they're wherever their seat puts them.
-    const sat = p.seat ? seatAt(p.seat) : undefined;
+    // Sitting, they're wherever their seat puts them; in a car, right in it as it goes.
+    const ride = rideOf(id);
+    const sat = ride ?? (p.seat ? seatOn(plan(), p.seat) : undefined);
     const at = sat ?? p;
     r.target.set(at.x, at.y, at.z);
     const pos = r.person.root.position;
-    pos.lerp(r.target, Math.min(1, dt * 12));
-    let diff = at.rotY - r.person.root.rotation.y;
-    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-    r.person.root.rotation.y += diff * Math.min(1, dt * 12);
+    if (ride) {
+      pos.copy(r.target);
+      r.person.root.rotation.y = ride.rotY;
+    } else {
+      pos.lerp(r.target, Math.min(1, dt * 12));
+      let diff = at.rotY - r.person.root.rotation.y;
+      diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+      r.person.root.rotation.y += diff * Math.min(1, dt * 12);
+    }
     // On their feet if they're standing on something: the floor, a desk, a stair, the loft.
     const ground = groundAt(player.colliders, p.x, p.z, p.y);
     const airborne = !sat && p.y > ground + 0.05;
     // Or holding on to the ladder or a pole; off a pole onto the mat, the firehouse bell rings.
-    const holding = sat || upTop ? null : gripOf(p, office.stack.poles(), ground);
+    const holding = sat || upTop || !inOffice() ? null : gripOf(p, office.stack.poles(), ground);
     if (r.grip === 'pole' && !holding && Math.abs(p.y) < 0.2) sound.poleLanding(6, { x: pos.x, y: 0.5, z: pos.z });
     r.grip = holding;
     r.person.setGrip(holding);
@@ -3731,9 +4813,28 @@ function frame(ts?: number) {
     voice.setVolume(id, d < 4 ? 1 : Math.max(0.2, 1 - (d - 4) / 16));
   }
 
+  // The engines of the cars being driven on this floor, yours (by how hard you're on the gas) and theirs.
+  const engines: Parameters<typeof sound.setEngines>[0] = [];
+  if (!upTop && inOffice()) {
+    for (const [i, c] of store.cars.entries()) {
+      const mine = driver.car === i && driver.driving;
+      if (!c.driver && !mine) continue;
+      const pose = office.cars.cars[i]?.pose ?? c;
+      engines.push({ car: i, at: { x: pose.x, y: player.street + 0.5, z: pose.z }, speed: pose.speed, gas: mine ? driver.gas : Math.min(1, Math.abs(pose.speed) / 10) });
+    }
+  }
+  sound.setEngines(engines);
+
   const camPos = camera.position;
+  // How worn out each looks, as they work on (every second or so is plenty).
+  const aging = !!plan().agents.ageMinutes && now - agedAt > 1000;
+  if (aging) agedAt = now;
   for (const [id, v] of workerViews) {
-    const desk = DESK_BY_ID.get(v.deskId)!;
+    const desk = plan().byId.get(v.deskId)!;
+    if (aging) {
+      const w = store.workers.get(id);
+      if (w) v.model.setAge(ageOf(w));
+    }
     // A jumping worker holds still while you're near enough to read its card, and jumps again once you walk away.
     const d = v.model.root.getWorldPosition(workerPos).distanceTo(player.pos);
     v.model.held = d < (v.model.held ? HOLD_LEAVE : HOLD_NEAR);
@@ -3743,20 +4844,38 @@ function frame(ts?: number) {
   }
   for (const a of idleAgents) if (a.view.vacancy.visible) a.model.update(dt, t);
   departures.update(dt, t);
-  arrivals.update(dt);
-  dog.update(dt);
-  if (!upTop) updateBall(now, dt);
   if (!upTop) {
-    office.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions(), ...arrivals.positions()]);
-    office.stack.update(dt, [{ x: player.pos.x, y: player.pos.y, z: player.pos.z, grip }, ...[...remotes.values()].map((r) => ({ x: r.person.root.position.x, y: r.person.root.position.y, z: r.person.root.position.z, grip: r.grip }))], camera.position);
-    office.jukebox.update(t, dt, sound.beat());
+    sendoffs.update(dt, t);
+    jail.update(dt, t, camera.position);
+  }
+  arrivals.update(dt);
+  court?.update(dt);
+  // The dog is the office's: on a map of its own it stays at home, quiet.
+  if (inOffice()) dog.update(dt);
+  if (!upTop && inOffice()) updateBall(now, dt);
+  if (!upTop) {
+    world.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions(), ...sendoffs.positions(), ...arrivals.positions(), ...(court?.positions() ?? [])]);
+    if (inOffice()) {
+      office.stack.update(dt, [{ x: player.pos.x, y: player.pos.y, z: player.pos.z, grip }, ...[...remotes.values()].map((r) => ({ x: r.person.root.position.x, y: r.person.root.position.y, z: r.person.root.position.z, grip: r.grip }))], camera.position);
+      office.jukebox.update(t, dt, sound.beat());
+    }
   }
   checkSmokeBreak(now);
   smoke.update(dt, camera);
   confetti.update(dt);
   hanger.update();
+  // Out along the scenic loop, the haze thins (there's more out there to see), and the sun's shadows
+  // come with you: otherwise they're only cast round the office.
+  const away = !upTop && inOffice() ? Math.hypot(player.pos.x, player.pos.z) : 0;
+  sky.open = THREE.MathUtils.smoothstep(away, 70, 160);
+  if (away > 40) sun.target.position.set(Math.round(player.pos.x / 4) * 4, player.pos.y, Math.round(player.pos.z / 4) * 4);
+  else sun.target.position.set(0, 0, 0);
+  sun.target.updateMatrixWorld();
   sky.update(dt, t, camera);
-  if (!upTop) holiday.update(t, sky.lampsOn, camera);
+  if (!upTop && inOffice()) office.scenic.cull(camera.position, office.night.street, (scene.fog as THREE.Fog).far);
+  // A map of its own lights itself its own way (the castle's torchlit hall), after the sky's had its say.
+  if (!upTop) world.mood?.({ sun, hemi, ambient, scene }, sky.daylight, t, camera.position);
+  if (!upTop && inOffice()) holiday.update(t, sky.lampsOn, camera);
   sound.setWeather(sky.rain, 1 - sky.daylight);
   if (upTop && roof) {
     // Everything up there moves to the DJ's set; strobes flash the whole roof as a drop lands.
@@ -3766,13 +4885,13 @@ function frame(ts?: number) {
   }
 
   aimedNote = null;
-  if (modalOpen() || telescope.active || hanger.active || climber.active || golf.active || thrower.active) target = null;
+  if (modalOpen() || telescope.active || hanger.active || climber.active || golf.active || thrower.active || driver.active) target = null;
   else if (firstPerson) {
     const aim = aimedAt(CROSSHAIR);
-    target = aim?.near ? aim.it : (mySeat() ?? ballAtFeet());
+    target = aim?.near ? aim.it : (throneTarget() ?? mySeat() ?? (inOffice() ? ballAtFeet() : null));
     if (aim?.near) aimedNote = noteUnder(aim);
   } else {
-    target = mySeat() ?? pickTarget();
+    target = throneTarget() ?? mySeat() ?? pickTarget();
     // By the issues board, the mouse points at the note you'd take.
     if (target?.kind === 'issues' && pointer) {
       const aim = aimedAt(pointer, 2.5);
@@ -3788,7 +4907,7 @@ function frame(ts?: number) {
     // What people are up to changes as they walk about, not only when they open something.
     for (const [id, r] of remotes) {
       const p = store.peers.get(id);
-      if (p) r.person.setDoing(whereabouts(p));
+      if (p) r.person.setDoing(whereabouts(p, store.carOf(id), plan()));
     }
     renderPeople(voice, editProfile, walkTo, false);
     updateSpeaking(voice);
@@ -3804,7 +4923,7 @@ function frame(ts?: number) {
   effect.render(scene, camera);
   pointToWaiting(now);
   // Not while the camera's up at the boss's monitor or the arcade, where they'd cover the screen.
-  if (firstPerson && !telescope.active && !arcade.zoomed && !cabinet.zoomed && !golf.active && !thrower.active) {
+  if (firstPerson && !telescope.active && !arcade.zoomed && !cabinet.zoomed && !golf.active && !thrower.active && !driver.active) {
     // Hands go on top of everything, so they never clip into a desk you walk up to. They have
     // lights of their own, turned down to match wherever you're standing.
     renderer.clearDepth();
@@ -3819,6 +4938,21 @@ function frame(ts?: number) {
 }
 
 // ---- Boot ------------------------------------------------------------------------------------------
+function makeRenderer(): THREE.WebGLRenderer | null {
+  try {
+    return new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  } catch (err) {
+    console.error(err);
+    return null;
+  }
+}
+
+/** No WebGL here (switched off, or no graphics for it): on to the 2D view, which does without. */
+function noWebGL(): Promise<never> {
+  location.replace('/lite?why=webgl');
+  return new Promise(() => {});
+}
+
 function boot() {
   net.connect();
   requestAnimationFrame(frame);
@@ -3871,7 +5005,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { roof: () => roof, booze, dj: () => djFrame(djAt()), store, player, caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, golf, balls, thrower, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote, ball };
+(window as any).__office = { world: () => world, court: () => court, sendoffs, jail, plan, applyMap, roof: () => roof, booze, dj: () => djFrame(djAt()), store, player, caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, driver, getIn, getOut, golf, balls, thrower, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote, ball };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

@@ -4,7 +4,7 @@ Back to the [README](../README.md).
 
 ## Where the office keeps things
 
-The office keeps its data in `~/agent-office` (`--home` or `AGENT_OFFICE_HOME` to move it) and clones projects next to it, as `~/agent-office/<owner>/<repo>`. To clone them somewhere else, like `~/Workspace`, an admin picks the **Workspace folder** in ⚙️ Settings → **🏢 Building** (or start with `--projects` or `AGENT_OFFICE_PROJECTS`). Floors you already have stay where they are, and a checkout of the same repository that's already in the new folder is used as it is. The list of floors is `~/agent-office/.agent-office/floors.json`, and each account's own Claude and GitHub sign-ins are in `~/agent-office/.agent-office/homes/<account>/` (revoking the account deletes them). Each floor keeps its workers, queue, pictures and worktrees in its own checkout's `.agent-office/`.
+The office keeps its data in `~/agent-office` (`--home` or `AGENT_OFFICE_HOME` to move it) and clones projects next to it, as `~/agent-office/<owner>/<repo>`. To clone them somewhere else, like `~/Workspace`, an admin picks the **Workspace folder** in ⚙️ Settings → **🏢 Building** (or start with `--projects` or `AGENT_OFFICE_PROJECTS`). Floors you already have stay where they are, and a checkout of the same repository that's already in the new folder is used as it is. The building's map is in `~/agent-office/.agent-office/map.json`, and maps of your own go in `~/agent-office/.agent-office/maps/` (see [Maps](maps.md)). The list of floors is `~/agent-office/.agent-office/floors.json`, and each account's own Claude and GitHub sign-ins are in `~/agent-office/.agent-office/homes/<account>/` (revoking the account deletes them). Each floor keeps its workers, queue, pictures and worktrees in its own checkout's `.agent-office/`.
 
 Already have a checkout? Pick its repository anyway: a checkout of it that's already where the workspace folder would clone it is used as it is. You can still start the office in a project, `agent-office ~/code/my-project`: that project becomes a floor, and the office keeps its data in `~/code/my-project/.agent-office` as it did before there were floors. An office that already ran in a project carries on in it when you start `agent-office` there again. An admin can take that project off the building in the elevator like any other floor.
 
@@ -22,12 +22,13 @@ agent-office [dir] [options]
       --no-open           Don't open the office in your browser when it starts
       --agent <cmd>       Default agent command (default "claude")
       --agent-args <str>  Extra args for the configured agent, e.g. "--model opus"
+      --dsh-profile <n>   DeepSeek Harness profile over ACP (default "acp")
       --tls-cert <file>   Serve HTTPS with this cert…
       --tls-key <file>    …and key
       --self-signed       Serve HTTPS with a generated self-signed cert
       --trust-proxy       Trust X-Forwarded-* (behind Caddy/nginx)
       --turn <url>        Add a TURN server for voice, e.g. turn:user:pass@host:3478
-      --budget <usd>      Daily tracked Claude Code budget (OpenCode/Codex excluded)
+      --budget <usd>      Daily tracked Claude Code budget (OpenCode/Codex/Grok/Muse/DSH excluded)
       --budget-pause      ...and nobody can hire a new worker until the next day
       --max-workers <n>   Run at most n workers at once, across every floor (env AGENT_OFFICE_MAX_WORKERS)
       --webhook <url>     Post to this Slack / Discord webhook when a worker needs input or finishes

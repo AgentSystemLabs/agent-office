@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { isAgentEffort, isAgentProvider, isClaudeModel, type AgentChoice, type AgentEffort, type AgentProvider, type GhPull, type QueueState, type QueueTask, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
 import { DESK_BY_ID, SEATS, nextFreeSeat } from '../shared/layout.js';
-import { isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel } from './agents.js';
+import { isValidDshModel, isValidGrokModel, isValidMuseModel, isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { PROMPTS } from '../shared/prompts.js';
 
 /** What the queue needs from the worker manager. Narrow on purpose, so a smoke test can fake it. */
@@ -13,6 +13,8 @@ export interface QueueWorkers {
   readonly officeDefault?: AgentChoice;
   list(): WorkerInfo[];
   deskOccupied(deskId: string): boolean;
+  /** How many rows the floor's back office is built out, for its desks (see WING). */
+  wing?(): number;
   spawn(deskId: string, by: string, prompt: string, worktree: boolean, kind: 'agent', provider: AgentProvider, model?: string, effort?: AgentEffort, meeting?: undefined, owner?: string): WorkerInfo | string;
   /** Resolves with a line about what became of the worker's worktree. */
   kill(id: string): Promise<{ note?: string; error?: string }>;
@@ -97,8 +99,8 @@ export class TaskQueue {
     const task: QueueTask = {
       id: randomBytes(6).toString('hex'),
       provider,
-      model: provider === 'opencode' || provider === 'claude' ? model : undefined,
-      effort: provider === 'claude' ? effort : undefined,
+      model: provider === 'opencode' || provider === 'claude' || provider === 'grok' || provider === 'muse' || provider === 'dsh' ? model : undefined,
+      effort: provider === 'claude' || provider === 'grok' || provider === 'muse' || provider === 'dsh' ? effort : undefined,
       issue,
       title: (title?.trim() || firstLine(clean)).slice(0, 120),
       prompt: clean,
@@ -276,9 +278,9 @@ export class TaskQueue {
     return this.tasks.filter((t) => t.status === 'running').length;
   }
 
-  /** A free desk, else a free bean bag. */
+  /** A free desk (in the back office too, as far as it's built), else a free bean bag. */
   private freeDesk(): string | undefined {
-    return nextFreeSeat((id) => this.workers.deskOccupied(id))?.id;
+    return nextFreeSeat((id) => this.workers.deskOccupied(id), this.workers.wing?.() ?? 0)?.id;
   }
 
   /**
@@ -383,8 +385,8 @@ export class TaskQueue {
         const t: QueueTask = {
           id: s.id,
           provider,
-          model: provider === 'opencode' && isValidOpenCodeModel(s.model) ? s.model : provider === 'claude' && isClaudeModel(s.model) ? s.model : undefined,
-          effort: provider === 'claude' && isAgentEffort(s.effort) ? s.effort : undefined,
+          model: provider === 'opencode' && isValidOpenCodeModel(s.model) ? s.model : provider === 'claude' && isClaudeModel(s.model) ? s.model : provider === 'grok' && isValidGrokModel(s.model) ? s.model : provider === 'muse' && isValidMuseModel(s.model) ? s.model : provider === 'dsh' && isValidDshModel(s.model) ? s.model : undefined,
+          effort: (provider === 'claude' || provider === 'grok' || provider === 'muse' || provider === 'dsh') && isAgentEffort(s.effort) ? s.effort : undefined,
           issue: typeof s.issue === 'number' ? s.issue : undefined,
           title: s.title,
           prompt: s.prompt,

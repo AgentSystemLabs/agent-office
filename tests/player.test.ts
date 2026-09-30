@@ -135,7 +135,7 @@ function overlaps(c: Collider, x: number, z: number) {
 }
 
 test('sits on the lounge couch until you walk off, then gets up clear of it', (t) => {
-  const couch: Collider = { minX: 10, maxX: 11, minZ: -2.2, maxZ: 2.2, top: 0.55 };
+  const couch: Collider = { minX: 10, maxX: 11, minZ: -2.2, maxZ: 2.2, top: 0.47 };
   const table: Collider = { minX: 12.2, maxX: 13.8, minZ: -0.8, maxZ: 0.8, top: 0.46 };
   const { player, keys, frames } = controller(t, [officeFloor, couch, table]);
   let gotUp = 0;
@@ -173,7 +173,7 @@ test("gets up from the boss's chair behind it, away from the desk", (t) => {
 
 test('gets up off a beanbag to the side when something stands in front of it', (t) => {
   const bag = SEATING_BY_ID.get('lounge-beanbag-1')!;
-  const bean: Collider = { minX: bag.x - 0.5, maxX: bag.x + 0.5, minZ: bag.z - 0.5, maxZ: bag.z + 0.5, top: 0.6 };
+  const bean: Collider = { minX: bag.x - 0.5, maxX: bag.x + 0.5, minZ: bag.z - 0.5, maxZ: bag.z + 0.5, top: 0.42 };
   const place = seatPlace(bag, 0);
   const ax = place.x + Math.sin(bag.rotY) * bag.out;
   const az = place.z + Math.cos(bag.rotY) * bag.out;

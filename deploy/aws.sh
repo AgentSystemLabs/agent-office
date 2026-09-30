@@ -514,6 +514,8 @@ cmd_up() {
   else
     echo "   claude:   not signed in — log in from the first worker's terminal (or pass --claude-token)"
   fi
+  echo "   others:   only Claude Code is provisioned; install and sign in to OpenCode, Codex"
+  echo "             or DeepSeek Harness (dsh) on the box yourself to hire those workers"
 
   mkdir -p "$STATE_DIR"
   chmod 700 "$STATE_DIR"

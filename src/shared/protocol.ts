@@ -5,9 +5,12 @@ import type { BarGame } from './bargames.js';
 import type { CabinetFrame, CabinetState, CabinetView } from './cabinet.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
+import type { FloorPlan } from './floorplan.js';
 import type { EmoteId } from './emotes.js';
+import type { CarSeat, CarState } from './garage.js';
 import type { BallState } from './hoop.js';
 import type { JukeboxState } from './jukebox.js';
+import type { CustomMap } from './maps/index.js';
 import type { PromptId } from './prompts.js';
 import type { DrinkId } from './rooftop.js';
 import type { WbElement, WbPointer, WhiteboardView } from './whiteboard.js';
@@ -29,10 +32,10 @@ export type WorkerKind = 'agent' | 'shell';
  */
 export type WorkerAction = 'read' | 'edit' | 'test' | 'web' | 'failing';
 
-export type AgentProvider = 'claude' | 'opencode' | 'codex' | 'custom';
+export type AgentProvider = 'claude' | 'opencode' | 'codex' | 'grok' | 'muse' | 'dsh' | 'custom';
 
 export function isAgentProvider(value: unknown): value is AgentProvider {
-  return value === 'claude' || value === 'opencode' || value === 'codex' || value === 'custom';
+  return value === 'claude' || value === 'opencode' || value === 'codex' || value === 'grok' || value === 'muse' || value === 'dsh' || value === 'custom';
 }
 
 /** A Claude model alias the hire dialog and queue can request explicitly (see server/agents.ts). */
@@ -49,10 +52,10 @@ export function isAgentEffort(value: unknown): value is AgentEffort {
   return value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' || value === 'max';
 }
 
-/** Which agent a worker runs: its provider, and optionally the model and (Claude only) the reasoning effort. */
+/** Which agent a worker runs: its provider, and optionally the model and (Claude/Grok/Muse) the reasoning effort. */
 export interface AgentChoice {
   provider: AgentProvider;
-  /** An OpenCode provider/model id, or a Claude model alias; unset for the provider's own default. */
+  /** An OpenCode provider/model id, a Claude model alias, or a Grok/Muse model id; unset for the provider's own default. */
   model?: string;
   effort?: AgentEffort;
 }
@@ -94,9 +97,9 @@ export interface WorkerInfo {
   /** 'agent' runs the selected provider; 'shell' is a plain shared login shell. */
   kind: WorkerKind;
   provider?: AgentProvider;
-  /** Model requested for this worker, instead of the office's configured default: an OpenCode provider/model id, or a Claude model alias. */
+  /** Model requested for this worker, instead of the office's configured default: an OpenCode provider/model id, a Claude model alias, a Grok/Muse model id, or an opaque DeepSeek Harness catalog id. */
   model?: string;
-  /** Reasoning effort requested for this worker, when one was chosen (Claude only). */
+  /** Reasoning effort requested for this worker, when one was chosen (Claude, Grok, Muse or DeepSeek Harness). */
   effort?: AgentEffort;
   deskId: string;
   name: string;
@@ -118,6 +121,12 @@ export interface WorkerInfo {
    * switches to one of its own (`git checkout -b fix-x`), which `made` then remembers.
    */
   worktree?: { path: string; branch: string; base: string; from?: string; made?: string };
+  /**
+   * Set while the folder it works in (its worktree, or its workspace across repositories) is gone:
+   * deleted outside the office, so it can't start there until it's rebuilt ('worker.rebuild') or sent
+   * home. `branch` says where its branch still is: in the project, only on origin, or nowhere.
+   */
+  lost?: { branch: LostBranch };
   /** The pull request opened from this desk for the worktree branch (see 'worker.pr'). */
   pr?: { number: number; url: string };
   /**
@@ -149,7 +158,18 @@ export interface WorkerInfo {
   lastInput?: { by: string; at: number };
   /** The meeting it was called to, for a worker at the meeting room's table (see Meeting). */
   meeting?: string;
+  /**
+   * How long it has spent working (ms), over the stretches that have ended, and when the one it's in
+   * now started (while it's working): on the castle map, the longer it has worked, the more worn out it looks.
+   */
+  workedMs?: number;
+  workingSince?: number;
+  /** Sent out by a map's herald (the castle's Hand of the King), so every browser has it run to its seat from beside them. */
+  via?: 'herald';
 }
+
+/** Where the branch of a worker whose worktree was deleted still is (see WorkerInfo.lost). */
+export type LostBranch = 'here' | 'origin' | 'gone';
 
 /** Another floor's repository a worker also works in (see WorkerInfo.repos): a worktree of it in the worker's workspace. */
 export interface WorkerRepo {
@@ -195,6 +215,8 @@ export interface Usage {
   callsKnown?: boolean;
   /** Authoritative provider total when it cannot be reconstructed from the displayed buckets. */
   totalTokens?: number;
+  /** Size of the context window in tokens, when the provider reports one (DeepSeek Harness over ACP). */
+  contextSize?: number;
 }
 
 /** Every token a session used, cache reads and writes included: what the office shows and budgets meetings by. */
@@ -310,6 +332,8 @@ export interface PeerInfo {
   doing?: string;
   /** Reading something off the bookshelf: an open book in their hands, its pages turning. */
   reading?: boolean;
+  /** On the 2D view (/lite: a phone, say, or a slow computer): in the office, but not standing anywhere in it. */
+  lite?: boolean;
 }
 
 /** A styled run of text on a terminal row: [text, fg, bg, flags]. */
@@ -706,6 +730,8 @@ export interface FloorInfo {
   /** Workers waiting on someone: a question, a permission, or a finished turn nobody looked at. */
   waiting: number;
   people: number;
+  /** How many rows its back office is built out (see WING), for the building's outside. */
+  wing: number;
 }
 
 /** Where the elevator's "add a project" clones to: <dir>/<owner>/<repo> on the office's machine. */
@@ -729,6 +755,26 @@ export interface RepoChoice {
 }
 
 /** Everything that belongs to the floor you're on: sent when you walk in, and when you change floors. */
+/**
+ * A worker sent home on a map that locks them up (see MapPlan.sendHome): who it was, and when it was
+ * locked up, which is how far it has wasted away since.
+ */
+export interface Prisoner {
+  id: string;
+  name: string;
+  color: string;
+  /** When it was locked up (ms). */
+  at: number;
+  /** How long it had worked, for how worn out it looks (see MapConfig.agents.ageMinutes). */
+  workedMs?: number;
+}
+
+/** A floor's dungeon: everyone locked up in it, first to last, and how many from before them are only bones on the heap now. */
+export interface JailState {
+  prisoners: Prisoner[];
+  bones: number;
+}
+
 export interface FloorView {
   /** The floor you're on; null while the building has none. */
   floor: string | null;
@@ -739,6 +785,8 @@ export interface FloorView {
   queue: QueueState;
   /** Pictures on this floor's walls. */
   decor: Decoration[];
+  /** The signs over this floor's desks, and how far its back office is built out. */
+  plan: FloorPlan;
   services: ServicesState;
   /** The floor's dog; null in a building with no floors yet. */
   dog: DogState | null;
@@ -752,6 +800,10 @@ export interface FloorView {
   meeting: MeetingState;
   /** The basketball by the hoop: who has it, or how it was last thrown. */
   ball: BallState;
+  /** The cars in the garage (see CARS in shared/garage.ts): where each one is, and who's in it. */
+  cars: CarState[];
+  /** Workers sent home and locked up in the dungeon, on a map that has one. */
+  jail: JailState;
 }
 
 export type AccountRole = 'admin' | 'member';
@@ -869,7 +921,7 @@ export interface ServicesState {
   port: number;
   /** How to run the script that deployed the office, as in TeamState. */
   deploy?: string;
-  /** Where teammates tunnel to (offices deployed with deploy/aws.sh or deploy/railway.sh), as in TeamState */
+  /** Where teammates tunnel to (offices deployed with deploy/aws.sh, deploy/railway.sh, deploy/fly.sh or deploy/dokploy.sh), as in TeamState */
   ssh?: string;
   /** The office's name on its Tailscale network: each server is also on https://<it>:<port> there. */
   tailnet?: string;
@@ -1004,6 +1056,19 @@ export interface ThemeState {
 }
 
 /**
+ * The building's map: what every floor looks like inside (the office, the castle, or one of your
+ * own), the same for everyone (see shared/maps). Custom maps come from the office's
+ * .agent-office/maps/ folder, each with its whole config, or why it won't load.
+ */
+export interface MapState {
+  pick: string;
+  custom: CustomMap[];
+  /** Who picked it, and when. Unset for the default (the office). */
+  by?: string;
+  at?: number;
+}
+
+/**
  * Whether a worker whose pull request merged goes home by itself (⚙️ Settings), for every floor:
  * once it's at rest and nobody has its terminal open, it leaves and its worktree and branch are deleted.
  */
@@ -1074,12 +1139,14 @@ export type ClientMsg =
   | { t: 'profile'; name: string; color: string; look: Look }
   /** With `issue`, the worker is there for that GitHub issue: it's assigned on GitHub (so it moves to In progress) and taken off the queue. */
   /** With `repos` (other floors' ids), the worker works in their repositories too, each in a worktree of its own (see WorkerInfo.repos). */
-  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: number; repos?: string[] }
+  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: number; repos?: string[]; via?: 'herald' }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
   | { t: 'worker.answer'; workerId: string; askId: string; answer: string }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
   | { t: 'worker.worktree'; workerId: string }
+  /** Puts a lost worker's worktree back and starts it again (see WorkerInfo.lost); `all`: every lost worker on the floor. */
+  | { t: 'worker.rebuild'; workerId: string; all?: boolean }
   | { t: 'worker.attach'; workerId: string }
   | { t: 'worker.detach'; workerId: string }
   /** With `issue`, the prompt hands the worker that GitHub issue, which is taken as for worker.spawn. */
@@ -1177,6 +1244,11 @@ export type ClientMsg =
   /** Move, resize, re-frame or swap the image of a picture. */
   | { t: 'decor.update'; id: string; decor: Partial<DecorPlacement> }
   | { t: 'decor.remove'; id: string }
+  /** Hang a sign over a desk on your floor (a SIGN_COLORS color), or take it down with no text. */
+  | { t: 'desk.label'; deskId: string; text: string; color?: string }
+  /** Knock the back office out another row, with two more desks; or wall its last row back up. */
+  | { t: 'floor.expand' }
+  | { t: 'floor.shrink' }
   /** Put a tune on the jukebox (a JUKEBOX_TUNES id), or a stream; with neither, turn it back on. */
   | { t: 'jukebox.play'; track?: string; url?: string }
   /** On to the next tune. */
@@ -1215,6 +1287,8 @@ export type ClientMsg =
   | { t: 'floor.remove'; floor: string }
   /** Dress the building up for a holiday, take the decorations down ('off'), or follow the calendar ('auto'). */
   | { t: 'theme.set'; pick: ThemePick }
+  /** Change the building's map (see MapState), or with no map, read the custom maps' folder again. */
+  | { t: 'map.set'; map?: string }
   /** Workers whose pull request merged go home by themselves (true), or wait to be sent home. */
   | { t: 'leaveOnMerge.set'; on: boolean }
   /** Where new floors are cloned from now on (admins only); '' goes back to the default. */
@@ -1227,6 +1301,14 @@ export type ClientMsg =
   | { t: 'ball.take' }
   /** Throw the basketball in your hands from (x, y, z) at (vx, vy, vz) m/s, or drop it; everyone on the floor sees it fly. */
   | { t: 'ball.throw'; x: number; y: number; z: number; vx: number; vy: number; vz: number }
+  /** Get into a seat of one of the floor's cars (by its place in CARS): yours if nobody's in it. */
+  | { t: 'car.enter'; car: number; seat: CarSeat }
+  /** Get out of the car you're in; driving, it stays parked where you left it. */
+  | { t: 'car.leave' }
+  /** Where the car you're driving has got to, and how it's going; everyone else on the floor sees it there. */
+  | { t: 'car.drive'; car: number; x: number; z: number; rotY: number; speed: number; steer: number }
+  /** Honk the horn of the car you're in. */
+  | { t: 'car.honk' }
   /** Give the dog on your floor a pat; it has to be within reach. */
   | { t: 'dog.pet' }
   /** Name the dog on your floor ('' gives it back its first name). */
@@ -1258,6 +1340,8 @@ export type ServerMsg =
       sky: SkyState;
       /** Halloween or Christmas decorations, all over the building, or none. */
       theme: ThemeState;
+      /** What the building looks like inside. */
+      map: MapState;
       /** The office's prompts and the worker everyone starts on. */
       prompts: PromptsState;
       leaveOnMerge: LeaveOnMergeState;
@@ -1282,7 +1366,8 @@ export type ServerMsg =
   | { t: 'toss'; id: string; game: BarGame; u: number; v: number; stick: boolean; n: number }
   | { t: 'peer.emote'; id: string; emote: EmoteId }
   | { t: 'worker.update'; worker: WorkerInfo }
-  | { t: 'worker.remove'; workerId: string }
+  /** A worker's gone; `jail`, when it was sent home on a map that locks workers up (MapPlan.sendHome), with it in there now. */
+  | { t: 'worker.remove'; workerId: string; jail?: JailState }
   | { t: 'worker.worktree'; workerId: string; state: WorktreeState }
   | { t: 'screen'; workerId: string; cols: number; rows: number; lines: Record<number, Run[]>; full: boolean; cursor: [number, number] }
   | { t: 'term.snapshot'; workerId: string; data: string; cols: number; rows: number }
@@ -1313,10 +1398,18 @@ export type ServerMsg =
   | { t: 'upgrade'; state: UpgradeState }
   | { t: 'services'; state: ServicesState }
   | { t: 'decor'; items: Decoration[] }
+  /** Your floor's signs changed, or its back office was built out or walled up. */
+  | { t: 'plan'; plan: FloorPlan }
   /** What the dog on your floor is up to now: sent at the start of each leg of its day. */
   | { t: 'dog'; dog: DogState }
   /** The basketball on your floor was picked up, thrown, or put back under the hoop. */
   | { t: 'ball'; ball: BallState }
+  /** Someone got into one of your floor's cars, or out of one; `answer` to each car.enter and car.leave of yours, whether you got in or not. */
+  | { t: 'cars'; cars: CarState[]; answer?: boolean }
+  /** A car on your floor is being driven (see car.drive). */
+  | { t: 'car.move'; car: number; x: number; z: number; rotY: number; speed: number; steer: number }
+  /** Someone in a car on your floor honked its horn. */
+  | { t: 'car.honk'; car: number }
   | { t: 'jukebox'; state: JukeboxState }
   /** Who's at the arcade cabinet on your floor now, and the building's high scores. */
   | { t: 'cabinet'; state: CabinetState }
@@ -1336,6 +1429,9 @@ export type ServerMsg =
   | { t: 'machine'; state: MachineState }
   | { t: 'sky'; state: SkyState }
   | { t: 'theme'; state: ThemeState }
+  | { t: 'map'; state: MapState }
+  /** Sent to whoever tried to sit where someone on the floor already is. */
+  | { t: 'sit.refused'; seat: string; by: string }
   | { t: 'prompts'; state: PromptsState }
   | { t: 'leaveOnMerge'; state: LeaveOnMergeState }
   /** Sent to whoever watches that worker's changes, whenever they change. */

@@ -132,6 +132,7 @@ button { font-family: inherit; }
 .pill.needs_input { background: var(--bad); color: #fff; animation: pulse 1s infinite; }
 .pill.done { background: var(--good); color: #fff; }
 .pill.exited, .pill.offline { background: #dee2e6; }
+.pill.lost { background: #ffb703; }
 .empty { color: var(--muted); font-size: 13px; font-weight: 600; }
 @keyframes pulse { 50% { transform: scale(1.08); } }
 
@@ -410,6 +411,21 @@ body.telescope-active #hud { visibility: hidden; }
 .search-text { overflow-wrap: anywhere; }
 .search-hit mark { background: var(--warn); color: var(--ink); border-radius: 3px; padding: 0 1px; }
 
+/* The command palette (Ctrl+K): up near the top, so it doesn't jump about as the list narrows. */
+.backdrop:has(> .modal.palette) { place-items: start center; padding-top: 12vh; }
+.modal.palette { width: min(640px, 100%); max-height: min(560px, calc(100vh - 12vh - 16px)); }
+.palette-find { padding: 12px 12px 8px; }
+.palette-list { list-style: none; margin: 0; padding: 0 8px 8px; overflow: auto; min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.palette-row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 2px solid transparent; border-radius: 10px; cursor: pointer; min-width: 0; }
+.palette-row.on { background: #fff; border-color: var(--accent); }
+.palette-icon { font-size: 18px; width: 24px; text-align: center; flex: none; }
+.palette-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.palette-title { font-weight: 800; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-detail { font-size: 12px; font-weight: 700; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-kind { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; flex: none; }
+.palette-row mark { background: var(--warn); color: var(--ink); border-radius: 3px; padding: 0 1px; }
+.palette-empty { margin: 4px 20px 14px; font-size: 13px; font-weight: 700; color: var(--muted); }
+
 /* Terminal modal */
 .modal.term { width: min(1200px, 100%); height: min(820px, calc(100vh - 32px)); background: #1e1f2e; }
 .modal.term header { background: var(--paper); }
@@ -434,6 +450,12 @@ body.telescope-active #hud { visibility: hidden; }
   .modal.term header h2 { flex-basis: calc(100% - 80px); }
   .modal.term header > :not(.dot, h2, .close) { order: 1; }
 }
+/* Under a terminal on the 2D view (TerminalOptions.keypad): the keys a phone's keyboard hasn't got, and a prompt box. */
+.term-keypad { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; padding-bottom: max(8px, env(safe-area-inset-bottom)); background: var(--paper); border-top: 3px solid var(--ink); }
+.term-keys { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 3px; }
+.term-keys .btn { flex: 1 1 0; min-width: 34px; height: 42px; padding: 0 4px; justify-content: center; border-radius: 10px; font-variant-numeric: tabular-nums; }
+.term-say { display: flex; gap: 8px; }
+.modal .term-say input[type=text] { flex: 1; min-width: 0; padding: 8px 10px; }
 
 /* Changes window: changed files + diff at a desk */
 .modal.desk-changes { width: min(1300px, 100%); height: min(860px, calc(100vh - 32px)); outline: none; }
@@ -653,6 +675,19 @@ body.telescope-active #hud { visibility: hidden; }
 @media (prefers-reduced-motion: reduce) { .jb-disc.spin { animation: none; } }
 .jb-icon { flex: none; font-size: 18px; }
 
+/* Signs over the desks, and the back office */
+.modal.desklabel { width: min(520px, 100%); }
+.sign-preview { display: grid; place-items: center; min-height: 92px; padding: 12px 18px; border: 3px solid var(--ink); border-radius: 14px; box-shadow: inset 0 0 0 6px rgba(255, 255, 255, .18); font-size: 34px; font-weight: 900; text-align: center; line-height: 1.1; overflow-wrap: anywhere; }
+.sign-preview.placeholder { opacity: .45; }
+.label-ideas { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.label-ideas .btn { padding: 3px 10px; font-size: 13px; }
+.desklabel .swatches { margin-top: 0; }
+.modal.expand { width: min(500px, 100%); }
+.expand-status p { margin: 0 0 10px; font-weight: 700; }
+.expand-rows { display: flex; gap: 8px; margin: 4px 0 12px; }
+.expand-rows span { flex: 1; text-align: center; padding: 8px 0; border: 3px dashed var(--muted); border-radius: 12px; font-weight: 800; color: var(--muted); }
+.expand-rows span.on { border-style: solid; border-color: var(--ink); background: var(--paper-2); color: var(--ink); }
+
 /* Pictures on the walls */
 .modal.hang { width: min(560px, 100%); }
 .hang .seg { gap: 6px; }
@@ -865,6 +900,7 @@ a.when:hover { text-decoration: underline; }
 .modal.bookshelf { width: min(1240px, 100%); height: min(880px, calc(100vh - 32px)); }
 .modal.bookshelf .body { flex: 1; min-height: 0; display: grid; grid-template-columns: 300px minmax(0, 1fr); padding: 0; overflow: hidden; }
 .modal.bookshelf header .bs-project { color: var(--muted); font-weight: 800; }
+.modal.bookshelf header .bs-sound { padding: 4px 10px; font-size: 15px; }
 .bs-side { display: flex; flex-direction: column; min-height: 0; border-right: 3px solid var(--ink); background: var(--paper-2); }
 .bs-find { padding: 12px 12px 6px; }
 .modal .bs-find input[type=text] { font-size: 14px; padding: 8px 12px; }
@@ -1239,6 +1275,11 @@ a.when:hover { text-decoration: underline; }
 }
 
 /* The loading screen (index.html): up from the first paint, over everything, until ui/loading.ts takes it down. */
+/* Offering the 2D view on a phone, or where the 3D runs slowly (ui/litesuggest.ts): over the loading screen too. */
+.lite-offer { position: fixed; left: 12px; right: 12px; bottom: max(16px, env(safe-area-inset-bottom)); z-index: 110; max-width: 440px; margin: 0 auto; padding: 14px 16px; animation: toast-in .25s ease-out; }
+.lite-offer p { margin: 0 0 12px; font-weight: 800; font-size: 15px; line-height: 1.35; }
+.lite-offer-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.lite-offer-btns .btn { flex: 1; justify-content: center; min-height: 44px; text-decoration: none; }
 #loading { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px; background: #bfe3ff; transition: opacity .35s ease; }
 #loading.gone { opacity: 0; pointer-events: none; }
 .loading-card { width: min(320px, 100%); padding: 22px 26px 20px; text-align: center; background: var(--paper); border: 3px solid var(--ink); border-radius: var(--radius); box-shadow: var(--shadow); }

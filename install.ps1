@@ -72,8 +72,8 @@
       if (-not $npm) { throw "Agent Office needs npm, which comes with Node.js." }
       if (-not (Test-Path -LiteralPath $tar)) { throw "this needs Windows' tar.exe (Windows 10 1803 or newer)." }
       if (-not (Have 'git')) { Warn "git isn't installed. The office needs it for projects and worker worktrees." }
-      if (-not ((Have 'claude') -or (Have 'opencode') -or (Have 'codex'))) {
-        Warn 'no Claude Code, OpenCode or Codex CLI found on your PATH. Workers need one of them, e.g.'
+      if (-not ((Have 'claude') -or (Have 'opencode') -or (Have 'codex') -or (Have 'dsh'))) {
+        Warn 'no Claude Code, OpenCode, Codex or DeepSeek Harness CLI found on your PATH. Workers need one of them, e.g.'
         Warn '  irm https://claude.ai/install.ps1 | iex'
       }
     }

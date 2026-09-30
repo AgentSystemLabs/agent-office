@@ -1,8 +1,7 @@
-import { MEETING_PATTERNS, MEETING_PATTERN_IDS, TOKENS_PER_SEAT, meetingSpend, outputProblem, slugify } from '../../shared/meetings';
+import { MEETING_PATTERNS, MEETING_PATTERN_IDS, TOKENS_PER_SEAT, meetingSpend, meetingStage, outputProblem, slugify } from '../../shared/meetings';
 import { fmtTokens, type Meeting, type MeetingPattern, type MeetingTurn } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store } from '../state';
-import { meetingStage } from '../world/meeting';
 import { h, openModal, timeAgo, toast, STATUS_LABEL, type Modal } from './dom';
 import { confirmDialog } from './prompt';
 import { providerPicker } from './provider';

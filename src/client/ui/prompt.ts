@@ -1,4 +1,4 @@
-import type { AgentEffort, AgentProvider, ServerMsg, WorktreeCleanup, WorktreeState } from '../../shared/protocol';
+import type { AgentEffort, AgentProvider, LostBranch, ServerMsg, WorktreeCleanup, WorktreeState } from '../../shared/protocol';
 import { h, openModal } from './dom';
 import { store } from '../state';
 import { providerPicker, type ProviderPicker } from './provider';
@@ -246,6 +246,64 @@ export function sendHomeDialog(opts: SendHomeOptions) {
     if (!touched) pick(risky ? 'keep' : 'all');
   });
   setTimeout(() => yes.focus(), 30);
+}
+
+export interface LostWorktreeOptions {
+  name: string;
+  worktree: { path: string; branch: string };
+  lost: { branch: LostBranch };
+  /** A worker across repositories: its workspace folder, deleted with every worktree in it. */
+  workspace?: string;
+  /** The other workers on the floor whose worktrees were deleted too. */
+  others: string[];
+  /** Its process is still running, in the deleted folder: its terminal is there to look at. */
+  openTerminal?: () => void;
+  /** Puts the folder back, for `all` the others' too. */
+  rebuild(all: boolean): void;
+  sendHome(): void;
+}
+
+/**
+ * A worker whose worktree was deleted outside agent-office (see WorkerInfo.lost): says what happened
+ * and what's left, and puts it back (every lost worker's at once, when there are more), or sends it home.
+ */
+export function lostWorktreeDialog(opts: LostWorktreeOptions) {
+  const { name, others } = opts;
+  const { branch } = opts.worktree;
+  const folder = opts.workspace ?? opts.worktree.path;
+  const title = `🌿 ${name}'s worktree was deleted`;
+  const what = {
+    here: `Its branch 🌿 ${branch} is still here. Rebuilding checks it out again in the same place, and ${name} carries on its conversation; only uncommitted changes went with the folder.`,
+    origin: `Its branch 🌿 ${branch} was deleted too, but it had been pushed: rebuilding checks origin's copy out again in the same place, and ${name} carries on its conversation.`,
+    gone: `Its branch 🌿 ${branch} was deleted too and was never pushed, so the work on it is gone. Rebuilding makes the branch again from where it started, and ${name} carries on its conversation.`,
+  }[opts.lost.branch];
+  const one = h('button.btn.primary', { type: 'button' }, 'Rebuild worktree');
+  const all = others.length ? h('button.btn', { type: 'button' }, `Rebuild all ${others.length + 1}`) : null;
+  const home = h('button.btn.danger', { type: 'button' }, 'Send home…');
+  const look = opts.openTerminal ? h('button.btn', { type: 'button' }, 'Open terminal') : null;
+  const el = h(
+    'div.modal.lost-worktree',
+    { role: 'alertdialog', 'aria-label': title },
+    h('header', {}, h('h2', {}, title)),
+    h(
+      'div.body',
+      {},
+      h('p', { style: 'margin:0 0 10px;font-weight:700' }, `${folder} was deleted outside agent-office, so ${name} ${opts.openTerminal ? 'is running in a folder that no longer exists' : "can't start there"}.`),
+      h('p.wt-status', { style: 'margin:0' }, what),
+      others.length ? h('p.wt-status.warn', {}, `${plural(others.length, 'other worker')} on this floor lost ${others.length === 1 ? 'its worktree' : 'their worktrees'} too: ${others.join(', ')}.`) : null,
+    ),
+    h('footer', {}, home, h('span.grow'), look, all, one),
+  );
+  const modal = openModal(el);
+  const then = (fn: () => void) => () => {
+    modal.close();
+    fn();
+  };
+  one.addEventListener('click', then(() => opts.rebuild(false)));
+  all?.addEventListener('click', then(() => opts.rebuild(true)));
+  home.addEventListener('click', then(opts.sendHome));
+  if (look) look.addEventListener('click', then(opts.openTerminal!));
+  setTimeout(() => one.focus(), 30);
 }
 
 /** What deleting one worktree (and its branch) would lose, in a line or two for the send-home dialog. */
