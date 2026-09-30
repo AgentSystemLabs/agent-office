@@ -35,6 +35,8 @@ import { Voice } from './voice';
 import { OfficeSound } from './sound';
 import { DesktopNotifier, askNotifyPermission, notifyPermission, waitingOnSomeone } from './notify';
 import { NextUp, waitingInOrder, waitingLabel } from './nextup';
+import { renderTitle } from './shared/title';
+import { repoChoices } from './shared/hiring';
 import { $, h, clip, closeAllModals, doingNow, modalOpen, onDoingChange, onModalChange, readingNow, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage, type TerminalFind } from './ui/terminal';
 import { openSearch } from './ui/search';
@@ -660,14 +662,6 @@ function renderProject() {
 }
 store.on('floors', renderProject);
 store.on('project', renderProject);
-
-/** The tab title counts the workers waiting on someone, on every floor, so you can see them from another tab. */
-function renderTitle() {
-  const name = store.project?.name;
-  const elsewhere = store.floors.reduce((n, f) => n + (f.id === store.floor ? 0 : f.waiting), 0);
-  const waiting = [...store.workers.values()].filter(waitingOnSomeone).length + elsewhere;
-  document.title = `${waiting ? `(${waiting}) ` : ''}${name ? `${name} · ` : ''}Agent Office`;
-}
 
 // ---- Floors & the elevator ----------------------------------------------------------------------
 /** In the car, facing out through the doors: where you are when you arrive on a floor, or down in the `garage`. */
@@ -1833,11 +1827,6 @@ function hire(deskId: string, prompt?: string, worktree = false, provider?: Agen
     askedToNotify = true;
     void askNotifyPermission();
   }
-}
-
-/** The building's other projects a new worker can work in too, each in a worktree of its own (see WorkerInfo.repos). */
-function repoChoices(): { id: string; name: string }[] {
-  return store.floors.filter((f) => f.id !== store.floor && f.branch && !f.cloning).map((f) => ({ id: f.id, name: f.name }));
 }
 
 function openShell(deskId: string) {
