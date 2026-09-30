@@ -13,6 +13,7 @@ import { githubHandlers, issuesView, pullsView } from './github.js';
 import { jukeboxHandlers, jukeboxView } from './jukebox.js';
 import { meetingHandlers, meetingView } from './meetings.js';
 import { planHandlers, planView } from './plan.js';
+import { presenceHandlers } from './presence.js';
 import { queueHandlers, queueView } from './queue.js';
 import { rooftopHandlers } from './rooftop.js';
 import { servicesView, settingsHandlers } from './settings.js';
@@ -24,7 +25,7 @@ import { jailView, workerHandlers, workerHooks, workersView } from './workers.js
 import type { FeatureHooks, HandlerMap, ViewPieces } from './types.js';
 
 /** Each domain's handlers put together, in alphabetical order. */
-export const handlers: Partial<HandlerMap<ClientMsg>> = {
+export const handlers: HandlerMap<ClientMsg> = {
   ...accountsHandlers,
   ...ballHandlers,
   ...cabinetHandlers,
@@ -37,6 +38,7 @@ export const handlers: Partial<HandlerMap<ClientMsg>> = {
   ...jukeboxHandlers,
   ...meetingHandlers,
   ...planHandlers,
+  ...presenceHandlers,
   ...queueHandlers,
   ...rooftopHandlers,
   ...settingsHandlers,
