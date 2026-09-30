@@ -4,6 +4,7 @@
 // playing here in step with it, and takes the picture away whenever the TV can't be seen.
 
 import * as THREE from 'three';
+import { TV } from '../shared/layout';
 import { classify, embedUrl, positionAt, youtubeId, type TvKind, type TvState } from '../shared/tv';
 import { store } from './state';
 import { h, toast } from './ui/dom';
@@ -21,6 +22,9 @@ const MASK_W = 32;
 const MASK_H = 18;
 /** How often that's worked out (ms). People move slowly, and building the mask isn't free. */
 const MASK_TICK = 80;
+/** Match the jukebox's near-field volume and inverse-distance falloff. */
+const TV_REF = 2.5;
+const TV_ROLLOFF = 1.3;
 
 // ---- YouTube's IFrame API, which is how play, pause and seek reach a YouTube link ----------------
 
@@ -41,6 +45,12 @@ interface YoutubePlayer {
 
 interface YoutubeApi {
   Player: new (el: HTMLElement, opts: Record<string, unknown>) => YoutubePlayer;
+}
+
+interface ListenerPosition {
+  x: number;
+  y: number;
+  z: number;
 }
 
 declare global {
@@ -153,6 +163,7 @@ export class TvScreen {
   /** How loud your own speakers are, 0–1, and whether they're off. Just yours, like the jukebox's. */
   volume = 1;
   muted = false;
+  private soundDistance = Infinity;
   /** Told when the sound changes here rather than in the window (the autoplay fallback does it). */
   onSound: (() => void) | null = null;
   private readonly corners = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
@@ -207,6 +218,14 @@ export class TvScreen {
     return this.applySound();
   }
 
+  /** Updates the listener used to make the TV quieter with distance, like the jukebox. */
+  setListener(position: ListenerPosition) {
+    const distance = Math.hypot(position.x - TV.x, position.y - TV.y, position.z - TV.z);
+    if (Math.abs(distance - this.soundDistance) < 0.02) return;
+    this.soundDistance = distance;
+    this.applySound(false);
+  }
+
   /** Turns your own speakers down or up. False when this player won't take the order (see the window). */
   toggleMute(): boolean {
     this.muted = !this.muted;
@@ -220,20 +239,22 @@ export class TvScreen {
    * autoplay fallback all come out the same. Not every player takes orders: an arbitrary embed has
    * no sound knob at all, and says so (see the window).
    */
-  private applySound(): boolean {
+  private applySound(notify = true): boolean {
     const media = this.kind === 'media' && this.el instanceof HTMLVideoElement ? this.el : null;
     const youtube = this.kind === 'youtube' && this.yt && this.ready ? this.yt : null;
     if (!media && !youtube) return false;
     const off = this.muted || this.volume === 0;
+    const distance = Math.max(TV_REF, this.soundDistance === Infinity ? TV_REF : this.soundDistance);
+    const distanceGain = TV_REF / (TV_REF + TV_ROLLOFF * (distance - TV_REF));
     if (media) {
-      media.volume = this.volume;
+      media.volume = this.volume * distanceGain;
       media.muted = off;
     } else if (youtube) {
-      youtube.setVolume(Math.round(this.volume * 100));
+      youtube.setVolume(Math.round(this.volume * distanceGain * 100));
       if (off) youtube.mute();
       else youtube.unMute();
     }
-    this.onSound?.();
+    if (notify) this.onSound?.();
     return true;
   }
 
@@ -241,7 +262,8 @@ export class TvScreen {
    * Every frame: keep the picture where the floor says it should be, then put it on the TV's
    * rectangle — or take it away, if the TV isn't somewhere you can see it (call after rendering).
    */
-  update(camera: THREE.PerspectiveCamera, show: boolean, colliders: readonly Collider[]) {
+  update(camera: THREE.PerspectiveCamera, show: boolean, colliders: readonly Collider[], listener: ListenerPosition) {
+    this.setListener(listener);
     try {
       this.align(store.officeNow());
     } catch {
@@ -292,10 +314,9 @@ export class TvScreen {
   /** A direct media file: the only player that can be asked anything at all, and asked at once. */
   private loadMedia(url: string, start: number, playing: boolean) {
     const video = h('video', { src: url, autoplay: '', playsinline: '', preload: 'auto' }) as HTMLVideoElement;
-    video.volume = this.volume;
-    video.muted = this.muted || this.volume === 0;
     this.el = video;
     this.frame.append(video);
+    this.applySound(false);
     const begin = () => {
       if (start > 1 && Math.abs(video.currentTime - start) > 1) {
         try {
@@ -356,8 +377,7 @@ export class TvScreen {
           // Only if this is still the player on the TV (a new link may have arrived meanwhile).
           if (this.yt !== player) return;
           this.ready = true;
-          player.setVolume(Math.round(this.volume * 100));
-          if (this.muted || this.volume === 0) player.mute();
+          this.applySound(false);
           if (start > 1 && Math.abs(player.getCurrentTime() - start) > 1) player.seekTo(start, true);
           if (playing) player.playVideo();
           else player.pauseVideo();
