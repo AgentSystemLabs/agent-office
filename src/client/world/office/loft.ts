@@ -202,7 +202,8 @@ export function buildLoft(group: THREE.Group, colliders: Collider[], interactabl
   group.add(inside);
   const outside = textPlane('👑 Boss Office', { bg: '#2b2d42', color: '#fffaf3', size: 64, border: '#fffaf3' });
   outside.scale.multiplyScalar(1.4);
-  outside.position.set(cx, roofY + 0.2, minZ - 0.02);
+  // In front of the roof's trim (minZ - 0.04 to minZ), or the trim hides the sign's lower half.
+  outside.position.set(cx, roofY + 0.2, minZ - 0.07);
   outside.rotation.y = Math.PI;
   group.add(outside);
   return screen;

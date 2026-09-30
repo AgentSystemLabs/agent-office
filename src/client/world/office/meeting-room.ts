@@ -111,7 +111,9 @@ export function buildMeetingRoom(group: THREE.Group, colliders: Collider[], inte
   });
   const label = textPlane('🤝 Meeting room', { bg: '#2b2d42', color: '#fffaf3', size: 56, border: '#fffaf3' });
   label.scale.multiplyScalar(0.62);
-  label.position.set(dx, 2.52, R.minZ - 0.07);
+  // In front of the glass wall's frame (out to R.minZ - 0.08) and the sliding leaves (to R.minZ - 0.11),
+  // which it runs across once its text is wider than the door.
+  label.position.set(dx, 2.52, R.minZ - 0.13);
   label.rotation.y = Math.PI;
   group.add(label);
 
@@ -152,10 +154,12 @@ export function buildMeetingRoom(group: THREE.Group, colliders: Collider[], inte
   // The panel on the glass beside the door, like a room-booking screen: what's on, the round, the
   // tokens, and the summary once it's over. Beside the door rather than past it, so the board shows.
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.96), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
-  sign.position.set((R.minX + R.door.x0) / 2 + 0.01, 1.45, R.minZ - T / 2 - 0.03);
+  // Inside the glass, facing out: the door's left leaf slides across outside it (out to R.minZ - 0.125)
+  // and would cut through a panel on the outer face, its glints flickering with the screen.
+  sign.position.set((R.minX + R.door.x0) / 2 + 0.01, 1.45, R.minZ + T / 2 + 0.03);
   sign.rotation.y = Math.PI;
   group.add(sign);
-  const plate = mesh(roundedBox(0.66, 1.03, 0.03, 0.03), toon(PALETTE.ink), sign.position.x, sign.position.y, R.minZ - T / 2 - 0.012, false);
+  const plate = mesh(roundedBox(0.66, 1.03, 0.03, 0.03), toon(PALETTE.ink), sign.position.x, sign.position.y, R.minZ + T / 2 + 0.05, false);
   group.add(plate);
   const door: Interactable = { kind: 'meeting', x: sign.position.x, z: R.minZ - 1.2, radius: 1.8 };
   interactables.push(door);

@@ -342,7 +342,8 @@ export class PtyHost {
     const here = fileURLToPath(import.meta.url);
     // Under tsx this is ptyhost.ts, run with the same loader flags; built, it's ptyhost.js.
     const script = path.join(path.dirname(here), `ptyhost${path.extname(here)}`);
-    const flags = process.execArgv.filter((a) => !/^--(inspect|debug)/.test(a));
+    // A relative path in them (`--import ./x.ts`) is from where the office started, not the host's cwd.
+    const flags = process.execArgv.filter((a) => !/^--(inspect|debug)/.test(a)).map((a) => a.replace(/^(--[\w-]+=)?(\.\.?\/.*)$/, (_, flag = '', p) => `${flag}${path.resolve(p)}`));
     const log = openSync(path.join(this.dataDir, 'pty-host.log'), 'w', 0o600);
     try {
       const child = spawnProcess(process.execPath, [...flags, script, this.socketPath, this.infoPath], {
