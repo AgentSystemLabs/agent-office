@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, POLE, POLES, SLAB, STATION_AGENT, STOREY, WALL_HEIGHT, WING, WING_DESKS, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, seatPlace, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, POLE, POLES, SLAB, STATION_AGENT, STOREY, WALL_HEIGHT, WING, WING_DESKS, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type StationKind } from '../shared/layout';
 import { OFFICE_PLAN, seatOn, type MapPlan } from '../shared/maps';
 import { canLabel } from '../shared/floorplan';
 import { floorPalette } from '../shared/floors';
@@ -18,11 +18,8 @@ import { buildOffice, type DeskView, type InteractKind, type Interactable } from
 import { officeWorld, type World } from './world/world';
 import { BUILDERS } from './world/styles';
 import { Court } from './world/court';
-import { DrunkVision } from './world/drunk';
-import { Booze, type Stage as Feeling } from './booze';
 import { djFrame } from './dnb';
-import { openBar } from './ui/bar';
-import { DRINK_BY_ID, ROOF, ROOF_NAME, type Drink, type DrinkId } from '../shared/rooftop';
+import { DRINK_BY_ID, ROOF, ROOF_NAME } from '../shared/rooftop';
 import { BACKSWING_TIME, IMPACT, Person, Worker } from './world/character';
 import { GolfBalls, PIN_DISTANCE, TEE_BALL, fly, pinText, type Flight, type Hit, type Shot } from './world/golf';
 import { Golfer } from './golf';
@@ -48,7 +45,7 @@ import { Voice } from './voice';
 import { OfficeSound } from './sound';
 import { DesktopNotifier, askNotifyPermission, notifyPermission, waitingOnSomeone } from './notify';
 import { NextUp, waitingInOrder, waitingLabel } from './nextup';
-import { $, h, clip, closeAllModals, doingNow, modalOpen, onDoingChange, onModalChange, openModal, readingNow, toast, STATUS_LABEL } from './ui/dom';
+import { $, h, clip, closeAllModals, doingNow, modalOpen, onDoingChange, onModalChange, readingNow, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage, type TerminalFind } from './ui/terminal';
 import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
@@ -96,6 +93,7 @@ import { builtFloors, floorWings } from './core/floors';
 import { aside, boardHint, hintTitle, key, onE } from './core/hint';
 import { noOutline } from './core/outline';
 import { installArcade } from './features/arcade';
+import { installBar } from './features/bar';
 import { installBasketball } from './features/basketball';
 import { installCabinet } from './features/cabinet';
 import { installCoffee } from './features/coffee';
@@ -104,8 +102,11 @@ import { installEmotes } from './features/emotes';
 import { installGong } from './features/gong';
 import { installJukebox } from './features/jukebox';
 import { installRooftop } from './features/rooftop';
+import { installSeating } from './features/seating';
 import { installSmoke } from './features/smoke';
 import { installTelescope } from './features/telescope';
+import { installTv } from './features/tv';
+import { installVoice } from './features/voice';
 import { installWhiteboard } from './features/whiteboard';
 
 // The loading screen stays up until there's an office to see (see boot and whoami at the end).
@@ -419,52 +420,12 @@ installWhiteboard(ctx);
 const confetti = new Confetti((x, z, y) => groundAt(player.colliders, x, z, y, false));
 scene.add(confetti.mesh);
 
-// TV
-const tvVideo = document.createElement('video');
-tvVideo.muted = true;
-tvVideo.playsInline = true;
-tvVideo.autoplay = true;
-const tvTexture = new THREE.VideoTexture(tvVideo);
-tvTexture.colorSpace = THREE.SRGBColorSpace;
-const tvIdle = (() => {
-  const c = document.createElement('canvas');
-  c.width = 1280;
-  c.height = 720;
-  const g = c.getContext('2d')!;
-  const grad = g.createLinearGradient(0, 0, 1280, 720);
-  grad.addColorStop(0, '#3a0ca3');
-  grad.addColorStop(1, '#4cc9f0');
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 1280, 720);
-  g.fillStyle = '#fff';
-  g.textAlign = 'center';
-  g.font = '900 88px Nunito, ui-rounded, system-ui, sans-serif';
-  g.fillText('📺 Office TV', 640, 330);
-  g.font = '700 44px Nunito, ui-rounded, system-ui, sans-serif';
-  g.fillText('Click “Share screen” to put something up here', 640, 420);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-})();
-const tvMat = office.tvScreen.material as THREE.MeshBasicMaterial;
-tvMat.color.set('#ffffff');
-tvMat.map = tvIdle;
-tvMat.toneMapped = false;
-ctx.interactions.define('tv', {
-  reach: 10,
-  hint: () => {
-    const any = currentShares().length > 0;
-    return { k: String(any), parts: [hintTitle('📺 Office TV'), key('E', any ? 'Watch full screen' : 'Share your screen')] };
-  },
-  use: onE(() => watchShare()),
-});
+// The office TV: the screen someone's sharing (see features/tv and features/voice).
+const tv = installTv(ctx, { shares: () => talk.currentShares(), watch: () => talk.watchShare() });
 const arcade = installArcade(ctx);
 
 // ---- The rooftop bar ------------------------------------------------------------------------------
 const rooftop = installRooftop(ctx, { ambient, hemi });
-/** Drinks from the bar, and how they make the world look (see booze.ts, world/drunk.ts). */
-const booze = new Booze();
-const drunkVision = new DrunkVision(renderer);
 
 // ---- Networking & state -------------------------------------------------------------------------
 const net = new Net(() => store.profile, whereNow);
@@ -629,7 +590,7 @@ function teeOff() {
   const other = teeTaken();
   if (other) return toast(`🏌️ ${other} is on the tee — wait your turn`, 'warn');
   if (carrying) return toast(`✋ Your hands are full: put #${carrying.issue} down first (Q)`, 'warn');
-  if (player.seat) standUp();
+  if (player.seat) seating.standUp();
   ctx.activities.stopAll('start');
   if (walkingTo) stopWalking();
   smoking.stop();
@@ -728,7 +689,7 @@ function stepUp(game: BarGame) {
   if (thrower.active || trip || ctx.activities.running('climber')) return;
   const other = lineTaken(game);
   if (other) return toast(`${game === 'darts' ? '🎯' : '🪓'} ${other} is throwing — wait your turn`, 'warn');
-  if (player.seat) standUp();
+  if (player.seat) seating.standUp();
   ctx.activities.stopAll('start');
   if (walkingTo) stopWalking();
   thrower.start(game);
@@ -931,7 +892,7 @@ $('app').append(whoosh);
 function grabLadder() {
   if (trip || climber.active) return;
   if (!floorThere(1) && !floorThere(-1)) return toast('No other floors yet — add a project in the elevator', 'warn');
-  if (player.seat) standUp();
+  if (player.seat) seating.standUp();
   ctx.activities.stopAll('start');
   if (walkingTo) stopWalking();
   climber.grabLadder();
@@ -941,7 +902,7 @@ function grabLadder() {
 function usePole(i: number) {
   const spot = POLES[i];
   if (trip || climber.active || !spot) return;
-  if (player.seat) standUp();
+  if (player.seat) seating.standUp();
   ctx.activities.stopAll('start');
   if (walkingTo) stopWalking();
   if (office.stack.polesGoDown()) climber.slide(spot);
@@ -998,7 +959,7 @@ function getIn(i: number) {
   if (hoops.holding()) return toast('🏀 Put the ball down first (Q)', 'warn');
   const seat: CarSeat | null = !c.driver ? 'driver' : !c.passenger ? 'passenger' : null;
   if (!seat) return toast(`🏎️ The ${def.name} is full`, 'warn');
-  if (player.seat) standUp();
+  if (player.seat) seating.standUp();
   ctx.activities.stopAll('start');
   if (walkingTo) stopWalking();
   driver.enter(i, seat);
@@ -1410,6 +1371,7 @@ ctx.messages.on('welcome', (msg) => {
   if (voice.inVoice || voice.sharing) net.send({ t: 'voice', voice: voice.inVoice, muted: voice.muted, sharing: voice.sharing });
   if (player.seat) net.send({ t: 'sit', seat: player.seat.key });
   if (carrying) net.send({ t: 'carry', issue: carrying.issue, title: carrying.title });
+  const shownDrink = bar.shownDrink();
   if (shownDrink) net.send({ t: 'act', drink: shownDrink });
   if (golf.active) net.send({ t: 'act', golf: true });
   if (thrower.playing) net.send({ t: 'act', throwing: thrower.playing });
@@ -1534,7 +1496,7 @@ function indoors(): boolean {
 
 /** On your feet at `at`, facing `rotY` and looking straight ahead. */
 function placeAt(at: { x: number; y: number; z: number; rotY: number }) {
-  if (player.seat) standUp();
+  if (player.seat) seating.standUp();
   dropCar();
   player.pos.set(at.x, at.y, at.z);
   player.vy = 0;
@@ -1725,7 +1687,7 @@ function switchFloor(floorId: string, keepWalking = false): void {
   closeAllModals();
   stopForTrip();
   backToThrone = onThrone();
-  if (player.seat) standUp();
+  if (player.seat) seating.standUp();
   // The floor list isn't a window, so nothing else stops a walk over to someone on this floor.
   if (walkingTo && !keepWalking) stopWalking();
   trip = { floor: floorId, how: 'switch', timer: window.setTimeout(tripFailed, 10_000) };
@@ -1811,7 +1773,7 @@ function setPlace() {
   camera.far = up ? 700 : FAR;
   camera.updateProjectionMatrix();
   // Drinks stay at the bar (what you've had comes down with you).
-  if (!up) booze.putDown();
+  if (!up) bar.booze.putDown();
   // Whatever was thrown up there while you were away, you didn't see: the boards start clean.
   if (up) {
     for (const g of ['darts', 'axe'] as BarGame[]) {
@@ -1996,7 +1958,7 @@ function placeAtSpawn() {
 
 /** Up onto the map's throne, if it has one and nobody's on it. */
 function sitOnThrone() {
-  const seat = plan().throne && freePlace(plan().throne!);
+  const seat = plan().throne && seating.freePlace(plan().throne!);
   if (!seat || upTop) return;
   if (player.seat) player.stand();
   player.sit(seat);
@@ -2092,7 +2054,7 @@ function syncPeers() {
     }
   }
   renderPeople(voice, editProfile, walkTo);
-  refreshShares();
+  talk.refreshShares();
 }
 store.on('peers', syncPeers);
 // Into a car or out of one: sitting in it, or back on their feet.
@@ -2229,7 +2191,7 @@ function walkTo(id: string) {
   if (p.lite) return void toast(`📱 ${p.name} is on the 2D view, not anywhere in the office itself`);
   if (!store.onMyFloor(p) && !p.floor) return;
   if (!getOut()) return;
-  if (player.seat) standUp();
+  if (player.seat) seating.standUp();
   ctx.activities.stopAll('walk');
   errand = null;
   walkingTo = { id, replanAt: 0 };
@@ -2306,7 +2268,7 @@ let errand: { at: { x: number; z: number }; what: string; face?: { x: number; z:
 function walkThen(at: { x: number; y?: number; z: number }, what: string, then: () => void, face?: { x: number; z: number }) {
   if (upTop || trip || ctx.activities.running('climber') || ctx.activities.running('driver')) return then();
   closeAllModals();
-  if (player.seat) standUp();
+  if (player.seat) seating.standUp();
   ctx.activities.stopAll('errand');
   if (walkingTo) stopWalking();
   errand = { at, what, face, then };
@@ -2889,7 +2851,7 @@ function goToDesk(deskId: string) {
 
 /** Behind the worker, looking over their shoulder at the laptop (or in front of a board agent's kiosk). */
 function standAt(desk: DeskDef) {
-  if (player.seat) standUp();
+  if (player.seat) seating.standUp();
   // The car first (the activities' own order has it last).
   dropCar();
   ctx.activities.stopAll('desk');
@@ -2899,7 +2861,7 @@ function standAt(desk: DeskDef) {
   const inLine = w && court ? court.spotOf(w.id) : -1;
   if (inLine >= 0) {
     // At the front: up on the throne, if it's free, where E is for them.
-    const throne = inLine === 0 && plan().throne ? freePlace(plan().throne!) : null;
+    const throne = inLine === 0 && plan().throne ? seating.freePlace(plan().throne!) : null;
     if (throne) {
       player.pos.set(throne.x, throne.y, throne.z);
       player.sit(throne);
@@ -3401,22 +3363,6 @@ function boardActions() {
   };
 }
 
-function watchShare() {
-  const streams = currentShares();
-  if (!streams.length) {
-    void toggleShare();
-    return;
-  }
-  const video = h('video', { autoplay: true, playsinline: true, muted: true }) as HTMLVideoElement;
-  // What's on the TV: someone else's screen before your own.
-  const [who, stream] = streams.find(([name]) => name !== 'You') ?? streams[0];
-  video.srcObject = stream;
-  const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
-  const el = h('div.modal.viewer', { role: 'dialog', 'aria-label': 'Screen share' }, h('header', {}, h('h2', {}, `🖥️ ${who}'s screen`), close), video);
-  const modal = openModal(el, { doing: `🖥️ watching ${who}'s screen`, onClose: () => (video.srcObject = null) });
-  close.addEventListener('click', () => modal.close());
-}
-
 /** `note` is the issue note you're pointing at on the issues board, if any (see aimedNote). */
 function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   if (!target) return;
@@ -3476,118 +3422,7 @@ ctx.interactions.define('herald', {
 });
 
 // ---- The rooftop bar ---------------------------------------------------------------------------------
-/** What the bartender says as they slide it over. */
-const CHEERS: Record<string, string> = {
-  beer: 'Cheers! 🍻',
-  wine: 'Salud!',
-  martini: 'Shaken, not stirred',
-  maitai: 'Aloha!',
-  shot: 'Salt, shot, lime… whoa',
-  mojito: 'Fresh and minty',
-  water: 'Good call. Stay hydrated',
-};
-
-/** E at the bar: the menu. */
-function showBar() {
-  openBar({ cutOff: booze.cutOff(performance.now() / 1000), order: orderDrink });
-}
-
-/** The bartender comes over and pours it (a water, if you've had enough), and slides it across to you. */
-function orderDrink(d: Drink) {
-  const r = rooftop.roof();
-  if (!r || !upTop) return;
-  const cut = d.strength > 0 && booze.cutOff(performance.now() / 1000);
-  const drink = cut ? DRINK_BY_ID.get('water')! : d;
-  r.serve(player.pos.z);
-  sound.pour(r.pourAt);
-  if (cut) toast("🙅 The bartender slides you a water instead: you've had enough", 'warn');
-  setTimeout(() => {
-    if (!upTop) return;
-    booze.drink(drink, performance.now() / 1000);
-    reach();
-    if (player.view === 'first') hands.sip();
-    if (!cut) toast(`${drink.emoji} ${drink.name}. ${CHEERS[drink.id] ?? 'Enjoy!'}`);
-  }, 1500);
-}
-
-ctx.messages.on('horn', (msg) => {
-  if (!upTop) return;
-  sound.horn();
-  if (msg.by !== store.profile.name) toast(`📯 ${msg.by} blew the air horn!`);
-});
-let lastHorn = 0;
-/** E at the DJ booth: the air horn, for everyone on the roof. */
-function blowHorn() {
-  const now = performance.now();
-  if (now - lastHorn < 1500) return;
-  lastHorn = now;
-  net.send({ t: 'horn' });
-}
-
-ctx.interactions.define('bar', {
-  reach: 3.5,
-  hint: () => {
-    const cut = booze.cutOff(performance.now() / 1000);
-    return { k: String(cut), parts: [hintTitle('🍸 Sky Bar'), aside(cut ? "you've had enough" : 'drinks on the house'), key('E', cut ? 'Ask for water' : 'Order a drink')] };
-  },
-  use: onE(() => showBar()),
-});
-ctx.interactions.define('dj', {
-  reach: 6,
-  hint: () => {
-    const f = djFrame(rooftop.djAt());
-    const what = f.part === 'drop' ? '🔥 the drop' : f.part === 'build' ? 'building up…' : f.part === 'breakdown' ? 'the breakdown' : 'mixing in the next track';
-    return { k: what, parts: [hintTitle('🎧 DJ Merge Conflict'), aside(`drum & bass · ${what}`), key('E', '📯 Air horn!')] };
-  },
-  use: onE(() => blowHorn()),
-});
-
-/** How it's going to your head, the last time it changed, and when the next hiccup comes. */
-let feeling: Feeling = 0;
-let nextHiccup = 0;
-let nextSip = 0;
-/** The drink in your hand everyone else was last told about. */
-let shownDrink: DrinkId | null = null;
-const FEELINGS = ['😌 You feel sober again', '🥴 You’re feeling a little tipsy', '🌀 Whoa… is the city spinning?', '🤪 You’re wasted. Maybe have some water'];
-
-/** Every frame: how drunk you are, the glass in your hand, hiccups and the odd sip. */
-function drinking(now: number) {
-  const secs = now / 1000;
-  const amount = booze.amount(secs);
-  player.drunk = reduceMotion.matches ? 0 : Math.min(1.3, amount);
-  const glass = booze.holding(secs);
-  me.holdDrink(glass);
-  hands.holdDrink(glass);
-  const id = glass?.id ?? null;
-  if (id !== shownDrink) {
-    shownDrink = id;
-    net.send({ t: 'act', drink: id });
-  }
-  if (glass && player.view === 'first' && now > nextSip) {
-    if (nextSip) hands.sip();
-    nextSip = now + 9000 + Math.random() * 9000;
-  }
-  const stage = booze.stage(secs);
-  if (stage !== feeling) {
-    if (stage > feeling || stage === 0) toast(FEELINGS[stage], stage >= 3 ? 'warn' : 'info');
-    feeling = stage;
-  }
-  if (amount > 0.5 && now > nextHiccup) {
-    if (nextHiccup) {
-      sound.hiccup();
-      ctx.shake(0.25);
-    }
-    nextHiccup = now + 5000 + Math.random() * 12000;
-  }
-  return amount;
-}
-/** How drunk you are this frame (see drinking), for the drunk vision the frame's drawn through. */
-let drunkNow = 0;
-ctx.ticks.add('pre', ({ now }) => {
-  // Drinks from the rooftop bar: a glass in hand, and the world swaying.
-  drunkNow = drinking(now);
-});
-
+const bar = installBar(ctx, { roof: rooftop.roof, djAt: rooftop.djAt, reach });
 const coffee = installCoffee(ctx);
 
 // ---- Smoke breaks ------------------------------------------------------------------------------------
@@ -3712,95 +3547,7 @@ function cantTakeCard(w: WorkerInfo): string {
 }
 
 // ---- Sitting ----------------------------------------------------------------------------------------
-/** The free place on a seat nearest you, or null when everyone else on your floor has taken them all. */
-function freePlace(seat: SeatDef): SeatPlace | null {
-  const taken = new Set<string>();
-  for (const p of store.peers.values()) if (p.seat && p.id !== store.you && store.onMyFloor(p)) taken.add(p.seat);
-  let best: SeatPlace | null = null;
-  let bestD = Infinity;
-  for (let i = 0; i < seat.places.length; i++) {
-    const place = seatPlace(seat, i);
-    const d = Math.hypot(place.x - player.pos.x, place.z - player.pos.z);
-    if (!taken.has(place.key) && d < bestD) {
-      best = place;
-      bestD = d;
-    }
-  }
-  return best;
-}
-
-/** Someone else's screen is up on the TV. */
-function tvShowing(): boolean {
-  return currentShares().some(([who]) => who !== 'You');
-}
-
-/** E at a seat: sit down on it. Sitting there already, get up, or on the couch facing the TV, watch it. */
-function useSeat(seatId: string) {
-  const seat = plan().seatingById.get(seatId);
-  if (!seat) return;
-  if (player.seat?.seatId === seatId) {
-    if (seat.tv && tvShowing()) watchShare();
-    else if (seat.game) arcade.play();
-    else if (seat.bar) showBar();
-    else standUp();
-    return;
-  }
-  const place = freePlace(seat);
-  if (!place) {
-    toast(`No room on that ${seat.label.replace(/^\S+ /, '').toLowerCase()} right now`, 'warn');
-    return;
-  }
-  player.sit(place);
-  me.sit(place.hips);
-  net.send({ t: 'sit', seat: place.key });
-  // The couch in front of the TV is where you watch whoever's sharing.
-  if (seat.tv && tvShowing()) watchShare();
-}
-
-function standUp() {
-  player.stand();
-  gotUp();
-}
-ctx.messages.on('sit.refused', (msg) => {
-  // Somebody on the floor got there first: back on your feet, next to them.
-  if (player.seat?.key === msg.seat) {
-    player.stand();
-    // On your feet as far as everyone's concerned (the office still has you where you sat before).
-    gotUp();
-    toast(`${msg.by} got there first`, 'warn');
-  }
-});
-
-/** On your feet again, by E or by walking off. */
-function gotUp() {
-  me.sit(null);
-  net.send({ t: 'sit' });
-}
-player.onStand = gotUp;
-
-/** What you're sitting on, so it's what E is about unless you're looking at something else. */
-function mySeat(): Interactable | null {
-  const id = player.seat?.seatId;
-  return (id && usable()[0].find((it) => it.kind === 'seat' && it.seatId === id)) || null;
-}
-
-ctx.interactions.define('seat', {
-  reach: 3,
-  hint: (it) => {
-    const seat = plan().seatingById.get(it.seatId ?? '');
-    if (!seat) return { k: '', parts: [] };
-    if (player.seat?.seatId === seat.id) {
-      const tv = !!seat.tv && tvShowing();
-      const use = tv ? 'Watch the TV' : seat.game ? 'Play Minesweeper' : seat.bar ? 'Order a drink' : '';
-      return { k: `${seat.id}|sitting|${tv}`, parts: [hintTitle(seat.label), aside('sitting'), ...(use ? [key('E', use), key('W A S D', 'Get up')] : [key('E', 'Get up')])] };
-    }
-    const full = !freePlace(seat);
-    return { k: `${seat.id}|${full}`, parts: [hintTitle(seat.label), seat.game ? aside('💣 Minesweeper on the monitor') : '', full ? aside('no room') : key('E', 'Sit down')] };
-  },
-  use: onE((it) => {
-    if (it.seatId) useSeat(it.seatId);
-  }),
-});
+const seating = installSeating(ctx, { shares: () => talk.currentShares(), watchShare: () => talk.watchShare(), arcade, showBar: bar.showBar, usable });
 
 // ---- The gong -------------------------------------------------------------------------------------
 /** Where confetti comes from over a desk: above the worker's head. */
@@ -4209,10 +3956,10 @@ ctx.ticks.add('aim', () => {
   if (modalOpen() || telescope.active || ctx.activities.busy()) target = null;
   else if (firstPerson) {
     const aim = aimedAt(CROSSHAIR);
-    target = aim?.near ? aim.it : (throneTarget() ?? mySeat() ?? (inOffice() ? hoops.ballAtFeet() : null));
+    target = aim?.near ? aim.it : (throneTarget() ?? seating.mySeat() ?? (inOffice() ? hoops.ballAtFeet() : null));
     if (aim?.near) aimedNote = noteUnder(aim);
   } else {
-    target = throneTarget() ?? mySeat() ?? pickTarget();
+    target = throneTarget() ?? seating.mySeat() ?? pickTarget();
     // By the issues board, the mouse points at the note you'd take.
     if (target?.kind === 'issues' && pointer) {
       const aim = aimedAt(pointer, 2.5);
@@ -4280,86 +4027,7 @@ chatInput.addEventListener('blur', () => $('chat').classList.remove('peek'));
 store.on('chat', renderChat);
 
 // ---- Voice & screen share ---------------------------------------------------------------------------
-async function toggleVoice() {
-  if (voice.inVoice) voice.leaveVoice();
-  else await joinVoice();
-}
-
-async function joinVoice() {
-  const err = await voice.joinVoice(settings.pushToTalk);
-  if (err) toast(err, 'warn');
-  else if (settings.pushToTalk && voice.inVoice) toast('🎙️ In voice, muted: hold V to talk');
-}
-ctx.keys.bind({
-  code: 'KeyV',
-  // Joins voice; in it, it's push to talk (let go and you're muted, see the keyup under Input).
-  repeat: false,
-  run: () => {
-    if (voice.inVoice) voice.startTalking();
-    else void joinVoice();
-  },
-});
-ctx.keys.bind({
-  code: 'KeyM',
-  run: () => {
-    voice.toggleMute();
-  },
-});
-
-async function toggleShare() {
-  if (voice.sharing) voice.stopShare();
-  else {
-    const err = await voice.startShare();
-    if (err) toast(err, 'warn');
-  }
-}
-
-function currentShares(): [string, MediaStream][] {
-  const out: [string, MediaStream][] = [];
-  const local = voice.localScreen;
-  if (local) out.push(['You', local]);
-  for (const [id, s] of voice.remoteScreens()) {
-    const peer = store.peers.get(id);
-    // A screen shared on another floor is on that floor's TV.
-    if (peer && !store.onMyFloor(peer)) continue;
-    out.push([peer?.name ?? 'Someone', s]);
-  }
-  return out;
-}
-
-let tvStream: MediaStream | null = null;
-function refreshShares() {
-  const shares = currentShares();
-  // Remote shares win the TV; your own share is what others see anyway.
-  const pick = shares.find(([who]) => who !== 'You') ?? shares[0];
-  const stream = pick?.[1] ?? null;
-  if (stream !== tvStream) {
-    tvStream = stream;
-    tvVideo.srcObject = stream;
-    if (stream) void tvVideo.play().catch(() => {});
-    tvMat.map = stream ? tvTexture : tvIdle;
-    tvMat.needsUpdate = true;
-  }
-  const box = $('shares');
-  box.replaceChildren(
-    ...shares
-      .filter(([who]) => who !== 'You')
-      .map(([who, s]) => {
-        const v = h('video', { autoplay: true, playsinline: true, muted: true }) as HTMLVideoElement;
-        v.srcObject = s;
-        return h('div.share-thumb', { onclick: () => watchShare(), title: 'Watch full screen' }, v, h('span.who', {}, `🖥️ ${who}`));
-      }),
-  );
-  ctx.hint.invalidate();
-}
-
-voice.onChange(() => {
-  hud.refresh();
-  refreshShares();
-});
-ctx.messages.on('peer.join', () => voice.syncPeers());
-ctx.messages.on('peer.leave', () => voice.syncPeers());
-ctx.messages.on('rtc', (msg) => void voice.handleSignal(msg.from, msg.data as never));
+const talk = installVoice(ctx, { tv });
 
 // Buttons must not keep focus, or Space (jump) would click them again.
 $('hud').addEventListener('click', (e) => {
@@ -4399,7 +4067,7 @@ const hud = mountHud(
     { id: 'elevator', icon: '🛗', label: () => (inOffice() ? 'Elevator' : 'Floors'), section: 'Open', count: () => store.floors.reduce((n, f) => n + (f.id === store.floor ? 0 : f.waiting), 0), title: () => (inOffice() ? 'Ride to another project' : 'Go to another project, or add one'), run: showElevator },
     { id: 'roof', icon: '🍸', label: 'Rooftop bar', section: 'Open', shown: () => !upTop && inOffice() && builtFloors().length > 0, title: () => 'Ride the elevator up to the roof: a DJ, drinks and the city', run: () => ride(ROOF) },
     // In voice, V is push to talk, so leaving is only from here.
-    { id: 'voice', icon: '🎙️', label: () => (voice.inVoice ? 'Leave voice' : 'Join voice'), section: 'Together', key: () => (voice.inVoice ? undefined : 'V'), on: () => voice.inVoice, blocked: noMedia, run: () => void toggleVoice() },
+    { id: 'voice', icon: '🎙️', label: () => (voice.inVoice ? 'Leave voice' : 'Join voice'), section: 'Together', key: () => (voice.inVoice ? undefined : 'V'), on: () => voice.inVoice, blocked: noMedia, run: () => void talk.toggleVoice() },
     // While you're in voice, the top bar keeps the mute button handy. Muted is the usual with push to talk, so it doesn't stand out then.
     {
       id: 'mute',
@@ -4414,7 +4082,7 @@ const hud = mountHud(
       title: () => (voice.muted ? 'Muted: hold V to talk, or M to unmute' : 'Mute (M) · hold V to talk'),
       run: () => voice.toggleMute(),
     },
-    { id: 'share', icon: '🖥️', label: () => (voice.sharing ? 'Stop sharing' : 'Share screen'), section: 'Together', on: () => voice.sharing, status: () => voice.sharing, chip: () => 'Sharing', blocked: noMedia, run: () => void toggleShare() },
+    { id: 'share', icon: '🖥️', label: () => (voice.sharing ? 'Stop sharing' : 'Share screen'), section: 'Together', on: () => voice.sharing, status: () => voice.sharing, chip: () => 'Sharing', blocked: noMedia, run: () => void talk.toggleShare() },
     { id: 'decor', icon: '🖼️', label: () => (hanger.active ? 'Stop hanging the picture' : 'Hang a picture'), section: 'Together', key: 'F', shown: () => inOffice(), on: () => hanger.active, status: () => hanger.active, run: () => (hanger.active ? hanger.cancel() : startHanging()) },
     { id: 'team', icon: '👥', label: 'Invite teammates', section: 'Together', shown: () => store.invites, run: () => openTeam(net) },
     { id: 'accounts', icon: '🔑', label: 'Accounts', section: 'Together', shown: () => store.me.admin, title: () => 'Invite people, see who has an account, revoke them', run: () => openAccounts(net) },
@@ -4538,8 +4206,6 @@ let stride = 0;
 let fallV = 0;
 const lookDir = new THREE.Vector3();
 const headPos = new THREE.Vector3();
-/** Last frame went through the drunk vision. */
-let drunkVisionOn = false;
 /** Frames coming too slowly for the 3D to be any fun: the 2D view is offered. */
 const slowFrames = new SlowFrames();
 
@@ -4662,14 +4328,14 @@ function updateSky({ dt, t }: Frame) {
   sound.setWeather(sky.rain, 1 - sky.daylight);
 }
 
-/** Draws the frame: the scene, then your hands on top of it. */
-function drawFrame({ t }: Frame) {
+/** Draws the frame, through whatever it's drawn through (a few drinks in, the drunk vision: see ctx.view). */
+function drawFrame(f: Frame) {
+  ctx.view.draw(f, drawScene);
+}
+
+/** The scene, then your hands on top of it. */
+function drawScene() {
   const firstPerson = player.view === 'first';
-  // A few drinks in, the frame goes to the screen through the drunk vision (see world/drunk.ts).
-  const blurry = drunkNow > 0.01;
-  if (blurry) drunkVision.begin();
-  else if (drunkVisionOn) drunkVision.release();
-  drunkVisionOn = blurry;
   effect.render(scene, camera);
   // Not while something has the screen to itself (the telescope, the boss's monitor or the arcade up close), where they'd cover it.
   if (firstPerson && !ctx.view.covered() && !ctx.activities.any('hidesHands')) {
@@ -4681,7 +4347,6 @@ function drawFrame({ t }: Frame) {
     effect.render(hands.scene, hands.camera);
     sky.shading(true);
   }
-  if (blurry) drunkVision.end(drunkNow, t, !reduceMotion.matches);
 }
 
 // ---- Boot ------------------------------------------------------------------------------------------
@@ -4752,7 +4417,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { world: () => world, court: () => court, sendoffs, jail, plan, applyMap, roof: rooftop.roof, booze, dj: () => djFrame(rooftop.djAt()), store, player, caffeine: coffee.caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, driver, getIn, getOut, golf, balls, thrower, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel: emotes.emoteWheel, emote: emotes.emote, ball: hoops.ball };
+(window as any).__office = { world: () => world, court: () => court, sendoffs, jail, plan, applyMap, roof: rooftop.roof, booze: bar.booze, dj: () => djFrame(rooftop.djAt()), store, player, caffeine: coffee.caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, driver, getIn, getOut, golf, balls, thrower, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel: emotes.emoteWheel, emote: emotes.emote, ball: hoops.ball };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;
