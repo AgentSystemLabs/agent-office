@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { Activities, Interactions, Keys, Messages, TICK_PHASES, Ticks, type KeyPress } from '../src/client/core/registry.js';
 
 type Msg = { t: 'hello'; n: number } | { t: 'bye' };
@@ -226,4 +228,47 @@ test('interactions: one definition per kind, with its reach, hint and use', () =
   assert.deepEqual(things.kinds().sort(), ['desk', 'dog']);
   assert.throws(() => things.define('dog', { reach: 1, hint: () => '', use: () => {} }));
   assert.throws(() => things.hint({ kind: 'tv' }));
+});
+
+/** The kinds of thing you can use, as world/office.ts's InteractKind union lists them. */
+function interactKinds(): string[] {
+  const src = readFileSync(path.join(import.meta.dirname, '../src/client/world/office.ts'), 'utf8');
+  const m = /export type InteractKind =([^;]+);/.exec(src);
+  assert.ok(m, 'InteractKind is in world/office.ts');
+  return [...m[1].matchAll(/'([a-z]+)'/g)].map((x) => x[1]);
+}
+
+/** Every `interactions.define('kind', …)` in the client, wherever it lives, with the file it's in. */
+function definedKinds(): { kind: string; file: string }[] {
+  const root = path.join(import.meta.dirname, '../src/client');
+  const out: { kind: string; file: string }[] = [];
+  for (const rel of readdirSync(root, { recursive: true }) as string[]) {
+    if (!rel.endsWith('.ts')) continue;
+    const src = readFileSync(path.join(root, rel), 'utf8');
+    for (const m of src.matchAll(/interactions\.define\(\s*'([a-z]+)'/g)) out.push({ kind: m[1], file: rel });
+  }
+  return out;
+}
+
+test('every kind of thing you can use has exactly one definition, and nothing else is defined', () => {
+  const kinds = interactKinds();
+  assert.ok(kinds.length >= 31, `found ${kinds.length} kinds`);
+  const defined = definedKinds();
+  const count = new Map<string, number>();
+  for (const d of defined) count.set(d.kind, (count.get(d.kind) ?? 0) + 1);
+  assert.deepEqual(
+    kinds.filter((k) => !count.has(k)),
+    [],
+    'kinds with no definition',
+  );
+  assert.deepEqual(
+    [...count].filter(([, n]) => n > 1).map(([k]) => k),
+    [],
+    'kinds defined more than once',
+  );
+  assert.deepEqual(
+    [...count.keys()].filter((k) => !kinds.includes(k)),
+    [],
+    'definitions for kinds InteractKind does not have',
+  );
 });
