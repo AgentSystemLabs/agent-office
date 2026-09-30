@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { h, openModal, type Modal } from './dom';
+import { h, openModal, type Modal } from '../../ui/dom';
 import { H, Minesweeper, W } from './minesweeper';
 
 /** How much of the view (across or down, whichever runs out first) a screen fills while you play on it. */

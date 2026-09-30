@@ -1,5 +1,5 @@
 import type { Ctx } from '../../core/context';
-import { Arcade } from '../../ui/arcade';
+import { Arcade } from './ui';
 
 /** The boss's monitor upstairs: Minesweeper, from the boss's chair (the chair's E plays it, see features/seating). */
 export function installArcade(ctx: Ctx): Arcade {
