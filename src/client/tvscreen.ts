@@ -50,6 +50,13 @@ interface ListenerPosition {
   z: number;
 }
 
+/** Where your own hands cover the screen: alpha in each pixel of the viewport, rows from the bottom (as WebGL reads them). */
+export interface HandCover {
+  data: Uint8Array;
+  width: number;
+  height: number;
+}
+
 declare global {
   interface Window {
     YT?: YoutubeApi;
@@ -165,6 +172,13 @@ export class TvScreen {
   private soundHere = false;
   /** Told when the sound changes here rather than in the window (the autoplay fallback does it). */
   onSound: (() => void) | null = null;
+  /**
+   * Where your own hands cover the screen just now, or null when they aren't drawn. They're over the
+   * world, but the picture is ordinary HTML over the canvas the hands are painted in, so it would
+   * sit on top of them; the picture hides behind them instead, as it does behind anything else in
+   * front of the TV (see main.ts). Asked whenever the mask is rebuilt.
+   */
+  handCover: (() => HandCover | null) | null = null;
   private readonly corners = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
   private readonly scratch = new THREE.Vector3();
   /** A second scratch for the occlusion cull, which needs the point both in view and in world space. */
@@ -177,6 +191,10 @@ export class TvScreen {
   private maskedAt = 0;
   private maskUrl = '';
   private walled = false;
+  /** The layer's size in CSS pixels, and the homography taking the picture's own pixels onto it (see sited). */
+  private viewW = 0;
+  private viewH = 0;
+  private onto: number[] | null = null;
   private readonly pixels: [number, number][] = [
     [0, 0],
     [0, 0],
@@ -499,6 +517,10 @@ export class TvScreen {
     ];
     const matrix = homography(from, this.pixels);
     if (!matrix) return false;
+    // Kept for the mask's own cells to be placed on the screen (see occlude).
+    this.viewW = w;
+    this.viewH = hgt;
+    this.onto = matrix;
     const [a, b, c, d, e, f, g, i] = matrix;
     this.frame.style.transform = `matrix3d(${a},${d},0,${g},${b},${e},0,${i},0,0,1,0,${c},${f},0,1)`;
     // What's standing in front of it, so the picture is hidden behind it (see occlude).
@@ -511,9 +533,9 @@ export class TvScreen {
    * picture is hidden behind it. Ordinary HTML can't be depth-tested against the scene, and the TV
    * is only ever a metre or two from a wall, a desk, a plant or someone standing in the way — so
    * each cell of the picture is asked whether anything is in front of it. Glass you can see through
-   * and fences aren't in the way; people are. Answered every MASK_TICK, into a small canvas that
-   * the browser stretches over the frame (see .tv-frame in style.css), and the whole frame is taken
-   * away rather than masked when every last cell is behind something.
+   * and fences aren't in the way; people are, and so are your own hands. Answered every MASK_TICK,
+   * into a small canvas that the browser stretches over the frame (see .tv-frame in style.css), and
+   * the whole frame is taken away rather than masked when every last cell is behind something.
    */
   private occlude(camera: THREE.PerspectiveCamera, colliders: readonly Collider[]) {
     const ctx = this.maskCtx;
@@ -525,12 +547,16 @@ export class TvScreen {
     const box = this.screen.geometry.boundingBox;
     if (!box) return;
     const inTheWay = this.inTheWay(camera, colliders);
+    // Your own hands are over the world but not part of it: the canvas paints them on top, so the
+    // picture has to be hidden by hand where they cover it (see main.ts).
+    const hands = this.handCover?.() ?? null;
     const eye = this.eye;
     const scratch = this.scratch;
     const data = pixels.data;
     let hidden = 0;
     for (let my = 0; my < MASK_H; my++) {
-      const y = box.min.y + ((my + 0.5) / MASK_H) * (box.max.y - box.min.y);
+      // The mask is stretched over the frame as it is, so row 0 is the top of the picture.
+      const y = box.max.y - ((my + 0.5) / MASK_H) * (box.max.y - box.min.y);
       for (let mx = 0; mx < MASK_W; mx++) {
         const x = box.min.x + ((mx + 0.5) / MASK_W) * (box.max.x - box.min.x);
         scratch.set(x, y, 0).applyMatrix4(this.screen.matrixWorld);
@@ -551,6 +577,7 @@ export class TvScreen {
             }
           }
         }
+        if (!blocked && hands && this.overHands(hands, (mx + 0.5) / MASK_W, (my + 0.5) / MASK_H)) blocked = true;
         const i = (my * MASK_W + mx) * 4;
         data[i] = data[i + 1] = data[i + 2] = 255;
         data[i + 3] = blocked ? 0 : 255;
@@ -565,6 +592,27 @@ export class TvScreen {
       this.frame.style.setProperty('-webkit-mask-image', url);
     }
     this.walled = hidden === MASK_W * MASK_H;
+  }
+
+  /**
+   * Whether your own hands are over this part of the picture, given where that part lands on your
+   * screen. `u` runs across the picture and `v` down it, both 0–1, as the homography takes them to
+   * the layer (see handCover).
+   */
+  private overHands(hands: HandCover, u: number, v: number): boolean {
+    const m = this.onto;
+    if (!m || !this.viewW || !this.viewH) return false;
+    const x = u * WIDTH;
+    const y = v * HEIGHT;
+    const den = m[6] * x + m[7] * y + 1;
+    if (!den) return false;
+    const px = (m[0] * x + m[1] * y + m[2]) / den / this.viewW;
+    const py = (m[3] * x + m[4] * y + m[5]) / den / this.viewH;
+    if (px < 0 || px >= 1 || py < 0 || py >= 1) return false;
+    const cx = Math.min(hands.width - 1, (px * hands.width) | 0);
+    // The cover's rows are the other way up (WebGL reads a target from the bottom).
+    const cy = Math.min(hands.height - 1, ((1 - py) * hands.height) | 0);
+    return hands.data[(cy * hands.width + cx) * 4 + 3] > 8;
   }
 
   /**
