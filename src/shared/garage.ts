@@ -1,8 +1,10 @@
 import { FLOOR, ROAD, WALL_T } from './layout.js';
+import { STREET_END, onLoop } from './scenic.js';
 
 // The Lambos and Ferraris in the garage, which anyone can drive: where they're parked, where you can
-// take them (the garage, the lots round it and the street), and the arcade physics a driver's own
-// page runs. Everyone else on the floor sees the car where its driver says it is.
+// take them (the garage, the lots round it, the street and the scenic loop off either end of it), and
+// the arcade physics a driver's own page runs. Everyone else on the floor sees the car where its
+// driver says it is.
 
 export type CarKind = 'lambo' | 'ferrari';
 
@@ -23,11 +25,10 @@ export interface Box {
 /** The paved lot in front of the garage, out to the sidewalk, and the one down its east side. */
 export const LOT: Box = { minX: -30, maxX: 30, minZ: B.maxZ, maxZ: 21 };
 export const SIDE_LOT: Box = { minX: B.maxX, maxX: B.maxX + 12, minZ: B.minZ - 2, maxZ: B.maxZ + 4 };
-/** How far along the street either way (from the building) you can drive, before it's too far to see. */
-export const STREET_END = 90;
 
 /**
- * Where a car can go: the garage (inside its back and west walls, open to the south and east), the
+ * Where a car can go, besides the scenic loop (see shared/scenic.ts), which takes over from either
+ * end of the street: the garage (inside its back and west walls, open to the south and east), the
  * lots round it, across the sidewalk and along the street. What stands on them (columns, lamps,
  * trees, the other cars) is the driver's page to bump into.
  */
@@ -159,9 +160,9 @@ export function carPoint(p: { x: number; z: number; rotY: number }, lx: number, 
   return { x: p.x + lx * c + lz * s, z: p.z - lx * s + lz * c };
 }
 
-/** Whether (x, z) is somewhere a car can be. */
+/** Whether (x, z) is somewhere a car can be: the garage, the lots, the street or the loop. */
 export function paved(x: number, z: number): boolean {
-  return PAVEMENT.some((b) => x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ);
+  return PAVEMENT.some((b) => x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ) || onLoop(x, z);
 }
 
 /** Whether the whole car is on the pavement: its corners, and halfway along each side. */

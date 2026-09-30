@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ELEVATOR, ELEVATOR_FRONT, FLOOR, ROAD, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
 import { LOT, SIDE_LOT } from '../../shared/garage';
+import { STREET_END, shoreX } from '../../shared/scenic';
 import type { Collider } from './office';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
 
@@ -37,6 +38,8 @@ export interface NightParts {
   clouds: THREE.MeshToonMaterial;
   /** Rain running down the office windows. */
   wetGlass: THREE.MeshBasicMaterial;
+  /** Light you only see at night (the lighthouse's beam): see-through, `max` opaque when it's dark. */
+  glows: { mat: THREE.Material; max: number }[];
 }
 
 /** A bulb that glows `day` much by day and fully at night. */
@@ -259,10 +262,28 @@ export function streetLamp(parts: THREE.Group, night: NightParts, glass: THREE.M
 }
 
 /**
- * How far the grass and the road go, end to end: from the top floor the haze is up to HAZE_MAX off
- * (see world/sky.ts), and their ends must be further than that even at the edge of the view.
+ * How far the grass goes, every way from the office: from the top floor the haze is up to HAZE_MAX
+ * off (see world/sky.ts), and out at the far corners of the scenic loop too, so its edges must be
+ * further than that even at the edge of the view. To the west it stops at the beach (world/scenic.ts).
  */
-const REACH = 1200;
+const REACH = 900;
+/** Where the grass stops to the west, under the beach's sand, whose flat top is everywhere past here. */
+const LAWN_WEST = Math.ceil(Math.max(...Array.from({ length: 1801 }, (_, i) => shoreX(i - 900))) + 4);
+
+/** The street's asphalt: white lines along its edges and a dashed yellow one down the middle, 8 m to a dash and a gap. */
+export function roadTexture(): THREE.CanvasTexture {
+  const road = canvasTexture(256, 128, (g) => {
+    g.fillStyle = '#5b606c';
+    g.fillRect(0, 0, 256, 128);
+    g.fillStyle = '#f1f1f1';
+    g.fillRect(0, 6, 256, 4);
+    g.fillRect(0, 118, 256, 4);
+    g.fillStyle = '#ffd166';
+    g.fillRect(0, 61, 150, 6);
+  });
+  road.wrapS = THREE.RepeatWrapping;
+  return road;
+}
 
 /**
  * The neighbours' buildings: [x, z, width, height, depth, paint], across the street and further out
@@ -297,13 +318,13 @@ export function neighbourBoxes(): { minX: number; maxX: number; minZ: number; ma
  * sidewalks and street lamps, trees and neighbours' buildings, and in `sky` some clouds.
  */
 export function buildStreet(group: THREE.Group, colliders: Collider[], night: NightParts, sky: THREE.Group) {
-  const lawn = new THREE.Mesh(new THREE.PlaneGeometry(REACH, REACH), toon('#a7d98b'));
+  const lawn = new THREE.Mesh(new THREE.PlaneGeometry(REACH - LAWN_WEST, REACH * 2), toon('#a7d98b'));
   lawn.rotation.x = -Math.PI / 2;
-  lawn.position.y = G - 0.03;
+  lawn.position.set((LAWN_WEST + REACH) / 2, G - 0.03, 0);
   lawn.receiveShadow = true;
   group.add(lawn);
-  // What you stand on anywhere out there, the lot and the road and the grass alike.
-  colliders.push({ minX: -200, maxX: 200, minZ: -200, maxZ: 200, bottom: G - 1, top: G });
+  // What you stand on anywhere out there, the lot and the road and the grass alike, and the beach.
+  colliders.push({ minX: -REACH, maxX: REACH, minZ: -REACH, maxZ: REACH, bottom: G - 1, top: G });
 
   // The lot in front of the garage, out to the sidewalk, and the one down its east side.
   for (const [b, y] of [
@@ -313,24 +334,15 @@ export function buildStreet(group: THREE.Group, colliders: Collider[], night: Ni
     group.add(groundPlane(b.maxX - b.minX, b.maxZ - b.minZ, (b.minX + b.maxX) / 2, y, (b.minZ + b.maxZ) / 2, null, '#9a9ea8'));
   }
 
-  // The road: asphalt, white edge lines and a dashed yellow middle.
-  const road = canvasTexture(256, 128, (g) => {
-    g.fillStyle = '#5b606c';
-    g.fillRect(0, 0, 256, 128);
-    g.fillStyle = '#f1f1f1';
-    g.fillRect(0, 6, 256, 4);
-    g.fillRect(0, 118, 256, 4);
-    g.fillStyle = '#ffd166';
-    g.fillRect(0, 61, 150, 6);
-  });
-  road.wrapS = THREE.RepeatWrapping;
-  road.repeat.set(REACH / 8, 1);
-  group.add(groundPlane(REACH, ROAD.maxZ - ROAD.minZ, 0, G - 0.008, (ROAD.minZ + ROAD.maxZ) / 2, road));
+  // The road, out to either end of the street, where the scenic loop takes over (world/scenic.ts).
+  const road = roadTexture();
+  road.repeat.set((STREET_END * 2) / 8, 1);
+  group.add(groundPlane(STREET_END * 2, ROAD.maxZ - ROAD.minZ, 0, G - 0.008, (ROAD.minZ + ROAD.maxZ) / 2, road));
   for (const [z0, z1] of [
     [21, ROAD.minZ],
     [ROAD.maxZ, ROAD.maxZ + 2],
   ]) {
-    group.add(mesh(box(REACH, 0.08, z1 - z0), toon('#e3ddd0'), 0, G, (z0 + z1) / 2));
+    group.add(mesh(box(STREET_END * 2 - 4, 0.08, z1 - z0), toon('#e3ddd0'), 0, G, (z0 + z1) / 2));
   }
   const forest = new THREE.Group();
 

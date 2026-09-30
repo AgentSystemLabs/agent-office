@@ -75,11 +75,13 @@ test('you can drive out of the garage, across the lot and down the street, but n
   // A Ferrari backed in facing the street drives straight out onto the road.
   const ferrari = CARS.find((c) => c.kind === 'ferrari')!;
   for (let z = ferrari.z; z <= (ROAD.minZ + ROAD.maxZ) / 2; z += 0.5) assert.ok(onPavement({ ...ferrari, z }), `z ${z}`);
-  // Turned along the road, both ways as far as the street goes.
+  // Turned along the road, both ways, and on past either end of the street onto the scenic loop.
   const road = (ROAD.minZ + ROAD.maxZ) / 2;
-  assert.ok(onPavement({ x: 80, z: road, rotY: Math.PI / 2 }));
-  assert.ok(onPavement({ x: -80, z: road, rotY: -Math.PI / 2 }));
-  assert.ok(!onPavement({ x: 95, z: road, rotY: Math.PI / 2 }), 'not past the end of it');
+  for (const x of [80, 105, 115, 130]) {
+    assert.ok(onPavement({ x, z: road, rotY: Math.PI / 2 }), `east, x ${x}`);
+    assert.ok(onPavement({ x: -x, z: road, rotY: -Math.PI / 2 }), `west, x ${-x}`);
+  }
+  assert.ok(!onPavement({ x: 125, z: road + 8, rotY: Math.PI / 2 }), 'not off the side of the loop');
   assert.ok(!onPavement({ x: -40, z: 18, rotY: 0 }), 'the lawn beside the lot');
   assert.ok(!onPavement({ x: 0, z: FLOOR.minZ - 1, rotY: Math.PI / 2 }), 'through the back wall');
   assert.ok(!paved(0, ROAD.maxZ + 1.5), 'the far sidewalk');

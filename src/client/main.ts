@@ -34,6 +34,8 @@ import { Hands } from './world/hands';
 import { Basketball, IN_HANDS } from './world/hoop';
 import { HOOP, SWEET, idealSpeed, lookAtRim, meter, shotSpeed, throwPitch, tossSpeed, underCeiling } from '../shared/hoop';
 import { CARS, SEAT_HIPS, type CarSeat } from '../shared/garage';
+import { PLACES, placeAt as loopPlace } from '../shared/scenic';
+import { LapTimer, lapTime } from './laps';
 import { Smoke } from './world/smoke';
 import { HAZE_MAX, Sky, describeSky } from './world/sky';
 import { Laptop } from './world/laptop';
@@ -825,6 +827,32 @@ function honk() {
   net.send({ t: 'car.honk' });
 }
 
+/** Laps of the scenic loop you've driven (see LapTimer), and your fastest, kept in this browser. */
+const LAP_KEY = 'agent-office.bestLap';
+const laps = new LapTimer(
+  (() => {
+    try {
+      const best = Number(localStorage.getItem(LAP_KEY));
+      return best > 0 ? best : null;
+    } catch {
+      return null;
+    }
+  })(),
+);
+function lapDone(time: number) {
+  const done = laps.done;
+  if (done?.best) {
+    try {
+      localStorage.setItem(LAP_KEY, String(time));
+    } catch {
+      // private window: it's only for this visit then
+    }
+  }
+  if (done?.best) sound.golf('cheer');
+  else sound.arcade('clear');
+  toast(done?.best ? `🏁 Lap of the scenic loop: ${lapTime(time)}, your best yet!` : `🏁 Lap of the scenic loop: ${lapTime(time)} (best ${lapTime(laps.best ?? time)})`, 'info');
+}
+
 /**
  * The office said who's in which car (`answer`: answering a car.enter or car.leave of yours). Once
  * it has answered them all, where it has you is where you are: out, if someone got in first.
@@ -874,16 +902,24 @@ function renderDriveHint(el: HTMLElement) {
   const c = store.cars[i];
   const name = (id?: string) => (id && id !== store.you ? (store.peers.get(id)?.name ?? '') : '');
   let hint: Hint;
+  // Where you are on the scenic loop, and how the lap's going.
+  const pose = office.cars.cars[i]?.pose;
+  const place = pose ? loopPlace(pose.x, pose.z) : null;
+  const where = place ? ` · ${PLACES[place].icon} ${PLACES[place].name}` : '';
   if (driver.driving) {
     const kmh = Math.round(Math.abs(driver.pose?.speed ?? 0) * 3.6);
     const other = name(c?.passenger);
+    const now = performance.now() / 1000;
+    const done = laps.done && now - laps.done.at < 6 ? laps.done : null;
+    const running = laps.running(now);
+    const lap = done ? ` · 🏁 ${lapTime(done.time)}${done.best ? ' best!' : ''}` : running !== null ? ` · ⏱ ${lapTime(running)}` : '';
     hint = {
-      k: `drive|${kmh}|${other}`,
-      parts: [h('span.title', {}, `🏎️ ${CARS[i].name}`), aside(`${kmh} km/h${other ? ` · with ${clip(other, 20)}` : ''}`), key('W A S D', 'Drive'), key('Space', 'Brake'), key('H', 'Honk'), key('E', 'Get out')],
+      k: `drive|${kmh}|${other}|${where}|${lap}`,
+      parts: [h('span.title', {}, `🏎️ ${CARS[i].name}`), aside(`${kmh} km/h${where}${lap}${other ? ` · with ${clip(other, 20)}` : ''}`), key('W A S D', 'Drive'), key('Space', 'Brake'), key('H', 'Honk'), key('E', 'Get out')],
     };
   } else {
     const at = name(c?.driver);
-    hint = { k: `ride|${at}`, parts: [h('span.title', {}, `🏎️ ${CARS[i].name}`), aside(at ? `${clip(at, 24)} is driving` : 'nobody at the wheel'), key('H', 'Honk'), key('E', 'Get out')] };
+    hint = { k: `ride|${at}|${where}`, parts: [h('span.title', {}, `🏎️ ${CARS[i].name}`), aside(`${at ? `${clip(at, 24)} is driving` : 'nobody at the wheel'}${where}`), key('H', 'Honk'), key('E', 'Get out')] };
   }
   const k = `car|${hint.k}`;
   if (k === hintKey) return;
@@ -4548,6 +4584,11 @@ function frame(ts?: number) {
   // The cars first, so whoever's riding in one sits in it where it's got to.
   office.cars.update(dt, store.cars, store.carsAt, now, driver.active ? { car: driver.car!, driving: driver.driving } : null, camera.position);
   player.update(dt);
+  // Timing a lap of the scenic loop, behind the wheel.
+  if (driver.driving && driver.pose) {
+    const lap = laps.update(driver.pose.x, driver.pose.z, now / 1000);
+    if (lap !== null) lapDone(lap);
+  } else laps.reset();
   // A car coming at you where you stand: out of its way, with a thump if it was going.
   if (inOffice() && !driver.active && !upTop && !trip) {
     const hit = office.cars.shove(player.pos, null);
@@ -4713,7 +4754,15 @@ function frame(ts?: number) {
   smoke.update(dt, camera);
   confetti.update(dt);
   hanger.update();
+  // Out along the scenic loop, the haze thins (there's more out there to see), and the sun's shadows
+  // come with you: otherwise they're only cast round the office.
+  const away = !upTop && inOffice() ? Math.hypot(player.pos.x, player.pos.z) : 0;
+  sky.open = THREE.MathUtils.smoothstep(away, 70, 160);
+  if (away > 40) sun.target.position.set(Math.round(player.pos.x / 4) * 4, player.pos.y, Math.round(player.pos.z / 4) * 4);
+  else sun.target.position.set(0, 0, 0);
+  sun.target.updateMatrixWorld();
   sky.update(dt, t, camera);
+  if (!upTop && inOffice()) office.scenic.cull(camera.position, office.night.street, (scene.fog as THREE.Fog).far);
   // A map of its own lights itself its own way (the castle's torchlit hall), after the sky's had its say.
   if (!upTop) world.mood?.({ sun, hemi, ambient, scene }, sky.daylight, t);
   if (!upTop && inOffice()) holiday.update(t, sky.lampsOn, camera);

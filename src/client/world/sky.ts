@@ -30,6 +30,14 @@ export const HAZE_MAX = 300;
  */
 const HAZE_CLEAR = 6;
 const HAZE_ABOVE = 17.5;
+
+/**
+ * How far off something's lost in the haze (with the fog's far edge down on the street at `far`),
+ * seen from or standing `above` meters over the street, whichever's higher (see HAZE).
+ */
+export function hazeReach(above: number, far: number): number {
+  return Math.min(HAZE_MAX, far * (1 + Math.max(0, above - HAZE_CLEAR) / HAZE_ABOVE));
+}
 /** The building, walls included: the office upstairs and the garage under it. */
 const B = { minX: FLOOR.minX - WALL_T, maxX: FLOOR.maxX + WALL_T, minZ: FLOOR.minZ - WALL_T, maxZ: FLOOR.maxZ + WALL_T } as const;
 
@@ -388,6 +396,11 @@ export class Sky {
   private roof = false;
   /** In a hall with a roof and walls all round (a map other than the office's, see setIndoors). */
   private indoors = false;
+  /**
+   * How far out into the country you are, 0–1 (out on the scenic loop, see shared/scenic.ts): the
+   * haze near the ground thins out to more than twice as far, so the mountains and the sea show from the road.
+   */
+  open = 0;
   /** Where the street is from up there (the roof is at 0), for the haze. */
   private roofStreet = 0;
 
@@ -720,6 +733,10 @@ export class Sky {
       h.material.opacity = this.lampsOn * 0.85;
       h.visible = this.lampsOn > 0.01 && !this.roof && !this.indoors;
     }
+    for (const g of this.night.glows) {
+      g.mat.opacity = g.max * this.lampsOn;
+      g.mat.visible = this.lampsOn > 0.01 && !this.roof && !this.indoors;
+    }
 
     // The sky's color, and the fog, which fades far things into it. Halloween's is its own.
     const pal = (key: 'day' | 'dusk' | 'night' | 'greyDay' | 'greyNight' | 'fogDay' | 'fogNight', out: THREE.Color) => out.copy(C[key]).lerp(SPOOKY[key], sp);
@@ -736,8 +753,10 @@ export class Sky {
     const precip = Math.max(this.rain, this.snow);
     // How far off the haze is down on the street; the higher up, the thinner it is (see HAZE), so
     // the street never goes into it from the top floors, and from the roof you see across the city.
-    fog.near = lerp(40, 3, this.fog) * (1 - 0.4 * precip);
-    fog.far = lerp(90, 28, this.fog) * (1 - 0.3 * precip);
+    // Out in the country (see open) it's further off again.
+    const open = 1 + 1.4 * this.open;
+    fog.near = lerp(40, 3, this.fog) * (1 - 0.4 * precip) * open;
+    fog.far = lerp(90, 28, this.fog) * (1 - 0.3 * precip) * open;
     uniforms.skyStreet.value = this.roof ? this.roofStreet : this.indoors ? 0 : this.night.street;
     this.night.clouds.color.copy(C.white).lerp(C.cloudGrey, this.cover).lerp(SPOOKY.cloud, sp);
     this.night.clouds.visible = this.fog < 0.6;

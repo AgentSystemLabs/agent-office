@@ -5,6 +5,7 @@ import { deskPoint } from '../../shared/nav';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
 import { buildGarage, buildStreet, bulb, type NightParts } from './outside';
 import { Fleet } from './cars';
+import { buildScenic, type Scenic } from './scenic';
 import { mergeByMaterial, mesh, roundedBox, textPlane, toon, toonUnique } from './toon';
 import { palette, piece } from './models';
 import { buildElevator, type Elevator } from './elevator';
@@ -100,6 +101,8 @@ export interface Office {
   garageLift: Elevator;
   /** The Lambos and Ferraris in the garage, which anyone can drive (see driving.ts). */
   cars: Fleet;
+  /** The scenic loop off either end of the street, and everything along it. */
+  scenic: Scenic;
   /** The merge gong by the PR board. */
   gong: Gong;
   jukebox: JukeboxView;
@@ -1333,6 +1336,7 @@ export function buildOffice(): Office {
     street: STREET_Y,
     clouds: toonUnique('#ffffff'),
     wetGlass: new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false, visible: false }),
+    glows: [],
   };
 
   // Outside walls, with real windows you see out of and a door out.
@@ -1376,6 +1380,8 @@ export function buildOffice(): Office {
   // The clouds stay up in the sky, however far down the street is.
   buildStreet(ground, groundColliders, night, group);
   const green = buildGreen(ground, groundColliders, night);
+  // Off either end of the street, the scenic loop: the farm, the pines, the mountains and the beach.
+  const scenic = buildScenic(ground, groundColliders, night);
   group.add(ground);
   colliders.push(...groundColliders);
   const groundBase = groundColliders.map((c) => ({ c, top: c.top, bottom: c.bottom ?? 0 }));
@@ -1713,10 +1719,11 @@ export function buildOffice(): Office {
     garageLift.update(dt);
     gong.update(dt);
     green.update(t);
+    scenic.update(t);
     hoop.update(dt);
   };
 
-  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, elevator, garageLift, cars, gong, jukebox, cabinet, whiteboard, tee, green, hoop, stack, wing, setWing, signs, setProjectName, setLook, setLevel, night, plants, update };
+  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, elevator, garageLift, cars, scenic, gong, jukebox, cabinet, whiteboard, tee, green, hoop, stack, wing, setWing, signs, setProjectName, setLook, setLevel, night, plants, update };
 }
 
 /** A chair at the meeting table, with its laptop on the table in front of it. */
