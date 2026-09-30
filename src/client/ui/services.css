@@ -1,0 +1,6 @@
+/* Services board */
+.svc-port { font: 800 14px ui-monospace, Menlo, monospace; }
+.svc-empty { text-align: center; padding: 18px 8px; border: 3px dashed var(--muted); border-radius: 14px; }
+.svc-empty p { margin: 0; font-weight: 800; }
+.services .team-status { margin-top: 12px; }
+.modal header .os-tabs { margin-right: 4px; }

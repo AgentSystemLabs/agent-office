@@ -1,3 +1,4 @@
+import './windows.css';
 import type { GhPull, GhPullDetail, GhReviewComment } from '../../../shared/protocol';
 import type { Net } from '../../net';
 import { store, workerForPull } from '../../state';

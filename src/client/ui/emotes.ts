@@ -1,3 +1,4 @@
+import './emotes.css';
 import { EMOTES, type EmoteId } from '../../shared/emotes';
 import { h } from './dom';
 

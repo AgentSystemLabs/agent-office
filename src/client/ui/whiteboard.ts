@@ -1,3 +1,4 @@
+import './whiteboard.css';
 // The 📝 whiteboard window, and the drawing on the whiteboard in the office. Excalidraw itself is in
 // whiteboard-app.ts, loaded the first time either needs it.
 

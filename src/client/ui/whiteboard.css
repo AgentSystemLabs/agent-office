@@ -1,0 +1,12 @@
+/* ---------- Whiteboard ---------- */
+/* Its own window rather than a .modal, whose rules for labels, inputs and textareas would restyle Excalidraw's. */
+.wb-window { background: var(--paper); border: 3px solid var(--ink); border-radius: 20px; box-shadow: 0 6px 0 var(--ink); width: min(1600px, 100%); height: calc(100vh - 32px); display: flex; flex-direction: column; overflow: hidden; animation: pop .18s ease-out; }
+.wb-window > header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 3px solid var(--ink); background: var(--paper-2); }
+.wb-window > header h2 { margin: 0; font-size: 18px; font-weight: 900; flex: none; }
+.wb-people { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; font-size: 13px; font-weight: 800; }
+.wb-live { flex: none; background: var(--bad); color: #fff; border-radius: 6px; padding: 1px 6px; font-size: 11px; letter-spacing: .06em; }
+.wb-person { display: inline-flex; align-items: center; gap: 5px; background: #fff; border: 2px solid var(--ink); border-radius: 999px; padding: 1px 9px 1px 4px; white-space: nowrap; }
+.wb-person .dot { width: 11px; height: 11px; }
+.wb-alone { color: var(--muted); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wb-host { flex: 1; min-height: 0; position: relative; background: #fff; }
+.wb-loading { display: grid; place-items: center; height: 100%; padding: 16px; text-align: center; font-weight: 800; font-size: 16px; color: var(--muted); }

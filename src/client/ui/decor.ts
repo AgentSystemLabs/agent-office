@@ -1,3 +1,4 @@
+import './decor.css';
 import { FRAMES, checkImageUrl, type Decoration } from '../../shared/decor';
 import { store } from '../state';
 import { holdPicture, loadPicture, type Picture } from '../world/gallery';

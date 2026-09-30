@@ -1,3 +1,4 @@
+import './elevator.css';
 import type { FloorInfo, RepoChoice, ServerMsg } from '../../shared/protocol';
 import { floorPalette, normalizeRepo, sameRepo } from '../../shared/floors';
 import { ROOF, ROOF_NAME } from '../../shared/rooftop';

@@ -1,3 +1,4 @@
+import './hud.css';
 import { BUZZ_SECONDS, type Caffeine } from '../caffeine';
 import { ROOF, ROOF_NAME } from '../../shared/rooftop';
 import { store } from '../state';

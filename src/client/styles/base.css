@@ -1,0 +1,128 @@
+/* The base every page of the office builds on, the 3D office and the 2D view alike: colors and the font,
+   the reset, panels and buttons, the small pieces many windows share, and the window (modal) frame.
+   The office adds its HUD and loading screen (style.css); each window's own look sits next to its
+   module in ui/ and comes in with it. */
+
+:root {
+  --ink: #2b2d42;
+  --paper: #fffaf3;
+  --paper-2: #fff1de;
+  --accent: #ff8a5b;
+  --accent-ink: #ffffff;
+  --muted: #7a6f65;
+  --good: #06d6a0;
+  --warn: #ffd166;
+  --bad: #ef476f;
+  --info: #5bc0eb;
+  --shadow: 0 4px 0 var(--ink);
+  --radius: 16px;
+  --font: 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #bfe3ff; }
+body { font-family: var(--font); color: var(--ink); -webkit-font-smoothing: antialiased; }
+button { font-family: inherit; }
+.hidden { display: none !important; }
+
+.panel {
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; font-size: 14px; font-weight: 800; color: var(--ink);
+  background: #fff; border: 3px solid var(--ink); border-radius: 12px; cursor: pointer;
+  box-shadow: 0 3px 0 var(--ink); transition: transform .05s;
+  white-space: nowrap;
+}
+.btn:hover { background: var(--paper-2); }
+.btn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+.btn.on { background: var(--good); color: #fff; }
+.btn.danger { background: var(--bad); color: #fff; }
+.btn.primary { background: var(--accent); color: #fff; }
+.btn:disabled { opacity: .5; cursor: default; }
+
+/* Status dots and pills, empty lists, key caps, toasts and the reconnecting banner: the office's HUD
+   and windows show them, and so does the 2D view. */
+.dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--ink); flex: none; }
+.pill { font-size: 11px; font-weight: 900; padding: 2px 7px; border-radius: 999px; border: 2px solid var(--ink); white-space: nowrap; }
+.pill.starting, .pill.idle { background: #e0f2fe; }
+.pill.working { background: var(--warn); }
+.pill.needs_input { background: var(--bad); color: #fff; animation: pulse 1s infinite; }
+.pill.done { background: var(--good); color: #fff; }
+.pill.exited, .pill.offline { background: #dee2e6; }
+.pill.lost { background: #ffb703; }
+.empty { color: var(--muted); font-size: 13px; font-weight: 600; }
+@keyframes pulse { 50% { transform: scale(1.08); } }
+.key { display: inline-block; min-width: 26px; padding: 1px 7px; margin-right: 5px; border-radius: 7px; background: var(--paper); color: var(--ink); text-align: center; font-weight: 900; box-shadow: 0 2px 0 #999; }
+
+#toasts { position: absolute; top: 72px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none !important; }
+.toast { background: var(--paper); border: 3px solid var(--ink); border-radius: 12px; padding: 8px 14px; font-weight: 800; font-size: 14px; box-shadow: var(--shadow); animation: toast-in .25s ease-out; }
+.toast.warn { background: #fff3c4; }
+.toast.error { background: #ffd6e0; }
+@keyframes toast-in { from { transform: translateY(-10px); opacity: 0; } }
+
+.conn { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--bad); color: #fff; font-weight: 900; padding: 6px 14px; border-radius: 12px; border: 3px solid var(--ink); }
+
+/* ---------- Modals ---------- */
+.backdrop { position: fixed; inset: 0; background: rgba(43, 45, 66, .45); display: grid; place-items: center; padding: 16px; z-index: 50; animation: fade .15s; }
+@keyframes fade { from { opacity: 0; } }
+.modal { background: var(--paper); border: 3px solid var(--ink); border-radius: 20px; box-shadow: 0 6px 0 var(--ink); width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; overflow: hidden; animation: pop .18s ease-out; }
+@keyframes pop { from { transform: scale(.96); opacity: .5; } }
+.modal header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 3px solid var(--ink); background: var(--paper-2); }
+.modal header h2 { margin: 0; font-size: 18px; font-weight: 900; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modal .body { padding: 16px; overflow: auto; }
+.modal footer { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px; border-top: 3px solid var(--ink); background: var(--paper-2); align-items: center; }
+.modal footer .grow { flex: 1; font-size: 12px; color: var(--muted); font-weight: 700; }
+.modal textarea, .modal input[type=text], .modal input[type=password] { width: 100%; font: inherit; font-size: 15px; border: 3px solid var(--ink); border-radius: 12px; padding: 10px 12px; background: #fff; outline: none; resize: vertical; }
+.modal textarea:focus, .modal input[type=text]:focus, .modal input[type=password]:focus { border-color: var(--accent); }
+.modal label { font-weight: 800; font-size: 14px; display: block; margin-bottom: 6px; }
+.close { width: 34px; height: 34px; padding: 0; justify-content: center; }
+/* The ✕ openModal gives a window without a header of its own. */
+.close.corner { position: absolute; top: 10px; right: 10px; z-index: 1; }
+
+/* Pieces several windows share: button rows, the notes under a setting, an input with its buttons,
+   color swatches, a list of things to click (services, the jukebox, the bar), a spinner and a when. */
+.seg { display: flex; gap: 8px; flex-wrap: wrap; }
+.setting-note { margin: 10px 0 0; font-size: 13px; font-weight: 600; color: var(--muted); line-height: 1.4; }
+.setting-note.bad { color: var(--bad); }
+.webhook { display: flex; gap: 8px; }
+.webhook input[type=text] { flex: 1; min-width: 0; }
+
+.swatches { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.swatch { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--ink); cursor: pointer; }
+.swatch.sel { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.svc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.svc-list li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 3px solid var(--ink); border-radius: 14px; background: #fff; cursor: pointer; box-shadow: 0 3px 0 var(--ink); }
+.svc-list li:hover { background: var(--paper-2); }
+.svc-list li.on { background: #fff1de; border-color: var(--accent); }
+.svc-list li:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.svc-list .dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--ink); flex: none; }
+.svc-main { flex: 1; min-width: 0; }
+.svc-title { font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svc-meta { font-size: 12px; font-weight: 700; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svc-list .btn { padding: 3px 10px; font-size: 13px; text-decoration: none; color: inherit; }
+.jb-icon { flex: none; font-size: 18px; }
+.spinner { width: 16px; height: 16px; flex: none; border-radius: 50%; border: 3px solid rgba(43, 45, 66, .2); border-top-color: var(--ink); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.when { color: var(--muted); font-weight: 700; text-decoration: none; }
+a.when:hover { text-decoration: underline; }
+
+/* Window pieces that restyle the frame's labels, text boxes and buttons with selectors no stronger than
+   the frame's own. Those win by coming later, and a window's sheet loads in no fixed order against
+   this one, so they sit here, after the rules they override. */
+.provider-choice label { margin: 0; white-space: nowrap; }
+.provider-model label { margin: 0; font-size: 12px; }
+.provider-model input:invalid { border-color: var(--bad); }
+.provider-summary .btn { padding: 3px 9px; font-size: 12px; border-width: 2px; border-radius: 9px; box-shadow: 0 2px 0 var(--ink); }
+.charsel-opts label { margin: 14px 0 8px; }
+.col-search input[type=text] { font-size: 13px; border-width: 2px; border-radius: 9px; padding: 5px 26px 5px 9px; }
+.gh-label-edit { padding: 1px 9px; font-size: 12px; box-shadow: 0 2px 0 var(--ink); }
+.pd-side input[type=text] { width: 100%; font: inherit; font-size: 13px; border: 2px solid var(--ink); border-radius: 10px; padding: 5px 9px; background: #fff; outline: none; }
+.elevator .dir-change { margin-left: 6px; padding: 1px 8px; font-size: 12px; border-width: 2px; border-radius: 9px; box-shadow: 0 2px 0 var(--ink); vertical-align: baseline; }
+.meeting-field label { margin: 0; }
