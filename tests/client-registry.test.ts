@@ -230,11 +230,11 @@ test('interactions: one definition per kind, with its reach, hint and use', () =
   assert.throws(() => things.hint({ kind: 'tv' }));
 });
 
-/** The kinds of thing you can use, as world/office.ts's InteractKind union lists them. */
+/** The kinds of thing you can use, as world/types.ts's InteractKind union lists them. */
 function interactKinds(): string[] {
-  const src = readFileSync(path.join(import.meta.dirname, '../src/client/world/office.ts'), 'utf8');
+  const src = readFileSync(path.join(import.meta.dirname, '../src/client/world/types.ts'), 'utf8');
   const m = /export type InteractKind =([^;]+);/.exec(src);
-  assert.ok(m, 'InteractKind is in world/office.ts');
+  assert.ok(m, 'InteractKind is in world/types.ts');
   return [...m[1].matchAll(/'([a-z]+)'/g)].map((x) => x[1]);
 }
 
