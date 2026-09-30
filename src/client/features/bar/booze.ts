@@ -4,7 +4,7 @@
  * (world/drunk.ts) and the more you stagger (see sway in player/effects.ts). Water helps a little.
  * Times are seconds, on whichever clock the caller passes in as `now`.
  */
-import { BOOZE_LIMIT, type Drink } from '../shared/rooftop';
+import { BOOZE_LIMIT, type Drink } from '../../../shared/rooftop';
 
 /** A drink kicks in over about this long. */
 const KICK_IN = 4;

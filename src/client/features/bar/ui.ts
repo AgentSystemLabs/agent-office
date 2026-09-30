@@ -1,5 +1,5 @@
-import { DRINKS, type Drink } from '../../shared/rooftop';
-import { h, openModal } from './dom';
+import { DRINKS, type Drink } from '../../../shared/rooftop';
+import { h, openModal } from '../../ui/dom';
 
 export interface BarOptions {
   /** Had enough: nothing stronger than water or a mocktail. */

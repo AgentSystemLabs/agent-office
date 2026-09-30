@@ -1,8 +1,8 @@
-import { DJ_BOOTH } from '../../shared/layout';
-import { DjPlayer } from '../dnb';
-import type { AudioCore } from './core';
-import { biquad, envelope, rand } from './dsp';
-import type { Pos } from './places';
+import { DJ_BOOTH } from '../../../shared/layout';
+import { DjPlayer } from '../../dnb';
+import type { AudioCore } from '../../sound/core';
+import { biquad, envelope, rand } from '../../sound/dsp';
+import type { Pos } from '../../sound/places';
 
 // The rooftop bar: the DJ's set, the air horn, drinks poured, and one too many.
 

@@ -3,14 +3,14 @@
  * world swaying and the frame drawn through the drunk vision), and the DJ's air horn.
  */
 import { DRINK_BY_ID, type Drink, type DrinkId } from '../../../shared/rooftop';
-import { Booze, type Stage as Feeling } from '../../booze';
+import { Booze, type Stage as Feeling } from './booze';
 import type { Ctx } from '../../core/context';
 import { aside, hintTitle, key, onE } from '../../core/hint';
 import { djFrame } from '../../dnb';
 import { store } from '../../state';
-import { openBar } from '../../ui/bar';
+import { openBar } from './ui';
 import { toast } from '../../ui/dom';
-import { DrunkVision } from '../../world/drunk';
+import { DrunkVision } from './drunk';
 import type { Rooftop } from '../../world/rooftop';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
