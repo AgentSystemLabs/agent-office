@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { buildFridge, type Fridge } from './fridge';
 import { model, paintModel, palette } from './models';
+import { herbPot, tablePlant } from './plants';
 import { toon } from './toon';
 import type { Collider, Interactable } from './office';
 
@@ -55,6 +56,16 @@ export function buildKitchen(): Kitchen {
     // Only the machine pours a coffee: a look at the counter or the fridge doesn't.
     const machine = kitchen.scene.getObjectByName('coffee_machine');
     if (machine) machine.userData.interact = interactable;
+    // Herbs on the counter either side of the sink, and a little green pot by the machine: clear of
+    // the sink (model x 0) and the machine (model x 1.2), standing on the counter top at 1.03. In
+    // the model's frame, so they stand and turn with the counter against the south wall.
+    const counterTop = 1.03;
+    for (const [i, x] of [-2.25, -1.25, 0.55].entries()) {
+      const herb = i === 2 ? tablePlant() : herbPot(i === 0 ? 'rosemary' : 'basil');
+      herb.position.set(x, counterTop, 0);
+      herb.rotation.y = i * 1.4;
+      glb.add(herb);
+    }
   }
   const fridge = buildFridge({ x: -11.3, z: 12.2, rotY: Math.PI });
   group.add(fridge.group);
