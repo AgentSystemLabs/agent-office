@@ -9,10 +9,6 @@ import type { BoardActions } from './github/prompts';
 import { openPull } from './github/pull-window';
 import { providerLabel } from './provider';
 
-// What a board can do and the prompt an issue hands a worker live with the GitHub windows
-// (github/prompts.ts); the rest of the client still finds them here.
-export { issuePrompt, issueVars, type BoardActions } from './github/prompts';
-
 const TILTS = ['-1.2deg', '0.8deg', '-0.4deg', '1.4deg', '0deg', '-0.9deg'];
 const NOTE_COLORS = ['#fff7b0', '#ffd6e0', '#caffbf', '#bde0fe', '#ffe5b4'];
 
