@@ -1,50 +1,38 @@
 import { randomBytes } from 'node:crypto';
-import { existsSync, writeFileSync, chmodSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
-import headless from '@xterm/headless';
-import serialize from '@xterm/addon-serialize';
 import type { AgentChoice, AgentEffort, AgentProvider, TerminalHit, WorkerInfo, WorkerKind, WorkerRepo, WorkerStatus } from '../../shared/protocol.js';
 import { AGENT_PROVIDERS, takesEffort, takesModel } from '../../shared/providers.js';
-import { WORKSPACE_FILES, WORKTREES_DIR, Worktrees, describeWork, workspaceOf, type WorktreeCleanup, type WorktreeRef, type WorktreeState } from '../worktrees.js';
+import { Worktrees, workspaceOf, type WorktreeCleanup, type WorktreeState } from '../worktrees.js';
 import { DESK_BY_ID, STATION_AGENT, deskBuilt } from '../../shared/layout.js';
 import { stationBrief } from '../stations.js';
-import { officePrompt, type PromptSource } from '../prompts.js';
-import { isBusy } from '../../shared/status.js';
-import { gh } from '../github.js';
+import type { PromptSource } from '../prompts.js';
 import type { GhAs } from '../signins.js';
 import type { ServiceOwner } from '../services.js';
-import { TaskNamer, fallbackTask } from '../tasks.js';
 import { addUsage, newTracker, scanTracker, trackerUsage, zeroUsage, type Ledger } from '../usage.js';
 import { PtyHost, SCROLLBACK, type Adopted, type Pty } from '../ptys.js';
 import { configuredProvider, validateWorkerEffort, validateWorkerModel } from '../agents.js';
 import { ScrollbackStore, searchTerminal, terminalTail } from '../history.js';
-import { DSH_PROFILE_DEFAULT, DshSession, terminalSafe } from '../dsh.js';
+import { DSH_PROFILE_DEFAULT } from '../dsh.js';
 import { DropStore } from '../drops.js';
-import { screenSnapshot } from '../screen.js';
 import type { Capacity } from '../machine.js';
 import { PROVIDERS, providerAdapter, titleNoise, type LaunchPlan, type ProviderFloor } from '../providers/index.js';
+import { launchAcp } from './acp.js';
 import { clockWork } from './clock.js';
 import { childEnv } from './env.js';
-import { WIN, binScript, defaultShell, resolveCommand, run, shellRun, shq } from './process.js';
-import { createPr, draftPr, findOpenPr, relatedBlock, withRelated } from './pr.js';
-import { offlineBanner, screenText, snapshotScreen, type HeadlessTerminal } from './terminal.js';
 import { midTurn } from './lifecycle.js';
 import { restoreWorkers, saveWorkers } from './persist.js';
-import type { HookEnv, OpenedPr, RepoSource, RunAs, Worker, WorkerEvents, WorkerHandle, Worktree } from './types.js';
+import { WorkerPrs } from './pr.js';
+import { WIN, binScript, defaultShell, resolveCommand, shellRun, shq, writeOfficeCommands } from './process.js';
+import { CARRY_ON_PROMPT, WorkerTasks } from './tasks.js';
+import { flushScreens, fullScreens, newTerm, offlineBanner, screenText, type HeadlessTerminal } from './terminal.js';
+import type { HookEnv, OpenedPr, RepoSource, RunAs, Worker, WorkerContext, WorkerEvents, WorkerHandle } from './types.js';
 import { clamp, safeEq, truncate } from './util.js';
 import { COLORS, NAMES, newWorker } from './worker.js';
-import { clearWorkspace, lostMessage, originRepo, workspaceNames } from './worktree.js';
+import { WorkerTrees, lostMessage } from './worktree.js';
 
 const SCREEN_INTERVAL_MS = 250;
-const KEYFRAME_MS = 8000;
 /** How often a steady typist's "last typed" time is refreshed for everyone. */
 const TYPED_REFRESH_MS = 15_000;
-/** How many of a worker's latest prompts and tool calls the task namer sees. */
-const TASK_PROMPTS = 5;
-const TASK_TOOLS = 10;
-/** While a worker works, refresh its task summary after this many tool calls, at most this often. */
-const TASK_REFRESH_TOOLS = 8;
-const TASK_REFRESH_MS = 90_000;
 /** The most other repositories one worker can take on (see WorkerInfo.repos). */
 export const MAX_REPOS = 8;
 /** How often every worker's transcript is checked for new spend, on top of the hook-driven checks. */
@@ -53,12 +41,6 @@ const USAGE_SCAN_MS = 10_000;
 const SAVE_SCROLLBACK_MS = 15_000;
 /** Between a worker's saved scrollback and what it prints after the office restarted. */
 const RESTORED_NOTE = '\x1b[2m──── the office restarted · earlier output above ────\x1b[0m\r\n';
-/**
- * What a worker whose terminal didn't make it through a restart (the machine rebooted, the terminal
- * host was replaced or died) is resumed with when it was in the middle of something, so it carries on
- * by itself instead of waiting at every desk for someone to type "continue".
- */
-export const CARRY_ON_PROMPT = 'continue — the office restarted and interrupted you. Pick up where you left off; if you were waiting on an answer or a permission, ask again.';
 
 export class WorkerManager {
   private workers = new Map<string, Worker>();
@@ -75,7 +57,11 @@ export class WorkerManager {
   private closing = false;
   /** Closing for good (Ctrl+C), not restarting: whatever the workers were doing is stopped on purpose. */
   private stopping = false;
-  private namer: TaskNamer;
+  /** What the workers' modules share of this manager (see WorkerContext). */
+  private ctx: WorkerContext;
+  private tasks: WorkerTasks;
+  private worktrees: WorkerTrees;
+  private prs: WorkerPrs;
   private usageTimer: NodeJS.Timeout;
   /** Runs the workers' terminals outside the office, so they outlive a restart of it (see ptys.ts). */
   private host: PtyHost;
@@ -88,7 +74,7 @@ export class WorkerManager {
 
   constructor(
     private dir: string,
-    private dataDir: string,
+    dataDir: string,
     private agentCmd: string,
     private agentArgs: string[],
     private hook: HookEnv,
@@ -109,16 +95,32 @@ export class WorkerManager {
     // bin/office-workers.js is also the office's MCP server, for the agents that take one.
     const floor: ProviderFloor = { dataDir, mcpScript: binScript('office-workers.js'), dshProfile };
     for (const p of AGENT_PROVIDERS) this.setups[p] = PROVIDERS[p].prepare?.(floor);
-    this.officeBin = this.writeOfficeCommands();
+    this.officeBin = writeOfficeCommands(dataDir);
     this.agentPath = resolveCommand(agentCmd);
+    const self = this;
+    this.ctx = {
+      dir,
+      trees: this.trees,
+      workers: this.workers,
+      events,
+      prompts,
+      get closing() {
+        return self.closing;
+      },
+      emit: (w) => this.emitUpdate(w),
+      persist: () => this.persist(),
+      setStatus: (w, status) => this.setStatus(w, status),
+      resume: (id, prompt) => this.resume(id, prompt),
+      cwd: (info) => this.cwd(info),
+      command: (info) => this.command(info),
+      notePrompt: (w, prompt) => this.tasks.notePrompt(w, prompt),
+      syncBranch: (w) => this.worktrees.syncBranch(w),
+    };
+    // Tasks are named by Claude Code, the office's own --agent when that's it.
     const claude = this.defaultProvider === 'claude' ? this.agentPath : resolveCommand('claude');
-    this.namer = new TaskNamer(claude, childEnv(), () => officePrompt(this.prompts, 'office.namer'), (id, task, ctx) => {
-      const w = this.workers.get(id);
-      if (!w || w.taskEpoch !== ctx.epoch) return;
-      w.info.task = task;
-      this.emitUpdate(w);
-      this.persist();
-    });
+    this.tasks = new WorkerTasks(this.ctx, claude, childEnv());
+    this.worktrees = new WorkerTrees(this.ctx);
+    this.prs = new WorkerPrs(this.ctx);
     this.host = new PtyHost(dataDir, () => this.events.toast("The workers' terminal host stopped — resuming them", 'warn'));
     this.scrollback = new ScrollbackStore(dataDir);
     this.drops = new DropStore(dataDir);
@@ -127,11 +129,11 @@ export class WorkerManager {
     this.drops.prune(new Set(this.workers.keys()));
     // A session may have ended (and written its final tally) while the office was down.
     for (const w of this.workers.values()) this.scanUsage(w);
-    this.screenTimer = setInterval(() => this.flushScreens(), SCREEN_INTERVAL_MS);
+    this.screenTimer = setInterval(() => flushScreens(this.workers.values(), this.events, (w) => this.checkBlocked(w)), SCREEN_INTERVAL_MS);
     this.usageTimer = setInterval(() => {
       for (const w of this.workers.values()) {
         this.scanUsage(w);
-        this.watchFolder(w);
+        this.worktrees.watchFolder(w);
       }
     }, USAGE_SCAN_MS);
     this.saveTimer = setInterval(() => {
@@ -158,7 +160,7 @@ export class WorkerManager {
     // Terminals nobody saved a claim on (their worker was sent home as the office went down).
     this.host.killUnclaimed();
     // Whoever's worktree was deleted while the office was down stays asleep, marked lost, rather than failing to start.
-    for (const w of this.workers.values()) this.checkLost(w);
+    for (const w of this.workers.values()) this.worktrees.checkLost(w);
     this.wakeAll();
     // It may have switched branches while the office was down, its terminal still going.
     void this.syncBranches();
@@ -291,78 +293,16 @@ export class WorkerManager {
     const w = newWorker(info, newTracker());
     w.owner = owner;
     this.workers.set(id, w);
-    if (info.prompt) this.notePrompt(w, info.prompt);
+    if (info.prompt) this.tasks.notePrompt(w, info.prompt);
     // A board agent is told what it's there for ahead of its first request (which is what shows).
     this.launch(w, seat.station && info.prompt ? `${stationBrief(seat.station, this.prompts)}\n\n${info.prompt}` : info.prompt, undefined);
     this.persist();
     return info;
   }
 
-  /**
-   * The workspace of a worker across repositories: `.agent-office/worktrees/<slug>`, with a worktree of
-   * this floor's project and of each of `repos` in it, all on office/<slug>, and a brief for the agent
-   * (the 'worker.repos' prompt, as CLAUDE.md and AGENTS.md). All or nothing: when one repository
-   * can't have its worktree, the ones already made are taken out again.
-   */
+  /** The workspace of a worker across repositories (see WorkerTrees.makeWorkspace). */
   private makeWorkspace(slug: string, repos: RepoSource[]): { worktree: NonNullable<WorkerInfo['worktree']>; repos: WorkerRepo[]; notes: string[] } | string {
-    // A branch can only be checked out once per repository, and two floors can be checkouts of the same one.
-    const seen = new Map<string, string>();
-    const own = this.trees.commonDir();
-    if (!own) return "This floor's project isn't a git checkout";
-    seen.set(own, "this floor's project");
-    for (const r of repos) {
-      const common = new Worktrees(r.dir).commonDir();
-      if (!common) return `${r.name} isn't a git checkout`;
-      const twin = seen.get(common);
-      if (twin) return `${r.name} is the same repository as ${twin}`;
-      seen.set(common, r.name);
-    }
-    const names = workspaceNames([this.dir, ...repos.map((r) => r.dir)]);
-    const made: { trees: Worktrees; ref: WorktreeRef }[] = [];
-    const fail = (why: string) => {
-      // Fresh branches with nothing on them: nothing is lost taking them out again.
-      void (async () => {
-        for (const m of made.reverse()) await m.trees.remove(m.ref, 'all');
-        clearWorkspace(path.join(this.dir, WORKTREES_DIR, slug));
-      })();
-      return why;
-    };
-    const first = this.trees.create(slug, names[0]);
-    if (typeof first === 'string') return fail(first);
-    const { note, ...primary } = first;
-    const notes = note ? [`${names[0]} ${note}`] : [];
-    made.push({ trees: this.trees, ref: primary });
-    const others: WorkerRepo[] = [];
-    for (const [i, r] of repos.entries()) {
-      const trees = new Worktrees(r.dir);
-      const wt = trees.create(slug, names[i + 1], this.dir);
-      if (typeof wt === 'string') return fail(`${r.name}: ${wt}`);
-      if (wt.note) notes.push(`${names[i + 1]} ${wt.note}`);
-      made.push({ trees, ref: { ...wt, path: path.relative(r.dir, path.join(this.dir, wt.path)) } });
-      others.push({ floor: r.floor, name: names[i + 1], repo: r.repo, dir: r.dir, path: wt.path, branch: wt.branch, base: wt.base, from: wt.from });
-    }
-    try {
-      this.writeBrief(primary, repos.map((r, i) => ({ name: names[i + 1], project: r.repo ?? r.name, from: others[i].from })));
-    } catch (err) {
-      return fail(`Could not write the workspace's brief: ${(err as Error).message}`);
-    }
-    return { worktree: primary, repos: others, notes };
-  }
-
-  /**
-   * The brief in the workspace of a worker across repositories, which folder is which project (the
-   * 'worker.repos' prompt), as CLAUDE.md and AGENTS.md. `primary` is its own floor's worktree, in the
-   * workspace like `others`. Throws when it can't be written.
-   */
-  private writeBrief(primary: { path: string; branch: string; from?: string }, others: { name: string; project: string; from?: string }[]) {
-    const home = originRepo(this.dir) ?? path.basename(this.dir);
-    const line = (name: string, project: string, from?: string, note = '') => `- \`${name}/\`: ${project}${from ? `, cut from ${from}` : ''}${note}`;
-    const brief = officePrompt(this.prompts, 'worker.repos', {
-      branch: primary.branch,
-      home,
-      repos: [line(path.basename(primary.path), home, primary.from, " (this floor's project)"), ...others.map((o) => line(o.name, o.project, o.from))].join('\n'),
-    });
-    for (const file of WORKSPACE_FILES) writeFileSync(path.join(this.dir, path.dirname(primary.path), file), `${brief.trim()}\n`);
+    return this.worktrees.makeWorkspace(slug, repos);
   }
 
   /** Starts a worker that isn't running again, carrying on its session, with `prompt` as its next message. */
@@ -370,7 +310,7 @@ export class WorkerManager {
     const w = this.workers.get(id);
     if (!w) return 'No such worker';
     if (w.pty || w.dsh) return 'Worker is already running';
-    if (this.checkLost(w, true)) return lostMessage(w.info);
+    if (this.worktrees.checkLost(w, true)) return lostMessage(w.info);
     clockWork(w.info, 'starting');
     w.info.status = 'starting';
     w.info.exitCode = undefined;
@@ -379,7 +319,7 @@ export class WorkerManager {
     const first = prompt && station && !w.info.sessionId ? `${stationBrief(station, this.prompts)}\n\n${prompt}` : prompt;
     if (prompt) {
       w.info.activity = truncate(prompt, 80);
-      this.notePrompt(w, prompt);
+      this.tasks.notePrompt(w, prompt);
     }
     // Cut off mid-turn by a restart: it gets on with it, as whoever was watching would have told it to.
     const carryOn = !prompt && w.interrupted && w.info.kind === 'agent' && !!w.info.sessionId;
@@ -432,7 +372,7 @@ export class WorkerManager {
     const w = this.workers.get(id);
     if (!w) return {};
     this.workers.delete(id);
-    this.namer.forget(id);
+    this.tasks.forget(id);
     clearTimeout(w.scanTimer);
     const proc = w.pty;
     w.pty = undefined; // so the exit handler knows this worker is gone and stays quiet
@@ -449,244 +389,30 @@ export class WorkerManager {
     this.drops.remove(id);
     this.events.remove(id, w.info);
     this.persist();
-    // A meeting's worktree is everyone at the table's: the meeting tidies it away once they've all gone.
-    if (!w.info.worktree || w.info.meeting) return {};
-    // On the branch its work is on, should it have switched since it last came to rest.
-    const wt = await this.current(w.info.worktree);
-    const name = w.info.name;
-    if (w.info.repos?.length) return this.clearRepos(w.info, cleanup, landed, landedRepos);
-    if (!cleanup) {
-      const work = describeWork(await this.trees.inspect(wt, landed));
-      if (work) return { note: `Kept ${name}'s worktree and branch ${wt.branch} — it has ${work}` };
-      cleanup = 'all';
-    }
-    if (cleanup === 'keep') return { note: `Kept ${name}'s worktree and branch ${wt.branch}` };
-    let gone = wt;
-    let kept = '';
-    if (cleanup === 'all' && wt.made) {
-      if (!(await this.trees.hasBranch(wt.made))) {
-        // The agent deleted the office's branch (a rename is followed, see current), so git can't say
-        // whether the one it's on is its own or was there before it: that one stays.
-        cleanup = 'worktree';
-      } else {
-        // The office's own branch stays while it has commits that no remote, the project's checkout
-        // or the branch it's on has.
-        const work = await this.trees.wouldLose(wt.made, [wt.branch]);
-        if (work) kept = ` and kept branch ${wt.made} — it has ${work}`;
-        // A branch it made itself goes with it; one that was there before it (main, say) isn't the office's to delete.
-        if (await this.trees.madeSince(wt.branch, wt.made)) gone = work ? { ...wt, made: undefined } : wt;
-        else if (work) cleanup = 'worktree';
-        else gone = { ...wt, branch: wt.made, made: undefined };
-      }
-    }
-    const error = await this.trees.remove(gone, cleanup);
-    if (error) return { error: `Couldn't delete ${name}'s worktree: ${error}` };
-    if (cleanup === 'worktree') return { note: `Deleted ${name}'s worktree${kept || ` and kept branch ${wt.branch}`}` };
-    return { note: `Deleted ${name}'s worktree and branch ${gone.branch}${kept && `,${kept}`}` };
-  }
-
-  /** Sending home a worker across repositories: what `kill` does with a worktree, for each of its worktrees, and then its workspace. */
-  private async clearRepos(info: WorkerInfo, cleanup: WorktreeCleanup | undefined, landed?: string, landedRepos?: Record<string, string | undefined>): Promise<{ note?: string; error?: string }> {
-    const trees = this.treesOf(info, landed, landedRepos);
-    const { name } = info;
-    const branch = info.worktree!.branch;
-    const where = trees.map((t) => t.name).join(', ');
-    if (!cleanup) {
-      const held = (await Promise.all(trees.map(async (t) => ({ name: t.name, work: describeWork(await t.trees.inspect(t.ref, t.landed)) })))).filter((t) => t.work);
-      if (held.length) return { note: `Kept ${name}'s worktrees and branch ${branch} in ${where} — ${held.map((t) => `${t.name} has ${t.work}`).join('; ')}` };
-      cleanup = 'all';
-    }
-    if (cleanup === 'keep') return { note: `Kept ${name}'s worktrees and branch ${branch} in ${where}` };
-    const how = cleanup;
-    const errors = (await Promise.all(trees.map(async (t) => {
-      const error = await t.trees.remove(t.ref, how);
-      return error && `${t.name}: ${error}`;
-    }))).filter(Boolean);
-    if (errors.length) return { error: `Couldn't delete all of ${name}'s worktrees: ${errors.join('; ')}` };
-    clearWorkspace(path.join(this.dir, workspaceOf(info)!));
-    return { note: how === 'all' ? `Deleted ${name}'s worktrees and branch ${branch} in ${where}` : `Deleted ${name}'s worktrees in ${where} and kept branch ${branch}` };
-  }
-
-  /**
-   * Each worktree a worker across repositories has, its own floor's first: its folder in the
-   * workspace, git plumbing for its repository, its worktree in that repository's terms, and the
-   * commit its merged pull request delivered, when known.
-   */
-  private treesOf(info: WorkerInfo, landed?: string, landedRepos?: Record<string, string | undefined>): { name: string; dir: string; trees: Worktrees; ref: WorktreeRef; landed?: string }[] {
-    const wt = info.worktree!;
-    return [
-      { name: path.basename(wt.path), dir: this.dir, trees: this.trees, ref: wt, landed },
-      ...(info.repos ?? []).map((r) => ({
-        name: r.name,
-        dir: r.dir,
-        trees: new Worktrees(r.dir),
-        ref: { path: path.relative(r.dir, path.join(this.dir, r.path)), branch: r.branch, base: r.base },
-        landed: landedRepos?.[r.floor],
-      })),
-    ];
+    return this.worktrees.sendHome(w.info, cleanup, landed, landedRepos);
   }
 
   /**
    * Whether any worktree of a worker across repositories holds work its merged pull requests didn't
    * deliver (`landed` and `landedRepos`, as for kill): then it doesn't go home by itself yet.
    */
-  async holdsWork(id: string, landed?: string, landedRepos?: Record<string, string | undefined>): Promise<boolean> {
-    const info = this.workers.get(id)?.info;
-    if (!info?.worktree) return false;
-    const states = await Promise.all(this.treesOf(info, landed, landedRepos).map(async (t) => describeWork(await t.trees.inspect(t.ref, t.landed))));
-    return states.some(Boolean);
+  holdsWork(id: string, landed?: string, landedRepos?: Record<string, string | undefined>): Promise<boolean> {
+    return this.worktrees.holdsWork(id, landed, landedRepos);
   }
 
   /** What a worker's worktree holds, so whoever sends it home knows what deleting it would lose. */
-  async inspectWorktree(id: string): Promise<WorktreeState | undefined> {
-    const w = this.workers.get(id);
-    const info = w?.info;
-    if (!w || !info?.worktree) return undefined;
-    if (!info.repos?.length) {
-      await this.syncBranch(w);
-      return this.trees.inspect(w.info.worktree!);
-    }
-    const repos = await Promise.all(this.treesOf(info).map(async (t) => ({ name: t.name, state: await t.trees.inspect(t.ref) })));
-    const sum = (k: 'dirty' | 'ahead' | 'unpushed') => repos.reduce((n, r) => n + r.state[k], 0);
-    const errors = repos.filter((r) => r.state.error).map((r) => `${r.name}: ${r.state.error}`);
-    return { exists: repos.every((r) => r.state.exists), dirty: sum('dirty'), ahead: sum('ahead'), unpushed: sum('unpushed'), error: errors.length ? errors.join('; ') : undefined, repos };
+  inspectWorktree(id: string): Promise<WorktreeState | undefined> {
+    return this.worktrees.inspect(id);
   }
 
-  /** Every worker's worktree branch, looked at again (see syncBranch): for when new pull requests may have come in. */
-  async syncBranches(): Promise<void> {
-    await Promise.all([...this.workers.values()].map((w) => this.syncBranch(w)));
+  /** Every worker's worktree branch, looked at again (see WorkerTrees.syncBranch): for when new pull requests may have come in. */
+  syncBranches(): Promise<void> {
+    return this.worktrees.syncAll();
   }
 
-  /**
-   * Keeps `worktree.branch` on the branch the worktree is actually on. Agents often make their own
-   * (`git checkout -b fix-x`, because the task or the repo's CLAUDE.md says to) and open the pull
-   * request from there with gh, and the PR badge, O at the desk and sending it home go by it. A
-   * meeting's worktree stays the meeting's, and a worker across repositories keeps the branch it was
-   * given in each (see openPrs).
-   */
-  private async syncBranch(w: Worker): Promise<void> {
-    const wt = w.info.worktree;
-    if (!wt || w.info.meeting || w.info.repos?.length) return;
-    const now = await this.current(wt);
-    // Sent home meanwhile, or another look got there first.
-    if (now === wt || this.workers.get(w.info.id) !== w || w.info.worktree !== wt) return;
-    w.info.worktree = now;
-    this.emitUpdate(w);
-    this.persist();
-  }
-
-  /** A worktree on the branch it's on now, with the office's own branch kept in `made`; the same one when nothing moved. */
-  private async current(wt: Worktree): Promise<Worktree> {
-    const live = await this.trees.branchOf(wt);
-    if (!live) return wt;
-    let made = wt.made ?? (live === wt.branch ? undefined : wt.branch);
-    // Back on it, or renamed it (`git branch -m fix-x`): the branch it's on is the office's own.
-    if (made === live || (made && (await this.trees.renamedTo(made, live)))) made = undefined;
-    return live === wt.branch && made === wt.made ? wt : { ...wt, branch: live, made };
-  }
-
-  /**
-   * Whether the folder a worker works in (its worktree, or its workspace across repositories) is gone:
-   * deleted outside the office. It's then marked lost (WorkerInfo.lost) for whoever comes to its desk,
-   * instead of failing to start over and over; once the folder is back, it isn't any more.
-   */
-  private checkLost(w: Worker, recheck = false): boolean {
-    const { info } = w;
-    if (!info.worktree || existsSync(this.cwd(info))) {
-      if (info.lost) {
-        info.lost = undefined;
-        this.emitUpdate(w);
-      }
-      return false;
-    }
-    // Where its branch is only changes by hand: looked at again when someone tries to start it.
-    if (info.lost && !recheck) return true;
-    const branch = this.trees.branchState(info.worktree.branch);
-    if (branch !== info.lost?.branch) {
-      info.lost = { branch };
-      this.emitUpdate(w);
-    }
-    return true;
-  }
-
-  /**
-   * Every so often: a worktree deleted under a worker marks it lost, and one put back by hand
-   * (`git worktree add` at the same place) sets an asleep worker back to work.
-   */
-  private watchFolder(w: Worker) {
-    if (!w.info.worktree || w.rebuilding) return;
-    const was = !!w.info.lost;
-    if (!this.checkLost(w) && was && !w.pty && !w.dsh) this.resume(w.info.id);
-  }
-
-  /**
-   * Puts a lost worker's worktree back where it was (see Worktrees.restore) and starts it again,
-   * carrying on its conversation; across repositories, each worktree that's gone and the workspace's
-   * brief. Everyone else who worked there (the rest of a meeting's table) gets back to work with it.
-   * Resolves to whether it `rebuilt` anything, with a note on where a branch came back from (or why
-   * there was nothing to do), or to what went wrong.
-   */
-  async rebuild(id: string): Promise<{ rebuilt?: boolean; note?: string; error?: string }> {
-    const w = this.workers.get(id);
-    if (!w) return { error: 'No such worker' };
-    const { info } = w;
-    if (!info.worktree) return { error: `${info.name} works in the main checkout` };
-    if (w.rebuilding) return {};
-    const folder = this.cwd(info);
-    // Whoever the folder was deleted from under: this worker, and the rest of its meeting's table.
-    const stranded = [...this.workers.values()].filter((o) => o.info.worktree && this.cwd(o.info) === folder && (o.info.lost || this.checkLost(o)));
-    const froms: string[] = [];
-    if (!existsSync(folder)) {
-      const across = !!info.repos?.length;
-      w.rebuilding = true;
-      try {
-        for (const t of this.treesOf(info)) {
-          if (t.ref.path && existsSync(path.resolve(t.dir, t.ref.path))) continue;
-          const r = await t.trees.restore(t.ref);
-          const which = across ? `${t.name}'s ` : '';
-          if ('error' in r) return { error: `Couldn't rebuild ${info.name}'s worktree${across ? ` of ${t.name}` : ''}: ${r.error}` };
-          if (r.from === 'origin') froms.push(`${which}${t.ref.branch} came back from origin`);
-          if (r.from === 'gone') froms.push(`${which}${t.ref.branch} was deleted too, so it starts again from where it began`);
-        }
-        if (across) {
-          try {
-            this.writeBrief(info.worktree, info.repos!.map((r) => ({ name: r.name, project: r.repo ?? r.name, from: r.from })));
-          } catch {
-            // The worktrees are what it needs; the brief only says which folder is which.
-          }
-        }
-      } finally {
-        w.rebuilding = false;
-      }
-    }
-    for (const o of stranded) if (!this.checkLost(o)) this.restartIn(o);
-    if (!stranded.length) {
-      if (!w.pty && !w.dsh) this.resume(id);
-      return { note: `${info.name}'s worktree is already there` };
-    }
-    return { rebuilt: true, note: froms.join('; ') || undefined };
-  }
-
-  /**
-   * Starts a worker in its folder again: an asleep one wakes up, and one whose process was left running
-   * in the folder deleted from under it starts over in the new one, carrying on its conversation.
-   */
-  private restartIn(w: Worker) {
-    const proc = w.pty;
-    const session = w.dsh;
-    if (proc || session) {
-      if (midTurn(w)) w.interrupted = true;
-      // Gone before it exits, so the exit handler knows it was the office and stays quiet.
-      w.pty = undefined;
-      w.dsh = undefined;
-      try {
-        session?.close();
-        proc?.kill();
-      } catch {
-        // already gone
-      }
-    }
-    this.resume(w.info.id);
+  /** Puts a lost worker's worktree back and starts it again (see WorkerTrees.rebuild). */
+  rebuild(id: string): Promise<{ rebuilt?: boolean; note?: string; error?: string }> {
+    return this.worktrees.rebuild(id);
   }
 
   attach(id: string, clientId: string, name: string): { data: string; cols: number; rows: number } | undefined {
@@ -779,7 +505,7 @@ export class WorkerManager {
       if (!clean) return 'Empty prompt';
       w.dsh.prompt(clean);
       w.info.activity = truncate(clean, 80);
-      this.notePrompt(w, clean);
+      this.tasks.notePrompt(w, clean);
       if (by) w.info.lastInput = { by, at: Date.now() };
       this.emitUpdate(w);
       return undefined;
@@ -791,7 +517,7 @@ export class WorkerManager {
     w.pty.write(`\x1b[200~${clean}\x1b[201~`);
     setTimeout(() => w.pty?.write('\r'), 120);
     w.info.activity = truncate(clean, 80);
-    this.notePrompt(w, clean);
+    this.tasks.notePrompt(w, clean);
     if (by) w.info.lastInput = { by, at: Date.now() };
     this.emitUpdate(w);
     return undefined;
@@ -802,135 +528,10 @@ export class WorkerManager {
    * drafted from its task, as `as` (whoever pressed the button) or else the office. Resolves to the
    * PR, or to a message saying why there is none. The branch may already have an open PR (a second
    * press, or one opened by hand): that one is used. A worker across repositories gets one in each
-   * repository it committed to (see openPrs).
+   * repository it committed to (see WorkerPrs).
    */
-  async openPr(id: string, by: string, as?: GhAs): Promise<{ prs: OpenedPr[]; failed: string[] } | string> {
-    const w = this.workers.get(id);
-    if (!w) return 'No such worker';
-    const { info } = w;
-    const wt = info.worktree;
-    if (!wt) return `${info.name} works in the main checkout — only workers with their own worktree can open a PR`;
-    if (info.prOpening) return `${info.name}'s pull request is already being opened`;
-    if (isBusy(info.status)) {
-      return `${info.name} is still ${info.status === 'needs_input' ? 'waiting on input' : info.status} — wait until it's done`;
-    }
-    if (info.repos?.length) return this.openPrs(w, by, as);
-    const cwd = path.join(this.dir, wt.path);
-    if (!existsSync(cwd)) return `${info.name}'s worktree is gone (${wt.path})`;
-    info.prOpening = true;
-    this.emitUpdate(w);
-    try {
-      // The PR comes from the branch its work is on, which may be one it made itself.
-      await this.syncBranch(w);
-      const branch = info.worktree?.branch ?? wt.branch;
-      const commits = (await run('git', ['log', '--reverse', '--format=%h %s', `${wt.base}..${branch}`], cwd)).split('\n').filter(Boolean);
-      const dirty = (await run('git', ['status', '--porcelain'], cwd)) !== '';
-      if (!commits.length) return dirty ? `${info.name} hasn't committed anything yet — ask it to commit first` : `${info.name} has no commits on ${branch} yet`;
-      const open = await findOpenPr(branch, cwd);
-      if (open) {
-        info.pr = open;
-        this.persist();
-        return { prs: [{ ...open, existed: true, dirty }], failed: [] };
-      }
-      await run('git', ['push', '-u', 'origin', branch], cwd, 90_000, as?.env);
-      const base = await this.pushedBranch([wt.from, this.trees.currentBranch()], branch);
-      const { title, body } = draftPr(info, commits, by);
-      const { number, url } = await createPr(branch, base, title, body, cwd, as);
-      info.pr = { number, url };
-      this.persist();
-      return { prs: [{ number, url, existed: false, dirty }], failed: [] };
-    } catch (err) {
-      return `Couldn't open a PR for ${info.name}: ${(err as Error).message}`;
-    } finally {
-      info.prOpening = false;
-      // The worker may have been sent home meanwhile; an update would bring it back as a ghost.
-      if (this.workers.get(id) === w) this.emitUpdate(w);
-    }
-  }
-
-  /**
-   * 'worker.pr' for a worker across repositories: a pull request in each repository it committed to
-   * (or the one its branch already has there), with every one of them listed in each one's
-   * description, so they're reviewed and merged together. The issue its task came from is closed by
-   * its own floor's pull request; the others only mention it.
-   */
-  private async openPrs(w: Worker, by: string, as?: GhAs): Promise<{ prs: OpenedPr[]; failed: string[] } | string> {
-    const { info } = w;
-    const wt = info.worktree!;
-    const home = originRepo(this.dir);
-    const parts = [
-      { name: path.basename(wt.path), dir: this.dir, ...wt, pr: info.pr, own: true, set: (pr: { number: number; url: string }) => (info.pr = pr) },
-      ...info.repos!.map((r) => ({ ...r, own: false, set: (pr: { number: number; url: string }) => (r.pr = pr) })),
-    ];
-    const gone = parts.filter((p) => !existsSync(path.join(this.dir, p.path)));
-    if (gone.length) return `${info.name}'s worktree${gone.length > 1 ? 's' : ''} of ${gone.map((p) => p.name).join(', ')} ${gone.length > 1 ? 'are' : 'is'} gone`;
-    info.prOpening = true;
-    this.emitUpdate(w);
-    const prs: (OpenedPr & { cwd: string })[] = [];
-    const failed: string[] = [];
-    const uncommitted: string[] = [];
-    try {
-      for (const p of parts) {
-        const cwd = path.join(this.dir, p.path);
-        try {
-          const dirty = (await run('git', ['status', '--porcelain'], cwd)) !== '';
-          const known = p.pr ?? (await findOpenPr(p.branch, cwd));
-          if (known) {
-            p.set(known);
-            prs.push({ repo: p.name, ...known, existed: true, dirty, cwd });
-            continue;
-          }
-          const commits = (await run('git', ['log', '--reverse', '--format=%h %s', `${p.base}..${p.branch}`], cwd)).split('\n').filter(Boolean);
-          if (!commits.length) {
-            if (dirty) uncommitted.push(p.name);
-            continue;
-          }
-          await run('git', ['push', '-u', 'origin', p.branch], cwd, 90_000, as?.env);
-          const base = await this.pushedBranch([p.from, new Worktrees(p.dir).currentBranch()], p.branch, p.dir);
-          const { title, body } = draftPr(info, commits, by, p.own ? undefined : { home });
-          const pr = await createPr(p.branch, base, title, body, cwd, as);
-          p.set(pr);
-          this.persist();
-          prs.push({ repo: p.name, ...pr, existed: false, dirty, cwd });
-        } catch (err) {
-          failed.push(`Couldn't open a PR in ${p.name}: ${(err as Error).message}`);
-        }
-      }
-      if (!prs.length) {
-        if (failed.length) return failed.join('; ');
-        return uncommitted.length ? `${info.name} hasn't committed anything yet in ${uncommitted.join(', ')} — ask it to commit first` : `${info.name} has no commits on ${wt.branch} yet in any of its repositories`;
-      }
-      if (prs.length > 1 && prs.some((p) => !p.existed)) {
-        for (const p of prs) {
-          try {
-            const body = await gh(['pr', 'view', p.url, '--json', 'body', '--jq', '.body'], p.cwd, 30_000, as?.env);
-            const next = withRelated(body, relatedBlock(prs, p.url, wt.branch));
-            if (next !== body) await gh(['pr', 'edit', p.url, '--body', next], p.cwd, 60_000, as?.env);
-          } catch (err) {
-            failed.push(`Couldn't list the other pull requests on ${p.repo} #${p.number}: ${(err as Error).message}`);
-          }
-        }
-      }
-      this.persist();
-      return { prs: prs.map(({ cwd: _, ...p }) => p), failed };
-    } finally {
-      info.prOpening = false;
-      if (this.workers.get(info.id) === w) this.emitUpdate(w);
-    }
-  }
-
-  /** The first of these branches that exists on origin (of `dir`'s repository), for a PR base. None: gh picks the default branch. */
-  private async pushedBranch(candidates: (string | undefined)[], not: string, dir = this.dir): Promise<string | undefined> {
-    for (const c of candidates) {
-      if (!c || c === not) continue;
-      try {
-        await run('git', ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${c}`], dir);
-        return c;
-      } catch {
-        // not on the remote (or never fetched)
-      }
-    }
-    return undefined;
+  openPr(id: string, by: string, as?: GhAs): Promise<{ prs: OpenedPr[]; failed: string[] } | string> {
+    return this.prs.openPr(id, by, as);
   }
 
   resize(id: string, cols: number, rows: number) {
@@ -990,48 +591,6 @@ export class WorkerManager {
     return hook.handle(this.handleOf(w), event, payload);
   }
 
-  /** A new message for the worker: show it right away, and have its task (re)named. */
-  private notePrompt(w: Worker, prompt: string) {
-    if (w.info.kind !== 'agent') return;
-    const clean = prompt.replace(/\s+/g, ' ').trim();
-    // Bare slash commands (/model, /compact), repeats and the office's own carry-on aren't new work.
-    if (!clean || /^\/\S+$/.test(clean) || w.prompts.at(-1) === clean || clean === CARRY_ON_PROMPT) return;
-    w.prompts = [...w.prompts, clean].slice(-TASK_PROMPTS);
-    const hadTask = !!w.info.task;
-    if (!hadTask) w.info.task = fallbackTask(clean);
-    if (!providerAdapter(w.info.provider)?.namesTasks) return;
-    // "yes", "go ahead", "2": a reply within the same task, not worth a new name.
-    if (hadTask && clean.length < 16) return;
-    this.nameTask(w);
-  }
-
-  private noteTool(w: Worker, tool: string) {
-    if (!providerAdapter(w.info.provider)?.namesTasks) return;
-    w.tools = [...w.tools, tool].slice(-TASK_TOOLS);
-    w.toolsSinceNamed++;
-    if (w.info.task && w.toolsSinceNamed >= TASK_REFRESH_TOOLS && Date.now() - w.namedAt > TASK_REFRESH_MS) this.nameTask(w);
-  }
-
-  private nameTask(w: Worker) {
-    if (!providerAdapter(w.info.provider)?.namesTasks) return;
-    w.toolsSinceNamed = 0;
-    w.namedAt = Date.now();
-    const previous = w.info.task && w.prompts.length > 1 ? w.info.task : undefined;
-    this.namer.request(w.info.id, { prompts: w.prompts, tools: w.tools, previous, epoch: w.taskEpoch });
-  }
-
-  private clearTask(w: Worker) {
-    w.taskEpoch++;
-    w.prompts = [];
-    w.tools = [];
-    w.toolsSinceNamed = 0;
-    this.namer.forget(w.info.id);
-    if (!w.info.task) return;
-    w.info.task = undefined;
-    this.emitUpdate(w);
-    this.persist();
-  }
-
   /**
    * The office is closing. On a restart (`keep`), terminals in the host keep running for the next
    * office to pick back up; otherwise every worker stops.
@@ -1077,7 +636,7 @@ export class WorkerManager {
   private launch(w: Worker, prompt: string | undefined, resumeSessionId: string | undefined) {
     const { info } = w;
     // Its folder was deleted meanwhile: it waits, marked lost, for someone to rebuild it or send it home.
-    if (this.checkLost(w)) {
+    if (this.worktrees.checkLost(w)) {
       clockWork(info, 'exited');
       info.status = 'exited';
       this.emitUpdate(w);
@@ -1143,7 +702,7 @@ export class WorkerManager {
       // renders its updates into this same terminal (see dsh.ts).
       const file = commandPath ?? shell;
       const acpArgs = commandPath ? args : shellRun(['exec', command, ...args].map((a, i) => (i < 2 ? a : shq(a))).join(' '));
-      this.launchDsh(w, term, { file, args: acpArgs, cwd, env, resumeSessionId, prompt });
+      launchAcp(this.ctx, w, term, { file, args: acpArgs, cwd, env, resumeSessionId, prompt });
       this.emitUpdate(w);
       this.persist();
       return;
@@ -1173,92 +732,6 @@ export class WorkerManager {
       info.status = 'idle';
     }
     this.follow(w, proc, term, resumeSessionId);
-    this.emitUpdate(w);
-    this.persist();
-  }
-
-  /**
-   * Starts (or resumes) a DeepSeek Harness worker over ACP. The session renders its transcript into
-   * the worker's terminal and reports status, acted-out actions, usage and its session id; the
-   * office answers permission requests from whoever is typing (see dsh.ts).
-   */
-  private launchDsh(w: Worker, term: HeadlessTerminal, options: { file: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv; resumeSessionId?: string; prompt?: string }) {
-    const { info } = w;
-    const session = new DshSession(
-      {
-        file: options.file,
-        args: options.args,
-        cwd: options.cwd,
-        env: options.env,
-        model: info.model,
-        effort: info.effort,
-        resumeSessionId: options.resumeSessionId,
-        firstPrompt: options.prompt,
-      },
-      {
-        output: (data) => {
-          if (w.dsh !== session) return;
-          term.write(data);
-          w.screenDirty = true;
-          w.unsaved = true;
-          if (w.viewers.size) this.events.data(info.id, data, [...w.viewers.keys()]);
-        },
-        status: (status) => {
-          if (w.dsh === session) this.setStatus(w, status);
-        },
-        action: (action) => {
-          if (w.dsh !== session || info.action === action) return;
-          info.action = action;
-          this.emitUpdate(w);
-        },
-        usage: (usage) => {
-          if (w.dsh !== session) return;
-          info.usage = usage;
-          this.emitUpdate(w);
-          this.persist();
-        },
-        session: (sessionId) => {
-          if (w.dsh !== session || info.sessionId === sessionId) return;
-          info.sessionId = sessionId;
-          this.emitUpdate(w);
-          this.persist();
-        },
-        prompted: (text) => {
-          // A line typed into the terminal: there are no hooks for DSH, so the card learns from here.
-          if (w.dsh !== session) return;
-          this.notePrompt(w, text);
-          this.emitUpdate(w);
-        },
-        exit: (code, error, quiet) => this.dshExited(w, session, term, code, error, quiet),
-      },
-    );
-    w.dsh = session;
-    session.start();
-  }
-
-  /** A DeepSeek Harness child ended: while the office is up, its desk says so and R resumes it. */
-  private dshExited(w: Worker, session: DshSession, term: HeadlessTerminal, code: number | null, error: string | undefined, quiet: boolean) {
-    const { info } = w;
-    if (w.dsh !== session || this.workers.get(info.id) !== w) return; // sent home: stay quiet
-    w.dsh = undefined;
-    // The office is going down: the next office marks this worker offline and resumes it, so its
-    // status must stay as it was (see the restart difference in docs/dsh-acp-integration.md).
-    if (quiet || this.closing) return;
-    const note = error ? `\r\n\x1b[31m[DeepSeek Harness: ${terminalSafe(truncate(error, 300)).replace(/\n/g, ' ')}]\x1b[0m\r\n` : '';
-    if (note) {
-      term.write(note);
-      if (w.viewers.size) this.events.data(info.id, note, [...w.viewers.keys()]);
-    }
-    // It never got as far as a session: most often `dsh` is missing, or the profile will not boot.
-    if (error && !info.sessionId) this.events.toast(`Could not start ${this.command(info)}: ${truncate(error, 200)}`, 'error');
-    info.exitCode = code ?? -1;
-    info.status = 'exited';
-    const hint = info.sessionId ? ' — press R to resume' : '';
-    const msg = `\r\n\x1b[2m[${info.name} exited with code ${code ?? -1}${hint}]\x1b[0m\r\n`;
-    term.write(msg);
-    if (w.viewers.size) this.events.data(info.id, msg, [...w.viewers.keys()]);
-    w.screenDirty = true;
-    w.unsaved = true;
     this.emitUpdate(w);
     this.persist();
   }
@@ -1294,29 +767,12 @@ export class WorkerManager {
     this.emitUpdate(w);
   }
 
-  /** A fresh screen for a worker's terminal, reading Claude's progress and title off it. */
+  /** A fresh screen for a worker's terminal, reading its progress reports (Claude's) and title off it. */
   private newTerm(w: Worker): HeadlessTerminal {
-    const term = new headless.Terminal({ cols: w.info.cols, rows: w.info.rows, scrollback: SCROLLBACK, allowProposedApi: true });
-    const ser = new serialize.SerializeAddon();
-    term.loadAddon(ser as any);
-    // OSC 9;4 progress (Claude Code emits it): 0 = idle, anything else = busy. Catches Esc-cancel,
-    // which fires no Stop hook.
-    if (providerAdapter(w.info.provider)?.screen?.progress) {
-      term.parser.registerOscHandler(9, (data: string) => {
-        const m = /^4;(\d)/.exec(data);
-        if (m) this.onProgress(w, m[1] !== '0');
-        return true;
-      });
-    }
-    term.onTitleChange((title: string) => this.setTitle(w, title));
-    w.term?.dispose();
-    w.term = term;
-    w.ser = ser;
-    w.snapshot = screenSnapshot(term, ser);
-    w.lastLines = [];
-    w.screenDirty = true;
-    w.fresh = undefined;
-    return term;
+    return newTerm(w, {
+      progress: providerAdapter(w.info.provider)?.screen?.progress ? (busy) => this.onProgress(w, busy) : undefined,
+      title: (title) => this.setTitle(w, title),
+    });
   }
 
   private setTitle(w: Worker, title: string) {
@@ -1370,7 +826,7 @@ export class WorkerManager {
       w.unsaved = true;
       this.emitUpdate(w);
       this.persist();
-      void this.syncBranch(w);
+      void this.worktrees.syncBranch(w);
     });
     // SessionStart fires as soon as Claude can take input. Still silent after a while means it is
     // blocked on a human: folder trust dialog, login, first-run onboarding. Flag it so it jumps.
@@ -1465,7 +921,7 @@ export class WorkerManager {
     // What a restarted office picks the worker back up as, should its terminal outlive this one.
     if (w.pty?.id || w.dsh) this.persist();
     // At rest: it may have made a branch of its own this turn, and opened its PR from there.
-    if (status === 'done' || status === 'idle') void this.syncBranch(w);
+    if (status === 'done' || status === 'idle') void this.worktrees.syncBranch(w);
   }
 
   private syncViewers(w: Worker): boolean {
@@ -1524,9 +980,9 @@ export class WorkerManager {
       setStatus: (status) => this.setStatus(w, status),
       emit: () => this.emitUpdate(w),
       persist: () => this.persist(),
-      notePrompt: (prompt) => this.notePrompt(w, prompt),
-      noteTool: (tool) => this.noteTool(w, tool),
-      clearTask: () => this.clearTask(w),
+      notePrompt: (prompt) => this.tasks.notePrompt(w, prompt),
+      noteTool: (tool) => this.tasks.noteTool(w, tool),
+      clearTask: () => this.tasks.clear(w),
       scheduleScan: () => this.scheduleScan(w),
       prompt: (text) => this.prompt(w.info.id, text),
     });
@@ -1534,31 +990,7 @@ export class WorkerManager {
 
   /** Full screens for every running worker — sent to people as they walk in. */
   fullScreens() {
-    const out: { workerId: string; frame: NonNullable<ReturnType<typeof snapshotScreen>> }[] = [];
-    for (const w of this.workers.values()) {
-      if (!w.term) continue;
-      const frame = snapshotScreen(w.term, []);
-      if (frame) out.push({ workerId: w.info.id, frame });
-    }
-    return out;
-  }
-
-  private flushScreens() {
-    const now = Date.now();
-    for (const w of this.workers.values()) {
-      if (!w.term) continue;
-      // Diffs can be dropped for slow clients, so resend the whole screen now and then.
-      if (now - w.keyframeAt > KEYFRAME_MS) {
-        w.keyframeAt = now;
-        w.lastLines = [];
-        w.screenDirty = true;
-      }
-      if (!w.screenDirty) continue;
-      w.screenDirty = false;
-      this.checkBlocked(w);
-      const frame = snapshotScreen(w.term, w.lastLines);
-      if (frame) this.events.screen(w.info.id, frame);
-    }
+    return fullScreens(this.workers.values());
   }
 
   /**
@@ -1583,28 +1015,6 @@ export class WorkerManager {
       w.info.activity = undefined;
       this.setStatus(w, 'idle');
     }
-  }
-
-  /**
-   * Writes the office-queue and office-workers commands into the data dir's bin/, each running its
-   * script in bin/ with the office's own node, and returns that directory. Rewritten on every start,
-   * so after an upgrade they run the new install's scripts.
-   */
-  private writeOfficeCommands(): string | undefined {
-    const dir = path.join(this.dataDir, 'bin');
-    let wrote = false;
-    for (const [name, what] of [['office-queue', "Agent Office's task queue, for the board agents"], ['office-workers', "Agent Office's workers, for every worker"]]) {
-      const script = binScript(`${name}.js`);
-      if (!script) continue;
-      mkdirSync(dir, { recursive: true, mode: 0o700 });
-      const file = path.join(dir, name);
-      writeFileSync(file, `#!/bin/sh\n# ${what} (see bin/${name}.js).\nexec ${shq(process.execPath)} ${shq(script)} "$@"\n`, { mode: 0o700 });
-      chmodSync(file, 0o700);
-      // cmd.exe and PowerShell find it by PATHEXT; Git Bash (Claude Code's shell there) runs the sh one.
-      if (WIN) writeFileSync(`${file}.cmd`, `@"${process.execPath}" "${script}" %*\r\n`);
-      wrote = true;
-    }
-    return wrote ? dir : undefined;
   }
 
   private saveScrollback(w: Worker) {

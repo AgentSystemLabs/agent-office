@@ -1,6 +1,6 @@
 // Starting things for the workers: which shell, where a command is, how to run one without
-// blocking the office, and where the install's own bin/ scripts are.
-import { accessSync, constants, existsSync } from 'node:fs';
+// blocking the office, and the install's own bin/ scripts and the commands that run them.
+import { accessSync, chmodSync, constants, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -77,4 +77,26 @@ export function run(cmd: string, args: string[], cwd: string, timeout = 30_000, 
 
 export function shq(s: string) {
   return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Writes the office-queue and office-workers commands into the data dir's bin/, each running its
+ * script in bin/ with the office's own node, and returns that directory. Rewritten on every start,
+ * so after an upgrade they run the new install's scripts.
+ */
+export function writeOfficeCommands(dataDir: string): string | undefined {
+  const dir = path.join(dataDir, 'bin');
+  let wrote = false;
+  for (const [name, what] of [['office-queue', "Agent Office's task queue, for the board agents"], ['office-workers', "Agent Office's workers, for every worker"]]) {
+    const script = binScript(`${name}.js`);
+    if (!script) continue;
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const file = path.join(dir, name);
+    writeFileSync(file, `#!/bin/sh\n# ${what} (see bin/${name}.js).\nexec ${shq(process.execPath)} ${shq(script)} "$@"\n`, { mode: 0o700 });
+    chmodSync(file, 0o700);
+    // cmd.exe and PowerShell find it by PATHEXT; Git Bash (Claude Code's shell there) runs the sh one.
+    if (WIN) writeFileSync(`${file}.cmd`, `@"${process.execPath}" "${script}" %*\r\n`);
+    wrote = true;
+  }
+  return wrote ? dir : undefined;
 }

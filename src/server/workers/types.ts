@@ -2,8 +2,10 @@
 import type serialize from '@xterm/addon-serialize';
 import type { Run, WorkerInfo, WorkerStatus } from '../../shared/protocol.js';
 import type { DshSession } from '../dsh.js';
+import type { PromptSource } from '../prompts.js';
 import type { Pty } from '../ptys.js';
 import type { UsageTracker } from '../usage.js';
+import type { Worktrees } from '../worktrees.js';
 import type { HeadlessTerminal } from './terminal.js';
 
 export type Worktree = NonNullable<WorkerInfo['worktree']>;
@@ -149,3 +151,33 @@ export interface WorkerHandle<S = unknown> {
   prompt(text: string): string | undefined;
 }
 
+/**
+ * What the workers' modules (worktree.ts, pr.ts, tasks.ts, acp.ts) share of the manager: the floor's
+ * project, its workers, and what they all do to one. Narrow on purpose: they never import the manager.
+ */
+export interface WorkerContext {
+  /** The floor's project checkout. */
+  readonly dir: string;
+  /** Git plumbing for it. */
+  readonly trees: Worktrees;
+  readonly workers: Map<string, Worker>;
+  readonly events: WorkerEvents;
+  /** The office's prompts, as set in ⚙️ Settings (see prompts.ts). */
+  readonly prompts?: PromptSource;
+  /** The office is shutting down: workers exiting now are being stopped, not failing. */
+  readonly closing: boolean;
+  /** Tells everyone how `w` is doing now. */
+  emit(w: Worker): void;
+  /** Saves every worker (workers.json). */
+  persist(): void;
+  setStatus(w: Worker, status: WorkerStatus): void;
+  /** Starts a worker that isn't running again (see WorkerManager.resume). */
+  resume(id: string, prompt?: string): string | undefined;
+  /** Where a worker works: its worktree, its workspace across repositories, or the project itself. */
+  cwd(info: WorkerInfo): string;
+  /** What a worker's terminal runs. */
+  command(info: WorkerInfo): string;
+  notePrompt(w: Worker, prompt: string): void;
+  /** Keeps `worktree.branch` on the branch its worktree is on (see WorkerTrees.sync). */
+  syncBranch(w: Worker): Promise<void>;
+}

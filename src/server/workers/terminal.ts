@@ -1,10 +1,76 @@
 // A worker's terminal as the office mirrors it: a headless xterm, read off as screen frames for the
 // browsers and as text for what's on it.
 import headless from '@xterm/headless';
+import serialize from '@xterm/addon-serialize';
 import type { Run, WorkerInfo } from '../../shared/protocol.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG } from '../../shared/protocol.js';
+import { SCROLLBACK } from '../ptys.js';
+import { screenSnapshot } from '../screen.js';
+import type { Worker, WorkerEvents } from './types.js';
 
 export type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
+
+/** How often each screen is sent whole, since diffs can be dropped for slow clients. */
+const KEYFRAME_MS = 8000;
+
+/**
+ * A fresh screen for a worker's terminal, in place of the one it had, reading its progress reports
+ * (`progress`, see ProviderAdapter.screen) and its title off it.
+ */
+export function newTerm(w: Worker, on: { progress?(busy: boolean): void; title(title: string): void }): HeadlessTerminal {
+  const term = new headless.Terminal({ cols: w.info.cols, rows: w.info.rows, scrollback: SCROLLBACK, allowProposedApi: true });
+  const ser = new serialize.SerializeAddon();
+  term.loadAddon(ser as any);
+  // OSC 9;4 progress (Claude Code emits it): 0 = idle, anything else = busy. Catches Esc-cancel,
+  // which fires no Stop hook.
+  const progress = on.progress;
+  if (progress) {
+    term.parser.registerOscHandler(9, (data: string) => {
+      const m = /^4;(\d)/.exec(data);
+      if (m) progress(m[1] !== '0');
+      return true;
+    });
+  }
+  term.onTitleChange((title: string) => on.title(title));
+  w.term?.dispose();
+  w.term = term;
+  w.ser = ser;
+  w.snapshot = screenSnapshot(term, ser);
+  w.lastLines = [];
+  w.screenDirty = true;
+  w.fresh = undefined;
+  return term;
+}
+
+/** Full screens for every running worker — sent to people as they walk in. */
+export function fullScreens(workers: Iterable<Worker>) {
+  const out: { workerId: string; frame: NonNullable<ReturnType<typeof snapshotScreen>> }[] = [];
+  for (const w of workers) {
+    if (!w.term) continue;
+    const frame = snapshotScreen(w.term, []);
+    if (frame) out.push({ workerId: w.info.id, frame });
+  }
+  return out;
+}
+
+/** Sends every screen that changed (see snapshotScreen), each looked at by `check` first. */
+export function flushScreens(workers: Iterable<Worker>, events: WorkerEvents, check: (w: Worker) => void) {
+  const now = Date.now();
+  for (const w of workers) {
+    if (!w.term) continue;
+    // Diffs can be dropped for slow clients, so resend the whole screen now and then.
+    if (now - w.keyframeAt > KEYFRAME_MS) {
+      w.keyframeAt = now;
+      w.lastLines = [];
+      w.screenDirty = true;
+    }
+    if (!w.screenDirty) continue;
+    w.screenDirty = false;
+    check(w);
+    const frame = snapshotScreen(w.term, w.lastLines);
+    if (frame) events.screen(w.info.id, frame);
+  }
+}
 
 /** The rows of the screen that changed since `last` (all of them when its size changed), or null when none did. */
 export function snapshotScreen(term: HeadlessTerminal, last: string[]) {
