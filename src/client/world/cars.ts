@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { CAR, CARS, SEATS, carPoint, type Box, type CarDef, type CarKind, type CarPose, type CarSeat, type CarState } from '../../shared/garage';
-import { FLOOR, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
+import { FLOOR, SLAB, STREET_Y, WALL_T, streetBelow } from '../../shared/layout';
 import type { Collider, Interactable } from './office';
+import type { Fixture, StreetSite } from './office/fixture';
 import { mergeByMaterial, mesh, toon } from './toon';
 
 const WIDTH = 1.9;
@@ -383,3 +384,19 @@ export class Fleet {
     Object.assign(v.interactable, { x: p.x, z: p.z, y: this.street });
   }
 }
+
+declare module './types' {
+  interface OfficeHandles {
+    /** The Lambos and Ferraris in the garage, which anyone can drive (see driving.ts). */
+    cars: Fleet;
+  }
+}
+
+/** The floor's cars, down in the garage under it. */
+export const cars: Fixture<'cars', StreetSite> = (site) => {
+  // The cars move, so their boxes go in with the floor's and follow them (and the street) themselves,
+  // rather than going down with the street's.
+  const fleet = new Fleet(site.colliders, site.interactables);
+  site.ground.add(fleet.group);
+  return { handle: { cars: fleet }, setLevel: (index) => fleet.setStreet(streetBelow(index)) };
+};

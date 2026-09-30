@@ -12,6 +12,13 @@ import { h, toast } from '../../ui/dom';
 import { openPrompt } from '../../ui/prompt';
 import { hiringPaused } from '../../ui/usage';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    herald: true;
+  }
+}
+
 /** Registers K (the herald, from the throne). */
 export function installHerald(ctx: Ctx, parts: Pick<Parts, 'place' | 'you' | 'actions' | 'views'>) {
   const { plan } = ctx;

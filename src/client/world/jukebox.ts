@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { JUKEBOX } from '../../shared/layout';
 import { mesh, roundedBox, textSprite, toon, toonUnique } from './toon';
 import type { Collider, Interactable } from './office';
+import type { Fixture } from './office/fixture';
 
 // The lounge jukebox: a cherry-red cabinet with a rounded top, a neon tube round its face that
 // glows to the beat while it plays, a little display saying what's on, and notes floating up.
@@ -129,3 +130,17 @@ export function buildJukebox(): JukeboxView {
 
   return { group, collider, interactable, show, update };
 }
+
+declare module './types' {
+  interface OfficeHandles {
+    /** The jukebox in the lounge (see features/jukebox). */
+    jukebox: JukeboxView;
+  }
+}
+
+/** The jukebox, in the lounge's corner against the east wall. */
+export const jukebox: Fixture<'jukebox'> = (site) => {
+  const built = buildJukebox();
+  site.wall('east', JUKEBOX.z, JUKEBOX.height / 2, JUKEBOX.width + 0.1, JUKEBOX.height);
+  return { group: built.group, colliders: [built.collider], interactables: [built.interactable], handle: { jukebox: built } };
+};

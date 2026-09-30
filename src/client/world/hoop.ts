@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { FLOOR } from '../../shared/layout';
 import { BALL, HOOP, RETURN_AFTER, THREE_POINT, backboard, launch, nearSolids, outOfReach, simulate, type BallHit, type BallShot, type BallSim, type BallState, type Solid } from '../../shared/hoop';
 import type { Collider, Interactable } from './office';
+import type { Fixture } from './office/fixture';
 import { mergeByMaterial, mesh, toon, toonUnique } from './toon';
 
 const ORANGE = '#ff6b1a';
@@ -119,6 +120,20 @@ export function buildHoop(): HoopView {
     },
   };
 }
+
+declare module './types' {
+  interface OfficeHandles {
+    /** The basketball hoop on the west wall (the ball is features/basketball's: see Basketball below). */
+    hoop: HoopView;
+  }
+}
+
+/** The basketball hoop, on the west wall between the exit door and the kitchen. */
+export const hoop: Fixture<'hoop'> = (site) => {
+  const built = buildHoop();
+  site.wall('west', HOOP.z, (HOOP.board.bottom - 0.6 + HOOP.board.top + 0.1) / 2, HOOP.board.width + 0.2, HOOP.board.top - HOOP.board.bottom + 0.7);
+  return { group: built.group, colliders: built.colliders, update: (_t, dt) => built.update(dt), handle: { hoop: built } };
+};
 
 // ---- The ball ------------------------------------------------------------------------------------------
 

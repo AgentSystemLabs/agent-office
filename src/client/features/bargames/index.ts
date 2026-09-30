@@ -13,6 +13,14 @@ import { clip, h, toast } from '../../ui/dom';
 import type { Person } from '../../world/character';
 import type { Rooftop } from '../../world/rooftop';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    darts: true;
+    axe: true;
+  }
+}
+
 export interface BarGamesDeps {
   /** The roof, once it's built (see features/rooftop). */
   roof(): Rooftop | null;
@@ -76,7 +84,7 @@ export function installBarGames(ctx: Ctx, deps: BarGamesDeps) {
   ctx.ticks.add('play', ({ dt }) => {
     // Pulled away from the line (sat down, into the elevator): the dart or axe goes back.
     if (thrower.active && (ctx.trip() || ctx.activities.running('hanger') || ctx.activities.running('climber') || ctx.player.seat || !ctx.upTop())) thrower.stop();
-    thrower.drunk = ctx.player.drunk;
+    thrower.drunk = ctx.player.effects.sway;
     thrower.update(dt);
   });
 

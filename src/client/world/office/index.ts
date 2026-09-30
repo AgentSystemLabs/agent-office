@@ -4,4 +4,5 @@
 export { buildOffice } from './build';
 export { DESK_BOOKS, FLOOR_PLANTS, coffeeTable, deskBooks, deskMug, loungeCouch, plant, plantLeaves, pouf, type PlantSpecies } from './props';
 export { buildDesk, vacancyMarker } from './seats';
-export type { Collider, DeskView, InteractKind, Interactable, Office, WingView } from '../types';
+export type { WingView } from './wing';
+export type { Collider, DeskView, InteractKind, Interactable, Office } from '../types';

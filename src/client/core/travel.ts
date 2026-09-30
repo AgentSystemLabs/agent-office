@@ -17,6 +17,13 @@ import type { Parts } from './parts';
 import { FAR } from './scene';
 import { streetOf } from './worlds';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../world/types' {
+  interface InteractKinds {
+    elevator: true;
+  }
+}
+
 export type TravelParts = Pick<Parts, 'stage' | 'worlds' | 'place' | 'walking' | 'seating' | 'climbing' | 'cars' | 'rooftop' | 'telescope' | 'bar' | 'bargames' | 'hanging' | 'golf' | 'maps' | 'arrival'>;
 
 /** Registers what follows the building's floors (store 'floors'). */

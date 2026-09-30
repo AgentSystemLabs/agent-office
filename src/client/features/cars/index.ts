@@ -13,6 +13,13 @@ import { LapTimer, lapTime } from '../../laps';
 import { store } from '../../state';
 import { clip, h, toast } from '../../ui/dom';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    car: true;
+  }
+}
+
 export interface CarsDeps {
   /** Up off whatever you're sitting on (see features/seating). */
   standUp(): void;

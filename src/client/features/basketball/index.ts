@@ -13,6 +13,13 @@ import { Basketball, IN_HANDS } from '../../world/hoop';
 import type { Interactable } from '../../world/office';
 import { disposeSprite, textSprite } from '../../world/toon';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    ball: true;
+  }
+}
+
 export interface BasketballDeps {
   /** Everyone else on your floor, as you see them, by peer id. */
   remotes: ReadonlyMap<string, { person: Person }>;

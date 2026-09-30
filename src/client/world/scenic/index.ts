@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FARM, LIGHTHOUSE } from '../../../shared/scenic';
 import type { Collider } from '../office';
+import type { Fixture, StreetSite } from '../office/fixture';
 import type { NightParts } from '../outside';
 import { hazeReach } from '../sky';
 import { mergeByColor } from '../toon';
@@ -102,3 +103,16 @@ export function buildScenic(group: THREE.Group, colliders: Collider[], night: Ni
     },
   };
 }
+
+declare module '../types' {
+  interface OfficeHandles {
+    /** The scenic loop off either end of the street, and everything along it. */
+    scenic: Scenic;
+  }
+}
+
+/** Off either end of the street, the scenic loop: the farm, the pines, the mountains and the beach. */
+export const scenic: Fixture<'scenic', StreetSite> = (site) => {
+  const built = buildScenic(site.ground, site.groundColliders, site.get('night'));
+  return { handle: { scenic: built }, update: (t) => built.update(t) };
+};

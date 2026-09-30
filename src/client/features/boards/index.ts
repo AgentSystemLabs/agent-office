@@ -17,6 +17,16 @@ import { MachineTexture } from '../../world/machine';
 import { MeetingBoardTexture, MeetingSignTexture } from '../../world/meeting';
 import type { World } from '../../world/world';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    issues: true;
+    pulls: true;
+    services: true;
+    queue: true;
+  }
+}
+
 export interface BoardsDeps {
   /** The note on the issues board you're pointing at, if any (see aimedNote in input/pointer.ts). */
   aimedNote(): GhIssue | null;

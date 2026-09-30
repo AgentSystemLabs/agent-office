@@ -3,13 +3,22 @@ import { DESKS, DESK_SIZE, FLOOR, SLAB, WALL_HEIGHT, WALL_T, WING, WING_DESKS, d
 import type { NightParts } from '../outside';
 import { mesh, roundedBox, toon } from '../toon';
 import { wingWindows } from '../tower';
-import type { Collider, DeskView, Interactable, WingView } from '../types';
+import type { Collider, DeskView, Interactable } from '../types';
+import type { Fixture } from './fixture';
 import { PALETTE, box, type Looks } from './materials';
 import { pendant } from './props';
 import { buildDesk } from './seats';
 import { wallRun, wetPane, windowIn } from './shell';
 
 // The back office through the north wall, built out a row of desks at a time as the floor fills up.
+
+/** The back office, as far as it's built out (see WING). */
+export interface WingView {
+  /** How many rows it's built out. */
+  level: number;
+  /** Builds it out `level` rows (or walls it up): walls, floor, ceiling, desks and all. */
+  set(level: number): void;
+}
 
 /** The sign that says there's room to grow, painted for how far the back office is built out. */
 function paintGrowSign(c: HTMLCanvasElement, level: number) {
@@ -207,3 +216,30 @@ export function buildWing(group: THREE.Group, colliders: Collider[], interactabl
   view.set(0);
   return view;
 }
+
+declare module '../types' {
+  interface OfficeHandles {
+    /** The back office through the north wall, as far as this floor's built out (see WING). */
+    wing: WingView;
+    /** Builds the back office out `level` rows, or walls it up: the plants in the way go too. */
+    setWing(level: number): void;
+  }
+}
+
+/** The back office through the north wall past the gong, walled up until the floor's built out. */
+export const wing: Fixture<'wing' | 'setWing'> = (site) => {
+  const built = buildWing(site.group, site.colliders, site.interactables, site.desks, site.looks, site.looks.trim, site.planks, site.get('stack').ceiling, site.get('night'));
+  site.wall('north', (WING.minX + FLOOR.maxX) / 2, WALL_HEIGHT / 2, FLOOR.maxX - WING.minX, WALL_HEIGHT);
+  const setWing = (level: number) => {
+    built.set(level);
+    for (const p of site.inTheWay) {
+      const out = built.level === 0;
+      if (p.group.visible === out) continue;
+      p.group.visible = out;
+      const i = site.colliders.indexOf(p.collider);
+      if (out && i < 0) site.colliders.push(p.collider);
+      else if (!out && i >= 0) site.colliders.splice(i, 1);
+    }
+  };
+  return { handle: { wing: built, setWing } };
+};

@@ -32,6 +32,13 @@ import { Laptop } from '../../world/laptop';
 import { Arrivals, Departures } from '../../world/leaving';
 import { Sendoffs } from '../../world/sendhome';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    expand: true;
+  }
+}
+
 export interface WorkerView {
   model: Worker;
   laptop: Laptop;

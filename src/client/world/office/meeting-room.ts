@@ -3,6 +3,7 @@ import { MEETING_BOARD, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, deskSeat, ty
 import type { NightParts } from '../outside';
 import { mesh, roundedBox, textPlane, toon } from '../toon';
 import type { Collider, DeskView, Interactable } from '../types';
+import type { Fixture } from './fixture';
 import { PALETTE, box, glassPane } from './materials';
 import { wallBoard } from './props';
 import { chair } from './seats';
@@ -168,3 +169,18 @@ export function buildMeetingRoom(group: THREE.Group, colliders: Collider[], inte
   }
   return { board: face, sign };
 }
+
+declare module '../types' {
+  interface OfficeHandles {
+    /** The meeting room's board, showing the meeting's output as it's written, and the sign by its door. */
+    meetingBoard: THREE.Mesh;
+    meetingSign: THREE.Mesh;
+  }
+}
+
+/** Under the loft: the meeting room. */
+export const meetingRoom: Fixture<'meetingBoard' | 'meetingSign'> = (site) => {
+  const built = buildMeetingRoom(site.group, site.colliders, site.interactables, site.desks, site.doors, site.get('night'));
+  site.wall('south', MEETING_BOARD.x, MEETING_BOARD.y, MEETING_BOARD.width + 0.4, MEETING_BOARD.height + 0.4);
+  return { handle: { meetingBoard: built.board, meetingSign: built.sign } };
+};

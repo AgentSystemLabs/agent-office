@@ -1,22 +1,11 @@
 import type * as THREE from 'three';
-import type { BOARDS, DeskDef } from '../../shared/layout';
+import type { DeskDef } from '../../shared/layout';
 import type { WallRect } from '../../shared/decor';
 import type { FloorPalette } from '../../shared/floors';
-import type { NightParts } from './outside';
-import type { Fleet } from './cars';
-import type { Scenic } from './scenic';
-import type { Elevator } from './elevator';
-import type { Gong } from './gong';
-import type { JukeboxView } from './jukebox';
-import type { CabinetModel } from './cabinet';
-import type { WhiteboardStand } from './whiteboard';
-import type { Green, Tee } from './golf';
-import type { Stack } from './stack';
-import type { HoopView } from './hoop';
-import type { DeskSigns } from './desksigns';
 
 // The world's shared types: what you bump into and what you can use, the seats workers sit in, and the
-// office floor as main.ts drives it (built in world/office/, which re-exports these).
+// office floor as main.ts drives it (built in world/office/ from fixtures that each add what they give it,
+// and which re-exports these).
 
 export interface Collider {
   minX: number;
@@ -30,7 +19,21 @@ export interface Collider {
   fence?: boolean;
 }
 
-export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'cabinet' | 'ladder' | 'pole' | 'meeting' | 'bar' | 'dj' | 'golf' | 'ball' | 'bookshelf' | 'darts' | 'axe' | 'telescope' | 'car' | 'expand' | 'herald';
+/**
+ * The kinds of thing you can use, a key each (always `true`). None are listed here: each kind is added
+ * where it's defined (its `ctx.interactions.define`), by augmenting this interface in that file:
+ *
+ *   declare module '../../world/types' {
+ *     interface InteractKinds {
+ *       gong: true;
+ *     }
+ *   }
+ *
+ * tests/client-registry.test.ts checks that every kind added is defined once, in the file that adds it.
+ */
+export interface InteractKinds {}
+
+export type InteractKind = keyof InteractKinds;
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -70,57 +73,29 @@ export interface DeskView {
   vacancyY: number;
 }
 
-export interface Office {
+/**
+ * What the office floor's fixtures give it to reach them by, a field of Office each (see
+ * world/office/fixture.ts). None are listed here: each fixture adds its own where it's built, by
+ * augmenting this interface in that file:
+ *
+ *   declare module './types' {
+ *     interface OfficeHandles {
+ *       gong: Gong;
+ *     }
+ *   }
+ *
+ * world/office/build.ts won't typecheck while one of them has no fixture on its list to give it.
+ */
+export interface OfficeHandles {}
+
+export interface Office extends OfficeHandles {
   group: THREE.Group;
   colliders: Collider[];
   interactables: Interactable[];
   /** Every seat by id: the desks, the bean bags and the board agents' kiosks. */
   desks: Map<string, DeskView>;
-  /**
-   * Brings out the bean bags in `out` and puts the rest away. Returns the colliders of the ones that
-   * just came out, in case someone is standing there.
-   */
-  setBeanbags(out: Set<string>): Collider[];
-  boardMeshes: Record<keyof typeof BOARDS, THREE.Mesh>;
-  tvScreen: THREE.Mesh;
-  /** The monitor on the boss's desk upstairs, where Minesweeper plays (ui/arcade.ts). */
-  bossScreen: THREE.Mesh;
-  /** The monitor on the west wall showing how busy the office's machine is (world/machine.ts). */
-  machineScreen: THREE.Mesh;
-  /** The meeting room's board, showing the meeting's output as it's written, and the sign by its door. */
-  meetingBoard: THREE.Mesh;
-  meetingSign: THREE.Mesh;
-  /** What's already on the walls (boards, the TV, windows…), so pictures don't hang over it. */
+  /** What's already on the walls (boards, the TV, windows…), so pictures don't hang over it (see Site.wall). */
   fixtures(): WallRect[];
-  elevator: Elevator;
-  /** The elevator's stop down in the garage, under the building. */
-  garageLift: Elevator;
-  /** The Lambos and Ferraris in the garage, which anyone can drive (see driving.ts). */
-  cars: Fleet;
-  /** The scenic loop off either end of the street, and everything along it. */
-  scenic: Scenic;
-  /** The merge gong by the PR board. */
-  gong: Gong;
-  jukebox: JukeboxView;
-  /** The arcade cabinet in the lounge, where BLOCKFALL plays (ui/cabinet.ts). */
-  cabinet: CabinetModel;
-  /** The rolling whiteboard everyone draws on together. */
-  whiteboard: WhiteboardStand;
-  /** The golf tee on the balcony, and the hole across the street it's hit at. */
-  tee: Tee;
-  green: Green;
-  /** The basketball hoop on the west wall (the ball is main.ts's: see world/hoop.ts). */
-  hoop: HoopView;
-  /** The ceiling, the floor, and the ladder and fire poles between the floors of the building. */
-  stack: Stack;
-  /** The back office through the north wall, as far as this floor's built out (see WING). */
-  wing: WingView;
-  /** Builds the back office out `level` rows, or walls it up: the plants in the way go too. */
-  setWing(level: number): void;
-  /** The signs hung over the desks (see shared/floorplan.ts). */
-  signs: DeskSigns;
-  /** The sign over the elevator doors: which floor you're on. */
-  setProjectName(name: string): void;
   /** Paints the walls, their trim and the floor in a floor's colors, so each project looks like itself. */
   setLook(p: FloorPalette): void;
   /**
@@ -130,18 +105,6 @@ export interface Office {
    * the building's outside.
    */
   setLevel(index: number, count: number, wings?: readonly number[]): void;
-  /** Lights, windows and glass for the sky to change with the time of day and the weather. */
-  night: NightParts;
-  /** The potted plants round the room, in PLANTS' order. At Christmas world/holiday.ts hides their leaves (plantLeaves()) and stands a little tree in each pot. */
-  plants: THREE.Group[];
   /** Animates the office; doors open for anyone in `people` who comes up to them. */
   update(t: number, dt: number, people: Iterable<{ x: number; y: number; z: number }>): void;
-}
-
-/** The back office, as far as it's built out (see WING). */
-export interface WingView {
-  /** How many rows it's built out. */
-  level: number;
-  /** Builds it out `level` rows (or walls it up): walls, floor, ceiling, desks and all. */
-  set(level: number): void;
 }

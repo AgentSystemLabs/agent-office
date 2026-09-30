@@ -10,6 +10,13 @@ import type { Arcade } from '../../ui/arcade';
 import { toast } from '../../ui/dom';
 import type { Interactable } from '../../world/office';
 
+// The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
+declare module '../../world/types' {
+  interface InteractKinds {
+    seat: true;
+  }
+}
+
 export interface SeatingDeps {
   /** The screens shared on this floor, by who's sharing them (see features/voice). */
   shares(): [string, MediaStream][];
