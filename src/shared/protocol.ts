@@ -886,6 +886,39 @@ export interface AccountsState {
   sharedPassword: boolean;
 }
 
+/** A one-time code, exchanged for a machine's token. Shown once and expires (see hosts.ts). */
+export interface PairingCode {
+  code: string;
+  expiresAt: number;
+  createdAt: number;
+  /** Who made it, for the office's own record. */
+  createdBy: string;
+}
+
+/**
+ * A machine that may host floors in this office, as ⚙️ Settings shows it. Carries no token: only a
+ * hash of one is ever kept, so this state can go to a browser.
+ */
+export interface HostState {
+  id: string;
+  /** Shown wherever a refusal needs to name the machine. */
+  name: string;
+  owner?: string;
+  createdAt: number;
+  createdBy: string;
+  lastSeenAt?: number;
+  /** How many workers this machine will seat across its floors. */
+  seats: number;
+  /** Whether an automation hire may seat here. A person may always hire. */
+  accepting: boolean;
+  /** Whether the owner has agreed to what hosting a machine means (no isolation is built). */
+  consentedAt?: number;
+  revokedAt?: number;
+  /** How many floors this machine is serving right now, over its one connection. */
+  floors: number;
+  online: boolean;
+}
+
 export interface TeamMember {
   /** GitHub username (or the name deploy/aws.sh or deploy/azure.sh invited a key file under). */
   name: string;
@@ -1452,6 +1485,8 @@ export type ServerMsg =
   | { t: 'team.invited'; github: string; name?: string; keys?: number; error?: string }
   /** Sent to admins, when asked and whenever accounts change. */
   | { t: 'accounts'; state: AccountsState }
+  /** ⚙️ Settings → the machines allowed to host floors here, and whether each is connected. */
+  | { t: 'hosts'; state: HostState[] }
   /** Sent to whoever made the invite. */
   | { t: 'accounts.invited'; invite?: AccountInvite; error?: string }
   /** Your role changed. */

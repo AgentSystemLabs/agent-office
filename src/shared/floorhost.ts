@@ -49,7 +49,7 @@ export interface FloorReady {
 }
 
 /** Office → host. Everything a browser asked for, aimed at a floor. */
-export type ToHost =
+export type ToOffice =
   | { t: 'hello'; token: string; hostId: FloorHostId; protocol: number; floors: string[] }
   /** The floor-scoped subset of ClientMsg, verbatim — see FLOOR_CASES for which 44. */
   | ({ floorId: string; seq: number } & FloorCase)
@@ -115,7 +115,7 @@ export type FloorCase = (typeof FLOOR_CASES)[number];
  * Host → office. The host's `FloorContext.emit` would have delivered these locally; over the socket
  * they are forwarded to whoever is in the office, subject to `droppable`.
  */
-export type FromHost =
+export type FromFloor =
   | { t: 'ready'; floor: FloorReady }
   | { t: 'leave'; floorId: string; why?: string }
   /** Whatever `ctx.emit` would have sent. `droppable` says what the office may shed under pressure. */
@@ -132,7 +132,7 @@ const HOST_CASES = new Set<string>(FLOOR_CASES);
 const MAX_FRAME_BYTES = 2 * 1024 * 1024;
 
 /** Rejects anything that is not a frame this office understands, rather than trusting the sender. */
-export function isToHost(msg: unknown): msg is ToHost {
+export function isToOffice(msg: unknown): msg is ToOffice {
   if (!msg || typeof msg !== 'object') return false;
   const m = msg as Record<string, unknown>;
   if (typeof m.t !== 'string') return false;
@@ -142,7 +142,7 @@ export function isToHost(msg: unknown): msg is ToHost {
   return m.t === 'hello' ? typeof m.token === 'string' && typeof m.protocol === 'number' : true;
 }
 
-export function isFromHost(msg: unknown): msg is FromHost {
+export function isFromFloor(msg: unknown): msg is FromFloor {
   if (!msg || typeof msg !== 'object') return false;
   const m = msg as Record<string, unknown>;
   if (typeof m.t !== 'string') return false;

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { CodexUsageReader } from './codex-usage.js';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
+import { safeEq } from './secrets.js';
 import type { AgentChoice, AgentEffort, AgentProvider, ForgeKind, Run, TerminalHit, WorkerInfo, WorkerKind, WorkerRepo, WorkerStatus, WorkerTask } from '../shared/protocol.js';
 import { FAILS_TO_DESPAIR, outputFailed, toolAction } from '../shared/actions.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, isAgentEffort, isClaudeModel } from '../shared/protocol.js';
@@ -2622,13 +2623,6 @@ function clamp(v: number, lo: number, hi: number) {
 
 function shq(s: string) {
   return `'${s.replace(/'/g, `'\\''`)}'`;
-}
-
-function safeEq(a: string, b: string) {
-  if (a.length !== b.length) return false;
-  let r = 0;
-  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return r === 0;
 }
 
 /** How long a worker has spent working (ms), the stretch it's in now included. */

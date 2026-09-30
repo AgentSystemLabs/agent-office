@@ -9,8 +9,8 @@ import {
   FLOORHOST_PROTOCOL,
   HostRefusal,
   isDroppable,
-  isFromHost,
-  isToHost,
+  isFromFloor,
+  isToOffice,
 } from '../src/shared/floorhost.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -82,29 +82,29 @@ test('FLOOR_CASES matches the cases server.ts actually acts on a Floor with', ()
 
 test('ToHost frames are validated, not trusted', () => {
   // There is no runtime schema in the office to inherit, so the frames check themselves.
-  assert.equal(isToHost({ t: 'hello', token: 'x', protocol: FLOORHOST_PROTOCOL, floors: [], hostId: 'h' }), true);
-  assert.equal(isToHost({ t: 'hello', protocol: 1 }), false, 'a hello without a token is refused');
-  assert.equal(isToHost({ t: 'bye' }), true);
+  assert.equal(isToOffice({ t: 'hello', token: 'x', protocol: FLOORHOST_PROTOCOL, floors: [], hostId: 'h' }), true);
+  assert.equal(isToOffice({ t: 'hello', protocol: 1 }), false, 'a hello without a token is refused');
+  assert.equal(isToOffice({ t: 'bye' }), true);
 
   // A floor case needs its envelope, or the host cannot tell which floor it is for.
-  assert.equal(isToHost({ t: 'worker.spawn', floorId: 'f1', seq: 1, deskId: 'desk-1' }), true);
-  assert.equal(isToHost({ t: 'worker.spawn', seq: 1, deskId: 'desk-1' }), false, 'no floorId');
-  assert.equal(isToHost({ t: 'worker.spawn', floorId: 'f1', deskId: 'desk-1' }), false, 'no seq');
+  assert.equal(isToOffice({ t: 'worker.spawn', floorId: 'f1', seq: 1, deskId: 'desk-1' }), true);
+  assert.equal(isToOffice({ t: 'worker.spawn', seq: 1, deskId: 'desk-1' }), false, 'no floorId');
+  assert.equal(isToOffice({ t: 'worker.spawn', floorId: 'f1', deskId: 'desk-1' }), false, 'no seq');
 
-  assert.equal(isToHost({ t: 'made.up' }), false);
-  assert.equal(isToHost({ t: 'move' }), false, 'client-local cases never travel');
-  assert.equal(isToHost('worker.spawn'), false);
-  assert.equal(isToHost(null), false);
+  assert.equal(isToOffice({ t: 'made.up' }), false);
+  assert.equal(isToOffice({ t: 'move' }), false, 'client-local cases never travel');
+  assert.equal(isToOffice('worker.spawn'), false);
+  assert.equal(isToOffice(null), false);
 });
 
 test('FromHost frames are validated the same way', () => {
-  assert.equal(isFromHost({ t: 'ready', floor: { floorId: 'f1' } }), true);
-  assert.equal(isFromHost({ t: 'ready', floor: {} }), false);
-  assert.equal(isFromHost({ t: 'event', floorId: 'f1', seq: 3, msg: { t: 'worker.update' } }), true);
-  assert.equal(isFromHost({ t: 'event', floorId: 'f1', msg: {} }), false, 'an event without a seq cannot be ordered');
-  assert.equal(isFromHost({ t: 'term.data', floorId: 'f1', workerId: 'w', data: 'x' }), true);
-  assert.equal(isFromHost({ t: 'term.data', workerId: 'w', data: 'x' }), false);
-  assert.equal(isFromHost({ t: 'nope' }), false);
+  assert.equal(isFromFloor({ t: 'ready', floor: { floorId: 'f1' } }), true);
+  assert.equal(isFromFloor({ t: 'ready', floor: {} }), false);
+  assert.equal(isFromFloor({ t: 'event', floorId: 'f1', seq: 3, msg: { t: 'worker.update' } }), true);
+  assert.equal(isFromFloor({ t: 'event', floorId: 'f1', msg: {} }), false, 'an event without a seq cannot be ordered');
+  assert.equal(isFromFloor({ t: 'term.data', floorId: 'f1', workerId: 'w', data: 'x' }), true);
+  assert.equal(isFromFloor({ t: 'term.data', workerId: 'w', data: 'x' }), false);
+  assert.equal(isFromFloor({ t: 'nope' }), false);
 });
 
 test('a frame naming a floor this host does not serve is not a frame we accept', () => {
@@ -113,7 +113,7 @@ test('a frame naming a floor this host does not serve is not a frame we accept',
   // it — and the registry rejects one it does not know. This test pins the half that is pure data.
   const served = new Set(['f1', 'f2']);
   const foreign = { t: 'event' as const, floorId: 'f3', seq: 1, msg: { t: 'worker.update' } };
-  assert.equal(isFromHost(foreign), true, 'well-formed');
+  assert.equal(isFromFloor(foreign), true, 'well-formed');
   assert.equal(served.has(foreign.floorId), false, 'but not ours, so the registry drops it');
 });
 
