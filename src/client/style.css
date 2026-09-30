@@ -76,6 +76,9 @@ button { font-family: inherit; }
 .project-meta.hud-off.lobby { display: block !important; }
 .panel-x { flex: none; margin-left: auto; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 7px; background: none; color: var(--muted); font: 900 12px/1 var(--font); cursor: pointer; opacity: 0; transition: opacity .12s; align-self: center; }
 .side h3 :is(.cost, .plan) ~ .panel-x { margin-left: 2px; }
+.workers-discuss { margin-left: auto; padding: 2px 5px; border: 1px solid var(--ink); border-radius: 6px; background: #fff; color: var(--ink); font: 800 10px var(--font); cursor: pointer; white-space: nowrap; }
+.workers-discuss:hover { background: var(--paper-2); }
+.workers-discuss + .panel-x { margin-left: 0; }
 .side section:hover .panel-x, .panel-x:focus-visible { opacity: 1; }
 .panel-x:hover { background: var(--paper-2); color: var(--ink); }
 @media (hover: none) { .panel-x { opacity: .6; } }
@@ -308,6 +311,7 @@ body.telescope-active #hud { visibility: hidden; }
 .modal footer { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px; border-top: 3px solid var(--ink); background: var(--paper-2); align-items: center; }
 .modal footer .grow { flex: 1; font-size: 12px; color: var(--muted); font-weight: 700; }
 .modal textarea, .modal input[type=text], .modal input[type=password] { width: 100%; font: inherit; font-size: 15px; border: 3px solid var(--ink); border-radius: 12px; padding: 10px 12px; background: #fff; outline: none; resize: vertical; }
+.modal select { width: 100%; font: inherit; font-size: 15px; border: 3px solid var(--ink); border-radius: 12px; padding: 9px 10px; background: #fff; margin: 4px 0 12px; }
 .modal textarea:focus, .modal input[type=text]:focus, .modal input[type=password]:focus { border-color: var(--accent); }
 .modal label { font-weight: 800; font-size: 14px; display: block; margin-bottom: 6px; }
 .close { width: 34px; height: 34px; padding: 0; justify-content: center; }

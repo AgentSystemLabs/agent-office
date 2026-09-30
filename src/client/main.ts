@@ -70,6 +70,7 @@ import { IS_MAC } from './ui/termkeys';
 import { openQueue } from './ui/queue';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
 import { openHelp, renderCaffeine, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
+import { openDiscussion } from './ui/discussion';
 import { Compass, type Bearing } from './ui/compass';
 import { openCharacter } from './ui/character';
 import { openSettings, type SettingsPane } from './ui/settings';
@@ -360,6 +361,12 @@ const drunkVision = new DrunkVision(renderer);
 
 // ---- Networking & state -------------------------------------------------------------------------
 const net = new Net(() => store.profile, whereNow);
+$('discuss-workers').addEventListener('click', () => openDiscussion((first, second, topic) => {
+  settings.hud.chat = true;
+  saveSettings(settings);
+  $('chat').classList.remove('hud-off');
+  net.send({ t: 'discussion.start', first, second, topic });
+}));
 const voice = new Voice(net);
 
 const me = new Person(store.profile.name, store.profile.color, store.profile.look);
