@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { SlowFrames } from '../framerate';
 import { EYE_HEIGHT } from '../player';
-import { renderCaffeine } from '../ui/hud';
+import { renderCaffeine } from '../features/coffee/meter';
 import type { Ctx } from './context';
 import type { CoreState } from './ctx';
 import type { Parts } from './parts';

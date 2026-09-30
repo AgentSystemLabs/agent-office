@@ -2,7 +2,7 @@
 import type { Ctx } from '../../core/context';
 import { store } from '../../state';
 import { $ } from '../../ui/dom';
-import { renderChat } from '../../ui/hud';
+import { renderChat } from '../../ui/chat';
 
 /** Registers T and Enter, and what follows the chat (store 'chat'). */
 export function installChat(ctx: Ctx) {

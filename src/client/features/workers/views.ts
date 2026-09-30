@@ -22,7 +22,7 @@ import { renderTitle } from '../../shared/title';
 import { store } from '../../state';
 import { $ } from '../../ui/dom';
 import { openExpand } from '../../ui/floorplan';
-import { renderWorkers } from '../../ui/hud';
+import { renderWorkers } from '../../ui/workers-panel';
 import { renderLimits } from '../../ui/limits';
 import { modelBadge, providerLabel } from '../../ui/provider';
 import { renderUsage } from '../../ui/usage';

@@ -17,7 +17,7 @@ import type { Parts } from '../../core/parts';
 import { groundAt } from '../../player';
 import { store } from '../../state';
 import { clip } from '../../ui/dom';
-import { renderPeople, updateSpeaking } from '../../ui/hud';
+import { renderPeople, updateSpeaking } from '../../ui/people';
 import { whereabouts } from '../../ui/whereabouts';
 import { Person } from '../../world/character';
 import { disposeSprite, textSprite } from '../../world/toon';
