@@ -4,8 +4,9 @@
  * STRESS_SECONDS — and what you drink is what puts them back: a cup from the kitchen's coffee
  * machine (or a cask of ale on the castle) puts energy back, a drink from the rooftop bar takes the
  * stress off, each drink saying how much of each it does in shared/rooftop.ts. Running low, your
- * legs get heavy; wound up past half, your hands and the view shake. They're yours alone, like your
- * coffee buzz (caffeine.ts) and how drunk you are (booze.ts).
+ * legs get heavy; wound up past half, your hands and the view shake. Run one right out and you keel
+ * over where you stand (see faint.ts), and come round outside the building with both meters full.
+ * They're yours alone, like your coffee buzz (caffeine.ts) and how drunk you are (booze.ts).
  * Times are seconds, on whichever clock the caller passes in as `now`.
  */
 
@@ -18,13 +19,13 @@ export interface Remedy {
 }
 
 /** A cup from a coffee machine: it is the thing that puts your energy back. */
-export const CUP: Remedy = { energy: 0.3, calm: 0.05 };
+export const CUP: Remedy = { energy: 0.35, calm: 0.05 };
 
-/** How long a full bar of energy lasts if you never touch coffee: three quarters of an hour. */
-export const ENERGY_SECONDS = 45 * 60;
+/** How long a full bar of energy lasts if you never touch coffee: ten minutes. */
+export const ENERGY_SECONDS = 10 * 60;
 export const ENERGY_DRAIN = 1 / ENERGY_SECONDS;
-/** And how long it takes, doing nothing in particular, to wind right up. */
-export const STRESS_SECONDS = 45 * 60;
+/** And how long it takes, doing nothing in particular, to wind right up: a quarter of an hour. */
+export const STRESS_SECONDS = 15 * 60;
 export const STRESS_DRAIN = 1 / STRESS_SECONDS;
 
 /** At or under this your legs get heavy, and the office says so. */
@@ -57,6 +58,21 @@ export class Vitals {
     this.settle(now);
     this.energy = clamp(this.energy + r.energy);
     this.stress = clamp(this.stress - r.calm);
+  }
+
+  /**
+   * The meters run out on you: your energy is all gone, or the stress has got the better of you.
+   * That's when you keel over (see faint.ts).
+   */
+  spent(now: number): boolean {
+    return this.energyLeft(now) <= 0 || this.strain(now) >= 1;
+  }
+
+  /** Both meters full and calm again, as of `now`: on joining, and on coming round after a faint. */
+  reset(now: number) {
+    this.energy = 1;
+    this.stress = 0;
+    this.at = now;
   }
 
   /** How your legs feel, as a multiple of your walking speed: 1 with energy in hand, 0.75 flat out. */

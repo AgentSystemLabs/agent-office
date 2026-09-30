@@ -154,7 +154,7 @@ export function openHelp() {
     ['W A S D', 'Walk (hold Shift to run)'],
     ['Space', 'Jump'],
     ['☕', 'Press E at the coffee machine in the kitchen for a minute of quicker walking and higher jumps, and some energy back. Three cups in a row gives you the jitters'],
-    ['⚡😰', 'The two meters under the project name are your energy and your stress: they run down over three quarters of an hour. Low on energy your legs get heavy; wound up past half, your hands shake. Coffee puts energy back, and a drink from the rooftop bar takes the stress off'],
+    ['⚡😰', 'The two meters under the project name are your energy and your stress: the energy runs out over ten minutes and the stress winds right up over a quarter of an hour. Low on energy your legs get heavy; wound up past half, your hands shake. Coffee puts energy back, and a drink from the rooftop bar takes the stress off. Run one right out and you keel over where you stand, and come round outside the building with both meters full'],
     ['Mouse', 'Look around in first person (click to capture the mouse, Esc to free it)'],
     ['Click / E', "Use what you look at: hire a worker, open its terminal, read a board, call a meeting in the meeting room, watch the TV, put a song on the jukebox, tee off from the balcony, sit on a couch, a beanbag, a chair or the balcony bench (walk off to get up)"],
     ['👥', 'Click someone under "In the office" to walk over to them (on another floor, you ride the elevator first). The line under their name says what they have open or where they are'],
