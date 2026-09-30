@@ -1,6 +1,6 @@
 import type * as THREE from 'three';
 import { boxFootprint } from '../../../shared/maps/props';
-import type { Gong } from '../gong';
+import type { Gong } from '../../features/gong/world';
 import type { Collider, DeskView, Interactable } from '../office';
 import { toon } from '../toon';
 import { shade } from './textures';

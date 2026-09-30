@@ -26,7 +26,7 @@ import { AudioCore, type Hall, type Listener } from './core';
 import { bark, yip } from '../features/dog/sound';
 import { cellDoor, thud } from './dungeon';
 import { golf, type GolfSound } from '../features/golf/sound';
-import { gong } from './gong';
+import { gong } from '../features/gong/sound';
 import { Jukebox, type JukeboxPlay } from '../features/jukebox/sound';
 import type { Pos } from './places';
 import { pageTurn, paper, step, stepAt } from './steps';

@@ -6,7 +6,7 @@ import { cars } from '../../features/cars/world';
 import { scenic } from '../scenic';
 import { toon, toonUnique } from '../toon';
 import { elevator, garageLift } from '../elevator';
-import { gong } from '../gong';
+import { gong } from '../../features/gong/world';
 import { jukebox } from '../../features/jukebox/world';
 import { bookshelf } from '../bookshelf';
 import { cabinet } from '../../features/cabinet/world';

@@ -1,7 +1,7 @@
-import type { GongWhy } from '../../shared/protocol';
-import type { AudioCore } from './core';
-import { biquad, rand } from './dsp';
-import { GONG_AT } from './places';
+import type { GongWhy } from '../../../shared/protocol';
+import type { AudioCore } from '../../sound/core';
+import { biquad, rand } from '../../sound/dsp';
+import { GONG_AT } from '../../sound/places';
 
 // ---- The gong ----------------------------------------------------------------------------------
 

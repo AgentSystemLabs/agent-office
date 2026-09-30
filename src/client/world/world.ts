@@ -6,7 +6,7 @@ import { officeNav, wayHome, wayIn, wayToBalcony, type Bounds, type NavGrid, typ
 import type { DungeonView } from './dungeon';
 import type { Person } from './character';
 import type { Area } from './confetti';
-import type { Gong } from './gong';
+import type { Gong } from '../features/gong/world';
 import type { Collider, DeskView, Interactable, Office } from './office';
 import type { SkyLights } from './sky';
 

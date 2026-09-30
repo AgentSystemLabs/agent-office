@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { PropConfig } from '../../../shared/maps';
 import { PROP_SIZE, type PropKind } from '../../../shared/maps/props';
-import { buildGong } from '../gong';
+import { buildGong } from '../../features/gong/world';
 import type { Interactable } from '../office';
 import { canvasTexture } from '../texture';
 import { mesh, roundedBox, textPlane, toon, toonUnique } from '../toon';
