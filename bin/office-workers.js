@@ -203,7 +203,7 @@ export async function call(what, body, io) {
 export function formatWorker(w) {
   const tags = [w.you ? 'you' : '', w.board ?? '', w.meeting ? 'meeting' : '', w.kind === 'shell' ? 'shell' : w.provider ?? ''].filter(Boolean);
   const parts = [`${w.name}${tags.length ? ` (${tags.join(', ')})` : ''}`, w.status, w.desk];
-  if (w.worktree) parts.push(`branch ${w.worktree.branch}`);
+  if (w.worktree) parts.push(`branch ${w.worktree.branch}${w.worktree.deleted ? ', worktree deleted: rebuild it at its desk' : ''}`);
   if (w.repos?.length) parts.push(`also in ${w.repos.map((r) => r.name).join(', ')}`);
   if (w.pr) parts.push(`PR #${w.pr.number} ${w.pr.state}${w.pr.title ? ` “${w.pr.title}”` : ''}`);
   if (w.merged) parts.push(w.staying ? `landed, staying: ${w.staying}` : 'landed: free to go home');
@@ -249,7 +249,7 @@ export const TOOLS = [
     description:
       "Lists the coding agents (the office's workers) at the desks on this Agent Office floor, and shells: each one's id, name, status, desk, task, git worktree branch and pull request. " +
       'merged: true means a pull request of its merged and none is open: its work landed and it can go home. staying says why the office would not send it home by itself yet ' +
-      '(still working, someone has its terminal open, a board agent...). you: true is you.',
+      '(still working, someone has its terminal open, a board agent...). worktree.deleted: true means its folder was deleted outside the office, so it cannot start until a person rebuilds it at its desk. you: true is you.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
