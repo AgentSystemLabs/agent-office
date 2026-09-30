@@ -102,7 +102,29 @@ test('queue preserves the selected OpenCode model through seating, retry, and re
   assert.equal(f.workers[2].model, 'anthropic/claude-sonnet-4');
 });
 
-test('queue rejects models unless they are valid Claude aliases, OpenCode model ids, or Grok/Muse model ids', (t) => {
+test('queue seats a DeepSeek Harness task with its opaque model and effort, through retry and restart', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open();
+  // DSH catalog ids are opaque, so a `vendor/model` shape is simply one of the ids it may accept.
+  assert.equal(q.add('Fix login', 'Tester', undefined, undefined, 'dsh', 'deepseek-v4-pro', 'high'), undefined);
+  assert.equal(f.workers[0].provider, 'dsh');
+  assert.equal(f.workers[0].model, 'deepseek-v4-pro');
+  assert.equal(f.workers[0].effort, 'high');
+  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  q.retry(q.state().tasks[0].id);
+  assert.equal(f.workers[1].model, 'deepseek-v4-pro');
+  assert.equal(f.workers[1].effort, 'high');
+
+  q.setLimit(0);
+  q.add('Queued', 'Tester', undefined, undefined, 'dsh', 'some-vendor/model-2');
+  q.shutdown();
+  const restored = f.open();
+  restored.setLimit(2);
+  assert.equal(f.workers[2].provider, 'dsh');
+  assert.equal(f.workers[2].model, 'some-vendor/model-2');
+});
+
+test('queue rejects models unless they are valid Claude aliases, OpenCode model ids, Grok/Muse model ids or DeepSeek Harness catalog ids', (t) => {
   const f = fixture(); t.after(() => f.close());
   const q = f.open();
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'claude', 'openai/gpt-5') ?? '', /model/i);
@@ -110,6 +132,7 @@ test('queue rejects models unless they are valid Claude aliases, OpenCode model 
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', 'openai/gpt 5') ?? '', /model|format|whitespace/i);
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'grok', 'openai/gpt-5') ?? '', /model/i);
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'muse', 'openai/gpt-5') ?? '', /model/i);
+  assert.match(q.add('Task', 'Tester', undefined, undefined, 'dsh', 'broken\u0001id') ?? '', /model/i);
   assert.equal(q.state().tasks.length, 0);
 });
 

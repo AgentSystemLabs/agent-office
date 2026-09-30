@@ -33,6 +33,8 @@ type ToastLevel = 'info' | 'warn' | 'error';
 export interface FloorContext {
   agentCmd: string;
   agentArgs: string[];
+  /** The DSH profile DeepSeek Harness workers boot (see server/dsh.ts). */
+  dshProfile: string;
   hook: HookEnv;
   /** Spend, across every floor. */
   ledger: Ledger;
@@ -191,6 +193,7 @@ export class Floor {
       ctx.capacity,
       ctx.prompts,
       ctx.runAs,
+      ctx.dshProfile,
     );
     this.workers.wing = () => this.plan.wing;
 

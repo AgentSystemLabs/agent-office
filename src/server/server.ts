@@ -503,6 +503,7 @@ export async function startServer(cfg: Config) {
   const floorContext: FloorContext = {
     agentCmd: cfg.agentCmd,
     agentArgs: cfg.agentArgs,
+    dshProfile: cfg.dshProfile,
     hook: { url: `http://127.0.0.1:${hookPort}`, token: '' },
     ledger,
     capacity: machine,
