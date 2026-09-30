@@ -4834,6 +4834,9 @@ const slowFrames = new SlowFrames();
 let shovedAt = 0;
 
 function frame(ts?: number) {
+  // Asked for the next frame first: one throw below must mean one odd frame, not a frozen office
+  // (a player on the TV that isn't ready yet did exactly that, once).
+  requestAnimationFrame(frame);
   timer.update(ts);
   const delta = timer.getDelta();
   const dt = Math.min(delta, 0.1);
@@ -5111,7 +5114,6 @@ function frame(ts?: number) {
   }
   if (blurry) drunkVision.end(drunk, t, !reduceMotion.matches);
   loading.drew();
-  requestAnimationFrame(frame);
 }
 
 // ---- Boot ------------------------------------------------------------------------------------------
