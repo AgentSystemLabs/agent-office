@@ -10,6 +10,11 @@ your laptop runs there, as you, on your disk, with your sign-ins.
 The laptop dials the office. Nothing listens on your machine, and nothing inbound is needed: no port,
 no firewall change, no NAT traversal.
 
+Terminal output reaches attached viewers, and room and worker updates reach people on the hosted
+floor. Changes previews go only to the viewers watching them. When a host disconnects or leaves a
+floor, pending calls stop waiting immediately. Restart `agent-office floor-host --office <address>`
+to reconnect with its saved token; the floor becomes reachable when the host announces it ready.
+
 > **Status: a machine pairs, connects, runs a real floor, answers calls against it, and the floor
 > appears in the elevator with its machine's name and whether that machine is answering.** Riding
 > into one works: the floor is a real room you can walk into, with the machine's name on its door.
@@ -89,6 +94,20 @@ Its commits carry its own git identity too, so work from a hosted floor is attri
 whose machine ran it.
 
 ## How a floor gets there
+
+On the office, add an existing checkout on a paired machine:
+
+```bash
+agent-office hosts add-floor "Alice's laptop" owner/repo --checkout /home/alice/work/owner/repo
+agent-office hosts rm-floor owner/repo
+```
+
+Stop the office before changing the building with these commands, then start it again and reconnect
+the floor host. These commands edit the saved building; they do not update an already running office.
+The checkout stays on the host when its floor is removed. No repository is cloned by `add-floor`.
+Use `--floor "Display name"` to name the floor. If `--checkout` is omitted, the path defaults to
+`<host projects folder>/owner/repo`. Hosts report that folder on connection, including when they
+serve no floors; set it with `floor-host --projects <dir>` (default `~/work`, or `AGENT_OFFICE_PROJECTS`).
 
 The office decides *what* runs on a machine; the machine decides *whether to answer*. On the office:
 

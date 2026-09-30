@@ -140,7 +140,7 @@ export class Building {
    */
   ensureLocal(dir: string, by: string): FloorDef | undefined {
     const abs = path.resolve(dir);
-    const known = this.defs.find((d) => path.resolve(d.dir) === abs);
+    const known = this.defs.find((d) => !d.host && path.resolve(d.dir) === abs);
     this.local = { dir: abs, repo: known?.repo ?? originRepo(abs) };
     if (known) {
       this.localId = known.id;
@@ -185,6 +185,33 @@ export class Building {
    * checkout that's already where the clone would go is used as it is. `kind` says which forge the
    * repository is on; without it, GitHub is asked first and Bitbucket second.
    */
+  /**
+   * Puts a floor on a **paired machine** onto the building, without cloning anything.
+   *
+   * This is the one way to add a floor whose checkout the office cannot see. It deliberately does not
+   * ask the forge, does not clone, and does not check that `dir` exists: all three would be the office
+   * reaching for a disk that belongs to somebody else. The path is that machine's, kept to say which
+   * checkout the floor is; the host is the one that finds out whether it is really there, when the
+   * office asks it to serve the floor and it answers `leave` if it cannot.
+   *
+   * `dir` is required because it is what identifies the floor across restarts — two floors of the same
+   * repository on one machine would otherwise be the same floor.
+   */
+  addHosted(input: { repo: string; dir: string; host: string; name?: string }, by: string): FloorDef | string {
+    const wanted = normalizeRepo(input.repo);
+    if (!wanted) return 'Name the repository as owner/name';
+    if (!input.host) return 'A hosted floor needs the machine it runs on';
+    const dir = input.dir.trim();
+    // Not `path.isAbsolute`: the path is on the machine that will run the floor, not on this one.
+    if (!dir) return 'A hosted floor needs the checkout path **on the machine that runs it**';
+    if (this.defs.some((d) => sameRepo(d.repo, wanted))) return `${wanted} already has a floor`;
+    if (this.defs.length + this.cloning.size >= MAX_FLOORS) return `The building is full (${MAX_FLOORS} floors)`;
+    const def = { ...this.newDef(input.name ?? wanted.split('/').pop() ?? wanted, wanted, dir, by), host: input.host };
+    this.defs.push(def);
+    this.save();
+    return def;
+  }
+
   async add(input: string, by: string, started: (def: FloorDef) => void, kind?: ForgeKind): Promise<FloorDef | string> {
     const wanted = normalizeRepo(input);
     if (!wanted) return 'Pick a repository, or type it as owner/name';
@@ -285,20 +312,27 @@ export class Building {
       const saved = JSON.parse(readFileSync(this.file, 'utf8')) as Partial<FloorDef>[];
       const ids = new Set<string>();
       for (const s of Array.isArray(saved) ? saved : []) {
-        if (typeof s.id !== 'string' || !/^[a-z0-9-]{1,40}$/.test(s.id) || ids.has(s.id) || typeof s.dir !== 'string' || !path.isAbsolute(s.dir)) continue;
+        const host = typeof s.host === 'string' && s.host ? s.host.slice(0, 64) : undefined;
+        // A hosted floor's `dir` is a path on the machine that runs it, which may not be this kind of
+        // machine at all: `C:\work\api` is absolute to a Windows host and relative to a Linux office,
+        // and this office would drop the floor on the next restart for being something it is not.
+        // So a hosted floor's path is only required to be non-empty — it is the host's to check.
+        const dir = typeof s.dir === 'string' ? s.dir : '';
+        const dirOk = host ? dir.length > 0 : path.isAbsolute(dir);
+        if (typeof s.id !== 'string' || !/^[a-z0-9-]{1,40}$/.test(s.id) || ids.has(s.id) || !dirOk) continue;
         ids.add(s.id);
         this.defs.push({
           id: s.id,
-          name: typeof s.name === 'string' && s.name ? s.name.slice(0, 100) : path.basename(s.dir),
+          name: typeof s.name === 'string' && s.name ? s.name.slice(0, 100) : path.basename(dir),
           repo: normalizeRepo(s.repo),
-          dir: s.dir,
+          dir,
           palette: Number.isInteger(s.palette) && (s.palette as number) >= 0 ? (s.palette as number) : 0,
           addedBy: typeof s.addedBy === 'string' ? s.addedBy : '?',
           addedAt: typeof s.addedAt === 'number' ? s.addedAt : Date.now(),
           // A hosted floor's checkout is on another machine, so `dir` is that machine's path and is
           // kept only to identify the floor. Keep the host too: dropping it here would silently turn
           // a hosted floor into an office-side one on the next restart, pointed at a path it cannot read.
-          host: typeof s.host === 'string' && s.host ? s.host.slice(0, 64) : undefined,
+          host,
         });
       }
     } catch (err) {

@@ -120,6 +120,31 @@ test('a paired machine connects, announces a floor, and the office knows it', as
   }
 });
 
+test('leaving one floor notifies the office without disconnecting the other floors', async () => {
+  const f = await server();
+  try {
+    const made = f.hosts.pair('admin');
+    assert.ok(typeof made !== 'string');
+    const claimed = f.hosts.claim(made.code, 'Alice’s laptop', 'alice', 4);
+    assert.ok(typeof claimed !== 'string');
+    const ws = await connect(f.url, claimed.token, ['f1', 'f2']);
+    const bothReady = new Promise<void>((resolve) => {
+      f.registry.onFloorUp = (id) => { if (id === 'f2') resolve(); };
+    });
+    ws.send(JSON.stringify({ t: 'ready', floor: ready('f1') }));
+    ws.send(JSON.stringify({ t: 'ready', floor: ready('f2') }));
+    await bothReady;
+    const gone = new Promise<string>((resolve) => { f.registry.onFloorGone = resolve; });
+    ws.send(JSON.stringify({ t: 'leave', floorId: 'f1' }));
+    assert.equal(await gone, 'f1');
+    assert.equal(f.registry.isReachable('f1'), false);
+    assert.equal(f.registry.isReachable('f2'), true);
+    ws.close();
+  } finally {
+    f.close();
+  }
+});
+
 test('everything a machine announces reaches the proxy, not just the registry', async () => {
   // `ready` is the one frame the registry handles itself, and handling it there alone is a silent
   // trap: the office's `RemoteFloor` is where the roster, the branch, the agent list and the forge

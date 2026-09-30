@@ -3,8 +3,22 @@ import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from 'n
 import path from 'node:path';
 import type { HostState, PairingCode } from '../shared/protocol.js';
 import { FLOORHOST_PROTOCOL } from '../shared/floorhost.js';
+import { normalizeRepo } from '../shared/floors.js';
 import { safeEq } from './secrets.js';
+import { Building } from './building.js';
 import { officeHome } from './config.js';
+
+/**
+ * Joins a path the way the **machine it is on** writes them, which may not be this kind of machine.
+ *
+ * `C:\work` and `/home/alice/work` are both real answers from a host, and joining the first with `/`
+ * happens to work on Windows but reads as a mistake in a config file someone has to fix later. The
+ * separator is decided by what the path already looks like, which is the only evidence there is.
+ */
+function joinOn(projectsDir: string, ...parts: string[]): string {
+  const sep = /^[a-zA-Z]:[\\/]/.test(projectsDir) || projectsDir.includes('\\') ? '\\' : '/';
+  return [projectsDir.replace(/[\\/]+$/, ''), ...parts].join(sep);
+}
 
 /** A pairing code is short-lived by design: it is a one-time bearer for a machine you are admitting. */
 export const PAIRING_TTL_MS = 30 * 60 * 1000;
@@ -31,6 +45,14 @@ export interface Host {
   accepting: boolean;
   /** Whether the host owner has agreed to what hosting means (decision 1: no isolation is built). */
   consentedAt?: number;
+  /**
+   * Where that machine says it keeps its checkouts, as of its last connection.
+   *
+   * Only ever a suggestion: `agent-office hosts add-floor` uses it to name a path on that machine
+   * without anyone having to know its layout, and it is never opened here. Kept on the record rather
+   * than fetched, because the CLI that needs it runs while the office may not even be up.
+   */
+  projectsDir?: string;
   revokedAt?: number;
 }
 
@@ -269,6 +291,21 @@ export class Hosts {
     }
   }
 
+  /**
+   * What a machine said about itself when it announced a floor: currently only where it keeps its
+   * checkouts. A hint for `hosts add-floor` and nothing else — the office never reads the path, and a
+   * machine that says nothing simply leaves it unset, which is honest rather than a guess.
+   */
+  declare(id: string, said: { projectsDir?: unknown }) {
+    this.sync();
+    const host = this.data.hosts.find((h) => h.id === id);
+    if (!host || host.revokedAt) return;
+    const dir = typeof said.projectsDir === 'string' ? said.projectsDir.trim().slice(0, 400) : '';
+    if (!dir || dir === host.projectsDir) return;
+    host.projectsDir = dir;
+    this.save();
+  }
+
   /** ⚙️ Settings: what the office shows its people. Never includes a token. */
   state(connected: Map<string, number>): HostState[] {
     this.sync();
@@ -299,12 +336,22 @@ Commands:
   revoke <id|name>            end it: the machine is refused at the next connection, and cannot be re-claimed
   seats <id|name> <n>         how many workers that machine will seat across all its floors
   accept <id|name> <on|off>   whether an automation hire may seat there. A person may always hire.
+  add-floor <id|name> <repo>  put a floor on that machine, with the checkout it already has there
+  rm-floor <floor>            take a floor off the building (by id, or by owner/name)
 
 Options:
   -d, --dir <path>            the office's directory (default: the office in this folder, or ~/agent-office)
+  --checkout <path>           add-floor: where the checkout is **on that machine**. Defaults to the
+                              machine's own projects folder when it has reported one
+  --floor <name>              add-floor: what to call the floor (default: the repository's name)
 
 A pairing code is read by the person on the other machine. Only its holder can claim it, and it is
-spent whether or not they keep the token.`;
+spent whether or not they keep the token.
+
+\`add-floor\` writes the building, not the office: floors.json is read when the office starts, so
+restart it to see the floor. It does not clone anything and does not check that the path exists —
+the checkout is on that machine, and the machine is the one that finds out whether it is really
+there (it says so, by name, when it connects).`;
 
 /** `agent-office hosts` — the same file the office reads, edited while it runs (see hosts.ts). */
 export function hostsCommand(argv: string[]): number {
@@ -314,6 +361,8 @@ export function hostsCommand(argv: string[]): number {
   };
   let dir = existsSync(path.join(process.cwd(), '.agent-office', 'config.json')) ? process.cwd() : officeHome();
   let name: string | undefined;
+  let checkout: string | undefined;
+  let floorName: string | undefined;
   const args: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -326,6 +375,12 @@ export function hostsCommand(argv: string[]): number {
     } else if (a === '--name') {
       if (!argv[i + 1]) return fail('--name needs a value');
       name = argv[++i];
+    } else if (a === '--checkout') {
+      if (!argv[i + 1]) return fail('--checkout needs a value');
+      checkout = argv[++i];
+    } else if (a === '--floor') {
+      if (!argv[i + 1]) return fail('--floor needs a value');
+      floorName = argv[++i];
     } else if (a.startsWith('-')) return fail(`unknown option ${a}`);
     else args.push(a);
   }
@@ -338,10 +393,17 @@ export function hostsCommand(argv: string[]): number {
   const hosts = new Hosts(dataDir);
   if (hosts.unreadableFile) return fail(`${hosts.unreadableFile} couldn't be read (see above) — fix or move it first`);
   const [cmd = 'list', arg, arg2] = args;
+  // The building, read from the same file the office reads. Only ever used to add or take off a floor:
+  // nothing here clones, and nothing here looks inside a checkout — a hosted floor's is not this
+  // machine's to open.
+  const building = new Building(dataDir, dir);
+  const by = process.env.USER || process.env.USERNAME || 'the office';
   const find = (which: string | undefined) => {
     if (!which) return undefined;
     return hosts.list().find((h) => h.id === which || h.name.toLowerCase() === which.toLowerCase());
   };
+  /** How many floors the building puts on each machine, for `list`. */
+  const floorsOn = (hostId: string) => building.list().filter((d) => d.host === hostId);
   switch (cmd) {
     case 'list': {
       const list = hosts.list();
@@ -351,6 +413,7 @@ export function hostsCommand(argv: string[]): number {
         const state = h.revokedAt ? 'revoked' : h.lastSeenAt ? `last seen ${new Date(h.lastSeenAt).toISOString().slice(0, 16).replace('T', ' ')}` : 'never connected';
         console.log(`  ${h.id}  ${h.name.padEnd(24)}  ${String(h.seats).padStart(2)} seats  ${h.accepting ? 'accepting' : 'people only'}  ${state}`);
         if (h.owner) console.log(`              ${h.owner}'s machine${h.consentedAt ? '' : ' — has not confirmed what hosting it means'}`);
+        for (const f of floorsOn(h.id)) console.log(`              🛗 ${f.name}  (${f.repo ?? '—'})  at ${f.dir}`);
       }
       if (!live.length) console.log('  none yet: `agent-office hosts pair` makes a code for someone to claim');
       return 0;
@@ -394,6 +457,43 @@ export function hostsCommand(argv: string[]): number {
           ? `${host.name} is accepting: a queue task or board agent may hire there. People always could.`
           : `${host.name} is people-only: a queue task or board agent will not hire there. People still can.`,
       );
+      return 0;
+    }
+    case 'add-floor': {
+      const host = find(arg);
+      if (!host) return fail(arg ? `there's no machine called ${arg}` : 'add-floor needs a machine, then a repository');
+      if (host.revokedAt) return fail(`${host.name} has been revoked — pair it again to put a floor on it`);
+      if (!arg2) return fail('add-floor needs a repository as owner/name');
+      const repo = normalizeRepo(arg2);
+      if (!repo) return fail(`${arg2} is not owner/name`);
+      // Where the checkout is on *that* machine. The office cannot look, and cannot invent it either,
+      // so it asks the machine — and only falls back to asking the person when the machine has never
+      // said where its projects live.
+      const dir = checkout?.trim() || (host.projectsDir ? joinOn(host.projectsDir, ...repo.split('/')) : '');
+      if (!dir) {
+        return fail(
+          `${host.name} hasn't said where it keeps its checkouts yet, so pass --checkout <path on that machine>.\n` +
+            `  It reports that the first time it connects: run \`agent-office floor-host\` there, then try again.`,
+        );
+      }
+      const def = building.addHosted({ repo, dir, host: host.id, name: floorName }, by);
+      if (typeof def === 'string') return fail(def);
+      console.log(`${repo} is a floor on ${host.name}, at ${dir} — on that machine.`);
+      if (!checkout) console.log(`(that path came from what ${host.name} reported; pass --checkout to say otherwise)`);
+      console.log(`\nRestart the office to see it: floors.json is read when it starts.`);
+      console.log(`Its checkout is not checked here — ${host.name} opens it when it connects, and says so if it is not there.`);
+      return 0;
+    }
+    case 'rm-floor': {
+      const def = arg ? building.list().find((d) => d.id === arg || (d.repo && d.repo.toLowerCase() === arg.toLowerCase())) : undefined;
+      if (!def) return fail(arg ? `no floor called ${arg} here — \`hosts list\` shows the ones on each machine` : 'rm-floor needs a floor, by id or owner/name');
+      if (!def.host) return fail('That floor runs on the office machine — remove it from the elevator');
+      const where = def.host ? ` on ${find(def.host)?.name ?? def.host}` : '';
+      const removed = building.remove(def.id, by);
+      if (typeof removed === 'string') return fail(removed);
+      console.log(`Took the ${removed.name} floor off the building${where}.`);
+      console.log(def.host ? `Its checkout stays where it is, on that machine.` : `Its checkout stays where it is: ${removed.dir}`);
+      console.log(`\nRestart the office to see it gone: floors.json is read when it starts.`);
       return 0;
     }
     default:

@@ -75,7 +75,7 @@ export class RemoteFloor implements FloorActions {
    * from here, and a worker the host has not described yet is simply not listed.
    */
   private known = new Map<string, WorkerInfo>();
-  /** Set once when the socket carrying this floor goes: no later frame revives it. */
+  /** Set on disconnect; only a fresh ready announcement makes the floor callable again. */
   private gone = false;
   /** The worker ids the host says are on this floor. Names, not descriptions (see `known`). */
   private roster = new Set<string>();
@@ -174,9 +174,12 @@ export class RemoteFloor implements FloorActions {
    */
   deliver(msg: FromFloor) {
     if (msg.t === 'ready') {
+      if (msg.floor.floorId !== this.id) return;
+      this.gone = false;
       // Ids only, so this is a roster and not a description. A worker the host has not described yet
       // is not listed: better an incomplete list than one invented from an id.
       this.roster = new Set((msg.floor.workers ?? []).map((w) => w.id));
+      for (const id of this.known.keys()) if (!this.roster.has(id)) this.known.delete(id);
       // The same frame is where the host says which branch it is on and which agents it has, which is
       // what `project` and `officeDefault` answer from. Recorded here rather than in the constructor,
       // because the office registers a hosted floor from the building long before its machine pairs.
@@ -185,7 +188,9 @@ export class RemoteFloor implements FloorActions {
     }
     // An unaddressed refusal (no floor) is about the connection, not a call, so it never settles one.
     const refusal = msg.t === 'refused' && 'reason' in msg ? msg : undefined;
-    const seq = refusal ? refusal.seq : msg.t === 'result' ? msg.seq : (msg as { seq?: number }).seq;
+    if (!('floorId' in msg) || msg.floorId !== this.id) return;
+    // Event sequence numbers belong to the host's stream, not our RPC counter.
+    const seq = refusal ? refusal.seq : msg.t === 'result' ? msg.seq : undefined;
     if (typeof seq === 'number') {
       const pending = this.pending.get(seq);
       if (pending) {
@@ -204,14 +209,18 @@ export class RemoteFloor implements FloorActions {
     // Whatever the floor would have emitted locally, remembered under the event's own name so the
     // reads can find it. Worker updates are kept apart from the mirror: they describe a worker rather
     // than a floor's furniture, and the office asks for them by id.
-    const payload = msg.msg as { t?: string; worker?: WorkerInfo; workerId?: string; state?: unknown } | undefined;
+    const payload = msg.msg as { t?: string; worker?: WorkerInfo; workerId?: string; state?: unknown; items?: unknown; plan?: unknown; ball?: unknown; cars?: unknown } | undefined;
     if (!payload?.t) return;
-    if (payload.t === 'worker.update' && payload.worker) this.known.set(payload.worker.id, payload.worker);
-    else if (payload.t === 'worker.remove' && payload.workerId) this.known.delete(payload.workerId);
-    else {
+    if (payload.t === 'worker.update' && payload.worker) {
+      this.known.set(payload.worker.id, payload.worker);
+      this.roster.add(payload.worker.id);
+    } else if (payload.t === 'worker.remove' && payload.workerId) {
+      this.known.delete(payload.workerId);
+      this.roster.delete(payload.workerId);
+    } else {
       // What a read answers with is the payload, not the frame around it: a `queue` event carries
       // `{ t: 'queue', state }`, and `queue.state()` must return the state.
-      this.mirror.set(payload.t, payload.state !== undefined ? payload.state : payload);
+      this.mirror.set(payload.t, payload.state ?? payload.items ?? payload.plan ?? payload.ball ?? payload.cars ?? payload);
     }
   }
 

@@ -168,6 +168,7 @@ export class HostRegistry {
     const entry = new HostSocket(host, ws, fresh, this.floorsFor(host.id));
     this.byHost.set(host.id, entry);
     this.hosts.seen(host.id);
+    this.hosts.declare(host.id, { projectsDir: msg.projectsDir });
     return entry;
   }
 
@@ -186,6 +187,9 @@ export class HostRegistry {
           ready,
         });
         entry.workerFloor.set(ready.floorId, ready.floorId);
+        // What the machine says about itself, kept on its record: where it keeps its checkouts, which
+        // is what lets `agent-office hosts add-floor` name a path on it without guessing.
+        this.hosts.declare(entry.host.id, { projectsDir: ready.projectsDir });
         this.onFloorUp(ready.floorId);
         // And on to the proxy, which is the only thing that knows what the office was told. Without
         // this the roster, the branch, the agents this machine has and which forge it reads are all
@@ -196,7 +200,10 @@ export class HostRegistry {
       }
       case 'leave':
         // The host is saying one of its floors is gone, not the whole machine.
-        entry.floors.delete(msg.floorId);
+        if (entry.floors.delete(msg.floorId)) {
+          entry.onFloorGone(msg.floorId);
+          this.onFloorGone(msg.floorId);
+        }
         break;
       default:
         // Everything else is the floor talking upward: an answer to a call, or something that happened

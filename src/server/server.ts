@@ -779,7 +779,29 @@ export async function startServer(cfg: Config) {
       .map((d) => ({ id: d.id, dir: d.dir, name: d.name }));
   // Where a machine's answers and events go: the proxy for the floor they are about. A machine tells
   // us a floor is gone through `leave`, and the socket closing is handled per floor by the registry.
-  registry.onUpward = (floorId, msg) => remoteFloors.get(floorId)?.deliver(msg);
+  registry.onUpward = (floorId, msg) => {
+    const floor = remoteFloors.get(floorId);
+    if (!floor) return;
+    floor.deliver(msg);
+    if (msg.t === 'term.data') {
+      const viewers = [...clients.values()].filter((c) => c.peer.floor === floorId && c.attached.has(msg.workerId)).map((c) => c.id);
+      floorContext.termData(msg.workerId, msg.data, viewers);
+    } else if (msg.t === 'event') {
+      const event = msg.msg as ServerMsg;
+      if (!event || typeof event.t !== 'string') return;
+      if (event.t === 'changes') {
+        if (Array.isArray(msg.clients)) floorContext.changes(event.state, msg.clients.filter((id) => clients.get(id)?.peer.floor === floorId));
+        return;
+      }
+      // Room snapshots use `state` on the host wire; browser messages name their payloads.
+      const body = msg.msg as { state?: unknown };
+      const fields: Record<string, string> = { plan: 'plan', decor: 'items', ball: 'ball', cars: 'cars' };
+      const field = fields[event.t];
+      const outward = field && body.state !== undefined ? { t: event.t, [field]: body.state } as ServerMsg : event;
+      toFloor(floor, outward, msg.droppable);
+      if (event.t === 'worker.update' || event.t === 'worker.remove') floorsChanged();
+    }
+  };
   // A machine arriving or leaving changes what the elevator shows, so the panel is refreshed the same
   // way a worker coming or going refreshes it.
   registry.onFloorGone = (floorId) => {
