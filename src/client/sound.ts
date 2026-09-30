@@ -1034,6 +1034,39 @@ export class OfficeSound {
     }
   }
 
+  // ---- The fridge ----------------------------------------------------------------------------------
+
+  /**
+   * The kitchen fridge's door: the seal letting go and the door swinging out with a soft rush of
+   * air, or the heavier swing back and the latch catching. `open` is the state it's going to.
+   */
+  fridgeDoor(open: boolean) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count(open ? 'fridge-open' : 'fridge-close');
+    const out = this.panner(FRIDGE, 1.6, 1.2);
+    out.connect(this.ambience);
+    const t0 = ctx.currentTime + 0.02;
+    if (open) {
+      // The seal pops, then the door swings away, pulling a little air with it.
+      this.blip(out, t0, 230, 0.55, 0.08, 0.11);
+      const air = this.noise(this.buf.white);
+      const g = ctx.createGain();
+      envelope(g.gain, t0, [
+        [0.11, 0.05],
+        [0.34, 0],
+      ]);
+      air.connect(biquad(ctx, 'bandpass', 900, 0.8)).connect(g).connect(out);
+      air.start(t0);
+      air.stop(t0 + 0.4);
+    } else {
+      // The swing, then the latch: a low knock with a bright catch over it.
+      this.play(pick(this.buf.steps), { gain: 0.32, rate: 0.7, dest: out, when: t0 });
+      this.blip(out, t0 + 0.16, 105, 0.55, 0.2, 0.15);
+      this.blip(out, t0 + 0.175, 260, 0.95, 0.09, 0.05, 'triangle');
+    }
+  }
+
   // ---- The dog ----------------------------------------------------------------------------------
 
   /** A few gruff woofs from where the dog is. */

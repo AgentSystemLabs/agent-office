@@ -3025,6 +3025,7 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   else if (target.kind === 'seat' && target.seatId) useSeat(target.seatId);
   else if (target.kind === 'dog') net.send({ t: 'dog.pet' });
   else if (target.kind === 'coffee') drinkCoffee();
+  else if (target.kind === 'fridge') toggleFridge();
   else if (target.kind === 'smoke') {
     if (smokeBreakUntil) {
       setSmoking(false);
@@ -3291,6 +3292,17 @@ function drinkCoffee() {
   else if (caffeine.cups > 1) toast('☕ Another cup: back to a full minute of buzz');
   else toast('☕ Fresh coffee! A minute of quicker feet and higher jumps');
   if (starving) toast('⚡ Some energy back in you');
+}
+
+/**
+ * E at the kitchen fridge: the door swings open or shut, and the Diet Coke and ice creams inside
+ * come into view (see world/fridge.ts) — in one go rather than a swing when the system asks for
+ * less motion, and announced in the toast row either way so it's clear what happened.
+ */
+function toggleFridge() {
+  const open = office.fridge.toggle(reduceMotion.matches);
+  sound.fridgeDoor(open);
+  toast(open ? '🧊 The fridge swings open: Diet Coke and ice creams' : '🧊 The fridge door clicks shut');
 }
 
 // ---- Smoke breaks ------------------------------------------------------------------------------------
@@ -3890,6 +3902,11 @@ function hintFor(it: Interactable): Hint {
       // Saying so when your energy is the thing that could do with a cup.
       const need = vitals.energyLeft(secs) <= LOW_ENERGY;
       return { k: `${buzzed}|${need}`, parts: [title(it.label ?? '☕ Coffee machine'), key('E', buzzed ? 'Another cup' : 'Grab a cup'), ...(need ? [aside('⚡ you could do with one')] : [])] };
+    }
+    case 'fridge': {
+      const open = office.fridge.open;
+      // The hint says what's behind the door and what E will do, whichever way it's already going.
+      return { k: `${open}`, parts: [title('🧊 Fridge'), aside(open ? 'Diet Coke · ice creams' : 'cold drinks and ice creams'), key('E', open ? 'Shut the door' : 'Open the door')] };
     }
     case 'herald': {
       const hd = plan().herald;
@@ -4566,7 +4583,7 @@ document.addEventListener('pointerlockchange', () => {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5, car: 4, expand: 8, herald: 5 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, fridge: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5, car: 4, expand: 8, herald: 5 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */

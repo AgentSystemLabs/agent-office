@@ -1,5 +1,5 @@
-"""The kitchen corner: the counter, the espresso machine and the fridge, modelled by
-this script and exported to src/client/models/kitchen.glb for
+"""The kitchen corner: the counter and the espresso machine, modelled by this
+script and exported to src/client/models/kitchen.glb for
 src/client/world/kitchen.ts. The shared helpers are in aokit.py and the conventions
 in blender/README.md.
 
@@ -15,14 +15,20 @@ import it every time):
     import aokit, build_kitchen; importlib.reload(aokit); importlib.reload(build_kitchen)
     build_kitchen.main()
 
-It is three objects, three root nodes in the file: `counter`, `coffee_machine` and
-`fridge`. kitchen.ts finds the machine by name (E at it pours a coffee, so a look at
-the counter or the fridge mustn't), and the object and material names are a contract
-with it and tests/kitchen-model.test.ts, so rename them in all three places.
+It is two objects, two root nodes in the file: `counter` and `coffee_machine`.
+kitchen.ts finds the machine by name (E at it pours a coffee, so a look at the
+counter mustn't), and the object and material names are a contract with it and
+tests/kitchen-model.test.ts, so rename them in all three places.
+
+The fridge that stood beside them is built in code instead (src/client/world/fridge.ts):
+the office opens its doors on E, and a solid piece of a .glb can't. It's left out
+here, and the code-built one stands at the same spot and footprint, so the office's
+collider, the fridge's hum and the wall's fixture are unchanged.
 
 Like every model it faces -Y here (+z in the office). The office stands it against
 the south wall turned round to face into the room, which swaps its sides: the
-machine is at +X here so that it lands at the old machine's place, the fridge at -X.
+machine is at +X here so that it lands at the old machine's place, where the
+fridge's code-built twin also goes.
 """
 import bpy, bmesh, math, os, sys
 from mathutils import Vector
@@ -41,10 +47,6 @@ COLORS = {
     "Dark": "#343a40",
     "White": "#ffffff",
     "Glow": "#ef476f",
-    "Fridge": "#f8f9fa",
-    "Note": "#ffd166",
-    "Memo": "#bde0fe",
-    "Red": "#ef476f",
 }
 
 
@@ -54,13 +56,11 @@ def material(name):
 
 # Where things are (Blender space, metres, the counter's middle on the floor at the origin). The
 # counter is the old one's size, its top at the height the office's collider (and the holiday
-# pumpkins on it) count on; the machine and the fridge stand where the old ones did.
+# pumpkins on it) count on; the machine stands where the old one did.
 BODY = (5.0, 1.0, 0.95)
 TOP = (5.1, 1.1, 0.08)
 TOP_Z = 1.03
 MACHINE_AT = (1.2, 0.0, TOP_Z)
-FRIDGE_AT = (-3.2, 0.0, 0.0)
-FRIDGE = (1.1, 1.0, 2.2)
 
 
 # ---- Building an object from shapes --------------------------------------------------------------
@@ -104,38 +104,6 @@ def offset(at, p):
     return tuple(a + b for a, b in zip(at, p))
 
 
-def rounded_rect(x0, x1, z0, z1, bottom, top):
-    """A rectangle's outline [(x, z), ...] with its bottom corners rounded over `bottom` metres and
-    its top ones over `top`."""
-    pts = []
-    for (cx, cz), r, a0 in (((x1 - bottom, z0 + bottom), bottom, -90), ((x1 - top, z1 - top), top, 0),
-                            ((x0 + top, z1 - top), top, 90), ((x0 + bottom, z0 + bottom), bottom, 180)):
-        n = max(2, round(r / 0.045))
-        for i in range(n + 1):
-            a = math.radians(a0 + 90 * i / n)
-            pts.append((cx + r * math.cos(a), cz + r * math.sin(a)))
-    return pts
-
-
-def slab(bm, points, depth, center, bevel=0.0, segments=2):
-    """Like aokit.outline (a flat outline [(x, z), ...] pulled `depth` along Y), but only its sharp
-    edges are rounded over, not the gentle ones round a curve, which would only add triangles."""
-    part = bmesh.new()
-    front = [part.verts.new((x, -depth / 2, z)) for x, z in points]
-    back = [part.verts.new((x, depth / 2, z)) for x, z in points]
-    part.faces.new(front[::-1])
-    part.faces.new(back)
-    n = len(points)
-    for i in range(n):
-        part.faces.new((front[i], front[(i + 1) % n], back[(i + 1) % n], back[i]))
-    bmesh.ops.recalc_face_normals(part, faces=part.faces[:])
-    if bevel > 0:
-        sharp = [e for e in part.edges if e.calc_face_angle(0) > 0.5]
-        bmesh.ops.bevel(part, geom=sharp, offset=bevel, segments=segments, profile=0.5, affect='EDGES', clamp_overlap=True)
-    bmesh.ops.translate(part, vec=center, verts=part.verts[:])
-    ao._merge(bm, part)
-
-
 def tube(bm, points, r, segs=10):
     """A round pipe along `points`, capped at both ends: a tap's neck, a steam wand. Its rings are
     carried round the bends without twisting."""
@@ -161,11 +129,6 @@ def arc(center, r, a0, a1, n=8):
     """Points round an arc in the YZ plane (angles from +Y toward +Z), for tube()."""
     cx, cy, cz = center
     return [(cx, cy + r * math.cos(a), cz + r * math.sin(a)) for a in (a0 + (a1 - a0) * i / n for i in range(n + 1))]
-
-
-def not_facing_y(f):
-    """Smooth round a slab's curved sides, flat on its big front and back."""
-    return abs(f.normal.y) < 0.99
 
 
 # ---- The counter ----------------------------------------------------------------------------------
@@ -279,42 +242,15 @@ def machine():
 
 # ---- The fridge -----------------------------------------------------------------------------------
 #
-# A retro one, all soft corners: a round-shouldered body on chrome legs, a freezer door over the big
-# one with chunky chrome handles on the counter's side, a chrome badge, and notes and magnets stuck on.
-
-def fridge():
-    s = Shapes()
-    at = lambda *p: offset(FRIDGE_AT, p)
-    w, d, h = FRIDGE
-    for x in (-0.4, 0.4):
-        for y in (-0.3, 0.38):
-            s.add("Chrome", ao.cylinder, at(x, y, 0), at(x, y, 0.11), 0.034, rb=0.026, segs=10, smooth=True)
-    # The body stops short of the front; the doors make up the rest of its depth.
-    s.add("Fridge", slab, rounded_rect(-w / 2, w / 2, 0.1, h, 0.06, 0.3), 0.9, at(0, 0.05, 0), bevel=0.03, smooth=not_facing_y)
-    s.add("Fridge", slab, rounded_rect(-w / 2 + 0.03, w / 2 - 0.03, 1.65, h - 0.03, 0.04, 0.27), 0.06, at(0, -0.43, 0),
-          bevel=0.022, smooth=not_facing_y)
-    s.add("Fridge", slab, rounded_rect(-w / 2 + 0.03, w / 2 - 0.03, 0.14, 1.61, 0.05, 0.05), 0.06, at(0, -0.43, 0),
-          bevel=0.022, smooth=not_facing_y)
-    face = -0.46
-    for z0, z1 in ((1.2, 1.55), (1.71, 1.92)):
-        s.add("Chrome", ao.limb, at(0.4, face - 0.065, z0), at(0.4, face - 0.065, z1), 0.022, 0.022, segs=10, rings=8, smooth=True)
-        for z in (z0 + 0.04, z1 - 0.04):
-            s.add("Chrome", ao.cylinder, at(0.4, face + 0.005, z), at(0.4, face - 0.06, z), 0.015, segs=8, smooth=True)
-    s.add("Chrome", ao.ellipsoid, at(-0.05, face - 0.004, 1.99), (0.14, 0.012, 0.035), segs=14, rings=6, smooth=True)
-    # Notes, each held up by a magnet, and a few more magnets.
-    for mat, (x, z), (nw, nh), tilt, magnet in (("Note", (-0.2, 1.27), (0.21, 0.21), 0.14, "Red"),
-                                                ("Memo", (0.08, 0.84), (0.25, 0.31), -0.1, "Note")):
-        s.add(mat, ao.box, at(x, face - 0.002, z), (nw, 0.01, nh), rot=(0, tilt, 0))
-        mx, mz = x + math.sin(tilt) * (nh / 2 - 0.03), z + math.cos(tilt) * (nh / 2 - 0.03)
-        s.add(magnet, ao.ellipsoid, at(mx, face - 0.012, mz), (0.036, 0.016, 0.036), segs=10, rings=6, smooth=True)
-    for mat, (x, z) in (("Red", (-0.3, 0.52)), ("Memo", (0.3, 0.4)), ("Note", (-0.02, 1.5))):
-        s.add(mat, ao.ellipsoid, at(x, face - 0.008, z), (0.04, 0.018, 0.04), segs=10, rings=6, smooth=True)
-    return s.finish("fridge", FRIDGE_AT)
+# The retro fridge beside the machine, with its doors and the Diet Coke inside, is built in code
+# instead: src/client/world/fridge.ts. It needs to open, and what can open is moving parts, which
+# the conventions put in their own objects with their pivots — a job for the code that animates it
+# rather than a single solid piece of this model.
 
 
 def main(write=True):
     ao.clear()
-    obs = [counter(), machine(), fridge()]
+    obs = [counter(), machine()]
     for ob in obs:
         print(f"{ob.name}: {ao.tris(ob)} tris, {len(ob.data.materials)} materials")
     if write:
@@ -332,4 +268,3 @@ if __name__ == "__main__" and bpy.app.background:
     if "--shots" in ao.args():
         print("sheet:", sheet("kitchen", ["tq", "front", "side", "top"], target=(-0.7, 0, 0.9), dist=11))
         print("sheet:", sheet("kitchen_machine", ["tq", "front", "side", (-0.9, -1.0, 0.5)], target=offset(MACHINE_AT, (0, -0.1, 0.33)), dist=1.9))
-        print("sheet:", sheet("kitchen_fridge", ["tq", "front", (-1.0, 0.0, 0.12), (-0.9, -1.0, 0.3)], target=offset(FRIDGE_AT, (0, 0, 1.15)), dist=4.6))
