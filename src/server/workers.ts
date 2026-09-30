@@ -28,6 +28,7 @@ import { normalizeMuseHook, withoutMuseLaunchArgs, writeMuseHome } from './muse.
 import { reportedUsage } from './reported-usage.js';
 import { configuredProvider, isValidDshModel, isValidGrokModel, isValidMuseModel, isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeStatusEvent } from './opencode.js';
+import { MCP_READ_ONLY, codexMcpArgs, openCodeMcp, writeClaudeMcpConfig } from './office-workers.js';
 import { ScrollbackStore, searchTerminal, terminalTail } from './history.js';
 import { DSH_PROFILE_DEFAULT, DshSession, dshArgs, terminalSafe, writeDshPatch } from './dsh.js';
 import { DropStore } from './drops.js';
@@ -214,8 +215,12 @@ export class WorkerManager {
   private museConfigHome: string;
   private museDataHome: string;
   private museStateHome: string;
-  /** Where the office-queue command is, for the board agents' PATH (see writeQueueCommand). */
-  private queueBin: string | undefined;
+  /** Where the office-queue and office-workers commands are, for the workers' PATH (see writeOfficeCommands). */
+  private officeBin: string | undefined;
+  /** bin/office-workers.js, which is also the office's MCP server for the agents that take one. */
+  private mcpScript: string | undefined;
+  /** Claude Code's --mcp-config file for it. */
+  private claudeMcp: string | undefined;
   private screenTimer: NodeJS.Timeout;
   /** The office is shutting down: workers exiting now are being stopped, not failing to resume. */
   private closing = false;
@@ -267,7 +272,9 @@ export class WorkerManager {
     this.museConfigHome = muse.configHome;
     this.museDataHome = muse.dataHome;
     this.museStateHome = muse.stateHome;
-    this.queueBin = this.writeQueueCommand();
+    this.mcpScript = binScript('office-workers.js');
+    this.officeBin = this.writeOfficeCommands();
+    this.claudeMcp = this.mcpScript ? writeClaudeMcpConfig(dataDir, this.mcpScript) : undefined;
     this.agentPath = resolveCommand(agentCmd);
     const claude = this.defaultProvider === 'claude' ? this.agentPath : resolveCommand('claude');
     this.namer = new TaskNamer(claude, childEnv(), () => officePrompt(this.prompts, 'office.namer'), (id, task, ctx) => {
@@ -1448,6 +1455,9 @@ export class WorkerManager {
     let args = isShell ? (WIN && !process.env.SHELL ? [] : ['-l']) : configured ? [...this.agentArgs] : [];
     if (isClaude) {
       args.unshift('--settings', this.settingsPath);
+      // The office's MCP server: its workers, to list, hire, send home and tell (see office-workers.ts).
+      // Ahead of --settings, which ends the list --mcp-config takes.
+      if (this.claudeMcp) args.unshift('--mcp-config', this.claudeMcp);
       // A model/effort chosen for this worker overrides whatever --agent-args set office-wide.
       if (info.model) args.push('--model', info.model);
       if (info.effort) args.push('--effort', info.effort);
@@ -1462,7 +1472,7 @@ export class WorkerManager {
       if (resumeSessionId) args.push('--session', resumeSessionId);
       if (prompt) args.push('--prompt', prompt);
     } else if (isCodex) {
-      args.push(...codexHookArgs(this.codexHook), '--no-alt-screen');
+      args.push(...codexHookArgs(this.codexHook), ...(this.mcpScript ? codexMcpArgs(this.mcpScript) : []), '--no-alt-screen');
       if (resumeSessionId) args.push('resume', resumeSessionId);
       if (prompt) args.push('--', prompt);
     } else if (isGrok) {
@@ -1515,11 +1525,12 @@ export class WorkerManager {
       env.XDG_DATA_HOME = this.museDataHome;
       env.XDG_STATE_HOME = this.museStateHome;
     }
-    // A board agent reaches the queue with the office-queue command, whichever agent it runs.
-    if (station && this.queueBin) {
+    // Whichever agent it runs, a worker reaches the office's workers with office-workers, and a board
+    // agent the queue with office-queue.
+    if (this.officeBin) {
       // Windows spells it Path.
       const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
-      env[key] = [this.queueBin, env[key]].filter(Boolean).join(path.delimiter);
+      env[key] = [this.officeBin, env[key]].filter(Boolean).join(path.delimiter);
     }
 
     const cwd = this.cwd(info);
@@ -1556,7 +1567,7 @@ export class WorkerManager {
       if (!existsSync(cwd)) throw new Error(`working directory is gone: ${cwd}`);
       if (isOpenCode) {
         env.AGENT_OFFICE_SESSION_ID = resumeSessionId ?? '';
-        env.OPENCODE_CONFIG_CONTENT = mergeOpenCodeConfigContent(env.OPENCODE_CONFIG_CONTENT, openCodePluginSpecifier(this.openCodePlugin));
+        env.OPENCODE_CONFIG_CONTENT = mergeOpenCodeConfigContent(env.OPENCODE_CONFIG_CONTENT, openCodePluginSpecifier(this.openCodePlugin), this.mcpScript ? openCodeMcp(this.mcpScript) : undefined);
       }
       if (isShell) {
         proc = this.host.spawn({ file: shell, args, ...where });
@@ -1998,25 +2009,31 @@ process.stdin.on('end', () => {
         `else ${shq(process.execPath)} ${shq(nodeHook)} ${event} >/dev/null 2>&1; fi; true`;
       hooks[event] = [{ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command }] }];
     }
-    writeFileSync(this.settingsPath, JSON.stringify({ hooks }, null, 2), { mode: 0o600 });
+    // Looking at the office's workers doesn't need anyone's say-so; hiring and sending home still asks.
+    const permissions = { allow: MCP_READ_ONLY };
+    writeFileSync(this.settingsPath, JSON.stringify({ hooks, permissions }, null, 2), { mode: 0o600 });
   }
 
   /**
-   * Writes the office-queue command into the data dir's bin/, running bin/office-queue.js with the
-   * office's own node, and returns that directory. Rewritten on every start, so after an upgrade it
-   * runs the new install's script.
+   * Writes the office-queue and office-workers commands into the data dir's bin/, each running its
+   * script in bin/ with the office's own node, and returns that directory. Rewritten on every start,
+   * so after an upgrade they run the new install's scripts.
    */
-  private writeQueueCommand(): string | undefined {
-    const script = queueScript();
-    if (!script) return undefined;
+  private writeOfficeCommands(): string | undefined {
     const dir = path.join(this.dataDir, 'bin');
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const file = path.join(dir, 'office-queue');
-    writeFileSync(file, `#!/bin/sh\n# Agent Office's task queue, for the board agents (see bin/office-queue.js).\nexec ${shq(process.execPath)} ${shq(script)} "$@"\n`, { mode: 0o700 });
-    chmodSync(file, 0o700);
-    // cmd.exe and PowerShell find it by PATHEXT; Git Bash (Claude Code's shell there) runs the sh one.
-    if (WIN) writeFileSync(`${file}.cmd`, `@"${process.execPath}" "${script}" %*\r\n`);
-    return dir;
+    let wrote = false;
+    for (const [name, what] of [['office-queue', "Agent Office's task queue, for the board agents"], ['office-workers', "Agent Office's workers, for every worker"]]) {
+      const script = binScript(`${name}.js`);
+      if (!script) continue;
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const file = path.join(dir, name);
+      writeFileSync(file, `#!/bin/sh\n# ${what} (see bin/${name}.js).\nexec ${shq(process.execPath)} ${shq(script)} "$@"\n`, { mode: 0o700 });
+      chmodSync(file, 0o700);
+      // cmd.exe and PowerShell find it by PATHEXT; Git Bash (Claude Code's shell there) runs the sh one.
+      if (WIN) writeFileSync(`${file}.cmd`, `@"${process.execPath}" "${script}" %*\r\n`);
+      wrote = true;
+    }
+    return wrote ? dir : undefined;
   }
 
   private saveScrollback(w: Worker) {
@@ -2261,11 +2278,11 @@ function screenText(term: HeadlessTerminal, from = 0): string {
   return out.join('\n');
 }
 
-/** bin/office-queue.js in the install this office runs from (src/server under tsx, dist/server/server built). */
-function queueScript(): string | undefined {
+/** A script in bin/ of the install this office runs from (src/server under tsx, dist/server/server built). */
+function binScript(name: string): string | undefined {
   let dir = path.dirname(fileURLToPath(import.meta.url));
   for (let i = 0; i < 4; i++, dir = path.dirname(dir)) {
-    const file = path.join(dir, 'bin', 'office-queue.js');
+    const file = path.join(dir, 'bin', name);
     if (existsSync(file)) return file;
   }
   return undefined;

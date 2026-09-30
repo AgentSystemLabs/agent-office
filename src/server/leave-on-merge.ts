@@ -75,18 +75,36 @@ export interface Landed {
 export function landedWorkers(workers: WorkerInfo[], pulls: GhPull[], tasks: QueueTask[], pullsOf?: (floor: string) => GhPull[] | undefined): Landed[] {
   const out: Landed[] = [];
   for (const w of workers) {
-    if (w.kind !== 'agent' || w.meeting || DESK_BY_ID.get(w.deskId)?.station) continue;
-    if (isBusy(w.status) || w.prOpening || w.viewers.length) continue;
-    const pr = workerPr(w, pulls, tasks);
-    if (w.repos?.length) {
-      const landed = landedAcross(w, pr, pulls, pullsOf);
-      if (landed) out.push(landed);
-      continue;
-    }
-    if (pr?.state !== 'merged') continue;
-    out.push({ worker: w, pr: pr.number, head: pulls.find((p) => p.number === pr.number)?.headRefOid });
+    if (notLeaving(w)) continue;
+    const landed = landedWork(w, pulls, tasks, pullsOf);
+    if (landed) out.push(landed);
   }
   return out;
+}
+
+/**
+ * Why a worker whose work landed doesn't go home by itself yet (see landedWorkers), in a few words;
+ * undefined when nothing keeps it.
+ */
+export function notLeaving(w: WorkerInfo): string | undefined {
+  if (w.kind !== 'agent') return 'a shell';
+  if (w.meeting) return 'at the meeting table';
+  if (DESK_BY_ID.get(w.deskId)?.station) return 'a board agent';
+  if (isBusy(w.status)) return w.status === 'needs_input' ? 'waiting on someone' : 'still working';
+  if (w.prOpening) return 'opening a pull request';
+  if (w.viewers.length) return `${w.viewers.join(', ')} ${w.viewers.length === 1 ? 'has' : 'have'} its terminal open`;
+  return undefined;
+}
+
+/**
+ * A worker's work, landed: a pull request of its merged and none is open (see workerPr), with the
+ * heads of what merged, whatever the worker is doing now. Undefined when that isn't so.
+ */
+export function landedWork(w: WorkerInfo, pulls: GhPull[], tasks: QueueTask[], pullsOf?: (floor: string) => GhPull[] | undefined): Landed | undefined {
+  const pr = workerPr(w, pulls, tasks);
+  if (w.repos?.length) return landedAcross(w, pr, pulls, pullsOf);
+  if (pr?.state !== 'merged') return undefined;
+  return { worker: w, pr: pr.number, head: pulls.find((p) => p.number === pr.number)?.headRefOid };
 }
 
 /** landedWorkers for a worker across repositories, whose own floor's PR, if any, is `own`. */
