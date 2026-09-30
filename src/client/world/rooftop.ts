@@ -743,6 +743,8 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
   const planter = toon('#6d6875');
   const leaf = toon('#5fb760');
   const leafDark = toon('#3f8f45');
+  const grass = toon('#8fae62');
+  const blooms = [toon('#f0a3b8'), toon('#ffd166'), toon('#fffdf5')];
   const planterRow = (x0: number, x1: number, z0: number, z1: number) => {
     statics.add(mesh(new THREE.BoxGeometry(x1 - x0, 0.6, z1 - z0), planter, (x0 + x1) / 2, 0.3, (z0 + z1) / 2));
     const alongX = x1 - x0 > z1 - z0;
@@ -751,6 +753,16 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
       const px = alongX ? x0 + a : (x0 + x1) / 2;
       const pz = alongX ? (z0 + z1) / 2 : z0 + a;
       statics.add(mesh(new THREE.SphereGeometry(0.38 + ((a * 13) % 3) * 0.06, 10, 8), a % 1.4 < 0.7 ? leaf : leafDark, px, 0.8, pz, false));
+      // Taller blades and a little bloom among the shrubs, so the row reads as planting.
+      for (let j = 0; j < 3; j++) {
+        const off = (j - 1) * 0.2;
+        const bx = alongX ? px + off : px + (j - 1) * 0.14;
+        const bz = alongX ? pz + (j - 1) * 0.14 : pz + off;
+        const blade = mesh(new THREE.ConeGeometry(0.035, 0.5 + (j % 2) * 0.18, 5), grass, bx, 0.92 + (j % 2) * 0.09, bz, false);
+        blade.rotation.set((j - 1) * 0.25, j * 1.1, (1 - j) * 0.3);
+        statics.add(blade);
+      }
+      if (a % 2.1 < 0.7) statics.add(mesh(new THREE.SphereGeometry(0.07, 8, 6), blooms[Math.round(a) % blooms.length], alongX ? px : px + 0.12, 1.12, alongX ? pz + 0.12 : pz, false));
     }
     colliders.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, top: 0.6 });
   };
