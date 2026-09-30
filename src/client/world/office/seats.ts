@@ -1,7 +1,9 @@
 import * as THREE from 'three';
-import { DESK_SIZE, KIOSK, SEATING_BY_ID, STATION_AGENT, type DeskDef, type StationKind } from '../../../shared/layout';
+import { BEANBAGS, DESKS, DESK_SIZE, FLOOR, KIOSK, SEATING_BY_ID, STATIONS, STATION_AGENT, deskSeat, type DeskDef, type StationKind } from '../../../shared/layout';
+import { deskPoint } from '../../../shared/nav';
 import { mesh, roundedBox, textPlane, toon } from '../toon';
-import type { DeskView, Interactable } from '../types';
+import type { Collider, DeskView, Interactable } from '../types';
+import type { Fixture } from './fixture';
 import { PALETTE, box } from './materials';
 import { deskBooks, deskMug, plant } from './props';
 
@@ -208,3 +210,89 @@ export function buildKiosk(def: DeskDef): DeskView {
 
   return { def, group, laptopAnchor, seatAnchor, stage, chair: new THREE.Group(), vacancy, vacancyY: 0 };
 }
+
+declare module '../types' {
+  interface OfficeHandles {
+    /**
+     * Brings out the bean bags in `out` and puts the rest away. Returns the colliders of the ones that
+     * just came out, in case someone is standing there.
+     */
+    setBeanbags(out: Set<string>): Collider[];
+  }
+}
+
+/** The desks, each with its chair, and what's on it. */
+export const desks: Fixture = (site) => {
+  DESKS.forEach((def, i) => {
+    const view = buildDesk(def, i, site.looks.trim);
+    site.group.add(view.group);
+    site.desks.set(def.id, view);
+    const hw = DESK_SIZE.width / 2 - 0.05;
+    const hd = DESK_SIZE.depth / 2 - 0.02;
+    site.colliders.push({ minX: def.x - hw, maxX: def.x + hw, minZ: def.z - hd, maxZ: def.z + hd, top: DESK_SIZE.height });
+    const seat = deskSeat(def, 1.25);
+    const it: Interactable = { kind: 'desk', deskId: def.id, x: seat.x, z: seat.z, radius: 1.3 };
+    site.interactables.push(it);
+    view.group.userData.interact = it;
+  });
+  return {};
+};
+
+/** Bean bags, put away until every desk is taken. */
+export const beanbags: Fixture<'setBeanbags'> = (site) => {
+  const bags = new Map<string, { view: DeskView; it: Interactable; collider: Collider }>();
+  BEANBAGS.forEach((def, i) => {
+    const view = buildBeanbag(def, i);
+    view.group.visible = false;
+    site.group.add(view.group);
+    site.desks.set(def.id, view);
+    const it: Interactable = { kind: 'desk', deskId: def.id, x: def.x, z: def.z, radius: 1.8, off: true };
+    site.interactables.push(it);
+    view.group.userData.interact = it;
+    // Its footprint turned the way it faces (a quarter turn at a time).
+    const c = Math.round(Math.cos(def.rotY));
+    const s = Math.round(Math.sin(def.rotY));
+    const xs = [BEANBAG_BOX.minX, BEANBAG_BOX.maxX].flatMap((lx) => [BEANBAG_BOX.minZ, BEANBAG_BOX.maxZ].map((lz) => def.x + lx * c + lz * s));
+    const zs = [BEANBAG_BOX.minX, BEANBAG_BOX.maxX].flatMap((lx) => [BEANBAG_BOX.minZ, BEANBAG_BOX.maxZ].map((lz) => def.z - lx * s + lz * c));
+    const collider = { minX: Math.min(...xs), maxX: Math.max(...xs), minZ: Math.min(...zs), maxZ: Math.max(...zs), top: BEANBAG_BOX.top };
+    bags.set(def.id, { view, it, collider });
+  });
+  const setBeanbags = (out: Set<string>) => {
+    const appeared: Collider[] = [];
+    for (const [id, b] of bags) {
+      const show = out.has(id);
+      if (show === b.view.group.visible) continue;
+      b.view.group.visible = show;
+      b.it.off = !show;
+      if (show) {
+        site.colliders.push(b.collider);
+        appeared.push(b.collider);
+      } else site.colliders.splice(site.colliders.indexOf(b.collider), 1);
+    }
+    return appeared;
+  };
+  return { handle: { setBeanbags } };
+};
+
+/** The board agents' kiosks, each just west of its board. */
+export const kiosks: Fixture = (site) => {
+  for (const def of STATIONS) {
+    const view = buildKiosk(def);
+    site.group.add(view.group);
+    site.desks.set(def.id, view);
+    // The kiosk and the agent behind it, back to the wall (they all stand by the north wall) so
+    // nobody squeezes in behind, and up over the agent's head so nobody hops on it.
+    const corners = [-1, 1].flatMap((t) => [-KIOSK.depth / 2, KIOSK.stand + 0.35].map((sz) => deskPoint(def, (t * KIOSK.width) / 2, sz)));
+    const xs = corners.map(([x]) => x);
+    const zs = corners.map(([, z]) => z);
+    site.colliders.push({ minX: Math.min(...xs), maxX: Math.max(...xs), minZ: FLOOR.minZ, maxZ: Math.max(...zs), top: 1.5, fence: true });
+    // Walk up to its front.
+    const [fx, fz] = deskPoint(def, 0, -1);
+    const it: Interactable = { kind: 'station', deskId: def.id, x: fx, z: fz, radius: 1.3 };
+    site.interactables.push(it);
+    view.group.userData.interact = it;
+    // The agent, its name tag and the card over its head, up against the wall.
+    site.wall('north', def.x, 1.45, 1.4, 2.9);
+  }
+  return {};
+};

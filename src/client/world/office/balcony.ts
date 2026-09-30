@@ -3,6 +3,7 @@ import { ASHTRAY, BALCONY, EXIT_STAIRS, SLAB, STREET_Y } from '../../../shared/l
 import { bulb, type NightParts } from '../outside';
 import { mergeByMaterial, mesh, roundedBox, textPlane, toon } from '../toon';
 import type { Collider, Interactable } from '../types';
+import type { Fixture } from './fixture';
 import { PALETTE, box, floorTexture, glassPane } from './materials';
 import { floorPlant, plant } from './props';
 import { seatable } from './seats';
@@ -163,6 +164,12 @@ export function buildBalcony(group: THREE.Group, colliders: Collider[], interact
   sign.position.set(-6.5, 2.2, minZ + 0.02);
   group.add(sign);
 }
+
+/** The smoking balcony, out the glass doors on the south wall. */
+export const balcony: Fixture = (site) => {
+  buildBalcony(site.group, site.colliders, site.interactables, site.get('night'));
+  return {};
+};
 
 /** The bottom floor's balcony stands on posts down to the street, at its outer corners (the ones above it hang off their walls). */
 export function buildBalconyPosts(group: THREE.Group, colliders: Collider[]) {

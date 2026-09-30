@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BOOKSHELF, FLOOR } from '../../shared/layout';
 import { mergeByMaterial, mesh, textPlane, toon } from './toon';
 import type { Collider, Interactable } from './office';
+import type { Fixture } from './office/fixture';
 
 // The bookshelf against the south wall: a tall wooden case, five shelves packed with books of every
 // size and color (a few leaning over, a stack lying flat, a plant and a globe among them), and a
@@ -117,3 +118,10 @@ export function buildBookshelf(): BookshelfModel {
   group.userData.interact = interactable;
   return { group, collider, interactable };
 }
+
+/** The bookshelf of the project's docs, on the south wall between the middle window and the balcony doors. */
+export const bookshelf: Fixture = (site) => {
+  const built = buildBookshelf();
+  site.wall('south', BOOKSHELF.x, (BOOKSHELF.height + 0.55) / 2, BOOKSHELF.width + 0.2, BOOKSHELF.height + 0.55);
+  return { group: built.group, colliders: [built.collider], interactables: [built.interactable] };
+};

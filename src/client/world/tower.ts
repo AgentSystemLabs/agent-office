@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BALCONY, BALCONY_DOOR, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, FLOOR, ROOF_BAR, SLAB, STAGE, STOREY, STREET_Y, WALL_HEIGHT, WALL_T, WINDOWS, WING, wingMinZ, wingRowZ, type Opening, type Side } from '../../shared/layout';
 import type { Collider } from './office';
+import type { Fixture } from './office/fixture';
 import { bulb, type NightParts } from './outside';
 import { mergeByMaterial, mesh, toon, toonUnique } from './toon';
 
@@ -401,3 +402,9 @@ export function buildTower(colliders: Collider[], night: NightParts): Tower {
 
   return { group, set };
 }
+
+/** The rest of the building, above and below this floor. */
+export const tower: Fixture = (site) => {
+  const built = buildTower(site.colliders, site.get('night'));
+  return { group: built.group, setLevel: (index, count, wings) => built.set(index, count, wings) };
+};

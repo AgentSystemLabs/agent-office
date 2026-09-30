@@ -3,6 +3,7 @@ import { ELEVATOR, ELEVATOR_FRONT, FLOOR, ROAD, SLAB, STREET_Y, WALL_T } from '.
 import { LOT, SIDE_LOT } from '../../shared/garage';
 import { STREET_END, shoreX } from '../../shared/scenic';
 import type { Collider } from './office';
+import type { Fixture, StreetSite } from './office/fixture';
 import { canvasTexture } from './texture';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
 
@@ -412,3 +413,10 @@ export function buildStreet(group: THREE.Group, colliders: Collider[], night: Ni
   }
   sky.add(mergeByMaterial(puffs));
 }
+
+/** The street out front, the city along it, and the clouds over it all. */
+export const street: Fixture<never, StreetSite> = (site) => {
+  // The clouds stay up in the sky, however far down the street is.
+  buildStreet(site.ground, site.groundColliders, site.get('night'), site.group);
+  return {};
+};

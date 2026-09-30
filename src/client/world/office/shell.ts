@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { BALCONY_DOOR, EXIT_DOOR, FLOOR, WALL_HEIGHT, WALL_T, WING, type Opening, type Side } from '../../../shared/layout';
+import { BALCONY_DOOR, EXIT_DOOR, FLOOR, WALL_HEIGHT, WALL_T, WINDOWS, WING, type Opening, type Side } from '../../../shared/layout';
 import type { NightParts } from '../outside';
-import { mesh, textPlane, toon } from '../toon';
+import { mergeByMaterial, mesh, textPlane, toon } from '../toon';
 import type { Collider } from '../types';
+import type { Fixture } from './fixture';
 import { GLASS, PALETTE, box, glassPane, onWall, type Looks } from './materials';
 
 // The office's shell: its outside walls, the windows in them, and the doors out (the exit and the
@@ -306,3 +307,37 @@ export function wallRun(into: THREE.Group, cols: Collider[], axis: 'x' | 'z', at
   into.add(mesh(axis === 'x' ? box(len, 0.25, T + 0.04) : box(T + 0.04, 0.25, len), looks.trim, axis === 'x' ? mid : at, 0.125, axis === 'x' ? at : mid, false));
   cols.push(axis === 'x' ? { minX: u0, maxX: u1, minZ: at - T / 2, maxZ: at + T / 2, top: 99 } : { minX: at - T / 2, maxX: at + T / 2, minZ: u0, maxZ: u1, top: 99 });
 }
+
+/** Outside walls, with real windows you see out of and a door out, and the glass doors out to the balcony. */
+export const walls: Fixture = (site) => {
+  const night = site.get('night');
+  const openings = [...WINDOWS, EXIT_DOOR, BALCONY_DOOR];
+  buildWalls(site.group, site.colliders, openings, site.looks);
+  const glazing = new THREE.Group();
+  for (const o of WINDOWS) {
+    glazing.add(windowIn(o));
+    site.wall(o.wall, o.u, (o.y0 + o.y1) / 2 - 0.03, o.width + 0.2, o.y1 - o.y0 + 0.12);
+    site.group.add(wetPane(o, night.wetGlass));
+  }
+  site.group.add(mergeByMaterial(glazing));
+  // Out the glass doors on the south wall: the balcony.
+  const slider = balconyDoor();
+  site.group.add(slider.group);
+  site.doors.push(slider.door);
+  site.wall(BALCONY_DOOR.wall, BALCONY_DOOR.u, (BALCONY_DOOR.y1 + 0.1) / 2, BALCONY_DOOR.width + 0.2, BALCONY_DOOR.y1 + 0.1);
+  return {};
+};
+
+/** Upstairs there's no way out on the west side: the doorway is wall like the rest of it. */
+export const plug: Fixture = (site) => {
+  const built = exitPlug(site.looks);
+  return {
+    group: built.group,
+    setLevel: (index) => {
+      built.group.visible = index > 0;
+      const i = site.colliders.indexOf(built.collider);
+      if (index > 0 && i < 0) site.colliders.push(built.collider);
+      else if (index === 0 && i >= 0) site.colliders.splice(i, 1);
+    },
+  };
+};

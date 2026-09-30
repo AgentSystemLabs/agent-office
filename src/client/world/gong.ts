@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GONG } from '../../shared/layout';
 import { mesh, roundedBox, textPlane, toon, toonUnique } from './toon';
 import type { Collider, Interactable } from './office';
+import type { Fixture } from './office/fixture';
 import { boxFootprint } from '../../shared/maps/props';
 
 // The gong: a brass disc hung in a red lacquered frame, next to the PR board. It rings when a pull
@@ -143,3 +144,17 @@ export function buildGong(at: { x: number; y?: number; z: number; rotY?: number 
     },
   };
 }
+
+declare module './types' {
+  interface OfficeHandles {
+    /** The merge gong by the PR board. */
+    gong: Gong;
+  }
+}
+
+/** The gong, just past the elevator from the PR board. */
+export const gong: Fixture<'gong'> = (site) => {
+  const built = buildGong();
+  site.wall('north', GONG.x, (GONG.height + 0.3) / 2, GONG.width + 1.2, GONG.height + 0.3);
+  return { group: built.group, colliders: built.colliders, interactables: [built.interactable], update: (_t, dt) => built.update(dt), handle: { gong: built } };
+};

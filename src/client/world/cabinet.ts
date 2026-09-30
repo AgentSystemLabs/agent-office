@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CABINET, FLOOR } from '../../shared/layout';
 import { mesh, roundedBox, toon } from './toon';
 import type { Collider, Interactable } from './office';
+import type { Fixture } from './office/fixture';
 
 // The arcade cabinet in the lounge: an upright in blue side panels, a lit marquee on top, the screen
 // leaning back under it (ui/cabinet.ts paints the game on it), a joystick and buttons, and a coin door.
@@ -143,6 +144,20 @@ export function buildCabinet(): CabinetModel {
   group.userData.interact = interactable;
   return { group, collider, interactable, screen };
 }
+
+declare module './types' {
+  interface OfficeHandles {
+    /** The arcade cabinet in the lounge, where BLOCKFALL plays (ui/cabinet.ts). */
+    cabinet: CabinetModel;
+  }
+}
+
+/** The arcade cabinet, in the lounge's corner against the east wall. */
+export const cabinet: Fixture<'cabinet'> = (site) => {
+  const built = buildCabinet();
+  site.wall('east', CABINET.z, CABINET.height / 2, CABINET.width + 0.1, CABINET.height);
+  return { group: built.group, colliders: [built.collider], interactables: [built.interactable], handle: { cabinet: built } };
+};
 
 function paintMarquee(c: HTMLCanvasElement) {
   const g = c.getContext('2d')!;

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BALCONY, FLOOR, GOLF_HOLE, GOLF_TEE, ROAD, SLAB, STOREY, STREET_Y, WALL_HEIGHT, WALL_T } from '../../shared/layout';
 import type { Collider, Interactable } from './office';
+import type { Fixture, StreetSite } from './office/fixture';
 import { bulb, neighbourBoxes, streetLamp, tree, type NightParts } from './outside';
 import { disposeSprite, mergeByMaterial, mesh, textPlane, textSprite, toon } from './toon';
 
@@ -271,6 +272,23 @@ export function buildGreen(ground: THREE.Group, colliders: Collider[], night: Ni
     },
   };
 }
+
+declare module './types' {
+  interface OfficeHandles {
+    /** The golf tee on the balcony, and the hole across the street it's hit at. */
+    tee: Tee;
+    green: Green;
+  }
+}
+
+/** The golf tee, out on the balcony. */
+export const tee: Fixture<'tee'> = (site) => ({ handle: { tee: buildTee(site.group, site.colliders, site.interactables) } });
+
+/** The green across the street, with the hole the tee's shots are hit at. */
+export const green: Fixture<'green', StreetSite> = (site) => {
+  const built = buildGreen(site.ground, site.groundColliders, site.get('night'));
+  return { handle: { green: built }, update: (t) => built.update(t) };
+};
 
 // ---- A ball on its way ------------------------------------------------------------------------------
 

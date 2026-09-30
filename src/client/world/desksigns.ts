@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { DESKS, DESK_BY_ID, DESK_SIZE, WALL_HEIGHT, WING_DESKS, type DeskDef } from '../../shared/layout';
 import { signInk, type DeskLabel } from '../../shared/floorplan';
+import type { Fixture } from './office/fixture';
 import { mergeByMaterial, mesh, roundedBox, toon } from './toon';
 
 // Big signs hung from the ceiling over the desks, naming what each one is for ("Operations", "Code
@@ -175,3 +176,16 @@ export function buildDeskSigns(): DeskSigns {
     },
   };
 }
+
+declare module './types' {
+  interface OfficeHandles {
+    /** The signs hung over the desks (see shared/floorplan.ts). */
+    signs: DeskSigns;
+  }
+}
+
+/** The signs over the desks. */
+export const signs: Fixture<'signs'> = () => {
+  const built = buildDeskSigns();
+  return { group: built.group, handle: { signs: built } };
+};

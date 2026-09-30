@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { LOFT, STAIRS, WALL_T } from '../../../shared/layout';
 import { mesh, roundedBox, textPlane, toon } from '../toon';
 import type { Collider, Interactable } from '../types';
+import type { Fixture } from './fixture';
 import { PALETTE, box, floorTexture, glassPane, type Looks } from './materials';
 import { floorPlant, pendant, plant } from './props';
 import { chair, seatable } from './seats';
@@ -206,3 +207,13 @@ export function buildLoft(group: THREE.Group, colliders: Collider[], interactabl
   group.add(outside);
   return screen;
 }
+
+declare module '../types' {
+  interface OfficeHandles {
+    /** The monitor on the boss's desk upstairs, where Minesweeper plays (ui/arcade.ts). */
+    bossScreen: THREE.Mesh;
+  }
+}
+
+/** The loft up the stairs, over the meeting room: the boss's office. */
+export const loft: Fixture<'bossScreen'> = (site) => ({ handle: { bossScreen: buildLoft(site.group, site.colliders, site.interactables, site.looks) } });
