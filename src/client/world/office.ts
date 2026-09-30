@@ -181,15 +181,51 @@ const SHINE = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true,
 function glassPane(w: number, h: number): THREE.Group {
   const g = new THREE.Group();
   g.add(mesh(new THREE.PlaneGeometry(w, h), GLASS, 0, 0, 0, false));
+  // Each streak is a slanted strip trimmed to the pane, so on a narrow pane its ends stop at the
+  // frame instead of running out over it.
+  const edgeX = w / 2 - 0.02;
+  const edgeY = h / 2 - 0.02;
   for (const [gx, gw] of [
     [-w * 0.2, 0.18],
     [-w * 0.2 + 0.32, 0.08],
   ]) {
-    const glint = mesh(new THREE.PlaneGeometry(gw, h * 0.55), SHINE, gx, h * 0.07, 0.01, false);
-    glint.rotation.z = -0.5;
+    const outline = clipToBox(slantedStrip(gx, h * 0.07, gw, h * 0.55, -0.5), edgeX, edgeY);
+    if (outline.length < 3) continue;
+    const glint = mesh(new THREE.ShapeGeometry(new THREE.Shape(outline)), SHINE, 0, 0, 0.01, false);
     g.add(glint);
   }
   return g;
+}
+
+/** The corners of a `w` by `len` strip centered on (x, y), turned `angle` radians. */
+function slantedStrip(x: number, y: number, w: number, len: number, angle: number): THREE.Vector2[] {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  return [
+    [-w / 2, -len / 2],
+    [w / 2, -len / 2],
+    [w / 2, len / 2],
+    [-w / 2, len / 2],
+  ].map(([u, v]) => new THREE.Vector2(x + u * c - v * s, y + u * s + v * c));
+}
+
+/** A convex outline cut down to the box from (-ex, -ey) to (ex, ey) (Sutherland–Hodgman). */
+function clipToBox(points: THREE.Vector2[], ex: number, ey: number): THREE.Vector2[] {
+  const edges: ((p: THREE.Vector2) => number)[] = [(p) => ex - p.x, (p) => p.x + ex, (p) => ey - p.y, (p) => p.y + ey];
+  let out = points;
+  for (const inside of edges) {
+    const next: THREE.Vector2[] = [];
+    out.forEach((p, i) => {
+      const q = out[(i + 1) % out.length];
+      const dp = inside(p);
+      const dq = inside(q);
+      if (dp >= 0) next.push(p);
+      if (dp >= 0 !== dq >= 0) next.push(p.clone().lerp(q, dp / (dp - dq)));
+    });
+    out = next;
+    if (out.length < 3) return [];
+  }
+  return out;
 }
 
 /** The middle of an outside wall at `u` along it, and the turn that makes local +z point outdoors. */
@@ -1828,7 +1864,9 @@ function buildMeetingRoom(group: THREE.Group, colliders: Collider[], interactabl
   });
   const label = textPlane('🤝 Meeting room', { bg: '#2b2d42', color: '#fffaf3', size: 56, border: '#fffaf3' });
   label.scale.multiplyScalar(0.62);
-  label.position.set(dx, 2.52, R.minZ - 0.07);
+  // In front of the glass wall's frame (out to R.minZ - 0.08) and the sliding leaves (to R.minZ - 0.11),
+  // which it runs across once its text is wider than the door.
+  label.position.set(dx, 2.52, R.minZ - 0.13);
   label.rotation.y = Math.PI;
   group.add(label);
 
@@ -1869,10 +1907,12 @@ function buildMeetingRoom(group: THREE.Group, colliders: Collider[], interactabl
   // The panel on the glass beside the door, like a room-booking screen: what's on, the round, the
   // tokens, and the summary once it's over. Beside the door rather than past it, so the board shows.
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.96), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
-  sign.position.set((R.minX + R.door.x0) / 2 + 0.01, 1.45, R.minZ - T / 2 - 0.03);
+  // Inside the glass, facing out: the door's left leaf slides across outside it (out to R.minZ - 0.125)
+  // and would cut through a panel on the outer face, its glints flickering with the screen.
+  sign.position.set((R.minX + R.door.x0) / 2 + 0.01, 1.45, R.minZ + T / 2 + 0.03);
   sign.rotation.y = Math.PI;
   group.add(sign);
-  const plate = mesh(roundedBox(0.66, 1.03, 0.03, 0.03), toon(PALETTE.ink), sign.position.x, sign.position.y, R.minZ - T / 2 - 0.012, false);
+  const plate = mesh(roundedBox(0.66, 1.03, 0.03, 0.03), toon(PALETTE.ink), sign.position.x, sign.position.y, R.minZ + T / 2 + 0.05, false);
   group.add(plate);
   const door: Interactable = { kind: 'meeting', x: sign.position.x, z: R.minZ - 1.2, radius: 1.8 };
   interactables.push(door);
@@ -2089,7 +2129,8 @@ function buildLoft(group: THREE.Group, colliders: Collider[], interactables: Int
   group.add(inside);
   const outside = textPlane('👑 Boss Office', { bg: '#2b2d42', color: '#fffaf3', size: 64, border: '#fffaf3' });
   outside.scale.multiplyScalar(1.4);
-  outside.position.set(cx, roofY + 0.2, minZ - 0.02);
+  // In front of the roof's trim (minZ - 0.04 to minZ), or the trim hides the sign's lower half.
+  outside.position.set(cx, roofY + 0.2, minZ - 0.07);
   outside.rotation.y = Math.PI;
   group.add(outside);
   return screen;
