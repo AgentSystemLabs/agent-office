@@ -13,6 +13,7 @@ import type { GongWhy } from '../shared/protocol';
 import { STREAM, stationUrl, type JukeboxSpot } from '../shared/jukebox';
 import { TunePlayer } from './music';
 import { DjPlayer } from './dnb';
+import { ROOM_AUDIO_REF, ROOM_AUDIO_ROLLOFF, roomDistanceGain } from './spatial-audio';
 
 type Pos = { x: number; y: number; z: number };
 
@@ -24,10 +25,6 @@ export interface JukeboxPlay {
   startedAt: number;
   since: number;
 }
-
-/** How the jukebox fades with distance: the same curve for its tunes (a panner) and a stream (by hand). */
-const MUSIC_REF = 2.5;
-const MUSIC_ROLLOFF = 1.3;
 
 /** Where you hear from: your head, facing where the camera looks. */
 export interface Listener extends Pos {
@@ -226,7 +223,7 @@ export class OfficeSound {
     this.outside.gain.value = 0;
     this.outside.connect(this.ambience);
     // The jukebox skips the master (it has its own volume) and keeps playing while the tab is hidden.
-    this.musicIn = this.panner(this.jukeboxAt, MUSIC_REF, MUSIC_ROLLOFF);
+    this.musicIn = this.panner(this.jukeboxAt, ROOM_AUDIO_REF, ROOM_AUDIO_ROLLOFF);
     this.musicTone = biquad(ctx, 'lowpass', 16000, 0.5);
     this.musicBus = ctx.createGain();
     this.musicBus.gain.value = 0;
@@ -1034,6 +1031,39 @@ export class OfficeSound {
     }
   }
 
+  // ---- The fridge ----------------------------------------------------------------------------------
+
+  /**
+   * The kitchen fridge's door: the seal letting go and the door swinging out with a soft rush of
+   * air, or the heavier swing back and the latch catching. `open` is the state it's going to.
+   */
+  fridgeDoor(open: boolean) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count(open ? 'fridge-open' : 'fridge-close');
+    const out = this.panner(FRIDGE, 1.6, 1.2);
+    out.connect(this.ambience);
+    const t0 = ctx.currentTime + 0.02;
+    if (open) {
+      // The seal pops, then the door swings away, pulling a little air with it.
+      this.blip(out, t0, 230, 0.55, 0.08, 0.11);
+      const air = this.noise(this.buf.white);
+      const g = ctx.createGain();
+      envelope(g.gain, t0, [
+        [0.11, 0.05],
+        [0.34, 0],
+      ]);
+      air.connect(biquad(ctx, 'bandpass', 900, 0.8)).connect(g).connect(out);
+      air.start(t0);
+      air.stop(t0 + 0.4);
+    } else {
+      // The swing, then the latch: a low knock with a bright catch over it.
+      this.play(pick(this.buf.steps), { gain: 0.32, rate: 0.7, dest: out, when: t0 });
+      this.blip(out, t0 + 0.16, 105, 0.55, 0.2, 0.15);
+      this.blip(out, t0 + 0.175, 260, 0.95, 0.09, 0.05, 'triangle');
+    }
+  }
+
   // ---- The dog ----------------------------------------------------------------------------------
 
   /** A few gruff woofs from where the dog is. */
@@ -1748,8 +1778,7 @@ export class OfficeSound {
   /** A stream plays outside Web Audio (most don't allow that), so it gets quieter with distance by hand. */
   private hearStream() {
     if (!this.stream) return;
-    const d = Math.max(MUSIC_REF, this.jukeboxDistance());
-    this.stream.volume = Math.min(1, this.musicGain() * (MUSIC_REF / (MUSIC_REF + MUSIC_ROLLOFF * (d - MUSIC_REF))));
+    this.stream.volume = this.musicGain() * roomDistanceGain(this.jukeboxDistance());
   }
 
   private jukeboxDistance(): number {
