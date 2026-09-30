@@ -25,7 +25,7 @@ export interface QueueWorkers {
 export interface QueueEvents {
   update(state: QueueState): void;
   toast(text: string, level: 'info' | 'warn' | 'error'): void;
-  /** Mark the issue as taken on GitHub (as `owner`, when it's an account's task), so the board moves it to In progress. Resolves to an error message when it can't. */
+  /** Mark the issue as taken on its forge (as `owner`, when it's an account's task), so the board moves it to In progress. Resolves to an error message when it can't. */
   claimIssue(issue: number, owner?: string): Promise<string | undefined>;
   /** Ask GitHub for fresh pull requests, to pick up the one a worker just opened. */
   refreshGitHub(): void;
@@ -193,7 +193,7 @@ export class TaskQueue {
     this.pump();
   }
 
-  /** Fresh pull requests from GitHub: link each task to the PR that closes its issue (or came from its branch). */
+  /** Fresh pull requests from the floor's forge: link each task to the PR that closes its issue (or came from its branch). */
   onPulls(pulls: GhPull[]) {
     let changed = false;
     for (const t of this.tasks) {
@@ -354,7 +354,7 @@ export class TaskQueue {
       if (t.issue !== undefined) {
         const issue = t.issue;
         void this.events.claimIssue(issue, t.owner).then((err) => {
-          if (err) this.events.toast(`Couldn't assign issue #${issue} on GitHub: ${err}`, 'warn');
+          if (err) this.events.toast(`Couldn't assign issue #${issue}: ${err}`, 'warn');
         });
       }
     }

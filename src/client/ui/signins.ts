@@ -5,17 +5,35 @@ import { h, openModal, type Modal } from './dom';
 import { confirmDialog } from './prompt';
 import { copyButton } from './team';
 
-const NAMES: Record<SignInKind, string> = { claude: 'Claude', github: 'GitHub' };
+const NAMES: Record<SignInKind, string> = { claude: 'Claude', github: 'GitHub', bitbucket: 'Bitbucket' };
+const ICONS: Record<SignInKind, string> = { claude: '✳️ ', github: '🐙 ', bitbucket: '🧱 ' };
+/** Each sign-in's own sign-in command, and where to get a token for it. */
+const NOTES: Record<SignInKind, () => (Node | string)[]> = {
+  claude: () => ['Or paste a token: run ', h('code', {}, 'claude setup-token'), ' on your own computer (or use an Anthropic API key).'],
+  github: () => [
+    'Or paste a GitHub token (',
+    h('a', { href: 'https://github.com/settings/tokens/new?scopes=repo,read:org,workflow&description=Agent%20Office', target: '_blank', rel: 'noopener noreferrer' }, 'make one'),
+    ' with repo, read:org and workflow).',
+  ],
+  bitbucket: () => [
+    'Bitbucket has no sign-in page this office can open for you, so paste an Atlassian API token: ',
+    h('a', { href: 'https://id.atlassian.com/manage-profile/security/api-tokens', target: '_blank', rel: 'noopener noreferrer' }, 'make one ↗'),
+    ' with account, repository, pullrequest and issue, then type it here as ',
+    h('code', {}, 'myusername ATBB…'),
+    '.',
+  ],
+};
 
 let open: { modal: Modal; say(why?: string): void } | null = null;
 
 /**
- * 🔐 Your sign-ins: the Claude plan your workers run on and the GitHub account the office acts as
- * for you, both your own (see server/signins.ts). The office runs the sign-in itself and hands you
- * the page to open; or paste a token; admins may use the office machine's own instead.
- * `why` says what sent you here (hiring a worker before signing in, say).
+ * 🔐 Your sign-ins: the Claude plan your workers run on, and the GitHub or Bitbucket account the
+ * office acts as for you, all your own (see server/signins.ts). The office runs Claude's and
+ * GitHub's sign-in itself and hands you the page to open; or paste a token; admins may use the
+ * office machine's own instead. `why` says what sent you here, and `which` the sign-in it was about,
+ * so that note goes once that one is sorted (hiring a worker before signing in, say).
  */
-export function openSignIns(net: Net, why?: string) {
+export function openSignIns(net: Net, why?: string, which?: SignInKind) {
   if (open) return open.say(why);
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const banner = h('p.team-status', { hidden: true });
@@ -27,10 +45,10 @@ export function openSignIns(net: Net, why?: string) {
     h(
       'div.body.team',
       {},
-      h('p.note.lead', {}, 'Your workers run on your own Claude plan, and the office acts on GitHub as you: comments, merges and pull requests show up under your name. Only your workers use them.'),
+      h('p.note.lead', {}, 'Your workers run on your own Claude plan, and the office acts on GitHub or Bitbucket as you: comments, merges and pull requests show up under your name. Only your workers use them.'),
       banner,
       cards,
-      h('p.note', {}, 'Or open a 🐚 shell at any desk: it runs as you, so ', h('code', {}, 'claude auth login'), ' and ', h('code', {}, 'gh auth login'), ' typed there sign you in too.'),
+      h('p.note', {}, 'Or open a 🐚 shell at any desk: it runs as you, so ', h('code', {}, 'claude auth login'), ', ', h('code', {}, 'gh auth login'), ' and ', h('code', {}, 'bb auth login'), ' typed there sign you in too.'),
     ),
   );
 
@@ -39,6 +57,7 @@ export function openSignIns(net: Net, why?: string) {
     code: h('input', { type: 'text', placeholder: 'Paste the code here', 'aria-label': 'Code from the sign-in page', autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement,
     claude: h('input', { type: 'password', placeholder: 'sk-ant-oat01-…', 'aria-label': 'Claude token', autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement,
     github: h('input', { type: 'password', placeholder: 'ghp_… or github_pat_…', 'aria-label': 'GitHub token', autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement,
+    bitbucket: h('input', { type: 'password', placeholder: 'myusername ATBB…', 'aria-label': 'Bitbucket username and API token', autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement,
   };
 
   const say = (text?: string) => {
@@ -73,7 +92,7 @@ export function openSignIns(net: Net, why?: string) {
         : s.status === 'busy'
           ? h('span.signin-who', {}, '⏳ Signing in…')
           : h('span.signin-who.none', {}, 'Not signed in');
-    const head = h('div.team-head', {}, h('h4', {}, which === 'claude' ? '✳️ Claude' : '🐙 GitHub'), status);
+    const head = h('div.team-head', {}, h('h4', {}, ICONS[which], NAMES[which]), status);
     const body = h('div.signin-body');
     const box = h('section.signin', { class: s.status }, head, body);
     if (s.error) body.append(h('p.team-status.error', {}, s.error));
@@ -115,23 +134,18 @@ export function openSignIns(net: Net, why?: string) {
     if (s.status === 'ok') {
       const change = button(s.how === 'office' ? 'Use my own instead' : 'Sign out', () => {
         if (s.how === 'office') return net.send({ t: 'signins.signout', which });
-        confirmDialog(`Sign out of ${NAMES[which]}?`, which === 'claude' ? 'Workers you hire from now on need a new sign-in. The ones already running keep going.' : 'The office stops acting on GitHub as you until you sign in again.', 'Sign out', () => net.send({ t: 'signins.signout', which }));
+        confirmDialog(`Sign out of ${NAMES[which]}?`, which === 'claude' ? 'Workers you hire from now on need a new sign-in. The ones already running keep going.' : `The office stops acting on ${NAMES[which]} as you until you sign in again.`, 'Sign out', () => net.send({ t: 'signins.signout', which }));
       });
       body.append(h('div.signin-actions', {}, change));
       return box;
     }
 
-    // Not signed in (or busy looking): the ways in.
-    const start = button(`Sign in with ${NAMES[which]}`, () => net.send({ t: 'signins.start', which }), 'primary');
-    const actions = h('div.signin-actions', {}, start);
+    // Not signed in (or busy looking): the ways in. bb has no browser flow the office can hand out,
+    // so a Bitbucket sign-in is the token alone, with no "sign in with" button to press.
+    const actions = h('div.signin-actions');
+    if (which !== 'bitbucket') actions.append(button(`Sign in with ${NAMES[which]}`, () => net.send({ t: 'signins.start', which }), 'primary'));
     if (office) actions.append(button('Use the office’s own', () => net.send({ t: 'signins.office', which })));
-    body.append(
-      actions,
-      which === 'claude'
-        ? h('p.note', {}, 'Or paste a token: run ', h('code', {}, 'claude setup-token'), ' on your own computer (or use an Anthropic API key).')
-        : h('p.note', {}, 'Or paste a GitHub token (', h('a', { href: 'https://github.com/settings/tokens/new?scopes=repo,read:org,workflow&description=Agent%20Office', target: '_blank', rel: 'noopener noreferrer' }, 'make one'), ' with repo, read:org and workflow).'),
-      tokenRow(which),
-    );
+    body.append(actions, h('p.note', {}, ...NOTES[which]()), tokenRow(which));
     return box;
   };
 
@@ -143,10 +157,10 @@ export function openSignIns(net: Net, why?: string) {
       cards.append(h('p.empty', {}, store.me.account ? 'Loading…' : 'On the shared office password, workers run on the office’s own sign-ins.'));
       return;
     }
-    cards.append(card('claude', s.claude, s.office), card('github', s.github, s.office));
+    cards.append(card('claude', s.claude, s.office), card('github', s.github, s.office), card('bitbucket', s.bitbucket, s.office));
     if (typing instanceof HTMLInputElement && Object.values(inputs).includes(typing) && typing.isConnected) typing.focus();
-    // Once both are sorted, whatever sent you here is too.
-    if (s.claude.status === 'ok' && s.github.status === 'ok') say();
+    // Once the one the note was about is sorted, whatever sent you here is too.
+    if (!why || !which || s[which].status === 'ok') say();
   };
 
   const unsub = store.on('signins', render);

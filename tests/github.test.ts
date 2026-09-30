@@ -4,16 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { MergeWatch, originRepo, repoArgs, workRepo } from '../src/server/github.js';
-import type { GhPull } from '../src/shared/protocol.js';
-
-const pull = (number: number, state: string): GhPull => ({
-  number, title: `PR ${number}`, state, isDraft: false, url: '', author: '', labels: [], reviewDecision: '',
-  headRefName: `b${number}`, baseRefName: 'main', createdAt: '', updatedAt: '', additions: 0, deletions: 0,
-  checks: 'none', body: '', closes: [],
-});
-const numbers = (ps: GhPull[]) => ps.map((p) => p.number);
-
+import { originRepo, repoArgs, workRepo } from '../src/server/forge.js';
 test('a pull request that was open at the last look and is merged now rings once', () => {
   const w = new MergeWatch();
   assert.deepEqual(numbers(w.look([pull(1, 'OPEN'), pull(2, 'MERGED'), pull(3, 'OPEN')])), [], 'nothing rings on the first look');

@@ -5,11 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { normalizeRepo, sameRepo } from '../shared/floors.js';
-import type { RepoChoice } from '../shared/protocol.js';
+import type { ForgeKind, RepoChoice } from '../shared/protocol.js';
+import { FORGE_CLI, FORGE_LABEL } from '../shared/protocol.js';
 import { Building, tildify } from './building.js';
 import { officeHome, type Config } from './config.js';
 
-// Setting up an office from its terminal: where projects are cloned, signing the GitHub CLI in, and
+// Setting up an office from its terminal: where projects are cloned, signing the forge CLIs in, and
 // picking the first repositories to clone as floors. A new office walks you through it the first time
 // it starts in a terminal, so it opens on projects of your own instead of an empty building (or
 // whatever folder it happened to be started in). `agent-office setup` runs it again, or does it
@@ -27,7 +28,8 @@ Usage:
   agent-office setup [--projects <dir>] [--project <owner/repo>]... [--home <dir>]
 
 In a terminal it walks you through it: the workspace folder new projects are cloned
-into, signing the GitHub CLI in, and picking repositories to clone as floors. Given
+into, signing the GitHub and Bitbucket CLIs in, and picking repositories to clone as
+floors. Given
 --projects or --project it does just that and asks nothing, for scripts.
 
 A new office runs this by itself the first time it starts in a terminal. Run it
@@ -36,7 +38,7 @@ while the office is stopped; while it runs, use its elevator and ⚙️ Settings
 Options:
       --home <dir>        The office to set up (default ~/agent-office, env AGENT_OFFICE_HOME)
       --projects <dir>    Clone new projects into <dir>/<owner>/<repo> from now on
-      --project <repo>    Clone this repository (owner/name or a GitHub URL) as a floor.
+      --project <repo>    Clone this repository (owner/name or a GitHub or Bitbucket URL) as a floor.
                           Repeat it for more than one
   -h, --help              Show this help
 `;
@@ -138,15 +140,65 @@ export async function setupCommand(argv: string[]): Promise<number> {
   return 0;
 }
 
-/** The questions: the workspace folder (when `askFolder`), GitHub, then repositories to add. */
+/** The questions: the workspace folder (when `askFolder`), the forge CLIs, then repositories to add. */
 async function walkthrough(building: Building, dataDir: string, askFolder: boolean) {
   if (askFolder) await pickFolder(building);
-  const login = await githubLogin(dataDir);
-  if (!login) {
-    console.log('\n  Add projects from the elevator in the office once gh is ready (or run `agent-office setup` again).');
+  // Both are offered; either one being ready is enough to go on, and the list below is both.
+  const [github, bitbucket] = await Promise.all([forgeLogin('github', dataDir), forgeLogin('bitbucket', dataDir)]);
+  if (!github && !bitbucket) {
+    console.log('\n  Add projects from the elevator in the office once a forge CLI is ready (or run `agent-office setup` again).');
     return;
   }
-  await pickProjects(building, login);
+  await pickProjects(building, whoAmI());
+}
+
+/**
+ * Offers to sign one forge's CLI in, and says who it is signed in as. Undefined when there's no
+ * usable sign-in: either the CLI isn't installed, or it is and nobody is signed in to it yet.
+ */
+async function forgeLogin(kind: ForgeKind, cwd: string): Promise<string | undefined> {
+  const name = FORGE_LABEL[kind];
+  const cli = FORGE_CLI[kind];
+  for (let tried = false; ; tried = true) {
+    const who = await cliUser(kind, cwd);
+    if (who.login) {
+      console.log(`\n  ${kind === 'github' ? '🐙' : '🧱'} Signed in to ${name} as ${who.login}`);
+      return who.login;
+    }
+    if (who.missing) {
+      const how = kind === 'github' ? (process.platform === 'darwin' ? 'brew install gh' : process.platform === 'win32' ? 'winget install GitHub.cli' : 'sudo apt install gh') : 'npm install -g @pilatos/bitbucket-cli';
+      console.log(
+        `\n  ${kind === 'github' ? '🐙' : '🧱'} The office clones projects with the ${name} CLI (${cli}), which isn't installed.\n     Install it (${how}${kind === 'github' ? ', or see https://cli.github.com' : ', or see https://bitbucket-cli.paulvanderlei.com'}), then run \`${cli} auth login\`.`,
+      );
+      return undefined;
+    }
+    if (!who.signedOut || tried) {
+      if (who.error) console.log(`\n  🧱 Couldn't reach ${name} with ${cli}: ${who.error}`);
+      return undefined;
+    }
+    console.log(`\n  ${kind === 'github' ? '🐙' : '🧱'} The office clones projects with the ${name} CLI (${cli}), and it isn't signed in.`);
+    if (!/^y/i.test(await ask(`     Sign in to ${name} now? [Y/n] `))) return undefined;
+    spawnSync(cli, ['auth', 'login'], { stdio: 'inherit' });
+  }
+}
+
+function cliUser(kind: ForgeKind, cwd: string): Promise<{ login?: string; missing?: boolean; signedOut?: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    const args = kind === 'bitbucket' ? ['auth', 'status', '--json'] : ['api', 'user', '--jq', '.login'];
+    execFile(FORGE_CLI[kind], args, { cwd, timeout: 30_000 }, (err, stdout, stderr) => {
+      if (!err && stdout.trim()) {
+        if (kind === 'github') return resolve({ login: stdout.trim() });
+        try {
+          return resolve({ login: String((JSON.parse(stdout) as { user?: { username?: string } }).user?.username ?? '') || undefined });
+        } catch {
+          return resolve({});
+        }
+      }
+      if ((err as NodeJS.ErrnoException | null)?.code === 'ENOENT') return resolve({ missing: true });
+      const why = String(stderr || err?.message || '').trim();
+      resolve({ signedOut: /auth login|not logged in|not authenticated|authentication|bad credentials|1001|HTTP 401/i.test(why), error: why.split('\n').filter(Boolean).slice(-1)[0] ?? `${FORGE_CLI[kind]} failed` });
+    });
+  });
 }
 
 async function pickFolder(building: Building) {
@@ -181,42 +233,8 @@ export function suggestedFolder(fallback: string, home = os.homedir()): string {
   return fallback;
 }
 
-/** Who `gh` is signed in to GitHub as, after offering to sign it in. Undefined when there's no GitHub to use. */
-async function githubLogin(cwd: string): Promise<string | undefined> {
-  for (let tried = false; ; tried = true) {
-    const me = await ghUser(cwd);
-    if (me.login) {
-      console.log(`\n  🐙 Signed in to GitHub as ${me.login}`);
-      return me.login;
-    }
-    if (me.missing) {
-      const how = process.platform === 'darwin' ? 'brew install gh' : process.platform === 'win32' ? 'winget install GitHub.cli' : 'sudo apt install gh';
-      console.log(`\n  🐙 The office clones projects with the GitHub CLI (gh), which isn't installed.\n     Install it (${how}, or see https://cli.github.com), then run \`gh auth login\`.`);
-      return undefined;
-    }
-    if (!me.signedOut || tried) {
-      console.log(`\n  🐙 Couldn't reach GitHub with gh: ${me.error}`);
-      return undefined;
-    }
-    console.log("\n  🐙 The office clones projects with the GitHub CLI (gh), and it isn't signed in.");
-    if (/^n/i.test(await ask('     Sign in to GitHub now? [Y/n] '))) return undefined;
-    spawnSync('gh', ['auth', 'login'], { stdio: 'inherit' });
-  }
-}
-
-function ghUser(cwd: string): Promise<{ login?: string; missing?: boolean; signedOut?: boolean; error?: string }> {
-  return new Promise((resolve) => {
-    execFile('gh', ['api', 'user', '--jq', '.login'], { cwd, timeout: 30_000 }, (err, stdout, stderr) => {
-      if (!err && stdout.trim()) return resolve({ login: stdout.trim() });
-      if ((err as NodeJS.ErrnoException | null)?.code === 'ENOENT') return resolve({ missing: true });
-      const why = String(stderr || err?.message || '').trim();
-      resolve({ signedOut: /auth login|not logged in|authentication|bad credentials|HTTP 401/i.test(why), error: why.split('\n').filter(Boolean).slice(-1)[0] ?? 'gh failed' });
-    });
-  });
-}
-
 async function pickProjects(building: Building, login: string) {
-  process.stdout.write('     Asking GitHub for your repositories…');
+  process.stdout.write('     Asking GitHub and Bitbucket for your repositories…');
   let repos: RepoChoice[] = [];
   try {
     repos = await building.repos();
@@ -237,8 +255,11 @@ async function pickProjects(building: Building, login: string) {
     );
     if (!answer) return;
     let pick: string | undefined;
+    let forge: ForgeKind | undefined;
     if (/^\d+$/.test(answer)) {
-      pick = shown[Number(answer) - 1]?.name;
+      const row = shown[Number(answer) - 1];
+      pick = row?.name;
+      forge = row?.forge;
       if (!pick) {
         console.log(`     ✗ There's no ${answer} in the list`);
         continue;
@@ -256,15 +277,15 @@ async function pickProjects(building: Building, login: string) {
       printRepos(shown, building);
       continue;
     }
-    if (await addFloor(building, pick, login)) added++;
+    if (await addFloor(building, pick, login, forge)) added++;
   }
 }
 
-/** Clones `repo` as a new floor, saying how it went. */
-async function addFloor(building: Building, repo: string, by: string): Promise<boolean> {
+/** Clones `repo` as a new floor, saying how it went. `forge` says which one it is when it's known. */
+async function addFloor(building: Building, repo: string, by: string, forge?: ForgeKind): Promise<boolean> {
   const r = await building.add(repo, by, (def) => {
     console.log(`     ⏳ Cloning ${def.repo ?? repo} into ${tildify(def.dir)}… (a big repository can take a minute)`);
-  });
+  }, forge);
   if (typeof r === 'string') {
     console.log(`     ✗ ${r}`);
     return false;
@@ -278,7 +299,7 @@ function printRepos(list: RepoChoice[], building: Building) {
   const nameWidth = Math.min(40, Math.max(...list.map((r) => r.name.length)));
   const floors = building.list();
   list.forEach((r, i) => {
-    const note = floors.some((f) => sameRepo(f.repo, r.name)) ? '(a floor already)' : [r.private ? 'private' : '', r.description ?? ''].filter(Boolean).join(' · ');
+    const note = floors.some((f) => sameRepo(f.repo, r.name)) ? '(a floor already)' : [r.forge === 'bitbucket' ? '🧱 bitbucket' : '', r.private ? 'private' : '', r.description ?? ''].filter(Boolean).join(' · ');
     const line = `    ${String(i + 1).padStart(2)}. ${r.name.padEnd(nameWidth)}  ${note}`.trimEnd();
     console.log(line.length > width ? `${line.slice(0, width - 1)}…` : line);
   });

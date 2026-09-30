@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { CodexUsageReader } from './codex-usage.js';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
-import type { AgentChoice, AgentEffort, AgentProvider, Run, TerminalHit, WorkerInfo, WorkerKind, WorkerRepo, WorkerStatus, WorkerTask } from '../shared/protocol.js';
+import type { AgentChoice, AgentEffort, AgentProvider, ForgeKind, Run, TerminalHit, WorkerInfo, WorkerKind, WorkerRepo, WorkerStatus, WorkerTask } from '../shared/protocol.js';
 import { FAILS_TO_DESPAIR, outputFailed, toolAction } from '../shared/actions.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, isAgentEffort, isClaudeModel } from '../shared/protocol.js';
 import { WORKSPACE_FILES, WORKTREES_DIR, Worktrees, describeWork, workspaceOf, type WorktreeCleanup, type WorktreeRef, type WorktreeState } from './worktrees.js';
@@ -15,8 +15,8 @@ import { DESK_BY_ID, STATION_AGENT, deskBuilt } from '../shared/layout.js';
 import { QUEUE_AGENT_DISALLOWED_TOOLS, stationBrief } from './stations.js';
 import { officePrompt, type PromptSource } from './prompts.js';
 import { isBusy } from '../shared/status.js';
-import { gh, originRepo, repoArgs, workRepo } from './github.js';
-import type { GhAs } from './signins.js';
+import { findPull, forgeOfDir, openPull, originUrl, prRef, pullBody, setPullBody, workRepo } from './forge.js';
+import type { ForgeAs } from './signins.js';
 import type { ServiceOwner } from './services.js';
 import { TaskNamer, fallbackTask } from './tasks.js';
 import { addUsage, newTracker, restoreTracker, scanTracker, trackerUsage, zeroUsage, type Ledger, type UsageTracker } from './usage.js';
@@ -238,6 +238,8 @@ export class WorkerManager {
   private saveTimer: NodeJS.Timeout;
   /** How many rows the floor's back office is built out: its desks past that aren't there to hire at (see WING). */
   wing: () => number = () => 0;
+  /** Where this floor's code is hosted, from its origin (see forge.ts). Set by the floor. */
+  forge: ForgeKind = 'github';
 
   constructor(
     private dir: string,
@@ -459,7 +461,7 @@ export class WorkerManager {
     this.workers.set(id, w);
     if (info.prompt) this.notePrompt(w, info.prompt);
     // A board agent is told what it's there for ahead of its first request (which is what shows).
-    this.launch(w, seat.station && info.prompt ? `${stationBrief(seat.station, this.prompts)}\n\n${info.prompt}` : info.prompt, undefined);
+    this.launch(w, seat.station && info.prompt ? `${stationBrief(seat.station, this.prompts, this.forge)}\n\n${info.prompt}` : info.prompt, undefined);
     this.persist();
     return info;
   }
@@ -542,7 +544,7 @@ export class WorkerManager {
     w.info.exitCode = undefined;
     const station = DESK_BY_ID.get(w.info.deskId)?.station;
     // A board agent with no session to carry on starts over, so it needs telling what it's for again.
-    const first = prompt && station && !w.info.sessionId ? `${stationBrief(station, this.prompts)}\n\n${prompt}` : prompt;
+    const first = prompt && station && !w.info.sessionId ? `${stationBrief(station, this.prompts, this.forge)}\n\n${prompt}` : prompt;
     if (prompt) {
       w.info.activity = truncate(prompt, 80);
       this.notePrompt(w, prompt);
@@ -970,7 +972,7 @@ export class WorkerManager {
    * press, or one opened by hand): that one is used. A worker across repositories gets one in each
    * repository it committed to (see openPrs).
    */
-  async openPr(id: string, by: string, as?: GhAs): Promise<{ prs: OpenedPr[]; failed: string[] } | string> {
+  async openPr(id: string, by: string, as?: ForgeAs): Promise<{ prs: OpenedPr[]; failed: string[] } | string> {
     const w = this.workers.get(id);
     if (!w) return 'No such worker';
     const { info } = w;
@@ -983,8 +985,6 @@ export class WorkerManager {
     if (info.repos?.length) return this.openPrs(w, by, as);
     const cwd = path.join(this.dir, wt.path);
     if (!existsSync(cwd)) return `${info.name}'s worktree is gone (${wt.path})`;
-    // The repository its origin points at, which is where the branch is pushed and the PR opened.
-    const repo = workRepo(cwd);
     info.prOpening = true;
     this.emitUpdate(w);
     try {
@@ -994,7 +994,7 @@ export class WorkerManager {
       const commits = (await run('git', ['log', '--reverse', '--format=%h %s', `${wt.base}..${branch}`], cwd)).split('\n').filter(Boolean);
       const dirty = (await run('git', ['status', '--porcelain'], cwd)) !== '';
       if (!commits.length) return dirty ? `${info.name} hasn't committed anything yet — ask it to commit first` : `${info.name} has no commits on ${branch} yet`;
-      const open = await findOpenPr(branch, cwd, repo);
+      const open = await findPull(branch, cwd, forgeOfDir(cwd), as?.env);
       if (open) {
         info.pr = open;
         this.persist();
@@ -1003,7 +1003,7 @@ export class WorkerManager {
       await run('git', ['push', '-u', 'origin', branch], cwd, 90_000, as?.env);
       const base = await this.pushedBranch([wt.from, this.trees.currentBranch()], branch);
       const { title, body } = draftPr(info, commits, by);
-      const { number, url } = await createPr(branch, base, title, body, cwd, repo, as);
+      const { number, url } = await openPull(branch, base, title, body, cwd, forgeOfDir(cwd), as?.env);
       info.pr = { number, url };
       this.persist();
       return { prs: [{ number, url, existed: false, dirty }], failed: [] };
@@ -1022,7 +1022,7 @@ export class WorkerManager {
    * description, so they're reviewed and merged together. The issue its task came from is closed by
    * its own floor's pull request; the others only mention it.
    */
-  private async openPrs(w: Worker, by: string, as?: GhAs): Promise<{ prs: OpenedPr[]; failed: string[] } | string> {
+  private async openPrs(w: Worker, by: string, as?: ForgeAs): Promise<{ prs: OpenedPr[]; failed: string[] } | string> {
     const { info } = w;
     const wt = info.worktree!;
     const home = originRepo(this.dir);
@@ -1040,11 +1040,9 @@ export class WorkerManager {
     try {
       for (const p of parts) {
         const cwd = path.join(this.dir, p.path);
-        // Its PR goes in the repository its own checkout's origin points at.
-        const repo = workRepo(p.dir);
         try {
           const dirty = (await run('git', ['status', '--porcelain'], cwd)) !== '';
-          const known = p.pr ?? (await findOpenPr(p.branch, cwd, repo));
+          const known = p.pr ?? (await findPull(p.branch, cwd, forgeOfDir(cwd), as?.env));
           if (known) {
             p.set(known);
             prs.push({ repo: p.name, ...known, existed: true, dirty, cwd });
@@ -1058,7 +1056,7 @@ export class WorkerManager {
           await run('git', ['push', '-u', 'origin', p.branch], cwd, 90_000, as?.env);
           const base = await this.pushedBranch([p.from, new Worktrees(p.dir).currentBranch()], p.branch, p.dir);
           const { title, body } = draftPr(info, commits, by, p.own ? undefined : { home });
-          const pr = await createPr(p.branch, base, title, body, cwd, repo, as);
+          const pr = await openPull(p.branch, base, title, body, cwd, forgeOfDir(cwd), as?.env);
           p.set(pr);
           this.persist();
           prs.push({ repo: p.name, ...pr, existed: false, dirty, cwd });
@@ -1073,9 +1071,10 @@ export class WorkerManager {
       if (prs.length > 1 && prs.some((p) => !p.existed)) {
         for (const p of prs) {
           try {
-            const body = await gh(['pr', 'view', p.url, '--json', 'body', '--jq', '.body'], p.cwd, 30_000, as?.env);
+            const kind = forgeOfDir(p.cwd);
+            const body = await pullBody(p.url, p.cwd, kind, as?.env);
             const next = withRelated(body, relatedBlock(prs, p.url, wt.branch));
-            if (next !== body) await gh(['pr', 'edit', p.url, '--body', next], p.cwd, 60_000, as?.env);
+            if (next !== body) await setPullBody(p.url, next, p.cwd, kind, as?.env);
           } catch (err) {
             failed.push(`Couldn't list the other pull requests on ${p.repo} #${p.number}: ${(err as Error).message}`);
           }
@@ -1651,7 +1650,7 @@ export class WorkerManager {
     });
     // A board agent files, labels and merges with gh of its own, so it's told which repository the
     // boards are about: left to itself, gh works on a fork's `upstream` remote, not this floor's.
-    if (station) {
+    if (station && this.forge === 'github') {
       const repo = workRepo(this.dir);
       if (repo) env.GH_REPO = repo;
     }
@@ -2536,26 +2535,9 @@ function validRepos(raw: unknown): WorkerRepo[] | undefined {
   return repos.length ? repos : undefined;
 }
 
-/** A pull request the branch in `cwd` already has, on the repository that checkout is worked on. */
-async function findOpenPr(branch: string, cwd: string, repo: string | undefined): Promise<{ number: number; url: string } | undefined> {
-  const out = await gh(repoArgs(['pr', 'list', '--head', branch, '--state', 'open', '--limit', '1', '--json', 'number,url'], repo), cwd);
-  const found = (JSON.parse(out || '[]') as { number: number; url: string }[])[0];
-  return found ? { number: found.number, url: found.url } : undefined;
-}
-
-/** `gh pr create` for a pushed branch; resolves to the new pull request. */
-async function createPr(branch: string, base: string | undefined, title: string, body: string, cwd: string, repo: string | undefined, as?: GhAs): Promise<{ number: number; url: string }> {
-  const out = await gh(repoArgs(['pr', 'create', '--head', branch, ...(base ? ['--base', base] : []), '--title', title, '--body', body], repo), cwd, 60_000, as?.env);
-  const url = out.trim().split('\n').pop() ?? '';
-  const number = Number(/\/pull\/(\d+)/.exec(url)?.[1]);
-  if (!number) throw new Error(`gh did not return a pull request URL (${truncate(out, 120)})`);
-  return { number, url };
-}
-
-/** owner/name#12 for a pull request on GitHub (which links it with its title), else its URL. */
-function prRef(url: string): string {
-  const m = /github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/.exec(url);
-  return m ? `${m[1]}#${m[2]}` : url;
+/** owner/name of a checkout's origin on a forge, when it has one. */
+function originRepo(dir: string): string | undefined {
+  return normalizeRepo(originUrl(dir, 5000));
 }
 
 /** The list of a change's pull requests across repositories, for the description of the one at `self`. */

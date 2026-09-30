@@ -21,7 +21,9 @@ RUN chmod 755 bin/*.js deploy/container/*.sh \
 FROM node:22-bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
 # sshd for the tunnels, tini to reap what workers leave behind, and what workers need: git, the
-# GitHub CLI (from GitHub's own apt repo, like deploy/provision.sh) and build tools.
+# GitHub CLI (from GitHub's own apt repo, like deploy/provision.sh), the Bitbucket CLI for Bitbucket
+# projects, and build tools. The Bitbucket CLI runs on Bun, which it installs itself if it can; the
+# `|| echo` keeps the image building either way, since GitHub needs no bb.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends openssh-server sudo tini procps ca-certificates curl git less build-essential python3 \
   && install -d -m 755 /etc/apt/keyrings \
@@ -31,7 +33,9 @@ RUN apt-get update \
     >/etc/apt/sources.list.d/github-cli.list \
   && apt-get update \
   && apt-get install -y --no-install-recommends gh \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* \
+  && npm install -g @pilatos/bitbucket-cli || echo "bitbucket CLI not installed: only GitHub projects are available"
+
 COPY --from=build /opt/agent-office /opt/agent-office
 RUN /opt/agent-office/deploy/container/install.sh
 EXPOSE 22

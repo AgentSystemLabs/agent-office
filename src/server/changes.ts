@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { forgeOfDir, openPull } from './forge.js';
 import type { ImageResult } from './decor.js';
 import { changedImageType, type ChangedFile, type ChangeStatus, type ChangesState } from '../shared/protocol.js';
 import { repoArgs, workRepo } from './github.js';
@@ -307,7 +308,7 @@ export class Changes {
     });
   }
 
-  /** Pushes the branch and opens a pull request for it with `gh`; with `env`, as whoever pressed the button. */
+  /** Pushes the branch and opens a pull request for it with the checkout's forge CLI; with `env`, as whoever pressed the button. */
   async pullRequest(workerId: string, title: string, body: string, who: string, env?: Record<string, string>, repo?: string): Promise<string | undefined> {
     if (!title.trim()) return 'The pull request needs a title';
     return this.action(workerId, repo, 'Pushing the branch and opening a pull request…', async (t, w) => {
@@ -320,12 +321,7 @@ export class Changes {
       const remote = remotes.includes('origin') ? 'origin' : remotes[0];
       if (!remote) return 'This project has no git remote to push to';
       await git(['push', '-u', remote, s.branch], t.cwd, 120_000, env);
-      // The PR goes to the repository that checkout's origin points at, which is where it was pushed.
-      const args = repoArgs(['pr', 'create', '--head', s.branch, '--base', s.prBase, '--title', title.trim(), '--body', body], workRepo(t.cwd));
-      const r = await run('gh', args, t.cwd, 120_000, env);
-      const url = r.out.trim().split('\n').pop() ?? '';
-      if (r.code !== 0 || !/^https?:\/\//.test(url)) throw new GitError(reason(r, url || 'gh pr create failed'));
-      const number = Number(/\/(\d+)$/.exec(url)?.[1] ?? 0);
+      const { number, url } = await openPull(s.branch, s.prBase, title.trim(), body, t.cwd, forgeOfDir(t.cwd), env);
       this.opened.set(openedKey(repo, s.branch), { number, url });
       this.events.toast(`${who} opened a pull request for ${t.name}: ${url}`, 'info');
       (t.refreshGitHub ?? this.events.refreshGitHub)();

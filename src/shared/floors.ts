@@ -34,15 +34,15 @@ export function floorPalette(i: number): FloorPalette {
 }
 
 /**
- * `owner/repo` from what someone typed or pasted: owner/repo, a github.com URL (https, ssh or
- * git@), with or without .git. Undefined for anything else, so it can never become a CLI option,
- * a path or another host.
+ * `owner/repo` from what someone typed or pasted: owner/repo, or a github.com / bitbucket.org URL
+ * (https, ssh or git@), with or without .git. Undefined for anything else, so it can never become a
+ * CLI option, a path or another host.
  */
 export function normalizeRepo(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   let s = value.trim();
   if (s.length > 200) return undefined;
-  s = s.replace(/^(?:https?:\/\/|ssh:\/\/)?(?:[\w.-]+@)?github\.com[/:]/i, '');
+  s = s.replace(/^(?:https?:\/\/|ssh:\/\/)?(?:[\w.-]+@)?(?:github\.com|bitbucket\.org)[/:]/i, '');
   s = s.replace(/[?#].*$/, '').replace(/\/+$/, '').replace(/\.git$/i, '');
   const parts = s.split('/');
   // A URL may go on past the repository (…/owner/repo/issues/12).

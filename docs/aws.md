@@ -25,7 +25,7 @@ What `up` does, in about 2 minutes:
 1. Creates an SSH key pair (kept in `~/.config/agent-office/aws/<name>/`).
 2. Creates a security group that opens **only SSH (port 22), and only to your current IP**. The office itself is never on the internet.
 3. Gives the machine a fixed Elastic IP and launches a **t3.xlarge** (4 vCPU, 16 GiB) Ubuntu 24.04 instance with a 50 GiB disk.
-4. Runs the same [`deploy/provision.sh`](../deploy/provision.sh) as [any server](self-hosting.md): it installs Node 22, git, the GitHub CLI and **Claude Code**, clones the latest agent-office from GitHub and runs `npm i`. The office keeps its data in `~/agent-office` on the machine and clones projects into `~/workspace/<owner>/<repo>`.
+4. Runs the same [`deploy/provision.sh`](../deploy/provision.sh) as [any server](self-hosting.md): it installs Node 22, git, the GitHub and Bitbucket CLIs and **Claude Code**, clones the latest agent-office from GitHub and runs `npm i`. The office keeps its data in `~/agent-office` on the machine and clones projects into `~/workspace/<owner>/<repo>`.
 5. Runs the office under systemd with `Restart=always`, so it comes back after a crash or a reboot, and `KillMode=process`, so restarting it leaves the workers running. It listens on `127.0.0.1:4600` on the machine, so the only way in is an SSH tunnel.
 6. Opens an SSH tunnel and your browser at `http://localhost:4600`. **The first page shows the office password once. Write it down.** The server then keeps only a hash, so nobody can display the password again.
 7. The office opens on its elevator with no floors yet. It lists every repository your GitHub token can see: pick one and it becomes the first floor.
@@ -90,7 +90,7 @@ Useful options for `up`:
 
 That's the office's own sign-in, which workers use while you're in on the office password. Once teammates have [accounts](../README.md#add-users), each of them signs in to their own Claude in **☰ → 🔐 Your sign-ins**, and their workers run on their own plan. Admins can pick the office's own there instead.
 
-**GitHub.** By default, your local `gh auth token` is used to sign in the GitHub CLI on the machine. The office uses it to list and clone your repos and to read the issue and PR boards, so it needs access to them. On the office password, commenting, merging, pushing and opening PRs use it too. People with accounts do those as themselves, with the GitHub account they sign in to in **🔐 Your sign-ins**. Every worker runs as the same user on the machine, so anyone who can use the office can get at that token: pass `--github-token <fine-grained token>` or `--no-github-token` if that's too much.
+**GitHub and Bitbucket.** By default, your local `gh auth token` is used to sign in the GitHub CLI on the machine (Bitbucket you sign in yourself, once, with `bb auth login` over SSH). The office uses it to list and clone your repos and to read the issue and PR boards, so it needs access to them. On the office password, commenting, merging, pushing and opening PRs use it too. People with accounts do those as themselves, with the GitHub account they sign in to in **🔐 Your sign-ins**. Every worker runs as the same user on the machine, so anyone who can use the office can get at that token: pass `--github-token <fine-grained token>` or `--no-github-token` if that's too much.
 
 ## Tailscale
 

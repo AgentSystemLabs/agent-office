@@ -48,3 +48,16 @@ test('the issues and PR agents keep their jobs, and may still be asked for somet
 test('the queue agent is launched without the file-editing tools', () => {
   assert.deepEqual(QUEUE_AGENT_DISALLOWED_TOOLS, ['Edit', 'Write', 'NotebookEdit']);
 });
+
+test('a board agent on a Bitbucket floor is told to use bb, and that there is no issues board', () => {
+  const brief = stationBrief('pulls', undefined, 'bitbucket');
+  assert.match(brief, /^This project is on Bitbucket, not GitHub/);
+  assert.match(brief, /use the bb CLI wherever this brief says `gh`/);
+  assert.match(brief, /no issues board here/);
+  // The brief itself is left exactly as written (or as it was rewritten in ⚙️ Settings).
+  assert.ok(brief.endsWith(stationBrief('pulls')));
+});
+
+test('a board agent on a GitHub floor is told nothing extra', () => {
+  assert.equal(stationBrief('pulls', undefined, 'github'), stationBrief('pulls'));
+});

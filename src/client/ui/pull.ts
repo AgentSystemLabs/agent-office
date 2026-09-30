@@ -1,4 +1,5 @@
-import type { GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhLabel, GhMergeMethod, GhPull, GhPullDetail, GhReviewComment, ServerMsg } from '../../shared/protocol';
+import type { ForgeKind, GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhLabel, GhMergeMethod, GhPull, GhPullDetail, GhReviewComment, ServerMsg } from '../../shared/protocol';
+import { FORGE_CLI, FORGE_LABEL } from '../../shared/protocol';
 import type { Net } from '../net';
 import { AVATAR_COLORS, store, workerForPull } from '../state';
 import { issuePrompt, issueVars, type BoardActions } from './boards';
@@ -149,7 +150,7 @@ interface MergeStatus {
   cls: 'ok' | 'warn' | 'bad' | 'muted';
   /** False when merging can't work at all (draft, conflicts, already merged). */
   can: boolean;
-  /** GitHub could merge it on its own once the requirements pass. */
+  /** The forge could merge it on its own once the requirements pass. */
   auto: boolean;
 }
 
@@ -161,18 +162,22 @@ function conflicted(d: GhPullDetail) {
 function mergeStatus(d: GhPullDetail): MergeStatus {
   const failing = d.checks.filter((c) => c.state === 'fail').length;
   const pending = d.checks.filter((c) => c.state === 'pending').length;
+  // Only GitHub merges a pull request on its own; Bitbucket merges it when you ask, or not at all.
+  const canAuto = d.forge === 'github';
   if (d.state === 'MERGED') return { icon: '🎉', text: 'Merged.', cls: 'ok', can: false, auto: false };
   if (d.state === 'CLOSED') return { icon: '🗑️', text: 'Closed without merging.', cls: 'muted', can: false, auto: false };
-  if (d.isDraft) return { icon: '📝', text: 'This is still a draft. Mark it ready for review on GitHub before merging.', cls: 'muted', can: false, auto: false };
+  if (d.isDraft) return { icon: '📝', text: `This is still a draft. Mark it ready for review on ${FORGE_LABEL[d.forge]} before merging.`, cls: 'muted', can: false, auto: false };
   if (conflicted(d))
     return { icon: '⚠️', text: `This branch has conflicts with ${d.baseRefName} that must be resolved first.`, cls: 'bad', can: false, auto: false };
-  if (d.mergeStateStatus === 'BEHIND') return { icon: '⤵️', text: `The branch is behind ${d.baseRefName}, and this repo wants it up to date before merging.`, cls: 'warn', can: true, auto: true };
+  if (d.mergeStateStatus === 'BEHIND') return { icon: '⤵️', text: `The branch is behind ${d.baseRefName}, and this repo wants it up to date before merging.`, cls: 'warn', can: true, auto: canAuto };
   if (d.mergeStateStatus === 'BLOCKED') {
     const why = d.reviewDecision === 'CHANGES_REQUESTED' ? 'changes were requested' : d.reviewDecision === 'REVIEW_REQUIRED' ? 'it needs an approving review' : failing ? `${failing} check${failing > 1 ? 's are' : ' is'} failing` : pending ? 'required checks are still running' : 'a branch rule is not met yet';
-    return { icon: '🚫', text: `Merging is blocked: ${why}.`, cls: 'bad', can: true, auto: true };
+    return { icon: '🚫', text: `Merging is blocked: ${why}.`, cls: 'bad', can: true, auto: canAuto };
   }
   if (failing) return { icon: '❌', text: `${failing} check${failing > 1 ? 's' : ''} failing. It can still be merged.`, cls: 'warn', can: true, auto: false };
-  if (pending || d.mergeStateStatus === 'UNSTABLE') return { icon: '🟡', text: 'Checks are still running. It can be merged now, or once they pass.', cls: 'warn', can: true, auto: true };
+  if (pending || d.mergeStateStatus === 'UNSTABLE') return { icon: '🟡', text: 'Checks are still running. It can be merged now, or once they pass.', cls: 'warn', can: true, auto: canAuto };
+  // Bitbucket never says whether a PR would merge, so that would leave it looking like it always might.
+  if (d.forge === 'bitbucket') return { icon: '✅', text: `Bitbucket merges it the moment you ask, with the strategy below.`, cls: 'ok', can: true, auto: false };
   if (d.mergeStateStatus === 'UNKNOWN' || d.mergeable === 'UNKNOWN') return { icon: '⏳', text: 'GitHub is still working out whether this can merge. Refresh in a moment.', cls: 'muted', can: true, auto: false };
   return { icon: '✅', text: `Ready to merge: no conflicts with ${d.baseRefName}${d.checks.length ? ' and all checks passed' : ''}.`, cls: 'ok', can: true, auto: false };
 }
@@ -382,7 +387,7 @@ function openMerge(it: GhPull, d: GhPullDetail, net: Net, handToWorker: () => vo
       h('label', { style: 'margin-top:14px' }, 'How'),
       methodBtns,
       h('label.gh-check', { for: 'merge-del' }, del, `Delete ${it.headRefName} after merging`),
-      st.auto ? h('label.gh-check', { for: 'merge-auto', title: 'gh pr merge --auto (the repo must allow auto-merge)' }, auto, 'Merge automatically once the requirements pass') : null,
+      st.auto ? h('label.gh-check', { for: 'merge-auto', title: `${FORGE_CLI[d.forge]} pr merge --auto (the repo must allow auto-merge)` }, auto, 'Merge automatically once the requirements pass') : null,
       result,
     ),
     h('footer', {}, st.can || conflicted(d) ? null : worker, h('span.grow'), cancel, conflicted(d) ? worker : go),
@@ -401,7 +406,7 @@ function openMerge(it: GhPull, d: GhPullDetail, net: Net, handToWorker: () => vo
     busy = true;
     go.disabled = true;
     result.className = 'gh-merge-result';
-    result.replaceChildren(h('span.spinner'), auto.checked && st.auto ? 'Asking GitHub to merge it when ready…' : 'Merging…');
+    result.replaceChildren(h('span.spinner'), auto.checked && st.auto ? `Asking ${FORGE_LABEL[d.forge]} to merge it when ready…` : 'Merging…');
     mergeWaiters.set(it.number, (msg) => {
       mergeWaiters.delete(it.number);
       busy = false;
@@ -629,6 +634,14 @@ function labelButton(kind: 'issue' | 'pull', it: () => GhIssue | GhPull, net: Ne
   return h('button.btn.gh-label-edit', { type: 'button', title: 'Change the labels', 'aria-label': 'Change the labels', onclick: () => openLabels(kind, it(), net, onSaved) }, has ? '🏷️ Edit' : '🏷️ Add labels');
 }
 
+/**
+ * The label button, or nothing: Bitbucket Cloud has no labels on pull requests, and offering a picker
+ * there would only lead to a picker that can't change anything.
+ */
+function labelButtonFor(kind: 'issue' | 'pull', it: () => GhIssue | GhPull, forge: () => ForgeKind, net: Net, onSaved: (labels: GhLabel[]) => void): HTMLElement | null {
+  return forge() === 'bitbucket' ? null : labelButton(kind, it, net, onSaved);
+}
+
 // ---- The PR window ------------------------------------------------------------------------------
 
 export function openPull(first: GhPull, net: Net, actions: BoardActions) {
@@ -702,7 +715,7 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
       h('code', {}, it.headRefName),
       h('span.gh-pm', {}, h('span.add', {}, `+${it.additions}`), ' ', h('span.del', {}, `−${it.deletions}`)),
       ...it.labels.map(labelChip),
-      labelButton('pull', () => it, net, (labels) => ((it = { ...it, labels }), renderFrame())),
+      labelButtonFor('pull', () => it, () => detail?.forge ?? 'github', net, (labels) => ((it = { ...it, labels }), renderFrame())),
       it.reviewDecision ? h('span.gh-badge', { class: REVIEW_BADGE[it.reviewDecision]?.[1] ?? '' }, it.reviewDecision === 'REVIEW_REQUIRED' ? 'review required' : (REVIEW_BADGE[it.reviewDecision]?.[0] ?? it.reviewDecision.toLowerCase())) : null,
       ),
     );

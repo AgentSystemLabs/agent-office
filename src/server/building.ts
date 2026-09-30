@@ -3,14 +3,14 @@ import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync
 import os from 'node:os';
 import path from 'node:path';
 import { FLOOR_PALETTES, MAX_FLOORS, normalizeRepo, sameRepo } from '../shared/floors.js';
-import type { ProjectsDirState, RepoChoice } from '../shared/protocol.js';
-import { gh, originRepo } from './github.js';
+import type { ForgeKind, ProjectsDirState, RepoChoice } from '../shared/protocol.js';
+import { bb, gh, originRepo } from './forge.js';
 
 /** A floor as floors.json keeps it. */
 export interface FloorDef {
   id: string;
   name: string;
-  /** owner/name on GitHub. */
+  /** owner/name on the forge (GitHub or Bitbucket) it came from. */
   repo?: string;
   dir: string;
   palette: number;
@@ -32,7 +32,7 @@ interface LocalOff {
   at: number;
 }
 
-/** How long the list of repositories `gh` can see is reused before it's asked again. */
+/** How long the list of repositories the office's forge sign-ins can see is reused before it's asked again. */
 const REPOS_TTL_MS = 5 * 60_000;
 const MAX_REPOS = 1000;
 const CLONE_TIMEOUT_MS = 30 * 60_000;
@@ -40,7 +40,8 @@ const CLONE_TIMEOUT_MS = 30 * 60_000;
 /**
  * The floors of the building, saved in <office>/.agent-office/floors.json: which projects there are,
  * where their checkouts live, and how each floor is painted. New floors are cloned with the office
- * machine's `gh` login into <projects>/<owner>/<repo>; the projects folder can be picked in ⚙️ Settings
+ * machine's own forge sign-ins into <projects>/<owner>/<repo> — `gh repo clone` for a GitHub
+ * repository, `bb repo clone` for a Bitbucket one; the projects folder can be picked in ⚙️ Settings
  * (kept in projects-folder.json).
  */
 export class Building {
@@ -165,9 +166,10 @@ export class Building {
   /**
    * Clones a repository into the projects folder and adds it as a floor. `started` hears about the
    * floor as soon as the clone begins; resolves to the finished floor, or to why there's none. A
-   * checkout that's already where the clone would go is used as it is.
+   * checkout that's already where the clone would go is used as it is. `kind` says which forge the
+   * repository is on; without it, GitHub is asked first and Bitbucket second.
    */
-  async add(input: string, by: string, started: (def: FloorDef) => void): Promise<FloorDef | string> {
+  async add(input: string, by: string, started: (def: FloorDef) => void, kind?: ForgeKind): Promise<FloorDef | string> {
     const wanted = normalizeRepo(input);
     if (!wanted) return 'Pick a repository, or type it as owner/name';
     if (this.defs.some((d) => sameRepo(d.repo, wanted))) return `${wanted} already has a floor`;
@@ -184,13 +186,15 @@ export class Building {
       this.save();
       return def;
     }
-    // Asking GitHub first says whether this login can see it at all, and gets the name's real case.
+    // Asking the forge first says whether this login can see it at all, and gets the name's real case.
     let repo: string;
+    let forge: ForgeKind;
     try {
-      const view = JSON.parse(await gh(['repo', 'view', wanted, '--json', 'nameWithOwner'], this.dataDir, 30_000)) as { nameWithOwner?: string };
-      repo = normalizeRepo(view.nameWithOwner) ?? wanted;
+      const found = await (kind ? this.ask(kind, wanted, this.dataDir) : this.askAny(wanted, this.dataDir));
+      if (!found) throw new Error(`${wanted} isn't on GitHub or Bitbucket, or this login can't see it`);
+      ({ repo, forge } = found);
     } catch (err) {
-      return `Couldn't find ${wanted} on GitHub: ${(err as Error).message}`;
+      return (err as Error).message;
     }
     const key = repo.toLowerCase();
     if (this.defs.some((d) => sameRepo(d.repo, repo))) return `${repo} already has a floor`;
@@ -202,7 +206,7 @@ export class Building {
     this.cloning.set(key, def);
     started(def);
     try {
-      const err = await cloneInto(repo, dest);
+      const err = await cloneInto(repo, dest, forge);
       if (err) return err;
     } finally {
       this.cloning.delete(key);
@@ -212,7 +216,7 @@ export class Building {
     return def;
   }
 
-  /** Repositories the office's `gh` login can clone, most recently pushed first. */
+  /** Repositories the office's own forge sign-ins can clone, most recently pushed first. */
   async repos(refresh = false): Promise<RepoChoice[]> {
     const cached = this.repoCache;
     if (cached && !refresh && Date.now() - cached.at < REPOS_TTL_MS) return cached.repos;
@@ -223,6 +227,29 @@ export class Building {
       if (this.repoCache?.repos === repos) this.repoCache = undefined;
     });
     return repos;
+  }
+
+  /**
+   * Asks one forge about `repo`: the name's real case, and that this login can see it. Resolves to
+   * nothing when the forge doesn't have it, rather than failing, so the next one can be asked.
+   */
+  private async ask(kind: ForgeKind, repo: string, cwd: string): Promise<{ repo: string; forge: ForgeKind } | undefined> {
+    try {
+      if (kind === 'bitbucket') {
+        const out = await bb(['repo', 'view', repo, '--json'], cwd, 30_000);
+        const full = String((JSON.parse(out || '{}') as { full_name?: string }).full_name ?? '');
+        return full ? { repo: normalizeRepo(full) ?? repo, forge: 'bitbucket' } : undefined;
+      }
+      const view = JSON.parse(await gh(['repo', 'view', repo, '--json', 'nameWithOwner'], cwd, 30_000)) as { nameWithOwner?: string };
+      return view.nameWithOwner ? { repo: normalizeRepo(view.nameWithOwner) ?? repo, forge: 'github' } : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** A name with no forge said: GitHub first, then Bitbucket, so `agent-office owner/name` still works. */
+  private async askAny(repo: string, cwd: string): Promise<{ repo: string; forge: ForgeKind } | undefined> {
+    return (await this.ask('github', repo, cwd)) ?? (await this.ask('bitbucket', repo, cwd));
   }
 
   private newDef(name: string, repo: string | undefined, dir: string, by: string): FloorDef {
@@ -331,7 +358,7 @@ function unwritable(dir: string): string | undefined {
 }
 
 /** Clones `repo` to `dest`, or checks that what's already there is that repository. Resolves to an error, if any. */
-async function cloneInto(repo: string, dest: string): Promise<string | undefined> {
+async function cloneInto(repo: string, dest: string, kind: ForgeKind): Promise<string | undefined> {
   if (existsSync(dest)) {
     if (!statSync(dest).isDirectory()) return `${dest} is already there and isn't a folder`;
     if (readdirSync(dest).length) {
@@ -344,16 +371,34 @@ async function cloneInto(repo: string, dest: string): Promise<string | undefined
   } catch (err) {
     return `Couldn't make ${path.dirname(dest)}: ${(err as Error).message}`;
   }
+  const how = kind === 'bitbucket' ? 'bb' : 'gh';
+  const args = kind === 'bitbucket' ? ['repo', 'clone', repo, '--directory', dest] : ['repo', 'clone', repo, dest];
   return new Promise((resolve) => {
-    execFile('gh', ['repo', 'clone', repo, dest], { cwd: path.dirname(dest), timeout: CLONE_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 }, (err, _out, stderr) => {
+    execFile(kind === 'bitbucket' ? 'bb' : 'gh', args, { cwd: path.dirname(dest), timeout: CLONE_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 }, (err, _out, stderr) => {
       if (!err) return resolve(undefined);
       const why = String(stderr || err.message).trim().split('\n').filter(Boolean).slice(-2).join(' ');
-      resolve(`Couldn't clone ${repo}: ${why || 'gh failed'}`);
+      resolve(`Couldn't clone ${repo}: ${why || `${how} failed`}`);
     });
   });
 }
 
+/**
+ * Repositories the office's own sign-ins can clone, most recently pushed first. Both forges are
+ * asked, and one that isn't installed or isn't signed in is quietly left out rather than failing
+ * the whole list: GitHub-only and Bitbucket-only people get theirs either way.
+ */
 async function listRepos(cwd: string): Promise<RepoChoice[]> {
+  const [github, bitbucket] = await Promise.allSettled([githubRepos(cwd), bitbucketRepos(cwd)]);
+  if (github.status === 'rejected' && bitbucket.status === 'rejected') throw github.reason;
+  const repos = [...(github.status === 'fulfilled' ? github.value : []), ...(bitbucket.status === 'fulfilled' ? bitbucket.value : [])];
+  const seen = new Set<string>();
+  return repos
+    .filter((r) => (seen.has(r.name.toLowerCase()) ? false : seen.add(r.name.toLowerCase())))
+    .sort((a, b) => (b.pushedAt ?? '').localeCompare(a.pushedAt ?? ''))
+    .slice(0, MAX_REPOS);
+}
+
+async function githubRepos(cwd: string): Promise<RepoChoice[]> {
   const out = await gh(
     [
       'api',
@@ -366,16 +411,15 @@ async function listRepos(cwd: string): Promise<RepoChoice[]> {
     90_000,
   );
   const repos: RepoChoice[] = [];
-  const seen = new Set<string>();
   for (const line of out.split('\n')) {
     if (!line.trim()) continue;
     try {
       const r = JSON.parse(line) as { name?: unknown; description?: unknown; private?: unknown; pushedAt?: unknown };
       const name = normalizeRepo(r.name);
-      if (!name || seen.has(name.toLowerCase())) continue;
-      seen.add(name.toLowerCase());
+      if (!name) continue;
       repos.push({
         name,
+        forge: 'github',
         description: typeof r.description === 'string' && r.description ? r.description.slice(0, 200) : undefined,
         private: r.private === true,
         pushedAt: typeof r.pushedAt === 'string' ? r.pushedAt : undefined,
@@ -385,5 +429,31 @@ async function listRepos(cwd: string): Promise<RepoChoice[]> {
     }
     if (repos.length >= MAX_REPOS) break;
   }
-  return repos.sort((a, b) => (b.pushedAt ?? '').localeCompare(a.pushedAt ?? ''));
+  return repos;
+}
+
+/** The repositories in every Bitbucket workspace this login belongs to. */
+async function bitbucketRepos(cwd: string): Promise<RepoChoice[]> {
+  const listed = await bb(['workspace', 'list', '--json'], cwd, 60_000);
+  const slugs = ((JSON.parse(listed || '{}') as { workspaces?: any[] }).workspaces ?? []).map((w) => String(w?.slug ?? '')).filter(Boolean);
+  if (!slugs.length) return [];
+  const repos: RepoChoice[] = [];
+  // A workspace whose repositories can't be listed (left the workspace mid-list) is skipped.
+  const pages = await Promise.allSettled(slugs.map((s) => bb(['repo', 'list', '--workspace', s, '--all', '--json'], cwd, 90_000)));
+  for (const page of pages) {
+    if (page.status !== 'fulfilled') continue;
+    for (const r of ((JSON.parse(page.value || '{}') as { repositories?: any[] }).repositories ?? [])) {
+      const name = normalizeRepo(r?.full_name);
+      if (!name) continue;
+      repos.push({
+        name,
+        forge: 'bitbucket',
+        description: typeof r?.description === 'string' && r.description ? r.description.slice(0, 200) : undefined,
+        private: r?.is_private === true,
+        pushedAt: typeof r?.updated_on === 'string' ? r.updated_on : undefined,
+      });
+      if (repos.length >= MAX_REPOS) break;
+    }
+  }
+  return repos;
 }

@@ -1,4 +1,5 @@
 import type { AgentEffort, AgentProvider, GhIssue, GhLabel, GhPull, WorkerInfo } from '../../shared/protocol';
+import { FORGE_CLI, FORGE_LABEL } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store, workerForPull } from '../state';
 import { h, openModal, timeAgo } from './dom';
@@ -270,6 +271,8 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
 
   const render = () => {
     const st = kind === 'issues' ? store.issues : store.pulls;
+    // Named after the forge the floor turned out to be on, once a look has said which.
+    refresh.title = `Refresh from ${FORGE_LABEL[st.forge ?? 'github']}`;
     status.textContent = st.loading ? 'Refreshing…' : st.fetchedAt ? `Updated ${timeAgo(st.fetchedAt)}` : '';
     // Every refresh rebuilds the columns, so note how far each was scrolled and put it back afterwards,
     // and keep focus (and the caret, in a filter box) on the header, label toggle or box it was on.
@@ -280,10 +283,26 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
     const caret = active instanceof HTMLInputElement ? ([active.selectionStart, active.selectionEnd] as const) : null;
     body.replaceChildren();
     if (st.error && !st.items.length) {
-      body.append(h('div.board-error', {}, `Couldn't load from GitHub: ${st.error}`, h('br'), h('small', {}, 'The server runs `gh` in the project directory — make sure it is installed and authenticated (gh auth login).')));
+      const forge = st.forge ?? 'github';
+      body.append(
+        h('div.board-error', {}, `Couldn't load from ${FORGE_LABEL[forge]}: ${st.error}`, h('br'), h('small', {}, `The server runs \`${FORGE_CLI[forge]}\` in the project directory — make sure it is installed and authenticated (${FORGE_CLI[forge]} auth login).`)),
+      );
       return;
     }
     const all = boardLabels(st.items);
+    if (kind === 'issues' && st.forge === 'bitbucket' && !st.error) {
+      // Nothing to list, and nothing that could be listed: say so instead of showing an empty board.
+      body.append(
+        h(
+          'div.board-error',
+          {},
+          'This floor is on Bitbucket, which keeps its issues for a whole workspace rather than per repository — so there’s no 📌 board to show here.',
+          h('br'),
+          h('small', {}, 'Work still gets done from the 🔀 pull requests and the 📋 task queue. On GitHub, this board lists the repository’s issues.'),
+        ),
+      );
+      return;
+    }
     if (kind === 'issues') {
       for (const col of issueColumns(store.issues.items)) {
         body.append(
@@ -331,6 +350,8 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
   if (kind === 'pulls') unsubs.push(store.on('workers', render));
   const timer = setInterval(() => {
     const st = kind === 'issues' ? store.issues : store.pulls;
+    // Named after the forge the floor turned out to be on, once a look has said which.
+    refresh.title = `Refresh from ${FORGE_LABEL[st.forge ?? 'github']}`;
     status.textContent = st.loading ? 'Refreshing…' : st.fetchedAt ? `Updated ${timeAgo(st.fetchedAt)}` : '';
   }, 15000);
   const modal = openModal(el, {
