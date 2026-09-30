@@ -84,13 +84,20 @@ Today there is one literal implementation, built at `server.ts:625` and handed t
 object, remote floors get a proxy that serializes over the host socket. `Floor` does not change.
 
 **Seam 2 — `handleMessage` (`server.ts:1477`).** The office's 117-case switch resolves a floor with
-`floorOf(c)` (`server.ts:254`) and then calls into it. Those floor-scoped cases become a function
-over a `Floor`: called directly for a local floor, shipped verbatim to the host for a remote one.
+`floorOf(c)` (`server.ts:254`) and then calls into it. The 43 that act on a floor go through
+`FloorActions` (`src/server/floor-actions.ts`), which `Floor` satisfies structurally and a hosted floor
+will satisfy by shipping frames.
 
 This matters because `server.ts` makes **66 distinct floor-scoped calls**
 (`floor.workers.spawn`, `floor.queue.add`, `floor.forge.claim`, `floor.jukebox.title`, …).
-Enumerating those as 66 RPC methods would be the wrong shape and the wrong amount of work. Forwarding
-the unions that already exist is not.
+Enumerating those as 66 RPC methods would be the wrong shape and the wrong amount of work. Neither is
+forwarding the message unions that already exist.
+
+The interface is the union of what those 43 cases call and nothing more, so a member nobody calls is a
+method a hosted floor would implement for no reason — `tests/floor-actions.test.ts` checks that both
+ways. Writing its signatures against the real classes corrected seven guesses, one of which changed
+the design: `changes.watch` returns nothing and pushes through `FloorContext.changes`, so the Changes
+window is a seam the *emitter* owns, not a value a proxy has to fabricate.
 
 ### The wire is mostly already written
 
@@ -751,11 +758,16 @@ The pieces everything else needs. No UI, no hosted floor in the product yet.
    session check, refusing anything whose presented token does not match a live host.
 6. **Per-floor `FloorContext`** — `contextFor(def)` returning today's object for a local floor and a
    serializing proxy for a hosted one. The literal at `server.ts:625` becomes the local case.
-7. **Extract the 43 floor-scoped cases** (finding 9). The classification is already done —
-   [the protocol surface](#the-protocol-surface-measured) — so this task is the extraction, not the
-   analysis: move those 43 into a function over a `Floor`, called directly for a local floor and
-   shipped for a remote one. **A test asserts the count**, so a case added to the switch without a
-   decision about where it runs fails rather than silently staying office-side.
+   **`FloorActions` is done** (`src/server/floor-actions.ts`): the surface the office asks of a floor,
+   checked against `Floor` by a structural assertion at the foot of `floor.ts`. See the note below.
+7. ~~**Extract the 43 floor-scoped cases** into a function over a `Floor`.~~ **Superseded.**
+   `FloorActions` replaces it, and does it better: the 43 call sites are left exactly where they are,
+   because they already read `floor.workers.spawn(...)` — only the object behind `floor` changes, from
+   a local `Floor` to a `RemoteFloor`. Lifting them would have meant a ~900-line mechanical diff into
+   a switch that closes over a dozen office-side accessors (`here`, `worker`, `withForge`, `warn`,
+   `toastFloor`, `planChanged`, `floors`, `DESK_BY_ID`, `CLEANUPS`), which is a poor trade for moving
+   code that does not need to move. **What this task still owns is the count assertion**, which is done
+   and lives in `tests/floorhost.test.ts`.
 8. **The worker→host index** that replaces `workerFloor`'s linear scan (`server.ts:256`) for hosted
    floors, fed from each floor's `ready` roster and keyed `floorId → host`, since one socket carries
    many floors.
