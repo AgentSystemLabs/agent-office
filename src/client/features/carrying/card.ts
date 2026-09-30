@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import type { CarriedIssue } from '../../shared/protocol';
-import { NOTE_COLORS, PINS, wrap } from '../features/boards/world';
-import { toon, toonUnique } from './toon';
+import type { CarriedIssue } from '../../../shared/protocol';
+import { NOTE_COLORS, PINS, wrap } from '../boards/world';
+import { toon, toonUnique } from '../../world/toon';
 
 const W = 320;
 const H = 240;

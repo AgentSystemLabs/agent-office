@@ -7,7 +7,7 @@ import type { Drink } from '../../../shared/rooftop';
 import { HIPS, type PersonRig } from './rig';
 import { axeModel, dartModel } from '../../features/bargames/world';
 import { OpenBook } from '../book';
-import { HeldCard } from '../card';
+import { HeldCard } from '../../features/carrying/card';
 import { UNDEAD_SKIN, santaHat, warlockHat } from '../costumes';
 import { disposeSprite, mesh, textSprite, toon, toonUnique } from '../toon';
 import { EXHALE_AT, REACH_TIME, SMOKE_CYCLE, dragCurve, reachCurve } from './curves';
