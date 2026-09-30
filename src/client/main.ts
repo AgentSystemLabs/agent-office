@@ -459,6 +459,15 @@ store.on('dog', () => {
 });
 sound.setMusicVolume(settings.music, settings.musicMuted);
 sound.onMusicError = (text) => toast(text, 'warn');
+// The sound of the TV is your own too, like the jukebox's volume: turn it down from the TV window
+// or from ⚙️ Settings and it stays down. The autoplay fallback muting the player comes back through
+// here as well, so the row in the window, the ⚙️ one and what you hear all agree.
+tvScreen.setVolume(settings.tv, settings.tvMuted);
+tvScreen.onSound = () => {
+  settings.tv = tvScreen.volume;
+  settings.tvMuted = tvScreen.muted;
+  saveSettings(settings);
+};
 // The jukebox on your floor: everyone there hears it from the same bar, and its lights say what's on.
 // It's the office's: on a map of its own there's none to hear.
 function playJukebox() {
@@ -4782,6 +4791,7 @@ function showSettings(pane?: SettingsPane) {
       player.setView(settings.view);
       sound.setVolume(settings.volume, settings.muted);
       sound.setMusicVolume(settings.music, settings.musicMuted);
+      tvScreen.setVolume(settings.tv, settings.tvMuted);
     },
     editProfile,
     () => sound.ding('done'),

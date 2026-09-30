@@ -26,7 +26,11 @@ export function openTv(net: Net, tvScreen: TvScreen, share: () => void) {
   const open = h('a.tv-open', { target: '_blank', rel: 'noopener noreferrer' }, 'Open in a tab ↗');
   const url = h('input', { type: 'text', placeholder: 'https://… a YouTube link, an .mp4, anything with a player', 'aria-label': 'Video link', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
   const putOn = h('button.btn.primary', { type: 'button' }, '📺 Play');
-  const mute = h('button.btn', { type: 'button' }, '🔊 Your sound');
+  // Your own speakers, apart from everyone else's: the same row the ⚙️ Settings give the jukebox.
+  const mute = h('button.btn', { type: 'button' });
+  const level = h('input', { type: 'range', min: '0', max: '100', step: '1', 'aria-label': 'TV volume' }) as HTMLInputElement;
+  const pct = h('span.vol-pct');
+  const sound = h('div.volume', {}, mute, level, pct);
   const el = h(
     'div.modal.tv',
     { role: 'dialog', 'aria-label': 'Office TV' },
@@ -36,11 +40,13 @@ export function openTv(net: Net, tvScreen: TvScreen, share: () => void) {
       {},
       now,
       h('div.volume.tv-scrub', {}, scrub, time, open),
+      h('label', { style: 'margin-top:16px' }, 'Your sound'),
+      sound,
       h('label', { style: 'margin-top:16px' }, 'Put something on'),
       h('div.webhook', {}, url, putOn),
-      h('p.setting-note', {}, 'Everyone on this floor sees it at the same moment. YouTube, a direct .mp4, or any site that lets itself be framed.'),
+      h('p.setting-note', {}, 'Everyone on this floor sees it at the same moment; the sound is yours alone (⚙️ Settings has it too). YouTube, a direct .mp4, or any site that lets itself be framed.'),
     ),
-    h('footer', {}, h('span.grow', {}, 'It plays on the TV itself, for everyone on this floor.'), h('button.btn', { type: 'button', onclick: share }, '🖥️ Share screen'), mute),
+    h('footer', {}, h('span.grow', {}, 'It plays on the TV itself, for everyone on this floor.'), h('button.btn', { type: 'button', onclick: share }, '🖥️ Share screen')),
   );
 
   const button = (label: string, title: string, send: () => void, primary = false) => h(primary ? 'button.btn.primary' : 'button.btn', { type: 'button', title, onclick: send }, label);
@@ -63,6 +69,8 @@ export function openTv(net: Net, tvScreen: TvScreen, share: () => void) {
       fill();
     }
     time.textContent = dur > 0 ? `${clock(pos)} / ${clock(dur)}` : clock(pos);
+    // The autoplay fallback can turn the sound down on its own, so this follows the player.
+    paintSound();
   };
 
   /** What this window last put in the link box, so a link someone else puts on doesn't eat yours. */
@@ -113,12 +121,27 @@ export function openTv(net: Net, tvScreen: TvScreen, share: () => void) {
     if (store.tv.on) net.send({ t: 'tv.seek', position: Math.round(Number(scrub.value) * 10) / 10 });
   });
 
-  const muteLabel = () => (mute.textContent = tvScreen.muted ? '🔇 Your sound' : '🔊 Your sound');
-  mute.addEventListener('click', () => {
-    if (!tvScreen.toggleMute()) toast('This player’s sound isn’t yours to turn down', 'warn');
-    muteLabel();
+  /** The sound row, as it is on the player right now (see ⚙️ Settings' volume rows). */
+  const paintSound = () => {
+    const v = Math.round(tvScreen.volume * 100);
+    level.value = String(v);
+    level.style.setProperty('--fill', `${v}%`);
+    pct.textContent = tvScreen.muted ? 'Muted' : `${v}%`;
+    mute.textContent = tvScreen.muted ? '🔊 Unmute' : '🔇 Mute';
+    mute.setAttribute('aria-pressed', String(tvScreen.muted));
+    mute.classList.toggle('danger', tvScreen.muted);
+    sound.classList.toggle('muted', tvScreen.muted);
+  };
+  const cantTake = () => toast('This player’s sound isn’t yours to turn down', 'warn');
+  level.addEventListener('input', () => {
+    // Dragging it turns the sound back on, like the ⚙️ sliders do.
+    if (!tvScreen.setVolume(Number(level.value) / 100, false)) cantTake();
+    paintSound();
   });
-  tvScreen.onMute = muteLabel;
+  mute.addEventListener('click', () => {
+    if (!tvScreen.toggleMute()) cantTake();
+    paintSound();
+  });
 
   const timer = setInterval(tick, 250);
   const off = store.on('tv', render);
@@ -127,10 +150,8 @@ export function openTv(net: Net, tvScreen: TvScreen, share: () => void) {
     onClose: () => {
       clearInterval(timer);
       off();
-      tvScreen.onMute = null;
     },
   });
   close.addEventListener('click', () => modal.close());
   render();
-  muteLabel();
 }
