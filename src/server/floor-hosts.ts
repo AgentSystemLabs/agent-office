@@ -187,6 +187,11 @@ export class HostRegistry {
         });
         entry.workerFloor.set(ready.floorId, ready.floorId);
         this.onFloorUp(ready.floorId);
+        // And on to the proxy, which is the only thing that knows what the office was told. Without
+        // this the roster, the branch, the agents this machine has and which forge it reads are all
+        // dropped on the floor here — an elevator that always says zero workers, a hire menu with no
+        // providers, and a Bitbucket floor the office would go on treating as GitHub.
+        this.onUpward(ready.floorId, msg);
         break;
       }
       case 'leave':

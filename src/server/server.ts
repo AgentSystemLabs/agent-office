@@ -27,6 +27,7 @@ import { Floor, type FloorContext } from './floor.js';
 import { Hosts } from './hosts.js';
 import { HostRegistry } from './floor-hosts.js';
 import { RemoteFloor } from './remote-floor.js';
+import type { FloorActions } from './floor-actions.js';
 import { Sky } from './sky.js';
 import { Themes } from './theme.js';
 import { Maps } from './maps.js';
@@ -223,7 +224,7 @@ export async function startServer(cfg: Config) {
   const highScores = new HighScores(cfg.dataDir);
   const arcade = new Arcade(highScores, (first) => {
     for (const f of floors.values()) cabinetChanged(f);
-    if (first) toastFloor(floors.get(first.floor), `🏆 ${first.score.name} set a new arcade high score: ${scoreText(first.score.score)}`);
+    if (first) toastFloor(anyFloor(first.floor), `🏆 ${first.score.name} set a new arcade high score: ${scoreText(first.score.score)}`);
   });
   /** What the office is called where it has no project of its own to go by (webhooks, invites). */
   const officeName = cfg.project ? path.basename(cfg.project) : 'the office';
@@ -265,14 +266,56 @@ export async function startServer(cfg: Config) {
    * (see floor-actions.ts), which is what makes the swap something the office does not notice.
    */
   const remoteFloors = new Map<string, RemoteFloor>();
-  const floorOf = (c: Client): Floor | undefined => (c.peer.floor ? floors.get(c.peer.floor) : undefined);
-  /** The floor a worker sits on. Worker ids are unique across the building. */
+  /**
+   * A floor **someone can be on**, wherever it runs. A hosted floor is a real place with real people
+   * in it — it is just running on another machine — so the elevator, the roof and anything else that
+   * moves a person has to be able to find one.
+   *
+   * The counterpart is `floors`, which stays the floors whose checkout is on this disk. Anything that
+   * would *touch* a checkout — a worktree base, a cross-floor repo, a clone — keeps using that one,
+   * because a floor on someone else's disk is not this office's to read (finding 9). Getting this
+   * backwards is the bug that made a hosted floor visible but not enterable: `floor.go` looked in
+   * `floors`, found nothing, and refused with "No such floor".
+   */
+  const anyFloor = (id: string | undefined | null): FloorActions | undefined =>
+    (id ? floors.get(id) ?? remoteFloors.get(id) : undefined);
+  /**
+   * The same floor as a local `Floor`, when it is one — and `undefined` when it is not.
+   *
+   * This is the only door to the whiteboard, the dog and the docs, and it is deliberately locked from
+   * the other side: a hosted floor's id is not in `floors`, so there is nothing here to open. Those
+   * three are files in a checkout this office has no business reading, and a floor on someone else's
+   * machine answers `refuses(...)` with the machine's name instead.
+   */
+  const asLocal = (f: FloorActions | undefined): Floor | undefined => (f ? floors.get(f.id) : undefined);
+  /** Every floor a person could be on, in the order the panel shows them. */
+  const anyFloors = (): FloorActions[] => [...floors.values(), ...remoteFloors.values()];
+  /** How many floors the building has, counting the ones running on somebody else's machine. */
+  const floorCount = (): number => floors.size + remoteFloors.size;
+  const floorOf = (c: Client): FloorActions | undefined => anyFloor(c.peer.floor);
+  /**
+   * The floor a worker sits on, among the ones whose checkout is **this** office's.
+   *
+   * Deliberately local, and the distinction is the whole of decision 7: a hook arrives on a loopback
+   * port on the machine that started the agent, so a hosted floor's agent is already talking to its
+   * host, and routing that here would mean the office reaching into a checkout on someone else's
+   * disk. Worker ids are unique across the building, so a hosted floor's worker simply is not found.
+   */
   const workerFloor = (workerId: string): Floor | undefined => {
     for (const f of floors.values()) if (f.workers.get(workerId)) return f;
     return undefined;
   };
+  /**
+   * The same, but across every floor — for the people acting on a worker from the browser. A worker on
+   * a hosted floor can be prompted, resumed, watched and sent home from here, because all of those go
+   * over that machine's socket rather than touching a disk.
+   */
+  const anyWorkerFloor = (workerId: string): FloorActions | undefined => {
+    for (const f of anyFloors()) if (f.workers.get(workerId)) return f;
+    return undefined;
+  };
   /** To everyone on one floor. */
-  const toFloor = (floor: Floor, msg: ServerMsg, droppable = false) => {
+  const toFloor = (floor: FloorActions, msg: ServerMsg, droppable = false) => {
     const json = JSON.stringify(msg);
     for (const c of clients.values()) {
       if (c.peer.floor !== floor.id || c.ws.readyState !== WebSocket.OPEN) continue;
@@ -280,7 +323,7 @@ export async function startServer(cfg: Config) {
       c.ws.send(json);
     }
   };
-  const toastFloor = (floor: Floor | undefined, text: string, level: ToastLevel = 'info') => {
+  const toastFloor = (floor: FloorActions | undefined, text: string, level: ToastLevel = 'info') => {
     if (floor) toFloor(floor, { t: 'toast', text, level });
   };
   const floorInfos = (): FloorInfo[] => [
@@ -396,7 +439,7 @@ export async function startServer(cfg: Config) {
     const me = floor?.workers.authenticate(workerId, token);
     if (!floor || !me) return send(res, 401, { error: 'Send your own AGENT_OFFICE_WORKER_ID as ?worker= and AGENT_OFFICE_HOOK_TOKEN as the bearer token' });
     const who = me.name;
-    const view: PullsView = { pulls: floor.forge.pulls.items, tasks: floor.queue.state().tasks, pullsOf: (id) => floors.get(id)?.forge.pulls.items };
+    const view: PullsView = { pulls: floor.forge.pulls.items, tasks: floor.queue.state().tasks, pullsOf: (id) => anyFloor(id)?.forge.pulls.items };
     const row = (id: string) => {
       const w = floor.workers.get(id);
       return w && workerRow(w, view, me.id);
@@ -707,8 +750,6 @@ export async function startServer(cfg: Config) {
           def.host,
           registry,
           { id: def.id, name: def.name, dir: def.dir, repo: def.repo, palette: def.palette, addedBy: def.addedBy, addedAt: def.addedAt },
-          undefined,
-          [],
         ),
       );
       return undefined;
@@ -756,7 +797,7 @@ export async function startServer(cfg: Config) {
 
   // Web servers the workers start, for the Services board and service tunnels (see relay.ts).
   // One scan covers every floor; each floor's board lists its own workers' servers.
-  const servicesState = (floor: Floor | undefined, items = services.list()): ServicesState => ({
+  const servicesState = (floor: FloorActions | undefined, items = services.list()): ServicesState => ({
     items: floor ? items.filter((s) => floor.workers.get(s.workerId)) : [],
     port: cfg.port,
     deploy: cfg.deployScript,
@@ -772,18 +813,18 @@ export async function startServer(cfg: Config) {
   );
 
   /** Who has a floor's whiteboard open. */
-  const drawing = (floor: Floor): string[] => [...clients.values()].filter((c) => c.whiteboard && c.peer.floor === floor.id).map((c) => c.id);
-  const drawingChanged = (floor: Floor | undefined) => {
+  const drawing = (floor: FloorActions): string[] => [...clients.values()].filter((c) => c.whiteboard && c.peer.floor === floor.id).map((c) => c.id);
+  const drawingChanged = (floor: FloorActions | undefined) => {
     if (floor) toFloor(floor, { t: 'wb.people', people: drawing(floor) });
   };
 
   /** Who's playing the arcade cabinet on a floor. */
-  const cabinetPlayer = (floor: Floor): Client | undefined => [...clients.values()].find((c) => c.playing && c.peer.floor === floor.id);
-  const cabinetState = (floor: Floor | undefined): CabinetState => {
+  const cabinetPlayer = (floor: FloorActions): Client | undefined => [...clients.values()].find((c) => c.playing && c.peer.floor === floor.id);
+  const cabinetState = (floor: FloorActions | undefined): CabinetState => {
     const p = floor && cabinetPlayer(floor);
     return { player: p ? { id: p.id, name: p.peer.name, game: p.game ?? '' } : null, scores: highScores.top() };
   };
-  const cabinetChanged = (floor: Floor | undefined) => {
+  const cabinetChanged = (floor: FloorActions | undefined) => {
     if (floor) toFloor(floor, { t: 'cabinet', state: cabinetState(floor) });
   };
   /** `c` stepped away from the cabinet (or left the floor, or the office): their game waits, with its score so far on the table. */
@@ -797,7 +838,12 @@ export async function startServer(cfg: Config) {
   };
 
   /** Everything on a floor, for whoever just arrived there. */
-  const floorView = (floor: Floor | undefined): FloorView => ({
+  const floorView = (floor: FloorActions | undefined): FloorView => {
+    // The dog and the whiteboard are files in the floor's own data directory, so they are not on the
+    // shared surface and a hosted floor is not asked for them. A floor running on someone else's
+    // machine simply arrives without either, which is true rather than a gap someone has to be told.
+    const local = asLocal(floor);
+    return {
     floor: floor?.id ?? null,
     project: floor?.project ?? null,
     workers: floor?.workers.list() ?? [],
@@ -807,23 +853,24 @@ export async function startServer(cfg: Config) {
     decor: floor?.decor.list() ?? [],
     plan: floor?.plan.state() ?? EMPTY_PLAN,
     services: servicesState(floor),
-    dog: floor?.dog.view() ?? null,
+    dog: local?.dog.view() ?? null,
     ball: floor?.court.state() ?? {},
     cars: floor?.garage.state() ?? [],
     jail: floor?.jail.state() ?? { prisoners: [], bones: 0 },
     jukebox: floor?.jukebox.state() ?? { on: false, track: JUKEBOX_TUNES[0].id, startedAt: Date.now(), elapsed: 0 },
     tv: floor?.tv.state() ?? TV_OFF,
-    whiteboard: { elements: floor?.whiteboard.scene() ?? [], people: floor ? drawing(floor) : [] },
+    whiteboard: { elements: local?.whiteboard.scene() ?? [], people: local ? drawing(local) : [] },
     meeting: floor?.meetings.state() ?? { current: null, past: [] },
     cabinet: { ...cabinetState(floor), frame: (floor && cabinetPlayer(floor)?.frame) ?? null },
-  });
+    };
+  };
   /** The rooftop bar: nobody works up there, so it has none of a floor's things. */
   const roofView = (): FloorView => ({ ...floorView(undefined), floor: ROOF });
-  const screensOf = (c: Client, floor: Floor | undefined) => {
+  const screensOf = (c: Client, floor: FloorActions | undefined) => {
     for (const { workerId, frame } of floor?.workers.fullScreens() ?? []) sendTo(c, { t: 'screen', workerId, ...frame, full: true });
   };
   /** Where someone arriving goes: the floor they asked for, else the first one there is. */
-  const arrivalFloor = (wanted: string | null): Floor | undefined => (wanted && floors.get(wanted)) || floors.values().next().value;
+  const arrivalFloor = (wanted: string | null): FloorActions | undefined => anyFloor(wanted) || anyFloors()[0];
 
   const images = new ImageProxy();
 
@@ -915,7 +962,7 @@ export async function startServer(cfg: Config) {
   };
 
   /** The 🔎 search: chat lines, and lines of the terminals of every worker on that floor, with the words in them. */
-  const search = async (q: string, floor: Floor | undefined): Promise<SearchResults> => {
+  const search = async (q: string, floor: FloorActions | undefined): Promise<SearchResults> => {
     q = q.slice(0, SEARCH_MAX);
     const needle = searchKey(q);
     if (needle.length < SEARCH_MIN) return { q, chat: [], terminals: [], more: false };
@@ -1221,7 +1268,7 @@ export async function startServer(cfg: Config) {
     // Their floor's gone since (taken off the building, or its checkout deleted): up to the roof instead.
     const gone = !!wanted && wanted !== ROOF && !floors.has(wanted);
     // Up on the roof, as long as there's a building under it.
-    const onRoof = (wanted === ROOF || gone) && floors.size > 0;
+    const onRoof = (wanted === ROOF || gone) && floorCount() > 0;
     const floor = onRoof ? undefined : arrivalFloor(wanted);
     // Back where they were standing on it too; anywhere else, they arrive by elevator.
     const back = !gone && wanted !== null && (onRoof || floor?.id === wanted);
@@ -1344,16 +1391,16 @@ export async function startServer(cfg: Config) {
     ws.on('error', () => ws.terminate());
   };
 
-  const decorChanged = (floor: Floor) => toFloor(floor, { t: 'decor', items: floor.decor.list() });
+  const decorChanged = (floor: FloorActions) => toFloor(floor, { t: 'decor', items: floor.decor.list() });
   /** The floor's signs or back office changed: its people see it, and everyone sees the building's outside change. */
-  const planChanged = (floor: Floor) => {
+  const planChanged = (floor: FloorActions) => {
     toFloor(floor, { t: 'plan', plan: floor.plan.state() });
     floorsChanged();
   };
-  const ballChanged = (floor: Floor) => toFloor(floor, { t: 'ball', ball: floor.court.state() });
-  const carsChanged = (floor: Floor) => toFloor(floor, { t: 'cars', cars: floor.garage.state() });
-  const jukeboxChanged = (floor: Floor) => toFloor(floor, { t: 'jukebox', state: floor.jukebox.state() });
-  const tvChanged = (floor: Floor) => toFloor(floor, { t: 'tv', state: floor.tv.state() });
+  const ballChanged = (floor: FloorActions) => toFloor(floor, { t: 'ball', ball: floor.court.state() });
+  const carsChanged = (floor: FloorActions) => toFloor(floor, { t: 'cars', cars: floor.garage.state() });
+  const jukeboxChanged = (floor: FloorActions) => toFloor(floor, { t: 'jukebox', state: floor.jukebox.state() });
+  const tvChanged = (floor: FloorActions) => toFloor(floor, { t: 'tv', state: floor.tv.state() });
   const teamState = async () => ({ ...(await team.state()), deploy: cfg.deployScript });
   const teamChanged = async () => broadcast({ t: 'team', state: await teamState() });
 
@@ -1372,7 +1419,7 @@ export async function startServer(cfg: Config) {
    * Takes `c` to another floor: everyone sees them leave and arrive, and they get the new floor's
    * everything. They arrive in the elevator, or `at` the spot they came by.
    */
-  const goToFloor = (c: Client, floor: Floor, at?: { x: number; y: number; z: number; rotY: number }) => {
+  const goToFloor = (c: Client, floor: FloorActions, at?: { x: number; y: number; z: number; rotY: number }) => {
     if (c.peer.floor === floor.id) return;
     const left = leave(c, at);
     Object.assign(c.peer, { floor: floor.id });
@@ -1468,11 +1515,11 @@ export async function startServer(cfg: Config) {
    * A worker took on GitHub issue `n` (an issue card dropped on its desk): assign it on GitHub, which
    * moves it to In progress on the board, and take it off the queue so nobody else is seated for it.
    */
-  const takeIssue = (c: Client, floor: Floor, n: number) => {
+  const takeIssue = (c: Client, floor: FloorActions, n: number) => {
     floor.queue.dropIssue(n);
     const as = c.accountId ? signins.forgeAs(c.accountId, floor.forge.kind) : undefined;
     if (typeof as === 'string') return warn(c, `Couldn't assign issue #${n} on ${FORGE_LABEL[floor.forge.kind]}: ${as}`);
-    void floor.forge.claim(n, as).then((err) => warn(c, err && `Couldn't assign issue #${n} on ${FORGE_LABEL[floor.forge.kind]}: ${err}`));
+    void Promise.resolve(floor.forge.claim(n, as)).then((err) => warn(c, err && `Couldn't assign issue #${n} on ${FORGE_LABEL[floor.forge.kind]}: ${err}`));
   };
 
   /**
@@ -1500,12 +1547,16 @@ export async function startServer(cfg: Config) {
    * Worktrees.fetch): right away when that was just fetched, else after a fetch, if `c` and the floor
    * are still there.
    */
-  const withFreshBase = (c: Client, floor: Floor | Floor[], go: () => void) => {
+  const withFreshBase = (c: Client, floor: FloorActions | FloorActions[], go: () => void) => {
     const all = Array.isArray(floor) ? floor : [floor];
-    const fetching = all.map((f) => f.workers.fetchBase()).filter((p) => p !== undefined);
+    // Only the floors whose checkout is on this machine. A hosted floor's base is fetched by the host,
+    // as part of the `worker.spawn` it is already being sent — fetching it here would mean running git
+    // against a path on someone else's disk, which is the one thing this feature never does.
+    const local = all.map((f) => floors.get(f.id)).filter((f): f is Floor => f !== undefined);
+    const fetching = local.map((f) => f.workers.fetchBase()).filter((p) => p !== undefined);
     if (!fetching.length) return go();
     void Promise.all(fetching).then(() => {
-      if (c.out || c.ws.readyState !== WebSocket.OPEN || all.some((f) => floors.get(f.id) !== f)) return;
+      if (c.out || c.ws.readyState !== WebSocket.OPEN || local.some((f) => floors.get(f.id) !== f)) return;
       go();
     });
   };
@@ -1537,7 +1588,7 @@ export async function startServer(cfg: Config) {
 const handleMessage = async (c: Client, msg: ClientMsg) => {
     const who = c.peer.name;
     /** The floor `c` is on, or a note to them that they have to be on one. */
-    const here = (): Floor | undefined => {
+    const here = (): FloorActions | undefined => {
       const f = floorOf(c);
       if (!f) warn(c, 'Take the elevator to a floor first');
       return f;
@@ -1545,7 +1596,7 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
     /** A worker by id, with the floor it sits on. */
     const worker = (id: unknown) => {
       const wid = str(id, 32);
-      const floor = workerFloor(wid);
+      const floor = anyWorkerFloor(wid);
       return floor ? { wid, floor, info: floor.workers.get(wid)! } : undefined;
     };
     switch (msg.t) {
@@ -1684,11 +1735,13 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
       }
       case 'floor.go': {
         if (msg.floor === ROOF) {
-          if (floors.size) goToRoof(c);
+          if (floorCount()) goToRoof(c);
           else warn(c, 'There is no building to go up on yet');
           break;
         }
-        const floor = floors.get(str(msg.floor, 64));
+        // `anyFloor`, not `floors`: a hosted floor is somewhere you can ride to, and the elevator
+        // panel has already promised the row is rideable by not disabling it.
+        const floor = anyFloor(str(msg.floor, 64));
         if (!floor) warn(c, building.pending().some((d) => d.id === msg.floor) ? "That floor is still being cloned — it'll be ready in a moment" : 'No such floor');
         else goToFloor(c, floor, arrivalSpot(msg.at));
         break;
@@ -1759,25 +1812,36 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
         sendTo(c, { t: 'cars', cars: floor.garage.state(), answer: true });
         break;
       }
+      // Driving and honking are awaited because a hosted floor has to ask the machine that owns the
+      // garage where the car ended up. A car in this process answers with the value directly, and
+      // awaiting a value that is not a promise is a no-op, so an office-side floor pays nothing.
       case 'car.drive': {
         const floor = floorOf(c);
         const car = Math.trunc(num(msg.car));
-        const now = floor?.garage.drive(c.id, car, { x: num(msg.x), z: num(msg.z), rotY: num(msg.rotY), speed: num(msg.speed), steer: num(msg.steer) });
+        const now = await floor?.garage.drive(c.id, car, { x: num(msg.x), z: num(msg.z), rotY: num(msg.rotY), speed: num(msg.speed), steer: num(msg.steer) });
         if (now) toNeighbors(c, { t: 'car.move', car, ...now }, true);
         break;
       }
       case 'car.honk': {
-        const car = floorOf(c)?.garage.honk(c.id);
+        const car = await floorOf(c)?.garage.honk(c.id);
         if (car !== undefined) toNeighbors(c, { t: 'car.honk', car });
         break;
       }
-      case 'dog.pet':
-        floorOf(c)?.dog.pet(c.peer);
+      case 'dog.pet': {
+        const floor = floorOf(c);
+        const local = asLocal(floor);
+        if (local) local.dog.pet(c.peer);
+        // The dog is a file on the floor's own disk, so a hosted floor has none. Saying whose machine
+        // it is on beats a dog that simply did not react.
+        else if (floor) warn(c, floor.refuses('the dog'));
         break;
+      }
       case 'dog.name': {
         const floor = here();
         if (!floor) break;
-        const name = floor.dog.rename(str(msg.name, 200));
+        const local = asLocal(floor);
+        if (!local) return warn(c, floor.refuses('the dog'));
+        const name = local.dog.rename(str(msg.name, 200));
         toastFloor(floor, `🐶 ${who} named the dog ${name}`);
         break;
       }
@@ -1785,7 +1849,7 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
         const floor = here();
         if (!floor) break;
         const kind = msg.kind === 'shell' ? 'shell' : 'agent';
-        if (kind === 'agent' && msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider))) {
+        if (kind === 'agent' && msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project?.agentProviders.includes(msg.provider))) {
           warn(c, 'Unknown agent provider');
           break;
         }
@@ -1814,7 +1878,7 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
       }
       case 'worker.resume': {
         const w = worker(msg.workerId);
-        warn(c, w ? w.floor.workers.resume(w.wid) : 'No such worker');
+        warn(c, w ? await w.floor.workers.resume(w.wid) : 'No such worker');
         break;
       }
       case 'worker.kill': {
@@ -1880,12 +1944,12 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
         const wid = str(msg.workerId, 32);
         c.attached.delete(wid);
         c.typingAt.delete(wid);
-        workerFloor(wid)?.workers.detach(wid, c.id);
+        anyWorkerFloor(wid)?.workers.detach(wid, c.id);
         break;
       }
       case 'worker.prompt': {
         const w = worker(msg.workerId);
-        const err = w ? w.floor.workers.prompt(w.wid, str(msg.prompt, 20000), who) : 'No such worker';
+        const err = w ? await w.floor.workers.prompt(w.wid, str(msg.prompt, 20000), who) : 'No such worker';
         warn(c, err);
         const issue = w?.info.kind === 'agent' ? issueNumber(msg.issue) : undefined;
         if (w && !err && issue) {
@@ -1928,7 +1992,7 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
           // Put it on the board now rather than at the next poll. A refresh already in flight
           // returns at once and can miss it, so look again shortly after.
           const own = r.prs.find((p) => !p.repo || p.repo === info?.worktree?.path.split(/[\\/]/).pop());
-          void floor.forge.refresh().then(() => {
+          void Promise.resolve(floor.forge.refresh()).then(() => {
             if (own && !floor.forge.pulls.items.some((p) => p.number === own.number)) setTimeout(() => void floor.forge.refresh(), 3000);
           });
           for (const x of info?.repos ?? []) void floors.get(x.floor)?.forge.refresh();
@@ -1936,7 +2000,7 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
         break;
       }
       case 'term.input':
-        if (c.attached.has(msg.workerId)) workerFloor(msg.workerId)?.workers.write(msg.workerId, str(msg.data, 64 * 1024), who);
+        if (c.attached.has(msg.workerId)) anyWorkerFloor(msg.workerId)?.workers.write(msg.workerId, str(msg.data, 64 * 1024), who);
         break;
       case 'term.typing': {
         // Everyone else in that terminal sees who's typing. A typist says so about once a second.
@@ -1962,7 +2026,7 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
         break;
       }
       case 'term.resize':
-        if (c.attached.has(msg.workerId)) workerFloor(msg.workerId)?.workers.resize(msg.workerId, num(msg.cols), num(msg.rows));
+        if (c.attached.has(msg.workerId)) anyWorkerFloor(msg.workerId)?.workers.resize(msg.workerId, num(msg.cols), num(msg.rows));
         break;
       case 'gh.refresh':
         void floorOf(c)?.forge.refresh();
@@ -1976,7 +2040,7 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
           c,
           floor,
           (as) =>
-            void floor.forge.merge(n, method, msg.deleteBranch === true, msg.auto === true, as).then((error) => {
+            void Promise.resolve(floor.forge.merge(n, method, msg.deleteBranch === true, msg.auto === true, as)).then((error) => {
               sendTo(c, { t: 'gh.merged', number: n, error });
               if (error) return;
               toastFloor(floor, msg.auto ? `${who} set PR #${n} to merge once its checks pass` : `🎉 ${who} merged PR #${n}`);
@@ -2004,7 +2068,7 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
           c,
           floor,
           (as) =>
-            void floor.forge.comment(kind, n, body, as).then((r) => {
+            void Promise.resolve(floor.forge.comment(kind, n, body, as)).then((r) => {
               sendTo(c, { t: 'gh.commented', kind, number: n, ...r });
               if (r.comment) toastFloor(floor, `💬 ${who} commented on ${kind === 'pull' ? 'PR' : 'issue'} #${n}`);
             }),
@@ -2037,7 +2101,7 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
           c,
           floor,
           (as) =>
-            void floor.forge.close(kind, n, { comment: str(msg.comment, 20000).trim() || undefined, reason, deleteBranch: msg.deleteBranch === true }, as).then(async (error) => {
+            void Promise.resolve(floor.forge.close(kind, n, { comment: str(msg.comment, 20000).trim() || undefined, reason, deleteBranch: msg.deleteBranch === true }, as)).then(async (error) => {
               sendTo(c, { t: 'gh.closed', kind, number: n, error });
               if (error) return;
               if (kind === 'pull') return toastFloor(floor, `${who} closed PR #${n} without merging`);
@@ -2065,7 +2129,7 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
           c,
           floor,
           (as) =>
-            void floor.forge.setLabels(kind, n, add, remove, as).then((r) => {
+            void Promise.resolve(floor.forge.setLabels(kind, n, add, remove, as)).then((r) => {
               sendTo(c, { t: 'gh.labeled', kind, number: n, ...r });
               if (r.labels) toastFloor(floor, `🏷️ ${who} labeled ${kind === 'pull' ? 'PR' : 'issue'} #${n}: ${[...add.map((l) => `+${l}`), ...remove.map((l) => `−${l}`)].join(' ')}`);
             }),
@@ -2076,7 +2140,7 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
       case 'queue.add': {
         const floor = here();
         if (!floor) break;
-        if (msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider))) {
+        if (msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project?.agentProviders.includes(msg.provider))) {
           warn(c, 'Unknown agent provider');
           break;
         }
@@ -2093,7 +2157,7 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
       }
       case 'queue.remove': {
         const floor = here();
-        if (floor) warn(c, floor.queue.remove(str(msg.taskId, 32)));
+        if (floor) warn(c, await floor.queue.remove(str(msg.taskId, 32)));
         break;
       }
       case 'queue.move':
@@ -2101,7 +2165,7 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
         break;
       case 'queue.retry': {
         const floor = here();
-        if (floor) warn(c, floor.queue.retry(str(msg.taskId, 32)));
+        if (floor) warn(c, await floor.queue.retry(str(msg.taskId, 32)));
         break;
       }
       case 'queue.clear':
@@ -2113,7 +2177,7 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
       case 'meeting.start': {
         const floor = here();
         if (!floor) break;
-        if (msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider))) {
+        if (msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project?.agentProviders.includes(msg.provider))) {
           warn(c, 'Unknown agent provider');
           break;
         }
@@ -2133,17 +2197,17 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
           model: msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1),
           effort: isAgentEffort(msg.effort) ? msg.effort : undefined,
         };
-        withSignIn(c, claudeFor(request.provider ?? floor.workers.officeDefault.provider), () => withFreshBase(c, floor, () => warn(c, floor.meetings.start(request, who, c.accountId))));
+        withSignIn(c, claudeFor(request.provider ?? floor.workers.officeDefault.provider), () => withFreshBase(c, floor, async () => warn(c, await floor.meetings.start(request, who, c.accountId))));
         break;
       }
       case 'meeting.stop': {
         const floor = here();
-        if (floor) warn(c, floor.meetings.stop(who));
+        if (floor) warn(c, await floor.meetings.stop(who));
         break;
       }
       case 'meeting.clear': {
         const floor = here();
-        if (floor) warn(c, floor.meetings.clear(who));
+        if (floor) warn(c, await floor.meetings.clear(who));
         break;
       }
       case 'notify.webhook': {
@@ -2395,7 +2459,9 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
       case 'wb.update': {
         const floor = here();
         if (!floor) break;
-        const { accepted, error } = floor.whiteboard.apply(msg.elements);
+        const local = asLocal(floor);
+        if (!local) return warn(c, floor.refuses('the whiteboard'));
+        const { accepted, error } = local.whiteboard.apply(msg.elements);
         if (accepted.length) toNeighbors(c, { t: 'wb.update', elements: accepted });
         warn(c, error);
         break;
@@ -2485,7 +2551,7 @@ case 'jukebox.place': {
         const floor = here();
         if (!floor) break;
         const was = floor.tv.state();
-        const r = floor.tv.play({ url: msg.url, position: msg.position }, who);
+        const r = await floor.tv.play({ url: msg.url, position: msg.position }, who);
         if ('error' in r) return warn(c, r.error);
         if (!r.changed) break;
         tvChanged(floor);
@@ -2605,11 +2671,13 @@ case 'jukebox.place': {
     }
   };
 
-  const resync = setInterval(() => {
+  const resync = setInterval(async () => {
     for (const c of clients.values()) {
       if (!c.stale.size || c.ws.bufferedAmount > SLOW_CLIENT_BYTES / 8) continue;
+      // Awaited because on a hosted floor the screen comes off that machine, and a stale client
+      // needs the newest one rather than the last one that happened to be here.
       for (const wid of c.stale) {
-        const snap = c.attached.has(wid) ? workerFloor(wid)?.workers.attach(wid, c.id, c.peer.name) : undefined;
+        const snap = c.attached.has(wid) ? await anyWorkerFloor(wid)?.workers.attach(wid, c.id, c.peer.name) : undefined;
         if (snap) sendTo(c, { t: 'term.snapshot', workerId: wid, ...snap });
       }
       c.stale.clear();

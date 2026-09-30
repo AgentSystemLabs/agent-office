@@ -139,6 +139,12 @@ export class HostFloors {
     state('cars', { state: floor.garage.state() });
     state('meeting', { state: floor.meetings.state() });
     state('tv', { state: floor.tv.state() });
+    // The two boards and the dungeon joined them when riding onto a hosted floor became a thing: the
+    // office builds the view someone walks into out of exactly these, so a board or a jail that is
+    // read but never reported is a room that arrives empty for no reason anyone can see.
+    state('gh.issues', { state: floor.forge.issues.state });
+    state('gh.pulls', { state: floor.forge.pulls.state });
+    state('jail', { state: floor.jail.state() });
   }
 
   /** Tells the office a floor is up, with its seats and whoever is already on it. */
@@ -158,6 +164,11 @@ export class HostFloors {
         // This machine's own identity: commits from here are attributed to whoever runs it, which is
         // the point of a hosted floor running on their sign-ins (decision 5).
         forge: floor.forge.kind,
+        // Only this machine knows these: which branch its checkout is on, and which agent CLIs are
+        // actually installed here. The office needs both to describe the floor to someone who rides
+        // into it from here, and it cannot work either out from its own disk.
+        branch: floor.project.branch,
+        providers: floor.project.agentProviders,
         workers: floor.workers.list().map((w) => ({ id: w.id, status: w.status, deskId: w.deskId })),
       },
     });
@@ -338,6 +349,8 @@ export class HostFloors {
 
       case 'jukebox.play':
         return str(await floor.jukebox.play({ track: m.track, url: m.url }, s('by')));
+      case 'jukebox.place':
+        return str(await floor.jukebox.place(m.spot));
       case 'jukebox.skip':
         floor.jukebox.skip(s('by'));
         return undefined;
@@ -345,6 +358,10 @@ export class HostFloors {
         return str(await floor.jukebox.stop(s('by')));
       case 'ball.take':
         return str(await floor.court.take(s('clientId')));
+      // The ball rides with the people on the floor, so it is the host's to put back under the hoop
+      // when someone leaves. The office asks, because the office is the one that knows they left.
+      case 'ball.left':
+        return str(floor.court.left(s('clientId')));
       case 'ball.throw':
         return str(await floor.court.throw(s('clientId'), m as never));
       case 'car.enter':
@@ -369,6 +386,7 @@ export class HostFloors {
 
       case 'meeting.start':
       case 'meeting.stop':
+      case 'meeting.clear':
         // A meeting needs the room's people, which this machine does not know. Refused by kind; the
         // office refuses it too.
         return 'a meeting needs everyone in one building';

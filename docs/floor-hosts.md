@@ -12,7 +12,8 @@ no firewall change, no NAT traversal.
 
 > **Status: a machine pairs, connects, runs a real floor, answers calls against it, and the floor
 > appears in the elevator with its machine's name and whether that machine is answering.** Riding
-> into one is not wired yet. See [what is not done](#what-is-not-done) before relying on this.
+> into one works: the floor is a real room you can walk into, with the machine's name on its door.
+> See [what is not done](#what-is-not-done) for the parts that are still missing.
 
 ## Pairing
 
@@ -120,7 +121,7 @@ Stated plainly, because the alternative is someone finding out the hard way:
 
 | | |
 |---|---|
-| **Riding into a hosted floor is not wired.** | It is on the elevator panel, with its machine and its online state, but `floor.go` still resolves floors from the local building, so clicking it does not take you there yet. |
+| ~~Riding into a hosted floor is not wired.~~ | **Done.** You can ride to one from the elevator and stand in it. The room is built from the state the host streams up, so the boards, the queue, the plan, the cars and the ball all arrive with you; the dog, the whiteboard and the docs do not, because they are files on that machine, and asking for one tells you so by name. |
 | ~~The host does not run a real `Floor`.~~ | **Done.** The host opens a real `Floor` — the same class the office runs — with its own `WorkerManager`, `TaskQueue`, `Forge` and `Changes` on this disk, and answers the office's calls against it. |
 | **An agent's office tools are unavailable.** | The host serves `/hooks/*` so a worker's status reaches it, but not the office's `/office/*` MCP endpoints. An agent on a hosted floor cannot use its `office-workers` tools; everything else works. |
 | **A machine is not yet told its floors by the office's building list at startup** in every path. | `floorsFor` reads the building, so it is correct for a floor added with a `host`; adding one from the UI is not wired. |
@@ -148,11 +149,21 @@ building knows a floor's host id long before anyone claims the code.
 ## Trying it without two machines
 
 ```bash
-npx tsx scripts/e2e-floor-host.mjs
+npm run e2e:floor-host
 ```
 
 Runs both sides in one process: a pairing code, a token kept at `0600`, a floor served, the machine
 going away, and the same machine coming back with its token and no code.
+
+```bash
+npm run e2e:floor-ride
+```
+
+Starts three real processes — the office, a floor-host on "another machine", and a browser client —
+and rides the elevator up to the hosted floor for real. This is the one that would have caught the
+bug that made a hosted floor visible and not enterable: the other two wire the registry and the proxy
+by hand, so neither could ever reach `floor.go`. It needs no client bundle (`dist/` gets a stub it
+removes afterwards, because it only ever speaks `/ws`).
 
 ```bash
 npm run demo:floor-host

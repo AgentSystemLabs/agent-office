@@ -120,6 +120,42 @@ test('a paired machine connects, announces a floor, and the office knows it', as
   }
 });
 
+test('everything a machine announces reaches the proxy, not just the registry', async () => {
+  // `ready` is the one frame the registry handles itself, and handling it there alone is a silent
+  // trap: the office's `RemoteFloor` is where the roster, the branch, the agent list and the forge
+  // kind are read from, and none of them arrive any other way. Dropping it here is an elevator that
+  // always says zero workers and a Bitbucket floor the office goes on treating as GitHub.
+  const f = await server();
+  try {
+    const made = f.hosts.pair('admin');
+    assert.ok(typeof made !== 'string');
+    const claimed = f.hosts.claim(made.code, 'Alice’s laptop', 'alice', 4);
+    assert.ok(typeof claimed !== 'string');
+
+    const upward: { floorId: string; t: string; floor?: unknown }[] = [];
+    f.registry.onUpward = (floorId, msg) => upward.push({ floorId, ...(msg as { t: string }) });
+
+    const ws = await connect(f.url, claimed.token, ['f1']);
+    ws.send(JSON.stringify({ t: 'ready', floor: ready('f1', { seats: 4, branch: 'release/2', providers: ['claude', 'opencode'], workers: [{ id: 'w1', status: 'working', deskId: 'desk-1' }] }) }));
+    await new Promise((r) => setTimeout(r, 120));
+
+    const told = upward.find((m) => m.t === 'ready');
+    assert.ok(told, 'the proxy is handed the ready frame');
+    assert.equal(told.floorId, 'f1');
+    const payload = told.floor as { branch?: string; providers?: string[]; workers: { id: string }[] };
+    assert.equal(payload.branch, 'release/2', 'the branch only that machine knows');
+    assert.deepEqual(payload.providers, ['claude', 'opencode'], 'and the agents it actually has');
+    assert.deepEqual(
+      payload.workers.map((w) => w.id),
+      ['w1'],
+      'and the roster of workers already on it',
+    );
+    ws.close();
+  } finally {
+    f.close();
+  }
+});
+
 test('one socket carries several floors, and losing it loses them all in one pass', async () => {
   // decision 6, and the reason this class is shaped this way: the socket is the unit of failure, so a
   // drop marks every floor at once rather than letting the first worker exit decide.
@@ -308,11 +344,18 @@ test('an upward frame reaches whoever holds that floor proxy', async () => {
     for (const id of ['f1', 'f2']) ws.send(JSON.stringify({ t: 'ready', floor: ready(id) }));
     await new Promise((r) => setTimeout(r, 120));
 
-    // An answer to a call, and a plain event: both are the floor talking upward.
+    // An answer to a call, and a plain event: both are the floor talking upward. And the two `ready`
+    // frames ahead of them, which the registry handles itself but must still hand on — the proxy is
+    // where the roster, the branch and the forge kind are read from, and nothing else carries them.
     ws.send(JSON.stringify({ t: 'event', floorId: 'f1', seq: 7, msg: { t: 'worker.update' } }));
     ws.send(JSON.stringify({ t: 'term.data', floorId: 'f2', workerId: 'w1', data: 'hi' }));
     await new Promise((r) => setTimeout(r, 120));
-    assert.deepEqual(upward, [{ floorId: 'f1', t: 'event' }, { floorId: 'f2', t: 'term.data' }]);
+    assert.deepEqual(upward, [
+      { floorId: 'f1', t: 'ready' },
+      { floorId: 'f2', t: 'ready' },
+      { floorId: 'f1', t: 'event' },
+      { floorId: 'f2', t: 'term.data' },
+    ]);
 
     // And losing the machine tells the office about every floor it carried, in one pass.
     ws.close();

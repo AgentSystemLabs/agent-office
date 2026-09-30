@@ -127,11 +127,18 @@ test('a write nobody reads the answer to still ships', () => {
 
 test('the three host-local features refuse by name rather than silently', () => {
   // The whiteboard, the dog and the docs are files in the floor's own data directory. Serving them
-  // would mean the office reading a checkout it must never touch, so they refuse and say where the
-  // thing actually is. A gap that names itself beats a button that does nothing.
+  // would mean the office reading a checkout it must never touch, so they are not on the surface at
+  // all and `refuses` is how the office says so out loud — naming the machine. A gap that names
+  // itself beats a button that does nothing.
   const floor = make();
   for (const feature of ['the whiteboard', 'the dog', 'the docs'] as const) {
-    assert.equal(floor.refuse(feature), `${feature} is on Alice’s laptop, which hosts this floor`);
+    assert.equal(floor.refuses(feature), `${feature} is on Alice’s laptop, which hosts this floor`);
+  }
+  // And they really are unreachable rather than merely unimplemented: nothing on the surface can
+  // return one, which is the guarantee the office relies on to never ask for them.
+  const surface = floor as unknown as Record<string, unknown>;
+  for (const member of ['whiteboard', 'dog', 'docs']) {
+    assert.equal(surface[member], undefined, `a hosted floor must not be asked for its ${member}`);
   }
 });
 
