@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GONG } from '../../../shared/layout';
 import { mesh, roundedBox, textPlane, toon, toonUnique } from '../../world/toon';
-import type { Collider, Interactable } from '../../world/office';
+import type { Collider, Interactable } from '../../world/types';
 import type { Fixture } from '../../world/office/fixture';
 import { boxFootprint } from '../../../shared/maps/props';
 

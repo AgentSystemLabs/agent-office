@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { model, paintModel, palette } from './models';
 import { toon } from './toon';
-import type { Collider, Interactable } from './office';
+import type { Collider, Interactable } from './types';
 import type { Fixture } from './office/fixture';
 
 // The kitchen corner against the south wall, modelled in Blender (blender/scripts/build_kitchen.py): a

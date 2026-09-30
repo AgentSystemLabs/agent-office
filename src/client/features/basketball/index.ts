@@ -10,7 +10,7 @@ import { store } from '../../state';
 import { $, clip, h, modalOpen, toast } from '../../ui/dom';
 import type { Person } from '../../world/character';
 import { Basketball, IN_HANDS } from './world';
-import type { Interactable } from '../../world/office';
+import type { Interactable } from '../../world/types';
 import { disposeSprite, textSprite } from '../../world/toon';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).

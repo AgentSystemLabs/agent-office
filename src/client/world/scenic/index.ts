@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { FARM, LIGHTHOUSE } from '../../../shared/scenic';
-import type { Collider } from '../office';
+import type { Collider } from '../types';
 import type { Fixture, StreetSite } from '../office/fixture';
 import type { NightParts } from '../outside';
 import { hazeReach } from '../sky';

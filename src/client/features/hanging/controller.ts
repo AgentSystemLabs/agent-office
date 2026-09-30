@@ -6,7 +6,7 @@ import { store } from '../../state';
 import { openHangDialog, openPicture, type HangChoice } from './ui';
 import { toast } from '../../ui/dom';
 import { Ghost, aimAtWall, brokenTexture, holdPicture, loadPicture, type Gallery } from './world';
-import type { Office } from '../../world/office';
+import type { Office } from '../../world/types';
 
 interface Hanging {
   url: string;

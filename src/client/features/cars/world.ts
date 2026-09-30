@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CAR, CARS, SEATS, carPoint, type Box, type CarDef, type CarKind, type CarPose, type CarSeat, type CarState } from '../../../shared/garage';
 import { FLOOR, SLAB, STREET_Y, WALL_T, streetBelow } from '../../../shared/layout';
-import type { Collider, Interactable } from '../../world/office';
+import type { Collider, Interactable } from '../../world/types';
 import type { Fixture, StreetSite } from '../../world/office/fixture';
 import { mergeByMaterial, mesh, toon } from '../../world/toon';
 

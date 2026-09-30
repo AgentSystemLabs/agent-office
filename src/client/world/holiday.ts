@@ -4,7 +4,8 @@ import { BALCONY, DESKS, DESK_SIZE, EXIT_STAIRS, FLOOR, PLANTS, STREET_Y, WALL_H
 import type { Theme } from '../../shared/protocol';
 import { mulberry32 } from '../../shared/rng';
 import { batWingGeometry, glowTexture } from './costumes';
-import { plantLeaves, type Collider, type Office } from './office';
+import { plantLeaves } from './office';
+import type { Collider, Office } from './types';
 import { SPOOKY_MOON } from './sky';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
 

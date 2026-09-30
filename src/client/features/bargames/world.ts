@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { AXE_LANE, AXE_TARGET, DART, DARTBOARD, DART_NUMBERS, targetFrame, throwSpot, type BarGame, type Score, type Toss } from '../../../shared/bargames';
 import { FLOOR } from '../../../shared/layout';
-import type { Collider, Interactable } from '../../world/office';
+import type { Collider, Interactable } from '../../world/types';
 import { bulb, type NightParts } from '../../world/outside';
 import { canvasTexture } from '../../world/texture';
 import { disposeSprite, mergeByMaterial, mesh, textPlane, textSprite, toon } from '../../world/toon';

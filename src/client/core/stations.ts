@@ -1,7 +1,7 @@
 /** The board agents: what each is for, and the ones waiting by their boards before anyone has asked them anything. */
 import { STATION_AGENT, type StationKind } from '../../shared/layout';
 import { Worker } from '../world/character';
-import type { DeskView } from '../world/office';
+import type { DeskView } from '../world/types';
 import type { World } from '../world/world';
 import { noOutline } from './outline';
 

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BALCONY, FLOOR, GOLF_HOLE, GOLF_TEE, ROAD, SLAB, STOREY, STREET_Y, WALL_HEIGHT, WALL_T } from '../../../shared/layout';
-import type { Collider, Interactable } from '../../world/office';
+import type { Collider, Interactable } from '../../world/types';
 import type { Fixture, StreetSite } from '../../world/office/fixture';
 import { bulb, neighbourBoxes, streetLamp, tree, type NightParts } from '../../world/outside';
 import { disposeSprite, mergeByMaterial, mesh, textPlane, textSprite, toon } from '../../world/toon';

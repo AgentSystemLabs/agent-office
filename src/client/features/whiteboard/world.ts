@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { WHITEBOARD } from '../../../shared/layout';
 import { mesh, roundedBox, textPlane, toon } from '../../world/toon';
-import type { Collider, Interactable } from '../../world/office';
+import type { Collider, Interactable } from '../../world/types';
 import type { Fixture } from '../../world/office/fixture';
 
 // The whiteboard: a rolling whiteboard on casters out on the open floor, with a marker tray. Its

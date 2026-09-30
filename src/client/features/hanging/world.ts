@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FRAMES, FRAME_BORDER, WALLS, frameRect, wallPose, wallTop, type Decoration, type WallId, type WallRect } from '../../../shared/decor';
 import { FLOOR, LOFT } from '../../../shared/layout';
-import type { Interactable } from '../../world/office';
+import type { Interactable } from '../../world/types';
 import { toon } from '../../world/toon';
 
 // ---- Pictures -------------------------------------------------------------------------------------

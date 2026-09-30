@@ -6,7 +6,7 @@ import { buildBarGames, type BarGamesView } from '../bargames/world';
 import { Worker } from '../../world/character';
 import { buildCity, type City } from '../../world/city';
 import { buildElevator, type Elevator } from '../../world/elevator';
-import type { Collider, Interactable } from '../../world/office';
+import type { Collider, Interactable } from '../../world/types';
 import { bulb, type NightParts } from '../../world/outside';
 import { canvasTexture } from '../../world/texture';
 import { mergeByMaterial, mesh, roundedBox, toon, toonUnique } from '../../world/toon';

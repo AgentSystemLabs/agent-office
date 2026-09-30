@@ -3,7 +3,7 @@ import { BARK_EVERY_S, BARK_FOR_S, DOG_COATS, dogAt, dogBreed, legSeconds, type 
 import type { Theme } from '../../../shared/protocol';
 import { dogAntlers, dogBatWings, dogRedNose, dogScarf, dogWitchHat } from '../../world/costumes';
 import { loadModel, type Model } from '../../world/models';
-import type { Interactable } from '../../world/office';
+import type { Interactable } from '../../world/types';
 import { disposeSprite, textSprite, toon, toonUnique } from '../../world/toon';
 
 export interface DogSounds {

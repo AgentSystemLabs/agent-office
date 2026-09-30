@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { ELEVATOR, ELEVATOR_FRONT, FLOOR, ROAD, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
 import { LOT, SIDE_LOT } from '../../shared/garage';
 import { STREET_END, shoreX } from '../../shared/scenic';
-import type { Collider } from './office';
+import type { Collider } from './types';
 import type { Fixture, StreetSite } from './office/fixture';
 import { canvasTexture } from './texture';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';

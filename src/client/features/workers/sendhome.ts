@@ -4,7 +4,7 @@ import type { Pt } from '../../../shared/nav';
 import type { Person, Worker } from '../../world/character';
 import type { Jail } from './jail';
 import type { Laptop } from './laptop';
-import type { DeskView } from '../../world/office';
+import type { DeskView } from '../../world/types';
 import type { World } from '../../world/world';
 
 /*

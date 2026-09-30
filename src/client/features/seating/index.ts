@@ -8,7 +8,7 @@ import { aside, hintTitle, key, onE } from '../../core/hint';
 import { store } from '../../state';
 import type { Arcade } from '../arcade/ui';
 import { toast } from '../../ui/dom';
-import type { Interactable } from '../../world/office';
+import type { Interactable } from '../../world/types';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {

@@ -3,7 +3,7 @@ import { DUNGEON_PILLAR } from '../../shared/maps/dungeon';
 import type { DungeonPlan } from '../../shared/maps';
 import { boxFootprint } from '../../shared/maps/props';
 import { NavGrid, type Rect } from '../../shared/nav';
-import type { Collider } from './office';
+import type { Collider } from './types';
 import { mesh, toon } from './toon';
 
 /*

@@ -17,7 +17,7 @@ import type { Voice } from '../voice';
 import type { Person } from '../world/character';
 import type { Confetti } from '../world/confetti';
 import type { Hands } from '../world/hands';
-import type { Interactable, Office } from '../world/office';
+import type { Interactable, Office } from '../world/types';
 import type { Sky } from '../world/sky';
 import type { Smoke } from '../world/smoke';
 import type { World } from '../world/world';

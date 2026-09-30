@@ -6,7 +6,7 @@ import type * as THREE from 'three';
 import type { CarriedIssue } from '../../shared/protocol';
 import type { Grip } from '../features/climbing/controller';
 import { store } from '../state';
-import type { Interactable } from '../world/office';
+import type { Interactable } from '../world/types';
 import type { Ctx, OfficeInteraction, StopWhy, Trip } from './context';
 import type { Parts } from './parts';
 import { Activities, Hooks, Interactions, Keys, Messages, Ticks, Usables, View } from './registry';

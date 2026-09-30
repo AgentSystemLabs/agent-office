@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { JUKEBOX } from '../../../shared/layout';
 import { mesh, roundedBox, textSprite, toon, toonUnique } from '../../world/toon';
-import type { Collider, Interactable } from '../../world/office';
+import type { Collider, Interactable } from '../../world/types';
 import type { Fixture } from '../../world/office/fixture';
 
 // The lounge jukebox: a cherry-red cabinet with a rounded top, a neon tube round its face that

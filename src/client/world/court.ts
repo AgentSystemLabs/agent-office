@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { MapPlan } from '../../shared/maps';
 import type { NavGrid, Pt } from '../../shared/nav';
 import type { Worker } from './character';
-import type { DeskView, Interactable } from './office';
+import type { DeskView, Interactable } from './types';
 
 /*
  * The castle's workers getting up and walking about the hall (see MapPlan.lineup). One waiting on

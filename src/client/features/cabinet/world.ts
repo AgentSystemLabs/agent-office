@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CABINET, FLOOR } from '../../../shared/layout';
 import { mesh, roundedBox, toon } from '../../world/toon';
-import type { Collider, Interactable } from '../../world/office';
+import type { Collider, Interactable } from '../../world/types';
 import type { Fixture } from '../../world/office/fixture';
 
 // The arcade cabinet in the lounge: an upright in blue side panels, a lit marquee on top, the screen

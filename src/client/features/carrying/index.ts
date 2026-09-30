@@ -14,7 +14,7 @@ import { issueMeeting, type MeetingPreset } from '../../ui/meeting';
 import { worktreePref } from '../../ui/prompt';
 import { officeChoice } from '../../ui/provider';
 import { hiringPaused } from '../../ui/usage';
-import type { Interactable } from '../../world/office';
+import type { Interactable } from '../../world/types';
 
 export interface CarryingDeps {
   /** Puts `card` in your hands, or none: what ctx.carrying says from then on. */

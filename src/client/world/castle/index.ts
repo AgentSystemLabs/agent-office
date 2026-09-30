@@ -7,7 +7,7 @@ import { NavGrid, type Pt } from '../../../shared/nav';
 // file, so the materials the modules make as they load keep their order (three sorts by it).
 import { buildEscort, buildHerald } from './people';
 import { buildDungeon, type DungeonView } from '../dungeon';
-import type { Interactable } from '../office';
+import type { Interactable } from '../types';
 import { canvasTexture } from '../texture';
 import { mergeByMaterial } from '../toon';
 import type { World } from '../world';
