@@ -101,6 +101,18 @@ the unions that already exist is not.
 | host → office | control: `hello`, `ready`, `bye`, `heartbeat` | new, small |
 | either | terminal bytes, screen frames | ride the two channels above |
 
+The office's own state also reaches the host on `ready` and on change, over the same socket:
+`prompts`, `capacity`, `leaveOnMerge`, `people`, `peers`, and each worker's `pr` and
+`worktree.branch`. What it deliberately does **not** reach is
+[`runAs`, `forgeAs` and `floor(id)`](#what-the-host-receives-and-what-it-must-not).
+
+### Why `workerPr` needs no bypass
+
+Finding 3 is resolved from the code: `workerPr` reads only `w.pr`, `w.worktree.branch`, `pulls` and
+`tasks`, and **all four already ride existing `ctx.emit` streams** — `worker.update` carries the whole
+`WorkerInfo`, and `gh.pulls` and `queue` carry the boards. A hosted floor therefore needs no
+`remote.pr` field, and the office never resolves a PR from a path it cannot see.
+
 Flow control is already signalled: `droppable` is on the `emit` signature and `toFloor`
 (`server.ts:261-265`) already skips clients whose `bufferedAmount > 4 * 1024 * 1024`. A transport
 that honors `droppable` gets back-pressure for free.
@@ -335,33 +347,47 @@ Note what this buys: today `/office/workers` requires `?worker=<id>`, the per-wo
 *and* a live PTY or ACP session (`workers.ts:584`). Over a floor host those checks are unchanged and
 now enforced where the processes actually are.
 
-### 3. PR discovery breaks silently, in four separate places 🔄 mostly dissolves
+### 3. PR discovery breaks silently, in four separate places ✅ resolved — no shortcut needed
 
-**Probably dissolves — and the spike must confirm it.** The bridge had no office-side worktree, so
-`workerPr` could not match a branch and needed a `remote.pr` shortcut:
+**Answered from the code, not deferred to the spike. `workerPr` works unchanged, and `remote.pr` is
+not part of the design.**
 
-```ts
-export function workerPr(w: WorkerInfo, pulls: GhPull[], tasks: QueueTask[]): WorkerPr | undefined
-```
-
-It matches by PR number or `w.worktree.branch === p.headRefName`. A floor host **runs `gh` itself**
-and already streams board state upward through `ctx.emit`:
+`workerPr` (`src/shared/status.ts:34-47`) is the only thing standing between a landed worker and a
+worker that sits at a desk forever. It takes exactly three inputs:
 
 ```ts
-// floor.ts:218-219
-issues: (state: GhState<GhIssue>) => ctx.emit(this, { t: 'gh.issues', state }),
-pulls:  (state: GhState<GhPull>)  => ctx.emit(this, { t: 'gh.pulls', state }),
+export function workerPr(w: WorkerInfo, pulls: GhPull[], tasks: QueueTask[]): WorkerPr | undefined {
+  const mine = new Set<number>();
+  if (w.pr) mine.add(w.pr.number);
+  for (const t of tasks) if (t.workerId === w.id && t.pr) mine.add(t.pr.number);
+  const seen = pulls.filter((p) => mine.has(p.number) || (w.worktree && w.worktree.branch === p.headRefName))…
 ```
 
-So the office *has* the pulls for that floor, and if the host reports `worktree.branch` in
-`WorkerInfo` — a string, no filesystem involved — `workerPr` matches the branch it always matched.
-No `remote.pr` field, no synthesised `GhPull`.
+| Input | Where a hosted floor gets it | Already streams? |
+|---|---|---|
+| `w.pr` | set by `openPr` at `workers.ts:999` / `:1007`, which runs `git` and `gh` **in the worktree** — on the host | ✅ `worker.update` carries the whole `WorkerInfo` (`floor.ts:180`), and `pr?: { number, url }` is part of it (`protocol.ts:117`) |
+| `w.worktree.branch` | created on the host by `Worktrees` | ✅ same message; `branch` is a plain string, no path needed |
+| `pulls` | the host runs `gh` | ✅ `{ t: 'gh.pulls', state }` (`floor.ts:219`) |
+| `tasks` | the queue is per-floor, so it is the host's | ✅ `{ t: 'queue', state }` (`floor.ts:236`) |
 
-Four call sites still matter and still have **no test coverage at all**
-(`office-workers.ts:66`, `leave-on-merge.ts:104`, two in `client/main.ts`): `landedWork` is how a
-merged PR sends its worker home, so a miss means a worker sits at a desk forever, and the gong never
-rings. Keep the `remote.pr` fallback for the case where the branch genuinely cannot be reported, and
-**write the test either way** — this is spike question 3.
+**Every input already rides a `ctx.emit` stream.** `workerPr` is not reached by a hosted floor's
+missing worktree path — it never touches one; it only ever reads `w.worktree.branch`, which is a
+string the host reports like anything else. So the bridge plan's `remote.pr` shortcut, and its
+"trust it directly because the bridge is the only party that can have set it" hedge, both disappear.
+
+This is the case the proposal got wrong in the other direction: it built a bypass for a problem the
+floor boundary does not have.
+
+What survives from the original finding is the **testing**, not the fix. `workerPr` has four call
+sites — `office-workers.ts:66`, `leave-on-merge.ts:104`, and two in `client/main.ts` — and **no test
+coverage at all**, which is why the analysis above had to be done by hand. `landedWork`
+(`leave-on-merge.ts:104`) is what sends a landed worker home; a silent miss means a worker sits at a
+desk forever and the gong never rings, which is the difference between collaboration and a machine
+that is quietly busy. `tests/status.test.ts` covers it — see [the test plan](#test-plan).
+
+One caveat the spike still owns: whether the board state arrives **fast enough**. `workerPr` is
+correct offline; it is the refresh timing that decides whether the gong is timely, and that is a
+latency question, not a correctness one.
 
 ### 4. "No retained scrollback" is four switches, not one 🔄 becomes structural
 
@@ -604,17 +630,20 @@ Throwaway — it does not become `bin/agent-office-floors.js`.
 
 **Measure, and write the numbers down:**
 
+Only **two** questions remain here. The third — whether `workerPr` needs a bypass — was answered from
+the code while writing this plan, and the answer is no: all four of its inputs already ride existing
+`ctx.emit` streams (finding 3). Do not re-derive it.
+
 1. **Does the headless-xterm mirror stay correct through real latency and a reconnecting socket?**
    Force a reconnect mid-stream and confirm the office does not double-render or drop the last
    screen. This is also where the two-hop cost (finding 11) gets its first number.
 2. **Does `data` racing status visibly corrupt the status machine?** If yes, frames get a sequence
    number. Learn that here, not after the UI exists.
-3. **Does `workerPr` work when the host reports `worktree.branch` and streams `gh.pulls`?** This is
-   finding 3 in miniature and it decides whether `remote.pr` exists at all. If PR discovery needs the
-   shortcut after all, the frame shape changes and every later phase inherits it.
 
-**Exit criteria:** all three answered, in a comment on the issue. If (2) is real, `seq` goes on every
-host frame in Phase B and costs nothing to add.
+**Exit criteria:** both answered, in a comment on the issue. If (2) is real, `seq` goes on every host
+frame in Phase B and costs nothing to add. Neither answer changes the frame *set* — both only decide
+whether frames carry a `seq`. That is the property worth protecting while the spike runs: **the
+protocol's shape is settled; only its bookkeeping is open.**
 
 ### Phase B — the wire
 
@@ -659,8 +688,10 @@ rather than spinning.
 3. **`building.ts:273`'s floor gate** — the `continue` that silently drops a floor whose `dir` is not
    an absolute string — learns to ask the host instead, and a hosted floor with no connection is
    **listed but inert**, never dropped from the building (finding 9).
-4. **Board and Changes stream up** through `ctx.emit` (`gh.issues`, `gh.pulls`, `changes`).
-   `workerPr` then works unchanged (finding 3), with `remote.pr` as the fallback.
+4. **Board and Changes stream up** through `ctx.emit` (`gh.issues`, `gh.pulls`, `changes`,
+   `queue`, `worker.update`). That set is what makes `workerPr` work unchanged (finding 3), so it is
+   a correctness requirement, not just plumbing — if any one of those four streams is dropped,
+   `landedWork` stops sending landed workers home.
 5. **The PTY path** — laptop → office → browser. Resizes debounced at the transport (finding 5),
    `droppable` honored (finding 11), search served by the host (findings 4, 9).
 6. **`gone` handling in `WorkerManager`** — workers on a disconnected floor go `offline` and stay
@@ -748,7 +779,7 @@ to test the generated payload and normalisation, not the upstream CLI; a hosted 
 | `tests/workers.test.ts` (extend) | Persistence and restore of a hosted worker, including the `offline`-until-the-host-returns boot path and the interrupted-mid-turn flag on a dropped socket. |
 | `tests/queue.test.ts` (extend) | A task aimed at a floor whose host is disconnected stays queued and is **not** failed. A task aimed at a floor that is not accepting is refused with a message naming the machine. |
 | `tests/agents.test.ts` (extend) | Model and effort refused by the host with a message that says the host decides. |
-| `tests/status.test.ts` (new) | `workerPr` returns the PR for a hosted worker from the streamed board state, so `landedWork` can send it home. There is no such test file today; `workerPr` has none at all — this is finding 3's guard. |
+| `tests/status.test.ts` (new) | **`workerPr` on a hosted floor's four inputs, and nothing else.** A worker whose `pr` arrives only via `worker.update`, whose branch matches only a streamed `gh.pulls`, and whose PR exists only in a streamed `queue` — resolves to `open`, then `merged`, so `landedWork` sends it home. `workerPr` has no test at all today; this is finding 3's whole surviving lesson, since the fix turned out to be "the streams already carry it." |
 | `tests/changes.test.ts` (extend) | The Changes window for a hosted floor is served by the host, not by reading `def.dir` office-side. |
 
 Five properties deserve their own test names because they are the ones that would silently rot:
