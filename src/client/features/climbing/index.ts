@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { LADDER, POLE, POLES, WALL_HEIGHT } from '../../../shared/layout';
 import type { FloorInfo } from '../../../shared/protocol';
-import { Climber, type Arrival, type Grip, type Way } from '../../climb';
+import { Climber, type Arrival, type Grip, type Way } from './controller';
 import type { Ctx } from '../../core/context';
 import { builtFloors } from '../../core/floors';
 import { aside, hintTitle, key, onE } from '../../core/hint';

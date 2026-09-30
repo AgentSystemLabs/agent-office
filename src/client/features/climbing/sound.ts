@@ -1,5 +1,5 @@
-import type { AudioCore } from './core';
-import { biquad, envelope, pick, rand } from './dsp';
+import type { AudioCore } from '../../sound/core';
+import { biquad, envelope, pick, rand } from '../../sound/dsp';
 
 // The ladder and the fire poles: rungs, the hatch at the top, your head on the ceiling, and the slide down.
 

@@ -1,4 +1,4 @@
-import { hatch } from './climb';
+import { hatch } from '../features/climbing/sound';
 import type { AudioCore } from './core';
 import { pick, rand } from './dsp';
 

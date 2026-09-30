@@ -6,7 +6,7 @@
 import type * as THREE from 'three';
 import type { MapPlan } from '../../shared/maps';
 import type { CarriedIssue, GhIssue, ServerMsg } from '../../shared/protocol';
-import type { Grip } from '../climb';
+import type { Grip } from '../features/climbing/controller';
 import type { DeskKey } from '../interaction';
 import type { Net } from '../net';
 import type { PlayerController } from '../player';

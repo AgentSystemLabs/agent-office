@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { LADDER, POLE, STOREY, WALL_HEIGHT, type PoleSpot } from '../shared/layout';
-import type { PlayerController } from './player';
+import { LADDER, POLE, STOREY, WALL_HEIGHT, type PoleSpot } from '../../../shared/layout';
+import type { PlayerController } from '../../player';
 
 // Getting between the floors without the elevator: up and down the ladder by the west wall, and down
 // a fire pole. Either one takes hold of you (PlayerController.rig) until you're off it again.
