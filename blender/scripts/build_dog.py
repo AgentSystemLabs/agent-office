@@ -1,6 +1,6 @@
 """The office dog, in every breed: modelled, rigged and animated by this script from
 the presets in dog_breeds.py, and exported to src/client/models/dog-<breed>.glb
-for src/client/world/dog.ts. The shared helpers are in aokit.py and the
+for src/client/features/dog/world.ts. The shared helpers are in aokit.py and the
 conventions in blender/README.md.
 
 Headless, from the repo root (`-- --shots` also writes review sheets, and
@@ -19,7 +19,7 @@ import it every time):
 
 Two runs give the same dog but not the same bytes (the exporter's triangle order
 and the last bit of a few weights vary), so commit a .glb only when that breed
-changed. Bone, socket, material and clip names are a contract with dog.ts and
+changed. Bone, socket, material and clip names are a contract with features/dog/world.ts and
 tests/dog-model.test.ts, the same for every breed, so rename them in all three
 places.
 """
@@ -32,7 +32,7 @@ import aokit as ao
 from aokit import Pose, UP, TAU, wave, ease
 from dog_breeds import BREEDS, PUP
 
-# Preview colours only (the golden coat); dog.ts recolours the coat and swaps every
+# Preview colours only (the golden coat); features/dog/world.ts recolours the coat and swaps every
 # material for its own toon one by name.
 COLORS = {
     "Fur": "#e0a458",
@@ -392,7 +392,7 @@ def sockets():
 
 LEGS = [(k, s) for k in ("front", "back") for s in ("L", "R")]
 
-# Metres a second the walk and run clips carry every breed at (dog.ts's STRIDE_SPEED), and how much
+# Metres a second the walk and run clips carry every breed at (features/dog/world.ts's STRIDE_SPEED), and how much
 # of a cycle each paw is down.
 WALK_SPEED, WALK_STANCE = 0.8, 0.5
 RUN_SPEED, RUN_STANCE = 1.2, 0.36
@@ -537,7 +537,7 @@ def sit(t):
 
 
 def bark(t):
-    """Sitting up, alert, ears up, tail going: the woof itself (jaw, hop) is dog.ts's."""
+    """Sitting up, alert, ears up, tail going: the woof itself (jaw, hop) is features/dog/world.ts's."""
     p = Pose()
     sitting(p, B.bark_lean)
     p.turn("head", "x", -0.15)
@@ -565,7 +565,7 @@ def lie(t):
 
 
 def nap(t):
-    """Chin down on its paws, tail curled round, breathing slow. dog.ts shuts the eyes."""
+    """Chin down on its paws, tail curled round, breathing slow. features/dog/world.ts shuts the eyes."""
     p = Pose()
     lying(p)
     breathe(p, t, 1, 0.03)

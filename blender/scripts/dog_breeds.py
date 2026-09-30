@@ -1,6 +1,6 @@
 """The office dog's breeds: one preset each, which build_dog.py models, rigs and
 animates. Every breed has the same bones, sockets, materials and clips (the
-contract with world/dog.ts); only proportions, shapes and poses differ, so a
+contract with features/dog/world.ts); only proportions, shapes and poses differ, so a
 preset is a set of numbers over the pup's.
 
 Blender space, metres: the dog faces -Y, Z is up and +X is its left. Points on
@@ -72,7 +72,7 @@ PUP = dict(
     mask=(),
     # ---- How it moves -----------------------------------------------------------------------------
     # Frames a walk (trot) and a run (gallop) cycle take at 24 fps. Every breed covers the same ground
-    # a second at its own clip speed (dog.ts's STRIDE_SPEED), so shorter legs take shorter, quicker
+    # a second at its own clip speed (features/dog/world.ts's STRIDE_SPEED), so shorter legs take shorter, quicker
     # strides: the stride follows from these.
     walk_frames=12,
     run_frames=19,
