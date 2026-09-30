@@ -17,6 +17,7 @@ test('E remains handled by representative nearby interactions', () => {
   assert.equal(interactionAvailable(interaction('elevator'), 'E', state()), true);
   assert.equal(interactionAvailable(interaction('dog'), 'E', state()), true);
   assert.equal(interactionAvailable(interaction('ladder'), 'E', state()), true);
+  assert.equal(interactionAvailable(interaction('fridge'), 'E', state()), true);
 });
 
 test('the TV takes E alone — its window is where the link goes, and no other key belongs to it', () => {
