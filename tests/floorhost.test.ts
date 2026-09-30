@@ -98,13 +98,27 @@ test('ToHost frames are validated, not trusted', () => {
 });
 
 test('FromHost frames are validated the same way', () => {
-  assert.equal(isFromFloor({ t: 'ready', floor: { floorId: 'f1' } }), true);
+  assert.equal(isFromFloor({ t: 'ready', floor: { floorId: 'f1', name: 'API', seats: 2 } }), true);
+  assert.equal(isFromFloor({ t: 'ready', floor: { floorId: 'f1' } }), false, 'a floor with no name or seat count is not ready');
   assert.equal(isFromFloor({ t: 'ready', floor: {} }), false);
   assert.equal(isFromFloor({ t: 'event', floorId: 'f1', seq: 3, msg: { t: 'worker.update' } }), true);
   assert.equal(isFromFloor({ t: 'event', floorId: 'f1', msg: {} }), false, 'an event without a seq cannot be ordered');
   assert.equal(isFromFloor({ t: 'term.data', floorId: 'f1', workerId: 'w', data: 'x' }), true);
-  assert.equal(isFromFloor({ t: 'term.data', workerId: 'w', data: 'x' }), false);
+  assert.equal(isFromFloor({ t: 'term.data', workerId: 'w', data: 'x' }), false, 'terminal data names its floor too');
   assert.equal(isFromFloor({ t: 'nope' }), false);
+});
+
+test('a refusal names its floor, or explains itself when there is no floor yet', () => {
+  // Two shapes for one frame type: a hire the host turned down, and a connection refused before a
+  // floor was ever involved. The second has no floorId to check, which is why the validator branches.
+  assert.equal(isFromFloor({ t: 'refused', floorId: 'f1', workerId: 'w', reason: 'seats' }), true);
+  assert.equal(isFromFloor({ t: 'refused', floorId: 'f1', reason: 'asleep' }), true);
+  assert.equal(isFromFloor({ t: 'refused', why: 'This office speaks floor-host protocol 1' }), true);
+  assert.equal(isFromFloor({ t: 'refused' }), false, 'a refusal that says nothing is not worth sending');
+  // Every reason here is capacity or kind. None names a person, a role or an account.
+  for (const r of ['asleep', 'seats', 'not-accepting', 'offline']) {
+    assert.doesNotMatch(r, /admin|role|member|owner|account/i);
+  }
 });
 
 test('a frame naming a floor this host does not serve is not a frame we accept', () => {

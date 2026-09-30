@@ -24,6 +24,8 @@ import { Webhook } from './webhook.js';
 import { MAX_WORKER_LIMIT, Machine, parseWorkerLimit } from './machine.js';
 import { Building, type FloorDef } from './building.js';
 import { Floor, type FloorContext } from './floor.js';
+import { Hosts } from './hosts.js';
+import { HostRegistry } from './floor-hosts.js';
 import { Sky } from './sky.js';
 import { Themes } from './theme.js';
 import { Maps } from './maps.js';
@@ -208,6 +210,9 @@ export async function startServer(cfg: Config) {
   const publicDir = findPublicDir();
   const accounts = new Accounts(cfg.dataDir);
   const auth = new Auth(cfg.verifier, cfg.salt, cfg.secret, accounts);
+  /** The machines allowed to host floors here, and the ones currently connected (see floor-hosts.ts). */
+  const hosts = new Hosts(cfg.dataDir);
+  const registry = new HostRegistry(hosts);
   const clients = new Map<string, Client>();
   // Kept on disk, so a restart doesn't wipe it.
   const chat = new ChatLog(cfg.dataDir);
@@ -1100,18 +1105,25 @@ export async function startServer(cfg: Config) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
   server.on('upgrade', (req, socket, head) => {
     socket.on('error', () => socket.destroy());
-    const tunneled = tunneledPort(req, cfg.port, cfg.tailnet);
-    const svc = tunneled ? services.lookup(tunneled) : undefined;
-    if (tunneled && svc) {
-      if (svc !== 'gone' && auth.fromAnyCookie(req)) return relayUpgrade(req, socket, head, svc);
-      return refuseUpgrade(socket);
-    }
     let url: URL;
     try {
       url = new URL(req.url ?? '/', 'http://x');
     } catch {
       socket.destroy();
       return;
+    }
+    // A floor host has no browser cookie and is never a visitor, so it is branched BEFORE the session
+    // gate below — which only ever looked at '/ws', so an unrouted /floor-host would have fallen
+    // through to the 401. Its credential is the token in its first frame, not a cookie.
+    if (url.pathname === '/floor-host') {
+      registry.upgrade(req, socket, head, url.pathname);
+      return;
+    }
+    const tunneled = tunneledPort(req, cfg.port, cfg.tailnet);
+    const svc = tunneled ? services.lookup(tunneled) : undefined;
+    if (tunneled && svc) {
+      if (svc !== 'gone' && auth.fromAnyCookie(req)) return relayUpgrade(req, socket, head, svc);
+      return refuseUpgrade(socket);
     }
     const session = url.pathname === '/ws' && sameOrigin(req, cfg) ? auth.fromRequest(req) : undefined;
     if (!session) return refuseUpgrade(socket);
@@ -2526,6 +2538,9 @@ export async function startServer(cfg: Config) {
     sky.stop();
     themes.stop();
     for (const f of floors.values()) f.shutdown(keep);
+    // Every machine goes at once, so no host is left believing it is still serving floors here. Its
+    // own machine is what decides what happens next: a host reconnecting finds out and says so.
+    registry.closeAll();
     ledger.flush();
     limits.close();
     for (const a of accountLimits.values()) a.reader.close();
