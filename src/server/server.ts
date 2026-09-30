@@ -39,6 +39,7 @@ import { DESK_BY_ID, elevatorSpot, nextFreeSeat, streetBelow } from '../shared/l
 import { OFFICE_MAP, seatHereOn } from '../shared/maps/index.js';
 import { EMPTY_PLAN } from '../shared/floorplan.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
+import { TV_OFF } from '../shared/tv.js';
 import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
@@ -756,6 +757,7 @@ export async function startServer(cfg: Config) {
     cars: floor?.garage.state() ?? [],
     jail: floor?.jail.state() ?? { prisoners: [], bones: 0 },
     jukebox: floor?.jukebox.state() ?? { on: false, track: JUKEBOX_TUNES[0].id, startedAt: Date.now(), elapsed: 0 },
+    tv: floor?.tv.state() ?? TV_OFF,
     whiteboard: { elements: floor?.whiteboard.scene() ?? [], people: floor ? drawing(floor) : [] },
     meeting: floor?.meetings.state() ?? { current: null, past: [] },
     cabinet: { ...cabinetState(floor), frame: (floor && cabinetPlayer(floor)?.frame) ?? null },
@@ -1287,6 +1289,7 @@ export async function startServer(cfg: Config) {
   const ballChanged = (floor: Floor) => toFloor(floor, { t: 'ball', ball: floor.court.state() });
   const carsChanged = (floor: Floor) => toFloor(floor, { t: 'cars', cars: floor.garage.state() });
   const jukeboxChanged = (floor: Floor) => toFloor(floor, { t: 'jukebox', state: floor.jukebox.state() });
+  const tvChanged = (floor: Floor) => toFloor(floor, { t: 'tv', state: floor.tv.state() });
   const teamState = async () => ({ ...(await team.state()), deploy: cfg.deployScript });
   const teamChanged = async () => broadcast({ t: 'team', state: await teamState() });
 
@@ -1517,6 +1520,14 @@ export async function startServer(cfg: Config) {
           if (game) c.peer.throwing = game;
           else delete c.peer.throwing;
           broadcast({ t: 'peer.act', id: c.id, throwing: game ?? null }, c.id, true);
+          break;
+        }
+        if (typeof msg.faint === 'boolean') {
+          // Out cold on the ground, wherever they are.
+          if (msg.faint === !!c.peer.fainted) break;
+          if (msg.faint) c.peer.fainted = true;
+          else delete c.peer.fainted;
+          broadcast({ t: 'peer.act', id: c.id, faint: msg.faint }, c.id, true);
           break;
         }
         const now = Date.now();
@@ -2386,6 +2397,38 @@ export async function startServer(cfg: Config) {
         if (!floor || !floor.jukebox.stop(who)) break;
         jukeboxChanged(floor);
         toastFloor(floor, `🔇 ${who} turned the jukebox off`);
+        break;
+      }
+      case 'tv.play': {
+        const floor = here();
+        if (!floor) break;
+        const was = floor.tv.state();
+        const r = floor.tv.play({ url: msg.url, position: msg.position }, who);
+        if ('error' in r) return warn(c, r.error);
+        if (!r.changed) break;
+        tvChanged(floor);
+        const now = floor.tv.state();
+        toastFloor(floor, was.on && was.url === now.url ? `▶️ ${who} put the TV back on` : `📺 ${who} put ${floor.tv.title()} on the TV`);
+        break;
+      }
+      case 'tv.pause': {
+        const floor = here();
+        if (!floor || !floor.tv.pause(msg.position, who)) break;
+        tvChanged(floor);
+        toastFloor(floor, `⏸️ ${who} paused the TV`);
+        break;
+      }
+      case 'tv.seek': {
+        const floor = here();
+        if (!floor || !floor.tv.seek(msg.position, who)) break;
+        tvChanged(floor);
+        break;
+      }
+      case 'tv.stop': {
+        const floor = here();
+        if (!floor || !floor.tv.stop(who)) break;
+        tvChanged(floor);
+        toastFloor(floor, `📺 ${who} turned the TV off`);
         break;
       }
       case 'ping':

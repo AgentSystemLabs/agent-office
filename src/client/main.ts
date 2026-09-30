@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, POLE, POLES, SLAB, STATION_AGENT, STOREY, WALL_HEIGHT, WALL_T, WING, WING_DESKS, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, seatPlace, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, POLE, POLES, SLAB, STATION_AGENT, STOREY, WAKE_UP, WALL_HEIGHT, WALL_T, WING, WING_DESKS, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, seatPlace, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { OFFICE_PLAN, seatOn, type MapPlan } from '../shared/maps';
 import { canLabel } from '../shared/floorplan';
 import { floorPalette } from '../shared/floors';
@@ -16,6 +16,7 @@ import { Climber, gripOf, type Arrival, type Grip, type Way } from './climb';
 import { Driver } from './driving';
 import { Caffeine } from './caffeine';
 import { CUP, HIGH_STRESS, LOW_ENERGY, Vitals } from './vitals';
+import { Faint, type FaintPhase } from './faint';
 import { buildOffice, type DeskView, type InteractKind, type Interactable } from './world/office';
 import { officeWorld, type World } from './world/world';
 import { BUILDERS } from './world/styles';
@@ -86,10 +87,13 @@ import { MachineTexture } from './world/machine';
 import { officeFull, pressureNote } from '../shared/machine';
 import { mountHud } from './ui/menu';
 import { openJukebox } from './ui/jukebox';
+import { openTv } from './ui/tv';
+import { TvScreen } from './tvscreen';
 import { openBookshelf } from './ui/bookshelf';
 import { Arcade } from './ui/arcade';
 import { Cabinet } from './ui/cabinet';
 import { trackTitle } from '../shared/jukebox';
+import { tvTitle } from '../shared/tv';
 import { GAME, scoreText } from '../shared/cabinet';
 import { EMOTES, EMOTE_BY_ID, EmoteBucket, type EmoteId } from '../shared/emotes';
 import { EmoteWheel } from './ui/emotes';
@@ -324,6 +328,23 @@ const tvMat = office.tvScreen.material as THREE.MeshBasicMaterial;
 tvMat.color.set('#ffffff');
 tvMat.map = tvIdle;
 tvMat.toneMapped = false;
+/** Whoever's screen sharing, when someone is: the TV shows that instead of a link. */
+let tvStream: MediaStream | null = null;
+/** What's on the screen itself: a share while there is one, dark under a link's picture, else the art. */
+function paintTv() {
+  const map = tvStream ? tvTexture : store.tv.on ? null : tvIdle;
+  tvMat.map = map;
+  tvMat.color.set(map ? '#ffffff' : '#15172a');
+  tvMat.needsUpdate = true;
+}
+// A link on the TV: its picture is ordinary HTML over the canvas, put on the TV's rectangle each
+// frame, and what's on it is `store.tv` — kept like the jukebox's (see tvscreen.ts).
+const tvScreen = new TvScreen(office.tvScreen);
+store.on('tv', () => {
+  tvScreen.sync(store.tv);
+  paintTv();
+  hintKey = '';
+});
 // The boss's monitor upstairs: Minesweeper, from the boss's chair.
 const arcade = new Arcade(office.bossScreen);
 
@@ -410,6 +431,8 @@ const hands = new Hands(store.profile.color, me.skinColor);
 const caffeine = new Caffeine();
 /** Your own energy and stress, and what you drink to put them right (see vitals.ts). */
 const vitals = new Vitals();
+/** Keeling over when they run out, and coming round outside (see faint.ts). */
+const faint = new Faint();
 /** No shaking the view for the coffee jitters when the system asks for less motion. */
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 // Cigarette smoke, from anyone on a smoke break.
@@ -1071,6 +1094,10 @@ net.onMessage((msg) => {
       const mine = store.peers.get(store.you);
       if (firstWelcome && mine) {
         firstWelcome = false;
+        // A fresh session: both meters full, and the clocks (see vitals.ts) start from now. And
+        // nobody's still showing you flat on the ground from a page that ended mid-faint.
+        vitals.reset(performance.now() / 1000);
+        net.send({ t: 'act', faint: false });
         // Where the office put you: back in the spot you left (if there's still room there), or in the elevator car.
         setPlace();
         syncStack();
@@ -1150,6 +1177,11 @@ net.onMessage((msg) => {
         placeInCar();
         lift()?.setOpen(true);
       }
+      // Coming round from a faint up on the roof: down the elevator, and out the front of the building.
+      if (wakeOnArrival) {
+        wakeOnArrival = false;
+        placeOutside();
+      }
       offTheRoof();
       break;
     case 'ball':
@@ -1187,6 +1219,16 @@ net.onMessage((msg) => {
       break;
     case 'peer.act': {
       const r = remotes.get(msg.id);
+      if (msg.faint !== undefined) {
+        // Out cold on the ground, or back on their feet again.
+        const p = store.peers.get(msg.id);
+        if (p) {
+          if (msg.faint) p.fainted = true;
+          else delete p.fainted;
+        }
+        r?.person.fainted(msg.faint ? 1 : 0);
+        break;
+      }
       if (msg.drink !== undefined) {
         // A drink from the rooftop bar in their hand, or put down.
         const p = store.peers.get(msg.id);
@@ -1548,6 +1590,11 @@ function tripFailed() {
     offRoof = false;
     offTheRoof();
   }
+  // Coming round never happened (the office is unreachable): out front here, on your own floor.
+  if (wakeOnArrival) {
+    wakeOnArrival = false;
+    placeOutside();
+  }
 }
 
 /** Arrived in a spot that's a pole's hole on this floor: step out of it, the way in. */
@@ -1860,6 +1907,7 @@ function syncPeers() {
     r.person.setSmoking(!!peer.smoking);
     r.person.setGolf(!!peer.golfing);
     r.person.setThrowing(peer.throwing ?? null);
+    r.person.fainted(peer.fainted ? 1 : 0);
     r.person.holdDrink(peer.drink ? (DRINK_BY_ID.get(peer.drink) ?? null) : null);
     r.person.carry(peer.carrying);
     r.person.read(!!peer.reading);
@@ -2930,7 +2978,11 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   else if (target.kind === 'issues' || target.kind === 'pulls') openBoard(target.kind, net, boardActions());
   else if (target.kind === 'services') openServices();
   else if (target.kind === 'queue') showQueue();
-  else if (target.kind === 'tv') watchShare();
+  else if (target.kind === 'tv') {
+    // Someone's screen share is watched full screen; anything else is put on from the TV's window.
+    if (tvShowing()) watchShare();
+    else openTv(net, tvScreen, () => void toggleShare());
+  }
   else if (target.kind === 'jukebox') showJukebox();
   else if (target.kind === 'bookshelf') showBookshelf();
   else if (target.kind === 'decor' && target.decorId) hanger.view(target.decorId);
@@ -3081,19 +3133,113 @@ function drinking(now: number) {
 /** Whether you're already past the lines where the office said something, so it only says it once. */
 let flagged: { low: boolean; wound: boolean } = { low: false, wound: false };
 
-/** Every frame: how your energy and stress are getting on, and a nudge when one of them runs out. */
-function vitalsTick(now: number) {
+/**
+ * Every frame: how your energy and stress are getting on, with a nudge when one of them runs low,
+ * and — once one is right out — whether you're going down (see faint.ts, and fainting() below).
+ */
+function vitalsTick(now: number): boolean {
   const secs = now / 1000;
   const low = vitals.energyLeft(secs) <= LOW_ENERGY;
   const wound = vitals.strain(secs) >= HIGH_STRESS;
   if (low !== flagged.low) {
     flagged.low = low;
-    if (low) toast('⚡ Your energy’s nearly gone — the coffee machine is in the kitchen', 'warn');
+    if (low) toast('⚡ Your energy’s going — the coffee machine is in the kitchen', 'warn');
   }
   if (wound !== flagged.wound) {
     flagged.wound = wound;
     if (wound) toast('😰 You’re wound up — a drink from the rooftop bar will take it off', 'warn');
   }
+  // Mid-faint, or mid-ride in the elevator, the office doesn't start another one: it looks again on
+  // the next frame, once you're on your feet (or arrived).
+  return !faint.down && !trip && vitals.spent(secs);
+}
+
+/** Whether the faint has been said and done: the phase the frame ended in (see FaintPhase). */
+let faintWas: FaintPhase = 'up';
+
+/** Every frame: how your energy and stress are getting on, down to keeling over and coming round. */
+function fainting(dt: number, now: number) {
+  const phase = faint.update(dt, vitalsTick(now));
+  if (phase === faintWas) return;
+  faintWas = phase;
+  if (phase === 'falling') keelOver();
+  else if (phase === 'out') fade(true, true);
+  else if (phase === 'wake') comeRound();
+}
+
+/** Out cold: whatever you were doing stops, the light goes, and you go down where you stand. */
+function keelOver() {
+  const why = vitals.energyLeft(performance.now() / 1000) <= 0 ? 'energy' : 'stress';
+  closeAllModals();
+  telescope.exit();
+  if (hanger.active) hanger.cancel();
+  if (climber.active) climber.abort();
+  if (walkingTo) stopWalking();
+  if (golf.active) golf.stop();
+  if (thrower.active) thrower.stop();
+  if (player.seat) standUp();
+  if (driver.active) getOut(true);
+  if (holdingBall()) dropBall();
+  arcade.stop();
+  cabinet.stop();
+  player.clearKeys();
+  player.enabled = false;
+  net.send({ t: 'act', faint: true });
+  sound.thud({ x: player.pos.x, y: player.pos.y + 0.5, z: player.pos.z });
+  toast(why === 'energy' ? '💫 Your energy runs right out — you keel over' : '😵 The stress gets the better of you — you keel over', 'warn');
+}
+
+/** Coming round: both meters full, and out the front of the building (see wakeUpOutside). */
+function comeRound() {
+  vitals.reset(performance.now() / 1000);
+  net.send({ t: 'act', faint: false });
+  player.prone = 0;
+  me.fainted(0);
+  faint.clear();
+  faintWas = 'up';
+  hintKey = 'stale';
+  wakeUpOutside();
+}
+
+/**
+ * Out front of the building, a little way along from the doors, on whichever floor's street you're
+ * on (see WAKE_UP, shared/layout.ts). Up on the roof it's the elevator first, down to the ground
+ * floor; on a map of its own there's no street to come round on, so it's the map's own spot.
+ */
+function wakeUpOutside() {
+  if (!inOffice()) {
+    placeAtSpawn();
+    return wokeUp();
+  }
+  if (!upTop) return placeOutside();
+  // Up on the roof there's no floor of your own to be on: down to the building's ground floor, out front.
+  const floorId = builtFloors()[0]?.id;
+  if (!floorId) return placeOutside();
+  const index = Math.max(0, builtFloors().findIndex((f) => f.id === floorId));
+  // The lights are out already: down with the elevator, and out the front on the way here (see the
+  // floor.enter handler, which calls placeOutside once the floor's world is up).
+  wakeOnArrival = true;
+  trip = { floor: floorId, how: 'switch', timer: window.setTimeout(tripFailed, 10_000) };
+  net.send({ t: 'floor.go', floor: floorId, at: { x: WAKE_UP.x, y: streetBelow(index), z: WAKE_UP.z, rotY: WAKE_UP.rotY } });
+}
+
+/** Whether coming round means coming down to another floor first (see wakeUpOutside). */
+let wakeOnArrival = false;
+
+/** On your feet out front of the building, where the ground is (or in the elevator, if that's taken). */
+function placeOutside() {
+  const at = { x: WAKE_UP.x, y: player.street, z: WAKE_UP.z, rotY: WAKE_UP.rotY };
+  if (player.fits(at.x, at.z, at.y)) placeAt(at);
+  else placeInCar();
+  wokeUp();
+}
+
+/** On your feet wherever you've come round, the lights back up and the meters full. */
+function wokeUp() {
+  player.enabled = !modalOpen();
+  hintKey = 'stale';
+  fade(false);
+  toast('🌇 You come round, both meters full');
 }
 
 /** A cup from the kitchen machine: a minute of quicker feet and higher jumps, and a mug in your hand. */
@@ -3695,8 +3841,11 @@ function hintFor(it: Interactable): Hint {
       return { k: String(n), parts: [title(`📋 Task queue${n ? ` · ${n}` : ''}`), key('E', 'Open')] };
     }
     case 'tv': {
-      const any = currentShares().length > 0;
-      return { k: String(any), parts: [title('📺 Office TV'), key('E', any ? 'Watch full screen' : 'Share your screen')] };
+      const share = tvShowing();
+      const s = store.tv;
+      const on = !share && s.on && !!s.url;
+      const what = on ? `${s.playing ? '▶' : '⏸'} ${clip(tvTitle(s.url), 34)}` : share ? 'someone is sharing their screen' : 'nothing on it';
+      return { k: `${share}|${s.on}|${s.url}|${s.playing}`, parts: [title('📺 Office TV'), aside(what), key('E', share ? 'Watch full screen' : 'Put something on')] };
     }
     case 'coffee': {
       const secs = performance.now() / 1000;
@@ -4131,6 +4280,8 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (modalOpen() || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+  // Out cold on the ground: nothing you press does anything until you come round (see faint.ts).
+  if (faint.down) return;
   if (relookOnKey && e.key !== 'Escape' && player.canLock) player.lock();
   if (hanger.active && hangingKey(e.code)) {
     e.preventDefault();
@@ -4407,6 +4558,8 @@ player.onClick = (ndc) => {
   // At the tee, a click is you steadying the mouse to aim: nothing else is in reach.
   // At the dart board or the axe lane, the button throws (see Thrower).
   if (modalOpen() || golf.active || thrower.active) return;
+  // Out cold: you're not reaching out for anything (see faint.ts).
+  if (faint.down) return;
   if (emoteWheel.isOpen) return emoteWheel.click();
   // The ball in your hands: press to wind up, let go (or click again, with no mouse captured) to shoot.
   if (holdingBall()) {
@@ -4482,18 +4635,19 @@ function currentShares(): [string, MediaStream][] {
   return out;
 }
 
-let tvStream: MediaStream | null = null;
 function refreshShares() {
   const shares = currentShares();
   // Remote shares win the TV; your own share is what others see anyway.
   const pick = shares.find(([who]) => who !== 'You') ?? shares[0];
   const stream = pick?.[1] ?? null;
+  // A share takes the TV rather than sharing it: turn the link off, so the two are never on the
+  // screen at once. The link itself is kept, so Play puts it back on once the share ends.
+  if (stream && store.tv.on) net.send({ t: 'tv.stop' });
   if (stream !== tvStream) {
     tvStream = stream;
     tvVideo.srcObject = stream;
     if (stream) void tvVideo.play().catch(() => {});
-    tvMat.map = stream ? tvTexture : tvIdle;
-    tvMat.needsUpdate = true;
+    paintTv();
   }
   const box = $('shares');
   box.replaceChildren(
@@ -4683,6 +4837,9 @@ const slowFrames = new SlowFrames();
 let shovedAt = 0;
 
 function frame(ts?: number) {
+  // Asked for the next frame first: one throw below must mean one odd frame, not a frozen office
+  // (a player on the TV that isn't ready yet did exactly that, once).
+  requestAnimationFrame(frame);
   timer.update(ts);
   const delta = timer.getDelta();
   const dt = Math.min(delta, 0.1);
@@ -4701,8 +4858,11 @@ function frame(ts?: number) {
   me.holdMug(mug && !golf.active);
   hands.holdMug(mug);
   renderCaffeine(caffeine, secs);
-  // Your energy and stress: heavy legs when they're low, shaking hands when you're wound up.
-  vitalsTick(now);
+  // Your energy and stress: heavy legs when they're low, shaking hands when you're wound up, and
+  // down you go when either runs right out (see faint.ts).
+  fainting(dt, now);
+  player.prone = faint.fall;
+  me.fainted(faint.down ? 1 : 0);
   renderVitals(vitals, secs);
   // Drinks from the rooftop bar: a glass in hand, and the world swaying.
   const drunk = drinking(now);
@@ -4906,7 +5066,7 @@ function frame(ts?: number) {
   }
 
   aimedNote = null;
-  if (modalOpen() || telescope.active || hanger.active || climber.active || golf.active || thrower.active || driver.active) target = null;
+  if (faint.down || modalOpen() || telescope.active || hanger.active || climber.active || golf.active || thrower.active || driver.active) target = null;
   else if (firstPerson) {
     const aim = aimedAt(CROSSHAIR);
     target = aim?.near ? aim.it : (throneTarget() ?? mySeat() ?? (inOffice() ? ballAtFeet() : null));
@@ -4943,8 +5103,10 @@ function frame(ts?: number) {
   drunkVisionOn = blurry;
   effect.render(scene, camera);
   pointToWaiting(now);
+  // The TV's picture, projected onto its rectangle from this frame's camera (see tvscreen.ts).
+  tvScreen.update(camera, inOffice() && !upTop && !telescope.active, player.colliders);
   // Not while the camera's up at the boss's monitor or the arcade, where they'd cover the screen.
-  if (firstPerson && !telescope.active && !arcade.zoomed && !cabinet.zoomed && !golf.active && !thrower.active && !driver.active) {
+  if (firstPerson && !telescope.active && !arcade.zoomed && !cabinet.zoomed && !golf.active && !thrower.active && !driver.active && !faint.down) {
     // Hands go on top of everything, so they never clip into a desk you walk up to. They have
     // lights of their own, turned down to match wherever you're standing.
     renderer.clearDepth();
@@ -4955,7 +5117,6 @@ function frame(ts?: number) {
   }
   if (blurry) drunkVision.end(drunk, t, !reduceMotion.matches);
   loading.drew();
-  requestAnimationFrame(frame);
 }
 
 // ---- Boot ------------------------------------------------------------------------------------------
@@ -5026,7 +5187,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { world: () => world, court: () => court, sendoffs, jail, plan, applyMap, roof: () => roof, booze, dj: () => djFrame(djAt()), store, player, caffeine, vitals, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, driver, getIn, getOut, golf, balls, thrower, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote, ball };
+(window as any).__office = { world: () => world, court: () => court, sendoffs, jail, plan, applyMap, roof: () => roof, booze, dj: () => djFrame(djAt()), store, player, caffeine, vitals, faint, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, driver, getIn, getOut, golf, balls, thrower, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote, ball };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

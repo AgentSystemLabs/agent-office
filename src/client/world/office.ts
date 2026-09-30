@@ -32,6 +32,8 @@ export interface Collider {
   bottom?: number;
   /** Only there to keep people out: its top isn't anything to land on, so confetti falls through it. */
   fence?: boolean;
+  /** Glass rather than a wall: you can see through it, so it doesn't hide what's behind it (see tvscreen.ts). */
+  glass?: boolean;
 }
 
 export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'cabinet' | 'ladder' | 'pole' | 'meeting' | 'bar' | 'dj' | 'golf' | 'ball' | 'bookshelf' | 'darts' | 'axe' | 'telescope' | 'car' | 'expand' | 'herald';
@@ -1788,7 +1790,7 @@ function buildMeetingRoom(group: THREE.Group, colliders: Collider[], interactabl
       if (axis === 'x') bar(len, 0.1, T + 0.06, (a + b) / 2, y, at);
       else bar(T + 0.06, 0.1, len, at, y, (a + b) / 2);
     }
-    colliders.push(axis === 'x' ? { minX: a, maxX: b, minZ: at - T / 2, maxZ: at + T / 2, top: H } : { minX: at - T / 2, maxX: at + T / 2, minZ: a, maxZ: b, top: H });
+    colliders.push(axis === 'x' ? { minX: a, maxX: b, minZ: at - T / 2, maxZ: at + T / 2, top: H, glass: true } : { minX: at - T / 2, maxX: at + T / 2, minZ: a, maxZ: b, top: H, glass: true });
   };
   run('x', R.minX, R.door.x0, R.minZ);
   run('x', R.door.x1, R.maxX, R.minZ);
@@ -1960,8 +1962,8 @@ function buildLoft(group: THREE.Group, colliders: Collider[], interactables: Int
   for (let i = 0; i <= 2; i++) bar(T + 0.04, height, 0.1, westX, floorY + height / 2, minZ + i * (westLen / 2));
   bar(T + 0.06, 0.12, westLen, westX, floorY + 0.06, minZ + westLen / 2);
   bar(T + 0.06, 0.12, westLen, westX, roofY - 0.06, minZ + westLen / 2);
-  colliders.push({ minX, maxX, minZ, maxZ: minZ + T, bottom: floorY, top: 99 });
-  colliders.push({ minX, maxX: minX + T, minZ, maxZ: doorZ, bottom: floorY, top: 99 });
+  colliders.push({ minX, maxX, minZ, maxZ: minZ + T, bottom: floorY, top: 99, glass: true });
+  colliders.push({ minX, maxX: minX + T, minZ, maxZ: doorZ, bottom: floorY, top: 99, glass: true });
   // Over the door at the top of the stairs.
   const doorTop = floorY + 2.3;
   group.add(mesh(box(T + 0.04, roofY - doorTop, maxZ - doorZ), wallMat, westX, (roofY + doorTop) / 2, (doorZ + maxZ) / 2, false));
