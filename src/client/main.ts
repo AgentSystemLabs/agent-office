@@ -75,7 +75,7 @@ import { loadingScreen } from './ui/loading';
 import { SlowFrames } from './framerate';
 import { offerLite, touchOnly } from './ui/litesuggest';
 import { openDeskLabel, openExpand } from './ui/floorplan';
-import { Activities, Interactions, Keys, Messages, Ticks, View, type Frame } from './core/registry';
+import { Activities, Hooks, Interactions, Keys, Messages, Ticks, Usables, View, type Frame } from './core/registry';
 import type { Ctx, Hint, OfficeInteraction, StopWhy, Trip, TripKind } from './core/context';
 import { builtFloors, floorWings } from './core/floors';
 import { aside, hintTitle, key, onE } from './core/hint';
@@ -206,6 +206,8 @@ const ctx: Ctx = {
   activities: new Activities<StopWhy, KeyboardEvent, HTMLElement>(ACTIVITY_ORDER),
   interactions: new Interactions<OfficeInteraction>(),
   view: new View<Grip>(),
+  usables: new Usables<Interactable, THREE.Object3D>(),
+  windowOpened: new Hooks(),
 };
 
 // ---- The office's own parts of each frame (see Ticks, and the Main loop at the end) -------------------
@@ -979,10 +981,10 @@ function setPlace() {
 }
 
 /** What you can use where you are, and what's in the way of looking at it. */
-function usable(): Interactable[][] {
+function usable(): (readonly Interactable[])[] {
   const roof = rooftop.roof();
   if (upTop && roof) return [roof.interactables];
-  return inOffice() ? [office.interactables, gallery.interactables, dog.interactables, hoops.ball.interactables] : [world.interactables, court?.interactables ?? []];
+  return inOffice() ? [office.interactables, ...ctx.usables.lists()] : [world.interactables, court?.interactables ?? []];
 }
 
 /**
@@ -2836,8 +2838,8 @@ onModalChange((open) => {
   // Opening something on the way over to someone is stopping there.
   if (open && walkingTo && !trip) stopWalking();
   if (open) {
-    hoops.stopWinding();
-    emotes.emoteWheel.close();
+    // What lets go when a window opens: the shot you were winding up, the emote wheel.
+    ctx.windowOpened.run();
     // A phone has no mouse to take back afterwards.
     if (finePointer) player.yieldMouse();
     else player.unlock();
@@ -2876,7 +2878,7 @@ function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boole
   eye.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
   // (Workers standing in line in the castle carry their spot's interactable: see Court.)
   const roof = rooftop.roof();
-  for (const hit of raycaster.intersectObjects(upTop && roof ? roof.pickables : inOffice() ? [office.group, dog.root] : world.pickables, true)) {
+  for (const hit of raycaster.intersectObjects(upTop && roof ? roof.pickables : inOffice() ? [office.group, ...ctx.usables.pickables()] : world.pickables, true)) {
     let it: Interactable | undefined;
     let shown = true;
     for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) {

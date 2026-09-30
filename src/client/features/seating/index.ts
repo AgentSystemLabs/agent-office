@@ -20,7 +20,7 @@ export interface SeatingDeps {
   /** The bar's menu (see features/bar). */
   showBar(): void;
   /** What you can use where you are, and what's in the way of looking at it (see usable in main.ts). */
-  usable(): Interactable[][];
+  usable(): (readonly Interactable[])[];
 }
 
 export function installSeating(ctx: Ctx, deps: SeatingDeps) {

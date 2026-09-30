@@ -440,3 +440,53 @@ export class Interactions<T extends InteractionTypes> {
     this.def(it.kind).use(it, key, note);
   }
 }
+
+// ---- Things to do when something happens -----------------------------------------------------------
+
+/** Things to do when something happens (a window opening, say), in the order they were added. */
+export class Hooks {
+  private readonly list = new List<() => void>();
+
+  add(fn: () => void): Off {
+    return this.list.add(fn);
+  }
+
+  run(): void {
+    for (const fn of this.list.items) fn();
+  }
+}
+
+// ---- What else there is to use ----------------------------------------------------------------------
+
+/** One part of the office with things of its own to use (the pictures, the dog, the ball): `I` is one of them, `O` what the aim can land on. */
+export interface UsableSource<I, O> {
+  /** What there is to use of it right now. */
+  usable(): readonly I[];
+  /** What the aim can land on that isn't in the building itself (the dog walks about on its own), if anything. */
+  pickable?(): O;
+}
+
+/**
+ * What there is to use on the office's own map besides the building's own things, from the parts that
+ * come and go or move about in it, in the order they were added: what each has to use, and what the
+ * aim can land on that isn't the building.
+ */
+export class Usables<I, O> {
+  private readonly sources = new List<UsableSource<I, O>>();
+
+  add(s: UsableSource<I, O>): Off {
+    return this.sources.add(s);
+  }
+
+  /** What each source has to use right now, a list each, in order. */
+  lists(): (readonly I[])[] {
+    return this.sources.items.map((s) => s.usable());
+  }
+
+  /** What the aim can land on besides the building, in order. */
+  pickables(): O[] {
+    const out: O[] = [];
+    for (const s of this.sources.items) if (s.pickable) out.push(s.pickable());
+    return out;
+  }
+}

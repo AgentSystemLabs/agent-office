@@ -21,7 +21,7 @@ import type { Interactable, Office } from '../world/office';
 import type { Sky } from '../world/sky';
 import type { Smoke } from '../world/smoke';
 import type { World } from '../world/world';
-import type { Activities, Interactions, Keys, Messages, Ticks, View } from './registry';
+import type { Activities, Hooks, Interactions, Keys, Messages, Ticks, Usables, View } from './registry';
 
 /** What the hint bar says. */
 export interface Hint {
@@ -131,4 +131,11 @@ export interface Ctx {
   readonly interactions: Interactions<OfficeInteraction>;
   /** What what you're doing makes of you and your view each frame (see ViewEffect). */
   readonly view: View<Grip>;
+  /**
+   * What else there is to use on the office's own map, and to aim at: the pictures on the walls, the
+   * dog, the ball (see usable and aimedAt in main.ts).
+   */
+  readonly usables: Usables<Interactable, THREE.Object3D>;
+  /** What lets go when a window opens: the shot you were winding up, the emote wheel (see onModalChange in main.ts). */
+  readonly windowOpened: Hooks;
 }

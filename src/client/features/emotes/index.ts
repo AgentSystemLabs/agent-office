@@ -32,6 +32,8 @@ export function installEmotes(ctx: Ctx, deps: EmotesDeps) {
   ctx.messages.on('peer.emote', (msg) => deps.personOf(msg.id)?.emote(msg.emote));
   const emoteWheel = new EmoteWheel(emote, (open) => (ctx.player.mouseLook = !open));
   $('hud').append(emoteWheel.el);
+  // A window opening puts the wheel away.
+  ctx.windowOpened.add(() => emoteWheel.close());
 
   /** In first person you can't see the emoji over your head, so it pops up on the screen instead. */
   function popEmoji(id: EmoteId) {
