@@ -9,7 +9,7 @@ import type { FloorPlan } from './floorplan.js';
 import type { EmoteId } from './emotes.js';
 import type { CarSeat, CarState } from './garage.js';
 import type { BallState } from './hoop.js';
-import type { JukeboxState } from './jukebox.js';
+import type { JukeboxSpot, JukeboxState } from './jukebox.js';
 import type { TvState } from './tv.js';
 import type { CustomMap } from './maps/index.js';
 import type { PromptId } from './prompts.js';
@@ -1271,6 +1271,8 @@ export type ClientMsg =
   /** On to the next tune. */
   | { t: 'jukebox.skip' }
   | { t: 'jukebox.stop' }
+  /** Stand the jukebox against another wall of this floor. The music carries on where it was. */
+  | { t: 'jukebox.place'; spot: JukeboxSpot }
   /**
    * Put `url` on the big TV, or resume what's on it with neither. It starts at `position`, or at the
    * link's own `t=`/`start=`, or at 0 for a fresh link.

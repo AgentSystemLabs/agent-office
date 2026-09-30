@@ -50,6 +50,7 @@ import { Jail } from './world/jail';
 import { Sendoffs } from './world/sendhome';
 import { Confetti, type Area } from './world/confetti';
 import { Hanger } from './hanging';
+import { Mover } from './moving';
 import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
 import { OfficeSound } from './sound';
@@ -92,7 +93,7 @@ import { TvScreen } from './tvscreen';
 import { openBookshelf } from './ui/bookshelf';
 import { Arcade } from './ui/arcade';
 import { Cabinet } from './ui/cabinet';
-import { trackTitle } from '../shared/jukebox';
+import { JUKEBOX_HOME, trackTitle } from '../shared/jukebox';
 import { tvTitle } from '../shared/tv';
 import { GAME, scoreText } from '../shared/cabinet';
 import { EMOTES, EMOTE_BY_ID, EmoteBucket, type EmoteId } from '../shared/emotes';
@@ -474,6 +475,9 @@ function playJukebox() {
   const j = store.jukebox;
   sound.setJukebox(j.on && inOffice() ? { track: j.track, url: j.url, startedAt: j.startedAt, since: j.since } : null);
   office.jukebox.show(j.on, trackTitle(j));
+  // Somebody may have moved it to another wall: stand it there, and bring the music with it.
+  office.jukebox.at(j.spot ?? JUKEBOX_HOME);
+  sound.setJukeboxSpot(j.spot ?? JUKEBOX_HOME);
 }
 store.on('jukebox', playJukebox);
 // The arcade cabinet next to it: BLOCKFALL up close, and on its screen for everyone else on the floor.
@@ -562,6 +566,7 @@ function teeOff() {
   if (carrying) return toast(`✋ Your hands are full: put #${carrying.issue} down first (Q)`, 'warn');
   if (player.seat) standUp();
   if (hanger.active) hanger.cancel();
+  if (mover.active) mover.cancel();
   if (walkingTo) stopWalking();
   if (smokeBreakUntil) setSmoking(false);
   golf.start();
@@ -628,6 +633,7 @@ function stepUp(game: BarGame) {
   if (other) return toast(`${game === 'darts' ? '🎯' : '🪓'} ${other} is throwing — wait your turn`, 'warn');
   if (player.seat) standUp();
   if (hanger.active) hanger.cancel();
+  if (mover.active) mover.cancel();
   if (walkingTo) stopWalking();
   thrower.start(game);
 }
@@ -718,6 +724,16 @@ hanger.onChange = () => {
   hintKey = 'stale';
 };
 
+// ---- Moving the jukebox -------------------------------------------------------------------------
+// Aim at a wall and click to stand it there, the way you hang a picture (see moving.ts). It stays
+// the floor's, so anyone can move it and everyone hears it from wherever it ends up.
+const mover = new Mover(net, camera, canvas, player, office);
+scene.add(mover.ghost.group);
+mover.onChange = () => {
+  hud.refresh();
+  hintKey = 'stale';
+};
+
 // ---- The ladder and the fire poles ----------------------------------------------------------------
 /** The floors of the building from the bottom up (not the ones still being cloned: nobody can go there yet). */
 function builtFloors(): FloorInfo[] {
@@ -780,6 +796,7 @@ function grabLadder() {
   if (!floorThere(1) && !floorThere(-1)) return toast('No other floors yet — add a project in the elevator', 'warn');
   if (player.seat) standUp();
   if (hanger.active) hanger.cancel();
+  if (mover.active) mover.cancel();
   if (walkingTo) stopWalking();
   climber.grabLadder();
 }
@@ -790,6 +807,7 @@ function usePole(i: number) {
   if (trip || climber.active || !spot) return;
   if (player.seat) standUp();
   if (hanger.active) hanger.cancel();
+  if (mover.active) mover.cancel();
   if (walkingTo) stopWalking();
   if (office.stack.polesGoDown()) climber.slide(spot);
   else climber.twirl(spot);
@@ -816,6 +834,7 @@ function getIn(i: number) {
   if (!seat) return toast(`🏎️ The ${def.name} is full`, 'warn');
   if (player.seat) standUp();
   if (hanger.active) hanger.cancel();
+  if (mover.active) mover.cancel();
   if (walkingTo) stopWalking();
   driver.enter(i, seat);
   me.sit(SEAT_HIPS);
@@ -1388,6 +1407,7 @@ function placeAt(at: { x: number; y: number; z: number; rotY: number }) {
 function takenAway() {
   closeAllModals();
   if (hanger.active) hanger.cancel();
+  if (mover.active) mover.cancel();
   if (climber.active) climber.abort();
   if (walkingTo) stopWalking();
   placeInCar();
@@ -1474,6 +1494,7 @@ function ride(to: string, keepWalking = false): void {
   if (trip || !floorId || (floorId === store.floor && garage === downstairs())) return;
   closeAllModals();
   if (hanger.active) hanger.cancel();
+  if (mover.active) mover.cancel();
   if (climber.active) climber.abort();
   getOut(true);
   if (golf.active) golf.stop();
@@ -1553,6 +1574,7 @@ function switchFloor(floorId: string, keepWalking = false): void {
   }
   closeAllModals();
   if (hanger.active) hanger.cancel();
+  if (mover.active) mover.cancel();
   if (climber.active) climber.abort();
   getOut(true);
   if (golf.active) golf.stop();
@@ -1659,6 +1681,7 @@ function setPlace() {
     }
   }
   if (hanger.active) hanger.cancel();
+  if (mover.active) mover.cancel();
   hintKey = 'stale';
 }
 
@@ -1767,6 +1790,7 @@ function applyMap() {
   arrivals.clear();
   telescope.exit();
   if (hanger.active) hanger.cancel();
+  if (mover.active) mover.cancel();
   if (climber.active) climber.abort();
   if (walkingTo) stopWalking();
   if (golf.active) golf.stop();
@@ -2042,6 +2066,7 @@ function walkThen(at: { x: number; y?: number; z: number }, what: string, then: 
   closeAllModals();
   if (player.seat) standUp();
   if (hanger.active) hanger.cancel();
+  if (mover.active) mover.cancel();
   if (golf.active) golf.stop();
   if (thrower.active) thrower.stop();
   if (walkingTo) stopWalking();
@@ -2588,6 +2613,7 @@ function standAt(desk: DeskDef) {
   if (player.seat) standUp();
   dropCar();
   if (hanger.active) hanger.cancel();
+  if (mover.active) mover.cancel();
   if (climber.active) climber.abort();
   if (golf.active) golf.stop();
   if (thrower.active) thrower.stop();
@@ -2790,6 +2816,7 @@ function paletteEntries(): PaletteEntry[] {
   if (store.invites) out.push({ icon: '👥', kind: 'Action', title: 'Invite teammates', keywords: ['team', 'add people'], open: () => openTeam(net) });
   else if (store.me.admin) out.push({ icon: '👥', kind: 'Action', title: 'Invite people', detail: 'Accounts', keywords: ['invite teammates', 'accounts', 'team'], open: () => openAccounts(net) });
   out.push({ icon: '🖼️', kind: 'Action', title: 'Hang a picture', detail: 'On a wall of this floor', keywords: ['decorate', 'frame', 'art'], open: startHanging });
+  out.push({ icon: '🎵', kind: 'Action', title: 'Move the jukebox', detail: 'Stand it against another wall', keywords: ['jukebox', 'music', 'move'], open: startMoving });
   out.push({ icon: '🔎', kind: 'Action', title: 'Search the chat and every terminal', keywords: ['find'], open: showSearch });
 
   out.push(at('issues', 'the Issues board', { icon: '📌', kind: 'Board', title: 'Issues board', open: () => openBoard('issues', net, boardActions()) }));
@@ -2868,7 +2895,7 @@ function showMeeting(preset?: MeetingPreset) {
 }
 
 function showJukebox() {
-  openJukebox(net, () => showSettings('sound'));
+  openJukebox(net, () => showSettings('sound'), startMoving);
 }
 
 /** The project on its forge, from the floor's origin remote, when it's a forge the office knows. */
@@ -3802,6 +3829,7 @@ interface Hint {
 function renderHint() {
   const el = $('hint');
   if (hanger.active && !modalOpen()) return renderHangHint(el);
+  if (mover.active && !modalOpen()) return renderMoveHint(el);
   if (climber.active && !modalOpen()) return renderClimbHint(el);
   if (golf.active && !modalOpen()) return renderGolfHint(el);
   if (thrower.active && !modalOpen()) return renderThrowHint(el);
@@ -4185,6 +4213,17 @@ function renderGolfHint(el: HTMLElement) {
   el.classList.remove('hidden');
 }
 
+/** The hint bar while you're moving the jukebox: where it would go, and the keys that do it. */
+function renderMoveHint(el: HTMLElement) {
+  const spot = mover.spot;
+  const k = `move|${spot ? spot.ok : '-'}`;
+  if (k === hintKey) return;
+  hintKey = k;
+  const title = !spot ? '🎵 Aim at a wall' : !spot.ok ? "🚫 Something's in the way" : '🎵 Moving the jukebox';
+  el.replaceChildren(h('span.title', {}, title), key('Click', 'Stand it here'), key('Esc', 'Leave it be'));
+  el.classList.remove('hidden');
+}
+
 function renderHangHint(el: HTMLElement) {
   const spot = hanger.spot;
   const k = `hang|${hanger.moving}|${spot ? spot.ok : '-'}`;
@@ -4296,6 +4335,10 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
+  if (mover.active && movingKey(e.code)) {
+    e.preventDefault();
+    return;
+  }
   // On the ladder, E gets you off it (and nothing else is in reach); W, S and Space climb.
   if (climber.active && (e.code === 'KeyE' || e.code === 'KeyF' || e.code in DESK_KEYS)) {
     if (e.code === 'KeyE') climber.letGo();
@@ -4398,6 +4441,22 @@ function officeKey(e: KeyboardEvent): boolean {
     e.preventDefault();
     showSearch();
     return true;
+  }
+  return false;
+}
+
+/** Keys while moving the jukebox. Walking, chat and voice work as usual. */
+function movingKey(code: string): boolean {
+  switch (code) {
+    case 'Escape':
+    case 'KeyF':
+      mover.cancel();
+      return true;
+    case 'KeyE':
+    case 'Enter':
+      reach();
+      mover.place();
+      return true;
   }
   return false;
 }
@@ -4581,6 +4640,11 @@ player.onClick = (ndc) => {
     hanger.place(ndc);
     return;
   }
+  if (mover.active) {
+    reach();
+    mover.place(ndc);
+    return;
+  }
   if (player.view === 'first') {
     // Reach out even at nothing, like poking the air.
     reach();
@@ -4731,6 +4795,7 @@ const hud = mountHud(
     },
     { id: 'share', icon: '🖥️', label: () => (voice.sharing ? 'Stop sharing' : 'Share screen'), section: 'Together', on: () => voice.sharing, status: () => voice.sharing, chip: () => 'Sharing', blocked: noMedia, run: () => void toggleShare() },
     { id: 'decor', icon: '🖼️', label: () => (hanger.active ? 'Stop hanging the picture' : 'Hang a picture'), section: 'Together', key: 'F', shown: () => inOffice(), on: () => hanger.active, status: () => hanger.active, run: () => (hanger.active ? hanger.cancel() : startHanging()) },
+    { id: 'moveJukebox', icon: '🎵', label: () => (mover.active ? 'Leave the jukebox where it is' : 'Move the jukebox'), section: 'Together', shown: () => inOffice(), on: () => mover.active, status: () => mover.active, run: () => (mover.active ? mover.cancel() : startMoving()) },
     { id: 'team', icon: '👥', label: 'Invite teammates', section: 'Together', shown: () => store.invites, run: () => openTeam(net) },
     { id: 'accounts', icon: '🔑', label: 'Accounts', section: 'Together', shown: () => store.me.admin, title: () => 'Invite people, see who has an account, revoke them', run: () => openAccounts(net) },
     { id: 'signins', icon: '🔐', label: 'Your sign-ins', section: 'Together', shown: () => !!store.me.account, tone: () => (needsSigningIn() ? 'danger' : undefined), status: needsSigningIn, chip: () => 'Sign in to Claude', title: () => 'The Claude plan and GitHub or Bitbucket account your workers run on: your own', run: () => openSignIns(net) },
@@ -4774,6 +4839,17 @@ function startHanging() {
   if (upTop) return toast('No walls to hang pictures on up here — take the elevator down to a floor', 'warn');
   if (!inOffice()) return toast(`${plan().icon} ${plan().name}'s walls are hung already — pictures go up in the office`, 'warn');
   hanger.start();
+}
+
+/** Move the jukebox to another wall of this floor, from its own window or the ☰ menu. */
+function startMoving() {
+  if (upTop) return toast('The jukebox is down on a floor — take the elevator to move it', 'warn');
+  if (!inOffice()) return toast(`${plan().icon} ${plan().name}'s jukebox is where you left it`, 'warn');
+  if (trip) return toast('Wait till you get there', 'warn');
+  if (hanger.active) hanger.cancel();
+  if (player.seat) standUp();
+  if (walkingTo) stopWalking();
+  mover.start();
 }
 function showSettings(pane?: SettingsPane) {
   openSettings(
@@ -5055,6 +5131,7 @@ function frame(ts?: number) {
   smoke.update(dt, camera);
   confetti.update(dt);
   hanger.update();
+  mover.update();
   // Out along the scenic loop, the haze thins (there's more out there to see), and the sun's shadows
   // come with you: otherwise they're only cast round the office.
   const away = !upTop && inOffice() ? Math.hypot(player.pos.x, player.pos.z) : 0;
@@ -5076,7 +5153,7 @@ function frame(ts?: number) {
   }
 
   aimedNote = null;
-  if (faint.down || modalOpen() || telescope.active || hanger.active || climber.active || golf.active || thrower.active || driver.active) target = null;
+if (faint.down || modalOpen() || telescope.active || hanger.active || mover.active || climber.active || golf.active || thrower.active || driver.active) target = null;
   else if (firstPerson) {
     const aim = aimedAt(CROSSHAIR);
     target = aim?.near ? aim.it : (throneTarget() ?? mySeat() ?? (inOffice() ? ballAtFeet() : null));
@@ -5197,7 +5274,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { world: () => world, court: () => court, sendoffs, jail, plan, applyMap, roof: () => roof, booze, dj: () => djFrame(djAt()), store, player, caffeine, vitals, faint, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, driver, getIn, getOut, golf, balls, thrower, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote, ball };
+(window as any).__office = { world: () => world, court: () => court, sendoffs, jail, plan, applyMap, roof: () => roof, booze, dj: () => djFrame(djAt()), store, player, caffeine, vitals, faint, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, mover, office, ride, switchFloor, climber, driver, getIn, getOut, golf, balls, thrower, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote, ball };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

@@ -10,7 +10,7 @@
  */
 import { CABINET, DESKS, DJ_BOOTH, FLOOR, GONG, JUKEBOX, WINDOWS as OPENINGS, inWing } from '../shared/layout';
 import type { GongWhy } from '../shared/protocol';
-import { STREAM } from '../shared/jukebox';
+import { STREAM, type JukeboxSpot } from '../shared/jukebox';
 import { TunePlayer } from './music';
 import { DjPlayer } from './dnb';
 
@@ -134,6 +134,8 @@ export class OfficeSound {
   private musicMeter!: AnalyserNode;
   private musicVolume = 0.5;
   private musicMuted = false;
+  /** Where the jukebox stands, so the music comes from the wall it's against (see setJukeboxSpot). */
+  private jukeboxAt: { x: number; y: number; z: number } = { x: JUKEBOX.x, y: JUKEBOX.y, z: JUKEBOX.z };
   private jukebox: JukeboxPlay | null = null;
   private tune: TunePlayer | null = null;
   private stream: HTMLAudioElement | null = null;
@@ -224,7 +226,7 @@ export class OfficeSound {
     this.outside.gain.value = 0;
     this.outside.connect(this.ambience);
     // The jukebox skips the master (it has its own volume) and keeps playing while the tab is hidden.
-    this.musicIn = this.panner(JUKEBOX, MUSIC_REF, MUSIC_ROLLOFF);
+    this.musicIn = this.panner(this.jukeboxAt, MUSIC_REF, MUSIC_ROLLOFF);
     this.musicTone = biquad(ctx, 'lowpass', 16000, 0.5);
     this.musicBus = ctx.createGain();
     this.musicBus.gain.value = 0;
@@ -1648,6 +1650,15 @@ export class OfficeSound {
     this.applyJukebox(true);
   }
 
+  /** Stands the jukebox's music where the cabinet now is, so the sound comes from the right wall. */
+  setJukeboxSpot(spot: JukeboxSpot) {
+    const at = { x: spot.x, y: JUKEBOX.y, z: spot.z };
+    // The jukebox's state comes on every clock resync, and it only moves on its own message.
+    if (this.jukeboxAt.x === at.x && this.jukeboxAt.z === at.z) return;
+    this.jukeboxAt = at;
+    if (this.ctx) place(this.musicIn, at.x, at.y, at.z);
+  }
+
   /** Your own jukebox volume, 0–1, apart from the office sounds'. */
   setMusicVolume(volume: number, muted: boolean) {
     this.musicVolume = Math.max(0, Math.min(1, volume));
@@ -1741,7 +1752,8 @@ export class OfficeSound {
 
   private jukeboxDistance(): number {
     const l = this.listener;
-    return Math.hypot(l.x - JUKEBOX.x, l.y - JUKEBOX.y, l.z - JUKEBOX.z);
+    const m = this.jukeboxAt;
+    return Math.hypot(l.x - m.x, l.y - m.y, l.z - m.z);
   }
 
   // ---- Plumbing --------------------------------------------------------------------------------
