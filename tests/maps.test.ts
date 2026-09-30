@@ -22,41 +22,79 @@ test('every built-in map places every seat the office has, by the same ids', () 
   }
 });
 
-test('in the castle every worker can walk from its seat to the door and to the front of the line', () => {
-  const plan = planOf('castle');
-  const nav = new NavGrid(plan.bounds, plan.obstacles!);
-  assert.ok(plan.lineup.length >= 4, 'a line in front of the throne');
-  for (const spot of plan.lineup) assert.ok(nav.walkable(spot.x, spot.z), `the line's spot at (${spot.x}, ${spot.z}) is clear`);
-  /** Every step along `way` (after its first `skip` points) is on open floor. */
-  const clear = (way: [number, number][], skip: number, what: string) => {
-    for (let i = skip + 1; i < way.length; i++) {
-      const [x0, z0] = way[i - 1];
-      const [x1, z1] = way[i];
-      const n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.2);
-      for (let k = 0; k <= n; k++) {
-        const x = x0 + ((x1 - x0) * k) / n;
-        const z = z0 + ((z1 - z0) * k) / n;
-        assert.ok(nav.walkable(x, z), `${what} walks into something at (${x.toFixed(2)}, ${z.toFixed(2)})`);
+test('on every built-in map with a line, every worker can walk from its seat to the door and to the front of the line', () => {
+  for (const config of BUILTIN_MAPS) {
+    const plan = planOf(config.id);
+    const nav = new NavGrid(plan.bounds, plan.obstacles!);
+    assert.ok(plan.lineup.length >= 4, `${config.id} has a line in front of the throne`);
+    for (const spot of plan.lineup) assert.ok(nav.walkable(spot.x, spot.z), `${config.id}: the line's spot at (${spot.x}, ${spot.z}) is clear`);
+    /** Every step along `way` (after its first `skip` points) is on open floor. */
+    const clear = (way: [number, number][], skip: number, what: string) => {
+      for (let i = skip + 1; i < way.length; i++) {
+        const [x0, z0] = way[i - 1];
+        const [x1, z1] = way[i];
+        const n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.2);
+        for (let k = 0; k <= n; k++) {
+          const x = x0 + ((x1 - x0) * k) / n;
+          const z = z0 + ((z1 - z0) * k) / n;
+          assert.ok(nav.walkable(x, z), `${config.id}: ${what} walks into something at (${x.toFixed(2)}, ${z.toFixed(2)})`);
+        }
+      }
+    };
+    for (const d of plan.byId.values()) {
+      for (const to of [plan.door, ...plan.lineup]) {
+        // Off its seat (it hops down beside it, then walks)…
+        const way = nav.wayFrom(d, [to.x, to.z]);
+        clear(way, 1, `${d.id} going`);
+        assert.ok(pathLength(way) < 3 * Math.hypot(to.x - d.x, to.z - d.z) + 10, `${d.id} doesn't go the long way round`);
+        // …and back to it (up to beside it, where it hops on).
+        const back = nav.wayTo([to.x, to.z], d);
+        clear(back.slice(0, -1), 0, `${d.id} coming back`);
       }
     }
-  };
-  for (const d of plan.byId.values()) {
-    for (const to of [plan.door, ...plan.lineup]) {
-      // Off its seat (it hops down beside it, then walks)…
-      const way = nav.wayFrom(d, [to.x, to.z]);
-      clear(way, 1, `${d.id} going`);
-      assert.ok(pathLength(way) < 3 * Math.hypot(to.x - d.x, to.z - d.z) + 10, `${d.id} doesn't go the long way round`);
-      // …and back to it (up to beside it, where it hops on).
-      const back = nav.wayTo([to.x, to.z], d);
-      clear(back.slice(0, -1), 0, `${d.id} coming back`);
-    }
+    assert.ok(plan.throne, `${config.id} has a throne`);
+    assert.ok(seatHereOn(plan, 'throne:0', false), `${config.id}: the throne is a seat`);
   }
-  // The throne is a seat of its own, somewhere you can sit only on the castle's floors.
-  assert.ok(plan.throne);
-  assert.ok(seatHereOn(plan, 'throne:0', false));
-  assert.equal(seatHereOn(plan, 'couch:0', false), undefined);
+  // The throne is a seat of its own, somewhere you can sit only off the office; the couch is the office's.
+  assert.equal(seatHereOn(planOf('castle'), 'couch:0', false), undefined);
   assert.equal(seatHereOn(OFFICE_PLAN, 'throne:0', false), undefined);
   assert.ok(seatHereOn(OFFICE_PLAN, 'couch:0', false));
+});
+
+test('the neon props are usable on a map of your own, and what stands on the floor is walked round', () => {
+  const [neon] = checkCustomMaps([
+    {
+      file: 'neon.json',
+      json: {
+        id: 'neon',
+        name: 'Neon test',
+        extends: 'cyberpunk',
+        props: [
+          { kind: 'sign', x: -15, z: 0, y: 4, text: 'OPEN', color: '#ff2c9c', width: 0.6 },
+          { kind: 'screen', x: 15, z: 0, y: 6, width: 4, height: 2 },
+          { kind: 'holo', x: 6, z: 3, color: '#2de2e6' },
+          { kind: 'machine', x: 16.2, z: 0, rotY: -1.5708 },
+          { kind: 'crate', x: -14, z: 20, scale: 1.2 },
+          { kind: 'vent', x: 0, z: 0 },
+          { kind: 'barrier', x: 0, z: -2, width: 6 },
+        ],
+      },
+    },
+  ]);
+  assert.equal(neon.error, undefined);
+  const plan = planOf('neon', [neon]);
+  assert.equal(plan.style, 'cyberpunk');
+  const nav = new NavGrid(plan.bounds, plan.obstacles!);
+  assert.ok(!nav.walkable(6, 3), 'the holo projector stands on the floor');
+  assert.ok(!nav.walkable(0, -2), 'so does the barrier');
+  assert.ok(!nav.walkable(-14, 20), 'so do the cases');
+  assert.ok(nav.walkable(0, 0), 'a floor vent is not in the way');
+  // A screen that would reach over the walls is refused like any other prop.
+  const [tall] = checkCustomMaps([{ file: 'tall.json', json: { id: 'tall', name: 'Tall', extends: 'cyberpunk', props: [{ kind: 'screen', x: 0, z: 0, y: 16, width: 4, height: 3 }] } }]);
+  assert.match(tall.error ?? '', /over the hall/);
+  // And a kind that isn't a prop is still refused.
+  const [bad] = checkCustomMaps([{ file: 'bad.json', json: { id: 'bad', name: 'Bad', extends: 'cyberpunk', props: [{ kind: 'hovercar', x: 0, z: 0 }] } }]);
+  assert.match(bad.error ?? '', /isn’t a kind of prop/);
 });
 
 test('a custom map extends a built-in one, changing only what it gives', () => {
