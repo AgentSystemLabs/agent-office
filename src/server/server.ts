@@ -7,49 +7,44 @@ import type { Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Config } from './config.js';
-import { Auth, type Session } from './auth.js';
-import { Accounts } from './accounts.js';
+import type { Session } from './auth.js';
 import { MAX_REPOS, childEnv, resolveCommand, type RepoSource } from './workers.js';
-import { SignIns, type GhAs } from './signins.js';
-import { agentProviders, configuredProvider, OPEN_CODE_MODEL_MAX } from './agents.js';
-import { createGrokModelCatalogue, createOpenCodeModelCatalogue } from './models.js';
-import { Tailnet } from './tailnet.js';
-import { Team } from './team.js';
-import { Upgrader } from './upgrade.js';
-import { Services } from './services.js';
-import { ImageProxy } from './decor.js';
-import { Ledger } from './usage.js';
-import { PlanLimitsReader } from './limits.js';
-import { Webhook } from './webhook.js';
-import { MAX_WORKER_LIMIT, Machine, parseWorkerLimit } from './machine.js';
-import { Building, type FloorDef } from './building.js';
-import { Floor, type FloorContext } from './floor.js';
-import { Sky } from './sky.js';
-import { Themes } from './theme.js';
-import { Maps } from './maps.js';
-import { OfficePrompts } from './prompts.js';
-import { LeaveOnMerge, notLeaving } from './leave-on-merge.js';
+import { OPEN_CODE_MODEL_MAX } from './agents.js';
+import { MAX_WORKER_LIMIT, parseWorkerLimit } from './machine.js';
+import { notLeaving } from './leave-on-merge.js';
 import { findWorker, readHireRequest, readHomeRequest, workerRow, type PullsView } from './office-workers.js';
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
-import { ChatLog } from './history.js';
-import { Arcade, HighScores } from './cabinet.js';
-import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState, SignInKind, WorkerInfo } from '../shared/protocol.js';
+import type { ChatLine, ClientMsg, MeetingRequest, SearchResults, ServerMsg, SignInKind, WorkerInfo } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
-import { DESK_BY_ID, elevatorSpot, nextFreeSeat, streetBelow } from '../shared/layout.js';
+import { DESK_BY_ID, elevatorSpot, nextFreeSeat } from '../shared/layout.js';
 import { OFFICE_MAP, seatHereOn } from '../shared/maps/index.js';
-import { EMPTY_PLAN } from '../shared/floorplan.js';
-import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
-import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
+import { STREAM } from '../shared/jukebox.js';
+import { checkFrame } from '../shared/cabinet.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
 import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
 import { DROP_MAX_BYTES } from '../shared/drops.js';
-import { MAX_FLOORS } from '../shared/floors.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
-import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
+import { isEmote } from '../shared/emotes.js';
 import { isThemePick } from '../shared/theme.js';
 import { PROMPTS, PROMPT_MAX, isPromptId } from '../shared/prompts.js';
 import { ROOF, isDrink } from '../shared/rooftop.js';
 import { isBarGame, tossOk, type BarGame } from '../shared/bargames.js';
+import type { Floor } from './floor.js';
+import type { Ctx } from './office/context.js';
+import { SLOW_CLIENT_BYTES, newClient, throttle, type Client } from './office/client.js';
+import { COLOR_RE, arrivalSpot, issueNumber, num, repoOf, spotFrom, str } from './office/input.js';
+import { messaging } from './office/messaging.js';
+import { createCore } from './office/core.js';
+import { floorHelpers, openFloors } from './office/floors.js';
+import { createLateServices, createServices } from './office/services.js';
+import { people } from './office/people.js';
+import { navigation } from './office/navigation.js';
+import { gates } from './office/gates.js';
+import { floorView, roofView, screensOf } from './office/views.js';
+import { cabinetChanged, cabinetPlayer, cabinetState, stopPlaying } from './ws/handlers/cabinet.js';
+import { drawingChanged } from './ws/handlers/whiteboard.js';
+import { ballChanged } from './ws/handlers/ball.js';
+import { carsChanged } from './ws/handlers/car.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -69,46 +64,6 @@ const MIME: Record<string, string> = {
 
 const CLEANUPS = new Set(['keep', 'worktree', 'all']);
 
-type ToastLevel = Extract<ServerMsg, { t: 'toast' }>['level'];
-
-interface Client {
-  id: string;
-  ws: WebSocket;
-  peer: PeerInfo;
-  /** Signed in with this account; none means the shared office password. */
-  accountId?: string;
-  /** Whether this person was last told they're an admin (see `me`). */
-  admin: boolean;
-  /** Signed out while connected; whatever it still sends is dropped until the socket closes. */
-  out?: boolean;
-  attached: Set<string>;
-  /** Terminals whose output was skipped because this client fell behind; re-snapshotted later. */
-  stale: Set<string>;
-  lastMoveAt: number;
-  lastActAt: number;
-  lastGongAt: number;
-  /** When they last hit a golf ball off the balcony. */
-  lastGolfAt: number;
-  /** When they last blew the DJ's air horn on the roof. */
-  lastHornAt: number;
-  /** When they last threw a dart or an axe up there. */
-  lastTossAt: number;
-  emotes: EmoteBucket;
-  /** Has the floor's whiteboard open. */
-  whiteboard: boolean;
-  lastWbPointerAt: number;
-  /** At the arcade cabinet on their floor, playing `game` (see Arcade); `frame` is it as it looks now. */
-  playing: boolean;
-  game?: string;
-  frame?: CabinetFrame;
-  lastFrameAt: number;
-  /** When this client last said it was typing, per terminal (see 'term.typing'). */
-  typingAt: Map<string, number>;
-  /** Cleared at each heartbeat ping and set again by the pong; still clear at the next one means gone. */
-  isAlive: boolean;
-}
-
-const SLOW_CLIENT_BYTES = 8 * 1024 * 1024;
 /** The least time between two 'term.typing' notes from one person in one terminal. */
 const TYPING_GAP_MS = 500;
 /** The quickest anyone throws one dart after another, or one axe (ms): a page's own wait is longer. */
@@ -177,29 +132,7 @@ function send(res: http.ServerResponse, status: number, body: unknown, headers: 
   res.end(json);
 }
 
-const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
-/** Which of a worker's repositories a Changes message is about: another floor's (see WorkerInfo.repos), or none for its own. */
-const repoOf = (v: unknown) => str(v, 64) || undefined;
-const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-/** Where someone going to another floor says they arrive (see `floor.go`): on the grounds, or nowhere (the elevator). */
-function arrivalSpot(at: unknown): { x: number; y: number; z: number; rotY: number } | undefined {
-  if (!at || typeof at !== 'object') return undefined;
-  const a = at as Record<string, unknown>;
-  const clamp = (v: unknown, lo: number, hi: number) => Math.min(hi, Math.max(lo, num(v)));
-  // Down on the street from a floor high up, the street is a long way down.
-  return { x: clamp(a.x, -60, 60), y: clamp(a.y, streetBelow(MAX_FLOORS - 1), 10), z: clamp(a.z, -60, 60), rotY: num(a.rotY) };
-}
-/** The spot someone coming back in says they were standing in (see Net.connect), if they say. */
-function spotFrom(q: URLSearchParams): ReturnType<typeof arrivalSpot> {
-  const n = (k: string) => (q.get(k) ? Number(q.get(k)) : NaN);
-  const [x, y, z, rotY] = ['x', 'y', 'z', 'rotY'].map(n);
-  return Number.isFinite(x) && Number.isFinite(z) ? arrivalSpot({ x, y, z, rotY }) : undefined;
-}
-const issueNumber = (v: unknown) => (Number.isInteger(v) && (v as number) > 0 ? (v as number) : undefined);
-const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const TOO_MANY_ATTEMPTS = 'Too many attempts. Try again in a few minutes.';
-/** WebSocket close code for a session that stopped counting: the account was revoked, or the shared password switched off. */
-const SIGNED_OUT = 4001;
 /** The most chat lines, and lines per worker's terminal, a search answers with. */
 const SEARCH_CHAT_HITS = 50;
 const SEARCH_TERMINAL_HITS = 25;
@@ -211,93 +144,16 @@ export interface StartOptions {
 
 export async function startServer(cfg: Config, opts: StartOptions = {}) {
   const publicDir = opts.publicDir ?? findPublicDir();
-  const accounts = new Accounts(cfg.dataDir);
-  const auth = new Auth(cfg.verifier, cfg.salt, cfg.secret, accounts);
-  const clients = new Map<string, Client>();
-  // Kept on disk, so a restart doesn't wipe it.
-  const chat = new ChatLog(cfg.dataDir);
-  // The arcade's high scores: one table for the whole building, on every floor's cabinet. The office
-  // follows every game and puts the scores up itself (see Arcade).
-  const highScores = new HighScores(cfg.dataDir);
-  const arcade = new Arcade(highScores, (first) => {
-    for (const f of floors.values()) cabinetChanged(f);
-    if (first) toastFloor(floors.get(first.floor), `🏆 ${first.score.name} set a new arcade high score: ${scoreText(first.score.score)}`);
-  });
-  /** What the office is called where it has no project of its own to go by (webhooks, invites). */
-  const officeName = cfg.project ? path.basename(cfg.project) : 'the office';
-  const modelCommand = configuredProvider(cfg.agentCmd) === 'opencode' ? cfg.agentCmd : 'opencode';
-  const openCodeModels = createOpenCodeModelCatalogue(
-    modelCommand.includes('/') ? path.resolve(modelCommand) : modelCommand,
-    cfg.dir,
-  );
-  const grokCommand = configuredProvider(cfg.agentCmd) === 'grok' ? cfg.agentCmd : 'grok';
-  const grokModels = createGrokModelCatalogue(
-    grokCommand.includes('/') ? path.resolve(grokCommand) : grokCommand,
-    cfg.dir,
-  );
-
-  const sendTo = (c: Client, msg: ServerMsg) => {
-    if (c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify(msg));
-  };
-  const broadcast = (msg: ServerMsg, except?: string, droppable = false) => {
-    const json = JSON.stringify(msg);
-    for (const c of clients.values()) {
-      if (c.id === except || c.ws.readyState !== WebSocket.OPEN) continue;
-      if (droppable && c.ws.bufferedAmount > 4 * 1024 * 1024) continue;
-      c.ws.send(json);
-    }
-  };
-  const toastAll = (text: string, level: ToastLevel = 'info') => broadcast({ t: 'toast', text, level });
-
-  // --- The building: a floor per project, each with its own workers, boards and queue -----------
-  const building = new Building(cfg.dataDir, cfg.projectsDir);
-  if (cfg.projects) {
-    const err = building.setProjectsDir(cfg.projects, 'the command line');
-    if (err) console.error(`agent-office: --projects: ${err}`);
-  }
-  const floors = new Map<string, Floor>();
-  const floorOf = (c: Client): Floor | undefined => (c.peer.floor ? floors.get(c.peer.floor) : undefined);
-  /** The floor a worker sits on. Worker ids are unique across the building. */
-  const workerFloor = (workerId: string): Floor | undefined => {
-    for (const f of floors.values()) if (f.workers.get(workerId)) return f;
-    return undefined;
-  };
-  /** To everyone on one floor. */
-  const toFloor = (floor: Floor, msg: ServerMsg, droppable = false) => {
-    const json = JSON.stringify(msg);
-    for (const c of clients.values()) {
-      if (c.peer.floor !== floor.id || c.ws.readyState !== WebSocket.OPEN) continue;
-      if (droppable && c.ws.bufferedAmount > 4 * 1024 * 1024) continue;
-      c.ws.send(json);
-    }
-  };
-  const toastFloor = (floor: Floor | undefined, text: string, level: ToastLevel = 'info') => {
-    if (floor) toFloor(floor, { t: 'toast', text, level });
-  };
-  const floorInfos = (): FloorInfo[] => [
-    ...[...floors.values()].map((f) => ({ ...f.info(), ...(building.isLocal(f.id) ? { local: true } : {}) })),
-    ...building.pending().map((d) => ({ id: d.id, name: d.name, repo: d.repo, dir: d.dir, palette: d.palette, addedBy: d.addedBy, addedAt: d.addedAt, cloning: true, workers: 0, busy: 0, waiting: 0, people: 0, wing: 0 })),
-  ];
-  // The elevator's counts change with every worker update; tell everyone at most a few times a second.
-  let floorsSent = '';
-  let floorsTimer: NodeJS.Timeout | undefined;
-  const floorsChanged = () => {
-    floorsTimer ??= setTimeout(() => {
-      floorsTimer = undefined;
-      const list = floorInfos();
-      const json = JSON.stringify(list);
-      if (json === floorsSent) return;
-      floorsSent = json;
-      broadcast({ t: 'floors', floors: list });
-    }, 250);
-  };
-  /** Tells just this person why their request didn't happen; nothing when there's no error. */
-  const warn = (c: Client, error: string | undefined) => {
-    if (error) sendTo(c, { t: 'toast', text: error, level: 'warn' });
-  };
+  // Everything the office's parts share (see office/context.ts), filled in a stage at a time in the
+  // order the office has always started up in.
+  const ctx = {} as Ctx;
+  Object.assign(ctx, messaging(ctx), floorHelpers(ctx), people(ctx), navigation(ctx), gates(ctx));
+  Object.assign(ctx, createCore(ctx, cfg, publicDir));
+  const { sendTo, broadcast, toastAll, toFloor, toastFloor, toNeighbors, warn, floorOf, workerFloor, floorInfos, floorsChanged, arrivalFloor, closeFloor } = ctx;
+  const { meOf, onlineAccounts, accountsChanged, stillIn, goToFloor, goToRoof, takeIssue, withSignIn, withFreshBase, withGitHub, claudeFor } = ctx;
+  const { accounts, auth, clients, chat, arcade, officeName, openCodeModels, grokModels, building, floors } = ctx;
 
   // --- Loopback-only endpoint for authenticated agent events -------------------------------
-  let webhook!: Webhook;
   const hookServer = http.createServer(async (req, res) => {
     let url: URL;
     try {
@@ -395,11 +251,11 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
       return send(res, 200, {
         floor: { id: floor.id, name: floor.def.name, repo: floor.def.repo, branch: floor.project.branch },
         you: me.id,
-        leaveOnMerge: leaveOnMerge.on,
+        leaveOnMerge: ctx.leaveOnMerge.on,
         providers: floor.project.agentProviders,
         defaultProvider: floor.workers.officeDefault.provider,
         freeDesk: free?.id ?? null,
-        ...(ledger.hiringPaused ? { hiringPaused: ledger.hiringPaused } : {}),
+        ...(ctx.ledger.hiringPaused ? { hiringPaused: ctx.ledger.hiringPaused } : {}),
         workers: list.map((w) => workerRow(w, view, me.id)),
       });
     }
@@ -483,7 +339,7 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
     if (ask.issue) {
       const n = ask.issue;
       floor.queue.dropIssue(n);
-      const as = owner ? signins.ghAs(owner) : undefined;
+      const as = owner ? ctx.signins.ghAs(owner) : undefined;
       if (typeof as === 'string') toastFloor(floor, `Couldn't assign issue #${n} on GitHub: ${as}`, 'warn');
       else void floor.github.claim(n, as).then((e) => e && toastFloor(floor, `Couldn't assign issue #${n} on GitHub: ${e}`, 'warn'));
     }
@@ -510,15 +366,8 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
   const hookPort = (hookServer.address() as { port: number }).port;
   writeFileSync(hookPortPath, String(hookPort), { mode: 0o600 });
 
-  // Day, night and the weather outside the windows, the same for everyone.
-  const sky = new Sky({ city: cfg.city, weather: cfg.weather }, (state) => broadcast({ t: 'sky', state }));
-  sky.start();
-  // Halloween or Christmas all over the building, the same for everyone (⚙️ Settings). On 'auto' it
-  // goes by the calendar at the office, the sky's clock.
-  const themes = new Themes(cfg.dataDir, () => sky.state.utcOffset, (state) => broadcast({ t: 'theme', state }));
-  themes.start();
-  // What the building looks like inside: the office, the castle, or a map of your own (⚙️ Settings).
-  const maps = new Maps(cfg.dataDir);
+  Object.assign(ctx, createServices(ctx));
+  const { themes, maps, prompts, leaveOnMerge, ledger, signins, accountLimits, webhook, machine, limitsOf, pumpQueues } = ctx;
   /**
    * Tells everyone about the maps, after a pick or a read of the folder. When the map everyone's on
    * changed (`was` before), everyone's off their seats (each browser forgets them too, see the
@@ -534,254 +383,11 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
     const why = now === OFFICE_MAP ? `: the map "${was}" won't load (see ⚙️ Settings)` : ': it loads again';
     toastAll(who ? `${who} changed the building's map to ${plan.icon} ${plan.name}` : `The building's map is ${plan.icon} ${plan.name} now${why}`);
   };
-  // The prompts the office writes for workers by itself, and the worker everyone starts on (⚙️ Settings).
-  const configured = configuredProvider(cfg.agentCmd);
-  const prompts = new OfficePrompts(cfg.dataDir, { list: agentProviders(configured), configured }, (state) => broadcast({ t: 'prompts', state }));
-  // Whether a worker whose pull request merged goes home by itself, on every floor (⚙️ Settings).
-  const leaveOnMerge = new LeaveOnMerge(cfg.dataDir, (state) => broadcast({ t: 'leaveOnMerge', state }));
+  Object.assign(ctx, await openFloors(ctx, hookPort));
+  const { openFloor } = ctx;
 
-  // What the workers spend, all time and today, with the optional daily budget.
-  const ledger = new Ledger(
-    cfg.dataDir,
-    { budget: cfg.budget, pauseHiring: cfg.budgetPause },
-    (state) => broadcast({ t: 'usage', state }),
-    toastAll,
-  );
-
-  const claudeBin = configuredProvider(cfg.agentCmd) === 'claude' ? resolveCommand(cfg.agentCmd) : resolveCommand('claude');
-  // Everyone with an account runs on their own Claude and GitHub sign-ins (see signins.ts). On the
-  // shared password, with no accounts, the office's own are used, as they always were.
-  const signins = new SignIns(
-    cfg.dataDir,
-    claudeBin,
-    resolveCommand('gh'),
-    childEnv,
-    (id) => accounts.get(id)?.role === 'admin',
-    (id) => {
-      for (const c of clients.values()) if (c.accountId === id && !c.out) sendTo(c, { t: 'signins', state: signins.state(id) });
-    },
-  );
-  // Accounts revoked from the terminal while the office was closed leave their sign-ins behind.
-  if (!accounts.unreadableFile) signins.prune(new Set(accounts.state(new Set()).accounts.map((a) => a.id)));
-
-  // The Claude plan's 5-hour and weekly limits, for the meter under the workers: the office's own
-  // plan, and each account's own once it runs on a Claude sign-in of its own.
-  const limits = new PlanLimitsReader(
-    claudeBin,
-    childEnv(),
-    () => [...clients.values()].some((c) => limitsOf(c) === limits),
-    (state) => {
-      for (const c of clients.values()) if (limitsOf(c) === limits) sendTo(c, { t: 'limits', state });
-    },
-  );
-  const accountLimits = new Map<string, { key: string; reader: PlanLimitsReader }>();
-  /** Whose plan `c` sees: their own, on an account with its own Claude sign-in; else the office's. */
-  const limitsOf = (c: Client): PlanLimitsReader => {
-    const id = c.accountId;
-    const key = id && signins.claudeKey(id);
-    if (!id || !key) return limits;
-    let a = accountLimits.get(id);
-    if (a?.key !== key) {
-      a?.reader.close();
-      const reader = new PlanLimitsReader(
-        claudeBin,
-        signins.apply(id, childEnv(), [], 'claude'),
-        () => [...clients.values()].some((o) => o.accountId === id),
-        (state) => {
-          for (const o of clients.values()) if (o.accountId === id) sendTo(o, { t: 'limits', state });
-        },
-      );
-      a = { key, reader };
-      accountLimits.set(id, a);
-    }
-    return a.reader;
-  };
-
-  // Slack / Discord pings for workers that need input or finish (set from ⚙️ Settings or --webhook).
-  webhook = new Webhook(cfg.dataDir, (workerId) => (workerId && workerFloor(workerId)?.def.name) || officeName, (state) => broadcast({ t: 'notify', state }));
-  if (cfg.webhook !== undefined) {
-    const err = webhook.set(cfg.webhook, 'the command line');
-    if (err) console.error(`agent-office: --webhook: ${err}`);
-  }
-
-  // The machine's CPU and memory, for the monitor on the wall and a warning before hiring, and the
-  // most workers the office runs at once, across every floor (--max-workers, or ⚙️ Settings).
-  const machine = new Machine(
-    cfg.dataDir,
-    cfg.maxWorkers,
-    () => {
-      let n = 0;
-      for (const f of floors.values()) n += f.workers.list().length;
-      return n;
-    },
-    (state) => broadcast({ t: 'machine', state }),
-  );
-  machine.start();
-  /** Queues everywhere may be waiting for room under the worker limit: let them look again. */
-  const pumpQueues = (except?: Floor) => {
-    if (machine.limit === undefined) return;
-    // Not right now: whoever freed the seat (a queue making room for its next task) takes it first.
-    setImmediate(() => {
-      for (const f of floors.values()) if (f !== except) f.queue.pump();
-    });
-  };
-
-  const floorContext: FloorContext = {
-    agentCmd: cfg.agentCmd,
-    agentArgs: cfg.agentArgs,
-    dshProfile: cfg.dshProfile,
-    hook: { url: `http://127.0.0.1:${hookPort}`, token: '' },
-    ledger,
-    capacity: machine,
-    prompts,
-    emit: toFloor,
-    toast: toastFloor,
-    termData: (workerId, data, viewers) => {
-      const json = JSON.stringify({ t: 'term.data', workerId, data } satisfies ServerMsg);
-      for (const id of viewers) {
-        const c = clients.get(id);
-        if (!c || c.ws.readyState !== WebSocket.OPEN) continue;
-        // A viewer on a slow link skips output and gets a fresh snapshot once it catches up,
-        // instead of queueing unbounded data in server memory.
-        if (c.stale.has(workerId) || c.ws.bufferedAmount > SLOW_CLIENT_BYTES) c.stale.add(workerId);
-        else c.ws.send(json);
-      }
-    },
-    changes: (state, ids) => {
-      for (const id of ids) {
-        const c = clients.get(id);
-        if (c) sendTo(c, { t: 'changes', state });
-      }
-    },
-    workerChanged: (floor, w) => {
-      if (typeof w === 'string') {
-        webhook.onWorkerGone(w);
-        pumpQueues(floor);
-      } else webhook.onWorker(w);
-      machine.workersChanged();
-      floorsChanged();
-    },
-    people: (floor) => {
-      let n = 0;
-      for (const c of clients.values()) if (c.peer.floor === floor.id) n++;
-      return n;
-    },
-    peers: (floor) => [...clients.values()].filter((c) => c.peer.floor === floor.id).map((c) => c.peer),
-    leaveOnMerge: () => leaveOnMerge.on,
-    floor: (id) => floors.get(id),
-    pullsChanged: (floor) => {
-      for (const f of floors.values()) if (f !== floor && worksIn(f, floor)) f.sendLandedHome();
-    },
-    lent: (floor) => [...floors.values()].some((f) => f !== floor && worksIn(f, floor)),
-    locksUp: () => !!maps.plan().sendHome?.keeps,
-    runAs: signins,
-    ghAs: (owner) => (owner ? signins.ghAs(owner) : undefined),
-  };
-  /** Whether a worker on `from` works in `on`'s project too (see WorkerInfo.repos). */
-  const worksIn = (from: Floor, on: Floor) => from.workers.list().some((w) => w.repos?.some((r) => r.floor === on.id));
-  const openFloor = (def: FloorDef): Floor | undefined => {
-    if (!existsSync(def.dir)) {
-      console.error(`agent-office: the ${def.name} floor's checkout is gone (${def.dir}) — it stays closed until it's back`);
-      return undefined;
-    }
-    try {
-      const floor = new Floor(def, floorContext);
-      floors.set(def.id, floor);
-      return floor;
-    } catch (err) {
-      console.error(`agent-office: couldn't open the ${def.name} floor: ${(err as Error).message}`);
-      return undefined;
-    }
-  };
-  // Started in a project: it's a floor too (the one it has always been).
-  if (cfg.project) building.ensureLocal(cfg.project, 'the office');
-  for (const def of building.list()) openFloor(def);
-  // Workers still running from the last office are back at their desks before anyone walks in.
-  await Promise.all([...floors.values()].map((f) => f.ready));
-
-  const team = new Team(cfg.publicHost, cfg.port, cfg.tailnet);
-  const tailnet = new Tailnet(cfg.tailnet);
-
-  // Web servers the workers start, for the Services board and service tunnels (see relay.ts).
-  // One scan covers every floor; each floor's board lists its own workers' servers.
-  const servicesState = (floor: Floor | undefined, items = services.list()): ServicesState => ({
-    items: floor ? items.filter((s) => floor.workers.get(s.workerId)) : [],
-    port: cfg.port,
-    deploy: cfg.deployScript,
-    ssh: team.ssh,
-    tailnet: cfg.tailnet,
-  });
-  const services = new Services(
-    () => [...floors.values()].flatMap((f) => f.workers.owners()),
-    (items) => {
-      for (const c of clients.values()) sendTo(c, { t: 'services', state: servicesState(floorOf(c), items) });
-      tailnet.sync(items.map((s) => s.port));
-    },
-  );
-
-  /** Who has a floor's whiteboard open. */
-  const drawing = (floor: Floor): string[] => [...clients.values()].filter((c) => c.whiteboard && c.peer.floor === floor.id).map((c) => c.id);
-  const drawingChanged = (floor: Floor | undefined) => {
-    if (floor) toFloor(floor, { t: 'wb.people', people: drawing(floor) });
-  };
-
-  /** Who's playing the arcade cabinet on a floor. */
-  const cabinetPlayer = (floor: Floor): Client | undefined => [...clients.values()].find((c) => c.playing && c.peer.floor === floor.id);
-  const cabinetState = (floor: Floor | undefined): CabinetState => {
-    const p = floor && cabinetPlayer(floor);
-    return { player: p ? { id: p.id, name: p.peer.name, game: p.game ?? '' } : null, scores: highScores.top() };
-  };
-  const cabinetChanged = (floor: Floor | undefined) => {
-    if (floor) toFloor(floor, { t: 'cabinet', state: cabinetState(floor) });
-  };
-  /** `c` stepped away from the cabinet (or left the floor, or the office): their game waits, with its score so far on the table. */
-  const stopPlaying = (c: Client, floor = floorOf(c)) => {
-    if (!c.playing) return;
-    if (floor) arcade.leave(c.game, floor.id);
-    c.playing = false;
-    c.game = undefined;
-    c.frame = undefined;
-    cabinetChanged(floor);
-  };
-
-  /** Everything on a floor, for whoever just arrived there. */
-  const floorView = (floor: Floor | undefined): FloorView => ({
-    floor: floor?.id ?? null,
-    project: floor?.project ?? null,
-    workers: floor?.workers.list() ?? [],
-    issues: floor?.github.issues ?? { items: [], fetchedAt: 0, loading: false },
-    pulls: floor?.github.pulls ?? { items: [], fetchedAt: 0, loading: false },
-    queue: floor?.queue.state() ?? { tasks: [], maxWorkers: 0 },
-    decor: floor?.decor.list() ?? [],
-    plan: floor?.plan.state() ?? EMPTY_PLAN,
-    services: servicesState(floor),
-    dog: floor?.dog.view() ?? null,
-    ball: floor?.court.state() ?? {},
-    cars: floor?.garage.state() ?? [],
-    jail: floor?.jail.state() ?? { prisoners: [], bones: 0 },
-    jukebox: floor?.jukebox.state() ?? { on: false, track: JUKEBOX_TUNES[0].id, startedAt: Date.now(), elapsed: 0 },
-    whiteboard: { elements: floor?.whiteboard.scene() ?? [], people: floor ? drawing(floor) : [] },
-    meeting: floor?.meetings.state() ?? { current: null, past: [] },
-    cabinet: { ...cabinetState(floor), frame: (floor && cabinetPlayer(floor)?.frame) ?? null },
-  });
-  /** The rooftop bar: nobody works up there, so it has none of a floor's things. */
-  const roofView = (): FloorView => ({ ...floorView(undefined), floor: ROOF });
-  const screensOf = (c: Client, floor: Floor | undefined) => {
-    for (const { workerId, frame } of floor?.workers.fullScreens() ?? []) sendTo(c, { t: 'screen', workerId, ...frame, full: true });
-  };
-  /** Where someone arriving goes: the floor they asked for, else the first one there is. */
-  const arrivalFloor = (wanted: string | null): Floor | undefined => (wanted && floors.get(wanted)) || floors.values().next().value;
-
-  const images = new ImageProxy();
-
-  const upgrader = new Upgrader(
-    (state) => broadcast({ t: 'upgrade', state }),
-    () => {
-      // cli.ts shuts down gracefully, leaving the workers running in their terminal host; systemd
-      // (Restart=always) then starts the new version, which picks them back up.
-      process.kill(process.pid, 'SIGTERM');
-    },
-  );
+  Object.assign(ctx, createLateServices(ctx));
+  const { team, services, images, upgrader } = ctx;
 
   // --- HTTP ------------------------------------------------------------------------------------
   const serveFile = (res: http.ServerResponse, file: string, cache: boolean) => {
@@ -1121,36 +727,6 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
     wss.handleUpgrade(req, socket, head, (ws) => onConnection(ws, url, session));
   });
 
-  /** Who a connection is: its account's current name and role, or an admin guest on the shared password. */
-  const meOf = (accountId: string | undefined): Me => {
-    const a = accounts.get(accountId);
-    return a ? { account: { name: a.name, role: a.role }, admin: a.role === 'admin' } : { admin: !accountId };
-  };
-  /** Still signed in: the account wasn't revoked, and the shared password wasn't switched off. */
-  const stillIn = (c: Client) => (c.accountId ? !!accounts.get(c.accountId) : accounts.sharedPassword);
-  const signOut = (c: Client) => {
-    c.out = true;
-    c.ws.close(SIGNED_OUT, 'Signed out');
-  };
-  const onlineAccounts = () => new Set([...clients.values()].map((c) => c.accountId).filter((id): id is string => !!id));
-  /** Tells each admin what the accounts are now, and everyone whether they're (still) an admin. */
-  const accountsChanged = () => {
-    let state: ReturnType<Accounts['state']> | undefined;
-    for (const c of clients.values()) {
-      if (c.out) continue;
-      if (!stillIn(c)) {
-        signOut(c);
-        continue;
-      }
-      const me = meOf(c.accountId);
-      if (me.admin !== c.admin) {
-        c.admin = me.admin;
-        sendTo(c, { t: 'me', me });
-      }
-      if (me.admin) sendTo(c, { t: 'accounts', state: (state ??= accounts.state(onlineAccounts())) });
-    }
-  };
-
   const onConnection = (ws: WebSocket, url: URL, session: Session) => {
     const id = randomBytes(5).toString('hex');
     // Back on the floor they were on before a reload, a restart or closing the tab, else the first floor.
@@ -1169,46 +745,24 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
     const colorParam = url.searchParams.get('color') ?? '';
     const intParam = (k: string) => (url.searchParams.get(k) ? Number(url.searchParams.get(k)) : undefined);
     const me = meOf(account?.id);
-    const client: Client = {
+    const client = newClient(id, ws, { accountId: account?.id, admin: me.admin }, {
       id,
-      ws,
-      accountId: account?.id,
-      admin: me.admin,
-      attached: new Set(),
-      stale: new Set(),
-      lastMoveAt: 0,
-      lastActAt: 0,
-      lastGongAt: 0,
-      lastGolfAt: 0,
-      lastHornAt: 0,
-      lastTossAt: 0,
-      // A little more lenient than the page's own, so emotes it let through aren't dropped for arriving bunched up.
-      emotes: new EmoteBucket(EMOTE_EVERY * 0.8),
-      whiteboard: false,
-      lastWbPointerAt: 0,
-      playing: false,
-      lastFrameAt: 0,
-      typingAt: new Map(),
-      isAlive: true,
-      peer: {
-        id,
-        name,
-        color: COLOR_RE.test(colorParam) ? colorParam : '#4f86f7',
-        look: sanitizeLook({ skin: intParam('skin'), hair: intParam('hair'), style: intParam('style') }, lookFromSeed(id)),
-        x: spot.x,
-        y: spot.y,
-        z: spot.z,
-        // The way they were facing, or out through the elevator's doors.
-        rotY: spot.rotY,
-        moving: false,
-        voice: false,
-        muted: true,
-        sharing: false,
-        ...(account ? { account: true } : {}),
-        ...(url.searchParams.get('lite') === '1' ? { lite: true } : {}),
-        ...(onRoof ? { floor: ROOF } : floor ? { floor: floor.id } : {}),
-      },
-    };
+      name,
+      color: COLOR_RE.test(colorParam) ? colorParam : '#4f86f7',
+      look: sanitizeLook({ skin: intParam('skin'), hair: intParam('hair'), style: intParam('style') }, lookFromSeed(id)),
+      x: spot.x,
+      y: spot.y,
+      z: spot.z,
+      // The way they were facing, or out through the elevator's doors.
+      rotY: spot.rotY,
+      moving: false,
+      voice: false,
+      muted: true,
+      sharing: false,
+      ...(account ? { account: true } : {}),
+      ...(url.searchParams.get('lite') === '1' ? { lite: true } : {}),
+      ...(onRoof ? { floor: ROOF } : floor ? { floor: floor.id } : {}),
+    });
     // Maps of your own may have been added or edited since: everyone already in hears first.
     const mapWas = maps.pick();
     if (maps.reload()) mapNews(mapWas);
@@ -1232,14 +786,14 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
       me,
       notify: webhook.state(),
       machine: machine.state(),
-      sky: sky.state,
+      sky: ctx.sky.state,
       theme: themes.state(),
       map: maps.state(),
       prompts: prompts.state(),
       leaveOnMerge: leaveOnMerge.state(),
-      ...(onRoof ? roofView() : floorView(floor)),
+      ...(onRoof ? roofView(ctx) : floorView(ctx, floor)),
     });
-    screensOf(client, floor);
+    screensOf(ctx, client, floor);
     broadcast({ t: 'peer.join', peer: client.peer }, id);
     if (account) accountsChanged(); // now online
     floorsChanged();
@@ -1266,13 +820,13 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
     });
     ws.on('close', () => {
       clients.delete(id);
-      if (client.whiteboard) drawingChanged(floorOf(client));
-      stopPlaying(client);
+      if (client.whiteboard) drawingChanged(ctx, floorOf(client));
+      stopPlaying(ctx, client);
       for (const f of floors.values()) {
         f.workers.detachAll(id);
         f.changes.unwatchAll(id);
-        if (f.court.left(id)) ballChanged(f);
-        if (f.garage.leave(id)) carsChanged(f);
+        if (f.court.left(id)) ballChanged(ctx, f);
+        if (f.garage.leave(id)) carsChanged(ctx, f);
       }
       broadcast({ t: 'peer.leave', id });
       if (account) accountsChanged();
@@ -1287,177 +841,9 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
     toFloor(floor, { t: 'plan', plan: floor.plan.state() });
     floorsChanged();
   };
-  const ballChanged = (floor: Floor) => toFloor(floor, { t: 'ball', ball: floor.court.state() });
-  const carsChanged = (floor: Floor) => toFloor(floor, { t: 'cars', cars: floor.garage.state() });
   const jukeboxChanged = (floor: Floor) => toFloor(floor, { t: 'jukebox', state: floor.jukebox.state() });
   const teamState = async () => ({ ...(await team.state()), deploy: cfg.deployScript });
   const teamChanged = async () => broadcast({ t: 'team', state: await teamState() });
-
-  /** To everyone else on the same floor as `c`: nobody on another floor can see them. */
-  const toNeighbors = (c: Client, msg: ServerMsg, droppable = false) => {
-    if (!c.peer.floor) return;
-    const json = JSON.stringify(msg);
-    for (const o of clients.values()) {
-      if (o.id === c.id || o.peer.floor !== c.peer.floor || o.ws.readyState !== WebSocket.OPEN) continue;
-      if (droppable && o.ws.bufferedAmount > 4 * 1024 * 1024) continue;
-      o.ws.send(json);
-    }
-  };
-
-  /**
-   * Takes `c` to another floor: everyone sees them leave and arrive, and they get the new floor's
-   * everything. They arrive in the elevator, or `at` the spot they came by.
-   */
-  const goToFloor = (c: Client, floor: Floor, at?: { x: number; y: number; z: number; rotY: number }) => {
-    if (c.peer.floor === floor.id) return;
-    const left = leave(c, at);
-    Object.assign(c.peer, { floor: floor.id });
-    sendTo(c, { t: 'floor.enter', peers: [...clients.values()].map((o) => o.peer), ...floorView(floor) });
-    screensOf(c, floor);
-    arrived(c, left);
-    floor.arrived();
-    floor.workers.wakeAll();
-    floorsChanged();
-  };
-
-  /** Up to the rooftop bar, by elevator. */
-  const goToRoof = (c: Client) => {
-    if (c.peer.floor === ROOF) return;
-    const left = leave(c);
-    c.peer.floor = ROOF;
-    sendTo(c, { t: 'floor.enter', peers: [...clients.values()].map((o) => o.peer), ...roofView() });
-    arrived(c, left);
-    floorsChanged();
-  };
-
-  /** Out to the lobby, where the elevator has nowhere to go: the building's last floor was taken off. */
-  const toLobby = (c: Client) => {
-    const left = leave(c);
-    delete c.peer.floor;
-    sendTo(c, { t: 'floor.enter', peers: [...clients.values()].map((o) => o.peer), ...floorView(undefined) });
-    arrived(c, left);
-  };
-
-  /**
-   * Takes `floor` off the building (already out of floors.json): everyone on it rides the elevator to
-   * the next floor, or out to the lobby if it was the last (the roof goes with it), and its workers stop.
-   */
-  const closeFloor = (floor: Floor, who: string) => {
-    const name = floor.def.name;
-    const next = [...floors.values()].find((f) => f !== floor);
-    // The list without it first, so nobody arrives somewhere (the lobby's panel) that still shows it.
-    const list = floorInfos().filter((f) => f.id !== floor.id);
-    floorsSent = JSON.stringify(list);
-    broadcast({ t: 'floors', floors: list });
-    for (const c of clients.values()) {
-      if (c.peer.floor === floor.id || (!next && c.peer.floor === ROOF)) {
-        if (next) goToFloor(c, next);
-        else toLobby(c);
-        sendTo(c, { t: 'toast', text: next ? `🛗 ${who} took ${name} off the building, so you rode the elevator to ${next.def.name}` : `🛗 ${who} took ${name}, the last floor, off the building`, level: 'warn' });
-      } else sendTo(c, { t: 'toast', text: `🛗 ${who} took ${name} off the building`, level: 'info' });
-    }
-    floors.delete(floor.id);
-    floor.shutdown();
-    floorsChanged();
-    // Its workers made room under the worker limit.
-    pumpQueues();
-  };
-
-  /** Off the floor (or the roof) `c` was on, to `at` on the next one, or into its elevator car. */
-  const leave = (c: Client, at?: { x: number; y: number; z: number; rotY: number }) => {
-    const was = floorOf(c);
-    if (was) {
-      was.workers.detachAll(c.id);
-      was.changes.unwatchAll(c.id);
-    }
-    // The ball stays on its floor, back under the hoop. That floor hears so once they're off it (see
-    // arrived), or their own page would put it down before it knew they'd gone.
-    const ballLeft = !!was?.court.left(c.id);
-    // So does a car they were in, parked where they left it.
-    const carLeft = !!was?.garage.leave(c.id);
-    c.attached.clear();
-    c.typingAt.clear();
-    c.stale.clear();
-    // The whiteboard downstairs stays downstairs, and so does the arcade.
-    const wasDrawing = c.whiteboard;
-    c.whiteboard = false;
-    stopPlaying(c, was);
-    const spot = at ?? { ...elevatorSpot(), y: 0, rotY: 0 };
-    Object.assign(c.peer, { x: spot.x, y: spot.y, z: spot.z, rotY: spot.rotY, moving: false });
-    delete c.peer.seat;
-    delete c.peer.golfing;
-    delete c.peer.throwing;
-    // An issue card belongs to the board it came off, which is on the floor they left; a drink stays at the bar.
-    delete c.peer.carrying;
-    delete c.peer.drink;
-    return { was, wasDrawing, ballLeft, carLeft };
-  };
-
-  const arrived = (c: Client, left: ReturnType<typeof leave>) => {
-    broadcast({ t: 'peer.update', peer: c.peer }, c.id);
-    if (left.wasDrawing) drawingChanged(left.was);
-    if (left.ballLeft && left.was) ballChanged(left.was);
-    if (left.carLeft && left.was) carsChanged(left.was);
-  };
-
-  /**
-   * A worker took on GitHub issue `n` (an issue card dropped on its desk): assign it on GitHub, which
-   * moves it to In progress on the board, and take it off the queue so nobody else is seated for it.
-   */
-  const takeIssue = (c: Client, floor: Floor, n: number) => {
-    floor.queue.dropIssue(n);
-    const as = c.accountId ? signins.ghAs(c.accountId) : undefined;
-    if (typeof as === 'string') return warn(c, `Couldn't assign issue #${n} on GitHub: ${as}`);
-    void floor.github.claim(n, as).then((err) => warn(c, err && `Couldn't assign issue #${n} on GitHub: ${err}`));
-  };
-
-  /**
-   * Runs `go` once `c` has a sign-in of their own to `which` (only accounts need one: on the shared
-   * password it's the office's own). Without one it looks again, since they may have just signed
-   * in from a shell, and otherwise tells them why (`refused`, else a toast) and opens their sign-ins.
-   */
-  const withSignIn = (c: Client, which: SignInKind | undefined, go: () => void, refused?: (why: string) => void) => {
-    const id = c.accountId;
-    const ready = (a: string) => (which === 'claude' ? signins.claudeReady(a) : signins.githubReady(a));
-    if (!which || !id || ready(id)) return go();
-    void signins.look(id, true).then(() => {
-      if (c.out || c.ws.readyState !== WebSocket.OPEN) return;
-      if (ready(id)) return go();
-      const why = signins.why(which);
-      if (refused) refused(why);
-      else warn(c, why);
-      sendTo(c, { t: 'signins.needed', which, why });
-    });
-  };
-  /**
-   * Runs `go` once a worktree made on `floor` would start from what's on GitHub now (see
-   * Worktrees.fetch): right away when that was just fetched, else after a fetch, if `c` and the floor
-   * are still there.
-   */
-  const withFreshBase = (c: Client, floor: Floor | Floor[], go: () => void) => {
-    const all = Array.isArray(floor) ? floor : [floor];
-    const fetching = all.map((f) => f.workers.fetchBase()).filter((p) => p !== undefined);
-    if (!fetching.length) return go();
-    void Promise.all(fetching).then(() => {
-      if (c.out || c.ws.readyState !== WebSocket.OPEN || all.some((f) => floors.get(f.id) !== f)) return;
-      go();
-    });
-  };
-  /** Runs `go` with how the office acts on GitHub for `c`: as them, or as itself (no account, or an admin's choice). */
-  const withGitHub = (c: Client, go: (as: GhAs | undefined) => void, refused?: (why: string) => void) =>
-    withSignIn(
-      c,
-      'github',
-      () => {
-        const as = c.accountId ? signins.ghAs(c.accountId) : undefined;
-        if (typeof as !== 'string') return go(as);
-        if (refused) refused(as);
-        else warn(c, as);
-      },
-      refused,
-    );
-  /** Needs a Claude sign-in of its own when the worker it starts runs Claude. */
-  const claudeFor = (provider: string | undefined): SignInKind | undefined => (provider === 'claude' ? 'claude' : undefined);
 
   const handleMessage = (c: Client, msg: ClientMsg) => {
     const who = c.peer.name;
@@ -1518,26 +904,20 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
           broadcast({ t: 'peer.act', id: c.id, throwing: game ?? null }, c.id, true);
           break;
         }
-        const now = Date.now();
-        if (now - c.lastActAt < 100) break;
-        c.lastActAt = now;
+        if (!throttle(c, 'act', 100)) break;
         toNeighbors(c, { t: 'peer.act', id: c.id }, true);
         break;
       }
       case 'golf': {
-        const now = Date.now();
         const [yaw, loft, power] = [num(msg.yaw), num(msg.loft), num(msg.power)];
-        if (!c.peer.golfing || now - c.lastGolfAt < 800 || Math.abs(yaw) > 2 || loft < 0 || loft > 1.6 || power < 0 || power > 1) break;
-        c.lastGolfAt = now;
+        if (!c.peer.golfing || Math.abs(yaw) > 2 || loft < 0 || loft > 1.6 || power < 0 || power > 1 || !throttle(c, 'golf', 800)) break;
         toNeighbors(c, { t: 'golf', id: c.id, yaw, loft, power });
         break;
       }
       case 'toss': {
         // Only at the line they stepped up to, and no quicker than anyone throws.
-        const now = Date.now();
         const toss: { game: unknown; u: unknown; v: unknown; n: unknown } = { game: msg.game, u: msg.u, v: msg.v, n: msg.n };
-        if (!tossOk(toss) || c.peer.throwing !== toss.game || now - c.lastTossAt < TOSS_EVERY[toss.game]) break;
-        c.lastTossAt = now;
+        if (!tossOk(toss) || c.peer.throwing !== toss.game || !throttle(c, 'toss', TOSS_EVERY[toss.game])) break;
         toNeighbors(c, { t: 'toss', id: c.id, game: toss.game, u: toss.u, v: toss.v, n: toss.n, stick: msg.stick === true });
         break;
       }
@@ -1662,7 +1042,7 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
         if (!floor) break;
         const changed = msg.t === 'ball.take' ? floor.court.take(c.id) : floor.court.throw(c.id, { x: num(msg.x), y: num(msg.y), z: num(msg.z), vx: num(msg.vx), vy: num(msg.vy), vz: num(msg.vz) });
         // Whoever didn't get it (someone else caught it first) is told where it really is.
-        if (changed) ballChanged(floor);
+        if (changed) ballChanged(ctx, floor);
         else sendTo(c, { t: 'ball', ball: floor.court.state() });
         break;
       }
@@ -1926,16 +1306,12 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
       }
       case 'gong': {
         const floor = floorOf(c);
-        const now = Date.now();
-        if (!floor || now - c.lastGongAt < 500) break;
-        c.lastGongAt = now;
+        if (!floor || !throttle(c, 'gong', 500)) break;
         toFloor(floor, { t: 'gong', why: 'hit', by: who });
         break;
       }
       case 'horn': {
-        const now = Date.now();
-        if (c.peer.floor !== ROOF || now - c.lastHornAt < 1500) break;
-        c.lastHornAt = now;
+        if (c.peer.floor !== ROOF || !throttle(c, 'horn', 1500)) break;
         for (const o of clients.values()) if (o.peer.floor === ROOF) sendTo(o, { t: 'horn', by: who });
         break;
       }
@@ -2297,7 +1673,7 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
         const open = msg.t === 'wb.open' && !!floor;
         if (open === c.whiteboard) break;
         c.whiteboard = open;
-        drawingChanged(floor);
+        drawingChanged(ctx, floor);
         break;
       }
       case 'wb.update': {
@@ -2309,9 +1685,7 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
         break;
       }
       case 'wb.pointer': {
-        const now = Date.now();
-        if (!c.whiteboard || now - c.lastWbPointerAt < 25) break;
-        c.lastWbPointerAt = now;
+        if (!c.whiteboard || !throttle(c, 'wb.pointer', 25)) break;
         const selected = Array.isArray(msg.selected) ? msg.selected.filter((s): s is string => typeof s === 'string').slice(0, 200).map((s) => s.slice(0, 100)) : undefined;
         const pointer: ServerMsg = { t: 'wb.pointer', id: c.id, x: num(msg.x), y: num(msg.y), tool: msg.tool === 'laser' ? 'laser' : 'pointer', button: msg.button === 'down' ? 'down' : 'up', selected };
         const json = JSON.stringify(pointer);
@@ -2342,10 +1716,10 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
       case 'cabinet.play': {
         const floor = here();
         if (!floor || (c.playing && msg.game === c.game)) break;
-        const at = cabinetPlayer(floor);
+        const at = cabinetPlayer(ctx, floor);
         if (at && at !== c) {
           warn(c, `${at.peer.name} is on the arcade — press E there to watch`);
-          sendTo(c, { t: 'cabinet', state: cabinetState(floor) });
+          sendTo(c, { t: 'cabinet', state: cabinetState(ctx, floor) });
           break;
         }
         // Already at it: that game's over, and this is the next one.
@@ -2354,11 +1728,11 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
         if (c.game !== msg.game && !arcade.counts(c.game)) warn(c, "🕹️ That's a lot of new games in a row, so this one won't go on the high-score table");
         c.playing = true;
         c.frame = undefined;
-        cabinetChanged(floor);
+        cabinetChanged(ctx, floor);
         break;
       }
       case 'cabinet.leave':
-        stopPlaying(c);
+        stopPlaying(ctx, c);
         break;
       case 'cabinet.frame': {
         const floor = floorOf(c);
@@ -2367,9 +1741,7 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
         // Every frame counts towards the score, even one that comes too soon after the last to pass on.
         if (arcade.frame(c.game, frame, floor.id) === 'void') warn(c, "🕹️ The office couldn't follow this game, so its score won't go on the high-score table");
         c.frame = frame;
-        const now = Date.now();
-        if (now - c.lastFrameAt < 40) break;
-        c.lastFrameAt = now;
+        if (!throttle(c, 'cabinet.frame', 40)) break;
         toNeighbors(c, { t: 'cabinet.frame', frame }, true);
         break;
       }
@@ -2504,24 +1876,24 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
     server.listen(cfg.port, cfg.host, () => resolve());
   });
   services.start();
-  tailnet.start(() => services.list().map((s) => s.port));
+  ctx.tailnet.start(() => services.list().map((s) => s.port));
 
   /** With `keep` (a restart), workers' terminals keep running for the next office to pick up. */
   const shutdown = (keep = false) => {
     clearInterval(heartbeat);
     clearInterval(resync);
-    clearTimeout(floorsTimer);
+    ctx.cancelFloorsChanged();
     arcade.flush();
     upgrader.stop();
     services.stop();
-    tailnet.stop();
+    ctx.tailnet.stop();
     webhook.stop();
     machine.stop();
-    sky.stop();
-    themes.stop();
+    ctx.sky.stop();
+    ctx.themes.stop();
     for (const f of floors.values()) f.shutdown(keep);
     ledger.flush();
-    limits.close();
+    ctx.limits.close();
     for (const a of accountLimits.values()) a.reader.close();
     signins.shutdown();
     for (const c of clients.values()) c.ws.close();
