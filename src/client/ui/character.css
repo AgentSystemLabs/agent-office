@@ -1,0 +1,19 @@
+/* Character select */
+.modal.charsel { width: min(780px, 100%); }
+.charsel .body { display: grid; grid-template-columns: 250px 1fr; gap: 18px; }
+.charsel-stage {
+  position: relative; min-height: 360px; overflow: hidden; border: 3px solid var(--ink); border-radius: 16px;
+  background: radial-gradient(circle at 50% 30%, #ffffff 0, #e3f3ff 55%, #bfe3ff 100%);
+}
+.charsel-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+.charsel-stage canvas:active { cursor: grabbing; }
+.charsel-stage .tip { position: absolute; left: 0; right: 0; bottom: 8px; text-align: center; font-size: 12px; font-weight: 800; color: var(--muted); pointer-events: none; }
+/* The options' labels are spaced in styles/base.css, after the frame's label rule. */
+.charsel-opts label:first-child { margin-top: 0; }
+.charsel .swatches { margin-top: 0; }
+.charsel .seg { gap: 6px; }
+.charsel .seg .btn { padding: 4px 10px; font-size: 13px; }
+@media (max-width: 640px) {
+  .charsel .body { grid-template-columns: 1fr; }
+  .charsel-stage { min-height: 230px; }
+}

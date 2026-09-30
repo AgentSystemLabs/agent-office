@@ -112,3 +112,9 @@ button { font-family: inherit; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .when { color: var(--muted); font-weight: 700; text-decoration: none; }
 a.when:hover { text-decoration: underline; }
+
+/* Window pieces that restyle the frame's labels, text boxes and buttons with selectors no stronger than
+   the frame's own. Those win by coming later, and a window's sheet loads in no fixed order against
+   this one, so they sit here, after the rules they override. */
+.charsel-opts label { margin: 14px 0 8px; }
+.elevator .dir-change { margin-left: 6px; padding: 1px 8px; font-size: 12px; border-width: 2px; border-radius: 9px; box-shadow: 0 2px 0 var(--ink); vertical-align: baseline; }
