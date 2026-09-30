@@ -2,7 +2,7 @@ import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { PlayerController } from '../src/client/player.js';
-import type { Collider } from '../src/client/world/office.js';
+import type { Collider } from '../src/client/world/types.js';
 import { BALCONY, FLOOR, LOFT, SEATING_BY_ID, SLAB, STAIRS, seatAt, seatPlace } from '../src/shared/layout.js';
 
 /** The office floor: upstairs, over the garage, so off it you'd drop to the street. */

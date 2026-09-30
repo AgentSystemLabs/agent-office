@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { PlayerController } from '../src/client/player.js';
 import { Driver } from '../src/client/driving.js';
 import { Fleet } from '../src/client/world/cars.js';
-import type { Collider, Interactable } from '../src/client/world/office.js';
+import type { Collider, Interactable } from '../src/client/world/types.js';
 import { CAR, SEATS, carPoint, onPavement, type CarPose } from '../src/shared/garage.js';
 import { ROAD, STREET_Y } from '../src/shared/layout.js';
 import { LOOP_LENGTH, STREET_END, nearLoop } from '../src/shared/scenic.js';
