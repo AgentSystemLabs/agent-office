@@ -2399,6 +2399,15 @@ export async function startServer(cfg: Config) {
         toastFloor(floor, `🔇 ${who} turned the jukebox off`);
         break;
       }
+case 'jukebox.place': {
+        const floor = here();
+        if (!floor) break;
+        const r = floor.jukebox.place(msg.spot);
+        if (typeof r === 'string') return warn(c, r);
+        jukeboxChanged(floor);
+        toastFloor(floor, `📻 ${who} moved the jukebox`);
+        break;
+      }
       case 'tv.play': {
         const floor = here();
         if (!floor) break;

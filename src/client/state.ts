@@ -5,7 +5,7 @@ import type { Decoration } from '../shared/decor';
 import { EMPTY_PLAN, type FloorPlan } from '../shared/floorplan';
 import { newer, type WbElement } from '../shared/whiteboard';
 import type { DogState } from '../shared/dog';
-import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
+import { JUKEBOX_HOME, JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 import { TV_OFF, type TvState } from '../shared/tv';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
 import type { BallState } from '../shared/hoop';
@@ -200,7 +200,7 @@ class Store {
   /** The signs over the desks, and how far the back office is built out (not the map's plan: see plan()). */
   floorPlan: FloorPlan = EMPTY_PLAN;
   /** What the lounge jukebox is playing; `since` is when the track started, on performance.now()'s clock. */
-  jukebox: JukeboxState & { since: number } = { on: false, track: JUKEBOX_TUNES[0].id, startedAt: 0, elapsed: 0, since: 0 };
+jukebox: JukeboxState & { since: number } = { on: false, track: JUKEBOX_TUNES[0].id, spot: JUKEBOX_HOME, startedAt: 0, elapsed: 0, since: 0 };
   /** What's on the big TV, and how far into it: worked out against `officeNow()` when it's shown (see shared/tv.ts). */
   tv: TvState = TV_OFF;
   /** The office's clock minus performance.now(), from the quickest ping (see 'pong'); for the jukebox. */
@@ -356,7 +356,8 @@ class Store {
 
   /** When the track started on this page's clock: from the office's clock once it's known, else from `elapsed`. */
   private setJukebox(j: JukeboxState) {
-    this.jukebox = { ...j, since: this.clock ? j.startedAt - this.clock.offset : performance.now() - j.elapsed };
+    // An office too old to say where its jukebox stands has it in the corner of the lounge.
+    this.jukebox = { ...j, spot: j.spot ?? JUKEBOX_HOME, since: this.clock ? j.startedAt - this.clock.offset : performance.now() - j.elapsed };
   }
 
   apply(msg: ServerMsg) {

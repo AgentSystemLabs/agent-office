@@ -3,14 +3,15 @@ import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, toast } from './dom';
 
-/** The jukebox: what's on, the tunes to pick from, skip and stop, and a box for a stream. */
-export function openJukebox(net: Net, openVolume: () => void) {
+/** The jukebox: what's on, the tunes to pick from, skip and stop, a box for a stream, and moving it. */
+export function openJukebox(net: Net, openVolume: () => void, onMove: () => void) {
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const now = h('div.jb-now');
   const list = h('ul.svc-list');
   const url = h('input', { type: 'text', placeholder: 'https://… internet radio, or a link to an .mp3', 'aria-label': 'Stream or audio file link', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
   const playUrl = h('button.btn.primary', { type: 'button' }, '📻 Play');
   const volume = h('button.btn', { type: 'button' }, '🔈 Your volume');
+  const move = h('button.btn', { type: 'button' }, '↔️ Move it');
   const el = h(
     'div.modal.jukebox',
     { role: 'dialog', 'aria-label': 'Jukebox' },
@@ -25,7 +26,7 @@ export function openJukebox(net: Net, openVolume: () => void) {
       h('div.webhook', {}, url, playUrl),
       h('p.setting-note', {}, 'Internet radio or an audio file. It plays from the jukebox, for everyone on this floor.'),
     ),
-    h('footer', {}, h('span.grow', {}, 'Everyone on this floor hears the same song, louder the closer they are to the lounge.'), volume),
+    h('footer', {}, h('span.grow', {}, 'Everyone on this floor hears the same song, wherever the jukebox stands.'), move, volume),
   );
 
   const button = (label: string, title: string, send: () => void, primary = false) => h(primary ? 'button.btn.primary' : 'button.btn', { type: 'button', title, onclick: send }, label);
@@ -84,6 +85,10 @@ export function openJukebox(net: Net, openVolume: () => void) {
 
   const modal = openModal(el, { doing: '🎵 at the jukebox', onClose: store.on('jukebox', render) });
   close.addEventListener('click', () => modal.close());
+  move.addEventListener('click', () => {
+    modal.close();
+    onMove();
+  });
   volume.addEventListener('click', () => {
     modal.close();
     openVolume();
