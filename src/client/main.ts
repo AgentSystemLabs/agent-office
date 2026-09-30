@@ -196,6 +196,25 @@ const ctx: Ctx = {
   interactions: new Interactions<OfficeInteraction>(),
 };
 
+// ---- The office's own parts of the key chain (see Keys, and the keydown listener under Input) --------
+// Registered before anything else's, so within a stage they come first.
+// Looking through the telescope, Esc, E or F takes you away from it, and no key does anything else.
+ctx.keys.add('guard', (e) => {
+  if (!telescope.active) return false;
+  if (e.code === 'Escape' || e.code === 'KeyE' || e.code === 'KeyF') telescope.exit();
+  e.preventDefault();
+  return true;
+});
+// A window's open or you're typing somewhere, or it's a shortcut: the key isn't the office's.
+ctx.keys.add('guard', (e) => modalOpen() || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey);
+// Closing the last window didn't give you the mouse back: any key but Esc takes it (see backToGame).
+ctx.keys.add('guard', (e) => {
+  if (relookOnKey && e.key !== 'Escape' && player.canLock) player.lock();
+  return false;
+});
+// Whatever you're in the middle of has first go (see each activity's key).
+ctx.keys.add('activity', (e) => ctx.activities.key(e));
+
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
 const renderer = makeRenderer() ?? (await noWebGL());
@@ -2730,6 +2749,12 @@ function renderWaiting() {
   if (waiting.length) el.replaceChildren(h('span', {}, waitingLabel(waiting)), h('span.key', {}, 'N'));
 }
 $('waiting').addEventListener('click', () => goToNextWaiting());
+ctx.keys.bind({
+  code: 'KeyN',
+  run: () => {
+    goToNextWaiting();
+  },
+});
 
 const bearings: Bearing[] = [];
 const heads: THREE.Vector3[] = [];
@@ -2761,6 +2786,14 @@ function openWorkerTerminal(id: string, find?: TerminalFind) {
 function showSearch() {
   openSearch(openWorkerTerminal);
 }
+// By the character, so it's / on any keyboard layout. The search box opens without it.
+ctx.keys.bind({
+  key: '/',
+  preventDefault: true,
+  run: () => {
+    showSearch();
+  },
+});
 
 /** What the worker changed: changed files, diff, commit / discard / open a PR; `repo` for another floor's repository it works in. */
 function openWorkerChanges(id: string, repo?: string) {
@@ -3070,6 +3103,15 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   else if (target.kind === 'herald') hireFromHerald();
 }
 
+// On the throne: the herald beside you, whoever's in line.
+ctx.keys.bind({
+  code: 'KeyK',
+  when: () => onThrone() && !!world.herald,
+  run: () => {
+    reach();
+    hireFromHerald();
+  },
+});
 /**
  * E at the herald (the castle's Hand of the King): what should a new worker do? It's hired at the
  * first free seat at the tables, and runs off there from beside him (see cameFrom).
@@ -3251,6 +3293,15 @@ let streak = 0;
 let shooting = false;
 /** When you started winding up a shot (performance.now()), or 0. */
 let windFrom = 0;
+
+// With the ball in your hands, E winds up a shot (let go to shoot) and Q drops it.
+ctx.keys.add('activity', (e) => {
+  if (!holdingBall() || (e.code !== 'KeyE' && e.code !== 'KeyQ')) return false;
+  if (e.repeat) return true;
+  if (e.code === 'KeyE') windUp();
+  else dropBall();
+  return true;
+});
 
 /** E at the ball: it's yours, if nobody beats you to it. */
 function takeBall() {
@@ -3461,6 +3512,14 @@ function putBack() {
   setCarrying(null);
   sound.paper();
 }
+ctx.keys.bind({
+  code: 'KeyQ',
+  when: () => !!carrying,
+  run: () => {
+    reach();
+    putBack();
+  },
+});
 
 /**
  * E with a card in your hands: an empty desk hires a worker for the issue (with the prompt 🤖 Hand
@@ -4197,6 +4256,8 @@ function emoteKey(e: KeyboardEvent): boolean {
   return true;
 }
 
+ctx.keys.add('emote', emoteKey);
+
 /** Keys that use what you're facing: at a desk, each does something else (see interact). */
 function use(it: Interactable | null, key: DeskKey, note = aimedNote): boolean {
   const worker = it?.deskId ? store.workerAtDesk(it.deskId) : undefined;
@@ -4208,25 +4269,10 @@ function use(it: Interactable | null, key: DeskKey, note = aimedNote): boolean {
 }
 
 // ---- Input ----------------------------------------------------------------------------------------
+// Every key press goes down the chain in ctx.keys: the guards, what you're in the middle of, the
+// emotes, then the office's own keys (bound with what they do). One of those clears the walking keys.
 window.addEventListener('keydown', (e) => {
-  if (telescope.active) {
-    if (e.code === 'Escape' || e.code === 'KeyE' || e.code === 'KeyF') telescope.exit();
-    e.preventDefault();
-    return;
-  }
-  if (modalOpen() || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
-  if (relookOnKey && e.key !== 'Escape' && player.canLock) player.lock();
-  // Whatever you're in the middle of has first go (see each activity's key).
-  if (ctx.activities.key(e)) return;
-  // With the ball in your hands, E winds up a shot (let go to shoot) and Q drops it.
-  if (holdingBall() && (e.code === 'KeyE' || e.code === 'KeyQ')) {
-    if (e.repeat) return;
-    if (e.code === 'KeyE') windUp();
-    else dropBall();
-    return;
-  }
-  if (emoteKey(e)) return;
-  if (officeKey(e)) player.clearKeys();
+  if (ctx.keys.handle(e) === 'bound') player.clearKeys();
 });
 window.addEventListener('keyup', (e) => {
   if (e.code === 'KeyG') emoteWheel.release();
@@ -4242,65 +4288,17 @@ window.addEventListener('pointerup', (e) => {
 window.addEventListener('keyup', (e) => e.code === 'KeyV' && voice.stopTalking(), true);
 window.addEventListener('blur', () => voice.stopTalking());
 
-/** The office's own keys; false for any other key, which is left to walking and the browser. */
-function officeKey(e: KeyboardEvent): boolean {
-  const deskKey = DESK_KEYS[e.code as keyof typeof DESK_KEYS];
-  if (deskKey) {
+// Keys that use what you're facing: at a desk, each does something else (see interact).
+ctx.keys.bind({
+  code: Object.keys(DESK_KEYS),
+  run: (e) => {
+    const deskKey = DESK_KEYS[e.code as keyof typeof DESK_KEYS];
     const handled = use(target, deskKey);
     // P and L open a text box, which the key mustn't land in.
     if (handled && (deskKey === 'P' || deskKey === 'L')) e.preventDefault();
     return handled;
-  }
-  switch (e.code) {
-    case 'KeyT':
-    case 'Enter':
-      e.preventDefault();
-      // With the chat turned off, it shows while you type.
-      $('chat').classList.add('peek');
-      $('chat-input').focus();
-      return true;
-    case 'Tab':
-      e.preventDefault();
-      hud.toggleMenu();
-      return true;
-    case 'KeyV':
-      // Joins voice; in it, it's push to talk (let go and you're muted, above).
-      if (e.repeat) return true;
-      if (voice.inVoice) voice.startTalking();
-      else void joinVoice();
-      return true;
-    case 'KeyM':
-      voice.toggleMute();
-      return true;
-    case 'KeyH':
-      openHelp();
-      return true;
-    case 'KeyF':
-      startHanging();
-      return true;
-    case 'KeyN':
-      goToNextWaiting();
-      return true;
-    case 'KeyK':
-      // On the throne: the herald beside you, whoever's in line.
-      if (!onThrone() || !world.herald) return false;
-      reach();
-      hireFromHerald();
-      return true;
-    case 'KeyQ':
-      if (!carrying) return false;
-      reach();
-      putBack();
-      return true;
-  }
-  // By the character, so it's / on any keyboard layout. The search box opens without it.
-  if (e.key === '/') {
-    e.preventDefault();
-    showSearch();
-    return true;
-  }
-  return false;
-}
+  },
+});
 
 /** Keys while hanging a picture. Walking, chat and voice work as usual. */
 function hangingKey(code: string): boolean {
@@ -4495,6 +4493,15 @@ player.onClick = (ndc) => {
 };
 
 // Chat
+ctx.keys.bind({
+  code: ['KeyT', 'Enter'],
+  preventDefault: true,
+  run: () => {
+    // With the chat turned off, it shows while you type.
+    $('chat').classList.add('peek');
+    $('chat-input').focus();
+  },
+});
 const chatInput = $('chat-input') as HTMLInputElement;
 chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
@@ -4520,6 +4527,21 @@ async function joinVoice() {
   if (err) toast(err, 'warn');
   else if (settings.pushToTalk && voice.inVoice) toast('🎙️ In voice, muted: hold V to talk');
 }
+ctx.keys.bind({
+  code: 'KeyV',
+  // Joins voice; in it, it's push to talk (let go and you're muted, see the keyup under Input).
+  repeat: false,
+  run: () => {
+    if (voice.inVoice) voice.startTalking();
+    else void joinVoice();
+  },
+});
+ctx.keys.bind({
+  code: 'KeyM',
+  run: () => {
+    voice.toggleMute();
+  },
+});
 
 async function toggleShare() {
   if (voice.sharing) voice.stopShare();
@@ -4669,6 +4691,25 @@ const hud = mountHud(
   settings,
   () => saveSettings(settings),
 );
+ctx.keys.bind({
+  code: 'Tab',
+  preventDefault: true,
+  run: () => {
+    hud.toggleMenu();
+  },
+});
+ctx.keys.bind({
+  code: 'KeyH',
+  run: () => {
+    openHelp();
+  },
+});
+ctx.keys.bind({
+  code: 'KeyF',
+  run: () => {
+    startHanging();
+  },
+});
 /** F: hang a picture on a wall of this floor. There are no walls for them up on the roof. */
 function startHanging() {
   if (upTop) return toast('No walls to hang pictures on up here — take the elevator down to a floor', 'warn');
