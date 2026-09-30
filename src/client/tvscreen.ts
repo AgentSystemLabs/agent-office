@@ -28,6 +28,8 @@ interface YoutubePlayer {
   playVideo(): void;
   pauseVideo(): void;
   seekTo(seconds: number, allowSeekAhead: boolean): void;
+  /** 0–100, as YouTube counts it. */
+  setVolume(volume: number): void;
   mute(): void;
   unMute(): void;
   getCurrentTime(): number;
@@ -148,10 +150,11 @@ export class TvScreen {
   private checked = 0;
   /** When the browser last refused to start it with sound (see blocked). */
   private refusedAt = 0;
-  /** Whether your own speakers are turned down, for whatever player can turn them down. */
+  /** How loud your own speakers are, 0–1, and whether they're off. Just yours, like the jukebox's. */
+  volume = 1;
   muted = false;
-  /** Told when `muted` changes here rather than in the window (the autoplay fallback does it). */
-  onMute: (() => void) | null = null;
+  /** Told when the sound changes here rather than in the window (the autoplay fallback does it). */
+  onSound: (() => void) | null = null;
   private readonly corners = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
   private readonly scratch = new THREE.Vector3();
   /** A second scratch for the occlusion cull, which needs the point both in view and in world space. */
@@ -197,15 +200,40 @@ export class TvScreen {
     return 0;
   }
 
+  /** Your own speakers: how loud, and whether they're off. False when this player won't take it. */
+  setVolume(volume: number, muted: boolean): boolean {
+    this.volume = Math.max(0, Math.min(1, volume));
+    this.muted = muted;
+    return this.applySound();
+  }
+
   /** Turns your own speakers down or up. False when this player won't take the order (see the window). */
   toggleMute(): boolean {
+    this.muted = !this.muted;
+    if (this.applySound()) return true;
+    this.muted = !this.muted;
+    return false;
+  }
+
+  /**
+   * Puts the level and the mute on whatever is playing here, so the window, the settings and the
+   * autoplay fallback all come out the same. Not every player takes orders: an arbitrary embed has
+   * no sound knob at all, and says so (see the window).
+   */
+  private applySound(): boolean {
     const media = this.kind === 'media' && this.el instanceof HTMLVideoElement ? this.el : null;
     const youtube = this.kind === 'youtube' && this.yt && this.ready ? this.yt : null;
     if (!media && !youtube) return false;
-    this.muted = !this.muted;
-    if (media) media.muted = this.muted;
-    else if (youtube) (this.muted ? youtube.mute() : youtube.unMute());
-    this.onMute?.();
+    const off = this.muted || this.volume === 0;
+    if (media) {
+      media.volume = this.volume;
+      media.muted = off;
+    } else if (youtube) {
+      youtube.setVolume(Math.round(this.volume * 100));
+      if (off) youtube.mute();
+      else youtube.unMute();
+    }
+    this.onSound?.();
     return true;
   }
 
@@ -264,7 +292,8 @@ export class TvScreen {
   /** A direct media file: the only player that can be asked anything at all, and asked at once. */
   private loadMedia(url: string, start: number, playing: boolean) {
     const video = h('video', { src: url, autoplay: '', playsinline: '', preload: 'auto' }) as HTMLVideoElement;
-    video.muted = this.muted;
+    video.volume = this.volume;
+    video.muted = this.muted || this.volume === 0;
     this.el = video;
     this.frame.append(video);
     const begin = () => {
@@ -327,7 +356,8 @@ export class TvScreen {
           // Only if this is still the player on the TV (a new link may have arrived meanwhile).
           if (this.yt !== player) return;
           this.ready = true;
-          if (this.muted) player.mute();
+          player.setVolume(Math.round(this.volume * 100));
+          if (this.muted || this.volume === 0) player.mute();
           if (start > 1 && Math.abs(player.getCurrentTime() - start) > 1) player.seekTo(start, true);
           if (playing) player.playVideo();
           else player.pauseVideo();
@@ -350,8 +380,8 @@ export class TvScreen {
     this.refusedAt = now;
     if (!this.muted) {
       this.muted = true;
-      this.onMute?.();
-      toast('The browser held the TV’s sound back — 🔊 in the TV window turns it on', 'warn');
+      this.onSound?.();
+      toast('The browser held the TV’s sound back — the sound row in the TV window turns it on', 'warn');
     }
     try {
       player.mute();
@@ -367,8 +397,8 @@ export class TvScreen {
       if (this.muted) return;
       this.muted = true;
       video.muted = true;
-      this.onMute?.();
-      toast('The browser held the TV’s sound back — 🔊 in the TV window turns it on', 'warn');
+      this.onSound?.();
+      toast('The browser held the TV’s sound back — the sound row in the TV window turns it on', 'warn');
       void video.play().catch(() => {});
     });
   }

@@ -124,7 +124,7 @@ The server answers every one of them with `{ t: 'tv', state }`, which the browse
 | `src/client/tvscreen.ts` | The layer: what to load for a link, keeping every player in step, the per-frame projection, and the mask of what's in front of it |
 | `src/client/world/office.ts` | The TV itself is unchanged; its glass panes are colliders marked `glass: true`, so they don't hide it |
 | `src/client/main.ts` | Wiring: **E** at the TV, the hint bar, painting the screen dark under the picture, the per-frame `update` |
-| `src/client/ui/tv.ts` | The TV window: what's on, ▶️/⏸️/⏹️, a scrubber, the link box, **Open in a tab ↗**, **Share screen** and your own 🔇/🔊 |
+| `src/client/ui/tv.ts` | The TV window: what's on, ▶️/⏸️/⏹️, a scrubber, the link box, **Open in a tab ↗**, **Share screen** and your own sound (mute and volume) |
 | `tests/tv.test.ts` | Link parsing and validation, `positionAt`, and `class Tv` surviving a restart |
 
 ## Controls
@@ -132,8 +132,9 @@ The server answers every one of them with `{ t: 'tv', state }`, which the browse
 - **E** at the TV opens the window. While someone's screen sharing it still watches that full
   screen, as before — putting a link on takes one paste in the window.
 - In the window: paste a link and **📺 Play**, pause and resume, drag to seek, **⏹️ Stop**, and
-  **🔇 / 🔊** for your own speakers — that one is just yours, like the jukebox's volume (a player that
-  won't take the order says so).
+  **Your sound** — a mute button and a volume slider for your own speakers, the same row ⚙️ Settings
+  gives the TV. It's just yours, like the jukebox's volume, and it sticks between visits. A player
+  that won't take the order (an arbitrary embed has no sound knob at all) says so.
 - **🖥️ Share screen** is there too, because sharing used to be what **E** at the TV did; starting one
   turns the link off the screen (see above), and **▶️ Play** brings it back once the share ends.
 - The hint bar over the TV says what's on before you press anything.
@@ -144,7 +145,8 @@ The server answers every one of them with `{ t: 'tv', state }`, which the browse
   `frame-ancestors` won't appear; the office can't and doesn't proxy them.
 - **No audio routing.** The TV plays through the browser's own media volume, not the office's Web
   Audio mix, so it isn't quieter when you walk away (a cross-origin player can't be routed through
-  Web Audio at all — the jukebox's stream has the same rule).
+  Web Audio at all — the jukebox's stream has the same rule). It has its own volume and mute
+  instead, in the TV window and under ⚙️ Settings → **TV**, and it's yours alone.
 - **Pause and seek only reach players with an API** (YouTube, `<video>`). For an arbitrary embed,
   everyone still starts together; drift after that is the embed's business.
 - **No full-screen viewer yet** — sitting on the couch opens the full-screen viewer for a *share*,
