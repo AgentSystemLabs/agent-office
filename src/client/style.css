@@ -132,6 +132,7 @@ button { font-family: inherit; }
 .pill.needs_input { background: var(--bad); color: #fff; animation: pulse 1s infinite; }
 .pill.done { background: var(--good); color: #fff; }
 .pill.exited, .pill.offline { background: #dee2e6; }
+.pill.lost { background: #ffb703; }
 .empty { color: var(--muted); font-size: 13px; font-weight: 600; }
 @keyframes pulse { 50% { transform: scale(1.08); } }
 

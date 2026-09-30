@@ -107,6 +107,12 @@ export interface WorkerInfo {
    * switches to one of its own (`git checkout -b fix-x`), which `made` then remembers.
    */
   worktree?: { path: string; branch: string; base: string; from?: string; made?: string };
+  /**
+   * Set while the folder it works in (its worktree, or its workspace across repositories) is gone:
+   * deleted outside the office, so it can't start there until it's rebuilt ('worker.rebuild') or sent
+   * home. `branch` says where its branch still is: in the project, only on origin, or nowhere.
+   */
+  lost?: { branch: LostBranch };
   /** The pull request opened from this desk for the worktree branch (see 'worker.pr'). */
   pr?: { number: number; url: string };
   /**
@@ -147,6 +153,9 @@ export interface WorkerInfo {
   /** Sent out by a map's herald (the castle's Hand of the King), so every browser has it run to its seat from beside them. */
   via?: 'herald';
 }
+
+/** Where the branch of a worker whose worktree was deleted still is (see WorkerInfo.lost). */
+export type LostBranch = 'here' | 'origin' | 'gone';
 
 /** Another floor's repository a worker also works in (see WorkerInfo.repos): a worktree of it in the worker's workspace. */
 export interface WorkerRepo {
@@ -1099,6 +1108,8 @@ export type ClientMsg =
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
   | { t: 'worker.worktree'; workerId: string }
+  /** Puts a lost worker's worktree back and starts it again (see WorkerInfo.lost); `all`: every lost worker on the floor. */
+  | { t: 'worker.rebuild'; workerId: string; all?: boolean }
   | { t: 'worker.attach'; workerId: string }
   | { t: 'worker.detach'; workerId: string }
   /** With `issue`, the prompt hands the worker that GitHub issue, which is taken as for worker.spawn. */

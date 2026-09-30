@@ -14,7 +14,7 @@ import type { AgentEffort, AgentProvider, FloorInfo, WorkerInfo } from '../share
 import { $, clip, closeAllModals, doingNow, h, onDoingChange, onModalChange, openModal, readingNow, STATUS_LABEL, timeAgo, toast } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
-import { openPrompt, routeWorktreeMessage } from './ui/prompt';
+import { lostWorktreeDialog, openPrompt, routeWorktreeMessage, sendHomeDialog } from './ui/prompt';
 import { openBoard, type BoardActions } from './ui/boards';
 import { openPull, routePullMessage } from './ui/pull';
 import { openQueue } from './ui/queue';
@@ -147,8 +147,9 @@ function workerCard(w: WorkerInfo): HTMLElement {
   const badge = w.kind === 'agent' ? modelBadge(w.provider, w.model, w.effort) : undefined;
   const task = w.task?.name ?? w.title ?? (w.prompt ? clip(w.prompt, 90) : undefined);
   // What it's asking, doing or did, in a line.
-  const now =
-    w.status === 'needs_input'
+  const now = w.lost
+    ? '🌿 Its worktree was deleted outside agent-office: open it to fix it'
+    : w.status === 'needs_input'
       ? `🙋 ${w.activity ?? 'Waiting on an answer'}`
       : asleep
         ? '💤 Asleep: open it to wake it up'
@@ -180,7 +181,7 @@ function workerCard(w: WorkerInfo): HTMLElement {
       h('span.lite-state', {}, h('span.pill', { class: w.status }, STATUS_LABEL[w.status] ?? w.status), waiting && w.waitingSince ? h('small', {}, timeAgo(w.waitingSince)) : null),
     ),
     // One that's asking something is answered in its terminal, where the question is.
-    asleep || w.status === 'needs_input' ? null : h('button.btn.lite-say', { type: 'button', title: `Send ${w.name} a prompt`, 'aria-label': `Send ${w.name} a prompt`, onclick: () => promptWorker(w.id) }, '✍️'),
+    asleep || w.lost || w.status === 'needs_input' ? null : h('button.btn.lite-say', { type: 'button', title: `Send ${w.name} a prompt`, 'aria-label': `Send ${w.name} a prompt`, onclick: () => promptWorker(w.id) }, '✍️'),
   );
 }
 
@@ -208,11 +209,41 @@ setInterval(renderWorkers, 30_000);
 function openWorker(id: string) {
   const w = store.workers.get(id);
   if (!w) return;
+  if (w.lost) return fixLostWorktree(w);
   if (isAsleep(w.status)) {
     if (!w.sessionId && w.kind !== 'shell') toast(`${w.name} has no saved session — starting a fresh one`, 'warn');
     net.send({ t: 'worker.resume', workerId: id });
   }
   openTerminal(net, id, () => openChanges(net, id, () => openWorker(id)), undefined, { keypad: true });
+}
+
+/** Its worktree was deleted outside agent-office: put it back (everyone's who lost theirs), or send it home. */
+function fixLostWorktree(w: WorkerInfo) {
+  if (!w.lost || !w.worktree) return;
+  const worktree = w.worktree;
+  const others = [...store.workers.values()].filter((o) => o.lost && o.id !== w.id);
+  lostWorktreeDialog({
+    name: w.name,
+    worktree,
+    lost: w.lost,
+    workspace: w.repos?.length ? worktree.path.replace(/[\\/][^\\/]*$/, '') : undefined,
+    others: others.map((o) => o.name),
+    openTerminal: isAsleep(w.status) ? undefined : () => openTerminal(net, w.id, () => openChanges(net, w.id, () => openWorker(w.id)), undefined, { keypad: true }),
+    rebuild: (all) => {
+      toast(all ? `Rebuilding ${others.length + 1} worktrees…` : `Rebuilding ${w.name}'s worktree…`);
+      net.send({ t: 'worker.rebuild', workerId: w.id, all });
+    },
+    sendHome: () =>
+      sendHomeDialog({
+        workerId: w.id,
+        name: w.name,
+        where: DESK_BY_ID.get(w.deskId)?.label ?? 'its desk',
+        worktree,
+        repos: w.repos?.length ? [worktree.path.split(/[\\/]/).pop() ?? 'its own', ...w.repos.map((r) => r.name)] : undefined,
+        ask: () => net.send({ t: 'worker.worktree', workerId: w.id }),
+        onConfirm: (cleanup) => net.send({ t: 'worker.kill', workerId: w.id, cleanup }),
+      }),
+  });
 }
 
 function promptWorker(id: string) {

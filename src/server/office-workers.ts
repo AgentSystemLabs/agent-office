@@ -33,7 +33,8 @@ export interface WorkerRow {
   hiredAt: string;
   /** People with its terminal open. */
   viewers?: string[];
-  worktree?: { path: string; branch: string };
+  /** `deleted`: its folder was deleted outside the office, so it can't start until someone rebuilds it at its desk. */
+  worktree?: { path: string; branch: string; deleted?: true };
   /** Other floors' projects it works in too, each on its own worktree. */
   repos?: { name: string; branch: string; pr?: number }[];
   /** Its pull request: one still open wins, else one that merged (see workerPr). */
@@ -84,7 +85,7 @@ export function workerRow(w: WorkerInfo, view: PullsView, me?: string): WorkerRo
     hiredBy: w.createdBy,
     hiredAt: new Date(w.createdAt).toISOString(),
     ...(w.viewers.length ? { viewers: [...w.viewers] } : {}),
-    ...(w.worktree ? { worktree: { path: w.worktree.path, branch: w.worktree.branch } } : {}),
+    ...(w.worktree ? { worktree: { path: w.worktree.path, branch: w.worktree.branch, ...(w.lost ? { deleted: true as const } : {}) } } : {}),
     ...(w.repos?.length ? { repos: w.repos.map((r) => ({ name: r.name, branch: r.branch, ...(r.pr ? { pr: r.pr.number } : {}) })) } : {}),
     ...(pr ? { pr: { number: pr.number, state: pr.state, ...(pull ? { title: pull.title, url: pull.url } : {}) } } : {}),
     merged: !!landed,

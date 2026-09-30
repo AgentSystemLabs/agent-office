@@ -1453,3 +1453,70 @@ test("only a branch the worker made is its own to delete, and the office's stays
   assert.equal(git('branch', '--list', 'fix-y'), '');
   assert.equal(git('branch', '--list', made.branch).replace(/^\*?\s+/, ''), made.branch);
 });
+
+test("a worker whose worktree was deleted outside the office waits, marked lost, instead of failing to start; rebuilding puts it back and it carries on", async (t) => {
+  const f = carryOnFixture(t);
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd, encoding: 'utf8' }).trim();
+  git(f.root, 'init', '-q', '-b', 'main');
+  writeFileSync(path.join(f.root, 'a.txt'), 'a');
+  git(f.root, 'add', 'a.txt');
+  git(f.root, 'commit', '-qm', 'init');
+  const officeWith = (updates: WorkerInfo[], toasts: string[]) =>
+    new WorkerManager(f.root, f.data, f.claude, ['--from-test'], { url: 'http://127.0.0.1:1', token: '' }, { ...events(updates), toast: (text) => toasts.push(text) }, ledger(f.data));
+  const before = officeWith([], []);
+  const hire = async (deskId: string, session: string) => {
+    const n = launches(f).length;
+    const w = before.spawn(deskId, 'test', `task for ${session}`, true);
+    assert.notEqual(typeof w, 'string');
+    if (typeof w === 'string') throw new Error(w);
+    const token = (await waitFor(() => launches(f), (x) => x.length > n)).at(-1)!.env.hookToken!;
+    assert.equal(before.handleHook(w.id, token, 'SessionStart', { session_id: session }), true);
+    return w;
+  };
+  const kept = await hire('desk-1', 'kept-branch');
+  const gone = await hire('desk-2', 'gone-branch');
+  // Kept did some work on its branch; gone's branch goes with its folder.
+  const keptDir = path.join(f.root, kept.worktree!.path);
+  writeFileSync(path.join(keptDir, 'work.txt'), 'work');
+  git(keptDir, 'add', 'work.txt');
+  git(keptDir, 'commit', '-qm', 'work');
+  before.shutdown(true);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  // Deleted while the office was down, by hand.
+  rmSync(keptDir, { recursive: true, force: true });
+  rmSync(path.join(f.root, gone.worktree!.path), { recursive: true, force: true });
+  git(f.root, 'worktree', 'prune');
+  git(f.root, 'branch', '-D', gone.worktree!.branch);
+
+  const updates: WorkerInfo[] = [];
+  const toasts: string[] = [];
+  const after = officeWith(updates, toasts);
+  t.after(() => after.shutdown());
+  const launched = launches(f).length;
+  await after.start();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  // Nobody started, nobody was told "could not start": both wait at their desks, marked lost.
+  assert.equal(launches(f).length, launched);
+  assert.deepEqual(toasts, []);
+  assert.deepEqual(after.get(kept.id)?.lost, { branch: 'here' });
+  assert.deepEqual(after.get(gone.id)?.lost, { branch: 'gone' });
+  assert.equal(after.get(kept.id)?.status, 'offline');
+  assert.match(after.resume(kept.id) ?? '', /worktree .* was deleted outside agent-office/);
+  assert.equal(launches(f).length, launched);
+
+  // Put back on its own branch, work and all, and it carries on its conversation.
+  assert.deepEqual(await after.rebuild(kept.id), { rebuilt: true, note: undefined });
+  assert.equal(git(keptDir, 'rev-parse', '--abbrev-ref', 'HEAD'), kept.worktree!.branch);
+  assert.ok(existsSync(path.join(keptDir, 'work.txt')));
+  assert.equal(after.get(kept.id)?.lost, undefined);
+  const resumed = await waitFor(() => launches(f).slice(launched), (x) => x.length > 0);
+  assert.ok(resumed[0].args.includes('--resume') && resumed[0].args.includes('kept-branch'));
+
+  // Its branch gone too: made again from where it started.
+  const again = await after.rebuild(gone.id);
+  assert.equal(again.rebuilt, true);
+  assert.match(again.note ?? '', /was deleted too/);
+  assert.equal(git(path.join(f.root, gone.worktree!.path), 'rev-parse', 'HEAD'), gone.worktree!.base);
+  assert.equal(after.get(gone.id)?.lost, undefined);
+  assert.deepEqual(toasts, []);
+});
