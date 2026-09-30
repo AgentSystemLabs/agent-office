@@ -86,6 +86,34 @@ class Browser {
     return this.inbox.filter((m) => m.t === t);
   }
 
+  /** Waits for what's still on its way (the elevator's list goes out a moment later), then forgets all of it. */
+  async drain(ms = 400) {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+    this.inbox = [];
+  }
+
+  /** The types of the next `n` messages, in the order they came, leaving out the elevator's list and the dog, who goes about its day. */
+  async next(n: number, ms = 5000): Promise<string[]> {
+    const until = Date.now() + ms;
+    for (;;) {
+      const got = this.inbox.filter((m) => m.t !== 'floors' && m.t !== 'dog');
+      if (got.length >= n) {
+        this.inbox = [];
+        return got.slice(0, n).map((m) => m.t);
+      }
+      const left = until - Date.now();
+      if (left <= 0) throw new Error(`only ${got.map((m) => m.t).join(', ')} within ${ms}ms`);
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, left);
+        this.wake = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+      });
+      this.wake = undefined;
+    }
+  }
+
   close(): Promise<void> {
     return new Promise((resolve) => {
       if (this.closed) return resolve();
@@ -295,6 +323,65 @@ test('welcomes a browser and dispatches what it sends', async () => {
   await b.close();
   assert.equal((await a.take('peer.leave')).id, bWelcome.you);
   await a.close();
+});
+
+test('the toys on a floor, and letting go of them on leaving the floor or the office', async () => {
+  const floor = office.floors()[0];
+  const a = await Browser.open('?name=Cy');
+  const cy = (await a.take('welcome')).you;
+  const b = await Browser.open('?name=Di');
+  await b.take('welcome');
+  await a.take('peer.join');
+
+  a.send({ t: 'jukebox.skip' });
+  assert.equal((await b.take('jukebox')).state.on, true);
+  assert.match((await b.take('toast', (m) => m.text.startsWith('⏭️'))).text, /^⏭️ Cy skipped to “.+”$/);
+  a.send({ t: 'jukebox.stop' });
+  assert.equal((await b.take('jukebox')).state.on, false);
+  assert.equal((await b.take('toast', (m) => m.text.startsWith('🔇'))).text, '🔇 Cy turned the jukebox off');
+  a.send({ t: 'dog.name', name: 'Rex' });
+  assert.equal((await b.take('toast', (m) => m.text.startsWith('🐶'))).text, '🐶 Cy named the dog Rex');
+
+  // The gong once, not twice in a row; no air horn off the roof, and no golf without a club.
+  a.send({ t: 'gong' });
+  a.send({ t: 'gong' });
+  a.send({ t: 'horn' });
+  a.send({ t: 'golf', yaw: 0, loft: 0.5, power: 0.5 });
+  a.send({ t: 'act', golf: true });
+  a.send({ t: 'golf', yaw: 0.25, loft: 0.5, power: 0.5 });
+  assert.deepEqual(await b.next(3), ['gong', 'peer.act', 'golf']);
+
+  a.send({ t: 'wb.open' });
+  assert.deepEqual((await b.take('wb.people')).people, [cy]);
+  b.send({ t: 'wb.open' });
+  assert.equal((await a.take('wb.people', (m) => m.people.length === 2)).people.length, 2);
+  a.send({ t: 'wb.pointer', x: 1, y: 2, tool: 'laser', button: 'down' });
+  assert.deepEqual(await b.take('wb.pointer'), { t: 'wb.pointer', id: cy, x: 1, y: 2, tool: 'laser', button: 'down' });
+
+  const holdEverything = async () => {
+    a.send({ t: 'wb.open' });
+    a.send({ t: 'ball.take' });
+    assert.equal((await b.take('ball')).ball.holder, cy);
+    a.send({ t: 'car.enter', car: 0, seat: 'driver' });
+    await a.take('cars', (m) => m.answer === true);
+    await b.take('cars');
+    a.send({ t: 'cabinet.play' });
+    assert.equal((await b.take('cabinet')).state.player?.id, cy);
+    await b.drain();
+  };
+  await holdEverything();
+  // Up to the roof: the floor sees the arcade free up, Cy go, and then the whiteboard, the ball and the car.
+  a.send({ t: 'floor.go', floor: '@roof' });
+  assert.equal((await a.take('floor.enter')).floor, '@roof');
+  assert.deepEqual(await b.next(5), ['cabinet', 'peer.update', 'wb.people', 'ball', 'cars']);
+
+  a.send({ t: 'floor.go', floor: floor.id });
+  assert.equal((await a.take('floor.enter')).floor, floor.id);
+  await holdEverything();
+  // Out of the office: the whiteboard, the arcade, the ball and the car, then Cy's gone.
+  await a.close();
+  assert.deepEqual(await b.next(5), ['wb.people', 'cabinet', 'ball', 'cars', 'peer.leave']);
+  await b.close();
 });
 
 test('the hook server answers only workers, with their own token', async () => {

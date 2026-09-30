@@ -10,18 +10,16 @@ import { MAX_REPOS, childEnv, resolveCommand, type RepoSource } from './workers.
 import { OPEN_CODE_MODEL_MAX } from './agents.js';
 import { MAX_WORKER_LIMIT, parseWorkerLimit } from './machine.js';
 import { relayUpgrade, tunneledPort } from './relay.js';
-import type { ChatLine, ClientMsg, MeetingRequest, ServerMsg, SignInKind } from '../shared/protocol.js';
+import type { ChatLine, ClientMsg, MeetingRequest, SignInKind } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import { DESK_BY_ID, elevatorSpot } from '../shared/layout.js';
 import { OFFICE_MAP, seatHereOn } from '../shared/maps/index.js';
-import { STREAM } from '../shared/jukebox.js';
-import { checkFrame } from '../shared/cabinet.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 import { isEmote } from '../shared/emotes.js';
 import { isThemePick } from '../shared/theme.js';
 import { PROMPTS, PROMPT_MAX, isPromptId } from '../shared/prompts.js';
 import { ROOF, isDrink } from '../shared/rooftop.js';
-import { isBarGame, tossOk, type BarGame } from '../shared/bargames.js';
+import { isBarGame } from '../shared/bargames.js';
 import type { Floor } from './floor.js';
 import type { Ctx } from './office/context.js';
 import { SLOW_CLIENT_BYTES, newClient, throttle, type Client } from './office/client.js';
@@ -39,17 +37,13 @@ import { requestHandler } from './http/router.js';
 import { routes } from './http/routes/index.js';
 import { startHookServer } from './hooks/server.js';
 import { floorView, roofView, screensOf } from './office/views.js';
-import { cabinetChanged, cabinetPlayer, cabinetState, stopPlaying } from './ws/handlers/cabinet.js';
-import { drawingChanged } from './ws/handlers/whiteboard.js';
-import { ballChanged } from './ws/handlers/ball.js';
-import { carsChanged } from './ws/handlers/car.js';
+import { dispatch } from './ws/dispatch.js';
+import { features } from './ws/handlers/index.js';
 
 const CLEANUPS = new Set(['keep', 'worktree', 'all']);
 
 /** The least time between two 'term.typing' notes from one person in one terminal. */
 const TYPING_GAP_MS = 500;
-/** The quickest anyone throws one dart after another, or one axe (ms): a page's own wait is longer. */
-const TOSS_EVERY: Record<BarGame, number> = { darts: 250, axe: 700 };
 
 function refuseUpgrade(socket: Duplex) {
   socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
@@ -217,14 +211,9 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
     });
     ws.on('close', () => {
       clients.delete(id);
-      if (client.whiteboard) drawingChanged(ctx, floorOf(client));
-      stopPlaying(ctx, client);
-      for (const f of floors.values()) {
-        f.workers.detachAll(id);
-        f.changes.unwatchAll(id);
-        if (f.court.left(id)) ballChanged(ctx, f);
-        if (f.garage.leave(id)) carsChanged(ctx, f);
-      }
+      // Each feature lets go of what they had (see FeatureHooks), then of what they had on each floor.
+      for (const f of features) f.closed?.(ctx, client);
+      for (const floor of floors.values()) for (const f of features) f.closedOn?.(ctx, client, floor);
       broadcast({ t: 'peer.leave', id });
       if (account) accountsChanged();
       floorsChanged();
@@ -232,17 +221,16 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
     ws.on('error', () => ws.terminate());
   };
 
-  const decorChanged = (floor: Floor) => toFloor(floor, { t: 'decor', items: floor.decor.list() });
   /** The floor's signs or back office changed: its people see it, and everyone sees the building's outside change. */
   const planChanged = (floor: Floor) => {
     toFloor(floor, { t: 'plan', plan: floor.plan.state() });
     floorsChanged();
   };
-  const jukeboxChanged = (floor: Floor) => toFloor(floor, { t: 'jukebox', state: floor.jukebox.state() });
   const teamState = async () => ({ ...(await team.state()), deploy: cfg.deployScript });
   const teamChanged = async () => broadcast({ t: 'team', state: await teamState() });
 
   const handleMessage = (c: Client, msg: ClientMsg) => {
+    if (dispatch(ctx, c, msg)) return;
     const who = c.peer.name;
     /** The floor `c` is on, or a note to them that they have to be on one. */
     const here = (): Floor | undefined => {
@@ -303,19 +291,6 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
         }
         if (!throttle(c, 'act', 100)) break;
         toNeighbors(c, { t: 'peer.act', id: c.id }, true);
-        break;
-      }
-      case 'golf': {
-        const [yaw, loft, power] = [num(msg.yaw), num(msg.loft), num(msg.power)];
-        if (!c.peer.golfing || Math.abs(yaw) > 2 || loft < 0 || loft > 1.6 || power < 0 || power > 1 || !throttle(c, 'golf', 800)) break;
-        toNeighbors(c, { t: 'golf', id: c.id, yaw, loft, power });
-        break;
-      }
-      case 'toss': {
-        // Only at the line they stepped up to, and no quicker than anyone throws.
-        const toss: { game: unknown; u: unknown; v: unknown; n: unknown } = { game: msg.game, u: msg.u, v: msg.v, n: msg.n };
-        if (!tossOk(toss) || c.peer.throwing !== toss.game || !throttle(c, 'toss', TOSS_EVERY[toss.game])) break;
-        toNeighbors(c, { t: 'toss', id: c.id, game: toss.game, u: toss.u, v: toss.v, n: toss.n, stick: msg.stick === true });
         break;
       }
       case 'emote':
@@ -431,48 +406,6 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
         const state = building.projectsDirState();
         broadcast({ t: 'projectsDir', state });
         toastAll(state.custom ? `📁 ${who} moved the workspace folder to ${state.dir}` : `📁 ${who} put the workspace folder back to ${state.dir}`);
-        break;
-      }
-      case 'ball.take':
-      case 'ball.throw': {
-        const floor = floorOf(c);
-        if (!floor) break;
-        const changed = msg.t === 'ball.take' ? floor.court.take(c.id) : floor.court.throw(c.id, { x: num(msg.x), y: num(msg.y), z: num(msg.z), vx: num(msg.vx), vy: num(msg.vy), vz: num(msg.vz) });
-        // Whoever didn't get it (someone else caught it first) is told where it really is.
-        if (changed) ballChanged(ctx, floor);
-        else sendTo(c, { t: 'ball', ball: floor.court.state() });
-        break;
-      }
-      case 'car.enter':
-      case 'car.leave': {
-        const floor = floorOf(c);
-        if (!floor) break;
-        const changed = msg.t === 'car.enter' ? floor.garage.enter(c.id, Math.trunc(num(msg.car)), msg.seat) : floor.garage.leave(c.id);
-        // They hear back either way: someone who didn't get in (someone beat them to the seat) learns who did.
-        if (changed) toNeighbors(c, { t: 'cars', cars: floor.garage.state() });
-        sendTo(c, { t: 'cars', cars: floor.garage.state(), answer: true });
-        break;
-      }
-      case 'car.drive': {
-        const floor = floorOf(c);
-        const car = Math.trunc(num(msg.car));
-        const now = floor?.garage.drive(c.id, car, { x: num(msg.x), z: num(msg.z), rotY: num(msg.rotY), speed: num(msg.speed), steer: num(msg.steer) });
-        if (now) toNeighbors(c, { t: 'car.move', car, ...now }, true);
-        break;
-      }
-      case 'car.honk': {
-        const car = floorOf(c)?.garage.honk(c.id);
-        if (car !== undefined) toNeighbors(c, { t: 'car.honk', car });
-        break;
-      }
-      case 'dog.pet':
-        floorOf(c)?.dog.pet(c.peer);
-        break;
-      case 'dog.name': {
-        const floor = here();
-        if (!floor) break;
-        const name = floor.dog.rename(str(msg.name, 200));
-        toastFloor(floor, `🐶 ${who} named the dog ${name}`);
         break;
       }
       case 'worker.spawn': {
@@ -699,17 +632,6 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
             }),
           (error) => sendTo(c, { t: 'gh.commented', kind, number: n, error }),
         );
-        break;
-      }
-      case 'gong': {
-        const floor = floorOf(c);
-        if (!floor || !throttle(c, 'gong', 500)) break;
-        toFloor(floor, { t: 'gong', why: 'hit', by: who });
-        break;
-      }
-      case 'horn': {
-        if (c.peer.floor !== ROOF || !throttle(c, 'horn', 1500)) break;
-        for (const o of clients.values()) if (o.peer.floor === ROOF) sendTo(o, { t: 'horn', by: who });
         break;
       }
       case 'gh.close': {
@@ -1007,32 +929,6 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
       case 'signins.signout':
         handleSignIns(c, msg);
         break;
-      case 'decor.add': {
-        const floor = here();
-        if (!floor) break;
-        const d = floor.decor.add(msg.decor, who);
-        if (typeof d === 'string') return warn(c, d);
-        decorChanged(floor);
-        toastFloor(floor, `🖼️ ${who} hung ${d.title ? `“${d.title}”` : 'a picture'}`);
-        break;
-      }
-      case 'decor.update': {
-        const floor = here();
-        if (!floor) break;
-        const d = floor.decor.update(str(msg.id, 32), msg.decor);
-        if (typeof d === 'string') return warn(c, d);
-        decorChanged(floor);
-        break;
-      }
-      case 'decor.remove': {
-        const floor = here();
-        if (!floor) break;
-        const d = floor.decor.remove(str(msg.id, 32));
-        if (!d) break;
-        decorChanged(floor);
-        toastFloor(floor, `${who} took down ${d.title ? `“${d.title}”` : 'a picture'}`);
-        break;
-      }
       case 'desk.label': {
         const floor = here();
         if (!floor) break;
@@ -1062,91 +958,6 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
         if (typeof r === 'string') return warn(c, r);
         planChanged(floor);
         toastFloor(floor, `🧱 ${who} walled the back office back up, and ${r.map((id) => DESK_BY_ID.get(id)?.label).join(' and ')} went with it`);
-        break;
-      }
-      case 'wb.open':
-      case 'wb.close': {
-        const floor = floorOf(c);
-        const open = msg.t === 'wb.open' && !!floor;
-        if (open === c.whiteboard) break;
-        c.whiteboard = open;
-        drawingChanged(ctx, floor);
-        break;
-      }
-      case 'wb.update': {
-        const floor = here();
-        if (!floor) break;
-        const { accepted, error } = floor.whiteboard.apply(msg.elements);
-        if (accepted.length) toNeighbors(c, { t: 'wb.update', elements: accepted });
-        warn(c, error);
-        break;
-      }
-      case 'wb.pointer': {
-        if (!c.whiteboard || !throttle(c, 'wb.pointer', 25)) break;
-        const selected = Array.isArray(msg.selected) ? msg.selected.filter((s): s is string => typeof s === 'string').slice(0, 200).map((s) => s.slice(0, 100)) : undefined;
-        const pointer: ServerMsg = { t: 'wb.pointer', id: c.id, x: num(msg.x), y: num(msg.y), tool: msg.tool === 'laser' ? 'laser' : 'pointer', button: msg.button === 'down' ? 'down' : 'up', selected };
-        const json = JSON.stringify(pointer);
-        for (const o of clients.values()) {
-          if (o.id === c.id || !o.whiteboard || o.peer.floor !== c.peer.floor || o.ws.readyState !== WebSocket.OPEN || o.ws.bufferedAmount > 1024 * 1024) continue;
-          o.ws.send(json);
-        }
-        break;
-      }
-      case 'jukebox.play': {
-        const floor = here();
-        if (!floor) break;
-        const r = floor.jukebox.play({ track: msg.track, url: msg.url }, who);
-        if ('error' in r) return warn(c, r.error);
-        if (!r.changed) break;
-        jukeboxChanged(floor);
-        toastFloor(floor, floor.jukebox.state().track === STREAM ? `📻 ${who} tuned the jukebox to ${floor.jukebox.title()}` : `🎵 ${who} put on “${floor.jukebox.title()}”`);
-        break;
-      }
-      case 'jukebox.skip': {
-        const floor = here();
-        if (!floor) break;
-        floor.jukebox.skip(who);
-        jukeboxChanged(floor);
-        toastFloor(floor, `⏭️ ${who} skipped to “${floor.jukebox.title()}”`);
-        break;
-      }
-      case 'cabinet.play': {
-        const floor = here();
-        if (!floor || (c.playing && msg.game === c.game)) break;
-        const at = cabinetPlayer(ctx, floor);
-        if (at && at !== c) {
-          warn(c, `${at.peer.name} is on the arcade — press E there to watch`);
-          sendTo(c, { t: 'cabinet', state: cabinetState(ctx, floor) });
-          break;
-        }
-        // Already at it: that game's over, and this is the next one.
-        if (c.playing) arcade.leave(c.game, floor.id);
-        c.game = arcade.start({ owner: c.accountId ? `account:${c.accountId}` : `name:${who}`, name: who, color: c.peer.color, connection: c.id }, msg.game);
-        if (c.game !== msg.game && !arcade.counts(c.game)) warn(c, "🕹️ That's a lot of new games in a row, so this one won't go on the high-score table");
-        c.playing = true;
-        c.frame = undefined;
-        cabinetChanged(ctx, floor);
-        break;
-      }
-      case 'cabinet.leave':
-        stopPlaying(ctx, c);
-        break;
-      case 'cabinet.frame': {
-        const floor = floorOf(c);
-        const frame = checkFrame(msg.frame);
-        if (!c.playing || !floor || !frame) break;
-        // Every frame counts towards the score, even one that comes too soon after the last to pass on.
-        if (arcade.frame(c.game, frame, floor.id) === 'void') warn(c, "🕹️ The office couldn't follow this game, so its score won't go on the high-score table");
-        c.frame = frame;
-        if (!throttle(c, 'cabinet.frame', 40)) break;
-        toNeighbors(c, { t: 'cabinet.frame', frame }, true);
-        break;
-      }
-      case 'jukebox.stop': {
-        const floor = here();
-        if (!floor || !floor.jukebox.stop(who)) break;
-        jukeboxChanged(floor);
-        toastFloor(floor, `🔇 ${who} turned the jukebox off`);
         break;
       }
       case 'ping':

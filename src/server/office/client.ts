@@ -1,7 +1,6 @@
 import type { WebSocket } from 'ws';
 import { EMOTE_EVERY, EmoteBucket } from '../../shared/emotes.js';
 import type { PeerInfo } from '../../shared/protocol.js';
-import type { CabinetFrame } from '../../shared/cabinet.js';
 
 /** A viewer with more than this waiting to go out skips terminal output, and gets a fresh snapshot once it catches up. */
 export const SLOW_CLIENT_BYTES = 8 * 1024 * 1024;
@@ -24,12 +23,6 @@ export interface Client {
   /** When each rate-limited thing they do was last let through, by name (see throttle). */
   throttles: Map<string, number>;
   emotes: EmoteBucket;
-  /** Has the floor's whiteboard open. */
-  whiteboard: boolean;
-  /** At the arcade cabinet on their floor, playing `game` (see Arcade); `frame` is it as it looks now. */
-  playing: boolean;
-  game?: string;
-  frame?: CabinetFrame;
   /** When this client last said it was typing, per terminal (see 'term.typing'). */
   typingAt: Map<string, number>;
   /** Cleared at each heartbeat ping and set again by the pong; still clear at the next one means gone. */
@@ -49,8 +42,6 @@ export function newClient(id: string, ws: WebSocket, who: { accountId: string | 
     throttles: new Map(),
     // A little more lenient than the page's own, so emotes it let through aren't dropped for arriving bunched up.
     emotes: new EmoteBucket(EMOTE_EVERY * 0.8),
-    whiteboard: false,
-    playing: false,
     typingAt: new Map(),
     isAlive: true,
     peer,

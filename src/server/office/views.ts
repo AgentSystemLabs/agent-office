@@ -3,7 +3,7 @@ import { EMPTY_PLAN } from '../../shared/floorplan.js';
 import { JUKEBOX_TUNES } from '../../shared/jukebox.js';
 import { ROOF } from '../../shared/rooftop.js';
 import type { FloorView } from '../../shared/protocol.js';
-import { cabinetPlayer, cabinetState } from '../ws/handlers/cabinet.js';
+import { cabinetFrame, cabinetState } from '../ws/handlers/cabinet.js';
 import { drawing } from '../ws/handlers/whiteboard.js';
 import type { Ctx } from './context.js';
 import type { Client } from './client.js';
@@ -26,7 +26,7 @@ export const floorView = (ctx: Ctx, floor: Floor | undefined): FloorView => ({
   jukebox: floor?.jukebox.state() ?? { on: false, track: JUKEBOX_TUNES[0].id, startedAt: Date.now(), elapsed: 0 },
   whiteboard: { elements: floor?.whiteboard.scene() ?? [], people: floor ? drawing(ctx, floor) : [] },
   meeting: floor?.meetings.state() ?? { current: null, past: [] },
-  cabinet: { ...cabinetState(ctx, floor), frame: (floor && cabinetPlayer(ctx, floor)?.frame) ?? null },
+  cabinet: { ...cabinetState(ctx, floor), frame: cabinetFrame(ctx, floor) },
 });
 /** The rooftop bar: nobody works up there, so it has none of a floor's things. */
 export const roofView = (ctx: Ctx): FloorView => ({ ...floorView(ctx, undefined), floor: ROOF });
