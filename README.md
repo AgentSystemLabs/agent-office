@@ -50,7 +50,7 @@ On the machine that runs the office:
 
 - **Node.js 20+**
 - At least one agent CLI, signed in as the user that runs the office: **Claude Code** (`claude`), **Codex** (`codex`), **OpenCode** (`opencode`), **Grok** (`grok`), **Muse** (`muse`) or **DeepSeek Harness** (`dsh`). With [accounts](#add-users), everyone can sign in to their own Claude from the office instead.
-- **git**, and a forge CLI for cloning repos and the issue and PR boards: the **GitHub CLI** (`gh auth login`) for GitHub projects, or the [Bitbucket CLI](https://bitbucket-cli.paulvanderlei.com) (`bb`, `npm install -g @pilatos/bitbucket-cli`) for Bitbucket ones. Each floor works out which one from its own remote, so you can use GitHub, Bitbucket or both.
+- **git**, and a forge CLI for cloning repos and the issue and PR boards: the **GitHub CLI** (`gh auth login`) for GitHub projects, or the [Bitbucket CLI](https://bitbucket-cli.paulvanderlei.com) (`bb`, `npm install -g @pilatos/bitbucket-cli`) for Bitbucket ones. Each floor works out which one from its own remote, so you can use GitHub, Bitbucket or both. Two different tools answer to `bb`: if the one on your machine is [Atlassian's own Bitbucket CLI](https://bitbucket.org/atlassianls/bitbucket-cli) rather than the one above, the office says so by name instead of failing with `unknown flag: --json`.
 
 ## Run locally
 

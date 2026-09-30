@@ -1,4 +1,5 @@
 import { isDocPath, resolveDocLink, type DocFile, type DocList, type DocText } from '../../shared/docs';
+import { webOf } from '../../shared/forgeweb';
 import { clip, h, openModal, setDoing, timeAgo, toast } from './dom';
 import { markdownFile } from './markdown';
 
@@ -14,7 +15,7 @@ export interface ShelfDeps {
   /** The floor whose project it is, and the project's name. */
   floor: string;
   project?: string;
-  /** The project on GitHub, for links to files that aren't docs. */
+  /** The project on its forge (GitHub or Bitbucket), for links to files that aren't docs. */
   repoUrl?: string;
   /** You turned a page (opened a doc, or scrolled a screenful): the book in your hands turns one too. */
   onTurn(): void;
@@ -150,6 +151,11 @@ async function getJson<T>(url: string): Promise<T> {
 
 export function openBookshelf(deps: ShelfDeps) {
   const { floor, repoUrl } = deps;
+  /**
+   * Where a file that isn't a doc opens, paired with the forge it opens on — which isn't always
+   * GitHub, and which serves a file under /src rather than /blob.
+   */
+  const web = repoUrl ? { forge: webOf(repoUrl), repo: repoUrl } : undefined;
   const q = (params: Record<string, string>) => new URLSearchParams({ floor, ...params }).toString();
 
   const filter = h('input', { type: 'text', placeholder: 'Filter the docs…', 'aria-label': 'Filter the docs', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
@@ -267,7 +273,7 @@ export function openBookshelf(deps: ShelfDeps) {
     at?.scrollIntoView({ block: 'start' });
   };
 
-  /** Points the doc's links and pictures at the project: other docs open here, the rest on GitHub. */
+  /** Points the doc's links and pictures at the project: other docs open here, the rest on the forge. */
   const wire = (body: HTMLElement, path: string) => {
     const seen = new Map<string, number>();
     const heads: { level: number; text: string; anchor: string }[] = [];
@@ -287,8 +293,8 @@ export function openBookshelf(deps: ShelfDeps) {
         a.removeAttribute('target');
         a.dataset.doc = to.path;
         a.dataset.hash = to.hash;
-      } else if (repoUrl) {
-        a.href = `${repoUrl}/blob/HEAD/${to.path.split('/').map(encodeURIComponent).join('/')}${to.hash ? `#${to.hash}` : ''}`;
+      } else if (web) {
+        a.href = web.forge.file(web.repo, to.path.split('/').map(encodeURIComponent).join('/'), to.hash || undefined);
       } else {
         a.removeAttribute('href');
         a.title = to.path;
@@ -327,7 +333,7 @@ export function openBookshelf(deps: ShelfDeps) {
     const words = doc.text.split(/\s+/).filter(Boolean).length;
     meta.replaceChildren(
       [`${Math.max(1, Math.round(words / 220))} min read`, info ? size(info.size) : '', info ? `updated ${timeAgo(info.mtime)}` : ''].filter(Boolean).join(' · '),
-      repoUrl ? h('a', { href: `${repoUrl}/blob/HEAD/${path.split('/').map(encodeURIComponent).join('/')}`, target: '_blank', rel: 'noopener noreferrer', title: 'Open it on GitHub' }, 'GitHub ↗') : '',
+      web ? h('a', { href: web.forge.file(web.repo, path.split('/').map(encodeURIComponent).join('/')), target: '_blank', rel: 'noopener noreferrer', title: `Open it on ${web.forge.label}` }, `${web.forge.label} ↗`) : '',
     );
     turnedAt = 0;
     jump(hash);

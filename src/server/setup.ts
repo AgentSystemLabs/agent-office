@@ -9,6 +9,7 @@ import type { ForgeKind, RepoChoice } from '../shared/protocol.js';
 import { FORGE_CLI, FORGE_LABEL } from '../shared/protocol.js';
 import { Building, tildify } from './building.js';
 import { officeHome, type Config } from './config.js';
+import { WRONG_BB } from './forge.js';
 
 // Setting up an office from its terminal: where projects are cloned, signing the forge CLIs in, and
 // picking the first repositories to clone as floors. A new office walks you through it the first time
@@ -172,6 +173,11 @@ async function forgeLogin(kind: ForgeKind, cwd: string): Promise<string | undefi
       );
       return undefined;
     }
+    if (who.wrong) {
+      // Both tools answer to `bb`; only one of them is the one the office reads.
+      console.log(`\n  🧱 ${WRONG_BB}`);
+      return undefined;
+    }
     if (!who.signedOut || tried) {
       if (who.error) console.log(`\n  🧱 Couldn't reach ${name} with ${cli}: ${who.error}`);
       return undefined;
@@ -182,7 +188,7 @@ async function forgeLogin(kind: ForgeKind, cwd: string): Promise<string | undefi
   }
 }
 
-function cliUser(kind: ForgeKind, cwd: string): Promise<{ login?: string; missing?: boolean; signedOut?: boolean; error?: string }> {
+function cliUser(kind: ForgeKind, cwd: string): Promise<{ login?: string; missing?: boolean; signedOut?: boolean; wrong?: boolean; error?: string }> {
   return new Promise((resolve) => {
     const args = kind === 'bitbucket' ? ['auth', 'status', '--json'] : ['api', 'user', '--jq', '.login'];
     execFile(FORGE_CLI[kind], args, { cwd, timeout: 30_000 }, (err, stdout, stderr) => {
@@ -196,6 +202,8 @@ function cliUser(kind: ForgeKind, cwd: string): Promise<{ login?: string; missin
       }
       if ((err as NodeJS.ErrnoException | null)?.code === 'ENOENT') return resolve({ missing: true });
       const why = String(stderr || err?.message || '').trim();
+      // The wrong `bb`, not a sign-in to fix: see WRONG_BB in server/forge.ts.
+      if (kind === 'bitbucket' && /unknown command "auth"|unknown flag: ?--json/i.test(why)) return resolve({ wrong: true });
       resolve({ signedOut: /auth login|not logged in|not authenticated|authentication|bad credentials|1001|HTTP 401/i.test(why), error: why.split('\n').filter(Boolean).slice(-1)[0] ?? `${FORGE_CLI[kind]} failed` });
     });
   });

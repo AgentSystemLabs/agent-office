@@ -129,9 +129,23 @@ function bbSaid(raw: string): string {
   return raw;
 }
 
+/**
+ * The office reads Bitbucket with the Bitbucket CLI (`bb pr`, `bb auth`,
+ * https://bitbucket-cli.paulvanderlei.com). Atlassian's own Bitbucket CLI answers to the same `bb`
+ * and shares none of it: it wants `bb pullrequest`, has no `auth` command, spells its output
+ * `-o json` rather than `--json`, and wants lower-case `--state` values. A machine with that one
+ * installed gives every Bitbucket floor an unfamiliar error, so the office says which `bb` it found
+ * instead of passing on `unknown flag: --json`.
+ */
+const NOT_OUR_BB = /unknown command "(?:auth|api|status)"|unknown flag: ?--json|invalid argument "[A-Z]+" for "--state" flag|Expected values are (?:all|OPEN)/i;
+
+/** The office's one sentence for a `bb` that isn't the one it reads, naming both. */
+export const WRONG_BB = "the `bb` on this machine isn't the Bitbucket CLI the office reads — Atlassian's own Bitbucket CLI answers to the same name, and uses `bb pullrequest` instead of `bb pr`. Install the one the office wants with `npm install -g @pilatos/bitbucket-cli`.";
+
 /** Turns bb's stderr into something a person standing at the board can act on. */
 function friendlyBb(raw: string): string {
   const said = bbSaid(raw);
+  if (NOT_OUR_BB.test(said)) return WRONG_BB;
   if (/no git remote|remote.*not found|not a git repository/i.test(said)) return 'This project has no Bitbucket remote yet. Push it to Bitbucket (git remote add origin <url>) to fill the boards.';
   if (SIGNED_OUT.test(raw) || /\b1001\b|AUTH_REQUIRED/i.test(said)) return "bb isn't signed in to Bitbucket on the office's machine — run `bb auth login` there";
   if (/context_repo_not_found|repository not found|6001|404/i.test(said)) return "bb can't find this repository on Bitbucket (check the remote and access)";

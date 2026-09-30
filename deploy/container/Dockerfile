@@ -23,7 +23,9 @@ ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
 # sshd for the tunnels, tini to reap what workers leave behind, and what workers need: git, the
 # GitHub CLI (from GitHub's own apt repo, like deploy/provision.sh), the Bitbucket CLI for Bitbucket
 # projects, and build tools. The Bitbucket CLI runs on Bun, which it installs itself if it can; the
-# `|| echo` keeps the image building either way, since GitHub needs no bb.
+# `|| echo` keeps the image building either way, since GitHub needs no bb. Atlassian's own Bitbucket
+# CLI answers to the same `bb` and shares no command with ours, so it is checked for with `bb pr`
+# rather than trusted because something called bb is on the path.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends openssh-server sudo tini procps ca-certificates curl git less build-essential python3 \
   && install -d -m 755 /etc/apt/keyrings \
@@ -34,7 +36,8 @@ RUN apt-get update \
   && apt-get update \
   && apt-get install -y --no-install-recommends gh \
   && rm -rf /var/lib/apt/lists/* \
-  && npm install -g @pilatos/bitbucket-cli || echo "bitbucket CLI not installed: only GitHub projects are available"
+  && npm install -g @pilatos/bitbucket-cli \
+  && (bb pr list --help >/dev/null 2>&1 || echo "the installed bb is not the Bitbucket CLI the office reads: only GitHub projects are available (see https://bitbucket-cli.paulvanderlei.com)")
 
 COPY --from=build /opt/agent-office /opt/agent-office
 RUN /opt/agent-office/deploy/container/install.sh

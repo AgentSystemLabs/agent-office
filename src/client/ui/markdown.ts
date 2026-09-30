@@ -1,5 +1,6 @@
 import { Marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { originOf, repoOf, webOf } from '../../shared/forgeweb';
 import { h } from './dom';
 
 // GitHub-flavored markdown for issue and PR text: rendered by marked, then sanitized by DOMPurify
@@ -45,7 +46,10 @@ function alerts(root: HTMLElement) {
 const REF_RE = /(^|[^\w/&#`])(#(\d+)|@([A-Za-z0-9](?:[A-Za-z0-9-]{0,38})))\b/g;
 
 /** Links #123 to the issue or PR and @name to the person, outside code and existing links. */
-function linkify(root: HTMLElement, repoUrl?: string) {
+function linkify(root: HTMLElement, itemUrl: string, repoUrl: string) {
+  const web = webOf(itemUrl);
+  // A #12 only links where the forge has an issue page for it; on Bitbucket it is left as written.
+  const issues = web.issues(repoUrl);
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (n) => (n.parentElement?.closest('a, code, pre') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
   });
@@ -60,7 +64,7 @@ function linkify(root: HTMLElement, repoUrl?: string) {
     let at = 0;
     for (let m = REF_RE.exec(s); m; m = REF_RE.exec(s)) {
       const start = m.index + m[1].length;
-      const href = m[3] ? (repoUrl ? `${repoUrl}/issues/${m[3]}` : '') : `https://github.com/${m[4]}`;
+      const href = m[3] ? (issues ? `${issues}/${m[3]}` : '') : web.person(m[4]);
       if (!href) continue;
       frag.append(s.slice(at, start), h('a', { href, target: '_blank', rel: 'noopener noreferrer', class: m[3] ? 'ref' : 'mention' }, m[2]));
       at = start + m[2].length;
@@ -72,13 +76,15 @@ function linkify(root: HTMLElement, repoUrl?: string) {
 
 const SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
 
-/** Relative links in a PR body mean GitHub pages: #anchors on the PR, paths in the repo. */
+/** Relative links in a PR body mean the forge's own pages: #anchors on the PR, paths in the repo. */
 function absolutize(root: HTMLElement, itemUrl: string, repoUrl: string) {
+  const web = webOf(itemUrl);
   const fix = (v: string, anchors: boolean) => {
     if (!v || SCHEME_RE.test(v) || v.startsWith('//')) return v;
     if (v.startsWith('#')) return anchors ? `${itemUrl.split('#')[0]}${v}` : v;
-    if (v.startsWith('/')) return `https://github.com${v}`;
-    return `${repoUrl}/blob/HEAD/${v.replace(/^\.\//, '')}`;
+    if (v.startsWith('/')) return `${originOf(repoUrl)}${v}`;
+    const [path, hash] = v.split('#');
+    return web.file(repoUrl, path.replace(/^\.\//, ''), hash);
   };
   for (const a of root.querySelectorAll('a[href]')) a.setAttribute('href', fix(a.getAttribute('href') ?? '', true));
   for (const img of root.querySelectorAll('img[src]')) img.setAttribute('src', fix(img.getAttribute('src') ?? '', false));
@@ -89,7 +95,7 @@ function sanitized(html: string): DocumentFragment {
   return purify.sanitize(html, { RETURN_DOM_FRAGMENT: true, FORBID_TAGS: ['style', 'form', 'button', 'select', 'textarea'], FORBID_ATTR: ['style'] });
 }
 
-/** Renders markdown into a `.md` block. `itemUrl` (the issue or PR on GitHub) anchors its links. */
+/** Renders markdown into a `.md` block. `itemUrl` (the issue or PR on the forge) anchors its links. */
 export function markdown(src: string, itemUrl?: string): HTMLElement {
   const el = h('div.md');
   if (!src.trim()) {
@@ -97,10 +103,10 @@ export function markdown(src: string, itemUrl?: string): HTMLElement {
     return el;
   }
   el.append(sanitized(md.parse(src, { async: false }) as string));
-  const repoUrl = itemUrl ? repoUrlOf(itemUrl) : undefined;
+  const repoUrl = itemUrl ? repoOf(itemUrl) : '';
   if (itemUrl && repoUrl) absolutize(el, itemUrl, repoUrl);
   alerts(el);
-  linkify(el, repoUrl);
+  if (itemUrl && repoUrl) linkify(el, itemUrl, repoUrl);
   return el;
 }
 
@@ -114,9 +120,4 @@ export function markdownFile(src: string): HTMLElement {
   el.append(sanitized(mdFile.parse(src, { async: false }) as string));
   alerts(el);
   return el;
-}
-
-/** https://github.com/owner/repo from an issue or PR URL. */
-export function repoUrlOf(itemUrl: string): string {
-  return itemUrl.replace(/\/(pull|issues)\/\d+.*$/, '');
 }

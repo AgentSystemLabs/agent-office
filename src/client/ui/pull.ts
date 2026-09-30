@@ -1,12 +1,13 @@
 import type { ForgeKind, GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhLabel, GhMergeMethod, GhPull, GhPullDetail, GhReviewComment, ServerMsg } from '../../shared/protocol';
 import { FORGE_CLI, FORGE_LABEL } from '../../shared/protocol';
+import { forgeNote, repoOf, webOf, type ForgeWeb } from '../../shared/forgeweb';
 import type { Net } from '../net';
 import { AVATAR_COLORS, store, workerForPull } from '../state';
 import { issuePrompt, issueVars, type BoardActions } from './boards';
 import { issueMeeting } from './meeting';
 import { officePrompt } from './prompts';
 import { h, openModal, timeAgo, type Modal } from './dom';
-import { markdown, repoUrlOf } from './markdown';
+import { markdown } from './markdown';
 import { buildTree, looksGenerated, parseDiff, renderFileDiff, renderThread, repliesOf, Reviewed, STATUS_WORD, treeOrder, type DiffFile, type TreeDir } from './pulldiff';
 import { providerPicker } from './provider';
 
@@ -80,9 +81,9 @@ function mergePref(methods: GhMergeMethod[]): { method: GhMergeMethod; deleteBra
   return { method: p.method && methods.includes(p.method) ? p.method : methods[0], deleteBranch: p.deleteBranch ?? true };
 }
 
-/** owner/repo from a PR or issue URL. */
+/** owner/repo from a PR or issue URL, on either forge. */
 function nameWithOwner(url: string): string {
-  return repoUrlOf(url).replace(/^https?:\/\/[^/]+\//, '');
+  return repoOf(url).replace(/^https?:\/\/[^/]+\//, '');
 }
 
 // ---- Small pieces ---------------------------------------------------------------------------------
@@ -130,8 +131,9 @@ function spinnerRow(text: string) {
   return h('div.gh-loading', {}, h('span.spinner'), text);
 }
 
-function errorBox(text: string, retry?: () => void) {
-  return h('div.gh-error', {}, `Couldn't load from GitHub: ${text}`, retry ? h('button.btn', { type: 'button', onclick: retry }, 'Try again') : null);
+/** What went wrong loading something off the forge, named as the one the item is on. */
+function errorBox(text: string, retry: (() => void) | undefined, forge: ForgeKind) {
+  return h('div.gh-error', {}, `Couldn't load from ${FORGE_LABEL[forge]}: ${text}`, retry ? h('button.btn', { type: 'button', onclick: retry }, 'Try again') : null);
 }
 
 const CHECK_ICON: Record<GhCheck['state'], string> = { pass: '✅', fail: '❌', pending: '🟡', skip: '⚪' };
@@ -196,18 +198,19 @@ function checksList(checks: GhCheck[]) {
 
 interface CommentBox {
   el: HTMLElement;
-  /** Names the GitHub account the comment goes out as, once the window knows it. */
+  /** Names the account the comment goes out as, once the window knows it. */
   setViewer(login: string): void;
   /** Stops waiting for an answer; the window closed. */
   dispose(): void;
 }
 
 /**
- * Where you comment on an issue or a PR's conversation. It goes out through the server's gh, so
- * as that account rather than as you. The draft is kept per item until it is posted, so Esc or a
- * closed window doesn't lose it.
+ * Where you comment on an issue or a PR's conversation. It goes out through the server's own CLI for
+ * the forge the item is on, so as that account rather than as you. The draft is kept per item until
+ * it is posted, so Esc or a closed window doesn't lose it.
  */
 function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: string, net: Net, onPosted: (c: GhComment) => void): CommentBox {
+  const web = webOf(itemUrl);
   const draftKey = `${DRAFT_KEY}${itemUrl}`;
   const waitKey = `${kind}#${number}`;
   let busy = false;
@@ -217,7 +220,7 @@ function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: string, net
   const shown = h('div.gh-compose-preview.hidden');
   const write = h('button.btn.on', { type: 'button' }, 'Write');
   const preview = h('button.btn', { type: 'button' }, 'Preview');
-  const who = h('span.grow', {}, "Posts to GitHub as the office's gh account");
+  const who = h('span.grow', {}, `Posts to ${web.label} as the office's ${web.cli} account`);
   const post = h('button.btn.primary', { type: 'button' }, '💬 Comment');
   const result = h('div.gh-merge-result.error.hidden');
   const el = h(
@@ -273,7 +276,7 @@ function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: string, net
         saveDraft();
         setPreview(false);
         onPosted(msg.comment);
-      } else fail(msg.error ?? 'GitHub did not take the comment');
+      } else fail(msg.error ?? `${web.label} did not take the comment`);
       sync();
     });
     // The office drops messages while it's disconnected, and then no answer comes.
@@ -299,7 +302,7 @@ function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: string, net
   return {
     el,
     setViewer(login) {
-      if (login) who.textContent = `Posts to GitHub as @${login}`;
+      if (login) who.textContent = `Posts to ${web.label} as @${login}`;
     },
     dispose: settle,
   };
@@ -312,12 +315,24 @@ function pullVars(it: GhPull) {
   return { number: it.number, title: it.title, url: it.url, branch: it.headRefName, base: it.baseRefName };
 }
 
+/**
+ * The office's prompts are written for GitHub and say `gh` throughout, so on a Bitbucket floor a
+ * line goes on top saying to use `bb` instead — the prompt itself is left exactly as written, since
+ * one someone rewrote in ⚙️ Settings is theirs word for word (the board agents' briefs are treated
+ * the same way, in server/stations.ts). The forge comes off the pull request's own URL, so it is
+ * known before the window has loaded anything.
+ */
+function onForge(it: GhPull, prompt: string): string {
+  const note = forgeNote(webOf(it.url).kind, 'the steps below');
+  return note ? `${note}\n\n${prompt}` : prompt;
+}
+
 function reviewPrompt(it: GhPull) {
-  return officePrompt('pull.review', pullVars(it));
+  return onForge(it, officePrompt('pull.review', pullVars(it)));
 }
 
 function mergeCommand(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
-  return `gh pr merge ${it.number} --${method}${deleteBranch ? ' --delete-branch' : ''} --repo ${nameWithOwner(it.url)}`;
+  return webOf(it.url).merge(it.number, method, deleteBranch, nameWithOwner(it.url));
 }
 
 function mergeVars(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
@@ -325,15 +340,19 @@ function mergeVars(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
 }
 
 function fixAndMergePrompt(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
-  return officePrompt('pull.fixMerge', mergeVars(it, method, deleteBranch));
+  return onForge(it, officePrompt('pull.fixMerge', mergeVars(it, method, deleteBranch)));
 }
 
 function fixConflictsPrompt(it: GhPull, method: GhMergeMethod, deleteBranch: boolean) {
-  return officePrompt('pull.fixConflicts', mergeVars(it, method, deleteBranch));
+  return onForge(it, officePrompt('pull.fixConflicts', mergeVars(it, method, deleteBranch)));
 }
 
 function pullContext(it: GhPull) {
-  return officePrompt('pull.ask', pullVars(it));
+  return onForge(it, officePrompt('pull.ask', pullVars(it)));
+}
+
+function reviewPanelPrompt(it: GhPull) {
+  return onForge(it, officePrompt('pull.panel', pullVars(it)));
 }
 
 function issueContext(it: GhIssue) {
@@ -457,7 +476,7 @@ function openClose(kind: 'issue' | 'pull', it: GhIssue | GhPull, net: Net, onClo
       {},
       h('p.gh-merge-title', {}, it.title, pull ? h('small', {}, `${pull.headRefName} → ${pull.baseRefName}`) : null),
       pull
-        ? h('div.gh-status.muted', {}, h('span', {}, 'ℹ️'), `It won't be merged, and can be reopened on GitHub later.${w ? ` ${w.name} is still at a desk working on its branch.` : ''}`)
+        ? h('div.gh-status.muted', {}, h('span', {}, 'ℹ️'), `It won't be merged, and can be reopened on ${webOf(it.url).label} later.${w ? ` ${w.name} is still at a desk working on its branch.` : ''}`)
         : h('label', {}, 'Why'),
       pull ? h('label.gh-check', { for: 'close-del' }, del, `Delete ${pull.headRefName} too`) : reasons,
       comment,
@@ -503,7 +522,7 @@ export function openLabels(kind: 'issue' | 'pull', it: GhIssue | GhPull, net: Ne
   const had = new Set(it.labels.map((l) => l.name));
   const on = new Set(had);
   const noun = kind === 'pull' ? 'PR' : 'issue';
-  const manage = `${repoUrlOf(it.url)}/labels`;
+  const manage = `${repoOf(it.url)}/labels`;
   let repo: GhLabel[] | null = null;
   let error = '';
   let busy = false;
@@ -567,7 +586,7 @@ export function openLabels(kind: 'issue' | 'pull', it: GhIssue | GhPull, net: Ne
     const mine = it.labels.map((l) => known.get(l.name) ?? l).sort(byName);
     const rest = (repo ?? []).filter((l) => !had.has(l.name)).sort(byName);
     list.replaceChildren(...[...mine, ...rest].map(row));
-    if (error) list.append(h('li', {}, errorBox(error, load)));
+    if (error) list.append(h('li', {}, errorBox(error, load, 'github')));
     else if (!repo) list.append(h('li', {}, spinnerRow("Loading the repo's labels…")));
     applyFilter();
     sync();
@@ -647,6 +666,8 @@ function labelButtonFor(kind: 'issue' | 'pull', it: () => GhIssue | GhPull, forg
 export function openPull(first: GhPull, net: Net, actions: BoardActions) {
   let it = first;
   const itemUrl = it.url;
+  /** The forge this pull request is on, off its own URL: known before the window has loaded. */
+  const web: ForgeWeb = webOf(itemUrl);
   const reviewed = new Reviewed(it.url);
   let detail: GhPullDetail | null = null;
   let detailError = '';
@@ -664,7 +685,7 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
   // --- Frame
   const pill = h('span.pill');
   const title = h('h2');
-  const reload = h('button.btn', { type: 'button', title: 'Reload from GitHub' }, '🔄');
+  const reload = h('button.btn', { type: 'button', title: `Reload from ${web.label}` }, '🔄');
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const meta = h('div.gh-meta');
   const tabConv = h('button.gh-tab', { type: 'button', role: 'tab' });
@@ -689,7 +710,7 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
     meta,
     h('nav.gh-tabs', { role: 'tablist' }, tabConv, tabFiles),
     h('div.gh-body', {}, conv, filesPane),
-    h('footer', {}, h('a.grow', { href: it.url, target: '_blank', rel: 'noopener noreferrer' }, 'Open on GitHub ↗'), footBtns),
+    h('footer', {}, h('a.grow', { href: it.url, target: '_blank', rel: 'noopener noreferrer' }, `Open on ${web.label} ↗`), footBtns),
   );
 
   const handToWorker = () => {
@@ -740,7 +761,7 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
       h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this PR', onclick: () => actions.ask(pullContext(it), `Ask about PR #${it.number}`) }, '✍️ Ask a worker…'),
       isOpen ? h('button.btn', { type: 'button', onclick: () => actions.assign(reviewPrompt(it), `Review PR #${it.number}`) }, '🔍 Review') : null,
       isOpen
-        ? h('button.btn', { type: 'button', title: 'A few workers review it in the meeting room, each through its own lens, and the office posts one combined review', onclick: () => actions.meeting({ pattern: 'review', pr: it.number, title: `Review of PR #${it.number}`, prompt: officePrompt('pull.panel', pullVars(it)) }) }, '🤝 Review panel…')
+        ? h('button.btn', { type: 'button', title: 'A few workers review it in the meeting room, each through its own lens, and the office posts one combined review', onclick: () => actions.meeting({ pattern: 'review', pr: it.number, title: `Review of PR #${it.number}`, prompt: reviewPanelPrompt(it) }) }, '🤝 Review panel…')
         : null,
       conflicts
         ? h('button.btn.primary', { type: 'button', title: 'A new worker merges the base in, resolves the conflicts, gets the checks green, then merges', onclick: handToWorker }, '✨ Fix conflicts & merge')
@@ -761,7 +782,7 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
 
   const renderConv = () => {
     thread.replaceChildren(commentCard({ id: 'body', author: it.author, body: detail?.body ?? it.body, createdAt: it.createdAt, url: it.url }, itemUrl, 'opened this'));
-    if (detailError) return thread.append(errorBox(detailError, loadAll));
+    if (detailError) return thread.append(errorBox(detailError, loadAll, web.kind));
     if (!detail) return thread.append(spinnerRow('Loading the conversation…'));
     const d = detail;
     const replies = repliesOf(d.reviewComments);
@@ -995,7 +1016,7 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
     const was = filesPane.querySelector<HTMLElement>('.pd-main')?.scrollTop ?? 0;
     filesPane.replaceChildren();
     sections.clear();
-    if (diffError) return filesPane.append(errorBox(diffError, loadAll));
+    if (diffError) return filesPane.append(errorBox(diffError, loadAll, web.kind));
     if (!files) return filesPane.append(spinnerRow('Loading the diff…'));
     const modeBtn = (m: 'tree' | 'list', label: string) =>
       h(
@@ -1152,6 +1173,7 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
 export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
   let it = first;
   const itemUrl = it.url;
+  const web = webOf(itemUrl);
   let detail: GhIssueDetail | null = null;
   let error = '';
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
@@ -1166,7 +1188,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
   conv.append(h('div.gh-col', {}, thread, comment.el));
   // The footer stays put and renderFrame only shows, hides and relabels, so a board refresh never
   // pulls focus out of the provider picker.
-  const closeIssue = h('button.btn', { type: 'button', title: 'Close this issue on GitHub', onclick: () => openClose('issue', it, net, load) }, '✔️ Close issue…');
+  const closeIssue = h('button.btn', { type: 'button', title: `Close this issue on ${web.label}`, onclick: () => openClose('issue', it, net, load) }, '✔️ Close issue…');
   const queueProvider = providerPicker(store.project, `issue-provider-${it.number}`, 'Queue on');
   const addIssueToQueue = () => {
     if (!queueProvider.valid()) return;
@@ -1186,7 +1208,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
     h(
       'footer',
       {},
-      h('a.grow', { href: it.url, target: '_blank', rel: 'noopener noreferrer' }, 'Open on GitHub ↗'),
+      h('a.grow', { href: it.url, target: '_blank', rel: 'noopener noreferrer' }, `Open on ${web.label} ↗`),
       h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this issue', onclick: () => actions.ask(issueContext(it), `Ask about issue #${it.number}`) }, '✍️ Ask a worker…'),
       h('button.btn', { type: 'button', title: 'Workers take it on together in the meeting room: a debate, lead & team, map-reduce or red / blue', onclick: () => actions.meeting(issueMeeting(it.number, it.title)) }, '🤝 Meeting…'),
       closeIssue,
@@ -1222,7 +1244,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
   };
   const render = () => {
     thread.replaceChildren(commentCard({ id: 'body', author: it.author, body: detail?.body ?? it.body, createdAt: it.createdAt, url: it.url }, itemUrl, 'opened this'));
-    if (error) thread.append(errorBox(error, load));
+    if (error) thread.append(errorBox(error, load, web.kind));
     else if (!detail) thread.append(spinnerRow('Loading comments…'));
     else if (!detail.comments.length) thread.append(h('p.gh-quiet', {}, 'No comments yet.'));
     else thread.append(...detail.comments.map((c) => commentCard(c, itemUrl, 'commented')));
