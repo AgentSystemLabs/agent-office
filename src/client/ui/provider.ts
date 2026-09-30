@@ -6,12 +6,14 @@ import {
   DSH_MODEL_MAX,
   MUSE_MODEL_MAX,
   OPEN_CODE_MODEL_MAX as MODEL_MAX,
+  PI_MODEL_MAX,
   PROVIDER_META,
   isAgentProvider,
   isValidDshModel as validDshModel,
   isValidGrokModel as validGrokModel,
   isValidMuseModel as validMuseModel,
   isValidOpenCodeModel as validModel,
+  isValidPiModel as validPiModel,
   takesEffort,
 } from '../../shared/providers';
 import { store } from '../state';
@@ -34,7 +36,7 @@ export const EFFORT_LABEL: Record<AgentEffort, string> = {
   max: 'Max',
 };
 
-/** A short badge for the task card / sidebar: "Opus", "Opus · High", or the raw OpenCode/Grok/Muse/DeepSeek Harness model id. */
+/** A short badge for the task card / sidebar: "Opus", "Opus · High", or the raw OpenCode/Grok/Muse/DeepSeek Harness/Pi model id. */
 export function modelBadge(provider: AgentProvider | undefined, model: string | undefined, effort: AgentEffort | undefined): string | undefined {
   if (!model && !effort) return undefined;
   if (takesEffort(provider)) {
@@ -113,7 +115,7 @@ export interface ProviderPicker {
   value(): AgentProvider;
   /** The optional initial model override: an OpenCode provider/model id, a Claude model alias, a Grok/Muse model id, or a DeepSeek Harness catalog id. */
   model(): string | undefined;
-  /** The optional Claude, Grok, Muse or DeepSeek Harness reasoning effort. */
+  /** The optional Claude, Grok, Muse, DeepSeek Harness or Pi reasoning effort (Pi calls it thinking). */
   effort(): AgentEffort | undefined;
   /** Reports a visible field error for an invalid nonempty OpenCode model. */
   valid(): boolean;
@@ -266,7 +268,28 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     h('small.provider-model-hint', {}, 'Optional model id from DeepSeek Harness\u2019s catalog, and effort; leave empty to use the profile default.'),
   );
 
-  const element = h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice, claudeChoice, grokChoice, museChoice, dshChoice);
+  const piModelInput = h('input', {
+    type: 'text',
+    id: `${id}-pi-model`,
+    placeholder: 'Default (Pi settings)',
+    'aria-label': 'Pi model',
+    autocomplete: 'off',
+    maxlength: PI_MODEL_MAX,
+  }) as HTMLInputElement;
+  const piEffortSelect = h('select', { id: `${id}-pi-effort`, 'aria-label': 'Pi thinking level' }) as HTMLSelectElement;
+  piEffortSelect.append(h('option', { value: '' }, 'Default'));
+  for (const e of AGENT_EFFORTS) piEffortSelect.append(h('option', { value: e }, EFFORT_LABEL[e]));
+  const piChoice = h(
+    'div.provider-model.pi-model',
+    {},
+    h('label', { for: `${id}-pi-model` }, 'Model'),
+    piModelInput,
+    h('label', { for: `${id}-pi-effort` }, 'Thinking'),
+    piEffortSelect,
+    h('small.provider-model-hint', {}, 'Optional model name or provider/model; leave Default to use Pi settings.'),
+  );
+
+  const element = h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice, claudeChoice, grokChoice, museChoice, dshChoice, piChoice);
   const fillGrokModels = (models: string[], selected?: string) => {
     const keep = selected && validGrokModel(selected) ? selected : '';
     grokModelSelect.replaceChildren(h('option', { value: '' }, 'Default (Grok settings)'));
@@ -314,6 +337,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     grokChoice.classList.toggle('hidden', provider !== 'grok');
     museChoice.classList.toggle('hidden', provider !== 'muse');
     dshChoice.classList.toggle('hidden', provider !== 'dsh');
+    piChoice.classList.toggle('hidden', provider !== 'pi');
     loadModels();
   };
   const set = (c: AgentChoice) => {
@@ -322,6 +346,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     const grok = select.value === 'grok';
     const muse = select.value === 'muse';
     const dsh = select.value === 'dsh';
+    const pi = select.value === 'pi';
     claudeModelSelect.value = claude && c.model && (CLAUDE_MODELS as readonly string[]).includes(c.model) ? c.model : '';
     effortSelect.value = claude && c.effort ? c.effort : '';
     fillGrokModels(grokModelList ?? [], grok ? c.model : undefined);
@@ -330,10 +355,13 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     museEffortSelect.value = muse && c.effort ? c.effort : '';
     dshModelInput.value = dsh && c.model ? c.model : '';
     dshEffortSelect.value = dsh && c.effort ? c.effort : '';
+    piModelInput.value = pi && c.model ? c.model : '';
+    piEffortSelect.value = pi && c.effort ? c.effort : '';
     modelInput.value = select.value === 'opencode' && c.model ? c.model : '';
     modelInput.setCustomValidity('');
     museModelInput.setCustomValidity('');
     dshModelInput.setCustomValidity('');
+    piModelInput.setCustomValidity('');
     setModelVisibility(select.value as AgentProvider);
   };
   set(initial);
@@ -342,12 +370,14 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
   modelInput.addEventListener('input', () => modelInput.setCustomValidity(''));
   museModelInput.addEventListener('input', () => museModelInput.setCustomValidity(''));
   dshModelInput.addEventListener('input', () => dshModelInput.setCustomValidity(''));
+  piModelInput.addEventListener('input', () => piModelInput.setCustomValidity(''));
   const value = () => (options.includes(select.value as AgentProvider) ? (select.value as AgentProvider) : fallback);
   const effort = () => {
     if (select.value === 'claude' && effortSelect.value) return effortSelect.value as AgentEffort;
     if (select.value === 'grok' && grokEffortSelect.value) return grokEffortSelect.value as AgentEffort;
     if (select.value === 'muse' && museEffortSelect.value) return museEffortSelect.value as AgentEffort;
     if (select.value === 'dsh' && dshEffortSelect.value) return dshEffortSelect.value as AgentEffort;
+    if (select.value === 'pi' && piEffortSelect.value) return piEffortSelect.value as AgentEffort;
     return undefined;
   };
   const model = () => {
@@ -360,6 +390,10 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     if (select.value === 'dsh') {
       const v = dshModelInput.value;
       return validDshModel(v) ? v : undefined;
+    }
+    if (select.value === 'pi') {
+      const v = piModelInput.value;
+      return validPiModel(v) ? v : undefined;
     }
     if (select.value !== 'opencode') return undefined;
     const v = modelInput.value;
@@ -391,6 +425,12 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
         const okay = validDshModel(dshModelInput.value);
         dshModelInput.setCustomValidity(okay ? '' : 'Use a DeepSeek Harness catalog model id of up to 256 characters without control characters.');
         if (!okay) dshModelInput.reportValidity();
+        return okay;
+      }
+      if (select.value === 'pi') {
+        const okay = !piModelInput.value || validPiModel(piModelInput.value);
+        piModelInput.setCustomValidity(okay ? '' : 'Use a Pi model name or provider/model: letters, digits and . _ : / @ + - (up to 256 characters).');
+        if (!okay) piModelInput.reportValidity();
         return okay;
       }
       if (select.value !== 'opencode' || !modelInput.value) {

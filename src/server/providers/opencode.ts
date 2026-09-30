@@ -8,9 +8,18 @@ import type { WorkerHandle } from '../workers/types.js';
 import { truncate } from '../workers/util.js';
 import type { ProviderAdapter } from './types.js';
 
-interface OpenCodeState {
-  /** OpenCode errors keep the desk visibly actionable until a new turn starts. */
+/** What a worker that reports statuses (OpenCode's plugin, Pi's extension) keeps of them. */
+export interface StatusState {
+  /** An error keeps the desk visibly actionable until a new turn starts. */
   error?: boolean;
+}
+
+/** Where a provider's statuses differ (see reduceStatus). */
+export interface StatusOptions {
+  /** Each event it takes, once its session is settled. */
+  onReport?(): void;
+  /** Its session starting leaves it idle whatever it was doing, not only while it was starting up. */
+  idleOnStart?: boolean;
 }
 
 interface OpenCodeSetup {
@@ -44,8 +53,8 @@ function isOpenCodeHookEvent(value: unknown): value is OpenCodeStatusEvent {
 }
 
 /** OpenCode plugin callback. The plugin has already filtered child sessions before this bridge. */
-function openCodeHook(h: WorkerHandle<OpenCodeState>, _event: string, payload: unknown): boolean {
-  const { info, state } = h;
+function openCodeHook(h: WorkerHandle<StatusState>, _event: string, payload: unknown): boolean {
+  const { info } = h;
   if (payload && typeof payload === 'object' && 'type' in payload && payload.type === 'usage') {
     const report = payload as { sessionId?: unknown; usage?: unknown };
     const usage = reportedUsage(report.usage);
@@ -56,7 +65,15 @@ function openCodeHook(h: WorkerHandle<OpenCodeState>, _event: string, payload: u
     h.persist();
     return true;
   }
-  if (!isOpenCodeHookEvent(payload)) return false;
+  return isOpenCodeHookEvent(payload) && reduceStatus(h, payload);
+}
+
+/**
+ * One status event for a worker. An event from another session is only taken when that session
+ * starts, and the worker's task starts over with it. Says whether it was taken.
+ */
+export function reduceStatus(h: WorkerHandle<StatusState>, payload: OpenCodeStatusEvent, o: StatusOptions = {}): boolean {
+  const { info, state } = h;
   if (info.sessionId && info.sessionId !== payload.sessionId && !(payload.type === 'session' && payload.status === 'starting')) return false;
   if (!info.sessionId || (payload.type === 'session' && payload.status === 'starting' && info.sessionId !== payload.sessionId)) {
     const switching = !!info.sessionId;
@@ -70,6 +87,7 @@ function openCodeHook(h: WorkerHandle<OpenCodeState>, _event: string, payload: u
     state.error = false;
     h.persist();
   }
+  o.onReport?.();
   if (payload.type === 'error') state.error = true;
   else if (payload.status === 'working' || payload.prompt) state.error = false;
   if (payload.prompt) {
@@ -85,12 +103,12 @@ function openCodeHook(h: WorkerHandle<OpenCodeState>, _event: string, payload: u
   if (payload.status === 'needs_input') h.setStatus('needs_input');
   else if (payload.status === 'working') h.setStatus('working');
   else if (payload.status === 'done' && h.running) h.setStatus(state.error ? 'needs_input' : 'done');
-  else if (payload.status === 'starting' && info.status === 'starting') h.setStatus('idle');
+  else if (payload.status === 'starting' && (info.status === 'starting' || o.idleOnStart)) h.setStatus('idle');
   else h.emit();
   return true;
 }
 
-export const opencode: ProviderAdapter<OpenCodeState, OpenCodeSetup> = {
+export const opencode: ProviderAdapter<StatusState, OpenCodeSetup> = {
   id: 'opencode',
   createState: () => ({}),
   prepare: ({ dataDir, mcpScript }) => ({ plugin: writeOpenCodePlugin(dataDir), mcpScript }),

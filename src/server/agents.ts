@@ -4,10 +4,11 @@ import { AGENT_PROVIDERS, PROVIDER_META, isAgentEffort, providerMeta, providerNa
 /**
  * Finds the provider represented by the configured executable.  Keep this deliberately based on
  * the final path component: --agent may be an absolute path, and Windows paths can be supplied
- * while the office itself is running under a POSIX shell.
+ * while the office itself is running under a POSIX shell. A Windows npm launcher (`pi.cmd`) counts as
+ * its executable too.
  */
 export function configuredProvider(command: string): AgentProvider {
-  const base = path.basename(command.replaceAll('\\', '/')).toLowerCase().replace(/\.exe$/, '');
+  const base = path.basename(command.replaceAll('\\', '/')).toLowerCase().replace(/\.(?:exe|cmd|bat|com)$/, '');
   return AGENT_PROVIDERS.find((p) => PROVIDER_META[p].bin === base) ?? 'custom';
 }
 

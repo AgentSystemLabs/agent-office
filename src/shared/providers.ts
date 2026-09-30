@@ -4,7 +4,7 @@
 //
 // Browser-safe: no node imports, the hire dialog reads this too.
 
-export const AGENT_PROVIDERS = ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh', 'custom'] as const;
+export const AGENT_PROVIDERS = ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh', 'pi', 'custom'] as const;
 
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
@@ -29,6 +29,7 @@ export function isAgentEffort(value: unknown): value is AgentEffort {
 export const OPEN_CODE_MODEL_MAX = 256;
 export const GROK_MODEL_MAX = 64;
 export const MUSE_MODEL_MAX = 128;
+export const PI_MODEL_MAX = 256;
 
 /**
  * DeepSeek Harness model ids are opaque option ids from its live catalog (the `session/new`
@@ -58,6 +59,15 @@ export function isValidMuseModel(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0 || value.length > MUSE_MODEL_MAX) return false;
   if (/[\s\p{Cc}\p{Cf}]/u.test(value)) return false;
   return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
+}
+
+/**
+ * Pi takes model ids, fuzzy model names and provider/model patterns (`sonnet`, `openai/gpt-4.1`,
+ * `sonnet:high`). They're argv values, and a Windows `.cmd` launcher runs them through cmd.exe, so
+ * only the characters a model name uses get through, and never a leading '-'.
+ */
+export function isValidPiModel(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= PI_MODEL_MAX && /^[A-Za-z0-9._:/@+][A-Za-z0-9._:/@+-]*$/.test(value);
 }
 
 /** DSH catalog ids are opaque, so only their length and control characters can be checked here. */
@@ -149,6 +159,15 @@ export const PROVIDER_META: Record<AgentProvider, ProviderMeta> = {
     invalidModel: 'Invalid DeepSeek Harness model (expected a catalog model id of up to 256 characters)',
     takesEffort: true,
     usage: { reports: true, waiting: 'waiting for first report', note: 'DeepSeek Harness reports context usage over ACP after its first turn; cost may be unavailable.' },
+  },
+  pi: {
+    label: 'Pi',
+    name: 'Pi',
+    bin: 'pi',
+    validModel: isValidPiModel,
+    invalidModel: 'Invalid Pi model (expected a model name or provider/model without whitespace)',
+    takesEffort: true,
+    usage: { note: 'Pi uses your existing Pi login and settings. Usage and cost stay in its terminal; the office does not meter them.' },
   },
   custom: {
     label: 'Custom',
