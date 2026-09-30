@@ -3,7 +3,8 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { WebSocket } from 'ws';
 import { FLOORHOST_PROTOCOL, isToOffice, type FromFloor, type ToOffice } from '../shared/floorhost.js';
-import type { ServerMsg, WorkerInfo } from '../shared/protocol.js';
+import { HostFloors, hostParts, startHooks } from './host-floor.js';
+
 
 /**
  * `agent-office floor-host` — the office's side of the socket, run on the member's machine.
@@ -34,6 +35,7 @@ connection; nothing here listens for anything.
   --office <url>       the office's address, e.g. wss://bob.ngrok.app or ws://localhost:4600
   --code <code>        pair for the first time, with the code from \`agent-office hosts pair\`
   --name <name>        what the office calls this machine, e.g. "Alice's laptop" (first pairing only)
+  --seats <n>          how many workers this machine will seat across its floors (default 0)
   --config <path>      where to keep the token (default ~/.agent-office-floor-host.json)
   -h, --help           this
 
@@ -65,26 +67,12 @@ function saveConfig(file: string, cfg: HostConfig) {
   writeFileSync(file, JSON.stringify(cfg, null, 2), { mode: 0o600 });
 }
 
-/**
- * One floor this machine is serving.
- *
- * A real `Floor` runs here — the same class the office runs for its own — with a context that sends
- * upward over the socket instead of delivering locally. That is the whole design: the floor is whole,
- * and only the room it reports into is elsewhere.
- */
-interface ServedFloor {
-  id: string;
-  dir: string;
-  name: string;
-  /** The workers on this floor, by id, so `ready` can name them. */
-  workers: Map<string, WorkerInfo>;
-}
-
 export async function floorHostCommand(argv: string[]): Promise<number> {
   let office = '';
   let code: string | undefined;
   let name: string | undefined;
   let configFile = path.join(homedir(), '.agent-office-floor-host.json');
+  let seats = 0;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '-h' || a === '--help') {
@@ -99,6 +87,10 @@ export async function floorHostCommand(argv: string[]): Promise<number> {
     } else if (a === '--name') {
       if (!argv[i + 1]) return fatal('--name needs a value');
       name = argv[++i];
+    } else if (a === '--seats') {
+      if (!argv[i + 1]) return fatal('--seats needs a number');
+      seats = Number(argv[++i]);
+      if (!Number.isInteger(seats) || seats < 0) return fatal('--seats takes a whole number, 0 or more');
     } else if (a === '--config') {
       if (!argv[i + 1]) return fatal('--config needs a value');
       configFile = path.resolve(argv[++i]);
@@ -112,7 +104,7 @@ export async function floorHostCommand(argv: string[]): Promise<number> {
   if (!token && !code) return fatal('no token kept yet — pair first with --code, from `agent-office hosts pair` on the office');
 
   const url = office.replace(/^http/, 'ws').replace(/\/+$/, '') + '/floor-host';
-  return connect(url, { token, code, name, configFile, owner: process.env.USER || process.env.USERNAME });
+  return connect(url, { token, code, name, configFile, seats, owner: process.env.USER || process.env.USERNAME });
 }
 
 function fatal(msg: string): number {
@@ -122,12 +114,10 @@ function fatal(msg: string): number {
 
 async function connect(
   url: string,
-  opts: { token?: string; code?: string; name?: string; owner?: string; configFile: string },
+  opts: { token?: string; code?: string; name?: string; owner?: string; configFile: string; seats: number },
 ): Promise<number> {
-  const served = new Map<string, ServedFloor>();
   return new Promise<number>((resolve) => {
     const ws = new WebSocket(url);
-    /** Set once so a reconnect refusals does not loop forever on a dead token. */
     let settled = false;
     const done = (code: number) => {
       if (settled) return;
@@ -136,19 +126,26 @@ async function connect(
       resolve(code);
     };
 
+    // The floors this machine serves, built once the office says which ones it wants. `send` is bound
+    // to the socket here rather than passed in, so a frame that arrives before the connection is ready
+    // is dropped rather than queued against a socket that does not exist yet.
+    let host: HostFloors | undefined;
+    let stopHooks: (() => void) | undefined;
+    const send = (msg: FromFloor) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+    };
+
     ws.on('open', () => {
       console.log(`floor-host: connected to ${url}`);
-      ws.send(
-        JSON.stringify({
-          t: 'hello',
-          hostId: '',
-          protocol: FLOORHOST_PROTOCOL,
-          token: opts.token,
-          code: opts.code,
-          name: opts.name,
-          owner: opts.owner,
-        } satisfies FromFloor),
-      );
+      send({
+        t: 'hello',
+        hostId: '',
+        protocol: FLOORHOST_PROTOCOL,
+        token: opts.token,
+        code: opts.code,
+        name: opts.name,
+        owner: opts.owner,
+      });
     });
 
     ws.on('message', (raw) => {
@@ -158,33 +155,23 @@ async function connect(
       } catch {
         return;
       }
-      // The office's frames are ToOffice; this machine's are FromFloor. A refusal before any floor is
-      // involved means the pairing or the token failed, which is settled rather than refused here.
       if (!isToOffice(msg)) return;
+
       if (msg.t === 'welcome') {
         if (msg.token) {
           saveConfig(opts.configFile, { office: url.replace(/\/floor-host$/, ''), token: msg.token, hostId: msg.hostId });
           console.log(`floor-host: paired. Token kept in ${opts.configFile} (0600).`);
         }
         console.log(`floor-host: the office asks for ${msg.floors.length} floor(s) on this machine`);
-        for (const want of msg.floors) {
-          if (served.has(want.id)) continue;
-          if (!existsSync(want.dir)) {
-            console.error(`floor-host: ${want.name}: no checkout at ${want.dir} on this machine — skipping`);
-            continue;
-          }
-          served.set(want.id, { id: want.id, dir: want.dir, name: want.name, workers: new Map() });
-          announce(ws, served.get(want.id)!);
-        }
-        if (!served.size) {
-          console.error('floor-host: nothing to serve — no floor the office asked for has a checkout here');
-          return done(1);
-        }
+        serve(msg.floors).catch((err: Error) => {
+          // An unhandled rejection here would leave the machine connected and serving nothing, which
+          // looks exactly like working. Say what broke and stop.
+          console.error(`floor-host: couldn't open the floors — ${err.message}`);
+          done(1);
+        });
         return;
       }
       if (msg.t === 'bye') {
-        // A bye with a reason is the office turning this machine away; without one, it is shutting
-        // down. Either way there is nothing to reconnect to, so say which and stop.
         if (msg.why) {
           console.error(`floor-host: the office refused this machine — ${msg.why}`);
           return done(1);
@@ -192,16 +179,54 @@ async function connect(
         console.log('floor-host: the office is shutting down');
         return done(0);
       }
-      // Everything else is the office asking this machine to do something on a floor. Serving those is
-      // running the real thing: the floor's own WorkerManager, queue, forge and changes, on this disk.
-      void handleCall(ws, served, msg);
+      // Everything else is the office asking this machine to do something on a floor it is serving.
+      if (host) {
+        void host.call(msg);
+        return;
+      }
+      // A call that arrives while the floors are still opening. Answering it is the whole point:
+      // dropping it leaves the office waiting out its twenty-second timeout for a reply that is never
+      // coming, which reads to whoever asked as a machine that has hung.
+      if ('floorId' in msg && typeof msg.floorId === 'string' && 'seq' in msg && typeof msg.seq === 'number') {
+        send({ t: 'refused', floorId: msg.floorId, reason: `still opening its floors on this machine`, seq: msg.seq });
+      }
     });
+
+    /** Opens the floors the office wants, with a hook endpoint this machine's workers report to. */
+    async function serve(wanted: { id: string; dir: string; name: string }[]) {
+      const dataDir = hostDataDir(opts.configFile);
+      mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+      const settings = {
+        dataDir,
+        agentCmd: process.env.AGENT_OFFICE_AGENT || 'claude',
+        agentArgs: [],
+        dshProfile: process.env.AGENT_OFFICE_DSH_PROFILE || 'acp',
+      };
+      // The hook listener first: `launch` puts its URL in a worker's environment, so it must exist
+      // before any worker starts. It looks workers up through this closure, which is why it can start
+      // before the floors are open. Loopback only, and nothing is forwarded (see startHooks).
+      const hooks = await startHooks((workerId) => host?.floorOf(workerId)?.workers);
+      stopHooks = hooks.close;
+
+      const present = wanted.filter((w) => existsSync(w.dir));
+      for (const missing of wanted.filter((w) => !existsSync(w.dir))) {
+        console.error(`floor-host: ${missing.name}: no checkout at ${missing.dir} on this machine — skipping`);
+      }
+      if (!present.length) {
+        console.error('floor-host: nothing to serve — no floor the office asked for has a checkout here');
+        return done(1);
+      }
+      host = new HostFloors(hostParts(settings, send, hooks.url, opts.seats));
+      await host.open(present);
+    }
 
     ws.on('close', () => {
       if (!settled) {
         console.error('floor-host: the office closed the connection');
         done(1);
       }
+      stopHooks?.();
+      host?.shutdown();
     });
     ws.on('error', (err) => {
       console.error(`floor-host: ${(err as Error).message}`);
@@ -210,50 +235,14 @@ async function connect(
 
     process.on('SIGINT', () => {
       console.log('\nfloor-host: closing. The floors here go offline at the office.');
+      stopHooks?.();
+      host?.shutdown();
       done(0);
     });
   });
 }
 
-/** Tells the office this floor is up, with its seats and the workers already on it. */
-function announce(ws: WebSocket, floor: ServedFloor) {
-  ws.send(
-    JSON.stringify({
-      t: 'ready',
-      floor: {
-        floorId: floor.id,
-        name: floor.name,
-        seats: 4,
-        accepting: false,
-        forge: 'github',
-        workers: [...floor.workers.values()].map((w) => ({ id: w.id, status: w.status, deskId: w.deskId })),
-      },
-    } satisfies FromFloor),
-  );
-  console.log(`floor-host: serving "${floor.name}" from ${floor.dir}`);
-}
-
-/**
- * Runs one of the office's calls against this machine.
- *
- * The full version drives a real `Floor` here — its own `WorkerManager`, `TaskQueue`, `Forge` and
- * `Changes`, on this disk — and that is what the next commit does. Until then a call is answered as a
- * refusal naming the machine, so the office always gets an answer rather than waiting out a timeout.
- * Answering honestly and doing nothing is better than appearing to work.
- */
-async function handleCall(ws: WebSocket, served: Map<string, ServedFloor>, msg: ToOffice) {
-  if (!('floorId' in msg) || typeof msg.floorId !== 'string') return;
-  const floor = served.get(msg.floorId);
-  if (!floor) return;
-  const seq = 'seq' in msg && typeof msg.seq === 'number' ? msg.seq : undefined;
-  if (seq === undefined) return;
-  ws.send(
-    JSON.stringify({
-      t: 'refused',
-      floorId: msg.floorId,
-      reason: 'this machine is not running floors yet',
-      seq,
-    } satisfies FromFloor),
-  );
-  void floor;
+/** Where a host keeps its own data: its token, its floors' scrollback, and this machine's ledger. */
+function hostDataDir(configFile: string): string {
+  return path.join(path.dirname(configFile), '.agent-office-floor-host');
 }

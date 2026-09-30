@@ -10,10 +10,9 @@ your laptop runs there, as you, on your disk, with your sign-ins.
 The laptop dials the office. Nothing listens on your machine, and nothing inbound is needed: no port,
 no firewall change, no NAT traversal.
 
-> **Status: the mechanism is built and tested; the office's screens are not wired to it yet.** A
-> machine can pair, connect, and be asked for floors, and the office holds a proxy for each one — but
-> a hosted floor does not appear in the elevator yet, so it cannot be entered from the browser. See
-> [what is not done](#what-is-not-done) before relying on this.
+> **Status: a machine pairs, connects, runs a real floor, answers calls against it, and the floor
+> appears in the elevator with its machine's name and whether that machine is answering.** Riding
+> into one is not wired yet. See [what is not done](#what-is-not-done) before relying on this.
 
 ## Pairing
 
@@ -99,19 +98,52 @@ The office decides *what* runs on a machine; the machine decides *whether to ans
 The machine is told which floors the office wants when it connects, and serves the ones whose `dir`
 exists there. One that does not is skipped and said so, rather than pretended.
 
+## What runs where
+
+A hosted floor is the same `Floor` class the office runs, so nothing about a floor forks for being
+hosted. What differs is its **context** — what it can see and what it reports to — and the split is
+the point:
+
+| | |
+|---|---|
+| **Local to the machine** | which agent CLI to run, its arguments, the DSH profile, its own hook endpoint, its own spend ledger, its own prompts. A floor cannot be built without these. |
+| **Sent up the socket** | everything the floor would have said to the room: terminal output, status changes, boards, toasts, what a worker changed. |
+| **Never given** | `runAs` and `forgeAs` — both per-account **sign-ins**. Their absence is the guarantee that a hosted floor runs on the host's own, and the office has no way to hand it anyone else's. |
+
+One consequence worth knowing: a hosted floor **cannot hold a meeting**, because a meeting needs the
+people in the room and the host machine does not know who they are. It refuses by kind, and the
+office refuses it too.
+
 ## What is not done
 
 Stated plainly, because the alternative is someone finding out the hard way:
 
 | | |
 |---|---|
-| **A hosted floor does not appear in the elevator.** | The office holds the proxy and knows the machine, but the screens read the local floor list. Selecting one from the browser is not wired yet. |
-| **The host does not yet run a real `Floor`.** | It opens the checkout and announces the floor, and answers a call with a refusal that names the machine rather than doing nothing. Running the floor's own workers, queue and forge there is the next piece. |
+| **Riding into a hosted floor is not wired.** | It is on the elevator panel, with its machine and its online state, but `floor.go` still resolves floors from the local building, so clicking it does not take you there yet. |
+| ~~The host does not run a real `Floor`.~~ | **Done.** The host opens a real `Floor` — the same class the office runs — with its own `WorkerManager`, `TaskQueue`, `Forge` and `Changes` on this disk, and answers the office's calls against it. |
+| **An agent's office tools are unavailable.** | The host serves `/hooks/*` so a worker's status reaches it, but not the office's `/office/*` MCP endpoints. An agent on a hosted floor cannot use its `office-workers` tools; everything else works. |
 | **A machine is not yet told its floors by the office's building list at startup** in every path. | `floorsFor` reads the building, so it is correct for a floor added with a `host`; adding one from the UI is not wired. |
 
 None of these is a design problem — each is a piece of wiring with a named place to land. What is
 built is the hard part: the pairing, the socket, the direction, the proxy and the refusals, with the
 tests to match.
+
+## In the elevator
+
+A hosted floor is on the panel like any other, and its row says whose machine it runs on:
+
+```
+  🖥 Alice's laptop                 💻 2   ← connected
+  🖥 Bob's desktop · offline        💻 1   ← machine away
+```
+
+Offline is a state, not a failure. The floor and its workers are still there, asleep; it comes back
+when that machine does, and **R** resumes whoever was mid-turn. The panel is refreshed when a machine
+connects or goes, the same way it is when a worker comes or goes.
+
+A floor whose machine has never paired says *"a machine"* rather than something invented — the
+building knows a floor's host id long before anyone claims the code.
 
 ## Trying it without two machines
 
@@ -138,4 +170,4 @@ every later call refused by name once the machine goes.
 | `src/server/remote-floor.ts` | the proxy the office holds in place of a `Floor` |
 | `src/server/floor-actions.ts` | the surface both satisfy, and why it splits the way it does |
 | `src/server/floor-host-cli.ts` | `agent-office floor-host` |
-| `src/shared/floorhost.ts` | the frames, the 43 floor cases, and the validators |
+| `src/shared/floorhost.ts` | the frames, the 50 floor cases, and the validators |

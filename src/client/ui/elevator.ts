@@ -118,11 +118,36 @@ export function openElevator(opts: ElevatorOptions): void {
       stats.push(h('span', { title: 'Workers at desks' }, `💻 ${f.workers}`));
       if (f.people) stats.push(h('span', { title: 'People on this floor' }, `🧑 ${f.people}`));
     }
+    // A floor that runs on someone else's machine says whose, and whether that machine is answering.
+    // Offline is not broken and not "loading": the floor is still there, its workers are asleep on it,
+    // and it comes back when its owner opens their laptop.
+    if (f.host) {
+      stats.push(
+        h(
+          'span.host-tag',
+          { title: f.host.reachable ? `${f.host.name} is connected` : `${f.host.name} is offline — its workers are asleep and it comes back when that machine does` },
+          f.host.reachable ? `🖥 ${f.host.name}` : `🖥 ${f.host.name} · offline`,
+        ),
+      );
+    }
     const btn = h(
       'button.floor-btn',
-      { type: 'button', class: here ? 'here' : '', disabled: f.cloning || here, title: here ? "You're on this floor" : f.cloning ? 'Still being cloned' : `Ride ${mine ? 'back up ' : ''}to ${f.name}` },
+      {
+        type: 'button',
+        // A hosted floor whose machine is away is still somewhere you can go — its workers are asleep
+        // on it, not gone — so it is marked rather than disabled. Only a clone in progress is disabled.
+        class: [here ? 'here' : '', f.host && !f.host.reachable ? 'offline' : ''].filter(Boolean).join(' '),
+        disabled: f.cloning || here,
+        title: here
+          ? "You're on this floor"
+          : f.cloning
+            ? 'Still being cloned'
+            : f.host
+              ? `${f.host.name}${f.host.reachable ? '' : ' — offline'}: ride to ${f.name}`
+              : `Ride ${mine ? 'back up ' : ''}to ${f.name}`,
+      },
       h('span.floor-no', { style: `background:${p.trim}` }, String(i + 1)),
-      h('span.floor-text', {}, h('span.floor-name', {}, f.name, here ? h('span.here-tag', {}, 'you are here') : mine ? h('span.here-tag', {}, 'your floor') : null), h('span.floor-sub', {}, f.repo ?? f.dir)),
+      h('span.floor-text', {}, h('span.floor-name', {}, f.name, here ? h('span.here-tag', {}, 'you are here') : mine ? h('span.here-tag', {}, 'your floor') : null), h('span.floor-sub', {}, f.repo ?? (f.host ? '' : f.dir))),
       h('span.floor-stats', {}, ...stats.flatMap((s, j) => (j ? [' ', s] : [s]))),
     );
     btn.addEventListener('click', () => {

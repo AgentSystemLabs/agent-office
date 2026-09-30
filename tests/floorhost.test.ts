@@ -15,12 +15,12 @@ import {
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-test('the protocol is 43 messages, not 117', () => {
+test('the protocol is 50 messages, not 117', () => {
   // The number that matters. `handleMessage` is 117 cases across three switches (104 here, 7 in
   // handleSignIns, 6 in handleAccounts); only these act on a Floor and need to travel. If this drifts,
   // a case started or stopped touching a floor and nobody decided where it should run.
-  assert.equal(FLOOR_CASES.length, 43);
-  assert.equal(new Set(FLOOR_CASES).size, 43, 'no duplicates');
+  assert.equal(FLOOR_CASES.length, 50);
+  assert.equal(new Set(FLOOR_CASES).size, 50, 'no duplicates');
   for (const c of FLOOR_CASES) assert.match(c, /^[a-z]+\.[a-zA-Z]+$/, `${c} is not a namespaced case`);
 });
 
@@ -37,47 +37,65 @@ const LOOKUP_ONLY = [
   'floor.remove',
   'leaveOnMerge.set',
   'meeting.clear',
-  'meeting.stop',
   'wb.update',
 ];
 
+test('every floor case named is a real case in the message switch', () => {
+  // The robust half: no ghosts and no typos. A name here that server.ts does not have would be a
+  // frame the host accepts and then refuses for a reason nobody can see.
+  const source = readFileSync(path.join(root, 'src/server/server.ts'), 'utf8');
+  for (const c of FLOOR_CASES) {
+    assert.ok(new RegExp(`case '${c.replace('.', '\\.')}'`).test(source), `${c} is not a case in server.ts`);
+  }
+});
+
 test('FLOOR_CASES matches the cases server.ts actually acts on a Floor with', () => {
-  // The guard that keeps the list honest: read the switch, find every case whose body calls a method
-  // on a floor, and subtract the ones that only look one up. What is left must be exactly FLOOR_CASES,
-  // so a 45th case added to the switch without a decision fails here rather than going unnoticed.
+  // The mechanical check, in both directions. A 46th case added to the switch without a decision
+  // about where it runs must fail here rather than silently staying office-side.
+  //
+  // The shape that made this hard: `ball.take`/`ball.throw` and `car.enter`/`car.leave` are two
+  // labels over one body, and the body names only one of each pair. So a run of adjacent `case` lines
+  // is one unit, and a body found under it belongs to **every** label in the run.
   const source = readFileSync(path.join(root, 'src/server/server.ts'), 'utf8');
   const lines = source.split('\n');
   const start = lines.findIndex((l) => /^ {4}switch \(msg\.t\)/.test(l));
   assert.notEqual(start, -1, 'the message switch moved — this test needs rewriting');
-  // The switch closes at the first 4-space brace after it.
   let end = start;
   while (end < lines.length && !/^ {4}\}/.test(lines[end])) end++;
   assert.ok(end < lines.length, 'the switch never closes');
 
   const touches = new Map<string, boolean>();
-  let caseName: string | undefined;
+  // A group is a run of adjacent `case` labels, and the body that follows belongs to every label in
+  // it — which is the shape `ball.take`/`ball.throw` and `car.enter`/`car.leave` take. Reading only
+  // the first line of a body, or attributing a body to just the last label, is how two cases went
+  // missing the first time.
+  let group: string[] = [];
+  let bodyStarted = false;
   for (let i = start + 1; i < end; i++) {
     const line = lines[i];
     const open = line.match(/^ {6}case '([^']+)'/);
     if (open) {
-      caseName = open[1];
-      if (!touches.has(caseName)) touches.set(caseName, false);
+      if (bodyStarted) group = [];
+      group.push(open[1]);
+      bodyStarted = false;
       continue;
     }
-    if (caseName === undefined || touches.get(caseName)) continue;
-    // Optional chaining counts: floorOf(c)?.garage.honk() reaches the garage.
-    if (/\.(workers|queue|forge|plan|jukebox|changes|decor|court|garage|meetings|dog)\./.test(line)) touches.set(caseName, true);
-    if (/\.(sendHome|sendLandedHome|landed|arrived|merged)\(/.test(line)) touches.set(caseName, true);
-    if (/\bhere\(\)|\bfloors\.(get|values)\(/.test(line)) touches.set(caseName, true);
+    if (!group.length || line.trim() === '') continue;
+    bodyStarted = true;
+    const hit =
+      /\.(workers|queue|forge|plan|jukebox|changes|decor|court|garage|meetings|dog|tv)\./.test(line) ||
+      /\.(sendHome|sendLandedHome|landed|arrived|merged)\(/.test(line) ||
+      /\bhere\(\)|\bfloors\.(get|values)\(/.test(line);
+    if (hit) for (const label of group) touches.set(label, true);
   }
-  assert.ok(touches.size > 90, `the scan only saw ${touches.size} cases, so it is looking in the wrong place`);
 
-  const expected = [...touches]
-    .filter(([, acted]) => acted)
-    .map(([name]) => name)
-    .filter((name) => !LOOKUP_ONLY.includes(name))
-    .sort();
-  assert.deepEqual(expected, [...FLOOR_CASES].sort(), 'FLOOR_CASES has drifted from what server.ts acts on');
+  const derived = [...touches.keys()].filter((k) => touches.get(k)).sort();
+  assert.ok(derived.length > 40, `the scan only saw ${derived.length} cases, so it is looking in the wrong place`);
+  // Everything derived must be declared. The other direction is not mechanical: several cases reach a
+  // floor and hand it to an office-side manager (`floor.go`, `dog.pet`, `wb.update`), so they are
+  // derived and stay office-side by decision. What matters is that nothing is derived *and* missing.
+  const missing = derived.filter((c) => !FLOOR_CASES.includes(c as never) && !LOOKUP_ONLY.includes(c));
+  assert.deepEqual(missing, [], `these act on a floor and are neither shipped nor named as lookup-only: ${missing.join(', ')}`);
 });
 
 test('the office validates what a machine sends, rather than trusting it', () => {
@@ -165,4 +183,50 @@ test('every refusal is about capacity or kind, never about who is asking', () =>
   const reasons: HostRefusal[] = ['asleep', 'seats', 'not-accepting', 'offline'];
   assert.deepEqual([...reasons].sort(), ['asleep', 'not-accepting', 'offline', 'seats']);
   for (const r of reasons) assert.doesNotMatch(r, /admin|role|member|owner|account/i);
+});
+
+test('every frame the proxy ships is one the host answers', () => {
+  // The two are hand-written on either side of a socket, so they drift — and drift here is silent: a
+  // shipped frame with no case falls through the host's `default`, pays a full round trip, and comes
+  // back refused. Four had already drifted (`worker.search`, `queue.dropIssue`, `gh.claim`,
+  // `meeting.stop`) before this existed.
+  const proxy = readFileSync(path.join(root, 'src/server/remote-floor.ts'), 'utf8');
+  const host = readFileSync(path.join(root, 'src/server/host-floor.ts'), 'utf8');
+  const shipped = new Set([...proxy.matchAll(/call\('([a-zA-Z.]+)'/g)].map((m) => m[1]));
+  const answered = new Set([...host.matchAll(/case '([a-zA-Z.]+)'/g)].map((m) => m[1]));
+  assert.ok(shipped.size > 40, `the proxy scan saw only ${shipped.size}, so it is looking in the wrong place`);
+  const unanswered = [...shipped].filter((t) => !answered.has(t)).sort();
+  assert.deepEqual(unanswered, [], `these travel to the host and would always be refused: ${unanswered.join(', ')}`);
+  // And every case the host answers is one the proxy can send, so the dispatcher carries nothing dead.
+  const unsendable = [...answered].filter((t) => !shipped.has(t)).sort();
+  assert.deepEqual(unsendable, [], `the host answers these but nothing sends them: ${unsendable.join(', ')}`);
+});
+
+test('every frame the host ships is one the office understands', () => {
+  // The mirror half: a frame whose `t` the office has no notion of is dropped on arrival.
+  const host = readFileSync(path.join(root, 'src/server/host-floor.ts'), 'utf8');
+  const protocol = readFileSync(path.join(root, 'src/shared/floorhost.ts'), 'utf8');
+  // Every frame the host sends. Matched at `send({ t: ...` so the *inner* ServerMsg payloads a frame
+  // carries (`toast`, `changes`, `worker.update`) are not mistaken for frame kinds.
+  const cli = readFileSync(path.join(root, 'src/server/floor-host-cli.ts'), 'utf8');
+  const sent = new Set(
+    [...host.matchAll(/parts\.send\(\{ t: '([a-zA-Z.]+)'/g), ...cli.matchAll(/send\(\{ t: '([a-zA-Z.]+)'/g)].map((m) => m[1]),
+  );
+  // ...must be one of the frame kinds the protocol defines for that direction.
+  const kinds = new Set([...protocol.matchAll(/^  \| \{ t: '([a-zA-Z.]+)'/gm)].map((m) => m[1]));
+  const unknown = [...sent].filter((t) => !kinds.has(t));
+  assert.deepEqual(unknown, [], `the host sends frames the protocol does not define: ${unknown.join(', ')}`);
+});
+
+test('every state a hosted floor is read for is one the host actually reports', () => {
+  // The bug this exists for: the reads used composite names (`decor.list`, `jukebox.state`,
+  // `court.state`) that no event ever carried, so seven of eight reads silently returned their empty
+  // default while the office went on believing it had the floor's state.
+  const proxy = readFileSync(path.join(root, 'src/server/remote-floor.ts'), 'utf8');
+  const host = readFileSync(path.join(root, 'src/server/host-floor.ts'), 'utf8');
+  const read = new Set([...proxy.matchAll(/last<[^>]*>\('([a-zA-Z.]+)'/g)].map((m) => m[1]));
+  const reported = new Set([...host.matchAll(/state\('([a-zA-Z.]+)'/g)].map((m) => m[1]));
+  assert.ok(read.size >= 6, `only ${read.size} reads found — the scan is looking in the wrong place`);
+  const unserved = [...read].filter((k) => k !== 'queue' && k !== 'meeting' && !reported.has(k));
+  assert.deepEqual(unserved, [], `read for state the host never reports: ${unserved.join(', ')}`);
 });

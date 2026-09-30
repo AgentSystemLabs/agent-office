@@ -1,13 +1,14 @@
-import type { AgentEffort, AgentProvider, FloorInfo, GhComment, GhLabel, MeetingRequest, MeetingState, TerminalHit, WorkerInfo, WorkerKind, WorktreeCleanup, WorktreeState } from '../shared/protocol.js';
+import type { AgentEffort, AgentProvider, FloorInfo, GhComment, GhLabel, MeetingRequest, MeetingState, QueueState, TerminalHit, WorkerInfo, WorkerKind, WorktreeCleanup, WorktreeState } from '../shared/protocol.js';
 import type { BallState } from '../shared/hoop.js';
 import type { CarPose, CarSeat, CarState } from '../shared/garage.js';
 import type { Decoration } from '../shared/decor.js';
 import type { JukeboxState } from '../shared/jukebox.js';
+import type { TvState } from '../shared/tv.js';
 import type { DeskLabel } from '../shared/floorplan.js';
 import type { Landed } from './leave-on-merge.js';
 import type { ForgeAs } from './signins.js';
 import type { OpenedPr, RepoSource } from './workers.js';
-import type { FloorActions, FloorChanges, FloorCourt, FloorDecor, FloorForge, FloorGarage, FloorMeetings, FloorPlan, FloorQueue, FloorRoom, FloorWorkers } from './floor-actions.js';
+import type { FloorActions, FloorChanges, FloorCourt, FloorDecor, FloorForge, FloorGarage, FloorMeetings, FloorPlan, FloorQueue, FloorRoom, FloorTv, FloorWorkers } from './floor-actions.js';
 import type { HostRegistry, HostSocket } from './floor-hosts.js';
 import type { FromFloor, ToOffice } from '../shared/floorhost.js';
 
@@ -77,8 +78,11 @@ export class RemoteFloor implements FloorActions {
 
   constructor(
     readonly id: string,
-    /** The machine's name, so every refusal can name it. */
-    readonly machine: string,
+    /**
+     * The machine's name, so every refusal can name it. Read through the registry rather than kept,
+     * because a floor is registered from the building before its machine has necessarily paired.
+     */
+    machine: string,
     readonly hostId: string,
     private registry: HostRegistry,
     /** The floor's identity, as the host announced it. Named so refusals and the elevator can use it. */
@@ -88,8 +92,16 @@ export class RemoteFloor implements FloorActions {
   ) {
     // The office keeps this for identity, and must never use it: it is a path on the host.
     this.dir = '';
+    this.fallbackName = machine;
     this.onGone = () => this.dropPending();
   }
+
+  /** The machine's name, as it is now. */
+  private get machine(): string {
+    return this.registry.nameOf(this.hostId) ?? this.fallbackName;
+  }
+
+  private readonly fallbackName: string;
 
   /** Called when the socket carrying this floor closes. Every floor it had, in one pass. */
   onGone: (floorId: string) => void = () => {};
@@ -108,7 +120,17 @@ export class RemoteFloor implements FloorActions {
     }
   }
 
-  /** The host's frame arrived: settle whatever it answers, or mirror it if it is an event. */
+  /**
+   * The host's frame arrived: settle whatever it answers, fill the mirror, or drop it.
+   *
+   * A call is settled by exactly one frame — `result` carrying its value, or `refused` carrying why —
+   * so a caller never hears a half-answer, and never waits out a timeout for an answer that came.
+   *
+   * The mirror is keyed by the **event `t`** the floor emitted, and every read names that event. That
+   * is the fix for a bug worth remembering: an earlier version keyed reads by composite names
+   * (`decor.list`, `jukebox.state`) that no emitted event ever matched, so seven of eight reads
+   * silently returned their empty default while the office kept streaming that state anyway.
+   */
   deliver(msg: FromFloor) {
     if (msg.t === 'ready') {
       // Ids only, so this is a roster and not a description. A worker the host has not described yet
@@ -116,26 +138,36 @@ export class RemoteFloor implements FloorActions {
       this.roster = new Set((msg.floor.workers ?? []).map((w) => w.id));
       return;
     }
-    if (msg.t === 'event') {
-      // Whatever the floor would have emitted locally, remembered so a read answers from it.
-      const payload = msg.msg as { t?: string; worker?: WorkerInfo; workerId?: string } | undefined;
-      if (payload?.t === 'worker.update' && payload.worker) this.known.set(payload.worker.id, payload.worker);
-      if (payload?.t === 'worker.remove' && payload.workerId) this.known.delete(payload.workerId);
-      if (payload?.t) this.mirror.set(payload.t, msg.msg);
-      return;
-    }
     // An unaddressed refusal (no floor) is about the connection, not a call, so it never settles one.
     const refusal = msg.t === 'refused' && 'reason' in msg ? msg : undefined;
-    const seq = refusal ? refusal.seq : (msg as { seq?: number }).seq;
-    if (typeof seq !== 'number') return;
-    const pending = this.pending.get(seq);
-    if (!pending) return;
-    clearTimeout(pending.timer);
-    this.pending.delete(seq);
-    // A refusal settles the call it answers, so the person who asked hears why rather than waiting
-    // out the timeout. Whether the host refused or went quiet, the answer names the machine.
-    if (refusal) pending.resolve(`${this.machine} refused: ${refusal.reason}`);
-    else pending.resolve(msg);
+    const seq = refusal ? refusal.seq : msg.t === 'result' ? msg.seq : (msg as { seq?: number }).seq;
+    if (typeof seq === 'number') {
+      const pending = this.pending.get(seq);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.pending.delete(seq);
+        // A refusal names the machine, which is the one thing every refusal in this feature promises
+        // (see floor-actions.ts). An empty reason is not a refusal at all: it is the host saying that a
+        // call whose result nobody branches on worked, so it resolves to nothing, not to a warning.
+        if (refusal) pending.resolve(refusal.reason ? `${this.machine} refused: ${refusal.reason}` : undefined);
+        else if (msg.t === 'result') pending.resolve(msg.value);
+        else pending.resolve(msg);
+        return;
+      }
+    }
+    if (msg.t !== 'event') return;
+    // Whatever the floor would have emitted locally, remembered under the event's own name so the
+    // reads can find it. Worker updates are kept apart from the mirror: they describe a worker rather
+    // than a floor's furniture, and the office asks for them by id.
+    const payload = msg.msg as { t?: string; worker?: WorkerInfo; workerId?: string; state?: unknown } | undefined;
+    if (!payload?.t) return;
+    if (payload.t === 'worker.update' && payload.worker) this.known.set(payload.worker.id, payload.worker);
+    else if (payload.t === 'worker.remove' && payload.workerId) this.known.delete(payload.workerId);
+    else {
+      // What a read answers with is the payload, not the frame around it: a `queue` event carries
+      // `{ t: 'queue', state }`, and `queue.state()` must return the state.
+      this.mirror.set(payload.t, payload.state !== undefined ? payload.state : payload);
+    }
   }
 
   private socket(): HostSocket | undefined {
@@ -168,10 +200,6 @@ export class RemoteFloor implements FloorActions {
 
   // --- identity: enough for the elevator panel, and nothing more -------------------------------------------------
 
-  get def_(): { name: string; repo?: string; palette: number } {
-    return { name: this.def.name, repo: this.def.repo, palette: this.def.palette };
-  }
-
   info(): FloorInfo {
     return {
       id: this.id,
@@ -190,7 +218,7 @@ export class RemoteFloor implements FloorActions {
       // Presence and the back office are office-side facts about the room, not the machine: nobody
       // here counts, and the wing is whatever the host last announced.
       people: 0,
-      wing: this.last<number>('plan.wing', 0),
+      wing: this.last<{ wing?: number }>('plan', {}).wing ?? 0,
       // Named wherever a refusal will be, so nobody has to guess whose machine they are hiring on.
       host: { id: this.hostId, name: this.machine, reachable: this.reachable },
     };
@@ -217,11 +245,13 @@ export class RemoteFloor implements FloorActions {
       prompt: async (id, text, by) => String((await remote.call('worker.prompt', { workerId: id, text, by })) ?? ''),
       kill: async (id, cleanup) => (await remote.call('worker.kill', { workerId: id, cleanup })) as { note?: string; error?: string },
 
-      attach: async (id) => (await remote.call('worker.attach', { workerId: id })) as { data: string; cols: number; rows: number } | undefined,
-      detach: (id) => void remote.call('worker.detach', { workerId: id }),
-      write: (id, data) => void remote.call('term.input', { workerId: id, data }),
+      // The viewer and the typist travel with the call: the host registers who is watching a terminal
+      // and who typed into it, and an anonymous viewer there is a viewer nobody can see.
+      attach: async (id, clientId, name) => (await remote.call('worker.attach', { workerId: id, clientId, name })) as { data: string; cols: number; rows: number } | undefined,
+      detach: (id, clientId) => void remote.call('worker.detach', { workerId: id, clientId }),
+      write: (id, data, by) => void remote.call('term.input', { workerId: id, data, by }),
       resize: (id, cols, rows) => void remote.call('term.resize', { workerId: id, cols, rows }),
-      search: async (needle) => (await remote.call('worker.search', { needle })) as { hits: TerminalHit[]; more: boolean },
+      search: async (needle, perWorker) => (await remote.call('worker.search', { needle, perWorker })) as { hits: TerminalHit[]; more: boolean },
 
       rebuild: async (id) => (await remote.call('worker.rebuild', { workerId: id })) as { rebuilt?: boolean; note?: string; error?: string },
       inspectWorktree: async (id) => (await remote.call('worker.worktree', { workerId: id })) as WorktreeState | undefined,
@@ -232,7 +262,7 @@ export class RemoteFloor implements FloorActions {
   get queue(): FloorQueue {
     const remote = this;
     return {
-      state: () => remote.last('queue', { tasks: [], maxWorkers: 0 }),
+      state: () => remote.last<QueueState>('queue', { tasks: [], maxWorkers: 0 }),
       add: async (prompt, by, title, issue, provider, model, effort, owner) => String((await remote.call('queue.add', { prompt, by, title, issue, provider, model, effort, owner })) ?? ''),
       remove: async (taskId) => void (await remote.call('queue.remove', { taskId })),
       move: async (taskId, delta) => void (await remote.call('queue.move', { taskId, delta })),
@@ -277,7 +307,7 @@ export class RemoteFloor implements FloorActions {
       expand: async () => (await remote.call('floor.expand')) as string[] | string,
       shrink: async () => (await remote.call('floor.shrink')) as string[] | string,
       get wing() {
-        return remote.last<number>('plan.wing', 0);
+        return remote.last<{ wing?: number }>('plan', {}).wing ?? 0;
       },
     };
   }
@@ -285,7 +315,7 @@ export class RemoteFloor implements FloorActions {
   get decor(): FloorDecor {
     const remote = this;
     return {
-      list: () => remote.last<Decoration[]>('decor.list', []),
+      list: () => remote.last<Decoration[]>('decor', []),
       add: async (input, by) => (await remote.call('decor.add', { input, by })) as Decoration | string,
       update: async (id, patch) => (await remote.call('decor.update', { id, patch })) as Decoration | string,
       remove: async (id) => (await remote.call('decor.remove', { id })) as Decoration | undefined,
@@ -298,9 +328,9 @@ export class RemoteFloor implements FloorActions {
       play: async (input, by) => (await remote.call('jukebox.play', { input, by })) as { changed: boolean } | { error: string },
       skip: async (by) => void (await remote.call('jukebox.skip', { by })),
       stop: async (by) => Boolean((await remote.call('jukebox.stop', { by })) ?? false),
-      title: () => remote.last<string>('jukebox.title', ''),
+      title: () => remote.last<{ title?: string }>('jukebox', {}).title ?? '',
       // A floor whose host has said nothing yet: the jukebox is off, and nothing is on it.
-      state: () => remote.last<JukeboxState>('jukebox.state', { on: false, track: '', startedAt: 0, elapsed: 0 }),
+      state: () => remote.last<JukeboxState>('jukebox', { on: false, track: '', startedAt: 0, elapsed: 0 }),
     };
   }
 
@@ -309,7 +339,7 @@ export class RemoteFloor implements FloorActions {
     return {
       take: async (id) => Boolean((await remote.call('ball.take', { clientId: id })) ?? false),
       throw: async (id, v) => Boolean((await remote.call('ball.throw', { clientId: id, ...v })) ?? false),
-      state: () => remote.last<BallState>('court.state', {}),
+      state: () => remote.last<BallState>('ball', {}),
     };
   }
 
@@ -320,7 +350,19 @@ export class RemoteFloor implements FloorActions {
       leave: async (id) => Boolean((await remote.call('car.leave', { clientId: id })) ?? false),
       drive: async (id, car, pose) => (await remote.call('car.drive', { clientId: id, car, ...pose })) as CarPose | undefined,
       honk: async (id) => (await remote.call('car.honk', { clientId: id })) as number | undefined,
-      state: () => remote.last<CarState[]>('garage.state', []),
+      state: () => remote.last<CarState[]>('cars', []),
+    };
+  }
+
+  get tv(): FloorTv {
+    const remote = this;
+    return {
+      play: async (input, by) => (await remote.call('tv.play', { input, by })) as { changed: boolean } | { error: string },
+      pause: async (position, by) => Boolean(await remote.call('tv.pause', { position, by })),
+      seek: async (position, by) => Boolean(await remote.call('tv.seek', { position, by })),
+      stop: async (by) => Boolean(await remote.call('tv.stop', { by })),
+      // Read from the `tv` event the host emits as its state changes.
+      state: () => remote.last<TvState>('tv', { on: false, playing: false, position: 0, at: 0 }),
     };
   }
 
@@ -329,7 +371,7 @@ export class RemoteFloor implements FloorActions {
     return {
       start: async (req: MeetingRequest, by, owner) => String((await remote.call('meeting.start', { req, by, owner })) ?? ''),
       stop: async (by) => String((await remote.call('meeting.stop', { by })) ?? ''),
-      state: () => remote.last<MeetingState>('meeting.state', { current: null, past: [] }),
+      state: () => remote.last<MeetingState>('meeting', { current: null, past: [] }),
     };
   }
 
