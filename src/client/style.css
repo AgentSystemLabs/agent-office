@@ -572,6 +572,7 @@ body.telescope-active #hud { visibility: hidden; }
 .card-labels:hover { background: var(--paper-2); }
 @media (hover: none) { .card-labels { opacity: 1; } }
 .board-status { font-size: 12px; font-weight: 700; color: var(--muted); }
+.board-repo { font-size: 12px; font-weight: 700; color: var(--muted); opacity: .8; min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .board-error { margin: auto; background: var(--paper); border: 3px solid var(--ink); border-radius: 14px; padding: 18px 22px; font-weight: 800; max-width: 520px; text-align: center; }
 .detail pre { white-space: pre-wrap; word-break: break-word; font: 13px/1.5 ui-monospace, Menlo, monospace; background: #fff; border: 2px solid var(--ink); border-radius: 10px; padding: 10px; max-height: 45vh; overflow: auto; margin: 10px 0 0; }
 .detail .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 13px; font-weight: 700; color: var(--muted); }

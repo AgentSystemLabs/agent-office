@@ -11,12 +11,11 @@ import type { AgentChoice, AgentEffort, AgentProvider, Run, TerminalHit, WorkerI
 import { FAILS_TO_DESPAIR, outputFailed, toolAction } from '../shared/actions.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, isAgentEffort, isClaudeModel } from '../shared/protocol.js';
 import { WORKSPACE_FILES, WORKTREES_DIR, Worktrees, describeWork, workspaceOf, type WorktreeCleanup, type WorktreeRef, type WorktreeState } from './worktrees.js';
-import { normalizeRepo } from '../shared/floors.js';
 import { DESK_BY_ID, STATION_AGENT, deskBuilt } from '../shared/layout.js';
 import { QUEUE_AGENT_DISALLOWED_TOOLS, stationBrief } from './stations.js';
 import { officePrompt, type PromptSource } from './prompts.js';
 import { isBusy } from '../shared/status.js';
-import { gh } from './github.js';
+import { gh, originRepo, repoArgs, workRepo } from './github.js';
 import type { GhAs } from './signins.js';
 import type { ServiceOwner } from './services.js';
 import { TaskNamer, fallbackTask } from './tasks.js';
@@ -984,6 +983,8 @@ export class WorkerManager {
     if (info.repos?.length) return this.openPrs(w, by, as);
     const cwd = path.join(this.dir, wt.path);
     if (!existsSync(cwd)) return `${info.name}'s worktree is gone (${wt.path})`;
+    // The repository its origin points at, which is where the branch is pushed and the PR opened.
+    const repo = workRepo(cwd);
     info.prOpening = true;
     this.emitUpdate(w);
     try {
@@ -993,7 +994,7 @@ export class WorkerManager {
       const commits = (await run('git', ['log', '--reverse', '--format=%h %s', `${wt.base}..${branch}`], cwd)).split('\n').filter(Boolean);
       const dirty = (await run('git', ['status', '--porcelain'], cwd)) !== '';
       if (!commits.length) return dirty ? `${info.name} hasn't committed anything yet — ask it to commit first` : `${info.name} has no commits on ${branch} yet`;
-      const open = await findOpenPr(branch, cwd);
+      const open = await findOpenPr(branch, cwd, repo);
       if (open) {
         info.pr = open;
         this.persist();
@@ -1002,7 +1003,7 @@ export class WorkerManager {
       await run('git', ['push', '-u', 'origin', branch], cwd, 90_000, as?.env);
       const base = await this.pushedBranch([wt.from, this.trees.currentBranch()], branch);
       const { title, body } = draftPr(info, commits, by);
-      const { number, url } = await createPr(branch, base, title, body, cwd, as);
+      const { number, url } = await createPr(branch, base, title, body, cwd, repo, as);
       info.pr = { number, url };
       this.persist();
       return { prs: [{ number, url, existed: false, dirty }], failed: [] };
@@ -1039,9 +1040,11 @@ export class WorkerManager {
     try {
       for (const p of parts) {
         const cwd = path.join(this.dir, p.path);
+        // Its PR goes in the repository its own checkout's origin points at.
+        const repo = workRepo(p.dir);
         try {
           const dirty = (await run('git', ['status', '--porcelain'], cwd)) !== '';
-          const known = p.pr ?? (await findOpenPr(p.branch, cwd));
+          const known = p.pr ?? (await findOpenPr(p.branch, cwd, repo));
           if (known) {
             p.set(known);
             prs.push({ repo: p.name, ...known, existed: true, dirty, cwd });
@@ -1055,7 +1058,7 @@ export class WorkerManager {
           await run('git', ['push', '-u', 'origin', p.branch], cwd, 90_000, as?.env);
           const base = await this.pushedBranch([p.from, new Worktrees(p.dir).currentBranch()], p.branch, p.dir);
           const { title, body } = draftPr(info, commits, by, p.own ? undefined : { home });
-          const pr = await createPr(p.branch, base, title, body, cwd, as);
+          const pr = await createPr(p.branch, base, title, body, cwd, repo, as);
           p.set(pr);
           this.persist();
           prs.push({ repo: p.name, ...pr, existed: false, dirty, cwd });
@@ -1646,6 +1649,12 @@ export class WorkerManager {
       AGENT_OFFICE_HOOK_URL: this.hook.url,
       AGENT_OFFICE_HOOK_TOKEN: w.hookToken,
     });
+    // A board agent files, labels and merges with gh of its own, so it's told which repository the
+    // boards are about: left to itself, gh works on a fork's `upstream` remote, not this floor's.
+    if (station) {
+      const repo = workRepo(this.dir);
+      if (repo) env.GH_REPO = repo;
+    }
     if (isGrok) {
       env.GROK_HOME = this.grokHome;
       if (this.grokAuthPath) env.GROK_AUTH_PATH = this.grokAuthPath;
@@ -2527,24 +2536,16 @@ function validRepos(raw: unknown): WorkerRepo[] | undefined {
   return repos.length ? repos : undefined;
 }
 
-/** owner/name of a checkout's origin on GitHub, when it has one. */
-function originRepo(dir: string): string | undefined {
-  try {
-    return normalizeRepo(execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }).trim());
-  } catch {
-    return undefined;
-  }
-}
-
-async function findOpenPr(branch: string, cwd: string): Promise<{ number: number; url: string } | undefined> {
-  const out = await gh(['pr', 'list', '--head', branch, '--state', 'open', '--limit', '1', '--json', 'number,url'], cwd);
+/** A pull request the branch in `cwd` already has, on the repository that checkout is worked on. */
+async function findOpenPr(branch: string, cwd: string, repo: string | undefined): Promise<{ number: number; url: string } | undefined> {
+  const out = await gh(repoArgs(['pr', 'list', '--head', branch, '--state', 'open', '--limit', '1', '--json', 'number,url'], repo), cwd);
   const found = (JSON.parse(out || '[]') as { number: number; url: string }[])[0];
   return found ? { number: found.number, url: found.url } : undefined;
 }
 
 /** `gh pr create` for a pushed branch; resolves to the new pull request. */
-async function createPr(branch: string, base: string | undefined, title: string, body: string, cwd: string, as?: GhAs): Promise<{ number: number; url: string }> {
-  const out = await gh(['pr', 'create', '--head', branch, ...(base ? ['--base', base] : []), '--title', title, '--body', body], cwd, 60_000, as?.env);
+async function createPr(branch: string, base: string | undefined, title: string, body: string, cwd: string, repo: string | undefined, as?: GhAs): Promise<{ number: number; url: string }> {
+  const out = await gh(repoArgs(['pr', 'create', '--head', branch, ...(base ? ['--base', base] : []), '--title', title, '--body', body], repo), cwd, 60_000, as?.env);
   const url = out.trim().split('\n').pop() ?? '';
   const number = Number(/\/pull\/(\d+)/.exec(url)?.[1]);
   if (!number) throw new Error(`gh did not return a pull request URL (${truncate(out, 120)})`);
