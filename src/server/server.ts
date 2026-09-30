@@ -1,17 +1,14 @@
 import http from 'node:http';
 import https from 'node:https';
 import { randomBytes } from 'node:crypto';
-import path from 'node:path';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Config } from './config.js';
 import type { Session } from './auth.js';
-import { MAX_REPOS, resolveCommand, type RepoSource } from './workers.js';
-import { OPEN_CODE_MODEL_MAX } from './agents.js';
+import { resolveCommand } from './workers.js';
 import { relayUpgrade, tunneledPort } from './relay.js';
 import type { ChatLine, ClientMsg } from '../shared/protocol.js';
-import { isAgentEffort, isAgentProvider } from '../shared/protocol.js';
-import { DESK_BY_ID, elevatorSpot } from '../shared/layout.js';
+import { elevatorSpot } from '../shared/layout.js';
 import { seatHereOn } from '../shared/maps/index.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 import { isEmote } from '../shared/emotes.js';
@@ -20,7 +17,7 @@ import { isBarGame } from '../shared/bargames.js';
 import type { Floor } from './floor.js';
 import type { Ctx } from './office/context.js';
 import { SLOW_CLIENT_BYTES, newClient, throttle, type Client } from './office/client.js';
-import { COLOR_RE, arrivalSpot, issueNumber, num, spotFrom, str } from './office/input.js';
+import { COLOR_RE, issueNumber, num, spotFrom, str } from './office/input.js';
 import { messaging } from './office/messaging.js';
 import { createCore } from './office/core.js';
 import { floorHelpers, openFloors } from './office/floors.js';
@@ -37,11 +34,6 @@ import { floorView, roofView, screensOf } from './office/views.js';
 import { dispatch } from './ws/dispatch.js';
 import { features } from './ws/handlers/index.js';
 import { mapNews } from './ws/handlers/settings.js';
-
-const CLEANUPS = new Set(['keep', 'worktree', 'all']);
-
-/** The least time between two 'term.typing' notes from one person in one terminal. */
-const TYPING_GAP_MS = 500;
 
 function refuseUpgrade(socket: Duplex) {
   socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
@@ -60,8 +52,8 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
   const ctx = {} as Ctx;
   Object.assign(ctx, messaging(ctx), floorHelpers(ctx), people(ctx), navigation(ctx), gates(ctx));
   Object.assign(ctx, createCore(ctx, cfg, publicDir));
-  const { sendTo, broadcast, toastAll, toFloor, toastFloor, toNeighbors, warn, floorOf, workerFloor, floorInfos, floorsChanged, arrivalFloor, closeFloor } = ctx;
-  const { meOf, accountsChanged, stillIn, goToFloor, goToRoof, takeIssue, withSignIn, withFreshBase, withGitHub, claudeFor } = ctx;
+  const { sendTo, broadcast, toNeighbors, warn, floorOf, workerFloor, floorInfos, floorsChanged, arrivalFloor } = ctx;
+  const { meOf, accountsChanged, stillIn } = ctx;
   const { accounts, auth, clients, chat, arcade, building, floors } = ctx;
 
   const { hookServer, hookPort } = await startHookServer(ctx);
@@ -69,7 +61,6 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
   Object.assign(ctx, createServices(ctx));
   const { themes, maps, prompts, leaveOnMerge, ledger, signins, accountLimits, webhook, machine, limitsOf } = ctx;
   Object.assign(ctx, await openFloors(ctx, hookPort));
-  const { openFloor } = ctx;
 
   Object.assign(ctx, createLateServices(ctx));
   const { team, services, upgrader } = ctx;
@@ -204,11 +195,6 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
     ws.on('error', () => ws.terminate());
   };
 
-  /** The floor's signs or back office changed: its people see it, and everyone sees the building's outside change. */
-  const planChanged = (floor: Floor) => {
-    toFloor(floor, { t: 'plan', plan: floor.plan.state() });
-    floorsChanged();
-  };
 
   const handleMessage = (c: Client, msg: ClientMsg) => {
     if (dispatch(ctx, c, msg)) return;
@@ -332,230 +318,6 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
         broadcast({ t: 'chat', ...line });
         break;
       }
-      case 'floor.go': {
-        if (msg.floor === ROOF) {
-          if (floors.size) goToRoof(c);
-          else warn(c, 'There is no building to go up on yet');
-          break;
-        }
-        const floor = floors.get(str(msg.floor, 64));
-        if (!floor) warn(c, building.pending().some((d) => d.id === msg.floor) ? "That floor is still being cloned — it'll be ready in a moment" : 'No such floor');
-        else goToFloor(c, floor, arrivalSpot(msg.at));
-        break;
-      }
-      case 'floor.repos':
-        void building.repos(msg.refresh === true).then(
-          (repos) => sendTo(c, { t: 'floor.repos', repos }),
-          (err: Error) => sendTo(c, { t: 'floor.repos', repos: [], error: `Couldn't list your repositories with gh: ${err.message}` }),
-        );
-        break;
-      case 'floor.add': {
-        const repo = str(msg.repo, 200);
-        void building
-          .add(repo, who, (def) => {
-            floorsChanged();
-            toastAll(`🛗 ${who} is adding a floor for ${def.repo ?? def.name}…`);
-          })
-          .then((r) => {
-            floorsChanged();
-            if (typeof r === 'string') return sendTo(c, { t: 'floor.added', repo, error: r });
-            const floor = openFloor(r);
-            if (!floor) return sendTo(c, { t: 'floor.added', repo, error: `Cloned ${r.repo}, but couldn't open its floor — see the office's log` });
-            console.log(`  ${who} added a floor for ${r.repo} (${r.dir})`);
-            toastAll(`🛗 New floor: ${r.name}, added by ${who}`);
-            sendTo(c, { t: 'floor.added', repo, floor: floor.id });
-          });
-        break;
-      }
-      case 'floor.remove': {
-        // Everyone's workers on it stop: admins do it.
-        if (!meOf(c.accountId).admin) return warn(c, 'Only admins can take a floor off the building');
-        const id = str(msg.floor, 64);
-        const r = building.remove(id, who);
-        if (typeof r === 'string') return warn(c, r);
-        console.log(`  ${who} took the ${r.name} floor off the building (${r.dir} stays where it is)`);
-        const floor = floors.get(id);
-        if (floor) closeFloor(floor, who);
-        else floorsChanged();
-        break;
-      }
-      case 'floor.projectsDir': {
-        // It's a folder on the office's machine that `gh` writes into: admins pick it.
-        const err = meOf(c.accountId).admin ? building.setProjectsDir(str(msg.dir, 1024), who) : 'Only admins can move the workspace folder';
-        warn(c, err);
-        if (err) break;
-        const state = building.projectsDirState();
-        broadcast({ t: 'projectsDir', state });
-        toastAll(state.custom ? `📁 ${who} moved the workspace folder to ${state.dir}` : `📁 ${who} put the workspace folder back to ${state.dir}`);
-        break;
-      }
-      case 'worker.spawn': {
-        const floor = here();
-        if (!floor) break;
-        const kind = msg.kind === 'shell' ? 'shell' : 'agent';
-        if (kind === 'agent' && msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider))) {
-          warn(c, 'Unknown agent provider');
-          break;
-        }
-        const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
-        const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
-        // Other floors' projects to work in too, each in a worktree of its own.
-        const repos: RepoSource[] = [];
-        for (const id of Array.isArray(msg.repos) ? [...new Set(msg.repos.slice(0, MAX_REPOS + 1).map((x) => str(x, 64)))] : []) {
-          const other = floors.get(id);
-          if (!other || other === floor) return warn(c, other ? "The worker's own floor's project is already in its workspace" : 'That project is no longer in the building');
-          repos.push({ floor: other.id, name: other.def.name, repo: other.def.repo, dir: other.dir });
-        }
-        // A shell is theirs too: `claude auth login` or `gh auth login` typed there signs them in.
-        const hire = () => {
-          const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort, undefined, c.accountId, repos, msg.via === 'herald' ? 'herald' : undefined);
-          const issue = kind === 'agent' ? issueNumber(msg.issue) : undefined;
-          const across = repos.length ? ` across ${[floor.def.name, ...repos.map((x) => x.name)].join(' + ')}` : '';
-          if (typeof r === 'string') warn(c, r);
-          else toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${issue ? ` for issue #${issue}` : r.prompt ? ' with a task' : ''}${across}`);
-          if (typeof r !== 'string' && issue) takeIssue(c, floor, issue);
-        };
-        // Every project it gets a worktree of starts from what's on GitHub.
-        const fresh = [floor, ...repos.map((x) => floors.get(x.floor)!)];
-        withSignIn(c, kind === 'agent' ? claudeFor(msg.provider ?? floor.workers.officeDefault.provider) : undefined, () => (msg.worktree === true ? withFreshBase(c, fresh, hire) : hire()));
-        break;
-      }
-      case 'worker.resume': {
-        const w = worker(msg.workerId);
-        warn(c, w ? w.floor.workers.resume(w.wid) : 'No such worker');
-        break;
-      }
-      case 'worker.kill': {
-        const w = worker(msg.workerId);
-        if (!w) break;
-        const { floor, info } = w;
-        // The worker leaves right away; its worktree is dealt with after that, and the outcome follows.
-        const done = floor.sendHome(info.id, CLEANUPS.has(String(msg.cleanup)) ? msg.cleanup : undefined);
-        toastFloor(floor, `${who} sent ${info.name} home`);
-        void done.then(({ note, error }) => {
-          if (note) toastFloor(floor, note);
-          if (error) toastFloor(floor, error, 'warn');
-        });
-        break;
-      }
-      case 'worker.worktree': {
-        const w = worker(msg.workerId);
-        if (!w) break;
-        void w.floor.workers.inspectWorktree(w.wid).then((state) => {
-          if (state) sendTo(c, { t: 'worker.worktree', workerId: w.wid, state });
-        });
-        break;
-      }
-      case 'worker.rebuild': {
-        const w = worker(msg.workerId);
-        if (!w) break;
-        const { floor } = w;
-        // With `all`, every worker on the floor whose worktree was deleted, this one first.
-        const ids = [w.wid, ...(msg.all === true ? floor.workers.list().filter((x) => x.lost && x.id !== w.wid).map((x) => x.id) : [])];
-        void (async () => {
-          const names: string[] = [];
-          const notes: string[] = [];
-          for (const id of ids) {
-            const info = floor.workers.get(id);
-            // Sent home meanwhile, or back already with one before it (the rest of a meeting's table).
-            if (!info || (id !== w.wid && !info.lost)) continue;
-            const r = await floor.workers.rebuild(id);
-            if (r.error) warn(c, r.error);
-            else if (!r.rebuilt) sendTo(c, { t: 'toast', text: r.note ?? `${info.name}'s worktree is already there`, level: 'info' });
-            else {
-              names.push(info.name);
-              if (r.note) notes.push(r.note);
-            }
-          }
-          if (!names.length) return;
-          const whose = names.length === 1 ? `${names[0]}'s worktree` : `the worktrees of ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
-          toastFloor(floor, `🌿 ${who} rebuilt ${whose}${notes.length ? ` — ${notes.join('; ')}` : ''}`);
-        })();
-        break;
-      }
-      case 'worker.attach': {
-        const w = worker(msg.workerId);
-        const snap = w?.floor.workers.attach(w.wid, c.id, who);
-        if (w && snap) {
-          c.attached.add(w.wid);
-          sendTo(c, { t: 'term.snapshot', workerId: w.wid, ...snap });
-        }
-        break;
-      }
-      case 'worker.detach': {
-        const wid = str(msg.workerId, 32);
-        c.attached.delete(wid);
-        c.typingAt.delete(wid);
-        workerFloor(wid)?.workers.detach(wid, c.id);
-        break;
-      }
-      case 'worker.prompt': {
-        const w = worker(msg.workerId);
-        const err = w ? w.floor.workers.prompt(w.wid, str(msg.prompt, 20000), who) : 'No such worker';
-        warn(c, err);
-        const issue = w?.info.kind === 'agent' ? issueNumber(msg.issue) : undefined;
-        if (w && !err && issue) {
-          toastFloor(w.floor, `${who} handed issue #${issue} to ${w.info.name}`);
-          takeIssue(c, w.floor, issue);
-        }
-        break;
-      }
-      case 'station.prompt': {
-        const floor = here();
-        if (!floor) break;
-        const deskId = str(msg.deskId, 32);
-        // Nobody there yet: whoever asks first hires it, on their own sign-ins.
-        const hires = !floor.workers.deskOccupied(deskId);
-        withSignIn(c, hires ? claudeFor(floor.workers.officeDefault.provider) : undefined, () => {
-          const r = floor.workers.station(deskId, who, str(msg.prompt, 20000), c.accountId);
-          if (typeof r === 'string') warn(c, r);
-          else if (r.hired) toastFloor(floor, `${who} asked the ${r.info.name} something`);
-        });
-        break;
-      }
-      case 'worker.pr': {
-        const w = worker(msg.workerId);
-        if (!w) break;
-        const { floor, wid } = w;
-        withGitHub(c, (as) => void floor.workers.openPr(wid, who, as).then((r) => {
-          if (typeof r === 'string') return warn(c, r);
-          const info = floor.workers.get(wid);
-          const name = info?.name ?? 'the worker';
-          const [one] = r.prs;
-          if (r.prs.length === 1 && !one.repo) toastFloor(floor, one.existed ? `${name}'s branch already has PR #${one.number}` : `${who} opened PR #${one.number} for ${name}`);
-          else {
-            // Across repositories: one line for them all.
-            const list = r.prs.map((p) => `${p.repo} #${p.number}`).join(', ');
-            toastFloor(floor, r.prs.every((p) => p.existed) ? `${name}'s pull requests are already open: ${list}` : `${who} opened ${name}'s pull requests: ${list}`);
-          }
-          const dirty = r.prs.filter((p) => p.dirty);
-          if (dirty.length) warn(c, `${name} still has uncommitted changes in ${dirty.some((p) => p.repo) ? `its worktree${dirty.length > 1 ? 's' : ''} of ${dirty.map((p) => p.repo).join(', ')}` : 'its worktree'} — they are not in the PR`);
-          for (const f of r.failed) warn(c, f);
-          // Put it on the board now rather than at the next poll. A refresh already in flight
-          // returns at once and can miss it, so look again shortly after.
-          const own = r.prs.find((p) => !p.repo || p.repo === info?.worktree?.path.split(/[\\/]/).pop());
-          void floor.github.refresh().then(() => {
-            if (own && !floor.github.pulls.items.some((p) => p.number === own.number)) setTimeout(() => void floor.github.refresh(), 3000);
-          });
-          for (const x of info?.repos ?? []) void floors.get(x.floor)?.github.refresh();
-        }));
-        break;
-      }
-      case 'term.input':
-        if (c.attached.has(msg.workerId)) workerFloor(msg.workerId)?.workers.write(msg.workerId, str(msg.data, 64 * 1024), who);
-        break;
-      case 'term.typing': {
-        // Everyone else in that terminal sees who's typing. A typist says so about once a second.
-        const w = worker(msg.workerId);
-        const now = Date.now();
-        if (!w || !c.attached.has(w.wid) || now - (c.typingAt.get(w.wid) ?? 0) < TYPING_GAP_MS) break;
-        c.typingAt.set(w.wid, now);
-        for (const id of w.info.viewerIds) {
-          const o = clients.get(id);
-          if (o && o.id !== c.id) sendTo(o, { t: 'term.typing', workerId: w.wid, id: c.id });
-        }
-        break;
-      }
       case 'doing': {
         const what = str(msg.what, 60).trim() || undefined;
         const reading = msg.reading === true || undefined;
@@ -565,40 +327,6 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
         if (reading) c.peer.reading = true;
         else delete c.peer.reading;
         broadcast({ t: 'peer.update', peer: c.peer });
-        break;
-      }
-      case 'term.resize':
-        if (c.attached.has(msg.workerId)) workerFloor(msg.workerId)?.workers.resize(msg.workerId, num(msg.cols), num(msg.rows));
-        break;
-      case 'desk.label': {
-        const floor = here();
-        if (!floor) break;
-        const deskId = str(msg.deskId, 32);
-        const r = floor.plan.label(deskId, msg.text, msg.color, who);
-        if (typeof r === 'string') return warn(c, r);
-        if (!r.label && !r.old) break;
-        planChanged(floor);
-        const desk = DESK_BY_ID.get(deskId)?.label ?? 'a desk';
-        if (r.label && r.label.text !== r.old?.text) toastFloor(floor, `🪧 ${who} hung a sign over ${desk}: “${r.label.text}”`);
-        else if (!r.label) toastFloor(floor, `🪧 ${who} took the “${r.old!.text}” sign down from ${desk}`);
-        break;
-      }
-      case 'floor.expand': {
-        const floor = here();
-        if (!floor) break;
-        const r = floor.plan.expand();
-        if (typeof r === 'string') return warn(c, r);
-        planChanged(floor);
-        toastFloor(floor, `🔨 ${who} knocked out the back wall: ${r.map((id) => DESK_BY_ID.get(id)?.label).join(' and ')} are ready for workers`);
-        break;
-      }
-      case 'floor.shrink': {
-        const floor = here();
-        if (!floor) break;
-        const r = floor.plan.shrink((id) => floor.workers.deskOccupied(id));
-        if (typeof r === 'string') return warn(c, r);
-        planChanged(floor);
-        toastFloor(floor, `🧱 ${who} walled the back office back up, and ${r.map((id) => DESK_BY_ID.get(id)?.label).join(' and ')} went with it`);
         break;
       }
       case 'ping':

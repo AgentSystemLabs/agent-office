@@ -2,7 +2,9 @@
 import type { DogClientMsg } from '../../../shared/protocol.js';
 import { str } from '../../office/input.js';
 import { here } from './common.js';
-import type { HandlerMap } from './types.js';
+import type { HandlerMap, ViewPieces } from './types.js';
+
+export const dogView: ViewPieces['dog'] = (_ctx, floor) => floor?.dog.view() ?? null;
 
 export const dogHandlers = {
   'dog.pet'(ctx, c) {

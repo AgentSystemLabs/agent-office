@@ -5,7 +5,7 @@ import type { CabinetClientMsg } from '../../../shared/protocol.js';
 import type { Ctx } from '../../office/context.js';
 import { throttle, type Client } from '../../office/client.js';
 import { here } from './common.js';
-import type { FeatureHooks, HandlerMap } from './types.js';
+import type { FeatureHooks, HandlerMap, ViewPieces } from './types.js';
 
 /** At the arcade cabinet on their floor, playing `game` (see Arcade); `frame` is it as it looks now. */
 interface Player {
@@ -26,10 +26,11 @@ export const cabinetState = (ctx: Ctx, floor: Floor | undefined): CabinetState =
   const p = floor && cabinetPlayer(ctx, floor);
   return { player: p ? { id: p.id, name: p.peer.name, game: player(p).game ?? '' } : null, scores: ctx.highScores.top() };
 };
-/** The game on a floor's cabinet as its player last sent it, for someone walking in. */
-export const cabinetFrame = (ctx: Ctx, floor: Floor | undefined): CabinetFrame | null => {
+/** Who's at the cabinet, its high scores, and the game on its screen as its player last sent it. */
+export const cabinetView: ViewPieces['cabinet'] = (ctx, floor) => {
+  const state = cabinetState(ctx, floor);
   const p = floor && cabinetPlayer(ctx, floor);
-  return (p && player(p).frame) ?? null;
+  return { ...state, frame: (p && player(p).frame) ?? null };
 };
 export const cabinetChanged = (ctx: Ctx, floor: Floor | undefined) => {
   if (floor) ctx.toFloor(floor, { t: 'cabinet', state: cabinetState(ctx, floor) });

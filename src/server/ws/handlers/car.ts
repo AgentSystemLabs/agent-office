@@ -4,8 +4,9 @@ import type { CarClientMsg } from '../../../shared/protocol.js';
 import type { Ctx } from '../../office/context.js';
 import type { Client } from '../../office/client.js';
 import { num } from '../../office/input.js';
-import type { FeatureHooks, HandlerMap } from './types.js';
+import type { FeatureHooks, HandlerMap, ViewPieces } from './types.js';
 
+export const carsView: ViewPieces['cars'] = (_ctx, floor) => floor?.garage.state() ?? [];
 export const carsChanged = (ctx: Ctx, floor: Floor) => ctx.toFloor(floor, { t: 'cars', cars: floor.garage.state() });
 
 /** Getting into a car, or out of one. */

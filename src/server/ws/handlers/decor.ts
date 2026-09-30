@@ -4,8 +4,9 @@ import type { DecorClientMsg } from '../../../shared/protocol.js';
 import type { Ctx } from '../../office/context.js';
 import { str } from '../../office/input.js';
 import { here } from './common.js';
-import type { HandlerMap } from './types.js';
+import type { HandlerMap, ViewPieces } from './types.js';
 
+export const decorView: ViewPieces['decor'] = (_ctx, floor) => floor?.decor.list() ?? [];
 export const decorChanged = (ctx: Ctx, floor: Floor) => ctx.toFloor(floor, { t: 'decor', items: floor.decor.list() });
 
 export const decorHandlers = {

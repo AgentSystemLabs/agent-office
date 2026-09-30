@@ -9,7 +9,10 @@ import { PROMPTS, PROMPT_MAX, isPromptId } from '../../../shared/prompts.js';
 import type { SettingsClientMsg } from '../../../shared/protocol.js';
 import type { Ctx } from '../../office/context.js';
 import { str } from '../../office/input.js';
-import type { HandlerMap } from './types.js';
+import type { HandlerMap, ViewPieces } from './types.js';
+
+/** The floor's Services board: its own workers' web servers. */
+export const servicesView: ViewPieces['services'] = (ctx, floor) => ctx.servicesState(floor);
 
 /**
  * Tells everyone about the maps, after a pick or a read of the folder. When the map everyone's on

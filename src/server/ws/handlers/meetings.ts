@@ -3,7 +3,9 @@ import { isAgentEffort, isAgentProvider, type MeetingClientMsg, type MeetingRequ
 import { OPEN_CODE_MODEL_MAX } from '../../agents.js';
 import { str } from '../../office/input.js';
 import { here } from './common.js';
-import type { HandlerMap } from './types.js';
+import type { HandlerMap, ViewPieces } from './types.js';
+
+export const meetingView: ViewPieces['meeting'] = (_ctx, floor) => floor?.meetings.state() ?? { current: null, past: [] };
 
 export const meetingHandlers = {
   'meeting.start'(ctx, c, msg) {

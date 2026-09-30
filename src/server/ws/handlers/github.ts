@@ -4,7 +4,10 @@ import type { GitHubClientMsg } from '../../../shared/protocol.js';
 import { GH_COMMENT_MAX, GH_LABEL_MAX } from '../../../shared/protocol.js';
 import { num, str } from '../../office/input.js';
 import { here } from './common.js';
-import type { HandlerMap } from './types.js';
+import type { HandlerMap, ViewPieces } from './types.js';
+
+export const issuesView: ViewPieces['issues'] = (_ctx, floor) => floor?.github.issues ?? { items: [], fetchedAt: 0, loading: false };
+export const pullsView: ViewPieces['pulls'] = (_ctx, floor) => floor?.github.pulls ?? { items: [], fetchedAt: 0, loading: false };
 
 export const githubHandlers = {
   'gh.refresh'(ctx, c) {

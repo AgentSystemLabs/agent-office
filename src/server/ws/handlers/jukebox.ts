@@ -1,11 +1,12 @@
 // The lounge jukebox on every floor.
 import type { Floor } from '../../floor.js';
-import { STREAM } from '../../../shared/jukebox.js';
+import { JUKEBOX_TUNES, STREAM } from '../../../shared/jukebox.js';
 import type { JukeboxClientMsg } from '../../../shared/protocol.js';
 import type { Ctx } from '../../office/context.js';
 import { here } from './common.js';
-import type { HandlerMap } from './types.js';
+import type { HandlerMap, ViewPieces } from './types.js';
 
+export const jukeboxView: ViewPieces['jukebox'] = (_ctx, floor) => floor?.jukebox.state() ?? { on: false, track: JUKEBOX_TUNES[0].id, startedAt: Date.now(), elapsed: 0 };
 export const jukeboxChanged = (ctx: Ctx, floor: Floor) => ctx.toFloor(floor, { t: 'jukebox', state: floor.jukebox.state() });
 
 export const jukeboxHandlers = {

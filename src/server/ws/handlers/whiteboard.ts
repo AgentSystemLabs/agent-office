@@ -6,13 +6,14 @@ import type { Ctx } from '../../office/context.js';
 import { throttle, type Client } from '../../office/client.js';
 import { num } from '../../office/input.js';
 import { here } from './common.js';
-import type { FeatureHooks, HandlerMap } from './types.js';
+import type { FeatureHooks, HandlerMap, ViewPieces } from './types.js';
 
 /** Everyone who has their floor's whiteboard open. */
 const drawers = new WeakSet<Client>();
 
 /** Who has a floor's whiteboard open. */
 export const drawing = (ctx: Ctx, floor: Floor): string[] => [...ctx.clients.values()].filter((c) => drawers.has(c) && c.peer.floor === floor.id).map((c) => c.id);
+export const whiteboardView: ViewPieces['whiteboard'] = (ctx, floor) => ({ elements: floor?.whiteboard.scene() ?? [], people: floor ? drawing(ctx, floor) : [] });
 export const drawingChanged = (ctx: Ctx, floor: Floor | undefined) => {
   if (floor) ctx.toFloor(floor, { t: 'wb.people', people: drawing(ctx, floor) });
 };

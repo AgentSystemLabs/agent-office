@@ -2,24 +2,26 @@
 // floor. A new feature adds its handler file and a line here.
 import type { ClientMsg } from '../../../shared/protocol.js';
 import { accountsHandlers } from './accounts.js';
-import { ballHandlers, ballHooks } from './ball.js';
-import { cabinetHandlers, cabinetHooks } from './cabinet.js';
-import { carHandlers, carHooks } from './car.js';
+import { ballHandlers, ballHooks, ballView } from './ball.js';
+import { cabinetHandlers, cabinetHooks, cabinetView } from './cabinet.js';
+import { carHandlers, carHooks, carsView } from './car.js';
 import { changesHandlers, changesHooks } from './changes.js';
-import { decorHandlers } from './decor.js';
-import { dogHandlers } from './dog.js';
-import { githubHandlers } from './github.js';
-import { jukeboxHandlers } from './jukebox.js';
-import { meetingHandlers } from './meetings.js';
-import { queueHandlers } from './queue.js';
+import { decorHandlers, decorView } from './decor.js';
+import { dogHandlers, dogView } from './dog.js';
+import { floorHandlers, projectView } from './floors.js';
+import { githubHandlers, issuesView, pullsView } from './github.js';
+import { jukeboxHandlers, jukeboxView } from './jukebox.js';
+import { meetingHandlers, meetingView } from './meetings.js';
+import { planHandlers, planView } from './plan.js';
+import { queueHandlers, queueView } from './queue.js';
 import { rooftopHandlers } from './rooftop.js';
-import { settingsHandlers } from './settings.js';
+import { servicesView, settingsHandlers } from './settings.js';
 import { signinsHandlers } from './signins.js';
 import { teamHandlers } from './team.js';
 import { usageHandlers } from './usage.js';
-import { whiteboardHandlers, whiteboardHooks } from './whiteboard.js';
-import { workerHooks } from './workers.js';
-import type { FeatureHooks, HandlerMap } from './types.js';
+import { whiteboardHandlers, whiteboardHooks, whiteboardView } from './whiteboard.js';
+import { jailView, workerHandlers, workerHooks, workersView } from './workers.js';
+import type { FeatureHooks, HandlerMap, ViewPieces } from './types.js';
 
 /** Each domain's handlers put together, in alphabetical order. */
 export const handlers: Partial<HandlerMap<ClientMsg>> = {
@@ -30,9 +32,11 @@ export const handlers: Partial<HandlerMap<ClientMsg>> = {
   ...changesHandlers,
   ...decorHandlers,
   ...dogHandlers,
+  ...floorHandlers,
   ...githubHandlers,
   ...jukeboxHandlers,
   ...meetingHandlers,
+  ...planHandlers,
   ...queueHandlers,
   ...rooftopHandlers,
   ...settingsHandlers,
@@ -40,6 +44,7 @@ export const handlers: Partial<HandlerMap<ClientMsg>> = {
   ...teamHandlers,
   ...usageHandlers,
   ...whiteboardHandlers,
+  ...workerHandlers,
 };
 
 /**
@@ -47,3 +52,23 @@ export const handlers: Partial<HandlerMap<ClientMsg>> = {
  * someone leaves the floor or the office (see FeatureHooks): the order the office has always done it in.
  */
 export const features: readonly FeatureHooks[] = [workerHooks, changesHooks, whiteboardHooks, ballHooks, carHooks, cabinetHooks];
+
+/** What someone arriving on a floor is sent (see office/views.ts): a piece from each feature, in the order it has always gone out. */
+export const views: ViewPieces = {
+  project: projectView,
+  workers: workersView,
+  issues: issuesView,
+  pulls: pullsView,
+  queue: queueView,
+  decor: decorView,
+  plan: planView,
+  services: servicesView,
+  dog: dogView,
+  ball: ballView,
+  cars: carsView,
+  jail: jailView,
+  jukebox: jukeboxView,
+  whiteboard: whiteboardView,
+  meeting: meetingView,
+  cabinet: cabinetView,
+};

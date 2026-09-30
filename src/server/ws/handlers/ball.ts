@@ -4,8 +4,9 @@ import type { BallClientMsg } from '../../../shared/protocol.js';
 import type { Ctx } from '../../office/context.js';
 import type { Client } from '../../office/client.js';
 import { num } from '../../office/input.js';
-import type { FeatureHooks, HandlerMap } from './types.js';
+import type { FeatureHooks, HandlerMap, ViewPieces } from './types.js';
 
+export const ballView: ViewPieces['ball'] = (_ctx, floor) => floor?.court.state() ?? {};
 export const ballChanged = (ctx: Ctx, floor: Floor) => ctx.toFloor(floor, { t: 'ball', ball: floor.court.state() });
 
 /** Picking the ball up, or throwing it. */

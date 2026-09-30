@@ -3,7 +3,9 @@ import { isAgentEffort, isAgentProvider, type QueueClientMsg } from '../../../sh
 import { OPEN_CODE_MODEL_MAX } from '../../agents.js';
 import { num, str } from '../../office/input.js';
 import { here } from './common.js';
-import type { HandlerMap } from './types.js';
+import type { HandlerMap, ViewPieces } from './types.js';
+
+export const queueView: ViewPieces['queue'] = (_ctx, floor) => floor?.queue.state() ?? { tasks: [], maxWorkers: 0 };
 
 export const queueHandlers = {
   'queue.add'(ctx, c, msg) {
