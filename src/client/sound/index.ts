@@ -24,7 +24,7 @@ import { bonk, hatch, poleLanding, rung, slide, twirl } from '../features/climbi
 import { coffee } from '../features/coffee/sound';
 import { AudioCore, type Hall, type Listener } from './core';
 import { bark, yip } from '../features/dog/sound';
-import { cellDoor, thud } from './dungeon';
+import { cellDoor, thud } from '../features/workers/sound';
 import { golf, type GolfSound } from '../features/golf/sound';
 import { gong } from '../features/gong/sound';
 import { Jukebox, type JukeboxPlay } from '../features/jukebox/sound';

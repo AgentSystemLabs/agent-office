@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import { BALCONY, PARACHUTE } from '../../shared/layout';
-import { walkOff, type Pt } from '../../shared/nav';
-import type { Worker } from './character';
+import { BALCONY, PARACHUTE } from '../../../shared/layout';
+import { walkOff, type Pt } from '../../../shared/nav';
+import type { Worker } from '../../world/character';
 import type { Laptop } from './laptop';
-import type { DeskView } from './office';
-import type { Ways } from './world';
-import { mesh, toonUnique } from './toon';
+import type { DeskView } from '../../world/office';
+import type { Ways } from '../../world/world';
+import { mesh, toonUnique } from '../../world/toon';
 
 /** Walking pace on the way out, in m/s: no hurry any more. */
 const PACE = 2.3;

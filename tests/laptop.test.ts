@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { paintScreen, type ScreenState } from '../src/client/world/laptop.js';
+import { paintScreen, type ScreenState } from '../src/client/features/workers/laptop.js';
 
 type Op = { kind: 'fillRect' | 'fillText'; args: unknown[] };
 

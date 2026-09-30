@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { prisonSeat, wasting, type DungeonPlan, type SendHomePlan, type Spot } from '../../shared/maps';
-import type { JailState, Prisoner } from '../../shared/protocol';
-import { Worker } from './character';
-import type { DungeonView } from './dungeon';
-import { mesh, toon } from './toon';
+import { prisonSeat, wasting, type DungeonPlan, type SendHomePlan, type Spot } from '../../../shared/maps';
+import type { JailState, Prisoner } from '../../../shared/protocol';
+import { Worker } from '../../world/character';
+import type { DungeonView } from '../../world/dungeon';
+import { mesh, toon } from '../../world/toon';
 
 /*
  * Whoever's locked up in the dungeon (see shared/maps/dungeon.ts and the floor's JailState): each one

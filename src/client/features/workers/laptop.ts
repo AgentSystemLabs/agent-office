@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, type Run } from '../../shared/protocol';
-import { mesh, roundedBox, toon } from './toon';
-import { TERM_THEME } from '../ui/termtheme';
-import type { ScreenState } from '../state/store';
+import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, type Run } from '../../../shared/protocol';
+import { mesh, roundedBox, toon } from '../../world/toon';
+import { TERM_THEME } from '../../ui/termtheme';
+import type { ScreenState } from '../../state/store';
 
 
 const BASE16 = [

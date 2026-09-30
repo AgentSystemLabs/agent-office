@@ -1,6 +1,6 @@
-import { hatch } from '../features/climbing/sound';
-import type { AudioCore } from './core';
-import { pick, rand } from './dsp';
+import { hatch } from '../climbing/sound';
+import type { AudioCore } from '../../sound/core';
+import { pick, rand } from '../../sound/dsp';
 
 // The castle's dungeon: its cell doors, and whoever's thrown down on the straw.
 

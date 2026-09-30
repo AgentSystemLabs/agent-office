@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import { levelRoute, type SendHomePlace, type SendHomeStep, type Spot } from '../../shared/maps';
-import type { Pt } from '../../shared/nav';
-import type { Person, Worker } from './character';
+import { levelRoute, type SendHomePlace, type SendHomeStep, type Spot } from '../../../shared/maps';
+import type { Pt } from '../../../shared/nav';
+import type { Person, Worker } from '../../world/character';
 import type { Jail } from './jail';
 import type { Laptop } from './laptop';
-import type { DeskView } from './office';
-import type { World } from './world';
+import type { DeskView } from '../../world/office';
+import type { World } from '../../world/world';
 
 /*
  * Workers sent home on a map with a script for it (MapPlan.sendHome, see shared/maps/dungeon.ts),
