@@ -85,10 +85,13 @@ import { MachineTexture } from './world/machine';
 import { officeFull, pressureNote } from '../shared/machine';
 import { mountHud } from './ui/menu';
 import { openJukebox } from './ui/jukebox';
+import { openTv } from './ui/tv';
+import { TvScreen } from './tvscreen';
 import { openBookshelf } from './ui/bookshelf';
 import { Arcade } from './ui/arcade';
 import { Cabinet } from './ui/cabinet';
 import { trackTitle } from '../shared/jukebox';
+import { tvTitle } from '../shared/tv';
 import { GAME, scoreText } from '../shared/cabinet';
 import { EMOTES, EMOTE_BY_ID, EmoteBucket, type EmoteId } from '../shared/emotes';
 import { EmoteWheel } from './ui/emotes';
@@ -323,6 +326,23 @@ const tvMat = office.tvScreen.material as THREE.MeshBasicMaterial;
 tvMat.color.set('#ffffff');
 tvMat.map = tvIdle;
 tvMat.toneMapped = false;
+/** Whoever's screen sharing, when someone is: the TV shows that instead of a link. */
+let tvStream: MediaStream | null = null;
+/** What's on the screen itself: a share while there is one, dark under a link's picture, else the art. */
+function paintTv() {
+  const map = tvStream ? tvTexture : store.tv.on ? null : tvIdle;
+  tvMat.map = map;
+  tvMat.color.set(map ? '#ffffff' : '#15172a');
+  tvMat.needsUpdate = true;
+}
+// A link on the TV: its picture is ordinary HTML over the canvas, put on the TV's rectangle each
+// frame, and what's on it is `store.tv` — kept like the jukebox's (see tvscreen.ts).
+const tvScreen = new TvScreen(office.tvScreen);
+store.on('tv', () => {
+  tvScreen.sync(store.tv);
+  paintTv();
+  hintKey = '';
+});
 // The boss's monitor upstairs: Minesweeper, from the boss's chair.
 const arcade = new Arcade(office.bossScreen);
 
@@ -2927,7 +2947,11 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   else if (target.kind === 'issues' || target.kind === 'pulls') openBoard(target.kind, net, boardActions());
   else if (target.kind === 'services') openServices();
   else if (target.kind === 'queue') showQueue();
-  else if (target.kind === 'tv') watchShare();
+  else if (target.kind === 'tv') {
+    // Someone's screen share is watched full screen; anything else is put on from the TV's window.
+    if (tvShowing()) watchShare();
+    else openTv(net, tvScreen, () => void toggleShare());
+  }
   else if (target.kind === 'jukebox') showJukebox();
   else if (target.kind === 'bookshelf') showBookshelf();
   else if (target.kind === 'decor' && target.decorId) hanger.view(target.decorId);
@@ -3665,8 +3689,11 @@ function hintFor(it: Interactable): Hint {
       return { k: String(n), parts: [title(`📋 Task queue${n ? ` · ${n}` : ''}`), key('E', 'Open')] };
     }
     case 'tv': {
-      const any = currentShares().length > 0;
-      return { k: String(any), parts: [title('📺 Office TV'), key('E', any ? 'Watch full screen' : 'Share your screen')] };
+      const share = tvShowing();
+      const s = store.tv;
+      const on = !share && s.on && !!s.url;
+      const what = on ? `${s.playing ? '▶' : '⏸'} ${clip(tvTitle(s.url), 34)}` : share ? 'someone is sharing their screen' : 'nothing on it';
+      return { k: `${share}|${s.on}|${s.url}|${s.playing}`, parts: [title('📺 Office TV'), aside(what), key('E', share ? 'Watch full screen' : 'Put something on')] };
     }
     case 'coffee': {
       const buzzed = caffeine.buzzed(performance.now() / 1000);
@@ -4447,7 +4474,6 @@ function currentShares(): [string, MediaStream][] {
   return out;
 }
 
-let tvStream: MediaStream | null = null;
 function refreshShares() {
   const shares = currentShares();
   // Remote shares win the TV; your own share is what others see anyway.
@@ -4457,8 +4483,7 @@ function refreshShares() {
     tvStream = stream;
     tvVideo.srcObject = stream;
     if (stream) void tvVideo.play().catch(() => {});
-    tvMat.map = stream ? tvTexture : tvIdle;
-    tvMat.needsUpdate = true;
+    paintTv();
   }
   const box = $('shares');
   box.replaceChildren(
@@ -4905,6 +4930,8 @@ function frame(ts?: number) {
   drunkVisionOn = blurry;
   effect.render(scene, camera);
   pointToWaiting(now);
+  // The TV's picture, projected onto its rectangle from this frame's camera (see tvscreen.ts).
+  tvScreen.update(camera, inOffice() && !upTop && !telescope.active, player.colliders);
   // Not while the camera's up at the boss's monitor or the arcade, where they'd cover the screen.
   if (firstPerson && !telescope.active && !arcade.zoomed && !cabinet.zoomed && !golf.active && !thrower.active && !driver.active) {
     // Hands go on top of everything, so they never clip into a desk you walk up to. They have

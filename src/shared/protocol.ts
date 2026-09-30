@@ -10,6 +10,7 @@ import type { EmoteId } from './emotes.js';
 import type { CarSeat, CarState } from './garage.js';
 import type { BallState } from './hoop.js';
 import type { JukeboxState } from './jukebox.js';
+import type { TvState } from './tv.js';
 import type { CustomMap } from './maps/index.js';
 import type { PromptId } from './prompts.js';
 import type { DrinkId } from './rooftop.js';
@@ -803,6 +804,8 @@ export interface FloorView {
   dog: DogState | null;
   /** What the lounge jukebox is playing. */
   jukebox: JukeboxState;
+  /** What's on the big TV, and how far into it everyone is (see shared/tv.ts). */
+  tv: TvState;
   /** Who's at the arcade cabinet, what's on its screen, and the building's high scores. */
   cabinet: CabinetView;
   /** What's drawn on this floor's whiteboard, and who's drawing. */
@@ -1266,6 +1269,17 @@ export type ClientMsg =
   | { t: 'jukebox.skip' }
   | { t: 'jukebox.stop' }
   /**
+   * Put `url` on the big TV, or resume what's on it with neither. It starts at `position`, or at the
+   * link's own `t=`/`start=`, or at 0 for a fresh link.
+   */
+  | { t: 'tv.play'; url?: string; position?: number }
+  /** Stop the big TV where it is; Play picks it back up from there. */
+  | { t: 'tv.pause'; position?: number }
+  /** Jump the big TV to `position` seconds, keeping play and pause as they are. */
+  | { t: 'tv.seek'; position: number }
+  /** Take the big TV off; its link stays for next time. */
+  | { t: 'tv.stop' }
+  /**
    * Step up to the arcade cabinet on your floor to carry on with `game` (one the office started for
    * you), or to start a new game, even while you're at it; the office answers with `cabinet`, naming
    * who got it and their game.
@@ -1422,6 +1436,8 @@ export type ServerMsg =
   /** Someone in a car on your floor honked its horn. */
   | { t: 'car.honk'; car: number }
   | { t: 'jukebox'; state: JukeboxState }
+  /** What's on the big TV now (see shared/tv.ts). */
+  | { t: 'tv'; state: TvState }
   /** Who's at the arcade cabinet on your floor now, and the building's high scores. */
   | { t: 'cabinet'; state: CabinetState }
   /** The game on your floor's cabinet, as its player sees it (sent to everyone else on the floor). */
