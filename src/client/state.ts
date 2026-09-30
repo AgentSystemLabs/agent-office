@@ -65,6 +65,8 @@ export interface Settings {
   /** The lounge TV, 0–1, apart from the office sounds too: your own speakers only. */
   tv: number;
   tvMuted: boolean;
+  /** Put the dance floor with disco lights in front of the TV (see world/disco.ts). */
+  danceFloor: boolean;
   /** The swish of a page turning as you read at the bookshelf. */
   pageTurns: boolean;
   /** Voice chat starts muted and V is held down to talk, instead of an open mic. */
@@ -137,7 +139,7 @@ export function rememberSpot(s: Spot) {
 }
 
 export function loadSettings(): Settings {
-  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, tv: 0.7, tvMuted: false, pageTurns: true, pushToTalk: false, notify: true, hud: { ...HUD_DEFAULTS }, pins: [] };
+  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, tv: 0.7, tvMuted: false, danceFloor: true, pageTurns: true, pushToTalk: false, notify: true, hud: { ...HUD_DEFAULTS }, pins: [] };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
     if (saved?.view === 'first' || saved?.view === 'third') s.view = saved.view;
@@ -147,6 +149,7 @@ export function loadSettings(): Settings {
     if (typeof saved?.musicMuted === 'boolean') s.musicMuted = saved.musicMuted;
     if (typeof saved?.tv === 'number' && Number.isFinite(saved.tv)) s.tv = Math.max(0, Math.min(1, saved.tv));
     if (typeof saved?.tvMuted === 'boolean') s.tvMuted = saved.tvMuted;
+    if (typeof saved?.danceFloor === 'boolean') s.danceFloor = saved.danceFloor;
     if (typeof saved?.pageTurns === 'boolean') s.pageTurns = saved.pageTurns;
     if (typeof saved?.pushToTalk === 'boolean') s.pushToTalk = saved.pushToTalk;
     if (typeof saved?.notify === 'boolean') s.notify = saved.notify;
