@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { FLOOR, SLAB, STREET_Y, WALL_T, WING, inWing, wingMinZ, type SeatPlace } from '../shared/layout';
 import type { ViewMode } from './state';
 import type { Collider } from './world/office';
+import { HIPS } from './world/character/rig';
 
 const RADIUS = 0.32;
 /** Top of your head above your feet, for walking under the loft. */
@@ -14,8 +15,8 @@ const JUMP_V = 6.4;
 const GRAVITY = 18;
 /** Camera height above your feet in first person (the Person's eyes). */
 export const EYE_HEIGHT = 1.4;
-/** The Person's hips above their feet, standing. Sitting puts them on the seat, and your eyes move with them. */
-export const HIPS = 0.42;
+// The Person's hips above their feet (see world/character/rig.ts): sitting puts them on the seat, and your eyes move with them.
+export { HIPS };
 /** Keys that get you up off a seat: walking away, or jumping up. */
 const GET_UP = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
 const LOOK_SPEED = 0.0022; // radians per pixel of mouse movement while the pointer is locked

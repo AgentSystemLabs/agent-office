@@ -52,7 +52,7 @@ export function plantLeaves(potted: THREE.Object3D): THREE.Object3D[] {
 // The desks' knick-knacks are modelled in Blender (blender/scripts/build_desk_props.py): a mug of coffee,
 // and books in a few arrangements, each a piece of desk_props.glb (see piece()). The colors are the old
 // code-built books' covers, book.ts's page edges and the coffee in a worker's mug (coffeeMug() in
-// character.ts); the mug itself is painted whatever color it's given.
+// character/props.ts); the mug itself is painted whatever color it's given.
 const DESK_PROP_COLORS = { CoverRed: '#e63946', CoverBlue: '#457b9d', CoverOrange: '#f4a261', Pages: '#f3ead8', Coffee: '#6f4518' };
 const paintDeskProp = palette(DESK_PROP_COLORS);
 /** The arrangements of books, which the desks with books take turns with (see deskBooks()). */
