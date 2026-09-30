@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { BALCONY, GOLF_HOLE } from '../shared/layout';
-import { isTyping, type PlayerController } from './player';
-import { $, h, modalOpen } from './ui/dom';
-import { IMPACT, type Person } from './world/character';
-import { AIM_MAX, LOFT_MAX, LOFT_MIN, PIN_DISTANCE, PIN_YAW, TEE_BALL, stance, type Flight, type Shot } from './world/golf';
+import { BALCONY, GOLF_HOLE } from '../../../shared/layout';
+import { isTyping, type PlayerController } from '../../player';
+import { $, h, modalOpen } from '../../ui/dom';
+import { IMPACT, type Person } from '../../world/character';
+import { AIM_MAX, LOFT_MAX, LOFT_MIN, PIN_DISTANCE, PIN_YAW, TEE_BALL, stance, type Flight, type Shot } from './world';
 
 // Teeing off from the balcony (E at the tee): you stand over the ball with a club, and the camera
 // goes down low behind the ball, looking down the line at the hole. The mouse (or A and D) aims, W

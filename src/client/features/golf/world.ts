@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { BALCONY, FLOOR, GOLF_HOLE, GOLF_TEE, ROAD, SLAB, STOREY, STREET_Y, WALL_HEIGHT, WALL_T } from '../../shared/layout';
-import type { Collider, Interactable } from './office';
-import type { Fixture, StreetSite } from './office/fixture';
-import { bulb, neighbourBoxes, streetLamp, tree, type NightParts } from './outside';
-import { disposeSprite, mergeByMaterial, mesh, textPlane, textSprite, toon } from './toon';
+import { BALCONY, FLOOR, GOLF_HOLE, GOLF_TEE, ROAD, SLAB, STOREY, STREET_Y, WALL_HEIGHT, WALL_T } from '../../../shared/layout';
+import type { Collider, Interactable } from '../../world/office';
+import type { Fixture, StreetSite } from '../../world/office/fixture';
+import { bulb, neighbourBoxes, streetLamp, tree, type NightParts } from '../../world/outside';
+import { disposeSprite, mergeByMaterial, mesh, textPlane, textSprite, toon } from '../../world/toon';
 
 // Golf off the balcony: the tee out there (a square of turf, a ball on a tee, a bag of clubs), the
 // hole across the street it's hit at (a green with a flag on it, a fairway up to it, bunkers), and
@@ -273,7 +273,7 @@ export function buildGreen(ground: THREE.Group, colliders: Collider[], night: Ni
   };
 }
 
-declare module './types' {
+declare module '../../world/types' {
   interface OfficeHandles {
     /** The golf tee on the balcony, and the hole across the street it's hit at. */
     tee: Tee;

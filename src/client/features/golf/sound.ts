@@ -1,6 +1,6 @@
-import type { AudioCore } from './core';
-import { biquad, envelope, pick, rand } from './dsp';
-import type { Pos } from './places';
+import type { AudioCore } from '../../sound/core';
+import { biquad, envelope, pick, rand } from '../../sound/dsp';
+import type { Pos } from '../../sound/places';
 
 // ---- Golf off the balcony ------------------------------------------------------------------------
 

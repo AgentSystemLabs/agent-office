@@ -5,12 +5,12 @@
 import { GOLF_HOLE } from '../../../shared/layout';
 import type { Ctx } from '../../core/context';
 import { aside, hintTitle, key, onE } from '../../core/hint';
-import { Golfer } from '../../golf';
+import { Golfer } from './controller';
 import { DESK_KEYS } from '../../interaction';
 import { store } from '../../state';
 import { clip, h, toast } from '../../ui/dom';
 import { BACKSWING_TIME, IMPACT, type Person } from '../../world/character';
-import { GolfBalls, PIN_DISTANCE, TEE_BALL, fly, pinText, type Flight, type Hit, type Shot } from '../../world/golf';
+import { GolfBalls, PIN_DISTANCE, TEE_BALL, fly, pinText, type Flight, type Hit, type Shot } from './world';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {

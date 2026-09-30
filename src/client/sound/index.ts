@@ -25,7 +25,7 @@ import { coffee } from './coffee';
 import { AudioCore, type Hall, type Listener } from './core';
 import { bark, yip } from './dog';
 import { cellDoor, thud } from './dungeon';
-import { golf, type GolfSound } from './golf';
+import { golf, type GolfSound } from '../features/golf/sound';
 import { gong } from './gong';
 import { Jukebox, type JukeboxPlay } from './jukebox';
 import type { Pos } from './places';

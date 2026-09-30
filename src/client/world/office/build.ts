@@ -11,7 +11,7 @@ import { jukebox } from '../jukebox';
 import { bookshelf } from '../bookshelf';
 import { cabinet } from '../cabinet';
 import { whiteboard } from '../whiteboard';
-import { green, tee } from '../golf';
+import { green, tee } from '../../features/golf/world';
 import { stack } from '../stack';
 import { tower } from '../tower';
 import { hoop } from '../hoop';
