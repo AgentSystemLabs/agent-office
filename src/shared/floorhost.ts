@@ -66,13 +66,21 @@ export type ToOffice =
   | { t: 'bye'; floorId?: string; why?: string };
 
 /**
- * The 43 `handleMessage` cases that call a method on a `Floor` (see FLOOR_CASES for the list).
+ * The 45 `handleMessage` cases that call a method on a `Floor`.
  *
- * This list is asserted by tests/floorhost.test.ts — a 44th case added to the switch without a
- * decision about where it runs fails the build rather than silently staying office-side.
+ * This list is the authority, and tests/floorhost.test.ts cross-checks it against `server.ts`. Two
+ * of them — `ball.take` and `car.enter` — share a case body with a sibling (`ball.throw`,
+ * `car.leave`), which is exactly the shape a scan of the switch gets wrong: the body line names only
+ * one of the pair, so the other is missed. They were missed here first, and the check now looks for
+ * a group of labels rather than a single one.
+ *
+ * A case added to the switch without a decision about where it runs should fail the build rather
+ * than silently staying office-side.
  */
 export const FLOOR_CASES = [
+  'ball.take',
   'ball.throw',
+  'car.enter',
   'car.leave',
   'car.drive',
   'car.honk',

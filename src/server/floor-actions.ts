@@ -7,7 +7,7 @@
  * nothing more. A method here exists because a `handleMessage` case needs it, not because the class
  * happens to have it.
  *
- * Why an interface rather than moving the 43 floor-scoped cases into a function: those cases span
+ * Why an interface rather than moving the 45 floor-scoped cases into a function: those cases span
  * ~900 lines inside a switch that closes over a dozen office-side accessors (`here`, `worker`,
  * `withForge`, `warn`, `toastFloor`, `planChanged`, `floors`, `DESK_BY_ID`, `CLEANUPS`). Extracting
  * them is a large mechanical diff into a file where every line is load-bearing. This way the call

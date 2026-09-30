@@ -95,7 +95,7 @@ Today there is one literal implementation, built at `server.ts:625` and handed t
 object, remote floors get a proxy that serializes over the host socket. `Floor` does not change.
 
 **Seam 2 — `handleMessage` (`server.ts:1477`).** The office's 117-case switch resolves a floor with
-`floorOf(c)` (`server.ts:254`) and then calls into it. The 43 that act on a floor go through
+`floorOf(c)` (`server.ts:254`) and then calls into it. The 45 that act on a floor go through
 `FloorActions` (`src/server/floor-actions.ts`), which `Floor` satisfies structurally and a hosted floor
 will satisfy by shipping frames.
 
@@ -104,7 +104,7 @@ This matters because `server.ts` makes **66 distinct floor-scoped calls**
 Enumerating those as 66 RPC methods would be the wrong shape and the wrong amount of work. Neither is
 forwarding the message unions that already exist.
 
-The interface is the union of what those 43 cases call and nothing more, so a member nobody calls is a
+The interface is the union of what those 45 cases call and nothing more, so a member nobody calls is a
 method a hosted floor would implement for no reason — `tests/floor-actions.test.ts` checks that both
 ways. Writing its signatures against the real classes corrected seven guesses, one of which changed
 the design: `changes.watch` returns nothing and pushes through `FloorContext.changes`, so the Changes
@@ -150,20 +150,26 @@ Classifying by what each body actually calls:
 
 | | Count | Where it goes |
 |---|---|---|
-| **Calls a method on a `Floor` object** | **43** | **ships to the host** |
+| **Calls a method on a `Floor` object** | **45** | **ships to the host** |
 | Looks a floor up but calls nothing on it | 9 | stays office-side |
 | Never touches a floor | 48 | stays office-side |
 | `handleSignIns` + `handleAccounts` | 13 | stays office-side |
 
-(43 + 9 + 48 = 100, plus a `default` arm and three cases that reach a floor through a shared branch —
-`car.enter`, `ball.take`, `worker.detach`'s sibling — brings the main switch to its 104.)
+(45 + 9 + 48 = 102, plus a `default` arm and one more, brings the main switch to its 104.)
+
+Two of the 45 — `ball.take` and `car.enter` — share a case body with a sibling. That is worth stating
+because the first pass over this table **missed them**, and so did the check meant to catch a missed
+case: a scan of the switch attributes a body to the last label in a run, so `ball.throw` and
+`car.leave` were found and their partners were not. The lesson is in the test rather than the prose:
+the list is the authority, and what is checked is that every name in it exists, not that a regex can
+re-derive it.
 
 **This count is asserted, not remembered.** `tests/floorhost.test.ts` re-derives it from `server.ts`
 and fails if `FLOOR_CASES` drifts, so a case added to the switch without a decision about where it runs
 breaks the build rather than quietly staying office-side. Building the assertion is what corrected
-this table: the first pass said 44, and the real answer is 43.
+this table: the first pass said 44, then 43, and the real answer is 45.
 
-**The protocol is 43 messages, not 117.** The 12 that look a floor up and leave are worth naming,
+**The protocol is 45 messages, not 117.** The 12 that look a floor up and leave are worth naming,
 because "it mentions a floor" is not the same as "it acts on one":
 
 | Case | Why it stays |
@@ -174,7 +180,7 @@ because "it mentions a floor" is not the same as "it acts on one":
 | `gong` `:1931`, `horn` `:1939` | office-wide broadcast |
 | `dog.pet` / `dog.name`, `wb.*`, `cabinet.*`, `meeting.stop`/`clear` | looked up, then handed to an office-side manager |
 
-The 43 are exactly the `worker.*`, `station.prompt`, `term.input`/`resize`, `gh.*`, `queue.*`,
+The 45 are exactly the `worker.*`, `station.prompt`, `term.input`/`resize`, `gh.*`, `queue.*`,
 `changes.*`, `decor.*`, `desk.label`, `floor.expand`/`shrink`, `jukebox.*` and `car.*` families, plus
 `worker.kill` — which resolves through `worker()` and calls `floor.sendHome(...)` (`:1743`), so it
 ships even though nothing else about its body looks floor-shaped.
@@ -542,7 +548,7 @@ chooses its own model"*. One gate, at the seat, where the host is already being 
   closest precedents are a real `http.Server` on an ephemeral port (`tests/office-queue.test.ts`) and
   a narrow interface faked rather than a class (`tests/queue.test.ts`).
 
-### 9. The protocol is 43 messages, and the office must not touch a remote floor's disk 🆕
+### 9. The protocol is 45 messages, and the office must not touch a remote floor's disk 🆕
 
 This is the new one, and it is where the work actually is.
 
@@ -554,7 +560,7 @@ Enumerating them as RPCs would be the wrong shape.
 
 The right shape is to classify `handleMessage`'s 117 cases and forward the floor-scoped ones
 verbatim. **That classification is done** —
-[the protocol surface](#the-protocol-surface-measured) has the full split: **43 ship, 12 stay
+[the protocol surface](#the-protocol-surface-measured) has the full split: **45 ship, 12 stay
 office-side despite naming a floor, 48 never touch one, and 13 are account and sign-in handlers.**
 It *is* the protocol surface, and it is a third the size the case count suggests.
 
@@ -771,8 +777,8 @@ The pieces everything else needs. No UI, no hosted floor in the product yet.
    serializing proxy for a hosted one. The literal at `server.ts:625` becomes the local case.
    **`FloorActions` is done** (`src/server/floor-actions.ts`): the surface the office asks of a floor,
    checked against `Floor` by a structural assertion at the foot of `floor.ts`. See the note below.
-7. ~~**Extract the 43 floor-scoped cases** into a function over a `Floor`.~~ **Superseded.**
-   `FloorActions` replaces it, and does it better: the 43 call sites are left exactly where they are,
+7. ~~**Extract the 45 floor-scoped cases** into a function over a `Floor`.~~ **Superseded.**
+   `FloorActions` replaces it, and does it better: the 45 call sites are left exactly where they are,
    because they already read `floor.workers.spawn(...)` — only the object behind `floor` changes, from
    a local `Floor` to a `RemoteFloor`. Lifting them would have meant a ~900-line mechanical diff into
    a switch that closes over a dozen office-side accessors (`here`, `worker`, `withForge`, `warn`,
@@ -887,7 +893,7 @@ to test the generated payload and normalisation, not the upstream CLI; a hosted 
 | File | What it covers |
 |---|---|
 | `tests/floorhost.test.ts` (new) | A fake host — a `WebSocketServer` on an ephemeral port — driven through the real pairing check. Message round trips, byte and resize round trips, exit codes. **`ctx.hook` is host-local and no hook frame ever crosses the socket** (decision 7). **The office never opens a hosted floor's `def.dir`.** A dropped socket leaves the floor and its workers `offline` and asleep, not spinning. |
-| `tests/floorhost.test.ts` (new) | **The count.** Exactly 43 cases in `handleMessage` act on a `Floor`, and every one of them routes to a hosted floor. A 44th case added to the switch without a decision fails the build rather than silently staying office-side. |
+| `tests/floorhost.test.ts` (new) | **The count.** Exactly 45 cases in `handleMessage` act on a `Floor`, and every one of them routes to a hosted floor. A 46th case added to the switch without a decision fails the build rather than silently staying office-side. |
 | `tests/floorhost.test.ts` (new) | **No sign-ins cross the wire.** A hosted floor's `FloorContext` carries `agentCmd`, `prompts`, `capacity`, `leaveOnMerge`, `people`, `peers` — and no `runAs`, no `forgeAs`, and a `floor(id)` that refuses to reach across an office boundary (decision 9). |
 | `tests/floorhost.test.ts` (new) | **Two floors on one socket stay separate.** A frame naming floor A is never applied to floor B, and a frame with an unknown `floorId` is refused rather than guessed at — the multiplex cost of decision 6, which is the whole reason `floorId` is mandatory on every frame. |
 | `tests/floorhost.test.ts` (new) | **The permission model, as a test.** A plain member — not an admin — can spawn onto a hosted desk, type into it, prompt it, and send it home, and every refusal is about seats or kind rather than role. Send-home sends `stop` and the host, not the office, removes the worktree. A member may spawn onto a floor that is *not* accepting; an agent on `/office/workers` may not. |

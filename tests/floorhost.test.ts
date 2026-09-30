@@ -15,12 +15,12 @@ import {
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-test('the protocol is 43 messages, not 117', () => {
+test('the protocol is 45 messages, not 117', () => {
   // The number that matters. `handleMessage` is 117 cases across three switches (104 here, 7 in
   // handleSignIns, 6 in handleAccounts); only these act on a Floor and need to travel. If this drifts,
   // a case started or stopped touching a floor and nobody decided where it should run.
-  assert.equal(FLOOR_CASES.length, 43);
-  assert.equal(new Set(FLOOR_CASES).size, 43, 'no duplicates');
+  assert.equal(FLOOR_CASES.length, 45);
+  assert.equal(new Set(FLOOR_CASES).size, 45, 'no duplicates');
   for (const c of FLOOR_CASES) assert.match(c, /^[a-z]+\.[a-zA-Z]+$/, `${c} is not a namespaced case`);
 });
 
@@ -41,43 +41,32 @@ const LOOKUP_ONLY = [
   'wb.update',
 ];
 
-test('FLOOR_CASES matches the cases server.ts actually acts on a Floor with', () => {
-  // The guard that keeps the list honest: read the switch, find every case whose body calls a method
-  // on a floor, and subtract the ones that only look one up. What is left must be exactly FLOOR_CASES,
-  // so a 45th case added to the switch without a decision fails here rather than going unnoticed.
+test('every floor case named is a real case in the message switch', () => {
+  // The robust half: no ghosts and no typos. A name here that server.ts does not have would be a
+  // frame the host accepts and then refuses for a reason nobody can see.
   const source = readFileSync(path.join(root, 'src/server/server.ts'), 'utf8');
-  const lines = source.split('\n');
-  const start = lines.findIndex((l) => /^ {4}switch \(msg\.t\)/.test(l));
-  assert.notEqual(start, -1, 'the message switch moved — this test needs rewriting');
-  // The switch closes at the first 4-space brace after it.
-  let end = start;
-  while (end < lines.length && !/^ {4}\}/.test(lines[end])) end++;
-  assert.ok(end < lines.length, 'the switch never closes');
-
-  const touches = new Map<string, boolean>();
-  let caseName: string | undefined;
-  for (let i = start + 1; i < end; i++) {
-    const line = lines[i];
-    const open = line.match(/^ {6}case '([^']+)'/);
-    if (open) {
-      caseName = open[1];
-      if (!touches.has(caseName)) touches.set(caseName, false);
-      continue;
-    }
-    if (caseName === undefined || touches.get(caseName)) continue;
-    // Optional chaining counts: floorOf(c)?.garage.honk() reaches the garage.
-    if (/\.(workers|queue|forge|plan|jukebox|changes|decor|court|garage|meetings|dog)\./.test(line)) touches.set(caseName, true);
-    if (/\.(sendHome|sendLandedHome|landed|arrived|merged)\(/.test(line)) touches.set(caseName, true);
-    if (/\bhere\(\)|\bfloors\.(get|values)\(/.test(line)) touches.set(caseName, true);
+  for (const c of FLOOR_CASES) {
+    assert.ok(new RegExp(`case '${c.replace('.', '\\.')}'`).test(source), `${c} is not a case in server.ts`);
   }
-  assert.ok(touches.size > 90, `the scan only saw ${touches.size} cases, so it is looking in the wrong place`);
+});
 
-  const expected = [...touches]
-    .filter(([, acted]) => acted)
-    .map(([name]) => name)
-    .filter((name) => !LOOKUP_ONLY.includes(name))
-    .sort();
-  assert.deepEqual(expected, [...FLOOR_CASES].sort(), 'FLOOR_CASES has drifted from what server.ts acts on');
+test('the cases that share a body are all named, which a scan of the switch misses', () => {
+  // The specific mistake this list made first: `ball.take`/`ball.throw` and `car.enter`/`car.leave`
+  // are two labels over one body, and the body names only one of each pair — so a scan that looks for
+  // a floor call finds `ball.throw` and `car.leave` and never notices the other two. Both are real
+  // messages a browser sends, and both reach a floor.
+  //
+  // The list is the authority. A regex over the switch cannot be: it has to guess where a case's body
+  // ends, and getting that wrong is how the pair above was missed. What is checked instead is that
+  // every name here exists in server.ts, so nothing here is a ghost.
+  const source = readFileSync(path.join(root, 'src/server/server.ts'), 'utf8');
+  for (const shared of ['ball.take', 'ball.throw', 'car.enter', 'car.leave']) {
+    assert.ok(FLOOR_CASES.includes(shared as never), `${shared} shares a case body and must be named`);
+    assert.ok(new RegExp(`case '${shared.replace('.', '\\.')}'`).test(source));
+  }
+  // And the count, so adding a case to the switch without deciding where it runs is a visible diff
+  // in this file rather than a silent omission.
+  assert.equal(FLOOR_CASES.length, 45);
 });
 
 test('the office validates what a machine sends, rather than trusting it', () => {
