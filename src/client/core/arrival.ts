@@ -20,7 +20,7 @@ import { needsSigningIn, openSignIns } from '../ui/signins';
 import { routeTeamMessage } from '../ui/team';
 import { openTerminalFor, routeTerminalMessage } from '../ui/terminal';
 import { restarting, showRestarting, showUpgraded } from '../ui/upgrade';
-import { routeWhiteboardMessage } from '../ui/whiteboard';
+import { routeWhiteboardMessage } from '../features/whiteboard/ui';
 import type { Ctx } from './context';
 import type { CoreState } from './ctx';
 import { builtFloors, pastTheWing } from './floors';

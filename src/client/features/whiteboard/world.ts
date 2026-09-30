@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { WHITEBOARD } from '../../shared/layout';
-import { mesh, roundedBox, textPlane, toon } from './toon';
-import type { Collider, Interactable } from './office';
-import type { Fixture } from './office/fixture';
+import { WHITEBOARD } from '../../../shared/layout';
+import { mesh, roundedBox, textPlane, toon } from '../../world/toon';
+import type { Collider, Interactable } from '../../world/office';
+import type { Fixture } from '../../world/office/fixture';
 
 // The whiteboard: a rolling whiteboard on casters out on the open floor, with a marker tray. Its
 // face shows whatever everyone has drawn on it (see ui/whiteboard.ts), live.
@@ -120,7 +120,7 @@ export function buildWhiteboard(): WhiteboardStand {
   return { group, colliders, interactable, show, fit: { width: canvas.width - PAD * 2, height: canvas.height - PAD * 2 } };
 }
 
-declare module './types' {
+declare module '../../world/types' {
   interface OfficeHandles {
     /** The rolling whiteboard everyone draws on together. */
     whiteboard: WhiteboardStand;

@@ -1,12 +1,12 @@
-import './whiteboard.css';
+import './ui.css';
 // The 📝 whiteboard window, and the drawing on the whiteboard in the office. Excalidraw itself is in
 // whiteboard-app.ts, loaded the first time either needs it.
 
-import type { ServerMsg } from '../../shared/protocol';
-import { byIndex } from '../../shared/whiteboard';
-import type { Net } from '../net';
-import { store } from '../state';
-import { h, openModal, toast, type Modal } from './dom';
+import type { ServerMsg } from '../../../shared/protocol';
+import { byIndex } from '../../../shared/whiteboard';
+import type { Net } from '../../net';
+import { store } from '../../state';
+import { h, openModal, toast, type Modal } from '../../ui/dom';
 import type { WhiteboardApp } from './whiteboard-app';
 
 declare const __EXCALIDRAW_ASSETS__: string;

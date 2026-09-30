@@ -13,10 +13,10 @@ import '@excalidraw/excalidraw/index.css';
 import type { BinaryFileData, Collaborator, ExcalidrawImperativeAPI, SocketId } from '@excalidraw/excalidraw/types';
 import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import type { RemoteExcalidrawElement } from '@excalidraw/excalidraw/data/reconcile';
-import type { ClientMsg, ServerMsg } from '../../shared/protocol';
-import { WB_MAX_ELEMENT_BYTES, byIndex, newer, type WbElement, type WbPointer } from '../../shared/whiteboard';
-import { store } from '../state';
-import { toast } from './dom';
+import type { ClientMsg, ServerMsg } from '../../../shared/protocol';
+import { WB_MAX_ELEMENT_BYTES, byIndex, newer, type WbElement, type WbPointer } from '../../../shared/whiteboard';
+import { store } from '../../state';
+import { toast } from '../../ui/dom';
 
 /** How often your changes, and your mouse, go out while you draw. */
 const SEND_MS = 50;

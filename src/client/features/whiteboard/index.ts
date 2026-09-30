@@ -3,7 +3,7 @@ import type { Ctx } from '../../core/context';
 import { aside, hintTitle, key, onE } from '../../core/hint';
 import { store } from '../../state';
 import { clip } from '../../ui/dom';
-import { mirrorWhiteboard, openWhiteboard } from '../../ui/whiteboard';
+import { mirrorWhiteboard, openWhiteboard } from './ui';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {

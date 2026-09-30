@@ -10,7 +10,7 @@ import { gong } from '../gong';
 import { jukebox } from '../../features/jukebox/world';
 import { bookshelf } from '../bookshelf';
 import { cabinet } from '../../features/cabinet/world';
-import { whiteboard } from '../whiteboard';
+import { whiteboard } from '../../features/whiteboard/world';
 import { green, tee } from '../../features/golf/world';
 import { stack } from '../stack';
 import { tower } from '../tower';
