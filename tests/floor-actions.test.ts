@@ -50,8 +50,38 @@ test('FloorActions names a floor id and refuses nothing about who is asking', ()
   // The rule that must not quietly grow a role check: nothing on this surface asks who is asking.
   assert.doesNotMatch(source, /admin|isAdmin|role|accountId|canHire/i, 'the action surface must not carry a permission');
   // Every hire-shaped method returns a refusal string rather than throwing, which is how the office
-  // already reports a refusal to the person who asked.
-  assert.match(source, /\| string;/, 'hires and seats report a refusal');
+  // already reports a refusal to the person who asked. It is Awaitable because a hosted floor answers
+  // over the socket; a floor in this process still returns the value directly.
+  assert.match(source, /\| string>/, 'hires and seats report a refusal');
+  assert.match(source, /export type Awaitable<T> = T \| Promise<T>;/, 'and may have crossed a socket to do it');
+});
+
+test('the three kinds of call are split by what the office does with the answer', () => {
+  // This split is the whole reason the proxy can exist. A method whose result the office branches on
+  // has to be awaited, because a hosted floor answers it over the network. A read the floor streams
+  // upward stays synchronous, so a hosted floor costs no round trip for it. A write nobody reads the
+  // answer to is shipped and forgotten, with the outcome arriving later as an event.
+  const source = readFileSync(path.join(root, 'src/server/floor-actions.ts'), 'utf8');
+
+  // Synchronous reads: answered from the mirror the host keeps.
+  for (const m of ['list(): WorkerInfo[]', 'get(id: string): WorkerInfo | undefined', 'deskOccupied(deskId: string): boolean', 'state(): QueueState']) {
+    assert.ok(source.includes(m), `${m} should stay synchronous — the floor streams it upward`);
+  }
+
+  // Awaited writes: the office shows the refusal or reacts to the result.
+  for (const m of ['spawn(', 'station(', 'add(prompt: string', 'dropIssue(issue: number): Awaitable<boolean>', 'label(deskId']) {
+    assert.ok(source.includes(m), `${m} should be awaited — the office branches on its result`);
+  }
+
+  // Fire-and-forget: nobody reads the answer.
+  for (const m of ['write(id: string, data: string, by: string): void', 'resize(id: string, cols: number, rows: number): void', 'skip(by: string): void', 'move(taskId: string, delta: -1 | 1): void']) {
+    assert.ok(source.includes(m), `${m} should stay void — nobody reads its answer`);
+  }
+
+  // And the three that are not on the surface at all, because they are files on the host. Prose in
+  // the comments names them, so this looks for interface members rather than the words.
+  assert.doesNotMatch(source, /^\s+(whiteboard|dog|docs)\s*:/m, 'a hosted floor must never have the office read its checkout');
+  assert.doesNotMatch(source, /^\s+readonly (whiteboard|dog|docs)\b/m);
 });
 
 test('the 43 floor cases map onto the interface, not onto the class', () => {

@@ -35,7 +35,7 @@ import { findWorker, readHireRequest, readHomeRequest, workerRow, type PullsView
 import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
 import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
-import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState, SignInKind, WorkerInfo } from '../shared/protocol.js';
+import type { ChatLine, ClientMsg, ForgeKind, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState, SignInKind, WorkerInfo } from '../shared/protocol.js';
 import { FORGE_COMMENT_MAX, FORGE_LABEL, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import { DESK_BY_ID, elevatorSpot, nextFreeSeat, streetBelow } from '../shared/layout.js';
 import { OFFICE_MAP, seatHereOn } from '../shared/maps/index.js';
@@ -352,7 +352,7 @@ export async function startServer(cfg: Config) {
     };
     if (req.method === 'GET') return send(res, 200, view());
     if (req.method === 'DELETE') {
-      const err = floor.queue.remove(url.searchParams.get('task') ?? '');
+      const err = await floor.queue.remove(url.searchParams.get('task') ?? '');
       return err ? send(res, 400, { error: err }) : send(res, 200, view());
     }
     if (req.method !== 'POST') return send(res, 405, { error: 'GET, POST or DELETE' });
@@ -364,7 +364,7 @@ export async function startServer(cfg: Config) {
     }
     const issue = Number.isInteger(body?.issue) && (body.issue as number) > 0 ? (body.issue as number) : undefined;
     // Its tasks run as whoever the board agent runs as.
-    const err = floor.queue.add(str(body?.prompt, 20000), agent.name, str(body?.title, 200) || undefined, issue, undefined, undefined, undefined, floor.workers.ownerOf(agent.id));
+    const err = floor.queue.add(str(body?.prompt, 20000), agent.name, str(body?.title, 200) || undefined, issue, undefined, undefined, undefined, await floor.workers.ownerOf(agent.id));
     if (err) return send(res, 400, { error: err });
     const task = floor.queue.state().tasks.at(-1)!;
     toastFloor(floor, `📋 The ${agent.name} queued ${issue !== undefined ? `issue #${issue}` : `“${task.title}”`}`);
@@ -458,7 +458,7 @@ export async function startServer(cfg: Config) {
       if (w.kind !== 'agent') return send(res, 400, { error: `${w.name} is a shell, not an agent` });
       const text = str(b.prompt, 20000).replace(/\r\n?/g, '\n').trim();
       if (!text) return send(res, 400, { error: 'Say what to tell it: prompt' });
-      let err = floor.workers.prompt(w.id, text, who);
+      let err = await floor.workers.prompt(w.id, text, who);
       // Stopped or asleep: it wakes up with this as its next message.
       if (err === 'Worker is not running') err = floor.workers.resume(w.id, text);
       if (err) return send(res, 400, { error: err });
@@ -477,7 +477,7 @@ export async function startServer(cfg: Config) {
     if (!floors.has(floor.id)) return send(res, 410, { error: 'This floor closed' });
     // It runs as whoever the asking worker runs as.
     const owner = floor.workers.ownerOf(me.id);
-    const r = floor.workers.spawn(desk, who, ask.prompt, worktree, 'agent', provider, ask.model, ask.effort, undefined, owner);
+    const r = await floor.workers.spawn(desk, who, ask.prompt, worktree, 'agent', provider, ask.model, ask.effort, undefined, owner);
     if (typeof r === 'string') return send(res, 400, { error: r });
     toastFloor(floor, `${who} hired ${r.name}${ask.issue ? ` for issue #${ask.issue}` : ' with a task'}`);
     if (ask.issue) {
@@ -1425,7 +1425,9 @@ export async function startServer(cfg: Config) {
    * password it's the office's own). Without one it looks again, since they may have just signed
    * in from a shell, and otherwise tells them why (`refused`, else a toast) and opens their sign-ins.
    */
-  const withSignIn = (c: Client, which: SignInKind | undefined, go: () => void, refused?: (why: string) => void) => {
+  // `go` may be async: a hosted floor answers a hire over the socket, so the callback that reacts to
+  // it has to be able to wait. Callers ignore the result either way.
+  const withSignIn = (c: Client, which: SignInKind | undefined, go: () => void | Promise<void>, refused?: (why: string) => void) => {
     const id = c.accountId;
     const ready = (a: string) => (which ? signins.ready(a, which) : true);
     if (!which || !id || ready(id)) return go();
@@ -1457,7 +1459,7 @@ export async function startServer(cfg: Config) {
    * account, or an admin's choice). Someone signed in to GitHub but standing on a Bitbucket floor is
    * asked for their Bitbucket sign-in, which is the one that floor acts with.
    */
-  const withForge = (c: Client, floor: Floor, go: (as: ForgeAs | undefined) => void, refused?: (why: string) => void) =>
+  const withForge = (c: Client, floor: { forge: { kind: ForgeKind } }, go: (as: ForgeAs | undefined) => void | Promise<void>, refused?: (why: string) => void) =>
     withSignIn(
       c,
       floor.forge.kind,
@@ -1472,7 +1474,12 @@ export async function startServer(cfg: Config) {
   /** Needs a Claude sign-in of its own when the worker it starts runs Claude. */
   const claudeFor = (provider: string | undefined): SignInKind | undefined => (provider === 'claude' ? 'claude' : undefined);
 
-  const handleMessage = (c: Client, msg: ClientMsg) => {
+  // Async because a hosted floor answers some of these over a socket: a write whose result the office
+// branches on (a hire, a queue add, a merge) has to be awaited, and a floor running here returns its
+// value directly instead. Awaiting a value that is not a promise is a no-op, so an office-side floor
+// costs nothing for it. The caller does not await this, so a refusal still reaches the browser the
+// same way: through the socket, when it resolves.
+const handleMessage = async (c: Client, msg: ClientMsg) => {
     const who = c.peer.name;
     /** The floor `c` is on, or a note to them that they have to be on one. */
     const here = (): Floor | undefined => {
@@ -1729,8 +1736,8 @@ export async function startServer(cfg: Config) {
           repos.push({ floor: other.id, name: other.def.name, repo: other.def.repo, dir: other.dir });
         }
         // A shell is theirs too: `claude auth login` or `gh auth login` typed there signs them in.
-        const hire = () => {
-          const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort, undefined, c.accountId, repos, msg.via === 'herald' ? 'herald' : undefined);
+        const hire = async () => {
+          const r = await floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort, undefined, c.accountId, repos, msg.via === 'herald' ? 'herald' : undefined);
           const issue = kind === 'agent' ? issueNumber(msg.issue) : undefined;
           const across = repos.length ? ` across ${[floor.def.name, ...repos.map((x) => x.name)].join(' + ')}` : '';
           if (typeof r === 'string') warn(c, r);
@@ -1828,8 +1835,8 @@ export async function startServer(cfg: Config) {
         const deskId = str(msg.deskId, 32);
         // Nobody there yet: whoever asks first hires it, on their own sign-ins.
         const hires = !floor.workers.deskOccupied(deskId);
-        withSignIn(c, hires ? claudeFor(floor.workers.officeDefault.provider) : undefined, () => {
-          const r = floor.workers.station(deskId, who, str(msg.prompt, 20000), c.accountId);
+        withSignIn(c, hires ? claudeFor(floor.workers.officeDefault.provider) : undefined, async () => {
+          const r = await floor.workers.station(deskId, who, str(msg.prompt, 20000), c.accountId);
           if (typeof r === 'string') warn(c, r);
           else if (r.hired) toastFloor(floor, `${who} asked the ${r.info.name} something`);
         });
@@ -1965,12 +1972,12 @@ export async function startServer(cfg: Config) {
           c,
           floor,
           (as) =>
-            void floor.forge.close(kind, n, { comment: str(msg.comment, 20000).trim() || undefined, reason, deleteBranch: msg.deleteBranch === true }, as).then((error) => {
+            void floor.forge.close(kind, n, { comment: str(msg.comment, 20000).trim() || undefined, reason, deleteBranch: msg.deleteBranch === true }, as).then(async (error) => {
               sendTo(c, { t: 'gh.closed', kind, number: n, error });
               if (error) return;
               if (kind === 'pull') return toastFloor(floor, `${who} closed PR #${n} without merging`);
               // Nobody should be seated for an issue that's closed.
-              const dropped = floor.queue.dropIssue(n);
+              const dropped = await floor.queue.dropIssue(n);
               toastFloor(floor, `${who} closed issue #${n}${reason === 'not planned' ? ' as not planned' : ''}${dropped ? ' and took it off the queue' : ''}`);
             }),
           (error) => sendTo(c, { t: 'gh.closed', kind, number: n, error }),
@@ -2012,8 +2019,8 @@ export async function startServer(cfg: Config) {
         const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
         const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
         // Its worker runs on the sign-ins of whoever queued it, whenever it gets a desk.
-        withSignIn(c, claudeFor(msg.provider ?? floor.workers.officeDefault.provider), () => {
-          const err = floor.queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model, effort, c.accountId);
+        withSignIn(c, claudeFor(msg.provider ?? floor.workers.officeDefault.provider), async () => {
+          const err = await floor.queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model, effort, c.accountId);
           if (err) warn(c, err);
           else toastFloor(floor, `📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`);
         });
@@ -2255,7 +2262,7 @@ export async function startServer(cfg: Config) {
       case 'decor.add': {
         const floor = here();
         if (!floor) break;
-        const d = floor.decor.add(msg.decor, who);
+        const d = await floor.decor.add(msg.decor, who);
         if (typeof d === 'string') return warn(c, d);
         decorChanged(floor);
         toastFloor(floor, `🖼️ ${who} hung ${d.title ? `“${d.title}”` : 'a picture'}`);
@@ -2264,7 +2271,7 @@ export async function startServer(cfg: Config) {
       case 'decor.update': {
         const floor = here();
         if (!floor) break;
-        const d = floor.decor.update(str(msg.id, 32), msg.decor);
+        const d = await floor.decor.update(str(msg.id, 32), msg.decor);
         if (typeof d === 'string') return warn(c, d);
         decorChanged(floor);
         break;
@@ -2272,7 +2279,7 @@ export async function startServer(cfg: Config) {
       case 'decor.remove': {
         const floor = here();
         if (!floor) break;
-        const d = floor.decor.remove(str(msg.id, 32));
+        const d = await floor.decor.remove(str(msg.id, 32));
         if (!d) break;
         decorChanged(floor);
         toastFloor(floor, `${who} took down ${d.title ? `“${d.title}”` : 'a picture'}`);
@@ -2282,7 +2289,7 @@ export async function startServer(cfg: Config) {
         const floor = here();
         if (!floor) break;
         const deskId = str(msg.deskId, 32);
-        const r = floor.plan.label(deskId, msg.text, msg.color, who);
+        const r = await floor.plan.label(deskId, msg.text, msg.color, who);
         if (typeof r === 'string') return warn(c, r);
         if (!r.label && !r.old) break;
         planChanged(floor);
@@ -2294,7 +2301,7 @@ export async function startServer(cfg: Config) {
       case 'floor.expand': {
         const floor = here();
         if (!floor) break;
-        const r = floor.plan.expand();
+        const r = await floor.plan.expand();
         if (typeof r === 'string') return warn(c, r);
         planChanged(floor);
         toastFloor(floor, `🔨 ${who} knocked out the back wall: ${r.map((id) => DESK_BY_ID.get(id)?.label).join(' and ')} are ready for workers`);
@@ -2303,7 +2310,7 @@ export async function startServer(cfg: Config) {
       case 'floor.shrink': {
         const floor = here();
         if (!floor) break;
-        const r = floor.plan.shrink((id) => floor.workers.deskOccupied(id));
+        const r = await floor.plan.shrink((id) => floor.workers.deskOccupied(id));
         if (typeof r === 'string') return warn(c, r);
         planChanged(floor);
         toastFloor(floor, `🧱 ${who} walled the back office back up, and ${r.map((id) => DESK_BY_ID.get(id)?.label).join(' and ')} went with it`);
@@ -2342,7 +2349,7 @@ export async function startServer(cfg: Config) {
       case 'jukebox.play': {
         const floor = here();
         if (!floor) break;
-        const r = floor.jukebox.play({ track: msg.track, url: msg.url }, who);
+        const r = await floor.jukebox.play({ track: msg.track, url: msg.url }, who);
         if ('error' in r) return warn(c, r.error);
         if (!r.changed) break;
         jukeboxChanged(floor);

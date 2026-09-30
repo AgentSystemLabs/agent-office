@@ -34,6 +34,7 @@ import type {
   GhMergeMethod,
   MeetingRequest,
   MeetingState,
+  QueueState,
   TerminalHit,
   WorkerInfo,
   WorkerKind,
@@ -49,6 +50,20 @@ import type { Landed } from './leave-on-merge.js';
 import type { ForgeAs } from './signins.js';
 import type { OpenedPr, RepoSource } from './workers.js';
 
+/**
+ * A value that may have had to cross a network to get here.
+ *
+ * A floor running in this process returns the value; a floor hosted on a member's machine returns a
+ * promise, because the answer came over that machine's socket. Callers `await` either way, and
+ * awaiting something that is not a promise is a no-op — so an office-side floor pays nothing for the
+ * possibility, and neither signature has to lie about what it does.
+ *
+ * Only the calls whose **result the office branches on** are Awaitable. Everything else is either a
+ * plain read (answered from the mirror the host streams upward, so it stays synchronous) or a write
+ * nobody reads the answer to (shipped and forgotten, with the outcome arriving later as an event).
+ */
+export type Awaitable<T> = T | Promise<T>;
+
 /** A seat: one desk, either free or taken. What a hire looks at before it happens. */
 export interface FloorSeat {
   deskId: string;
@@ -61,22 +76,24 @@ export interface FloorSeat {
  */
 export interface FloorForge {
   readonly kind: ForgeKind;
-  refresh(): Promise<void>;
-  claim(issue: number, as?: ForgeAs): Promise<string | undefined>;
-  merge(n: number, method: GhMergeMethod, deleteBranch: boolean, auto: boolean, as?: ForgeAs): Promise<string | undefined>;
-  comment(kind: 'issue' | 'pull', n: number, body: string, as?: ForgeAs): Promise<{ comment?: GhComment; error?: string }>;
-  close(kind: 'issue' | 'pull', n: number, opts: { comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }, as?: ForgeAs): Promise<string | undefined>;
-  setLabels(kind: 'issue' | 'pull', n: number, add: string[], remove: string[], as?: ForgeAs): Promise<{ labels?: GhLabel[]; error?: string }>;
+  refresh(): Awaitable<void>;
+  claim(issue: number, as?: ForgeAs): Awaitable<string | undefined>;
+  merge(n: number, method: GhMergeMethod, deleteBranch: boolean, auto: boolean, as?: ForgeAs): Awaitable<string | undefined>;
+  comment(kind: 'issue' | 'pull', n: number, body: string, as?: ForgeAs): Awaitable<{ comment?: GhComment; error?: string }>;
+  close(kind: 'issue' | 'pull', n: number, opts: { comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }, as?: ForgeAs): Awaitable<string | undefined>;
+  setLabels(kind: 'issue' | 'pull', n: number, add: string[], remove: string[], as?: ForgeAs): Awaitable<{ labels?: GhLabel[]; error?: string }>;
 }
 
 /** The workers' desks, and the terminals on them. */
 export interface FloorWorkers {
+  // Reads: answered from the roster and worker updates the floor streams upward, so a hosted floor
+  // costs no round trip for any of them.
   list(): WorkerInfo[];
   get(id: string): WorkerInfo | undefined;
   ownerOf(id: string): string | undefined;
   deskOccupied(deskId: string): boolean;
 
-  // Hires and sends home. Each returns `string` for a refusal the caller shows the person asking.
+  // Hires and sends home. Each returns a refusal the caller shows, so each is awaited.
   spawn(
     deskId: string,
     by: string,
@@ -90,19 +107,19 @@ export interface FloorWorkers {
     owner?: string,
     repos?: RepoSource[],
     via?: 'herald',
-  ): WorkerInfo | string;
+  ): Awaitable<WorkerInfo | string>;
   /** A board agent on a station desk: told what it is there for before its first request. */
-  station(deskId: string, by: string, text: string, owner?: string): { info: WorkerInfo; hired: boolean } | string;
-  resume(id: string, prompt?: string): string | undefined;
-  prompt(id: string, text: string, by?: string): string | undefined;
+  station(deskId: string, by: string, text: string, owner?: string): Awaitable<{ info: WorkerInfo; hired: boolean } | string>;
+  resume(id: string, prompt?: string): Awaitable<string | undefined>;
+  prompt(id: string, text: string, by?: string): Awaitable<string | undefined>;
   kill(id: string, cleanup?: WorktreeCleanup): Promise<{ note?: string; error?: string }>;
 
   /** The terminal. `attach` replays the last screen, which is how a joining browser catches up. */
-  attach(id: string, clientId: string, name: string): { data: string; cols: number; rows: number } | undefined;
+  attach(id: string, clientId: string, name: string): Awaitable<{ data: string; cols: number; rows: number } | undefined>;
   detach(id: string, clientId: string): void;
   write(id: string, data: string, by: string): void;
   resize(id: string, cols: number, rows: number): void;
-  search(needle: string, perWorker: number): { hits: TerminalHit[]; more: boolean };
+  search(needle: string, perWorker: number): Awaitable<{ hits: TerminalHit[]; more: boolean }>;
 
   rebuild(id: string): Promise<{ rebuilt?: boolean; note?: string; error?: string }>;
   inspectWorktree(id: string): Promise<WorktreeState | undefined>;
@@ -112,15 +129,16 @@ export interface FloorWorkers {
 
 /** The task queue. Per floor, so a hosted floor's queue is the member's. */
 export interface FloorQueue {
-  state(): unknown;
-  add(prompt: string, by: string, title?: string, issue?: number, provider?: AgentProvider, model?: string, effort?: AgentEffort, owner?: string): string | undefined;
-  remove(taskId: string): void;
-  /** -1 moves it up, +1 down. */
+  state(): QueueState;
+  add(prompt: string, by: string, title?: string, issue?: number, provider?: AgentProvider, model?: string, effort?: AgentEffort, owner?: string): Awaitable<string | undefined>;
+  /** The office reads the refusal, so this one is awaited. */
+  remove(taskId: string): Awaitable<string | undefined>;
+  /** -1 moves it up, +1 down. Nobody reads the answer. */
   move(taskId: string, delta: -1 | 1): void;
-  retry(taskId: string): string | undefined;
+  retry(taskId: string): Awaitable<string | undefined>;
   clear(): void;
   setLimit(n: number): void;
-  dropIssue(issue: number): boolean;
+  dropIssue(issue: number): Awaitable<boolean>;
 }
 
 /**
@@ -142,11 +160,11 @@ export interface FloorChanges {
 
 /** The signs over the desks, and how far the back office is built out. */
 export interface FloorPlan {
-  label(deskId: string, text: unknown, color: unknown, by: string): { label?: DeskLabel; old?: DeskLabel } | string;
-  expand(): string[] | string;
+  label(deskId: string, text: unknown, color: unknown, by: string): Awaitable<{ label?: DeskLabel; old?: DeskLabel } | string>;
+  expand(): Awaitable<string[] | string>;
   /** Takes a predicate rather than reading the desks itself, so a hosted floor can answer from its
    *  own roster: the office never reads a hosted floor's desks directly. */
-  shrink(taken: (deskId: string) => boolean): string[] | string;
+  shrink(taken: (deskId: string) => boolean): Awaitable<string[] | string>;
   /** How far the back office is built out, so the office knows which desks exist to hire at. */
   readonly wing: number;
 }
@@ -154,37 +172,40 @@ export interface FloorPlan {
 /** Pictures on the walls. */
 export interface FloorDecor {
   list(): Decoration[];
-  add(input: unknown, by: string): Decoration | string;
-  update(id: string, patch: unknown): Decoration | string;
-  remove(id: string): Decoration | undefined;
+  add(input: unknown, by: string): Awaitable<Decoration | string>;
+  update(id: string, patch: unknown): Awaitable<Decoration | string>;
+  remove(id: string): Awaitable<Decoration | undefined>;
 }
 
 /** The room's music, the ball game, the cars, and the meeting room. */
 export interface FloorRoom {
-  play(input: { track?: unknown; url?: unknown }, by: string): { changed: boolean } | { error: string };
+  play(input: { track?: unknown; url?: unknown }, by: string): Awaitable<{ changed: boolean } | { error: string }>;
   skip(by: string): void;
-  stop(by: string): boolean;
+  stop(by: string): Awaitable<boolean>;
   title(): string;
   state(): JukeboxState;
 }
 
 export interface FloorCourt {
-  take(id: string): boolean;
-  throw(id: string, s: { x: number; y: number; z: number; vx: number; vy: number; vz: number }): boolean;
+  // The office branches on these (does the ball change hands), so they are awaited.
+  take(id: string): Awaitable<boolean>;
+  throw(id: string, s: { x: number; y: number; z: number; vx: number; vy: number; vz: number }): Awaitable<boolean>;
   state(): BallState;
 }
 
 export interface FloorGarage {
-  enter(id: string, car: number, seat: CarSeat): boolean;
-  leave(id: string): boolean;
-  drive(id: string, car: number, pose: CarPose): CarPose | undefined;
-  honk(id: string): number | undefined;
+  // The office branches on enter/leave (did the client get in), so those are awaited. drive and honk
+  // are read too, by the browser.
+  enter(id: string, car: number, seat: CarSeat): Awaitable<boolean>;
+  leave(id: string): Awaitable<boolean>;
+  drive(id: string, car: number, pose: CarPose): Awaitable<CarPose | undefined>;
+  honk(id: string): Awaitable<number | undefined>;
   state(): CarState[];
 }
 
 export interface FloorMeetings {
-  start(req: MeetingRequest, by: string, owner?: string): string | undefined;
-  stop(by: string): string | undefined;
+  start(req: MeetingRequest, by: string, owner?: string): Awaitable<string | undefined>;
+  stop(by: string): Awaitable<string | undefined>;
   state(): MeetingState;
 }
 
@@ -233,3 +254,24 @@ export interface FloorHostState {
   /** Named for whoever is told why a hire was refused. */
   machine: string;
 }
+
+/**
+ * Where a floor's action surface meets the wire, the split is worth stating once:
+ *
+ *   **synchronous** — `workers.list/get/ownerOf/deskOccupied`, `queue.state`, `forge.pulls`,
+ *   `decor.list`, `plan.wing`, `jukebox.state`, `court.state`, `garage.state`. The floor streams
+ *   these upward as they change, so the office already holds them and a read costs no round trip.
+ *
+ *   **Awaitable** — the calls whose result the office branches on: every hire and its refusal, a
+ *   queue add, a merge, a label change, a sign. A floor in this process returns the value; a hosted
+ *   one returns a promise. Both are awaited, and awaiting a plain value is a no-op, so neither has to
+ *   lie about what it does.
+ *
+ *   **void** — writes nobody reads the answer to: a keystroke, a resize, a honk, a whiteboard stroke.
+ *   Shipped and forgotten, with the outcome arriving later as an event.
+ *
+ * Three features are **not on this surface at all**, because they are files in the floor's own data
+ * directory and the office must never read a hosted floor's checkout: the whiteboard, the dog and the
+ * docs. `RemoteFloor` refuses them by name, which is honest; making them RPCs would put every
+ * whiteboard stroke on the wire, and that is a latency question worth measuring before designing.
+ */

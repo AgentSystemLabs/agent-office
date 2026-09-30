@@ -728,6 +728,12 @@ export interface FloorInfo {
   cloning?: boolean;
   /** The project the office was started in (`agent-office <dir>`): the office keeps its own data in its checkout. */
   local?: boolean;
+  /**
+   * The machine this floor runs on, when it is not the office. Shown on the elevator panel and in
+   * every refusal, so nobody has to guess whose machine they are about to hire on. Absent means the
+   * floor runs on the office's own machine, which is every floor an office has had until now.
+   */
+  host?: { id: string; name: string; reachable: boolean };
   addedBy: string;
   addedAt: number;
   /**

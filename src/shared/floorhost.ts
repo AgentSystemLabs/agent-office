@@ -130,7 +130,7 @@ export type FromFloor =
   /** A worker's terminal output, for whoever has that terminal open. */
   | { t: 'term.data'; floorId: string; workerId: string; data: string }
   | { t: 'report'; floorId: string; workerId: string; pr?: { number: number; url: string }; cost?: number; tokens?: number }
-  | { t: 'refused'; floorId: string; workerId?: string; reason: string }
+  | { t: 'refused'; floorId: string; workerId?: string; reason: string; seq?: number }
   /** Sent before the handshake finishes, to say why a connection was turned away. */
   | { t: 'refused'; why: string }
   | { t: 'ping'; at: number }
