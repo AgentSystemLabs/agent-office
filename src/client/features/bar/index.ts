@@ -25,6 +25,8 @@ export interface BarDeps {
 export function installBar(ctx: Ctx, deps: BarDeps) {
   /** Drinks from the bar, and how they make the world look (see booze.ts, world/drunk.ts). */
   const booze = new Booze();
+  /** What they do to you (see player/effects.ts): how drunk you are, as drinking has it each frame. */
+  const tipsy = ctx.player.effects.add();
   const drunkVision = new DrunkVision(ctx.renderer);
 
   /** What the bartender says as they slide it over. */
@@ -107,7 +109,7 @@ export function installBar(ctx: Ctx, deps: BarDeps) {
     const amount = booze.amount(secs);
     const player = ctx.player;
     const hands = ctx.hands;
-    player.drunk = ctx.reduceMotion.matches ? 0 : Math.min(1.3, amount);
+    tipsy.sway = ctx.reduceMotion.matches ? 0 : Math.min(1.3, amount);
     const glass = booze.holding(secs);
     ctx.me.holdDrink(glass);
     hands.holdDrink(glass);

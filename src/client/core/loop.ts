@@ -49,14 +49,14 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
 
   /** Coffee, and the view's shake easing off. */
   function feelTheCoffee({ dt, now }: Frame) {
-    const { player, me, hands, reduceMotion } = ctx;
+    const { me, hands, reduceMotion } = ctx;
     // Coffee: quicker feet, higher jumps, a mug in hand, and maybe the jitters.
-    const { caffeine } = parts.coffee;
+    const { caffeine, buzz } = parts.coffee;
     const secs = now / 1000;
-    player.speedBoost = caffeine.speed(secs);
-    player.jumpBoost = caffeine.jump(secs);
+    buzz.speed = caffeine.speed(secs);
+    buzz.jump = caffeine.jump(secs);
     core.thud = Math.max(0, core.thud - dt * 2.5);
-    player.jitter = reduceMotion.matches ? 0 : Math.max(caffeine.jitter(secs), core.thud);
+    buzz.jitter = reduceMotion.matches ? 0 : Math.max(caffeine.jitter(secs), core.thud);
     const mug = caffeine.buzzed(secs);
     // Not while both your hands are on something else (the club, at the tee).
     me.holdMug(mug && !ctx.activities.any('bothHands'));
@@ -73,7 +73,7 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
     // Holding on to the ladder or a pole (see ctx.view).
     const grip = ctx.view.grip();
     me.setGrip(grip);
-    me.update(dt, t, (player.moving && player.grounded) || (grip === 'ladder' && player.moving), !player.grounded && !grip && !ctx.activities.any('hidesHands'), player.speedBoost);
+    me.update(dt, t, (player.moving && player.grounded) || (grip === 'ladder' && player.moving), !player.grounded && !grip && !ctx.activities.any('hidesHands'), player.effects.speed);
     me.setVoiceLevel(voice.inVoice ? voice.localLevel : 0);
     const firstPerson = player.view === 'first';
     // In first person you are the camera; in third, hide yourself when it's zoomed in right behind your head.
@@ -81,7 +81,7 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
     // So is the camera over your shoulder at the dart board or the axe lane.
     me.root.visible = ctx.activities.any('takesCamera') || (!firstPerson && camera.position.distanceTo(headPos.set(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5);
     // In a car, your hands are on the wheel, out of sight.
-    if (firstPerson && !ctx.activities.any('hidesHands')) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded, jitter: player.jitter, grip });
+    if (firstPerson && !ctx.activities.any('hidesHands')) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded, jitter: player.effects.jitter, grip });
     // What you're doing widens the view (down a pole) or narrows it (at the oche or the line), and once
     // it's set, may take it over (the telescope) or streak its edges (down a pole): see ctx.view.
     const fov = ctx.view.fov(FOV);

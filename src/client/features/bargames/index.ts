@@ -76,7 +76,7 @@ export function installBarGames(ctx: Ctx, deps: BarGamesDeps) {
   ctx.ticks.add('play', ({ dt }) => {
     // Pulled away from the line (sat down, into the elevator): the dart or axe goes back.
     if (thrower.active && (ctx.trip() || ctx.activities.running('hanger') || ctx.activities.running('climber') || ctx.player.seat || !ctx.upTop())) thrower.stop();
-    thrower.drunk = ctx.player.drunk;
+    thrower.drunk = ctx.player.effects.sway;
     thrower.update(dt);
   });
 
