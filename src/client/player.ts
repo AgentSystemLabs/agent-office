@@ -20,6 +20,12 @@ export const HIPS = 0.42;
 const GET_UP = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
 const LOOK_SPEED = 0.0022; // radians per pixel of mouse movement while the pointer is locked
 const DRAG_LOOK_SPEED = 0.005;
+/**
+ * Taking the mouse back from a click (see lock's `settle`): how long it must rest once it's taken
+ * before it looks around, in ms, and how long at most the view is held still for.
+ */
+const SETTLE_REST = 250;
+const SETTLE_MAX = 1000;
 const CENTER = new THREE.Vector2(0, 0);
 
 export class PlayerController {
@@ -102,6 +108,11 @@ export class PlayerController {
   private escDownAt = 0;
   /** Asked for while Esc was down: taken once it comes up (see lock). */
   private lockOnEscUp = false;
+  /** The lock asked for is to settle (see lock), and until when (ms) a lock that landed so still is. */
+  private settleNext = false;
+  private settleUntil = 0;
+  /** When the mouse last moved, or a lock that settles landed. */
+  private movedAt = 0;
   enabled = true;
   /** False while the mouse picks something else (an emote on the wheel), so it doesn't turn the camera. */
   mouseLook = true;
@@ -166,10 +177,18 @@ export class PlayerController {
       }
     });
     window.addEventListener('pointermove', (e) => {
+      const now = performance.now();
+      const rested = now - this.movedAt;
+      this.movedAt = now;
       if (!this.mouseLook) return;
       if (this.locked) {
         // Held for a moment under a window (see yieldMouse), the mouse doesn't turn your head.
         if (!this.enabled) return;
+        // Taken back from a click, the hand that clicked may be moving on still: that isn't looking around.
+        if (this.settleUntil) {
+          if (rested < SETTLE_REST && now < this.settleUntil) return;
+          this.settleUntil = 0;
+        }
         // Some platforms report a bogus huge jump right after locking.
         const clamp = (v: number) => THREE.MathUtils.clamp(v, -250, 250);
         this.look(clamp(e.movementX) * LOOK_SPEED, clamp(e.movementY) * LOOK_SPEED);
@@ -199,6 +218,10 @@ export class PlayerController {
       }
       this.everLocked = true;
       this.drag = null;
+      // The pause to click doesn't count as the hand coming to rest: only once it's taken.
+      if (this.settleNext) this.movedAt = performance.now();
+      this.settleUntil = this.settleNext ? this.movedAt + SETTLE_MAX : 0;
+      this.settleNext = false;
       // A lock that lands with a window open (the one yieldMouse takes, or a relock racing the next window) is let go.
       if (!this.enabled) this.unlock();
     });
@@ -270,8 +293,13 @@ export class PlayerController {
     return this.enabled && codes.some((c) => this.keys.has(c));
   }
 
-  /** Captures the mouse for looking around, as the first click on the scene does. */
-  lock() {
+  /**
+   * Captures the mouse for looking around, as the first click on the scene does. With `settle` (a
+   * click just closed a window), the view holds still until the mouse comes to rest, so the rest of
+   * the hand's move doesn't swing it somewhere else.
+   */
+  lock(settle = false) {
+    this.settleNext = settle;
     // Still being let go of, for a window that closed again at once: taken back once it's free.
     if (this.locked && this.letting) this.lockAfter = true;
     if (this.locked || this.lockPending) return;

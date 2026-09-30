@@ -4122,6 +4122,10 @@ onDoingChange(() => sendDoing());
  * takes it instead (a key counts for the browser, where the Esc that closed the window doesn't).
  */
 let relookOnKey = false;
+/** Whether the last thing you pressed was a mouse button rather than a key (see backToGame). Captured, before a window acts on it. */
+let pressedMouse = false;
+window.addEventListener('pointerdown', () => (pressedMouse = true), true);
+window.addEventListener('keydown', () => (pressedMouse = false), true);
 onModalChange((open) => {
   if (open) telescope.exit();
   player.enabled = !open;
@@ -4155,7 +4159,8 @@ function backToGame() {
   // The browser lets a page re-capture the mouse it let go of itself (see yieldMouse), even on Esc
   // (which it doesn't count as a click or key), and any time after a click, like one on ✕. When it
   // won't (nothing of yours opened the window, or a stricter browser), the next key you press does.
-  player.lock();
+  // Closed with a click (Send home, ✕), the view waits for the hand that clicked to come to rest.
+  player.lock(pressedMouse);
   relookOnKey = true;
 }
 document.addEventListener('pointerlockchange', () => {
