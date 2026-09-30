@@ -1249,6 +1249,16 @@ function downstairs(): boolean {
   return !upTop && player.pos.y < -SLAB - 1;
 }
 
+/**
+ * Inside the office on your floor, its back office as far as it's built out too: not out on the
+ * balcony, the fire escape, the street or the golf course across it, nor down in the garage.
+ */
+function indoors(): boolean {
+  const p = player.pos;
+  if (upTop || !inOffice() || p.y < -1 || p.y > WALL_HEIGHT) return false;
+  return (p.x > FLOOR.minX && p.x < FLOOR.maxX && p.z > FLOOR.minZ && p.z < FLOOR.maxZ) || inWing(p.x, p.z, officeWing());
+}
+
 /** On your feet at `at`, facing `rotY` and looking straight ahead. */
 function placeAt(at: { x: number; y: number; z: number; rotY: number }) {
   if (player.seat) standUp();
@@ -1417,6 +1427,12 @@ function switchFloor(floorId: string, keepWalking = false): void {
   if (upTop && !inOffice()) return leaveRoofFor(floorId);
   if (upTop || floorId === ROOF) return ride(floorId);
   if (trip || floorId === store.floor) return;
+  // Outside, the same spot on another floor looks just like this one: the elevator brings you in
+  // to that floor instead, into its car.
+  if (inOffice() && !indoors()) {
+    if (walkingTo && !keepWalking) stopWalking();
+    return ride(floorId, keepWalking);
+  }
   closeAllModals();
   if (hanger.active) hanger.cancel();
   if (climber.active) climber.abort();
@@ -4345,7 +4361,7 @@ $('hud').addEventListener('click', (e) => {
 // The project in the corner is the floor you're on; click it for the list of floors to go to.
 $('project').addEventListener('click', () => {
   if (!store.floor) return showElevator();
-  toggleFloorMenu($('project'), { go: switchFloor, elevator: showElevator, roof: inOffice() ? () => ride(ROOF) : null });
+  toggleFloorMenu($('project'), { go: switchFloor, indoors: () => (!inOffice() && !upTop) || indoors(), elevator: showElevator, roof: inOffice() ? () => ride(ROOF) : null });
 });
 
 // ---- The HUD: a few buttons on the top bar, everything else in the ☰ menu ----------------------------
