@@ -96,10 +96,15 @@ the unions that already exist is not.
 
 | Direction | Payload | Notes |
 |---|---|---|
-| office → host | `ClientMsg`, floor-scoped subset | already JSON, already validated at the top |
-| host → office | `ServerMsg` via `FloorContext.emit` | already JSON |
-| host → office | control: `hello`, `ready`, `bye`, `heartbeat` | new, small |
+| office → host | `ClientMsg`, floor-scoped subset, **plus `floorId`** | already JSON, already validated at the top |
+| host → office | `ServerMsg` via `FloorContext.emit`, **plus `floorId`** | already JSON |
+| host → office | control: `hello`, `ready`, `bye`, `heartbeat` | new, small; `ready` is **per floor** |
 | either | terminal bytes, screen frames | ride the two channels above |
+
+**Every data frame carries `floorId`**, because one connection carries N floors (decision 6, [one
+socket, many floors](#one-socket-many-floors)). `ready` is the one control frame that is per floor,
+not per socket: the host announces each floor it serves — its roster, seats, and whether it is
+accepting — so a disconnect can mark them all offline in a single pass.
 
 The office's own state also reaches the host on `ready` and on change, over the same socket:
 `prompts`, `capacity`, `leaveOnMerge`, `people`, `peers`, and each worker's `pr` and
@@ -219,9 +224,10 @@ Why the change:
 4. **The kill switch is physical.** Pull the connection; the floor stops. Nothing in the bridge
    design was that immediate or that clearly hers.
 
-What does **not** change: the permission model, the refusal table, the accepting toggle, seats, the
-`--isolate` question, and every finding below about what the code actually does. Those were written
-for a bridge and they hold for a floor host with the unit renamed.
+What does **not** change: the permission model, the refusal table, the accepting toggle, seats, and
+every finding below about what the code actually does. Those were written for a bridge and they hold
+for a floor host with the unit renamed. The `--isolate` question does not survive at all — see
+[containment](#containment-is-not-built-and-that-is-the-decision).
 
 ## What was checked, and what came back
 
@@ -611,24 +617,75 @@ What a hosted floor genuinely changes is **blast radius, not permission**. Today
 a worker is typing into a shell on the office's own machine, under the office's own operator. With a
 floor hosted on a member's laptop, the same open door leads to a shell on that member's laptop, as
 them, written by whoever typed the prompt. Every containment measure in this feature — seats, the
-accepting toggle, `--isolate container`, no office-side scrollback — exists for that reason and for
-no other.
+accepting toggle, no office-side scrollback — exists for that reason and for no other.
 
 One thing is better than the bridge here and should be said plainly: **the floor's owner holds the
 connection.** An accepting toggle can be read as a policy; a closed socket is not. Anyone
 implementing Phase D should read the accepting toggle as *an automation gate*, not as a permission
 system, and should not add a role check anywhere else without asking first.
 
+### Containment is not built, and that is the decision
+
+**Decision 1 is settled: there is no `--isolate container`.** The proposal called the bridge "the
+sharpest surface in the project" and proposed a flag that runs the agent in a container with the
+worktree mounted and the host's home not. It is not built. Nothing is refused either, and nothing
+downgrades gracefully — a hosted floor is a member's home directory, reachable, by everyone in the
+office, to the same degree the office's own machine is today.
+
+That is a deliberate acceptance, and it should be legible in the product rather than buried in a
+doc. Two things are cheap and non-negotiable:
+
+1. **The pairing dialog states the exposure in one sentence**, in the member's own terms — that
+   workers here run as them and can read `~/.ssh`, `~/.config/gh` and `.env`. That is not a warning
+   bolted on; it is the thing being consented to.
+2. **The kill switch is the real containment**, and it is the floor's owner's alone. Closing the
+   laptop ends it. Nobody in the office can refuse a member's machine and nobody in the office can
+   keep it running — which is a stronger position than any flag could give.
+
+The measures that *are* built — seats, the accepting toggle, no office-side scrollback — are about
+**capacity and cost**, not about the home directory. Anyone reading them as a security boundary would
+be wrong, so Phase D says so where it implements them.
+
+If this decision is ever revisited, the argument for adding isolation later still holds: it is
+host-side, it needs no protocol change, and a PTY is a PTY either way. Nothing built here forecloses
+it.
+
+### One socket, many floors
+
+**Decision 6 is settled: one connection carries N floors.** One socket from a member's machine serves
+any number of floors on it, and **every frame names its floor** — that is the cost, and it is paid
+once, in the frame union, rather than in every rule that follows.
+
+It also fixes, deliberately, **the socket as the unit of failure** rather than the floor:
+
+| Event | Consequence |
+|---|---|
+| Host closes the laptop | **all** its floors go `offline` together; every worker on them is `interrupted` and asleep until **R** |
+| Pairing revoked | **all** its floors go inert in the same event, and nothing on that machine can be restarted |
+| Socket reconnects | the host re-announces its whole roster; each floor resumes only if a human presses **R** |
+
+Revocation is the one that has to be unambiguous. "Drop one floor" is *not* offered in Phase C —
+`hosts.remove()` kills the connection, and every floor that host carried goes with it. That is the
+only behaviour the security story supports, and offering a per-floor revoke later would need the
+"which floor admitted this host" question answered first.
+
+One consequence worth writing down because it is easy to get wrong: **a socket-level drop is not N
+independent `gone` events.** `PtyExit.gone` (finding 1) fires per worker, and the office must
+therefore compute "this host is gone" **once**, mark all its floors offline in a single pass, and let
+the per-worker `gone` handling follow. Otherwise the first worker's `gone` resumes or marks the host
+back online while the rest are still settling — a race on exactly the path the plan calls the most
+important change in the feature.
+
 ## Decisions to lock before writing code
 
 | # | Question | Recommendation | Consequence of the other way |
 |---|---|---|---|
-| 1 | Does the office refuse a floor host without `--isolate container` from anyone who is not the operator? (proposal risk 1) | **No**, refuse nothing; make the setting loud and default it on | Refusing makes the feature unusable for the group it is for, and the isolation flag is a host-side choice the office cannot verify anyway |
+| 1 | Does the office refuse a floor host without `--isolate container` from anyone who is not the operator? (proposal risk 1) | **Decided: no isolation is built.** No `--isolate` flag, no refusal, and the pairing dialog says plainly what hosting a machine exposes | Refusing would exclude exactly the members the feature is for, and the office cannot verify a host-side flag anyway. The exposure is accepted deliberately — see [containment](#containment-is-not-built-and-that-is-the-decision) |
 | 2 | Does a hosted floor without seats also need per-hire human approval? (risk 2) | **No.** The accepting toggle is the control — see [the permission model](#the-permission-model-stated-plainly) | Per-hire approval kills the queue automation that is the reason to build this |
 | 3 | Do hosted workers count against `--max-workers` and the queue's *workers at once*? (risk 7) | **Yes**, both | Not counting them is how a five-person office spends five people's money on one laptop |
 | 4 | Two offices, one machine — supported, tolerated or refused? (risk 8) | **Tolerated**, tested | Refusing breaks a legitimate setup; supporting it properly is more work than it looks |
 | 5 | Whose git identity does a hosted floor push with? (risk 10) | **The host's**, shown in the pairing dialog and the desk sign | The office's identity would put a stranger's commits in the operator's name |
-| 6 | Is a floor's `host` scoped to that floor only, or may one host serve several? | **One floor per host connection** for Phase C; several later | Several floors per connection is cheaper later and confusing now — it makes revocation ambiguous |
+| 6 | Is a floor's `host` scoped to that floor only, or may one host serve several? | **Decided: N floors per connection.** One socket carries any number of floors; every frame names its floor | Revocation then has to kill **all** of a host's floors at once, and a dropped socket takes every one of them `offline` in the same event. Both are handled by making the socket, not the floor, the unit of failure — see [one socket, many floors](#one-socket-many-floors) |
 | 7 | Does a forwarded frame carry the worker's hook token, or the host's token? | **Settled — finding 2.** There is no forwarding and no proxy: the hook server, the `randomBytes(16)` token (`:1640`), the worker and every `safeEq` check (`:1128`–`:1405`) are on the host's loopback. `ctx.hook` must be host-local; no attribution problem arises | — the bridge's proxy is what created it, and there is no equivalent to build |
 | 8 | **New:** does the office keep a scrollback mirror for a hosted floor? | **No.** Search and join-replay are served by the host | A mirror costs every byte twice and re-creates the retention decision finding 4 was meant to remove |
 | 9 | **New:** what office-wide state does the host receive (finding 2)? | **Answered** in [What the host receives](#what-the-host-receives-and-what-it-must-not): `agentCmd`, `agentArgs`, `dshProfile`, `prompts`, `capacity`, `leaveOnMerge`, `people`, `peers`. **`runAs`, `forgeAs` and `floor(id)` are withheld** — the first two are sign-ins, the third is cross-floor reach | Shipping `runAs` puts a member's Claude credentials on another machine, which is the one thing the design exists to prevent |
@@ -673,7 +730,8 @@ The pieces everything else needs. No UI, no hosted floor in the product yet.
 
 1. **`src/shared/floorhost.ts`** (new) — `FLOORHOST_PROTOCOL` version, the `ToHost` / `FromHost`
    frame unions, and the small validators. Written from scratch: there is no schema to reuse
-   (finding 8).
+   (finding 8). Every data frame carries `floorId` (decision 6), so the registry is
+   `host → floors` rather than one floor per socket.
 2. **`readMessages` for WebSockets** in `ptys.ts`, or a `frameReader()` both can use. Keep the
    newline-delimited JSON framing; it is already the office's shape.
 3. **`src/server/hosts.ts`** (new) — the pairing registry, modelled on `accounts.ts`: `sync()` on
@@ -691,7 +749,8 @@ The pieces everything else needs. No UI, no hosted floor in the product yet.
    shipped for a remote one. **A test asserts the count**, so a case added to the switch without a
    decision about where it runs fails rather than silently staying office-side.
 8. **The worker→host index** that replaces `workerFloor`'s linear scan (`server.ts:256`) for hosted
-   floors, fed from the host's `ready` roster.
+   floors, fed from each floor's `ready` roster and keyed `floorId → host`, since one socket carries
+   many floors.
 9. **`PtyExit.gone` + the `wakeAll` guard** (finding 1). Landing here, not in Phase C, because every
    later test depends on a dropped socket not spinning.
 10. **`RemoteFloor`** — the proxy the office uses in place of a `Floor` for a hosted floor,
@@ -740,10 +799,13 @@ mid-turn leaves everything `offline`, not spinning.
    [What the host receives](#what-the-host-receives-and-what-it-must-not): eight members go to the
    host, `runAs`, `forgeAs` and `floor(id)` do not. Enforced in one place, with a test that a hosted
    floor's context carries no sign-ins.
-5. **`--isolate container`**, and the office refusing meetings, `repos`, the changes window and the
-   budget for a hosted worker as refusals rather than degraded modes — where the refusal cannot be
-   served by the host.
-6. **Revocation is immediate**: dropping a host connection makes the floor inert and its workers
+5. **The refusals a hosted floor genuinely cannot serve** — meetings, `repos`, the changes window and
+   the budget, where the answer needs office-side state — refused outright rather than degraded.
+   **No `--isolate container`** (decision 1): the office refuses nothing on those grounds, and the
+   pairing dialog is where a member learns what hosting their machine means.
+6. **Revocation is immediate and total**: dropping a host connection makes **every floor it carried**
+   inert and their workers `offline` in one event. No per-floor revoke — see
+   [one socket, many floors](#one-socket-many-floors).
    `offline`, with no way for the office to restart them.
 
 **Exit:** two members hosting floors in one office, with the authority rules enforced by test.
@@ -751,7 +813,8 @@ mid-turn leaves everything `offline`, not spinning.
 ### Phase E — the surfaces
 
 1. ⚙️ Settings → **Floors** shows where each floor runs, with the pairing flow — list, approve,
-   revoke, and the one sentence about what someone is admitting.
+   revoke, and the one sentence about what someone is admitting. **Revoking names the machine, and
+   takes every floor it carried with it** (decision 6), so the confirm dialog counts them.
 2. `hosts.*` messages in `protocol.ts`, the `hosts.get` group mirroring `accounts.get`, admin-gated
    the same way.
 3. The sign over a hosted desk — *💻 the laptop* — and the desk sign carrying the host's name. Needs
@@ -795,8 +858,9 @@ to test the generated payload and normalisation, not the upstream CLI; a hosted 
 | `tests/floorhost.test.ts` (new) | A fake host — a `WebSocketServer` on an ephemeral port — driven through the real pairing check. Message round trips, byte and resize round trips, exit codes. **`ctx.hook` is host-local and no hook frame ever crosses the socket** (decision 7). **The office never opens a hosted floor's `def.dir`.** A dropped socket leaves the floor and its workers `offline` and asleep, not spinning. |
 | `tests/floorhost.test.ts` (new) | **The count.** Exactly 44 cases in `handleMessage` act on a `Floor`, and every one of them routes to a hosted floor. A 45th case added to the switch without a decision fails the build rather than silently staying office-side. |
 | `tests/floorhost.test.ts` (new) | **No sign-ins cross the wire.** A hosted floor's `FloorContext` carries `agentCmd`, `prompts`, `capacity`, `leaveOnMerge`, `people`, `peers` — and no `runAs`, no `forgeAs`, and a `floor(id)` that refuses to reach across an office boundary (decision 9). |
+| `tests/floorhost.test.ts` (new) | **Two floors on one socket stay separate.** A frame naming floor A is never applied to floor B, and a frame with an unknown `floorId` is refused rather than guessed at — the multiplex cost of decision 6, which is the whole reason `floorId` is mandatory on every frame. |
 | `tests/floorhost.test.ts` (new) | **The permission model, as a test.** A plain member — not an admin — can spawn onto a hosted desk, type into it, prompt it, and send it home, and every refusal is about seats or kind rather than role. Send-home sends `stop` and the host, not the office, removes the worktree. A member may spawn onto a floor that is *not* accepting; an agent on `/office/workers` may not. |
-| `tests/hosts.test.ts` (new) | Pairing codes: single-use, expiring, capped, revocable at once. A revoked token is refused on the next upgrade. The `mtimeMs:size` sync picks up `agent-office hosts approve` while the office runs. |
+| `tests/hosts.test.ts` (new) | Pairing codes: single-use, expiring, capped, revocable at once. A revoked token is refused on the next upgrade. The `mtimeMs:size` sync picks up `agent-office hosts approve` while the office runs. **One socket carries three floors; revoking it makes all three inert in one event** (decision 6). **A dropped socket marks all of its floors `offline` in a single pass** — not one `gone` per worker, which would race the host back online. |
 | `tests/worktrees.test.ts` (extend) | Two hosted workers get two directories; send-home removes only its own. Mirrors the existing `fixture(t)` pattern — a real git triple in a tmpdir. |
 | `tests/workers.test.ts` (extend) | Persistence and restore of a hosted worker, including the `offline`-until-the-host-returns boot path and the interrupted-mid-turn flag on a dropped socket. |
 | `tests/queue.test.ts` (extend) | A task aimed at a floor whose host is disconnected stays queued and is **not** failed. A task aimed at a floor that is not accepting is refused with a message naming the machine. |
@@ -804,12 +868,12 @@ to test the generated payload and normalisation, not the upstream CLI; a hosted 
 | `tests/status.test.ts` (new) | **`workerPr` on a hosted floor's four inputs, and nothing else.** A worker whose `pr` arrives only via `worker.update`, whose branch matches only a streamed `gh.pulls`, and whose PR exists only in a streamed `queue` — resolves to `open`, then `merged`, so `landedWork` sends it home. `workerPr` has no test at all today; this is finding 3's whole surviving lesson, since the fix turned out to be "the streams already carry it." |
 | `tests/changes.test.ts` (extend) | The Changes window for a hosted floor is served by the host, not by reading `def.dir` office-side. |
 
-Five properties deserve their own test names because they are the ones that would silently rot:
+Six properties deserve their own test names because they are the ones that would silently rot:
 *no hosted worker is left in `working` forever*; *the office never reads a hosted floor's checkout*;
-*a disconnected host leaves a floor listed but inert, never dropped from the building*; *no sign-in
-crosses the wire to a host*; and *every case in `handleMessage` that acts on a floor reaches it*.
-The last two are new here, and they are the ones that make a mistake in this feature loud instead of
-invisible.
+*a disconnected host leaves its floors listed but inert, never dropped from the building*; *no
+sign-in crosses the wire to a host*; *every case in `handleMessage` that acts on a floor reaches
+it*; and *a frame never touches a floor it did not name*. The last is new with decision 6 — one
+socket, many floors, and `floorId` mandatory on every frame.
 
 The permission model gets the same treatment, for the same reason. It is the easiest thing in the
 feature to break by accident — a seat check or an accepting toggle written one role check too early —
@@ -820,11 +884,11 @@ above is the guard.
 
 Beyond the nine decisions above, three things this plan cannot settle:
 
-1. **Is `--isolate container` a Phase C requirement or a Phase D one?** The proposal puts it in Phase
-   2 and its risk 1 calls the bridge "the sharpest surface in the project". Those pull in opposite
-   directions. This plan follows the proposal (Phase D) on the grounds that the wire and the seam
-   carry the value and isolation is a Dockerfile — but if the answer is Phase C, the frame design
-   needs the isolation mode in `ready` from the start.
+1. **~~Is `--isolate container` a Phase C requirement or a Phase D one?~~ Settled by decision 1: no
+   isolation is built, so there is no phase for it to land in.** Nothing in the frame design carries
+   an isolation mode, and Phase D refuses nothing on those grounds. The open question this replaces is
+   whether the exposure is acceptable *for the group this is for* — which is a judgement about who
+   hosts floors, not about code, and belongs in the pairing dialog rather than here.
 2. **Who runs the Phase A spike?** It needs two machines and someone who can sleep a laptop on
    purpose. It is the only phase that is not parallelisable, and everything after it depends on its
    answer.
