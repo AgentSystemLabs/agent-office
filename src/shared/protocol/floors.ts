@@ -44,6 +44,8 @@ export interface FloorInfo {
   palette: number;
   /** Being cloned: on the elevator panel, but nobody can go there yet. */
   cloning?: boolean;
+  /** How the clone is getting on, once git says. */
+  clone?: CloneProgress;
   /** The project the office was started in (`agent-office <dir>`): the office keeps its own data in its checkout. */
   local?: boolean;
   addedBy: string;
@@ -59,6 +61,16 @@ export interface FloorInfo {
   people: number;
   /** How many rows its back office is built out (see WING), for the building's outside. */
   wing: number;
+}
+
+/** How far a new floor's clone has got, from git's progress. */
+export interface CloneProgress {
+  /** What it's doing, in words: "Downloading", "Checking out files"… */
+  step: string;
+  /** How far through that step, 0–100, when git says. */
+  percent?: number;
+  /** How much has come down and how fast, like "231.4 MiB · 1.5 MiB/s". */
+  detail?: string;
 }
 
 /** Where the elevator's "add a project" clones to: <dir>/<owner>/<repo> on the office's machine. */
@@ -125,6 +137,8 @@ export type FloorClientMsg =
   | { t: 'floor.repos'; refresh?: boolean }
   /** Clone a repository and make it a new floor; answered with `floor.added` once it's there. */
   | { t: 'floor.add'; repo: string }
+  /** Stop a floor's clone before it's there (admins, or whoever added it); the one who added it hears `floor.added` with why. */
+  | { t: 'floor.cancel'; floor: string }
   /** Take a floor off the building (admins only). Its checkout stays on disk; everyone on it rides to another floor. */
   | { t: 'floor.remove'; floor: string }
   /** Where new floors are cloned from now on (admins only); '' goes back to the default. */

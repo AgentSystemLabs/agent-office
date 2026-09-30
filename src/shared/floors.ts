@@ -1,6 +1,8 @@
 // The building: every project is a floor you ride the elevator to. Shared by the server (which
 // assigns each floor its look) and the client (which paints it).
 
+import type { CloneProgress } from './protocol.js';
+
 /** The most floors a building has. */
 export const MAX_FLOORS = 16;
 
@@ -55,4 +57,14 @@ export function normalizeRepo(value: unknown): string | undefined {
 
 export function sameRepo(a: string | undefined, b: string | undefined): boolean {
   return !!a && !!b && a.toLowerCase() === b.toLowerCase();
+}
+
+/** What a floor's clone is doing: "Downloading 64%". */
+export function cloneStep(p: CloneProgress | undefined): string {
+  return `${p?.step ?? 'Cloning'}${p?.percent !== undefined ? ` ${p.percent}%` : '…'}`;
+}
+
+/** A floor's clone in a few words, for the floor lists: "⏳ Downloading 64%". */
+export function cloneLabel(p: CloneProgress | undefined): string {
+  return `⏳ ${cloneStep(p)}`;
 }

@@ -7,6 +7,7 @@
 import { Net } from './net';
 import { AVATAR_COLORS, loadProfile, loadSettings, saveProfile, store } from './state';
 import { randomLook } from '../shared/avatar';
+import { cloneLabel } from '../shared/floors';
 import { ROOF } from '../shared/rooftop';
 import { DESK_BY_ID, nextFreeSeat } from '../shared/layout';
 import { isAsleep } from '../shared/status';
@@ -94,7 +95,7 @@ function offTheRoof() {
 
 // ---- The floor you're on ------------------------------------------------------------------------
 const floorSelect = $('floor') as HTMLSelectElement;
-const floorLabel = (f: FloorInfo) => `${f.name}${f.cloning ? ' (cloning…)' : f.waiting ? ` · 🙋 ${f.waiting}` : ''}`;
+const floorLabel = (f: FloorInfo) => `${f.name}${f.cloning ? ` (${cloneLabel(f.clone)})` : f.waiting ? ` · 🙋 ${f.waiting}` : ''}`;
 
 function renderFloors() {
   const options = store.floors.map((f) => h('option', { value: f.id, disabled: !!f.cloning }, floorLabel(f)));

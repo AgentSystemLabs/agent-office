@@ -1,5 +1,5 @@
 import './floormenu.css';
-import { floorPalette } from '../../shared/floors';
+import { cloneLabel, floorPalette } from '../../shared/floors';
 import { ROOF, ROOF_NAME } from '../../shared/rooftop';
 import type { FloorInfo } from '../../shared/protocol';
 import { store } from '../state';
@@ -41,7 +41,7 @@ export function toggleFloorMenu(anchor: HTMLElement, opts: FloorMenuOptions): vo
     const n = Math.abs(i - here);
     const where = isHere ? 'you are here' : here < 0 ? '' : `${i > here ? '⬆' : '⬇'} ${n} floor${n === 1 ? '' : 's'} ${i > here ? 'up' : 'down'}`;
     const stats: HTMLElement[] = [];
-    if (f.cloning) stats.push(h('span', {}, '⏳ Cloning…'));
+    if (f.cloning) stats.push(h('span', { title: f.clone?.detail ?? 'Being cloned' }, cloneLabel(f.clone)));
     else {
       if (f.waiting) stats.push(h('span.waiting', { title: 'Workers waiting on someone' }, `🙋 ${f.waiting}`));
       if (f.busy) stats.push(h('span', { title: 'Working' }, `👷 ${f.busy}`));

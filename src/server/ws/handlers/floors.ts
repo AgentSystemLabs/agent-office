@@ -28,10 +28,15 @@ export const floorHandlers = {
     const who = c.peer.name;
     const repo = str(msg.repo, 200);
     void ctx.building
-      .add(repo, who, (def) => {
-        ctx.floorsChanged();
-        ctx.toastAll(`🛗 ${who} is adding a floor for ${def.repo ?? def.name}…`);
-      })
+      .add(
+        repo,
+        who,
+        (def) => {
+          ctx.floorsChanged();
+          ctx.toastAll(`🛗 ${who} is adding a floor for ${def.repo ?? def.name}…`);
+        },
+        c.accountId,
+      )
       .then((r) => {
         ctx.floorsChanged();
         if (typeof r === 'string') return ctx.sendTo(c, { t: 'floor.added', repo, error: r });
@@ -41,6 +46,15 @@ export const floorHandlers = {
         ctx.toastAll(`🛗 New floor: ${r.name}, added by ${who}`);
         ctx.sendTo(c, { t: 'floor.added', repo, floor: floor.id });
       });
+  },
+  'floor.cancel'(ctx, c, msg) {
+    const who = c.peer.name;
+    const admin = ctx.meOf(c.accountId).admin;
+    const id = str(msg.floor, 64);
+    const def = ctx.building.pending().find((d) => d.id === id);
+    const err = ctx.building.cancel(id, `${who} stopped the clone`, (owner) => admin || (!!owner && owner === c.accountId));
+    if (err) ctx.warn(c, err);
+    else ctx.toastAll(`🛗 ${who} stopped cloning ${def?.repo ?? def?.name ?? 'a floor'}`);
   },
   'floor.remove'(ctx, c, msg) {
     const who = c.peer.name;
