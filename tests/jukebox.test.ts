@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Jukebox } from '../src/server/jukebox.js';
 import { BALCONY_DOOR, ELEVATOR, EXIT_DOOR, FLOOR, JUKEBOX, WINDOWS } from '../src/shared/layout.js';
-import { JUKEBOX_HOME, JUKEBOX_TUNES, blocksOpening, jukeboxBox, jukeboxSpot, sameSpot, sanitizeSpot } from '../src/shared/jukebox.js';
+import { JUKEBOX_HOME, JUKEBOX_TUNES, blocksOpening, checkStreamUrl, isStreamTrack, jukeboxBox, jukeboxSpot, sameSpot, sanitizeSpot, stationUrl } from '../src/shared/jukebox.js';
 
 // Where the jukebox stands, the way you hang a picture: someone aims at a wall, the office checks
 // the spot and keeps it, and the music carries on from where it was.
@@ -151,5 +151,24 @@ test("the spot is saved in the floor's jukebox.json, next to what it is playing"
     const spot = jukeboxSpot('south', -9);
     new Jukebox(dir).place(spot);
     assert.deepEqual(JSON.parse(readFileSync(path.join(dir, 'jukebox.json'), 'utf8')).spot, spot);
+  });
+});
+
+test('a built-in station is one of the tunes, and plays its stream like a pasted one', () => {
+  const station = JUKEBOX_TUNES.find((t) => t.url);
+  assert.ok(station, 'a station ships with the jukebox');
+  assert.equal(stationUrl(station.id), station.url, 'its link is the one in the list');
+  assert.ok(!('error' in checkStreamUrl(station.url)), 'and it passes the same check as a pasted link');
+  assert.ok(isStreamTrack(station.id), 'it is played from the internet, not synthesized');
+  assert.ok(!isStreamTrack(JUKEBOX_TUNES[0].id), 'a tune is still a tune');
+
+  withFloor((dir) => {
+    const j = new Jukebox(dir);
+    assert.deepEqual(j.play({ track: station.id }, 'Cody'), { changed: true });
+    assert.equal(j.state().track, station.id);
+    assert.equal(j.state().on, true);
+    assert.equal(j.title(), station.title, 'it says the station is on');
+    // It is what the jukebox had, like any other tune, so a restart puts it straight back on.
+    assert.equal(new Jukebox(dir).state().track, station.id);
   });
 });

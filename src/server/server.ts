@@ -41,7 +41,7 @@ import { FORGE_COMMENT_MAX, FORGE_LABEL, GH_LABEL_MAX, isAgentEffort, isAgentPro
 import { DESK_BY_ID, elevatorSpot, nextFreeSeat, streetBelow } from '../shared/layout.js';
 import { OFFICE_MAP, seatHereOn } from '../shared/maps/index.js';
 import { EMPTY_PLAN } from '../shared/floorplan.js';
-import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
+import { JUKEBOX_TUNES, isStreamTrack } from '../shared/jukebox.js';
 import { TV_OFF } from '../shared/tv.js';
 import { checkFrame, scoreText, type CabinetFrame, type CabinetState } from '../shared/cabinet.js';
 import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
@@ -2403,7 +2403,7 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
         if ('error' in r) return warn(c, r.error);
         if (!r.changed) break;
         jukeboxChanged(floor);
-        toastFloor(floor, floor.jukebox.state().track === STREAM ? `📻 ${who} tuned the jukebox to ${floor.jukebox.title()}` : `🎵 ${who} put on “${floor.jukebox.title()}”`);
+        toastFloor(floor, isStreamTrack(floor.jukebox.state().track) ? `📻 ${who} tuned the jukebox to ${floor.jukebox.title()}` : `🎵 ${who} put on “${floor.jukebox.title()}”`);
         break;
       }
       case 'jukebox.skip': {

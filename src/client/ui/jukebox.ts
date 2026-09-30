@@ -1,4 +1,4 @@
-import { JUKEBOX_TUNES, STREAM, checkStreamUrl, trackTitle, tuneById } from '../../shared/jukebox';
+import { JUKEBOX_TUNES, checkStreamUrl, isStreamTrack, trackTitle, tuneById } from '../../shared/jukebox';
 import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, toast } from './dom';
@@ -20,7 +20,7 @@ export function openJukebox(net: Net, openVolume: () => void, onMove: () => void
       'div.body',
       {},
       now,
-      h('label', { style: 'margin-top:16px' }, 'Put on a tune'),
+      h('label', { style: 'margin-top:16px' }, 'Put on a tune or station'),
       list,
       h('label', { style: 'margin-top:16px' }, 'Or play a stream'),
       h('div.webhook', {}, url, playUrl),
@@ -33,14 +33,14 @@ export function openJukebox(net: Net, openVolume: () => void, onMove: () => void
 
   const render = () => {
     const j = store.jukebox;
-    const stream = j.track === STREAM;
+    const stream = isStreamTrack(j.track);
     now.replaceChildren(
       h('span.jb-disc', { class: j.on ? 'spin' : '' }, stream ? '📻' : '💿'),
       h(
         'div.svc-main',
         {},
         h('div.svc-title', {}, j.on ? trackTitle(j) : 'The jukebox is off'),
-        h('div.svc-meta', {}, j.on ? [stream ? 'a stream' : tuneById(j.track)?.mood, j.by && `put on by ${j.by}`].filter(Boolean).join(' · ') : j.by ? `${j.by} turned it off` : 'Pick a tune to put it on'),
+        h('div.svc-meta', {}, j.on ? [tuneById(j.track)?.mood ?? 'a stream', j.by && `put on by ${j.by}`].filter(Boolean).join(' · ') : j.by ? `${j.by} turned it off` : 'Pick a tune to put it on'),
       ),
       j.on ? button('⏭️ Skip', 'On to the next tune', () => net.send({ t: 'jukebox.skip' })) : button('▶️ Play', `Put ${trackTitle(j)} back on`, () => net.send({ t: 'jukebox.play' }), true),
       j.on ? button('⏹️ Stop', 'Turn the jukebox off', () => net.send({ t: 'jukebox.stop' })) : '',
@@ -51,7 +51,7 @@ export function openJukebox(net: Net, openVolume: () => void, onMove: () => void
         const li = h(
           'li',
           { class: playing ? 'on' : '', tabindex: 0, role: 'button', 'aria-pressed': String(playing), title: playing ? 'Playing now' : `Put on ${t.title}` },
-          h('span.jb-icon', {}, playing ? '🔊' : '🎵'),
+          h('span.jb-icon', {}, playing ? '🔊' : t.url ? '📻' : '🎵'),
           h('div.svc-main', {}, h('div.svc-title', {}, t.title), h('div.svc-meta', {}, t.mood)),
         );
         const pick = () => {
