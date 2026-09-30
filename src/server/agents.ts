@@ -1,9 +1,6 @@
 import path from 'node:path';
 import { AGENT_PROVIDERS, PROVIDER_META, isAgentEffort, providerMeta, providerNames, type AgentProvider } from '../shared/providers.js';
 
-// The model checks and their limits live with the providers table (the hire dialog uses them too).
-export { DSH_MODEL_MAX, GROK_MODEL_MAX, MUSE_MODEL_MAX, OPEN_CODE_MODEL_MAX, isValidDshModel, isValidGrokModel, isValidMuseModel, isValidOpenCodeModel } from '../shared/providers.js';
-
 /**
  * Finds the provider represented by the configured executable.  Keep this deliberately based on
  * the final path component: --agent may be an absolute path, and Windows paths can be supplied

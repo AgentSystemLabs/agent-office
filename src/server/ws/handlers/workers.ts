@@ -1,7 +1,7 @@
 // Workers at their desks and the board agents at their kiosks: hiring them, their terminals, their
 // worktrees and pull requests.
 import { MAX_REPOS, type RepoSource } from '../../workers.js';
-import { OPEN_CODE_MODEL_MAX } from '../../agents.js';
+import { OPEN_CODE_MODEL_MAX } from '../../../shared/providers.js';
 import { isAgentEffort, isAgentProvider, type WorkerClientMsg } from '../../../shared/protocol.js';
 import { issueNumber, num, str } from '../../office/input.js';
 import { here, workerOf } from './common.js';
