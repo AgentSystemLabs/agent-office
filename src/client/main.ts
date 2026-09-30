@@ -103,7 +103,7 @@ import { loadingScreen } from './ui/loading';
 import { SlowFrames } from './framerate';
 import { offerLite, touchOnly } from './ui/litesuggest';
 import { openDeskLabel, openExpand } from './ui/floorplan';
-import { Activities, Interactions, Keys, Messages, Ticks } from './core/registry';
+import { Activities, Interactions, Keys, Messages, Ticks, type Frame } from './core/registry';
 import type { Ctx, Hint, OfficeInteraction, StopWhy, Trip, TripKind } from './core/context';
 
 // The loading screen stays up until there's an office to see (see boot and whoami at the end).
@@ -214,6 +214,18 @@ ctx.keys.add('guard', (e) => {
 });
 // Whatever you're in the middle of has first go (see each activity's key).
 ctx.keys.add('activity', (e) => ctx.activities.key(e));
+
+// ---- The office's own parts of each frame (see Ticks, and the Main loop at the end) -------------------
+// Registered before anything else's, so within a phase they come first.
+ctx.ticks.add('pre', watchFrameRate);
+ctx.ticks.add('pre', feelTheCoffee);
+ctx.ticks.add('move', ({ dt }) => player.update(dt));
+ctx.ticks.add('me', moveMe);
+ctx.ticks.add('me', listen);
+ctx.ticks.add('me', tellWhereYouAre);
+ctx.ticks.add('world', updateWorld);
+ctx.ticks.add('env', updateSky);
+ctx.ticks.add('render', drawFrame);
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
@@ -424,6 +436,7 @@ tvMat.map = tvIdle;
 tvMat.toneMapped = false;
 // The boss's monitor upstairs: Minesweeper, from the boss's chair.
 const arcade = new Arcade(office.bossScreen);
+ctx.ticks.add('play', ({ dt }) => arcade.update(camera, dt));
 
 // ---- The rooftop bar ------------------------------------------------------------------------------
 /** Up on the roof: built the first time anyone goes up there. */
@@ -458,6 +471,14 @@ const djAt = () => djTime(store.officeNow());
 /** Drinks from the bar, and how they make the world look (see booze.ts, world/drunk.ts). */
 const booze = new Booze();
 const drunkVision = new DrunkVision(renderer);
+ctx.ticks.add('env', ({ dt, t }) => {
+  if (upTop && roof) {
+    // Everything up there moves to the DJ's set; strobes flash the whole roof as a drop lands.
+    const strobe = roof.update(t, dt, djFrame(djAt()), { dark: sky.lampsOn, motion: !reduceMotion.matches });
+    ambient.intensity += strobe * 1.5;
+    hemi.intensity += strobe * 0.8;
+  }
+});
 
 // ---- Networking & state -------------------------------------------------------------------------
 const net = new Net(() => store.profile, whereNow);
@@ -530,6 +551,10 @@ store.on('dog', () => {
   // The dog lives in the office: on a map of its own it stays home.
   if (!inOffice()) dog.root.visible = false;
 });
+ctx.ticks.add('others', ({ dt }) => {
+  // The dog is the office's: on a map of its own it stays at home, quiet.
+  if (inOffice()) dog.update(dt);
+});
 sound.setMusicVolume(settings.music, settings.musicMuted);
 sound.onMusicError = (text) => toast(text, 'warn');
 // The jukebox on your floor: everyone there hears it from the same bar, and its lights say what's on.
@@ -542,6 +567,7 @@ function playJukebox() {
 store.on('jukebox', playJukebox);
 // The arcade cabinet next to it: BLOCKFALL up close, and on its screen for everyone else on the floor.
 const cabinet = new Cabinet(office.cabinet.screen, net, { openTerminal: (id) => openWorkerTerminal(id), sound: (kind, lines) => sound.arcade(kind, lines) });
+ctx.ticks.add('play', ({ dt }) => cabinet.update(camera, dt));
 const notifier = new DesktopNotifier(() => settings.notify, (id) => openWorkerTerminal(id));
 
 // ---- Golf off the balcony --------------------------------------------------------------------------
@@ -598,6 +624,16 @@ ctx.activities.add({
   hint: (el) => renderGolfHint(el),
   takesCamera: true,
   hidesHands: true,
+});
+ctx.ticks.add('play', ({ dt }) => {
+  // Pulled away from the tee (sat down, off up the ladder, into the elevator): the club goes back.
+  if (golf.active && (trip || ctx.activities.running('hanger') || ctx.activities.running('climber') || player.seat || upTop)) golf.stop();
+  golf.update(dt);
+});
+// The balls in the air (none up on the roof, where the darts are), and the next one on the tee.
+ctx.ticks.add('play', ({ dt, now }) => {
+  balls.update(dt);
+  office.tee.ball.visible = golf.doing !== 'watch' && now > teeEmptyUntil;
 });
 balls.onHit = (hit: Hit, mine: boolean) => {
   // Your own ball's heard wherever it lands (the camera's following it); anyone else's from where it is.
@@ -706,6 +742,13 @@ ctx.activities.add({
   hint: (el) => renderThrowHint(el),
   takesCamera: true,
   hidesHands: true,
+});
+
+ctx.ticks.add('play', ({ dt }) => {
+  // Pulled away from the line (sat down, into the elevator): the dart or axe goes back.
+  if (thrower.active && (trip || ctx.activities.running('hanger') || ctx.activities.running('climber') || player.seat || !upTop)) thrower.stop();
+  thrower.drunk = player.drunk;
+  thrower.update(dt);
 });
 
 /** Who's at a game's line up here already, if anyone. */
@@ -824,6 +867,7 @@ ctx.activities.add({
   },
   hint: (el) => renderHangHint(el),
 });
+ctx.ticks.add('world', () => hanger.update());
 
 // ---- The ladder and the fire poles ----------------------------------------------------------------
 /** The floors of the building from the bottom up (not the ones still being cloned: nobody can go there yet). */
@@ -911,6 +955,12 @@ function usePole(i: number) {
   if (office.stack.polesGoDown()) climber.slide(spot);
   else climber.twirl(spot);
 }
+// Before the cars get a go at you (see their 'moved' tick): a car only shoves you down at the street, never at a pole's hole up on a floor.
+ctx.ticks.add('moved', () => {
+  // Walked into a pole's hole: you grab the pole on your way down it.
+  const hole = inOffice() && office.stack.polesGoDown() ? office.stack.poles().find((s) => Math.hypot(player.pos.x - s.x, player.pos.z - s.z) < POLE.hole - 0.15) : undefined;
+  if (hole && !climber.active && !trip && !player.seat && player.enabled && player.pos.y > -1.35 && player.pos.y < 0.6) climber.slide(hole);
+});
 
 // ---- The cars in the garage ------------------------------------------------------------------------
 /** car.enter and car.leave of yours the office hasn't answered yet: until it has, you're where you say you are. */
@@ -1027,6 +1077,42 @@ function lapDone(time: number) {
   else sound.arcade('clear');
   toast(done?.best ? `🏁 Lap of the scenic loop: ${lapTime(time)}, your best yet!` : `🏁 Lap of the scenic loop: ${lapTime(time)} (best ${lapTime(laps.best ?? time)})`, 'info');
 }
+
+ctx.ticks.add('vehicles', ({ dt, now }) => {
+  // The cars first, so whoever's riding in one sits in it where it's got to.
+  office.cars.update(dt, store.cars, store.carsAt, now, driver.active ? { car: driver.car!, driving: driver.driving } : null, camera.position);
+});
+/** When a car last shoved you out of its way. */
+let shovedAt = 0;
+ctx.ticks.add('moved', ({ now }) => {
+  // Timing a lap of the scenic loop, behind the wheel.
+  if (driver.driving && driver.pose) {
+    const lap = laps.update(driver.pose.x, driver.pose.z, now / 1000);
+    if (lap !== null) lapDone(lap);
+  } else laps.reset();
+  // A car coming at you where you stand: out of its way, with a thump if it was going.
+  if (inOffice() && !driver.active && !upTop && !trip) {
+    const hit = office.cars.shove(player.pos, null);
+    if (hit > 1.5 && now - shovedAt > 600) {
+      shovedAt = now;
+      sound.crash({ x: player.pos.x, y: player.pos.y + 0.8, z: player.pos.z }, hit / 2);
+      ctx.shake(Math.min(0.7, hit / 12));
+    }
+  }
+});
+ctx.ticks.add('others', () => {
+  // The engines of the cars being driven on this floor, yours (by how hard you're on the gas) and theirs.
+  const engines: Parameters<typeof sound.setEngines>[0] = [];
+  if (!upTop && inOffice()) {
+    for (const [i, c] of store.cars.entries()) {
+      const mine = driver.car === i && driver.driving;
+      if (!c.driver && !mine) continue;
+      const pose = office.cars.cars[i]?.pose ?? c;
+      engines.push({ car: i, at: { x: pose.x, y: player.street + 0.5, z: pose.z }, speed: pose.speed, gas: mine ? driver.gas : Math.min(1, Math.abs(pose.speed) / 10) });
+    }
+  }
+  sound.setEngines(engines);
+});
 
 /**
  * The office said who's in which car (`answer`: answering a car.enter or car.leave of yours). Once
@@ -1968,6 +2054,67 @@ store.on('peers', syncPeers);
 // Into a car or out of one: sitting in it, or back on their feet.
 store.on('cars', syncPeers);
 
+ctx.ticks.add('others', ({ dt, t, now }) => {
+  for (const [id, r] of remotes) {
+    const p = store.peers.get(id);
+    if (!p) continue;
+    // Sitting, they're wherever their seat puts them; in a car, right in it as it goes.
+    const ride = rideOf(id);
+    const sat = ride ?? (p.seat ? seatOn(plan(), p.seat) : undefined);
+    const at = sat ?? p;
+    r.target.set(at.x, at.y, at.z);
+    const pos = r.person.root.position;
+    if (ride) {
+      pos.copy(r.target);
+      r.person.root.rotation.y = ride.rotY;
+    } else {
+      pos.lerp(r.target, Math.min(1, dt * 12));
+      let diff = at.rotY - r.person.root.rotation.y;
+      diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+      r.person.root.rotation.y += diff * Math.min(1, dt * 12);
+    }
+    // On their feet if they're standing on something: the floor, a desk, a stair, the loft.
+    const ground = groundAt(player.colliders, p.x, p.z, p.y);
+    const airborne = !sat && p.y > ground + 0.05;
+    // Or holding on to the ladder or a pole; off a pole onto the mat, the firehouse bell rings.
+    const holding = sat || upTop || !inOffice() ? null : gripOf(p, office.stack.poles(), ground);
+    if (r.grip === 'pole' && !holding && Math.abs(p.y) < 0.2) sound.poleLanding(6, { x: pos.x, y: 0.5, z: pos.z });
+    r.grip = holding;
+    r.person.setGrip(holding);
+    const walking = !sat && p.moving && !airborne;
+    r.person.update(dt, t, walking || (holding === 'ladder' && p.moving), airborne && !holding && Math.abs(pos.y - r.target.y) > 0.01);
+    // Their walk cycle takes a step every π/11 seconds.
+    r.stepT = walking ? r.stepT + dt : 0.2;
+    if (r.stepT >= Math.PI / 11) {
+      r.stepT -= Math.PI / 11;
+      sound.stepAt(pos.x, pos.z);
+    }
+    r.person.setVoiceLevel(p.voice && !p.muted ? voice.levelOf(id) : 0);
+    r.person.emojiLift = r.bubble ? 0.45 : 0;
+    if (r.bubble && now > r.bubble.until) {
+      r.person.root.remove(r.bubble.sprite);
+      disposeSprite(r.bubble.sprite);
+      r.bubble = undefined;
+    }
+    const d = Math.hypot(pos.x - player.pos.x, pos.z - player.pos.z);
+    voice.setVolume(id, d < 4 ? 1 : Math.max(0.2, 1 - (d - 4) / 16));
+  }
+});
+let speakTick = 0;
+ctx.ticks.add('hud', ({ now }) => {
+  if (now - speakTick > 200) {
+    speakTick = now;
+    // What people are up to changes as they walk about, not only when they open something.
+    for (const [id, r] of remotes) {
+      const p = store.peers.get(id);
+      if (p) r.person.setDoing(whereabouts(p, store.carOf(id), plan()));
+    }
+    renderPeople(voice, editProfile, walkTo, false);
+    updateSpeaking(voice);
+    // People on other floors can't be heard here (their voice connection stays up for when you meet).
+    for (const p of store.peers.values()) if (p.id !== store.you && !store.onMyFloor(p)) voice.setVolume(p.id, 0);
+  }
+});
 ctx.messages.on('chat', (msg) => sayBubble(msg.from, msg.text));
 ctx.messages.on('peer.act', (msg) => {
   const r = remotes.get(msg.id);
@@ -2084,6 +2231,8 @@ function walkTick(now: number) {
   // Round the office's rooms and up its stairs; on a map of its own, round what's in the way on its floor.
   player.walkPath(inOffice() ? wayTo(player.pos, at, officeWing()) : world.nav.route([player.pos.x, player.pos.z], [at.x, at.z]).slice(1).map(([x, z]) => ({ x, z })));
 }
+
+ctx.ticks.add('steer', ({ now }) => walkTick(now));
 
 player.onPathEnd = (why) => {
   if (errand) return errandEnd(why);
@@ -2309,6 +2458,36 @@ function arrangeSeats() {
   for (const c of appeared) if (p.y > -0.1 && p.y < c.top && p.x > c.minX - 0.3 && p.x < c.maxX + 0.3 && p.z > c.minZ - 0.3 && p.z < c.maxZ + 0.3) p.y = c.top;
 }
 store.on('workers', syncWorkers);
+const workerPos = new THREE.Vector3();
+/** When (performance.now()) the workers' looks were last brought up to how long they've worked. */
+let agedAt = 0;
+ctx.ticks.add('others', ({ dt, t, now }) => {
+  const camPos = camera.position;
+  // How worn out each looks, as they work on (every second or so is plenty).
+  const aging = !!plan().agents.ageMinutes && now - agedAt > 1000;
+  if (aging) agedAt = now;
+  for (const [id, v] of workerViews) {
+    const desk = plan().byId.get(v.deskId)!;
+    if (aging) {
+      const w = store.workers.get(id);
+      if (w) v.model.setAge(ageOf(w));
+    }
+    // A jumping worker holds still while you're near enough to read its card, and jumps again once you walk away.
+    const d = v.model.root.getWorldPosition(workerPos).distanceTo(player.pos);
+    v.model.held = d < (v.model.held ? HOLD_LEAVE : HOLD_NEAR);
+    v.model.update(dt, t);
+    // A board agent's kiosk has no laptop to paint (see buildKiosk).
+    if (!desk.station) v.laptop.update(dt, store.screens.get(id), Math.hypot(desk.x - camPos.x, desk.z - camPos.z));
+  }
+  for (const a of idleAgents) if (a.view.vacancy.visible) a.model.update(dt, t);
+  departures.update(dt, t);
+  if (!upTop) {
+    sendoffs.update(dt, t);
+    jail.update(dt, t, camera.position);
+  }
+  arrivals.update(dt);
+  court?.update(dt);
+});
 
 /** The floor plan last shown, to tell someone knocking through from arriving on a floor already built out (or back on the office's map). */
 let shownPlan: { floor: string | null; map: string; wing: number } = { floor: null, map: OFFICE_PLAN.id, wing: 0 };
@@ -2772,6 +2951,8 @@ function pointToWaiting(now: number) {
   }
   compass.update(camera, bearings, now);
 }
+// Over the frame once it's drawn (the camera's where it's drawn from).
+ctx.ticks.add('render', ({ now }) => pointToWaiting(now));
 
 /** Opening a sleeping worker's terminal wakes it, so there's nothing to press first. */
 function openWorkerTerminal(id: string, find?: TerminalFind) {
@@ -3228,6 +3409,12 @@ function drinking(now: number) {
   }
   return amount;
 }
+/** How drunk you are this frame (see drinking), for the drunk vision the frame's drawn through. */
+let drunkNow = 0;
+ctx.ticks.add('pre', ({ now }) => {
+  // Drinks from the rooftop bar: a glass in hand, and the world swaying.
+  drunkNow = drinking(now);
+});
 
 /** A cup from the kitchen machine: a minute of quicker feet and higher jumps, and a mug in your hand. */
 function drinkCoffee() {
@@ -3269,6 +3456,7 @@ function checkSmokeBreak(now: number) {
     toast("That one's done. Back to work!");
   }
 }
+ctx.ticks.add('world', ({ now }) => checkSmokeBreak(now));
 
 // ---- The basketball --------------------------------------------------------------------------------
 /** The floor's basketball, by the hoop on the west wall (see world/hoop.ts). */
@@ -3442,6 +3630,9 @@ function updateBall(now: number, dt: number) {
   updateScorePops(dt);
   renderShotMeter(now);
 }
+ctx.ticks.add('others', ({ dt, now }) => {
+  if (!upTop && inOffice()) updateBall(now, dt);
+});
 
 /** The wind-up meter over the hint, while you hold E: a green band where the shot drops in, when you're shooting at the hoop. */
 let meterKey = '';
@@ -4460,6 +4651,27 @@ canvas.addEventListener('pointermove', (e) => {
   (pointer ??= new THREE.Vector2()).set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
 });
 canvas.addEventListener('pointerleave', () => (pointer = null));
+// What you're pointing at (first person) or standing at (third), and what the hint bar says about it.
+ctx.ticks.add('aim', () => {
+  const firstPerson = player.view === 'first';
+  aimedNote = null;
+  if (modalOpen() || telescope.active || ctx.activities.busy()) target = null;
+  else if (firstPerson) {
+    const aim = aimedAt(CROSSHAIR);
+    target = aim?.near ? aim.it : (throneTarget() ?? mySeat() ?? (inOffice() ? ballAtFeet() : null));
+    if (aim?.near) aimedNote = noteUnder(aim);
+  } else {
+    target = throneTarget() ?? mySeat() ?? pickTarget();
+    // By the issues board, the mouse points at the note you'd take.
+    if (target?.kind === 'issues' && pointer) {
+      const aim = aimedAt(pointer, 2.5);
+      if (aim?.near) aimedNote = noteUnder(aim);
+    }
+  }
+  issuesTex.lift(aimedNote?.number ?? null);
+  renderHint();
+  renderCrosshair();
+});
 
 player.onClick = (ndc) => {
   // At the tee, a click is you steadying the mouse to aim: nothing else is in reach.
@@ -4769,31 +4981,33 @@ resize();
 const timer = new THREE.Timer();
 let lastSent = { x: 0, y: 0, z: 0, rotY: 0, moving: false, at: 0 };
 let spotSavedAt = 0;
-let speakTick = 0;
 /** Which half-stride your walk is on, so each one plays a footstep. */
 let stride = 0;
 /** How fast you were falling, so landing a jump thumps but stepping down a stair doesn't. */
 let fallV = 0;
 const lookDir = new THREE.Vector3();
-const workerPos = new THREE.Vector3();
 const headPos = new THREE.Vector3();
 /** Last frame went through the drunk vision. */
 let drunkVisionOn = false;
-/** When (performance.now()) the workers' looks were last brought up to how long they've worked. */
-let agedAt = 0;
 /** Frames coming too slowly for the 3D to be any fun: the 2D view is offered. */
 const slowFrames = new SlowFrames();
-/** When a car last shoved you out of its way. */
-let shovedAt = 0;
 
+/** Each frame: every phase's ticks, in order (see TICK_PHASES, and the office's own registered after the context). */
 function frame(ts?: number) {
   timer.update(ts);
   const delta = timer.getDelta();
-  const dt = Math.min(delta, 0.1);
-  const t = timer.getElapsed();
-  const now = performance.now();
-  if (slowFrames.frame(now, delta * 1000)) offer2d('slow');
+  ctx.ticks.run({ delta, dt: Math.min(delta, 0.1), t: timer.getElapsed(), now: performance.now() });
+  loading.drew();
+  requestAnimationFrame(frame);
+}
 
+/** Frames coming too slowly for the 3D to be any fun: the 2D view is offered. */
+function watchFrameRate({ now, delta }: Frame) {
+  if (slowFrames.frame(now, delta * 1000)) offer2d('slow');
+}
+
+/** Coffee, and the view's shake easing off. */
+function feelTheCoffee({ dt, now }: Frame) {
   // Coffee: quicker feet, higher jumps, a mug in hand, and maybe the jitters.
   const secs = now / 1000;
   player.speedBoost = caffeine.speed(secs);
@@ -4802,44 +5016,13 @@ function frame(ts?: number) {
   player.jitter = reduceMotion.matches ? 0 : Math.max(caffeine.jitter(secs), thud);
   const mug = caffeine.buzzed(secs);
   // Both hands are on the club at the tee.
-  me.holdMug(mug && !golf.active);
+  me.holdMug(mug && !ctx.activities.running('golf'));
   hands.holdMug(mug);
   renderCaffeine(caffeine, secs);
-  // Drinks from the rooftop bar: a glass in hand, and the world swaying.
-  const drunk = drinking(now);
+}
 
-  walkTick(now);
-  // The cars first, so whoever's riding in one sits in it where it's got to.
-  office.cars.update(dt, store.cars, store.carsAt, now, driver.active ? { car: driver.car!, driving: driver.driving } : null, camera.position);
-  player.update(dt);
-  // Timing a lap of the scenic loop, behind the wheel.
-  if (driver.driving && driver.pose) {
-    const lap = laps.update(driver.pose.x, driver.pose.z, now / 1000);
-    if (lap !== null) lapDone(lap);
-  } else laps.reset();
-  // A car coming at you where you stand: out of its way, with a thump if it was going.
-  if (inOffice() && !driver.active && !upTop && !trip) {
-    const hit = office.cars.shove(player.pos, null);
-    if (hit > 1.5 && now - shovedAt > 600) {
-      shovedAt = now;
-      sound.crash({ x: player.pos.x, y: player.pos.y + 0.8, z: player.pos.z }, hit / 2);
-      ctx.shake(Math.min(0.7, hit / 12));
-    }
-  }
-  // Walked into a pole's hole: you grab the pole on your way down it.
-  const hole = inOffice() && office.stack.polesGoDown() ? office.stack.poles().find((s) => Math.hypot(player.pos.x - s.x, player.pos.z - s.z) < POLE.hole - 0.15) : undefined;
-  if (hole && !climber.active && !trip && !player.seat && player.enabled && player.pos.y > -1.35 && player.pos.y < 0.6) climber.slide(hole);
-  arcade.update(camera, dt);
-  cabinet.update(camera, dt);
-  // Pulled away from the tee (sat down, off up the ladder, into the elevator): the club goes back.
-  if (golf.active && (trip || hanger.active || climber.active || player.seat || upTop)) golf.stop();
-  golf.update(dt);
-  // Pulled away from the line (sat down, into the elevator): the dart or axe goes back.
-  if (thrower.active && (trip || hanger.active || climber.active || player.seat || !upTop)) thrower.stop();
-  thrower.drunk = player.drunk;
-  thrower.update(dt);
-  balls.update(dt);
-  office.tee.ball.visible = golf.doing !== 'watch' && now > teeEmptyUntil;
+/** You as everyone else sees you, your hands as you see them, and the camera's view. */
+function moveMe({ dt, t }: Frame) {
   me.root.position.copy(player.pos);
   me.root.position.y += player.stepOffset;
   me.root.rotation.y = player.facing;
@@ -4864,7 +5047,10 @@ function frame(ts?: number) {
   }
   telescope.update();
   whoosh.style.opacity = rush > 0.02 ? String(rush * 0.85) : '0';
+}
 
+/** What you hear, from where you are, and your footsteps. */
+function listen() {
   // Your ears are in your head, facing wherever the camera looks.
   camera.getWorldDirection(lookDir);
   sound.update({ x: player.pos.x, y: player.pos.y + EYE_HEIGHT, z: player.pos.z, fx: lookDir.x, fz: lookDir.z });
@@ -4878,7 +5064,10 @@ function frame(ts?: number) {
     if (fallV < -4) sound.step('land');
     fallV = 0;
   }
+}
 
+/** Where you are: to everyone else a few times a second, and to come back to every second. */
+function tellWhereYouAre({ now }: Frame) {
   const moved = Math.abs(player.pos.x - lastSent.x) + Math.abs(player.pos.y - lastSent.y) + Math.abs(player.pos.z - lastSent.z) > 0.01 || Math.abs(player.facing - lastSent.rotY) > 0.02;
   if ((moved || player.moving !== lastSent.moving) && now - lastSent.at > 66) {
     lastSent = { x: player.pos.x, y: player.pos.y, z: player.pos.z, rotY: player.facing, moving: player.moving, at: now };
@@ -4889,103 +5078,23 @@ function frame(ts?: number) {
     spotSavedAt = now;
     saveSpot();
   }
+}
 
-  for (const [id, r] of remotes) {
-    const p = store.peers.get(id);
-    if (!p) continue;
-    // Sitting, they're wherever their seat puts them; in a car, right in it as it goes.
-    const ride = rideOf(id);
-    const sat = ride ?? (p.seat ? seatOn(plan(), p.seat) : undefined);
-    const at = sat ?? p;
-    r.target.set(at.x, at.y, at.z);
-    const pos = r.person.root.position;
-    if (ride) {
-      pos.copy(r.target);
-      r.person.root.rotation.y = ride.rotY;
-    } else {
-      pos.lerp(r.target, Math.min(1, dt * 12));
-      let diff = at.rotY - r.person.root.rotation.y;
-      diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-      r.person.root.rotation.y += diff * Math.min(1, dt * 12);
-    }
-    // On their feet if they're standing on something: the floor, a desk, a stair, the loft.
-    const ground = groundAt(player.colliders, p.x, p.z, p.y);
-    const airborne = !sat && p.y > ground + 0.05;
-    // Or holding on to the ladder or a pole; off a pole onto the mat, the firehouse bell rings.
-    const holding = sat || upTop || !inOffice() ? null : gripOf(p, office.stack.poles(), ground);
-    if (r.grip === 'pole' && !holding && Math.abs(p.y) < 0.2) sound.poleLanding(6, { x: pos.x, y: 0.5, z: pos.z });
-    r.grip = holding;
-    r.person.setGrip(holding);
-    const walking = !sat && p.moving && !airborne;
-    r.person.update(dt, t, walking || (holding === 'ladder' && p.moving), airborne && !holding && Math.abs(pos.y - r.target.y) > 0.01);
-    // Their walk cycle takes a step every π/11 seconds.
-    r.stepT = walking ? r.stepT + dt : 0.2;
-    if (r.stepT >= Math.PI / 11) {
-      r.stepT -= Math.PI / 11;
-      sound.stepAt(pos.x, pos.z);
-    }
-    r.person.setVoiceLevel(p.voice && !p.muted ? voice.levelOf(id) : 0);
-    r.person.emojiLift = r.bubble ? 0.45 : 0;
-    if (r.bubble && now > r.bubble.until) {
-      r.person.root.remove(r.bubble.sprite);
-      disposeSprite(r.bubble.sprite);
-      r.bubble = undefined;
-    }
-    const d = Math.hypot(pos.x - player.pos.x, pos.z - player.pos.z);
-    voice.setVolume(id, d < 4 ? 1 : Math.max(0.2, 1 - (d - 4) / 16));
-  }
-
-  // The engines of the cars being driven on this floor, yours (by how hard you're on the gas) and theirs.
-  const engines: Parameters<typeof sound.setEngines>[0] = [];
-  if (!upTop && inOffice()) {
-    for (const [i, c] of store.cars.entries()) {
-      const mine = driver.car === i && driver.driving;
-      if (!c.driver && !mine) continue;
-      const pose = office.cars.cars[i]?.pose ?? c;
-      engines.push({ car: i, at: { x: pose.x, y: player.street + 0.5, z: pose.z }, speed: pose.speed, gas: mine ? driver.gas : Math.min(1, Math.abs(pose.speed) / 10) });
-    }
-  }
-  sound.setEngines(engines);
-
-  const camPos = camera.position;
-  // How worn out each looks, as they work on (every second or so is plenty).
-  const aging = !!plan().agents.ageMinutes && now - agedAt > 1000;
-  if (aging) agedAt = now;
-  for (const [id, v] of workerViews) {
-    const desk = plan().byId.get(v.deskId)!;
-    if (aging) {
-      const w = store.workers.get(id);
-      if (w) v.model.setAge(ageOf(w));
-    }
-    // A jumping worker holds still while you're near enough to read its card, and jumps again once you walk away.
-    const d = v.model.root.getWorldPosition(workerPos).distanceTo(player.pos);
-    v.model.held = d < (v.model.held ? HOLD_LEAVE : HOLD_NEAR);
-    v.model.update(dt, t);
-    // A board agent's kiosk has no laptop to paint (see buildKiosk).
-    if (!desk.station) v.laptop.update(dt, store.screens.get(id), Math.hypot(desk.x - camPos.x, desk.z - camPos.z));
-  }
-  for (const a of idleAgents) if (a.view.vacancy.visible) a.model.update(dt, t);
-  departures.update(dt, t);
-  if (!upTop) {
-    sendoffs.update(dt, t);
-    jail.update(dt, t, camera.position);
-  }
-  arrivals.update(dt);
-  court?.update(dt);
-  // The dog is the office's: on a map of its own it stays at home, quiet.
-  if (inOffice()) dog.update(dt);
-  if (!upTop && inOffice()) updateBall(now, dt);
+/** The building and what's in it: its doors, its floors, the jukebox's lights, the smoke and the confetti. */
+function updateWorld({ dt, t }: Frame) {
   if (!upTop) {
     world.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions(), ...sendoffs.positions(), ...arrivals.positions(), ...(court?.positions() ?? [])]);
     if (inOffice()) {
-      office.stack.update(dt, [{ x: player.pos.x, y: player.pos.y, z: player.pos.z, grip }, ...[...remotes.values()].map((r) => ({ x: r.person.root.position.x, y: r.person.root.position.y, z: r.person.root.position.z, grip: r.grip }))], camera.position);
+      office.stack.update(dt, [{ x: player.pos.x, y: player.pos.y, z: player.pos.z, grip: climber.grip }, ...[...remotes.values()].map((r) => ({ x: r.person.root.position.x, y: r.person.root.position.y, z: r.person.root.position.z, grip: r.grip }))], camera.position);
       office.jukebox.update(t, dt, sound.beat());
     }
   }
-  checkSmokeBreak(now);
   smoke.update(dt, camera);
   confetti.update(dt);
-  hanger.update();
+}
+
+/** The sky, the weather and the light. */
+function updateSky({ dt, t }: Frame) {
   // Out along the scenic loop, the haze thins (there's more out there to see), and the sun's shadows
   // come with you: otherwise they're only cast round the office.
   const away = !upTop && inOffice() ? Math.hypot(player.pos.x, player.pos.z) : 0;
@@ -4999,51 +5108,17 @@ function frame(ts?: number) {
   if (!upTop) world.mood?.({ sun, hemi, ambient, scene }, sky.daylight, t, camera.position);
   if (!upTop && inOffice()) holiday.update(t, sky.lampsOn, camera);
   sound.setWeather(sky.rain, 1 - sky.daylight);
-  if (upTop && roof) {
-    // Everything up there moves to the DJ's set; strobes flash the whole roof as a drop lands.
-    const strobe = roof.update(t, dt, djFrame(djAt()), { dark: sky.lampsOn, motion: !reduceMotion.matches });
-    ambient.intensity += strobe * 1.5;
-    hemi.intensity += strobe * 0.8;
-  }
+}
 
-  aimedNote = null;
-  if (modalOpen() || telescope.active || ctx.activities.busy()) target = null;
-  else if (firstPerson) {
-    const aim = aimedAt(CROSSHAIR);
-    target = aim?.near ? aim.it : (throneTarget() ?? mySeat() ?? (inOffice() ? ballAtFeet() : null));
-    if (aim?.near) aimedNote = noteUnder(aim);
-  } else {
-    target = throneTarget() ?? mySeat() ?? pickTarget();
-    // By the issues board, the mouse points at the note you'd take.
-    if (target?.kind === 'issues' && pointer) {
-      const aim = aimedAt(pointer, 2.5);
-      if (aim?.near) aimedNote = noteUnder(aim);
-    }
-  }
-  issuesTex.lift(aimedNote?.number ?? null);
-  renderHint();
-  renderCrosshair();
-
-  if (now - speakTick > 200) {
-    speakTick = now;
-    // What people are up to changes as they walk about, not only when they open something.
-    for (const [id, r] of remotes) {
-      const p = store.peers.get(id);
-      if (p) r.person.setDoing(whereabouts(p, store.carOf(id), plan()));
-    }
-    renderPeople(voice, editProfile, walkTo, false);
-    updateSpeaking(voice);
-    // People on other floors can't be heard here (their voice connection stays up for when you meet).
-    for (const p of store.peers.values()) if (p.id !== store.you && !store.onMyFloor(p)) voice.setVolume(p.id, 0);
-  }
-
+/** Draws the frame: the scene, then your hands on top of it. */
+function drawFrame({ t }: Frame) {
+  const firstPerson = player.view === 'first';
   // A few drinks in, the frame goes to the screen through the drunk vision (see world/drunk.ts).
-  const blurry = drunk > 0.01;
+  const blurry = drunkNow > 0.01;
   if (blurry) drunkVision.begin();
   else if (drunkVisionOn) drunkVision.release();
   drunkVisionOn = blurry;
   effect.render(scene, camera);
-  pointToWaiting(now);
   // Not while the camera's up at the boss's monitor or the arcade, where they'd cover the screen.
   if (firstPerson && !telescope.active && !arcade.zoomed && !cabinet.zoomed && !ctx.activities.any('hidesHands')) {
     // Hands go on top of everything, so they never clip into a desk you walk up to. They have
@@ -5054,9 +5129,7 @@ function frame(ts?: number) {
     effect.render(hands.scene, hands.camera);
     sky.shading(true);
   }
-  if (blurry) drunkVision.end(drunk, t, !reduceMotion.matches);
-  loading.drew();
-  requestAnimationFrame(frame);
+  if (blurry) drunkVision.end(drunkNow, t, !reduceMotion.matches);
 }
 
 // ---- Boot ------------------------------------------------------------------------------------------
