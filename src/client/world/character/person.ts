@@ -5,7 +5,7 @@ import type { CarriedIssue, Theme } from '../../../shared/protocol';
 import type { BarGame } from '../../../shared/bargames';
 import type { Drink } from '../../../shared/rooftop';
 import { HIPS, type PersonRig } from './rig';
-import { axeModel, dartModel } from '../bargames';
+import { axeModel, dartModel } from '../../features/bargames/world';
 import { OpenBook } from '../book';
 import { HeldCard } from '../card';
 import { UNDEAD_SKIN, santaHat, warlockHat } from '../costumes';

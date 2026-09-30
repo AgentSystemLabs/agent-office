@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { AXE_LANE } from '../../shared/bargames';
 import { DANCE_FLOOR, DJ_BOOTH, ELEVATOR, ELEVATOR_FRONT, FIRE_PIT, FLOOR, ROOF_BAR, ROOF_TABLES, SEATING_BY_ID, STAGE, WALL_HEIGHT, WALL_T } from '../../shared/layout';
 import type { DjFrame } from '../dnb';
-import { buildBarGames, type BarGamesView } from './bargames';
+import { buildBarGames, type BarGamesView } from '../features/bargames/world';
 import { Worker } from './character';
 import { buildCity, type City } from './city';
 import { buildElevator, type Elevator } from './elevator';

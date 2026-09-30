@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { GREEN, ROUND, landing, meterAt, targetFrame, throwSpot, type BarGame, type Toss } from '../shared/bargames';
-import { isTyping, type PlayerController } from './player';
-import { $, h, modalOpen } from './ui/dom';
-import type { Person } from './world/character';
+import { GREEN, ROUND, landing, meterAt, targetFrame, throwSpot, type BarGame, type Toss } from '../../../shared/bargames';
+import { isTyping, type PlayerController } from '../../player';
+import { $, h, modalOpen } from '../../ui/dom';
+import type { Person } from '../../world/character';
 
 // Stepping up to the dart board's oche or the axe lane's line, up on the roof (E there): you stand
 // at the line with a dart (or an axe) in hand, and the camera looks over your shoulder at the target.

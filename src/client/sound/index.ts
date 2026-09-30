@@ -30,7 +30,7 @@ import { gong } from './gong';
 import { Jukebox, type JukeboxPlay } from './jukebox';
 import type { Pos } from './places';
 import { pageTurn, paper, step, stepAt } from './steps';
-import { toss, type TossSound } from './toss';
+import { toss, type TossSound } from '../features/bargames/sound';
 import { fidgeting, Typing } from './typing';
 import { Rain, thunder } from './weather';
 

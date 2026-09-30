@@ -8,7 +8,7 @@ import type { Ctx, Hint } from '../../core/context';
 import { aside, hintTitle, key, onE } from '../../core/hint';
 import { DESK_KEYS } from '../../interaction';
 import { store } from '../../state';
-import { Thrower } from '../../throwing';
+import { Thrower } from './controller';
 import { clip, h, toast } from '../../ui/dom';
 import type { Person } from '../../world/character';
 import type { Rooftop } from '../../world/rooftop';
