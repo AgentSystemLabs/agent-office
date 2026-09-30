@@ -473,16 +473,16 @@ test('an explicit Claude model/effort overrides --agent-args and persists across
   if (typeof worker === 'string') return;
   assert.equal(workers.get(worker.id)?.model, 'haiku');
   assert.equal(workers.get(worker.id)?.effort, 'high');
-  const first = await waitFor(() => f.read(), (records) => records.some((r) => r.kind === 'claude'));
-  const firstInvocation = first.find((r) => r.kind === 'claude')!;
+  const first = await waitFor(() => f.read(), (records) => records.some((r) => r.kind === 'claude' && !r.args.includes('--output-format')));
+  const firstInvocation = first.find((r) => r.kind === 'claude' && !r.args.includes('--output-format'))!;
   // The per-worker choice is appended after --agent-args, so it wins even though "opus" also appears.
   assert.deepEqual(firstInvocation.args.slice(firstInvocation.args.indexOf('--model')), ['--model', 'opus', '--model', 'haiku', '--effort', 'high', '--', 'haiku task']);
 
   assert.equal(workers.handleHook(worker.id, firstInvocation.env.hookToken!, 'SessionStart', { session_id: 'claude-model-1' }), true);
   await waitFor(() => workers.get(worker.id)?.status, (status) => status === 'exited');
   assert.equal(workers.resume(worker.id), undefined);
-  const resumed = await waitFor(() => f.read(), (records) => records.filter((r) => r.kind === 'claude').length >= 2);
-  const secondInvocation = resumed.filter((r) => r.kind === 'claude')[1];
+  const resumed = await waitFor(() => f.read(), (records) => records.filter((r) => r.kind === 'claude' && !r.args.includes('--output-format')).length >= 2);
+  const secondInvocation = resumed.filter((r) => r.kind === 'claude' && !r.args.includes('--output-format'))[1];
   assert.ok(secondInvocation.args.includes('--model'));
   assert.ok(secondInvocation.args.includes('haiku'));
   assert.ok(secondInvocation.args.includes('--effort'));
@@ -514,8 +514,8 @@ test('a worker hired on Fable launches with --model fable and keeps it across a 
   const worker = workers.spawn('desk-1', 'test', 'fable task', false, 'agent', 'claude', 'fable');
   assert.equal(typeof worker, 'object');
   if (typeof worker === 'string') return;
-  const records = await waitFor(() => f.read(), (rs) => rs.some((r) => r.kind === 'claude'));
-  const launch = records.find((r) => r.kind === 'claude')!;
+  const records = await waitFor(() => f.read(), (rs) => rs.some((r) => r.kind === 'claude' && !r.args.includes('--output-format')));
+  const launch = records.find((r) => r.kind === 'claude' && !r.args.includes('--output-format'))!;
   assert.deepEqual(launch.args.slice(launch.args.indexOf('--model')), ['--model', 'opus', '--model', 'fable', '--', 'fable task']);
 
   workers.shutdown();
