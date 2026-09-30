@@ -314,10 +314,9 @@ export class TvScreen {
   /** A direct media file: the only player that can be asked anything at all, and asked at once. */
   private loadMedia(url: string, start: number, playing: boolean) {
     const video = h('video', { src: url, autoplay: '', playsinline: '', preload: 'auto' }) as HTMLVideoElement;
-    video.volume = this.volume;
-    video.muted = this.muted || this.volume === 0;
     this.el = video;
     this.frame.append(video);
+    this.applySound(false);
     const begin = () => {
       if (start > 1 && Math.abs(video.currentTime - start) > 1) {
         try {
@@ -378,8 +377,7 @@ export class TvScreen {
           // Only if this is still the player on the TV (a new link may have arrived meanwhile).
           if (this.yt !== player) return;
           this.ready = true;
-          player.setVolume(Math.round(this.volume * 100));
-          if (this.muted || this.volume === 0) player.mute();
+          this.applySound(false);
           if (start > 1 && Math.abs(player.getCurrentTime() - start) > 1) player.seekTo(start, true);
           if (playing) player.playVideo();
           else player.pauseVideo();
