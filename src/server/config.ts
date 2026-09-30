@@ -66,7 +66,7 @@ export interface RTCIceServerLike {
   credential?: string;
 }
 
-const HELP = `agent-office — a 3D office for your team and its Claude Code / OpenCode / Codex / Grok / Muse / DeepSeek Harness workers
+const HELP = `agent-office — a 3D office for your team and its Claude Code / OpenCode / Codex / Grok / Muse / DeepSeek Harness / Pi workers
 
 Usage:
   agent-office [options]

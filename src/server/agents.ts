@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { isAgentEffort, isClaudeModel, type AgentProvider } from '../shared/protocol.js';
+import { isValidPiModel } from './pi.js';
 
 export const OPEN_CODE_MODEL_MAX = 256;
 export const GROK_MODEL_MAX = 64;
@@ -19,19 +20,20 @@ export const DSH_MODEL_MAX = 256;
  * while the office itself is running under a POSIX shell.
  */
 export function configuredProvider(command: string): AgentProvider {
-  const base = path.basename(command.replaceAll('\\', '/')).toLowerCase().replace(/\.exe$/, '');
+  const base = path.basename(command.replaceAll('\\', '/')).toLowerCase().replace(/\.(?:exe|cmd|bat|com)$/, '');
   if (base === 'claude') return 'claude';
   if (base === 'opencode') return 'opencode';
   if (base === 'codex') return 'codex';
   if (base === 'grok') return 'grok';
   if (base === 'muse') return 'muse';
   if (base === 'dsh') return 'dsh';
+  if (base === 'pi') return 'pi';
   return 'custom';
 }
 
 /** The providers an office started with `configured` can hire: the ones it knows, and a custom --agent only when that's what it was started with. */
 export function agentProviders(configured: AgentProvider): AgentProvider[] {
-  return configured === 'custom' ? ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh', 'custom'] : ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh'];
+  return configured === 'custom' ? ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh', 'pi', 'custom'] : ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh', 'pi'];
 }
 
 /** OpenCode model ids are argv values, so reject anything that could be ambiguous or unsafe. */
@@ -68,8 +70,9 @@ export function validateWorkerModel(kind: 'agent' | 'shell', provider: AgentProv
   if (provider === 'claude') return isClaudeModel(model) ? undefined : 'Invalid Claude model (expected fable, opus, sonnet or haiku)';
   if (provider === 'grok') return isValidGrokModel(model) ? undefined : 'Invalid Grok model';
   if (provider === 'muse') return isValidMuseModel(model) ? undefined : 'Invalid Muse model';
+  if (provider === 'pi') return isValidPiModel(model) ? undefined : 'Invalid Pi model (expected a model name or provider/model without whitespace)';
   if (provider === 'dsh') return isValidDshModel(model) ? undefined : 'Invalid DeepSeek Harness model (expected a catalog model id of up to 256 characters)';
-  if (provider !== 'opencode') return 'Models can only be selected for Claude Code, OpenCode, Grok, Muse or DeepSeek Harness workers';
+  if (provider !== 'opencode') return 'Models can only be selected for Claude Code, OpenCode, Grok, Muse or DeepSeek Harness workers, or Pi';
   if (!isValidOpenCodeModel(model)) return 'Invalid OpenCode model (expected provider/model without whitespace)';
   return undefined;
 }
@@ -78,6 +81,6 @@ export function validateWorkerModel(kind: 'agent' | 'shell', provider: AgentProv
 export function validateWorkerEffort(kind: 'agent' | 'shell', provider: AgentProvider | undefined, effort: unknown): string | undefined {
   if (effort === undefined) return undefined;
   if (kind === 'shell') return 'Shell workers do not have a reasoning effort';
-  if (provider !== 'claude' && provider !== 'grok' && provider !== 'muse' && provider !== 'dsh') return 'Reasoning effort can only be selected for Claude Code, Grok, Muse or DeepSeek Harness workers';
+  if (provider !== 'claude' && provider !== 'grok' && provider !== 'muse' && provider !== 'dsh' && provider !== 'pi') return 'Reasoning effort can only be selected for Claude Code, Grok, Muse or DeepSeek Harness workers, or Pi';
   return isAgentEffort(effort) ? undefined : 'Invalid effort (expected low, medium, high, xhigh or max)';
 }

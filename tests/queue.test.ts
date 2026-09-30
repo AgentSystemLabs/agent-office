@@ -66,6 +66,20 @@ test('queued provider survives restart even when the configured default differs'
   assert.equal(f.workers[0].provider, 'opencode');
 });
 
+test('queued Pi model and thinking survive restart and retry', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open(); q.setLimit(0);
+  assert.equal(q.add('Fix login', 'Tester', undefined, undefined, 'pi', 'openai/gpt-4.1', 'high'), undefined);
+  q.shutdown();
+  const restored = f.open(); restored.setLimit(1);
+  const first = f.workers[0];
+  assert.deepEqual([first.provider, first.model, first.effort], ['pi', 'openai/gpt-4.1', 'high']);
+  first.status = 'done'; restored.onWorker(first);
+  const task = restored.state().tasks[0];
+  assert.equal(restored.retry(task.id), undefined);
+  assert.deepEqual([f.workers[1].provider, f.workers[1].model, f.workers[1].effort], ['pi', 'openai/gpt-4.1', 'high']);
+});
+
 test('new and legacy tasks without a provider use the configured agent', (t) => {
   const f = fixture('custom'); t.after(() => f.close());
   writeFileSync(path.join(f.dir, 'queue.json'), JSON.stringify({ maxWorkers: 0, tasks: [

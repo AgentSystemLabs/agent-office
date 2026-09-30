@@ -10,6 +10,7 @@ export const PROVIDER_LABEL: Record<AgentProvider, string> = {
   grok: 'Grok',
   muse: 'Muse Code',
   dsh: 'DeepSeek Harness',
+  pi: 'Pi',
   custom: 'Custom',
 };
 
@@ -31,7 +32,7 @@ export const EFFORT_LABEL: Record<AgentEffort, string> = {
 /** A short badge for the task card / sidebar: "Opus", "Opus · High", or the raw OpenCode/Grok/Muse/DeepSeek Harness model id. */
 export function modelBadge(provider: AgentProvider | undefined, model: string | undefined, effort: AgentEffort | undefined): string | undefined {
   if (!model && !effort) return undefined;
-  if (provider === 'claude' || provider === 'grok' || provider === 'muse' || provider === 'dsh') {
+  if (provider === 'claude' || provider === 'grok' || provider === 'muse' || provider === 'dsh' || provider === 'pi') {
     const label = provider === 'claude' && model && model in CLAUDE_MODEL_LABEL ? CLAUDE_MODEL_LABEL[model as ClaudeModel] : model;
     const parts = [label, effort ? EFFORT_LABEL[effort] : undefined].filter((v): v is string => !!v);
     return parts.length ? parts.join(' · ') : undefined;
@@ -41,7 +42,7 @@ export function modelBadge(provider: AgentProvider | undefined, model: string | 
 
 /** Providers the server says this project can start. */
 export function supportedProviders(project: ProjectInfo | null): AgentProvider[] {
-  const values = project?.agentProviders?.filter((p): p is AgentProvider => p === 'claude' || p === 'opencode' || p === 'codex' || p === 'grok' || p === 'muse' || p === 'dsh' || p === 'custom') ?? [];
+  const values = project?.agentProviders?.filter((p): p is AgentProvider => p === 'claude' || p === 'opencode' || p === 'codex' || p === 'grok' || p === 'muse' || p === 'dsh' || p === 'pi' || p === 'custom') ?? [];
   if (values.length) return [...new Set(values)];
   return project?.defaultProvider && PROVIDER_LABEL[project.defaultProvider] ? [project.defaultProvider] : ['claude'];
 }
@@ -74,6 +75,7 @@ export function providerUsageState(provider: AgentProvider | undefined, project:
   if (selected === 'codex') return usage ? 'tracked' : 'waiting';
   if (selected === 'grok') return usage ? 'tracked' : 'untracked';
   if (selected === 'muse') return usage ? 'tracked' : 'untracked';
+  if (selected === 'pi') return 'untracked';
   if (selected === 'dsh') return usage ? 'tracked' : 'waiting';
   if (selected === 'custom') return usage ? 'tracked' : 'untracked';
   return 'untracked';
@@ -95,6 +97,7 @@ export function providerUsageNote(provider: AgentProvider): string {
   if (provider === 'codex') return 'Review Office hooks in /hooks to enable tracking. Codex reports root-session tokens; subagents are excluded and cost is unavailable.';
   if (provider === 'grok') return 'Grok spend is not metered by the office; token totals stay in the worker terminal.';
   if (provider === 'muse') return 'Muse spend is not metered by the office; token totals stay in the worker terminal.';
+  if (provider === 'pi') return 'Pi uses your existing Pi login and settings. Usage and cost stay in its terminal; the office does not meter them.';
   if (provider === 'dsh') return 'DeepSeek Harness reports context usage over ACP after its first turn; cost may be unavailable.';
   if (provider === 'custom') return 'Usage is untracked unless compatible Claude Code hooks report it.';
   return 'OpenCode reports model/provider estimates; they are not billing, and arrive after the first report.';
@@ -159,6 +162,10 @@ function validGrokModel(value: string): boolean {
 
 function validMuseModel(value: string): boolean {
   return value.length > 0 && value.length <= MUSE_MODEL_MAX && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value) && !/[\s\p{Cc}\p{Cf}]/u.test(value);
+}
+
+function validPiModel(value: string): boolean {
+  return value.length > 0 && value.length <= MODEL_MAX && !value.startsWith('-') && !/[\s\p{Cc}\p{Cf}]/u.test(value);
 }
 
 function fetchGrokModels(): Promise<string[]> {
@@ -299,7 +306,20 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     h('small.provider-model-hint', {}, 'Optional model id from DeepSeek Harness\u2019s catalog, and effort; leave empty to use the profile default.'),
   );
 
-  const element = h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice, claudeChoice, grokChoice, museChoice, dshChoice);
+  const piModelInput = h('input', {
+    type: 'text', id: `${id}-pi-model`, placeholder: 'Default (Pi settings)',
+    'aria-label': 'Pi model', autocomplete: 'off', maxlength: MODEL_MAX,
+  }) as HTMLInputElement;
+  const piEffortSelect = h('select', { id: `${id}-pi-effort`, 'aria-label': 'Pi thinking level' }) as HTMLSelectElement;
+  piEffortSelect.append(h('option', { value: '' }, 'Default'));
+  for (const e of AGENT_EFFORTS) piEffortSelect.append(h('option', { value: e }, EFFORT_LABEL[e]));
+  const piChoice = h('div.provider-model.pi-model', {},
+    h('label', { for: `${id}-pi-model` }, 'Model'), piModelInput,
+    h('label', { for: `${id}-pi-effort` }, 'Thinking'), piEffortSelect,
+    h('small.provider-model-hint', {}, 'Optional model name or provider/model; leave Default to use Pi settings.'),
+  );
+
+  const element = h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice, claudeChoice, grokChoice, museChoice, dshChoice, piChoice);
   const fillGrokModels = (models: string[], selected?: string) => {
     const keep = selected && validGrokModel(selected) ? selected : '';
     grokModelSelect.replaceChildren(h('option', { value: '' }, 'Default (Grok settings)'));
@@ -347,6 +367,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     grokChoice.classList.toggle('hidden', provider !== 'grok');
     museChoice.classList.toggle('hidden', provider !== 'muse');
     dshChoice.classList.toggle('hidden', provider !== 'dsh');
+    piChoice.classList.toggle('hidden', provider !== 'pi');
     loadModels();
   };
   const set = (c: AgentChoice) => {
@@ -355,6 +376,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     const grok = select.value === 'grok';
     const muse = select.value === 'muse';
     const dsh = select.value === 'dsh';
+    const pi = select.value === 'pi';
     claudeModelSelect.value = claude && c.model && (CLAUDE_MODELS as readonly string[]).includes(c.model) ? c.model : '';
     effortSelect.value = claude && c.effort ? c.effort : '';
     fillGrokModels(grokModelList ?? [], grok ? c.model : undefined);
@@ -363,10 +385,13 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     museEffortSelect.value = muse && c.effort ? c.effort : '';
     dshModelInput.value = dsh && c.model ? c.model : '';
     dshEffortSelect.value = dsh && c.effort ? c.effort : '';
+    piModelInput.value = pi && c.model ? c.model : '';
+    piEffortSelect.value = pi && c.effort ? c.effort : '';
     modelInput.value = select.value === 'opencode' && c.model ? c.model : '';
     modelInput.setCustomValidity('');
     museModelInput.setCustomValidity('');
     dshModelInput.setCustomValidity('');
+    piModelInput.setCustomValidity('');
     setModelVisibility(select.value as AgentProvider);
   };
   set(initial);
@@ -375,17 +400,20 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
   modelInput.addEventListener('input', () => modelInput.setCustomValidity(''));
   museModelInput.addEventListener('input', () => museModelInput.setCustomValidity(''));
   dshModelInput.addEventListener('input', () => dshModelInput.setCustomValidity(''));
+  piModelInput.addEventListener('input', () => piModelInput.setCustomValidity(''));
   const value = () => (options.includes(select.value as AgentProvider) ? (select.value as AgentProvider) : fallback);
   const effort = () => {
     if (select.value === 'claude' && effortSelect.value) return effortSelect.value as AgentEffort;
     if (select.value === 'grok' && grokEffortSelect.value) return grokEffortSelect.value as AgentEffort;
     if (select.value === 'muse' && museEffortSelect.value) return museEffortSelect.value as AgentEffort;
     if (select.value === 'dsh' && dshEffortSelect.value) return dshEffortSelect.value as AgentEffort;
+    if (select.value === 'pi' && piEffortSelect.value) return piEffortSelect.value as AgentEffort;
     return undefined;
   };
   const model = () => {
     if (select.value === 'claude') return claudeModelSelect.value || undefined;
     if (select.value === 'grok') return grokModelSelect.value || undefined;
+    if (select.value === 'pi') return validPiModel(piModelInput.value) ? piModelInput.value : undefined;
     if (select.value === 'muse') {
       const v = museModelInput.value;
       return validMuseModel(v) ? v : undefined;
@@ -406,6 +434,12 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     set,
     choice: () => ({ provider: value(), ...(model() ? { model: model() } : {}), ...(effort() ? { effort: effort() } : {}) }),
     valid: () => {
+      if (select.value === 'pi') {
+        const okay = !piModelInput.value || validPiModel(piModelInput.value);
+        piModelInput.setCustomValidity(okay ? '' : 'Use a Pi model name or provider/model without whitespace or control characters (up to 256 characters).');
+        if (!okay) piModelInput.reportValidity();
+        return okay;
+      }
       if (select.value === 'muse') {
         if (!museModelInput.value) {
           museModelInput.setCustomValidity('');

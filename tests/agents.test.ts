@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { configuredProvider, isValidDshModel, validateWorkerEffort, validateWorkerModel } from '../src/server/agents.js';
+import { agentProviders, configuredProvider, isValidDshModel, validateWorkerEffort, validateWorkerModel } from '../src/server/agents.js';
 import { isAgentProvider } from '../src/shared/protocol.js';
 
 test('detects the configured provider from Unix and Windows command paths', () => {
@@ -17,14 +17,29 @@ test('detects the configured provider from Unix and Windows command paths', () =
   assert.equal(configuredProvider('dsh'), 'dsh');
   assert.equal(configuredProvider('/opt/tools/dsh'), 'dsh');
   assert.equal(configuredProvider('DSH.EXE'), 'dsh');
+  assert.equal(configuredProvider('pi'), 'pi');
+  assert.equal(configuredProvider('C:\\Users\\me\\AppData\\Roaming\\npm\\pi.cmd'), 'pi');
+  assert.equal(configuredProvider('/usr/local/bin/pi'), 'pi');
   assert.equal(configuredProvider('my-agent'), 'custom');
 });
 
 test('dsh is a provider the wire accepts, and the others still are', () => {
   assert.equal(isAgentProvider('dsh'), true);
+  assert.equal(isAgentProvider('pi'), true);
   for (const provider of ['claude', 'opencode', 'codex', 'custom']) assert.equal(isAgentProvider(provider), true);
   assert.equal(isAgentProvider('deepseek'), false);
   assert.equal(isAgentProvider(undefined), false);
+});
+
+test('Pi can be selected with model patterns and thinking levels', () => {
+  assert.ok(agentProviders('claude').includes('pi'));
+  assert.ok(agentProviders('custom').includes('pi'));
+  assert.equal(validateWorkerModel('agent', 'pi', 'anthropic/claude-sonnet-4'), undefined);
+  assert.equal(validateWorkerModel('agent', 'pi', 'sonnet'), undefined);
+  assert.match(validateWorkerModel('agent', 'pi', '--print') ?? '', /Invalid Pi model/);
+  assert.match(validateWorkerModel('agent', 'pi', 'bad\u0000model') ?? '', /Invalid Pi model/);
+  assert.equal(validateWorkerEffort('agent', 'pi', 'high'), undefined);
+  assert.match(validateWorkerEffort('agent', 'pi', 'invalid') ?? '', /Invalid effort/);
 });
 
 test('a DeepSeek Harness model is bounded by length and control characters only', () => {

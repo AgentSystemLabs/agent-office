@@ -99,7 +99,7 @@ console.log(`
 ${signIn ? `\n  sign in: ${signIn}\n           ${opened ? 'opened in your browser; ' : ''}the link works once\n` : ''}
   password: ${passwordLine()}
   default agent: ${[agent ?? `${cfg.agentCmd} (via login shell)`, ...cfg.agentArgs].join(' ')}
-  choose Claude Code or OpenCode when hiring or queueing a task
+  choose a provider (including Pi) when hiring or queueing a task
 ${cfg.tls || loopback ? '' : '\n  tip: voice & screen share need https off localhost — use a reverse proxy or --self-signed\n'}`);
 
 let closing = false;

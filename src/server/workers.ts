@@ -25,6 +25,7 @@ import { PtyHost, SCROLLBACK, type Adopted, type Pty } from './ptys.js';
 import { codexHookArgs, normalizeCodexHook, writeCodexHook } from './codex.js';
 import { normalizeGrokHook, withoutGrokLaunchArgs, writeGrokHome } from './grok.js';
 import { normalizeMuseHook, withoutMuseLaunchArgs, writeMuseHome } from './muse.js';
+import { isValidPiModel, normalizePiHook, piArgs, writePiExtension } from './pi.js';
 import { reportedUsage } from './reported-usage.js';
 import { configuredProvider, isValidDshModel, isValidGrokModel, isValidMuseModel, isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeStatusEvent } from './opencode.js';
@@ -217,6 +218,7 @@ export class WorkerManager {
   private museConfigHome: string;
   private museDataHome: string;
   private museStateHome: string;
+  private piExtension: string;
   /** Where the office-queue and office-workers commands are, for the workers' PATH (see writeOfficeCommands). */
   private officeBin: string | undefined;
   /** bin/office-workers.js, which is also the office's MCP server for the agents that take one. */
@@ -274,6 +276,7 @@ export class WorkerManager {
     this.museConfigHome = muse.configHome;
     this.museDataHome = muse.dataHome;
     this.museStateHome = muse.stateHome;
+    this.piExtension = writePiExtension(dataDir);
     this.mcpScript = binScript('office-workers.js');
     this.officeBin = this.writeOfficeCommands();
     this.claudeMcp = this.mcpScript ? writeClaudeMcpConfig(dataDir, this.mcpScript) : undefined;
@@ -434,8 +437,8 @@ export class WorkerManager {
       id,
       kind,
       provider: selectedProvider,
-      model: selectedProvider === 'opencode' || selectedProvider === 'claude' || selectedProvider === 'grok' || selectedProvider === 'muse' || selectedProvider === 'dsh' ? model : undefined,
-      effort: selectedProvider === 'claude' || selectedProvider === 'grok' || selectedProvider === 'muse' || selectedProvider === 'dsh' ? effort : undefined,
+      model: selectedProvider === 'opencode' || selectedProvider === 'claude' || selectedProvider === 'grok' || selectedProvider === 'muse' || selectedProvider === 'dsh' || selectedProvider === 'pi' ? model : undefined,
+      effort: selectedProvider === 'claude' || selectedProvider === 'grok' || selectedProvider === 'muse' || selectedProvider === 'dsh' || selectedProvider === 'pi' ? effort : undefined,
       deskId,
       name: kind === 'shell' ? `${name} 🐚` : name,
       color: kind === 'shell' ? '#8d99ae' : agent ? agent.color : COLORS[Math.floor(Math.random() * COLORS.length)],
@@ -1398,8 +1401,18 @@ export class WorkerManager {
 
   /** OpenCode plugin callback. The plugin has already filtered child sessions before this bridge. */
   handleOpenCodeHook(workerId: string, token: string, payload: unknown): boolean {
+    return this.handleStatusHook(workerId, token, payload, 'opencode');
+  }
+
+  /** Pi's CLI-loaded extension reports bounded lifecycle events for this desk's session. */
+  handlePiHook(workerId: string, token: string, payload: unknown): boolean {
+    const report = normalizePiHook(payload);
+    return !!report && this.handleStatusHook(workerId, token, report, 'pi');
+  }
+
+  private handleStatusHook(workerId: string, token: string, payload: unknown, provider: 'opencode' | 'pi'): boolean {
     const w = this.workers.get(workerId);
-    if (!w || !w.pty || w.info.kind !== 'agent' || w.info.provider !== 'opencode' || !safeEq(token, w.hookToken)) return false;
+    if (!w || !w.pty || w.info.kind !== 'agent' || w.info.provider !== provider || !safeEq(token, w.hookToken)) return false;
     if (payload && typeof payload === 'object' && 'type' in payload && payload.type === 'usage') {
       const report = payload as { sessionId?: unknown; usage?: unknown };
       const usage = reportedUsage(report.usage);
@@ -1412,6 +1425,7 @@ export class WorkerManager {
     }
     if (!isOpenCodeHookEvent(payload)) return false;
     if (w.info.sessionId && w.info.sessionId !== payload.sessionId && !(payload.type === 'session' && payload.status === 'starting')) return false;
+    if (provider === 'pi') w.bootBlocked = false;
     if (!w.info.sessionId || (payload.type === 'session' && payload.status === 'starting' && w.info.sessionId !== payload.sessionId)) {
       const switching = !!w.info.sessionId;
       w.info.sessionId = payload.sessionId;
@@ -1439,8 +1453,9 @@ export class WorkerManager {
     if (payload.status === 'needs_input') this.setStatus(w, 'needs_input');
     else if (payload.status === 'working') this.setStatus(w, 'working');
     else if (payload.status === 'done' && w.pty) this.setStatus(w, w.openCodeError ? 'needs_input' : 'done');
-    else if (payload.status === 'starting' && w.info.status === 'starting') this.setStatus(w, 'idle');
+    else if (payload.status === 'starting' && (w.info.status === 'starting' || provider === 'pi')) this.setStatus(w, 'idle');
     else this.emitUpdate(w);
+    if (provider === 'pi') this.persist();
     return true;
   }
 
@@ -1576,6 +1591,7 @@ export class WorkerManager {
     const isCodex = !isShell && provider === 'codex';
     const isGrok = !isShell && provider === 'grok';
     const isMuse = !isShell && provider === 'muse';
+    const isPi = !isShell && provider === 'pi';
     const isDsh = !isShell && provider === 'dsh';
     const configured = !isShell && provider === this.defaultProvider;
     const station = DESK_BY_ID.get(info.deskId)?.station;
@@ -1628,12 +1644,17 @@ export class WorkerManager {
         if (prompt) args.push('--', prompt);
       }
     }
+    if (isPi) {
+      const sessionDir = path.join(this.dataDir, 'pi-sessions', info.id);
+      mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
+      args = piArgs(args, { extension: this.piExtension, sessionDir, sessionId: resumeSessionId, model: info.model, effort: info.effort, prompt });
+    }
     if (isCodex) {
       w.codexTools.clear();
       w.codexPending.clear();
       w.codexPermissionUnknown = false;
     }
-    if (isOpenCode || isCodex || isGrok || isMuse) {
+    if (isOpenCode || isCodex || isGrok || isMuse || isPi) {
       w.hookToken = randomBytes(16).toString('hex');
       w.openCodeError = false;
     }
@@ -1710,7 +1731,7 @@ export class WorkerManager {
       this.startFailed(w, (err as Error).message);
       return;
     }
-    if (!isClaude && !isCodex && !isGrok && !isMuse) {
+    if (!isClaude && !isCodex && !isGrok && !isMuse && !isPi) {
       clockWork(info, 'idle');
       info.status = 'idle';
     }
@@ -1874,6 +1895,7 @@ export class WorkerManager {
     const isCodex = info.kind === 'agent' && info.provider === 'codex';
     const isGrok = info.kind === 'agent' && info.provider === 'grok';
     const isMuse = info.kind === 'agent' && info.provider === 'muse';
+    const isPi = info.kind === 'agent' && info.provider === 'pi';
     w.pty = proc;
     proc.onData((data) => {
       term.write(data);
@@ -1919,7 +1941,7 @@ export class WorkerManager {
     // blocked on a human: folder trust dialog, login, first-run onboarding. Flag it so it jumps.
     setTimeout(() => {
       if (info.status !== 'starting' || w.pty !== proc) return;
-      if (isClaude || isCodex || isGrok || isMuse) {
+      if (isClaude || isCodex || isGrok || isMuse || isPi) {
         w.bootBlocked = true;
         info.activity = isCodex
           ? 'Open the terminal: complete login and review Office hooks in /hooks'
@@ -1927,6 +1949,8 @@ export class WorkerManager {
             ? 'Open the terminal: complete login if Grok asks'
             : isMuse
               ? 'Open the terminal: complete login if Muse asks'
+              : isPi
+                ? 'Open the terminal: complete Pi login or project setup'
               : 'Waiting on a setup prompt (trust / login) — open the terminal';
         this.setStatus(w, 'needs_input');
       } else this.setStatus(w, 'idle');
@@ -2218,7 +2242,7 @@ process.stdin.on('end', () => {
         const tracker = restoreTracker(s.tracker);
         const provider = s.kind === 'shell'
           ? undefined
-          : s.provider === 'claude' || s.provider === 'opencode' || s.provider === 'codex' || s.provider === 'grok' || s.provider === 'muse' || s.provider === 'dsh' || s.provider === 'custom'
+          : s.provider === 'claude' || s.provider === 'opencode' || s.provider === 'codex' || s.provider === 'grok' || s.provider === 'muse' || s.provider === 'dsh' || s.provider === 'pi' || s.provider === 'custom'
             ? s.provider
             : tracker.transcript
               ? 'claude'
@@ -2227,8 +2251,8 @@ process.stdin.on('end', () => {
           id: s.id,
           kind: s.kind === 'shell' ? 'shell' : 'agent',
           provider,
-          model: provider === 'opencode' && isValidOpenCodeModel(s.model) ? s.model : provider === 'claude' && isClaudeModel(s.model) ? s.model : provider === 'grok' && isValidGrokModel(s.model) ? s.model : provider === 'muse' && isValidMuseModel(s.model) ? s.model : provider === 'dsh' && isValidDshModel(s.model) ? s.model : undefined,
-          effort: (provider === 'claude' || provider === 'grok' || provider === 'muse' || provider === 'dsh') && isAgentEffort(s.effort) ? s.effort : undefined,
+          model: provider === 'opencode' && isValidOpenCodeModel(s.model) ? s.model : provider === 'claude' && isClaudeModel(s.model) ? s.model : provider === 'grok' && isValidGrokModel(s.model) ? s.model : provider === 'muse' && isValidMuseModel(s.model) ? s.model : provider === 'pi' && isValidPiModel(s.model) ? s.model : provider === 'dsh' && isValidDshModel(s.model) ? s.model : undefined,
+          effort: (provider === 'claude' || provider === 'grok' || provider === 'muse' || provider === 'dsh' || provider === 'pi') && isAgentEffort(s.effort) ? s.effort : undefined,
           deskId: s.deskId,
           name: s.name ?? 'Worker',
           color: s.color ?? COLORS[0],

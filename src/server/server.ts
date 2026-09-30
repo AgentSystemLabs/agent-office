@@ -302,7 +302,7 @@ export async function startServer(cfg: Config) {
     }
     if (url.pathname === '/office/queue') return officeQueue(req, res, url);
     if (url.pathname === '/office/workers' || url.pathname.startsWith('/office/workers/')) return officeWorkers(req, res, url);
-    if (req.method !== 'POST' || !['/hooks/claude', '/hooks/opencode', '/hooks/codex', '/hooks/grok', '/hooks/muse'].includes(url.pathname)) return send(res, 404, { ok: false });
+    if (req.method !== 'POST' || !['/hooks/claude', '/hooks/opencode', '/hooks/codex', '/hooks/grok', '/hooks/muse', '/hooks/pi'].includes(url.pathname)) return send(res, 404, { ok: false });
     let payload: unknown = {};
     try {
       const body = await readBody(req);
@@ -318,6 +318,8 @@ export async function startServer(cfg: Config) {
     const event = url.searchParams.get('event') ?? '';
     const ok = url.pathname === '/hooks/opencode'
       ? workers.handleOpenCodeHook(workerId, token, payload)
+      : url.pathname === '/hooks/pi'
+        ? workers.handlePiHook(workerId, token, payload)
       : url.pathname === '/hooks/codex'
         ? workers.handleCodexHook(workerId, token, event, payload)
         : url.pathname === '/hooks/grok'
