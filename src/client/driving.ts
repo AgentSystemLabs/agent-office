@@ -1,4 +1,5 @@
 import { CAR, SEATS, carFits, carPoint, drive, onPavement, type Box, type CarPose, type CarSeat, type Pedals } from '../shared/garage';
+import { LOOP_PAVED, nearLoop } from '../shared/scenic';
 import type { PlayerController } from './player';
 import type { Fleet } from './world/cars';
 
@@ -159,7 +160,8 @@ export class Driver {
         brake: p.holding('Space'),
       };
       this.gas = pedals.gas;
-      const pose = this.move(this.fleet.cars[car].pose, pedals, dt, this.fleet.solids(car));
+      const from = this.fleet.cars[car].pose;
+      const pose = this.move(from, pedals, dt, this.fleet.solids(car, { x: from.x, z: from.z, r: CAR.length + Math.abs(from.speed) * dt + 1 }));
       this.fleet.place(car, pose);
       this.send(car, pose);
     }
@@ -168,7 +170,8 @@ export class Driver {
 
   /**
    * The car `dt` on from `from`: in short steps, stopping at whatever's in the way. At an angle to
-   * it, the car slides along it; head on, it bounces back off.
+   * it, the car slides along it (along the scenic loop's edge, the way the road curves); head on,
+   * it bounces back off.
    */
   private move(from: CarPose, pedals: Pedals, dt: number, solids: Box[]): CarPose {
     const n = Math.max(1, Math.ceil((Math.abs(from.speed) * dt) / STEP));
@@ -182,15 +185,27 @@ export class Driver {
         pose = next;
         continue;
       }
-      // Sliding keeps only the part of the move along what's in the way (everything here is square to
-      // the street), and only that much of the speed; the car swings round to run along it.
+      // Sliding keeps only the part of the move along what's in the way (the town's things are all
+      // square to the street; the loop's edge goes the way the road does), and only that much of the
+      // speed; the car swings round to run along it. `off` is the way off what it's run into.
       const dx = next.x - pose.x;
       const dz = next.z - pose.z;
       const want = Math.hypot(dx, dz) || 1;
-      const slides = [
-        { to: { ...next, z: pose.z }, keep: Math.abs(dx) / want, heading: Math.sign(dx) * (Math.PI / 2) },
-        { to: { ...next, x: pose.x }, keep: Math.abs(dz) / want, heading: dz > 0 ? 0 : Math.PI },
+      const slides: { to: CarPose; keep: number; heading: number; off: { x: number; z: number } }[] = [
+        { to: { ...next, z: pose.z }, keep: Math.abs(dx) / want, heading: Math.sign(dx) * (Math.PI / 2), off: { x: 0, z: -Math.sign(dz) } },
+        { to: { ...next, x: pose.x }, keep: Math.abs(dz) / want, heading: dz > 0 ? 0 : Math.PI, off: { x: -Math.sign(dx), z: 0 } },
       ].filter((q) => q.keep > 0.25 && carFits(q.to, solids));
+      const road = nearLoop(pose.x, pose.z);
+      if (road && road.off < LOOP_PAVED + 2) {
+        // Along the road here, and in off its edge toward the middle: round the outside of a bend,
+        // going straight on along it runs a little off, so it's nudged back in as it goes.
+        const run = dx * road.tx + dz * road.tz;
+        const inward = road.off > 1e-6 ? { x: (road.x - pose.x) / road.off, z: (road.z - pose.z) / road.off } : { x: 0, z: 0 };
+        const base = { ...next, x: pose.x + road.tx * run, z: pose.z + road.tz * run };
+        const to = [0, 0.04, 0.12, 0.25].map((d) => ({ ...base, x: base.x + inward.x * d, z: base.z + inward.z * d })).find((q) => carFits(q, solids));
+        const keep = Math.abs(run) / want;
+        if (to && keep > 0.25) slides.push({ to, keep, heading: Math.atan2(road.tx * Math.sign(run), road.tz * Math.sign(run)), off: inward });
+      }
       const along = slides.sort((a, b) => b.keep - a.keep)[0];
       if (along) {
         this.bumped(pose, Math.abs(next.speed) * (1 - along.keep));
@@ -199,7 +214,7 @@ export class Driver {
         const heading = along.heading + (next.speed < 0 ? Math.PI : 0);
         const rotY = wrap(slid.rotY + wrap(heading - slid.rotY) * 0.3);
         // Swinging round about its middle takes its far end into it: a nudge off it, the way it came.
-        const off = along.heading === 0 || along.heading === Math.PI ? { x: -Math.sign(dx), z: 0 } : { x: 0, z: -Math.sign(dz) };
+        const off = along.off;
         const turned = [0, 0.03, 0.08].map((d) => ({ ...slid, rotY, x: slid.x + off.x * d, z: slid.z + off.z * d })).find((q) => carFits(q, solids));
         pose = turned ?? slid;
         continue;

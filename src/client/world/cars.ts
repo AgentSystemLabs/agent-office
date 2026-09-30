@@ -310,14 +310,16 @@ export class Fleet {
   /**
    * What a car bumps into on the street, besides the pavement's edge: whatever stands on it (the
    * garage's columns and walls, street lamps, trees, the elevator, the other cars), but not car
-   * `except`'s own boxes.
+   * `except`'s own boxes. With `near`, only what's within `r` of (x, z): out on the scenic loop
+   * there are trees by the thousand, nearly all of them nowhere near you.
    */
-  solids(except: number): Box[] {
+  solids(except: number, near?: { x: number; z: number; r: number }): Box[] {
     const own = this.cars[except]?.colliders;
     const out: Box[] = [];
     for (const c of this.all) {
       // Not the ground itself (the lawn, the lots), nor anything overhead.
       if (own?.includes(c) || (c.bottom ?? 0) > this.street + 1 || c.top < this.street + 0.3) continue;
+      if (near && (c.minX > near.x + near.r || c.maxX < near.x - near.r || c.minZ > near.z + near.r || c.maxZ < near.z - near.r)) continue;
       out.push(c);
     }
     return out;
