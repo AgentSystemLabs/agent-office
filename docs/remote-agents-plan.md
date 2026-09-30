@@ -262,6 +262,47 @@ once the target bridge is resolved, before anything is written. The message shou
   to pick its own pattern; the closest precedents are a real `http.Server` on an ephemeral port
   (`tests/office-queue.test.ts`) and a narrow interface faked rather than a class (`tests/queue.test.ts`).
 
+## The permission model, stated plainly
+
+The proposal leaves this implied in a single sentence — *"Agents may only hire onto a bridge that is
+accepting; people may always hire"* — and it is the kind of thing that gets quietly narrowed while
+someone is wiring up seats and toggles. So it is written out here as a fixed constraint, not a
+decision to revisit.
+
+**The office has no per-desk permissions, and this feature does not add any.** Every member of a floor
+can do every one of these to every worker on that floor, office-local or remote, without asking anyone:
+
+| | Today | With a bridge |
+|---|---|---|
+| Spawn a worker on any free desk | anyone, no role check | anyone, on an office desk or a remote one |
+| Send a worker home, with cleanup | anyone | anyone; the office sends `stop` and the bridge tidies its own worktree |
+| Type into a worker's terminal | anyone who has it open | anyone — including into a shell on someone else's laptop |
+| Prompt, resume, abort (Ctrl+C), attach, rebuild, open a PR | anyone | anyone |
+| Be the account a worker runs as (`owner`) | their own sign-ins | the **bridge owner's** sign-ins, always; remote workers never use `runAs` |
+
+Verified in the tree: `worker.kill` asks only `worker(msg.workerId)` — does it exist — and nothing
+else (`server.ts:1738-1750`). `worker.spawn` likewise (`server.ts:1702-1732`). The only admin gates in
+the office are accounts, prompts, the default worker, the worker limit, floors and the workspace
+folder. Nothing about workers.
+
+**The single asymmetry is who is doing the hiring.** A person clicking **Hire** has chosen to run their
+own prompt on that machine, and may always spawn onto any bridge. A queue task or board agent has not —
+it is a stranger's prompt arriving by automation — so it may only spawn onto a bridge whose owner has
+flipped `--accept`. This is decision 2 below, and it is the *only* place the two differ.
+
+**Refusals are about capacity and kind, never about who you are.** A remote desk still refuses a hire
+past `--seats` (*"Bolt's laptop has no free desk"*), a taken desk, `--max-workers`, meetings (one
+shared worktree on office disk), and an office-chosen model or effort (the bridge decides those). None of
+those look at the member's role.
+
+What a bridge genuinely changes is **blast radius, not permission**. Today everyone typing into a
+worker is typing into a shell on the office's own machine, under the office's own operator. With a
+bridge seated, the same open door leads to a shell on a member's laptop, as them, written by whoever
+typed the prompt. Every containment measure in this feature — seats, the accepting toggle,
+`--isolate container`, no retained scrollback — exists for that reason and for no other. Anyone
+implementing Phase D should read the accepting-toggle task as *an automation gate*, not as a
+permission system, and should not add a role check anywhere else without asking first.
+
 ## Decisions to lock before writing code
 
 These are the questions the proposal explicitly leaves open. Each has a recommended answer and a
@@ -270,7 +311,7 @@ consequence; they are listed as questions because a human has to own them, not b
 | # | Question | Recommendation | Consequence of the other way |
 |---|---|---|---|
 | 1 | Does the office refuse a bridge without `--isolate container` from anyone who is not the operator? (proposal risk 1) | **No**, refuse nothing; make the setting loud and default it on | Refusing makes the feature unusable for the group it is for, and the isolation flag is a bridge-side choice the office cannot verify anyway |
-| 2 | Does a bridge without a bridge seat also need a per-hire human approval? (proposal risk 2) | **No.** The accepting toggle is the control | Per-hire approval kills the queue automation that is the reason to build this |
+| 2 | Does a bridge without a bridge seat also need a per-hire human approval? (proposal risk 2) | **No.** The accepting toggle is the control — see [the permission model](#the-permission-model-stated-plainly) | Per-hire approval kills the queue automation that is the reason to build this |
 | 3 | Do remote workers count against `--max-workers` and the queue's *workers at once*? (risk 7) | **Yes**, both | Not counting them is how a five-person office spends five people's money on one laptop |
 | 4 | Two offices, one machine — supported, tolerated or refused? (risk 8) | **Tolerated**, tested | Refusing breaks a legitimate setup; supporting it properly is more work than it looks |
 | 5 | Whose git identity does a bridge push with? (risk 10) | **The bridge's**, shown in the pairing dialog and the desk sign | The office's identity would put a stranger's commits in the operator's name |
@@ -365,8 +406,11 @@ Phase 2 in the proposal.
 
 1. **Seats and the refusing message.** `--seats` declared at `ready`; a hire beyond capacity names the
    machine: *"Bolt's laptop has no free desk"*.
-2. **The accepting toggle.** Agents may only hire onto an accepting bridge; people may always hire.
-   Refused at the same call-site gate as meetings and `repos` (finding 7), not in the queue.
+2. **The accepting toggle.** Agents may only hire onto an accepting bridge; people may always hire,
+   without asking the bridge's owner and without a toggle of their own. Refused at the same call-site
+   gate as meetings and `repos` (finding 7), not in the queue. This is the *only* place people and
+   agents differ — the whole rule is in
+   [the permission model](#the-permission-model-stated-plainly), and it must not quietly grow.
 3. **Queue behaviour when a laptop is asleep.** A remote-targeted task with no bridge connected stays
    **queued**, visibly, with the machine named — never `failed`. `queue.ts:338-345` turns any `spawn`
    refusal into `failed`, so the gate must reject *before* `spawn`, in `seat()`'s desk choice.
@@ -418,6 +462,7 @@ test the generated bridge and payload normalisation, not the upstream CLI; a rem
 | File | What it covers |
 |---|---|
 | `tests/bridge.test.ts` (new) | A fake bridge — a `WebSocketServer` on an ephemeral port — driven through the real `BridgePty` and the real pairing check. Seat handshake, byte and resize round trips, exit codes, hook forwarding. **A forwarded hook for another worker's id is refused** (decision 7). **A forwarded `/office/*` call cannot touch another bridge's worker.** A dropped socket leaves the worker `offline` and asleep, not spinning. |
+| `tests/bridge.test.ts` (new) | **The permission model, as a test.** A plain member — not an admin — can spawn onto a remote desk, type into it, prompt it, and send it home, and every refusal is about seats or kind rather than role. Send-home sends `stop` and the bridge, not the office, removes the worktree. A member may spawn onto a bridge that is *not* accepting; an agent on `/office/workers` may not. |
 | `tests/bridges.test.ts` (new) | Pairing codes: single-use, expiring, capped, revocable at once. A revoked token is refused on the next upgrade. The `mtimeMs:size` sync picks up `agent-office bridges approve` while the office runs. |
 | `tests/worktrees.test.ts` (extend) | Two seated workers get two directories; send-home removes only its own. Mirrors the existing `fixture(t)` pattern — a real git triple in a tmpdir. |
 | `tests/workers.test.ts` (extend) | Persistence and restore of a remote worker, including the `offline`-until-the-bridge-returns boot path and the interrupted-mid-turn flag on a dropped socket. No retained scrollback unless the bridge opted in. |
@@ -428,6 +473,11 @@ test the generated bridge and payload normalisation, not the upstream CLI; a rem
 Two properties deserve their own test names because they are the ones that would silently rot:
 *no remote worker is left in `working` forever*, and *a remote worker keeps no retained scrollback
 unless its bridge opted in*.
+
+The permission model gets the same treatment, for the same reason. It is the easiest thing in the
+feature to break by accident — a seat check or an accepting toggle written one role check too early —
+and nobody notices until a member is refused something they have always been able to do. The test above
+is the guard.
 
 ## Open questions for the maintainer
 
