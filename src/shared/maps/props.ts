@@ -40,6 +40,20 @@ export const PROP_KINDS = {
   table: 'A table without seats',
   /** A tall iron candle stand. */
   candles: 'A candle stand',
+  /** A sign, its top at `y`, `width` by `height`, facing `rotY`, with `text` on it in `color`. */
+  sign: 'A sign, lit if you ask',
+  /** A big display, its top at `y`, `width` by `height`, facing `rotY`. */
+  screen: 'A big display on a wall',
+  /** A projector standing on the floor with a hologram hanging over it. */
+  holo: 'A hologram projector',
+  /** A machine you can use for a drink, like the office's coffee. */
+  machine: 'A vending machine (the coffee)',
+  /** Stacked cases, `scale` big. */
+  crate: 'Stacked cases',
+  /** A grating in the floor or a wall that breathes steam, facing `rotY`. */
+  vent: 'A steam vent',
+  /** A low barrier, `width` along `rotY`, that keeps people out. */
+  barrier: 'A low lit barrier',
 } as const;
 export type PropKind = keyof typeof PROP_KINDS;
 
@@ -66,6 +80,10 @@ export const PROP_SIZE = {
   gong: { width: 2.1, depth: 0.7 },
   cask: { width: 1.7, depth: 1.0 },
   candles: 0.3,
+  machine: { width: 1.15, depth: 0.85 },
+  crate: 1.1,
+  barrier: { width: 2.4, depth: 0.32 },
+  holo: 0.7,
 } as const;
 
 /** How much floor a prop takes: a box, a circle, or none (it's on a wall or up in the air). */
@@ -91,12 +109,23 @@ export function propFootprint(p: PropConfig): { rect?: Rect; circle?: Circle } |
       return { rect: boxFootprint(p.x, p.z, PROP_SIZE.cask.width * s, PROP_SIZE.cask.depth * s, r) };
     case 'table':
       return { rect: boxFootprint(p.x, p.z, p.width ?? 1.4, p.length ?? 3, r) };
+    case 'machine':
+      return { rect: boxFootprint(p.x, p.z, PROP_SIZE.machine.width * s, PROP_SIZE.machine.depth * s, r) };
+    case 'crate':
+      return { rect: boxFootprint(p.x, p.z, PROP_SIZE.crate * s, PROP_SIZE.crate * s, r) };
+    case 'barrier':
+      return { rect: boxFootprint(p.x, p.z, (p.width ?? PROP_SIZE.barrier.width) * s, PROP_SIZE.barrier.depth * s, r) };
+    case 'holo':
+      return { circle: [p.x, p.z, PROP_SIZE.holo * s] };
     default:
       return null;
   }
 }
 
-/** How high up a prop that hangs on a wall or from the roof reaches (0 for what stands on the floor). */
+/**
+ * How high up a prop that hangs on a wall or from the roof reaches (0 for what stands on the floor).
+ * A `sign` and a `screen` hang the way a `banner` does: `y` is their top.
+ */
 export function propTop(p: PropConfig): number {
   const y = p.y ?? 0;
   switch (p.kind) {
@@ -106,6 +135,8 @@ export function propTop(p: PropConfig): number {
       return y + (p.width ?? 4.5) / 2;
     case 'banner':
     case 'chandelier':
+    case 'sign':
+    case 'screen':
       return y;
     case 'torch':
     case 'shield':

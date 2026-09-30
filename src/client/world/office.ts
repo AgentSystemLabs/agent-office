@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, BOOKSHELF, CABINET, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LADDER, LOFT, MACHINE_MONITOR, MEETING_BOARD, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PLANTS, SEATING_BY_ID, SLAB, STAIRS, STATIONS, STATION_AGENT, STOREY, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, WING, WING_DESKS, deskSeat, plantByWing, streetBelow, wingMinZ, wingRowZ, type DeskDef, type Opening, type Side, type StationKind } from '../../shared/layout';
+import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, BOOKSHELF, CABINET, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, KIOSK, LADDER, LOFT, MACHINE_MONITOR, MEETING_BOARD, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PLANTS, SEATING_BY_ID, SLAB, STAIRS, STATIONS, STATION_AGENT, STOREY, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, WING, WING_DESKS, deskSeat, plantByWing, streetBelow, wingMinZ, wingRowZ, type DeskDef, type Opening, type Side, type StationKind } from '../../shared/layout';
 import { wallFacing, type WallId, type WallRect } from '../../shared/decor';
 import { deskPoint } from '../../shared/nav';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
@@ -32,6 +32,8 @@ export interface Collider {
   bottom?: number;
   /** Only there to keep people out: its top isn't anything to land on, so confetti falls through it. */
   fence?: boolean;
+  /** Glass rather than a wall: you can see through it, so it doesn't hide what's behind it (see tvscreen.ts). */
+  glass?: boolean;
 }
 
 export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'cabinet' | 'ladder' | 'pole' | 'meeting' | 'bar' | 'dj' | 'golf' | 'ball' | 'bookshelf' | 'darts' | 'axe' | 'telescope' | 'car' | 'expand' | 'herald';
@@ -96,6 +98,11 @@ export interface Office {
   meetingSign: THREE.Mesh;
   /** What's already on the walls (boards, the TV, windows…), so pictures don't hang over it. */
   fixtures(): WallRect[];
+  /**
+   * The colliders of the outside walls themselves. Anything standing against a wall is set back
+   * from one of these by however much room it needs, so they aren't in its way (see moving.ts).
+   */
+  wallColliders: Set<Collider>;
   elevator: Elevator;
   /** The elevator's stop down in the garage, under the building. */
   garageLift: Elevator;
@@ -751,9 +758,11 @@ const SHADE_HEIGHT = 4.2;
 
 /**
  * The four outside walls, built in pieces around their windows and doors. Each is painted inside in
- * the floor's colors and outside in the building's.
+ * the floor's colors and outside in the building's. `wallColliders` collects the colliders they push
+ * up: anything stood against a wall stands set back from one by however much room it needs, so they
+ * aren't in its way (see moving.ts).
  */
-function buildWalls(group: THREE.Group, colliders: Collider[], openings: Opening[], looks: Looks) {
+function buildWalls(group: THREE.Group, colliders: Collider[], openings: Opening[], looks: Looks, wallColliders: Set<Collider>) {
   const inside = looks.wall;
   const outside = toon(PALETTE.exterior);
   const trimMat = looks.trim;
@@ -794,8 +803,11 @@ function buildWalls(group: THREE.Group, colliders: Collider[], openings: Opening
       group.add(mesh(alongX ? box(u1 - u0, 0.25, T + 0.04) : box(T + 0.04, 0.25, u1 - u0), trimMat, p.x, p.y, p.z, false));
       block(u0, u1);
     };
-    const block = (u0: number, u1: number, bottom?: number) =>
-      colliders.push(alongX ? { minX: u0, maxX: u1, minZ: w.at - T / 2, maxZ: w.at + T / 2, top: 99, bottom } : { minX: w.at - T / 2, maxX: w.at + T / 2, minZ: u0, maxZ: u1, top: 99, bottom });
+    const block = (u0: number, u1: number, bottom?: number) => {
+      const c = alongX ? { minX: u0, maxX: u1, minZ: w.at - T / 2, maxZ: w.at + T / 2, top: 99, bottom } : { minX: w.at - T / 2, maxX: w.at + T / 2, minZ: u0, maxZ: u1, top: 99, bottom };
+      colliders.push(c);
+      wallColliders.add(c);
+    };
     const holes = openings.filter((o) => o.wall === w.side).sort((a, b) => a.u - b.u);
     for (const [a, b, top] of w.spans) {
       let u = a;
@@ -1301,7 +1313,12 @@ export function buildOffice(): Office {
   const colliders: Collider[] = [];
   const interactables: Interactable[] = [];
   const fixtures: WallRect[] = [];
-  const fixture = (wall: WallId, u: number, y: number, w: number, h: number) => fixtures.push({ wall, u0: u - w / 2, u1: u + w / 2, y0: y - h / 2, y1: y + h / 2 });
+  const wallColliders = new Set<Collider>();
+  const fixture = (wall: WallId, u: number, y: number, w: number, h: number): WallRect => {
+    const r: WallRect = { wall, u0: u - w / 2, u1: u + w / 2, y0: y - h / 2, y1: y + h / 2 };
+    fixtures.push(r);
+    return r;
+  };
 
   // What each floor paints its own way (see setLook): the walls, their trim, the planks.
   const looks: Looks = { wall: toonUnique(PALETTE.wall), trim: toonUnique(PALETTE.wallTrim), planks: [] };
@@ -1342,7 +1359,7 @@ export function buildOffice(): Office {
   // Outside walls, with real windows you see out of and a door out.
   const trimMat = looks.trim;
   const openings = [...WINDOWS, EXIT_DOOR, BALCONY_DOOR];
-  buildWalls(group, colliders, openings, looks);
+  buildWalls(group, colliders, openings, looks, wallColliders);
   const glazing = new THREE.Group();
   for (const o of WINDOWS) {
     glazing.add(windowIn(o));
@@ -1550,7 +1567,8 @@ export function buildOffice(): Office {
   group.add(jukebox.group);
   colliders.push(jukebox.collider);
   interactables.push(jukebox.interactable);
-  fixture('east', JUKEBOX.z, JUKEBOX.height / 2, JUKEBOX.width + 0.1, JUKEBOX.height);
+  // The jukebox can be moved to another wall, so the bit of wall it takes goes in with it.
+  fixtures.push(jukebox.fixture);
   const cabinet = buildCabinet();
   group.add(cabinet.group);
   colliders.push(cabinet.collider);
@@ -1723,7 +1741,7 @@ export function buildOffice(): Office {
     hoop.update(dt);
   };
 
-  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, elevator, garageLift, cars, scenic, gong, jukebox, cabinet, whiteboard, tee, green, hoop, stack, wing, setWing, signs, setProjectName, setLook, setLevel, night, plants, update };
+  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, wallColliders, elevator, garageLift, cars, scenic, gong, jukebox, cabinet, whiteboard, tee, green, hoop, stack, wing, setWing, signs, setProjectName, setLook, setLevel, night, plants, update };
 }
 
 /** A chair at the meeting table, with its laptop on the table in front of it. */
@@ -1788,7 +1806,7 @@ function buildMeetingRoom(group: THREE.Group, colliders: Collider[], interactabl
       if (axis === 'x') bar(len, 0.1, T + 0.06, (a + b) / 2, y, at);
       else bar(T + 0.06, 0.1, len, at, y, (a + b) / 2);
     }
-    colliders.push(axis === 'x' ? { minX: a, maxX: b, minZ: at - T / 2, maxZ: at + T / 2, top: H } : { minX: at - T / 2, maxX: at + T / 2, minZ: a, maxZ: b, top: H });
+    colliders.push(axis === 'x' ? { minX: a, maxX: b, minZ: at - T / 2, maxZ: at + T / 2, top: H, glass: true } : { minX: at - T / 2, maxX: at + T / 2, minZ: a, maxZ: b, top: H, glass: true });
   };
   run('x', R.minX, R.door.x0, R.minZ);
   run('x', R.door.x1, R.maxX, R.minZ);
@@ -1960,8 +1978,8 @@ function buildLoft(group: THREE.Group, colliders: Collider[], interactables: Int
   for (let i = 0; i <= 2; i++) bar(T + 0.04, height, 0.1, westX, floorY + height / 2, minZ + i * (westLen / 2));
   bar(T + 0.06, 0.12, westLen, westX, floorY + 0.06, minZ + westLen / 2);
   bar(T + 0.06, 0.12, westLen, westX, roofY - 0.06, minZ + westLen / 2);
-  colliders.push({ minX, maxX, minZ, maxZ: minZ + T, bottom: floorY, top: 99 });
-  colliders.push({ minX, maxX: minX + T, minZ, maxZ: doorZ, bottom: floorY, top: 99 });
+  colliders.push({ minX, maxX, minZ, maxZ: minZ + T, bottom: floorY, top: 99, glass: true });
+  colliders.push({ minX, maxX: minX + T, minZ, maxZ: doorZ, bottom: floorY, top: 99, glass: true });
   // Over the door at the top of the stairs.
   const doorTop = floorY + 2.3;
   group.add(mesh(box(T + 0.04, roofY - doorTop, maxZ - doorZ), wallMat, westX, (roofY + doorTop) / 2, (doorZ + maxZ) / 2, false));

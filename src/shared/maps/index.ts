@@ -1,6 +1,7 @@
 import { BEANBAGS, BOARDS, DESKS, ELEVATOR, ELEVATOR_CAR, EXIT_DOOR, FLOOR, MEETING_SEATS, SEATING, STATIONS, STATION_AGENT, WALL_HEIGHT, WING_DESKS, seatHere, seatPlace, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../layout.js';
 import type { Circle, Rect } from '../nav.js';
 import { CASTLE } from './castle.js';
+import { CYBERPUNK } from './cyberpunk.js';
 import { MapError, isObj, num, str } from './check.js';
 import { overlaps, planDungeon, planSendHome } from './dungeon.js';
 import { boxFootprint, isPropKind, propFootprint, propTop } from './props.js';
@@ -12,7 +13,7 @@ export { DUNGEON_SLAB, SEND_HOME_STEPS, dungeonClear, levelRoute, prisonSeat, wa
 /** The office: built in code (world/office.ts), and what the building is until someone picks another map. */
 export const OFFICE_MAP = 'office';
 /** The maps that come with the office, besides the office itself. */
-export const BUILTIN_MAPS: readonly MapConfig[] = [CASTLE];
+export const BUILTIN_MAPS: readonly MapConfig[] = [CASTLE, CYBERPUNK];
 
 const STATION_KINDS: readonly StationKind[] = ['issues', 'pulls', 'queue'];
 /** How far in from a table's edge a seat's place setting is; the worker sits 0.85 out from it (see deskSeat), on the bench. */
@@ -103,7 +104,7 @@ export function resolveConfig(config: MapConfig, known: (id: string) => MapConfi
     if (seen.size > 5) throw new MapError('it extends too many maps in a row');
     seen.add(parent);
     const base = known(parent);
-    if (!base) throw new MapError(parent === OFFICE_MAP ? 'the office is built in code, so a map can’t extend it: extend "castle" instead' : `it extends "${parent}", which there’s no map called`);
+    if (!base) throw new MapError(parent === OFFICE_MAP ? 'the office is built in code, so a map can’t extend it: extend a built-in map (castle, cyberpunk) instead' : `it extends "${parent}", which there’s no map called`);
     out = mergeConfig(base, { ...out, extends: base.extends });
     parent = base.extends;
   }
@@ -312,6 +313,8 @@ export function planMap(input: unknown): MapPlan {
     opt(p.width, `${what}.width`, 0.3, 20);
     opt(p.height, `${what}.height`, 0.3, 20);
     opt(p.length, `${what}.length`, 0.3, 120);
+    if (p.text !== undefined && (typeof p.text !== 'string' || p.text.length > 40)) throw new MapError(`${what}.text should be up to 40 characters`);
+    if (p.color !== undefined && (typeof p.color !== 'string' || p.color.length > 40)) throw new MapError(`${what}.color should be a CSS color`);
     if (p.light !== undefined && typeof p.light !== 'boolean') throw new MapError(`${what}.light should be true or false`);
     // What hangs on a wall, or from the roof, has to fit under the walls' top.
     const top = propTop(p);

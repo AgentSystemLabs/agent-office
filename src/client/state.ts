@@ -5,13 +5,14 @@ import type { Decoration } from '../shared/decor';
 import { EMPTY_PLAN, type FloorPlan } from '../shared/floorplan';
 import { newer, type WbElement } from '../shared/whiteboard';
 import type { DogState } from '../shared/dog';
-import { JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
+import { JUKEBOX_HOME, JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
+import { TV_OFF, type TvState } from '../shared/tv';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
 import type { BallState } from '../shared/hoop';
 import { parked, type CarSeat, type CarState } from '../shared/garage';
 import { OFFICE_MAP, planOf, type MapPlan } from '../shared/maps';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'floorPlan' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'signins' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'sky' | 'theme' | 'map' | 'leaveOnMerge' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting' | 'prompts' | 'ball' | 'cars' | 'jail';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'floorPlan' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'signins' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'tv' | 'sky' | 'theme' | 'map' | 'leaveOnMerge' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting' | 'prompts' | 'ball' | 'cars' | 'jail';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -61,6 +62,9 @@ export interface Settings {
   /** The lounge jukebox, 0–1, apart from the office sounds. */
   music: number;
   musicMuted: boolean;
+  /** The lounge TV, 0–1, apart from the office sounds too: your own speakers only. */
+  tv: number;
+  tvMuted: boolean;
   /** The swish of a page turning as you read at the bookshelf. */
   pageTurns: boolean;
   /** Voice chat starts muted and V is held down to talk, instead of an open mic. */
@@ -133,7 +137,7 @@ export function rememberSpot(s: Spot) {
 }
 
 export function loadSettings(): Settings {
-  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, pageTurns: true, pushToTalk: false, notify: true, hud: { ...HUD_DEFAULTS }, pins: [] };
+  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, tv: 0.7, tvMuted: false, pageTurns: true, pushToTalk: false, notify: true, hud: { ...HUD_DEFAULTS }, pins: [] };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
     if (saved?.view === 'first' || saved?.view === 'third') s.view = saved.view;
@@ -141,6 +145,8 @@ export function loadSettings(): Settings {
     if (typeof saved?.muted === 'boolean') s.muted = saved.muted;
     if (typeof saved?.music === 'number' && Number.isFinite(saved.music)) s.music = Math.max(0, Math.min(1, saved.music));
     if (typeof saved?.musicMuted === 'boolean') s.musicMuted = saved.musicMuted;
+    if (typeof saved?.tv === 'number' && Number.isFinite(saved.tv)) s.tv = Math.max(0, Math.min(1, saved.tv));
+    if (typeof saved?.tvMuted === 'boolean') s.tvMuted = saved.tvMuted;
     if (typeof saved?.pageTurns === 'boolean') s.pageTurns = saved.pageTurns;
     if (typeof saved?.pushToTalk === 'boolean') s.pushToTalk = saved.pushToTalk;
     if (typeof saved?.notify === 'boolean') s.notify = saved.notify;
@@ -194,7 +200,9 @@ class Store {
   /** The signs over the desks, and how far the back office is built out (not the map's plan: see plan()). */
   floorPlan: FloorPlan = EMPTY_PLAN;
   /** What the lounge jukebox is playing; `since` is when the track started, on performance.now()'s clock. */
-  jukebox: JukeboxState & { since: number } = { on: false, track: JUKEBOX_TUNES[0].id, startedAt: 0, elapsed: 0, since: 0 };
+jukebox: JukeboxState & { since: number } = { on: false, track: JUKEBOX_TUNES[0].id, spot: JUKEBOX_HOME, startedAt: 0, elapsed: 0, since: 0 };
+  /** What's on the big TV, and how far into it: worked out against `officeNow()` when it's shown (see shared/tv.ts). */
+  tv: TvState = TV_OFF;
   /** The office's clock minus performance.now(), from the quickest ping (see 'pong'); for the jukebox. */
   private clock?: { offset: number; rtt: number };
   /** The floor's whiteboard: the newest copy of every element anyone drew, deleted ones too. */
@@ -319,10 +327,11 @@ class Store {
     this.cabinetFrame = v.cabinet.frame;
     this.setDog(v.dog);
     this.setJukebox(v.jukebox);
+    this.tv = v.tv ?? TV_OFF;
     this.ball = v.ball ?? {};
     this.setCars(v.cars ?? parked());
     this.jail = v.jail ?? { prisoners: [], bones: 0 };
-    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'floorPlan', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'ball', 'cars', 'jail'] as Topic[]) this.emit(t);
+    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'floorPlan', 'services', 'dog', 'jukebox', 'tv', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'ball', 'cars', 'jail'] as Topic[]) this.emit(t);
   }
 
   private setCars(cars: CarState[]) {
@@ -347,7 +356,8 @@ class Store {
 
   /** When the track started on this page's clock: from the office's clock once it's known, else from `elapsed`. */
   private setJukebox(j: JukeboxState) {
-    this.jukebox = { ...j, since: this.clock ? j.startedAt - this.clock.offset : performance.now() - j.elapsed };
+    // An office too old to say where its jukebox stands has it in the corner of the lounge.
+    this.jukebox = { ...j, spot: j.spot ?? JUKEBOX_HOME, since: this.clock ? j.startedAt - this.clock.offset : performance.now() - j.elapsed };
   }
 
   apply(msg: ServerMsg) {
@@ -474,6 +484,10 @@ class Store {
       case 'jukebox':
         this.setJukebox(msg.state);
         this.emit('jukebox');
+        break;
+      case 'tv':
+        this.tv = msg.state;
+        this.emit('tv');
         break;
       case 'cabinet':
         // Nobody at it any more: the last game's screen goes with them.

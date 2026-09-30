@@ -9,7 +9,8 @@ import type { FloorPlan } from './floorplan.js';
 import type { EmoteId } from './emotes.js';
 import type { CarSeat, CarState } from './garage.js';
 import type { BallState } from './hoop.js';
-import type { JukeboxState } from './jukebox.js';
+import type { JukeboxSpot, JukeboxState } from './jukebox.js';
+import type { TvState } from './tv.js';
 import type { CustomMap } from './maps/index.js';
 import type { PromptId } from './prompts.js';
 import type { DrinkId } from './rooftop.js';
@@ -300,6 +301,8 @@ export interface PeerInfo {
   sharing: boolean;
   /** On a smoke break, cigarette in hand. */
   smoking?: boolean;
+  /** Out cold on the ground, after the energy ran out or the stress got the better of them (see the office's faint). */
+  fainted?: boolean;
   /** At the golf tee on the balcony, club in hand. */
   golfing?: boolean;
   /** At the rooftop bar's dart board or axe lane, a dart or an axe in hand. */
@@ -809,6 +812,8 @@ export interface FloorView {
   dog: DogState | null;
   /** What the lounge jukebox is playing. */
   jukebox: JukeboxState;
+  /** What's on the big TV, and how far into it everyone is (see shared/tv.ts). */
+  tv: TvState;
   /** Who's at the arcade cabinet, what's on its screen, and the building's high scores. */
   cabinet: CabinetView;
   /** What's drawn on this floor's whiteboard, and who's drawing. */
@@ -1091,12 +1096,12 @@ export interface SkyState {
   temp?: number;
 }
 
-/** A holiday the whole building dresses up for (see shared/theme.ts). */
-export type Theme = 'halloween' | 'christmas';
-/** What someone picked in ⚙️ Settings: a holiday, none, or whichever the calendar says. */
+/** A look the whole building puts on (see shared/theme.ts): a holiday, or the modern office. */
+export type Theme = 'halloween' | 'christmas' | 'modern';
+/** What someone picked in ⚙️ Settings: a look, none, or whichever holiday the calendar says. */
 export type ThemePick = Theme | 'auto' | 'off';
 
-/** The building's holiday theme: the same on every floor, for everyone. */
+/** The building's theme: the same on every floor, for everyone. */
 export interface ThemeState {
   pick: ThemePick;
   /** What's up right now: the pick, or for 'auto' the holiday it is at the office. Null for none. */
@@ -1168,9 +1173,10 @@ export type ClientMsg =
    * You reached out to use something; everyone else sees your character's arm do it. With `smoke`,
    * you lit a cigarette (or put it out) on the balcony instead; with `golf`, you took a club out at
    * the tee (or put it back); with `drink`, you took a drink from the rooftop bar (or finished it,
-   * null); with `throwing`, you stepped up to the dart board or the axe lane up there (or back, null).
+   * null); with `throwing`, you stepped up to the dart board or the axe lane up there (or back, null);
+   * with `faint`, you keeled over on the ground (or came round again, false).
    */
-  | { t: 'act'; smoke?: boolean; golf?: boolean; drink?: DrinkId | null; throwing?: BarGame | null }
+  | { t: 'act'; smoke?: boolean; golf?: boolean; drink?: DrinkId | null; throwing?: BarGame | null; faint?: boolean }
   /**
    * You hit a golf ball off the tee: its heading (0 is south, toward +x from there), loft (radians)
    * and power (0–1). Everyone on your floor works out where it goes the same way (world/golf.ts fly).
@@ -1299,11 +1305,24 @@ export type ClientMsg =
   /** Knock the back office out another row, with two more desks; or wall its last row back up. */
   | { t: 'floor.expand' }
   | { t: 'floor.shrink' }
-  /** Put a tune on the jukebox (a JUKEBOX_TUNES id), or a stream; with neither, turn it back on. */
+  /** Put a tune — or a built-in station — on the jukebox (a JUKEBOX_TUNES id), or a stream; with neither, turn it back on. */
   | { t: 'jukebox.play'; track?: string; url?: string }
   /** On to the next tune. */
   | { t: 'jukebox.skip' }
   | { t: 'jukebox.stop' }
+  /** Stand the jukebox against another wall of this floor. The music carries on where it was. */
+  | { t: 'jukebox.place'; spot: JukeboxSpot }
+  /**
+   * Put `url` on the big TV, or resume what's on it with neither. It starts at `position`, or at the
+   * link's own `t=`/`start=`, or at 0 for a fresh link.
+   */
+  | { t: 'tv.play'; url?: string; position?: number }
+  /** Stop the big TV where it is; Play picks it back up from there. */
+  | { t: 'tv.pause'; position?: number }
+  /** Jump the big TV to `position` seconds, keeping play and pause as they are. */
+  | { t: 'tv.seek'; position: number }
+  /** Take the big TV off; its link stays for next time. */
+  | { t: 'tv.stop' }
   /**
    * Step up to the arcade cabinet on your floor to carry on with `game` (one the office started for
    * you), or to start a new game, even while you're at it; the office answers with `cabinet`, naming
@@ -1409,7 +1428,7 @@ export type ServerMsg =
   | { t: 'peer.update'; peer: PeerInfo }
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }
   | { t: 'peer.leave'; id: string }
-  | { t: 'peer.act'; id: string; smoke?: boolean; golf?: boolean; drink?: DrinkId | null; throwing?: BarGame | null }
+  | { t: 'peer.act'; id: string; smoke?: boolean; golf?: boolean; drink?: DrinkId | null; throwing?: BarGame | null; faint?: boolean }
   /** Someone on your floor hit a golf ball off the tee (see the client's 'golf'). */
   | { t: 'golf'; id: string; yaw: number; loft: number; power: number }
   /** Someone up on the roof threw a dart or an axe (see the client's 'toss'). */
@@ -1461,6 +1480,8 @@ export type ServerMsg =
   /** Someone in a car on your floor honked its horn. */
   | { t: 'car.honk'; car: number }
   | { t: 'jukebox'; state: JukeboxState }
+  /** What's on the big TV now (see shared/tv.ts). */
+  | { t: 'tv'; state: TvState }
   /** Who's at the arcade cabinet on your floor now, and the building's high scores. */
   | { t: 'cabinet'; state: CabinetState }
   /** The game on your floor's cabinet, as its player sees it (sent to everyone else on the floor). */

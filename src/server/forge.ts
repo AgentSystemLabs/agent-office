@@ -1,4 +1,7 @@
-import { execFile, execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { normalizeRepo } from '../shared/floors.js';
 import type { ForgeKind, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhLabel, GhMergeMethod, GhPull, GhPullDetail, GhRepoInfo, GhState } from '../shared/protocol.js';
 import { FORGE_LABEL } from '../shared/protocol.js';
@@ -84,16 +87,68 @@ function targetOf(cwd: string, kind: ForgeKind): string | undefined {
   return kind === 'github' ? workRepo(cwd) : undefined;
 }
 
-/** Runs a forge's CLI, and turns its failures into something a person standing at a board can act on. */
+/**
+ * Runs a forge's CLI, and turns its failures into something a person standing at a board can act on.
+ *
+ * Its output goes to a file rather than a pipe, because bb loses whatever it hasn't written by the
+ * time it exits when stdout is a pipe: thirty merged pull requests come back whole as a file
+ * (226 kB of JSON) and cut off at 65536, 65536 or 196608 bytes down a pipe, on the same command,
+ * which reaches the board as `Unterminated string in JSON`. Nothing here is capped, and stderr is
+ * small enough to read as it comes.
+ */
 function spawnCli(bin: string, args: string[], cwd: string, timeout: number, env: Record<string, string> | undefined, kind: ForgeKind): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(bin, args, { cwd, maxBuffer: 32 * 1024 * 1024, timeout, env }, (err, stdout, stderr) => {
-      if (!err) return resolve(stdout);
-      const said = (stderr || err.message || '').trim().split('\n').slice(-2).join(' ');
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return reject(new Error(`${FORGE_LABEL[kind]} CLI (${bin}) is not installed on the server`));
-      // `env` means this ran as someone signed in to an account of their own, so it's their sign-in that stopped.
-      if (env && SIGNED_OUT.test(said)) return reject(new Error(`Your ${FORGE_LABEL[kind]} sign-in stopped working — sign in again (☰ → 🔐 Your sign-ins)`));
-      reject(new Error(kind === 'bitbucket' ? friendlyBb(said) : friendlyGh(said)));
+    const scratch = mkdtempSync(path.join(os.tmpdir(), 'office-cli-'));
+    const file = path.join(scratch, 'out');
+    const done = (fn: () => void) => {
+      clearTimeout(timer);
+      try {
+        closeSync(fd);
+      } catch {
+        // already closed
+      }
+      rmSync(scratch, { recursive: true, force: true });
+      fn();
+    };
+    const fail = (why: string, missing = false) =>
+      done(() => {
+        if (missing) return reject(new Error(`${FORGE_LABEL[kind]} CLI (${bin}) is not installed on the server`));
+        const said = why.trim().split('\n').slice(-2).join(' ');
+        // `env` means this ran as someone signed in to an account of their own, so it's their sign-in that stopped.
+        if (env && SIGNED_OUT.test(said)) return reject(new Error(`Your ${FORGE_LABEL[kind]} sign-in stopped working — sign in again (☰ → 🔐 Your sign-ins)`));
+        reject(new Error(kind === 'bitbucket' ? friendlyBb(said) : friendlyGh(said)));
+      });
+    let fd: number;
+    try {
+      fd = openSync(file, 'w');
+    } catch (err) {
+      rmSync(scratch, { recursive: true, force: true });
+      return reject(err);
+    }
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, timeout);
+    const child = spawn(bin, args, { cwd, env, stdio: ['ignore', fd, 'pipe'] });
+    let stderr = '';
+    child.stderr!.setEncoding('utf8');
+    child.stderr!.on('data', (d: string) => (stderr += d));
+    child.on('error', (err) => fail(err.message, (err as NodeJS.ErrnoException).code === 'ENOENT'));
+    child.on('close', (code) => {
+      // Read while the file is still there: `done` takes the scratch folder away with it.
+      let stdout = '';
+      try {
+        stdout = readFileSync(file, 'utf8');
+      } catch {
+        // wrote nothing, which a command that only ever draws a table would
+      }
+      if (code !== 0) {
+        // bb puts its error envelope on stderr; a plain message can land on stdout instead, so
+        // whichever the command used is what is read.
+        return fail(timedOut ? `${bin} didn't answer within ${Math.max(1, Math.round(timeout / 1000))}s` : stderr || stdout || `${bin} exited with code ${code}`);
+      }
+      done(() => resolve(stdout));
     });
   });
 }
@@ -145,10 +200,15 @@ export const WRONG_BB = "the `bb` on this machine isn't the Bitbucket CLI the of
 /** Turns bb's stderr into something a person standing at the board can act on. */
 function friendlyBb(raw: string): string {
   const said = bbSaid(raw);
-  if (NOT_OUR_BB.test(said)) return WRONG_BB;
-  if (/no git remote|remote.*not found|not a git repository/i.test(said)) return 'This project has no Bitbucket remote yet. Push it to Bitbucket (git remote add origin <url>) to fill the boards.';
-  if (SIGNED_OUT.test(raw) || /\b1001\b|AUTH_REQUIRED/i.test(said)) return "bb isn't signed in to Bitbucket on the office's machine — run `bb auth login` there";
-  if (/context_repo_not_found|repository not found|6001|404/i.test(said)) return "bb can't find this repository on Bitbucket (check the remote and access)";
+  // bb's answers are a JSON envelope, and the useful parts are spread across it: the numeric code
+  // and the hint sit beside the message, not in it, so both are read.
+  const all = `${said} ${raw}`;
+  if (NOT_OUR_BB.test(all)) return WRONG_BB;
+  if (/no git remote|remote.*not found|not a git repository/i.test(all)) return 'This project has no Bitbucket remote yet. Push it to Bitbucket (git remote add origin <url>) to fill the boards.';
+  // Before the sign-in test, because bb's answer to a repository it can't see ends "…make sure you
+  // are authenticated", which would otherwise send someone to sign in again over a wrong name.
+  if (/context_repo_not_found|repository not found|no access to this repository|\b2002\b|\b6001\b|\b404\b/i.test(all)) return "bb can't find this repository on Bitbucket (check the name and that this login can see it)";
+  if (SIGNED_OUT.test(all) || /\b1001\b|AUTH_REQUIRED/i.test(all)) return "bb isn't signed in to Bitbucket on the office's machine — run `bb auth login` there";
   return said;
 }
 

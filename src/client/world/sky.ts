@@ -592,9 +592,10 @@ export class Sky {
   }
 
   /**
-   * The building's holiday: Halloween's sky is a creepy one, purple and blood orange with a harvest
-   * moon hanging low and the odd far-off flash, dim enough that the lamps and the jack-o'-lanterns
-   * glow; Christmas brings snow. Either eases in over a few seconds.
+   * The building's theme, as far as the sky is concerned: Halloween's sky is a creepy one, purple
+   * and blood orange with a harvest moon hanging low and the odd far-off flash, dim enough that the
+   * lamps and the jack-o'-lanterns glow; Christmas brings snow. Either eases in over a few seconds.
+   * The modern office leaves the weather alone, as none does.
    */
   setTheme(theme: Theme | null) {
     if (theme === this.theme) return;

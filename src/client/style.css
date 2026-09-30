@@ -221,6 +221,23 @@ button { font-family: inherit; }
 .telescope-reticle::after { top: 50%; left: -2vmin; height: 1px; width: 12vmin; }
 .telescope-exit { position: absolute; z-index: 2; left: 50%; bottom: 5vmin; transform: translateX(-50%); pointer-events: auto; white-space: nowrap; }
 body.telescope-active #hud { visibility: hidden; }
+/* The big TV's picture: ordinary HTML, transformed onto the TV's rectangle in the world each frame.
+   It sits over the canvas and under the HUD, and is scenery throughout — pointer-events: none, so
+   looking around and clicking go on exactly as if it were painted on the screen (see tvscreen.ts). */
+#stream-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+#stream-layer .tv-frame {
+  position: absolute; left: 0; top: 0; width: 1280px; height: 720px;
+  transform-origin: 0 0; overflow: hidden; background: #0c0d15;
+  /* The picture is hidden behind anything in front of the TV: a small canvas of what's in the way,
+     stretched over the frame (see TvScreen.occlude). 100% 100% keeps it on the frame's own corners. */
+  mask-size: 100% 100%; mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%; -webkit-mask-repeat: no-repeat;
+}
+#stream-layer .tv-frame > * { display: block; width: 100%; height: 100%; border: 0; background: #000; }
+#stream-layer .tv-frame > video { object-fit: contain; }
+/* YouTube's player arrives inside a wrapper of its own (see TvScreen.loadYoutube). */
+#stream-layer .tv-frame .tv-player { position: relative; background: #000; }
+#stream-layer .tv-frame .tv-player > iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 /* The emote wheel (hold G): six emotes round a ring in the middle of the screen, over the crosshair. */
 .emote-wheel { position: absolute; inset: 0; display: grid; place-items: center; background: radial-gradient(circle, rgba(43,45,66,.28), transparent 45%); }
 .emote-wheel .ring {
@@ -265,9 +282,21 @@ body.telescope-active #hud { visibility: hidden; }
 
 .conn { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--bad); color: #fff; font-weight: 900; padding: 6px 14px; border-radius: 12px; border: 3px solid var(--ink); }
 
-#shares { position: absolute; left: 12px; top: 72px; display: flex; flex-direction: column; gap: 8px; }
-/* Coffee: how much of the buzz is left, under the project name (screen shares move down under it). */
-.caffeine { position: absolute; left: 12px; top: 72px; display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 13px; font-weight: 900; pointer-events: none !important; }
+#shares { position: absolute; left: 12px; top: 106px; display: flex; flex-direction: column; gap: 8px; }
+/* Your own energy and stress, under the project name: what a cup of coffee and a drink at the bar are for. */
+.vitals { position: absolute; left: 12px; top: 72px; display: flex; align-items: center; gap: 10px; padding: 5px 10px; font-size: 13px; font-weight: 900; pointer-events: none !important; }
+.vitals .meter { display: flex; align-items: center; gap: 5px; }
+.vitals .bar { width: 76px; height: 12px; border: 2px solid var(--ink); border-radius: 999px; background: #f1e4d3; overflow: hidden; }
+.vitals .bar span { display: block; width: 0; height: 100%; transition: width 1s linear; }
+#energy-fill { background: #52b788; }
+#stress-fill { background: var(--info); }
+.vitals.low #energy-fill { background: var(--bad); }
+.vitals.wound #stress-fill { background: var(--bad); }
+/* Wound up past half, it shakes like the coffee jitters do. */
+.vitals.wound { animation: jitters .1s steps(2) infinite; }
+@media (prefers-reduced-motion: reduce) { .vitals.wound { animation: none; } }
+/* Coffee: how much of the buzz is left, under the energy and stress (screen shares move down under it). */
+.caffeine { position: absolute; left: 12px; top: 106px; display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 13px; font-weight: 900; pointer-events: none !important; }
 .caffeine .bar { width: 96px; height: 12px; border: 2px solid var(--ink); border-radius: 999px; background: #f1e4d3; overflow: hidden; }
 .caffeine .bar span { display: block; width: 0; height: 100%; background: #9c6644; transition: width 1s linear; }
 .caffeine .left { min-width: 24px; font-variant-numeric: tabular-nums; }
@@ -290,9 +319,9 @@ body.telescope-active #hud { visibility: hidden; }
 .caffeine.jittery .bar span { background: var(--bad); }
 @keyframes jitters { 50% { transform: translate(1px, -1px) rotate(-1.5deg); } }
 @media (prefers-reduced-motion: reduce) { .caffeine.jittery { animation: none; } }
-.caffeine:not(.hidden) ~ #shares { top: 120px; }
+.caffeine:not(.hidden) ~ #shares { top: 140px; }
 /* The floor details make the name taller: what's under it moves down. */
-#hud:has(#project-meta:not(.hud-off)) :is(.caffeine, #shares) { translate: 0 16px; }
+#hud:has(#project-meta:not(.hud-off)) :is(.vitals, .caffeine, #shares) { translate: 0 16px; }
 .share-thumb { width: 220px; border: 3px solid var(--ink); border-radius: 12px; overflow: hidden; background: #000; box-shadow: var(--shadow); cursor: pointer; position: relative; }
 .share-thumb video { width: 100%; display: block; aspect-ratio: 16/9; object-fit: contain; background: #111; }
 .share-thumb .who { position: absolute; left: 6px; bottom: 6px; background: var(--paper); border: 2px solid var(--ink); border-radius: 8px; padding: 1px 6px; font-size: 12px; font-weight: 800; }
@@ -668,13 +697,20 @@ body.telescope-active #hud { visibility: hidden; }
 
 /* The jukebox */
 .modal.jukebox { width: min(520px, 100%); }
-.jb-now { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 3px solid var(--ink); border-radius: 14px; background: var(--paper-2); }
-.jb-now .btn { flex: none; padding: 4px 10px; font-size: 13px; }
+.jb-now, .tv-now { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 3px solid var(--ink); border-radius: 14px; background: var(--paper-2); }
+.jb-now .btn, .tv-now .btn { flex: none; padding: 4px 10px; font-size: 13px; }
 .jb-disc { flex: none; font-size: 30px; line-height: 1; }
 .jb-disc.spin { animation: jb-spin 2.4s linear infinite; }
 @keyframes jb-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .jb-disc.spin { animation: none; } }
 .jb-icon { flex: none; font-size: 18px; }
+
+/* The TV window: the scrubber everyone follows, its time, and the link opened elsewhere */
+.modal.tv { width: min(560px, 100%); }
+.tv-scrub { margin-top: 10px; gap: 10px; }
+.tv-time { flex: none; font: 800 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+.tv-open { flex: none; font-size: 13px; font-weight: 800; color: var(--accent); text-decoration: none; white-space: nowrap; }
+.tv-open:hover { text-decoration: underline; }
 
 /* Signs over the desks, and the back office */
 .modal.desklabel { width: min(520px, 100%); }

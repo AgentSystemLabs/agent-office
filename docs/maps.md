@@ -2,7 +2,7 @@
 
 Back to the [README](../README.md).
 
-The office is one map the building can be. Under **⚙️ Settings → 🏢 Building → Map**, anyone can change it for everyone, on every floor: to the **🏰 Castle**, or to a map of your own. Everything that makes the office work comes along: the workers and their terminals, the issues and PR boards, the task queue and its agent, the services board, meetings, the merge gong, the budget and the limits. Workers keep their seats, since every map places the same seats (see [Seats](#seats)), so a map can change while they work.
+The office is one map the building can be. Under **⚙️ Settings → 🏢 Building → Map**, anyone can change it for everyone, on every floor: to the **🏰 Castle**, to **🌃 Night City**, or to a map of your own. Everything that makes the office work comes along: the workers and their terminals, the issues and PR boards, the task queue and its agent, the services board, meetings, the merge gong, the budget and the limits. Workers keep their seats, since every map places the same seats (see [Seats](#seats)), so a map can change while they work.
 
 The office has plenty of its own that a map doesn't (the elevator, the balcony, the rooftop bar, the lounge, the dog, pictures on the walls). On another map you go to another project from the floor list in the top-left corner (or **☰ → Floors**), and each project's hall is dressed in its own colors.
 
@@ -17,6 +17,18 @@ A long stone hall with a timber roof, pillars and pointed arches down both sides
 - **Wear and tear.** Workers here dress as peasants, and the longer one works the more worn out it looks: a beard that grows out and goes from brown to grey to white, down to the floor, dirt and patched clothes, bags under its eyes, a hunch and a slower walk. It's fully spent after 30 minutes of work (`agents.ageMinutes`). Only time spent working counts, over the worker's whole stay, and the office keeps it through a restart.
 - **The dungeon.** Send a worker home (**X**) and it doesn't walk out: the **Kingsguard**, on watch down in the dungeon, comes running up the stairs to its seat, says his piece, waits while it packs its things into a box, and marches it off with a hand on its shoulder, down the carpet, down the stairs by the east wall, to a cell. The door swings open, he throws it in, and the door slams. It stays there for good. Everyone ever sent home is kept, and wastes away: thinner and paler by the hour, until after a day it starves to death (☠️ on its name tag) and keels over on the straw. Then it rots, its bones showing through, down to a bare skeleton (💀) half a day later. You can walk down the stairs (behind the rail south of the east tables) and look in on them; the living ones mutter at you now and then. There are 67 seats in the 9 cells, filled round the cells one each: once they're all taken, the oldest are thrown on the heap of bones at the west end. It's the same for workers that go home on their own when their pull request merges, ones another worker sends home, and ones the task queue sends home to make room; a meeting's workers, let go when it's over, still just walk out. Each floor has its own dungeon (kept in the project's `.agent-office/jail.json`).
 - **The boards** hang on the side walls, with a scribe at a lectern under each of the issues, queue and PR boards (the board agents). The **small council**'s round table, near the dais, is the meeting room: **E** at it calls a meeting, and its easel shows what the meeting writes. The gong is by the dais, and there's ale by the hearth (it works like the office's coffee).
+
+## Night City
+
+A neon concourse under a steel ceiling: a rain-slick street lined with concrete facades, holographic billboards and shopfronts, with the workers at console benches in the arcade under the overpass gantry. Everything glows — signs, holo projectors, LED strips, the light panels in the ceiling — and through the glazing at the ends you can see the city: towers of lit windows, floating ads, a monorail, and rain. It is the one map you can walk out of: the way south opens onto a terrace over the street, with a ramen stand and a railing to look over.
+
+- **The boss's chair.** Up on a chrome dais at the north end, behind a gunmetal console, with a wall of neon and one great holo screen behind it. You arrive on it (unless someone is already there). **E** at it sits you back down; walk off or jump to get up.
+- **The line.** A worker that's done, or waiting on you, lines up in front of the dais, the one that has waited longest at the front, exactly as at the castle's throne: **E** from the chair opens its terminal (**P** to prompt it, **O** for its PR, **X** to send it home).
+- **The Fixer.** He stands at your left, in a long coat and shades. Talk to him (**E** by him, **K** from the chair, or **E** from the chair when nobody's in line) and a new crew runs off to the first free bench.
+- **The benches.** Four console decks, two down each side of the concourse, with a glowing edge, a holo-terminal between every pair of places and a crate of parts. The seats toward the middle of the hall fill first, as everywhere.
+- **Vending machines.** Four of them, two down each wall: **E** for a drink, which perks you up like the office's coffee (the castle's ale casks).
+- **The boards** are in steel frames with neon labels on the side walls, with an info kiosk under each of the issues, queue and PR boards for its agent. The **war room**'s round table, with its own holo projector and a board on a stand, is the meeting room. The gong is a chrome bell west of the dais.
+- **Sent home**, a worker is packed up and marched out to the street by **CorpSec**, an armoured officer with a glowing visor and a stun baton, who leaves it outside and goes back to his post. Nobody is jailed here: the plaza has no dungeon.
 
 ## Maps of your own
 
@@ -35,7 +47,25 @@ The easy way is to start from the castle and change only what you want. This one
 }
 ```
 
-`extends` fills in everything you leave out from the map you name. Objects are merged key by key (so `boards.issues.z` changes one number of one board), and lists replace the whole list (give `tables` or `props` and they're all yours). `null` takes away one of the optional parts (`"herald": null`: no Hand of the King). A map can extend another map of your own, a few deep. The office itself is built in code, so it can't be extended; extend `castle` instead.
+`extends` fills in everything you leave out from the map you name. Objects are merged key by key (so `boards.issues.z` changes one number of one board), and lists replace the whole list (give `tables` or `props` and they're all yours). `null` takes away one of the optional parts (`"herald": null`: no Hand of the King). A map can extend another map of your own, a few deep. The office itself is built in code, so it can't be extended; extend `castle` or `cyberpunk` instead.
+
+The same works on Night City. `props` replaces the whole list, so a plaza that gives its own starts with the bones — the shell, the dais, the benches, the kiosks and the boards — and none of the city's signs. This one lights it in magenta, with neon of its own and a vending machine:
+
+```json
+{
+  "id": "my-plaza",
+  "name": "My plaza",
+  "extends": "cyberpunk",
+  "palette": { "trim": "#ff2c9c" },
+  "props": [
+    { "kind": "sign", "x": -15, "z": 4, "y": 5.2, "text": "NOODLES", "color": "#ff6b35", "width": 0.7 },
+    { "kind": "sign", "x": 15, "z": 4, "y": 5.2, "text": "BAR", "color": "#2de2e6", "width": 0.7, "light": true },
+    { "kind": "holo", "x": -8, "z": 14, "color": "#39ff88" },
+    { "kind": "machine", "x": -16.2, "z": 6, "rotY": 1.5708 },
+    { "kind": "barrier", "x": 0, "z": 19.2, "width": 12, "color": "#2de2e6" }
+  ]
+}
+```
 
 To change the lists (move a pillar, resize the hall and everything in it), start from a copy of the whole castle instead: [`docs/maps/castle.json`](maps/castle.json) is it, as a map of your own called *My castle*. Copy it into the folder and it's in Settings; change what you like from there.
 
@@ -85,7 +115,7 @@ A map that won't load (bad JSON, something outside the hall, too few seats, a pr
 | `id` | Lowercase letters, digits and dashes, up to 40. The building's pick is saved by it. **Required.** |
 | `name`, `icon`, `description` | What Settings shows. `name` is **required**. |
 | `extends` | Another map's `id` to start from. |
-| `style` | Which builder puts it up. `"castle"` is the only one so far. **Required.** |
+| `style` | Which builder puts it up: `"castle"` or `"cyberpunk"`. **Required.** |
 | `hall` | `{ width, length, height }`: the room (8 to 110 m either way), and how high its walls are (4 to 40 m). **Required.** |
 | `spawn` | `{ x, z, rotY }`: where you stand when you arrive and the throne's taken. Without it, at the door, facing the middle. |
 | `door` | `{ x, z }`: just inside the way in and out. The doorway goes in the nearest wall; workers come in and go home through it. **Required.** |
@@ -127,7 +157,19 @@ Every map has the same seats, by id, so that the server, the task queue, meeting
 | `table` | A table with nothing to sit at, `width` by `length`. |
 | `candles` | A tall iron candle stand. |
 
-Give a `torch`, `brazier` or `hearth` `"light": true` and it lights the room for real (the first eight do; the rest glow). What stands on the floor is walked round by the workers and bumped into by you; what hangs on a wall isn't in the way.
+Night City takes the same list and builds it its own way — the two styles' looks are in [the code](#adding-to-the-code) — and has seven kinds of its own:
+
+| `kind` | What it is |
+| --- | --- |
+| `sign` | A lit sign, its top at `y`, `width` by `height`, facing `rotY`, carrying `text` in `color`. One 2 m wide or more is a shopfront's: a doorway, its glow and a canopy are built under it. `light: true` gives it a real light. |
+| `screen` | A holographic billboard, its top at `y`, `width` by `height`: a picture that scrolls, in a steel frame, with a haze round it. |
+| `holo` | A projector standing on the floor with a hologram turning over it; `color` is its light, `scale` its size. |
+| `machine` | A vending machine: **E** for a drink, which perks you up like the office's coffee. `light` isn't needed; its face glows. |
+| `crate` | Stacked cases, `scale` big. |
+| `vent` | A steel grate breathing steam: in the floor, or in a wall at `y`. |
+| `barrier` | A low plasteel barrier, `width` along `rotY`, lit along its top, that keeps people out. |
+
+Give a `torch`, `brazier`, `hearth`, `sign`, `screen`, `holo`, `machine`, `chandelier` or `candles` `"light": true` and it lights the room for real (the first fourteen do; the rest glow). What stands on the floor is walked round by the workers and bumped into by you (`holo`, `machine`, `crate` and `barrier` included); what hangs on a wall isn't in the way.
 
 ### The dungeon
 
@@ -201,14 +243,14 @@ A map without a dungeon can still have a script: a guard who walks each worker t
 
 ### What it can't do (yet)
 
-- Arches only join pillars in a row along z, and the roof's trusses run across x: a hall is long along z.
-- To resize the castle, change its props too: `extends` can't move a list's items one by one, so start from [`castle.json`](maps/castle.json).
-- The workers' looks are the office's or the peasant's, and they work at the castle's tomes.
+- Arches only join pillars in a row along z, and the roofs' trusses run across x: a hall is long along z.
+- To resize the castle, change its props too: `extends` can't move a list's items one by one, so start from [`castle.json`](maps/castle.json). The same goes for Night City's props.
+- The workers' looks are the office's or the peasant's, and they work at the castle's tomes or at laptops (Night City is laptops).
 
 ## Adding to the code
 
-- **The model** is in [`src/shared/maps/`](../src/shared/maps): `types.ts` is the schema, `index.ts` checks a config and works out its plan (every seat, the line, the tables and the meeting table with what was left out filled in, the boards and what's in the way for walking round), `props.ts` has the props, the floor each takes and how high it reaches, and `castle.ts` is the castle ([`docs/maps/castle.json`](maps/castle.json) is written from it: `UPDATE_CASTLE_JSON=1 node --import tsx --test tests/maps.test.ts`). The server keeps the building's pick in `.agent-office/map.json` ([`src/server/maps.ts`](../src/server/maps.ts)) and checks where people sit against the map.
-- **A new prop kind** is its name in `PROP_KINDS`, the floor it takes (`propFootprint`) and how high it reaches (`propTop`) in `props.ts`, and how it looks in the style's builder's `PROPS` table ([`src/client/world/castle.ts`](../src/client/world/castle.ts)), which won't compile without it.
-- **A new style** is its name in `MAP_STYLES` and a builder in [`src/client/world/styles.ts`](../src/client/world/styles.ts) that turns a plan into a `World` ([`src/client/world/world.ts`](../src/client/world/world.ts)): a scene group, colliders, what can be used, a view for every seat, the four boards, a walk grid, the ways in and out, its room (wall thickness, roofed or not), and optionally a gong, the meeting's board, a herald, how it sounds, how it's lit (`mood`) and `dispose`. `main.ts` needs nothing else. The plan puts the seats, lecterns, meeting chairs and throne where the castle's furniture has them (a bench 0.85 m out from each place at a table, and so on), and that's what the workers walk round, so a new style builds its furniture there.
+- **The model** is in [`src/shared/maps/`](../src/shared/maps): `types.ts` is the schema, `index.ts` checks a config and works out its plan (every seat, the line, the tables and the meeting table with what was left out filled in, the boards and what's in the way for walking round), `props.ts` has the props, the floor each takes and how high it reaches, `castle.ts` is the castle ([`docs/maps/castle.json`](maps/castle.json) is written from it: `UPDATE_CASTLE_JSON=1 node --import tsx --test tests/maps.test.ts`) and `cyberpunk.ts` is Night City. The server keeps the building's pick in `.agent-office/map.json` ([`src/server/maps.ts`](../src/server/maps.ts)) and checks where people sit against the map.
+- **A new prop kind** is its name in `PROP_KINDS`, the floor it takes (`propFootprint`) and how high it reaches (`propTop`) in `props.ts`, and how it looks in **every** style's `PROPS` table ([`src/client/world/castle.ts`](../src/client/world/castle.ts), [`src/client/world/cyberpunk.ts`](../src/client/world/cyberpunk.ts)), which won't compile without it.
+- **A new style** is its name in `MAP_STYLES` and a builder in [`src/client/world/styles.ts`](../src/client/world/styles.ts) that turns a plan into a `World` ([`src/client/world/world.ts`](../src/client/world/world.ts)): a scene group, colliders, what can be used, a view for every seat, the four boards, a walk grid, the ways in and out, its room (wall thickness, roofed or not), and optionally a gong, the meeting's board, a herald, how it sounds, how it's lit (`mood`) and `dispose`. `main.ts` needs nothing else. The plan puts the seats, lecterns, meeting chairs and throne where the castle's furniture has them (a bench 0.85 m out from each place at a table, and so on), and that's what the workers walk round, so a new style builds its furniture there. `src/client/world/textures.ts` has the canvas-texture helpers both styles paint with.
 - **Workers walking about** (lining up, coming back, running to their seats) is [`src/client/world/court.ts`](../src/client/world/court.ts), for any map other than the office.
 - **The dungeon and sending workers home**: [`src/shared/maps/dungeon.ts`](../src/shared/maps/dungeon.ts) checks a map's `dungeon` and `sendHome`, works out the vault, the stairs and the cells' seats, how far a prisoner has wasted away (`wasting`) and the way between the hall and the dungeon (`levelRoute`). The client builds it in [`src/client/world/dungeon.ts`](../src/client/world/dungeon.ts), acts a script out in [`src/client/world/sendhome.ts`](../src/client/world/sendhome.ts) and shows the prisoners in [`src/client/world/jail.ts`](../src/client/world/jail.ts); the server keeps each floor's prisoners in `.agent-office/jail.json` ([`src/server/jail.ts`](../src/server/jail.ts)) and hands them out with the `worker.remove` that took them away. **A new kind of step** is its name in `SEND_HOME_STEPS`, its checking in `planSendHome`, and its `begin` and `tick` in `sendhome.ts`.

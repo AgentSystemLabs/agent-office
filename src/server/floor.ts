@@ -23,6 +23,7 @@ import { Court } from './court.js';
 import { Jail } from './jail.js';
 import { Garage } from './garage.js';
 import { Jukebox } from './jukebox.js';
+import { Tv } from './tv.js';
 import { Whiteboard } from './whiteboard.js';
 import { MeetingRoom } from './meetings.js';
 import { Worktrees, type WorktreeCleanup } from './worktrees.js';
@@ -109,7 +110,7 @@ export function projectInfo(dir: string, name: string, agentCmd: string, agentAr
 
 /**
  * One floor of the building: a project's checkout with its own desks and workers, issues and PR
- * boards, task queue, pictures and jukebox, all kept in that checkout's .agent-office folder.
+ * boards, task queue, pictures, jukebox and TV, all kept in that checkout's .agent-office folder.
  */
 export class Floor {
   readonly id: string;
@@ -124,6 +125,8 @@ export class Floor {
   /** The signs over its desks, and how far its back office is built out. */
   readonly plan: FloorPlanStore;
   readonly jukebox: Jukebox;
+  /** The big TV: the link on it, and where everyone is in it. */
+  readonly tv: Tv;
   /** The whiteboard everyone on the floor draws on together. */
   readonly whiteboard: Whiteboard;
   /** The meeting room, where workers work through a question together (see meetings.ts). */
@@ -314,6 +317,7 @@ export class Floor {
 
     this.decor = new Decor(dataDir);
     this.jukebox = new Jukebox(dataDir);
+    this.tv = new Tv(dataDir);
     this.whiteboard = new Whiteboard(dataDir);
     this.ready = this.workers.start();
 

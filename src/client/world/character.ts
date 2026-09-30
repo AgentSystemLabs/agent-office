@@ -372,6 +372,9 @@ export class Person {
   private seatHips = HIPS;
   /** 0 standing … 1 sitting, eased between so sitting down and getting up take a moment. */
   private sitK = 0;
+  /** 0 on their feet … 1 flat out on the ground, out cold (see faint.ts). */
+  private fallK = 0;
+  private wantFall = 0;
   /** Holding on to the ladder or a fire pole (see setGrip). */
   private grip: 'ladder' | 'pole' | null = null;
   /**
@@ -899,6 +902,14 @@ export class Person {
   }
 
   /**
+   * Out cold on the ground (`k` 1), or back on their feet (0): they keel over, flat out, and lie
+   * there (see faint.ts). Eased, so going down and getting up again take a moment.
+   */
+  fainted(k: number) {
+    this.wantFall = k;
+  }
+
+  /**
    * On the ladder (hand over hand, as they climb) or a fire pole (hanging on with both arms up, legs
    * wrapped round it: it's on their left, the +x side), or neither.
    */
@@ -1229,6 +1240,17 @@ export class Person {
     if (this.emoting) this.emoteStep(dt, moving || airborne ? 0 : 1 - sit);
     if (this.golf && !sit && !airborne) this.golfStep(dt);
     if (this.oche && !sit) this.ocheStep(dt);
+    // Out cold: the legs give, the body tips forward off its feet and lies flat on the ground.
+    this.fallK += (this.wantFall - this.fallK) * Math.min(1, dt * 7);
+    if (this.fallK > 0.002) {
+      const k = this.fallK;
+      this.body.rotation.x = 1.5 * k;
+      this.body.rotation.z = 0.2 * k;
+      this.body.position.y += 0.24 * k;
+      this.head.rotation.x = 0.4 * k;
+      this.armL.rotation.set(-0.35 * k, 0, -0.55 * k);
+      this.armR.rotation.set(-0.35 * k, 0, 0.55 * k);
+    }
   }
 }
 

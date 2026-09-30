@@ -14,7 +14,7 @@ const VIEWS: [ViewMode, string, string][] = [
   ['third', '🎥 Third person', 'Follow your character from behind. Drag to orbit the camera, scroll to zoom, and click things to use them.'],
 ];
 
-const THEME_LABEL: Record<ThemePick, string> = { auto: '📅 By the calendar', halloween: '🎃 Halloween', christmas: '🎄 Christmas', off: 'Off' };
+const THEME_LABEL: Record<ThemePick, string> = { auto: '📅 By the calendar', halloween: '🎃 Halloween', christmas: '🎄 Christmas', modern: '🏙️ Modern office', off: 'Off' };
 
 const WEBHOOK_NAME: Record<WebhookKind, string> = { slack: 'Slack', discord: 'Discord', other: 'a webhook' };
 
@@ -74,7 +74,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   paint();
 
   /** A volume slider with its mute button. Dragging it turns the sound back on; letting go plays `preview`. */
-  const volumeRow = (label: string, level: 'volume' | 'music', muted: 'muted' | 'musicMuted', preview?: () => void) => {
+  const volumeRow = (label: string, level: 'volume' | 'music' | 'tv', muted: 'muted' | 'musicMuted' | 'tvMuted', preview?: () => void) => {
     const slider = h('input', { type: 'range', min: 0, max: 100, step: 1, 'aria-label': label });
     const pct = h('span.vol-pct');
     const mute = h('button.btn', { type: 'button' });
@@ -137,6 +137,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   };
   paintTalk();
   const musicRow = volumeRow('Jukebox volume', 'music', 'musicMuted');
+  const tvRow = volumeRow('TV volume', 'tv', 'tvMuted');
 
   // The swish of the book's pages at the bookshelf, on or off.
   const pagesRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Page turns at the bookshelf' });
@@ -169,8 +170,8 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   };
   paintPages();
 
-  // The building's holiday theme, for everyone.
-  const themeRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Holiday theme' });
+  // The building's theme, for everyone: a holiday, the modern office, or none.
+  const themeRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Building theme' });
   const themeNote = h('p.setting-note');
   const paintTheme = () => {
     const { pick, active, by, at } = store.theme;
@@ -196,7 +197,9 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
         ? 'Halloween: the workers are zombies, your hands are an undead warlock’s, the dog’s in costume, the sky’s gone creepy and there are jack-o’-lanterns everywhere.'
         : active === 'christmas'
           ? 'Christmas: the workers are elves, your hands are in mittens, the dog’s Rudolph, and it’s snowing outside.'
-          : 'No decorations up right now.';
+          : active === 'modern'
+            ? 'Modern office: frosted-glass screens between the desks, cool LED strips round the ceiling, and a blinking server rack and water cooler in the room.'
+            : 'No decorations up right now.';
     const how = pick === 'auto' ? ' By the calendar it’s Halloween through October and Christmas through December.' : '';
     themeNote.textContent = `${now}${how} It’s the same for everyone in the building${by ? `, set by ${by}${at ? ` ${timeAgo(at)}` : ''}` : ''}.`;
   };
@@ -513,6 +516,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       setting('Office sounds', 'you', soundRow, h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds and rain outside, the dog, and the ding when a worker is done. Voice chat isn’t affected.')),
       setting('Page turns at the bookshelf', 'you', pagesRow, h('p.setting-note', {}, 'A soft swish each time the book in your hands turns a page, as you open a doc or scroll through one. The 🔈 at the top of the bookshelf turns it off too.')),
       setting('Jukebox', 'you', musicRow, h('p.setting-note', {}, 'The jukebox in the lounge. Everyone on the floor hears the same song, louder the closer they are to it; this is how loud it is for you alone.')),
+      setting('TV', 'you', tvRow, h('p.setting-note', {}, 'The big TV on the lounge wall. Everyone on the floor sees the same picture at the same moment; this is how loud it is for you alone. The sound row in the TV window is the same one.')),
       setting('Voice chat', 'you', talkRow, h('p.setting-note', {}, 'Either way, V joins voice, holding V talks and you’re muted once you let go, and M mutes or unmutes. With push to talk you join muted. Leave voice from the ☰ menu.')),
     ],
     notify: [
@@ -521,7 +525,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     ],
     building: [
       setting('Map', 'office', mapRow, mapNote, mapBad),
-      setting('Holiday theme', 'office', themeRow, themeNote),
+      setting('Theme', 'office', themeRow, themeNote),
       ...(outside
         ? [
             setting(

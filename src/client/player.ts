@@ -53,6 +53,8 @@ export class PlayerController {
   jumpBoost = 1;
   /** 0 (steady) to 1: how hard the view trembles after one coffee too many. */
   jitter = 0;
+  /** 0 on your feet … 1 flat on the ground, out cold (see faint.ts): the view goes down with you. */
+  prone = 0;
   /** How far below the floor you're on the street is: further down the higher your floor (see streetBelow). */
   street = STREET_Y;
   /**
@@ -395,9 +397,9 @@ export class PlayerController {
     this.path = null;
   }
 
-  /** How far sitting moves your hips (and eyes) from where they are standing. */
+  /** How far sitting moves your hips (and eyes) from where they are standing, and how far down a faint takes them. */
   private get lift(): number {
-    return this.seat ? this.seat.hips - HIPS : 0;
+    return (this.seat ? this.seat.hips - HIPS : 0) - this.prone * 1.05;
   }
 
   update(dt: number) {

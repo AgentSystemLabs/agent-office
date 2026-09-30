@@ -205,6 +205,55 @@ test('a review panel posts the combined review on the pull request', async (t) =
   assert.equal(m.review?.url, 'https://github.com/o/r/pull/42#pullrequestreview-1');
 });
 
+test('a reviewer with no part left may end its session without stopping the panel', async (t) => {
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({ pattern: 'review', prompt: 'Review it', pr: 7 }), undefined);
+  for (const i of [0, 1, 2]) f.take(i, '- a.ts:1 — something');
+  let m = f.room.state().current!;
+  // Round 2 is the head of the table alone: the other reviewers have nothing left to write.
+  assert.equal(m.round, 2);
+  assert.deepEqual(m.turns.map((x) => x.seat), [0]);
+  await f.kill(m.seats[2].workerId!);
+  assert.equal(f.room.state().current!.status, 'running');
+  f.take(0, 'Looks fine. **[Security]** a.ts:1 — something');
+  await new Promise((r) => setImmediate(r));
+  m = f.room.state().current!;
+  assert.equal(m.status, 'done');
+  assert.deepEqual(f.reviews, [{ pr: 7, file: path.join(f.dir, 'reviews/pr-7.md') }]);
+});
+
+test('a part that is already written counts even if its agent ended before the office looked', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({ rounds: 2, output: 'decision.md' }), undefined);
+  for (const i of [0, 1, 2]) f.take(i);
+  let m = f.room.state().current!;
+  const chair = f.workers.find((w) => w.id === m.seats[0].workerId)!;
+  // The chair starts the decision, writes it, and its agent ends in the same breath.
+  chair.status = 'working';
+  f.room.onWorker(chair);
+  writeFileSync(path.join(f.cwd(), 'decision.md'), '# We use Redis');
+  chair.status = 'exited';
+  f.room.onWorker(chair);
+  m = f.room.state().current!;
+  assert.equal(m.status, 'done');
+  assert.equal(readFileSync(path.join(f.dir, 'decision.md'), 'utf8'), '# We use Redis');
+});
+
+test('a seat that leaves while a later round needs it stops the meeting when that round comes', async (t) => {
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({ pattern: 'lead', prompt: 'Add caching' }), undefined);
+  f.take(0, '## Engineer 1\nDo the cache.'); // round 1: the lead plans alone
+  const lead = f.workers.find((w) => w.id === f.room.state().current!.seats[0].workerId)!;
+  await f.kill(lead.id); // it leaves while round 2 needs the team, not it
+  assert.equal(f.room.state().current!.status, 'running');
+  f.take(1, 'Did my part.');
+  f.take(2, 'Did my part.');
+  f.room.pump(); // round 2's notes are written: on to round 3, which needs the lead
+  let m = f.room.state().current!;
+  assert.equal(m.status, 'stopped');
+  assert.match(m.reason!, /the Lead \(Worker 1\) was sent home/);
+});
+
 test('map-reduce hands each mapper its own parts', (t) => {
   const f = fixture(); t.after(() => f.close());
   assert.match(f.start({ pattern: 'mapreduce', parts: ['src/a.ts'] }) ?? '', /at least 2 parts/);

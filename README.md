@@ -38,9 +38,10 @@ curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/i
 - **From your phone, too.** `/lite` is the office in 2D: every worker and what it's waiting on, its terminal with the keys a phone keyboard lacks, and the boards. The 3D office offers it on a phone or a slow computer.
 - **GitHub or Bitbucket on the walls.** Issues and pull requests hang on cork boards, for the repository the checkout's `origin` points at (your own, for a fork). Hand an issue to a worker, queue tasks, give a worker its own git worktree and open its PR with one key (if one gets deleted behind the office's back, the worker waits at its desk until you rebuild it). One task can span several projects: the worker gets a worktree of each, and a PR in each that links the others.
 - **Agents that manage agents.** Every worker can list, hire, message and send home the others, through an `agent-office` MCP server (Claude Code, Codex, OpenCode) or the `office-workers` command. Ask one to "send everyone whose PR merged home" and it does, deleting their worktrees and branches unless they hold unpushed work.
-- **Together.** Voice, chat, screen sharing on the lounge TV and a shared whiteboard.
+- **Together.** Voice, chat, a lounge TV that plays whatever video you paste a link to (or shows whoever's screen sharing) for everyone on the floor at once, and a shared whiteboard.
+- **You need looking after too.** Your energy and stress meters under the project name run down over ten minutes and a quarter of an hour: your legs get heavy as the energy goes and your hands shake when you're wound up. A cup from the coffee machine in the kitchen puts the energy back; a drink from the rooftop bar takes the stress off. Run either right out and you keel over on the floor and come round outside the building with both meters full.
 
-- **Other maps.** Turn the whole building into a castle: sit on a throne of iron blades while your workers line up before you when they're done, send new ones off through the Hand of the King, and watch their beards grow long and grey as they toil. Send one home and the Kingsguard runs up from the dungeon, marches it down the stairs and throws it in a cell, where it starves, dies and rots down to a skeleton. Or make a map of your own, with its own way of seeing workers off in JSON ([docs/maps.md](docs/maps.md)).
+- **Other maps.** Turn the whole building into a castle: sit on a throne of iron blades while your workers line up before you when they're done, send new ones off through the Hand of the King, and watch their beards grow long and grey as they toil. Send one home and the Kingsguard runs up from the dungeon, marches it down the stairs and throws it in a cell, where it starves, dies and rots down to a skeleton. Or turn it into **🌃 Night City**: a rain-slick neon concourse of holographic billboards, vending machines and LED strips, console benches under a steel gantry, the city towers and rain beyond the glass, and a terrace over the street you can walk out onto. Or make a map of your own, with its own way of seeing workers off in JSON ([docs/maps.md](docs/maps.md)).
 
 There's a lot more (a rooftop bar, an office dog, an arcade, supercars in the garage to drive round a scenic loop past a farm, pines, mountains and a beach): see [docs/features.md](docs/features.md).
 
@@ -71,7 +72,7 @@ This puts an `agent-office` command on your PATH, so next time just run `agent-o
 The first time it starts, it walks you through setting up, right in the terminal:
 
 1. **Where to clone your projects.** It suggests a code folder you already have (`~/Workspace`, `~/code`…), else `~/agent-office`. Each project goes in `<folder>/<owner>/<repo>`.
-2. **GitHub and Bitbucket.** For each one whose CLI is installed but not signed in, it offers to run the sign-in for you. Either one is enough to go on; the projects it offers are the ones that login can see.
+2. **GitHub and Bitbucket.** For each one whose CLI is installed but not signed in, it offers to run the sign-in for you. Either one is enough to go on; the projects it offers are the ones that login can see. On Bitbucket, `bb auth login` also records the workspace to work in by default, which is how the office lists a personal workspace's repositories — those can't be reached by naming the workspace, since a personal workspace's slug is usually not your username.
 3. **Your first project.** Pick one of your repos by number, or type `owner/name`, and the office clones it as the first floor.
 
 Press Enter to skip a step: the elevator in the office asks for your first project too. Then the office opens in your browser, **already signed in**, with a link that works once. The terminal also prints the office password, for signing in from another browser (it's saved in `~/agent-office/.agent-office/config.json`).
@@ -364,6 +365,7 @@ Every change to the app that lands on `main` is published as a GitHub release by
 - [Your own server](docs/self-hosting.md): the one-line setup for any Ubuntu or Debian server, or by hand behind Caddy or nginx
 - [Azure reference](docs/azure.md): picking a VM size, pausing, and everything `deploy/azure.sh` does
 - [How it works](docs/how-it-works.md): the architecture, and security notes
+- [Streaming to the TV](docs/tv-streaming.md): what plays on the lounge TV, and how every browser stays in step with it
 
 ## License
 

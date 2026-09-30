@@ -10,6 +10,7 @@ import { buildDungeon, holedPlane, type DungeonView } from './dungeon';
 import { glowTexture } from './costumes';
 import { buildGong, type Gong } from './gong';
 import { vacancyMarker, type Collider, type DeskView, type Interactable } from './office';
+import { canvasTexture, seeded, shade } from './textures';
 import { mergeByMaterial, mesh, roundedBox, textPlane, toon, toonUnique } from './toon';
 import type { World } from './world';
 
@@ -28,36 +29,6 @@ const BENCH_TOP = 0.45;
 const DOORWAY = { width: 5, height: 6.6 } as const;
 
 // ---- Textures -------------------------------------------------------------------------------------
-
-function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void, repeat?: [number, number]): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  draw(c.getContext('2d')!);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
-  if (repeat) {
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.repeat.set(...repeat);
-  }
-  return t;
-}
-
-/** A little randomness that's the same every time, so every browser sees the same stones. */
-function seeded(seed: number): () => number {
-  let s = seed >>> 0;
-  return () => {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    return s / 4294967296;
-  };
-}
-
-function shade(color: string, k: number): string {
-  const c = new THREE.Color(color);
-  c.offsetHSL(0, 0, k);
-  return `#${c.getHexString()}`;
-}
 
 /** Courses of dressed stone, with mortar between. One tile is 4 m wide and 2 m high. */
 function ashlar(color: string, seed: number): (g: CanvasRenderingContext2D) => void {
@@ -889,6 +860,178 @@ function ironThrone(mats: Mats): THREE.Group {
   return mergeByMaterial(g);
 }
 
+// ---- The later kinds (a sign, a screen, a hologram, a machine, cases, a vent, a barrier) -----------
+// Every kind a map can use has to be built by every style (see PROP_KINDS): the castle's take on
+// them is a painted hanging sign, a woven tapestry, a scrying orb, an ale cupboard, cases and
+// barrels, a smoking grate, and a stone balustrade.
+
+/** The text on a sign, or the map's own wording. */
+const signText = (p: PropConfig, fallback: string) => (p.text ?? fallback).slice(0, 24);
+
+/** A painted board hung on a wall, with a bracket back to it. */
+function signProp(kit: Kit, p: PropConfig) {
+  const w = p.width ?? 1.6;
+  const h = p.height ?? 0.9;
+  const y = p.y ?? 3;
+  const g = placed(p);
+  g.position.y = y;
+  const { woodDark, wood, iron } = kit.mats;
+  g.add(mesh(box(w + 0.14, h + 0.14, 0.1), woodDark, 0, -h / 2, 0));
+  const face = mesh(new THREE.PlaneGeometry(w, h), wood, 0, -h / 2, 0.056, false);
+  g.add(face);
+  const label = textPlane(signText(p, 'The Prancing Pony'), { bg: p.color ?? '#efe3c2', size: 56, border: '#4a2d18' });
+  label.scale.set(Math.min(1.6, (w * 1.5) / label.scale.x), Math.min(1.2, (h * 0.85) / label.scale.y), 1);
+  label.position.set(0, -h / 2, 0.062);
+  g.add(label);
+  for (const sx of [-1, 1]) {
+    const arm = mesh(box(0.08, 0.08, 0.34), iron, sx * (w / 2 - 0.1), 0, -0.24);
+    g.add(arm);
+  }
+  if (p.light) {
+    g.add(mesh(new THREE.CylinderGeometry(0.09, 0.12, 0.26, 8), iron, w / 2 + 0.02, -h - 0.14, 0.06, false));
+    flame(kit, g, w / 2 + 0.02, -h - 0.02, 0.06, 0.1);
+  }
+  kit.group.add(g);
+}
+
+/** A woven tapestry with a keep and hills on it, hung from a rod. */
+function tapestry(kit: Kit, p: PropConfig) {
+  const w = p.width ?? 3;
+  const h = p.height ?? 2.2;
+  const y = p.y ?? 4;
+  const g = placed(p);
+  g.position.y = y;
+  const { woodDark, gold } = kit.mats;
+  const tex = canvasTexture(256, 192, (c) => {
+    c.fillStyle = '#2f4a6b';
+    c.fillRect(0, 0, 256, 192);
+    c.fillStyle = '#f2d06b';
+    c.beginPath();
+    c.arc(200, 42, 18, 0, Math.PI * 2);
+    c.fill();
+    c.fillStyle = '#3f6b45';
+    c.beginPath();
+    c.moveTo(0, 192);
+    c.quadraticCurveTo(70, 120, 150, 192);
+    c.fill();
+    c.fillStyle = '#5c7a52';
+    c.beginPath();
+    c.moveTo(90, 192);
+    c.quadraticCurveTo(190, 110, 256, 160);
+    c.lineTo(256, 192);
+    c.fill();
+    c.fillStyle = '#8c847a';
+    c.fillRect(112, 108, 44, 46);
+    c.beginPath();
+    c.moveTo(108, 108);
+    c.lineTo(134, 84);
+    c.lineTo(160, 108);
+    c.fill();
+    c.fillStyle = '#efe3c2';
+    for (let x = 122; x < 156; x += 12) c.fillRect(x, 118, 6, 10);
+    c.strokeStyle = '#8c1b1b';
+    c.lineWidth = 8;
+    c.strokeRect(4, 4, 248, 184);
+  });
+  const cloth = new THREE.Mesh(new THREE.PlaneGeometry(w, h), toonMap(tex));
+  cloth.position.set(0, -h / 2, 0.02);
+  cloth.receiveShadow = true;
+  g.add(cloth);
+  g.add(mesh(new THREE.CylinderGeometry(0.04, 0.04, w + 0.3, 8).rotateZ(Math.PI / 2), woodDark, 0, 0, 0));
+  for (const sx of [-1, 1]) g.add(mesh(new THREE.SphereGeometry(0.06, 8, 6), gold, sx * (w / 2 + 0.12), 0, 0, false));
+  kit.group.add(g);
+}
+
+/** A scrying orb on a plinth: the castle's answer to a hologram. */
+function orb(kit: Kit, p: PropConfig) {
+  const s = p.scale ?? 1;
+  const g = placed(p, kit.floorAt(p.x, p.z));
+  const { stoneDark, steel } = kit.mats;
+  g.add(mesh(new THREE.CylinderGeometry(0.4 * s, 0.52 * s, 0.2 * s, 12), stoneDark, 0, 0.1 * s, 0));
+  g.add(mesh(new THREE.CylinderGeometry(0.14 * s, 0.2 * s, 0.9 * s, 10), steel, 0, 0.62 * s, 0));
+  const glow = toonUnique(p.color ?? '#7fd4ff');
+  glow.emissive.set(p.color ?? '#7fd4ff');
+  glow.emissiveIntensity = 0.9;
+  const ball = mesh(new THREE.SphereGeometry(0.26 * s, 18, 14), glow, 0, 1.3 * s, 0, false);
+  ball.userData.outlineParameters = { visible: false };
+  g.add(ball);
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: p.color ?? '#7fd4ff', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+  halo.material.userData.outlineParameters = { visible: false };
+  halo.position.set(0, 1.3 * s, 0);
+  halo.scale.setScalar(2.2 * s);
+  g.add(halo);
+  kit.still.add(g);
+  collide(kit, p.x, p.z, 0.9 * s, 0.9 * s, 0, g.position.y + 1.5 * s);
+}
+
+/** A cupboard of ale: a drink perks you up, like the office's coffee. */
+function aleCabinet(kit: Kit, p: PropConfig): Interactable {
+  const s = p.scale ?? 1;
+  const g = placed(p, kit.floorAt(p.x, p.z));
+  const { wood, woodDark, iron } = kit.mats;
+  g.add(mesh(box(1.15, 1.5, 0.7), woodDark, 0, 0.75, 0));
+  g.add(mesh(box(0.9, 0.5, 0.6), wood, 0, 1.05, 0.06, false));
+  for (const [x, r] of [
+    [-0.28, 0.16],
+    [0.02, 0.13],
+    [0.3, 0.11],
+  ])
+    g.add(mesh(new THREE.CylinderGeometry(r, r, 0.3, 12), toon('#8d939c'), x, 1.18, 0.08, false));
+  g.add(mesh(new THREE.TorusGeometry(0.3, 0.02, 5, 16), iron, 0, 1.5, 0, false));
+  const sign = textPlane('🍺 Ale', { bg: '#efe3c2', size: 48 });
+  sign.scale.multiplyScalar(0.5);
+  sign.position.set(0, 1.62, 0.32);
+  g.add(sign);
+  kit.group.add(g);
+  const r = p.rotY ?? 0;
+  collide(kit, p.x, p.z, 1.15 * s, 0.7 * s, r, g.position.y + 1.5 * s);
+  const it: Interactable = { kind: 'coffee', label: '🍺 Ale', x: p.x + Math.sin(r) * 0.9, y: g.position.y, z: p.z + Math.cos(r) * 0.9, radius: 1.4 };
+  g.userData.interact = it;
+  return it;
+}
+
+/** Stacked cases and a barrel. */
+function cases(kit: Kit, p: PropConfig) {
+  const s = p.scale ?? 1;
+  const g = placed(p, kit.floorAt(p.x, p.z));
+  const { wood, woodDark, iron } = kit.mats;
+  g.add(mesh(box(1.0 * s, 0.8 * s, 0.9 * s), wood, 0, 0.4 * s, 0));
+  g.add(mesh(box(0.7 * s, 0.6 * s, 0.6 * s), woodDark, -0.1 * s, 1.1 * s, 0.1 * s));
+  g.add(mesh(new THREE.CylinderGeometry(0.3 * s, 0.3 * s, 0.8 * s, 12).rotateZ(Math.PI / 2), woodDark, 0.35 * s, 0.3 * s, -0.5 * s, false));
+  for (const sx of [-1, 1]) g.add(mesh(box(0.94 * s, 0.08 * s, 0.04), iron, 0, 0.5 * s, sx * 0.46 * s, false));
+  kit.still.add(g);
+  collide(kit, p.x, p.z, 1.1 * s, 1.0 * s, p.rotY ?? 0, g.position.y + 1.4 * s);
+}
+
+/** An iron grate, breathing smoke: in the floor, or on a wall at `y`. */
+function grate(kit: Kit, p: PropConfig) {
+  const g = placed(p);
+  const { iron } = kit.mats;
+  const onWall = p.y !== undefined;
+  g.position.y = p.y ?? 0;
+  g.add(mesh(box(1.1, onWall ? 0.9 : 0.08, onWall ? 0.08 : 0.9), iron, 0, onWall ? 0 : 0.04, 0));
+  for (let i = -2; i <= 2; i++) g.add(mesh(box(0.08, 0.02, onWall ? 0.9 : 0.82), toon('#6f747b'), i * 0.22, onWall ? 0 : 0.09, 0, false));
+  // A wisp of smoke rising off it.
+  const wisp = mesh(new THREE.ConeGeometry(0.3, 1.4, 8, 1, true).translate(0, 0.7, 0), new THREE.MeshBasicMaterial({ color: '#c8c8d2', transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide }), 0, onWall ? 0.5 : 0.12, 0, false);
+  wisp.rotation.x = onWall ? Math.PI / 2 : 0;
+  g.add(wisp);
+  kit.group.add(g);
+}
+
+/** A low stone balustrade with a rail. */
+function balustrade(kit: Kit, p: PropConfig) {
+  const w = (p.width ?? PROP_SIZE.barrier.width) * (p.scale ?? 1);
+  const s = p.scale ?? 1;
+  const g = placed(p, kit.floorAt(p.x, p.z));
+  const { stone, stoneDark } = kit.mats;
+  const top = 1.0 * s;
+  g.add(mesh(box(w, 0.14, 0.32 * s), stoneDark, 0, top, 0));
+  g.add(mesh(box(w, top - 0.14, 0.2 * s), stone, 0, (top - 0.14) / 2 + 0.14, 0));
+  for (let x = -w / 2 + 0.2; x <= w / 2 - 0.1; x += 0.5) g.add(mesh(box(0.12, top, 0.34 * s), stoneDark, x, top / 2, 0, false));
+  kit.still.add(g);
+  collide(kit, p.x, p.z, w, 0.4 * s, p.rotY ?? 0, g.position.y + top);
+}
+
 // ---- Building it ---------------------------------------------------------------------------------
 
 /** Each kind of prop, put up (every kind there is has one: see PROP_KINDS). */
@@ -915,6 +1058,13 @@ const PROPS: Record<PropKind, (kit: Kit, p: PropConfig) => void> = {
   cask: (kit, p) => kit.interactables.push(cask(kit, p)),
   table: plainTable,
   candles,
+  sign: signProp,
+  screen: tapestry,
+  holo: orb,
+  machine: (kit, p) => kit.interactables.push(aleCabinet(kit, p)),
+  crate: cases,
+  vent: grate,
+  barrier: balustrade,
 };
 
 /** The colors of the stone and the rest, as the map's palette has them. */
