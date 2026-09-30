@@ -7,7 +7,8 @@
  *
  * Two shapes travel over the socket, and both are already JSON in the office:
  *
- *   office → host   the 44 messages `handleMessage` acts on a `Floor` with (see FLOOR_CASES)
+ *   office → host   the 50 messages `handleMessage` acts on a `Floor` (FLOOR_CASES), plus the three
+ *                   it reaches another way (HOST_CALLS)
  *   host → office   whatever the floor's `FloorContext.emit` would have delivered locally
  *
  * so the payload is `ClientMsg` and `ServerMsg` themselves rather than a new vocabulary. What is new
@@ -48,35 +49,13 @@ export interface FloorReady {
   models?: string[];
 }
 
-/** Office → host. Everything a browser asked for, aimed at a floor. */
-export type ToOffice =
-  /**
-   * The floor-scoped subset of ClientMsg, verbatim: the host runs it against its own `Floor`, so the
-   * office's dispatch and the host's are the same code. The payload is left as the union member of
-   * `ClientMsg` rather than narrowed here, so a case that gains a field needs no change here.
-   */
-  | ({ floorId: string; seq: number; t: FloorCase } & Record<string, unknown>)
-  /**
-   * The office's answer to a hello: the token to keep (empty when the machine already had one), and
-   * the floors it wants this machine to serve, with the path on *this* machine for each. The office
-   * holds those paths to identify the floors and never reads them.
-   */
-  | { t: 'welcome'; hostId: string; token: string; floors: { id: string; dir: string; name: string }[] }
-  | { t: 'config'; floorId: string; prompts: unknown; capacity: unknown; leaveOnMerge: boolean }
-  | { t: 'bye'; floorId?: string; why?: string };
-
 /**
- * The 45 `handleMessage` cases that call a method on a `Floor`.
- *
- * This list is the authority, and tests/floorhost.test.ts cross-checks it against `server.ts`. Two
- * of them — `ball.take` and `car.enter` — share a case body with a sibling (`ball.throw`,
- * `car.leave`), which is exactly the shape a scan of the switch gets wrong: the body line names only
- * one of the pair, so the other is missed. They were missed here first, and the check now looks for
- * a group of labels rather than a single one.
- *
- * A case added to the switch without a decision about where it runs should fail the build rather
- * than silently staying office-side.
+ * Calls the office makes that are **not** `ClientMsg` cases, because it reaches them some other way:
+ * `/api/search` over HTTP, and two it calls itself while handling another message. A hosted floor has
+ * to round-trip them like the rest, so they travel, and nothing else about them changes.
  */
+export const HOST_CALLS = ['worker.search', 'queue.dropIssue', 'gh.claim'] as const;
+
 export const FLOOR_CASES = [
   'ball.take',
   'ball.throw',
@@ -105,6 +84,7 @@ export const FLOOR_CASES = [
   'jukebox.skip',
   'jukebox.stop',
   'meeting.start',
+  'meeting.stop',
   'queue.add',
   'queue.clear',
   'queue.limit',
@@ -113,6 +93,10 @@ export const FLOOR_CASES = [
   'queue.retry',
   'station.prompt',
   'term.input',
+  'tv.pause',
+  'tv.play',
+  'tv.seek',
+  'tv.stop',
   'term.resize',
   'worker.attach',
   'worker.detach',
@@ -126,6 +110,38 @@ export const FLOOR_CASES = [
 ] as const;
 
 export type FloorCase = (typeof FLOOR_CASES)[number];
+
+/** A call the office makes that is not a `ClientMsg` case, but still travels. */
+export type HostCall = (typeof HOST_CALLS)[number];
+
+/** Office → host. Everything a browser asked for, aimed at a floor. */
+export type ToOffice =
+  /**
+   * The floor-scoped subset of ClientMsg, verbatim: the host runs it against its own `Floor`, so the
+   * office's dispatch and the host's are the same code. The payload is left as the union member of
+   * `ClientMsg` rather than narrowed here, so a case that gains a field needs no change here.
+   */
+  | ({ floorId: string; seq: number; t: FloorCase | HostCall } & Record<string, unknown>)
+  /**
+   * The office's answer to a hello: the token to keep (empty when the machine already had one), and
+   * the floors it wants this machine to serve, with the path on *this* machine for each. The office
+   * holds those paths to identify the floors and never reads them.
+   */
+  | { t: 'welcome'; hostId: string; token: string; floors: { id: string; dir: string; name: string }[] }
+  | { t: 'bye'; floorId?: string; why?: string };
+
+/**
+ * The 50 `handleMessage` cases that call a method on a `Floor`.
+ *
+ * This list is the authority, and tests/floorhost.test.ts cross-checks it against `server.ts`. Two
+ * of them — `ball.take` and `car.enter` — share a case body with a sibling (`ball.throw`,
+ * `car.leave`), which is exactly the shape a scan of the switch gets wrong: the body line names only
+ * one of the pair, so the other is missed. They were missed here first, and the check now looks for
+ * a group of labels rather than a single one.
+ *
+ * A case added to the switch without a decision about where it runs should fail the build rather
+ * than silently staying office-side.
+ */
 
 /**
  * Host → office. Whatever the floor's `FloorContext.emit` would have delivered locally goes over the
@@ -149,6 +165,13 @@ export type FromFloor =
   /** A worker's terminal output, for whoever has that terminal open. */
   | { t: 'term.data'; floorId: string; workerId: string; data: string }
   | { t: 'report'; floorId: string; workerId: string; pr?: { number: number; url: string }; cost?: number; tokens?: number }
+  /**
+   * A call's **value**, for the calls whose result the office branches on. A refusal is the separate
+   * `refused` frame: a method that returns a `string` has failed and is refusing, and anything else is
+   * the answer. That is the office's own convention (`if (typeof r === 'string') return warn(c, r)`),
+   * so the two sides agree on what a result is without needing a second rule.
+   */
+  | { t: 'result'; floorId: string; seq: number; value: unknown }
   | { t: 'refused'; floorId: string; workerId?: string; reason: string; seq?: number }
   /** Sent before the handshake finishes, to say why a connection was turned away. */
   | { t: 'refused'; why: string }
@@ -156,10 +179,10 @@ export type FromFloor =
   | { t: 'pong'; at: number };
 
 // The frames the office sends that are not floor cases: the handshake and a goodbye.
-const OFFICE_FRAME_TYPES = new Set(['welcome', 'bye', 'config']);
+const OFFICE_FRAME_TYPES = new Set(['welcome', 'bye']);
 // The frames a machine sends that are not floor cases.
 const HOST_FRAME_TYPES = new Set(['hello', 'ping', 'pong']);
-const HOST_CASES = new Set<string>(FLOOR_CASES);
+const HOST_CASES = new Set<string>([...FLOOR_CASES, ...HOST_CALLS]);
 const MAX_FRAME_BYTES = 2 * 1024 * 1024;
 
 /** Rejects anything that is not a frame this office understands, rather than trusting the sender. */
@@ -190,6 +213,8 @@ export function isFromFloor(msg: unknown): msg is FromFloor {
       return typeof m.at === 'number';
     case 'event':
       return addressed && typeof m.seq === 'number';
+    case 'result':
+      return typeof m.floorId === 'string' && typeof m.seq === 'number' && 'value' in m;
     case 'hello':
       return typeof m.protocol === 'number' && (typeof m.token === 'string' || typeof m.code === 'string');
     case 'ready': {

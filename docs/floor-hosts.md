@@ -170,4 +170,4 @@ every later call refused by name once the machine goes.
 | `src/server/remote-floor.ts` | the proxy the office holds in place of a `Floor` |
 | `src/server/floor-actions.ts` | the surface both satisfy, and why it splits the way it does |
 | `src/server/floor-host-cli.ts` | `agent-office floor-host` |
-| `src/shared/floorhost.ts` | the frames, the 45 floor cases, and the validators |
+| `src/shared/floorhost.ts` | the frames, the 50 floor cases, and the validators |

@@ -915,12 +915,14 @@ export async function startServer(cfg: Config) {
   };
 
   /** The 🔎 search: chat lines, and lines of the terminals of every worker on that floor, with the words in them. */
-  const search = (q: string, floor: Floor | undefined): SearchResults => {
+  const search = async (q: string, floor: Floor | undefined): Promise<SearchResults> => {
     q = q.slice(0, SEARCH_MAX);
     const needle = searchKey(q);
     if (needle.length < SEARCH_MIN) return { q, chat: [], terminals: [], more: false };
     const said = chat.search(needle, SEARCH_CHAT_HITS);
-    const shown = floor?.workers.search(needle, SEARCH_TERMINAL_HITS) ?? { hits: [], more: false };
+    // Awaited for the same reason: a hosted floor's terminals are on the other machine, and its
+    // search answer comes back over the socket.
+    const shown = (await floor?.workers.search(needle, SEARCH_TERMINAL_HITS)) ?? { hits: [], more: false };
     return { q, chat: said.hits, terminals: shown.hits, more: said.more || shown.more };
   };
 
@@ -1113,7 +1115,7 @@ export async function startServer(cfg: Config) {
         }
         return send(res, 404, { error: 'Not found' });
       }
-      if (p === '/api/search' && req.method === 'GET') return send(res, 200, search(url.searchParams.get('q') ?? '', floor));
+      if (p === '/api/search' && req.method === 'GET') return send(res, 200, await search(url.searchParams.get('q') ?? '', floor));
       // The boards' own API: what the issue and PR windows show beyond the board cards, read from
       // whichever forge the floor is on (see forge.ts). Kept at /api/gh/ since it predates Bitbucket.
       if (p.startsWith('/api/gh/') && req.method === 'GET') {
@@ -1865,7 +1867,9 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
       }
       case 'worker.attach': {
         const w = worker(msg.workerId);
-        const snap = w?.floor.workers.attach(w.wid, c.id, who);
+        // Awaited: a hosted floor answers this over the socket, so an un-awaited result is a Promise
+        // and the terminal would open blank.
+        const snap = await w?.floor.workers.attach(w.wid, c.id, who);
         if (w && snap) {
           c.attached.add(w.wid);
           sendTo(c, { t: 'term.snapshot', workerId: w.wid, ...snap });

@@ -2,7 +2,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { WebSocket } from 'ws';
-import { existsSync as exists, mkdirSync as mkdir } from 'node:fs';
 import { FLOORHOST_PROTOCOL, isToOffice, type FromFloor, type ToOffice } from '../shared/floorhost.js';
 import { HostFloors, hostParts, startHooks } from './host-floor.js';
 
@@ -181,15 +180,22 @@ async function connect(
         return done(0);
       }
       // Everything else is the office asking this machine to do something on a floor it is serving.
-      if (process.env.AGENT_OFFICE_HOST_DEBUG) console.error(`   host got ${msg.t} floor=${'floorId' in msg ? msg.floorId : '?'}`);
-      if (host) void host.call(msg);
-      else if (process.env.AGENT_OFFICE_HOST_DEBUG) console.error('   host got a call before its floors were open');
+      if (host) {
+        void host.call(msg);
+        return;
+      }
+      // A call that arrives while the floors are still opening. Answering it is the whole point:
+      // dropping it leaves the office waiting out its twenty-second timeout for a reply that is never
+      // coming, which reads to whoever asked as a machine that has hung.
+      if ('floorId' in msg && typeof msg.floorId === 'string' && 'seq' in msg && typeof msg.seq === 'number') {
+        send({ t: 'refused', floorId: msg.floorId, reason: `still opening its floors on this machine`, seq: msg.seq });
+      }
     });
 
     /** Opens the floors the office wants, with a hook endpoint this machine's workers report to. */
     async function serve(wanted: { id: string; dir: string; name: string }[]) {
       const dataDir = hostDataDir(opts.configFile);
-      mkdir(dataDir, { recursive: true, mode: 0o700 });
+      mkdirSync(dataDir, { recursive: true, mode: 0o700 });
       const settings = {
         dataDir,
         agentCmd: process.env.AGENT_OFFICE_AGENT || 'claude',
@@ -202,8 +208,8 @@ async function connect(
       const hooks = await startHooks((workerId) => host?.floorOf(workerId)?.workers);
       stopHooks = hooks.close;
 
-      const present = wanted.filter((w) => exists(w.dir));
-      for (const missing of wanted.filter((w) => !exists(w.dir))) {
+      const present = wanted.filter((w) => existsSync(w.dir));
+      for (const missing of wanted.filter((w) => !existsSync(w.dir))) {
         console.error(`floor-host: ${missing.name}: no checkout at ${missing.dir} on this machine — skipping`);
       }
       if (!present.length) {

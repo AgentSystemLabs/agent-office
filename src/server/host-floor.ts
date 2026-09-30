@@ -1,5 +1,4 @@
 import http from 'node:http';
-import { mkdirSync } from 'node:fs';
 import { Floor, type FloorContext } from './floor.js';
 import { Ledger } from './usage.js';
 import type { Capacity } from './machine.js';
@@ -65,13 +64,33 @@ interface HostParts extends HostSettings {
 export class HostFloors {
   readonly floors = new Map<string, Floor>();
   private names = new Map<string, string>();
+  /** Which floor each worker is on, kept as they change (see floorOf). */
+  private byWorker = new Map<string, Floor>();
 
   constructor(private parts: HostParts) {}
 
-  /** The floor a worker sits on. Worker ids are unique per machine, so this scans what is here. */
+  /**
+   * The floor a worker sits on. Worker ids are unique per machine, and the index is kept as workers
+   * come and go, so this is a map lookup. The hook listener calls it on every agent event, which is
+   * the busiest path here, and a scan of every floor per request was the wrong shape for it.
+   */
   floorOf(workerId: string): Floor | undefined {
-    for (const f of this.floors.values()) if (f.workers.get(workerId)) return f;
+    const known = this.byWorker.get(workerId);
+    if (known) return known;
+    // A worker the index has not heard of yet (the first report before any change): find it once and
+    // remember, so the scan happens at most once per worker rather than once per event.
+    for (const f of this.floors.values()) {
+      if (f.workers.get(workerId)) {
+        this.byWorker.set(workerId, f);
+        return f;
+      }
+    }
     return undefined;
+  }
+
+  /** The workers of the floor a worker is on, for the hook listener. */
+  workersOf(workerId: string): import('./workers.js').WorkerManager | undefined {
+    return this.floorOf(workerId)?.workers;
   }
 
   /**
@@ -79,22 +98,53 @@ export class HostFloors {
    * this machine is skipped and said so, rather than announced and then failing every call.
    */
   async open(wanted: { id: string; dir: string; name: string }[]) {
-    for (const want of wanted) {
-      this.names.set(want.id, want.name);
-      const def: FloorDef = { id: want.id, name: want.name, dir: want.dir, palette: 0, addedBy: 'the office', addedAt: Date.now() };
-      try {
-        const floor = new Floor(def, this.context(want.id, want.name));
-        this.floors.set(want.id, floor);
-        await floor.ready;
-        this.report(want.id, floor);
-      } catch (err) {
-        this.parts.send({ t: 'leave', floorId: want.id, why: (err as Error).message });
-      }
-    }
+    // In parallel: a machine serving k floors would otherwise come online in the sum of their open
+    // times, and none of them depends on another.
+    await Promise.allSettled(
+      wanted.map(async (want) => {
+        this.names.set(want.id, want.name);
+        const def: FloorDef = { id: want.id, name: want.name, dir: want.dir, palette: 0, addedBy: 'the office', addedAt: Date.now() };
+        try {
+          const floor = new Floor(def, this.context(want.id, want.name));
+          this.floors.set(want.id, floor);
+          await floor.ready;
+          this.report(want.id, floor);
+        } catch (err) {
+          // Dropped from the map, not only reported: leaving a half-open floor here would apply later
+          // calls to a floor the office has already been told is gone.
+          const broken = this.floors.get(want.id);
+          this.floors.delete(want.id);
+          this.names.delete(want.id);
+          broken?.shutdown();
+          this.parts.send({ t: 'leave', floorId: want.id, why: (err as Error).message });
+        }
+      }),
+    );
+  }
+
+  /**
+   * The room state, which the office cannot read from here any other way.
+   *
+   * An office-side floor is asked for these directly, so nothing ever emits them; a hosted one has to
+   * be told, or the office's picture of the jukebox, the ball, the cars, the walls and the back office
+   * never changes from its empty default.
+   */
+  private reportRooms(floorId: string, floor: Floor) {
+    const state = (t: string, body: Record<string, unknown>) =>
+      this.parts.send({ t: 'event', floorId, seq: 0, msg: { t, ...body } });
+    state('plan', { state: floor.plan.state() });
+    state('decor', { state: floor.decor.list() });
+    state('jukebox', { state: floor.jukebox.state() });
+    state('ball', { state: floor.court.state() });
+    state('cars', { state: floor.garage.state() });
+    state('meeting', { state: floor.meetings.state() });
+    state('tv', { state: floor.tv.state() });
   }
 
   /** Tells the office a floor is up, with its seats and whoever is already on it. */
   private report(floorId: string, floor: Floor) {
+    this.reportRooms(floorId, floor);
+    for (const w of floor.workers.list()) this.byWorker.set(w.id, floor);
     this.parts.send({
       t: 'ready',
       floor: {
@@ -134,8 +184,16 @@ export class HostFloors {
       toast: (_floor: Floor, text: string, level?: 'info' | 'warn' | 'error') => up({ t: 'toast', text, level: level ?? 'info' }),
       termData: (workerId: string, data: string, _viewers: string[]) => parts.send({ t: 'term.data', floorId, workerId, data }),
       changes: (state: ChangesState, _clients: string[]) => up({ t: 'changes', state }),
-      workerChanged: (_floor: Floor, w: WorkerInfo | string) =>
-        up(typeof w === 'string' ? { t: 'worker.remove', workerId: w } : { t: 'worker.update', worker: w }),
+      workerChanged: (_floor: Floor, w: WorkerInfo | string) => {
+        // Keep the worker index current here, which is the one place a worker's arrival and departure
+        // is announced.
+        if (typeof w === 'string') this.byWorker.delete(w);
+        else {
+          const home = this.floors.get(floorId);
+          if (home) this.byWorker.set(w.id, home);
+        }
+        up(typeof w === 'string' ? { t: 'worker.remove', workerId: w } : { t: 'worker.update', worker: w });
+      },
       // Presence is office-side by nature. This machine does not know who is in the room, and the
       // office tells it nothing about them, so a floor here counts nobody.
       people: (_floor: Floor) => 0,
@@ -162,10 +220,16 @@ export class HostFloors {
       return;
     }
     try {
-      const refusal = await this.apply(floor, msg);
-      // The office settles the caller either way. A call that only pushed has already said so through
-      // an event, and refuses with an empty reason, which the office reads as "done".
-      this.parts.send({ t: 'refused', floorId, reason: refusal ?? '', seq });
+      const value = await this.apply(floor, msg);
+      // A method returning a `string` has failed — that is the office's own convention — so it is a
+      // refusal. Anything else is the answer, and it travels whole: a `WorkerInfo`, a `Decoration`, a
+      // `{ prs }`, a `string[]`. Flattening those to a string is how the office came to dereference
+      // `undefined` at twenty call sites.
+      if (typeof value === 'string') this.parts.send({ t: 'refused', floorId, reason: value, seq });
+      else this.parts.send({ t: 'result', floorId, seq, value: value ?? null });
+      // Some calls change a room, and the office has no event to hear it by — its own Floor reads
+      // those states directly. A hosted floor must say so, or the office's copy goes stale forever.
+      this.reportRooms(floorId, floor);
     } catch (err) {
       this.parts.send({ t: 'refused', floorId, reason: (err as Error).message, seq });
     }
@@ -200,6 +264,8 @@ export class HostFloors {
         return str(await floor.workers.openPr(s('workerId'), s('by')));
       case 'station.prompt':
         return str(await floor.workers.station(s('deskId'), s('by'), s('text'), s('owner') || undefined));
+      case 'worker.search':
+        return (await floor.workers.search(s('needle'), num('perWorker') || 0)) as never;
 
       // The terminal: keystrokes and resizes are fire-and-forget, and the office never waits on them.
       case 'term.input':
@@ -218,6 +284,8 @@ export class HostFloors {
         return undefined;
       case 'queue.retry':
         return str(await floor.queue.retry(s('taskId')));
+      case 'queue.dropIssue':
+        return (await floor.queue.dropIssue(num('issue'))) as never;
       case 'queue.clear':
         floor.queue.clear();
         return undefined;
@@ -229,6 +297,8 @@ export class HostFloors {
       case 'gh.refresh':
         await floor.forge.refresh();
         return undefined;
+      case 'gh.claim':
+        return str(await floor.forge.claim(num('issue')));
       case 'gh.merge':
         return str(await floor.forge.merge(num('n'), m.method as never, m.deleteBranch === true, m.auto === true));
       case 'gh.comment':
@@ -288,7 +358,19 @@ export class HostFloors {
 
       // A meeting needs the room's people, which this machine does not know. Refused by kind, and the
       // office refuses it too: a hosted floor cannot hold one.
+      case 'tv.play':
+        return str(await floor.tv.play((m.input ?? {}) as { url?: unknown; position?: unknown }, s('by')));
+      case 'tv.pause':
+        return str(await floor.tv.pause(m.position, s('by')));
+      case 'tv.seek':
+        return str(await floor.tv.seek(m.position, s('by')));
+      case 'tv.stop':
+        return str(await floor.tv.stop(s('by')));
+
       case 'meeting.start':
+      case 'meeting.stop':
+        // A meeting needs the room's people, which this machine does not know. Refused by kind; the
+        // office refuses it too.
         return 'a meeting needs everyone in one building';
 
       default:
@@ -302,7 +384,13 @@ export class HostFloors {
   }
 }
 
-/** A refusal the office shows, or undefined when the call worked. */
+/**
+ * A refusal, when the method returned one.
+ *
+ * The office's convention, and therefore the wire's: a floor method that returns a `string` has
+ * failed, and anything else is its result. So this is only ever used to *test* for a refusal — the
+ * value travels as it is.
+ */
 function str(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
@@ -319,6 +407,9 @@ function str(value: unknown): string | undefined {
  * `/office/*` MCP endpoints, which live beside the office and are not here: an agent's office tools
  * are unavailable on a hosted floor rather than silently wrong.
  */
+/** The paths a worker's status reports arrive on. One constant, not a fresh array per request. */
+const HOOK_PATHS = new Set(['/hooks/claude', '/hooks/opencode', '/hooks/codex', '/hooks/grok', '/hooks/muse']);
+
 export function startHooks(
   /** The workers of a floor, by worker id. A lookup rather than the floors themselves, so the hook
    *  server can be started before the floors are open — which it must be, since a worker's environment
@@ -336,8 +427,7 @@ export function startHooks(
     } catch {
       return done(400);
     }
-    const known = ['/hooks/claude', '/hooks/opencode', '/hooks/codex', '/hooks/grok', '/hooks/muse'];
-    if (req.method !== 'POST' || !known.includes(url.pathname)) return done(404);
+    if (req.method !== 'POST' || !HOOK_PATHS.has(url.pathname)) return done(404);
     let payload: unknown = {};
     try {
       const raw = await readBody(req);
@@ -397,7 +487,8 @@ function readBody(req: http.IncomingMessage, limit = 1024 * 1024): Promise<strin
  * had already decided it had room for. `capacity` therefore always has room.
  */
 export function hostParts(opts: HostSettings, send: (msg: FromFloor) => void, hookUrl: string, seats = 0): HostParts {
-  mkdirSync(opts.dataDir, { recursive: true, mode: 0o700 });
+  // No mkdir here: a constructor with a filesystem side effect is a surprise, and the directory is
+  // made once by the command that owns it.
   return {
     ...opts,
     hookUrl,
@@ -406,8 +497,8 @@ export function hostParts(opts: HostSettings, send: (msg: FromFloor) => void, ho
     ledger: new Ledger(opts.dataDir, { pauseHiring: false }, () => {}, () => {}),
     capacity: { full: () => undefined, room: () => Infinity },
     prompts: {
-      // This machine has no ⚙️ Settings of its own, so the office's shipped defaults apply. The office
-      // sends its edited prompts in `config` when it has any; until then these are the ones in the box.
+      // This machine has no ⚙️ Settings of its own, so the office's shipped defaults apply. Sending
+      // the office's *edited* prompts here is not built: a hosted floor uses the prompts in the box.
       text: (id: PromptId) => PROMPTS[id].text,
       agent: () => undefined,
     },

@@ -7,7 +7,7 @@
  * nothing more. A method here exists because a `handleMessage` case needs it, not because the class
  * happens to have it.
  *
- * Why an interface rather than moving the 45 floor-scoped cases into a function: those cases span
+ * Why an interface rather than moving the 50 floor-scoped cases into a function: those cases span
  * ~900 lines inside a switch that closes over a dozen office-side accessors (`here`, `worker`,
  * `withForge`, `warn`, `toastFloor`, `planChanged`, `floors`, `DESK_BY_ID`, `CLEANUPS`). Extracting
  * them is a large mechanical diff into a file where every line is load-bearing. This way the call
@@ -45,6 +45,7 @@ import type { BallState } from '../shared/hoop.js';
 import type { CarPose, CarSeat, CarState } from '../shared/garage.js';
 import type { Decoration } from '../shared/decor.js';
 import type { JukeboxState } from '../shared/jukebox.js';
+import type { TvState } from '../shared/tv.js';
 import type { DeskLabel } from '../shared/floorplan.js';
 import type { Landed } from './leave-on-merge.js';
 import type { ForgeAs } from './signins.js';
@@ -203,6 +204,15 @@ export interface FloorGarage {
   state(): CarState[];
 }
 
+/** The lounge TV. */
+export interface FloorTv {
+  play(input: { url?: unknown; position?: unknown }, by: string): Awaitable<{ changed: boolean } | { error: string }>;
+  pause(position: unknown, by: string): Awaitable<boolean>;
+  seek(position: unknown, by: string): Awaitable<boolean>;
+  stop(by: string): Awaitable<boolean>;
+  state(): TvState;
+}
+
 export interface FloorMeetings {
   start(req: MeetingRequest, by: string, owner?: string): Awaitable<string | undefined>;
   stop(by: string): Awaitable<string | undefined>;
@@ -231,6 +241,7 @@ export interface FloorActions {
   readonly court: FloorCourt;
   readonly garage: FloorGarage;
   readonly meetings: FloorMeetings;
+  readonly tv: FloorTv;
 
   /** Someone arrived on this floor. Presence, so it stays office-side even for a hosted floor. */
   arrived(): void;
