@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, type Run } from '../../shared/protocol';
 import { mesh, roundedBox, toon } from './toon';
 import { TERM_THEME } from '../ui/termtheme';
+import type { ScreenState } from '../state/store';
 
 
 const BASE16 = [
@@ -29,13 +30,8 @@ function color(c: number, fallback: string): string {
   return PALETTE[c] ?? fallback;
 }
 
-export interface ScreenState {
-  cols: number;
-  rows: number;
-  lines: Run[][];
-  cursor: [number, number];
-  version: number;
-}
+// The store keeps the screens (store.screens), so their type lives with it; the laptop only paints them.
+export type { ScreenState };
 
 const runLen = (runs: Run[] | undefined) => (runs ? runs.reduce((n, r) => n + [...r[0]].length, 0) : 0);
 const CHAR_WIDTH = 0.6;

@@ -8,10 +8,18 @@
 // server message and from each floor you arrive on. The store runs the slices in the one order they're
 // registered in (./slices/index.ts), and that order is the order their topics fire in.
 
-import type { ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, Me, PeerInfo, ProjectInfo, ProjectsDirState, QueueState, QueueTask, RepoChoice, ServerMsg, WorkerInfo } from '../../shared/protocol';
+import type { ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, Me, PeerInfo, ProjectInfo, ProjectsDirState, QueueState, QueueTask, RepoChoice, Run, ServerMsg, WorkerInfo } from '../../shared/protocol';
 import { randomLook } from '../../shared/avatar';
-import type { ScreenState } from '../world/laptop';
 import { AVATAR_COLORS, type Profile } from './persist';
+
+/** A worker's terminal as its laptop shows it, put together from the office's 'screen' frames. */
+export interface ScreenState {
+  cols: number;
+  rows: number;
+  lines: Run[][];
+  cursor: [number, number];
+  version: number;
+}
 
 /**
  * What the store fires when something changes, for store.on. These are the core's; each slice adds its
