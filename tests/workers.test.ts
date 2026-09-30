@@ -701,7 +701,8 @@ test('one Codex worker switches between isolated accounts after each limit reset
   const a = transcript(homes[0], 'account-a-session', resetA);
   workers.handleCodexHook(worker.id, first.env.hookToken!, 'SessionStart', { session_id: 'account-a-session', transcript_path: a });
   workers.handleCodexHook(worker.id, first.env.hookToken!, 'UserPromptSubmit', { session_id: 'account-a-session', prompt: 'Implement the assigned feature' });
-  workers.handleCodexHook(worker.id, first.env.hookToken!, 'Stop', { session_id: 'account-a-session' });
+  // Exhaustion can surface as an auth/limit prompt without a clean Stop hook.
+  workers.handleCodexHook(worker.id, first.env.hookToken!, 'PermissionRequest', { session_id: 'account-a-session', tool_name: 'auth' });
   const second = (await waitFor(f.read, x => x.filter(r => r.kind === 'codex' && !r.stdin).length >= 2)).filter(r => r.kind === 'codex' && !r.stdin).at(-1)!;
   assert.equal(second.env.codexHome, homes[1]);
   assert.equal(second.args.includes('resume'), false);

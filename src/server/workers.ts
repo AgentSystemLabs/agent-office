@@ -2044,7 +2044,9 @@ export class WorkerManager {
   /** Leave the desk and worker identity intact; change credentials only between Codex sessions. */
   private maybeSwitchCodex(w: Worker) {
     const current = w.codexProfile;
-    if (current === undefined || w.codexSwitching || !w.pty || !['done', 'idle'].includes(w.info.status)) return;
+    // An exhausted account can leave Codex at an auth/limit prompt instead of a clean Stop hook.
+    // Only switch from needs_input when the recorded usage window is actually blocked (below).
+    if (current === undefined || w.codexSwitching || !w.pty || !['done', 'idle', 'needs_input'].includes(w.info.status)) return;
     const profiles = codexProfiles(this.dataDir, w.info.id, w.info.name);
     if (!profiles || w.codexBlockedUntil[current] <= Date.now()) return;
     const next = availableProfile(current, w.codexBlockedUntil);
