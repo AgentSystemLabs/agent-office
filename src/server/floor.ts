@@ -5,6 +5,7 @@ import type { ChangesState, FloorInfo, ForgeKind, GhIssue, GhPull, GhState, Peer
 import { isBusy } from '../shared/status.js';
 import { DESK_BY_ID } from '../shared/layout.js';
 import type { FloorDef } from './building.js';
+import type { FloorActions } from './floor-actions.js';
 import { excludeFromGit } from './config.js';
 import { agentProviders, configuredProvider } from './agents.js';
 import { WorkerManager, workedMs, type HookEnv, type RunAs } from './workers.js';
@@ -426,3 +427,16 @@ export class Floor {
     this.workers.shutdown(keep);
   }
 }
+
+/**
+ * The office asks floors for things through `FloorActions`, and a floor hosted on a member's machine
+ * answers the same surface by shipping frames rather than calling methods (see
+ * src/server/floor-actions.ts). `Floor` is the local implementation.
+ *
+ * This assignment is the whole contract and it is checked, not documented: `Floor` structurally
+ * satisfies the interface, so a floor-scoped case that needs a method the interface does not have
+ * fails the build here rather than at the point someone writes the proxy. Nothing about the class
+ * changes to satisfy it.
+ */
+const _floorIsActions = (f: Floor): FloorActions => f;
+void _floorIsActions;
