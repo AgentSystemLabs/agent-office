@@ -77,7 +77,7 @@ interface Part {
  * it as a prompt, and the step is over when each of them has ended its turn with its part written to
  * the file it names. Checking the files, not the talk, is what moves a meeting on. It ends when the
  * output file is written, and stops early, saying why, when it runs over its token budget, when a
- * worker won't write its part, or when a worker leaves.
+ * worker won't write its part, or when a worker that still owes the round a part leaves.
  *
  * Everyone at the table shares the meeting's own git worktree (in a git project). When it's done,
  * the office commits the output there, or for a review panel posts it on the pull request. The
@@ -292,14 +292,29 @@ export class MeetingRoom {
       if (!m.cleared && m.seats.every((s) => !s.workerId || !byId.has(s.workerId))) void this.dismiss(m);
       return;
     }
-    for (const s of m.seats) {
+    // Only a seat that still owes this step a part needs its worker. A reviewer whose part is written
+    // (or that has no part in this step, like the rest of the table while the head writes the combined
+    // review) may leave without stopping the meeting. If a later step gives it a part, the meeting
+    // stops then, when that hand-over finds it gone. Checking the files, not the talk, moves a meeting on.
+    let changed = false;
+    for (let i = 0; i < m.seats.length; i++) {
+      const s = m.seats[i];
       const w = s.workerId ? byId.get(s.workerId) : undefined;
-      if (!w) return this.halt(m, `the ${s.role} (${s.workerName ?? 'its worker'}) was sent home`);
-      if (w.status === 'exited') return this.halt(m, `the ${s.role}'s agent (${w.name}) exited`);
+      if (w && w.status !== 'exited') continue;
+      const owed = m.turns.filter((t) => t.seat === i && t.state !== 'done');
+      if (!owed.length) continue;
+      // Its agent ended, but the file it owed is what moves the meeting on: count it and carry on.
+      // (Only parts actually handed over: a file that came with the checkout is nobody's round.)
+      if (owed.every((t) => t.sentAt !== undefined && this.written(m, t))) {
+        for (const t of owed) t.state = 'done';
+        changed = true;
+        continue;
+      }
+      return this.halt(m, w ? `the ${s.role}'s agent (${w.name}) exited` : `the ${s.role} (${s.workerName ?? 'its worker'}) was sent home`);
     }
     if (m.tokens > m.budget) return this.halt(m, `over budget: ${fmtTokens(m.tokens)} of ${fmtTokens(m.budget)} tokens`);
-    let changed = false;
     for (const t of m.turns) {
+      if (t.state === 'done') continue;
       changed = this.advance(m, t, byId.get(m.seats[t.seat].workerId!)!) || changed;
       if (m.status !== 'running') return;
     }
