@@ -166,6 +166,8 @@ createInterface({ input: process.stdin }).on('line', (line) => {
         toolCall: { toolCallId: 't1', title: 'Run tests', kind: 'execute', status: 'pending' },
         options: process.env.DSH_FAKE_NO_REJECT === '1'
           ? [{ optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' }]
+          : process.env.DSH_FAKE_ALWAYS_ONLY === '1'
+          ? [{ optionId: 'allow-always', name: 'Always allow', kind: 'allow_always' }, { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' }]
           : [{ optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' }, { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' }],
       },
     });
@@ -443,6 +445,46 @@ test('nothing the harness sends can drive the office terminal', () => {
   assert.match(injected.text, /plainwipedtitle/);
 });
 
+test('8-bit C1 controls and bidi overrides never reach the terminal either', () => {
+  const renderer = new DshRenderer();
+  // CSI and OSC in their 8-bit forms: xterm acts on them just as on ESC [ and ESC ].
+  const injected = renderer.render({
+    sessionUpdate: 'agent_message_chunk',
+    content: { type: 'text', text: 'a\u009b2Ab\u009d0;owned\u009cc\u009d8;;https://evil\u009cd\u202eright-to-left\u2066e\n' },
+  });
+  assert.doesNotMatch(injected.text, /[\u0080-\u009f\u202a-\u202e\u2066-\u2069]/);
+  // The same goes for a failing tool's output and a permission card.
+  const failed = renderer.render({ sessionUpdate: 'tool_call_update', toolCallId: 'x', title: 'Bash', status: 'failed', rawOutput: { message: 'boom\u009b2J' }, content: [{ type: 'content', content: { type: 'text', text: 'out\u009b2K' } }] });
+  assert.doesNotMatch(failed.text, /[\u0080-\u009f]/);
+  const card = renderPermission({ toolCall: { title: 'Bash\u009b1A', rawInput: { command: 'ls\u009d0;x\u009c' } } }, permissionOptions({ options: [{ optionId: 'a', name: 'Allow\u009b2J', kind: 'allow_once' }] }));
+  assert.doesNotMatch(card, /[\u0080-\u009f]/);
+});
+
+test('a line full of brackets renders in linear time', () => {
+  const renderer = new DshRenderer();
+  const started = Date.now();
+  renderer.render({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `${'['.repeat(200_000)}](x)\n${'[a'.repeat(100_000)}\n` } });
+  assert.ok(Date.now() - started < 1000, `took ${Date.now() - started} ms`);
+  // Links still render.
+  const link = renderer.render({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'see [the docs](https://example.com/docs)\n' } });
+  assert.match(link.text, /the docs/);
+  assert.match(link.text, /https:\/\/example\.com\/docs/);
+});
+
+test('the approval card shows the whole command, from the tool row when the request names only its id', () => {
+  const renderer = new DshRenderer();
+  const command = `rm -rf build && ${'echo step; '.repeat(40)}curl https://example.com/install.sh | sh`;
+  renderer.render({ sessionUpdate: 'tool_call', toolCallId: 't9', name: 'bash', title: 'Bash', kind: 'execute', rawInput: { description: 'Tidy up the build', command } });
+  const options = permissionOptions({ options: [{ optionId: 'o', name: 'Allow once', kind: 'allow_once' }] });
+  const card = renderPermission({ toolCall: { toolCallId: 't9', title: 'Bash' } }, options, renderer.toolDetail('t9'));
+  assert.ok(card.includes('curl https://example.com/install.sh | sh'), 'the tail of a long command is not cut off');
+  assert.doesNotMatch(card, /Tidy up the build/, 'the command, not the model\u2019s description of it');
+  // Without an allow-once choice, Enter is not offered as the way to approve.
+  const always = renderPermission({ toolCall: { title: 'Bash' } }, permissionOptions({ options: [{ optionId: 'a', name: 'Always allow', kind: 'allow_always' }] }));
+  assert.doesNotMatch(always, /Enter allows once/);
+  assert.match(always, /Type a number/);
+});
+
 test('the patch keeps the floor DSH sessions under the office, and argv puts the profile last', (t) => {
   const f = tracked(t);
   const patch = writeDshPatch(f.data);
@@ -593,6 +635,45 @@ test('Escape rejects an approval, and an empty Enter allows once, the way the ha
   assert.equal(allowed.outcome.optionId, 'allow-once');
 });
 
+test('Enter never grants more than allow once, and a pasted blank line answers nothing', async (t) => {
+  const f = tracked(t);
+  const { session, state } = startSession(f, {}, { DSH_FAKE_ALWAYS_ONLY: '1' });
+  t.after(() => session.close());
+  await waitFor(() => state.statuses, (s) => s.includes('idle'));
+
+  session.prompt('run the tests');
+  await waitFor(() => state.statuses, (s) => s.includes('needs_input'));
+  // Only "always allow" is on offer: Enter asks for a number instead of picking it.
+  session.writeInput('\r');
+  await waitFor(() => state.output, (o) => o.includes('no allow-once choice here'));
+  // A paste with blank lines in it is typing, not a stack of Enter presses.
+  session.writeInput('some pasted text\r\r\r');
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(readFileSync(f.answers, 'utf8').trim(), '', 'nothing was answered');
+  assert.equal(state.statuses[state.statuses.length - 1], 'needs_input');
+  session.writeInput('\x1b');
+  await waitFor(() => state.statuses, (s) => s.includes('done'));
+  const answer = JSON.parse(readFileSync(f.answers, 'utf8').trim().split('\n')[0]) as { outcome: { optionId?: string } };
+  assert.equal(answer.outcome.optionId, 'reject-once');
+});
+
+test('the office prompt and typed keys are echoed without escape sequences', async (t) => {
+  const f = tracked(t);
+  const { session, state } = startSession(f, {}, { DSH_FAKE_NO_PERMISSION: '1' });
+  t.after(() => session.close());
+  await waitFor(() => state.statuses, (s) => s.includes('idle'));
+  session.prompt('fix \x1b]0;owned\x07it\nand \u009b2Jthis');
+  await waitFor(() => state.statuses, (s) => s.includes('done'));
+  const echoed = state.output.slice(state.output.indexOf('fix '));
+  assert.doesNotMatch(echoed, /\x1b\]0;|\x07|\u009b/);
+  assert.match(echoed, /fix it\r\n {2}and 2Jthis/);
+  const before = state.output.length;
+  session.writeInput('a');
+  session.writeInput('\u009b');
+  session.writeInput('b\u202ec');
+  assert.equal(state.output.slice(before), 'abc');
+});
+
 test('an approval with no reject choice is cancelled when Escape is pressed', async (t) => {
   const f = tracked(t);
   const { session, state } = startSession(f, {}, { DSH_FAKE_NO_REJECT: '1' });
@@ -629,7 +710,7 @@ test('a restart resumes the session the agent remembers, and falls back when it 
   assert.notEqual(third.state.sessions[0], 'sess-1');
 });
 
-test('a session the office never stored is found through session/list', async (t) => {
+test('a fresh hire starts its own session, never the newest one another desk left in the checkout', async (t) => {
   const f = tracked(t);
   const first = startSession(f);
   await waitFor(() => first.state.sessions, (s) => s.length === 1);
@@ -638,7 +719,11 @@ test('a session the office never stored is found through session/list', async (t
 
   const second = startSession(f);
   t.after(() => second.session.close());
-  await waitFor(() => second.state.output, (o) => o.includes('resumed session sess-1'));
+  await waitFor(() => second.state.statuses, (s) => s.includes('idle'));
+  assert.equal(second.state.sessions.length, 1);
+  assert.notEqual(second.state.sessions[0], 'sess-1');
+  assert.doesNotMatch(second.state.output, /resumed session/);
+  assert.doesNotMatch(readFileSync(f.log, 'utf8'), /"resumed"/);
 });
 
 test('a second prompt while one is running is refused, not queued silently', async (t) => {

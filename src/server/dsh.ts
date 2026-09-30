@@ -83,6 +83,10 @@ const TOOL_ELBOW = '└';
 const MAX_TEXT = 4000;
 const MAX_LINE = 2000;
 const MAX_FRAME = 4_000_000;
+/** A line typed into a DSH terminal, before Enter: about what a prompt box takes. */
+const MAX_TYPED = 20_000;
+/** A permission request never needs more choices than a person can read. */
+const MAX_OPTIONS = 20;
 const CONTROL_TIMEOUT_MS = 30_000;
 /** Tool output shown per update: enough to be useful, not enough to bury the turn. */
 const MAX_TOOL_OUTPUT_LINES = 8;
@@ -131,6 +135,7 @@ export function permissionOptions(params: unknown): DshPermissionOption[] {
   const raw = isRec(params) && Array.isArray(params.options) ? params.options : [];
   const options: DshPermissionOption[] = [];
   for (const entry of raw) {
+    if (options.length >= MAX_OPTIONS) break;
     if (!isRec(entry)) continue;
     const optionId = str(entry.optionId);
     if (!optionId) continue;
@@ -156,30 +161,42 @@ function notice(kind: 'info' | 'warn' | 'bad' | 'quiet', text: string): string {
   return `${paint}${glyph}${V.reset} ${body}${escapeText(text)}${V.reset}\r\n`;
 }
 
-/** The prompted lines for an outstanding permission request. */
-export function renderPermission(params: unknown, options: DshPermissionOption[]): string {
+/**
+ * The prompted lines for an outstanding permission request. `remembered` is what the tool call's own
+ * row said it would do (see DshRenderer.toolDetail), for a request that carries only the call's id.
+ */
+export function renderPermission(params: unknown, options: DshPermissionOption[], remembered?: string): string {
   const toolCall = isRec(params) && isRec(params.toolCall) ? params.toolCall : {};
-  // The approval card names the tool the way the harness does, and shows the command line under it.
+  // The approval card names the tool the way the harness does, and shows what it will run under it,
+  // in full: what is being approved must never be cut off or left to the model's own description.
   const label = str(toolCall.title) ?? str(toolCall.name);
-  const detail = isRec(toolCall.rawInput) ? toolSummary(toolCall.rawInput, ['command', 'description', 'path', 'file_path', 'query', 'pattern', 'url']) : undefined;
-  const what = label ? oneLine(detail && detail !== label ? `${label} · ${detail}` : label, 160) : undefined;
+  const detail = (isRec(toolCall.rawInput) ? toolSummary(toolCall.rawInput, DETAIL_KEYS) : undefined) ?? remembered;
+  const what = label ? oneLine(label, 120) : undefined;
   const lines = [
     `\r\n${V.warn}${BOLD}  ▲ Waiting for approval${V.reset} ${V.secondary}${what ? `Tool ${escapeText(what)} requests privileged execution` : 'A tool call requests privileged execution'}${V.reset}\r\n`,
   ];
-  const width = Math.max(...options.map((option) => option.name.length), 0);
+  if (detail && detail !== label) lines.push(`    ${V.code}${escapeText(oneLine(detail, MAX_TEXT))}${V.reset}\r\n`);
+  const width = options.reduce((max, option) => Math.max(max, option.name.length), 0);
   options.forEach((option, index) => {
     // The card paints reject in the error color and allow in the warning's own; so does this.
     const paint = /reject|cancel|deny/.test(option.kind) ? V.bad : V.warnEdge;
     lines.push(`  ${paint}${BOLD}${index + 1}${V.reset}${V.faint})${V.reset} ${V.secondary}${escapeText(option.name.padEnd(width))}${V.reset}  ${V.faint}${escapeText(option.kind)}${V.reset}\r\n`);
   });
-  lines.push(`  ${V.muted}Enter allows once, Esc rejects, or type a number for another choice.${V.reset}\r\n`);
+  const hint = allowOption(options) ? 'Enter allows once, Esc rejects, or type a number for another choice.' : 'Type a number to choose, or Esc to reject.';
+  lines.push(`  ${V.muted}${hint}${V.reset}\r\n`);
   return lines.join('');
 }
 
-/** The choice the harness's Enter key means: allow once, or the first thing on offer. */
+/**
+ * The choice the harness's Enter key means: allow once, and only that. A request with no one-shot
+ * allow (only "always", say) needs a number typed, so a stray Enter never grants more than one call.
+ */
 function allowOption(options: DshPermissionOption[]): DshPermissionOption | undefined {
-  return options.find((option) => option.once && /allow|approve|accept/.test(option.kind)) ?? options.find((option) => /allow|approve|accept/.test(option.kind)) ?? options[0];
+  return options.find((option) => option.once && /allow|approve|accept/.test(option.kind));
 }
+
+/** What a tool call will act on, most specific first: the approval card shows this, not the model's description of it. */
+const DETAIL_KEYS = ['command', 'path', 'file_path', 'query', 'pattern', 'url', 'description'];
 
 /** The choice its Escape key means: reject, if the tool offers one. */
 function rejectOption(options: DshPermissionOption[]): DshPermissionOption | undefined {
@@ -264,6 +281,11 @@ export class DshRenderer {
   /** Tool calls by id, so an update that carries only the id still knows what the tool was. */
   private tools = new Map<string, ToolRow>();
   private toolCalls = 0;
+
+  /** What tool call `id` said it would act on, for the approval card. */
+  toolDetail(id: string | undefined): string | undefined {
+    return id ? this.tools.get(id)?.detail : undefined;
+  }
 
   /**
    * Closes the turn: flush what is left, close an open code fence, and report the turn the way the
@@ -425,6 +447,8 @@ interface ToolRow {
   icon: string;
   title: string;
   summary?: string;
+  /** What it acts on (the command, the path), for an approval that names only the call's id. */
+  detail?: string;
 }
 
 /**
@@ -482,7 +506,8 @@ function toolRow(update: Rec, remembered?: ToolRow): ToolRow {
   // An unknown tool's row leads with the tool's own name, the way the chat's generic row does.
   const raw = str(update.title) ?? str(update.name);
   if (!described && raw) summary = summary && summary !== raw ? `${oneLine(raw, 60)} · ${summary}` : oneLine(raw, 60);
-  return { icon: base.icon, title: base.title, summary: summary ? oneLine(summary, 160) : undefined };
+  const detail = (input ? toolSummary(input, DETAIL_KEYS) : undefined) ?? remembered?.detail;
+  return { icon: base.icon, title: base.title, summary: summary ? oneLine(summary, 160) : undefined, detail: detail ? bounded(detail) : undefined };
 }
 
 /** A tool row: icon, title, then the harness's dot separator before the summary. */
@@ -531,7 +556,12 @@ function escapeText(text: string): string {
     .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '') // OSC … BEL/ST (titles, hyperlinks)
     .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '') // CSI (colors, cursor, clears)
     .replace(/\x1b[@-Z\\-_]/g, '') // other two-byte escapes
-    .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, ''); // whatever is left, BEL included
+    .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, ''); // whatever is left: BEL, 8-bit C1 (CSI, OSC), bidi overrides
+}
+
+/** Text the office writes into a DSH terminal that did not come through the renderer (a prompt, an error). */
+export function terminalSafe(text: string): string {
+  return escapeText(text);
 }
 
 /**
@@ -568,7 +598,7 @@ function inline(raw: string, base: string): string {
     .replace(/\*\*([^*]+)\*\*/g, (_all, bold: string) => hold(`${V.bold}${bold}${V.reset}${base}`))
     .replace(/(^|[\s(])\*([^*\n]+)\*/g, (_all, before: string, italic: string) => before + hold(`${V.italic}${italic}${V.reset}${base}`))
     .replace(/(^|[\s(])_([^_\n]+)_/g, (_all, before: string, italic: string) => before + hold(`${V.italic}${italic}${V.reset}${base}`))
-    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_all, label: string, url: string) => hold(`${V.underline}${label}${V.reset}${base} ${V.muted}${url}${V.reset}${base}`));
+    .replace(/\[([^\][]{1,500})\]\(([^)\s]{1,2000})\)/g, (_all, label: string, url: string) => hold(`${V.underline}${label}${V.reset}${base} ${V.muted}${url}${V.reset}${base}`));
   return text.replace(/\u0001(\d+)\u0001/g, (_all, index: string) => painted[Number(index)] ?? '');
 }
 
@@ -771,20 +801,35 @@ export class DshSession {
     }
     // Arrow/function keys arrive as escape sequences: swallow them rather than typing them in.
     const cleaned = data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\x1bO[@-~]/g, '');
+    // A browser sends each key on its own, so Enter is a lone "\r". Several characters at once are a
+    // paste, and a blank line in a paste must not press the approval's Enter (allow once); a choice
+    // typed out ("1", an option's name) still has to match one of those listed.
+    const burst = [...cleaned].length > 1;
+    let echo = '';
+    const flushEcho = () => {
+      if (echo) this.events.output(echo);
+      echo = '';
+    };
     for (const ch of cleaned) {
-      if (ch === '\r' || ch === '\n') this.submitLine();
-      else if (ch === '\x7f' || ch === '\b') {
+      if (ch === '\r' || ch === '\n') {
+        if (burst && this.permission && !this.line.trim()) continue;
+        flushEcho();
+        this.submitLine();
+      } else if (ch === '\x7f' || ch === '\b') {
         if (this.line) {
-          this.line = this.line.slice(0, -1);
-          this.events.output('\b \b');
+          this.line = [...this.line].slice(0, -1).join('');
+          echo += '\b \b';
         }
-      } else if (ch === '\x03') this.cancelTurn();
-      else if (ch < ' ') continue;
-      else {
+      } else if (ch === '\x03') {
+        flushEcho();
+        this.cancelTurn();
+      } else if (ch < ' ' || /[\x80-\x9f\u202a-\u202e\u2066-\u2069]/.test(ch)) continue;
+      else if (this.line.length < MAX_TYPED) {
         this.line += ch;
-        this.events.output(ch);
+        echo += ch;
       }
     }
+    flushEcho();
   }
 
   /** A prompt from the office (the prompt box, the queue, a board agent): echoed, then submitted. */
@@ -795,7 +840,7 @@ export class DshSession {
       this.events.output(notice('warn', 'one prompt at a time — this turn is still running'));
       return;
     }
-    this.events.output(`${V.brand}${V.bold}>${V.reset} ${V.text}${bounded(clean, MAX_LINE)}${V.reset}\r\n`);
+    this.events.output(`${V.brand}${V.bold}>${V.reset} ${V.text}${escapeText(bounded(clean, MAX_LINE)).replace(/\n/g, '\r\n  ')}${V.reset}\r\n`);
     this.sendPrompt(clean);
   }
 
@@ -853,9 +898,10 @@ export class DshSession {
       return;
     }
 
+    // Only this worker's own session is carried on. Every desk without a worktree shares the checkout,
+    // so "the newest session in this directory" may be another worker's, even one still running.
     let ready = false;
     if (this.launch.resumeSessionId) ready = await this.tryResume(this.launch.resumeSessionId);
-    if (!ready) ready = await this.resumeNewest();
     if (!ready && !(await this.newSession())) return;
 
     await this.applyChoices();
@@ -887,23 +933,6 @@ export class DshSession {
       this.events.output(notice('quiet', `could not resume session ${id}: ${oneLine(reason(err), 200)}`));
       return false;
     }
-  }
-
-  /** No remembered session (or it is gone): take the newest one this checkout left behind. */
-  private async resumeNewest(): Promise<boolean> {
-    try {
-      const result = await this.request('session/list', { cwd: this.launch.cwd });
-      const sessions = isRec(result) && Array.isArray(result.sessions) ? result.sessions : [];
-      for (const entry of sessions) {
-        if (!isRec(entry)) continue;
-        const id = str(entry.sessionId);
-        if (id && (await this.tryResume(id))) return true;
-        if (id) break; // one attempt at the newest is enough before starting fresh
-      }
-    } catch {
-      // session/list is optional for us: a fresh session is a fine answer
-    }
-    return false;
   }
 
   private adopt(id: string, configOptions: unknown): void {
@@ -969,7 +998,9 @@ export class DshSession {
     if (this.permission) {
       // Enter on an empty line is the harness's Allow once; a number picks a listed choice.
       if (!text.trim()) {
-        this.answerPermission(allowOption(this.permission.options)?.optionId);
+        const once = allowOption(this.permission.options);
+        if (once) this.answerPermission(once.optionId);
+        else this.events.output(notice('warn', 'no allow-once choice here: type a listed number, or Esc'));
         return;
       }
       const pick = permissionChoice(text, this.permission.options);
@@ -1004,7 +1035,8 @@ export class DshSession {
   private onPermission(id: unknown, params: unknown): void {
     const options = permissionOptions(params);
     this.permission = { id, options };
-    this.events.output(renderPermission(params, options));
+    const toolCall = isRec(params) && isRec(params.toolCall) ? params.toolCall : undefined;
+    this.events.output(renderPermission(params, options, this.renderer.toolDetail(toolCall ? str(toolCall.toolCallId) : undefined)));
     this.events.status('needs_input');
   }
 
@@ -1033,7 +1065,11 @@ export class DshSession {
         this.events.output(notice('quiet', 'unreadable ACP frame'));
         continue;
       }
-      this.dispatch(message);
+      try {
+        this.dispatch(message);
+      } catch (err) {
+        this.events.output(notice('quiet', `ACP frame skipped: ${oneLine(reason(err), 200)}`));
+      }
     }
     // A frame that never ends is not a frame: drop it rather than grow without bound.
     if (this.buffer.length > MAX_FRAME) {

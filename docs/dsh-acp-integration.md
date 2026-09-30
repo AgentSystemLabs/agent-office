@@ -222,7 +222,7 @@ Mirrors the role of `src/server/opencode.ts` and `src/server/codex.ts`:
 | Terminal input | `term.input` → `workers.write` → PTY | Branch in `write`: buffer bytes to a line, submit on Enter via `session/prompt`; Esc/Ctrl+C → `session/cancel` |
 | Resize | `workers.resize` → PTY | ACP has no terminal size; ignore, keep the terminal at its configured size |
 | Status | `handleHook` / `handleCodexHook` / `handleOpenCodeHook` | New `DshSession` event handler calling the same `setStatus` |
-| Resume (R) | `--resume` / `--session` / `codex resume` argv | `session/list` (filtered by cwd) then `session/resume` |
+| Resume (R) | `--resume` / `--session` / `codex resume` argv | `session/resume` with the worker's stored session id; a fresh `session/new` if the harness no longer has it (never another desk's newest session: desks without a worktree share the checkout) |
 | Send home / stop | Kill the PTY | `session/cancel`, then `session/close`, then end the child |
 | Restart survival | `ptyhost` keeps the PTY alive out of process | **Different.** The ACP child dies with the server; mark the worker `offline` on boot and resume via `session/resume` against the on-disk persistence root |
 
@@ -277,7 +277,7 @@ Output: a short findings note appended to this document, and a decision on usage
 - [x] Action mapping from `ToolKind`, alongside the existing name-based mapper.
 - [x] Render transcript into the headless terminal; keep scrollback, sharing and search working.
 - [x] Branch `workers.write` for line-oriented input; Esc/Ctrl+C to `session/cancel`.
-- [x] Resume via `session/list` + `session/resume`; wire the R affordance.
+- [x] Resume via `session/resume` with the worker's stored id; wire the R affordance.
 - [x] Restart path: mark DSH workers `offline` on boot and resume from the persistence root.
 - [x] Config: `--dsh-profile`, `AGENT_OFFICE_DSH_PROFILE`, per-floor patch with an office-owned
       persistence root, `--agent dsh` as a default.
@@ -418,6 +418,9 @@ the tool's *wire name*, with `bash`/`read`/`search`/`write`/`edit`/`code`/generi
 **finished tool call is left collapsed with no check mark**, and the approval card binds **Enter to
 "Allow once" and Escape to "Reject"**. The office follows all three — Esc rejects the tool without
 ending the turn, an empty Enter allows once, and only a tool offering no reject choice cancels.
+Enter never picks anything but an allow-once choice (a request offering only "always" needs its
+number typed), a blank line inside a paste is not an Enter, and the card shows the command being
+approved in full, from the tool call's own row when the request names only its id.
 
 Glyphs stand in for the chat's SVGs (`❯` bash, `▤` read, `⌕` search, `✎` edit, `{ }` code, `⇅` fetch,
 `✦` unknown, `✻` think); the real UI draws icons and has no unicode equivalents.

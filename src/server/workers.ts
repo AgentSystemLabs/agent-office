@@ -29,7 +29,7 @@ import { reportedUsage } from './reported-usage.js';
 import { configuredProvider, isValidDshModel, isValidGrokModel, isValidMuseModel, isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeStatusEvent } from './opencode.js';
 import { ScrollbackStore, searchTerminal, terminalTail } from './history.js';
-import { DSH_PROFILE_DEFAULT, DshSession, dshArgs, writeDshPatch } from './dsh.js';
+import { DSH_PROFILE_DEFAULT, DshSession, dshArgs, terminalSafe, writeDshPatch } from './dsh.js';
 import { DropStore } from './drops.js';
 import { screenSnapshot } from './screen.js';
 import type { Capacity } from './machine.js';
@@ -1646,7 +1646,7 @@ export class WorkerManager {
     // The office is going down: the next office marks this worker offline and resumes it, so its
     // status must stay as it was (see the restart difference in docs/dsh-acp-integration.md).
     if (quiet || this.closing) return;
-    const note = error ? `\r\n\x1b[31m[DeepSeek Harness: ${truncate(error, 300)}]\x1b[0m\r\n` : '';
+    const note = error ? `\r\n\x1b[31m[DeepSeek Harness: ${terminalSafe(truncate(error, 300)).replace(/\n/g, ' ')}]\x1b[0m\r\n` : '';
     if (note) {
       term.write(note);
       if (w.viewers.size) this.events.data(info.id, note, [...w.viewers.keys()]);
