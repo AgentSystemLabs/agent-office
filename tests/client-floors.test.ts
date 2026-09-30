@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { FLOOR, WING, WING_DESKS, wingMinZ } from '../src/shared/layout.js';
 import type { FloorInfo } from '../src/shared/protocol.js';
 import { builtFloors, floorWings, pastTheWing, seatBuilt } from '../src/client/core/floors.js';
-import { store } from '../src/client/state.js';
+import { store } from '../src/client/state/index.js';
 
 const floor = (id: string, extra: Partial<FloorInfo> = {}) => ({ id, name: id, waiting: 0, people: 0, palette: 0, ...extra }) as FloorInfo;
 
