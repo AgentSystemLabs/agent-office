@@ -12,9 +12,9 @@ import { openBoard, type BoardActions } from '../../ui/boards';
 import { clip } from '../../ui/dom';
 import { openIssue } from '../../ui/pull';
 import { openServices } from '../../ui/services';
-import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from '../../world/boards';
-import { MachineTexture } from '../../world/machine';
-import { MeetingBoardTexture, MeetingSignTexture } from '../../world/meeting';
+import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world';
+import { MachineTexture } from './machine';
+import { MeetingBoardTexture, MeetingSignTexture } from './meeting';
 import type { World } from '../../world/world';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).

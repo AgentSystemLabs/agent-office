@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { CarriedIssue } from '../../shared/protocol';
-import { NOTE_COLORS, PINS, wrap } from './boards';
+import { NOTE_COLORS, PINS, wrap } from '../features/boards/world';
 import { toon, toonUnique } from './toon';
 
 const W = 320;

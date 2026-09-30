@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { MEETING_PATTERNS, meetingStage, meetingSummary } from '../../shared/meetings';
-import { fmtCost, fmtTokens, type Meeting, type MeetingState } from '../../shared/protocol';
+import { MEETING_PATTERNS, meetingStage, meetingSummary } from '../../../shared/meetings';
+import { fmtCost, fmtTokens, type Meeting, type MeetingState } from '../../../shared/protocol';
 
 const FONT = 'Nunito, ui-rounded, system-ui, sans-serif';
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';

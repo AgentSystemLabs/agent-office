@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import type { MachineState } from '../../shared/protocol';
-import { officeFull } from '../../shared/machine';
+import type { MachineState } from '../../../shared/protocol';
+import { officeFull } from '../../../shared/machine';
 
 const FONT = 'Nunito, ui-rounded, system-ui, sans-serif';
 const INK = '#1b1d2e';
