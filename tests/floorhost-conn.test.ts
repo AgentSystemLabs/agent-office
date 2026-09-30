@@ -287,3 +287,39 @@ test('the roster from ready answers a worker lookup without scanning every floor
     f.close();
   }
 });
+
+test('an upward frame reaches whoever holds that floor proxy', async () => {
+  // The gap the demo found: the socket itself has to hand a floor's upward frames to the floor's
+  // proxy, or a hire's answer never arrives and every call waits out its timeout. This is the
+  // office's one line of wiring, and it is what makes the proxy work at all.
+  const f = await server();
+  try {
+    const made = f.hosts.pair('admin');
+    assert.ok(typeof made !== 'string');
+    const claimed = f.hosts.claim(made.code, 'Alice’s laptop');
+    assert.ok(typeof claimed !== 'string');
+
+    const upward: { floorId: string; t: string }[] = [];
+    const lost: string[] = [];
+    f.registry.onUpward = (floorId, msg) => upward.push({ floorId, t: msg.t });
+    f.registry.onFloorGone = (floorId) => lost.push(floorId);
+
+    const ws = await connect(f.url, claimed.token, ['f1', 'f2']);
+    for (const id of ['f1', 'f2']) ws.send(JSON.stringify({ t: 'ready', floor: ready(id) }));
+    await new Promise((r) => setTimeout(r, 120));
+
+    // An answer to a call, and a plain event: both are the floor talking upward.
+    ws.send(JSON.stringify({ t: 'event', floorId: 'f1', seq: 7, msg: { t: 'worker.update' } }));
+    ws.send(JSON.stringify({ t: 'term.data', floorId: 'f2', workerId: 'w1', data: 'hi' }));
+    await new Promise((r) => setTimeout(r, 120));
+    assert.deepEqual(upward, [{ floorId: 'f1', t: 'event' }, { floorId: 'f2', t: 'term.data' }]);
+
+    // And losing the machine tells the office about every floor it carried, in one pass.
+    ws.close();
+    await closed(ws);
+    await new Promise((r) => setTimeout(r, 120));
+    assert.deepEqual(lost.sort(), ['f1', 'f2']);
+  } finally {
+    f.close();
+  }
+});

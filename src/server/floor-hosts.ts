@@ -31,6 +31,17 @@ export class HostRegistry {
   private wss = new WebSocketServer({ noServer: true, maxPayload: FLOORHOST_MAX_FRAME });
   private byHost = new Map<string, HostSocket>();
 
+  /**
+   * Where a floor's upward frames go: whoever holds the `RemoteFloor` for that floor, so a hire's
+   * answer settles the caller waiting on it and an event fills the office's mirror of the floor.
+   * The office sets this once. Until it does, frames are parsed and dropped rather than queued,
+   * because a frame nobody is waiting for is not worth holding in memory.
+   */
+  onUpward: (floorId: string, msg: FromFloor) => void = () => {};
+
+  /** Told once per floor when the socket carrying it goes, so the office can hold its workers asleep. */
+  onFloorGone: (floorId: string) => void = () => {};
+
   constructor(private hosts: Hosts) {}
 
   /** How many floors a connected machine is serving, for ⚙️ Settings. */
@@ -146,19 +157,26 @@ export class HostRegistry {
         entry.floors.delete(msg.floorId);
         break;
       default:
-        // Everything else is the floor talking upward, and is delivered by whoever owns the
-        // connection. Routing those is Phase B task 10 (RemoteFloor); this is the plumbing it needs.
-        entry.upward(msg);
+        // Everything else is the floor talking upward: an answer to a call, or something that happened
+        // on it. Both go to whoever holds the RemoteFloor for that floor. A frame with no floor — the
+        // connection-level refusal — has nothing to route to and is dropped here.
+        if ('floorId' in msg) this.onUpward(msg.floorId, msg);
         break;
     }
   }
 
   private onClose(entry: HostSocket) {
     this.byHost.delete(entry.host.id);
-    // Every floor this socket carried, in one pass. Nothing downstream re-adds them.
+    // Every floor this socket carried, in one pass. Nothing downstream re-adds them: the office marks
+    // them unreachable and holds their workers asleep, rather than letting the first worker's `gone`
+    // decide and race the rest (see PtyExit.gone in ptys.ts).
     entry.dropped = true;
-    for (const floorId of entry.floors.keys()) entry.onFloorGone(floorId);
+    const carried = [...entry.floors.keys()];
     entry.floors.clear();
+    for (const floorId of carried) {
+      entry.onFloorGone(floorId);
+      this.onFloorGone(floorId);
+    }
   }
 
   /** Drops every machine. Used when the office is shutting down. */
