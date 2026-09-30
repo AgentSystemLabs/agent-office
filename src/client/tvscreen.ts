@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { TV } from '../shared/layout';
 import { classify, embedUrl, positionAt, youtubeId, type TvKind, type TvState } from '../shared/tv';
+import { DrunkPicture } from './drunkframe';
 import { roomMediaGain } from './spatial-audio';
 import { store } from './state';
 import { h, toast } from './ui/dom';
@@ -145,6 +146,8 @@ export class TvScreen {
   private readonly layer: HTMLElement | null;
   /** The 1280×720 element that gets transformed onto the TV's corners. */
   private readonly frame: HTMLElement;
+  /** So the picture goes with the rest of the office once you've been drinking (see drunkframe.ts). */
+  private readonly drunk: DrunkPicture | null;
   private state: TvState = { on: false, playing: false, position: 0, at: 0 };
   /** How the picture is being driven, which is embed rather than youtube when the API can't load. */
   private kind: TvKind | null = null;
@@ -206,6 +209,8 @@ export class TvScreen {
     this.layer = document.getElementById('stream-layer');
     this.frame = h('div.tv-frame');
     this.layer?.append(this.frame);
+    // Only a page with a layer ever shows the picture, so only one pays for the filter.
+    this.drunk = this.layer ? new DrunkPicture(this.frame) : null;
     this.mask.width = MASK_W;
     this.mask.height = MASK_H;
   }
@@ -226,6 +231,16 @@ export class TvScreen {
       // not far enough into the video to know yet
     }
     return 0;
+  }
+
+  /**
+   * How drunk you are, so the picture on the TV goes with the rest of the office: it wobbles,
+   * doubles and smears too, on the same clock as the world (see drunkframe.ts, the same effect
+   * world/drunk.ts puts on the canvas). `motion` false holds it still, as it does there. Sober, the
+   * picture carries no filter at all and this costs nothing.
+   */
+  setDrunk(amount: number, time: number, motion: boolean) {
+    this.drunk?.apply(amount, time, motion);
   }
 
   /** Your own speakers: how loud, and whether they're off. False when this player won't take it. */
