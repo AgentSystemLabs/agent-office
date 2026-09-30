@@ -221,6 +221,19 @@ button { font-family: inherit; }
 .telescope-reticle::after { top: 50%; left: -2vmin; height: 1px; width: 12vmin; }
 .telescope-exit { position: absolute; z-index: 2; left: 50%; bottom: 5vmin; transform: translateX(-50%); pointer-events: auto; white-space: nowrap; }
 body.telescope-active #hud { visibility: hidden; }
+/* The big TV's picture: ordinary HTML, transformed onto the TV's rectangle in the world each frame.
+   It sits over the canvas and under the HUD, and is scenery throughout — pointer-events: none, so
+   looking around and clicking go on exactly as if it were painted on the screen (see tvscreen.ts). */
+#stream-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+#stream-layer .tv-frame {
+  position: absolute; left: 0; top: 0; width: 1280px; height: 720px;
+  transform-origin: 0 0; overflow: hidden; background: #0c0d15;
+}
+#stream-layer .tv-frame > * { display: block; width: 100%; height: 100%; border: 0; background: #000; }
+#stream-layer .tv-frame > video { object-fit: contain; }
+/* YouTube's player arrives inside a wrapper of its own (see TvScreen.loadYoutube). */
+#stream-layer .tv-frame .tv-player { position: relative; background: #000; }
+#stream-layer .tv-frame .tv-player > iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 /* The emote wheel (hold G): six emotes round a ring in the middle of the screen, over the crosshair. */
 .emote-wheel { position: absolute; inset: 0; display: grid; place-items: center; background: radial-gradient(circle, rgba(43,45,66,.28), transparent 45%); }
 .emote-wheel .ring {
@@ -680,13 +693,20 @@ body.telescope-active #hud { visibility: hidden; }
 
 /* The jukebox */
 .modal.jukebox { width: min(520px, 100%); }
-.jb-now { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 3px solid var(--ink); border-radius: 14px; background: var(--paper-2); }
-.jb-now .btn { flex: none; padding: 4px 10px; font-size: 13px; }
+.jb-now, .tv-now { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 3px solid var(--ink); border-radius: 14px; background: var(--paper-2); }
+.jb-now .btn, .tv-now .btn { flex: none; padding: 4px 10px; font-size: 13px; }
 .jb-disc { flex: none; font-size: 30px; line-height: 1; }
 .jb-disc.spin { animation: jb-spin 2.4s linear infinite; }
 @keyframes jb-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .jb-disc.spin { animation: none; } }
 .jb-icon { flex: none; font-size: 18px; }
+
+/* The TV window: the scrubber everyone follows, its time, and the link opened elsewhere */
+.modal.tv { width: min(560px, 100%); }
+.tv-scrub { margin-top: 10px; gap: 10px; }
+.tv-time { flex: none; font: 800 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+.tv-open { flex: none; font-size: 13px; font-weight: 800; color: var(--accent); text-decoration: none; white-space: nowrap; }
+.tv-open:hover { text-decoration: underline; }
 
 /* Signs over the desks, and the back office */
 .modal.desklabel { width: min(520px, 100%); }

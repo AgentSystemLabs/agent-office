@@ -19,6 +19,13 @@ test('E remains handled by representative nearby interactions', () => {
   assert.equal(interactionAvailable(interaction('ladder'), 'E', state()), true);
 });
 
+test('the TV takes E alone — its window is where the link goes, and no other key belongs to it', () => {
+  const tv = interaction('tv');
+  assert.equal(interactionAvailable(tv, 'E', state()), true);
+  assert.equal(interactionAvailable(tv, 'E', state({ carrying: true })), true, 'an issue card can’t be put down on the TV');
+  for (const key of ['P', 'R', 'X', 'B', 'C', 'O', 'L'] as DeskKey[]) assert.equal(interactionAvailable(tv, key, state()), false, key);
+});
+
 test('desk-specific keys are handled only when their action is available', () => {
   const desk = interaction('desk', { deskId: 'desk-1' });
   assert.equal(interactionAvailable(desk, 'B', state()), true);
