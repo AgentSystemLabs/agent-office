@@ -38,18 +38,18 @@ export interface Core {
   publicDir: string;
   accounts: Accounts;
   auth: Auth;
+  /** Everyone in the office, by connection. */
   clients: Map<string, Client>;
-  // Kept on disk, so a restart doesn't wipe it.
+  /** Kept on disk, so a restart doesn't wipe it. */
   chat: ChatLog;
-  // The arcade's high scores: one table for the whole building, on every floor's cabinet. The office
-  // follows every game and puts the scores up itself (see Arcade).
+  /** The arcade's high scores: one table for the whole building, on every floor's cabinet. */
   highScores: HighScores;
   arcade: Arcade;
   /** What the office is called where it has no project of its own to go by (webhooks, invites). */
   officeName: string;
   openCodeModels: OpenCodeModelCatalogue;
   grokModels: GrokModelCatalogue;
-  // --- The building: a floor per project, each with its own workers, boards and queue -----------
+  /** The building: a floor per project, each with its own workers, boards and queue. */
   building: Building;
   floors: Map<string, Floor>;
 }

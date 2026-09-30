@@ -27,7 +27,7 @@ export const ballHandlers = {
 export const ballHooks: FeatureHooks = {
   leaving(ctx, c, was) {
     // The ball stays on its floor, back under the hoop. That floor hears so once they're off it (see
-    // arrived), or their own page would put it down before it knew they'd gone.
+    // arrived in office/navigation.ts), or their own page would put it down before it knew they'd gone.
     const ballLeft = !!was?.court.left(c.id);
     if (ballLeft && was) return () => ballChanged(ctx, was);
   },
