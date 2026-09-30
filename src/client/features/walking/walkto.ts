@@ -2,8 +2,8 @@
 // shared/nav.ts), and up the stairs to the boss's office or out through the balcony doors when that's
 // where they are.
 
-import { BALCONY, BALCONY_DOOR, FLOOR, LOFT, STAIRS, WALL_T, inWing } from '../shared/layout';
-import { route } from '../shared/nav';
+import { BALCONY, BALCONY_DOOR, FLOOR, LOFT, STAIRS, WALL_T, inWing } from '../../../shared/layout';
+import { route } from '../../../shared/nav';
 
 export interface Spot {
   x: number;
