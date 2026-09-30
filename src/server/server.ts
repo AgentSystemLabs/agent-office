@@ -1748,6 +1748,33 @@ export async function startServer(cfg: Config) {
         });
         break;
       }
+      case 'worker.rebuild': {
+        const w = worker(msg.workerId);
+        if (!w) break;
+        const { floor } = w;
+        // With `all`, every worker on the floor whose worktree was deleted, this one first.
+        const ids = [w.wid, ...(msg.all === true ? floor.workers.list().filter((x) => x.lost && x.id !== w.wid).map((x) => x.id) : [])];
+        void (async () => {
+          const names: string[] = [];
+          const notes: string[] = [];
+          for (const id of ids) {
+            const info = floor.workers.get(id);
+            // Sent home meanwhile, or back already with one before it (the rest of a meeting's table).
+            if (!info || (id !== w.wid && !info.lost)) continue;
+            const r = await floor.workers.rebuild(id);
+            if (r.error) warn(c, r.error);
+            else if (!r.rebuilt) sendTo(c, { t: 'toast', text: r.note ?? `${info.name}'s worktree is already there`, level: 'info' });
+            else {
+              names.push(info.name);
+              if (r.note) notes.push(r.note);
+            }
+          }
+          if (!names.length) return;
+          const whose = names.length === 1 ? `${names[0]}'s worktree` : `the worktrees of ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+          toastFloor(floor, `🌿 ${who} rebuilt ${whose}${notes.length ? ` — ${notes.join('; ')}` : ''}`);
+        })();
+        break;
+      }
       case 'worker.attach': {
         const w = worker(msg.workerId);
         const snap = w?.floor.workers.attach(w.wid, c.id, who);

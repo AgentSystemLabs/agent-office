@@ -190,6 +190,8 @@ interface Worker {
   unsaved?: boolean;
   /** Where this run's own output starts, below the scrollback carried over from before. */
   fresh?: { readonly line: number };
+  /** Its lost worktree is being put back (see rebuild): the folder coming back mustn't wake it before that's done. */
+  rebuilding?: boolean;
 }
 
 export interface WorkerEvents {
@@ -294,7 +296,10 @@ export class WorkerManager {
     for (const w of this.workers.values()) this.scanUsage(w);
     this.screenTimer = setInterval(() => this.flushScreens(), SCREEN_INTERVAL_MS);
     this.usageTimer = setInterval(() => {
-      for (const w of this.workers.values()) this.scanUsage(w);
+      for (const w of this.workers.values()) {
+        this.scanUsage(w);
+        this.watchFolder(w);
+      }
     }, USAGE_SCAN_MS);
     this.saveTimer = setInterval(() => {
       for (const w of this.workers.values()) if (w.unsaved) this.saveScrollback(w);
@@ -319,6 +324,8 @@ export class WorkerManager {
     );
     // Terminals nobody saved a claim on (their worker was sent home as the office went down).
     this.host.killUnclaimed();
+    // Whoever's worktree was deleted while the office was down stays asleep, marked lost, rather than failing to start.
+    for (const w of this.workers.values()) this.checkLost(w);
     this.wakeAll();
     // It may have switched branches while the office was down, its terminal still going.
     void this.syncBranches();
@@ -500,19 +507,28 @@ export class WorkerManager {
       made.push({ trees, ref: { ...wt, path: path.relative(r.dir, path.join(this.dir, wt.path)) } });
       others.push({ floor: r.floor, name: names[i + 1], repo: r.repo, dir: r.dir, path: wt.path, branch: wt.branch, base: wt.base, from: wt.from });
     }
+    try {
+      this.writeBrief(primary, repos.map((r, i) => ({ name: names[i + 1], project: r.repo ?? r.name, from: others[i].from })));
+    } catch (err) {
+      return fail(`Could not write the workspace's brief: ${(err as Error).message}`);
+    }
+    return { worktree: primary, repos: others, notes };
+  }
+
+  /**
+   * The brief in the workspace of a worker across repositories, which folder is which project (the
+   * 'worker.repos' prompt), as CLAUDE.md and AGENTS.md. `primary` is its own floor's worktree, in the
+   * workspace like `others`. Throws when it can't be written.
+   */
+  private writeBrief(primary: { path: string; branch: string; from?: string }, others: { name: string; project: string; from?: string }[]) {
     const home = originRepo(this.dir) ?? path.basename(this.dir);
     const line = (name: string, project: string, from?: string, note = '') => `- \`${name}/\`: ${project}${from ? `, cut from ${from}` : ''}${note}`;
     const brief = officePrompt(this.prompts, 'worker.repos', {
       branch: primary.branch,
       home,
-      repos: [line(names[0], home, primary.from, " (this floor's project)"), ...repos.map((r, i) => line(names[i + 1], r.repo ?? r.name, others[i].from))].join('\n'),
+      repos: [line(path.basename(primary.path), home, primary.from, " (this floor's project)"), ...others.map((o) => line(o.name, o.project, o.from))].join('\n'),
     });
-    try {
-      for (const file of WORKSPACE_FILES) writeFileSync(path.join(this.dir, WORKTREES_DIR, slug, file), `${brief.trim()}\n`);
-    } catch (err) {
-      return fail(`Could not write the workspace's brief: ${(err as Error).message}`);
-    }
-    return { worktree: primary, repos: others, notes };
+    for (const file of WORKSPACE_FILES) writeFileSync(path.join(this.dir, path.dirname(primary.path), file), `${brief.trim()}\n`);
   }
 
   /** Starts a worker that isn't running again, carrying on its session, with `prompt` as its next message. */
@@ -520,6 +536,7 @@ export class WorkerManager {
     const w = this.workers.get(id);
     if (!w) return 'No such worker';
     if (w.pty || w.dsh) return 'Worker is already running';
+    if (this.checkLost(w, true)) return lostMessage(w.info);
     clockWork(w.info, 'starting');
     w.info.status = 'starting';
     w.info.exitCode = undefined;
@@ -661,12 +678,13 @@ export class WorkerManager {
    * workspace, git plumbing for its repository, its worktree in that repository's terms, and the
    * commit its merged pull request delivered, when known.
    */
-  private treesOf(info: WorkerInfo, landed?: string, landedRepos?: Record<string, string | undefined>): { name: string; trees: Worktrees; ref: WorktreeRef; landed?: string }[] {
+  private treesOf(info: WorkerInfo, landed?: string, landedRepos?: Record<string, string | undefined>): { name: string; dir: string; trees: Worktrees; ref: WorktreeRef; landed?: string }[] {
     const wt = info.worktree!;
     return [
-      { name: path.basename(wt.path), trees: this.trees, ref: wt, landed },
+      { name: path.basename(wt.path), dir: this.dir, trees: this.trees, ref: wt, landed },
       ...(info.repos ?? []).map((r) => ({
         name: r.name,
+        dir: r.dir,
         trees: new Worktrees(r.dir),
         ref: { path: path.relative(r.dir, path.join(this.dir, r.path)), branch: r.branch, base: r.base },
         landed: landedRepos?.[r.floor],
@@ -731,6 +749,110 @@ export class WorkerManager {
     // Back on it, or renamed it (`git branch -m fix-x`): the branch it's on is the office's own.
     if (made === live || (made && (await this.trees.renamedTo(made, live)))) made = undefined;
     return live === wt.branch && made === wt.made ? wt : { ...wt, branch: live, made };
+  }
+
+  /**
+   * Whether the folder a worker works in (its worktree, or its workspace across repositories) is gone:
+   * deleted outside the office. It's then marked lost (WorkerInfo.lost) for whoever comes to its desk,
+   * instead of failing to start over and over; once the folder is back, it isn't any more.
+   */
+  private checkLost(w: Worker, recheck = false): boolean {
+    const { info } = w;
+    if (!info.worktree || existsSync(this.cwd(info))) {
+      if (info.lost) {
+        info.lost = undefined;
+        this.emitUpdate(w);
+      }
+      return false;
+    }
+    // Where its branch is only changes by hand: looked at again when someone tries to start it.
+    if (info.lost && !recheck) return true;
+    const branch = this.trees.branchState(info.worktree.branch);
+    if (branch !== info.lost?.branch) {
+      info.lost = { branch };
+      this.emitUpdate(w);
+    }
+    return true;
+  }
+
+  /**
+   * Every so often: a worktree deleted under a worker marks it lost, and one put back by hand
+   * (`git worktree add` at the same place) sets an asleep worker back to work.
+   */
+  private watchFolder(w: Worker) {
+    if (!w.info.worktree || w.rebuilding) return;
+    const was = !!w.info.lost;
+    if (!this.checkLost(w) && was && !w.pty && !w.dsh) this.resume(w.info.id);
+  }
+
+  /**
+   * Puts a lost worker's worktree back where it was (see Worktrees.restore) and starts it again,
+   * carrying on its conversation; across repositories, each worktree that's gone and the workspace's
+   * brief. Everyone else who worked there (the rest of a meeting's table) gets back to work with it.
+   * Resolves to whether it `rebuilt` anything, with a note on where a branch came back from (or why
+   * there was nothing to do), or to what went wrong.
+   */
+  async rebuild(id: string): Promise<{ rebuilt?: boolean; note?: string; error?: string }> {
+    const w = this.workers.get(id);
+    if (!w) return { error: 'No such worker' };
+    const { info } = w;
+    if (!info.worktree) return { error: `${info.name} works in the main checkout` };
+    if (w.rebuilding) return {};
+    const folder = this.cwd(info);
+    // Whoever the folder was deleted from under: this worker, and the rest of its meeting's table.
+    const stranded = [...this.workers.values()].filter((o) => o.info.worktree && this.cwd(o.info) === folder && (o.info.lost || this.checkLost(o)));
+    const froms: string[] = [];
+    if (!existsSync(folder)) {
+      const across = !!info.repos?.length;
+      w.rebuilding = true;
+      try {
+        for (const t of this.treesOf(info)) {
+          if (t.ref.path && existsSync(path.resolve(t.dir, t.ref.path))) continue;
+          const r = await t.trees.restore(t.ref);
+          const which = across ? `${t.name}'s ` : '';
+          if ('error' in r) return { error: `Couldn't rebuild ${info.name}'s worktree${across ? ` of ${t.name}` : ''}: ${r.error}` };
+          if (r.from === 'origin') froms.push(`${which}${t.ref.branch} came back from origin`);
+          if (r.from === 'gone') froms.push(`${which}${t.ref.branch} was deleted too, so it starts again from where it began`);
+        }
+        if (across) {
+          try {
+            this.writeBrief(info.worktree, info.repos!.map((r) => ({ name: r.name, project: r.repo ?? r.name, from: r.from })));
+          } catch {
+            // The worktrees are what it needs; the brief only says which folder is which.
+          }
+        }
+      } finally {
+        w.rebuilding = false;
+      }
+    }
+    for (const o of stranded) if (!this.checkLost(o)) this.restartIn(o);
+    if (!stranded.length) {
+      if (!w.pty && !w.dsh) this.resume(id);
+      return { note: `${info.name}'s worktree is already there` };
+    }
+    return { rebuilt: true, note: froms.join('; ') || undefined };
+  }
+
+  /**
+   * Starts a worker in its folder again: an asleep one wakes up, and one whose process was left running
+   * in the folder deleted from under it starts over in the new one, carrying on its conversation.
+   */
+  private restartIn(w: Worker) {
+    const proc = w.pty;
+    const session = w.dsh;
+    if (proc || session) {
+      if (midTurn(w)) w.interrupted = true;
+      // Gone before it exits, so the exit handler knows it was the office and stays quiet.
+      w.pty = undefined;
+      w.dsh = undefined;
+      try {
+        session?.close();
+        proc?.kill();
+      } catch {
+        // already gone
+      }
+    }
+    this.resume(w.info.id);
   }
 
   attach(id: string, clientId: string, name: string): { data: string; cols: number; rows: number } | undefined {
@@ -1426,6 +1548,13 @@ export class WorkerManager {
 
   private launch(w: Worker, prompt: string | undefined, resumeSessionId: string | undefined) {
     const { info } = w;
+    // Its folder was deleted meanwhile: it waits, marked lost, for someone to rebuild it or send it home.
+    if (this.checkLost(w)) {
+      clockWork(info, 'exited');
+      info.status = 'exited';
+      this.emitUpdate(w);
+      return;
+    }
     // The new terminal starts with what the last one showed (on a resume), or with what was saved
     // when the office last stopped, so earlier output is still there to scroll back to and search.
     const restarted = !w.term;
@@ -1564,7 +1693,6 @@ export class WorkerManager {
     const where = { cwd, env, cols: info.cols, rows: info.rows, prelude };
     let proc: Pty;
     try {
-      if (!existsSync(cwd)) throw new Error(`working directory is gone: ${cwd}`);
       if (isOpenCode) {
         env.AGENT_OFFICE_SESSION_ID = resumeSessionId ?? '';
         env.OPENCODE_CONFIG_CONTENT = mergeOpenCodeConfigContent(env.OPENCODE_CONFIG_CONTENT, openCodePluginSpecifier(this.openCodePlugin), this.mcpScript ? openCodeMcp(this.mcpScript) : undefined);
@@ -2489,6 +2617,11 @@ function safeEq(a: string, b: string) {
 export function workedMs(info: WorkerInfo, now = Date.now()): number | undefined {
   const ms = (info.workedMs ?? 0) + (info.workingSince === undefined ? 0 : Math.max(0, now - info.workingSince));
   return ms > 0 ? ms : undefined;
+}
+
+/** What starting a worker whose worktree was deleted (see WorkerInfo.lost) says instead. */
+function lostMessage(info: WorkerInfo): string {
+  return `${info.name}'s worktree ${workspaceOf(info)} was deleted outside agent-office — rebuild it or send ${info.name} home from its desk`;
 }
 
 /** Keeps count of how long a worker has worked (WorkerInfo.workedMs) as it goes from its status into `next`. */

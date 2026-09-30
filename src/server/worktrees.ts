@@ -3,7 +3,7 @@ import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { WorktreeState } from '../shared/protocol.js';
+import type { LostBranch, WorktreeState } from '../shared/protocol.js';
 
 export type { WorktreeCleanup, WorktreeState } from '../shared/protocol.js';
 
@@ -184,6 +184,43 @@ export class Worktrees {
     const log = await this.git(['log', '-g', '--date=unix', '--format=%gd %gs', `refs/heads/${branch}`, '--']).catch(() => '');
     const first = /@\{(\d+)\} branch: Created from /.exec(log.split('\n').filter(Boolean).pop() ?? '');
     return first ? Number(first[1]) : undefined;
+  }
+
+  /** Where a branch still is: in the project, only on origin (it was pushed), or nowhere. */
+  branchState(branch: string): LostBranch {
+    const has = (ref: string) => {
+      try {
+        this.gitSync(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    return has(`refs/heads/${branch}`) ? 'here' : has(`refs/remotes/origin/${branch}`) ? 'origin' : 'gone';
+  }
+
+  /**
+   * Puts back a worktree whose folder was deleted outside the office, where it was: on its branch
+   * while that's still here, else on origin's copy of it, else on the branch made again from where it
+   * started (`base`, or HEAD when even that commit is gone). Says which, or what went wrong.
+   */
+  async restore(wt: WorktreeRef): Promise<{ from: LostBranch } | { error: string }> {
+    if (!wt.path) return { error: 'it has no folder to put back' };
+    const abs = path.join(this.dir, wt.path);
+    try {
+      // Git still lists the deleted folder, and won't check its branch out anywhere else while it does.
+      await this.git(['worktree', 'prune']);
+      const from = this.branchState(wt.branch);
+      if (from === 'here') await this.git(['worktree', 'add', abs, wt.branch]);
+      else if (from === 'origin') await this.git(['worktree', 'add', '-b', wt.branch, abs, `refs/remotes/origin/${wt.branch}`]);
+      else {
+        const base = wt.base && (await this.git(['cat-file', '-e', `${wt.base}^{commit}`]).then(() => true, () => false)) ? wt.base : 'HEAD';
+        await this.git(['worktree', 'add', '-b', wt.branch, abs, base]);
+      }
+      return { from };
+    } catch (err) {
+      return { error: gitError(err) };
+    }
   }
 
   /** Whether a branch is still there: not once it's deleted, or renamed (`git branch -m`). */
