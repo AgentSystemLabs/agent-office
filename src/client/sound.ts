@@ -13,6 +13,7 @@ import type { GongWhy } from '../shared/protocol';
 import { STREAM, stationUrl, type JukeboxSpot } from '../shared/jukebox';
 import { TunePlayer } from './music';
 import { DjPlayer } from './dnb';
+import { ROOM_AUDIO_REF, ROOM_AUDIO_ROLLOFF, roomDistanceGain } from './spatial-audio';
 
 type Pos = { x: number; y: number; z: number };
 
@@ -24,10 +25,6 @@ export interface JukeboxPlay {
   startedAt: number;
   since: number;
 }
-
-/** How the jukebox fades with distance: the same curve for its tunes (a panner) and a stream (by hand). */
-const MUSIC_REF = 2.5;
-const MUSIC_ROLLOFF = 1.3;
 
 /** Where you hear from: your head, facing where the camera looks. */
 export interface Listener extends Pos {
@@ -226,7 +223,7 @@ export class OfficeSound {
     this.outside.gain.value = 0;
     this.outside.connect(this.ambience);
     // The jukebox skips the master (it has its own volume) and keeps playing while the tab is hidden.
-    this.musicIn = this.panner(this.jukeboxAt, MUSIC_REF, MUSIC_ROLLOFF);
+    this.musicIn = this.panner(this.jukeboxAt, ROOM_AUDIO_REF, ROOM_AUDIO_ROLLOFF);
     this.musicTone = biquad(ctx, 'lowpass', 16000, 0.5);
     this.musicBus = ctx.createGain();
     this.musicBus.gain.value = 0;
@@ -1748,8 +1745,7 @@ export class OfficeSound {
   /** A stream plays outside Web Audio (most don't allow that), so it gets quieter with distance by hand. */
   private hearStream() {
     if (!this.stream) return;
-    const d = Math.max(MUSIC_REF, this.jukeboxDistance());
-    this.stream.volume = Math.min(1, this.musicGain() * (MUSIC_REF / (MUSIC_REF + MUSIC_ROLLOFF * (d - MUSIC_REF))));
+    this.stream.volume = this.musicGain() * roomDistanceGain(this.jukeboxDistance());
   }
 
   private jukeboxDistance(): number {
