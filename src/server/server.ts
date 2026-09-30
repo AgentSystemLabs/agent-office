@@ -1,10 +1,9 @@
 import http from 'node:http';
 import https from 'node:https';
 import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Duplex } from 'node:stream';
-import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Config } from './config.js';
 import type { Session } from './auth.js';
@@ -13,16 +12,13 @@ import { OPEN_CODE_MODEL_MAX } from './agents.js';
 import { MAX_WORKER_LIMIT, parseWorkerLimit } from './machine.js';
 import { notLeaving } from './leave-on-merge.js';
 import { findWorker, readHireRequest, readHomeRequest, workerRow, type PullsView } from './office-workers.js';
-import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunneledPort } from './relay.js';
-import type { ChatLine, ClientMsg, MeetingRequest, SearchResults, ServerMsg, SignInKind, WorkerInfo } from '../shared/protocol.js';
+import { relayUpgrade, tunneledPort } from './relay.js';
+import type { ChatLine, ClientMsg, MeetingRequest, ServerMsg, SignInKind, WorkerInfo } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import { DESK_BY_ID, elevatorSpot, nextFreeSeat } from '../shared/layout.js';
 import { OFFICE_MAP, seatHereOn } from '../shared/maps/index.js';
 import { STREAM } from '../shared/jukebox.js';
 import { checkFrame } from '../shared/cabinet.js';
-import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../shared/search.js';
-import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
-import { DROP_MAX_BYTES } from '../shared/drops.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 import { isEmote } from '../shared/emotes.js';
 import { isThemePick } from '../shared/theme.js';
@@ -40,27 +36,15 @@ import { createLateServices, createServices } from './office/services.js';
 import { people } from './office/people.js';
 import { navigation } from './office/navigation.js';
 import { gates } from './office/gates.js';
+import { findPublicDir } from './http/static.js';
+import { readBody, sameOrigin, send } from './http/util.js';
+import { requestHandler } from './http/router.js';
+import { routes } from './http/routes/index.js';
 import { floorView, roofView, screensOf } from './office/views.js';
 import { cabinetChanged, cabinetPlayer, cabinetState, stopPlaying } from './ws/handlers/cabinet.js';
 import { drawingChanged } from './ws/handlers/whiteboard.js';
 import { ballChanged } from './ws/handlers/ball.js';
 import { carsChanged } from './ws/handlers/car.js';
-
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.ico': 'image/x-icon',
-  '.json': 'application/json',
-  '.woff2': 'font/woff2',
-  '.wasm': 'application/wasm',
-  '.mp3': 'audio/mpeg',
-  '.ogg': 'audio/ogg',
-  '.glb': 'model/gltf-binary',
-};
 
 const CLEANUPS = new Set(['keep', 'worktree', 'all']);
 
@@ -69,73 +53,10 @@ const TYPING_GAP_MS = 500;
 /** The quickest anyone throws one dart after another, or one axe (ms): a page's own wait is longer. */
 const TOSS_EVERY: Record<BarGame, number> = { darts: 250, axe: 700 };
 
-function findPublicDir(): string {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const candidates = [path.resolve(here, '../../public'), path.resolve(here, '../../dist/public')];
-  for (const c of candidates) if (existsSync(path.join(c, 'index.html'))) return c;
-  throw new Error(`Client bundle not found (looked in ${candidates.join(', ')}). Run \`npm run build\`.`);
-}
-
-function clientIp(req: http.IncomingMessage, trustProxy: boolean): string {
-  if (trustProxy) {
-    const fwd = req.headers['x-forwarded-for'];
-    // The rightmost hop is the one our proxy appended; anything left of it is client-controlled.
-    if (typeof fwd === 'string' && fwd) return fwd.split(',').pop()!.trim();
-  }
-  return req.socket.remoteAddress ?? '?';
-}
-
-function isSecure(req: http.IncomingMessage, cfg: Config): boolean {
-  if (cfg.tls) return true;
-  return cfg.trustProxy && req.headers['x-forwarded-proto'] === 'https';
-}
-
-function readBody(req: http.IncomingMessage, limit = 1024 * 1024): Promise<string> {
-  return readBytes(req, limit).then((b) => b.toString('utf8'));
-}
-
-function readBytes(req: http.IncomingMessage, limit: number): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => {
-      size += c.length;
-      if (size > limit) {
-        reject(new Error('too large'));
-        req.destroy();
-      } else chunks.push(c);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-}
-
-/** Whether the page asking is the office itself, so another site can't open a socket with a visitor's cookie. */
-function sameOrigin(req: http.IncomingMessage, cfg: Config): boolean {
-  const origin = req.headers.origin;
-  const host = (cfg.trustProxy && (req.headers['x-forwarded-host'] as string)) || req.headers.host;
-  try {
-    return !!origin && new URL(origin).host === host;
-  } catch {
-    return false;
-  }
-}
-
 function refuseUpgrade(socket: Duplex) {
   socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
   socket.destroy();
 }
-
-function send(res: http.ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
-  const json = JSON.stringify(body);
-  res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers });
-  res.end(json);
-}
-
-const TOO_MANY_ATTEMPTS = 'Too many attempts. Try again in a few minutes.';
-/** The most chat lines, and lines per worker's terminal, a search answers with. */
-const SEARCH_CHAT_HITS = 50;
-const SEARCH_TERMINAL_HITS = 25;
 
 /** What a test can set about how the office starts: the client bundle it serves, instead of the built one. */
 export interface StartOptions {
@@ -151,7 +72,7 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
   Object.assign(ctx, createCore(ctx, cfg, publicDir));
   const { sendTo, broadcast, toastAll, toFloor, toastFloor, toNeighbors, warn, floorOf, workerFloor, floorInfos, floorsChanged, arrivalFloor, closeFloor } = ctx;
   const { meOf, onlineAccounts, accountsChanged, stillIn, goToFloor, goToRoof, takeIssue, withSignIn, withFreshBase, withGitHub, claudeFor } = ctx;
-  const { accounts, auth, clients, chat, arcade, officeName, openCodeModels, grokModels, building, floors } = ctx;
+  const { accounts, auth, clients, chat, arcade, building, floors } = ctx;
 
   // --- Loopback-only endpoint for authenticated agent events -------------------------------
   const hookServer = http.createServer(async (req, res) => {
@@ -387,321 +308,10 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
   const { openFloor } = ctx;
 
   Object.assign(ctx, createLateServices(ctx));
-  const { team, services, images, upgrader } = ctx;
+  const { team, services, upgrader } = ctx;
 
   // --- HTTP ------------------------------------------------------------------------------------
-  const serveFile = (res: http.ServerResponse, file: string, cache: boolean) => {
-    const ext = path.extname(file);
-    res.writeHead(200, {
-      'content-type': MIME[ext] ?? 'application/octet-stream',
-      'cache-control': cache ? 'public, max-age=31536000, immutable' : 'no-store',
-      'x-content-type-options': 'nosniff',
-      'x-frame-options': 'DENY',
-      'referrer-policy': 'no-referrer',
-    });
-    createReadStream(file).pipe(res);
-  };
-
-  /** A file of the client bundle, or undefined when it's missing, a folder, or outside the bundle. */
-  const publicFile = (p: string): string | undefined => {
-    const file = path.join(publicDir, path.normalize(p).replace(/^(\.\.[/\\])+/, ''));
-    return file.startsWith(publicDir + path.sep) && existsSync(file) && statSync(file).isFile() ? file : undefined;
-  };
-
-  /**
-   * A password, claim-token or invite guess: counts it against the IP, then reads the small JSON
-   * body. Undefined once it has already answered (rate limited, or a bad body).
-   */
-  const readGuess = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<{ ip: string; body: Record<string, unknown> } | undefined> => {
-    const ip = clientIp(req, cfg.trustProxy);
-    // Counted before the body is read, so parallel guesses can't all slip under the limit.
-    if (!auth.allowAttempt(ip)) return void send(res, 429, { error: TOO_MANY_ATTEMPTS });
-    try {
-      const body = JSON.parse(await readBody(req, 4096));
-      if (body && typeof body === 'object') return { ip, body };
-    } catch {
-      // answered below
-    }
-    send(res, 400, { error: 'Bad request' });
-  };
-  const signedIn = (req: http.IncomingMessage, accountId?: string) => ({ 'set-cookie': auth.cookie(req, auth.issue(accountId), isSecure(req, cfg)) });
-
-  /** With a name, that person's own account; without one, the shared office password (while it's on). */
-  const login = async (req: http.IncomingMessage, res: http.ServerResponse) => {
-    const guess = await readGuess(req, res);
-    if (!guess) return;
-    const name = str(guess.body.name, 64).trim();
-    const password = str(guess.body.password, 512);
-    if (name) {
-      const account = await accounts.check(name, password);
-      if (!account) return send(res, 401, { error: 'Wrong name or password' });
-      auth.recordSuccess(guess.ip);
-      return send(res, 200, { ok: true }, signedIn(req, account.id));
-    }
-    if (!accounts.sharedPassword) return send(res, 401, { error: 'Sign in with your name and your own password' });
-    if (!(await auth.checkPassword(password))) {
-      return send(res, 401, { error: accounts.any ? 'Wrong password. With an account of your own, type your name too.' : 'Wrong password' });
-    }
-    auth.recordSuccess(guess.ip);
-    return send(res, 200, { ok: true }, signedIn(req));
-  };
-  /** Which fields the sign-in forms ask for. */
-  const loginOptions = () => ({ accounts: accounts.any, shared: accounts.sharedPassword });
-
-  /**
-   * An invite link: `peek` says who it's for; otherwise it makes the account and signs it in.
-   * Counted like a password guess, since the token is one.
-   */
-  const join = async (req: http.IncomingMessage, res: http.ServerResponse) => {
-    const guess = await readGuess(req, res);
-    if (!guess) return;
-    const token = str(guess.body.token, 128);
-    const invite = accounts.findInvite(token);
-    if (!invite) return send(res, 410, { error: 'This invite link has expired or was already used. Ask whoever sent it for a new one.' });
-    auth.recordSuccess(guess.ip);
-    if (guess.body.peek === true) return send(res, 200, { name: invite.name, role: invite.role, by: invite.createdBy, project: officeName });
-    const r = await accounts.join(token, str(guess.body.name, 64), str(guess.body.password, 1024));
-    if (typeof r === 'string') return send(res, 400, { error: r });
-    console.log(`  ${r.name} joined the office with an invite from ${r.createdBy}`);
-    accountsChanged();
-    return send(res, 200, { ok: true, name: r.name }, signedIn(req, r.id));
-  };
-
-  /** The 🔎 search: chat lines, and lines of the terminals of every worker on that floor, with the words in them. */
-  const search = (q: string, floor: Floor | undefined): SearchResults => {
-    q = q.slice(0, SEARCH_MAX);
-    const needle = searchKey(q);
-    if (needle.length < SEARCH_MIN) return { q, chat: [], terminals: [], more: false };
-    const said = chat.search(needle, SEARCH_CHAT_HITS);
-    const shown = floor?.workers.search(needle, SEARCH_TERMINAL_HITS) ?? { hits: [], more: false };
-    return { q, chat: said.hits, terminals: shown.hits, more: said.more || shown.more };
-  };
-
-  const handler = async (req: http.IncomingMessage, res: http.ServerResponse) => {
-    try {
-      // A service tunnel (localhost:5173 -> the office): relay to that worker's server.
-      const tunneled = tunneledPort(req, cfg.port, cfg.tailnet);
-      const svc = tunneled ? services.lookup(tunneled) : undefined;
-      if (tunneled && svc) {
-        if (req.method === 'POST' && req.url === RELAY_LOGIN) return await login(req, res);
-        if (!auth.fromAnyCookie(req)) return signInPage(res, tunneled, loginOptions());
-        if (svc === 'gone') return stoppedPage(res, tunneled);
-        return relayRequest(req, res, svc);
-      }
-      let url: URL;
-      let p: string;
-      try {
-        url = new URL(req.url ?? '/', 'http://x');
-        p = decodeURIComponent(url.pathname);
-      } catch {
-        return send(res, 400, { error: 'Bad request' });
-      }
-      if (p === '/api/login' && req.method === 'POST') return await login(req, res);
-      if (p === '/api/login' && req.method === 'GET') return send(res, 200, loginOptions());
-      if (p === '/api/join' && req.method === 'POST') return await join(req, res);
-      // One-time reveal of the generated password. After this the plaintext is gone for good.
-      const claimable = !!cfg.claimToken && !cfg.claimed && !!cfg.password;
-      if (p === '/api/claim' && req.method === 'GET') return send(res, 200, { claimable });
-      if (p === '/api/claim' && req.method === 'POST') {
-        const guess = await readGuess(req, res);
-        if (!guess) return;
-        if (!claimable) return send(res, 410, { error: 'This office has already been claimed. Sign in with the password you saved.' });
-        if (!auth.checkToken(str(guess.body.token, 256), cfg.claimToken!)) return send(res, 403, { error: 'That claim link is not valid.' });
-        const password = cfg.password!;
-        cfg.markClaimed();
-        auth.recordSuccess(guess.ip);
-        console.log('  the office password was claimed — it will not be shown again');
-        return send(res, 200, { password }, signedIn(req));
-      }
-      // A sign-in link the office printed in its terminal (/login#key=…), traded for a session once.
-      if (p === '/api/link' && req.method === 'POST') {
-        const guess = await readGuess(req, res);
-        if (!guess) return;
-        if (!accounts.sharedPassword || !auth.useLinkKey(str(guess.body.key, 128))) {
-          return send(res, 410, { error: 'That sign-in link was already used. Sign in with the office password.' });
-        }
-        auth.recordSuccess(guess.ip);
-        return send(res, 200, { ok: true }, signedIn(req));
-      }
-      if (p === '/api/logout' && req.method === 'POST') {
-        return send(res, 200, { ok: true }, { 'set-cookie': auth.clearCookie(req) });
-      }
-      if (p === '/api/health') return send(res, 200, { ok: true });
-
-      if (p.startsWith('/assets/')) {
-        const file = publicFile(p);
-        if (file) return serveFile(res, file, true);
-        res.writeHead(404).end();
-        return;
-      }
-      if (p === '/login' || p === '/login.html') return serveFile(res, path.join(publicDir, 'login.html'), false);
-      if (p === '/claim' || p === '/claim.html') return serveFile(res, path.join(publicDir, 'claim.html'), false);
-      if (p === '/join' || p === '/join.html') return serveFile(res, path.join(publicDir, 'join.html'), false);
-      if (p === '/favicon.svg') return serveFile(res, path.join(publicDir, 'favicon.svg'), false);
-
-      const session = auth.fromRequest(req);
-      if (!session) {
-        if (p.startsWith('/api/')) return send(res, 401, { error: 'Not logged in' });
-        // Back to the 2D view after signing in, if that's where they were going.
-        res.writeHead(302, { location: p === '/lite' ? '/login?next=/lite' : '/login' }).end();
-        return;
-      }
-      if (p === '/api/whoami') return send(res, 200, { ok: true, me: meOf(session.account?.id) });
-      if (p === '/api/agents/opencode/models' && req.method === 'GET') {
-        try {
-          return send(res, 200, { models: await openCodeModels.get() });
-        } catch {
-          return send(res, 502, { error: 'Could not load OpenCode models' });
-        }
-      }
-      if (p === '/api/agents/grok/models' && req.method === 'GET') {
-        try {
-          return send(res, 200, { models: await grokModels.get() });
-        } catch {
-          return send(res, 502, { error: 'Could not load Grok models' });
-        }
-      }
-      if (p === '/api/image' && req.method === 'GET') {
-        // A picture on the wall, fetched by the office so the 3D view can draw it (see decor.ts).
-        const r = await images.get(url.searchParams.get('url') ?? '');
-        if ('error' in r) return send(res, r.status, { error: r.error });
-        res.writeHead(200, {
-          'content-type': r.type,
-          'content-length': String(r.body.length),
-          'cache-control': 'private, max-age=3600',
-          'x-content-type-options': 'nosniff',
-          // Opened on its own (an SVG, say), it still can't run anything on the office's origin.
-          'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
-          'cross-origin-resource-policy': 'same-origin',
-        });
-        res.end(r.body);
-        return;
-      }
-      // Which floor a request is about: its boards and its workers.
-      const floor = floors.get(url.searchParams.get('floor') ?? '');
-      if (p === '/api/whiteboard/file') {
-        // Pictures on the whiteboard. Their ids are hashes of what's in them, so they never change.
-        if (!floor) return send(res, 404, { error: 'No such floor' });
-        if (req.method === 'GET') {
-          const f = floor.whiteboard.file(url.searchParams.get('id') ?? '');
-          if (!f) return send(res, 404, { error: 'No such picture' });
-          return send(res, 200, f, { 'cache-control': 'private, max-age=31536000, immutable' });
-        }
-        if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
-        if (!sameOrigin(req, cfg)) return send(res, 403, { error: 'Forbidden' });
-        let body: unknown;
-        try {
-          body = JSON.parse(await readBody(req, WB_MAX_FILE_BYTES + 4096));
-        } catch (err) {
-          if ((err as Error).message === 'too large') return send(res, 413, { error: 'That picture is too big for the whiteboard' });
-          return send(res, 400, { error: 'Bad request' });
-        }
-        const error = floor.whiteboard.addFile(body);
-        return error ? send(res, 400, { error }) : send(res, 200, { ok: true });
-      }
-      if (p === '/api/term/drop') {
-        // A file dropped or pasted into a worker's terminal, kept on this machine for the terminal to type its path.
-        if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
-        if (!sameOrigin(req, cfg)) return send(res, 403, { error: 'Forbidden' });
-        if (!floor) return send(res, 404, { error: 'No such floor' });
-        const workerId = str(url.searchParams.get('worker'), 32);
-        if (!floor.workers.get(workerId)) return send(res, 404, { error: 'No such worker' });
-        const tooBig = `That file is too big to drop into a terminal (${DROP_MAX_BYTES / 1024 / 1024} MB at most)`;
-        if (Number(req.headers['content-length']) > DROP_MAX_BYTES) return send(res, 413, { error: tooBig });
-        let body: Buffer;
-        try {
-          body = await readBytes(req, DROP_MAX_BYTES);
-        } catch (err) {
-          return (err as Error).message === 'too large' ? send(res, 413, { error: tooBig }) : send(res, 400, { error: 'Bad request' });
-        }
-        const file = floor.workers.drop(workerId, str(url.searchParams.get('name'), 256), str(req.headers['content-type'], 128), body);
-        return file ? send(res, 200, { path: file }) : send(res, 500, { error: 'The office could not keep that file' });
-      }
-      if (p === '/api/changes/file') {
-        // A changed picture in the Changes window at a desk: before (old) or after (new) the worker's edits.
-        if (req.method !== 'GET') return send(res, 405, { error: 'Method not allowed' });
-        const workerId = str(url.searchParams.get('worker'), 32);
-        const file = str(url.searchParams.get('path'), 4096);
-        const side = url.searchParams.get('side');
-        if (!workerId || !file || (side !== 'old' && side !== 'new')) return send(res, 400, { error: 'Bad request' });
-        if (!floor) return send(res, 404, { error: 'No such floor' });
-        if (!floor.workers.get(workerId)) return send(res, 404, { error: 'No such worker' });
-        const r = await floor.changes.file(workerId, file, side, repoOf(url.searchParams.get('repo')));
-        if ('error' in r) return send(res, r.status, { error: r.error });
-        res.writeHead(200, {
-          'content-type': r.type,
-          'content-length': String(r.body.length),
-          // The worker may change it again any moment.
-          'cache-control': 'no-store',
-          'x-content-type-options': 'nosniff',
-          'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
-          'cross-origin-resource-policy': 'same-origin',
-        });
-        res.end(r.body);
-        return;
-      }
-      if (p.startsWith('/api/docs') && req.method === 'GET') {
-        // The bookshelf: the project's Markdown files, one to read, and the pictures in it (see docs.ts).
-        if (!floor) return send(res, 404, { error: 'No such floor' });
-        if (p === '/api/docs') return send(res, 200, await floor.docs.list());
-        const file = str(url.searchParams.get('path'), 4096);
-        if (!file) return send(res, 400, { error: 'Bad request' });
-        if (p === '/api/docs/file') {
-          const r = await floor.docs.read(file);
-          return 'error' in r ? send(res, r.status, { error: r.error }) : send(res, 200, r);
-        }
-        if (p === '/api/docs/picture') {
-          const r = await floor.docs.picture(file);
-          if ('error' in r) return send(res, r.status, { error: r.error });
-          res.writeHead(200, {
-            'content-type': r.type,
-            'content-length': String(r.body.length),
-            'cache-control': 'no-store',
-            'x-content-type-options': 'nosniff',
-            'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
-            'cross-origin-resource-policy': 'same-origin',
-          });
-          res.end(r.body);
-          return;
-        }
-        return send(res, 404, { error: 'Not found' });
-      }
-      if (p === '/api/search' && req.method === 'GET') return send(res, 200, search(url.searchParams.get('q') ?? '', floor));
-      if (p.startsWith('/api/gh/') && req.method === 'GET') {
-        // What the issue and PR windows show beyond the board cards (see github.ts).
-        const n = Number(url.searchParams.get('number'));
-        // The repo's labels (for the label picker) are the one thing not about a single issue or PR.
-        if (p !== '/api/gh/labels' && (!Number.isSafeInteger(n) || n <= 0)) return send(res, 400, { error: 'Bad number' });
-        if (!floor) return send(res, 404, { error: 'No such floor' });
-        const github = floor.github;
-        try {
-          // "You" on comments is your own GitHub login once you've signed in to it.
-          const me = session.account ? signins.githubLogin(session.account.id) : undefined;
-          if (p === '/api/gh/pull') return send(res, 200, await github.pullDetail(n, me));
-          if (p === '/api/gh/issue') return send(res, 200, await github.issueDetail(n, me));
-          if (p === '/api/gh/labels') return send(res, 200, await github.repoLabels());
-          if (p === '/api/gh/pull/diff') {
-            const diff = await github.pullDiff(n);
-            res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
-            res.end(diff);
-            return;
-          }
-        } catch (err) {
-          return send(res, 502, { error: (err as Error).message });
-        }
-        return send(res, 404, { error: 'Not found' });
-      }
-      if (p === '/' || p === '/index.html') return serveFile(res, path.join(publicDir, 'index.html'), false);
-      // The 2D view: the workers, their terminals and the boards, without the 3D office (lite.ts).
-      if (p === '/lite' || p === '/lite.html') return serveFile(res, path.join(publicDir, 'lite.html'), false);
-      const file = publicFile(p);
-      if (file) return serveFile(res, file, false);
-      res.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
-    } catch (err) {
-      console.error(err);
-      if (!res.headersSent) send(res, 500, { error: 'Internal error' });
-    }
-  };
+  const handler = requestHandler(ctx, routes);
 
   const server = cfg.tls ? https.createServer({ cert: cfg.tls.cert, key: cfg.tls.key }, handler) : http.createServer(handler);
 

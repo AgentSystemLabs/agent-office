@@ -159,6 +159,16 @@ test('answers the open routes before anyone signs in', async () => {
   assert.equal(whoami.status, 401);
   assert.deepEqual(await whoami.json(), { error: 'Not logged in' });
   assert.equal((await get('/%zz')).status, 400);
+  assert.match(await (await get('/claim')).text(), /<title>claim<\/title>/);
+  assert.match(await (await get('/join.html')).text(), /<title>join<\/title>/);
+  assert.deepEqual(await (await fetch(base + '/api/health', { method: 'POST' })).json(), { ok: true });
+  // A route for another method is passed over, on to the sign-in check.
+  const put = await fetch(base + '/api/login', { method: 'PUT' });
+  assert.equal(put.status, 401);
+  assert.deepEqual(await put.json(), { error: 'Not logged in' });
+  assert.deepEqual(await (await post('/api/claim', { token: 'nope' })).json(), { error: 'This office has already been claimed. Sign in with the password you saved.' });
+  assert.equal((await post('/api/link', { key: 'nope' })).status, 410);
+  assert.equal((await post('/api/join', { token: 'nope' })).status, 410);
 });
 
 test('signs in with the office password', async () => {
@@ -196,9 +206,14 @@ test('answers the signed-in routes', async () => {
   await bad(await get('/api/term/drop', me), 405, 'Method not allowed');
   await bad(await post('/api/term/drop', '', me), 403, 'Forbidden');
   await bad(await get('/api/changes/file', me), 400, 'Bad request');
-  const missing = await get('/nothing-here.txt', me);
-  assert.equal(missing.status, 404);
-  assert.equal(await missing.text(), 'Not found');
+  await bad(await get(`/api/docs/file?floor=${floor}`, me), 400, 'Bad request');
+  await bad(await get(`/api/docs/other?floor=${floor}&path=x`, me), 404, 'Not found');
+  assert.deepEqual(await (await fetch(base + '/api/whoami', { method: 'POST', headers: me })).json(), { ok: true, me: { admin: true } });
+  for (const [method, p] of [['GET', '/nothing-here.txt'], ['PUT', '/api/login'], ['POST', '/api/docs'], ['POST', '/api/search']]) {
+    const missing = await fetch(base + p, { method, headers: me });
+    assert.equal(missing.status, 404, `${method} ${p}`);
+    assert.equal(await missing.text(), 'Not found');
+  }
 
   const out = await post('/api/logout', {}, me);
   assert.equal(out.status, 200);
