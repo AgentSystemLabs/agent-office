@@ -105,6 +105,79 @@ Flow control is already signalled: `droppable` is on the `emit` signature and `t
 (`server.ts:261-265`) already skips clients whose `bufferedAmount > 4 * 1024 * 1024`. A transport
 that honors `droppable` gets back-pressure for free.
 
+### The protocol surface, measured
+
+Phase B task 7 is "classify `handleMessage`'s cases". That has been done, so the rest of the plan can
+size itself. `handleMessage` is three switches: 104 cases at `server.ts:1477`, plus
+`handleSignIns` (`:2401`, 7 cases) and `handleAccounts` (`:2430`, 6) — 117 in all.
+
+Classifying by what each body actually calls:
+
+| | Count | Where it goes |
+|---|---|---|
+| **Calls a method on a `Floor` object** | **44** | **ships to the host** |
+| Looks a floor up but calls nothing on it | 12 | stays office-side |
+| Never touches a floor | 48 | stays office-side |
+| `handleSignIns` + `handleAccounts` | 13 | stays office-side |
+
+**The protocol is 44 messages, not 117.** The 12 that look a floor up and leave are worth naming,
+because "it mentions a floor" is not the same as "it acts on one":
+
+| Case | Why it stays |
+|---|---|
+| `floor.go` `:1603` | moves the **client** — `goToFloor(c, floor, spot)` is presence |
+| `floor.remove` `:1638` | an admin taking a floor off the building; the lookup only finds it to `closeFloor` |
+| `term.typing` `:1857` | notifies other **browsers** on the same terminal; no floor method |
+| `gong` `:1931`, `horn` `:1939` | office-wide broadcast |
+| `dog.pet` / `dog.name`, `wb.*`, `cabinet.*`, `meeting.stop`/`clear` | looked up, then handed to an office-side manager |
+
+The 44 are exactly the `worker.*`, `station.prompt`, `term.input`/`resize`, `gh.*`, `queue.*`,
+`changes.*`, `decor.*`, `desk.label`, `floor.expand`/`shrink`, `jukebox.*` and `car.*` families, plus
+`worker.kill` — which resolves through `worker()` and calls `floor.sendHome(...)` (`:1743`), so it
+ships even though nothing else about its body looks floor-shaped.
+
+Two accessors do the resolving, and both must learn to work without a local `Floor`:
+
+```ts
+// server.ts:1466 — the floor the client is standing on
+const here = (): Floor | undefined => { const f = floorOf(c); if (!f) warn(c, '…'); return f; };
+// server.ts:1472 — a worker, and the floor it sits on. Ids are unique across the building.
+const worker = (id: unknown) => { const wid = str(id, 32); const floor = workerFloor(wid); … };
+// server.ts:256 — the floor a worker sits on
+const workerFloor = (workerId: string) => { for (const f of floors.values()) if (f.workers.get(workerId)) return f; … };
+```
+
+`workerFloor` is a **linear scan of `floors`** looking for an id in each floor's `WorkerManager`. For
+a hosted floor that scan is asking the wrong machine, so the office needs a worker→host index fed by
+the host's roster — which is why `ready` carries the worker list, not just the seat count.
+
+### What the host receives, and what it must not
+
+Decision 9 asks what office-wide state a floor host learns. The answer is already shaped by
+`FloorContext` (`floor.ts:36-68`), which has three parts — and only the first is configuration:
+
+**Given to the host** (it cannot construct a `Floor` without these):
+
+| Member | What it is |
+|---|---|
+| `agentCmd`, `agentArgs`, `dshProfile` | which CLI to run and how |
+| `prompts` | the office's prompts and default worker |
+| `capacity` | the office's worker limit, so the host can refuse locally |
+| `leaveOnMerge()` | whether a landed worker goes home by itself |
+| `people(floor)`, `peers(floor)` | presence — office-wide by nature, and meetings need it |
+| `hook` | a **host-local** `127.0.0.1` endpoint, per finding 2 — not the office's |
+
+**Withheld from the host, deliberately:**
+
+| Member | Why |
+|---|---|
+| `runAs?` (`floor.ts:48`) | *"Workers hired by an account run on its own sign-ins."* A hosted floor runs on the **host's** sign-ins. Shipping the office's `runAs` would put a member's Claude credentials on another machine — the exact thing the design exists to prevent. This is the interface member that makes the permission model's *"hosted workers never use `runAs`"* enforceable rather than aspirational. |
+| `forgeAs(owner, kind)` (`floor.ts:51`) | same shape: a per-account forge sign-in. The host's own `gh` auth applies, and the office has nothing to verify about it. |
+| `floor(id)` (`floor.ts:68`) | *"Another floor of the building: a worker across repositories works in its project too."* Left as-is, a worker on a hosted floor would reach into an office-side checkout. It answers `undefined` unless the other floor is on the **same host**, so `repos` across an office boundary is refused — the same refusal meeting gets today, now for a reason that is about placement rather than kind. |
+
+That last one is a finding rather than a choice, and it belongs in finding 9: `floor(id)` is the one
+interface member that silently grants a hosted worker filesystem reach outside its own floor.
+
 ## The departure from the proposal
 
 The proposal builds a **bridge**: a process seated in the office that reaches out to a laptop and
@@ -388,7 +461,7 @@ chooses its own model"*. One gate, at the seat, where the host is already being 
   closest precedents are a real `http.Server` on an ephemeral port (`tests/office-queue.test.ts`) and
   a narrow interface faked rather than a class (`tests/queue.test.ts`).
 
-### 9. 66 floor-scoped calls, and the office must not touch a remote floor's disk 🆕
+### 9. The protocol is 44 messages, and the office must not touch a remote floor's disk 🆕
 
 This is the new one, and it is where the work actually is.
 
@@ -398,11 +471,13 @@ This is the new one, and it is where the work actually is.
 /`.claim`; `floor.jukebox.*`, `floor.garage.*`, `floor.court.*`, `floor.sendHome`, `floor.arrived`.
 Enumerating them as RPCs would be the wrong shape.
 
-The right shape is the one above: **classify `handleMessage`'s 117 cases** into floor-scoped,
-office-wide, and client-local, then forward the floor-scoped ones verbatim. That classification is a
-concrete, reviewable task, and it *is* the protocol surface.
+The right shape is to classify `handleMessage`'s 117 cases and forward the floor-scoped ones
+verbatim. **That classification is done** —
+[the protocol surface](#the-protocol-surface-measured) has the full split: **44 ship, 12 stay
+office-side despite naming a floor, 48 never touch one, and 13 are account and sign-in handlers.**
+It *is* the protocol surface, and it is a third the size the case count suggests.
 
-Three rules follow, and each needs an explicit task:
+Four rules follow, and each needs an explicit task:
 
 1. **The office never touches a remote floor's `def.dir`.** `floor.ts:155` puts the floor's `dataDir`
    at `path.join(def.dir, '.agent-office')` — checkout, queue, scrollback and `worktrees/` all live
@@ -415,6 +490,12 @@ Three rules follow, and each needs an explicit task:
    (`:70`, `:84`) and `readFile`s the working tree (`:130`). It must run on the laptop;
    `FloorContext.changes(state, clients)` (`floor.ts:58`) is already the seam that carries the result.
 3. **Search runs on the laptop** for the same reason (finding 4).
+4. **`floor(id)` is the one member that reaches outside the floor.** `floor.ts:68` exists so a worker
+   can work across repositories, and it hands back another floor's `Floor` — whose `dir`, worktrees
+   and board it can then act on. For a hosted floor that is filesystem reach the office never
+   granted. It answers `undefined` across an office boundary and resolves normally only between two
+   floors on the **same host**. See
+   [what the host receives](#what-the-host-receives-and-what-it-must-not).
 
 ### 10. The queue must not fail a task whose laptop is asleep 🆕
 
@@ -501,7 +582,7 @@ system, and should not add a role check anywhere else without asking first.
 | 6 | Is a floor's `host` scoped to that floor only, or may one host serve several? | **One floor per host connection** for Phase C; several later | Several floors per connection is cheaper later and confusing now — it makes revocation ambiguous |
 | 7 | Does a forwarded frame carry the worker's hook token, or the host's token? | **The worker's own token**, checked with `safeEq` per worker id | A host-wide token would let one worker's compromised host speak for another |
 | 8 | **New:** does the office keep a scrollback mirror for a hosted floor? | **No.** Search and join-replay are served by the host | A mirror costs every byte twice and re-creates the retention decision finding 4 was meant to remove |
-| 9 | **New:** what office-wide state does the host receive (finding 2)? | **Written down as a list, in the protocol doc, reviewed like a permission** | An unbounded "send whatever it asks for" is office-wide knowledge handed to a member's machine |
+| 9 | **New:** what office-wide state does the host receive (finding 2)? | **Answered** in [What the host receives](#what-the-host-receives-and-what-it-must-not): `agentCmd`, `agentArgs`, `dshProfile`, `prompts`, `capacity`, `leaveOnMerge`, `people`, `peers`. **`runAs`, `forgeAs` and `floor(id)` are withheld** — the first two are sign-ins, the third is cross-floor reach | Shipping `runAs` puts a member's Claude credentials on another machine, which is the one thing the design exists to prevent |
 
 Question 7 is the one to be most careful about, because it is the difference between "a host is
 trusted" and "a host is trusted only for the workers it is paired to seat". Carrying the worker's own
@@ -553,13 +634,17 @@ The pieces everything else needs. No UI, no hosted floor in the product yet.
    session check, refusing anything whose presented token does not match a live host.
 6. **Per-floor `FloorContext`** — `contextFor(def)` returning today's object for a local floor and a
    serializing proxy for a hosted one. The literal at `server.ts:625` becomes the local case.
-7. **The `handleMessage` classification** (finding 9) — split the 117 cases into floor-scoped,
-   office-wide, client-local, and extract the floor-scoped ones into a function over a `Floor`.
-   This is the protocol surface and it should land as its own reviewable commit.
-8. **`PtyExit.gone` + the `wakeAll` guard** (finding 1). Landing here, not in Phase C, because every
+7. **Extract the 44 floor-scoped cases** (finding 9). The classification is already done —
+   [the protocol surface](#the-protocol-surface-measured) — so this task is the extraction, not the
+   analysis: move those 44 into a function over a `Floor`, called directly for a local floor and
+   shipped for a remote one. **A test asserts the count**, so a case added to the switch without a
+   decision about where it runs fails rather than silently staying office-side.
+8. **The worker→host index** that replaces `workerFloor`'s linear scan (`server.ts:256`) for hosted
+   floors, fed from the host's `ready` roster.
+9. **`PtyExit.gone` + the `wakeAll` guard** (finding 1). Landing here, not in Phase C, because every
    later test depends on a dropped socket not spinning.
-9. **`RemoteFloor`** — the proxy the office uses in place of a `Floor` for a hosted floor,
-   implementing the action surface by shipping messages rather than calling methods.
+10. **`RemoteFloor`** — the proxy the office uses in place of a `Floor` for a hosted floor,
+    implementing the action surface by shipping messages rather than calling methods.
 
 **Exit:** a fake host on an ephemeral port takes a `ClientMsg`, runs it against a real `Floor`,
 streams `ServerMsg` back, and a dropped socket leaves the floor and its workers `offline` and asleep
@@ -571,9 +656,9 @@ rather than spinning.
 2. **The host CLI** — `bin/agent-office-floor-host.js`: dials out, pairs, and on `ready` constructs a
    real `Floor` locally with a `FloorContext` that serializes upward. **It runs the same `Floor`
    class**; nothing about floors forks.
-3. **`server.ts:267-288`'s `existsSync` gate** learns to ask the host for a hosted floor, and a
-   hosted floor with no connection is **listed but inert** — never dropped from the building
-   (finding 9).
+3. **`building.ts:273`'s floor gate** — the `continue` that silently drops a floor whose `dir` is not
+   an absolute string — learns to ask the host instead, and a hosted floor with no connection is
+   **listed but inert**, never dropped from the building (finding 9).
 4. **Board and Changes stream up** through `ctx.emit` (`gh.issues`, `gh.pulls`, `changes`).
    `workerPr` then works unchanged (finding 3), with `remote.pr` as the fallback.
 5. **The PTY path** — laptop → office → browser. Resizes debounced at the transport (finding 5),
@@ -598,7 +683,10 @@ mid-turn leaves everything `offline`, not spinning.
    [the permission model](#the-permission-model-stated-plainly), and it must not quietly grow.
 3. **Queue behaviour when the laptop is asleep** (finding 10) — stays queued, visibly, machine named,
    never `failed`.
-4. **The office-wide state list** (finding 2 / decision 9), written down and enforced in one place.
+4. **The office-wide state list** (finding 2 / decision 9) — already answered in
+   [What the host receives](#what-the-host-receives-and-what-it-must-not): eight members go to the
+   host, `runAs`, `forgeAs` and `floor(id)` do not. Enforced in one place, with a test that a hosted
+   floor's context carries no sign-ins.
 5. **`--isolate container`**, and the office refusing meetings, `repos`, the changes window and the
    budget for a hosted worker as refusals rather than degraded modes — where the refusal cannot be
    served by the host.
@@ -652,6 +740,8 @@ to test the generated payload and normalisation, not the upstream CLI; a hosted 
 | File | What it covers |
 |---|---|
 | `tests/floorhost.test.ts` (new) | A fake host — a `WebSocketServer` on an ephemeral port — driven through the real proxy and the real pairing check. Message round trips, byte and resize round trips, exit codes. **A forwarded frame for another floor's worker is refused** (decision 7). **The office never opens a hosted floor's `def.dir`.** A dropped socket leaves the floor and its workers `offline` and asleep, not spinning. |
+| `tests/floorhost.test.ts` (new) | **The count.** Exactly 44 cases in `handleMessage` act on a `Floor`, and every one of them routes to a hosted floor. A 45th case added to the switch without a decision fails the build rather than silently staying office-side. |
+| `tests/floorhost.test.ts` (new) | **No sign-ins cross the wire.** A hosted floor's `FloorContext` carries `agentCmd`, `prompts`, `capacity`, `leaveOnMerge`, `people`, `peers` — and no `runAs`, no `forgeAs`, and a `floor(id)` that refuses to reach across an office boundary (decision 9). |
 | `tests/floorhost.test.ts` (new) | **The permission model, as a test.** A plain member — not an admin — can spawn onto a hosted desk, type into it, prompt it, and send it home, and every refusal is about seats or kind rather than role. Send-home sends `stop` and the host, not the office, removes the worktree. A member may spawn onto a floor that is *not* accepting; an agent on `/office/workers` may not. |
 | `tests/hosts.test.ts` (new) | Pairing codes: single-use, expiring, capped, revocable at once. A revoked token is refused on the next upgrade. The `mtimeMs:size` sync picks up `agent-office hosts approve` while the office runs. |
 | `tests/worktrees.test.ts` (extend) | Two hosted workers get two directories; send-home removes only its own. Mirrors the existing `fixture(t)` pattern — a real git triple in a tmpdir. |
@@ -661,9 +751,12 @@ to test the generated payload and normalisation, not the upstream CLI; a hosted 
 | `tests/status.test.ts` (new) | `workerPr` returns the PR for a hosted worker from the streamed board state, so `landedWork` can send it home. There is no such test file today; `workerPr` has none at all — this is finding 3's guard. |
 | `tests/changes.test.ts` (extend) | The Changes window for a hosted floor is served by the host, not by reading `def.dir` office-side. |
 
-Three properties deserve their own test names because they are the ones that would silently rot:
+Five properties deserve their own test names because they are the ones that would silently rot:
 *no hosted worker is left in `working` forever*; *the office never reads a hosted floor's checkout*;
-and *a disconnected host leaves a floor listed but inert, never dropped from the building*.
+*a disconnected host leaves a floor listed but inert, never dropped from the building*; *no sign-in
+crosses the wire to a host*; and *every case in `handleMessage` that acts on a floor reaches it*.
+The last two are new here, and they are the ones that make a mistake in this feature loud instead of
+invisible.
 
 The permission model gets the same treatment, for the same reason. It is the easiest thing in the
 feature to break by accident — a seat check or an accepting toggle written one role check too early —
