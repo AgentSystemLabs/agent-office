@@ -73,10 +73,19 @@ isn't possible in a browser at all. So the picture is an ordinary HTML element �
    camera to viewport pixels.
 2. The 2D projective transform (a homography, solved as an 8×8 system) that maps the element's four
    corners onto those four points becomes a CSS `matrix3d(...)`.
-3. The layer is set to `display: none` whenever the TV can't be seen: you're on the roof, on another
-   map, behind the wall it hangs on (a ray from your eye to the middle of the screen, tested against
-   the world's colliders), or the camera has turned past it. The meeting room's and the loft's glass
-   panes are colliders with `glass: true`, so looking at the TV *through* glass still shows it.
+3. What's in front of the TV becomes the frame's own mask (`TvScreen.occlude`). Ordinary HTML can't
+   be depth-tested against the scene, so the screen is divided into a small grid and each cell is
+   asked whether a wall, a desk, a plant or someone standing there is between your eye and that
+   point. The cells that are spoken for go into a little canvas the browser stretches over the frame
+   as its `mask-image`, so the picture is hidden behind what's in front of it rather than painted
+   over it. Glass and fences don't count, being things you can see through; people do, though they
+   aren't colliders. It's worked out at most every 80 ms, into a 32×18 grid, and only the colliders
+   whose outline on screen can reach the TV's are tested at all — the office has a few hundred and
+   most of them are nowhere near the lounge.
+4. The layer is set to `display: none` whenever the TV can't be seen at all: you're on the roof, on
+   another map, the camera has turned past it, or every last cell of the mask is behind something.
+   The meeting room's and the loft's glass panes are colliders with `glass: true`, so looking at the
+   TV *through* glass still shows it.
 
 `pointer-events: none` throughout: the TV is scenery, so clicks and mouse-look pass straight through
 it. That's also why the player's own controls aren't clickable — the TV window (**E**) is where you
@@ -112,7 +121,7 @@ The server answers every one of them with `{ t: 'tv', state }`, which the browse
 | `src/server/server.ts` | The `tv.*` cases in the message router, `tvChanged` to the floor, `tv:` in `floorView()` |
 | `src/shared/protocol.ts` | The four messages, `{ t: 'tv', state }` and `FloorView.tv` |
 | `src/client/state.ts` | The `tv` topic, `store.tv`, `enter()` and `apply()` |
-| `src/client/tvscreen.ts` | The layer: what to load for a link, keeping every player in step, and the per-frame projection |
+| `src/client/tvscreen.ts` | The layer: what to load for a link, keeping every player in step, the per-frame projection, and the mask of what's in front of it |
 | `src/client/world/office.ts` | The TV itself is unchanged; its glass panes are colliders marked `glass: true`, so they don't hide it |
 | `src/client/main.ts` | Wiring: **E** at the TV, the hint bar, painting the screen dark under the picture, the per-frame `update` |
 | `src/client/ui/tv.ts` | The TV window: what's on, ▶️/⏸️/⏹️, a scrubber, the link box, **Open in a tab ↗**, **Share screen** and your own 🔇/🔊 |
