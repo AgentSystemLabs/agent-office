@@ -41,7 +41,7 @@ curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/i
 
 - **Other maps.** Turn the whole building into a castle: sit on a throne of iron blades while your workers line up before you when they're done, send new ones off through the Hand of the King, and watch their beards grow long and grey as they toil. Or make a map of your own in JSON ([docs/maps.md](docs/maps.md)).
 
-There's a lot more (a rooftop bar, an office dog, an arcade): see [docs/features.md](docs/features.md).
+There's a lot more (a rooftop bar, an office dog, an arcade, supercars in the garage to drive round a scenic loop past a farm, pines, mountains and a beach): see [docs/features.md](docs/features.md).
 
 ## Requirements
 

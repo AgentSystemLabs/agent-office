@@ -750,6 +750,7 @@ export class Sky {
     const precip = Math.max(this.rain, this.snow);
     // How far off the haze is down on the street; the higher up, the thinner it is (see HAZE), so
     // the street never goes into it from the top floors, and from the roof you see across the city.
+    // Out in the country (see open) it's further off again.
     const open = 1 + 1.4 * this.open;
     fog.near = lerp(40, 3, this.fog) * (1 - 0.4 * precip) * open;
     fog.far = lerp(90, 28, this.fog) * (1 - 0.3 * precip) * open;

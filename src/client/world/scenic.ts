@@ -368,7 +368,7 @@ export function buildScenic(group: THREE.Group, colliders: Collider[], night: Ni
   const labels = new THREE.Group();
   root.add(labels);
   const rand = rng(20260929);
-  /** Everything merged by material at the end, a group for each stretch (see the file comment). */
+  /** What's built along each stretch, before it's all sorted into squares of the map and merged (see the end). */
   const parts: Record<'road' | 'farm' | 'forest' | 'mountains' | 'beach' | 'meadow' | 'coast', THREE.Group> = {
     road: new THREE.Group(),
     farm: new THREE.Group(),
@@ -397,12 +397,12 @@ export function buildScenic(group: THREE.Group, colliders: Collider[], night: Ni
   // ---- The road ---------------------------------------------------------------------------------
   // The street's asphalt, lines and all, carried on round the loop; the dashes line up where they
   // meet, and it starts a few meters back over the street's ends so there's no seam.
-  const laps = Math.round(LOOP_LENGTH / 8 + 0.5);
+  const dashes = Math.round(LOOP_LENGTH / 8 + 0.5);
   const asphalt = roadTexture();
   const lead = [6, 4, 2].map((b) => ({ x: STREET_END - b, z: STREET_Z, d: -b, tx: 1, tz: 0 }));
   const tail = [2, 4, 6].map((b) => ({ x: -STREET_END + b, z: STREET_Z, d: LOOP_LENGTH + b, tx: 1, tz: 0 }));
   const way = [...lead, ...LOOP, ...tail];
-  const roadU = (d: number) => 0.5 + (d / LOOP_LENGTH) * (laps - 0.5);
+  const roadU = (d: number) => 0.5 + (d / LOOP_LENGTH) * (dashes - 0.5);
   root.add(flatMesh(strip(way, -LOOP_HALF, LOOP_HALF, G - 0.008, (i) => roadU(way[i].d)), flat('#ffffff', 4, asphalt)));
   // The gravel either side starts under the asphalt's first few meters, not right at its edge.
   const verge = [lead[2], ...LOOP, tail[0]];
