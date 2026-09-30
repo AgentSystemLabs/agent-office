@@ -11,6 +11,8 @@ export interface InteractionState {
   room: boolean;
   note: GhIssue | null;
   carrying: boolean;
+  /** Cans left on the kitchen fridge's front shelf, so C is for one only if there's one to take. */
+  cans?: number;
 }
 
 /** Whether a desk key has an action at the interaction currently in reach. */
@@ -37,6 +39,9 @@ export function interactionAvailable(it: Interactable | null, key: DeskKey, stat
     if (!it.deskId) return false;
     return key === 'E' || key === 'P' || (!!state.worker && (key === 'O' || key === 'X'));
   }
+
+  // The fridge: E opens and shuts the door, and C is for a can of Diet Coke off the shelf inside it.
+  if (it.kind === 'fridge') return key === 'E' || (key === 'C' && !!state.cans);
 
   if (state.note && it.kind === 'issues') return key === 'E' || key === 'O';
   if (key !== 'E') return false;

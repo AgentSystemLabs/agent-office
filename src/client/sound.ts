@@ -1031,6 +1031,52 @@ export class OfficeSound {
     }
   }
 
+  // ---- A can of Diet Coke off the fridge ------------------------------------------------------------
+
+  /**
+   * A can off the fridge's shelf: the tab popping, a short hiss of fizz escaping, and two swallows
+   * of it going down. It's in your hand, so it plays right in front of you rather than over at the
+   * fridge, and it is short next to the coffee machine's grinder and gurgle.
+   */
+  soda() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.count('soda');
+    const out = this.panner({ x: this.listener.x, y: this.listener.y + 0.1, z: this.listener.z }, 0.6, 1);
+    out.connect(this.ambience);
+    const t0 = ctx.currentTime + 0.02;
+
+    // The tab letting go: a bright tick, then the hiss of the pressure getting out of it.
+    this.blip(out, t0, 1800, 0.4, 0.05, 0.07, 'triangle');
+    const hiss = this.noise(this.buf.white);
+    const hissGain = ctx.createGain();
+    envelope(hissGain.gain, t0 + 0.05, [
+      [0.06, 0.12],
+      [0.5, 0.02],
+    ]);
+    hiss.connect(biquad(ctx, 'highpass', 3800, 0.7)).connect(hissGain).connect(out);
+    hiss.start(t0 + 0.05);
+    hiss.stop(t0 + 0.6);
+
+    // Two swallows: a wet low gulp with a touch of fizz in it, the second a little lower.
+    for (const [dt, f] of [
+      [0.28, 210],
+      [0.72, 175],
+    ] as const) {
+      const g = ctx.createGain();
+      envelope(g.gain, t0 + dt, [
+        [0.04, 0.3],
+        [0.26, 0],
+      ]);
+      const wobble = this.noise(this.buf.gurgle, true);
+      wobble.connect(g.gain);
+      g.connect(biquad(ctx, 'lowpass', f * 4, 1.1)).connect(out);
+      wobble.start(t0 + dt);
+      wobble.stop(t0 + dt + 0.3);
+      this.blip(out, t0 + dt, f, 0.6, 0.16, 0.09, 'sine');
+    }
+  }
+
   // ---- The fridge ----------------------------------------------------------------------------------
 
   /**

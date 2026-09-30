@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CUP, ENERGY_DRAIN, ENERGY_SECONDS, HIGH_STRESS, LOW_ENERGY, STRESS_DRAIN, STRESS_SECONDS, Vitals } from '../src/client/vitals.js';
+import { CAN, CUP, ENERGY_DRAIN, ENERGY_SECONDS, HIGH_STRESS, LOW_ENERGY, STRESS_DRAIN, STRESS_SECONDS, Vitals } from '../src/client/vitals.js';
 import { DRINKS, DRINK_BY_ID } from '../src/shared/rooftop.js';
 
 const beer = DRINK_BY_ID.get('beer')!;
@@ -41,6 +41,23 @@ test('a cup puts energy back and never overfills you', () => {
   v.energyLeft(nearlyOut);
   v.drink(CUP, nearlyOut);
   assert.ok(Math.abs(v.energyLeft(0) - (0.1 + CUP.energy)) < 1e-9, 'a cup fills the bar back up by what it puts in it');
+});
+
+test('a can of Diet Coke does for the energy bar exactly what a cup of coffee does', () => {
+  assert.deepEqual(CAN, CUP, 'the fridge\'s can and the machine\'s cup are the same remedy');
+  // The same way round: the can fills the bar back by the same amount, from the same place on it.
+  const can = new Vitals();
+  const cup = new Vitals();
+  can.energyLeft(0);
+  cup.energyLeft(0);
+  const low = ENERGY_SECONDS * 0.9;
+  can.energyLeft(low);
+  cup.energyLeft(low);
+  can.drink(CAN, low);
+  cup.drink(CUP, low);
+  assert.equal(can.energyLeft(0), cup.energyLeft(0), 'a can leaves the bar where a cup would');
+  assert.ok(Math.abs(can.energyLeft(0) - (0.1 + CAN.energy)) < 1e-9, 'a can puts its own share of energy back');
+  assert.ok(CAN.energy > 0, 'a can of Diet Coke has the caffeine in it, and puts your energy back');
 });
 
 test('drinking something takes stress off and never below calm', () => {

@@ -4,7 +4,7 @@ import type { CarriedIssue, Theme } from '../../shared/protocol';
 import type { Drink } from '../../shared/rooftop';
 import { OpenBook } from './book';
 import { HeldCard } from './card';
-import { REACH_TIME, SMOKE_CYCLE, cigarette, coffeeMug, dragCurve, drinkGlass, emoteEnvelope, putDownGlass, reachCurve } from './character';
+import { REACH_TIME, SMOKE_CYCLE, cigarette, coffeeMug, dragCurve, drinkGlass, emoteEnvelope, putDownGlass, reachCurve, sodaCan } from './character';
 import { UNDEAD_SKIN, raggedCuff, warlockHand, witchFire } from './costumes';
 import { mesh, toon, toonUnique } from './toon';
 import { ballMesh } from './hoop';
@@ -53,6 +53,9 @@ export class Hands {
   private reachT = -1;
   private mug: THREE.Group;
   private wantsMug = false;
+  /** A can of Diet Coke off the kitchen fridge's shelf, in the left hand in the mug's place. */
+  private can: THREE.Group;
+  private wantsCan = false;
   /** A drink from the rooftop bar, held where the mug goes (and in its place). */
   private glass: { id: string; group: THREE.Group } | null = null;
   /** An issue card off the board, held low in front of you in both hands. */
@@ -117,6 +120,11 @@ export class Hands {
     this.mug.quaternion.setFromEuler(this.left.baseRot).invert();
     this.mug.visible = false;
     this.left.group.add(this.mug);
+    this.can = sodaCan();
+    this.can.position.copy(this.mug.position);
+    this.can.quaternion.copy(this.mug.quaternion);
+    this.can.visible = false;
+    this.left.group.add(this.can);
     // Held between the fingers of the right hand, lit end out past the knuckles.
     const cig = cigarette();
     this.cig = cig.group;
@@ -247,7 +255,14 @@ export class Hands {
     this.wantsMug = on;
     const full = this.card.held || !!this.book || this.wantsBall;
     this.mug.visible = on && !full && !this.glass;
+    this.can.visible = this.wantsCan && !full && !this.glass;
     if (this.glass) this.glass.group.visible = !full;
+  }
+
+  /** A can of Diet Coke from the kitchen fridge, in the mug's place, or not. */
+  holdCan(on: boolean) {
+    this.wantsCan = on;
+    this.holdMug(this.wantsMug);
   }
 
   /** A drink from the rooftop bar in the left hand, or none (null). */

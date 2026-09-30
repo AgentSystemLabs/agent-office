@@ -15,7 +15,7 @@ import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { Climber, gripOf, type Arrival, type Grip, type Way } from './climb';
 import { Driver } from './driving';
 import { Caffeine } from './caffeine';
-import { CUP, HIGH_STRESS, LOW_ENERGY, Vitals } from './vitals';
+import { CAN, CAN_SECONDS, CUP, HIGH_STRESS, LOW_ENERGY, Vitals } from './vitals';
 import { Faint, type FaintPhase } from './faint';
 import { buildOffice, type DeskView, type InteractKind, type Interactable } from './world/office';
 import { officeWorld, type World } from './world/world';
@@ -1168,6 +1168,7 @@ net.onMessage((msg) => {
         // A fresh session: both meters full, and the clocks (see vitals.ts) start from now. And
         // nobody's still showing you flat on the ground from a page that ended mid-faint.
         vitals.reset(performance.now() / 1000);
+        held = null;
         net.send({ t: 'act', faint: false });
         // Where the office put you: back in the spot you left (if there's still room there), or in the elevator car.
         setPlace();
@@ -3052,6 +3053,8 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   // A note on the issues board: E takes it straight off the cork, O opens it to read first.
   if (note && key === 'E') return pickUp(note);
   if (note && key === 'O') return openIssue(note, net, boardActions());
+  // The fridge is the one thing besides a desk with a key of its own: C is for a can of Diet Coke.
+  if (key === 'C' && target.kind === 'fridge') return drinkCoke();
   if (key !== 'E') return;
   if (target.kind === 'elevator') showElevator();
   else if (target.kind === 'issues' || target.kind === 'pulls') openBoard(target.kind, net, boardActions());
@@ -3249,6 +3252,8 @@ function fainting(dt: number, now: number) {
 
 /** Out cold: whatever you were doing stops, the light goes, and you go down where you stand. */
 function keelOver() {
+  // Whatever you were drinking is on the floor with you, not in your hand when you come round.
+  held = null;
   const why = vitals.energyLeft(performance.now() / 1000) <= 0 ? 'energy' : 'stress';
   closeAllModals();
   telescope.exit();
@@ -3322,6 +3327,12 @@ function wokeUp() {
   toast('🌇 You come round, both meters full');
 }
 
+/**
+ * What your left hand is holding for the buzz, and until when: the mug from the coffee machine, or a
+ * can of Diet Coke off the fridge. Only one at a time — the last thing you drank is what's in it.
+ */
+let held: { what: 'mug' | 'can'; until: number } | null = null;
+
 /** A cup from the kitchen machine: a minute of quicker feet and higher jumps, and a mug in your hand. */
 function drinkCoffee() {
   const secs = performance.now() / 1000;
@@ -3329,6 +3340,8 @@ function drinkCoffee() {
   const starving = vitals.energyLeft(secs) <= LOW_ENERGY;
   const jittery = caffeine.drink(secs);
   vitals.drink(CUP, secs);
+  // The mug's there for as long as the buzz it came with lasts.
+  held = { what: 'mug', until: (performance.now() + caffeine.left(secs) * 1000) };
   sound.coffee();
   if (player.view === 'first') hands.sip();
   if (jittery) toast('☕ One cup too many… you’ve got the jitters!', 'warn');
@@ -3346,6 +3359,26 @@ function toggleFridge() {
   const open = office.fridge.toggle(reduceMotion.matches);
   sound.fridgeDoor(open);
   toast(open ? '🧊 The fridge swings open: Diet Coke and ice creams' : '🧊 The fridge door clicks shut');
+}
+
+/** A can of Diet Coke off the fridge's front shelf: the same buzz and the same energy back as a cup. */
+function drinkCoke() {
+  // Nothing to take with the door shut, or off a bare shelf — and say which, rather than nothing.
+  if (!office.fridge.open) return toast('🧊 The door’s shut: open it first (E)', 'warn');
+  if (!office.fridge.takeCan()) return toast('🧊 That’s the last of the cans on the shelf', 'warn');
+  const secs = performance.now() / 1000;
+  // Whether you were the one who needed it, so it's worth saying afterwards.
+  const starving = vitals.energyLeft(secs) <= LOW_ENERGY;
+  const jittery = caffeine.drink(secs);
+  vitals.drink(CAN, secs);
+  // A can in hand, in place of the mug, for as long as there's anything left in it.
+  held = { what: 'can', until: performance.now() + CAN_SECONDS * 1000 };
+  sound.soda();
+  if (player.view === 'first') hands.sip();
+  if (jittery) toast('🥤 One can too many… you’ve got the jitters!', 'warn');
+  else if (caffeine.cups > 1) toast('🥤 Another can: back to a full minute of buzz');
+  else toast('🥤 A cold can of Diet Coke: a minute of quicker feet and higher jumps');
+  if (starving) toast('⚡ Some energy back in you');
 }
 
 // ---- Smoke breaks ------------------------------------------------------------------------------------
@@ -3948,8 +3981,17 @@ function hintFor(it: Interactable): Hint {
     }
     case 'fridge': {
       const open = office.fridge.open;
-      // The hint says what's behind the door and what E will do, whichever way it's already going.
-      return { k: `${open}`, parts: [title('🧊 Fridge'), aside(open ? 'Diet Coke · ice creams' : 'cold drinks and ice creams'), key('E', open ? 'Shut the door' : 'Open the door')] };
+      const cans = office.fridge.cans;
+      // The hint says what's behind the door, and what each key will do, whichever way it's going.
+      const parts: Hint['parts'] = [title('🧊 Fridge'), aside(open ? 'Diet Coke · ice creams' : 'cold drinks and ice creams'), key('E', open ? 'Shut the door' : 'Open the door')];
+      if (open && cans) {
+        const secs = performance.now() / 1000;
+        // Saying so when your energy is the thing that could do with a can, as at the machine.
+        const need = vitals.energyLeft(secs) <= LOW_ENERGY;
+        parts.push(key('C', caffeine.buzzed(secs) ? 'Another can' : 'Grab a can'));
+        if (need) parts.push(aside('⚡ you could do with one'));
+      }
+      return { k: `${open}|${cans}`, parts };
     }
     case 'herald': {
       const hd = plan().herald;
@@ -4374,7 +4416,7 @@ function emoteKey(e: KeyboardEvent): boolean {
 function use(it: Interactable | null, key: DeskKey, note = aimedNote): boolean {
   const worker = it?.deskId ? store.workerAtDesk(it.deskId) : undefined;
   const room = !!(it?.deskId && plan().byId.get(it.deskId)?.room);
-  if (!interactionAvailable(it, key, { worker, room, note, carrying: !!carrying })) return false;
+  if (!interactionAvailable(it, key, { worker, room, note, carrying: !!carrying, cans: it?.kind === 'fridge' ? office.fridge.cans : 0 })) return false;
   reach();
   interact(it, key, note);
   return true;
@@ -4993,16 +5035,22 @@ function frame(ts?: number) {
   const now = performance.now();
   if (slowFrames.frame(now, delta * 1000)) offer2d('slow');
 
-  // Coffee: quicker feet, higher jumps, a mug in hand, and maybe the jitters.
+  // Coffee and Coke: quicker feet, higher jumps, a drink in hand, and maybe the jitters.
   const secs = now / 1000;
   player.speedBoost = caffeine.speed(secs) * vitals.legs(secs);
   player.jumpBoost = caffeine.jump(secs);
   thud = Math.max(0, thud - dt * 2.5);
   player.jitter = reduceMotion.matches ? 0 : Math.max(caffeine.jitter(secs), vitals.nerves(secs), thud);
-  const mug = caffeine.buzzed(secs);
+  // The last thing you drank is what's in your hand, until it's gone (or the buzz wears off). Both
+  // hands wait while they're full — a card, a book or the ball — and the model hides it then.
+  if (held && (now >= held.until || !caffeine.buzzed(secs))) held = null;
+  const mug = held?.what === 'mug';
+  const can = held?.what === 'can';
   // Both hands are on the club at the tee.
   me.holdMug(mug && !golf.active);
+  me.holdCan(can && !golf.active);
   hands.holdMug(mug);
+  hands.holdCan(can);
   renderCaffeine(caffeine, secs);
   // Your energy and stress: heavy legs when they're low, shaking hands when you're wound up, and
   // down you go when either runs right out (see faint.ts).
