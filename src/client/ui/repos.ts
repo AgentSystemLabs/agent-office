@@ -1,3 +1,4 @@
+import './repos.css';
 import type { WorkerInfo } from '../../shared/protocol';
 import { isBusy } from '../../shared/status';
 import { store } from '../state';

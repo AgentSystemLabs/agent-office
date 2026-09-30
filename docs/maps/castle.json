@@ -119,6 +119,207 @@
     "wood": "#6b4526",
     "trim": "#d9ab2e"
   },
+  "dungeon": {
+    "x": -1,
+    "z": 21.5,
+    "width": 20.8,
+    "length": 15.8,
+    "depth": 4.6,
+    "stairs": {
+      "x": 8.3,
+      "z": 13.6,
+      "rotY": 0,
+      "width": 2.2
+    },
+    "cells": [
+      {
+        "x": -9.1,
+        "z": 17.6,
+        "rotY": 0,
+        "width": 4.6,
+        "depth": 4
+      },
+      {
+        "x": -4.5,
+        "z": 17.6,
+        "rotY": 0,
+        "width": 4.6,
+        "depth": 4
+      },
+      {
+        "x": 0.1,
+        "z": 17.6,
+        "rotY": 0,
+        "width": 4.6,
+        "depth": 4
+      },
+      {
+        "x": 4.7,
+        "z": 17.6,
+        "rotY": 0,
+        "width": 4.6,
+        "depth": 4
+      },
+      {
+        "x": -9.32,
+        "z": 25.4,
+        "rotY": 3.1416,
+        "width": 4.16,
+        "depth": 4
+      },
+      {
+        "x": -5.16,
+        "z": 25.4,
+        "rotY": 3.1416,
+        "width": 4.16,
+        "depth": 4
+      },
+      {
+        "x": -1,
+        "z": 25.4,
+        "rotY": 3.1416,
+        "width": 4.16,
+        "depth": 4
+      },
+      {
+        "x": 3.16,
+        "z": 25.4,
+        "rotY": 3.1416,
+        "width": 4.16,
+        "depth": 4
+      },
+      {
+        "x": 7.32,
+        "z": 25.4,
+        "rotY": 3.1416,
+        "width": 4.16,
+        "depth": 4
+      }
+    ],
+    "pillars": [
+      {
+        "x": -7.2,
+        "z": 21.5
+      },
+      {
+        "x": -2.7,
+        "z": 21.5
+      },
+      {
+        "x": 1.8,
+        "z": 21.5
+      }
+    ],
+    "torches": [
+      {
+        "x": -7.2,
+        "z": 21.05,
+        "rotY": 3.1416
+      },
+      {
+        "x": -7.2,
+        "z": 21.95,
+        "rotY": 0
+      },
+      {
+        "x": -2.7,
+        "z": 21.05,
+        "rotY": 3.1416
+      },
+      {
+        "x": -2.7,
+        "z": 21.95,
+        "rotY": 0
+      },
+      {
+        "x": 1.8,
+        "z": 21.05,
+        "rotY": 3.1416
+      },
+      {
+        "x": 1.8,
+        "z": 21.95,
+        "rotY": 0
+      },
+      {
+        "x": -11.4,
+        "z": 21.5,
+        "rotY": 1.5708
+      },
+      {
+        "x": 9.4,
+        "z": 23.5,
+        "rotY": -1.5708
+      }
+    ],
+    "ossuary": {
+      "x": -10.1,
+      "z": 21.5
+    }
+  },
+  "sendHome": {
+    "escort": {
+      "name": "Kingsguard",
+      "post": {
+        "x": 6.3,
+        "z": 21.8,
+        "rotY": -1.5708,
+        "below": true
+      },
+      "color": "#8e1b1b"
+    },
+    "steps": [
+      {
+        "do": "fetch"
+      },
+      {
+        "do": "say",
+        "who": "escort",
+        "text": [
+          "By order of the crown, you’re coming with me.",
+          "On your feet. The king’s done with you.",
+          "You’re dismissed. Come quietly.",
+          "Up. The dungeon’s waiting."
+        ]
+      },
+      {
+        "do": "pack"
+      },
+      {
+        "do": "say",
+        "text": [
+          "🙏 Mercy, my liege!",
+          "😰 But my pull request…",
+          "😭 I was nearly done!",
+          "🥺 Just one more commit!",
+          "😱 Not the dungeon!",
+          "😶 …"
+        ]
+      },
+      {
+        "do": "walk",
+        "to": "cell"
+      },
+      {
+        "do": "jail"
+      },
+      {
+        "do": "say",
+        "who": "escort",
+        "text": [
+          "🔒 Rot in there.",
+          "🔒 Enjoy your stay.",
+          "🔒 Nobody leaves.",
+          "🔒 Should have shipped it."
+        ]
+      },
+      {
+        "do": "return"
+      }
+    ],
+    "starveHours": 24,
+    "rotHours": 12
+  },
   "tables": [
     {"name":"North-west table","x":-6.8,"z":-8,"length":10,"seats":4},
     {"name":"North-east table","x":6.8,"z":-8,"length":10,"seats":4},

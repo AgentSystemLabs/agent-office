@@ -1,3 +1,4 @@
+import './litesuggest.css';
 // Offering the 2D view (/lite) where the 3D office is hard going: on a phone, with no keys to walk
 // with, or on a computer where frames come slowly (see framerate.ts).
 

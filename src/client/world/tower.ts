@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BALCONY, BALCONY_DOOR, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, FLOOR, ROOF_BAR, SLAB, STAGE, STOREY, STREET_Y, WALL_HEIGHT, WALL_T, WINDOWS, WING, wingMinZ, wingRowZ, type Opening, type Side } from '../../shared/layout';
-import type { Collider } from './office';
+import type { Collider } from './types';
+import type { Fixture } from './office/fixture';
 import { bulb, type NightParts } from './outside';
 import { mergeByMaterial, mesh, toon, toonUnique } from './toon';
 
@@ -25,7 +26,7 @@ export interface Tower {
   set(index: number, count: number, wings?: readonly number[]): void;
 }
 
-/** A window in each row of a back office, in the building's east wall (office.ts cuts the same ones). */
+/** A window in each row of a back office, in the building's east wall (world/office/wing.ts cuts the same ones). */
 export function wingWindows(level: number): Opening[] {
   return Array.from({ length: level }, (_, i) => ({ wall: 'east' as const, u: wingRowZ(i + 1), width: 2.4, y0: 1.1, y1: 3.3 }));
 }
@@ -178,7 +179,7 @@ export function buildTower(colliders: Collider[], night: NightParts): Tower {
     }
   };
 
-  // The rooftop bar, as it looks from down below (world/rooftop.ts has the real one).
+  // The rooftop bar, as it looks from down below (features/rooftop/world.ts has the real one).
   const curb = toon('#d8d3ca');
   const steel = toon('#b8c1cc');
   const steelDark = toon('#8d99ae');
@@ -333,7 +334,7 @@ export function buildTower(colliders: Collider[], night: NightParts): Tower {
       for (const side of Object.keys(FACES) as Side[]) {
         const holes: Opening[] = WINDOWS.filter((o) => o.wall === side);
         if (side === 'south') holes.push(BALCONY_DOOR);
-        // Only the bottom floor has a way out on the west side; its door stands in the hole (see office.ts).
+        // Only the bottom floor has a way out on the west side; its door stands in the hole (see world/office/shell.ts).
         if (side === 'west' && k === 0) holes.push(EXIT_DOOR);
         facade(parts, side, y0, holes);
       }
@@ -401,3 +402,9 @@ export function buildTower(colliders: Collider[], night: NightParts): Tower {
 
   return { group, set };
 }
+
+/** The rest of the building, above and below this floor. */
+export const tower: Fixture = (site) => {
+  const built = buildTower(site.colliders, site.get('night'));
+  return { group: built.group, setLevel: (index, count, wings) => built.set(index, count, wings) };
+};

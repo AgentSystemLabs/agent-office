@@ -66,11 +66,24 @@ const props: PropConfig[] = [
   { kind: 'cask', x: W / 2 - 0.65, z: 15, rotY: -Math.PI / 2 },
 ];
 
+// The dungeon, under the south end of the hall. Its stairs come up by the east wall, south of the
+// east tables; cells line its north and south walls, and the Kingsguard keeps watch at the stairs' foot.
+const DUNGEON = { minX: -11.4, maxX: 9.4, minZ: 13.6, maxZ: 29.4 };
+/** The north row of cells stops short of the stairs, which run down beside the east wall. */
+const NORTH_CELLS = 4;
+const SOUTH_CELLS = 5;
+const CELL_DEPTH = 4;
+const northEnd = 7;
+const northW = (northEnd - DUNGEON.minX) / NORTH_CELLS;
+const southW = (DUNGEON.maxX - DUNGEON.minX) / SOUTH_CELLS;
+const AISLE_Z = (DUNGEON.minZ + CELL_DEPTH + DUNGEON.maxZ - CELL_DEPTH) / 2;
+const round = (v: number) => Math.round(v * 100) / 100;
+
 export const CASTLE: MapConfig = {
   id: 'castle',
   name: 'Castle',
   icon: '🏰',
-  description: 'A great hall with a throne of iron blades. Workers sit at the long tables, line up before your throne when they’re done or need you, and grow long grey beards the longer they work. Speak to the Hand of the King to send out a new one.',
+  description: 'A great hall with a throne of iron blades. Workers sit at the long tables, line up before your throne when they’re done or need you, and grow long grey beards the longer they work. Speak to the Hand of the King to send out a new one; send one home, and the Kingsguard drags it down to the dungeon to rot.',
   style: 'castle',
   hall: { width: W, length: L, height: 13 },
   spawn: { x: -2.6, z: -21, rotY: Math.PI },
@@ -99,4 +112,39 @@ export const CASTLE: MapConfig = {
   props,
   agents: { outfit: 'peasant', ageMinutes: 30 },
   palette: { stone: '#8c847a', floor: '#6f685f', carpet: '#8e1b1b', wood: '#6b4526', trim: '#d9ab2e' },
+  dungeon: {
+    x: (DUNGEON.minX + DUNGEON.maxX) / 2,
+    z: (DUNGEON.minZ + DUNGEON.maxZ) / 2,
+    width: round(DUNGEON.maxX - DUNGEON.minX),
+    length: round(DUNGEON.maxZ - DUNGEON.minZ),
+    depth: 4.6,
+    stairs: { x: 8.3, z: DUNGEON.minZ, rotY: 0, width: 2.2 },
+    cells: [
+      ...Array.from({ length: NORTH_CELLS }, (_, i) => ({ x: round(DUNGEON.minX + northW * (i + 0.5)), z: DUNGEON.minZ + CELL_DEPTH, rotY: 0, width: round(northW), depth: CELL_DEPTH })),
+      ...Array.from({ length: SOUTH_CELLS }, (_, i) => ({ x: round(DUNGEON.minX + southW * (i + 0.5)), z: DUNGEON.maxZ - CELL_DEPTH, rotY: Math.PI, width: round(southW), depth: CELL_DEPTH })),
+    ],
+    pillars: [-7.2, -2.7, 1.8].map((x) => ({ x, z: AISLE_Z })),
+    torches: [
+      ...[-7.2, -2.7, 1.8].flatMap((x) => [-1, 1].map((side) => ({ x, z: AISLE_Z + side * 0.45, rotY: side < 0 ? Math.PI : 0 }))),
+      { x: DUNGEON.minX, z: AISLE_Z, rotY: Math.PI / 2 },
+      { x: DUNGEON.maxX, z: AISLE_Z + 2, rotY: -Math.PI / 2 },
+    ],
+    ossuary: { x: DUNGEON.minX + 1.3, z: AISLE_Z },
+  },
+  // Sent home, a worker's dragged off to the dungeon by the Kingsguard and left there to rot.
+  sendHome: {
+    escort: { name: 'Kingsguard', post: { x: 6.3, z: AISLE_Z + 0.3, rotY: -Math.PI / 2, below: true }, color: '#8e1b1b' },
+    steps: [
+      { do: 'fetch' },
+      { do: 'say', who: 'escort', text: ['By order of the crown, you’re coming with me.', 'On your feet. The king’s done with you.', 'You’re dismissed. Come quietly.', 'Up. The dungeon’s waiting.'] },
+      { do: 'pack' },
+      { do: 'say', text: ['🙏 Mercy, my liege!', '😰 But my pull request…', '😭 I was nearly done!', '🥺 Just one more commit!', '😱 Not the dungeon!', '😶 …'] },
+      { do: 'walk', to: 'cell' },
+      { do: 'jail' },
+      { do: 'say', who: 'escort', text: ['🔒 Rot in there.', '🔒 Enjoy your stay.', '🔒 Nobody leaves.', '🔒 Should have shipped it.'] },
+      { do: 'return' },
+    ],
+    starveHours: 24,
+    rotHours: 12,
+  },
 };

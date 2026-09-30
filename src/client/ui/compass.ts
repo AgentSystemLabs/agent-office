@@ -1,3 +1,4 @@
+import './compass.css';
 import * as THREE from 'three';
 import type { WorkerStatus } from '../../shared/protocol';
 import { h } from './dom';

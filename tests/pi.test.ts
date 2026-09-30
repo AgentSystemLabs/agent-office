@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { isValidPiModel, normalizePiHook, piArgs, PI_EXTENSION_SOURCE, writePiExtension } from '../src/server/pi.js';
+import { normalizePiHook, piArgs, PI_EXTENSION_SOURCE, writePiExtension } from '../src/server/pi.js';
+import { isValidPiModel } from '../src/shared/providers.js';
 import { WorkerManager, type WorkerEvents } from '../src/server/workers.js';
 import { Ledger } from '../src/server/usage.js';
 import type { Pty, PtyExit, SpawnOpts } from '../src/server/ptys.js';
@@ -27,6 +28,18 @@ test('Pi bridge bounds fields and drops assistant text, tool input, and credenti
   assert.equal(isValidPiModel('openai/gpt-4.1'), true);
   assert.equal(isValidPiModel('--print'), false);
   assert.equal(isValidPiModel('bad\u200bmodel'), false);
+});
+
+test('what reaches the Pi command line from a hook or the hire dialog is only ever plain values', () => {
+  // A session id goes back to Pi as --session-id on resume: only what Pi itself takes.
+  for (const sessionId of ['a b', 'x&calc', 'id|more', '../up', 'flag\u0000']) {
+    assert.equal(normalizePiHook({ type: 'session', status: 'starting', sessionId }), undefined, sessionId);
+  }
+  assert.equal(normalizePiHook({ type: 'session', status: 'starting', sessionId: '0192f-a_b.c' })?.sessionId, '0192f-a_b.c');
+  // A Windows .cmd launcher runs through cmd.exe: none of its metacharacters get into a model.
+  for (const model of ['a&b', 'a|b', 'a^b', '%PATH%', 'a<b', 'a>b', 'a"b', '-m']) assert.equal(isValidPiModel(model), false, model);
+  // Pi reads a leading '@' as a file to include: a prompt that starts with one stays text.
+  assert.deepEqual(piArgs([], { extension: 'x.mjs', sessionDir: 'd', prompt: '@README.md fix the typo' }).slice(-2), ['--', ' @README.md fix the typo']);
 });
 
 test('Pi extension reports ordered lifecycle events and waits for actual settlement', async () => {
@@ -99,8 +112,9 @@ test('Pi worker launches, authenticates hooks, resumes its own session, and rest
   assert.deepEqual(first.args.slice(-6), ['--model', 'openai/gpt-4.1', '--thinking', 'high', '--', '- fix login']);
   assert.match(readFileSync(writePiExtension(data), 'utf8'), /agent_settled/);
   const token = first.env.AGENT_OFFICE_HOOK_TOKEN;
-  const hook = (type: string, status: string, extra = {}) => workers.handlePiHook(worker.id, token, { type, status, sessionId: 'pi-root', ...extra });
-  assert.equal(workers.handlePiHook(worker.id, 'wrong', { type: 'session', status: 'starting', sessionId: 'pi-root' }), false);
+  const piHook = (id: string, key: string, payload: unknown) => workers.handleProviderHook('pi', id, key, '', payload);
+  const hook = (type: string, status: string, extra = {}) => piHook(worker.id, token, { type, status, sessionId: 'pi-root', ...extra });
+  assert.equal(piHook(worker.id, 'wrong', { type: 'session', status: 'starting', sessionId: 'pi-root' }), false);
   assert.equal(workers.handleOpenCodeHook(worker.id, token, { type: 'session', status: 'starting', sessionId: 'pi-root' }), false);
   assert.equal(hook('session', 'starting'), true);
   assert.equal(workers.get(worker.id)?.status, 'idle');
@@ -110,7 +124,7 @@ test('Pi worker launches, authenticates hooks, resumes its own session, and rest
   assert.equal(workers.get(worker.id)?.status, 'needs_input');
   hook('session', 'done');
   assert.equal(workers.get(worker.id)?.status, 'done');
-  assert.equal(workers.handlePiHook(worker.id, token, { type: 'tool', status: 'working', sessionId: 'other-root' }), false);
+  assert.equal(piHook(worker.id, token, { type: 'tool', status: 'working', sessionId: 'other-root' }), false);
   launches[0].exit?.({ exitCode: 0 });
   assert.equal(workers.resume(worker.id), undefined);
   assert.ok(launches[1].opts.args.includes('--session-id'));

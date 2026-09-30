@@ -2,7 +2,7 @@
 // that plays (which sends it), the office (which passes it on to everyone else on the floor) and the
 // browsers that watch. And its high-score table, which is the whole building's (see server/cabinet.ts).
 
-/** The game on the cabinet (see client/ui/blocks.ts). */
+/** The game on the cabinet (see client/features/cabinet/blocks.ts). */
 export const GAME = 'BLOCKFALL';
 /** The well the blocks fall into: 10 wide, 20 deep. */
 export const WELL_COLS = 10;

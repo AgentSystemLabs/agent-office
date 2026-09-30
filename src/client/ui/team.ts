@@ -1,3 +1,4 @@
+import './team.css';
 import type { ServerMsg, TeamState } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store } from '../state';

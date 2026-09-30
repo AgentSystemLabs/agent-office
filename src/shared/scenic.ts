@@ -4,7 +4,7 @@ import { ROAD } from './layout.js';
 // back. Out of town to the east it passes a farm, turns south into the pines, then runs west along
 // the foot of the mountains (through a tunnel under a spur of them), turns north up the coast past
 // the beach and comes back into town from the west. The street in front of the office is the rest
-// of the loop. Cars can drive all of it (see paved in shared/garage.ts); world/scenic.ts draws it and
+// of the loop. Cars can drive all of it (see paved in shared/garage.ts); world/scenic/ draws it and
 // everything along it. It's all laid out here, as numbers, so the office and the tests agree on it.
 
 /** Where the street stops and the loop takes over, either way along it (x). */

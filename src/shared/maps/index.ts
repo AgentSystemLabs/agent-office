@@ -1,12 +1,15 @@
 import { BEANBAGS, BOARDS, DESKS, ELEVATOR, ELEVATOR_CAR, EXIT_DOOR, FLOOR, MEETING_SEATS, SEATING, STATIONS, STATION_AGENT, WALL_HEIGHT, WING_DESKS, seatHere, seatPlace, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../layout.js';
 import type { Circle, Rect } from '../nav.js';
 import { CASTLE } from './castle.js';
+import { MapError, isObj, num, str } from './check.js';
+import { overlaps, planDungeon, planSendHome } from './dungeon.js';
 import { boxFootprint, isPropKind, propFootprint, propTop } from './props.js';
 import { BOARD_KEYS, MAP_STYLES, type BoardDef, type BoardKey, type MapChoice, type MapConfig, type MapPlan, type MapStyle, type TableConfig } from './types.js';
 
 export * from './types.js';
+export { DUNGEON_SLAB, SEND_HOME_STEPS, dungeonClear, levelRoute, prisonSeat, wasting } from './dungeon.js';
 
-/** The office: built in code (world/office.ts), and what the building is until someone picks another map. */
+/** The office: built in code (world/office/), and what the building is until someone picks another map. */
 export const OFFICE_MAP = 'office';
 /** The maps that come with the office, besides the office itself. */
 export const BUILTIN_MAPS: readonly MapConfig[] = [CASTLE];
@@ -24,8 +27,7 @@ export const COUNCIL = { radius: 1.15, height: 0.78, place: 0.5, chairs: 1.35, e
 /** The throne's footprint. */
 export const THRONE_SIZE = { width: 1.9, depth: 1.9 } as const;
 
-/** A map that can't be used: why, in words for Settings. */
-export class MapError extends Error {}
+export { MapError } from './check.js';
 
 /** The most tables, seats a side and props a map can have: plenty for a hall, and not so many a browser chokes building it. */
 export const MAP_LIMITS = { tables: 40, seats: 12, props: 400 } as const;
@@ -75,8 +77,6 @@ export const OFFICE_PLAN: MapPlan = officePlan();
 
 // ---- Checking a map ---------------------------------------------------------------------------------
 
-const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-
 /** Keys a JSON object could use to reach an object's prototype, which a merge skips. */
 const UNSAFE = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -108,17 +108,6 @@ export function resolveConfig(config: MapConfig, known: (id: string) => MapConfi
     parent = base.extends;
   }
   return { ...out, extends: config.extends };
-}
-
-function num(v: unknown, what: string, min = -1e4, max = 1e4): number {
-  if (typeof v !== 'number' || !Number.isFinite(v)) throw new MapError(`${what} should be a number`);
-  if (v < min || v > max) throw new MapError(`${what} should be between ${min} and ${max}`);
-  return v;
-}
-
-function str(v: unknown, what: string, max = 80): string {
-  if (typeof v !== 'string' || !v.trim()) throw new MapError(`${what} should be some text`);
-  return v.trim().slice(0, max);
 }
 
 /**
@@ -333,6 +322,15 @@ export function planMap(input: unknown): MapPlan {
   });
   if (props.filter((p) => p.kind === 'gong').length > 1) throw new MapError('it has more than one gong');
 
+  // The dungeon under the hall: the hole in the floor over its stairs, with rails round it, has to be clear.
+  const dungeon = c.dungeon == null ? undefined : planDungeon(c.dungeon, bounds);
+  if (dungeon) {
+    const [x0, x1, z0, z1] = dungeon.rails;
+    const hit = rects.some((r) => overlaps(r, dungeon.rails)) || circles.some(([cx, cz, r]) => Math.hypot(cx - Math.max(x0, Math.min(x1, cx)), cz - Math.max(z0, Math.min(z1, cz))) < r);
+    if (hit) throw new MapError('the dungeon stairs come up through something in the hall (a table, a bench, a pillar or the like): move them, or it');
+    rects.push(dungeon.rails);
+  }
+
   if (c.palette != null) {
     if (!isObj(c.palette)) throw new MapError('palette should be { stone, floor, carpet, wood, trim }');
     for (const [k, v] of Object.entries(c.palette)) if (typeof v !== 'string' || v.length > 40) throw new MapError(`palette.${k} should be a CSS color`);
@@ -340,14 +338,16 @@ export function planMap(input: unknown): MapPlan {
   const door = place(c.door, 'door');
   const spawn = c.spawn ? place(c.spawn, 'spawn') : { x: door.x, z: door.z, rotY: Math.atan2(-door.x, -door.z) };
   // Where people and workers stand has to be clear of what's in the way (the herald's own spot aside).
+  const free = (x: number, z: number) => !rects.some(([x0, x1, z0, z1]) => x > x0 && x < x1 && z > z0 && z < z1) && !circles.some((o) => o !== heraldAt && Math.hypot(x - o[0], z - o[1]) < o[2]);
   const clear = (x: number, z: number, what: string) => {
-    const hit = rects.some(([x0, x1, z0, z1]) => x > x0 && x < x1 && z > z0 && z < z1) || circles.some((o) => o !== heraldAt && Math.hypot(x - o[0], z - o[1]) < o[2]);
-    if (hit) throw new MapError(`${what} (${x.toFixed(1)}, ${z.toFixed(1)}) is inside something: a table, a bench, a pillar or the like`);
+    if (!free(x, z)) throw new MapError(`${what} (${x.toFixed(1)}, ${z.toFixed(1)}) is inside something: a table, a bench, a pillar or the like`);
   };
   lineup.forEach((s, i) => clear(s.x, s.z, `lineup spot ${i + 1}`));
   if (herald) clear(herald.x, herald.z, 'the herald');
   clear(spawn.x, spawn.z, 'spawn');
   clear(door.x, door.z, 'door');
+  if (dungeon) clear(dungeon.stairs.top[0], dungeon.stairs.top[1], 'the way onto the dungeon stairs');
+  const sendHome = planSendHome(c.sendHome, bounds, free, dungeon);
   const outfit = c.agents?.outfit === 'peasant' ? 'peasant' : 'none';
   const ageMinutes = c.agents?.ageMinutes === undefined ? 0 : num(c.agents.ageMinutes, 'agents.ageMinutes', 0, 100000);
   const byId = new Map([...desks, ...overflow, ...stations, ...meeting].map((d) => [d.id, d]));
@@ -379,6 +379,8 @@ export function planMap(input: unknown): MapPlan {
     boards,
     obstacles: { rects, circles },
     agents: { outfit, ageMinutes },
+    ...(dungeon ? { dungeon } : {}),
+    ...(sendHome ? { sendHome } : {}),
   };
 }
 

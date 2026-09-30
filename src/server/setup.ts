@@ -51,7 +51,7 @@ export function interactive(): boolean {
  * sign-in and the first projects before it opens. Enter skips any of it; the elevator does the same.
  */
 export async function welcome(cfg: Config): Promise<void> {
-  const building = new Building(cfg.dataDir, cfg.projectsDir);
+  const building = new Building(cfg.dataDir, cfg.projectsDir, { terminal: true });
   if (building.list().length) return;
   // --projects is the answer to the first question (the office applies it again as it starts).
   const folderGiven = !!cfg.projects && !building.setProjectsDir(cfg.projects, 'the command line');
@@ -108,7 +108,7 @@ export async function setupCommand(argv: string[]): Promise<number> {
     console.error(`agent-office setup: the office in ${tildify(dir)} is running. Add projects from its elevator, and pick the workspace folder in ⚙️ Settings.`);
     return 1;
   }
-  const building = new Building(dataDir, inProject ? path.join(os.homedir(), 'agent-office') : dir);
+  const building = new Building(dataDir, inProject ? path.join(os.homedir(), 'agent-office') : dir, { terminal: true });
 
   if (projects || repos.length || !interactive()) {
     if (!projects && !repos.length) {
@@ -263,7 +263,7 @@ async function pickProjects(building: Building, login: string) {
 /** Clones `repo` as a new floor, saying how it went. */
 async function addFloor(building: Building, repo: string, by: string): Promise<boolean> {
   const r = await building.add(repo, by, (def) => {
-    console.log(`     ⏳ Cloning ${def.repo ?? repo} into ${tildify(def.dir)}… (a big repository can take a minute)`);
+    console.log(`     ⏳ Cloning ${def.repo ?? repo} into ${tildify(def.dir)}…`);
   });
   if (typeof r === 'string') {
     console.log(`     ✗ ${r}`);

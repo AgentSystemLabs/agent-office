@@ -1,12 +1,13 @@
 import type * as THREE from 'three';
 import type { FloorPalette } from '../../shared/floors';
 import { LOFT, WALL_HEIGHT, WALL_T, FLOOR, type DeskDef } from '../../shared/layout';
-import { OFFICE_PLAN, type BoardKey, type MapPlan } from '../../shared/maps';
-import { officeNav, wayHome, wayIn, wayToBalcony, type NavGrid, type Pt } from '../../shared/nav';
+import { OFFICE_PLAN, type BoardKey, type MapPlan, type Spot } from '../../shared/maps';
+import { officeNav, wayHome, wayIn, wayToBalcony, type Bounds, type NavGrid, type Pt } from '../../shared/nav';
+import type { DungeonView } from './dungeon';
 import type { Person } from './character';
 import type { Area } from './confetti';
-import type { Gong } from './gong';
-import type { Collider, DeskView, Interactable, Office } from './office';
+import type { Gong } from '../features/gong/world';
+import type { Collider, DeskView, Interactable, Office } from './types';
 import type { SkyLights } from './sky';
 
 /*
@@ -51,9 +52,10 @@ export interface World {
   device: 'laptop' | 'tome';
   /**
    * How thick its outside walls are, for keeping the camera on your side of them; `enclosed`: walled
-   * and roofed all round, so no rain falls in it and there's no street or garage under it.
+   * and roofed all round, so no rain falls in it and there's no street or garage under it. `vault`: a
+   * room under the floor (the dungeon), up to `top`, that the camera keeps inside while you're down there.
    */
-  room: { wall: number; enclosed: boolean };
+  room: { wall: number; enclosed: boolean; vault?: Bounds & { top: number } };
   /** Where the sounds are, when it isn't the office: its gong, and the windows sounds from outside come in at. */
   acoustics?: { gong: { x: number; y: number; z: number } | null; windows: { x: number; y: number; z: number }[] };
   /** Whoever stands by the throne and sends out new workers (the map's herald), and where to speak to them. */
@@ -65,8 +67,15 @@ export interface World {
   setProjectName(name: string): void;
   /** Animates it; doors open for anyone in `people` who comes up to them. */
   update(t: number, dt: number, people: Iterable<{ x: number; y: number; z: number }>): void;
-  /** Lights it its own way, after the sky's had its say (the castle's torchlit hall). `daylight` is 1 by day, 0 at night. */
-  mood?(lights: SkyLights & { scene: THREE.Scene }, daylight: number, t: number): void;
+  /** Lights it its own way, after the sky's had its say (the castle's torchlit hall). `daylight` is 1 by day, 0 at night; `eye` is where you're looking from. */
+  mood?(lights: SkyLights & { scene: THREE.Scene }, daylight: number, t: number, eye?: THREE.Vector3): void;
+  /** A dungeon under the floor, where workers sent home can be locked up (see shared/maps/dungeon.ts). */
+  dungeon?: DungeonView;
+  /**
+   * Who comes for a worker sent home (MapPlan.sendHome.escort): where they keep watch, the one on
+   * watch there, and how to call out another like them while that one's busy.
+   */
+  escort?: { post: Spot & { below: boolean }; guard: Person; make(): Person };
   /** Frees what it's made of: it's been taken down for good (a map of your own was edited, and is built again). */
   dispose?(): void;
 }

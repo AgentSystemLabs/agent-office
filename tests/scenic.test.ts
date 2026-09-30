@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { CAR, DRIVE, onPavement, paved, steerLimit } from '../src/shared/garage.js';
 import { FLOOR, GOLF_HOLE, ROAD, WALL_T } from '../src/shared/layout.js';
 import { CHECKPOINTS, FARM, FOOTHILLS, LAKE, LIGHTHOUSE, LOOP, LOOP_HALF, LOOP_LENGTH, LOOP_PAVED, MOUNTAINS, STREET_END, STREET_Z, TUNNEL, nearLoop, placeAt, shoreX } from '../src/shared/scenic.js';
-import { LapTimer, lapTime } from '../src/client/laps.js';
+import { LapTimer, lapTime } from '../src/client/features/cars/laps.js';
 import { Garage } from '../src/server/garage.js';
 
 test('the loop leaves one end of the street and comes back to the other, dead straight and in one piece', () => {

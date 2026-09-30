@@ -1,0 +1,42 @@
+/* Markdown from GitHub (ui/markdown.ts) */
+.md { padding: 12px 16px; font-size: 14.5px; line-height: 1.6; font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p, .md ul, .md ol, .md blockquote, .md pre, .md table, .md details { margin: 0 0 12px; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 20px 0 8px; font-weight: 900; line-height: 1.25; }
+.md h1 { font-size: 22px; padding-bottom: 5px; border-bottom: 2px solid rgba(43, 45, 66, .12); }
+.md h2 { font-size: 19px; padding-bottom: 4px; border-bottom: 2px solid rgba(43, 45, 66, .12); }
+.md h3 { font-size: 16.5px; }
+.md h4 { font-size: 15px; }
+.md h5, .md h6 { font-size: 14px; color: var(--muted); }
+.md strong { font-weight: 900; }
+.md a { color: #1d6fd6; font-weight: 700; text-decoration: none; }
+.md a:hover { text-decoration: underline; }
+.md code { font: 12.5px ui-monospace, 'SF Mono', Menlo, Consolas, monospace; background: #f3ebe0; border-radius: 6px; padding: 1px 5px; }
+.md pre { background: #1e1f2e; color: #e9ecef; border: 2px solid var(--ink); border-radius: 10px; padding: 12px 14px; overflow: auto; }
+.md pre code { background: none; padding: 0; color: inherit; font-size: 12.5px; line-height: 1.5; }
+.md blockquote { margin-left: 0; margin-right: 0; padding: 2px 14px; border-left: 4px solid #d9cbb8; color: var(--muted); }
+.md ul, .md ol { padding-left: 26px; }
+.md li + li { margin-top: 3px; }
+.md li > ul, .md li > ol, .md li > p { margin: 4px 0; }
+.md li:has(> input[type=checkbox]) { list-style: none; margin-left: -20px; }
+.md input[type=checkbox] { margin: 0 6px 0 0; vertical-align: -2px; accent-color: var(--good); }
+.md table { display: block; width: max-content; max-width: 100%; overflow: auto; border-collapse: collapse; font-size: 13.5px; }
+.md th, .md td { border: 1.5px solid #ddd0bf; padding: 6px 11px; text-align: left; }
+.md th { background: var(--paper-2); font-weight: 900; }
+.md tr:nth-child(2n) td { background: #fffaf3; }
+.md img { max-width: 100%; border-radius: 6px; }
+.md hr { border: 0; border-top: 2px dashed #ddd0bf; margin: 18px 0; }
+.md details { border: 2px solid #ebe1d4; border-radius: 10px; padding: 6px 12px; }
+.md details[open] > summary { margin-bottom: 6px; }
+.md summary { cursor: pointer; font-weight: 800; }
+.md kbd { font: 11.5px ui-monospace, Menlo, monospace; border: 1.5px solid var(--ink); border-bottom-width: 3px; border-radius: 6px; padding: 0 5px; background: #fff; }
+.md .none { color: var(--muted); font-style: italic; }
+.md a.mention, .md a.ref { font-weight: 800; }
+.md blockquote.alert { color: var(--ink); border-radius: 0 10px 10px 0; padding: 8px 14px; }
+.md .alert-title { font-weight: 900; margin-bottom: 2px; }
+.md .alert.note { border-color: #1d6fd6; background: #eaf3ff; }
+.md .alert.tip { border-color: #2a9d4b; background: #e6f8ec; }
+.md .alert.important { border-color: #9d4edd; background: #f3e8ff; }
+.md .alert.warning { border-color: #e0a100; background: #fff6d6; }
+.md .alert.caution { border-color: #c3423f; background: #ffebee; }

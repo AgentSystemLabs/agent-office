@@ -1,13 +1,12 @@
+// Pi: its command line (a session folder per desk, the office's extension) and the extension that
+// reports its lifecycle on /hooks/pi, in the same statuses as OpenCode's plugin (see providers/pi.ts).
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { AgentEffort } from '../shared/protocol.js';
 import type { OpenCodeStatusEvent } from './opencode.js';
 
-/** Pi accepts model ids, fuzzy model names, and provider/model patterns. */
-export function isValidPiModel(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= 256
-    && !value.startsWith('-') && !/[\s\p{Cc}\p{Cf}]/u.test(value);
-}
+/** A Pi session id, as Pi itself accepts one for --session-id. */
+const PI_SESSION_ID = /^[A-Za-z0-9._-]{1,160}$/;
 
 /** Keep sessions per desk; do not resume another worker's most recent conversation. */
 export function piArgs(extra: string[], options: { extension: string; sessionDir: string; sessionId?: string; model?: string; effort?: AgentEffort; prompt?: string }): string[] {
@@ -32,7 +31,8 @@ export function piArgs(extra: string[], options: { extension: string; sessionDir
   if (options.sessionId) args.push('--session-id', options.sessionId);
   if (options.model) args.push('--model', options.model);
   if (options.effort) args.push('--thinking', options.effort);
-  if (options.prompt) args.push('--', options.prompt);
+  // Pi reads an argument starting with '@' as a file to include, even after --: a prompt is only ever text.
+  if (options.prompt) args.push('--', options.prompt.startsWith('@') ? ` ${options.prompt}` : options.prompt);
   return args;
 }
 
@@ -41,7 +41,7 @@ export function normalizePiHook(value: unknown): OpenCodeStatusEvent | undefined
   if (!value || typeof value !== 'object' || Array.isArray(value)) return;
   const v = value as Record<string, unknown>;
   const bounded = (text: unknown, max: number): text is string => typeof text === 'string' && text.length > 0 && text.length <= max && !/[\p{Cc}\p{Cf}]/u.test(text);
-  if (!bounded(v.sessionId, 160)) return;
+  if (typeof v.sessionId !== 'string' || !PI_SESSION_ID.test(v.sessionId)) return;
   if (!['session', 'prompt', 'tool', 'question', 'error'].includes(v.type as string)) return;
   if (!['starting', 'working', 'needs_input', 'done'].includes(v.status as string)) return;
   if (v.prompt !== undefined && (typeof v.prompt !== 'string' || v.prompt.length > 20_000)) return;
@@ -86,8 +86,6 @@ export const PI_EXTENSION_SOURCE = String.raw`export default function (pi) {
     return pending;
   };
   pi.on('session_start', (_event, ctx) => send(ctx, 'session', 'starting'));
-  pi.on('session_switch', (_event, ctx) => send(ctx, 'session', 'starting'));
-  pi.on('session_fork', (_event, ctx) => send(ctx, 'session', 'starting'));
   pi.on('before_agent_start', (event, ctx) => send(ctx, 'prompt', 'working', { prompt: event.prompt.slice(0, 20000) }));
   pi.on('agent_start', (_event, ctx) => send(ctx, 'session', 'working'));
   pi.on('tool_execution_start', (event, ctx) => send(ctx, 'tool', 'working', { tool: event.toolName.slice(0, 160) }));

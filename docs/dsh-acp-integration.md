@@ -48,8 +48,8 @@ three work. Something has to change; the only question is what.
 DSH ships `@deepseek-ai/dsh-hooks-claude-code` and `@deepseek-ai/dsh-hooks-codex`. Each mounts a
 bridge that runs an existing Claude Code `hooks.json` or Codex hook config on DSH's interception
 seams. Pointing one at the office's own generated config (`claude-hooks.json`, written in
-`workers.ts`) looks almost free: the hooks are shell commands that `curl` the office's loopback
-endpoint carrying `$AGENT_OFFICE_HOOK_URL`, `$AGENT_OFFICE_HOOK_TOKEN` and
+`src/server/providers/claude.ts`) looks almost free: the hooks are shell commands that `curl` the
+office's loopback endpoint carrying `$AGENT_OFFICE_HOOK_URL`, `$AGENT_OFFICE_HOOK_TOKEN` and
 `$AGENT_OFFICE_WORKER_ID`, all of which the office already sets on the child environment.
 
 Two documented gaps rule it out as a foundation:
@@ -57,9 +57,9 @@ Two documented gaps rule it out as a foundation:
 - **No `PermissionRequest` and no `Notification`.** The Claude bridge supports only
   `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStart` and
   `SubagentStop`; the Codex bridge supports five events and no permission event at all. The office
-  derives `needs_input` from exactly those missing events (`handleHook`, `handleCodexHook`), so a
-  DSH worker could never signal that it is waiting on a human — the jump, the ding and the antenna
-  bulb would not fire.
+  derives `needs_input` from exactly those missing events (`claudeHook`, `codexHook` in
+  `src/server/providers/`), so a DSH worker could never signal that it is waiting on a human — the
+  jump, the ding and the antenna bulb would not fire.
 - **`transcript_path` is never populated** — empty string in the Claude bridge, `null` in the Codex
   bridge, because DSH's session log is Zstandard-compressed and not readable by hook scripts. That
   breaks both Claude-style transcript costing and the Codex rollout reader, so usage goes dark.
@@ -103,17 +103,32 @@ other three providers expose through their terminals. See Risks.
 
 ### Provider seams
 
-Adding a provider touches a known, finite set of places. `'dsh'` joins the
-`AgentProvider` union in `src/shared/protocol.ts` and is threaded through:
+Adding a provider is three pieces, and the typecheck fails until all three are there (the table
+and the adapters are both keyed by `AgentProvider`):
 
-| Concern | File |
+| Piece | File |
 |---|---|
-| Union, `isAgentProvider`, persistence allowlist | `src/shared/protocol.ts`, `src/server/workers.ts` |
-| Executable → provider, model and effort validation | `src/server/agents.ts` |
-| Which providers a floor offers | `src/server/floor.ts` |
-| Labels, badges, usage state and notes | `src/client/ui/provider.ts` |
-| Usage labels | `src/client/ui/terminal.ts`, `hud.ts`, `queue.ts`, `usage.ts` |
-| Queue and meeting model plumbing | `src/server/queue.ts`, `src/server/meetings.ts` |
+| Its id in `AGENT_PROVIDERS`, and its row in `PROVIDER_META`: its label, its executable, which models and efforts it takes, and how its spend shows | `src/shared/providers.ts` (the wire types re-export it from `src/shared/protocol/agents.ts`) |
+| Its adapter, a `ProviderAdapter`: how it's launched, its hook route, what its screen says, how its usage is read | a new `src/server/providers/<id>.ts` |
+| Its entry in `PROVIDERS` | `src/server/providers/index.ts` |
+
+Everything else reads those, and needs no change of its own:
+
+- The `AgentProvider` union and `isAgentProvider` are `AGENT_PROVIDERS`.
+- The persistence allowlist (`src/server/workers/persist.ts`), the executable, model and effort
+  checks (`configuredProvider`, `validateWorkerModel` and `validateWorkerEffort` in
+  `src/server/agents.ts`, which the queue and meetings use too) and which providers a floor offers
+  (`agentProviders`, in the same file) go by the table.
+- So do the client's labels, badges, usage states and notes (`src/client/ui/provider.ts`, which
+  `terminal.ts`, `workers-panel.ts`, `queue.ts` and `usage.ts` beside it use).
+- An adapter with a `hook` gets its route, `/hooks/<id>`, on the loopback hook server
+  (`src/server/hooks/server.ts`).
+
+Hook helpers longer than a few lines (a settings file, a plugin, a payload parser) go in a module
+of their own that the adapter imports, as `src/server/codex.ts` and `src/server/grok.ts` do. Two
+places still name providers one by one: the hire dialog's model and effort fields
+(`providerPicker` in `src/client/ui/provider.ts`), and the wording of `usageLabel` and
+`usageTitle` in `src/client/ui/usage.ts`.
 
 Two validation rules need real changes rather than a new case:
 
@@ -206,8 +221,8 @@ Mirrors the role of `src/server/opencode.ts` and `src/server/codex.ts`:
 - Locate the `dsh` executable and the profile name (`--dsh-profile`, env
   `AGENT_OFFICE_DSH_PROFILE`, default `acp`).
 - Spawn the child with the worker's `cwd`, the shared `AGENT_OFFICE_*` environment and, for board
-  agents, `office-queue` first on `PATH` — the existing environment block in `workers.ts` already
-  does both, so it carries over unchanged.
+  agents, `office-queue` first on `PATH` — the existing environment block in
+  `src/server/workers/manager.ts` already does both, so it carries over unchanged.
 - Own the ACP connection: `initialize`, `session/new`, `session/prompt`, `session/cancel`,
   `session/set_config_option`, `session/list`, `session/resume`, `session/close`.
 - Translate `session/update` and `session/request_permission` into the office's status, action and
@@ -218,10 +233,10 @@ Mirrors the role of `src/server/opencode.ts` and `src/server/codex.ts`:
 
 | Behaviour | Today | For DSH |
 |---|---|---|
-| Spawn | `workers.ts` builds argv per provider, hands to `host.spawn` | Build no argv; start a `DshSession` instead |
+| Spawn | each provider's adapter builds argv (`launch`, `src/server/providers/`), and `src/server/workers/manager.ts` hands it to `host.spawn` | Build no argv; start a `DshSession` instead |
 | Terminal input | `term.input` → `workers.write` → PTY | Branch in `write`: buffer bytes to a line, submit on Enter via `session/prompt`; Esc/Ctrl+C → `session/cancel` |
 | Resize | `workers.resize` → PTY | ACP has no terminal size; only the office's headless terminal is resized, so the transcript fills the window |
-| Status | `handleHook` / `handleCodexHook` / `handleOpenCodeHook` | New `DshSession` event handler calling the same `setStatus` |
+| Status | `claudeHook` / `codexHook` / `openCodeHook` (`src/server/providers/`) | New `DshSession` event handler calling the same `setStatus` |
 | Resume (R) | `--resume` / `--session` / `codex resume` argv | `session/resume` with the worker's stored session id; a fresh `session/new` if the harness no longer has it (never another desk's newest session: desks without a worktree share the checkout) |
 | Send home / stop | Kill the PTY | `session/cancel`, then `session/close`, then end the child |
 | Restart survival | `ptyhost` keeps the PTY alive out of process | **Different.** The ACP child dies with the server; mark the worker `offline` on boot and resume via `session/resume` against the on-disk persistence root |
@@ -261,10 +276,10 @@ Output: a short findings note appended to this document, and a decision on usage
 - [x] Add `'dsh'` to `AgentProvider` and `isAgentProvider`; update the persistence allowlists.
 - [x] Map the `dsh` executable in `configuredProvider`; add `validateWorkerModel` and
       `validateWorkerEffort` rules.
-- [x] Add `'dsh'` to `agentProviders` in `floor.ts`.
+- [x] Add `'dsh'` to `agentProviders` in `src/server/agents.ts`.
 - [x] Add `PROVIDER_LABEL.dsh = 'DeepSeek Harness'` and cover `supportedProviders`, `modelBadge`,
       `providerUsageTracked`, `providerUsageState`, `providerUsageNote`.
-- [x] Cover the usage-label branches in `terminal.ts`, `hud.ts`, `queue.ts`, `usage.ts`
+- [x] Cover the usage-label branches in `terminal.ts`, `workers-panel.ts`, `queue.ts`, `usage.ts`
       (a shared `providerWaitingLabel` replaces the per-provider ternaries).
 - [x] Thread provider/model through `queue.ts` and `meetings.ts`.
 - [x] Tests: extend `tests/agents.test.ts`, `tests/queue.test.ts` (worker persistence is covered in
@@ -360,7 +375,7 @@ payload normalisation, not the upstream CLI. DSH should follow that convention:
 | Claude bridge supports no `PermissionRequest`/`Notification`; `transcript_path` always empty | `@deepseek-ai/dsh-hooks-claude-code/README.md` |
 | Codex bridge supports five events; `transcript_path` always `null` | `@deepseek-ai/dsh-hooks-codex/README.md` |
 | Session logs can be uncompressed JSONL with a configurable root | `@deepseek-ai/dsh-session-persistence-jsonl/README.md` |
-| Office hook env vars and endpoint shape | `src/server/workers.ts`, `src/server/codex.ts`, `src/server/opencode.ts` |
+| Office hook env vars and endpoint shape | `src/server/workers/manager.ts`, `src/server/codex.ts`, `src/server/opencode.ts` |
 
 ## Phase 0 findings (measured 2026-xx, DSH 0.1.7-rc.2, Node 24)
 

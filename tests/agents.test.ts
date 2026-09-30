@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { agentProviders, configuredProvider, isValidDshModel, validateWorkerEffort, validateWorkerModel } from '../src/server/agents.js';
+import { agentProviders, configuredProvider, validateWorkerEffort, validateWorkerModel } from '../src/server/agents.js';
+import { isValidDshModel } from '../src/shared/providers.js';
 import { isAgentProvider } from '../src/shared/protocol.js';
 
 test('detects the configured provider from Unix and Windows command paths', () => {
@@ -66,7 +67,7 @@ test('model validation follows the provider', () => {
   assert.equal(validateWorkerModel('agent', 'opencode', 'vendor/model'), undefined);
   assert.match(validateWorkerModel('agent', 'opencode', 'gpt-5') ?? '', /OpenCode/);
   // Custom still takes none.
-  assert.match(validateWorkerModel('agent', 'custom', 'anything') ?? '', /Claude Code, OpenCode, Grok, Muse or DeepSeek Harness/);
+  assert.match(validateWorkerModel('agent', 'custom', 'anything') ?? '', /Claude Code, OpenCode, Grok, Muse, DeepSeek Harness or Pi/);
 });
 
 test('reasoning effort joins Claude for DeepSeek Harness', () => {
@@ -75,6 +76,6 @@ test('reasoning effort joins Claude for DeepSeek Harness', () => {
   assert.match(validateWorkerEffort('agent', 'dsh', 'enormous') ?? '', /Invalid effort/);
   assert.match(validateWorkerEffort('shell', 'dsh', 'high') ?? '', /Shell workers/);
   assert.equal(validateWorkerEffort('agent', 'claude', 'xhigh'), undefined);
-  assert.match(validateWorkerEffort('agent', 'opencode', 'high') ?? '', /Claude Code, Grok, Muse or DeepSeek Harness/);
-  assert.match(validateWorkerEffort('agent', 'codex', 'high') ?? '', /Claude Code, Grok, Muse or DeepSeek Harness/);
+  assert.match(validateWorkerEffort('agent', 'opencode', 'high') ?? '', /Claude Code, Grok, Muse, DeepSeek Harness or Pi/);
+  assert.match(validateWorkerEffort('agent', 'codex', 'high') ?? '', /Claude Code, Grok, Muse, DeepSeek Harness or Pi/);
 });

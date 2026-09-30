@@ -1,0 +1,91 @@
+/* Issue and PR windows, and the dialogs they open (ui/github/): the issue and PR windows and the label
+   picker each import this sheet. */
+.modal.gh-window { width: min(1400px, 100%); height: min(920px, calc(100vh - 32px)); outline: none; }
+.modal.gh-window.issue { width: min(920px, 100%); }
+.modal.gh-window header .pill { font-size: 12px; }
+.pill.merged { background: #9d4edd; color: #fff; }
+.gh-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 16px; font-size: 13px; font-weight: 700; color: var(--muted); border-bottom: 2px solid rgba(43, 45, 66, .15); }
+.gh-meta b { color: var(--ink); font-weight: 900; }
+.gh-meta code { font: 12px ui-monospace, Menlo, monospace; background: #e0f2fe; color: #1d4f91; border-radius: 6px; padding: 1px 6px; }
+.gh-pm { font: 800 12px ui-monospace, Menlo, monospace; white-space: nowrap; }
+.gh-pm .add { color: #2a9d4b; }
+.gh-pm .del { color: #c3423f; }
+.gh-pm .bin { color: var(--muted); }
+.gh-tabs { display: flex; gap: 4px; padding: 0 12px; border-bottom: 3px solid var(--ink); background: var(--paper); }
+.gh-tab { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 14px; font-weight: 800; color: var(--muted); background: none; border: 0; border-bottom: 4px solid transparent; padding: 9px 12px 7px; margin-bottom: -3px; cursor: pointer; }
+.gh-tab:hover { color: var(--ink); }
+.gh-tab.on { color: var(--ink); border-bottom-color: var(--accent); }
+.gh-count { background: var(--paper-2); border: 2px solid var(--ink); border-radius: 999px; padding: 0 7px; font-size: 11px; color: var(--ink); }
+.gh-progress { font-size: 11px; font-weight: 900; color: var(--muted); }
+.gh-progress.all { color: #2a9d4b; }
+.gh-body { flex: 1; min-height: 0; display: flex; }
+.gh-conv { flex: 1; min-width: 0; overflow: auto; padding: 18px 16px 24px; background: #f3ebe0; }
+.gh-col { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+.gh-foot { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.modal.gh-window footer a.grow { font-size: 14px; color: #1d6fd6; font-weight: 800; text-decoration: none; }
+/* Many actions on a narrow window: they wrap onto a second row rather than run off the edge. */
+.modal.gh-window footer { flex-wrap: wrap; row-gap: 8px; }
+.gh-avatar { width: 24px; height: 24px; flex: none; border-radius: 50%; border: 2px solid var(--ink); color: #fff; font-size: 12px; font-weight: 900; display: inline-grid; place-items: center; }
+.gh-card { background: #fff; border: 2px solid var(--ink); border-radius: 14px; box-shadow: 0 3px 0 var(--ink); overflow: clip; }
+/* article.gh-card outranks the frame's .modal header, whatever order the sheets load in. */
+article.gh-card > header { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: var(--paper-2); border-bottom: 2px solid rgba(43, 45, 66, .15); font-size: 13px; font-weight: 700; color: var(--muted); }
+.gh-card > header:last-child { border-bottom: 0; }
+.gh-card > header b { color: var(--ink); font-weight: 900; }
+.gh-card > header .grow { flex: 1; }
+.gh-card > header .btn { padding: 2px 10px; font-size: 12px; }
+.gh-card > header code { font: 12px ui-monospace, Menlo, monospace; color: var(--ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-card.is-ok > header { background: #d8f5e3; }
+.gh-card.is-bad > header { background: #ffe3ea; }
+.gh-badge { font-size: 11px; font-weight: 900; padding: 1px 8px; border-radius: 999px; border: 2px solid var(--ink); background: #fff; color: var(--ink); white-space: nowrap; }
+.gh-badge.ok { background: var(--good); color: #fff; }
+.gh-badge.bad { background: var(--bad); color: #fff; }
+.gh-badge.muted { background: #dee2e6; }
+.gh-thread .pd-thread { margin: 0; border: 0; border-radius: 0; box-shadow: none; }
+.gh-loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 18px; font-weight: 800; color: var(--muted); }
+.gh-error { margin: 16px auto; max-width: 560px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; background: #ffd6e0; border: 3px solid var(--ink); border-radius: 14px; padding: 14px 18px; font-weight: 800; }
+.gh-quiet { text-align: center; color: var(--muted); font-weight: 700; margin: 4px 0; }
+.gh-mergebox { background: #fff; border: 2px solid var(--ink); border-radius: 14px; box-shadow: 0 3px 0 var(--ink); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.gh-mergebox-go { display: flex; justify-content: flex-end; }
+/* The redrawn part of a conversation; its cards still space out in .gh-col's gap. */
+.gh-items { display: contents; }
+.gh-compose .seg { gap: 4px; }
+.gh-compose-body { padding: 10px 12px 0; }
+.gh-compose textarea { display: block; min-height: 96px; }
+.gh-compose-preview { min-height: 96px; background: #fff; border: 3px dashed rgba(43, 45, 66, .25); border-radius: 12px; }
+.gh-compose-preview .gh-quiet { padding: 12px; }
+.gh-compose .gh-merge-result { margin: 10px 12px 0; }
+.gh-compose-foot { display: flex; align-items: center; gap: 10px; padding: 10px 12px 12px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.gh-compose-foot .grow { flex: 1; min-width: 0; }
+.gh-status { display: flex; align-items: flex-start; gap: 8px; padding: 9px 12px; border: 2px solid var(--ink); border-radius: 10px; font-weight: 800; font-size: 14px; line-height: 1.4; background: #eef0f2; }
+.gh-status.ok { background: #d8f5e3; }
+.gh-status.warn { background: #fff3c4; }
+.gh-status.bad { background: #ffd6e0; }
+.gh-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 190px; overflow: auto; font-size: 13px; font-weight: 700; }
+.gh-checks li { display: flex; gap: 8px; align-items: baseline; }
+.gh-checks a { color: var(--ink); text-decoration: none; }
+.gh-checks a:hover { text-decoration: underline; }
+.modal.gh-merge { width: min(580px, 100%); }
+.gh-merge .body { display: flex; flex-direction: column; gap: 10px; }
+.gh-merge .body > label { margin: 4px 0 0; }
+.gh-merge-title { margin: 0; font-weight: 900; font-size: 16px; }
+.gh-merge-title small { display: block; font: 12px ui-monospace, Menlo, monospace; color: var(--muted); margin-top: 2px; }
+.gh-merge .seg .btn { padding: 5px 10px; font-size: 13px; }
+.modal label.gh-check { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 700; cursor: pointer; }
+.gh-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.gh-merge-result { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border: 2px solid var(--ink); border-radius: 10px; font-weight: 800; background: #e0f2fe; }
+.gh-merge-result.error { display: block; background: #ffd6e0; white-space: pre-wrap; overflow-wrap: anywhere; font-weight: 700; font-size: 13px; }
+/* A label chip (labelChip): on a board's cards, in the windows and in the label picker. */
+.label { padding: 1px 6px; border-radius: 999px; border: 1.5px solid var(--ink); color: var(--ink); font-size: 10px; font-weight: 800; }
+/* The label picker (openLabels) */
+/* The ✏️ button next to the labels: styles/base.css, after the button rules it restyles. */
+.gh-labeler .body { min-height: 0; }
+.gh-labels { list-style: none; margin: 0; padding: 4px; max-height: min(420px, 50vh); overflow: auto; border: 3px solid var(--ink); border-radius: 12px; background: #fff; }
+.gh-labels li + li { border-top: 1px solid rgba(43, 45, 66, .1); }
+.gh-labels label.gh-check { padding: 7px 8px; border-radius: 8px; flex-wrap: wrap; }
+.gh-labels label.gh-check:hover { background: var(--paper-2); }
+.gh-labels .label { font-size: 12px; }
+.gh-labels small { flex-basis: 100%; padding-left: 24px; color: var(--muted); font-weight: 600; font-size: 12px; }
+.gh-labels .gh-error { margin: 8px auto; }
+/* .modal.gh-labeler outranks the frame's .modal footer .grow, whatever order the sheets load in. */
+.modal.gh-labeler footer .grow { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+.gh-labeler .gh-quiet a { color: #1d6fd6; font-weight: 800; }
