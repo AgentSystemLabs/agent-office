@@ -2,7 +2,7 @@
 import { EMOTES, EMOTE_BY_ID, EmoteBucket, type EmoteId } from '../../../shared/emotes';
 import type { Ctx } from '../../core/context';
 import { $, h, toast } from '../../ui/dom';
-import { EmoteWheel } from '../../ui/emotes';
+import { EmoteWheel } from './ui';
 import type { Person } from '../../world/character';
 
 export interface EmotesDeps {
