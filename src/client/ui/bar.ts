@@ -7,11 +7,11 @@ export interface BarOptions {
   order(d: Drink): void;
 }
 
-/** How hard a drink hits, for the menu. */
+/** How hard a drink hits, and what it does for your stress, for the menu. */
 function kick(d: Drink): string {
-  if (d.strength < 0) return '💧 sobers you up a little';
-  if (d.strength === 0) return 'no alcohol';
-  return d.strength >= 0.55 ? '🌀🌀🌀 strong' : d.strength >= 0.4 ? '🌀🌀 goes to your head' : '🌀 light';
+  const buzz = d.strength < 0 ? '💧 sobers you up a little' : d.strength === 0 ? 'no alcohol' : d.strength >= 0.55 ? '🌀🌀🌀 strong' : d.strength >= 0.4 ? '🌀🌀 goes to your head' : '🌀 light';
+  const calm = d.calm >= 0.25 ? '😰 takes the stress off' : d.calm > 0 ? '😰 settles you a little' : '';
+  return [buzz, calm].filter(Boolean).join(' · ');
 }
 
 /** The rooftop bar's menu: pick a drink and the bartender pours it. */
@@ -59,7 +59,7 @@ export function openBar(opts: BarOptions) {
       opts.cutOff ? h('p.setting-note', { style: 'margin:0 0 12px;font-weight:800' }, "🙅 The bartender thinks you've had enough. Water's on the house.") : null,
       list,
     ),
-    h('footer', {}, h('span.grow', {}, 'Drinks go to your head for a minute or so, and the view goes with them. Everything is on the house.')),
+    h('footer', {}, h('span.grow', {}, 'Drinks go to your head for a minute or so, and the view goes with them. The stronger ones take some stress off too. Everything is on the house.')),
   );
   const modal = openModal(el);
   close.addEventListener('click', () => modal.close());
