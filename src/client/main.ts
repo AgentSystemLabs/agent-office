@@ -372,6 +372,37 @@ mountBoard(office.boardMeshes.services, servicesTex.texture, renderServicesBoard
 const queueTex = new QueueBoardTexture();
 const renderQueueBoard = () => queueTex.render(store.queue, store.workers);
 mountBoard(office.boardMeshes.queue, queueTex.texture, renderQueueBoard, ['queue', 'workers']);
+ctx.interactions.define('issues', {
+  reach: 9,
+  hint: () => {
+    if (aimedNote) return { k: String(aimedNote.number), parts: [hintTitle(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', 'Take it'), key('O', 'Read it')] };
+    return issuesTex.hasNotes ? { k: 'notes', parts: [hintTitle('📌 Issues board'), key('E', 'Open'), aside('or point at a note to take it')] } : boardHint('📌 Issues board');
+  },
+  use: (_it, key, note) => {
+    // A note on the issues board: E takes it straight off the cork, O opens it to read first.
+    if (note && key === 'E') return pickUp(note);
+    if (note && key === 'O') return openIssue(note, net, boardActions());
+    if (key === 'E') openBoard('issues', net, boardActions());
+  },
+});
+ctx.interactions.define('pulls', {
+  reach: 9,
+  hint: () => boardHint('🔀 Pull request board'),
+  use: onE(() => openBoard('pulls', net, boardActions())),
+});
+ctx.interactions.define('services', {
+  reach: 9,
+  hint: () => boardHint('🌐 Services board'),
+  use: onE(() => openServices()),
+});
+ctx.interactions.define('queue', {
+  reach: 9,
+  hint: () => {
+    const n = store.queue.tasks.filter((t) => t.status !== 'done').length;
+    return { k: String(n), parts: [hintTitle(`📋 Task queue${n ? ` · ${n}` : ''}`), key('E', 'Open')] };
+  },
+  use: onE(() => showQueue()),
+});
 // The machine monitor on the west wall.
 const machineTex = new MachineTexture();
 mountBoard(office.machineScreen, machineTex.texture, () => machineTex.render(store.machine), ['machine']);
@@ -397,6 +428,14 @@ store.on('decor', () => gallery.sync(store.decor));
 
 // The whiteboard shows what everyone's drawn on it.
 mirrorWhiteboard(office.whiteboard.show, office.whiteboard.fit.width, office.whiteboard.fit.height);
+ctx.interactions.define('whiteboard', {
+  reach: 7,
+  hint: () => {
+    const names = store.drawing.flatMap((id) => (id === store.you ? [] : (store.peers.get(id)?.name ?? []))).join(', ');
+    return { k: names, parts: [hintTitle('📝 Whiteboard'), aside(names ? `✏️ ${clip(names, 40)} drawing` : 'draw together, live'), key('E', names ? 'Join in' : 'Draw')] };
+  },
+  use: onE(() => openWhiteboard(net)),
+});
 
 // Confetti for merges, landing on whatever it falls on
 // Onto whatever you're walking on: the office's floor and furniture, or the roof's.
@@ -434,6 +473,14 @@ const tvMat = office.tvScreen.material as THREE.MeshBasicMaterial;
 tvMat.color.set('#ffffff');
 tvMat.map = tvIdle;
 tvMat.toneMapped = false;
+ctx.interactions.define('tv', {
+  reach: 10,
+  hint: () => {
+    const any = currentShares().length > 0;
+    return { k: String(any), parts: [hintTitle('📺 Office TV'), key('E', any ? 'Watch full screen' : 'Share your screen')] };
+  },
+  use: onE(() => watchShare()),
+});
 // The boss's monitor upstairs: Minesweeper, from the boss's chair.
 const arcade = new Arcade(office.bossScreen);
 ctx.ticks.add('play', ({ dt }) => arcade.update(camera, dt));
@@ -522,6 +569,11 @@ const telescope = new TelescopeView(
     if (!modalOpen()) setTimeout(backToGame, 0);
   },
 );
+ctx.interactions.define('telescope', {
+  reach: 3.5,
+  hint: () => ({ k: '', parts: [hintTitle('🔭 Office telescope'), aside('overlooks the worker floor'), key('E', 'Look through')] }),
+  use: onE(() => telescope.enter()),
+});
 // Everyone arrives by elevator (the welcome says exactly where).
 placeInCar();
 player.view = settings.view;
@@ -555,6 +607,17 @@ ctx.ticks.add('others', ({ dt }) => {
   // The dog is the office's: on a map of its own it stays at home, quiet.
   if (inOffice()) dog.update(dt);
 });
+ctx.interactions.define('dog', {
+  reach: 3.2,
+  hint: () => {
+    const doing = dog.doing(
+      (id) => store.workers.get(id)?.name,
+      (id) => (id === store.you ? 'you' : store.peers.get(id)?.name),
+    );
+    return { k: `${dog.name}|${doing}`, parts: [hintTitle(`🐶 ${dog.name}`), doing ? aside(doing) : '', key('E', 'Pet')] };
+  },
+  use: onE(() => net.send({ t: 'dog.pet' })),
+});
 sound.setMusicVolume(settings.music, settings.musicMuted);
 sound.onMusicError = (text) => toast(text, 'warn');
 // The jukebox on your floor: everyone there hears it from the same bar, and its lights say what's on.
@@ -565,9 +628,34 @@ function playJukebox() {
   office.jukebox.show(j.on, trackTitle(j));
 }
 store.on('jukebox', playJukebox);
+ctx.interactions.define('jukebox', {
+  reach: 4,
+  hint: () => {
+    const j = store.jukebox;
+    const what = j.on ? trackTitle(j) : '';
+    return { k: `${j.on}|${what}`, parts: [hintTitle('🎵 Jukebox'), aside(j.on ? `♪ ${clip(what, 40)}` : 'off'), key('E', j.on ? 'Change the song' : 'Put on a song')] };
+  },
+  use: onE(() => showJukebox()),
+});
 // The arcade cabinet next to it: BLOCKFALL up close, and on its screen for everyone else on the floor.
 const cabinet = new Cabinet(office.cabinet.screen, net, { openTerminal: (id) => openWorkerTerminal(id), sound: (kind, lines) => sound.arcade(kind, lines) });
 ctx.ticks.add('play', ({ dt }) => cabinet.update(camera, dt));
+ctx.interactions.define('cabinet', {
+  reach: 4,
+  hint: () => {
+    const c = store.cabinet;
+    const f = store.cabinetFrame;
+    if (c.player && c.player.id !== store.you) {
+      const who = c.player.name;
+      return { k: `${who}|${f?.score}`, parts: [hintTitle('🕹️ Arcade'), aside(`▶ ${clip(who, 24)} is playing${f ? ` · ${scoreText(f.score)}` : ''}`), key('E', 'Watch')] };
+    }
+    const left = cabinet.leftAt;
+    const best = c.scores[0];
+    const about = left !== null ? `your game's paused at ${scoreText(left)}` : best ? `🏆 ${clip(best.name, 24)} · ${scoreText(best.score)}` : 'no high score yet';
+    return { k: `${left}|${best?.name}|${best?.score}`, parts: [hintTitle(`🕹️ ${GAME}`), aside(about), key('E', left !== null ? 'Carry on' : 'Play')] };
+  },
+  use: onE(() => cabinet.play()),
+});
 const notifier = new DesktopNotifier(() => settings.notify, (id) => openWorkerTerminal(id));
 
 // ---- Golf off the balcony --------------------------------------------------------------------------
@@ -681,6 +769,17 @@ function teeOff() {
   golf.start();
 }
 
+ctx.interactions.define('golf', {
+  reach: 3.5,
+  hint: () => {
+    const other = teeTaken();
+    if (other) return { k: `taken|${other}`, parts: [hintTitle('⛳ Golf tee'), aside(`🏌️ ${clip(other, 24)} is teeing off`)] };
+    const { best, holes } = golfRecord();
+    const about = [holes ? `🏆 ${holes} hole${holes === 1 ? '' : 's'} in one` : '', best !== null ? `your best ${pinText(best)} from the pin` : `the pin's ${Math.round(PIN_DISTANCE)} m out`].filter(Boolean).join(' · ');
+    return { k: about, parts: [hintTitle('⛳ Golf tee'), aside(about), key('E', 'Tee off')] };
+  },
+  use: onE(() => teeOff()),
+});
 ctx.messages.on('golf', (msg) => theirShot(msg.id, { yaw: msg.yaw, loft: msg.loft, power: msg.power }));
 /** Someone else on the floor hit one: their swing, then their ball, off the same tee. */
 function theirShot(id: string, shot: Shot) {
@@ -767,6 +866,26 @@ function stepUp(game: BarGame) {
   if (walkingTo) stopWalking();
   thrower.start(game);
 }
+
+/** At the dart board or the axe lane: who's throwing, or your best round, and E to step up. */
+function throwHint(game: BarGame): Hint {
+  const name = game === 'darts' ? '🎯 Darts' : '🪓 Axe throwing';
+  const other = lineTaken(game);
+  if (other) return { k: `taken|${other}`, parts: [hintTitle(name), aside(`${clip(other, 24)} is throwing`)] };
+  const best = throwBests[game];
+  const about = best !== undefined ? `your best round: ${best}` : game === 'darts' ? 'three darts a visit' : 'five axes a round';
+  return { k: about, parts: [hintTitle(name), aside(about), key('E', game === 'darts' ? 'Step up to the oche' : 'Step up to the line')] };
+}
+ctx.interactions.define('darts', {
+  reach: 4,
+  hint: () => throwHint('darts'),
+  use: onE(() => stepUp('darts')),
+});
+ctx.interactions.define('axe', {
+  reach: 5.5,
+  hint: () => throwHint('axe'),
+  use: onE(() => stepUp('axe')),
+});
 
 /** What a throw says over the target as it lands. */
 function tossPop(game: BarGame, s: Score): string {
@@ -868,6 +987,16 @@ ctx.activities.add({
   hint: (el) => renderHangHint(el),
 });
 ctx.ticks.add('world', () => hanger.update());
+ctx.interactions.define('decor', {
+  reach: 9,
+  hint: (it) => {
+    const d = store.decor.find((x) => x.id === it.decorId);
+    return { k: `${d?.title}|${d?.by}`, parts: [hintTitle(`🖼️ ${d?.title || 'A picture'}`), d ? aside(`hung by ${d.by}`) : '', key('E', 'Look closer')] };
+  },
+  use: onE((it) => {
+    if (it.decorId) hanger.view(it.decorId);
+  }),
+});
 
 // ---- The ladder and the fire poles ----------------------------------------------------------------
 /** The floors of the building from the bottom up (not the ones still being cloned: nobody can go there yet). */
@@ -962,6 +1091,31 @@ ctx.ticks.add('moved', () => {
   if (hole && !climber.active && !trip && !player.seat && player.enabled && player.pos.y > -1.35 && player.pos.y < 0.6) climber.slide(hole);
 });
 
+ctx.interactions.define('ladder', {
+  reach: 3,
+  hint: () => {
+    const up = floorThere(1)?.name;
+    const down = floorThere(-1)?.name;
+    const where = [up && `⬆ ${up}`, down && `⬇ ${down}`].filter(Boolean).join(' · ');
+    return { k: where, parts: [hintTitle('🪜 Ladder'), aside(where || 'no other floors yet'), key('E', 'Climb on')] };
+  },
+  use: onE(() => grabLadder()),
+});
+ctx.interactions.define('pole', {
+  reach: 4,
+  hint: () => {
+    if (office.stack.polesGoDown()) {
+      const down = floorThere(-1)?.name ?? 'the floor below';
+      return { k: `down|${down}`, parts: [hintTitle('🚒 Fire pole'), aside(`down to ${down}`), key('E', 'Slide down!')] };
+    }
+    const up = floorThere(1)?.name ?? 'upstairs';
+    return { k: `landing|${up}`, parts: [hintTitle('🚒 Fire pole'), aside(`comes down from ${up}`), key('E', 'Twirl')] };
+  },
+  use: onE((it) => {
+    if (it.pole !== undefined) usePole(it.pole);
+  }),
+});
+
 // ---- The cars in the garage ------------------------------------------------------------------------
 /** car.enter and car.leave of yours the office hasn't answered yet: until it has, you're where you say you are. */
 let carPending = 0;
@@ -991,6 +1145,24 @@ function getIn(i: number) {
   sound.carDoor(carAt(i));
   ctx.hint.invalidate();
 }
+
+ctx.interactions.define('car', {
+  reach: 4,
+  hint: (it) => {
+    const c = store.cars[it.car ?? -1];
+    const def = CARS[it.car ?? -1];
+    if (!c || !def) return { k: '', parts: [] };
+    const name = (id?: string) => (id ? clip(store.peers.get(id)?.name ?? 'Someone', 20) : '');
+    const [at, beside] = [name(c.driver), name(c.passenger)];
+    const k = `${it.car}|${at}|${beside}`;
+    if (!at) return { k, parts: [hintTitle(`🏎️ ${def.name}`), aside(beside ? `${beside} is waiting in it` : 'keys in the ignition'), key('E', 'Drive it')] };
+    if (!beside) return { k, parts: [hintTitle(`🏎️ ${def.name}`), aside(`${at} is driving`), key('E', 'Hop in')] };
+    return { k, parts: [hintTitle(`🏎️ ${def.name}`), aside(`${at} and ${beside} · full`)] };
+  },
+  use: onE((it) => {
+    if (it.car !== undefined) getIn(it.car);
+  }),
+});
 
 /** E in a car: out onto your feet beside it; `anyway`, even with no room there. False if you couldn't. */
 function getOut(anyway = false): boolean {
@@ -1565,6 +1737,17 @@ let trip: Trip | null = null;
 function showElevator() {
   openElevator({ net, ride, downstairs });
 }
+
+ctx.interactions.define('elevator', {
+  reach: 4.5,
+  hint: (it) => {
+    const f = store.currentFloor();
+    const n = store.floors.length;
+    if (it === office.garageLift.interactable) return { k: `garage|${f?.name}|${n}`, parts: [hintTitle('🛗 Elevator'), aside(f ? `Garage · up to ${clip(f.name, 24)}` : 'Garage'), key('E', 'Choose a floor')] };
+    return { k: `${f?.name}|${n}`, parts: [hintTitle('🛗 Elevator'), f ? aside(`${f.name} · ${n} floor${n === 1 ? '' : 's'}`) : '', key('E', n > 1 ? 'Choose a floor' : 'Floors & projects')] };
+  },
+  use: onE(() => showElevator()),
+});
 
 /** The elevator where you are: the office's, its stop down in the garage, or the one up on the roof. None on a map of its own. */
 function lift() {
@@ -2544,6 +2727,15 @@ function syncPlan() {
   }
 }
 store.on('floorPlan', syncPlan);
+ctx.interactions.define('expand', {
+  reach: 8,
+  hint: () => {
+    const level = store.floorPlan.wing;
+    if (level >= WING.rows) return { k: 'full', parts: [hintTitle('🏢 Back office'), aside('built all the way out'), key('E', 'Wall a row up')] };
+    return { k: String(level), parts: [hintTitle(level ? '🚧 Room to grow' : '🚧 Room to grow through the wall'), aside(level ? `${level} of ${WING.rows} rows built` : 'the office can get bigger here'), key('E', level ? 'Another row: 2 more desks' : 'Knock through: 2 more desks')] };
+  },
+  use: onE(() => openExpand(net)),
+});
 // A worker at the meeting table shows its role and round over its head (see meetingCard).
 store.on('meeting', syncWorkers);
 // A worker's bubble shows whether it has a pull request open (green) or merged (purple: send it home).
@@ -2880,6 +3072,136 @@ function standAt(desk: DeskDef) {
   player.lookPitch = -0.2;
 }
 
+function deskHint(deskId: string): Hint {
+  const w = store.workerAtDesk(deskId);
+  if (!w && plan().byId.get(deskId)?.room) return { k: 'room', parts: [h('span.title', {}, `🤝 ${plan().byId.get(deskId)!.label} · free`), key('E', 'Call a meeting')] };
+  // The sign over it, if it has one, and L to hang one (or change it).
+  const sign = store.floorPlan.labels[deskId]?.text;
+  const labelKey = canLabel(deskId) ? key('L', sign ? 'Sign' : 'Label') : '';
+  const deskName = `${sign ? `🪧 ${sign} · ` : ''}${plan().byId.get(deskId)!.label}`;
+  if (!w) {
+    const paused = hiringPaused();
+    const m = store.machine;
+    const full = officeFull(m);
+    return {
+      k: `${paused}|${full}|${m.workers}|${m.limit}|${!!m.pressure}|${sign}`,
+      parts: [
+        h('span.title', {}, `${deskName} · empty`),
+        ...(full
+          ? [h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`)]
+          : [
+              m.pressure ? h('span.cost', { title: `This machine is under pressure: ${m.pressure}` }, '⚠️ Machine under pressure') : '',
+              ...(paused ? [h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow')] : [key('E', 'Hire a worker'), key('P', 'Hire with a task')]),
+              key('B', 'Shell'),
+            ]),
+        labelKey,
+      ],
+    };
+  }
+  if (w.lost && w.worktree) {
+    return {
+      k: `lost|${w.id}|${w.lost.branch}|${sign}`,
+      parts: [
+        h('span.title', {}, `${sign ? `🪧 ${sign} · ` : ''}${w.name} · 🌿 worktree deleted`),
+        aside('deleted outside agent-office'),
+        key('E', 'Fix it'),
+        key('X', 'Send home'),
+        labelKey,
+      ],
+    };
+  }
+  const doing = w.activity ? clip(w.activity, 48) : '';
+  const workerProvider = w.kind === 'agent' ? resolvedProvider(w.provider, store.project) : undefined;
+  const spent = w.kind === 'agent' && w.usage ? usageLabel(w.usage, workerProvider) : '';
+  const shell = w.kind === 'shell';
+  return {
+    k: w.status + w.id + (w.pr?.number ?? '') + (w.repos?.map((r) => r.pr?.number ?? '-').join() ?? '') + (w.prOpening ? '!' : '') + doing + spent + (sign ?? ''),
+    parts: [
+      h('span.title', {}, `${sign ? `🪧 ${sign} · ` : ''}${w.name} · ${STATUS_LABEL[w.status]}`),
+      doing ? aside(doing) : '',
+      spent ? h('span.cost', { title: usageTitle(w.usage!, workerProvider) }, spent) : '',
+      key('E', 'Open terminal'),
+      key('C', 'Changes'),
+      isAsleep(w.status) ? key('R', shell ? 'Restart' : 'Resume') : key('P', shell ? 'Run command' : 'Prompt'),
+      w.repos?.length ? reposKey(w) : w.pr ? key('O', `PR #${w.pr.number}`) : w.prOpening ? aside('⏳ Opening PR…') : prReady(w) ? key('O', 'Open PR') : '',
+      key('X', 'Send home'),
+      labelKey,
+    ],
+  };
+}
+
+/** The O in the desk hint of a worker across repositories: its pull requests so far, or opening them. */
+function reposKey(w: WorkerInfo) {
+  const repos = workerRepos(w);
+  const prs = repos.filter((r) => r.pr).length;
+  if (w.prOpening) return aside('⏳ Opening PRs…');
+  if (prs) return key('O', `${prs} of ${repos.length} PRs`);
+  return prReady(w) ? key('O', `Open PRs (${repos.length} repos)`) : '';
+}
+
+function stationHint(deskId: string): Hint {
+  const kind = plan().byId.get(deskId)?.station;
+  if (!kind) return { k: '', parts: [] };
+  const w = store.workerAtDesk(deskId);
+  const info = STATION_INFO[kind];
+  if (!w) {
+    const m = store.machine;
+    const full = officeFull(m);
+    return {
+      k: `${full}|${m.workers}|${m.limit}`,
+      parts: [
+        h('span.title', {}, `${info.icon} ${STATION_AGENT[kind].name}`),
+        aside(info.offer.replace(/^Ask me /, '')),
+        full ? h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`) : key('E', 'Prompt'),
+      ],
+    };
+  }
+  const doing = w.activity ? clip(w.activity, 48) : '';
+  const provider = resolvedProvider(w.provider, store.project);
+  const spent = w.usage ? usageLabel(w.usage, provider) : '';
+  return {
+    k: w.status + w.id + doing + spent,
+    parts: [
+      h('span.title', {}, `${info.icon} ${w.name} · ${STATUS_LABEL[w.status]}`),
+      doing ? aside(doing) : '',
+      spent ? h('span.cost', { title: usageTitle(w.usage!, provider) }, spent) : '',
+      key('E', isAsleep(w.status) ? 'Wake with a prompt' : 'Prompt'),
+      key('O', 'Terminal'),
+      key('X', 'Send home'),
+    ],
+  };
+}
+
+ctx.interactions.define('desk', {
+  reach: 4.5,
+  hint: (it) => it.deskId ? deskHint(it.deskId) : { k: '', parts: [] },
+  use: (it, key) => {
+    if (!it.deskId) return;
+    if (key === 'L') return openDeskLabel(net, it.deskId);
+    const w = store.workerAtDesk(it.deskId);
+    // Nobody is hired at the meeting table: a meeting seats its own workers there.
+    if (!w && plan().byId.get(it.deskId)?.room) return key === 'E' ? showMeeting() : undefined;
+    if (key === 'B' && !w) return openShell(it.deskId);
+    if (key === 'P') return promptAtDesk(it.deskId);
+    if (key === 'E') return w ? openWorkerTerminal(w.id) : hireAtDesk(it.deskId);
+    if (key === 'C' && w) return openWorkerChanges(w.id);
+    if (key === 'R' && w && isAsleep(w.status)) return resumeWorker(w);
+    if (key === 'X' && w) return killWorker(w.id);
+    if (key === 'O' && w) return pullRequestFor(w);
+  },
+});
+ctx.interactions.define('station', {
+  reach: 4.5,
+  hint: (it) => it.deskId ? stationHint(it.deskId) : { k: '', parts: [] },
+  use: (it, key) => {
+    if (!it.deskId) return;
+    const w = store.workerAtDesk(it.deskId);
+    if (key === 'E' || key === 'P') return askStation(it.deskId);
+    if (key === 'O' && w) return openWorkerTerminal(w.id);
+    if (key === 'X' && w) return killWorker(w.id);
+  },
+});
+
 // ---- Who's waiting on you: N, the count in the Workers panel, and the compass --------------------------
 const nextUp = new NextUp();
 const compass = new Compass($('compass'));
@@ -3132,6 +3454,17 @@ function showMeeting(preset?: MeetingPreset) {
   );
 }
 
+ctx.interactions.define('meeting', {
+  reach: 7,
+  hint: () => {
+    const m = store.meeting.current;
+    const p = m && MEETING_PATTERNS[m.pattern];
+    const what = !m || !p ? 'free' : m.status === 'running' ? `${p.icon} ${p.label} · ${meetingStage(m)}` : `${p.icon} ${p.label} ${m.status === 'done' ? 'done ✅' : 'stopped ⛔'}`;
+    return { k: what, parts: [hintTitle('🤝 Meeting room'), aside(clip(what, 50)), key('E', m?.status === 'running' ? 'See how it’s going' : m ? 'See it / call a meeting' : 'Call a meeting')] };
+  },
+  use: onE(() => showMeeting()),
+});
+
 function showJukebox() {
   openJukebox(net, () => showSettings('sound'));
 }
@@ -3156,6 +3489,15 @@ function showBookshelf() {
     },
   });
 }
+
+ctx.interactions.define('bookshelf', {
+  reach: 4,
+  hint: () => {
+    const names = [...store.peers.values()].filter((p) => p.reading && p.id !== store.you && store.onMyFloor(p)).map((p) => p.name).join(', ');
+    return { k: names, parts: [hintTitle('📚 Bookshelf'), aside(names ? `📖 ${clip(names, 40)} reading` : "the project's docs"), key('E', 'Read the docs')] };
+  },
+  use: onE(() => showBookshelf()),
+});
 
 /** When a page last turned, so flicking through a doc is one swish rather than a swish a screenful. */
 let turnedAt = 0;
@@ -3223,65 +3565,15 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   if (!target) return;
   if (target.kind !== 'issues') note = null;
   if (key === 'E' && carrying && dropCard(target, carrying, note)) return;
-  if (target.kind === 'desk' && target.deskId) {
-    if (key === 'L') return openDeskLabel(net, target.deskId);
-    const w = store.workerAtDesk(target.deskId);
-    // Nobody is hired at the meeting table: a meeting seats its own workers there.
-    if (!w && plan().byId.get(target.deskId)?.room) return key === 'E' ? showMeeting() : undefined;
-    if (key === 'B' && !w) return openShell(target.deskId);
-    if (key === 'P') return promptAtDesk(target.deskId);
-    if (key === 'E') return w ? openWorkerTerminal(w.id) : hireAtDesk(target.deskId);
-    if (key === 'C' && w) return openWorkerChanges(w.id);
-    if (key === 'R' && w && isAsleep(w.status)) return resumeWorker(w);
-    if (key === 'X' && w) return killWorker(w.id);
-    if (key === 'O' && w) return pullRequestFor(w);
-    return;
-  }
-  if (target.kind === 'station' && target.deskId) {
-    const w = store.workerAtDesk(target.deskId);
-    if (key === 'E' || key === 'P') return askStation(target.deskId);
-    if (key === 'O' && w) return openWorkerTerminal(w.id);
-    if (key === 'X' && w) return killWorker(w.id);
-    return;
-  }
-  // A note on the issues board: E takes it straight off the cork, O opens it to read first.
-  if (note && key === 'E') return pickUp(note);
-  if (note && key === 'O') return openIssue(note, net, boardActions());
-  if (key !== 'E') return;
-  if (target.kind === 'elevator') showElevator();
-  else if (target.kind === 'issues' || target.kind === 'pulls') openBoard(target.kind, net, boardActions());
-  else if (target.kind === 'services') openServices();
-  else if (target.kind === 'queue') showQueue();
-  else if (target.kind === 'tv') watchShare();
-  else if (target.kind === 'jukebox') showJukebox();
-  else if (target.kind === 'bookshelf') showBookshelf();
-  else if (target.kind === 'decor' && target.decorId) hanger.view(target.decorId);
-  else if (target.kind === 'seat' && target.seatId) useSeat(target.seatId);
-  else if (target.kind === 'dog') net.send({ t: 'dog.pet' });
-  else if (target.kind === 'coffee') drinkCoffee();
-  else if (target.kind === 'smoke') {
-    if (smokeBreakUntil) {
-      setSmoking(false);
-      toast('You stub it out in the ashtray');
-    } else {
-      setSmoking(true);
-      toast('🚬 Smoke break');
-    }
-  } else if (target.kind === 'gong') hitGong();
-  else if (target.kind === 'whiteboard') openWhiteboard(net);
-  else if (target.kind === 'cabinet') cabinet.play();
-  else if (target.kind === 'ladder') grabLadder();
-  else if (target.kind === 'pole' && target.pole !== undefined) usePole(target.pole);
-  else if (target.kind === 'meeting') showMeeting();
-  else if (target.kind === 'bar') showBar();
-  else if (target.kind === 'dj') blowHorn();
-  else if (target.kind === 'golf') teeOff();
-  else if (target.kind === 'darts' || target.kind === 'axe') stepUp(target.kind);
-  else if (target.kind === 'ball') takeBall();
-  else if (target.kind === 'telescope') telescope.enter();
-  else if (target.kind === 'car' && target.car !== undefined) getIn(target.car);
-  else if (target.kind === 'expand') openExpand(net);
-  else if (target.kind === 'herald') hireFromHerald();
+  // What each kind of thing does is defined with it (see ctx.interactions).
+  ctx.interactions.use(target, key, note);
+}
+
+/** A use that's E only: every other key does nothing there. */
+function onE(fn: (it: Interactable) => void): (it: Interactable, key: DeskKey) => void {
+  return (it, key) => {
+    if (key === 'E') fn(it);
+  };
 }
 
 // On the throne: the herald beside you, whoever's in line.
@@ -3320,6 +3612,18 @@ function hireFromHerald() {
     },
   });
 }
+
+ctx.interactions.define('herald', {
+  reach: 5,
+  hint: () => {
+    const hd = plan().herald;
+    const full = !firstFreeSeat();
+    const m = store.machine;
+    const why = full ? 'every seat is taken' : officeFull(m) ? `🚫 Office full · ${m.workers} of ${m.limit} workers` : hiringPaused() ? '💸 Budget spent — hiring resumes tomorrow' : '';
+    return { k: `${hd?.name}|${why}`, parts: [hintTitle(`${plan().icon} ${hd?.name ?? 'Herald'}`), why ? h('span.cost', {}, why) : aside(hd?.says ?? ''), why ? '' : key('E', 'Send out a new worker')] };
+  },
+  use: onE(() => hireFromHerald()),
+});
 
 // ---- The rooftop bar ---------------------------------------------------------------------------------
 /** What the bartender says as they slide it over. */
@@ -3369,6 +3673,24 @@ function blowHorn() {
   lastHorn = now;
   net.send({ t: 'horn' });
 }
+
+ctx.interactions.define('bar', {
+  reach: 3.5,
+  hint: () => {
+    const cut = booze.cutOff(performance.now() / 1000);
+    return { k: String(cut), parts: [hintTitle('🍸 Sky Bar'), aside(cut ? "you've had enough" : 'drinks on the house'), key('E', cut ? 'Ask for water' : 'Order a drink')] };
+  },
+  use: onE(() => showBar()),
+});
+ctx.interactions.define('dj', {
+  reach: 6,
+  hint: () => {
+    const f = djFrame(djAt());
+    const what = f.part === 'drop' ? '🔥 the drop' : f.part === 'build' ? 'building up…' : f.part === 'breakdown' ? 'the breakdown' : 'mixing in the next track';
+    return { k: what, parts: [hintTitle('🎧 DJ Merge Conflict'), aside(`drum & bass · ${what}`), key('E', '📯 Air horn!')] };
+  },
+  use: onE(() => blowHorn()),
+});
 
 /** How it's going to your head, the last time it changed, and when the next hiccup comes. */
 let feeling: Feeling = 0;
@@ -3426,6 +3748,15 @@ function drinkCoffee() {
   else toast('☕ Fresh coffee! A minute of quicker feet and higher jumps');
 }
 
+ctx.interactions.define('coffee', {
+  reach: 3,
+  hint: (it) => {
+    const buzzed = caffeine.buzzed(performance.now() / 1000);
+    return { k: String(buzzed), parts: [hintTitle(it.label ?? '☕ Coffee machine'), key('E', buzzed ? 'Another cup' : 'Grab a cup')] };
+  },
+  use: onE(() => drinkCoffee()),
+});
+
 // ---- Smoke breaks ------------------------------------------------------------------------------------
 /** When your smoke break ends by itself (performance.now()), or 0 when you're not on one. */
 let smokeBreakUntil = 0;
@@ -3457,6 +3788,19 @@ function checkSmokeBreak(now: number) {
   }
 }
 ctx.ticks.add('world', ({ now }) => checkSmokeBreak(now));
+ctx.interactions.define('smoke', {
+  reach: 3,
+  hint: () => ({ k: String(smokeBreakUntil > 0), parts: [hintTitle('🚬 Ashtray'), key('E', smokeBreakUntil ? 'Stub it out' : 'Take a smoke break')] }),
+  use: onE(() => {
+    if (smokeBreakUntil) {
+      setSmoking(false);
+      toast('You stub it out in the ashtray');
+    } else {
+      setSmoking(true);
+      toast('🚬 Smoke break');
+    }
+  }),
+});
 
 // ---- The basketball --------------------------------------------------------------------------------
 /** The floor's basketball, by the hoop on the west wall (see world/hoop.ts). */
@@ -3502,6 +3846,12 @@ function takeBall() {
   net.send({ t: 'ball.take' });
   ctx.hint.invalidate();
 }
+
+ctx.interactions.define('ball', {
+  reach: 3.2,
+  hint: () => ({ k: String(ball.still), parts: [hintTitle('🏀 Basketball'), ball.still ? aside('shoot some hoops') : '', key('E', ball.still ? 'Pick it up' : 'Catch it!')] }),
+  use: onE(() => takeBall()),
+});
 
 /** How a shot of yours goes from where you are: out of your hands, which way (a heading), how steep, and how hard it takes to sink it (null: you're not shooting at the hoop). */
 function shotAim(): { from: THREE.Vector3; heading: number; pitch: number; ideal: number | null } {
@@ -3861,6 +4211,24 @@ function mySeat(): Interactable | null {
   return (id && usable()[0].find((it) => it.kind === 'seat' && it.seatId === id)) || null;
 }
 
+ctx.interactions.define('seat', {
+  reach: 3,
+  hint: (it) => {
+    const seat = plan().seatingById.get(it.seatId ?? '');
+    if (!seat) return { k: '', parts: [] };
+    if (player.seat?.seatId === seat.id) {
+      const tv = !!seat.tv && tvShowing();
+      const use = tv ? 'Watch the TV' : seat.game ? 'Play Minesweeper' : seat.bar ? 'Order a drink' : '';
+      return { k: `${seat.id}|sitting|${tv}`, parts: [hintTitle(seat.label), aside('sitting'), ...(use ? [key('E', use), key('W A S D', 'Get up')] : [key('E', 'Get up')])] };
+    }
+    const full = !freePlace(seat);
+    return { k: `${seat.id}|${full}`, parts: [hintTitle(seat.label), seat.game ? aside('💣 Minesweeper on the monitor') : '', full ? aside('no room') : key('E', 'Sit down')] };
+  },
+  use: onE((it) => {
+    if (it.seatId) useSeat(it.seatId);
+  }),
+});
+
 // ---- The gong -------------------------------------------------------------------------------------
 let lastHit = 0;
 /** E at the gong. The office rings it for everyone on the floor, you included (see gongRang). */
@@ -3870,6 +4238,12 @@ function hitGong() {
   lastHit = now;
   net.send({ t: 'gong' });
 }
+
+ctx.interactions.define('gong', {
+  reach: 3.5,
+  hint: () => ({ k: '', parts: [hintTitle('🎉 Merge gong'), aside('rings when a PR merges'), key('E', 'Bang it')] }),
+  use: onE(() => hitGong()),
+});
 
 /** Where confetti comes from over a desk: above the worker's head. */
 function burstOver(deskId: string, n: number) {
@@ -3984,6 +4358,16 @@ function aside(text: string) {
   return h('span', { style: 'opacity:.75;font-weight:600' }, text);
 }
 
+/** What the hint bar calls the thing you're facing. */
+function hintTitle(text: string) {
+  return h('span.title', {}, text);
+}
+
+/** A board you open with E. */
+function boardHint(name: string): Hint {
+  return { k: '', parts: [hintTitle(name), key('E', 'Open')] };
+}
+
 function renderHint() {
   const el = $('hint');
   // Whatever you're in the middle of has the hint bar to itself: the picture you're hanging, the ladder, the tee…
@@ -3998,7 +4382,7 @@ function renderHint() {
     }
     return;
   }
-  const hint = withBall ? ballHint() : carrying ? carryHint(carrying, target) : hintFor(target!);
+  const hint = withBall ? ballHint() : carrying ? carryHint(carrying, target) : ctx.interactions.hint(target!);
   // On the throne, whoever's in line: the herald's a key away, and how to get up.
   const throne = onThrone() && !carrying && !withBall;
   if (throne) {
@@ -4012,166 +4396,6 @@ function renderHint() {
   el.classList.remove('hidden');
 }
 
-/** What the hint bar says about the thing you're facing. */
-function hintFor(it: Interactable): Hint {
-  const title = (text: string) => h('span.title', {}, text);
-  const board = (name: string): Hint => ({ k: '', parts: [title(name), key('E', 'Open')] });
-  switch (it.kind) {
-    case 'desk':
-      return it.deskId ? deskHint(it.deskId) : { k: '', parts: [] };
-    case 'station':
-      return it.deskId ? stationHint(it.deskId) : { k: '', parts: [] };
-    case 'issues':
-      if (aimedNote) return { k: String(aimedNote.number), parts: [title(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', 'Take it'), key('O', 'Read it')] };
-      return issuesTex.hasNotes ? { k: 'notes', parts: [title('📌 Issues board'), key('E', 'Open'), aside('or point at a note to take it')] } : board('📌 Issues board');
-    case 'pulls':
-      return board('🔀 Pull request board');
-    case 'services':
-      return board('🌐 Services board');
-    case 'queue': {
-      const n = store.queue.tasks.filter((t) => t.status !== 'done').length;
-      return { k: String(n), parts: [title(`📋 Task queue${n ? ` · ${n}` : ''}`), key('E', 'Open')] };
-    }
-    case 'tv': {
-      const any = currentShares().length > 0;
-      return { k: String(any), parts: [title('📺 Office TV'), key('E', any ? 'Watch full screen' : 'Share your screen')] };
-    }
-    case 'coffee': {
-      const buzzed = caffeine.buzzed(performance.now() / 1000);
-      return { k: String(buzzed), parts: [title(it.label ?? '☕ Coffee machine'), key('E', buzzed ? 'Another cup' : 'Grab a cup')] };
-    }
-    case 'herald': {
-      const hd = plan().herald;
-      const full = !firstFreeSeat();
-      const m = store.machine;
-      const why = full ? 'every seat is taken' : officeFull(m) ? `🚫 Office full · ${m.workers} of ${m.limit} workers` : hiringPaused() ? '💸 Budget spent — hiring resumes tomorrow' : '';
-      return { k: `${hd?.name}|${why}`, parts: [title(`${plan().icon} ${hd?.name ?? 'Herald'}`), why ? h('span.cost', {}, why) : aside(hd?.says ?? ''), why ? '' : key('E', 'Send out a new worker')] };
-    }
-    case 'smoke':
-      return { k: String(smokeBreakUntil > 0), parts: [title('🚬 Ashtray'), key('E', smokeBreakUntil ? 'Stub it out' : 'Take a smoke break')] };
-    case 'gong':
-      return { k: '', parts: [title('🎉 Merge gong'), aside('rings when a PR merges'), key('E', 'Bang it')] };
-    case 'darts':
-    case 'axe': {
-      const game = it.kind;
-      const name = game === 'darts' ? '🎯 Darts' : '🪓 Axe throwing';
-      const other = lineTaken(game);
-      if (other) return { k: `taken|${other}`, parts: [title(name), aside(`${clip(other, 24)} is throwing`)] };
-      const best = throwBests[game];
-      const about = best !== undefined ? `your best round: ${best}` : game === 'darts' ? 'three darts a visit' : 'five axes a round';
-      return { k: about, parts: [title(name), aside(about), key('E', game === 'darts' ? 'Step up to the oche' : 'Step up to the line')] };
-    }
-    case 'golf': {
-      const other = teeTaken();
-      if (other) return { k: `taken|${other}`, parts: [title('⛳ Golf tee'), aside(`🏌️ ${clip(other, 24)} is teeing off`)] };
-      const { best, holes } = golfRecord();
-      const about = [holes ? `🏆 ${holes} hole${holes === 1 ? '' : 's'} in one` : '', best !== null ? `your best ${pinText(best)} from the pin` : `the pin's ${Math.round(PIN_DISTANCE)} m out`].filter(Boolean).join(' · ');
-      return { k: about, parts: [title('⛳ Golf tee'), aside(about), key('E', 'Tee off')] };
-    }
-    case 'jukebox': {
-      const j = store.jukebox;
-      const what = j.on ? trackTitle(j) : '';
-      return { k: `${j.on}|${what}`, parts: [title('🎵 Jukebox'), aside(j.on ? `♪ ${clip(what, 40)}` : 'off'), key('E', j.on ? 'Change the song' : 'Put on a song')] };
-    }
-    case 'cabinet': {
-      const c = store.cabinet;
-      const f = store.cabinetFrame;
-      if (c.player && c.player.id !== store.you) {
-        const who = c.player.name;
-        return { k: `${who}|${f?.score}`, parts: [title('🕹️ Arcade'), aside(`▶ ${clip(who, 24)} is playing${f ? ` · ${scoreText(f.score)}` : ''}`), key('E', 'Watch')] };
-      }
-      const left = cabinet.leftAt;
-      const best = c.scores[0];
-      const about = left !== null ? `your game's paused at ${scoreText(left)}` : best ? `🏆 ${clip(best.name, 24)} · ${scoreText(best.score)}` : 'no high score yet';
-      return { k: `${left}|${best?.name}|${best?.score}`, parts: [title(`🕹️ ${GAME}`), aside(about), key('E', left !== null ? 'Carry on' : 'Play')] };
-    }
-    case 'bookshelf': {
-      const names = [...store.peers.values()].filter((p) => p.reading && p.id !== store.you && store.onMyFloor(p)).map((p) => p.name).join(', ');
-      return { k: names, parts: [title('📚 Bookshelf'), aside(names ? `📖 ${clip(names, 40)} reading` : "the project's docs"), key('E', 'Read the docs')] };
-    }
-    case 'whiteboard': {
-      const names = store.drawing.flatMap((id) => (id === store.you ? [] : (store.peers.get(id)?.name ?? []))).join(', ');
-      return { k: names, parts: [title('📝 Whiteboard'), aside(names ? `✏️ ${clip(names, 40)} drawing` : 'draw together, live'), key('E', names ? 'Join in' : 'Draw')] };
-    }
-    case 'meeting': {
-      const m = store.meeting.current;
-      const p = m && MEETING_PATTERNS[m.pattern];
-      const what = !m || !p ? 'free' : m.status === 'running' ? `${p.icon} ${p.label} · ${meetingStage(m)}` : `${p.icon} ${p.label} ${m.status === 'done' ? 'done ✅' : 'stopped ⛔'}`;
-      return { k: what, parts: [title('🤝 Meeting room'), aside(clip(what, 50)), key('E', m?.status === 'running' ? 'See how it’s going' : m ? 'See it / call a meeting' : 'Call a meeting')] };
-    }
-    case 'elevator': {
-      const f = store.currentFloor();
-      const n = store.floors.length;
-      if (it === office.garageLift.interactable) return { k: `garage|${f?.name}|${n}`, parts: [title('🛗 Elevator'), aside(f ? `Garage · up to ${clip(f.name, 24)}` : 'Garage'), key('E', 'Choose a floor')] };
-      return { k: `${f?.name}|${n}`, parts: [title('🛗 Elevator'), f ? aside(`${f.name} · ${n} floor${n === 1 ? '' : 's'}`) : '', key('E', n > 1 ? 'Choose a floor' : 'Floors & projects')] };
-    }
-    case 'decor': {
-      const d = store.decor.find((x) => x.id === it.decorId);
-      return { k: `${d?.title}|${d?.by}`, parts: [title(`🖼️ ${d?.title || 'A picture'}`), d ? aside(`hung by ${d.by}`) : '', key('E', 'Look closer')] };
-    }
-    case 'seat': {
-      const seat = plan().seatingById.get(it.seatId ?? '');
-      if (!seat) return { k: '', parts: [] };
-      if (player.seat?.seatId === seat.id) {
-        const tv = !!seat.tv && tvShowing();
-        const use = tv ? 'Watch the TV' : seat.game ? 'Play Minesweeper' : seat.bar ? 'Order a drink' : '';
-        return { k: `${seat.id}|sitting|${tv}`, parts: [title(seat.label), aside('sitting'), ...(use ? [key('E', use), key('W A S D', 'Get up')] : [key('E', 'Get up')])] };
-      }
-      const full = !freePlace(seat);
-      return { k: `${seat.id}|${full}`, parts: [title(seat.label), seat.game ? aside('💣 Minesweeper on the monitor') : '', full ? aside('no room') : key('E', 'Sit down')] };
-    }
-    case 'ladder': {
-      const up = floorThere(1)?.name;
-      const down = floorThere(-1)?.name;
-      const where = [up && `⬆ ${up}`, down && `⬇ ${down}`].filter(Boolean).join(' · ');
-      return { k: where, parts: [title('🪜 Ladder'), aside(where || 'no other floors yet'), key('E', 'Climb on')] };
-    }
-    case 'pole': {
-      if (office.stack.polesGoDown()) {
-        const down = floorThere(-1)?.name ?? 'the floor below';
-        return { k: `down|${down}`, parts: [title('🚒 Fire pole'), aside(`down to ${down}`), key('E', 'Slide down!')] };
-      }
-      const up = floorThere(1)?.name ?? 'upstairs';
-      return { k: `landing|${up}`, parts: [title('🚒 Fire pole'), aside(`comes down from ${up}`), key('E', 'Twirl')] };
-    }
-    case 'bar': {
-      const cut = booze.cutOff(performance.now() / 1000);
-      return { k: String(cut), parts: [title('🍸 Sky Bar'), aside(cut ? "you've had enough" : 'drinks on the house'), key('E', cut ? 'Ask for water' : 'Order a drink')] };
-    }
-    case 'dj': {
-      const f = djFrame(djAt());
-      const what = f.part === 'drop' ? '🔥 the drop' : f.part === 'build' ? 'building up…' : f.part === 'breakdown' ? 'the breakdown' : 'mixing in the next track';
-      return { k: what, parts: [title('🎧 DJ Merge Conflict'), aside(`drum & bass · ${what}`), key('E', '📯 Air horn!')] };
-    }
-    case 'ball':
-      return { k: String(ball.still), parts: [title('🏀 Basketball'), ball.still ? aside('shoot some hoops') : '', key('E', ball.still ? 'Pick it up' : 'Catch it!')] };
-    case 'dog': {
-      const doing = dog.doing(
-        (id) => store.workers.get(id)?.name,
-        (id) => (id === store.you ? 'you' : store.peers.get(id)?.name),
-      );
-      return { k: `${dog.name}|${doing}`, parts: [title(`🐶 ${dog.name}`), doing ? aside(doing) : '', key('E', 'Pet')] };
-    }
-    case 'telescope':
-      return { k: '', parts: [title('🔭 Office telescope'), aside('overlooks the worker floor'), key('E', 'Look through')] };
-    case 'car': {
-      const c = store.cars[it.car ?? -1];
-      const def = CARS[it.car ?? -1];
-      if (!c || !def) return { k: '', parts: [] };
-      const name = (id?: string) => (id ? clip(store.peers.get(id)?.name ?? 'Someone', 20) : '');
-      const [at, beside] = [name(c.driver), name(c.passenger)];
-      const k = `${it.car}|${at}|${beside}`;
-      if (!at) return { k, parts: [title(`🏎️ ${def.name}`), aside(beside ? `${beside} is waiting in it` : 'keys in the ignition'), key('E', 'Drive it')] };
-      if (!beside) return { k, parts: [title(`🏎️ ${def.name}`), aside(`${at} is driving`), key('E', 'Hop in')] };
-      return { k, parts: [title(`🏎️ ${def.name}`), aside(`${at} and ${beside} · full`)] };
-    }
-    case 'expand': {
-      const level = store.floorPlan.wing;
-      if (level >= WING.rows) return { k: 'full', parts: [title('🏢 Back office'), aside('built all the way out'), key('E', 'Wall a row up')] };
-      return { k: String(level), parts: [title(level ? '🚧 Room to grow' : '🚧 Room to grow through the wall'), aside(level ? `${level} of ${WING.rows} rows built` : 'the office can get bigger here'), key('E', level ? 'Another row: 2 more desks' : 'Knock through: 2 more desks')] };
-    }
-  }
-}
 
 /** With an issue card in your hands: what E does with it here, and how to put it back. */
 function carryHint(card: CarriedIssue, it: Interactable | null): Hint {
@@ -4200,110 +4424,10 @@ function carryHint(card: CarriedIssue, it: Interactable | null): Hint {
   }
   // Anything else works as usual, card in hand.
   if (it) {
-    const rest = hintFor(it);
+    const rest = ctx.interactions.hint(it);
     return { k: rest.k, parts: parts(...rest.parts) };
   }
   return { k: '', parts: parts(aside('take it to an empty desk, a worker or the 📋 queue')) };
-}
-
-function deskHint(deskId: string): Hint {
-  const w = store.workerAtDesk(deskId);
-  if (!w && plan().byId.get(deskId)?.room) return { k: 'room', parts: [h('span.title', {}, `🤝 ${plan().byId.get(deskId)!.label} · free`), key('E', 'Call a meeting')] };
-  // The sign over it, if it has one, and L to hang one (or change it).
-  const sign = store.floorPlan.labels[deskId]?.text;
-  const labelKey = canLabel(deskId) ? key('L', sign ? 'Sign' : 'Label') : '';
-  const deskName = `${sign ? `🪧 ${sign} · ` : ''}${plan().byId.get(deskId)!.label}`;
-  if (!w) {
-    const paused = hiringPaused();
-    const m = store.machine;
-    const full = officeFull(m);
-    return {
-      k: `${paused}|${full}|${m.workers}|${m.limit}|${!!m.pressure}|${sign}`,
-      parts: [
-        h('span.title', {}, `${deskName} · empty`),
-        ...(full
-          ? [h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`)]
-          : [
-              m.pressure ? h('span.cost', { title: `This machine is under pressure: ${m.pressure}` }, '⚠️ Machine under pressure') : '',
-              ...(paused ? [h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow')] : [key('E', 'Hire a worker'), key('P', 'Hire with a task')]),
-              key('B', 'Shell'),
-            ]),
-        labelKey,
-      ],
-    };
-  }
-  if (w.lost && w.worktree) {
-    return {
-      k: `lost|${w.id}|${w.lost.branch}|${sign}`,
-      parts: [
-        h('span.title', {}, `${sign ? `🪧 ${sign} · ` : ''}${w.name} · 🌿 worktree deleted`),
-        aside('deleted outside agent-office'),
-        key('E', 'Fix it'),
-        key('X', 'Send home'),
-        labelKey,
-      ],
-    };
-  }
-  const doing = w.activity ? clip(w.activity, 48) : '';
-  const workerProvider = w.kind === 'agent' ? resolvedProvider(w.provider, store.project) : undefined;
-  const spent = w.kind === 'agent' && w.usage ? usageLabel(w.usage, workerProvider) : '';
-  const shell = w.kind === 'shell';
-  return {
-    k: w.status + w.id + (w.pr?.number ?? '') + (w.repos?.map((r) => r.pr?.number ?? '-').join() ?? '') + (w.prOpening ? '!' : '') + doing + spent + (sign ?? ''),
-    parts: [
-      h('span.title', {}, `${sign ? `🪧 ${sign} · ` : ''}${w.name} · ${STATUS_LABEL[w.status]}`),
-      doing ? aside(doing) : '',
-      spent ? h('span.cost', { title: usageTitle(w.usage!, workerProvider) }, spent) : '',
-      key('E', 'Open terminal'),
-      key('C', 'Changes'),
-      isAsleep(w.status) ? key('R', shell ? 'Restart' : 'Resume') : key('P', shell ? 'Run command' : 'Prompt'),
-      w.repos?.length ? reposKey(w) : w.pr ? key('O', `PR #${w.pr.number}`) : w.prOpening ? aside('⏳ Opening PR…') : prReady(w) ? key('O', 'Open PR') : '',
-      key('X', 'Send home'),
-      labelKey,
-    ],
-  };
-}
-
-/** The O in the desk hint of a worker across repositories: its pull requests so far, or opening them. */
-function reposKey(w: WorkerInfo) {
-  const repos = workerRepos(w);
-  const prs = repos.filter((r) => r.pr).length;
-  if (w.prOpening) return aside('⏳ Opening PRs…');
-  if (prs) return key('O', `${prs} of ${repos.length} PRs`);
-  return prReady(w) ? key('O', `Open PRs (${repos.length} repos)`) : '';
-}
-
-function stationHint(deskId: string): Hint {
-  const kind = plan().byId.get(deskId)?.station;
-  if (!kind) return { k: '', parts: [] };
-  const w = store.workerAtDesk(deskId);
-  const info = STATION_INFO[kind];
-  if (!w) {
-    const m = store.machine;
-    const full = officeFull(m);
-    return {
-      k: `${full}|${m.workers}|${m.limit}`,
-      parts: [
-        h('span.title', {}, `${info.icon} ${STATION_AGENT[kind].name}`),
-        aside(info.offer.replace(/^Ask me /, '')),
-        full ? h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`) : key('E', 'Prompt'),
-      ],
-    };
-  }
-  const doing = w.activity ? clip(w.activity, 48) : '';
-  const provider = resolvedProvider(w.provider, store.project);
-  const spent = w.usage ? usageLabel(w.usage, provider) : '';
-  return {
-    k: w.status + w.id + doing + spent,
-    parts: [
-      h('span.title', {}, `${info.icon} ${w.name} · ${STATUS_LABEL[w.status]}`),
-      doing ? aside(doing) : '',
-      spent ? h('span.cost', { title: usageTitle(w.usage!, provider) }, spent) : '',
-      key('E', isAsleep(w.status) ? 'Wake with a prompt' : 'Prompt'),
-      key('O', 'Terminal'),
-      key('X', 'Send home'),
-    ],
-  };
 }
 
 /** On the ladder: which way it goes from here, and how to get off. Down a pole: just hold on. */
@@ -4595,8 +4719,6 @@ document.addEventListener('pointerlockchange', () => {
 // ---- Clicking the world: use what's under the crosshair (first person) or the mouse (third) ----------
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
-/** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5, car: 4, expand: 8, herald: 5 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */
@@ -4613,7 +4735,8 @@ function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boole
     }
     if (!shown) continue;
     if (!it || it.off) return null; // a wall, the floor, a plant… is in the way
-    return { it, near: hit.point.distanceTo(eye) <= REACH[it.kind] + slack, hit };
+    // How close you must be to use it is each kind's own (see ctx.interactions).
+    return { it, near: hit.point.distanceTo(eye) <= ctx.interactions.reach(it.kind) + slack, hit };
   }
   return null;
 }
