@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { CodexUsageReader, codexTokenUsage } from '../src/server/codex-usage.js';
+import { CodexUsageReader, codexBlockedUntil, codexTokenUsage } from '../src/server/codex-usage.js';
 
 const totals = (input = 120, output = 30) => ({ input_tokens: input, cached_input_tokens: 20, cache_write_input_tokens: 5, output_tokens: output, reasoning_output_tokens: 10, total_tokens: input + output });
 const event = (value = totals()) => JSON.stringify({ type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: value } } });
@@ -59,4 +59,13 @@ test('bounded tail recovers cumulative usage after large non-metric records', t 
   const { home, file } = fixture(t);
   writeFileSync(file, header() + JSON.stringify({ type: 'response_item', payload: 'x'.repeat(5 * 1024 * 1024) }) + '\n' + event() + '\n');
   assert.deepEqual(new CodexUsageReader().read(file, 'thread-1', home), codexTokenUsage(totals()));
+});
+
+test('recognizes an exhausted Codex window and ignores snapshots after reset', () => {
+  const now = 1_000_000;
+  assert.equal(codexBlockedUntil({ primary: { used_percent: 100, resets_at: 1100 }, secondary: { used_percent: 20, resets_at: 2000 } }, now), 1_100_000);
+  assert.equal(codexBlockedUntil({ primary: { used_percent: 100, resets_at: 900 } }, now), undefined);
+  assert.equal(codexBlockedUntil({ primary: { used_percent: 99, resets_at: 1100 } }, now), undefined);
+  assert.equal(codexBlockedUntil({ primary: { used_percent: 99, resets_at: 1100 }, secondary: { used_percent: 20, resets_at: 2000 }, rate_limit_reached_type: 'primary' }, now), 1_100_000);
+  assert.equal(codexBlockedUntil({ primary: { used_percent: 100, resets_at: 1100 }, secondary: { used_percent: 100, resets_at: 2000 } }, now), 2_000_000);
 });

@@ -6,6 +6,28 @@ const TAIL_BYTES = 4 * 1024 * 1024;
 const HEADER_BYTES = 1024 * 1024;
 const count = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
 
+export interface CodexSnapshot {
+  usage: Usage;
+  /** Epoch milliseconds when every exhausted window has reset. */
+  blockedUntil?: number;
+}
+
+/** Rate-limit fields are optional and version-dependent; never infer exhaustion from token totals. */
+export function codexBlockedUntil(value: unknown, now = Date.now()): number | undefined {
+  if (!value || typeof value !== 'object') return;
+  const limits = value as Record<string, unknown>;
+  const windows = [limits.primary, limits.secondary].filter((v): v is Record<string, unknown> => !!v && typeof v === 'object');
+  const blocked = windows.filter((v) => typeof v.used_percent === 'number' && v.used_percent >= 100);
+  if (!blocked.length && !limits.rate_limit_reached_type) return;
+  const reached = limits.rate_limit_reached_type;
+  const matching = reached === 'primary' || reached === 'secondary' ? limits[reached] : undefined;
+  const selected = blocked.length ? blocked : matching && typeof matching === 'object' ? [matching as Record<string, unknown>] : windows;
+  const resets = selected
+    .map((v) => typeof v.resets_at === 'number' ? v.resets_at * 1000 : NaN)
+    .filter((v) => Number.isFinite(v) && v > now);
+  return resets.length ? Math.max(...resets) : undefined;
+}
+
 /** Keep the provider total; split cache reads and reasoning from their parent counters. */
 export function codexTokenUsage(value: unknown): Usage | undefined {
   if (!value || typeof value !== 'object') return;
@@ -29,6 +51,10 @@ export function codexTokenUsage(value: unknown): Usage | undefined {
 export class CodexUsageReader {
   private stamp = '';
   read(file: string, sessionId: string, home: string): Usage | undefined {
+    return this.readSnapshot(file, sessionId, home)?.usage;
+  }
+
+  readSnapshot(file: string, sessionId: string, home: string): CodexSnapshot | undefined {
     let fd: number | undefined;
     try {
       if (!path.isAbsolute(file) || !/^[a-zA-Z0-9-]{1,160}$/.test(sessionId)) return;
@@ -63,7 +89,7 @@ export class CodexUsageReader {
         const usage = codexTokenUsage(row.payload.info?.total_token_usage);
         if (!usage) continue;
         this.stamp = stamp;
-        return usage;
+        return { usage, blockedUntil: codexBlockedUntil(row.payload.rate_limits) };
       }
     } catch {
       // No data is preferable to exposing malformed, mismatched, or inaccessible files.

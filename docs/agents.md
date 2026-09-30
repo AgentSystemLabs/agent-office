@@ -42,6 +42,22 @@ Set it as the default with `--agent dsh`, and choose the profile with `--dsh-pro
 
 Codex uses its interactive CLI with `--no-alt-screen`, preserves native sandbox and approval settings, and resumes through `codex resume <session-id>`. Set it as the default with `--agent codex`; use `/model` inside its terminal to choose a model. The office supplies command hooks through per-process config overrides, without editing your Codex configuration. On first use, open the terminal, complete any login/setup, and review the generated Office commands in `/hooks`. Hooks need your native trust approval before session/status tracking works; the office never bypasses that review. Workers that do not report startup are marked as needing input. Codex tasks use local summaries and do not launch Claude for task naming. Its token metrics come from the root rollout identified by the trusted hook, under `CODEX_HOME/sessions` or `CODEX_HOME/archived_sessions` (default `~/.codex`). The reader checks the session identity, bounds file reads, and sends only normalized counters to the browser. Snapshots update after hooks and on a 10-second poll, survive restarts, and reset for a new session. Cache and reasoning are counted once. Child-session usage is excluded; USD cost and API-call counts are shown as unavailable. The rollout format is version-dependent (verified against 0.154.0); missing or unsupported records remain unavailable instead of being shown as zero. Reads inspect at most a 1 MiB header and the latest 4 MiB of a rollout; if no newer counter is found in that tail, the last known snapshot remains visible.
 
+### Codex account fallback
+
+To opt a Codex worker into two accounts, sign into each account in a separate `CODEX_HOME`. Use file-backed credentials for both profiles. For example, create a private directory for the second profile and run `CODEX_HOME=/absolute/path/to/second codex login -c cli_auth_credentials_store='"file"' --device-auth`. Complete the sign-in as the second account. Keep these directories outside the project and do not copy `auth.json` between them.
+
+In that floor's local `.agent-office/codex-accounts.json`, list two absolute profile paths under the worker's name or ID (the ID takes precedence):
+
+```json
+{
+  "workers": {
+    "Pixel": ["/absolute/path/to/first", "/absolute/path/to/second"]
+  }
+}
+```
+
+The file contains paths only. It is local to that floor; other Codex workers are unaffected. The first profile is used for a new worker. The office reads the authenticated root Codex session's reported rate-limit windows, and switches after a turn ends when an account is exhausted and the other has a file-backed login. The worker keeps its name, desk and role, but the new account starts a new Codex session. Its handoff includes the last assignment and asks it to inspect the repository before continuing. If both windows are exhausted, the worker waits for the earlier account's reset. Format changes or missing rate-limit records prevent automatic detection; the office does not guess limits from token totals. A new profile must independently review and trust the Office hooks.
+
 OpenCode metrics come from assistant-message token/cost records exposed by its plugin SDK. Updated messages replace prior values so streaming updates do not add the same call twice; existing root and child sessions are loaded on resume. History that is still loading or unavailable is labeled as partial. These snapshots update usage only, so a report cannot dismiss a permission request. The daily budget and historical ledger remain Claude-only.
 
 DeepSeek Harness metrics come from ACP `usage_update`: tokens in context and the window's size, shown per worker and for the current desks, plus a session cost only when the harness reports one. The daily budget and historical ledger remain Claude-only.
