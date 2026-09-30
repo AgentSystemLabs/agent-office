@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { FLOOR } from '../../shared/layout';
-import { BALL, HOOP, RETURN_AFTER, THREE_POINT, backboard, launch, nearSolids, outOfReach, simulate, type BallHit, type BallShot, type BallSim, type BallState, type Solid } from '../../shared/hoop';
-import type { Collider, Interactable } from './office';
-import type { Fixture } from './office/fixture';
-import { mergeByMaterial, mesh, toon, toonUnique } from './toon';
+import { FLOOR } from '../../../shared/layout';
+import { BALL, HOOP, RETURN_AFTER, THREE_POINT, backboard, launch, nearSolids, outOfReach, simulate, type BallHit, type BallShot, type BallSim, type BallState, type Solid } from '../../../shared/hoop';
+import type { Collider, Interactable } from '../../world/office';
+import type { Fixture } from '../../world/office/fixture';
+import { mergeByMaterial, mesh, toon, toonUnique } from '../../world/toon';
 
 const ORANGE = '#ff6b1a';
 const INK = '#2b2d42';
@@ -121,7 +121,7 @@ export function buildHoop(): HoopView {
   };
 }
 
-declare module './types' {
+declare module '../../world/types' {
   interface OfficeHandles {
     /** The basketball hoop on the west wall (the ball is features/basketball's: see Basketball below). */
     hoop: HoopView;

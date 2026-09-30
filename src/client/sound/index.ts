@@ -17,7 +17,7 @@ import type { GongWhy } from '../../shared/protocol';
 import { birdsong, deskPhones, Fridge, nightCrickets, startRoomTone, startWind } from './ambience';
 import { ding } from './alerts';
 import { arcade } from '../features/cabinet/sound';
-import { ball, type BallSound } from './ball';
+import { ball, type BallSound } from '../features/basketball/sound';
 import { Dj, hiccup, pour } from '../features/bar/sound';
 import { carDoor, crash, honk, Motors, type Engine } from '../features/cars/sound';
 import { bonk, hatch, poleLanding, rung, slide, twirl } from '../features/climbing/sound';

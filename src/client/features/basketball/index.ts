@@ -9,7 +9,7 @@ import { aside, hintTitle, key, onE } from '../../core/hint';
 import { store } from '../../state';
 import { $, clip, h, modalOpen, toast } from '../../ui/dom';
 import type { Person } from '../../world/character';
-import { Basketball, IN_HANDS } from '../../world/hoop';
+import { Basketball, IN_HANDS } from './world';
 import type { Interactable } from '../../world/office';
 import { disposeSprite, textSprite } from '../../world/toon';
 

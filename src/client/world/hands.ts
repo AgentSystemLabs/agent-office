@@ -7,7 +7,7 @@ import { HeldCard } from './card';
 import { REACH_TIME, SMOKE_CYCLE, cigarette, coffeeMug, dragCurve, drinkGlass, emoteEnvelope, putDownGlass, reachCurve } from './character';
 import { UNDEAD_SKIN, raggedCuff, warlockHand, witchFire } from './costumes';
 import { mesh, toon, toonUnique } from './toon';
-import { ballMesh } from './hoop';
+import { ballMesh } from '../features/basketball/world';
 
 export interface HandsInput {
   yaw: number;
