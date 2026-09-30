@@ -1,7 +1,6 @@
 import http from 'node:http';
 import https from 'node:https';
 import { randomBytes } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -10,12 +9,10 @@ import type { Session } from './auth.js';
 import { MAX_REPOS, childEnv, resolveCommand, type RepoSource } from './workers.js';
 import { OPEN_CODE_MODEL_MAX } from './agents.js';
 import { MAX_WORKER_LIMIT, parseWorkerLimit } from './machine.js';
-import { notLeaving } from './leave-on-merge.js';
-import { findWorker, readHireRequest, readHomeRequest, workerRow, type PullsView } from './office-workers.js';
 import { relayUpgrade, tunneledPort } from './relay.js';
-import type { ChatLine, ClientMsg, MeetingRequest, ServerMsg, SignInKind, WorkerInfo } from '../shared/protocol.js';
+import type { ChatLine, ClientMsg, MeetingRequest, ServerMsg, SignInKind } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
-import { DESK_BY_ID, elevatorSpot, nextFreeSeat } from '../shared/layout.js';
+import { DESK_BY_ID, elevatorSpot } from '../shared/layout.js';
 import { OFFICE_MAP, seatHereOn } from '../shared/maps/index.js';
 import { STREAM } from '../shared/jukebox.js';
 import { checkFrame } from '../shared/cabinet.js';
@@ -37,9 +34,10 @@ import { people } from './office/people.js';
 import { navigation } from './office/navigation.js';
 import { gates } from './office/gates.js';
 import { findPublicDir } from './http/static.js';
-import { readBody, sameOrigin, send } from './http/util.js';
+import { sameOrigin } from './http/util.js';
 import { requestHandler } from './http/router.js';
 import { routes } from './http/routes/index.js';
+import { startHookServer } from './hooks/server.js';
 import { floorView, roofView, screensOf } from './office/views.js';
 import { cabinetChanged, cabinetPlayer, cabinetState, stopPlaying } from './ws/handlers/cabinet.js';
 import { drawingChanged } from './ws/handlers/whiteboard.js';
@@ -74,218 +72,7 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
   const { meOf, onlineAccounts, accountsChanged, stillIn, goToFloor, goToRoof, takeIssue, withSignIn, withFreshBase, withGitHub, claudeFor } = ctx;
   const { accounts, auth, clients, chat, arcade, building, floors } = ctx;
 
-  // --- Loopback-only endpoint for authenticated agent events -------------------------------
-  const hookServer = http.createServer(async (req, res) => {
-    let url: URL;
-    try {
-      url = new URL(req.url ?? '/', 'http://127.0.0.1');
-    } catch {
-      return send(res, 400, {});
-    }
-    if (url.pathname === '/office/queue') return officeQueue(req, res, url);
-    if (url.pathname === '/office/workers' || url.pathname.startsWith('/office/workers/')) return officeWorkers(req, res, url);
-    if (req.method !== 'POST' || !['/hooks/claude', '/hooks/opencode', '/hooks/codex', '/hooks/grok', '/hooks/muse'].includes(url.pathname)) return send(res, 404, { ok: false });
-    let payload: unknown = {};
-    try {
-      const body = await readBody(req);
-      payload = body ? JSON.parse(body) : {};
-    } catch {
-      if (url.pathname !== '/hooks/claude') return send(res, 400, { ok: false });
-      // permissive: a bad payload still counts as the event
-    }
-    const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
-    const workerId = url.searchParams.get('worker') ?? '';
-    const workers = workerFloor(workerId)?.workers;
-    if (!workers) return send(res, 401, {});
-    const event = url.searchParams.get('event') ?? '';
-    const ok = url.pathname === '/hooks/opencode'
-      ? workers.handleOpenCodeHook(workerId, token, payload)
-      : url.pathname === '/hooks/codex'
-        ? workers.handleCodexHook(workerId, token, event, payload)
-        : url.pathname === '/hooks/grok'
-          ? workers.handleGrokHook(workerId, token, event, payload)
-          : url.pathname === '/hooks/muse'
-            ? workers.handleMuseHook(workerId, token, event, payload)
-            : workers.handleHook(workerId, token, event, payload);
-    send(res, ok ? 200 : 401, {});
-  });
-  /**
-   * The task queue, for the board agents (see stations.ts, which tells them how): GET lists it, POST
-   * adds a task, DELETE with ?task= takes a waiting one off. The agent's own hook token says who's asking.
-   */
-  const officeQueue = async (req: http.IncomingMessage, res: http.ServerResponse, url: URL) => {
-    const workerId = url.searchParams.get('worker') ?? '';
-    const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
-    const floor = workerFloor(workerId);
-    const agent = floor?.workers.authenticate(workerId, token);
-    if (!floor || !agent) return send(res, 401, { error: 'Send your own AGENT_OFFICE_WORKER_ID as ?worker= and AGENT_OFFICE_HOOK_TOKEN as the bearer token' });
-    if (!DESK_BY_ID.get(agent.deskId)?.station) return send(res, 403, { error: 'Only the agents standing by the boards can use the queue' });
-    const view = () => {
-      const q = floor.queue.state();
-      return {
-        maxWorkers: q.maxWorkers,
-        tasks: q.tasks.map((t) => ({ id: t.id, title: t.title, status: t.status, outcome: t.outcome, issue: t.issue, addedBy: t.addedBy, worker: t.workerName, branch: t.branch, pr: t.pr, error: t.error })),
-      };
-    };
-    if (req.method === 'GET') return send(res, 200, view());
-    if (req.method === 'DELETE') {
-      const err = floor.queue.remove(url.searchParams.get('task') ?? '');
-      return err ? send(res, 400, { error: err }) : send(res, 200, view());
-    }
-    if (req.method !== 'POST') return send(res, 405, { error: 'GET, POST or DELETE' });
-    let body: { prompt?: unknown; title?: unknown; issue?: unknown };
-    try {
-      body = JSON.parse(await readBody(req));
-    } catch {
-      return send(res, 400, { error: 'Send JSON: {"title": "…", "prompt": "…", "issue": 12}' });
-    }
-    const issue = Number.isInteger(body?.issue) && (body.issue as number) > 0 ? (body.issue as number) : undefined;
-    // Its tasks run as whoever the board agent runs as.
-    const err = floor.queue.add(str(body?.prompt, 20000), agent.name, str(body?.title, 200) || undefined, issue, undefined, undefined, undefined, floor.workers.ownerOf(agent.id));
-    if (err) return send(res, 400, { error: err });
-    const task = floor.queue.state().tasks.at(-1)!;
-    toastFloor(floor, `📋 The ${agent.name} queued ${issue !== undefined ? `issue #${issue}` : `“${task.title}”`}`);
-    send(res, 200, { ok: true, task: { id: task.id, title: task.title, status: task.status } });
-  };
-  /**
-   * The floor's workers, for any worker on it (see office-workers.ts, and bin/office-workers.js, the
-   * command and MCP server that call it): GET lists them, POST hires one, POST /home sends some home
-   * (its worktree and branch go too, unless they hold work), POST /tell types a prompt to one. The
-   * worker's own hook token says who's asking, and the floor hears who did what, as from anyone.
-   */
-  const officeWorkers = async (req: http.IncomingMessage, res: http.ServerResponse, url: URL) => {
-    const workerId = url.searchParams.get('worker') ?? '';
-    const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
-    const floor = workerFloor(workerId);
-    const me = floor?.workers.authenticate(workerId, token);
-    if (!floor || !me) return send(res, 401, { error: 'Send your own AGENT_OFFICE_WORKER_ID as ?worker= and AGENT_OFFICE_HOOK_TOKEN as the bearer token' });
-    const who = me.name;
-    const view: PullsView = { pulls: floor.github.pulls.items, tasks: floor.queue.state().tasks, pullsOf: (id) => floors.get(id)?.github.pulls.items };
-    const row = (id: string) => {
-      const w = floor.workers.get(id);
-      return w && workerRow(w, view, me.id);
-    };
-    const action = url.pathname.slice('/office/workers'.length);
-    if (req.method === 'GET' && !action) {
-      const list = floor.workers.list();
-      const free = nextFreeSeat((id) => floor.workers.deskOccupied(id), floor.plan.wing);
-      return send(res, 200, {
-        floor: { id: floor.id, name: floor.def.name, repo: floor.def.repo, branch: floor.project.branch },
-        you: me.id,
-        leaveOnMerge: ctx.leaveOnMerge.on,
-        providers: floor.project.agentProviders,
-        defaultProvider: floor.workers.officeDefault.provider,
-        freeDesk: free?.id ?? null,
-        ...(ctx.ledger.hiringPaused ? { hiringPaused: ctx.ledger.hiringPaused } : {}),
-        workers: list.map((w) => workerRow(w, view, me.id)),
-      });
-    }
-    if (req.method !== 'POST' || !['', '/home', '/tell'].includes(action)) return send(res, 405, { error: 'GET /office/workers, or POST to /office/workers, /office/workers/home or /office/workers/tell' });
-    let body: unknown;
-    try {
-      body = JSON.parse((await readBody(req)) || '{}');
-    } catch {
-      return send(res, 400, { error: 'Send JSON' });
-    }
-
-    if (action === '/home') {
-      const ask = readHomeRequest(body);
-      if (typeof ask === 'string') return send(res, 400, { error: ask });
-      type Outcome = { worker: string; id?: string; went?: boolean; note?: string; error?: string; skipped?: string };
-      const results: Outcome[] = [];
-      const going: { w: WorkerInfo; why?: string }[] = [];
-      if (ask.merged) {
-        for (const w of floor.workers.list()) {
-          const landed = floor.landed(w);
-          if (!landed) continue;
-          const why = landed.prs?.length ? `its pull requests merged (${landed.prs.join(', ')})` : `PR #${landed.pr} merged`;
-          const staying = w.id === me.id ? "that's you" : notLeaving(w);
-          if (staying) results.push({ worker: w.name, id: w.id, skipped: `${why}, but it's ${staying}` });
-          else going.push({ w, why });
-        }
-      } else {
-        for (const key of ask.workers) {
-          const w = findWorker(floor.workers.list(), key);
-          if (typeof w === 'string') results.push({ worker: key, error: w });
-          else if (w.id === me.id) results.push({ worker: w.name, id: w.id, error: "That's you: someone else has to send you home" });
-          else if (!going.some((g) => g.w === w)) going.push({ w });
-        }
-      }
-      // One at a time: git takes a lock on the repository's refs to delete a branch.
-      for (const { w, why } of going) {
-        if (floor.workers.get(w.id) !== w) {
-          results.push({ worker: w.name, id: w.id, skipped: 'it had already gone' });
-          continue;
-        }
-        toastFloor(floor, why ? `🏠 ${who} sent ${w.name} home: ${why}` : `${who} sent ${w.name} home`);
-        const { note, error } = await floor.sendHome(w.id, ask.cleanup);
-        if (note) toastFloor(floor, note);
-        if (error) toastFloor(floor, error, 'warn');
-        results.push({ worker: w.name, id: w.id, went: true, ...(note ? { note } : {}), ...(error ? { error } : {}) });
-      }
-      return send(res, 200, { results });
-    }
-
-    if (action === '/tell') {
-      const b = (body ?? {}) as { worker?: unknown; prompt?: unknown };
-      const w = findWorker(floor.workers.list(), str(b.worker, 64));
-      if (typeof w === 'string') return send(res, 404, { error: w });
-      if (w.id === me.id) return send(res, 400, { error: "That's you" });
-      // A shell would run it as a command, in someone's terminal.
-      if (w.kind !== 'agent') return send(res, 400, { error: `${w.name} is a shell, not an agent` });
-      const text = str(b.prompt, 20000).replace(/\r\n?/g, '\n').trim();
-      if (!text) return send(res, 400, { error: 'Say what to tell it: prompt' });
-      let err = floor.workers.prompt(w.id, text, who);
-      // Stopped or asleep: it wakes up with this as its next message.
-      if (err === 'Worker is not running') err = floor.workers.resume(w.id, text);
-      if (err) return send(res, 400, { error: err });
-      return send(res, 200, { ok: true, worker: row(w.id) });
-    }
-
-    const ask = readHireRequest(body, floor.project.agentProviders);
-    if (typeof ask === 'string') return send(res, 400, { error: ask });
-    const desk = ask.desk ?? nextFreeSeat((id) => floor.workers.deskOccupied(id), floor.plan.wing)?.id;
-    if (!desk) return send(res, 409, { error: 'Every desk and bean bag is taken: send someone home first' });
-    // A model or effort is the office's default worker's unless it says whose.
-    const provider = ask.provider ?? (ask.model || ask.effort ? floor.workers.officeDefault.provider : undefined);
-    const worktree = ask.worktree ?? !!floor.project.branch;
-    // Its worktree starts from what's on GitHub now, like one hired from a desk.
-    if (worktree) await floor.workers.fetchBase();
-    if (!floors.has(floor.id)) return send(res, 410, { error: 'This floor closed' });
-    // It runs as whoever the asking worker runs as.
-    const owner = floor.workers.ownerOf(me.id);
-    const r = floor.workers.spawn(desk, who, ask.prompt, worktree, 'agent', provider, ask.model, ask.effort, undefined, owner);
-    if (typeof r === 'string') return send(res, 400, { error: r });
-    toastFloor(floor, `${who} hired ${r.name}${ask.issue ? ` for issue #${ask.issue}` : ' with a task'}`);
-    if (ask.issue) {
-      const n = ask.issue;
-      floor.queue.dropIssue(n);
-      const as = owner ? ctx.signins.ghAs(owner) : undefined;
-      if (typeof as === 'string') toastFloor(floor, `Couldn't assign issue #${n} on GitHub: ${as}`, 'warn');
-      else void floor.github.claim(n, as).then((e) => e && toastFloor(floor, `Couldn't assign issue #${n} on GitHub: ${e}`, 'warn'));
-    }
-    send(res, 200, { ok: true, worker: row(r.id) });
-  };
-  // Workers' terminals outlive a restart of the office (see ptys.ts) with this address in their
-  // environment, so listen where the last office did when that port is free.
-  const hookPortPath = path.join(cfg.dataDir, 'hook-port');
-  const listenHooks = (port: number) =>
-    new Promise<void>((resolve, reject) => {
-      hookServer.once('error', reject);
-      hookServer.listen(port, '127.0.0.1', () => {
-        hookServer.off('error', reject);
-        resolve();
-      });
-    });
-  let lastHookPort = 0;
-  try {
-    lastHookPort = Number(readFileSync(hookPortPath, 'utf8')) || 0;
-  } catch {
-    // first start
-  }
-  await listenHooks(lastHookPort).catch(() => listenHooks(0));
-  const hookPort = (hookServer.address() as { port: number }).port;
-  writeFileSync(hookPortPath, String(hookPort), { mode: 0o600 });
+  const { hookServer, hookPort } = await startHookServer(ctx);
 
   Object.assign(ctx, createServices(ctx));
   const { themes, maps, prompts, leaveOnMerge, ledger, signins, accountLimits, webhook, machine, limitsOf, pumpQueues } = ctx;
