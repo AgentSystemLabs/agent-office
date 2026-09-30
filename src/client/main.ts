@@ -563,6 +563,23 @@ const golf = new Golfer(player, me, camera, {
   street: () => player.street,
   done: () => ctx.hint.invalidate(),
 });
+ctx.activities.add({
+  id: 'golf',
+  active: () => golf.active,
+  // The club goes back for anything but the office moving you off your floor (takenAway leaves it out).
+  stop: (why) => {
+    if (why !== 'taken') golf.stop();
+  },
+  // At the golf tee, E puts the club back (Space swings, see Golfer); nothing else is in reach, and no emotes mid-swing.
+  key: (e) => {
+    if (e.code !== 'KeyF' && e.code !== 'KeyG' && !(e.code in DESK_KEYS) && !/^(?:Digit|Numpad)[1-6]$/.test(e.code)) return false;
+    if (e.code === 'KeyE') golf.stop();
+    return true;
+  },
+  hint: (el) => renderGolfHint(el),
+  takesCamera: true,
+  hidesHands: true,
+});
 balls.onHit = (hit: Hit, mine: boolean) => {
   // Your own ball's heard wherever it lands (the camera's following it); anyone else's from where it is.
   const at = mine ? undefined : hit.at;
@@ -598,12 +615,12 @@ function teeTaken(): string | null {
 
 /** E at the tee: take a club out and step up to the ball. */
 function teeOff() {
-  if (golf.active || trip || climber.active) return;
+  if (golf.active || trip || ctx.activities.running('climber')) return;
   const other = teeTaken();
   if (other) return toast(`🏌️ ${other} is on the tee — wait your turn`, 'warn');
   if (carrying) return toast(`✋ Your hands are full: put #${carrying.issue} down first (Q)`, 'warn');
   if (player.seat) standUp();
-  if (hanger.active) hanger.cancel();
+  ctx.activities.stopAll('start');
   if (walkingTo) stopWalking();
   if (smokeBreakUntil) setSmoking(false);
   golf.start();
@@ -654,6 +671,23 @@ const thrower = new Thrower(player, me, camera, canvas, {
   aim: (game, u, v) => roof?.games.aim(game, u, v),
   done: () => ctx.hint.invalidate(),
 });
+ctx.activities.add({
+  id: 'thrower',
+  active: () => thrower.active,
+  // Back from the line for anything but the office moving you off your floor or the map changing (neither ever put the dart down).
+  stop: (why) => {
+    if (why !== 'taken' && why !== 'map') thrower.stop();
+  },
+  // At the dart board or the axe lane, E steps back (Space throws, see Thrower); nothing else is in reach, and no emotes mid-throw.
+  key: (e) => {
+    if (e.code !== 'KeyF' && e.code !== 'KeyG' && !(e.code in DESK_KEYS) && !/^(?:Digit|Numpad)[1-6]$/.test(e.code)) return false;
+    if (e.code === 'KeyE') thrower.stop();
+    return true;
+  },
+  hint: (el) => renderThrowHint(el),
+  takesCamera: true,
+  hidesHands: true,
+});
 
 /** Who's at a game's line up here already, if anyone. */
 function lineTaken(game: BarGame): string | null {
@@ -663,11 +697,11 @@ function lineTaken(game: BarGame): string | null {
 
 /** E at the dart board or the axe lane: step up to the line with a dart (or an axe) in hand. */
 function stepUp(game: BarGame) {
-  if (thrower.active || trip || climber.active) return;
+  if (thrower.active || trip || ctx.activities.running('climber')) return;
   const other = lineTaken(game);
   if (other) return toast(`${game === 'darts' ? '🎯' : '🪓'} ${other} is throwing — wait your turn`, 'warn');
   if (player.seat) standUp();
-  if (hanger.active) hanger.cancel();
+  ctx.activities.stopAll('start');
   if (walkingTo) stopWalking();
   thrower.start(game);
 }
@@ -757,6 +791,20 @@ hanger.onChange = () => {
   hud.refresh();
   ctx.hint.invalidate();
 };
+ctx.activities.add({
+  id: 'hanger',
+  active: () => hanger.active,
+  // Put away for anything but walking over to someone, which you can do holding a picture up.
+  stop: (why) => {
+    if (why !== 'walk') hanger.cancel();
+  },
+  key: (e) => {
+    if (!hangingKey(e.code)) return false;
+    e.preventDefault();
+    return true;
+  },
+  hint: (el) => renderHangHint(el),
+});
 
 // ---- The ladder and the fire poles ----------------------------------------------------------------
 /** The floors of the building from the bottom up (not the ones still being cloned: nobody can go there yet). */
@@ -791,6 +839,21 @@ const climber = new Climber(player, {
   },
   done: () => ctx.hint.invalidate(),
 });
+ctx.activities.add({
+  id: 'climber',
+  active: () => climber.active,
+  // Off the ladder or the pole for anything but walking over to someone (that waits till you're off, see walkTick).
+  stop: (why) => {
+    if (why !== 'walk') climber.abort();
+  },
+  // On the ladder, E gets you off it (and nothing else is in reach); W, S and Space climb.
+  key: (e) => {
+    if (e.code !== 'KeyE' && e.code !== 'KeyF' && !(e.code in DESK_KEYS)) return false;
+    if (e.code === 'KeyE') climber.letGo();
+    return true;
+  },
+  hint: (el) => renderClimbHint(el),
+});
 /** Down the pole onto the mat: the view shakes, dust flies, and there's the floor you're on now. */
 function landed(speed: number) {
   ctx.shake(Math.min(1, speed / 7), true);
@@ -814,7 +877,7 @@ function grabLadder() {
   if (trip || climber.active) return;
   if (!floorThere(1) && !floorThere(-1)) return toast('No other floors yet — add a project in the elevator', 'warn');
   if (player.seat) standUp();
-  if (hanger.active) hanger.cancel();
+  ctx.activities.stopAll('start');
   if (walkingTo) stopWalking();
   climber.grabLadder();
 }
@@ -824,7 +887,7 @@ function usePole(i: number) {
   const spot = POLES[i];
   if (trip || climber.active || !spot) return;
   if (player.seat) standUp();
-  if (hanger.active) hanger.cancel();
+  ctx.activities.stopAll('start');
   if (walkingTo) stopWalking();
   if (office.stack.polesGoDown()) climber.slide(spot);
   else climber.twirl(spot);
@@ -844,13 +907,13 @@ function carAt(i: number): { x: number; y: number; z: number } {
 function getIn(i: number) {
   const c = store.cars[i];
   const def = CARS[i];
-  if (trip || climber.active || driver.active || !c || !def) return;
+  if (trip || ctx.activities.running('climber') || driver.active || !c || !def) return;
   if (carrying) return toast('🗂️ Your hands are full: put the card back first (Q)', 'warn');
   if (holdingBall()) return toast('🏀 Put the ball down first (Q)', 'warn');
   const seat: CarSeat | null = !c.driver ? 'driver' : !c.passenger ? 'passenger' : null;
   if (!seat) return toast(`🏎️ The ${def.name} is full`, 'warn');
   if (player.seat) standUp();
-  if (hanger.active) hanger.cancel();
+  ctx.activities.stopAll('start');
   if (walkingTo) stopWalking();
   driver.enter(i, seat);
   me.sit(SEAT_HIPS);
@@ -887,6 +950,27 @@ function leftCar(i: number) {
   sound.carDoor(carAt(i));
   ctx.hint.invalidate();
 }
+
+ctx.activities.add({
+  id: 'driver',
+  active: () => driver.active,
+  // Out onto your feet for a trip to another floor, or let go of where you are for a desk. Walking over
+  // to someone gets you out first itself (it can't, with no room at the door), and nothing else does.
+  stop: (why) => {
+    if (why === 'trip') getOut(true);
+    else if (why === 'desk') dropCar();
+  },
+  // In a car, E gets you out and H honks (W A S D and Space drive, see Driver); nothing else is in reach.
+  key: (e) => {
+    if (e.code !== 'KeyE' && e.code !== 'KeyH' && e.code !== 'KeyF' && !(e.code in DESK_KEYS)) return false;
+    if (e.repeat) return true;
+    if (e.code === 'KeyE') getOut();
+    else if (e.code === 'KeyH') honk();
+    return true;
+  },
+  hint: (el) => renderDriveHint(el),
+  hidesHands: true,
+});
 
 /** H in a car: its horn, for everyone on the floor. */
 let honkedAt = 0;
@@ -1326,8 +1410,7 @@ function placeAt(at: { x: number; y: number; z: number; rotY: number }) {
 /** Not a trip of yours: the office put you on another floor (yours went), in its elevator car. Whatever you were doing stops. */
 function takenAway() {
   closeAllModals();
-  if (hanger.active) hanger.cancel();
-  if (climber.active) climber.abort();
+  ctx.activities.stopAll('taken');
   if (walkingTo) stopWalking();
   placeInCar();
 }
@@ -1407,11 +1490,7 @@ function ride(to: string, keepWalking = false): void {
   const floorId = garage ? (upTop || !store.floor ? builtFloors()[0]?.id : store.floor) : to;
   if (trip || !floorId || (floorId === store.floor && garage === downstairs())) return;
   closeAllModals();
-  if (hanger.active) hanger.cancel();
-  if (climber.active) climber.abort();
-  getOut(true);
-  if (golf.active) golf.stop();
-  if (thrower.active) thrower.stop();
+  stopForTrip();
   const inside = inElevator(player.pos.x, player.pos.z);
   const within = floorId === store.floor;
   trip = { floor: floorId, how: 'elevator', garage, timer: window.setTimeout(tripFailed, 10_000) };
@@ -1431,6 +1510,16 @@ function ride(to: string, keepWalking = false): void {
     },
     inside ? 650 : 0,
   );
+}
+
+/**
+ * Off to another floor: whatever you were doing stops. The picture, the ladder or a pole and the car
+ * go before the club and the darts, the order they always went in (the activities' own order has the
+ * car last, for keys and the hint bar).
+ */
+function stopForTrip() {
+  ctx.activities.stopAll('trip', ['golf', 'thrower']);
+  ctx.activities.stopAll('trip');
 }
 
 /** Down to the garage under your floor, or back up from it: still the same floor, so the lights come up and the doors open. */
@@ -1486,11 +1575,7 @@ function switchFloor(floorId: string, keepWalking = false): void {
     return ride(floorId, keepWalking);
   }
   closeAllModals();
-  if (hanger.active) hanger.cancel();
-  if (climber.active) climber.abort();
-  getOut(true);
-  if (golf.active) golf.stop();
-  if (thrower.active) thrower.stop();
+  stopForTrip();
   backToThrone = onThrone();
   if (player.seat) standUp();
   // The floor list isn't a window, so nothing else stops a walk over to someone on this floor.
@@ -1695,10 +1780,8 @@ function applyMap() {
   sendoffs.clear();
   arrivals.clear();
   telescope.exit();
-  if (hanger.active) hanger.cancel();
-  if (climber.active) climber.abort();
+  ctx.activities.stopAll('map');
   if (walkingTo) stopWalking();
-  if (golf.active) golf.stop();
   if (smokeBreakUntil) setSmoking(false);
   // The office's things: the ball goes down (out of everyone's hands, since its sync is the office's), the games stop.
   if (holdingBall()) dropBall();
@@ -1937,8 +2020,7 @@ function walkTo(id: string) {
   if (!store.onMyFloor(p) && !p.floor) return;
   if (!getOut()) return;
   if (player.seat) standUp();
-  if (golf.active) golf.stop();
-  if (thrower.active) thrower.stop();
+  ctx.activities.stopAll('walk');
   errand = null;
   walkingTo = { id, replanAt: 0 };
   if (store.onMyFloor(p)) toast(`🚶 Walking over to ${p.name}`);
@@ -2010,12 +2092,10 @@ let errand: { at: { x: number; z: number }; what: string; face?: { x: number; z:
  * ladder, driving a car) it just does it. A key of yours takes over, and then it doesn't happen.
  */
 function walkThen(at: { x: number; y?: number; z: number }, what: string, then: () => void, face?: { x: number; z: number }) {
-  if (upTop || trip || climber.active || driver.active) return then();
+  if (upTop || trip || ctx.activities.running('climber') || ctx.activities.running('driver')) return then();
   closeAllModals();
   if (player.seat) standUp();
-  if (hanger.active) hanger.cancel();
-  if (golf.active) golf.stop();
-  if (thrower.active) thrower.stop();
+  ctx.activities.stopAll('errand');
   if (walkingTo) stopWalking();
   errand = { at, what, face, then };
   toast(`🚶 Walking over to ${what}`);
@@ -2559,11 +2639,9 @@ function goToDesk(deskId: string) {
 /** Behind the worker, looking over their shoulder at the laptop (or in front of a board agent's kiosk). */
 function standAt(desk: DeskDef) {
   if (player.seat) standUp();
+  // The car first (the activities' own order has it last).
   dropCar();
-  if (hanger.active) hanger.cancel();
-  if (climber.active) climber.abort();
-  if (golf.active) golf.stop();
-  if (thrower.active) thrower.stop();
+  ctx.activities.stopAll('desk');
   if (walkingTo) stopWalking();
   // In line for the throne: in front of it, where it stands.
   const w = store.workerAtDesk(desk.id);
@@ -3658,11 +3736,9 @@ function aside(text: string) {
 
 function renderHint() {
   const el = $('hint');
-  if (hanger.active && !modalOpen()) return renderHangHint(el);
-  if (climber.active && !modalOpen()) return renderClimbHint(el);
-  if (golf.active && !modalOpen()) return renderGolfHint(el);
-  if (thrower.active && !modalOpen()) return renderThrowHint(el);
-  if (driver.active && !modalOpen()) return renderDriveHint(el);
+  // Whatever you're in the middle of has the hint bar to itself: the picture you're hanging, the ladder, the tee…
+  const doing = modalOpen() ? undefined : ctx.activities.current((a) => !!a.hint);
+  if (doing) return doing.hint!(el);
   const withBall = holdingBall();
   if ((!target && !carrying && !withBall) || modalOpen()) {
     // Still up after a redraw was asked for (hintKey cleared) just as you walked away from it, too.
@@ -4047,7 +4123,7 @@ function renderHangHint(el: HTMLElement) {
 let crossKey = '';
 const finePointer = window.matchMedia('(pointer: fine)').matches;
 function renderCrosshair() {
-  const show = player.view === 'first' && !modalOpen() && !golf.active && !thrower.active;
+  const show = player.view === 'first' && !modalOpen() && !ctx.activities.any('takesCamera');
   const free = show && finePointer && player.canLock && !player.locked;
   const k = `${show}|${!!target}|${free}|${relookOnKey}`;
   if (k === crossKey) return;
@@ -4140,32 +4216,8 @@ window.addEventListener('keydown', (e) => {
   }
   if (modalOpen() || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
   if (relookOnKey && e.key !== 'Escape' && player.canLock) player.lock();
-  if (hanger.active && hangingKey(e.code)) {
-    e.preventDefault();
-    return;
-  }
-  // On the ladder, E gets you off it (and nothing else is in reach); W, S and Space climb.
-  if (climber.active && (e.code === 'KeyE' || e.code === 'KeyF' || e.code in DESK_KEYS)) {
-    if (e.code === 'KeyE') climber.letGo();
-    return;
-  }
-  // At the golf tee, E puts the club back (Space swings, see Golfer); nothing else is in reach, and no emotes mid-swing.
-  if (golf.active && (e.code === 'KeyF' || e.code === 'KeyG' || e.code in DESK_KEYS || /^(?:Digit|Numpad)[1-6]$/.test(e.code))) {
-    if (e.code === 'KeyE') golf.stop();
-    return;
-  }
-  // At the dart board or the axe lane, E steps back (Space throws, see Thrower); nothing else is in reach, and no emotes mid-throw.
-  if (thrower.active && (e.code === 'KeyF' || e.code === 'KeyG' || e.code in DESK_KEYS || /^(?:Digit|Numpad)[1-6]$/.test(e.code))) {
-    if (e.code === 'KeyE') thrower.stop();
-    return;
-  }
-  // In a car, E gets you out and H honks (W A S D and Space drive, see Driver); nothing else is in reach.
-  if (driver.active && (e.code === 'KeyE' || e.code === 'KeyH' || e.code === 'KeyF' || e.code in DESK_KEYS)) {
-    if (e.repeat) return;
-    if (e.code === 'KeyE') getOut();
-    else if (e.code === 'KeyH') honk();
-    return;
-  }
+  // Whatever you're in the middle of has first go (see each activity's key).
+  if (ctx.activities.key(e)) return;
   // With the ball in your hands, E winds up a shot (let go to shoot) and Q drops it.
   if (holdingBall() && (e.code === 'KeyE' || e.code === 'KeyQ')) {
     if (e.repeat) return;
@@ -4414,7 +4466,7 @@ canvas.addEventListener('pointerleave', () => (pointer = null));
 player.onClick = (ndc) => {
   // At the tee, a click is you steadying the mouse to aim: nothing else is in reach.
   // At the dart board or the axe lane, the button throws (see Thrower).
-  if (modalOpen() || golf.active || thrower.active) return;
+  if (modalOpen() || ctx.activities.any('takesCamera')) return;
   if (emoteWheel.isOpen) return emoteWheel.click();
   // The ball in your hands: press to wind up, let go (or click again, with no mouse captured) to shoot.
   if (holdingBall()) {
@@ -4752,15 +4804,15 @@ function frame(ts?: number) {
   me.root.rotation.y = player.facing;
   const grip = climber.grip;
   me.setGrip(grip);
-  me.update(dt, t, (player.moving && player.grounded) || (grip === 'ladder' && player.moving), !player.grounded && !grip && !golf.active && !thrower.active && !driver.active, player.speedBoost);
+  me.update(dt, t, (player.moving && player.grounded) || (grip === 'ladder' && player.moving), !player.grounded && !grip && !ctx.activities.any('hidesHands'), player.speedBoost);
   me.setVoiceLevel(voice.inVoice ? voice.localLevel : 0);
   const firstPerson = player.view === 'first';
   // In first person you are the camera; in third, hide yourself when it's zoomed in right behind your head.
   // At the tee the camera's behind the ball, and you're the one holding the club.
   // So is the camera over your shoulder at the dart board or the axe lane.
-  me.root.visible = golf.active || thrower.active || (!firstPerson && camera.position.distanceTo(headPos.set(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5);
+  me.root.visible = ctx.activities.any('takesCamera') || (!firstPerson && camera.position.distanceTo(headPos.set(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5);
   // In a car, your hands are on the wheel, out of sight.
-  if (firstPerson && !golf.active && !thrower.active && !driver.active) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded, jitter: player.jitter, grip });
+  if (firstPerson && !ctx.activities.any('hidesHands')) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded, jitter: player.jitter, grip });
   // Down a pole: the view widens and the edges streak past.
   const rush = reduceMotion.matches ? 0 : climber.rush;
   // At the oche or the line, the view narrows onto the target.
@@ -4914,7 +4966,7 @@ function frame(ts?: number) {
   }
 
   aimedNote = null;
-  if (modalOpen() || telescope.active || hanger.active || climber.active || golf.active || thrower.active || driver.active) target = null;
+  if (modalOpen() || telescope.active || ctx.activities.busy()) target = null;
   else if (firstPerson) {
     const aim = aimedAt(CROSSHAIR);
     target = aim?.near ? aim.it : (throneTarget() ?? mySeat() ?? (inOffice() ? ballAtFeet() : null));
@@ -4952,7 +5004,7 @@ function frame(ts?: number) {
   effect.render(scene, camera);
   pointToWaiting(now);
   // Not while the camera's up at the boss's monitor or the arcade, where they'd cover the screen.
-  if (firstPerson && !telescope.active && !arcade.zoomed && !cabinet.zoomed && !golf.active && !thrower.active && !driver.active) {
+  if (firstPerson && !telescope.active && !arcade.zoomed && !cabinet.zoomed && !ctx.activities.any('hidesHands')) {
     // Hands go on top of everything, so they never clip into a desk you walk up to. They have
     // lights of their own, turned down to match wherever you're standing.
     renderer.clearDepth();
