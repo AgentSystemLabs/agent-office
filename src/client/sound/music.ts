@@ -1,13 +1,14 @@
 /**
  * The jukebox's own tunes: lo-fi beats synthesized with Web Audio, like the office's other sounds
- * (see sound.ts). A tune is four bars of chords played on a warm electric piano over swung drums
+ * (see index.ts). A tune is four bars of chords played on a warm electric piano over swung drums
  * and a round bass, with a little melody, the crackle of an old record and a wobbly tape. It runs
  * in 32-bar rounds so it breathes: the keys alone at first, then the beat, a melody, a breakdown.
  *
  * Every note follows from the tune and how far into it you are, so everyone on the floor who starts
  * from the same moment hears exactly the same bar.
  */
-import { mulberry32 } from '../shared/rng';
+import { mulberry32 } from '../../shared/rng';
+import { biquad } from './dsp';
 
 interface Tune {
   bpm: number;
@@ -504,14 +505,6 @@ export class TunePlayer {
 // ---- Plumbing --------------------------------------------------------------------------------------
 
 export const mtof = (m: number) => 440 * 2 ** ((m - 69) / 12);
-
-export function biquad(ctx: BaseAudioContext, type: BiquadFilterType, freq: number, q: number): BiquadFilterNode {
-  const f = ctx.createBiquadFilter();
-  f.type = type;
-  f.frequency.value = freq;
-  f.Q.value = q;
-  return f;
-}
 
 /** The same 0–1 for the same numbers, on everyone's machine. */
 export function hash(a: number, b: number): number {
