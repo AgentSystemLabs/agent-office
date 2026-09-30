@@ -6,7 +6,7 @@ import type { BarGame } from '../../../shared/bargames';
 import type { Drink } from '../../../shared/rooftop';
 import { HIPS, type PersonRig } from './rig';
 import { axeModel, dartModel } from '../../features/bargames/world';
-import { OpenBook } from '../book';
+import { OpenBook } from '../../features/bookshelf/book';
 import { HeldCard } from '../../features/carrying/card';
 import { UNDEAD_SKIN, santaHat, warlockHat } from '../costumes';
 import { disposeSprite, mesh, textSprite, toon, toonUnique } from '../toon';

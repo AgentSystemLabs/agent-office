@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { BOOKSHELF, FLOOR } from '../../shared/layout';
-import { mergeByMaterial, mesh, textPlane, toon } from './toon';
-import type { Collider, Interactable } from './office';
-import type { Fixture } from './office/fixture';
+import { BOOKSHELF, FLOOR } from '../../../shared/layout';
+import { mergeByMaterial, mesh, textPlane, toon } from '../../world/toon';
+import type { Collider, Interactable } from '../../world/office';
+import type { Fixture } from '../../world/office/fixture';
 
 // The bookshelf against the south wall: a tall wooden case, five shelves packed with books of every
 // size and color (a few leaning over, a stack lying flat, a plant and a globe among them), and a

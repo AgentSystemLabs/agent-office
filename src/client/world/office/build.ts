@@ -8,7 +8,7 @@ import { toon, toonUnique } from '../toon';
 import { elevator, garageLift } from '../elevator';
 import { gong } from '../../features/gong/world';
 import { jukebox } from '../../features/jukebox/world';
-import { bookshelf } from '../bookshelf';
+import { bookshelf } from '../../features/bookshelf/world';
 import { cabinet } from '../../features/cabinet/world';
 import { whiteboard } from '../../features/whiteboard/world';
 import { green, tee } from '../../features/golf/world';

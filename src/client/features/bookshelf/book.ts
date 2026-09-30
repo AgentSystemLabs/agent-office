@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { mesh, toon, toonUnique } from './toon';
+import { mesh, toon, toonUnique } from '../../world/toon';
 
 // An open book, held by someone reading off the bookshelf: two page blocks in a shallow V on a
 // hardcover, and every few seconds a page lifts off the right-hand side, curls over and lands on the
