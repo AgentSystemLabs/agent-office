@@ -89,7 +89,7 @@ import { officeFull, pressureNote } from '../shared/machine';
 import { mountHud } from './ui/menu';
 import { openJukebox } from './ui/jukebox';
 import { openTv } from './ui/tv';
-import { TvScreen } from './tvscreen';
+import { TvScreen, type HandCover } from './tvscreen';
 import { openBookshelf } from './ui/bookshelf';
 import { Arcade } from './ui/arcade';
 import { Cabinet } from './ui/cabinet';
@@ -434,6 +434,49 @@ const caffeine = new Caffeine();
 const vitals = new Vitals();
 /** Keeling over when they run out, and coming round outside (see faint.ts). */
 const faint = new Faint();
+
+/** Whether your own hands are drawn over the world this frame (see the overlay pass at the end of frame). */
+function handsShown() {
+  return player.view === 'first' && !telescope.active && !arcade.zoomed && !cabinet.zoomed && !golf.active && !thrower.active && !driver.active && !faint.down;
+}
+
+/** The grid your hands' coverage of the screen is read on, for the TV to hide behind (see handsCover). */
+const HAND_COVER = { width: 128, height: 72 };
+let handCoverTarget: THREE.WebGLRenderTarget | null = null;
+let handCoverPixels: Uint8Array | null = null;
+const handCoverClear = new THREE.Color();
+/**
+ * Where your own hands are on screen this frame, or null when they aren't drawn. They're painted
+ * over the world, but the TV's picture is ordinary HTML over the canvas, so it would sit on top of
+ * them; the TV asks for this and hides behind them instead (see TvScreen.occlude). A small render
+ * of the hands' own scene, read back: what isn't a hand stays transparent, and that alpha is all
+ * the mask needs.
+ */
+function handsCover(): HandCover | null {
+  if (!handsShown()) return null;
+  if (!handCoverTarget) {
+    handCoverTarget = new THREE.WebGLRenderTarget(HAND_COVER.width, HAND_COVER.height, { depthBuffer: false });
+    handCoverPixels = new Uint8Array(HAND_COVER.width * HAND_COVER.height * 4);
+  }
+  const target = handCoverTarget;
+  const pixels = handCoverPixels!;
+  const wasTarget = renderer.getRenderTarget();
+  const wasClear = renderer.autoClear;
+  const wasAlpha = renderer.getClearAlpha();
+  renderer.getClearColor(handCoverClear);
+  renderer.autoClear = false;
+  renderer.setRenderTarget(target);
+  renderer.setClearColor('#000000', 0);
+  renderer.clear(true, true, false);
+  renderer.render(hands.scene, hands.camera);
+  renderer.setRenderTarget(wasTarget);
+  renderer.setClearColor(handCoverClear, wasAlpha);
+  renderer.autoClear = wasClear;
+  renderer.readRenderTargetPixels(target, 0, 0, HAND_COVER.width, HAND_COVER.height, pixels);
+  return { data: pixels, width: HAND_COVER.width, height: HAND_COVER.height };
+}
+tvScreen.handCover = handsCover;
+
 /** No shaking the view for the coffee jitters when the system asks for less motion. */
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 // Cigarette smoke, from anyone on a smoke break.
@@ -5197,7 +5240,7 @@ if (faint.down || modalOpen() || telescope.active || hanger.active || mover.acti
     z: player.pos.z,
   });
   // Not while the camera's up at the boss's monitor or the arcade, where they'd cover the screen.
-  if (firstPerson && !telescope.active && !arcade.zoomed && !cabinet.zoomed && !golf.active && !thrower.active && !driver.active && !faint.down) {
+  if (handsShown()) {
     // Hands go on top of everything, so they never clip into a desk you walk up to. They have
     // lights of their own, turned down to match wherever you're standing.
     renderer.clearDepth();
