@@ -1,0 +1,15 @@
+/* Tabs on a terminal: the terminal itself, plus any web pages pinned open beside it (a linked chat, say). */
+.term-tabbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 10px; background: var(--paper); border-bottom: 3px solid var(--ink); }
+.term-tabs { display: flex; gap: 6px; overflow-x: auto; flex: 1; min-width: 0; }
+.term-tab { display: flex; align-items: center; border: 2px solid transparent; border-radius: 10px; flex: none; }
+.term-tab.on { background: #fff; border-color: var(--ink); box-shadow: 0 3px 0 var(--ink); }
+.term-tab-label { padding: 6px 10px; font: inherit; font-size: 13px; font-weight: 800; color: var(--ink); background: none; border: none; cursor: pointer; white-space: nowrap; }
+.term-tab-close { width: 22px; height: 22px; margin-right: 3px; padding: 0; border: none; background: none; border-radius: 50%; font-size: 15px; line-height: 1; color: var(--muted); cursor: pointer; }
+.term-tab-close:hover { background: rgba(0, 0, 0, .08); color: var(--ink); }
+.term-tab-add { flex: none; padding: 6px 10px; font: inherit; font-size: 13px; font-weight: 800; color: var(--ink); background: none; border: 2px dashed var(--ink); border-radius: 10px; cursor: pointer; white-space: nowrap; }
+.term-tab-out { flex: none; font-size: 13px; font-weight: 800; color: var(--ink); white-space: nowrap; }
+.term-tab-form { display: flex; gap: 6px; flex-wrap: wrap; flex-basis: 100%; padding-top: 6px; }
+.term-tab-form input { padding: 6px 8px; border: 2px solid var(--ink); border-radius: 8px; font: inherit; font-size: 13px; }
+.term-tab-form input[type=url] { flex: 1; min-width: 160px; }
+.modal.term .term-webhost { flex: 1; min-height: 0; position: relative; background: #fff; }
+.term-webframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
