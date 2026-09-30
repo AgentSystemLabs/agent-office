@@ -1,7 +1,7 @@
-import { CAR, SEATS, carFits, carPoint, drive, onPavement, type Box, type CarPose, type CarSeat, type Pedals } from '../shared/garage';
-import { LOOP_PAVED, nearLoop } from '../shared/scenic';
-import type { PlayerController } from './player';
-import type { Fleet } from './world/cars';
+import { CAR, SEATS, carFits, carPoint, drive, onPavement, type Box, type CarPose, type CarSeat, type Pedals } from '../../../shared/garage';
+import { LOOP_PAVED, nearLoop } from '../../../shared/scenic';
+import type { PlayerController } from '../../player';
+import type { Fleet } from './world';
 
 // Driving the cars in the garage: E at one gets you in (behind the wheel, or beside whoever's
 // there), and it takes hold of you (PlayerController.rig) until you get out. The driver's page runs

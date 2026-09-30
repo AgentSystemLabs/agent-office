@@ -7,9 +7,9 @@ import { CARS, SEAT_HIPS, type CarSeat } from '../../../shared/garage';
 import { PLACES, placeAt as loopPlace } from '../../../shared/scenic';
 import type { Ctx, Hint } from '../../core/context';
 import { aside, hintTitle, key, onE } from '../../core/hint';
-import { Driver } from '../../driving';
+import { Driver } from './controller';
 import { DESK_KEYS } from '../../interaction';
-import { LapTimer, lapTime } from '../../laps';
+import { LapTimer, lapTime } from './laps';
 import { store } from '../../state';
 import { clip, h, toast } from '../../ui/dom';
 

@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { CAR, CARS, SEATS, carPoint, type Box, type CarDef, type CarKind, type CarPose, type CarSeat, type CarState } from '../../shared/garage';
-import { FLOOR, SLAB, STREET_Y, WALL_T, streetBelow } from '../../shared/layout';
-import type { Collider, Interactable } from './office';
-import type { Fixture, StreetSite } from './office/fixture';
-import { mergeByMaterial, mesh, toon } from './toon';
+import { CAR, CARS, SEATS, carPoint, type Box, type CarDef, type CarKind, type CarPose, type CarSeat, type CarState } from '../../../shared/garage';
+import { FLOOR, SLAB, STREET_Y, WALL_T, streetBelow } from '../../../shared/layout';
+import type { Collider, Interactable } from '../../world/office';
+import type { Fixture, StreetSite } from '../../world/office/fixture';
+import { mergeByMaterial, mesh, toon } from '../../world/toon';
 
 const WIDTH = 1.9;
 const WHEEL_R = 0.36;
@@ -385,7 +385,7 @@ export class Fleet {
   }
 }
 
-declare module './types' {
+declare module '../../world/types' {
   interface OfficeHandles {
     /** The Lambos and Ferraris in the garage, which anyone can drive (see driving.ts). */
     cars: Fleet;

@@ -1,5 +1,5 @@
-import { ROAD } from '../shared/layout';
-import { CHECKPOINTS, nearLoop } from '../shared/scenic';
+import { ROAD } from '../../../shared/layout';
+import { CHECKPOINTS, nearLoop } from '../../../shared/scenic';
 
 /**
  * Timing laps of the scenic loop (see shared/scenic.ts): from the chequered line across the street in

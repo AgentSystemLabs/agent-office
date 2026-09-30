@@ -19,7 +19,7 @@ import { ding } from './alerts';
 import { arcade } from './arcade';
 import { ball, type BallSound } from './ball';
 import { Dj, hiccup, pour } from './bar';
-import { carDoor, crash, honk, Motors, type Engine } from './cars';
+import { carDoor, crash, honk, Motors, type Engine } from '../features/cars/sound';
 import { bonk, hatch, poleLanding, rung, slide, twirl } from '../features/climbing/sound';
 import { coffee } from './coffee';
 import { AudioCore, type Hall, type Listener } from './core';
