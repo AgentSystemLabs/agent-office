@@ -316,7 +316,10 @@ export class RemoteFloor implements FloorActions {
       station: async (deskId, by, text, owner) => (await remote.call('station.prompt', { deskId, by, text, owner })) as { info: WorkerInfo; hired: boolean } | string,
       resume: async (id, prompt) => String((await remote.call('worker.resume', { workerId: id, prompt })) ?? ''),
       prompt: async (id, text, by) => String((await remote.call('worker.prompt', { workerId: id, text, by })) ?? ''),
-      kill: async (id, cleanup) => (await remote.call('worker.kill', { workerId: id, cleanup })) as { note?: string; error?: string },
+      kill: async (id, cleanup) => {
+        const result = await remote.call('worker.kill', { workerId: id, cleanup });
+        return typeof result === 'string' ? { error: result } : (result ?? {}) as { note?: string; error?: string };
+      },
 
       // The viewer and the typist travel with the call: the host registers who is watching a terminal
       // and who typed into it, and an anonymous viewer there is a viewer nobody can see.
