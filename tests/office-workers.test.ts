@@ -128,6 +128,11 @@ test('the command reads a prompt from stdin, reports refusals and exits non-zero
   assert.equal(home.code, 1);
   assert.deepEqual(JSON.parse(String(calls[1].init.body)), { workers: ['Bolt', 'Nope'] });
 
+  const discussed = await run(['discuss', 'thread1'], reply(200, { ok: true, remaining: 3 }) as typeof fetch, 'Review the new constraint\n');
+  assert.equal(discussed.code, 0);
+  assert.equal(discussed.out, 'Reply posted; 3 messages remain.');
+  assert.deepEqual(JSON.parse(String(calls[2].init.body)), { id: 'thread1', message: 'Review the new constraint' });
+
   const refused = await run(['list'], reply(401, { error: 'bad token' }) as typeof fetch);
   assert.equal(refused.code, 1);
   assert.match(refused.err, /didn't accept this worker's token \(401\): bad token/);

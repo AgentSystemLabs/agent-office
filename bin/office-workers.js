@@ -24,7 +24,9 @@ const USAGE = `Usage:
                                                 that isn't on GitHub, and says what it kept
   office-workers home --merged                  send home everyone whose pull request merged
   office-workers tell <name|id> <<'EOF'         type a prompt to a worker (or --prompt "…")
-  office-workers discuss <id> --message "…"     reply in a bounded worker discussion; appears in chat
+  office-workers discuss <id> <<'EOF'            reply in a bounded worker discussion; appears in chat
+  …your reply…                                  (or --message "…")
+  EOF
   office-workers mcp                            serve these as MCP tools on stdio`;
 
 /** A mistake in how the command was called: the usage is shown with it. */
