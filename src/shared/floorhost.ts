@@ -18,6 +18,8 @@
  * See docs/remote-agents-plan.md.
  */
 
+import type { AgentProvider } from './protocol.js';
+
 /** Bumped when a frame's shape changes incompatibly. Sent in `hello`, refused on a mismatch. */
 export const FLOORHOST_PROTOCOL = 1;
 
@@ -47,6 +49,17 @@ export interface FloorReady {
   gitIdentity?: string;
   /** The models this host can actually run, so the office never offers one it would refuse. */
   models?: string[];
+  /**
+   * The branch this host's checkout is on, and the agent CLIs it has installed.
+   *
+   * Both are facts only that machine has, and both are needed the moment someone walks onto the floor
+   * from the office: the branch names the floor they rode into, and the providers are the choices the
+   * hire dialog offers. Without them the office would have to guess, and a floor that guesses where it
+   * is — or what it can run — is worse than one that says nothing. The office fills them in from here
+   * rather than holding its own copy, because this is the machine that owns the disk.
+   */
+  branch?: string;
+  providers?: AgentProvider[];
 }
 
 /**
@@ -57,6 +70,7 @@ export interface FloorReady {
 export const HOST_CALLS = ['worker.search', 'queue.dropIssue', 'gh.claim'] as const;
 
 export const FLOOR_CASES = [
+  'ball.left',
   'ball.take',
   'ball.throw',
   'car.enter',
@@ -80,9 +94,11 @@ export const FLOOR_CASES = [
   'gh.labels',
   'gh.merge',
   'gh.refresh',
+  'jukebox.place',
   'jukebox.play',
   'jukebox.skip',
   'jukebox.stop',
+  'meeting.clear',
   'meeting.start',
   'meeting.stop',
   'queue.add',

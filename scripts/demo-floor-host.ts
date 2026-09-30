@@ -94,7 +94,7 @@ async function main() {
     socket.send(JSON.stringify({
       t: 'ready',
       floor: {
-        floorId, name: 'acme/api', seats: 4, accepting: false, forge: 'github', gitIdentity: 'alice <alice@acme.dev>',
+        floorId, name: 'acme/api', seats: 4, accepting: false, forge: 'github', gitIdentity: 'alice <alice@acme.dev>', branch: 'main', providers: ['claude'],
         workers: [{ id: 'w1', status: 'working', deskId: 'desk-1' }],
       },
     }));
@@ -106,8 +106,7 @@ async function main() {
     step(4, 'The office holds a RemoteFloor and hires through it');
     const floor = new RemoteFloor(
       floorId, registry.serves(floorId)!.host.name, claimed.host.id, registry,
-      { id: floorId, name: 'acme/api', dir: '/home/alice/api', palette: 0, addedBy: 'alice', addedAt: Date.now() },
-      'main', ['claude'],
+      { id: floorId, name: 'acme/api', repo: 'acme/api', dir: '/home/alice/api', palette: 0, addedBy: 'alice', addedAt: Date.now() },
     );
     // What the office does once, when it builds the floor: send its upward frames here, and hold its
     // workers asleep when the machine goes.
@@ -117,6 +116,17 @@ async function main() {
     registry.onFloorGone = (id) => {
       if (id === floorId) floor.onGone(id);
     };
+    // A machine announces its floors every time it connects, and the office builds the proxy when it
+    // loads the building — which can be either side of that. So the host says `ready` again now that
+    // something is listening for it, the way it does on a reconnect.
+    socket.send(JSON.stringify({
+      t: 'ready',
+      floor: {
+        floorId, name: 'acme/api', seats: 4, accepting: false, forge: 'github', gitIdentity: 'alice <alice@acme.dev>', branch: 'main', providers: ['claude'],
+        workers: [{ id: 'w1', status: 'working', deskId: 'desk-1' }],
+      },
+    }));
+    await new Promise((r) => setTimeout(r, 150));
     // The host answers the hire the way the real host will: it seats the worker and streams it up.
     socket.on('message', (raw) => {
       const msg = JSON.parse(String(raw));
@@ -140,6 +150,10 @@ async function main() {
     ok(`${listed.length} worker(s) listed, nothing sent to ask: ${listed.map((w) => w.name).join(', ')}`);
     ok(`desk-1 occupied? ${floor.workers.deskOccupied('desk-1')}`);
     ok(`the office holds no checkout path for it: dir is ${JSON.stringify(floor.info().dir)}`);
+    // Riding in needs a room to describe, and the only machine that can describe it is the one whose
+    // disk it is on. So the branch and the agents come off `ready`, exactly as they do in the office.
+    ok(`and it can describe the floor from what the host said: branch ${floor.project?.branch}, agents ${floor.project?.agentProviders.join('/')}`);
+    ok(`a hire here starts on the machine's own agent: ${floor.workers.officeDefault.provider}`);
 
     // --- 6. the machine goes away --------------------------------------------------------------
     step(6, 'The machine goes away');

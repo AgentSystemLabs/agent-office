@@ -30,11 +30,17 @@ import type {
   ForgeKind,
   GhCloseReason,
   GhComment,
+  GhIssue,
   GhLabel,
   GhMergeMethod,
+  GhPull,
+  GhState,
+  JailState,
   MeetingRequest,
   MeetingState,
+  ProjectInfo,
   QueueState,
+  ServerMsg,
   TerminalHit,
   WorkerInfo,
   WorkerKind,
@@ -44,9 +50,9 @@ import type {
 import type { BallState } from '../shared/hoop.js';
 import type { CarPose, CarSeat, CarState } from '../shared/garage.js';
 import type { Decoration } from '../shared/decor.js';
-import type { JukeboxState } from '../shared/jukebox.js';
+import type { JukeboxSpot, JukeboxState } from '../shared/jukebox.js';
 import type { TvState } from '../shared/tv.js';
-import type { DeskLabel } from '../shared/floorplan.js';
+import type { DeskLabel, FloorPlan as SharedFloorPlan } from '../shared/floorplan.js';
 import type { Landed } from './leave-on-merge.js';
 import type { ForgeAs } from './signins.js';
 import type { OpenedPr, RepoSource } from './workers.js';
@@ -77,6 +83,13 @@ export interface FloorSeat {
  */
 export interface FloorForge {
   readonly kind: ForgeKind;
+  /**
+   * The two boards, as whoever just walked in sees them. Reads, answered from the `gh.issues` and
+   * `gh.pulls` events the floor emits whenever a board changes — which a hosted floor emits upward
+   * like everything else, so this costs no round trip either.
+   */
+  readonly issues: { readonly items: GhIssue[]; readonly state: GhState<GhIssue> };
+  readonly pulls: { readonly items: GhPull[]; readonly state: GhState<GhPull> };
   refresh(): Awaitable<void>;
   claim(issue: number, as?: ForgeAs): Awaitable<string | undefined>;
   merge(n: number, method: GhMergeMethod, deleteBranch: boolean, auto: boolean, as?: ForgeAs): Awaitable<string | undefined>;
@@ -93,6 +106,18 @@ export interface FloorWorkers {
   get(id: string): WorkerInfo | undefined;
   ownerOf(id: string): string | undefined;
   deskOccupied(deskId: string): boolean;
+  /** Someone left the floor (or the office): every terminal they were watching stops watching. */
+  detachAll(clientId: string): void;
+  /**
+   * The terminals currently filling the screen, for whoever just arrived. Empty on a hosted floor:
+   * those terminals are on the far machine, so a joining browser asks for one with `attach` and is
+   * sent the host's own screen. Sending an empty list is honest; inventing frames would not be.
+   */
+  fullScreens(): { workerId: string; frame: Omit<Extract<ServerMsg, { t: 'screen' }>, 't' | 'workerId' | 'full'> }[];
+  /** A worker whose process ended while nobody was here gets up as you walk in. */
+  wakeAll(): void;
+  /** What an agent hire starts on when nobody picked: this floor's own setting, or its machine's. */
+  readonly officeDefault: { provider: AgentProvider };
 
   // Hires and sends home. Each returns a refusal the caller shows, so each is awaited.
   spawn(
@@ -153,6 +178,8 @@ export interface FloorQueue {
 export interface FloorChanges {
   watch(workerId: string, clientId: string, repo?: string): void;
   unwatch(workerId: string, clientId: string, repo?: string): void;
+  /** Someone left the floor (or the office): every worker's Changes window they had open closes. */
+  unwatchAll(clientId: string): void;
   diff(workerId: string, filePath: string, repo?: string): Promise<{ diff: string; truncated: boolean } | string>;
   commit(workerId: string, message: string, who: string, env?: Record<string, string>, repo?: string): Promise<string | undefined>;
   discard(workerId: string, filePath: string | undefined, who: string, repo?: string): Promise<string | undefined>;
@@ -168,6 +195,8 @@ export interface FloorPlan {
   shrink(taken: (deskId: string) => boolean): Awaitable<string[] | string>;
   /** How far the back office is built out, so the office knows which desks exist to hire at. */
   readonly wing: number;
+  /** The whole plan, for whoever just walked in. Mirrored on a hosted floor, like the rest. */
+  state(): SharedFloorPlan;
 }
 
 /** Pictures on the walls. */
@@ -181,6 +210,8 @@ export interface FloorDecor {
 /** The room's music, the ball game, the cars, and the meeting room. */
 export interface FloorRoom {
   play(input: { track?: unknown; url?: unknown }, by: string): Awaitable<{ changed: boolean } | { error: string }>;
+  /** Puts a specific track in a specific spot on the list, or says why it could not. */
+  place(spot: unknown): Awaitable<JukeboxSpot | string>;
   skip(by: string): void;
   stop(by: string): Awaitable<boolean>;
   title(): string;
@@ -191,6 +222,8 @@ export interface FloorCourt {
   // The office branches on these (does the ball change hands), so they are awaited.
   take(id: string): Awaitable<boolean>;
   throw(id: string, s: { x: number; y: number; z: number; vx: number; vy: number; vz: number }): Awaitable<boolean>;
+  /** They got off the floor and the ball had to drop back under the hoop. Whether it did. */
+  left(id: string): Awaitable<boolean>;
   state(): BallState;
 }
 
@@ -210,12 +243,16 @@ export interface FloorTv {
   pause(position: unknown, by: string): Awaitable<boolean>;
   seek(position: unknown, by: string): Awaitable<boolean>;
   stop(by: string): Awaitable<boolean>;
+  /** What is on it, for the toast. Mirrored from the `tv` event, like the rest of the TV's state. */
+  title(): string;
   state(): TvState;
 }
 
 export interface FloorMeetings {
   start(req: MeetingRequest, by: string, owner?: string): Awaitable<string | undefined>;
   stop(by: string): Awaitable<string | undefined>;
+  /** Forgets the meetings before the last one. A refusal is shown, so it is awaited. */
+  clear(by: string): Awaitable<string | undefined>;
   state(): MeetingState;
 }
 
@@ -230,6 +267,12 @@ export interface FloorActions {
   readonly dir: string;
   /** Which forge this floor reads its boards from, and the CLI that does it. */
   readonly forge: FloorForge;
+  /**
+   * What the floor's checkout is a project for, for whoever walks in. A hosted floor cannot report its
+   * own `dir`, so it answers from what the office already holds — the name the building gave it — with
+   * the fields only a machine on that disk could know left empty.
+   */
+  readonly project: ProjectInfo | null;
 
   readonly workers: FloorWorkers;
   readonly queue: FloorQueue;
@@ -242,6 +285,19 @@ export interface FloorActions {
   readonly garage: FloorGarage;
   readonly meetings: FloorMeetings;
   readonly tv: FloorTv;
+  /** Workers sent home and locked up, on a map that has one. */
+  readonly jail: { state(): JailState };
+
+  /**
+   * Why this floor cannot do `feature`, or `undefined` if it can — naming the machine when it cannot.
+   *
+   * The whiteboard, the dog and the docs are files in a floor's own data directory, so they are not on
+   * this surface at all: a hosted floor is *unable* to be asked for them, which is a stronger guarantee
+   * than answering a refusal, and it is why the office can never be made to read a checkout on someone
+   * else's disk. This is the other half — how the office says so out loud, by name, rather than
+   * letting the feature look broken. A floor in this process always answers `undefined`.
+   */
+  refuses(feature: 'the whiteboard' | 'the dog' | 'the docs'): string | undefined;
 
   /** Someone arrived on this floor. Presence, so it stays office-side even for a hosted floor. */
   arrived(): void;
