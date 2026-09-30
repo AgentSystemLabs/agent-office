@@ -1,5 +1,5 @@
 import type { DeskDef, SeatDef, StationKind } from '../layout.js';
-import type { Bounds, Obstacles } from '../nav.js';
+import type { Bounds, Obstacles, Pt, Rect } from '../nav.js';
 
 /*
  * Maps: what the building looks like inside. The office (world/office.ts) is built in code and is
@@ -75,6 +75,79 @@ export interface PropConfig {
   light?: boolean;
 }
 
+/**
+ * A dungeon under the hall (see ./dungeon.ts): a vault dug out below its floor, stairs down into it
+ * through an opening in the floor, and cells along its walls with iron bars across their fronts.
+ * Where workers sent home can be locked up, if the map's `sendHome` says so.
+ */
+export interface DungeonConfig {
+  /** The vault: its middle, its size (`width` along x, `length` along z), and how far below the hall's floor its floor is. */
+  x: number;
+  z: number;
+  width: number;
+  length: number;
+  depth: number;
+  /**
+   * The stairs down: the middle of the top step's edge (a hole in the hall's floor opens over them),
+   * the way down (`rotY`), and how wide they are. They go down at a steady slope to the vault's floor,
+   * inside the vault.
+   */
+  stairs: { x: number; z: number; rotY: number; width?: number };
+  /**
+   * The cells: each one's front (the middle of its bars), which way the bars face (`rotY`, out into
+   * the vault), how wide it is across the bars, and how deep behind them. There's a door in the
+   * middle of the bars.
+   */
+  cells: { x: number; z: number; rotY: number; width: number; depth: number }[];
+  /** Stone pillars holding up the vault. */
+  pillars?: { x: number; z: number }[];
+  /** Torches on its walls, burning toward `rotY`. */
+  torches?: { x: number; z: number; rotY: number }[];
+  /** Where the bones go once every cell is full: a heap of them. */
+  ossuary?: { x: number; z: number } | null;
+}
+
+/**
+ * Somewhere a send-home script can walk to: out through the `door` and away, the top of the dungeon
+ * `stairs` or the foot of them down in the `dungeon`, the worker's own `cell` (its door), the
+ * escort's `post`, or a spot in the hall (or, `below`, in the dungeon).
+ */
+export type SendHomePlace = 'door' | 'stairs' | 'dungeon' | 'cell' | 'post' | { x: number; z: number; below?: boolean };
+
+/**
+ * A step of what happens to a worker sent home (see SendHomeConfig.steps and docs/maps.md):
+ * - `pack`: it packs its things into a box at its seat, and its laptop (or tome) shuts.
+ * - `fetch`: the escort comes from its post to the worker (`run`: at a run).
+ * - `say`: the worker, or its escort, says something (one of `text`, picked at random).
+ * - `walk`: the worker walks `to` somewhere, the escort holding on to it if it has fetched it.
+ * - `jail`: it's thrown into its cell, and the door's locked behind it: it's kept there, for good.
+ * - `leave`: it's gone (shrinking away, wherever it is).
+ * - `wait`: a pause, `seconds` long.
+ * - `return`: the escort goes back to its post (the worker's done with meanwhile).
+ */
+export type SendHomeStep =
+  | { do: 'pack' }
+  | { do: 'fetch'; run?: boolean }
+  | { do: 'say'; who?: 'worker' | 'escort'; text: string | string[] }
+  | { do: 'walk'; to: SendHomePlace; run?: boolean }
+  | { do: 'jail' }
+  | { do: 'leave' }
+  | { do: 'wait'; seconds: number }
+  | { do: 'return' };
+
+/**
+ * What becomes of a worker sent home on this map, scripted as `steps` run one after another. Without
+ * it, a worker packs up and walks out of the door.
+ */
+export interface SendHomeConfig {
+  /** Who comes for it: stands at `post` (down in the dungeon, with `below`) until a worker's sent home, then goes and gets it. */
+  escort?: { name?: string; post: Place & { below?: boolean }; color?: string } | null;
+  steps: SendHomeStep[];
+  /** In a cell: hours until it's starved to death (thinner and thinner on the way), and hours after that until it's bare bones. */
+  starveHours?: number;
+  rotHours?: number;
+}
+
 /** What a map is made of: see docs/maps.md for what each part does and how to write one. */
 export interface MapConfig {
   /** Lowercase letters, digits and dashes: what the building's pick calls it. */
@@ -111,6 +184,10 @@ export interface MapConfig {
   agents?: { outfit?: 'peasant' | 'none'; ageMinutes?: number };
   /** Colors: CSS colors for the stone, the floor, the carpet, the wood and the trim. */
   palette?: Partial<Record<'stone' | 'floor' | 'carpet' | 'wood' | 'trim', string>>;
+  /** A dungeon under the hall, with cells to lock workers up in. */
+  dungeon?: DungeonConfig | null;
+  /** What happens to a worker sent home here: without it, it walks out of the door. */
+  sendHome?: SendHomeConfig | null;
 }
 
 /** A board on a wall, as a map puts it. */
@@ -158,6 +235,69 @@ export interface MapPlan {
   /** What's in the way on the floor, for walking round it (the office has its own: OFFICE_NAV). */
   obstacles?: Obstacles;
   agents: { outfit: 'peasant' | 'none'; ageMinutes: number };
+  /** The dungeon under the hall, worked out (see ./dungeon.ts). */
+  dungeon?: DungeonPlan;
+  /** What happens to a worker sent home, checked (see ./dungeon.ts): none, and it walks out of the door. */
+  sendHome?: SendHomePlan;
+}
+
+/** A spot to sit or stand in, facing `rotY`, and how high its floor is. */
+export interface Spot {
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
+}
+
+/** A cell in the dungeon, worked out: see DungeonConfig.cells. */
+export interface CellPlan {
+  /** The middle of its bars, and the way they face (out into the vault). */
+  x: number;
+  z: number;
+  rotY: number;
+  width: number;
+  depth: number;
+  /** Its door, in the middle of the bars: where the escort stands in front of it, and where its prisoner is thrown in from. */
+  outside: Pt;
+  threshold: Pt;
+  /** Where its prisoners sit, the first to be locked up first. */
+  spots: Spot[];
+}
+
+/** The dungeon under the hall, worked out from its config. */
+export interface DungeonPlan {
+  /** The vault. */
+  bounds: Bounds;
+  /** Its floor, below the hall's (negative), and its ceiling, the underside of the hall's floor. */
+  floor: number;
+  ceiling: number;
+  /** The hole in the hall's floor over the stairs, and the rails round it. */
+  opening: Rect;
+  rails: Rect;
+  /**
+   * The stairs: a step at a time, its top and the floor it covers, from the top one down; where a
+   * walker comes up to them in the hall (`top`) and gets off at the foot of them in the vault (`foot`).
+   */
+  steps: { top: number; rect: Rect }[];
+  stairs: { rotY: number; width: number; top: Pt; start: Pt; end: Pt; foot: Pt };
+  cells: CellPlan[];
+  /** Every seat in every cell, in the order they fill: round the cells one seat each, then round again. */
+  seats: { cell: number; spot: Spot }[];
+  pillars: Pt[];
+  torches: { x: number; z: number; rotY: number }[];
+  ossuary: Pt | null;
+  /** What's in the way down there, for walking round it. */
+  obstacles: Obstacles;
+}
+
+export interface SendHomePlan {
+  escort?: { name: string; color: string; post: Spot & { below: boolean } };
+  steps: SendHomeStep[];
+  /** Whoever's sent home is kept, locked up in the dungeon (its steps jail it). */
+  keeps: boolean;
+  /** How long until someone locked up has starved to death, and after that until they're bare bones (ms). */
+  starveMs: number;
+  rotMs: number;
 }
 
 /** What Settings lists: every map there is to pick, and the custom ones that didn't load. */

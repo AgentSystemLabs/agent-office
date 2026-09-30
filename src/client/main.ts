@@ -44,6 +44,8 @@ import { Gallery } from './world/gallery';
 import { Dog } from './world/dog';
 import { Holiday } from './world/holiday';
 import { Arrivals, Departures } from './world/leaving';
+import { Jail } from './world/jail';
+import { Sendoffs } from './world/sendhome';
 import { Confetti, type Area } from './world/confetti';
 import { Hanger } from './hanging';
 import { disposeSprite, textSprite } from './world/toon';
@@ -932,6 +934,9 @@ function renderDriveHint(el: HTMLElement) {
  * The ladder and the poles go where there are floors to go to from this one, and the building is as
  * tall as there are floors, with the street as far down as this one is up.
  */
+/** How far down there's anything to stand on, on a map of its own: its dungeon's floor, or the hall's. */
+const streetOf = (w: World) => w.dungeon?.plan.floor ?? 0;
+
 function syncStack() {
   const floors = builtFloors();
   const index = floors.findIndex((f) => f.id === store.floor);
@@ -940,8 +945,8 @@ function syncStack() {
   const down = index > 0 ? floors[index - 1]?.name : undefined;
   const count = index < 0 ? 1 : floors.length;
   const wings = floorWings(floors);
-  // A map of its own is a hall on the ground: nothing under its floor to fall to.
-  player.street = inOffice() ? streetBelow(index) : 0;
+  // A map of its own is a hall on the ground: nothing under its floor to fall to, but its dungeon's.
+  player.street = inOffice() ? streetBelow(index) : streetOf(world);
   const s = office.stack.state;
   const same = s.index === Math.max(0, index) && s.count === count && s.up === up && s.down === down;
   if (same && wings.join() === wingsShown) return;
@@ -998,6 +1003,24 @@ const departures = new Departures(
   () => arrangeSeats(),
   () => world.ways,
 );
+// Workers locked up in the dungeon, on a map that has one, wasting away in their cells.
+const jail = new Jail(
+  () => store.jail,
+  () => store.officeNow(),
+  (model, p) => {
+    model.setOutfit(plan().agents.outfit === 'peasant' ? 'peasant' : null);
+    model.setAge(agedBy(p.workedMs ?? 0));
+  },
+);
+// Workers sent home on a map with a script for it (the castle's Kingsguard marching them down to the dungeon).
+const sendoffs = new Sendoffs(
+  scene,
+  groundHere,
+  { step: (x, y, z) => sound.stepAt(x, z, y), door: (at, open) => sound.cellDoor(at, open), thud: (at) => sound.thud(at) },
+  () => arrangeSeats(),
+  () => world,
+  jail,
+);
 // Workers called to a meeting, walking in from the elevator (or the doors) to the meeting table.
 const arrivals = new Arrivals(
   scene,
@@ -1021,6 +1044,7 @@ net.onMessage((msg) => {
   if (msg.t === 'welcome') voice.reset();
   if (msg.t === 'welcome' || msg.t === 'floor.enter') {
     departures.clear();
+    sendoffs.clear();
     arrivals.clear();
     seatedAlready = true;
   }
@@ -1444,12 +1468,16 @@ function doorsOpen() {
   }, 450);
 }
 
-/** Where you are, to arrive at the same spot on floor `to`. Down on the street (or the steps to it), that's the street there too. */
+/**
+ * Where you are, to arrive at the same spot on floor `to`. Down on the street (or the steps to it),
+ * that's the street there too. On a map of its own every floor's the same hall on the ground, so down
+ * in its dungeon is down in the other one's.
+ */
 function standingAt(to: string): Arrival {
   const floors = builtFloors();
   const from = floors.findIndex((f) => f.id === store.floor);
   const there = floors.findIndex((f) => f.id === to);
-  const below = player.pos.y < -SLAB - 0.05 && from >= 0 && there >= 0;
+  const below = inOffice() && player.pos.y < -SLAB - 0.05 && from >= 0 && there >= 0;
   return { x: player.pos.x, y: below ? player.pos.y + (from - there) * STOREY : player.pos.y, z: player.pos.z, rotY: player.facing };
 }
 
@@ -1651,7 +1679,7 @@ function worldFor(p: MapPlan): { world: World; court: Court | null; idle: IdleAg
     w.group.visible = false;
     scene.add(w.group);
     noOutline(w.group);
-    const ground = (x: number, z: number, y: number) => Math.max(groundAt(w.colliders, x, z, y), 0);
+    const ground = (x: number, z: number, y: number) => Math.max(groundAt(w.colliders, x, z, y), w.dungeon?.plan.floor ?? 0);
     b = { plan: p, world: w, court: new Court(w.group, p, w.nav, ground, (x, y, z) => sound.stepAt(x, z, y)), idle: idleAgentsIn(w) };
     built.set(p.id, b);
   }
@@ -1676,6 +1704,7 @@ function applyMap() {
   }
   workerViews.clear();
   departures.clear();
+  sendoffs.clear();
   arrivals.clear();
   telescope.exit();
   if (hanger.active) hanger.cancel();
@@ -1697,6 +1726,7 @@ function applyMap() {
   world.group.visible = !upTop;
   if (!upTop) player.colliders = world.colliders;
   player.room = { ...plan().bounds, ...world.room };
+  if (!upTop && !inOffice()) player.street = streetOf(world);
   sky.setIndoors(world.room.enclosed);
   // What you hear: the office's phones and fridge, or the hall's own windows and gong.
   sound.setHall(world.acoustics ? { bounds: plan().bounds, ...world.acoustics } : null);
@@ -1715,6 +1745,7 @@ function applyMap() {
   seatedAlready = true;
   syncWorkers();
   seatedAlready = already;
+  syncJail();
   // The boards name seats the way this map does.
   renderPullsBoard();
   renderServicesBoard();
@@ -1983,6 +2014,7 @@ function syncWorkers() {
     if (!desk) continue;
     if (!v) {
       departures.vacate(w.deskId);
+      sendoffs.vacate(w.deskId);
       const model = new Worker(w.name, w.color);
       model.setCostume(store.theme.active);
       model.setOutfit(plan().agents.outfit === 'peasant' ? 'peasant' : null);
@@ -2038,8 +2070,11 @@ function syncWorkers() {
     const desk = world.desks.get(v.deskId);
     // Up and about in the castle: it sets off from where it's standing.
     const up = court?.release(id);
-    // Sent home: it packs up and walks out, and the seat shows as free once it's up (see departures).
-    if (desk && sentHome.has(id)) departures.add(v.model, v.laptop, desk, up);
+    // Sent home: it packs up and walks out, and the seat shows as free once it's up (see departures), or
+    // on a map with its own way of seeing workers off, that (the castle's dungeon, for one it locks up).
+    const send = plan().sendHome;
+    if (desk && sentHome.has(id) && send && (!send.keeps || store.jail.prisoners.some((p) => p.id === id))) sendoffs.add(id, v.model, v.laptop, desk, up);
+    else if (desk && sentHome.has(id)) departures.add(v.model, v.laptop, desk, up);
     else {
       v.model.root.removeFromParent();
       v.laptop.root.removeFromParent();
@@ -2091,11 +2126,20 @@ function cameFrom(w: WorkerInfo): [number, number] | undefined {
 
 /** How worn out a worker looks on this map, 0–1: how long it has worked, of the map's ageMinutes. */
 function ageOf(w: WorkerInfo): number {
-  const full = plan().agents.ageMinutes;
-  if (!full) return 0;
-  const worked = (w.workedMs ?? 0) + (w.workingSince !== undefined && w.status === 'working' ? Math.max(0, store.officeNow() - w.workingSince) : 0);
-  return Math.min(1, worked / (full * 60_000));
+  return agedBy((w.workedMs ?? 0) + (w.workingSince !== undefined && w.status === 'working' ? Math.max(0, store.officeNow() - w.workingSince) : 0));
 }
+
+/** How worn out `worked` ms of work makes a worker look on this map, 0–1. */
+function agedBy(worked: number): number {
+  const full = plan().agents.ageMinutes;
+  return full ? Math.min(1, worked / (full * 60_000)) : 0;
+}
+
+/** Whoever's locked up in this floor's dungeon, in their cells. */
+function syncJail() {
+  jail.sync(world.dungeon, plan().sendHome);
+}
+store.on('jail', syncJail);
 
 /** Hired by you (at a desk, or through the queue), or last given something to do by you. */
 function yours(w: WorkerInfo): boolean {
@@ -2126,7 +2170,7 @@ function meetingCard(w: WorkerInfo): WorkerTask | undefined {
  */
 function arrangeSeats() {
   // Someone sent home still counts until they get up, so a bean bag stays out under them.
-  const free = vacantSeats(store.workers.values(), (id) => departures.seated(id));
+  const free = vacantSeats(store.workers.values(), (id) => departures.seated(id) || sendoffs.seated(id));
   for (const [id, desk] of world.desks) desk.vacancy.visible = free.has(id) && seatBuilt(id);
   const appeared = world.setBeanbags(beanbagsOut((id) => !free.has(id), store.floorPlan.wing));
   // One came out right where you're standing (on the office floor, not down in the garage): you end up on top of it.
@@ -4783,13 +4827,17 @@ function frame(ts?: number) {
   }
   for (const a of idleAgents) if (a.view.vacancy.visible) a.model.update(dt, t);
   departures.update(dt, t);
+  if (!upTop) {
+    sendoffs.update(dt, t);
+    jail.update(dt, t, camera.position);
+  }
   arrivals.update(dt);
   court?.update(dt);
   // The dog is the office's: on a map of its own it stays at home, quiet.
   if (inOffice()) dog.update(dt);
   if (!upTop && inOffice()) updateBall(now, dt);
   if (!upTop) {
-    world.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions(), ...arrivals.positions(), ...(court?.positions() ?? [])]);
+    world.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions(), ...sendoffs.positions(), ...arrivals.positions(), ...(court?.positions() ?? [])]);
     if (inOffice()) {
       office.stack.update(dt, [{ x: player.pos.x, y: player.pos.y, z: player.pos.z, grip }, ...[...remotes.values()].map((r) => ({ x: r.person.root.position.x, y: r.person.root.position.y, z: r.person.root.position.z, grip: r.grip }))], camera.position);
       office.jukebox.update(t, dt, sound.beat());
@@ -4809,7 +4857,7 @@ function frame(ts?: number) {
   sky.update(dt, t, camera);
   if (!upTop && inOffice()) office.scenic.cull(camera.position, office.night.street, (scene.fog as THREE.Fog).far);
   // A map of its own lights itself its own way (the castle's torchlit hall), after the sky's had its say.
-  if (!upTop) world.mood?.({ sun, hemi, ambient, scene }, sky.daylight, t);
+  if (!upTop) world.mood?.({ sun, hemi, ambient, scene }, sky.daylight, t, camera.position);
   if (!upTop && inOffice()) holiday.update(t, sky.lampsOn, camera);
   sound.setWeather(sky.rain, 1 - sky.daylight);
   if (upTop && roof) {
@@ -4940,7 +4988,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { world: () => world, court: () => court, plan, applyMap, roof: () => roof, booze, dj: () => djFrame(djAt()), store, player, caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, driver, getIn, getOut, golf, balls, thrower, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote, ball };
+(window as any).__office = { world: () => world, court: () => court, sendoffs, jail, plan, applyMap, roof: () => roof, booze, dj: () => djFrame(djAt()), store, player, caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, driver, getIn, getOut, golf, balls, thrower, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote, ball };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

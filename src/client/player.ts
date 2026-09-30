@@ -60,7 +60,7 @@ export class PlayerController {
    * office's, unless the building's on a map of its own. `enclosed`: walled and roofed all round,
    * with no street or garage under it to see from.
    */
-  room: { minX: number; maxX: number; minZ: number; maxZ: number; wall: number; enclosed: boolean } = { ...FLOOR, wall: WALL_T, enclosed: false };
+  room: { minX: number; maxX: number; minZ: number; maxZ: number; wall: number; enclosed: boolean; vault?: { minX: number; maxX: number; minZ: number; maxZ: number; top: number } } = { ...FLOOR, wall: WALL_T, enclosed: false };
   /** How many rows the floor's back office is built out (see WING): the camera keeps inside it too. */
   wing = 0;
   private jitterT = 0;
@@ -558,7 +558,12 @@ export class PlayerController {
     // In the office's back office, between its walls, and out through where the north wall was into the room.
     const back = !R.enclosed && this.pos.y > -SLAB - 0.5 && inWing(this.pos.x, this.pos.z, this.wing);
     const indoors = ((rigged || this.pos.y > -SLAB - 0.5) && under) || back;
-    if (back) {
+    // Down in a room under the floor (the castle's dungeon): the camera keeps inside that.
+    const V = R.vault;
+    if (V && this.pos.y < V.top - 0.5 && this.pos.x > V.minX && this.pos.x < V.maxX && this.pos.z > V.minZ && this.pos.z < V.maxZ) {
+      cam.x = THREE.MathUtils.clamp(cam.x, V.minX + m, V.maxX - m);
+      cam.z = THREE.MathUtils.clamp(cam.z, V.minZ + m, V.maxZ - m);
+    } else if (back) {
       cam.x = THREE.MathUtils.clamp(cam.x, WING.minX + m, WING.maxX - m);
       cam.z = THREE.MathUtils.clamp(cam.z, wingMinZ(this.wing) + m, FLOOR.maxZ - m);
     } else if (indoors) {
