@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CUP, ENERGY_DRAIN, ENERGY_SECONDS, HIGH_STRESS, LOW_ENERGY, STRESS_SECONDS, Vitals } from '../src/client/vitals.js';
+import { CUP, ENERGY_DRAIN, ENERGY_SECONDS, HIGH_STRESS, LOW_ENERGY, STRESS_DRAIN, STRESS_SECONDS, Vitals } from '../src/client/vitals.js';
 import { DRINKS, DRINK_BY_ID } from '../src/shared/rooftop.js';
 
 const beer = DRINK_BY_ID.get('beer')!;
@@ -102,7 +102,34 @@ test('the drinks say what they are for: coffee has the energy, the alcohol has t
   assert.ok(beer.calm > 0);
 });
 
-test('the drain rates are a fraction of a bar a second, so a meter moves a hair each frame', () => {
-  assert.ok(ENERGY_DRAIN > 0 && ENERGY_DRAIN < 1 / 600, 'energy lasts tens of minutes');
-  assert.ok(1 / STRESS_SECONDS > 0 && 1 / STRESS_SECONDS < 1 / 600, 'and so does the stress winding up');
+test('the drain rates are the times the office promises: ten minutes of energy, fifteen of calm', () => {
+  assert.equal(ENERGY_SECONDS, 600);
+  assert.equal(STRESS_SECONDS, 900);
+  assert.equal(ENERGY_DRAIN, 1 / 600);
+  assert.equal(STRESS_DRAIN, 1 / 900);
+});
+
+test('the meters are only spent once they are right out: empty of energy, or wound right up', () => {
+  const v = new Vitals();
+  v.energyLeft(0);
+  v.strain(0);
+  assert.equal(v.spent(0), false, 'full and calm is not spent');
+  assert.equal(v.spent(ENERGY_SECONDS - 1), false);
+  assert.equal(v.spent(ENERGY_SECONDS), true, 'the energy running out is what does it');
+  const w = new Vitals();
+  w.energyLeft(0);
+  w.strain(0);
+  assert.equal(w.spent(STRESS_SECONDS), true, 'and so is winding right up');
+});
+
+test('resetting tops both meters up and starts their clocks again from there', () => {
+  const v = new Vitals();
+  v.energyLeft(0);
+  v.strain(0);
+  v.energyLeft(ENERGY_SECONDS);
+  v.strain(STRESS_SECONDS);
+  v.reset(1_000);
+  assert.equal(v.spent(1_000), false);
+  assert.equal(v.energyLeft(1_000 + ENERGY_SECONDS / 2), 0.5, 'the drain starts over from the reset');
+  assert.equal(v.strain(1_000 + STRESS_SECONDS / 2), 0.5);
 });

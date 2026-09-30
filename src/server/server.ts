@@ -1522,6 +1522,14 @@ export async function startServer(cfg: Config) {
           broadcast({ t: 'peer.act', id: c.id, throwing: game ?? null }, c.id, true);
           break;
         }
+        if (typeof msg.faint === 'boolean') {
+          // Out cold on the ground, wherever they are.
+          if (msg.faint === !!c.peer.fainted) break;
+          if (msg.faint) c.peer.fainted = true;
+          else delete c.peer.fainted;
+          broadcast({ t: 'peer.act', id: c.id, faint: msg.faint }, c.id, true);
+          break;
+        }
         const now = Date.now();
         if (now - c.lastActAt < 100) break;
         c.lastActAt = now;

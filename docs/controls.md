@@ -22,7 +22,7 @@ Back to the [README](../README.md).
 | H | These controls; in a car, honk the horn |
 | T / Enter | Chat |
 | G / 1–6 | Emote: hold G for the wheel (point and let go) or press 1–6 to wave, give a thumbs up, clap, dance, point or facepalm; everyone on your floor sees it |
-| ⚡😰 | The two meters under the project name: your energy and your stress. They run down over three quarters of an hour; low on energy your legs get heavy, and past half wound up your hands shake. Coffee in the kitchen puts the energy back, a drink at the rooftop bar takes the stress off |
+| ⚡😰 | The two meters under the project name: your energy and your stress. The energy runs out over ten minutes and the stress winds right up over a quarter of an hour; low on energy your legs get heavy, and past half wound up your hands shake. Coffee in the kitchen puts the energy back, a drink at the rooftop bar takes the stress off. Run either right out and you keel over (nothing you press moves you) and come round outside the building, with both meters full again — as you do when you join |
 | / | Search the chat and every terminal on your floor |
 | Ctrl + K (⌘K on a Mac) | Command palette: find a worker, issue, PR, service, board, teammate or action; Enter opens it, Shift+Enter walks you there first |
 | V | Join voice; in voice, hold to talk (you're muted when you let go) |

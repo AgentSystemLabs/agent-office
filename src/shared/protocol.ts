@@ -301,6 +301,8 @@ export interface PeerInfo {
   sharing: boolean;
   /** On a smoke break, cigarette in hand. */
   smoking?: boolean;
+  /** Out cold on the ground, after the energy ran out or the stress got the better of them (see the office's faint). */
+  fainted?: boolean;
   /** At the golf tee on the balcony, club in hand. */
   golfing?: boolean;
   /** At the rooftop bar's dart board or axe lane, a dart or an axe in hand. */
@@ -1132,9 +1134,10 @@ export type ClientMsg =
    * You reached out to use something; everyone else sees your character's arm do it. With `smoke`,
    * you lit a cigarette (or put it out) on the balcony instead; with `golf`, you took a club out at
    * the tee (or put it back); with `drink`, you took a drink from the rooftop bar (or finished it,
-   * null); with `throwing`, you stepped up to the dart board or the axe lane up there (or back, null).
+   * null); with `throwing`, you stepped up to the dart board or the axe lane up there (or back, null);
+   * with `faint`, you keeled over on the ground (or came round again, false).
    */
-  | { t: 'act'; smoke?: boolean; golf?: boolean; drink?: DrinkId | null; throwing?: BarGame | null }
+  | { t: 'act'; smoke?: boolean; golf?: boolean; drink?: DrinkId | null; throwing?: BarGame | null; faint?: boolean }
   /**
    * You hit a golf ball off the tee: its heading (0 is south, toward +x from there), loft (radians)
    * and power (0–1). Everyone on your floor works out where it goes the same way (world/golf.ts fly).
@@ -1384,7 +1387,7 @@ export type ServerMsg =
   | { t: 'peer.update'; peer: PeerInfo }
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }
   | { t: 'peer.leave'; id: string }
-  | { t: 'peer.act'; id: string; smoke?: boolean; golf?: boolean; drink?: DrinkId | null; throwing?: BarGame | null }
+  | { t: 'peer.act'; id: string; smoke?: boolean; golf?: boolean; drink?: DrinkId | null; throwing?: BarGame | null; faint?: boolean }
   /** Someone on your floor hit a golf ball off the tee (see the client's 'golf'). */
   | { t: 'golf'; id: string; yaw: number; loft: number; power: number }
   /** Someone up on the roof threw a dart or an axe (see the client's 'toss'). */

@@ -359,6 +359,12 @@ export const EXIT_STAIRS = {
   run: 0.34,
 } as const;
 
+/**
+ * Where you come round after a faint (see client/faint.ts): out on the side lot east of the
+ * building, a little way along from the garage, facing the way back in.
+ */
+export const WAKE_UP = { x: 24, z: 10, rotY: -Math.PI / 2 } as const;
+
 /** Glass doors out to the balcony, on the south wall. They slide apart into the wall on either side. */
 export const BALCONY_DOOR: Opening = { wall: 'south', u: -4, width: 3, y0: 0, y1: 2.5 };
 /** The smoking balcony, hanging over the garage entrance. */
