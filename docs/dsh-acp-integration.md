@@ -220,7 +220,7 @@ Mirrors the role of `src/server/opencode.ts` and `src/server/codex.ts`:
 |---|---|---|
 | Spawn | `workers.ts` builds argv per provider, hands to `host.spawn` | Build no argv; start a `DshSession` instead |
 | Terminal input | `term.input` → `workers.write` → PTY | Branch in `write`: buffer bytes to a line, submit on Enter via `session/prompt`; Esc/Ctrl+C → `session/cancel` |
-| Resize | `workers.resize` → PTY | ACP has no terminal size; ignore, keep the terminal at its configured size |
+| Resize | `workers.resize` → PTY | ACP has no terminal size; only the office's headless terminal is resized, so the transcript fills the window |
 | Status | `handleHook` / `handleCodexHook` / `handleOpenCodeHook` | New `DshSession` event handler calling the same `setStatus` |
 | Resume (R) | `--resume` / `--session` / `codex resume` argv | `session/resume` with the worker's stored session id; a fresh `session/new` if the harness no longer has it (never another desk's newest session: desks without a worktree share the checkout) |
 | Send home / stop | Kill the PTY | `session/cancel`, then `session/close`, then end the child |

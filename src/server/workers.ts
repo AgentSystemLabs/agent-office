@@ -972,14 +972,15 @@ export class WorkerManager {
 
   resize(id: string, cols: number, rows: number) {
     const w = this.workers.get(id);
-    if (!w?.pty || !w.term) return;
+    // A DSH worker has no PTY to resize, but its terminal still fits the window it's shown in.
+    if (!(w?.pty || w?.dsh) || !w.term) return;
     cols = clamp(Math.floor(cols), 20, 400);
     rows = clamp(Math.floor(rows), 5, 200);
     if (cols === w.info.cols && rows === w.info.rows) return;
     w.info.cols = cols;
     w.info.rows = rows;
     try {
-      w.pty.resize(cols, rows);
+      w.pty?.resize(cols, rows);
       w.term.resize(cols, rows);
     } catch {
       // pty may have exited between checks

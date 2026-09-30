@@ -891,3 +891,13 @@ test('a DSH board agent proves itself with its token, and a second question goes
   assert.equal((again as { hired: boolean }).hired, false);
   await waitFor(() => mgr.get(id)?.status, (s) => s === 'needs_input');
 });
+
+test('a DSH terminal fits the window it is shown in, though the agent has no size', async (t) => {
+  const f = tracked(t);
+  const mgr = supervised(t, f, []);
+  const id = (mgr.spawn('desk-1', 'tester', 'run the tests') as WorkerInfo).id;
+  await waitFor(() => mgr.get(id)?.status, (s) => s === 'needs_input');
+  mgr.resize(id, 120, 48);
+  assert.equal(mgr.get(id)?.cols, 120);
+  assert.equal(mgr.get(id)?.rows, 48);
+});
