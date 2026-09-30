@@ -1909,15 +1909,17 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
       }
       case 'worker.kill': {
         const w = worker(msg.workerId);
-        if (!w) break;
+        if (!w) { warn(c, 'No such worker — refresh the floor and try again'); break; }
         const { floor, info } = w;
         // The worker leaves right away; its worktree is dealt with after that, and the outcome follows.
-        const done = floor.sendHome(info.id, CLEANUPS.has(String(msg.cleanup)) ? msg.cleanup : undefined);
-        toastFloor(floor, `${who} sent ${info.name} home`);
-        void done.then(({ note, error }) => {
+        try {
+          const { note, error } = await floor.sendHome(info.id, CLEANUPS.has(String(msg.cleanup)) ? msg.cleanup : undefined);
+          if (!error) toastFloor(floor, `${who} sent ${info.name} home`);
           if (note) toastFloor(floor, note);
-          if (error) toastFloor(floor, error, 'warn');
-        });
+          if (error) warn(c, error);
+        } catch (err) {
+          warn(c, `Could not send ${info.name} home: ${(err as Error).message}`);
+        }
         break;
       }
       case 'worker.worktree': {
