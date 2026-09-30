@@ -5,7 +5,7 @@ import type { Collider, Interactable } from '../../world/types';
 import type { Fixture } from '../../world/office/fixture';
 
 // The whiteboard: a rolling whiteboard on casters out on the open floor, with a marker tray. Its
-// face shows whatever everyone has drawn on it (see ui/whiteboard.ts), live.
+// face shows whatever everyone has drawn on it (see ui.ts), live.
 
 const ALU = '#aab4be';
 const INK = '#2b2d42';

@@ -13,7 +13,7 @@ import type { World } from '../../world/world';
  * worker packs its things, and it's marched off down the stairs with a hand on its shoulder, thrown
  * into its cell, and the door slams behind it. Each step is a `begin` (once) and a `tick` (each
  * frame, until it's done) below; a new kind of step goes in SEND_HOME_STEPS (shared) and here.
- * A map without a script sees its workers out the office's way (world/leaving.ts).
+ * A map without a script sees its workers out the office's way (leaving.ts).
  */
 
 /** Paces (m/s): the worker's walk (slower the more worn out it is), or at a run; the escort's run to fetch it, and its walk. */

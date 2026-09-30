@@ -387,7 +387,7 @@ export class Fleet {
 
 declare module '../../world/types' {
   interface OfficeHandles {
-    /** The Lambos and Ferraris in the garage, which anyone can drive (see driving.ts). */
+    /** The Lambos and Ferraris in the garage, which anyone can drive (see controller.ts). */
     cars: Fleet;
   }
 }

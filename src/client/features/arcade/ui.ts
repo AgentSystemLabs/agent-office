@@ -54,7 +54,7 @@ export class ScreenZoom {
 }
 
 /**
- * The boss's monitor, which plays Minesweeper (ui/minesweeper.ts). The monitor shows the board as it
+ * The boss's monitor, which plays Minesweeper (minesweeper.ts). The monitor shows the board as it
  * was left. Sit down and play, and the camera glides up to the screen while a board you can click is
  * laid exactly over it. The camera looks straight at the screen, so that board is a plain centered box.
  */

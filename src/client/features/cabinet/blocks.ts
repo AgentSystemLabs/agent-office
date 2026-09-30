@@ -1,7 +1,7 @@
 import { CLEAR_POINTS, GAME, WELL_COLS, WELL_ROWS, levelFor, scoreText, type CabinetFrame, type HighScore, type PlayState } from '../../../shared/cabinet';
 
 /**
- * BLOCKFALL, the game on the arcade cabinet (ui/cabinet.ts): falling blocks with the usual rotation
+ * BLOCKFALL, the game on the arcade cabinet (ui.ts): falling blocks with the usual rotation
  * and wall kicks, a bag of all seven pieces at a time, hold, a ghost where the piece will land, and a
  * painter that draws the whole screen in fixed 800×600 units from a CabinetFrame, so the player's
  * screen, the cabinet in the office and everyone watching show the same picture.

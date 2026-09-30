@@ -18,7 +18,7 @@ declare module '../types' {
     night: NightParts;
     boardMeshes: Record<keyof typeof BOARDS, THREE.Mesh>;
     tvScreen: THREE.Mesh;
-    /** The monitor on the west wall showing how busy the office's machine is (world/machine.ts). */
+    /** The monitor on the west wall showing how busy the office's machine is (features/boards/machine.ts). */
     machineScreen: THREE.Mesh;
     /** The potted plants round the room, in PLANTS' order. At Christmas world/holiday.ts hides their leaves (plantLeaves()) and stands a little tree in each pot. */
     plants: THREE.Group[];

@@ -1,7 +1,7 @@
 /**
  * Drinks from the rooftop bar: each goes to your head over a few seconds, then wears off over a
  * minute or so. They add up, and the more you've had, the more the view sways, doubles and smears
- * (world/drunk.ts) and the more you stagger (see sway in player/effects.ts). Water helps a little.
+ * (drunk.ts) and the more you stagger (see sway in player/effects.ts). Water helps a little.
  * Times are seconds, on whichever clock the caller passes in as `now`.
  */
 import { BOOZE_LIMIT, type Drink } from '../../../shared/rooftop';

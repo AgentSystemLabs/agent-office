@@ -15,7 +15,7 @@ import { mergeByMaterial, mesh, roundedBox, toon, toonUnique } from '../../world
 // it and the city all around, the elevator's housing where you arrive, a DJ on a stage under a rig
 // of moving lights and lasers with an LED wall behind and a dance floor in front, a bar with a
 // bartender under a pergola hung with string lights, a lounge round a fire pit, sun loungers along
-// the south edge, and an axe-throwing lane and a dart board in the north-west corner (bargames.ts).
+// the south edge, and an axe-throwing lane and a dart board in the north-west corner (features/bargames/world.ts).
 // Everything that flashes goes by the DJ's set (see djFrame), so it's in time with the music and the
 // same for everyone up there.
 

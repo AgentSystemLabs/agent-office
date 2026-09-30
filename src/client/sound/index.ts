@@ -10,8 +10,8 @@
  *
  * OfficeSound is all the rest of the office sees. What every sound shares (the context, the buses,
  * where your ears are, what runs every frame) is AudioCore in core.ts; each sound is a recipe in a
- * file of its own beside this one (golf.ts, dog.ts, weather.ts and so on), and this class only hands
- * them the core.
+ * file of its own, beside this one (weather.ts, steps.ts and so on) or in its feature's folder
+ * (features/golf/sound.ts, features/dog/sound.ts and so on), and this class only hands them the core.
  */
 import type { GongWhy } from '../../shared/protocol';
 import { birdsong, deskPhones, Fridge, nightCrickets, startRoomTone, startWind } from './ambience';
@@ -160,7 +160,7 @@ export class OfficeSound {
     stepAt(this.a, x, z, y);
   }
 
-  // ---- The ladder, the fire poles and the dungeon (climb.ts, dungeon.ts) ---------------------------
+  // ---- The ladder, the fire poles and the dungeon (features/climbing, features/workers) ------------
 
   rung(soft = false) {
     rung(this.a, soft);
@@ -194,7 +194,7 @@ export class OfficeSound {
     poleLanding(this.a, speed, at);
   }
 
-  // ---- Games (golf.ts, toss.ts, ball.ts, arcade.ts) ------------------------------------------------
+  // ---- Games (features/golf, bargames, basketball and cabinet) -------------------------------------
 
   golf(kind: GolfSound, at?: Pos, speed = 5) {
     golf(this.a, kind, at, speed);
@@ -212,7 +212,7 @@ export class OfficeSound {
     arcade(this.a, kind, lines);
   }
 
-  // ---- The cars in the garage (cars.ts) -----------------------------------------------------------
+  // ---- The cars in the garage (features/cars) -----------------------------------------------------
 
   setEngines(running: Engine[]) {
     this.motors.setEngines(running);
@@ -256,7 +256,7 @@ export class OfficeSound {
     ding(this.a, kind);
   }
 
-  // ---- The rooftop bar (bar.ts) -------------------------------------------------------------------
+  // ---- The rooftop bar (features/bar) -------------------------------------------------------------
 
   /** The DJ's set on the roof, `clock` saying how far into it it is (see djTime); null stops it. */
   setDj(clock: (() => number) | null) {
@@ -275,7 +275,7 @@ export class OfficeSound {
     hiccup(this.a);
   }
 
-  // ---- The jukebox (jukebox.ts) -------------------------------------------------------------------
+  // ---- The jukebox (features/jukebox) -------------------------------------------------------------
 
   /** What the jukebox on your floor plays, or null for nothing. It starts once the browser allows audio. */
   setJukebox(play: JukeboxPlay | null) {

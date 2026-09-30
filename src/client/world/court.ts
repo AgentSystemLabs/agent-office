@@ -18,7 +18,7 @@ const WALK = 2.6;
 const RUN = 4;
 /** Seconds hopping down off its seat, or up onto it. */
 const HOP = 0.5;
-/** A worker's feet are this far above its origin (see leaving.ts). */
+/** A worker's feet are this far above its origin (see features/workers/leaving.ts). */
 const FEET = 0.07;
 
 /** Where it's going: its seat, or a spot in line (its index). */

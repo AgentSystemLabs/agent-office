@@ -5,7 +5,7 @@ import type { Collider, Interactable } from '../../world/types';
 import type { Fixture } from '../../world/office/fixture';
 
 // The arcade cabinet in the lounge: an upright in blue side panels, a lit marquee on top, the screen
-// leaning back under it (ui/cabinet.ts paints the game on it), a joystick and buttons, and a coin door.
+// leaning back under it (ui.ts paints the game on it), a joystick and buttons, and a coin door.
 
 export interface CabinetModel {
   group: THREE.Group;
@@ -147,7 +147,7 @@ export function buildCabinet(): CabinetModel {
 
 declare module '../../world/types' {
   interface OfficeHandles {
-    /** The arcade cabinet in the lounge, where BLOCKFALL plays (ui/cabinet.ts). */
+    /** The arcade cabinet in the lounge, where BLOCKFALL plays (ui.ts). */
     cabinet: CabinetModel;
   }
 }

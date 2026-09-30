@@ -1,4 +1,4 @@
-/* The bookshelf (ui/bookshelf.ts): the docs down the side, the one you're reading beside them */
+/* The bookshelf (ui.ts): the docs down the side, the one you're reading beside them */
 .modal.bookshelf { width: min(1240px, 100%); height: min(880px, calc(100vh - 32px)); }
 .modal.bookshelf .body { flex: 1; min-height: 0; display: grid; grid-template-columns: 300px minmax(0, 1fr); padding: 0; overflow: hidden; }
 .modal.bookshelf header .bs-project { color: var(--muted); font-weight: 800; }

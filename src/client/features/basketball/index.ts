@@ -30,7 +30,7 @@ export interface BasketballDeps {
 /** Registers a handler in the 'activity' key stage: install it after the activities' own. */
 export function installBasketball(ctx: Ctx, deps: BasketballDeps) {
   const { office } = ctx;
-  /** The floor's basketball, by the hoop on the west wall (see world/hoop.ts). */
+  /** The floor's basketball, by the hoop on the west wall (see world.ts). */
   const ball = new Basketball(() => office.colliders);
   office.group.add(ball.group);
   /**

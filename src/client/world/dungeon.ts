@@ -10,8 +10,8 @@ import { mesh, toon } from './toon';
  * A dungeon under a hall (see shared/maps/dungeon.ts): the vault dug out below the hall's floor, the
  * stairs down into it through a hole in that floor with a stone rail round it, and the cells along
  * its walls, iron bars across their fronts and a barred door in the middle of each. Whoever's locked
- * up in them is the jail's to show (world/jail.ts); the torches, and the Kingsguard who brings them
- * down, are the castle's (world/castle.ts).
+ * up in them is the jail's to show (features/workers/jail.ts); the torches, and the Kingsguard who brings them
+ * down, are the castle's (world/castle/).
  */
 
 /** What the dungeon's built with, from the hall it's under. */

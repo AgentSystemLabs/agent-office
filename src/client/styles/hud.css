@@ -1,4 +1,4 @@
-/* The HUD over the 3D office (index.html's #hud, filled by main.ts and ui/hud.ts): the floor's name and
+/* The HUD over the 3D office (index.html's #hud, filled by the features: features/hud and the rest): the floor's name and
    the dock, the side panels, the chat, hints and meters, the telescope, coffee, golf and darts. Only the
    office loads it, through style.css. */
 
@@ -189,7 +189,7 @@ body.telescope-active #hud { visibility: hidden; }
 .golf-last { position: absolute; top: -2px; bottom: -2px; width: 3px; margin-left: -1px; background: var(--ink); }
 .golf-info { font-weight: 800; font-variant-numeric: tabular-nums; }
 #hud:has(.golf:not(.hidden)) #toasts { translate: 0 48px; }
-/* At the rooftop bar's dart board or axe lane (see throwing.ts): the meter with its green, and the round so far. */
+/* At the rooftop bar's dart board or axe lane (see features/bargames/controller.ts): the meter with its green, and the round so far. */
 .throw { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); width: min(320px, calc(100vw - 32px)); padding: 8px 12px 9px; display: grid; gap: 6px; font-size: 13px; font-weight: 900; text-align: center; pointer-events: none !important; }
 .throw-meter { position: relative; height: 16px; border: 3px solid var(--ink); border-radius: 999px; background: #f1e4d3; overflow: hidden; }
 .throw-sweet { position: absolute; top: 0; bottom: 0; background: var(--good); }
@@ -233,10 +233,10 @@ body.telescope-active #hud { visibility: hidden; }
 #fade.on { opacity: 1; }
 .people .where { font-size: 11px; font-weight: 800; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* The games over the 3D office: ui/arcade.ts and ui/cabinet.ts. They're here rather than beside their
-   modules because the tests load ui/cabinet.ts (and with it ui/arcade.ts) under Node, which can't
-   import a stylesheet. */
-/* Minesweeper on the boss's monitor (ui/arcade.ts): the office stays in view around the game, which sits right over the screen. */
+/* The games over the 3D office: features/arcade/ui.ts and features/cabinet/ui.ts. They're here rather
+   than beside their modules because the tests load features/cabinet/ui.ts (and with it
+   features/arcade/ui.ts) under Node, which can't import a stylesheet. */
+/* Minesweeper on the boss's monitor (features/arcade/ui.ts): the office stays in view around the game, which sits right over the screen. */
 .backdrop.clear { background: none; padding: 0; animation: none; }
 /* The game would cut through the HUD's panels, so they step aside while you play. */
 #app:has(.backdrop.clear) :is(.topbar, .side, .chat) { visibility: hidden; }
@@ -247,6 +247,6 @@ body.telescope-active #hud { visibility: hidden; }
 .arcade-bar .tip { color: var(--muted); font-size: 12px; }
 /* Its ✕ hangs off the screen's top right corner rather than over the game. */
 .arcade > .close.corner { top: 0; right: auto; left: calc(100% + 10px); }
-/* The arcade cabinet in the lounge (ui/cabinet.ts) plays on the keyboard, and says so over the game when a worker of yours needs input. */
+/* The arcade cabinet in the lounge (features/cabinet/ui.ts) plays on the keyboard, and says so over the game when a worker of yours needs input. */
 .arcade.cabinet canvas { cursor: default; }
 .cabinet-call { position: absolute; bottom: calc(100% + 10px); left: 50%; translate: -50% 0; display: flex; align-items: center; gap: 10px; white-space: nowrap; padding: 6px 6px 6px 14px; background: var(--warn); border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 4px 0 var(--ink); font-weight: 900; font-size: 15px; animation: pop .18s ease-out; }

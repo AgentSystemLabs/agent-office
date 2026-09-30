@@ -41,7 +41,7 @@ export type ThrowStage = 'aim' | 'wind' | 'throw' | 'wait';
 export interface ThrowHooks {
   /** You stepped up to the line with a dart or an axe (or stepped back, null): everyone else sees it. */
   holding(game: BarGame | null): void;
-  /** You let go of one: it leaves your hand at `from` (an axe turned `turn`, see world/bargames.ts AXE), for where `toss` says. */
+  /** You let go of one: it leaves your hand at `from` (an axe turned `turn`, see world.ts AXE), for where `toss` says. */
   toss(toss: Toss, from: THREE.Vector3, turn: number): void;
   /** Where you're aiming on the target, while you are (null: not any more). */
   aim(game: BarGame | null, u: number, v: number): void;
@@ -73,7 +73,7 @@ export class Thrower {
   private n = 0;
   /** How hard the last throw was, marked on the meter. */
   private lastPower = -1;
-  /** How drunk you are, for how much your hand wanders (see booze.ts). */
+  /** How drunk you are, for how much your hand wanders (see features/bar/booze.ts). */
   drunk = 0;
   private camPos = new THREE.Vector3();
   private camQuat = new THREE.Quaternion();

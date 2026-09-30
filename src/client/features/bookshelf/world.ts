@@ -6,7 +6,7 @@ import type { Fixture } from '../../world/office/fixture';
 
 // The bookshelf against the south wall: a tall wooden case, five shelves packed with books of every
 // size and color (a few leaning over, a stack lying flat, a plant and a globe among them), and a
-// "Docs" sign along its top. E at it opens the project's Markdown to read (ui/bookshelf.ts).
+// "Docs" sign along its top. E at it opens the project's Markdown to read (ui.ts).
 
 export interface BookshelfModel {
   group: THREE.Group;

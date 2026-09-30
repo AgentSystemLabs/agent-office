@@ -64,7 +64,7 @@ export class PlayerController extends PlayerInput {
    * frame, with no walking, falling or bumping into things, and the camera follows.
    */
   rig: ((dt: number) => void) | null = null;
-  /** The rig is a car (see driving.ts): out on the street or in the garage, not up a shaft indoors. */
+  /** The rig is a car (see features/cars/controller.ts): out on the street or in the garage, not up a shaft indoors. */
   riding = false;
 
   constructor(

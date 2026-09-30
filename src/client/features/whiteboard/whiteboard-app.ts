@@ -1,6 +1,6 @@
 // Inside the whiteboard window: Excalidraw, kept in step with everyone else on the floor. Loaded
 // (React and Excalidraw, a few MB) only when someone opens the whiteboard, or when there's a drawing
-// to show on the board in the office (see ui/whiteboard.ts).
+// to show on the board in the office (see ui.ts).
 //
 // Syncing works like Excalidraw's own live collaboration: every change bumps an element's version,
 // each browser sends the elements it changed, and everyone merges what arrives with

@@ -1,5 +1,5 @@
 /**
- * Minesweeper for the boss's monitor (ui/arcade.ts): the rules, and a painter that draws the whole
+ * Minesweeper for the boss's monitor (ui.ts): the rules, and a painter that draws the whole
  * screen in fixed 960×540 units, so the same picture goes on the monitor and on the board you click.
  */
 export const W = 960;

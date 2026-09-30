@@ -133,7 +133,7 @@ function garageFloorTexture(): THREE.CanvasTexture {
 /**
  * Downstairs: the open garage under the office's floor slab (see world/stack.ts): concrete
  * walls at the back and on the west side, columns along the open front and east side, and strip
- * lights. The Lambos and Ferraris parked in it are world/cars.ts's.
+ * lights. The Lambos and Ferraris parked in it are features/cars/world.ts's.
  */
 export function buildGarage(group: THREE.Group, colliders: Collider[]) {
   const w = B.maxX - B.minX;
