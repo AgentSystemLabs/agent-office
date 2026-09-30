@@ -356,7 +356,7 @@ Every change to the app that lands on `main` is published as a GitHub release by
 
 - [Features](docs/features.md): everything in the office, room by room
 - [Agents](docs/agents.md): Claude Code, Codex and OpenCode, models and effort, and the office's prompts
-- [Floor hosts](docs/floor-hosts.md): running a floor on someone else's machine, and what hosting one means
+- [Floor hosts](docs/floor-hosts.md): running a floor on someone else's machine, live terminal and room updates, and reconnecting after a disconnect
 - [Configuration](docs/configuration.md): every command-line option, and where the office keeps its data
 - [Maps](docs/maps.md): the castle, and making a map of your own
 - [AWS reference](docs/aws.md): Tailscale, service tunnels, upgrades, and everything `deploy/aws.sh` does

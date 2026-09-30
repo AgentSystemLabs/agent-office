@@ -147,6 +147,13 @@ export class HostFloors {
     state('jail', { state: floor.jail.state() });
   }
 
+  /**
+   * Where this machine keeps its checkouts. Kept as the office would see it — a real path on this
+   * disk — because it is only ever a suggestion for the office's `hosts add-floor`, which has no way
+   * to look here.
+   */
+  projectsDir: string = '';
+
   /** Tells the office a floor is up, with its seats and whoever is already on it. */
   private report(floorId: string, floor: Floor) {
     this.reportRooms(floorId, floor);
@@ -169,6 +176,7 @@ export class HostFloors {
         // into it from here, and it cannot work either out from its own disk.
         branch: floor.project.branch,
         providers: floor.project.agentProviders,
+        projectsDir: this.projectsDir,
         workers: floor.workers.list().map((w) => ({ id: w.id, status: w.status, deskId: w.deskId })),
       },
     });
@@ -194,7 +202,7 @@ export class HostFloors {
       emit: (_floor: Floor, msg: ServerMsg, droppable?: boolean) => up(msg, droppable === true),
       toast: (_floor: Floor, text: string, level?: 'info' | 'warn' | 'error') => up({ t: 'toast', text, level: level ?? 'info' }),
       termData: (workerId: string, data: string, _viewers: string[]) => parts.send({ t: 'term.data', floorId, workerId, data }),
-      changes: (state: ChangesState, _clients: string[]) => up({ t: 'changes', state }),
+      changes: (state: ChangesState, clients: string[]) => parts.send({ t: 'event', floorId, seq: 0, clients, msg: { t: 'changes', state } }),
       workerChanged: (_floor: Floor, w: WorkerInfo | string) => {
         // Keep the worker index current here, which is the one place a worker's arrival and departure
         // is announced.

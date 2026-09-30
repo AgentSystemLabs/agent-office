@@ -66,13 +66,13 @@ const ready = (floorId: string, over: Partial<FloorReady> = {}): FloorReady => (
   ...over,
 });
 
-async function connect(url: string, token: string, floors: string[] = ['f1']) {
+async function connect(url: string, token: string, floors: string[] = ['f1'], projectsDir?: string) {
   const ws = new WebSocket(url);
   await new Promise((res, rej) => {
     ws.once('open', res);
     ws.once('error', rej);
   });
-  ws.send(JSON.stringify({ t: 'hello', token, hostId: 'h1', protocol: FLOORHOST_PROTOCOL, floors }));
+  ws.send(JSON.stringify({ t: 'hello', token, hostId: 'h1', protocol: FLOORHOST_PROTOCOL, floors, projectsDir }));
   return ws;
 }
 
@@ -114,6 +114,48 @@ test('a paired machine connects, announces a floor, and the office knows it', as
     assert.equal(f.registry.isReachable('f1'), true, 'the floor is reachable');
     assert.equal(f.registry.serves('f1')?.host.id, claimed.host.id);
     assert.equal(f.registry.floorsOf(claimed.host.id), 1);
+    ws.close();
+  } finally {
+    f.close();
+  }
+});
+
+test('a host with no floors reports its projects folder during the handshake', async () => {
+  const f = await server();
+  try {
+    const code = f.hosts.pair('admin');
+    assert.ok(typeof code !== 'string');
+    const paired = f.hosts.claim(code.code, 'Empty laptop');
+    assert.ok(typeof paired !== 'string');
+    const ws = await connect(f.url, paired.token, [], 'C:\\work');
+    await new Promise<void>((resolve) => ws.once('message', () => resolve()));
+    assert.equal(f.hosts.get(paired.host.id)?.projectsDir, 'C:\\work');
+    assert.equal(f.registry.floorsOf(paired.host.id), 0);
+    ws.close();
+  } finally {
+    f.close();
+  }
+});
+
+test('leaving one floor notifies the office without disconnecting the other floors', async () => {
+  const f = await server();
+  try {
+    const made = f.hosts.pair('admin');
+    assert.ok(typeof made !== 'string');
+    const claimed = f.hosts.claim(made.code, 'Alice’s laptop', 'alice', 4);
+    assert.ok(typeof claimed !== 'string');
+    const ws = await connect(f.url, claimed.token, ['f1', 'f2']);
+    const bothReady = new Promise<void>((resolve) => {
+      f.registry.onFloorUp = (id) => { if (id === 'f2') resolve(); };
+    });
+    ws.send(JSON.stringify({ t: 'ready', floor: ready('f1') }));
+    ws.send(JSON.stringify({ t: 'ready', floor: ready('f2') }));
+    await bothReady;
+    const gone = new Promise<string>((resolve) => { f.registry.onFloorGone = resolve; });
+    ws.send(JSON.stringify({ t: 'leave', floorId: 'f1' }));
+    assert.equal(await gone, 'f1');
+    assert.equal(f.registry.isReachable('f1'), false);
+    assert.equal(f.registry.isReachable('f2'), true);
     ws.close();
   } finally {
     f.close();

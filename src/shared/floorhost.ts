@@ -60,6 +60,16 @@ export interface FloorReady {
    */
   branch?: string;
   providers?: AgentProvider[];
+  /**
+   * Where this machine keeps its checkouts, so the office can say where a floor would live on it.
+   *
+   * A hosted floor's `dir` is a path on this machine and the office cannot invent one — but the
+   * convention is the one the office already uses when it clones (`<projects>/owner/repo`), so a
+   * machine that says where its projects go makes `agent-office hosts add-floor` answerable without
+   * anyone having to know the far machine's layout. It is a hint for the CLI, never a path the office
+   * reads: it is stored beside the machine's name, not used to open anything.
+   */
+  projectsDir?: string;
 }
 
 /**
@@ -173,11 +183,11 @@ export type FromFloor =
    * for the first time presents the `code` from the office instead, so nobody has to carry a token
    * between machines. The office answers with `welcome`.
    */
-  | { t: 'hello'; hostId: FloorHostId; protocol: number; token?: string; code?: string; name?: string; owner?: string }
+  | { t: 'hello'; hostId: FloorHostId; protocol: number; token?: string; code?: string; name?: string; owner?: string; projectsDir?: string }
   | { t: 'ready'; floor: FloorReady }
   | { t: 'leave'; floorId: string; why?: string }
   /** Whatever `ctx.emit` would have sent. `droppable` says what the office may shed under pressure. */
-  | { t: 'event'; floorId: string; seq: number; droppable?: boolean; msg: unknown }
+  | { t: 'event'; floorId: string; seq: number; droppable?: boolean; clients?: string[]; msg: unknown }
   /** A worker's terminal output, for whoever has that terminal open. */
   | { t: 'term.data'; floorId: string; workerId: string; data: string }
   | { t: 'report'; floorId: string; workerId: string; pr?: { number: number; url: string }; cost?: number; tokens?: number }

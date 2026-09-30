@@ -33,6 +33,45 @@ function fakeHost() {
 const make = (host = fakeHost()) =>
   new RemoteFloor('f1', 'a machine', 'h1', host.registry, { id: 'f1', name: 'API', dir: '/on/the/host', palette: 0, addedBy: 'alice', addedAt: 1 }, 'main', ['claude']);
 
+test('a state event with the same sequence as a call does not settle the call', async () => {
+  const host = fakeHost();
+  const floor = make(host);
+  const pending = floor.queue.add('task', 'Alice');
+  const seq = host.sent[0].seq as number;
+  const state = { tasks: [], maxWorkers: 3 };
+  floor.deliver({ t: 'event', floorId: 'f1', seq, msg: { t: 'queue', state } });
+  assert.deepEqual(floor.queue.state(), state);
+  floor.deliver({ t: 'result', floorId: 'f1', seq, value: 'actual reply' });
+  assert.equal(await pending, 'actual reply');
+});
+
+test('browser-shaped room updates fill the mirror', () => {
+  const floor = make();
+  floor.deliver({ t: 'event', floorId: 'f1', seq: 0, msg: { t: 'plan', plan: { wing: 2, labels: {} } } });
+  floor.deliver({ t: 'event', floorId: 'f1', seq: 0, msg: { t: 'decor', items: [{ id: 'picture' }] } });
+  floor.deliver({ t: 'event', floorId: 'f1', seq: 0, msg: { t: 'ball', ball: { holder: 'alice' } } });
+  assert.equal(floor.plan.wing, 2);
+  assert.equal(floor.decor.list()[0].id, 'picture');
+  assert.equal(floor.court.state().holder, 'alice');
+});
+
+test('a new ready restores a disconnected floor and calls use the new connection', async () => {
+  const host = fakeHost();
+  const floor = make(host);
+  const pending = floor.queue.add('before disconnect', 'Alice');
+  host.setReachable(false);
+  floor.onGone('f1');
+  assert.equal(await pending, 'Alice’s laptop is asleep');
+  assert.equal(floor.reachable, false);
+  host.setReachable(true);
+  floor.deliver({ t: 'ready', floor: { floorId: 'f1', name: 'API', seats: 4, accepting: false, workers: [], forge: 'github' } });
+  assert.equal(floor.reachable, true);
+  const resumed = floor.queue.add('after reconnect', 'Alice');
+  assert.equal(host.sent.length, 2);
+  floor.deliver({ t: 'result', floorId: 'f1', seq: host.sent[1].seq as number, value: undefined });
+  assert.equal(await resumed, '');
+});
+
 test('a floor whose machine has not paired yet has a placeholder name, not an empty one', () => {
   // The building knows a floor's host id before the machine has ever connected, so the proxy is built
   // with a fallback. The panel says something honest rather than nothing.
