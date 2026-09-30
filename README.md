@@ -348,6 +348,8 @@ npm test
 
 Server edits restart the server, not the workers. After changing `ptyhost.ts`, bump `PTY_PROTOCOL` in `ptys.ts` so the next server replaces the PTY host.
 
+[docs/code-layout.md](docs/code-layout.md) says where the code lives, and where a new feature's pieces go.
+
 Every change to the app that lands on `main` is published as a GitHub release by [`.github/workflows/release.yml`](.github/workflows/release.yml), and `install.sh` installs the newest one. Bump `package.json`'s version to start a new minor.
 
 ## More
@@ -363,6 +365,7 @@ Every change to the app that lands on `main` is published as a GitHub release by
 - [Your own server](docs/self-hosting.md): the one-line setup for any Ubuntu or Debian server, or by hand behind Caddy or nginx
 - [Azure reference](docs/azure.md): picking a VM size, pausing, and everything `deploy/azure.sh` does
 - [How it works](docs/how-it-works.md): the architecture, and security notes
+- [Code layout](docs/code-layout.md): where the code lives, adding a feature or an agent provider, and the size guard
 
 ## License
 

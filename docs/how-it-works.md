@@ -1,6 +1,6 @@
 # How it works
 
-Back to the [README](../README.md).
+Back to the [README](../README.md). [Code layout](code-layout.md) says where the code lives, and how a feature plugs in.
 
 ```
 browser ──HTTPS/WSS──▶ agent-office (Node)
