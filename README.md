@@ -71,7 +71,7 @@ This puts an `agent-office` command on your PATH, so next time just run `agent-o
 The first time it starts, it walks you through setting up, right in the terminal:
 
 1. **Where to clone your projects.** It suggests a code folder you already have (`~/Workspace`, `~/code`…), else `~/agent-office`. Each project goes in `<folder>/<owner>/<repo>`.
-2. **GitHub and Bitbucket.** For each one whose CLI is installed but not signed in, it offers to run the sign-in for you. Either one is enough to go on; the projects it offers are the ones that login can see.
+2. **GitHub and Bitbucket.** For each one whose CLI is installed but not signed in, it offers to run the sign-in for you. Either one is enough to go on; the projects it offers are the ones that login can see. On Bitbucket, `bb auth login` also records the workspace to work in by default, which is how the office lists a personal workspace's repositories — those can't be reached by naming the workspace, since a personal workspace's slug is usually not your username.
 3. **Your first project.** Pick one of your repos by number, or type `owner/name`, and the office clones it as the first floor.
 
 Press Enter to skip a step: the elevator in the office asks for your first project too. Then the office opens in your browser, **already signed in**, with a link that works once. The terminal also prints the office password, for signing in from another browser (it's saved in `~/agent-office/.agent-office/config.json`).

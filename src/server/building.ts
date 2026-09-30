@@ -25,6 +25,14 @@ interface PickedDir {
   at: number;
 }
 
+/** What a forge said about a name someone typed: the repository's real name, and its CLI. */
+interface Found {
+  repo: string;
+  forge: ForgeKind;
+  /** The name the forge's own CLI answered to, which is the one it can clone from. */
+  asked?: string;
+}
+
 /** The checkout the office was started in, once it's been taken off the building (local-floor.json). */
 interface LocalOff {
   dir: string;
@@ -189,10 +197,12 @@ export class Building {
     // Asking the forge first says whether this login can see it at all, and gets the name's real case.
     let repo: string;
     let forge: ForgeKind;
+    /** The name bb answered to, which is the one it can clone from (see askBb). */
+    let asked: string | undefined;
     try {
       const found = await (kind ? this.ask(kind, wanted, this.dataDir) : this.askAny(wanted, this.dataDir));
       if (!found) throw new Error(`${wanted} isn't on GitHub or Bitbucket, or this login can't see it`);
-      ({ repo, forge } = found);
+      ({ repo, forge, asked } = found);
     } catch (err) {
       return (err as Error).message;
     }
@@ -206,7 +216,7 @@ export class Building {
     this.cloning.set(key, def);
     started(def);
     try {
-      const err = await cloneInto(repo, dest, forge);
+      const err = await cloneInto(repo, dest, forge, asked);
       if (err) return err;
     } finally {
       this.cloning.delete(key);
@@ -232,14 +242,11 @@ export class Building {
   /**
    * Asks one forge about `repo`: the name's real case, and that this login can see it. Resolves to
    * nothing when the forge doesn't have it, rather than failing, so the next one can be asked.
+   * `asked` is the name the forge itself answered to, which is the one it can go on to clone from.
    */
-  private async ask(kind: ForgeKind, repo: string, cwd: string): Promise<{ repo: string; forge: ForgeKind } | undefined> {
+  private async ask(kind: ForgeKind, repo: string, cwd: string): Promise<Found | undefined> {
     try {
-      if (kind === 'bitbucket') {
-        const out = await bb(['repo', 'view', repo, '--json'], cwd, 30_000);
-        const full = String((JSON.parse(out || '{}') as { full_name?: string }).full_name ?? '');
-        return full ? { repo: normalizeRepo(full) ?? repo, forge: 'bitbucket' } : undefined;
-      }
+      if (kind === 'bitbucket') return await askBb(repo, cwd);
       const view = JSON.parse(await gh(['repo', 'view', repo, '--json', 'nameWithOwner'], cwd, 30_000)) as { nameWithOwner?: string };
       return view.nameWithOwner ? { repo: normalizeRepo(view.nameWithOwner) ?? repo, forge: 'github' } : undefined;
     } catch {
@@ -248,7 +255,7 @@ export class Building {
   }
 
   /** A name with no forge said: GitHub first, then Bitbucket, so `agent-office owner/name` still works. */
-  private async askAny(repo: string, cwd: string): Promise<{ repo: string; forge: ForgeKind } | undefined> {
+  private async askAny(repo: string, cwd: string): Promise<Found | undefined> {
     return (await this.ask('github', repo, cwd)) ?? (await this.ask('bitbucket', repo, cwd));
   }
 
@@ -357,8 +364,32 @@ function unwritable(dir: string): string | undefined {
   return undefined;
 }
 
-/** Clones `repo` to `dest`, or checks that what's already there is that repository. Resolves to an error, if any. */
-async function cloneInto(repo: string, dest: string, kind: ForgeKind): Promise<string | undefined> {
+/**
+ * Asks bb about a repository someone typed, and reports the name bb itself answers to.
+ *
+ * bb works out its workspace from `BB_WORKSPACE` or the default its sign-in recorded, and that is
+ * the only way to reach a personal workspace, whose slug is often not the username: asked as
+ * `tradai/discovery` it says the repository is not found, while `discovery` alone works. So the name
+ * is asked about both ways and whichever bb recognises is the one given back — and the one cloned
+ * from later, since `repo clone` takes the same forms and fails the same way.
+ */
+async function askBb(repo: string, cwd: string): Promise<Found | undefined> {
+  const slug = repo.split('/').pop() ?? repo;
+  for (const asked of [repo, slug]) {
+    try {
+      const out = await bb(['repo', 'view', asked, '--json', 'full_name'], cwd, 30_000);
+      const full = normalizeRepo((JSON.parse(out || '{}') as { full_name?: string }).full_name);
+      if (full) return { repo: full, forge: 'bitbucket', asked };
+    } catch {
+      // Not that one, or not under that name: try the next way of saying it.
+    }
+  }
+  return undefined;
+}
+
+/** Clones `repo` to `dest`, or checks that what's already there is that repository. `asked` is the
+ * name the forge answered to, which for Bitbucket is the form its CLI can clone from. */
+async function cloneInto(repo: string, dest: string, kind: ForgeKind, asked?: string): Promise<string | undefined> {
   if (existsSync(dest)) {
     if (!statSync(dest).isDirectory()) return `${dest} is already there and isn't a folder`;
     if (readdirSync(dest).length) {
@@ -372,7 +403,8 @@ async function cloneInto(repo: string, dest: string, kind: ForgeKind): Promise<s
     return `Couldn't make ${path.dirname(dest)}: ${(err as Error).message}`;
   }
   const how = kind === 'bitbucket' ? 'bb' : 'gh';
-  const args = kind === 'bitbucket' ? ['repo', 'clone', repo, '--directory', dest] : ['repo', 'clone', repo, dest];
+  const name = kind === 'bitbucket' ? (asked ?? repo) : repo;
+  const args = kind === 'bitbucket' ? ['repo', 'clone', name, '--directory', dest] : ['repo', 'clone', repo, dest];
   return new Promise((resolve) => {
     execFile(kind === 'bitbucket' ? 'bb' : 'gh', args, { cwd: path.dirname(dest), timeout: CLONE_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 }, (err, _out, stderr) => {
       if (!err) return resolve(undefined);
@@ -432,28 +464,61 @@ async function githubRepos(cwd: string): Promise<RepoChoice[]> {
   return repos;
 }
 
-/** The repositories in every Bitbucket workspace this login belongs to. */
+/**
+ * The repositories in every Bitbucket workspace this login belongs to.
+ *
+ * bb works out a workspace for itself — `BB_WORKSPACE`, or the default its sign-in recorded — and
+ * that is the only way to reach a *personal* workspace, whose slug is often not the username: named
+ * outright, bb answers `No workspace with identifier 'tradai'` and `repo view tradi/discovery` says
+ * the repository is not found, while `discovery` alone works. So the workspace bb has for itself is
+ * listed without one, and every other workspace is asked for by name, with any that won't answer
+ * left out rather than failing the whole list.
+ */
 async function bitbucketRepos(cwd: string): Promise<RepoChoice[]> {
-  const listed = await bb(['workspace', 'list', '--json'], cwd, 60_000);
-  const slugs = ((JSON.parse(listed || '{}') as { workspaces?: any[] }).workspaces ?? []).map((w) => String(w?.slug ?? '')).filter(Boolean);
-  if (!slugs.length) return [];
   const repos: RepoChoice[] = [];
-  // A workspace whose repositories can't be listed (left the workspace mid-list) is skipped.
-  const pages = await Promise.allSettled(slugs.map((s) => bb(['repo', 'list', '--workspace', s, '--all', '--json'], cwd, 90_000)));
+  // A workspace list that can't be read is not a reason to show nothing: the default one still can.
+  const slugs = await Promise.allSettled([bbWorkspaceSlugs(cwd)]).then(([s]) => (s.status === 'fulfilled' ? s.value : []));
+  // Asking for exactly the fields the elevator shows, rather than each repository in full, is a
+  // fraction of the JSON: four fields against a links-and-permissions object apiece.
+  const pages = await Promise.allSettled([undefined, ...slugs].map((s) => bbRepoPage(s, cwd)));
   for (const page of pages) {
     if (page.status !== 'fulfilled') continue;
-    for (const r of ((JSON.parse(page.value || '{}') as { repositories?: any[] }).repositories ?? [])) {
-      const name = normalizeRepo(r?.full_name);
-      if (!name) continue;
-      repos.push({
-        name,
-        forge: 'bitbucket',
-        description: typeof r?.description === 'string' && r.description ? r.description.slice(0, 200) : undefined,
-        private: r?.is_private === true,
-        pushedAt: typeof r?.updated_on === 'string' ? r.updated_on : undefined,
-      });
+    for (const r of page.value) {
+      repos.push(r);
       if (repos.length >= MAX_REPOS) break;
     }
+    if (repos.length >= MAX_REPOS) break;
+  }
+  return repos;
+}
+
+/** The slugs of the workspaces this login belongs to; the default one among them, if bb names it. */
+async function bbWorkspaceSlugs(cwd: string): Promise<string[]> {
+  const listed = await bb(['workspace', 'list', '--json'], cwd, 60_000);
+  // Each entry is a workspace_access wrapper with the workspace itself under `workspace`, so the
+  // slug is one level in — reading it off the entry finds nothing and the list comes back empty.
+  return ((JSON.parse(listed || '{}') as { workspaces?: any[] }).workspaces ?? [])
+    .map((w) => String(w?.workspace?.slug ?? w?.slug ?? '').trim())
+    .filter(Boolean);
+}
+
+/** One page of `bb repo list`: `workspace` is undefined for the workspace bb has for itself. */
+async function bbRepoPage(workspace: string | undefined, cwd: string): Promise<RepoChoice[]> {
+  const out = await bb(['repo', 'list', ...(workspace ? ['--workspace', workspace] : []), '--all', '--json', 'full_name,description,is_private,updated_on'], cwd, 90_000);
+  // Naming the fields drops the envelope and answers with a flat array; a bare `--json` keeps it.
+  const parsed = JSON.parse(out || '[]') as any[] | { repositories?: any[] };
+  const rows = Array.isArray(parsed) ? parsed : (parsed.repositories ?? []);
+  const repos: RepoChoice[] = [];
+  for (const r of rows) {
+    const name = normalizeRepo(r?.full_name);
+    if (!name) continue;
+    repos.push({
+      name,
+      forge: 'bitbucket',
+      description: typeof r?.description === 'string' && r.description ? r.description.slice(0, 200) : undefined,
+      private: r?.is_private === true,
+      pushedAt: typeof r?.updated_on === 'string' ? r.updated_on : undefined,
+    });
   }
   return repos;
 }
