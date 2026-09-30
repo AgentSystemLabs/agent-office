@@ -143,10 +143,11 @@ The server answers every one of them with `{ t: 'tv', state }`, which the browse
 
 - **Embedding is at the site's discretion.** Sites that send `X-Frame-Options` or a CSP
   `frame-ancestors` won't appear; the office can't and doesn't proxy them.
-- **No audio routing.** The TV plays through the browser's own media volume, not the office's Web
-  Audio mix, so it isn't quieter when you walk away (a cross-origin player can't be routed through
-  Web Audio at all — the jukebox's stream has the same rule). It has its own volume and mute
-  instead, in the TV window and under ⚙️ Settings → **TV**, and it's yours alone.
+- **Audio is local, and distance-aware where the player allows it.** Direct videos and YouTube use
+  the same inverse-distance falloff as the jukebox, so they get quieter as you walk away; arbitrary
+  cross-origin embeds cannot expose a volume control and keep the browser's own media volume. The
+  TV still has its own volume and mute in the TV window and under ⚙️ Settings → **TV**, and it's
+  yours alone.
 - **Pause and seek only reach players with an API** (YouTube, `<video>`). For an arbitrary embed,
   everyone still starts together; drift after that is the embed's business.
 - **No full-screen viewer yet** — sitting on the couch opens the full-screen viewer for a *share*,

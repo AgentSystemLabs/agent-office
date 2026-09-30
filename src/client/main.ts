@@ -5191,7 +5191,11 @@ if (faint.down || modalOpen() || telescope.active || hanger.active || mover.acti
   effect.render(scene, camera);
   pointToWaiting(now);
   // The TV's picture, projected onto its rectangle from this frame's camera (see tvscreen.ts).
-  tvScreen.update(camera, inOffice() && !upTop && !telescope.active, player.colliders);
+  tvScreen.update(camera, inOffice() && !upTop && !telescope.active, player.colliders, {
+    x: player.pos.x,
+    y: player.pos.y + EYE_HEIGHT,
+    z: player.pos.z,
+  });
   // Not while the camera's up at the boss's monitor or the arcade, where they'd cover the screen.
   if (firstPerson && !telescope.active && !arcade.zoomed && !cabinet.zoomed && !golf.active && !thrower.active && !driver.active && !faint.down) {
     // Hands go on top of everything, so they never clip into a desk you walk up to. They have
