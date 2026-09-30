@@ -365,6 +365,7 @@ Every change to the app that lands on `main` is published as a GitHub release by
 - [Your own server](docs/self-hosting.md): the one-line setup for any Ubuntu or Debian server, or by hand behind Caddy or nginx
 - [Azure reference](docs/azure.md): picking a VM size, pausing, and everything `deploy/azure.sh` does
 - [How it works](docs/how-it-works.md): the architecture, and security notes
+- [Decisions](docs/decisions/further-enhancements.md): what the table of bots decided to build next, and why
 - [Streaming to the TV](docs/tv-streaming.md): what plays on the lounge TV, and how every browser stays in step with it
 
 ## License
