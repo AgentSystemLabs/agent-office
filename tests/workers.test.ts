@@ -295,6 +295,10 @@ test('OpenCode workers use OpenCode-only hooks/config, never invoke Claude namin
   assert.equal(firstWorker.env.workerId, worker.id);
   assert.ok(firstWorker.env.hookToken);
   assert.ok(firstWorker.env.opencodeConfig?.includes('agent-office-opencode'));
+  // The office's MCP server, which OpenCode runs with the worker's environment.
+  const mcp = JSON.parse(firstWorker.env.opencodeConfig!).mcp?.['agent-office'];
+  assert.deepEqual(mcp?.command?.slice(-1), ['mcp']);
+  assert.ok(mcp?.command?.[1].endsWith(path.join('bin', 'office-workers.js')));
   assert.equal(first.filter((r) => r.kind === 'claude').length, 0, 'OpenCode must not launch the Claude task namer');
 
   const transcript = path.join(f.root, 'must-not-be-read.jsonl');
@@ -622,6 +626,9 @@ test('Codex workers preserve native approvals, follow authenticated root hooks, 
   const token = first.env.hookToken!;
   assert.equal(worker.status, 'starting');
   assert.ok(first.args.includes('--no-alt-screen'));
+  // The office's MCP server, with the office's variables passed on to it, which Codex doesn't do unasked.
+  assert.ok(first.args.some((a) => a.startsWith('mcp_servers.agent-office.args=') && a.includes('office-workers.js')));
+  assert.ok(first.args.includes('mcp_servers.agent-office.env_vars=["AGENT_OFFICE_HOOK_URL","AGENT_OFFICE_WORKER_ID","AGENT_OFFICE_HOOK_TOKEN"]'));
   assert.deepEqual(first.args.slice(-2), ['--', '- fix the login']);
   assert.equal(first.args.some(a => /bypass|--yolo|--claude-only|--settings/.test(a)), false);
   assert.equal(first.args.filter(a => a.startsWith('hooks.')).length, 7);
@@ -1025,7 +1032,7 @@ test('the queue agent is launched without file-editing tools, and board agents g
   assert.equal(second.args.at(-1), 'Also bump the version');
   assert.ok(onPath(second));
 
-  // The other board agents keep their tools but get the command; a desk worker gets neither.
+  // The other board agents keep their tools; they, and a desk worker, get the commands all the same.
   const pulls = workers.station('station-pulls', 'Ada', 'Sum up the open PRs');
   const desk = workers.spawn('desk-2', 'Ada', 'Fix login');
   assert.ok(typeof pulls === 'object' && typeof desk === 'object');
@@ -1035,7 +1042,44 @@ test('the queue agent is launched without file-editing tools, and board agents g
   assert.equal(denied(pullsLaunch.args), undefined);
   assert.ok(onPath(pullsLaunch));
   assert.equal(denied(deskLaunch.args), undefined);
-  assert.equal((deskLaunch.env.path ?? '').split(path.delimiter).includes(bin), false);
+  assert.ok(onPath(deskLaunch), 'office-workers is first on a desk worker\'s PATH');
+});
+
+test("every Claude worker gets the office's MCP server, and office-workers on its PATH", async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+  const workers = manager(f, f.claude, []);
+  t.after(() => workers.shutdown());
+
+  const bin = path.join(f.data, 'bin');
+  accessSync(path.join(bin, 'office-workers'), constants.X_OK);
+  assert.match(execFileSync(path.join(bin, 'office-workers'), ['--help'], { encoding: 'utf8' }), /office-workers home --merged/);
+  // Claude Code's --mcp-config: the shipped script, run as an MCP server by the office's own node.
+  const config = path.join(f.data, 'agent-office-mcp.json');
+  const server = JSON.parse(readFileSync(config, 'utf8')).mcpServers['agent-office'];
+  assert.equal(server.command, process.execPath);
+  assert.deepEqual(server.args.slice(1), ['mcp']);
+  assert.ok(server.args[0].endsWith(path.join('bin', 'office-workers.js')));
+  // Looking is allowed without asking; hiring and sending home aren't.
+  assert.deepEqual(JSON.parse(readFileSync(path.join(f.data, 'claude-hooks.json'), 'utf8')).permissions, { allow: ['mcp__agent-office__list_workers'] });
+
+  const desk = workers.spawn('desk-2', 'Ada', 'Fix login');
+  assert.equal(typeof desk, 'object');
+  if (typeof desk !== 'object') return;
+  const [launch] = await waitFor(() => f.read().filter((r) => r.kind === 'claude' && r.stdin === undefined && r.env.workerId === desk.id), (l) => l.length === 1);
+  // Before --settings, which ends the list of configs --mcp-config takes.
+  const at = launch.args.indexOf('--mcp-config');
+  assert.ok(at >= 0);
+  assert.equal(launch.args[at + 1], config);
+  assert.equal(launch.args[at + 2], '--settings');
+  assert.equal((launch.env.path ?? '').split(path.delimiter)[0], bin);
 });
 
 test('a Claude worker acts out its latest tool call, and puts its head in its hands when its tests keep failing', async (t) => {

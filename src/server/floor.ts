@@ -21,8 +21,8 @@ import { Garage } from './garage.js';
 import { Jukebox } from './jukebox.js';
 import { Whiteboard } from './whiteboard.js';
 import { MeetingRoom } from './meetings.js';
-import { Worktrees } from './worktrees.js';
-import { landedWorkers } from './leave-on-merge.js';
+import { Worktrees, type WorktreeCleanup } from './worktrees.js';
+import { landedWork, landedWorkers, type Landed } from './leave-on-merge.js';
 import type { Ledger } from './usage.js';
 import type { Capacity } from './machine.js';
 import { officePrompt, type PromptSource } from './prompts.js';
@@ -340,6 +340,25 @@ export class Floor {
         });
       }
     }, LANDED_DELAY_MS);
+  }
+
+  /**
+   * Whether a worker's work landed: a pull request of its merged and none is open, on this floor
+   * and, for a worker across repositories, on the others too (see landedWork).
+   */
+  landed(worker: WorkerInfo): Landed | undefined {
+    return landedWork(worker, this.github.pulls.items, this.queue.state().tasks, (id) => this.ctx.floor(id)?.github.pulls.items);
+  }
+
+  /**
+   * Sends a worker home as someone asked (not by itself, see sendLandedHome): with no `cleanup`, its
+   * worktree and branch go unless they hold work, where what its merged pull requests delivered
+   * doesn't count. Resolves with the line about its worktree.
+   */
+  sendHome(workerId: string, cleanup?: WorktreeCleanup): Promise<{ note?: string; error?: string }> {
+    const info = this.workers.get(workerId);
+    const landed = info && this.landed(info);
+    return this.workers.kill(workerId, cleanup, landed?.head, landed?.heads);
   }
 
   private goHome(worker: WorkerInfo, why: string, head?: string, heads?: Record<string, string | undefined>) {

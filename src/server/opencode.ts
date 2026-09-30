@@ -23,8 +23,11 @@ export interface OpenCodeUsageEvent {
 
 export type OpenCodeHookEvent = OpenCodeStatusEvent | OpenCodeUsageEvent;
 
-/** Merge the per-process plugin into inline OpenCode config without touching user config files. */
-export function mergeOpenCodeConfigContent(existing: string | undefined, plugin: string): string {
+/**
+ * Merge the per-process plugin, and the office's MCP server when there is one (`mcp`, see
+ * openCodeMcp), into inline OpenCode config without touching user config files.
+ */
+export function mergeOpenCodeConfigContent(existing: string | undefined, plugin: string, mcp?: Record<string, unknown>): string {
   let config: Record<string, unknown> = {};
   if (existing) {
     try {
@@ -39,6 +42,10 @@ export function mergeOpenCodeConfigContent(existing: string | undefined, plugin:
   const plugins = Array.isArray(config.plugin) ? [...config.plugin] : [];
   if (!plugins.includes(plugin)) plugins.push(plugin);
   config.plugin = plugins;
+  if (mcp) {
+    const theirs = config.mcp && typeof config.mcp === 'object' && !Array.isArray(config.mcp) ? (config.mcp as Record<string, unknown>) : {};
+    config.mcp = { ...theirs, ...mcp };
+  }
   return JSON.stringify(config);
 }
 
