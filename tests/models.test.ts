@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isValidOpenCodeModel } from '../src/server/agents.js';
-import { createOpenCodeModelCatalogue, fetchOpenCodeModels, type ModelCommandRunner } from '../src/server/models.js';
+import { isValidGrokModel, isValidMuseModel, isValidOpenCodeModel } from '../src/server/agents.js';
+import { createGrokModelCatalogue, createOpenCodeModelCatalogue, fetchGrokModels, fetchOpenCodeModels, type ModelCommandRunner } from '../src/server/models.js';
 
 test('OpenCode model ids require provider/model and reject whitespace or control characters', () => {
   assert.equal(isValidOpenCodeModel('openai/gpt-5'), true);
@@ -37,6 +37,58 @@ test('OpenCode catalogue coalesces requests and caches successful results briefl
   const catalogue = createOpenCodeModelCatalogue('/opencode', '/project', runner, () => now);
   const [a, b] = await Promise.all([catalogue.get(), catalogue.get()]);
   assert.deepEqual(a, ['anthropic/claude-sonnet-4']);
+  assert.deepEqual(b, a);
+  assert.equal(calls, 1);
+  now += 59_999;
+  await catalogue.get();
+  assert.equal(calls, 1);
+  now += 2;
+  await catalogue.get();
+  assert.equal(calls, 2);
+});
+
+test('Grok model ids are argv-safe tokens without a provider prefix', () => {
+  assert.equal(isValidGrokModel('grok-4.6'), true);
+  assert.equal(isValidGrokModel('grok-4.7-build-fast'), true);
+  assert.equal(isValidGrokModel('openai/gpt-5'), false);
+  assert.equal(isValidGrokModel('grok 4.6'), false);
+  assert.equal(isValidGrokModel('x'.repeat(65)), false);
+});
+
+test('Muse model ids are argv-safe tokens without a provider prefix', () => {
+  assert.equal(isValidMuseModel('muse-spark-1.3-contributor'), true);
+  assert.equal(isValidMuseModel('openai/gpt-5'), false);
+  assert.equal(isValidMuseModel('muse spark'), false);
+  assert.equal(isValidMuseModel('x'.repeat(129)), false);
+});
+
+test('Grok catalogue parses `grok models` lines and ignores login chrome', async () => {
+  let call: { file: string; args: string[]; options: Record<string, unknown> } | undefined;
+  const runner: ModelCommandRunner = async (file, args, options) => {
+    call = { file, args, options };
+    return {
+      stdout: 'You are logged in with grok.com.\n\nDefault model: grok-4.6\n\nAvailable models:\n  - grok-4.7\n  * grok-4.6 (default)\n  - grok-4.5\n',
+      stderr: 'private detail',
+    };
+  };
+  assert.deepEqual(await fetchGrokModels('/custom/grok', '/project', runner), ['grok-4.7', 'grok-4.6', 'grok-4.5']);
+  assert.deepEqual(call, {
+    file: '/custom/grok',
+    args: ['models'],
+    options: { cwd: '/project', timeout: 10_000, maxBuffer: 1024 * 1024 },
+  });
+});
+
+test('Grok catalogue coalesces requests and caches successful results briefly', async () => {
+  let calls = 0;
+  let now = 1000;
+  const runner: ModelCommandRunner = async () => {
+    calls++;
+    return { stdout: '  - grok-4.6\n', stderr: '' };
+  };
+  const catalogue = createGrokModelCatalogue('/grok', '/project', runner, () => now);
+  const [a, b] = await Promise.all([catalogue.get(), catalogue.get()]);
+  assert.deepEqual(a, ['grok-4.6']);
   assert.deepEqual(b, a);
   assert.equal(calls, 1);
   now += 59_999;

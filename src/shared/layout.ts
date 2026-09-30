@@ -19,6 +19,8 @@ export interface DeskDef {
   station?: StationKind;
   /** A chair at the meeting room's table (see MEETING_SEATS): only a meeting seats a worker here. */
   room?: boolean;
+  /** A desk in the back office (see WING): there once the floor is built out this many rows. */
+  wing?: number;
 }
 
 const DESK_WIDTH = 2.2;
@@ -53,6 +55,60 @@ function buildDesks(): DeskDef[] {
 export const DESKS: DeskDef[] = buildDesks();
 
 /**
+ * The back office: a bay knocked through the north wall between the gong and the east wall, for a
+ * floor that needs more desks than the room has. Each time someone expands the floor (see
+ * shared/floorplan.ts), its back wall goes another `row` meters north, with two more desks back to
+ * back in the middle, up to `rows` times: any further and it would stand in the street behind the
+ * building (world/city.ts). It runs from `minX` (the gong keeps its bit of wall) to the east wall,
+ * and from the old north wall back to wingMinZ.
+ */
+export const WING = { minX: 13.4, maxX: FLOOR.maxX, row: 4.6, rows: 2 } as const;
+
+/** A floor built out `level` rows, as a whole number from 0 (just the room) to WING.rows. */
+export function wingLevel(level: unknown): number {
+  return typeof level === 'number' && Number.isFinite(level) ? Math.max(0, Math.min(WING.rows, Math.floor(level))) : 0;
+}
+
+/** How far north the back office's back wall is, built out `level` rows: the north wall with none. */
+export function wingMinZ(level: number): number {
+  return FLOOR.minZ - wingLevel(level) * WING.row;
+}
+
+/** Whether (x, z) is in the back office, built out `level` rows. */
+export function inWing(x: number, z: number, level: number): boolean {
+  return level > 0 && x > WING.minX && x < WING.maxX && z <= FLOOR.minZ && z > wingMinZ(level);
+}
+
+/** The middle of the back office's row `row` (1 is the first, through the old north wall). */
+export function wingRowZ(row: number): number {
+  return FLOOR.minZ - (row - 0.5) * WING.row;
+}
+
+/**
+ * The back office's desks: a back-to-back pair down the middle of each row, like half a pod, with
+ * room to walk round either side. The far one's worker faces the room; the near one's faces the back.
+ */
+export const WING_DESKS: DeskDef[] = Array.from({ length: WING.rows }, (_, i) => {
+  const z = wingRowZ(i + 1);
+  const x = (WING.minX + WING.maxX) / 2;
+  const n = DESKS.length + 2 * i + 1;
+  return [
+    { id: `desk-${n}`, x, z: z - DESK_DEPTH / 2, rotY: Math.PI, label: `Desk ${n}`, wing: i + 1 },
+    { id: `desk-${n + 1}`, x, z: z + DESK_DEPTH / 2, rotY: 0, label: `Desk ${n + 1}`, wing: i + 1 },
+  ];
+}).flat();
+
+/** Whether `desk` is there on a floor built out `level` rows: every desk in the room is. */
+export function deskBuilt(desk: DeskDef, level: number): boolean {
+  return !desk.wing || desk.wing <= level;
+}
+
+/** Every desk on a floor built out `level` rows: the room's, then the back office's. */
+export function builtDesks(level: number): DeskDef[] {
+  return [...DESKS, ...WING_DESKS.filter((d) => deskBuilt(d, level))];
+}
+
+/**
  * Overflow seats: once every desk is taken, bean bags come out around the room, one at a time in
  * this order. Each faces a window or a wall, with open floor behind it to walk up to.
  */
@@ -76,8 +132,8 @@ export const BEANBAGS: DeskDef[] = (
   ] as const
 ).map(([x, z, rotY], i) => ({ id: `beanbag-${i + 1}`, x, z, rotY, label: `Bean bag ${i + 1}`, beanbag: true }));
 
-/** Everywhere a worker can sit: the desks, then the bean bags. */
-export const SEATS: DeskDef[] = [...DESKS, ...BEANBAGS];
+/** Everywhere a worker can sit: the desks, the back office's once it's built out (see deskBuilt), then the bean bags. */
+export const SEATS: DeskDef[] = [...DESKS, ...WING_DESKS, ...BEANBAGS];
 
 /** The boards with an agent standing by: the Issues board, the PR board and the task queue. */
 export type StationKind = 'issues' | 'pulls' | 'queue';
@@ -134,21 +190,24 @@ export const MEETING_SEATS: DeskDef[] = (
 /** The board on the meeting room's back (south) wall that shows the meeting's output file as it's written. */
 export const MEETING_BOARD = { x: MEETING_TABLE.x, y: 1.95, z: FLOOR.maxZ - 0.08, width: 3.6, height: 1.2 } as const;
 
-/** Any place a worker can be by id: the seats, the board agents' kiosks and the meeting room's chairs. */
+/** Any place a worker can be by id: the seats (the back office's included), the board agents' kiosks and the meeting room's chairs. */
 export const DESK_BY_ID = new Map([...SEATS, ...STATIONS, ...MEETING_SEATS].map((d) => [d.id, d]));
 
-/** The seat a new worker takes when nobody picks one: the first free desk, else the first free bean bag. */
-export function nextFreeSeat(taken: (id: string) => boolean): DeskDef | undefined {
-  return SEATS.find((d) => !taken(d.id));
+/**
+ * The seat a new worker takes when nobody picks one: the first free desk (in the back office too, as
+ * far as the floor is built out: `wing` rows), else the first free bean bag.
+ */
+export function nextFreeSeat(taken: (id: string) => boolean, wing = 0): DeskDef | undefined {
+  return SEATS.find((d) => !taken(d.id) && deskBuilt(d, wing));
 }
 
 /**
- * The bean bags that are out: every one in use, and while every desk is taken, the next free one
- * too, so there's always somewhere to hire the next worker.
+ * The bean bags that are out: every one in use, and while every desk is taken (the back office's
+ * too, built out `wing` rows), the next free one too, so there's always somewhere to hire the next worker.
  */
-export function beanbagsOut(taken: (id: string) => boolean): Set<string> {
+export function beanbagsOut(taken: (id: string) => boolean, wing = 0): Set<string> {
   const out = new Set(BEANBAGS.filter((b) => taken(b.id)).map((b) => b.id));
-  if (DESKS.every((d) => taken(d.id))) {
+  if (builtDesks(wing).every((d) => taken(d.id))) {
     const spare = BEANBAGS.find((b) => !taken(b.id));
     if (spare) out.add(spare.id);
   }
@@ -201,6 +260,13 @@ export const JUKEBOX = { x: FLOOR.maxX - 0.42, y: 0.75, z: 5.4, width: 1.3, dept
 /** The arcade cabinet, against the east wall between the jukebox and the loft, facing into the room. `width` runs along the wall. */
 export const CABINET = { x: FLOOR.maxX - 0.42, z: 7.05, width: 0.8, depth: 0.8, height: 1.9 } as const;
 
+/**
+ * The bookshelf of the project's docs (every Markdown file in it, see shared/docs.ts): against the
+ * south wall between the middle window and the balcony doors, facing into the room (-z). `width`
+ * runs along the wall.
+ */
+export const BOOKSHELF = { x: -6.5, z: FLOOR.maxZ - 0.21, width: 1.7, depth: 0.42, height: 2.3 } as const;
+
 export const SPAWN = { x: 8, z: 7 } as const;
 
 /** The gong: on the north wall just past the elevator from the PR board, facing into the room. It rings when a PR merges. */
@@ -217,6 +283,16 @@ export const PLANTS: readonly (readonly [x: number, z: number, scale: number])[]
   [3.5, 0, 0.9],
   [8.5, 5, 1.1],
 ];
+
+/** A plant by the north wall east of the gong, in the way into the back office: put away once it's built. */
+export function plantByWing([x, z]: readonly [number, number, number]): boolean {
+  return x > WING.minX && z < FLOOR.minZ + 1.5;
+}
+
+/** The plants standing on a floor built out `level` rows (see WING). */
+export function plantsAt(level: number): readonly (readonly [x: number, z: number, scale: number])[] {
+  return level > 0 ? PLANTS.filter((p) => !plantByWing(p)) : PLANTS;
+}
 
 /**
  * The whiteboard on wheels everyone draws on together, out on the open floor between the desks and
@@ -289,6 +365,18 @@ export const BALCONY_DOOR: Opening = { wall: 'south', u: -4, width: 3, y0: 0, y1
 export const BALCONY = { minX: -10.5, maxX: 2.5, minZ: FLOOR.maxZ + WALL_T, maxZ: FLOOR.maxZ + WALL_T + 3.4 } as const;
 /** The ashtray on the balcony, where a smoke break starts. */
 export const ASHTRAY = { x: -8.2, z: BALCONY.maxZ - 0.55 } as const;
+/**
+ * The golf tee on the balcony, between the ashtray and the doors: a square of turf `size` across,
+ * with the ball teed up at `ball`, hit out over the railing at the hole across the street
+ * (GOLF_HOLE). The golf bag leans on the wall behind it at `bag`, just short of the doors.
+ */
+export const GOLF_TEE = { x: -6.75, z: 14.75, size: 1.5, ball: { x: -6.95, z: 14.75 }, bag: { x: -5.8, z: BALCONY.minZ + 0.28 } } as const;
+/**
+ * The hole across the street, out past the far sidewalk where the neighbours leave a gap: its pin,
+ * the green round it (`green` its radius) and the fairway leading up to it (x `fairway` wide, from
+ * the sidewalk to the green). Down on the street, so it's further down the higher your floor is.
+ */
+export const GOLF_HOLE = { x: -5, z: 58, green: 5.5, fairway: [-11, 0] } as const;
 /**
  * Leaving a floor above the bottom one, with no exit door: out through the balcony doors to the
  * railing straight ahead (`jump`), up onto its top (`railTop` high), and over it by parachute. The
@@ -478,13 +566,11 @@ export interface PoleSpot {
 }
 
 /**
- * The fire poles, slid down to the floor below. Each one goes the whole way down the building, through
- * a hole in every floor but the bottom one (where there's a mat to land on): whichever you walk up to
- * takes you down one floor, and on a floor with another below you swing off it through the railing.
+ * The fire pole, slid down to the floor below. It goes the whole way down the building, through a hole
+ * in every floor but the bottom one (where there's a mat to land on): it takes you down one floor, and
+ * on a floor with another below you swing off it through the railing, ready to go again.
  */
 export const POLES: readonly PoleSpot[] = [
-  // South of the desks, by the way in from the balcony.
-  { x: -6.6, z: 8.4, open: Math.PI / 2 },
   // Out in the open between the desks and the lounge, where you step out of the elevator.
   { x: 6.8, z: 1.6, open: Math.PI },
 ];

@@ -40,3 +40,13 @@ test('--agent-args with nothing after it still needs a value', (t) => {
 test('other flags still treat a leading -- as a missing value', (t) => {
   assert.throws(() => load(t, '--agent', '--agent-args', 'x'), /exit 2: agent-office: --agent needs a value/);
 });
+
+test('the office listens on loopback unless --host says otherwise', (t) => {
+  assert.equal(load(t).host, '127.0.0.1');
+  assert.equal(load(t, '--host', '0.0.0.0').host, '0.0.0.0');
+});
+
+test('--no-open leaves the browser alone', (t) => {
+  assert.equal(load(t).open, true);
+  assert.equal(load(t, '--no-open').open, false);
+});

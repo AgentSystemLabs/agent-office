@@ -2,10 +2,12 @@ import * as THREE from 'three';
 import { EMOTE_BY_ID, type Emote, type EmoteId } from '../../shared/emotes';
 import type { CarriedIssue, Theme } from '../../shared/protocol';
 import type { Drink } from '../../shared/rooftop';
+import { OpenBook } from './book';
 import { HeldCard } from './card';
 import { REACH_TIME, SMOKE_CYCLE, cigarette, coffeeMug, dragCurve, drinkGlass, emoteEnvelope, putDownGlass, reachCurve } from './character';
 import { UNDEAD_SKIN, raggedCuff, warlockHand, witchFire } from './costumes';
 import { mesh, toon, toonUnique } from './toon';
+import { ballMesh } from './hoop';
 
 export interface HandsInput {
   yaw: number;
@@ -56,8 +58,19 @@ export class Hands {
   /** An issue card off the board, held low in front of you in both hands. */
   private holder = new THREE.Group();
   private card: HeldCard;
-  /** 0 → 1 as the card comes up into view and the hands close in on it. */
+  /** A book off the bookshelf, open in both hands while you read (see read). */
+  private bookHolder = new THREE.Group();
+  private book: OpenBook | null = null;
+  /** 0 → 1 as the card (or the book) comes up into view and the hands close in on it. */
   private carryK = 0;
+  /** The basketball, held low in front of you in both hands (see holdBall). */
+  private ball: THREE.Mesh;
+  private wantsBall = false;
+  /** 0 → 1 as the ball comes up into your hands. */
+  private ballK = 0;
+  /** How far into winding up a shot (0–1), and seconds into the follow-through after one (or -1). */
+  private wind = 0;
+  private shootT = -1;
   /** Seconds into a sip (negative while it waits for the reach to finish), or null. */
   private sipT: number | null = null;
   private sway = new THREE.Vector2();
@@ -121,6 +134,32 @@ export class Hands {
     this.holder.rotation.x = -0.35;
     this.scene.add(this.holder);
     this.card = new HeldCard(this.holder, 0.24);
+    // Tipped further back than a card, so you look down into its pages.
+    this.bookHolder.rotation.x = -0.8;
+    this.bookHolder.scale.setScalar(0.7);
+    this.scene.add(this.bookHolder);
+    this.ball = ballMesh();
+    this.ball.visible = false;
+    this.scene.add(this.ball);
+  }
+
+  /** The basketball in both hands, or not. The mug waits while your hands are full. */
+  holdBall(on: boolean) {
+    if (on === this.wantsBall) return;
+    this.wantsBall = on;
+    if (on) this.ballK = 0;
+    this.holdMug(this.wantsMug);
+  }
+
+  /** Winding up a shot, 0 (not yet) to 1 (as hard as you throw): the ball comes down and in, ready to go. */
+  windUp(k: number) {
+    this.wind = k;
+  }
+
+  /** The shot: both hands up and out after the ball. */
+  shoot() {
+    this.shootT = 0;
+    this.wind = 0;
   }
 
   /** Puts a lit cigarette in your right hand, or takes it away. */
@@ -206,8 +245,9 @@ export class Hands {
   /** A mug of coffee in the left hand, or not. */
   holdMug(on: boolean) {
     this.wantsMug = on;
-    this.mug.visible = on && !this.card.held && !this.glass;
-    if (this.glass) this.glass.group.visible = !this.card.held;
+    const full = this.card.held || !!this.book || this.wantsBall;
+    this.mug.visible = on && !full && !this.glass;
+    if (this.glass) this.glass.group.visible = !full;
   }
 
   /** A drink from the rooftop bar in the left hand, or none (null). */
@@ -233,6 +273,27 @@ export class Hands {
     this.card.set(card);
     if (!was) this.carryK = 0;
     this.holdMug(this.wantsMug);
+  }
+
+  /** An open book in both hands, its pages turning, or none. A card you carry waits. */
+  read(on: boolean) {
+    if (on === !!this.book) return;
+    if (on) {
+      this.book = new OpenBook();
+      this.bookHolder.add(this.book.group);
+      this.carryK = 0;
+    } else {
+      this.bookHolder.remove(this.book!.group);
+      this.book!.dispose();
+      this.book = null;
+    }
+    this.holder.visible = !on;
+    this.holdMug(this.wantsMug);
+  }
+
+  /** Turns a page of the book you're reading now. */
+  turnPage() {
+    this.book?.turn();
   }
 
   /** Your hands' half of an emote: a wave, a thumbs up, a clap… in front of your eyes. */
@@ -320,8 +381,16 @@ export class Hands {
       if (this.sipT >= SIP_TIME) this.sipT = null;
     }
     const shake = s.jitter * 0.004;
-    this.carryK += ((this.card.held ? 1 : 0) - this.carryK) * Math.min(1, dt * 7);
+    this.carryK += ((this.card.held || this.book ? 1 : 0) - this.carryK) * Math.min(1, dt * 7);
     const carry = this.carryK;
+    this.ballK += ((this.wantsBall ? 1 : 0) - this.ballK) * Math.min(1, dt * 9);
+    const held = this.ballK;
+    let throwK = 0;
+    if (this.shootT >= 0) {
+      this.shootT += dt;
+      throwK = reachCurve(this.shootT / 0.45);
+      if (this.shootT >= 0.45) this.shootT = -1;
+    }
 
     for (const [arm, side] of [
       [this.right, 1],
@@ -340,6 +409,16 @@ export class Hands {
       p.x -= side * 0.08 * carry;
       p.z -= 0.03 * carry;
       arm.group.rotation.z += side * 0.35 * carry;
+      // Holding the ball: a hand on either side of it, palms in, lower and closer as the shot winds up.
+      p.x -= side * 0.1 * held;
+      p.y -= (0.09 + 0.06 * this.wind) * held;
+      p.z += (-0.08 + 0.05 * this.wind) * held;
+      arm.group.rotation.z += side * 0.7 * held;
+      // The follow-through: up and out after it.
+      p.x -= side * 0.06 * throwK;
+      p.y += 0.22 * throwK;
+      p.z -= 0.16 * throwK;
+      arm.group.rotation.x += 0.9 * throwK;
     }
     // Up the ladder, hand over hand; round a pole, both hands on it, one over the other.
     const climb = Math.sin(s.walkPhase);
@@ -362,8 +441,15 @@ export class Hands {
       g.rotation.x += (side > 0 ? 0.45 : 0.25) * pk;
       g.rotation.y += (side > 0 ? 0.55 : 0) * pk;
     }
-    // The card rides along with the hands, coming up from below as you take it.
+    // The ball rides between them, coming up from below as you pick it up.
+    this.ball.visible = this.wantsBall && held > 0.02;
+    this.ball.position.set(this.sway.x + step * 0.008, this.sway.y + breathe + bounce + this.air * 0.05 - 0.28 - 0.06 * this.wind - 0.3 * (1 - held), -0.54 + 0.05 * this.wind);
+    // The card rides along with the hands, coming up from below as you take it; so does the book.
     this.holder.position.set(this.sway.x + step * 0.008, this.sway.y + breathe + bounce + this.air * 0.05 - 0.115 - 0.3 * (1 - carry), -0.5);
+    if (this.book) {
+      this.bookHolder.position.set(this.holder.position.x, this.holder.position.y, -0.48);
+      this.book.update(dt);
+    }
     // The reach: the right hand jabs out toward the crosshair, the left pulls back a little.
     const r = this.right.group;
     r.position.x -= 0.16 * k;

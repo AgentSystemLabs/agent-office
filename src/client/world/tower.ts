@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BALCONY, BALCONY_DOOR, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, FLOOR, ROOF_BAR, SLAB, STAGE, STOREY, WALL_HEIGHT, WALL_T, WINDOWS, type Opening, type Side } from '../../shared/layout';
+import { BALCONY, BALCONY_DOOR, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, FLOOR, ROOF_BAR, SLAB, STAGE, STOREY, STREET_Y, WALL_HEIGHT, WALL_T, WINDOWS, WING, wingMinZ, wingRowZ, type Opening, type Side } from '../../shared/layout';
 import type { Collider } from './office';
 import { bulb, type NightParts } from './outside';
 import { mergeByMaterial, mesh, toon, toonUnique } from './toon';
@@ -18,10 +18,27 @@ export interface Tower {
   group: THREE.Group;
   /**
    * Builds the outside of every floor but `index`, of `count` stacked from the bottom one (0). An
-   * `index` of `count` is the roof: every floor, below it, and no top (the roof is its own).
+   * `index` of `count` is the roof: every floor, below it, and no top (the roof is its own). `wings`
+   * is how far each floor's back office is built out (see WING), yours included: the others' are
+   * drawn, and all of them stand on posts down to the street.
    */
-  set(index: number, count: number): void;
+  set(index: number, count: number, wings?: readonly number[]): void;
 }
+
+/** A window in each row of a back office, in the building's east wall (office.ts cuts the same ones). */
+export function wingWindows(level: number): Opening[] {
+  return Array.from({ length: level }, (_, i) => ({ wall: 'east' as const, u: wingRowZ(i + 1), width: 2.4, y0: 1.1, y1: 3.3 }));
+}
+
+/** Where the posts under a back office stand: at the back corners of each row. */
+export function wingPosts(row: number): { x: number; z: number }[] {
+  const z = wingMinZ(row) - WALL_T + 0.22;
+  return [
+    { x: WING.minX - WALL_T + 0.22, z },
+    { x: WING.maxX + WALL_T - 0.22, z },
+  ];
+}
+
 
 /** Each side of the building: where along it things are (u, from corner to corner, where it meets the next side's plane), and its plane. */
 const FACES: Record<Side, { u0: number; u1: number; at: (u: number, y: number) => THREE.Vector3; rotY: number }> = {
@@ -56,6 +73,7 @@ export function buildTower(colliders: Collider[], night: NightParts): Tower {
   const deck = toon('#e8a87c');
   const cornice = toon('#fffaf3');
   const behind = flat('#2b2d42');
+  const concrete = flat('#d3d6dd');
   // Glass you can't see into; at night some of it glows, as though someone upstairs is still at it.
   const dark = toon('#a9d8f5');
   const lit = ['#ffd27a', '#ffe6b0', '#9ec9ff'].map((glow) => {
@@ -242,7 +260,57 @@ export function buildTower(colliders: Collider[], night: NightParts): Tower {
     }
   };
 
-  const set = (index: number, count: number) => {
+  /**
+   * One floor's back office, `y0` up, from outside: its three walls round the bay (windows in the
+   * east one), the band of its slab, and a roof over the rows the floor above doesn't cover, or an
+   * underside under the ones the floor below doesn't.
+   */
+  const bay = (parts: THREE.Group, y0: number, level: number, above: number, below: number) => {
+    const back = wingMinZ(level) - WALL_T;
+    const west = WING.minX - WALL_T;
+    const east = B.maxX;
+    const plane = (w: number, h: number, mat: THREE.Material, x: number, y: number, z: number, rotY: number) => {
+      if (w < 0.001 || h < 0.001) return;
+      const m = mesh(new THREE.PlaneGeometry(w, h), mat, x, y, z, false);
+      m.rotation.y = rotY;
+      parts.add(m);
+    };
+    // Each wall: its band, then paint round its windows (along z on the side walls, x on the back).
+    const wall = (u0: number, u1: number, holes: Opening[], at: (u: number) => [number, number], rotY: number) => {
+      const [bx, bz] = at((u0 + u1) / 2);
+      plane(Math.abs(u1 - u0), SLAB, band, bx, y0 - SLAB / 2, bz, rotY);
+      let u = Math.min(u0, u1);
+      const end = Math.max(u0, u1);
+      const piece = (a: number, b: number, y1: number, y2: number) => {
+        const [x, z] = at((a + b) / 2);
+        plane(b - a, y2 - y1, paint, x, y0 + (y1 + y2) / 2, z, rotY);
+      };
+      for (const o of [...holes].sort((a, b) => a.u - b.u)) {
+        piece(u, o.u - o.width / 2, 0, WALL_HEIGHT);
+        piece(o.u - o.width / 2, o.u + o.width / 2, 0, o.y0);
+        piece(o.u - o.width / 2, o.u + o.width / 2, o.y1, WALL_HEIGHT);
+        u = o.u + o.width / 2;
+      }
+      piece(u, end, 0, WALL_HEIGHT);
+    };
+    const windows = wingWindows(level);
+    wall(back, B.minZ, [], (z) => [west - OFF, z], -Math.PI / 2);
+    wall(back, B.minZ, windows, (z) => [east + OFF, z], Math.PI / 2);
+    wall(west, east, [], (x) => [x, back - OFF], Math.PI);
+    for (const o of windows) glazing(parts, o, y0, false);
+    // Over (and under) the rows of it that the floor above's (and below's) back office doesn't cover.
+    const flat = (from: number, y: number, up: boolean) => {
+      if (from >= level) return;
+      const z0 = wingMinZ(level) - WALL_T;
+      const z1 = from > 0 ? wingMinZ(from) - WALL_T : B.minZ;
+      const g = new THREE.PlaneGeometry(east - west, z1 - z0).rotateX(up ? -Math.PI / 2 : Math.PI / 2);
+      parts.add(mesh(g, up ? cornice : concrete, (west + east) / 2, y, (z0 + z1) / 2, false));
+    };
+    flat(above, y0 + WALL_HEIGHT, true);
+    flat(below, y0 - SLAB, false);
+  };
+
+  const set = (index: number, count: number, wings: readonly number[] = []) => {
     for (const o of built) {
       o.removeFromParent();
       o.traverse((m) => {
@@ -272,6 +340,8 @@ export function buildTower(colliders: Collider[], night: NightParts): Tower {
       for (const o of WINDOWS) glazing(parts, o, y0, false);
       glazing(parts, BALCONY_DOOR, y0, true);
       balcony(parts, y0);
+      const wing = wings[k] ?? 0;
+      if (wing > 0) bay(parts, y0, wing, k + 1 < count ? (wings[k + 1] ?? 0) : 0, k > 0 ? (wings[k - 1] ?? 0) : 0);
       if (k === 0) {
         // Dark behind the exit door, through its porthole.
         const back = mesh(new THREE.PlaneGeometry(EXIT_DOOR.width, EXIT_DOOR.y1), behind, FLOOR.minX - 0.02, y0 + EXIT_DOOR.y1 / 2, EXIT_DOOR.u, false);
@@ -285,6 +355,25 @@ export function buildTower(colliders: Collider[], night: NightParts): Tower {
       crown(parts, top);
       roofTop(parts, top + SLAB);
     }
+    // Down in the garage (the elevator goes there), the bottom floor's slab over it, seen from
+    // underneath: on that floor it's world/stack.ts's.
+    if (index > 0 && index < count) {
+      const under = new THREE.PlaneGeometry(B.maxX - B.minX, B.maxZ - B.minZ).rotateX(Math.PI / 2);
+      parts.add(mesh(under, concrete, (B.minX + B.maxX) / 2, -index * STOREY - SLAB, (B.minZ + B.maxZ) / 2, false));
+    }
+    // The back offices stand on posts down to the street: each row's, from under the lowest floor it's built on.
+    const street = STREET_Y - index * STOREY;
+    const posts: Collider[] = [];
+    for (let row = 1; row <= WING.rows; row++) {
+      const lowest = wings.findIndex((w) => w >= row);
+      if (lowest < 0 || lowest >= count) continue;
+      const top = (lowest - index) * STOREY - SLAB;
+      for (const p of wingPosts(row)) {
+        parts.add(mesh(new THREE.CylinderGeometry(0.14, 0.14, top - street, 10), concrete, p.x, (top + street) / 2, p.z, false));
+        posts.push({ minX: p.x - 0.16, maxX: p.x + 0.16, minZ: p.z - 0.16, maxZ: p.z + 0.16, bottom: street, top });
+      }
+    }
+
     // None of it casts a shadow (the sun lights the office through where its roof would be), and none
     // takes one from the floor you're on, which would fall on it as though nothing were in between.
     const merged = mergeByMaterial(parts);
@@ -306,6 +395,8 @@ export function buildTower(colliders: Collider[], night: NightParts): Tower {
       );
       colliders.push(...mine);
     }
+    mine.push(...posts);
+    colliders.push(...posts);
   };
 
   return { group, set };

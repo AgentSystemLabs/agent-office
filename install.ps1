@@ -2,9 +2,12 @@
 #
 #   irm https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.ps1 | iex
 #
-# To pass the office a project directory and options, run it as a script block instead:
+# To pass the office options, run it as a script block instead:
 #
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.ps1))) . --port 4700
+#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.ps1))) --port 4700
+#
+# The first time the office starts it asks where to clone your projects, signs the GitHub CLI in if
+# it isn't, and lets you pick your first repository to clone as a floor.
 #
 # Releases go in %LOCALAPPDATA%\agent-office and an `agent-office` command in %LOCALAPPDATA%\agent-office\bin,
 # which is added to your user PATH, so afterwards `agent-office` starts it too. Run the irm line again to

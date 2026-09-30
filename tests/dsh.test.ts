@@ -5,7 +5,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -187,7 +187,8 @@ type Fixture = {
 
 /** A temp floor with the fake agent, plus a `dsh` executable that runs it. */
 function fixture(): Fixture {
-  const root = mkdtempSync(path.join(tmpdir(), 'agent-office-dsh-'));
+  // realpath: on macOS the temp dir is /var -> /private/var, and the agent reports its real cwd.
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'agent-office-dsh-')));
   const data = path.join(root, '.agent-office');
   const agent = path.join(root, 'fake-acp-agent.mjs');
   const dsh = path.join(root, 'dsh');
@@ -778,4 +779,30 @@ test('a DSH worker comes back offline after a restart, then resumes its session'
   await waitFor(() => readFileSync(f.log, 'utf8'), (text) => text.includes('"resumed":"sess-1"'));
   await waitFor(() => second.get(id)?.status, (s) => s === 'idle');
   assert.match(second.get(id)?.sessionId ?? '', /^sess-1$/);
+});
+
+test('a DSH board agent proves itself with its token, and a second question goes to its running session', async (t) => {
+  const f = tracked(t);
+  const mgr = supervised(t, f, []);
+  const asked = mgr.station('station-issues', 'tester', 'which issues are stale?');
+  assert.equal(typeof asked, 'object', typeof asked === 'string' ? asked : '');
+  const { info, hired } = asked as { info: WorkerInfo; hired: boolean };
+  assert.equal(hired, true);
+  const id = info.id;
+  await waitFor(() => mgr.get(id)?.status, (s) => s === 'needs_input');
+  mgr.write(id, '1\r', 'tester');
+  await waitFor(() => mgr.get(id)?.status, (s) => s === 'done');
+
+  // office-queue authenticates with the token the office handed the child, though there is no PTY.
+  const saved = JSON.parse(readFileSync(path.join(f.data, 'workers.json'), 'utf8')) as { id: string; hookToken?: string }[];
+  const token = saved.find((s) => s.id === id)?.hookToken ?? '';
+  assert.ok(token);
+  assert.equal(mgr.authenticate(id, token)?.id, id);
+  assert.equal(mgr.authenticate(id, 'not-the-token'), undefined);
+
+  // Asked again, the running agent gets the prompt; it is not "resumed" into an error.
+  const again = mgr.station('station-issues', 'tester', 'and the oldest one?');
+  assert.equal(typeof again, 'object', typeof again === 'string' ? again : '');
+  assert.equal((again as { hired: boolean }).hired, false);
+  await waitFor(() => mgr.get(id)?.status, (s) => s === 'needs_input');
 });

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FLOOR, SLAB, STREET_Y, WALL_T, type SeatPlace } from '../shared/layout';
+import { FLOOR, SLAB, STREET_Y, WALL_T, WING, inWing, wingMinZ, type SeatPlace } from '../shared/layout';
 import type { ViewMode } from './state';
 import type { Collider } from './world/office';
 
@@ -48,6 +48,14 @@ export class PlayerController {
   jitter = 0;
   /** How far below the floor you're on the street is: further down the higher your floor (see streetBelow). */
   street = STREET_Y;
+  /**
+   * The room the camera stays in while you're in it, and how thick its outside walls are: the
+   * office's, unless the building's on a map of its own. `enclosed`: walled and roofed all round,
+   * with no street or garage under it to see from.
+   */
+  room: { minX: number; maxX: number; minZ: number; maxZ: number; wall: number; enclosed: boolean } = { ...FLOOR, wall: WALL_T, enclosed: false };
+  /** How many rows the floor's back office is built out (see WING): the camera keeps inside it too. */
+  wing = 0;
   private jitterT = 0;
   /** How drunk you are (see booze.ts): the view rolls and sways, and you stagger as you walk. */
   drunk = 0;
@@ -66,6 +74,8 @@ export class PlayerController {
    * frame, with no walking, falling or bumping into things, and the camera follows.
    */
   rig: ((dt: number) => void) | null = null;
+  /** The rig is a car (see driving.ts): out on the street or in the garage, not up a shaft indoors. */
+  riding = false;
   /**
    * A click (not a drag) on the scene, in normalized device coordinates.
    * In first person it is always the crosshair, (0, 0).
@@ -88,6 +98,10 @@ export class PlayerController {
   private letGo = false;
   /** Asked for while the page was still letting go of it: taken back as soon as it's free. */
   private lockAfter = false;
+  /** When Esc last went down and hasn't come up yet (0 once it has). */
+  private escDownAt = 0;
+  /** Asked for while Esc was down: taken once it comes up (see lock). */
+  private lockOnEscUp = false;
   enabled = true;
   /** False while the mouse picks something else (an emote on the wheel), so it doesn't turn the camera. */
   mouseLook = true;
@@ -105,7 +119,28 @@ export class PlayerController {
       if (e.code === 'Space') e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
-    window.addEventListener('blur', () => this.keys.clear());
+    window.addEventListener('blur', () => {
+      this.keys.clear();
+      this.escDownAt = 0;
+      this.lockOnEscUp = false;
+    });
+    // Captured, since the window an Esc closes stops it going any further.
+    window.addEventListener('keydown', (e) => e.key === 'Escape' && (this.escDownAt = performance.now()), true);
+    window.addEventListener(
+      'keyup',
+      (e) => {
+        if (e.key !== 'Escape') return;
+        this.escDownAt = 0;
+        const again = this.lockOnEscUp && this.enabled && this.canLock;
+        this.lockOnEscUp = false;
+        if (!again) return;
+        // Taken here, the browser doesn't also treat this Esc as its own shortcut once the page is done
+        // with it, which would let go of the mouse just taken.
+        e.preventDefault();
+        this.lock();
+      },
+      true,
+    );
 
     dom.addEventListener('pointerdown', (e) => {
       if (!this.enabled) return;
@@ -208,6 +243,7 @@ export class PlayerController {
 
   unlock() {
     this.lockAfter = false;
+    this.lockOnEscUp = false;
     if (!this.locked) return;
     this.letting = true;
     document.exitPointerLock();
@@ -239,6 +275,15 @@ export class PlayerController {
     // Still being let go of, for a window that closed again at once: taken back once it's free.
     if (this.locked && this.letting) this.lockAfter = true;
     if (this.locked || this.lockPending) return;
+    // The browser lets go of the mouse on Esc coming up as well as going down, so a lock taken
+    // between the two (the Esc that closed a window) is gone again at once, and with it the leave
+    // to take it back without a click. Asked for once Esc is up instead, from its keyup (see there).
+    // A second on, Esc being held would have repeated, so its keyup went missing.
+    if (this.escDownAt && performance.now() - this.escDownAt < 1000) {
+      this.lockOnEscUp = true;
+      return;
+    }
+    this.lockOnEscUp = false;
     if (typeof this.dom.requestPointerLock !== 'function') {
       this.lockFailed = true;
       return;
@@ -287,18 +332,28 @@ export class PlayerController {
 
   /** Gets you up off your seat onto the floor beside it: out in front (or behind), else wherever there's room. */
   stand() {
-    const s = this.seat;
-    if (!s) return;
+    const at = this.standingSpot();
     this.seat = null;
+    if (at) this.pos.set(at.x, at.y, at.z);
+  }
+
+  /** Where getting up would put you (see stand), or where you're standing if you aren't sitting. Null if there's no room. */
+  standingSpot(): { x: number; y: number; z: number } | null {
+    const s = this.seat;
+    if (!s) return { x: this.pos.x, y: this.pos.y, z: this.pos.z };
     const ahead = s.rotY + (s.out < 0 ? Math.PI : 0);
     const d = Math.abs(s.out);
     for (const turn of [0, 0.6, -0.6, 1.2, -1.2, Math.PI / 2, -Math.PI / 2, Math.PI]) {
       const x = s.x + Math.sin(ahead + turn) * d;
       const z = s.z + Math.cos(ahead + turn) * d;
-      if (this.blocker(x, z, s.y)) continue;
-      this.pos.set(x, s.y, z);
-      return;
+      if (!this.blocker(x, z, s.y)) return { x, y: s.y, z };
     }
+    return null;
+  }
+
+  /** Whether there's room to stand at (x, z) with your feet at `y`. */
+  fits(x: number, z: number, y: number): boolean {
+    return !this.blocker(x, z, y);
   }
 
   /** Walks you through these corners by yourself until you get there, or take a step or a jump of your own. */
@@ -467,31 +522,45 @@ export class PlayerController {
     // room while you're in the office, out of the building while you're outside or on the balcony.
     // And under the loft, its roof or the garage ceiling.
     const m = 0.4;
+    const R = this.room;
     // On the ladder or a pole you can be down in a shaft under the floor, but you're still indoors.
-    const rigged = !!this.rig;
-    const indoors = (rigged || this.pos.y > -SLAB - 0.5) && this.pos.x > FLOOR.minX && this.pos.x < FLOOR.maxX && this.pos.z > FLOOR.minZ && this.pos.z < FLOOR.maxZ;
-    if (indoors) {
-      cam.x = THREE.MathUtils.clamp(cam.x, FLOOR.minX + m, FLOOR.maxX - m);
-      cam.z = THREE.MathUtils.clamp(cam.z, FLOOR.minZ + m, FLOOR.maxZ - m);
+    const rigged = !!this.rig && !this.riding;
+    const under = this.pos.x > R.minX && this.pos.x < R.maxX && this.pos.z > R.minZ && this.pos.z < R.maxZ;
+    // In the office's back office, between its walls, and out through where the north wall was into the room.
+    const back = !R.enclosed && this.pos.y > -SLAB - 0.5 && inWing(this.pos.x, this.pos.z, this.wing);
+    const indoors = ((rigged || this.pos.y > -SLAB - 0.5) && under) || back;
+    if (back) {
+      cam.x = THREE.MathUtils.clamp(cam.x, WING.minX + m, WING.maxX - m);
+      cam.z = THREE.MathUtils.clamp(cam.z, wingMinZ(this.wing) + m, FLOOR.maxZ - m);
+    } else if (indoors) {
+      cam.x = THREE.MathUtils.clamp(cam.x, R.minX + m, R.maxX - m);
+      cam.z = THREE.MathUtils.clamp(cam.z, R.minZ + m, R.maxZ - m);
     }
     const floorY = rigged ? 0 : Math.max(groundAt(this.colliders, this.pos.x, this.pos.z, this.pos.y), this.street);
     const roof = ceilingAt(this.colliders, cam.x, cam.z, floorY) - 0.3;
     cam.y = THREE.MathUtils.clamp(cam.y, floorY + 0.6, Math.max(floorY + 0.6, Math.min(floorY + 3.5, roof)));
-    // Down on the street, stay under the garage ceiling so its edge never cuts across the view.
+    // Down on the street, stay under the garage ceiling so its edge never cuts across the view; in the
+    // garage, on this side of its back and west walls too (the elevator comes down in the back one).
     const garage = this.street - STREET_Y - SLAB;
-    if (this.pos.y < garage - 1 && !rigged) cam.y = Math.min(cam.y, Math.max(floorY + 0.6, garage - 0.3));
+    if (!R.enclosed && this.pos.y < garage - 1 && !rigged) {
+      cam.y = Math.min(cam.y, Math.max(floorY + 0.6, garage - 0.3));
+      if (under) {
+        cam.x = Math.max(cam.x, R.minX + m);
+        cam.z = Math.max(cam.z, R.minZ + m);
+      }
+    }
     // How far you are out past each outside wall (west, east, north, south), and how far inside them the camera is.
-    const e = WALL_T + m;
-    const out = [FLOOR.minX - WALL_T - this.pos.x, this.pos.x - FLOOR.maxX - WALL_T, FLOOR.minZ - WALL_T - this.pos.z, this.pos.z - FLOOR.maxZ - WALL_T];
+    const e = R.wall + m;
+    const out = [R.minX - R.wall - this.pos.x, this.pos.x - R.maxX - R.wall, R.minZ - R.wall - this.pos.z, this.pos.z - R.maxZ - R.wall];
     const side = out.indexOf(Math.max(...out));
-    const camIn = Math.min(cam.x - (FLOOR.minX - e), FLOOR.maxX + e - cam.x, cam.z - (FLOOR.minZ - e), FLOOR.maxZ + e - cam.z) > 0;
+    const camIn = Math.min(cam.x - (R.minX - e), R.maxX + e - cam.x, cam.z - (R.minZ - e), R.maxZ + e - cam.z) > 0;
     // Outside, back the camera out through the wall you're standing beyond: above the garage always,
     // and down in it where it's walled in (the west and north sides).
-    if (!indoors && out[side] > 0 && camIn && (cam.y > garage || side === 0 || side === 2)) {
-      if (side === 0) cam.x = FLOOR.minX - e;
-      else if (side === 1) cam.x = FLOOR.maxX + e;
-      else if (side === 2) cam.z = FLOOR.minZ - e;
-      else cam.z = FLOOR.maxZ + e;
+    if (!indoors && out[side] > 0 && camIn && (R.enclosed || cam.y > garage || side === 0 || side === 2)) {
+      if (side === 0) cam.x = R.minX - e;
+      else if (side === 1) cam.x = R.maxX + e;
+      else if (side === 2) cam.z = R.minZ - e;
+      else cam.z = R.maxZ + e;
     }
     if (snap) this.camera.position.copy(cam);
     else this.camera.position.lerp(cam, 0.25);

@@ -17,9 +17,9 @@ export interface PromptOptions {
   worktreeOption?: boolean;
   /** Offer the configured agent provider choice (only when hiring a new worker). */
   providerOption?: boolean;
-  /** The desk being hired at, so the model/effort choice remembered here is this desk's, not the whole office's. */
-  deskId?: string;
-  onSubmit(text: string, opts: { worktree: boolean; provider?: AgentProvider; model?: string; effort?: AgentEffort }): void;
+  /** Other floors' projects a new worker in its own worktree can work in too (see WorkerInfo.repos). */
+  repoOptions?: { id: string; name: string }[];
+  onSubmit(text: string, opts: { worktree: boolean; provider?: AgentProvider; model?: string; effort?: AgentEffort; repos: string[] }): void;
 }
 
 const WT_KEY = 'agent-office.worktree';
@@ -30,6 +30,26 @@ export function worktreePref(): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Hiring across repositories: other floors' projects the new worker takes on too, each in a worktree
+ * of its own on the same branch. That needs a worktree of its own here, so picking one ticks `wtBox`
+ * and unticking that clears them.
+ */
+export function repoPicker(options: { id: string; name: string }[] | undefined, wtBox: HTMLInputElement): { element: HTMLElement | null; value(): string[] } {
+  const picks = (options ?? []).map((r) => {
+    const box = h('input', { type: 'checkbox', value: r.id, onchange: () => box.checked && (wtBox.checked = true) }) as HTMLInputElement;
+    return { id: r.id, box, el: h('label.repo-pick', { title: `A worktree of ${r.name} too, on the same branch, with a pull request of its own` }, box, r.name) };
+  });
+  if (!picks.length) return { element: null, value: () => [] };
+  wtBox.addEventListener('change', () => {
+    if (!wtBox.checked) for (const p of picks) p.box.checked = false;
+  });
+  return {
+    element: h('div.repo-picks', { role: 'group', 'aria-label': 'Other projects to work in' }, h('span', {}, '🗂️ Also work in'), ...picks.map((p) => p.el)),
+    value: () => picks.filter((p) => p.box.checked).map((p) => p.id),
+  };
 }
 
 export function openPrompt(opts: PromptOptions) {
@@ -45,14 +65,15 @@ export function openPrompt(opts: PromptOptions) {
         '🌿 Work in its own git worktree & branch',
     )
     : null;
-  const provider: ProviderPicker | null = opts.providerOption ? providerPicker(store.project, 'prompt-provider', 'Worker provider', opts.deskId ? `desk:${opts.deskId}` : 'prompt-provider') : null;
+  const repos = repoPicker(opts.worktreeOption ? opts.repoOptions : undefined, wtBox);
+  const provider: ProviderPicker | null = opts.providerOption ? providerPicker(store.project, 'prompt-provider') : null;
   const submit = h('button.btn.primary', { type: 'submit' }, opts.submitLabel ?? 'Send ✨');
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
   const form = h(
     'form.modal',
     { role: 'dialog', 'aria-label': opts.title },
     h('header', {}, h('h2', {}, opts.title)),
-    h('div.body', {}, opts.warning ? h('p.setting-note.bad', { style: 'margin:0 0 10px', role: 'alert' }, opts.warning) : null, opts.subtitle ? h('p', { style: 'margin:0 0 10px;font-weight:700;color:var(--muted)' }, opts.subtitle) : null, ta, provider?.element ?? null, wtRow),
+    h('div.body', {}, opts.warning ? h('p.setting-note.bad', { style: 'margin:0 0 10px', role: 'alert' }, opts.warning) : null, opts.subtitle ? h('p', { style: 'margin:0 0 10px;font-weight:700;color:var(--muted)' }, opts.subtitle) : null, ta, provider?.element ?? null, wtRow, repos.element),
     h('footer', {}, h('span.grow', {}, 'Enter to send · Shift+Enter for a new line'), cancel, submit),
   ) as HTMLFormElement;
   form.noValidate = true;
@@ -74,7 +95,8 @@ export function openPrompt(opts: PromptOptions) {
         // storage blocked
       }
     }
-    opts.onSubmit(text, { worktree: !!opts.worktreeOption && wtBox.checked, provider: provider?.value(), model: provider?.model(), effort: provider?.effort() });
+    const worktree = !!opts.worktreeOption && wtBox.checked;
+    opts.onSubmit(text, { worktree, provider: provider?.value(), model: provider?.model(), effort: provider?.effort(), repos: worktree ? repos.value() : [] });
   };
   form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -111,6 +133,8 @@ export interface SendHomeOptions {
   /** The desk's label. */
   where: string;
   worktree: { path: string; branch: string };
+  /** A worker across repositories: the folders of its workspace, its own floor's first (see WorkerInfo.repos). */
+  repos?: string[];
   /** Asks the office what the worktree holds; the answer comes back through routeWorktreeMessage. */
   ask(): void;
   onConfirm(cleanup: WorktreeCleanup): void;
@@ -149,11 +173,18 @@ const CLEANUP_LABEL: Record<WorktreeCleanup, string> = {
  */
 export function sendHomeDialog(opts: SendHomeOptions) {
   const { branch, path } = opts.worktree;
-  const choices: [WorktreeCleanup, string, string][] = [
-    ['all', 'Delete the worktree and its branch', `Removes ${path} and ${branch}.`],
-    ['worktree', 'Delete the worktree, keep the branch', `${branch} stays for a pull request or a later checkout.`],
-    ['keep', 'Keep both', 'Leaves everything as it is; agent-office prune tidies up later.'],
-  ];
+  const across = opts.repos && opts.repos.length > 1 ? opts.repos : undefined;
+  const choices: [WorktreeCleanup, string, string][] = across
+    ? [
+        ['all', 'Delete the worktrees and their branch', `Removes its worktrees of ${across.join(', ')}, and ${branch} in each.`],
+        ['worktree', 'Delete the worktrees, keep the branch', `${branch} stays in each for a pull request or a later checkout.`],
+        ['keep', 'Keep them all', 'Leaves everything as it is; agent-office prune in each project tidies up later.'],
+      ]
+    : [
+        ['all', 'Delete the worktree and its branch', `Removes ${path} and ${branch}.`],
+        ['worktree', 'Delete the worktree, keep the branch', `${branch} stays for a pull request or a later checkout.`],
+        ['keep', 'Keep both', 'Leaves everything as it is; agent-office prune tidies up later.'],
+      ];
   const radios = new Map<WorktreeCleanup, HTMLInputElement>();
   let touched = false;
   const yes = h('button.btn.danger', { type: 'submit' }, CLEANUP_LABEL.keep);
@@ -188,7 +219,7 @@ export function sendHomeDialog(opts: SendHomeOptions) {
     h(
       'div.body',
       {},
-      h('p', { style: 'margin:0 0 12px;font-weight:700' }, `This stops the session at ${opts.where} for everyone and frees the desk. ${opts.name} worked in its own worktree on 🌿 ${branch}:`),
+      h('p', { style: 'margin:0 0 12px;font-weight:700' }, `This stops the session at ${opts.where} for everyone and frees the desk. ${opts.name} worked ${across ? `in worktrees of ${across.join(', ')}, each` : 'in its own worktree'} on 🌿 ${branch}:`),
       list,
       status,
     ),
@@ -205,28 +236,34 @@ export function sendHomeDialog(opts: SendHomeOptions) {
   });
   void inspectWorktree(opts.workerId, opts.ask).then((s) => {
     if (!form.isConnected) return;
-    const lines: string[] = [];
-    let risky = false;
-    if (s.error) {
-      lines.push(`Couldn't check the worktree: ${s.error}.`);
-      risky = true;
-    } else {
-      if (!s.exists) lines.push('The worktree folder is already gone.');
-      if (s.dirty) {
-        lines.push(`⚠️ ${plural(s.dirty, 'uncommitted change')} in the worktree — deleting it loses them.`);
-        risky = true;
-      }
-      if (s.unpushed) {
-        lines.push(`⚠️ ${plural(s.unpushed, 'commit')} on ${branch} that no remote has — deleting the branch loses them.`);
-        risky = true;
-      } else if (s.ahead) lines.push(`${plural(s.ahead, 'commit')} on ${branch}, all pushed or merged.`);
-      if (!lines.length) lines.push('Nothing on the branch yet and a clean worktree: safe to delete.');
-    }
+    // Across repositories, a line for each worktree, named.
+    const each = s.repos?.length ? s.repos.map((r) => describeState(r.state, branch, `${r.name}: `)) : [describeState(s, branch)];
+    const lines = each.flatMap((d) => d.lines);
+    const risky = each.some((d) => d.risky);
+    if (s.repos?.length && s.error && !lines.length) lines.push(`Couldn't check the worktrees: ${s.error}.`);
     status.replaceChildren(...lines.flatMap((l, i) => (i ? [h('br'), l] : [l])));
-    status.classList.toggle('warn', risky);
+    status.classList.toggle('warn', risky || (!!s.error && !s.repos?.length));
     if (!touched) pick(risky ? 'keep' : 'all');
   });
   setTimeout(() => yes.focus(), 30);
+}
+
+/** What deleting one worktree (and its branch) would lose, in a line or two for the send-home dialog. */
+function describeState(s: WorktreeState, branch: string, prefix = ''): { lines: string[]; risky: boolean } {
+  if (s.error) return { lines: [`${prefix}Couldn't check the worktree: ${s.error}.`], risky: true };
+  const lines: string[] = [];
+  let risky = false;
+  if (!s.exists) lines.push(`${prefix}The worktree folder is already gone.`);
+  if (s.dirty) {
+    lines.push(`⚠️ ${prefix}${plural(s.dirty, 'uncommitted change')} in the worktree — deleting it loses them.`);
+    risky = true;
+  }
+  if (s.unpushed) {
+    lines.push(`⚠️ ${prefix}${plural(s.unpushed, 'commit')} on ${branch} that no remote has — deleting the branch loses them.`);
+    risky = true;
+  } else if (s.ahead) lines.push(`${prefix}${plural(s.ahead, 'commit')} on ${branch}, all pushed or merged.`);
+  if (!lines.length) lines.push(`${prefix}Nothing on the branch yet and a clean worktree: safe to delete.`);
+  return { lines, risky };
 }
 
 function plural(count: number, noun: string) {

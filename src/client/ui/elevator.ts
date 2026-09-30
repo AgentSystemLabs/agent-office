@@ -4,14 +4,25 @@ import { ROOF, ROOF_NAME } from '../../shared/rooftop';
 import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, timeAgo, type Modal } from './dom';
+import { confirmDialog } from './prompt';
 
 // The elevator's panel: a button for every floor (every project), and "add a project", which clones
 // one of the repositories the office's gh login can see and makes it a new floor. The first time
-// the office runs there are no floors, and this is where you start.
+// the office runs there are no floors, and this is where you start. Admins can take a floor off the
+// building here too; its checkout stays on disk. Under the floors, it goes down to the garage.
+
+/**
+ * The garage under the building, where the elevator goes too. It isn't a floor: it's down under the
+ * one you're on (from the roof, the bottom one), level with the street.
+ */
+export const GARAGE = '@garage';
 
 export interface ElevatorOptions {
   net: Net;
+  /** Rides to a floor, the roof (ROOF) or the garage (GARAGE). */
   ride(floorId: string): void;
+  /** You're down in the garage (or out on the street), under the floor you're on. */
+  downstairs(): boolean;
 }
 
 /** How many repositories the list shows at once; typing narrows it down. */
@@ -34,7 +45,8 @@ export function elevatorPanelOpen(): boolean {
 
 export function openElevator(opts: ElevatorOptions): void {
   if (current) return;
-  // Nowhere to go yet: the panel stays until there's a floor to ride to.
+  // Nowhere to go yet: the panel greets you. It closes like any other; the elevator (or the floor
+  // name in the corner) opens it again.
   const setup = !store.floor;
   const { net } = opts;
   let filter = '';
@@ -52,7 +64,31 @@ export function openElevator(opts: ElevatorOptions): void {
   const statusEl = h('div');
   const addBtn = h('button.btn.primary', { type: 'button' }, '🛗 Add floor');
   const refreshBtn = h('button.btn', { type: 'button', title: 'Ask GitHub for the list again' }, '↻');
-  const close = setup ? null : h('button.btn.close', { 'aria-label': 'Close' }, '✕');
+  const close = h('button.btn.close', { type: 'button', 'aria-label': 'Close', title: 'Close (Esc)' }, '✕');
+
+  // Where clones go. Admins can move it right here: the first project is when it matters.
+  const dirInput = h('input', { type: 'text', placeholder: '~/Workspace', 'aria-label': 'Workspace folder', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
+  const dirSave = h('button.btn.primary', { type: 'button' }, 'Save');
+  const dirCancel = h('button.btn', { type: 'button' }, 'Cancel');
+  const dirEl = h('div.webhook.dir-pick.hidden', {}, dirInput, dirSave, dirCancel);
+  const editDir = (on: boolean) => {
+    dirEl.classList.toggle('hidden', !on);
+    if (!on) return;
+    dirInput.value = store.projectsDir.dir;
+    setTimeout(() => dirInput.focus(), 0);
+  };
+  const saveDir = () => {
+    const dir = dirInput.value.trim();
+    if (!dir) return dirInput.focus();
+    // The server says why it can't, if it can't; the folder moving closes this.
+    if (dir === store.projectsDir.dir) editDir(false);
+    else net.send({ t: 'floor.projectsDir', dir });
+  };
+  dirSave.addEventListener('click', saveDir);
+  dirCancel.addEventListener('click', () => editDir(false));
+  dirInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing) saveDir();
+  });
 
   const needRepos = () => {
     const r = store.repos;
@@ -65,7 +101,9 @@ export function openElevator(opts: ElevatorOptions): void {
   const choice = (): string | undefined => selected ?? normalizeRepo(filter);
 
   const floorButton = (f: FloorInfo, i: number) => {
-    const here = f.id === store.floor;
+    // Down in the garage, your floor is somewhere to go back up to.
+    const mine = f.id === store.floor;
+    const here = mine && !opts.downstairs();
     const p = floorPalette(f.palette);
     const stats: (HTMLElement | string)[] = [];
     if (f.cloning) stats.push('⏳ Cloning…');
@@ -77,9 +115,9 @@ export function openElevator(opts: ElevatorOptions): void {
     }
     const btn = h(
       'button.floor-btn',
-      { type: 'button', class: here ? 'here' : '', disabled: f.cloning || here, title: here ? "You're on this floor" : f.cloning ? 'Still being cloned' : `Ride to ${f.name}` },
+      { type: 'button', class: here ? 'here' : '', disabled: f.cloning || here, title: here ? "You're on this floor" : f.cloning ? 'Still being cloned' : `Ride ${mine ? 'back up ' : ''}to ${f.name}` },
       h('span.floor-no', { style: `background:${p.trim}` }, String(i + 1)),
-      h('span.floor-text', {}, h('span.floor-name', {}, f.name, here ? h('span.here-tag', {}, 'you are here') : null), h('span.floor-sub', {}, f.repo ?? f.dir)),
+      h('span.floor-text', {}, h('span.floor-name', {}, f.name, here ? h('span.here-tag', {}, 'you are here') : mine ? h('span.here-tag', {}, 'your floor') : null), h('span.floor-sub', {}, f.repo ?? f.dir)),
       h('span.floor-stats', {}, ...stats.flatMap((s, j) => (j ? [' ', s] : [s]))),
     );
     btn.addEventListener('click', () => {
@@ -88,6 +126,24 @@ export function openElevator(opts: ElevatorOptions): void {
       opts.ride(f.id);
     });
     return btn;
+  };
+
+  /** The floor's button, with a 🗑 beside it for admins to take it off the building. */
+  const floorRow = (f: FloorInfo, i: number) => {
+    const btn = floorButton(f, i);
+    if (!store.me.admin || f.cloning) return btn;
+    const off = h('button.btn.floor-off', { type: 'button', title: `Take ${f.name} off the building`, 'aria-label': `Remove ${f.name}` }, '🗑');
+    off.addEventListener('click', () => confirmRemove(f));
+    return h('div.floor-row', {}, btn, off);
+  };
+
+  const confirmRemove = (f: FloorInfo) => {
+    const next = store.floors.find((o) => o.id !== f.id && !o.cloning);
+    const workers = f.workers ? `Its ${f.workers} worker${f.workers === 1 ? '' : 's'} stop${f.workers === 1 ? 's' : ''}. ` : '';
+    const people = f.people ? `Everyone on it rides the elevator to ${next ? next.name : 'the lobby'}. ` : '';
+    // The office was started in it: its accounts, password and chat live in that .agent-office too, and stay.
+    const own = f.local ? ' The office keeps its own settings there too, so it carries on as before, just without this floor.' : '';
+    confirmDialog(`Take ${f.name} off the building?`, `${workers}${people}Nothing is deleted: its checkout stays in ${f.dir}, .agent-office folder and all.${own}`, '🗑 Remove floor', () => net.send({ t: 'floor.remove', floor: f.id }));
   };
 
   /** The roof, over every floor: the rooftop bar. */
@@ -109,11 +165,34 @@ export function openElevator(opts: ElevatorOptions): void {
     return btn;
   };
 
+  /** Under floor 1: the garage, level with the street. */
+  const garageButton = () => {
+    const here = opts.downstairs();
+    const bottom = store.floors.find((f) => !f.cloning);
+    const under = store.floor === ROOF ? `Under ${bottom?.name ?? 'the building'}, level with the street` : 'Under the building, level with the street: the cars, and the way out';
+    const btn = h(
+      'button.floor-btn',
+      { type: 'button', class: here ? 'here' : '', disabled: here, title: here ? "You're down at the street" : 'Ride down to the garage' },
+      h('span.floor-no', { style: 'background:#2b2d42' }, '🏎️'),
+      h('span.floor-text', {}, h('span.floor-name', {}, 'Garage', here ? h('span.here-tag', {}, 'you are here') : null), h('span.floor-sub', {}, under)),
+      h('span.floor-stats', {}),
+    );
+    btn.addEventListener('click', () => {
+      if (here) return;
+      modal.close();
+      opts.ride(GARAGE);
+    });
+    return btn;
+  };
+
   const renderFloors = () => {
     const floors = store.floors;
+    const built = floors.some((f) => !f.cloning);
+    // Top floor first, the way an elevator's buttons stack, with the roof over them, floor 1 and then the garage at the bottom.
     floorsEl.replaceChildren(
-      ...(floors.some((f) => !f.cloning) ? [roofButton()] : []),
-      ...(floors.length ? floors.map(floorButton) : [h('p.empty', {}, 'No floors yet.')]),
+      ...(built ? [roofButton()] : []),
+      ...(floors.length ? floors.map(floorRow).reverse() : [h('p.empty', {}, 'No floors yet.')]),
+      ...(built ? [garageButton()] : []),
     );
   };
 
@@ -173,10 +252,12 @@ export function openElevator(opts: ElevatorOptions): void {
     listEl.replaceChildren(...rows);
     const pick = choice();
     const dest = pick ? `${store.projectsDir.dir}/${pick}` : `${store.projectsDir.dir}/<owner>/<repo>`;
+    const change = store.me.admin ? h('button.btn.dir-change', { type: 'button', title: 'Clone new projects into another folder on the office’s machine' }, '📁 Change folder') : null;
+    change?.addEventListener('click', () => editDir(true));
     statusEl.replaceChildren(
       adding
         ? h('p.note.busy', {}, `⏳ Cloning ${adding} into ${store.projectsDir.dir}/${adding}… A big repository can take a minute.`)
-        : h('p.note', {}, `Cloned into ${dest} with this machine's gh login. Everything on the new floor works in that checkout.${store.me.admin ? ' Pick another folder in ⚙️ Settings.' : ''}`),
+        : h('p.note', {}, `Cloned into ${dest} with this machine's gh login. Everything on the new floor works in that checkout.`, change),
       ...[r.error, error].filter(Boolean).map((e) => h('p.err', {}, e)),
     );
     addBtn.disabled = !!adding || !pick || store.floors.some((f) => sameRepo(f.repo, pick));
@@ -189,6 +270,7 @@ export function openElevator(opts: ElevatorOptions): void {
         h('div.repo-search', {}, input, refreshBtn),
         listEl,
         statusEl,
+        dirEl,
       );
     }
   };
@@ -252,12 +334,12 @@ export function openElevator(opts: ElevatorOptions): void {
     { role: 'dialog', 'aria-label': 'Elevator' },
     h('header', {}, h('h2', {}, setup ? '🏢 Welcome to Agent Office' : '🛗 Elevator'), close),
     h('div.body', {}, intro, floorsEl, addEl),
-    h('footer', {}, h('span.grow', {}, setup ? 'Your office, one floor per project' : 'Pick a floor · Esc to stay here'), addBtn),
+    h('footer', {}, h('span.grow', {}, setup ? 'Your office, one floor per project · Esc to look around first' : 'Pick a floor · Esc to stay here'), addBtn),
   );
-  const unsubs = [store.on('floors', () => (renderFloors(), renderAdd())), store.on('repos', renderAdd), store.on('projectsDir', renderAdd), store.on('floor', renderFloors), store.on('peers', renderFloors)];
+  const unsubs = [store.on('floors', () => (renderFloors(), renderAdd())), store.on('repos', renderAdd), store.on('projectsDir', () => (editDir(false), renderAdd())), store.on('floor', renderFloors), store.on('peers', renderFloors), store.on('me', () => (renderFloors(), renderAdd()))];
   const modal = openModal(el, {
     doing: '🛗 at the elevator',
-    escCloses: !setup,
+    // A stray click shouldn't lose the first-run panel; ✕ and Esc still close it.
     backdropCloses: !setup,
     onClose: () => {
       current = null;
@@ -266,7 +348,7 @@ export function openElevator(opts: ElevatorOptions): void {
     },
   });
   current = modal;
-  close?.addEventListener('click', () => modal.close());
+  close.addEventListener('click', () => modal.close());
   renderFloors();
   if (showAdd) needRepos();
   renderAdd();

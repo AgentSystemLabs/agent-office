@@ -2,11 +2,14 @@ import * as THREE from 'three';
 import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES, type Look } from '../../shared/avatar';
 import { EMOTE_BY_ID, type Emote, type EmoteId } from '../../shared/emotes';
 import type { CarriedIssue, Theme, WorkerAction, WorkerStatus, WorkerTask } from '../../shared/protocol';
+import type { BarGame } from '../../shared/bargames';
 import type { Drink } from '../../shared/rooftop';
-import { isAsleep } from '../../shared/status';
+import { isAsleep, type WorkerPr } from '../../shared/status';
 import { HIPS } from '../player';
+import { axeModel, dartModel } from './bargames';
+import { OpenBook } from './book';
 import { HeldCard } from './card';
-import { UNDEAD_SKIN, elfBoot, elfHat, elfWorker, santaHat, warlockHat, zombieWorker } from './costumes';
+import { GRIME, UNDEAD_SKIN, beard, beardColor, elfBoot, elfHat, elfWorker, grime, peasantGarb, santaHat, warlockHat, zombieWorker, type Beard, type PeasantGarb } from './costumes';
 import { cardSprite, disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
 
 export type Pose = 'stand' | 'walk' | 'sit' | 'type';
@@ -36,6 +39,51 @@ export function emoteEnvelope(t: number, seconds: number): number {
 export function popCurve(p: number): number {
   const u = Math.min(1, p) - 1;
   return 1 + 2.7 * u * u * u + 1.7 * u * u;
+}
+
+/** How far round the club goes, from pointing down at the ball: back over the right shoulder, and on through to the finish. */
+const BACKSWING = 2.4;
+const FOLLOW = 2.5;
+/** The swing's plane leans out from upright this far, down to the ball in front of the feet (world/golf.ts STANCE). */
+const SWING_LEAN = 0.5;
+/** Where the swing turns, high in the chest; the club's head is CLUB down from it. */
+const SWING_AT = new THREE.Vector3(0, 0.95, 0.06);
+const CLUB = 1.04;
+/** Down through the ball, holding the finish, and back to the ball again, in seconds. */
+const DOWNSWING = 0.14;
+const FINISH = 1;
+const SETTLE = 0.5;
+/** A swing all on its own (someone else's) takes the club back for this long first. */
+export const BACKSWING_TIME = 0.45;
+/** How long after the downswing starts the club meets the ball. */
+export const IMPACT = 0.08;
+const DOWN = new THREE.Vector3(0, -1, 0);
+const hands = new THREE.Vector3();
+const armDir = new THREE.Vector3();
+
+/**
+ * Throwing darts (with the right hand, the arm on -x) and axes (both hands, over the head). A dart is
+ * held up by the eye, drawn back as far as the wind-up takes it, and pushed out at the board. An axe
+ * goes round on an arc about AXE_TURN, from in front of the chest (`aim`) back over the head, and
+ * over and down in front to throw, let go of on the way (`release`). Its handle points out along the
+ * arc, tipped back AXE_WRIST from it. Seconds for each: the throw, and a whole one on its own
+ * (someone else's) taking it back first. The next dart or axe is in hand `reload` after letting go.
+ */
+const DART_AIM = new THREE.Vector3(-0.2, 1.45, 0.36);
+const DART_BACK = new THREE.Vector3(-0.21, 1.5, 0.12);
+const DART_OUT = new THREE.Vector3(-0.24, 1.25, 0.6);
+const AXE_TURN = new THREE.Vector3(0, 1.05, 0.02);
+const AXE_ARC = { r: 0.36, aim: 0.25, back: 2.2, release: 0.55, end: -0.5 } as const;
+const AXE_WRIST = 1.15;
+const THROW = { darts: { time: 0.16, release: 0.5, auto: 0.25, reload: 0.55 }, axe: { time: 0.28, release: 0.62, auto: 0.35, reload: 1.2 } } as const;
+
+/** A golf club, hanging down from the hands (its grip at 0): a wrapped grip, a steel shaft and the head at the bottom, its face toward +x. */
+function golfClub(): THREE.Group {
+  const club = new THREE.Group();
+  club.add(mesh(new THREE.CylinderGeometry(0.02, 0.017, 0.2, 8), toon('#2b2d42'), 0, -0.04, 0, false));
+  club.add(mesh(new THREE.CylinderGeometry(0.011, 0.009, CLUB - 0.36 - 0.05, 6), toon('#ced4da'), 0, -(CLUB - 0.36) / 2 - 0.05, 0, false));
+  club.add(mesh(new THREE.BoxGeometry(0.05, 0.05, 0.12), toon('#8d99ae'), 0.005, -(CLUB - 0.36), 0.03, false));
+  return club;
 }
 
 /** A full mug of coffee standing on y = 0, with its handle on the -x side. */
@@ -296,6 +344,13 @@ export class Person {
   private glass: { id: string; group: THREE.Group } | null = null;
   /** An issue card off the board, held out in front in both hands. */
   private card: HeldCard;
+  private cardHolder = new THREE.Group();
+  /** A book off the bookshelf, open in both hands while they read (see read). */
+  private book: OpenBook | null = null;
+  private bookHolder = new THREE.Group();
+  /** The basketball in both hands (the ball itself is the floor's, see world/hoop.ts), and seconds into a shot, or -1. */
+  private ball = false;
+  private shootT = -1;
   pose: Pose = 'stand';
   private cig: THREE.Group;
   private ember: THREE.MeshToonMaterial;
@@ -319,6 +374,28 @@ export class Person {
   private sitK = 0;
   /** Holding on to the ladder or a fire pole (see setGrip). */
   private grip: 'ladder' | 'pole' | null = null;
+  /**
+   * At the golf tee with a club (see setGolf): the club's swing, how far back it's been taken (and
+   * `want`, where it's going), and a swing under way (`swingT` seconds in, from `top`), or -1.
+   * `autoT` is a whole swing playing by itself (golfSwing), taken back to `power`.
+   */
+  private golf: { swing: THREE.Group; back: number; want: number; top: number; swingT: number; autoT: number; power: number } | null = null;
+  /**
+   * At the dart board's oche or the axe lane's line (see setThrowing): the dart or axe in hand, how
+   * far it's been drawn back (`back`, easing to `want`), a throw under way (`throwT` seconds in, from
+   * `top`) or taking it back all by itself first (`autoT`), and how long until the next is in hand.
+   */
+  private oche: {
+    game: BarGame;
+    prop: THREE.Group;
+    back: number;
+    want: number;
+    top: number;
+    throwT: number;
+    autoT: number;
+    reload: number;
+    release: ((from: THREE.Vector3, turn: number) => void) | null;
+  } | null = null;
   /** Dressed up for a holiday (see setCostume): a warlock's hat and undead skin, or a Santa hat. */
   private costume: Theme | null = null;
   private hat: THREE.Object3D[] = [];
@@ -392,11 +469,17 @@ export class Person {
     this.cig.visible = false;
     this.armL.add(this.cig);
     // Between the hands when both arms are out in front (see update), its front to whoever they walk up to.
-    const holder = new THREE.Group();
+    const holder = this.cardHolder;
     holder.position.set(0, 0.8, 0.36);
     holder.rotation.x = -0.1;
     this.body.add(holder);
     this.card = new HeldCard(holder, 0.46);
+    // Held out at chest height, turned round and tipped up so the pages face their eyes, top edge
+    // away from them, with the hands on its bottom corners.
+    this.bookHolder.position.set(0, 1, 0.48);
+    this.bookHolder.rotation.set(0.85, Math.PI, 0);
+    this.bookHolder.scale.setScalar(1.25);
+    this.body.add(this.bookHolder);
     // Along the arm (the fist's -y) the finger points; the thumb sticks out of the front of the fist,
     // which is up once the arm is out in front.
     this.thumb = mesh(new THREE.CapsuleGeometry(0.035, 0.07, 4, 8).rotateX(Math.PI / 2), skin, 0, -0.38, 0.1, false);
@@ -585,7 +668,7 @@ export class Person {
   holdMug(on: boolean) {
     this.wantsMug = on;
     this.cup.visible = !this.glass;
-    this.mug.visible = (on || !!this.glass) && !this.card.held;
+    this.mug.visible = (on || !!this.glass) && !this.card.held && !this.book && !this.ball && this.oche?.game !== 'axe';
   }
 
   /** A drink from the rooftop bar in the left hand (in place of a mug), or none (null). */
@@ -608,6 +691,38 @@ export class Person {
   carry(card: CarriedIssue | null | undefined) {
     this.card.set(card);
     this.holdMug(this.wantsMug);
+  }
+
+  /** Opens a book in both hands and reads it, turning the pages (or closes it). A card they carry waits. */
+  read(on: boolean) {
+    if (on === !!this.book) return;
+    if (on) {
+      this.book = new OpenBook();
+      this.bookHolder.add(this.book.group);
+    } else {
+      this.bookHolder.remove(this.book!.group);
+      this.book!.dispose();
+      this.book = null;
+    }
+    this.cardHolder.visible = !on;
+    this.holdMug(this.wantsMug);
+  }
+
+  /** Turns a page of the book they're reading now. */
+  turnPage() {
+    this.book?.turn();
+  }
+
+  /** Holds the basketball out in front in both hands, or not. */
+  holdBall(on: boolean) {
+    if (on === this.ball) return;
+    this.ball = on;
+    this.holdMug(this.wantsMug);
+  }
+
+  /** Shoots: both arms up over the head and after the ball. */
+  shoot() {
+    this.shootT = 0;
   }
 
   /** Waves, gives a thumbs up, claps…: the gesture, with its emoji popping up over their head. */
@@ -760,6 +875,224 @@ export class Person {
     this.grip = grip;
   }
 
+  /** At the golf tee with a club in both hands, over the ball (the ball in front of their feet, the hole off to their left), or not. */
+  setGolf(on: boolean) {
+    if (on === !!this.golf) return;
+    if (!on) {
+      const { swing } = this.golf!;
+      this.body.remove(swing);
+      swing.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+      this.golf = null;
+      // The swing turned the arms and legs every which way; standing, they only swing back and forth.
+      for (const limb of [this.armL, this.armR, this.legL, this.legR]) limb.rotation.set(0, 0, 0);
+      return;
+    }
+    const swing = new THREE.Group();
+    swing.position.copy(SWING_AT);
+    const club = golfClub();
+    club.position.y = -0.36;
+    swing.add(club);
+    this.body.add(swing);
+    this.golf = { swing, back: 0, want: 0, top: 0, swingT: -1, autoT: -1, power: 0 };
+  }
+
+  /** Taking the club back, `k` of the way (0 at the ball, 1 as far as it goes), the harder to hit it. */
+  golfBack(k: number) {
+    const g = this.golf;
+    if (g && g.swingT < 0) g.want = THREE.MathUtils.clamp(k, 0, 1);
+  }
+
+  /** Down through the ball from wherever it was taken back to, up into the finish, and back to the ball. */
+  golfHit() {
+    const g = this.golf;
+    if (!g) return;
+    g.top = g.back;
+    g.swingT = 0;
+    g.autoT = -1;
+  }
+
+  /** A whole swing, all by itself: back `power` of the way over BACKSWING_TIME, then through (someone else's shot). */
+  golfSwing(power: number) {
+    const g = this.golf;
+    if (!g) return;
+    g.swingT = -1;
+    g.autoT = 0;
+    g.power = THREE.MathUtils.clamp(power, 0, 1);
+  }
+
+  /** The golf swing, over whatever the arms and legs were doing. */
+  private golfStep(dt: number) {
+    const g = this.golf!;
+    if (g.autoT >= 0) {
+      g.autoT += dt;
+      g.want = g.power * Math.min(1, g.autoT / BACKSWING_TIME);
+      if (g.autoT >= BACKSWING_TIME) this.golfHit();
+    }
+    let phi: number;
+    let finish = 0;
+    if (g.swingT >= 0) {
+      const s = (g.swingT += dt);
+      if (s < DOWNSWING) {
+        // Faster and faster down through the ball.
+        const u = (s / DOWNSWING) ** 2;
+        phi = THREE.MathUtils.lerp(-g.top * BACKSWING, FOLLOW, u);
+        finish = Math.max(0, phi / FOLLOW);
+      } else if (s < DOWNSWING + FINISH) {
+        phi = FOLLOW;
+        finish = 1;
+      } else if (s < DOWNSWING + FINISH + SETTLE) {
+        const u = (s - DOWNSWING - FINISH) / SETTLE;
+        finish = 1 - u * u * (3 - 2 * u);
+        phi = FOLLOW * finish;
+      } else {
+        g.swingT = -1;
+        g.back = g.want = 0;
+        phi = 0;
+      }
+      if (g.swingT >= 0) g.back = 0;
+    } else {
+      g.back += (g.want - g.back) * Math.min(1, dt * 12);
+      phi = -g.back * BACKSWING;
+    }
+    g.swing.rotation.set(-SWING_LEAN, 0, phi);
+    // Both hands on the grip, wherever the swing has it.
+    const r = 0.36;
+    const down = -Math.cos(phi) * r;
+    hands.set(SWING_AT.x + Math.sin(phi) * r, SWING_AT.y + down * Math.cos(SWING_LEAN), SWING_AT.z - down * Math.sin(SWING_LEAN));
+    for (const [arm, sx] of [
+      [this.armL, -0.33],
+      [this.armR, 0.33],
+    ] as const) {
+      armDir.set(hands.x - sx, hands.y - 0.9, hands.z).normalize();
+      arm.quaternion.setFromUnitVectors(DOWN, armDir);
+    }
+    // Shoulders turned away on the way back, round to the hole at the finish; eyes on the ball until it's gone.
+    const coil = Math.min(0, phi) / BACKSWING;
+    this.body.rotation.y = coil * 0.45 + finish * 0.5;
+    this.head.rotation.x = 0.4 * (1 - finish) + 0.05;
+    this.head.rotation.y = -coil * 0.35 + finish * 0.6;
+    this.legL.rotation.set(0, 0, -0.1);
+    this.legR.rotation.set(0, 0, 0.1);
+  }
+
+  /** At the oche with a dart in the right hand, or the axe lane's line with an axe in both, or neither (null). */
+  setThrowing(game: BarGame | null) {
+    if (game === (this.oche?.game ?? null)) return;
+    if (this.oche) {
+      this.oche.prop.removeFromParent();
+      this.oche.prop.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+      this.oche = null;
+      for (const limb of [this.armL, this.armR]) limb.rotation.set(0, 0, 0);
+    }
+    if (game) {
+      const prop = game === 'darts' ? dartModel(this.shirt.color.getStyle()) : axeModel();
+      this.body.add(prop);
+      this.oche = { game, prop, back: 0, want: 0, top: 0, throwT: -1, autoT: -1, reload: 0, release: null };
+    }
+    this.holdMug(this.wantsMug);
+  }
+
+  /** Drawing the dart or axe back, `k` of the way (0 aiming, 1 as far as it goes). */
+  tossBack(k: number) {
+    const o = this.oche;
+    if (o && o.throwT < 0 && o.autoT < 0) o.want = THREE.MathUtils.clamp(k, 0, 1);
+  }
+
+  /** Throws from wherever it's drawn back to. `release` is told where it left the hand (and how an axe was turned, see AXE), as it does. */
+  toss(release: (from: THREE.Vector3, turn: number) => void) {
+    const o = this.oche;
+    if (!o) return;
+    o.release = release;
+    o.top = o.back;
+    o.throwT = 0;
+    o.autoT = -1;
+  }
+
+  /** A whole throw on its own, drawing back first (someone else's). */
+  tossAuto(release: (from: THREE.Vector3, turn: number) => void) {
+    const o = this.oche;
+    if (!o) return release(this.root.localToWorld(new THREE.Vector3(0, 1.4, 0.3)), 0);
+    // One still on its way out of the hand goes first.
+    o.release?.(this.propWorld(new THREE.Vector3()), o.prop.rotation.x);
+    o.release = release;
+    o.throwT = -1;
+    o.autoT = 0;
+  }
+
+  private propWorld(out: THREE.Vector3): THREE.Vector3 {
+    this.root.updateMatrixWorld(true);
+    return this.oche!.prop.getWorldPosition(out);
+  }
+
+  /** Where the hands are round the axe's arc (see AXE_ARC) at elevation `phi`. */
+  private axeHands(phi: number): THREE.Vector3 {
+    return hands.set(AXE_TURN.x, AXE_TURN.y + Math.sin(phi) * AXE_ARC.r, AXE_TURN.z + Math.cos(phi) * AXE_ARC.r);
+  }
+
+  /** The throwing arm (or arms), and the dart or axe in hand, over whatever they were doing. */
+  private ocheStep(dt: number) {
+    const o = this.oche!;
+    const t = THROW[o.game];
+    if (o.autoT >= 0) {
+      o.autoT += dt;
+      o.want = Math.min(1, o.autoT / t.auto);
+      o.back += (o.want - o.back) * Math.min(1, dt * 14);
+      if (o.autoT >= t.auto) {
+        o.autoT = -1;
+        o.top = o.back;
+        o.throwT = 0;
+      }
+    } else if (o.throwT < 0) o.back += (o.want - o.back) * Math.min(1, dt * 14);
+    // How far through the throw: 0 drawn back, 1 all the way out, easing back to aiming after.
+    let out = -1;
+    if (o.throwT >= 0) {
+      o.throwT += dt;
+      const u = o.throwT / t.time;
+      if (u < 1) out = u * u;
+      else if (u < 2.5) out = 1;
+      else {
+        out = -1;
+        o.throwT = -1;
+        o.back = o.want = 0;
+      }
+    }
+    if (o.reload > 0) {
+      o.reload -= dt;
+      if (o.reload <= 0) o.prop.visible = true;
+    }
+    const prop = o.prop;
+    const rest = (arm: THREE.Object3D, sx: number, at: THREE.Vector3) => {
+      armDir.set(at.x - sx, at.y - 0.9, at.z).normalize();
+      arm.quaternion.setFromUnitVectors(DOWN, armDir);
+    };
+    if (o.game === 'darts') {
+      const at = out >= 0 ? v1.copy(DART_AIM).lerp(DART_BACK, o.top).lerp(DART_OUT, out) : v1.copy(DART_AIM).lerp(DART_BACK, o.back);
+      rest(this.armL, -0.33, at);
+      // The dart's held by the barrel in the fist, at the end of the arm, pointing out and a little up.
+      armDir.set(at.x + 0.33, at.y - 0.9, at.z).normalize();
+      prop.position.set(-0.33, 0.9, 0).addScaledVector(armDir, 0.38);
+      prop.position.z += 0.09;
+      prop.rotation.set(-0.12, 0, 0);
+    } else {
+      const phi = out >= 0 ? THREE.MathUtils.lerp(THREE.MathUtils.lerp(AXE_ARC.aim, AXE_ARC.back, o.top), AXE_ARC.end, out) : THREE.MathUtils.lerp(AXE_ARC.aim, AXE_ARC.back, o.back);
+      const at = v1.copy(this.axeHands(phi));
+      rest(this.armL, -0.33, v2.set(at.x - 0.03, at.y + 0.03, at.z));
+      rest(this.armR, 0.33, v2.set(at.x + 0.03, at.y - 0.05, at.z));
+      prop.position.copy(at);
+      prop.rotation.set(Math.PI / 2 - phi - AXE_WRIST, 0, 0);
+      // Leaning into it, down the lane.
+      this.body.rotation.x = out >= 0 ? Math.sin(Math.min(1, out) * Math.PI) * 0.18 : -o.back * 0.1;
+    }
+    const released = out >= 0 && out >= t.release * t.release;
+    if (released && o.release) {
+      const release = o.release;
+      o.release = null;
+      release(this.propWorld(new THREE.Vector3()), prop.rotation.x);
+      prop.visible = false;
+      o.reload = t.reload;
+    }
+  }
+
   /** `pace` speeds up the walk cycle for someone walking faster than usual. */
   update(dt: number, t: number, moving: boolean, airborne: boolean, pace = 1) {
     const target = moving ? 1 : 0;
@@ -787,10 +1120,27 @@ export class Person {
       for (const arm of [this.armL, this.armR]) arm.rotation.x = THREE.MathUtils.lerp(arm.rotation.x, -0.55, sit);
     }
     if (this.smokeT >= 0) this.smokeStep(dt, moving, airborne);
-    if (this.card.held) {
-      // Both arms out in front, hands on the card's edges: it doesn't swing while they walk.
+    if (this.book) {
+      // Both arms out in front, hands under the book's bottom corners.
+      this.armL.rotation.set(-1.5, 0, 0.32);
+      this.armR.rotation.set(-1.5, 0, -0.32);
+      this.book.update(dt);
+    } else if (this.card.held || this.ball) {
+      // Both arms out in front, hands on the card's edges (or either side of the ball): they don't swing while they walk.
       this.armL.rotation.set(-1.25, 0, 0.3);
       this.armR.rotation.set(-1.25, 0, -0.3);
+    }
+    if (this.shootT >= 0) {
+      this.shootT += dt;
+      const k = reachCurve(this.shootT / 0.5);
+      for (const [arm, side] of [
+        [this.armL, 1],
+        [this.armR, -1],
+      ] as const) {
+        arm.rotation.x = THREE.MathUtils.lerp(arm.rotation.x, -2.75, k);
+        arm.rotation.z = THREE.MathUtils.lerp(arm.rotation.z, side * 0.12, k);
+      }
+      if (this.shootT >= 0.5) this.shootT = -1;
     }
     let reach = 0;
     if (this.reachT >= 0) {
@@ -832,10 +1182,13 @@ export class Person {
     this.smile.visible = !talking;
     this.mouth.visible = talking;
     if (talking) this.mouth.scale.set(0.07 * (1 - this.mouthOpen * 0.2), 0.01 + this.mouthOpen * 0.045, 0.05);
-    this.head.rotation.x = -this.mouthOpen * 0.08;
+    // Reading, they look down into the book.
+    this.head.rotation.x = -this.mouthOpen * 0.08 + (this.book ? 0.32 : 0);
     this.head.rotation.y = this.head.rotation.z = 0;
     this.body.rotation.y = this.body.rotation.z = 0;
     if (this.emoting) this.emoteStep(dt, moving || airborne ? 0 : 1 - sit);
+    if (this.golf && !sit && !airborne) this.golfStep(dt);
+    if (this.oche && !sit) this.ocheStep(dt);
   }
 }
 
@@ -861,6 +1214,10 @@ const TASK_CHIP: Record<string, [string, string, string]> = {
   exited: ['💤 ASLEEP', STATUS_BULB.exited, '#ffffff'],
   offline: ['💤 ASLEEP', STATUS_BULB.offline, '#ffffff'],
 };
+
+/** The outline of a worker's bubble, and its pill, once it has a pull request: GitHub's open green, or the PR board's merged purple. */
+const PR_INK: Record<WorkerPr['state'], string> = { open: '#2da44e', merged: '#9d4edd' };
+const PR_ICON: Record<WorkerPr['state'], string> = { open: '🔀', merged: '🎉' };
 
 /**
  * What a worker's body is doing: resting, arms up for joy, arms crossed waiting on you, typing, or
@@ -1071,6 +1428,8 @@ export class Worker {
   /** The bubble is a task card: it hangs from its tail instead of floating. */
   private bubbleIsCard = false;
   private task: WorkerTask | undefined;
+  /** Its pull request, open or merged: its bubble is outlined (and labelled, while it rests) to match. */
+  private pr: WorkerPr | undefined;
   private nameTag: THREE.Sprite | null = null;
   private eyes: THREE.Mesh[] = [];
   private blinkAt = Math.random() * 4;
@@ -1116,6 +1475,16 @@ export class Worker {
   private phase = Math.random() * Math.PI * 2;
   /** How far through its stride it is, walking in. */
   private stride = 0;
+  /** How quick its steps are, next to a walk: more running, less shuffling (see Court). */
+  gait = 1;
+  /** Its headset, which a peasant doesn't wear. */
+  private headset: THREE.Object3D[] = [];
+  /** What it wears on the map it's on (see setOutfit): a peasant's smock and coif, or its own skin. */
+  private garb: PeasantGarb | null = null;
+  /** How worn out it looks, 0–1 (see setAge), and the beard, brows and dirt that show it. */
+  private age = 0;
+  private whiskers: Beard | null = null;
+  private dirt: { part: THREE.Object3D; at: number }[] = [];
 
   constructor(
     name: string,
@@ -1143,7 +1512,12 @@ export class Worker {
     const band = mesh(new THREE.TorusGeometry(0.29, 0.025, 6, 20, Math.PI), toon('#2b2d42'), 0, 0.72, 0, false);
     band.rotation.y = Math.PI / 2;
     this.body.add(band);
-    for (const sx of [-1, 1]) this.body.add(mesh(new THREE.SphereGeometry(0.07, 10, 8), toon('#2b2d42'), sx * 0.29, 0.72, 0, false));
+    this.headset.push(band);
+    for (const sx of [-1, 1]) {
+      const cup = mesh(new THREE.SphereGeometry(0.07, 10, 8), toon('#2b2d42'), sx * 0.29, 0.72, 0, false);
+      this.body.add(cup);
+      this.headset.push(cup);
+    }
     // Antenna with status bulb
     this.body.add(mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.22, 6), toon('#2b2d42'), 0, 1.07, 0, false));
     this.bulb = toonUnique(STATUS_BULB.starting);
@@ -1213,6 +1587,70 @@ export class Worker {
       wear(this.body, elfWorker(this.skin));
       for (const f of this.feet) wear(f, elfBoot());
     }
+    // An elf's hat goes on over the coif.
+    if (this.garb) this.garb.cap.visible = theme !== 'christmas';
+  }
+
+  /**
+   * Dresses it for the map it's on: a peasant's smock, rope belt and coif, in place of its headset,
+   * or back in just its own skin (null).
+   */
+  setOutfit(outfit: 'peasant' | null) {
+    if (!!this.garb === (outfit === 'peasant')) return;
+    if (this.garb) {
+      undress([this.garb.body, this.garb.cap]);
+      this.garb.cloth.dispose();
+      this.garb = null;
+    }
+    if (outfit === 'peasant') {
+      let seed = 0;
+      for (const ch of this.color) seed = (seed * 31 + ch.charCodeAt(0)) | 0;
+      this.garb = peasantGarb(seed);
+      this.body.add(this.garb.body, this.garb.cap);
+      this.garb.cap.visible = this.costume !== 'christmas';
+    }
+    for (const h of this.headset) h.visible = !this.garb;
+    this.setAge(this.age, true);
+  }
+
+  /**
+   * How worn out it looks, 0 (fresh) to 1 (it's worked for as long as the map says a worker can
+   * before it's spent): its beard grows out and goes grey, it gets grubby and patched, it droops,
+   * and it slows down.
+   */
+  setAge(k: number, force = false) {
+    const age = Math.max(0, Math.min(1, k));
+    if (!force && Math.abs(age - this.age) < 0.004) return;
+    this.age = age;
+    if (age > 0.02 && !this.whiskers) {
+      this.whiskers = beard();
+      this.body.add(this.whiskers.group);
+      this.dirt = grime();
+      for (const d of this.dirt) this.body.add(d.part);
+    }
+    const w = this.whiskers;
+    if (w) {
+      w.group.visible = age > 0.02;
+      beardColor(age, w.hair.color);
+      w.chin.scale.set(1.2 * (0.45 + 0.55 * Math.min(1, age * 3)), 0.75 * (0.45 + 0.55 * Math.min(1, age * 3)), 0.45);
+      w.hang.visible = age > 0.08;
+      // It grows from a short beard under the chin down to the floor; the smock bulges, so it leans out a little as it grows.
+      w.hang.scale.set(0.7 + 0.3 * Math.min(1, age * 2), 0.08 + 0.5 * age, 1);
+      w.hang.rotation.x = 0.06 - 0.12 * age;
+      w.mustache.visible = age > 0.05;
+      w.brows.visible = age > 0.45;
+      w.bags.visible = age > 0.6;
+    }
+    for (const d of this.dirt) d.part.visible = age >= d.at;
+    if (this.garb) {
+      this.garb.cloth.color.copy(this.garb.clean).lerp(GRIME, 0.5 * age);
+      for (const p of this.garb.patches) p.part.visible = age >= p.at;
+    }
+  }
+
+  /** How fast it walks, next to a fresh worker: a worn-out one shuffles. */
+  get pace(): number {
+    return 1 - 0.3 * this.age;
   }
 
   setName(name: string) {
@@ -1273,6 +1711,11 @@ export class Worker {
     this.drawBubble();
   }
 
+  setPr(pr: WorkerPr | undefined) {
+    this.pr = pr;
+    this.drawBubble();
+  }
+
   /** Sent home: its light goes out, its face falls, and its things pop into a box in its arms. `farewell` goes over its head. */
   leave(farewell: string) {
     if (this.leaving) return;
@@ -1323,12 +1766,15 @@ export class Worker {
 
   private drawBubble() {
     if (this.leaving) return;
-    const { status, bouncing: bounce, task } = this;
+    const { status, bouncing: bounce, task, pr } = this;
     const hot = status === 'needs_input' || (status === 'done' && bounce);
     const bg = hot ? (status === 'done' ? '#caffbf' : '#ffd6e0') : status === 'working' ? '#ffec99' : '#fffaf3';
+    const border = pr && PR_INK[pr.state];
+    // Not working on or waiting for something more: its pull request in place of ready / done / asleep.
+    const prLabel = pr && status !== 'working' && status !== 'needs_input' && status !== 'starting' ? `${PR_ICON[pr.state]} PR #${pr.number} ${pr.state}` : undefined;
     const bubble =
-      status === 'needs_input' ? '❗ needs you' : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤' : '';
-    const key = task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble;
+      prLabel ?? (status === 'needs_input' ? '❗ needs you' : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤' : '');
+    const key = `${border}|${prLabel}|${task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble}`;
     if (key === this.bubbleKey) return;
     this.bubbleKey = key;
     if (this.bubble) {
@@ -1338,9 +1784,9 @@ export class Worker {
     }
     this.bubbleIsCard = !!task;
     if (task) {
-      const [text, chipBg, color] = TASK_CHIP[status] ?? TASK_CHIP.idle;
-      this.bubble = cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: task.summary, bg: isAsleep(status) ? '#e9ecef' : bg });
-    } else if (bubble) this.bubble = textSprite(bubble, { bg, size: 38 });
+      const [text, chipBg, color] = prLabel ? [prLabel.toUpperCase(), border!, '#ffffff'] : (TASK_CHIP[status] ?? TASK_CHIP.idle);
+      this.bubble = cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: task.summary, bg: isAsleep(status) ? '#e9ecef' : bg, border });
+    } else if (bubble) this.bubble = textSprite(bubble, { bg, size: 38, border });
     if (this.bubble) this.root.add(this.bubble);
   }
 
@@ -1386,8 +1832,10 @@ export class Worker {
     this.armL.position.set(-0.3 + s.reach * 0.07, 0.55 - s.drop, 0.05 + s.reach * 0.12);
     this.armR.position.set(0.3 - s.reach * 0.07, 0.55 - s.drop + s.reach * 0.04, 0.05 + s.reach * 0.14);
     this.feet.forEach((f, i) => f.position.set(i ? 0.12 : -0.12, 0.2 + (i ? s.tap * 0.07 : 0), 0.05 + s.kick + (i ? s.tap * 0.03 : 0)));
-    for (const p of this.pupils) p.position.y = 0.7 + s.look;
-    this.body.rotation.x = s.lean;
+    for (const p of this.pupils) p.position.y = 0.7 + s.look - 0.02 * this.age;
+    // Worn out, it hunches over and its eyes droop.
+    this.body.rotation.x = s.lean + 0.2 * this.age;
+    s.lid = Math.min(s.lid, 1 - 0.38 * this.age);
     let twirl = 0;
     if (this.twirlT >= 0) {
       this.twirlT += dt;
@@ -1414,7 +1862,7 @@ export class Worker {
     if (this.nameTag) this.nameTag.position.y = 1.55 + (hopping ? this.body.position.y : 0);
     // Walking in to a meeting: the same waddle as on the way out, without the box.
     if (this.walking || this.stride) {
-      this.stride = this.walking ? this.stride + dt * 9 : 0;
+      this.stride = this.walking ? this.stride + dt * 9 * this.pace * this.gait : 0;
       const s = Math.sin(this.stride);
       this.feet.forEach((f, i) => {
         const step = i ? -s : s;
@@ -1604,5 +2052,13 @@ export class Worker {
     if (this.bubble) disposeSprite(this.bubble);
     if (this.nameTag) disposeSprite(this.nameTag);
     undress(this.outfit);
+    if (this.garb) {
+      undress([this.garb.body, this.garb.cap]);
+      this.garb.cloth.dispose();
+    }
+    if (this.whiskers) {
+      undress([this.whiskers.group, ...this.dirt.map((d) => d.part)]);
+      this.whiskers.hair.dispose();
+    }
   }
 }

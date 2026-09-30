@@ -1,5 +1,5 @@
 import { execFile as nodeExecFile } from 'node:child_process';
-import { isValidOpenCodeModel } from './agents.js';
+import { isValidGrokModel, isValidOpenCodeModel } from './agents.js';
 
 export const MODEL_COMMAND_TIMEOUT_MS = 10_000;
 export const MODEL_COMMAND_MAX_BUFFER = 1024 * 1024;
@@ -49,6 +49,57 @@ export async function fetchOpenCodeModels(command: string, cwd: string, runner: 
 
 export interface OpenCodeModelCatalogue {
   get(): Promise<string[]>;
+}
+
+/** Run `grok models` without a shell and return only safe model ids. */
+export async function fetchGrokModels(command: string, cwd: string, runner: ModelCommandRunner = runModelCommand): Promise<string[]> {
+  try {
+    const result = await runner(command, ['models'], {
+      cwd,
+      timeout: MODEL_COMMAND_TIMEOUT_MS,
+      maxBuffer: MODEL_COMMAND_MAX_BUFFER,
+    });
+    const models: string[] = [];
+    const seen = new Set<string>();
+    for (const raw of result.stdout.replace(/\x1b\[[0-?]*[ -\/]*[@-~]/g, '').split(/\r?\n/)) {
+      const model = raw.trim().replace(/^[-*]\s+/, '').replace(/\s*\(default\)\s*$/i, '').trim();
+      if (isValidGrokModel(model) && !seen.has(model)) {
+        seen.add(model);
+        models.push(model);
+      }
+    }
+    return models;
+  } catch {
+    throw new Error('Grok model catalogue unavailable');
+  }
+}
+
+export interface GrokModelCatalogue {
+  get(): Promise<string[]>;
+}
+
+export function createGrokModelCatalogue(
+  command: string,
+  cwd: string,
+  runner: ModelCommandRunner = runModelCommand,
+  now: () => number = Date.now,
+): GrokModelCatalogue {
+  let cached: { models: string[]; expiresAt: number } | undefined;
+  let pending: Promise<string[]> | undefined;
+  return {
+    get() {
+      const current = now();
+      if (cached && current < cached.expiresAt) return Promise.resolve([...cached.models]);
+      if (pending) return pending;
+      pending = fetchGrokModels(command, cwd, runner).then((models) => {
+        cached = { models, expiresAt: now() + MODEL_CACHE_TTL_MS };
+        return [...models];
+      }).finally(() => {
+        pending = undefined;
+      });
+      return pending;
+    },
+  };
 }
 
 export function createOpenCodeModelCatalogue(

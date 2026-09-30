@@ -10,6 +10,21 @@ const error = document.getElementById('error') as HTMLParagraphElement;
 const submit = document.getElementById('submit') as HTMLButtonElement;
 
 const NAME_KEY = 'agent-office.login-name';
+/** Where to go once in: the 2D view if that's where you were headed (see loginUrl in net.ts), else the office. */
+const NEXT = new URLSearchParams(location.search).get('next') === '/lite' ? '/lite' : '/';
+
+// A sign-in link from the office's terminal (/login#key=…): it works once, so take it out of the
+// address bar and trade it for a session. The key is after the #, so it never reaches a server log.
+const linkKey = new URLSearchParams(location.hash.slice(1)).get('key');
+if (linkKey) {
+  history.replaceState(null, '', location.pathname + location.search);
+  void fetch('/api/link', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: linkKey }) })
+    .then(async (res) => {
+      if (res.ok) return location.replace(NEXT);
+      error.textContent = ((await res.json().catch(() => ({}))) as { error?: string }).error ?? 'Could not sign in';
+    })
+    .catch(() => void (error.textContent = 'Server unreachable'));
+}
 
 // Ask for a name once people have accounts; it's optional while the shared password still works.
 void fetch('/api/login', { cache: 'no-store' })
@@ -46,7 +61,7 @@ form.addEventListener('submit', async (e) => {
       } catch {
         // storage blocked
       }
-      location.href = '/';
+      location.href = NEXT;
       return;
     }
     const body = await res.json().catch(() => ({}));

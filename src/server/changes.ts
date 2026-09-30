@@ -26,6 +26,14 @@ export interface ChangesTarget {
   rel: string;
   /** The commit its worktree branched from, when it has one. */
   worktreeBase?: string;
+  /**
+   * For another floor's repository a worker works in (see WorkerInfo.repos): the branch diffs are
+   * taken against and PRs target, instead of the one the office was opened on (null: none), where
+   * that repository's open pull requests are, and how to refresh its boards.
+   */
+  baseBranch?: string | null;
+  openPull?(branch: string): { number: number; url: string } | undefined;
+  refreshGitHub?(): void;
 }
 
 export interface ChangesEvents {
@@ -36,6 +44,9 @@ export interface ChangesEvents {
 }
 
 interface Watch {
+  workerId: string;
+  /** One of the other floors' repositories of a worker across repositories; none for its own. */
+  repo?: string;
   clients: Set<string>;
   timer?: NodeJS.Timeout;
   polling: boolean;
@@ -54,9 +65,10 @@ interface Result {
 }
 
 /** Runs a command; a non-zero exit is a result, not an error. Only "can't run it at all" throws. */
-function run(cmd: string, args: string[], cwd: string, timeout = 30_000): Promise<Result> {
+/** With `env`, it runs as someone signed in to their own GitHub (see signins.ts) instead of the office. */
+function run(cmd: string, args: string[], cwd: string, timeout = 30_000, env?: Record<string, string>): Promise<Result> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }, (err, stdout, stderr) => {
+    execFile(cmd, args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout, env: { ...(env ?? process.env), GIT_OPTIONAL_LOCKS: '0' } }, (err, stdout, stderr) => {
       if (!err) return resolve({ out: stdout, err: stderr, code: 0 });
       const e = err as NodeJS.ErrnoException & { code?: number | string; killed?: boolean };
       if (typeof e.code === 'number') return resolve({ out: stdout, err: stderr, code: e.code });
@@ -88,8 +100,8 @@ function reason(r: Result, fallback: string): string {
   return line ? line.replace(/^(fatal|error):\s*/i, '') : fallback;
 }
 
-async function git(args: string[], cwd: string, timeout?: number): Promise<string> {
-  const r = await run('git', args, cwd, timeout);
+async function git(args: string[], cwd: string, timeout?: number, env?: Record<string, string>): Promise<string> {
+  const r = await run('git', args, cwd, timeout, env);
   if (r.code !== 0) throw new GitError(reason(r, `git ${args[0]} failed`));
   return r.out.replace(/\n$/, '');
 }
@@ -150,16 +162,21 @@ async function signature(file: string): Promise<string> {
   }
 }
 
+/** A worker's checkout the Changes window can show: its own, or one of its other repositories'. */
+const watchKey = (workerId: string, repo?: string) => (repo ? `${workerId} ${repo}` : workerId);
+
 export class Changes {
+  /** By worker, and repository for a worker across repositories (see watchKey). */
   private watches = new Map<string, Watch>();
-  /** PRs opened from the office, until the GitHub boards catch up. */
+  /** PRs opened from the office, until the GitHub boards catch up, by repository and branch. */
   private opened = new Map<string, { number: number; url: string }>();
 
   constructor(
     private dir: string,
     /** The branch the office was opened on: what diffs are taken against and what PRs target. */
     private baseBranch: string | undefined,
-    private target: (workerId: string) => ChangesTarget | undefined,
+    /** A worker's checkout; with `repo`, its worktree of that floor's repository (see WorkerInfo.repos). */
+    private target: (workerId: string, repo?: string) => ChangesTarget | undefined,
     /** An open pull request whose head is that branch, from the PR board. */
     private openPull: (branch: string) => { number: number; url: string } | undefined,
     private events: ChangesEvents,
@@ -167,45 +184,38 @@ export class Changes {
     if (baseBranch === 'HEAD') this.baseBranch = undefined;
   }
 
-  watch(workerId: string, clientId: string) {
-    let w = this.watches.get(workerId);
-    if (!w) {
-      w = { clients: new Set(), polling: false };
-      this.watches.set(workerId, w);
-    }
+  watch(workerId: string, clientId: string, repo?: string) {
+    const key = watchKey(workerId, repo);
+    const w = this.entry(workerId, repo);
     // An entry an action made (see action()) has no timer yet.
-    w.timer ??= setInterval(() => void this.poll(workerId), POLL_MS);
+    w.timer ??= setInterval(() => void this.poll(key), POLL_MS);
     w.clients.add(clientId);
     if (w.last) this.events.state(w.last, [clientId]);
-    void this.poll(workerId, true);
+    void this.poll(key, true);
   }
 
-  unwatch(workerId: string, clientId: string) {
-    const w = this.watches.get(workerId);
-    if (!w) return;
-    w.clients.delete(clientId);
-    // Keep the entry while an action runs, so its outcome still reaches whoever asked for it.
-    if (!w.clients.size && !w.busy) this.drop(workerId);
+  unwatch(workerId: string, clientId: string, repo?: string) {
+    this.unwatchKey(watchKey(workerId, repo), clientId);
   }
 
   unwatchAll(clientId: string) {
-    for (const id of [...this.watches.keys()]) this.unwatch(id, clientId);
+    for (const key of [...this.watches.keys()]) this.unwatchKey(key, clientId);
   }
 
   /** The worker is gone. */
   forget(workerId: string) {
-    this.drop(workerId);
+    for (const [key, w] of [...this.watches]) if (w.workerId === workerId) this.drop(key);
   }
 
   stop() {
-    for (const id of [...this.watches.keys()]) this.drop(id);
+    for (const key of [...this.watches.keys()]) this.drop(key);
   }
 
   /** The diff of one changed file, as `git diff` prints it. */
-  async diff(workerId: string, filePath: string): Promise<{ diff: string; truncated: boolean } | string> {
-    const t = this.target(workerId);
+  async diff(workerId: string, filePath: string, repo?: string): Promise<{ diff: string; truncated: boolean } | string> {
+    const t = this.target(workerId, repo);
     if (!t) return 'No such worker';
-    const file = await this.changedFile(workerId, t, filePath);
+    const file = await this.changedFile(workerId, repo, t, filePath);
     if (typeof file === 'string') return file;
     try {
       let out: string;
@@ -232,11 +242,11 @@ export class Changes {
    * commit the diff is taken from, 'new' is what's in the checkout now. Only files in the worker's
    * list of changes are served, and only pictures.
    */
-  async file(workerId: string, filePath: string, side: 'old' | 'new'): Promise<ImageResult> {
+  async file(workerId: string, filePath: string, side: 'old' | 'new', repo?: string): Promise<ImageResult> {
     if (!changedImageType(filePath)) return { status: 415, error: 'Only pictures can be previewed' };
-    const t = this.target(workerId);
+    const t = this.target(workerId, repo);
     if (!t) return { status: 404, error: 'No such worker' };
-    const file = await this.changedFile(workerId, t, filePath);
+    const file = await this.changedFile(workerId, repo, t, filePath);
     if (typeof file === 'string') return { status: 404, error: file };
     // A renamed file was something else before; its old side is only a picture if that name was one.
     const name = side === 'old' ? file.from ?? file.path : file.path;
@@ -265,21 +275,21 @@ export class Changes {
     }
   }
 
-  /** Stages everything in the checkout and commits it. */
-  async commit(workerId: string, message: string, who: string): Promise<string | undefined> {
+  /** Stages everything in the checkout and commits it; with `env`, as whoever pressed the button (their git name and email). */
+  async commit(workerId: string, message: string, who: string, env?: Record<string, string>, repo?: string): Promise<string | undefined> {
     const msg = message.trim();
     if (!msg) return 'The commit needs a message';
-    return this.action(workerId, 'Committing…', async (t) => {
+    return this.action(workerId, repo, 'Committing…', async (t) => {
       await git(['add', '-A'], t.cwd);
-      await git(['commit', '-q', '-m', msg], t.cwd, 120_000);
+      await git(['commit', '-q', '-m', msg], t.cwd, 120_000, env);
       const subject = msg.split('\n')[0];
       this.events.toast(`${who} committed “${subject.length > 60 ? `${subject.slice(0, 59)}…` : subject}” at ${t.name}'s desk`, 'info');
     });
   }
 
   /** Throws away uncommitted changes: one file's, or every one in the checkout. */
-  async discard(workerId: string, filePath: string | undefined, who: string): Promise<string | undefined> {
-    return this.action(workerId, 'Discarding…', async (t, w) => {
+  async discard(workerId: string, filePath: string | undefined, who: string, repo?: string): Promise<string | undefined> {
+    return this.action(workerId, repo, 'Discarding…', async (t, w) => {
       if (filePath !== undefined) {
         const file = w.last?.files.find((f) => f.path === filePath);
         if (!file?.uncommitted) return 'That file has no uncommitted changes';
@@ -296,11 +306,11 @@ export class Changes {
     });
   }
 
-  /** Pushes the branch and opens a pull request for it with `gh`. */
-  async pullRequest(workerId: string, title: string, body: string, who: string): Promise<string | undefined> {
+  /** Pushes the branch and opens a pull request for it with `gh`; with `env`, as whoever pressed the button. */
+  async pullRequest(workerId: string, title: string, body: string, who: string, env?: Record<string, string>, repo?: string): Promise<string | undefined> {
     if (!title.trim()) return 'The pull request needs a title';
-    return this.action(workerId, 'Pushing the branch and opening a pull request…', async (t, w) => {
-      const s = w.last ?? (await this.compute(workerId, t));
+    return this.action(workerId, repo, 'Pushing the branch and opening a pull request…', async (t, w) => {
+      const s = w.last ?? (await this.compute(w, t));
       if (!s.branch || !s.prBase) return "This checkout isn't on a branch of its own";
       if (s.pr) return `There's already a pull request for ${s.branch}: ${s.pr.url}`;
       if (s.files.some((f) => f.uncommitted)) return 'Commit the changes first';
@@ -308,43 +318,59 @@ export class Changes {
       const remotes = (await git(['remote'], t.cwd)).split('\n').filter(Boolean);
       const remote = remotes.includes('origin') ? 'origin' : remotes[0];
       if (!remote) return 'This project has no git remote to push to';
-      await git(['push', '-u', remote, s.branch], t.cwd, 120_000);
-      const r = await run('gh', ['pr', 'create', '--head', s.branch, '--base', s.prBase, '--title', title.trim(), '--body', body], t.cwd, 120_000);
+      await git(['push', '-u', remote, s.branch], t.cwd, 120_000, env);
+      const r = await run('gh', ['pr', 'create', '--head', s.branch, '--base', s.prBase, '--title', title.trim(), '--body', body], t.cwd, 120_000, env);
       const url = r.out.trim().split('\n').pop() ?? '';
       if (r.code !== 0 || !/^https?:\/\//.test(url)) throw new GitError(reason(r, url || 'gh pr create failed'));
       const number = Number(/\/(\d+)$/.exec(url)?.[1] ?? 0);
-      this.opened.set(s.branch, { number, url });
+      this.opened.set(openedKey(repo, s.branch), { number, url });
       this.events.toast(`${who} opened a pull request for ${t.name}: ${url}`, 'info');
-      this.events.refreshGitHub();
+      (t.refreshGitHub ?? this.events.refreshGitHub)();
       return undefined;
     });
   }
 
   // ---------------------------------------------------------------------------
 
-  private drop(workerId: string) {
-    const w = this.watches.get(workerId);
+  private drop(key: string) {
+    const w = this.watches.get(key);
     if (!w) return;
     clearInterval(w.timer);
-    this.watches.delete(workerId);
+    this.watches.delete(key);
+  }
+
+  private unwatchKey(key: string, clientId: string) {
+    const w = this.watches.get(key);
+    if (!w) return;
+    w.clients.delete(clientId);
+    // Keep the entry while an action runs, so its outcome still reaches whoever asked for it.
+    if (!w.clients.size && !w.busy) this.drop(key);
+  }
+
+  /** The watch on a worker's checkout, made when there is none yet. */
+  private entry(workerId: string, repo?: string): Watch {
+    const key = watchKey(workerId, repo);
+    let w = this.watches.get(key);
+    if (!w) {
+      w = { workerId, repo, clients: new Set(), polling: false };
+      this.watches.set(key, w);
+    }
+    return w;
   }
 
   /** A file in the worker's list of changes, looking again when it isn't in the last one. */
-  private async changedFile(workerId: string, t: ChangesTarget, filePath: string): Promise<ChangedFile | string> {
-    let state = this.watches.get(workerId)?.last;
-    if (!state?.files.some((f) => f.path === filePath)) state = await this.compute(workerId, t);
+  private async changedFile(workerId: string, repo: string | undefined, t: ChangesTarget, filePath: string): Promise<ChangedFile | string> {
+    let state = this.watches.get(watchKey(workerId, repo))?.last;
+    if (!state?.files.some((f) => f.path === filePath)) state = await this.compute({ workerId, repo }, t);
     return state.files.find((f) => f.path === filePath) ?? state.error ?? 'That file has no changes';
   }
 
-  /** Runs one commit / discard / PR at a time per worker, showing watchers that it's in progress. */
-  private async action(workerId: string, label: string, fn: (t: ChangesTarget, w: Watch) => Promise<string | undefined>): Promise<string | undefined> {
-    const t = this.target(workerId);
+  /** Runs one commit / discard / PR at a time per checkout, showing watchers that it's in progress. */
+  private async action(workerId: string, repo: string | undefined, label: string, fn: (t: ChangesTarget, w: Watch) => Promise<string | undefined>): Promise<string | undefined> {
+    const t = this.target(workerId, repo);
     if (!t) return 'No such worker';
-    let w = this.watches.get(workerId);
-    if (!w) {
-      w = { clients: new Set(), polling: false };
-      this.watches.set(workerId, w);
-    }
+    const key = watchKey(workerId, repo);
+    const w = this.entry(workerId, repo);
     if (w.busy) return `Hold on — still ${w.busy.toLowerCase().replace(/…$/, '')}`;
     w.busy = label;
     if (w.last) this.push(w, { ...w.last, busy: label });
@@ -356,18 +382,18 @@ export class Changes {
     }
     w.busy = undefined;
     w.lastKey = undefined; // the next poll always reaches the watchers, to clear the busy state
-    await this.poll(workerId, true);
-    if (!w.clients.size) this.drop(workerId);
+    await this.poll(key, true);
+    if (!w.clients.size) this.drop(key);
     return error;
   }
 
-  private async poll(workerId: string, now = false) {
-    const w = this.watches.get(workerId);
+  private async poll(key: string, now = false) {
+    const w = this.watches.get(key);
     if (!w || w.polling || (!now && !w.clients.size)) return;
     w.polling = true;
     try {
-      const t = this.target(workerId);
-      const state = t ? await this.compute(workerId, t) : errorState(workerId, '', 'No such worker');
+      const t = this.target(w.workerId, w.repo);
+      const state = t ? await this.compute(w, t) : errorState(w, '', 'No such worker');
       if (w.busy) state.busy = w.busy;
       const key = JSON.stringify({ ...state, at: 0 });
       if (key !== w.lastKey) {
@@ -392,28 +418,33 @@ export class Changes {
     });
     const branch = (await gitMaybe(['rev-parse', '--abbrev-ref', 'HEAD'], t.cwd)) || 'HEAD';
     const onBranch = branch !== 'HEAD';
-    let ref: string | undefined;
+    const baseBranch = t.baseBranch === undefined ? this.baseBranch : t.baseBranch === 'HEAD' ? undefined : t.baseBranch ?? undefined;
+    let refs: string[] = [];
     let label = 'HEAD';
-    if (this.baseBranch && branch !== this.baseBranch && (await gitMaybe(['rev-parse', '--verify', '--quiet', `refs/heads/${this.baseBranch}`], t.cwd))) {
-      ref = this.baseBranch;
-      label = this.baseBranch;
-    } else if (t.worktreeBase && branch !== this.baseBranch) {
-      ref = t.worktreeBase;
+    if (baseBranch && branch !== baseBranch && (await gitMaybe(['rev-parse', '--verify', '--quiet', `refs/heads/${baseBranch}`], t.cwd))) {
+      // Origin's copy too, whichever is newer: a worktree starts from PRs merged there that the
+      // project may never have pulled (see Worktrees.create), and they aren't this worker's changes.
+      const remote = `refs/remotes/origin/${baseBranch}`;
+      refs = (await gitMaybe(['rev-parse', '--verify', '--quiet', remote], t.cwd)) ? [baseBranch, remote] : [baseBranch];
+      label = baseBranch;
+    } else if (t.worktreeBase && branch !== baseBranch) {
+      refs = [t.worktreeBase];
       label = t.worktreeBase.slice(0, 7);
     } else {
       // On the base branch itself: what isn't pushed yet, when it tracks a remote.
       const up = await gitMaybe(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], t.cwd);
       if (up) {
-        ref = up;
+        refs = [up];
         label = up;
       }
     }
-    const commit = (ref && (await gitMaybe(['merge-base', ref, 'HEAD'], t.cwd))) || head;
-    const prBase = onBranch && this.baseBranch && branch !== this.baseBranch ? this.baseBranch : undefined;
+    // With two refs, git takes the merge base with a merge of them both: the newer one's, as a rule.
+    const commit = (refs.length && (await gitMaybe(['merge-base', 'HEAD', ...refs], t.cwd))) || head;
+    const prBase = onBranch && baseBranch && branch !== baseBranch ? baseBranch : undefined;
     return { commit, label, branch: onBranch ? branch : undefined, prBase };
   }
 
-  private async compute(workerId: string, t: ChangesTarget): Promise<ChangesState> {
+  private async compute({ workerId, repo }: { workerId: string; repo?: string }, t: ChangesTarget): Promise<ChangesState> {
     try {
       const base = await this.baseCommit(t);
       const [numstat, names, status] = await Promise.all([
@@ -481,14 +512,17 @@ export class Changes {
       );
       const ahead = Number(await gitMaybe(['rev-list', '--count', `${base.commit}..HEAD`], t.cwd)) || 0;
       const subject = ahead ? await gitMaybe(['log', '-1', '--format=%s'], t.cwd) : undefined;
-      const pr = base.branch ? this.opened.get(base.branch) ?? this.openPull(base.branch) : undefined;
-      return { workerId, dir: t.rel, branch: base.branch ?? 'HEAD', base: base.label, ahead, subject, files: list, more: all.length - list.length, prBase: base.prBase, pr, at: Date.now() };
+      const pr = base.branch ? this.opened.get(openedKey(repo, base.branch)) ?? (t.openPull ?? this.openPull)(base.branch) : undefined;
+      return { workerId, repo, dir: t.rel, branch: base.branch ?? 'HEAD', base: base.label, ahead, subject, files: list, more: all.length - list.length, prBase: base.prBase, pr, at: Date.now() };
     } catch (err) {
-      return errorState(workerId, t.rel, err instanceof GitError ? err.message : String((err as Error).message ?? err));
+      return errorState({ workerId, repo }, t.rel, err instanceof GitError ? err.message : String((err as Error).message ?? err));
     }
   }
 }
 
-function errorState(workerId: string, dir: string, error: string): ChangesState {
-  return { workerId, dir, base: 'HEAD', ahead: 0, files: [], more: 0, error, at: Date.now() };
+/** A worker across repositories has the same branch name in each of them. */
+const openedKey = (repo: string | undefined, branch: string) => `${repo ?? ''}\n${branch}`;
+
+function errorState({ workerId, repo }: { workerId: string; repo?: string }, dir: string, error: string): ChangesState {
+  return { workerId, repo, dir, base: 'HEAD', ahead: 0, files: [], more: 0, error, at: Date.now() };
 }

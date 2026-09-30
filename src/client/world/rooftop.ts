@@ -1,6 +1,8 @@
 import * as THREE from 'three';
+import { AXE_LANE } from '../../shared/bargames';
 import { DANCE_FLOOR, DJ_BOOTH, ELEVATOR, ELEVATOR_FRONT, FIRE_PIT, FLOOR, ROOF_BAR, ROOF_TABLES, SEATING_BY_ID, STAGE, WALL_HEIGHT, WALL_T } from '../../shared/layout';
 import type { DjFrame } from '../dnb';
+import { buildBarGames, type BarGamesView } from './bargames';
 import { Worker } from './character';
 import { buildCity, type City } from './city';
 import { buildElevator, type Elevator } from './elevator';
@@ -11,9 +13,10 @@ import { mergeByMaterial, mesh, roundedBox, toon, toonUnique } from './toon';
 // The rooftop bar, on top of the building (see shared/rooftop.ts): a deck with a glass railing round
 // it and the city all around, the elevator's housing where you arrive, a DJ on a stage under a rig
 // of moving lights and lasers with an LED wall behind and a dance floor in front, a bar with a
-// bartender under a pergola hung with string lights, a lounge round a fire pit and sun loungers
-// along the south edge. Everything that flashes goes by the DJ's set (see djFrame), so it's in time
-// with the music and the same for everyone up there.
+// bartender under a pergola hung with string lights, a lounge round a fire pit, sun loungers along
+// the south edge, and an axe-throwing lane and a dart board in the north-west corner (bargames.ts).
+// Everything that flashes goes by the DJ's set (see djFrame), so it's in time with the music and the
+// same for everyone up there.
 
 /** The building, walls included: the roof's edge. */
 const B = { minX: FLOOR.minX - WALL_T, maxX: FLOOR.maxX + WALL_T, minZ: FLOOR.minZ - WALL_T, maxZ: FLOOR.maxZ + WALL_T } as const;
@@ -32,12 +35,17 @@ export interface Rooftop {
   interactables: Interactable[];
   elevator: Elevator;
   city: City;
-  /** The building has `floors` floors under the roof: the street is as far down as that is tall (see City). */
-  setFloors(floors: number): void;
+  /**
+   * The building has `floors` floors under the roof: the street is as far down as that is tall (see
+   * City). `wings` is how far each one's back office is built out.
+   */
+  setFloors(floors: number, wings?: readonly number[]): void;
   /** What looking or clicking can land on: everything but the city far below. */
   pickables: THREE.Object3D[];
   /** Where drinks are poured, for the sound of one. */
   pourAt: { x: number; y: number; z: number };
+  /** The axe lane and the dart board, and what's thrown at them. */
+  games: BarGamesView;
   /** Someone ordered a drink at the bar, standing (or sitting) at `z` along it: the bartender comes over. */
   serve(z: number): void;
   /**
@@ -746,7 +754,8 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
     }
     colliders.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, top: 0.6 });
   };
-  planterRow(FLOOR.minX, FLOOR.minX + 0.7, FLOOR.minZ + 0.4, 3.2);
+  // Down the west edge from the axe lane's booth, which has the corner.
+  planterRow(FLOOR.minX, FLOOR.minX + 0.7, FLOOR.minZ + AXE_LANE.depth + 0.3, 3.2);
   planterRow(FLOOR.minX + 0.4, -6.2, FLOOR.maxZ - 0.7, FLOOR.maxZ);
   planterRow(5.2, FLOOR.maxX - 0.4, FLOOR.maxZ - 0.7, FLOOR.maxZ);
   const screenX = 10.9;
@@ -775,6 +784,12 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
   }
 
   group.add(mergeByMaterial(statics));
+
+  // The games corner: the axe lane and the dart board.
+  const games = buildBarGames(night);
+  group.add(games.group);
+  colliders.push(...games.colliders);
+  interactables.push(...games.interactables);
 
   // ---- Moving it all to the music ---------------------------------------------------------------
   const tmp = new THREE.Color();
@@ -836,9 +851,10 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
     interactables,
     elevator,
     city,
-    setFloors: (n) => city.setFloors(n),
+    setFloors: (n, wings) => city.setFloors(n, wings),
     pickables: group.children.filter((c) => c !== city.group),
     pourAt: { x: bx + 0.2, y: ROOF_BAR.height + 0.2, z: bz },
+    games,
     serve(z: number) {
       tendZ = THREE.MathUtils.clamp(z, ROOF_BAR.minZ + 0.6, ROOF_BAR.maxZ - 0.6);
       wander = 6;
@@ -853,6 +869,7 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
       const show = 0.3 + 0.7 * dark;
       city.update(t, dt, dark);
       elevator.update(dt);
+      games.update(dt, dark);
       dj.update(t, f, motion);
 
       // The bartender drifts along the bar between customers, and comes over when someone orders.

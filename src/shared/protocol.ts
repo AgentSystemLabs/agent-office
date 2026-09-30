@@ -1,11 +1,17 @@
 // Wire protocol between browser and server. Every WebSocket frame is one JSON object.
 
 import type { Look } from './avatar.js';
+import type { BarGame } from './bargames.js';
 import type { CabinetFrame, CabinetState, CabinetView } from './cabinet.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
+import type { FloorPlan } from './floorplan.js';
 import type { EmoteId } from './emotes.js';
+import type { CarSeat, CarState } from './garage.js';
+import type { BallState } from './hoop.js';
 import type { JukeboxState } from './jukebox.js';
+import type { CustomMap } from './maps/index.js';
+import type { PromptId } from './prompts.js';
 import type { DrinkId } from './rooftop.js';
 import type { WbElement, WbPointer, WhiteboardView } from './whiteboard.js';
 
@@ -26,10 +32,10 @@ export type WorkerKind = 'agent' | 'shell';
  */
 export type WorkerAction = 'read' | 'edit' | 'test' | 'web' | 'failing';
 
-export type AgentProvider = 'claude' | 'opencode' | 'codex' | 'dsh' | 'custom';
+export type AgentProvider = 'claude' | 'opencode' | 'codex' | 'grok' | 'muse' | 'dsh' | 'custom';
 
 export function isAgentProvider(value: unknown): value is AgentProvider {
-  return value === 'claude' || value === 'opencode' || value === 'codex' || value === 'dsh' || value === 'custom';
+  return value === 'claude' || value === 'opencode' || value === 'codex' || value === 'grok' || value === 'muse' || value === 'dsh' || value === 'custom';
 }
 
 /** A Claude model alias the hire dialog and queue can request explicitly (see server/agents.ts). */
@@ -46,6 +52,28 @@ export function isAgentEffort(value: unknown): value is AgentEffort {
   return value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' || value === 'max';
 }
 
+/** Which agent a worker runs: its provider, and optionally the model and (Claude/Grok/Muse) the reasoning effort. */
+export interface AgentChoice {
+  provider: AgentProvider;
+  /** An OpenCode provider/model id, a Claude model alias, or a Grok/Muse model id; unset for the provider's own default. */
+  model?: string;
+  effort?: AgentEffort;
+}
+
+/**
+ * The prompts the office writes for workers by itself (shared/prompts.ts) and the worker everyone
+ * starts on, as set in ⚙️ Settings: the same on every floor.
+ */
+export interface PromptsState {
+  /** Prompts someone rewrote, by id; the rest are the defaults. */
+  custom: Partial<Record<PromptId, { text: string; by: string; at: number }>>;
+  /**
+   * What a worker starts on unless whoever starts it picks another. Unset: the agent the office was
+   * started with (--agent), on its own default model.
+   */
+  agent?: AgentChoice & { by: string; at: number };
+}
+
 /** What a worker is on, for the card above its head: "Fix Login Redirect" + what it's doing now. */
 export interface WorkerTask {
   name: string;
@@ -57,9 +85,9 @@ export interface WorkerInfo {
   /** 'agent' runs the selected provider; 'shell' is a plain shared login shell. */
   kind: WorkerKind;
   provider?: AgentProvider;
-  /** Model requested for this worker, instead of the office's configured default: an OpenCode provider/model id, a Claude model alias, or an opaque DeepSeek Harness catalog id. */
+  /** Model requested for this worker, instead of the office's configured default: an OpenCode provider/model id, a Claude model alias, a Grok/Muse model id, or an opaque DeepSeek Harness catalog id. */
   model?: string;
-  /** Reasoning effort requested for this worker, when one was chosen (Claude and DeepSeek Harness only). */
+  /** Reasoning effort requested for this worker, when one was chosen (Claude, Grok, Muse or DeepSeek Harness). */
   effort?: AgentEffort;
   deskId: string;
   name: string;
@@ -75,10 +103,18 @@ export interface WorkerInfo {
   /**
    * Set when the worker runs in its own git worktree (path relative to the office dir). `from` is
    * the branch the office was on when the worktree was cut, which its pull request targets.
+   * `branch` is the branch the worktree is on: the office's own office/<name>-<id> until the worker
+   * switches to one of its own (`git checkout -b fix-x`), which `made` then remembers.
    */
-  worktree?: { path: string; branch: string; base: string; from?: string };
+  worktree?: { path: string; branch: string; base: string; from?: string; made?: string };
   /** The pull request opened from this desk for the worktree branch (see 'worker.pr'). */
   pr?: { number: number; url: string };
+  /**
+   * Other floors' repositories it works in too, for a task that spans them. It then starts in a
+   * workspace folder with a worktree of each repository in it, its own floor's (`worktree`) and
+   * these, all on the same branch, and each repository gets a pull request of its own.
+   */
+  repos?: WorkerRepo[];
   /** True while the branch is being pushed and its pull request opened. */
   prOpening?: boolean;
   title?: string;
@@ -102,6 +138,35 @@ export interface WorkerInfo {
   lastInput?: { by: string; at: number };
   /** The meeting it was called to, for a worker at the meeting room's table (see Meeting). */
   meeting?: string;
+  /**
+   * How long it has spent working (ms), over the stretches that have ended, and when the one it's in
+   * now started (while it's working): on the castle map, the longer it has worked, the more worn out it looks.
+   */
+  workedMs?: number;
+  workingSince?: number;
+  /** Sent out by a map's herald (the castle's Hand of the King), so every browser has it run to its seat from beside them. */
+  via?: 'herald';
+}
+
+/** Another floor's repository a worker also works in (see WorkerInfo.repos): a worktree of it in the worker's workspace. */
+export interface WorkerRepo {
+  /** The floor whose project it is. */
+  floor: string;
+  /** Its folder in the workspace, named after its checkout ("api"). */
+  name: string;
+  /** owner/name on GitHub, when known. */
+  repo?: string;
+  /** The checkout the worktree was cut from, on the office's machine. */
+  dir: string;
+  /** The worktree, relative to the worker's own floor's dir, like WorkerInfo.worktree. */
+  path: string;
+  branch: string;
+  /** The commit it was branched from. */
+  base: string;
+  /** The branch that checkout was on, which its pull request targets. */
+  from?: string;
+  /** Its pull request, once opened from the desk. */
+  pr?: { number: number; url: string };
 }
 
 /** Session usage. The persistent office ledger continues to cover Claude Code only. */
@@ -200,6 +265,8 @@ export interface WorktreeState {
   unpushed: number;
   /** Set when git couldn't tell, e.g. the branch is gone. */
   error?: string;
+  /** A worker across repositories: each worktree's own state, its own floor's first. The fields above add them up. */
+  repos?: { name: string; state: WorktreeState }[];
 }
 
 /** The issue on a card someone carries around the floor (see PeerInfo.carrying). */
@@ -224,6 +291,10 @@ export interface PeerInfo {
   sharing: boolean;
   /** On a smoke break, cigarette in hand. */
   smoking?: boolean;
+  /** At the golf tee on the balcony, club in hand. */
+  golfing?: boolean;
+  /** At the rooftop bar's dart board or axe lane, a dart or an axe in hand. */
+  throwing?: BarGame;
   /** Sitting down: the place they're in (see seatAt in layout), like "couch:1". */
   seat?: string;
   /** An issue card they took off the issues board, on its way to a desk or the queue. */
@@ -236,6 +307,10 @@ export interface PeerInfo {
   floor?: string;
   /** What they have open, in their own words: "in Pixel's terminal", "reading PR #12". */
   doing?: string;
+  /** Reading something off the bookshelf: an open book in their hands, its pages turning. */
+  reading?: boolean;
+  /** On the 2D view (/lite: a phone, say, or a slow computer): in the office, but not standing anywhere in it. */
+  lite?: boolean;
 }
 
 /** A styled run of text on a terminal row: [text, fg, bg, flags]. */
@@ -246,13 +321,21 @@ export const FLAG_BOLD = 1;
 export const FLAG_INVERSE = 2;
 export const FLAG_DIM = 4;
 
+/** A GitHub label; `color` is a CSS color ("#d73a4a"). */
+export interface GhLabel {
+  name: string;
+  color: string;
+  /** What it's for, in the repo's list of labels (the label picker's /api/gh/labels). */
+  description?: string;
+}
+
 export interface GhIssue {
   number: number;
   title: string;
   state: string;
   url: string;
   author: string;
-  labels: { name: string; color: string }[];
+  labels: GhLabel[];
   assignees: string[];
   createdAt: string;
   updatedAt: string;
@@ -267,9 +350,11 @@ export interface GhPull {
   isDraft: boolean;
   url: string;
   author: string;
-  labels: { name: string; color: string }[];
+  labels: GhLabel[];
   reviewDecision: string;
   headRefName: string;
+  /** The commit its branch is at on GitHub (for a merged PR, the last one merged). */
+  headRefOid?: string;
   baseRefName: string;
   createdAt: string;
   updatedAt: string;
@@ -296,6 +381,8 @@ export interface QueueTask {
   title: string;
   prompt: string;
   addedBy: string;
+  /** The account that queued it: its worker runs on that account's own sign-ins. None: the office's own. */
+  owner?: string;
   addedAt: number;
   status: TaskStatus;
   /** The worker seated for it (it may have gone home since). */
@@ -394,6 +481,8 @@ export interface Meeting {
   /** Why it stopped short. */
   reason?: string;
   calledBy: string;
+  /** The account that called it: its workers run on that account's own sign-ins, and its review is posted as them. */
+  owner?: string;
   startedAt: number;
   finishedAt?: number;
   /** The meeting's own git worktree, relative to the project, which everyone at the table shares. */
@@ -574,6 +663,8 @@ export interface GhIssueDetail {
 
 /** GitHub turns away comments longer than this. */
 export const GH_COMMENT_MAX = 65536;
+/** Longer than any label name: GitHub stops at 50 characters, and JS counts an emoji as two. */
+export const GH_LABEL_MAX = 100;
 
 export interface ProjectInfo {
   name: string;
@@ -597,10 +688,14 @@ export interface FloorInfo {
   repo?: string;
   /** Its checkout on the office's machine. */
   dir: string;
+  /** The branch that checkout is on ('HEAD' when detached); none when it isn't a git checkout. */
+  branch?: string;
   /** Which of FLOOR_PALETTES it's painted in. */
   palette: number;
   /** Being cloned: on the elevator panel, but nobody can go there yet. */
   cloning?: boolean;
+  /** The project the office was started in (`agent-office <dir>`): the office keeps its own data in its checkout. */
+  local?: boolean;
   addedBy: string;
   addedAt: number;
   /**
@@ -612,6 +707,8 @@ export interface FloorInfo {
   /** Workers waiting on someone: a question, a permission, or a finished turn nobody looked at. */
   waiting: number;
   people: number;
+  /** How many rows its back office is built out (see WING), for the building's outside. */
+  wing: number;
 }
 
 /** Where the elevator's "add a project" clones to: <dir>/<owner>/<repo> on the office's machine. */
@@ -645,6 +742,8 @@ export interface FloorView {
   queue: QueueState;
   /** Pictures on this floor's walls. */
   decor: Decoration[];
+  /** The signs over this floor's desks, and how far its back office is built out. */
+  plan: FloorPlan;
   services: ServicesState;
   /** The floor's dog; null in a building with no floors yet. */
   dog: DogState | null;
@@ -656,6 +755,10 @@ export interface FloorView {
   whiteboard: WhiteboardView;
   /** The meeting room: who's meeting about what, and the meetings before. */
   meeting: MeetingState;
+  /** The basketball by the hoop: who has it, or how it was last thrown. */
+  ball: BallState;
+  /** The cars in the garage (see CARS in shared/garage.ts): where each one is, and who's in it. */
+  cars: CarState[];
 }
 
 export type AccountRole = 'admin' | 'member';
@@ -666,6 +769,33 @@ export interface Me {
   account?: { name: string; role: AccountRole };
   /** May invite, list and revoke accounts. */
   admin: boolean;
+}
+
+/** What someone signs in to for their own workers: Claude Code, and the GitHub CLI. */
+export type SignInKind = 'claude' | 'github';
+
+/** One of your sign-ins, as the office sees it (see server/signins.ts). */
+export interface SignInState {
+  /** ok: signed in. none: not yet. busy: signing in, or being looked at. */
+  status: 'ok' | 'none' | 'busy';
+  /** Its own login in your folder on the office's machine, a pasted token, or the machine's own (admins). */
+  how: 'login' | 'token' | 'office';
+  /** Who it signs in as: an email and plan for Claude, @login for GitHub. */
+  who?: string;
+  /** A sign-in under way: the page to open, GitHub's one-time code to type there, and whether Claude's code was sent back. */
+  pending?: { url?: string; code?: string; sent?: boolean };
+  error?: string;
+}
+
+/**
+ * Your own Claude and GitHub sign-ins, which your workers run with and the office acts on GitHub
+ * with for you. Only accounts have them: on the shared password, the office's own are used.
+ */
+export interface SignInsState {
+  claude: SignInState;
+  github: SignInState;
+  /** You may use the office machine's own sign-ins instead of yours (admins). */
+  office: boolean;
 }
 
 export interface AccountInfo {
@@ -700,23 +830,27 @@ export interface AccountsState {
 }
 
 export interface TeamMember {
-  /** GitHub username (or the name deploy/aws.sh invited a key file under). */
+  /** GitHub username (or the name deploy/aws.sh or deploy/azure.sh invited a key file under). */
   name: string;
   keys: number;
 }
 
-/** Who may SSH-tunnel into the office. Only offices deployed with deploy/aws.sh manage this. */
+/** Who may SSH-tunnel into the office. Only offices deployed with deploy/aws.sh or deploy/azure.sh manage this. */
 export interface TeamState {
   /** Why invites can't be managed from the office, when they can't. */
   unavailable?: string;
   error?: string;
-  /** user@host teammates tunnel to, e.g. office@203.0.113.7 */
+  /** Where teammates tunnel to: office@203.0.113.7, or ssh://office@host:port off port 22 */
   ssh?: string;
   /** The office's port on the box (tunnel destination). */
   port: number;
+  /** How to run the script that deployed the office (deploy/azure.sh, --name and all), for the commands the panel suggests. deploy/aws.sh when unknown. */
+  deploy?: string;
   /** SHA256 fingerprint of the box's ED25519 host key, to check on first connect. */
   fingerprint?: string;
   members: TeamMember[];
+  /** The office's name on its Tailscale network (e.g. agent-office.tail1234.ts.net): everyone there opens https://<it>. */
+  tailnet?: string;
 }
 
 /** A web server a worker started (a dev server, a preview), found by the ports it listens on. */
@@ -740,8 +874,12 @@ export interface ServicesState {
   items: ServiceInfo[];
   /** The office's port on its machine. Service tunnels end there and the office relays them. */
   port: number;
-  /** user@host teammates tunnel to (offices deployed with deploy/aws.sh), e.g. office@203.0.113.7 */
+  /** How to run the script that deployed the office, as in TeamState. */
+  deploy?: string;
+  /** Where teammates tunnel to (offices deployed with deploy/aws.sh, deploy/railway.sh, deploy/fly.sh or deploy/dokploy.sh), as in TeamState */
   ssh?: string;
+  /** The office's name on its Tailscale network: each server is also on https://<it>:<port> there. */
+  tailnet?: string;
 }
 
 export type ChangeStatus = 'M' | 'A' | 'D' | 'R' | 'T' | '?';
@@ -787,6 +925,8 @@ export function changedImageType(filePath: string): string | undefined {
 /** What a worker changed in its checkout, against the branch the office was opened on. */
 export interface ChangesState {
   workerId: string;
+  /** For a worker across repositories: the floor of the repository this is (see WorkerInfo.repos); none for its own floor's. */
+  repo?: string;
   /** The checkout, relative to the office dir ('' is the project folder itself, shared by everyone). */
   dir: string;
   /** Current branch of that checkout ('HEAD' when detached). */
@@ -870,6 +1010,30 @@ export interface ThemeState {
   at?: number;
 }
 
+/**
+ * The building's map: what every floor looks like inside (the office, the castle, or one of your
+ * own), the same for everyone (see shared/maps). Custom maps come from the office's
+ * .agent-office/maps/ folder, each with its whole config, or why it won't load.
+ */
+export interface MapState {
+  pick: string;
+  custom: CustomMap[];
+  /** Who picked it, and when. Unset for the default (the office). */
+  by?: string;
+  at?: number;
+}
+
+/**
+ * Whether a worker whose pull request merged goes home by itself (⚙️ Settings), for every floor:
+ * once it's at rest and nobody has its terminal open, it leaves and its worktree and branch are deleted.
+ */
+export interface LeaveOnMergeState {
+  on: boolean;
+  /** Who set it, and when. Unset for the default (off). */
+  by?: string;
+  at?: number;
+}
+
 export interface ChatLine {
   from: string;
   name: string;
@@ -906,10 +1070,21 @@ export type ClientMsg =
   | { t: 'move'; x: number; y: number; z: number; rotY: number; moving: boolean }
   /**
    * You reached out to use something; everyone else sees your character's arm do it. With `smoke`,
-   * you lit a cigarette (or put it out) on the balcony instead; with `drink`, you took a drink from
-   * the rooftop bar (or finished it, null).
+   * you lit a cigarette (or put it out) on the balcony instead; with `golf`, you took a club out at
+   * the tee (or put it back); with `drink`, you took a drink from the rooftop bar (or finished it,
+   * null); with `throwing`, you stepped up to the dart board or the axe lane up there (or back, null).
    */
-  | { t: 'act'; smoke?: boolean; drink?: DrinkId | null }
+  | { t: 'act'; smoke?: boolean; golf?: boolean; drink?: DrinkId | null; throwing?: BarGame | null }
+  /**
+   * You hit a golf ball off the tee: its heading (0 is south, toward +x from there), loft (radians)
+   * and power (0–1). Everyone on your floor works out where it goes the same way (world/golf.ts fly).
+   */
+  | { t: 'golf'; yaw: number; loft: number; power: number }
+  /**
+   * You threw a dart or an axe at the rooftop bar: where it lands on the target (u right, v up, in
+   * meters from its middle), whether an axe sticks, and which throw of the round it is (from 1).
+   */
+  | { t: 'toss'; game: BarGame; u: number; v: number; stick: boolean; n: number }
   /** You sat down in a place on a couch, a beanbag, a chair or the bench (see seatAt in layout), or got up again (no seat). */
   | { t: 'sit'; seat?: string }
   /** You picked an issue card up off the board (or put it down again, no issue): everyone sees it in your hands. */
@@ -918,7 +1093,8 @@ export type ClientMsg =
   | { t: 'emote'; emote: EmoteId }
   | { t: 'profile'; name: string; color: string; look: Look }
   /** With `issue`, the worker is there for that GitHub issue: it's assigned on GitHub (so it moves to In progress) and taken off the queue. */
-  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: number }
+  /** With `repos` (other floors' ids), the worker works in their repositories too, each in a worktree of its own (see WorkerInfo.repos). */
+  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: number; repos?: string[]; via?: 'herald' }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
@@ -938,8 +1114,8 @@ export type ClientMsg =
   /** You're typing into that terminal (a keystroke or a paste, not the terminal answering itself); sent about once a second. */
   | { t: 'term.typing'; workerId: string }
   | { t: 'term.resize'; workerId: string; cols: number; rows: number }
-  /** What you have open now (see PeerInfo.doing); none when you're back in the office. */
-  | { t: 'doing'; what?: string }
+  /** What you have open now (see PeerInfo.doing and PeerInfo.reading); none when you're back in the office. */
+  | { t: 'doing'; what?: string; reading?: boolean }
   | { t: 'gh.refresh' }
   /** Merge a pull request; the answer comes back as gh.merged. */
   | { t: 'gh.merge'; number: number; method: GhMergeMethod; deleteBranch: boolean; auto?: boolean }
@@ -951,6 +1127,8 @@ export type ClientMsg =
   | { t: 'horn' }
   /** Close an issue, or a pull request without merging it; the answer comes back as gh.closed. */
   | { t: 'gh.close'; kind: 'issue' | 'pull'; number: number; comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }
+  /** Put labels on an issue or PR and take others off, as the server's gh account; answered with gh.labeled. */
+  | { t: 'gh.labels'; kind: 'issue' | 'pull'; number: number; add: string[]; remove: string[] }
   | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string; effort?: AgentEffort }
   | { t: 'queue.remove'; taskId: string }
   /** Move a queued task up (-1) or down (+1) the queue. */
@@ -986,14 +1164,29 @@ export type ClientMsg =
   | { t: 'accounts.role'; accountId: string; role: AccountRole }
   /** Let the shared office password sign people in, or stop it. */
   | { t: 'accounts.shared'; on: boolean }
-  /** Follow what a worker changed (the office polls its checkout while anyone watches). */
-  | { t: 'changes.watch'; workerId: string }
-  | { t: 'changes.unwatch'; workerId: string }
-  | { t: 'changes.diff'; workerId: string; path: string }
-  | { t: 'changes.commit'; workerId: string; message: string }
+  /** Your own sign-ins (accounts only): look at them again. */
+  | { t: 'signins.get' }
+  /** Sign in from the office: it runs the login and hands back the page to open. */
+  | { t: 'signins.start'; which: SignInKind }
+  /** The code Claude's sign-in page gave you. */
+  | { t: 'signins.code'; code: string }
+  | { t: 'signins.cancel'; which: SignInKind }
+  /** A token instead: from `claude setup-token` (or an Anthropic API key), or a GitHub token. */
+  | { t: 'signins.token'; which: SignInKind; token: string }
+  /** Use the office machine's own sign-in (admins only). */
+  | { t: 'signins.office'; which: SignInKind }
+  | { t: 'signins.signout'; which: SignInKind }
+  /**
+   * Follow what a worker changed (the office polls its checkout while anyone watches). `repo` picks
+   * one of the other floors' repositories a worker across repositories works in (see WorkerInfo.repos).
+   */
+  | { t: 'changes.watch'; workerId: string; repo?: string }
+  | { t: 'changes.unwatch'; workerId: string; repo?: string }
+  | { t: 'changes.diff'; workerId: string; path: string; repo?: string }
+  | { t: 'changes.commit'; workerId: string; message: string; repo?: string }
   /** Without a path, throws away every uncommitted change in that checkout. */
-  | { t: 'changes.discard'; workerId: string; path?: string }
-  | { t: 'changes.pr'; workerId: string; title: string; body: string }
+  | { t: 'changes.discard'; workerId: string; path?: string; repo?: string }
+  | { t: 'changes.pr'; workerId: string; title: string; body: string; repo?: string }
   | { t: 'upgrade.check' }
   | { t: 'upgrade.start' }
   /** Read the Claude plan limits again now, instead of at the next poll. */
@@ -1003,6 +1196,11 @@ export type ClientMsg =
   /** Move, resize, re-frame or swap the image of a picture. */
   | { t: 'decor.update'; id: string; decor: Partial<DecorPlacement> }
   | { t: 'decor.remove'; id: string }
+  /** Hang a sign over a desk on your floor (a SIGN_COLORS color), or take it down with no text. */
+  | { t: 'desk.label'; deskId: string; text: string; color?: string }
+  /** Knock the back office out another row, with two more desks; or wall its last row back up. */
+  | { t: 'floor.expand' }
+  | { t: 'floor.shrink' }
   /** Put a tune on the jukebox (a JUKEBOX_TUNES id), or a stream; with neither, turn it back on. */
   | { t: 'jukebox.play'; track?: string; url?: string }
   /** On to the next tune. */
@@ -1037,10 +1235,32 @@ export type ClientMsg =
   | { t: 'floor.repos'; refresh?: boolean }
   /** Clone a repository and make it a new floor; answered with `floor.added` once it's there. */
   | { t: 'floor.add'; repo: string }
+  /** Take a floor off the building (admins only). Its checkout stays on disk; everyone on it rides to another floor. */
+  | { t: 'floor.remove'; floor: string }
   /** Dress the building up for a holiday, take the decorations down ('off'), or follow the calendar ('auto'). */
   | { t: 'theme.set'; pick: ThemePick }
+  /** Change the building's map (see MapState), or with no map, read the custom maps' folder again. */
+  | { t: 'map.set'; map?: string }
+  /** Workers whose pull request merged go home by themselves (true), or wait to be sent home. */
+  | { t: 'leaveOnMerge.set'; on: boolean }
   /** Where new floors are cloned from now on (admins only); '' goes back to the default. */
   | { t: 'floor.projectsDir'; dir: string }
+  /** Rewrite one of the office's prompts (admins only); null puts the default back. */
+  | { t: 'prompts.set'; id: PromptId; text: string | null }
+  /** Pick the worker everyone starts on (admins only); null goes back to the office's --agent. */
+  | { t: 'prompts.agent'; choice: AgentChoice | null }
+  /** Pick up the floor's basketball (or catch it): yours if nobody else has it. */
+  | { t: 'ball.take' }
+  /** Throw the basketball in your hands from (x, y, z) at (vx, vy, vz) m/s, or drop it; everyone on the floor sees it fly. */
+  | { t: 'ball.throw'; x: number; y: number; z: number; vx: number; vy: number; vz: number }
+  /** Get into a seat of one of the floor's cars (by its place in CARS): yours if nobody's in it. */
+  | { t: 'car.enter'; car: number; seat: CarSeat }
+  /** Get out of the car you're in; driving, it stays parked where you left it. */
+  | { t: 'car.leave' }
+  /** Where the car you're driving has got to, and how it's going; everyone else on the floor sees it there. */
+  | { t: 'car.drive'; car: number; x: number; z: number; rotY: number; speed: number; steer: number }
+  /** Honk the horn of the car you're in. */
+  | { t: 'car.honk' }
   /** Give the dog on your floor a pat; it has to be within reach. */
   | { t: 'dog.pet' }
   /** Name the dog on your floor ('' gives it back its first name). */
@@ -1072,6 +1292,11 @@ export type ServerMsg =
       sky: SkyState;
       /** Halloween or Christmas decorations, all over the building, or none. */
       theme: ThemeState;
+      /** What the building looks like inside. */
+      map: MapState;
+      /** The office's prompts and the worker everyone starts on. */
+      prompts: PromptsState;
+      leaveOnMerge: LeaveOnMergeState;
     } & FloorView)
   /** You arrived on another floor: everything on it, replacing the last one's, and where everyone is now. */
   | ({ t: 'floor.enter'; peers: PeerInfo[] } & FloorView)
@@ -1086,7 +1311,11 @@ export type ServerMsg =
   | { t: 'peer.update'; peer: PeerInfo }
   | { t: 'peer.move'; id: string; x: number; y: number; z: number; rotY: number; moving: boolean }
   | { t: 'peer.leave'; id: string }
-  | { t: 'peer.act'; id: string; smoke?: boolean; drink?: DrinkId | null }
+  | { t: 'peer.act'; id: string; smoke?: boolean; golf?: boolean; drink?: DrinkId | null; throwing?: BarGame | null }
+  /** Someone on your floor hit a golf ball off the tee (see the client's 'golf'). */
+  | { t: 'golf'; id: string; yaw: number; loft: number; power: number }
+  /** Someone up on the roof threw a dart or an axe (see the client's 'toss'). */
+  | { t: 'toss'; id: string; game: BarGame; u: number; v: number; stick: boolean; n: number }
   | { t: 'peer.emote'; id: string; emote: EmoteId }
   | { t: 'worker.update'; worker: WorkerInfo }
   | { t: 'worker.remove'; workerId: string }
@@ -1111,6 +1340,8 @@ export type ServerMsg =
   | { t: 'horn'; by: string }
   /** Sent to whoever asked to close it. */
   | { t: 'gh.closed'; kind: 'issue' | 'pull'; number: number; error?: string }
+  /** Sent to whoever changed them: the labels it has now, or why they didn't change. */
+  | { t: 'gh.labeled'; kind: 'issue' | 'pull'; number: number; labels?: GhLabel[]; error?: string }
   | { t: 'rtc'; from: string; data: unknown }
   | ({ t: 'chat' } & ChatLine)
   | { t: 'toast'; text: string; level: 'info' | 'warn' | 'error' }
@@ -1118,8 +1349,18 @@ export type ServerMsg =
   | { t: 'upgrade'; state: UpgradeState }
   | { t: 'services'; state: ServicesState }
   | { t: 'decor'; items: Decoration[] }
+  /** Your floor's signs changed, or its back office was built out or walled up. */
+  | { t: 'plan'; plan: FloorPlan }
   /** What the dog on your floor is up to now: sent at the start of each leg of its day. */
   | { t: 'dog'; dog: DogState }
+  /** The basketball on your floor was picked up, thrown, or put back under the hoop. */
+  | { t: 'ball'; ball: BallState }
+  /** Someone got into one of your floor's cars, or out of one; `answer` to each car.enter and car.leave of yours, whether you got in or not. */
+  | { t: 'cars'; cars: CarState[]; answer?: boolean }
+  /** A car on your floor is being driven (see car.drive). */
+  | { t: 'car.move'; car: number; x: number; z: number; rotY: number; speed: number; steer: number }
+  /** Someone in a car on your floor honked its horn. */
+  | { t: 'car.honk'; car: number }
   | { t: 'jukebox'; state: JukeboxState }
   /** Who's at the arcade cabinet on your floor now, and the building's high scores. */
   | { t: 'cabinet'; state: CabinetState }
@@ -1139,9 +1380,14 @@ export type ServerMsg =
   | { t: 'machine'; state: MachineState }
   | { t: 'sky'; state: SkyState }
   | { t: 'theme'; state: ThemeState }
+  | { t: 'map'; state: MapState }
+  /** Sent to whoever tried to sit where someone on the floor already is. */
+  | { t: 'sit.refused'; seat: string; by: string }
+  | { t: 'prompts'; state: PromptsState }
+  | { t: 'leaveOnMerge'; state: LeaveOnMergeState }
   /** Sent to whoever watches that worker's changes, whenever they change. */
   | { t: 'changes'; state: ChangesState }
-  | { t: 'changes.diff'; workerId: string; path: string; diff: string; truncated: boolean; error?: string }
+  | { t: 'changes.diff'; workerId: string; repo?: string; path: string; diff: string; truncated: boolean; error?: string }
   /** Sent to whoever asked for the invite. */
   | { t: 'team.invited'; github: string; name?: string; keys?: number; error?: string }
   /** Sent to admins, when asked and whenever accounts change. */
@@ -1150,5 +1396,9 @@ export type ServerMsg =
   | { t: 'accounts.invited'; invite?: AccountInvite; error?: string }
   /** Your role changed. */
   | { t: 'me'; me: Me }
+  /** Your own sign-ins, whenever they change (accounts only). */
+  | { t: 'signins'; state: SignInsState }
+  /** What you tried needs a sign-in of your own first. */
+  | { t: 'signins.needed'; which: SignInKind; why: string }
   /** `now` is the office's clock as it answered, which the jukebox keeps time by. */
   | { t: 'pong'; at: number; now: number };

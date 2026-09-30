@@ -8,9 +8,30 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
+    <!-- The loading screen: up from the first paint until the office is ready to be seen (see ui/loading.ts). -->
+    <div id="loading" role="status" aria-live="polite">
+      <div class="loading-card">
+        <svg class="loading-paw" viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M32 31c8 0 18 9 18 17 0 6-5 8-10 7-3-.5-5-1.5-8-1.5s-5 1-8 1.5c-5 1-10-1-10-7 0-8 10-17 18-17z" />
+          <ellipse cx="11.5" cy="31" rx="5.5" ry="7.5" transform="rotate(-24 11.5 31)" />
+          <ellipse cx="24" cy="17.5" rx="6" ry="8" transform="rotate(-8 24 17.5)" />
+          <ellipse cx="40" cy="17.5" rx="6" ry="8" transform="rotate(8 40 17.5)" />
+          <ellipse cx="52.5" cy="31" rx="5.5" ry="7.5" transform="rotate(24 52.5 31)" />
+        </svg>
+        <span class="loading-shadow" aria-hidden="true"></span>
+        <div class="loading-name">Agent Office</div>
+        <div class="loading-bar" role="progressbar" aria-label="Loading" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="loading-fill"></span></div>
+        <p class="loading-say">Loading the office</p>
+      </div>
+    </div>
     <div id="app">
       <canvas id="scene" tabindex="-1"></canvas>
       <div id="fade"></div>
+      <div id="telescope-view" class="telescope-view" aria-hidden="true">
+        <div class="telescope-glass"></div>
+        <div class="telescope-reticle" aria-hidden="true"></div>
+        <button id="telescope-exit" class="btn telescope-exit" type="button">Exit telescope <span class="key">Esc</span></button>
+      </div>
       <div id="hud">
         <div id="compass"></div>
         <header class="topbar">
@@ -43,6 +64,7 @@
         </section>
         <div id="crosshair" class="crosshair hidden"><span class="look-hint">Click to look around</span></div>
         <div id="hint" class="hint hidden"></div>
+        <div id="shot-meter" class="shot-meter hidden" aria-hidden="true"><span class="sweet"></span><span class="mark"></span></div>
         <div id="toasts"></div>
         <div id="caffeine" class="caffeine panel hidden" aria-label="Coffee buzz left">
           <span id="caffeine-cups"></span>

@@ -7,7 +7,7 @@ import type { TeamState } from '../shared/protocol.js';
 const HELPER = process.env.AGENT_OFFICE_TEAM_HELPER || '/usr/local/bin/agent-office-team';
 const TEAM_USER = 'office';
 const GITHUB_USER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
-/** deploy/aws.sh also accepts other names, for keys invited from a file. */
+/** deploy/aws.sh and deploy/azure.sh also accept other names, for keys invited from a file. */
 const MEMBER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,38}$/;
 
 interface Run {
@@ -27,13 +27,18 @@ function helper(args: string[], input = ''): Promise<Run> {
   });
 }
 
-/** Who may open the SSH tunnel to this office, for offices deployed with deploy/aws.sh. */
+/**
+ * Who may open the SSH tunnel to this office, for offices set up with deploy/provision.sh (or
+ * deploy/aws.sh). On one that's on a Tailscale network, Tailscale decides who gets in instead:
+ * the panel then says how to share the machine there.
+ */
 export class Team {
   private fingerprint?: string;
 
   constructor(
     private publicHost: string | undefined,
     private port: number,
+    private tailnet?: string,
   ) {}
 
   /** Invites work when the office knows its public address and the helper is installed. */
@@ -41,14 +46,23 @@ export class Team {
     return !!this.publicHost && existsSync(HELPER);
   }
 
-  /** user@host teammates tunnel to, when invites work. */
+  /**
+   * Where teammates tunnel to, when invites work: user@host, or ssh://user@host:port when the
+   * public address has a port of its own (Railway's TCP proxy in front of port 22, a Fly.io app's IP
+   * address, or the port a Dokploy server publishes it on).
+   */
   get ssh(): string | undefined {
-    return this.available ? `${TEAM_USER}@${this.publicHost}` : undefined;
+    if (!this.available) return undefined;
+    const [, host, port] = /^([^:]+):(\d+)$/.exec(this.publicHost!) ?? [];
+    return port && port !== '22' ? `ssh://${TEAM_USER}@${host}:${port}` : `${TEAM_USER}@${host ?? this.publicHost}`;
   }
 
   async state(): Promise<TeamState> {
-    const base = { port: this.port, members: [] };
-    if (!this.available) return { ...base, unavailable: 'Invites work on offices deployed with deploy/aws.sh (re-run `deploy/aws.sh up` on one made before invites).' };
+    const base = { port: this.port, members: [], tailnet: this.tailnet };
+    if (!this.available) {
+      if (this.tailnet) return base;
+      return { ...base, unavailable: 'Invites work on offices set up with deploy/provision.sh or deploy/aws.sh (run it again on one made before invites).' };
+    }
     this.fingerprint ??= (await helper(['fingerprint'])).out.trim() || undefined;
     const list = await helper(['list']);
     if (list.code) return { ...base, ssh: this.ssh, fingerprint: this.fingerprint, error: `Couldn't list the team: ${list.err}` };
@@ -62,7 +76,7 @@ export class Team {
 
   /** Installs the SSH keys on github.com/<user>.keys, each limited to opening the tunnel. */
   async invite(github: string): Promise<{ name: string; keys: number } | { error: string }> {
-    if (!this.available) return { error: 'Invites work on offices deployed with deploy/aws.sh' };
+    if (!this.available) return { error: 'Invites work on offices set up with deploy/provision.sh or deploy/aws.sh' };
     const user = github.trim().replace(/^@/, '');
     if (!GITHUB_USER.test(user)) return { error: `"${github}" isn't a GitHub username` };
     let text: string;
@@ -83,7 +97,7 @@ export class Team {
 
   /** Removes their keys. Open tunnels drop for everyone (they just re-run the command). */
   async remove(name: string): Promise<string | undefined> {
-    if (!this.available) return 'Invites work on offices deployed with deploy/aws.sh';
+    if (!this.available) return 'Invites work on offices set up with deploy/provision.sh or deploy/aws.sh';
     if (!MEMBER.test(name)) return `"${name}" isn't a teammate name`;
     const r = await helper(['remove', name]);
     if (r.code === 66) return `${name} isn't invited`;

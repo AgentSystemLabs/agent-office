@@ -1,0 +1,16 @@
+# Only what the image builds from (deploy/railway.sh uploads with .gitignore applied too, and
+# deploy/fly.sh hands this file to Fly's builder).
+node_modules
+dist
+.agent-office
+.git
+*.log
+# The build's `COPY . .` would take anything else in the checkout, so keep local secrets out of the
+# image: env files, Claude Code's project settings, keys, the dev password file.
+**/.env*
+**/.claude
+**/.agent-office
+**/*.pem
+**/*.key
+**/id_*
+**/pw.txt
