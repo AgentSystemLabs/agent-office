@@ -1,5 +1,5 @@
-import type { AudioCore } from './core';
-import { biquad, rand } from './dsp';
+import type { AudioCore } from '../../sound/core';
+import { biquad, rand } from '../../sound/dsp';
 
 // ---- The dog ----------------------------------------------------------------------------------
 

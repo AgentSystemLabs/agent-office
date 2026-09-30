@@ -23,7 +23,7 @@ import { carDoor, crash, honk, Motors, type Engine } from '../features/cars/soun
 import { bonk, hatch, poleLanding, rung, slide, twirl } from '../features/climbing/sound';
 import { coffee } from '../features/coffee/sound';
 import { AudioCore, type Hall, type Listener } from './core';
-import { bark, yip } from './dog';
+import { bark, yip } from '../features/dog/sound';
 import { cellDoor, thud } from './dungeon';
 import { golf, type GolfSound } from '../features/golf/sound';
 import { gong } from './gong';
