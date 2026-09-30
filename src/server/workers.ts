@@ -188,6 +188,11 @@ interface Worker {
   pendingPrompt?: string;
   /** Output since its scrollback was last saved to disk. */
   unsaved?: boolean;
+  /**
+   * When its terminal last produced output. The one sign of work every provider gives, even the
+   * ones that never report a status (see WorkerManager.activeSince).
+   */
+  outputAt?: number;
   /** Where this run's own output starts, below the scrollback carried over from before. */
   fresh?: { readonly line: number };
   /** Its lost worktree is being put back (see rebuild): the folder coming back mustn't wake it before that's done. */
@@ -351,6 +356,15 @@ export class WorkerManager {
 
   get(id: string): WorkerInfo | undefined {
     return this.workers.get(id)?.info;
+  }
+
+  /**
+   * Whether a worker has written to its terminal since `at`: work the office can see even when a
+   * provider reports no status (the meetings use it so a panel isn't cut off as "never started").
+   */
+  activeSince(id: string, at: number): boolean {
+    const w = this.workers.get(id);
+    return !!w && w.outputAt !== undefined && w.outputAt >= at;
   }
 
   /** The account a worker runs as (see RunAs), if not the office. */
@@ -1782,6 +1796,7 @@ export class WorkerManager {
         output: (data) => {
           if (w.dsh !== session) return;
           term.write(data);
+          w.outputAt = Date.now();
           w.screenDirty = true;
           w.unsaved = true;
           if (w.viewers.size) this.events.data(info.id, data, [...w.viewers.keys()]);
@@ -1918,6 +1933,7 @@ export class WorkerManager {
     w.pty = proc;
     proc.onData((data) => {
       term.write(data);
+      w.outputAt = Date.now();
       w.screenDirty = true;
       w.unsaved = true;
       if (w.viewers.size) this.events.data(info.id, data, [...w.viewers.keys()]);

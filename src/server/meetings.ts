@@ -18,6 +18,8 @@ export interface MeetingWorkers {
   /** What a meeting seats when whoever calls it doesn't pick (⚙️ Settings); the default provider without it. */
   readonly officeDefault?: AgentChoice;
   list(): WorkerInfo[];
+  /** Whether the worker has written to its terminal since `at`: it started, even if no status did. */
+  activeSince?(id: string, at: number): boolean;
   /** Seats an agent at a chair of the meeting table, for meeting `meeting`, in its worktree when it has one. */
   seat(deskId: string, by: string, prompt: string, provider: AgentProvider, model: string | undefined, effort: AgentEffort | undefined, meeting: { id: string; worktree?: Meeting['worktree'] }, owner?: string): WorkerInfo | string;
   prompt(id: string, text: string, by?: string): string | undefined;
@@ -359,6 +361,12 @@ export class MeetingRoom {
           t.state = 'done';
           return true;
         }
+        // Some providers report no status at all — OpenCode v2, for one, whose config the office's
+        // plugin can't reach — so the office never sees the worker go busy and would cut it off as
+        // "never started" while it is plainly on the job. Output since the part was handed over is
+        // the office's own sign of work: wait on it rather than remind or stop. A provider that
+        // does report a turn ending still reaches the reminder below through the status above.
+        if (t.sentAt !== undefined && this.workers.activeSince?.(w.id, t.sentAt)) return false;
         const since = this.readySince.get(t) ?? now;
         this.readySince.set(t, since);
         if (now - since < START_GRACE_MS) return false;
