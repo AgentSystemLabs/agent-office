@@ -7,7 +7,7 @@ import { scenic } from '../scenic';
 import { toon, toonUnique } from '../toon';
 import { elevator, garageLift } from '../elevator';
 import { gong } from '../gong';
-import { jukebox } from '../jukebox';
+import { jukebox } from '../../features/jukebox/world';
 import { bookshelf } from '../bookshelf';
 import { cabinet } from '../cabinet';
 import { whiteboard } from '../whiteboard';

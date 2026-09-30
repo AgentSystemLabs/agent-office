@@ -27,7 +27,7 @@ import { bark, yip } from '../features/dog/sound';
 import { cellDoor, thud } from './dungeon';
 import { golf, type GolfSound } from '../features/golf/sound';
 import { gong } from './gong';
-import { Jukebox, type JukeboxPlay } from './jukebox';
+import { Jukebox, type JukeboxPlay } from '../features/jukebox/sound';
 import type { Pos } from './places';
 import { pageTurn, paper, step, stepAt } from './steps';
 import { toss, type TossSound } from '../features/bargames/sound';
@@ -35,7 +35,7 @@ import { fidgeting, Typing } from './typing';
 import { Rain, thunder } from './weather';
 
 export type { Listener } from './core';
-export type { JukeboxPlay } from './jukebox';
+export type { JukeboxPlay } from '../features/jukebox/sound';
 
 export class OfficeSound {
   private readonly a: AudioCore = new AudioCore({ start: (ctx) => this.start(ctx), touched: () => this.music.touched() });

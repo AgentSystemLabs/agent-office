@@ -1,8 +1,8 @@
-import { JUKEBOX } from '../../shared/layout';
-import { STREAM } from '../../shared/jukebox';
-import type { AudioCore } from './core';
-import { biquad, rms } from './dsp';
-import { TunePlayer } from './music';
+import { JUKEBOX } from '../../../shared/layout';
+import { STREAM } from '../../../shared/jukebox';
+import type { AudioCore } from '../../sound/core';
+import { biquad, rms } from '../../sound/dsp';
+import { TunePlayer } from '../../sound/music';
 
 // ---- The jukebox ------------------------------------------------------------------------------
 

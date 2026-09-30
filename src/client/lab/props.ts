@@ -15,7 +15,7 @@ import { DESKS } from '../../shared/layout';
 import { buildCabinet } from '../world/cabinet';
 import { supercar } from '../features/cars/world';
 import { buildGong } from '../world/gong';
-import { buildJukebox } from '../world/jukebox';
+import { buildJukebox } from '../features/jukebox/world';
 import { buildKitchen } from '../world/kitchen';
 import { preloadModels } from '../world/models';
 import { DESK_BOOKS, FLOOR_PLANTS, buildDesk, coffeeTable, deskBooks, deskMug, loungeCouch, plant, pouf } from '../world/office';

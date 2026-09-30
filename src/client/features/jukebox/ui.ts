@@ -1,8 +1,8 @@
-import './jukebox.css';
-import { JUKEBOX_TUNES, STREAM, checkStreamUrl, trackTitle, tuneById } from '../../shared/jukebox';
-import type { Net } from '../net';
-import { store } from '../state';
-import { h, openModal, toast } from './dom';
+import './ui.css';
+import { JUKEBOX_TUNES, STREAM, checkStreamUrl, trackTitle, tuneById } from '../../../shared/jukebox';
+import type { Net } from '../../net';
+import { store } from '../../state';
+import { h, openModal, toast } from '../../ui/dom';
 
 /** The jukebox: what's on, the tunes to pick from, skip and stop, and a box for a stream. */
 export function openJukebox(net: Net, openVolume: () => void) {

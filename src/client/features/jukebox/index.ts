@@ -3,7 +3,7 @@ import type { Ctx } from '../../core/context';
 import { aside, hintTitle, key, onE } from '../../core/hint';
 import { store } from '../../state';
 import { clip } from '../../ui/dom';
-import { openJukebox } from '../../ui/jukebox';
+import { openJukebox } from './ui';
 import type { SettingsPane } from '../../ui/settings';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
