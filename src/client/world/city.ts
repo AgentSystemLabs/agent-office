@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { FLOOR, SLAB, STREET_Y, WALL_T, roofDrop } from '../../shared/layout';
 import { mulberry32 } from '../../shared/rng';
 import type { NightParts } from './outside';
+import { tilingCanvasTexture } from './texture';
 import { mergeByMaterial, mesh, toon } from './toon';
 import { buildTower } from './tower';
 
@@ -43,18 +44,6 @@ export interface City {
   update(t: number, dt: number, night: number): void;
 }
 
-function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  draw(c.getContext('2d')!);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 8;
-  return t;
-}
-
 /** How a building's walls look: its paint, and the windows in it (glass towers are nearly all window). */
 interface Paint {
   wall: string;
@@ -81,7 +70,7 @@ const GLASS_TOWERS = [7, 8];
 /** One bay of one storey: the wall with a window in it. */
 function bayTexture(p: Paint): THREE.CanvasTexture {
   const S = 64;
-  return canvasTexture(S, S, (g) => {
+  return tilingCanvasTexture(S, S, (g) => {
     g.fillStyle = p.wall;
     g.fillRect(0, 0, S, S);
     const w = S * p.wide;
@@ -103,7 +92,7 @@ function litTexture(p: Paint, seed: number): THREE.CanvasTexture {
   const N = 16;
   const C = 16;
   const r = mulberry32(seed);
-  return canvasTexture(N * C, N * C, (g) => {
+  return tilingCanvasTexture(N * C, N * C, (g) => {
     g.fillStyle = '#000000';
     g.fillRect(0, 0, N * C, N * C);
     for (let j = 0; j < N; j++) {
@@ -173,7 +162,7 @@ class Walls {
 function groundTexture(): THREE.CanvasTexture {
   const S = 512;
   const px = S / PERIOD;
-  return canvasTexture(S, S, (g) => {
+  return tilingCanvasTexture(S, S, (g) => {
     g.fillStyle = '#b3aea4';
     g.fillRect(0, 0, S, S);
     const mid = S / 2;
@@ -213,7 +202,7 @@ function tree(r: () => number): THREE.Group {
 
 /** Soft round blob, for lamps seen from far off. */
 function glowTexture(): THREE.CanvasTexture {
-  return canvasTexture(64, 64, (g) => {
+  return tilingCanvasTexture(64, 64, (g) => {
     const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
     grad.addColorStop(0, 'rgba(255,255,255,1)');
     grad.addColorStop(0.25, 'rgba(255,255,255,0.7)');

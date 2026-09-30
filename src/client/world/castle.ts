@@ -10,6 +10,7 @@ import { buildDungeon, holedPlane, type DungeonView } from './dungeon';
 import { glowTexture } from './costumes';
 import { buildGong, type Gong } from './gong';
 import { vacancyMarker, type Collider, type DeskView, type Interactable } from './office';
+import { canvasTexture } from './texture';
 import { mergeByMaterial, mesh, roundedBox, textPlane, toon, toonUnique } from './toon';
 import type { World } from './world';
 
@@ -28,21 +29,6 @@ const BENCH_TOP = 0.45;
 const DOORWAY = { width: 5, height: 6.6 } as const;
 
 // ---- Textures -------------------------------------------------------------------------------------
-
-function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void, repeat?: [number, number]): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  draw(c.getContext('2d')!);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
-  if (repeat) {
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.repeat.set(...repeat);
-  }
-  return t;
-}
 
 /** A little randomness that's the same every time, so every browser sees the same stones. */
 function seeded(seed: number): () => number {

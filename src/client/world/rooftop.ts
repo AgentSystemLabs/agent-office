@@ -8,6 +8,7 @@ import { buildCity, type City } from './city';
 import { buildElevator, type Elevator } from './elevator';
 import type { Collider, Interactable } from './office';
 import { bulb, type NightParts } from './outside';
+import { canvasTexture } from './texture';
 import { mergeByMaterial, mesh, roundedBox, toon, toonUnique } from './toon';
 
 // The rooftop bar, on top of the building (see shared/rooftop.ts): a deck with a glass railing round
@@ -72,17 +73,6 @@ function fitFont(g: CanvasRenderingContext2D, text: string, px: number, width: n
 /** A color round the wheel (0–1) at full saturation, as an sRGB color. */
 function hue(c: THREE.Color, h: number, l = 0.55): THREE.Color {
   return c.setHSL(((h % 1) + 1) % 1, 1, l, THREE.SRGBColorSpace);
-}
-
-function canvasTexture(w: number, h: number, draw?: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  draw?.(c.getContext('2d')!);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
-  return t;
 }
 
 /** Teak decking, the boards running east–west. */

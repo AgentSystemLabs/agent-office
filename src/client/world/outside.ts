@@ -3,6 +3,7 @@ import { ELEVATOR, ELEVATOR_FRONT, FLOOR, ROAD, SLAB, STREET_Y, WALL_T } from '.
 import { LOT, SIDE_LOT } from '../../shared/garage';
 import { STREET_END, shoreX } from '../../shared/scenic';
 import type { Collider } from './office';
+import { canvasTexture } from './texture';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
 
 const G = STREET_Y;
@@ -52,17 +53,6 @@ export function bulb(night: NightParts, color: string, day = 0): THREE.MeshToonM
 }
 
 const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
-
-function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  draw(c.getContext('2d')!);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
-  return t;
-}
 
 /** A flat, textured toon plane lying on the ground. */
 function groundPlane(w: number, d: number, x: number, y: number, z: number, map: THREE.Texture | null, color = '#ffffff'): THREE.Mesh {

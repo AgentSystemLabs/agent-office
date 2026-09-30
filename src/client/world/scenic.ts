@@ -25,6 +25,7 @@ import {
 import type { Collider } from './office';
 import { bulb, neighbourBoxes, roadTexture, type NightParts } from './outside';
 import { hazeReach } from './sky';
+import { tilingCanvasTexture } from './texture';
 import { mergeByColor, mesh, textPlane, toon } from './toon';
 
 // The scenic loop (see shared/scenic.ts), down on the street: the country road itself, and what you
@@ -36,18 +37,6 @@ import { mergeByColor, mesh, textPlane, toon } from './toon';
 
 const G = STREET_Y;
 const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
-
-function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  draw(c.getContext('2d')!);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 8;
-  return t;
-}
 
 /**
  * For something lying flat on the ground: drawn over whatever's under it (the higher `over`, the more
@@ -399,7 +388,7 @@ export function buildScenic(group: THREE.Group, colliders: Collider[], night: Ni
   root.add(flatMesh(strip(verge, -LOOP_HALF - 1.2, LOOP_HALF + 1.2, G - 0.012, () => 0), flat('#b5a98f', 3)));
 
   // The start line across the street, right in front of the office: where a lap starts and ends.
-  const checks = canvasTexture(64, 256, (g) => {
+  const checks = tilingCanvasTexture(64, 256, (g) => {
     for (let r = 0; r < 16; r++) {
       for (let c = 0; c < 4; c++) {
         g.fillStyle = (r + c) % 2 ? '#1d1d24' : '#f8f8f2';
@@ -496,7 +485,7 @@ export function buildScenic(group: THREE.Group, colliders: Collider[], night: Ni
     const f = parts.farm;
     // Fields of crops in rows, and a fence round the pasture.
     const rows = (a: string, b: string) =>
-      canvasTexture(64, 64, (g) => {
+      tilingCanvasTexture(64, 64, (g) => {
         g.fillStyle = a;
         g.fillRect(0, 0, 64, 64);
         g.fillStyle = b;
@@ -645,7 +634,7 @@ export function buildScenic(group: THREE.Group, colliders: Collider[], night: Ni
 
   // ---- Water: the creek, the lake and the sea ----------------------------------------------------------
   const ripples = (base: string, light: string) =>
-    canvasTexture(128, 128, (g) => {
+    tilingCanvasTexture(128, 128, (g) => {
       g.fillStyle = base;
       g.fillRect(0, 0, 128, 128);
       g.strokeStyle = light;
@@ -1088,7 +1077,7 @@ export function buildScenic(group: THREE.Group, colliders: Collider[], night: Ni
     night.halos.push({ at: new THREE.Vector3(L.x, base + H + 1.3, L.z), size: 9, color: '#fff3b0', ground: true });
     colliders.push({ minX: L.x - 3.8, maxX: L.x + 3.8, minZ: L.z - 3.8, maxZ: L.z + 3.8, bottom: G - 1, top: G + 30 });
     // Two long cones of light, going round, brightest at the lamp and fading out along their length.
-    const fade = canvasTexture(4, 64, (g) => {
+    const fade = tilingCanvasTexture(4, 64, (g) => {
       const grad = g.createLinearGradient(0, 0, 0, 64);
       grad.addColorStop(0, 'rgba(255,255,255,1)');
       grad.addColorStop(0.35, 'rgba(255,255,255,0.45)');

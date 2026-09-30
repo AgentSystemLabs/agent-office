@@ -3,6 +3,7 @@ import { AXE_LANE, AXE_TARGET, DART, DARTBOARD, DART_NUMBERS, targetFrame, throw
 import { FLOOR } from '../../shared/layout';
 import type { Collider, Interactable } from './office';
 import { bulb, type NightParts } from './outside';
+import { canvasTexture } from './texture';
 import { disposeSprite, mergeByMaterial, mesh, textPlane, textSprite, toon } from './toon';
 
 // The rooftop bar's games corner (see shared/bargames.ts): an axe-throwing booth against the north
@@ -25,17 +26,6 @@ const WOOD = '#6b4428';
 const WOOD_LIGHT = '#8a5a34';
 const INK = '#2b2d42';
 const CHALK = '#f1f1ea';
-
-function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  draw(c.getContext('2d')!);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
-  return t;
-}
 
 /** A toon material with a picture on it, banded like everything else. */
 function toonMap(map: THREE.Texture): THREE.MeshToonMaterial {
