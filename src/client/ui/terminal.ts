@@ -4,7 +4,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { Net } from '../net';
 import { store } from '../state';
 import { TERM_THEME } from './termtheme';
-import { h, openModal, STATUS_LABEL, timeAgo, toast, type Modal } from './dom';
+import { clip, h, openModal, STATUS_LABEL, timeAgo, toast, type Modal } from './dom';
 import { usageLabel, usageTitle } from './usage';
 import type { ServerMsg, WorkerInfo } from '../../shared/protocol';
 import { isAsleep } from '../../shared/status';
@@ -86,6 +86,15 @@ const KEYPAD: { label: string; title: string; keys: string | ((term: Terminal) =
 let current: { workerId: string; modal: Modal; find(f: TerminalFind): void } | null = null;
 const listeners = new Set<(msg: ServerMsg) => void>();
 
+/** A web page pinned open beside a worker's terminal (a linked chat, docs, anything with a URL). */
+interface WebTab {
+  id: string;
+  title: string;
+  url: string;
+}
+/** Web tabs survive closing and reopening a worker's terminal within the same session. */
+const webTabsByWorker = new Map<string, WebTab[]>();
+
 /** Main feeds every server message through here so open terminals can pick theirs. */
 export function routeTerminalMessage(msg: ServerMsg) {
   listeners.forEach((fn) => fn(msg));
@@ -130,8 +139,103 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   const sayBtn = h('button.btn.primary', { type: 'submit' }, 'Send');
   const sayForm = h('form.term-say', {}, say, sayBtn);
   const keypad = opts.keypad ? h('div.term-keypad', {}, keys, sayForm) : null;
+
+  // Tabs: the terminal itself, plus any web pages pinned open beside it (a linked chat, say).
+  const tabsBar = h('div.term-tabs', { role: 'tablist', 'aria-label': 'Tabs' });
+  const tabName = h('input', { type: 'text', placeholder: 'Tab name (e.g. ChatGPT)', 'aria-label': 'Tab name', maxlength: '40', autocomplete: 'off' }) as HTMLInputElement;
+  const tabUrl = h('input', { type: 'url', placeholder: 'https://…', 'aria-label': 'Web page address', autocomplete: 'off' }) as HTMLInputElement;
+  const tabCancelBtn = h('button.btn', { type: 'button' }, 'Cancel');
+  const tabForm = h('form.term-tab-form.hidden', {}, tabName, tabUrl, h('button.btn.primary', { type: 'submit' }, 'Add'), tabCancelBtn);
+  const addTabBtn = h('button.term-tab-add', { type: 'button', title: 'Pin a web page open beside this terminal (a linked chat, docs, anything with an address)' }, '+ Web page');
+  const tabsRow = h('div.term-tabbar', {}, tabsBar, addTabBtn, tabForm);
+  const webHost = h('div.term-webhost.hidden');
+
+  const webTabs = webTabsByWorker.get(workerId) ?? [];
+  webTabsByWorker.set(workerId, webTabs);
+  const iframes = new Map<string, HTMLIFrameElement>();
+  let activeTab: 'main' | string = 'main';
+
+  const renderTabs = () => {
+    const mainTab = h('div.term-tab', { class: activeTab === 'main' ? 'on' : '' }, h('button.term-tab-label', { type: 'button', role: 'tab', 'aria-selected': String(activeTab === 'main'), onclick: () => showTab('main') }, '💻 Terminal'));
+    tabsBar.replaceChildren(
+      mainTab,
+      ...webTabs.map((t) =>
+        h(
+          'div.term-tab',
+          { class: activeTab === t.id ? 'on' : '' },
+          h('button.term-tab-label', { type: 'button', role: 'tab', 'aria-selected': String(activeTab === t.id), title: t.url, onclick: () => showTab(t.id) }, `🌐 ${clip(t.title, 18)}`),
+          h(
+            'button.term-tab-close',
+            {
+              type: 'button',
+              'aria-label': `Close ${t.title} tab`,
+              onclick: (e: Event) => {
+                e.stopPropagation();
+                closeWebTab(t.id);
+              },
+            },
+            '×',
+          ),
+        ),
+      ),
+    );
+  };
+  const showTab = (id: 'main' | string) => {
+    activeTab = id;
+    const onMain = id === 'main';
+    host.classList.toggle('hidden', !onMain);
+    webHost.classList.toggle('hidden', onMain);
+    keypad?.classList.toggle('hidden', !onMain);
+    for (const [tid, frame] of iframes) frame.classList.toggle('hidden', tid !== id);
+    renderTabs();
+    if (onMain) term.focus();
+  };
+  const closeWebTab = (id: string) => {
+    const i = webTabs.findIndex((t) => t.id === id);
+    if (i < 0) return;
+    webTabs.splice(i, 1);
+    iframes.get(id)?.remove();
+    iframes.delete(id);
+    if (activeTab === id) showTab('main');
+    else renderTabs();
+  };
+  for (const t of webTabs) {
+    const frame = h('iframe.term-webframe.hidden', { src: t.url, title: t.title, loading: 'lazy', referrerpolicy: 'no-referrer' }) as HTMLIFrameElement;
+    iframes.set(t.id, frame);
+    webHost.append(frame);
+  }
+  renderTabs();
+  addTabBtn.addEventListener('click', () => {
+    tabForm.classList.remove('hidden');
+    tabName.focus();
+  });
+  const closeTabForm = () => {
+    tabForm.classList.add('hidden');
+    tabName.value = '';
+    tabUrl.value = '';
+  };
+  tabCancelBtn.addEventListener('click', closeTabForm);
+  tabForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    let parsed: URL;
+    try {
+      parsed = new URL(tabUrl.value.trim());
+    } catch {
+      toast('That doesn’t look like a web address', 'warn');
+      return;
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return toast('Only http:// and https:// addresses can open in a tab', 'warn');
+    const tab: WebTab = { id: `web-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, title: tabName.value.trim() || parsed.hostname.replace(/^www\./, ''), url: parsed.toString() };
+    webTabs.push(tab);
+    const frame = h('iframe.term-webframe.hidden', { src: tab.url, title: tab.title, loading: 'lazy', referrerpolicy: 'no-referrer' }) as HTMLIFrameElement;
+    iframes.set(tab.id, frame);
+    webHost.append(frame);
+    closeTabForm();
+    showTab(tab.id);
+  });
+
   // The keypad has an Esc of its own.
-  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, keypad ? null : escBtn, onChanges ? changesBtn : null, closeBtn), host, keypad);
+  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, keypad ? null : escBtn, onChanges ? changesBtn : null, closeBtn), tabsRow, host, webHost, keypad);
 
   const term = new Terminal({
     fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
