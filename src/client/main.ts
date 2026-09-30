@@ -41,7 +41,6 @@ import { HAZE_MAX, Sky, describeSky } from './world/sky';
 import { Laptop } from './world/laptop';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import { Gallery } from './world/gallery';
-import { Dog } from './world/dog';
 import { Holiday } from './world/holiday';
 import { Arrivals, Departures } from './world/leaving';
 import { Jail } from './world/jail';
@@ -79,17 +78,12 @@ import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 import { GARAGE, elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
 import { toggleFloorMenu } from './ui/floormenu';
 import { providerLabel, officeChoice, resolvedProvider, modelBadge } from './ui/provider';
-import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
+import { openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
 import { renderLimits } from './ui/limits';
 import { MachineTexture } from './world/machine';
 import { officeFull, pressureNote } from '../shared/machine';
 import { mountHud } from './ui/menu';
-import { openJukebox } from './ui/jukebox';
 import { openBookshelf } from './ui/bookshelf';
-import { Arcade } from './ui/arcade';
-import { Cabinet } from './ui/cabinet';
-import { trackTitle } from '../shared/jukebox';
-import { GAME, scoreText } from '../shared/cabinet';
 import { EMOTES, EMOTE_BY_ID, EmoteBucket, type EmoteId } from '../shared/emotes';
 import { EmoteWheel } from './ui/emotes';
 import { whereabouts } from './ui/whereabouts';
@@ -97,7 +91,6 @@ import { wayTo } from './walkto';
 import { DESK_KEYS, interactionAvailable, type DeskKey } from './interaction';
 import { MeetingBoardTexture, MeetingSignTexture } from './world/meeting';
 import { issueMeeting, openMeeting, type MeetingPreset } from './ui/meeting';
-import { TelescopeView } from './telescope';
 import { onModelsProgress, preloadModels } from './world/models';
 import { loadingScreen } from './ui/loading';
 import { SlowFrames } from './framerate';
@@ -108,6 +101,12 @@ import type { Ctx, Hint, OfficeInteraction, StopWhy, Trip, TripKind } from './co
 import { builtFloors, floorWings } from './core/floors';
 import { aside, boardHint, hintTitle, key, onE } from './core/hint';
 import { noOutline } from './core/outline';
+import { installArcade } from './features/arcade';
+import { installCabinet } from './features/cabinet';
+import { installDog } from './features/dog';
+import { installJukebox } from './features/jukebox';
+import { installTelescope } from './features/telescope';
+import { installWhiteboard } from './features/whiteboard';
 
 // The loading screen stays up until there's an office to see (see boot and whoami at the end).
 const loading = loadingScreen(onModelsProgress);
@@ -208,25 +207,6 @@ const ctx: Ctx = {
   interactions: new Interactions<OfficeInteraction>(),
   view: new View<Grip>(),
 };
-
-// ---- The office's own parts of the key chain (see Keys, and the keydown listener under Input) --------
-// Registered before anything else's, so within a stage they come first.
-// Looking through the telescope, Esc, E or F takes you away from it, and no key does anything else.
-ctx.keys.add('guard', (e) => {
-  if (!telescope.active) return false;
-  if (e.code === 'Escape' || e.code === 'KeyE' || e.code === 'KeyF') telescope.exit();
-  e.preventDefault();
-  return true;
-});
-// A window's open or you're typing somewhere, or it's a shortcut: the key isn't the office's.
-ctx.keys.add('guard', (e) => modalOpen() || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey);
-// Closing the last window didn't give you the mouse back: any key but Esc takes it (see backToGame).
-ctx.keys.add('guard', (e) => {
-  if (relookOnKey && e.key !== 'Escape' && player.canLock) player.lock();
-  return false;
-});
-// Whatever you're in the middle of has first go (see each activity's key).
-ctx.keys.add('activity', (e) => ctx.activities.key(e));
 
 // ---- The office's own parts of each frame (see Ticks, and the Main loop at the end) -------------------
 // Registered before anything else's, so within a phase they come first.
@@ -430,16 +410,7 @@ const gallery = new Gallery();
 office.group.add(gallery.group);
 store.on('decor', () => gallery.sync(store.decor));
 
-// The whiteboard shows what everyone's drawn on it.
-mirrorWhiteboard(office.whiteboard.show, office.whiteboard.fit.width, office.whiteboard.fit.height);
-ctx.interactions.define('whiteboard', {
-  reach: 7,
-  hint: () => {
-    const names = store.drawing.flatMap((id) => (id === store.you ? [] : (store.peers.get(id)?.name ?? []))).join(', ');
-    return { k: names, parts: [hintTitle('📝 Whiteboard'), aside(names ? `✏️ ${clip(names, 40)} drawing` : 'draw together, live'), key('E', names ? 'Join in' : 'Draw')] };
-  },
-  use: onE(() => openWhiteboard(net)),
-});
+installWhiteboard(ctx);
 
 // Confetti for merges, landing on whatever it falls on
 // Onto whatever you're walking on: the office's floor and furniture, or the roof's.
@@ -485,9 +456,7 @@ ctx.interactions.define('tv', {
   },
   use: onE(() => watchShare()),
 });
-// The boss's monitor upstairs: Minesweeper, from the boss's chair.
-const arcade = new Arcade(office.bossScreen);
-ctx.ticks.add('play', ({ dt }) => arcade.update(camera, dt));
+const arcade = installArcade(ctx);
 
 // ---- The rooftop bar ------------------------------------------------------------------------------
 /** Up on the roof: built the first time anyone goes up there. */
@@ -549,35 +518,21 @@ const driver = new Driver(player, office.cars, {
     ctx.shake(Math.min(0.8, speed / 15));
   },
 });
-const telescope = new TelescopeView(
-  camera,
-  $('telescope-view'),
-  $('telescope-exit'),
-  window,
-  () => {
-    player.enabled = false;
-    player.clearKeys();
-    player.stopWalking();
-    player.yieldMouse();
-    document.body.classList.add('telescope-active');
-    $('telescope-view').setAttribute('aria-hidden', 'false');
-    target = null;
-    ctx.hint.invalidate();
-  },
-  () => {
-    document.body.classList.remove('telescope-active');
-    $('telescope-view').setAttribute('aria-hidden', 'true');
-    player.enabled = !modalOpen() && !trip;
-    player.clearKeys();
-    ctx.hint.invalidate();
-    if (!modalOpen()) setTimeout(backToGame, 0);
-  },
-);
-ctx.interactions.define('telescope', {
-  reach: 3.5,
-  hint: () => ({ k: '', parts: [hintTitle('🔭 Office telescope'), aside('overlooks the worker floor'), key('E', 'Look through')] }),
-  use: onE(() => telescope.enter()),
+const telescope = installTelescope(ctx, { clearTarget: () => void (target = null), backToGame });
+
+// ---- The office's own parts of the key chain (see Keys, and the keydown listener under Input) --------
+// Right after the telescope's guard (looking through it, no key does anything else) and before
+// anything else's, so within a stage they come first.
+// A window's open or you're typing somewhere, or it's a shortcut: the key isn't the office's.
+ctx.keys.add('guard', (e) => modalOpen() || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey);
+// Closing the last window didn't give you the mouse back: any key but Esc takes it (see backToGame).
+ctx.keys.add('guard', (e) => {
+  if (relookOnKey && e.key !== 'Escape' && player.canLock) player.lock();
+  return false;
 });
+// Whatever you're in the middle of has first go (see each activity's key).
+ctx.keys.add('activity', (e) => ctx.activities.key(e));
+
 // Everyone arrives by elevator (the welcome says exactly where).
 placeInCar();
 player.view = settings.view;
@@ -598,68 +553,11 @@ me.onSmoke = (kind, at, dir) => {
 };
 const sound = new OfficeSound();
 sound.setVolume(settings.volume, settings.muted);
-// The floor's dog. It goes quiet once someone has the terminal of the worker it's barking at open.
-const dog = new Dog(sound, (id) => (store.workers.get(id)?.viewers.length ?? 0) > 0);
-scene.add(dog.root);
-noOutline(dog.root);
-store.on('dog', () => {
-  dog.sync(store.dog, store.dogStart);
-  // The dog lives in the office: on a map of its own it stays home.
-  if (!inOffice()) dog.root.visible = false;
-});
-ctx.ticks.add('others', ({ dt }) => {
-  // The dog is the office's: on a map of its own it stays at home, quiet.
-  if (inOffice()) dog.update(dt);
-});
-ctx.interactions.define('dog', {
-  reach: 3.2,
-  hint: () => {
-    const doing = dog.doing(
-      (id) => store.workers.get(id)?.name,
-      (id) => (id === store.you ? 'you' : store.peers.get(id)?.name),
-    );
-    return { k: `${dog.name}|${doing}`, parts: [hintTitle(`🐶 ${dog.name}`), doing ? aside(doing) : '', key('E', 'Pet')] };
-  },
-  use: onE(() => net.send({ t: 'dog.pet' })),
-});
+const dog = installDog(ctx);
 sound.setMusicVolume(settings.music, settings.musicMuted);
 sound.onMusicError = (text) => toast(text, 'warn');
-// The jukebox on your floor: everyone there hears it from the same bar, and its lights say what's on.
-// It's the office's: on a map of its own there's none to hear.
-function playJukebox() {
-  const j = store.jukebox;
-  sound.setJukebox(j.on && inOffice() ? { track: j.track, url: j.url, startedAt: j.startedAt, since: j.since } : null);
-  office.jukebox.show(j.on, trackTitle(j));
-}
-store.on('jukebox', playJukebox);
-ctx.interactions.define('jukebox', {
-  reach: 4,
-  hint: () => {
-    const j = store.jukebox;
-    const what = j.on ? trackTitle(j) : '';
-    return { k: `${j.on}|${what}`, parts: [hintTitle('🎵 Jukebox'), aside(j.on ? `♪ ${clip(what, 40)}` : 'off'), key('E', j.on ? 'Change the song' : 'Put on a song')] };
-  },
-  use: onE(() => showJukebox()),
-});
-// The arcade cabinet next to it: BLOCKFALL up close, and on its screen for everyone else on the floor.
-const cabinet = new Cabinet(office.cabinet.screen, net, { openTerminal: (id) => openWorkerTerminal(id), sound: (kind, lines) => sound.arcade(kind, lines) });
-ctx.ticks.add('play', ({ dt }) => cabinet.update(camera, dt));
-ctx.interactions.define('cabinet', {
-  reach: 4,
-  hint: () => {
-    const c = store.cabinet;
-    const f = store.cabinetFrame;
-    if (c.player && c.player.id !== store.you) {
-      const who = c.player.name;
-      return { k: `${who}|${f?.score}`, parts: [hintTitle('🕹️ Arcade'), aside(`▶ ${clip(who, 24)} is playing${f ? ` · ${scoreText(f.score)}` : ''}`), key('E', 'Watch')] };
-    }
-    const left = cabinet.leftAt;
-    const best = c.scores[0];
-    const about = left !== null ? `your game's paused at ${scoreText(left)}` : best ? `🏆 ${clip(best.name, 24)} · ${scoreText(best.score)}` : 'no high score yet';
-    return { k: `${left}|${best?.name}|${best?.score}`, parts: [hintTitle(`🕹️ ${GAME}`), aside(about), key('E', left !== null ? 'Carry on' : 'Play')] };
-  },
-  use: onE(() => cabinet.play()),
-});
+const jukebox = installJukebox(ctx, { showSettings });
+const cabinet = installCabinet(ctx, { openTerminal: openWorkerTerminal });
 const notifier = new DesktopNotifier(() => settings.notify, (id) => openWorkerTerminal(id));
 
 // ---- Golf off the balcony --------------------------------------------------------------------------
@@ -2088,7 +1986,7 @@ function applyMap() {
   // The office's own: the holiday decorations round it and the street, the dog, the jukebox.
   holiday.group.visible = inOffice() && !upTop;
   dog.root.visible = inOffice() && !!store.dog;
-  playJukebox();
+  jukebox.playJukebox();
   dressBoards(world);
   painted = -1;
   paintFloor();
@@ -3460,10 +3358,6 @@ ctx.interactions.define('meeting', {
   },
   use: onE(() => showMeeting()),
 });
-
-function showJukebox() {
-  openJukebox(net, () => showSettings('sound'));
-}
 
 /** The project on GitHub, from the floor's origin remote, when that's where it is. */
 function githubUrl(remote?: string): string | undefined {
@@ -5138,7 +5032,7 @@ function moveMe({ dt, t }: Frame) {
     camera.fov += (fov - camera.fov) * Math.min(1, dt * 8);
     camera.updateProjectionMatrix();
   }
-  telescope.update();
+  ctx.view.update();
   whoosh.style.opacity = rush > 0.02 ? String(rush * 0.85) : '0';
 }
 
@@ -5212,8 +5106,8 @@ function drawFrame({ t }: Frame) {
   else if (drunkVisionOn) drunkVision.release();
   drunkVisionOn = blurry;
   effect.render(scene, camera);
-  // Not while the camera's up at the boss's monitor or the arcade, where they'd cover the screen.
-  if (firstPerson && !telescope.active && !arcade.zoomed && !cabinet.zoomed && !ctx.activities.any('hidesHands')) {
+  // Not while something has the screen to itself (the telescope, the boss's monitor or the arcade up close), where they'd cover it.
+  if (firstPerson && !ctx.view.covered() && !ctx.activities.any('hidesHands')) {
     // Hands go on top of everything, so they never clip into a desk you walk up to. They have
     // lights of their own, turned down to match wherever you're standing.
     renderer.clearDepth();
