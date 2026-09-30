@@ -668,6 +668,7 @@ export async function startServer(cfg: Config) {
       for (const f of floors.values()) if (f !== floor && worksIn(f, floor)) f.sendLandedHome();
     },
     lent: (floor) => [...floors.values()].some((f) => f !== floor && worksIn(f, floor)),
+    locksUp: () => !!maps.plan().sendHome?.keeps,
     runAs: signins,
     ghAs: (owner) => (owner ? signins.ghAs(owner) : undefined),
   };
@@ -752,6 +753,7 @@ export async function startServer(cfg: Config) {
     dog: floor?.dog.view() ?? null,
     ball: floor?.court.state() ?? {},
     cars: floor?.garage.state() ?? [],
+    jail: floor?.jail.state() ?? { prisoners: [], bones: 0 },
     jukebox: floor?.jukebox.state() ?? { on: false, track: JUKEBOX_TUNES[0].id, startedAt: Date.now(), elapsed: 0 },
     whiteboard: { elements: floor?.whiteboard.scene() ?? [], people: floor ? drawing(floor) : [] },
     meeting: floor?.meetings.state() ?? { current: null, past: [] },

@@ -741,6 +741,26 @@ export interface RepoChoice {
 }
 
 /** Everything that belongs to the floor you're on: sent when you walk in, and when you change floors. */
+/**
+ * A worker sent home on a map that locks them up (see MapPlan.sendHome): who it was, and when it was
+ * locked up, which is how far it has wasted away since.
+ */
+export interface Prisoner {
+  id: string;
+  name: string;
+  color: string;
+  /** When it was locked up (ms). */
+  at: number;
+  /** How long it had worked, for how worn out it looks (see MapConfig.agents.ageMinutes). */
+  workedMs?: number;
+}
+
+/** A floor's dungeon: everyone locked up in it, first to last, and how many from before them are only bones on the heap now. */
+export interface JailState {
+  prisoners: Prisoner[];
+  bones: number;
+}
+
 export interface FloorView {
   /** The floor you're on; null while the building has none. */
   floor: string | null;
@@ -768,6 +788,8 @@ export interface FloorView {
   ball: BallState;
   /** The cars in the garage (see CARS in shared/garage.ts): where each one is, and who's in it. */
   cars: CarState[];
+  /** Workers sent home and locked up in the dungeon, on a map that has one. */
+  jail: JailState;
 }
 
 export type AccountRole = 'admin' | 'member';
@@ -1329,7 +1351,8 @@ export type ServerMsg =
   | { t: 'toss'; id: string; game: BarGame; u: number; v: number; stick: boolean; n: number }
   | { t: 'peer.emote'; id: string; emote: EmoteId }
   | { t: 'worker.update'; worker: WorkerInfo }
-  | { t: 'worker.remove'; workerId: string }
+  /** A worker's gone; `jail`, when it was sent home on a map that locks workers up (MapPlan.sendHome), with it in there now. */
+  | { t: 'worker.remove'; workerId: string; jail?: JailState }
   | { t: 'worker.worktree'; workerId: string; state: WorktreeState }
   | { t: 'screen'; workerId: string; cols: number; rows: number; lines: Record<number, Run[]>; full: boolean; cursor: [number, number] }
   | { t: 'term.snapshot'; workerId: string; data: string; cols: number; rows: number }

@@ -196,7 +196,8 @@ interface Worker {
 
 export interface WorkerEvents {
   update(info: WorkerInfo): void;
-  remove(workerId: string): void;
+  /** It's gone (sent home), and what it was as it went. */
+  remove(workerId: string, info?: WorkerInfo): void;
   data(workerId: string, data: string, viewers: string[]): void;
   screen(workerId: string, frame: { cols: number; rows: number; lines: Record<number, Run[]>; full: boolean; cursor: [number, number] }): void;
   toast(text: string, level: 'info' | 'warn' | 'error'): void;
@@ -613,7 +614,7 @@ export class WorkerManager {
     w.term?.dispose();
     this.scrollback.remove(id);
     this.drops.remove(id);
-    this.events.remove(id);
+    this.events.remove(id, w.info);
     this.persist();
     // A meeting's worktree is everyone at the table's: the meeting tidies it away once they've all gone.
     if (!w.info.worktree || w.info.meeting) return {};
