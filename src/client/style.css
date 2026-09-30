@@ -229,9 +229,19 @@ body.telescope-active #hud { visibility: hidden; }
   position: absolute; left: 0; top: 0; width: 1280px; height: 720px;
   transform-origin: 0 0; overflow: hidden; background: #0c0d15;
   /* The picture is hidden behind anything in front of the TV: a small canvas of what's in the way,
-     stretched over the frame (see TvScreen.occlude). 100% 100% keeps it on the frame's own corners. */
+     stretched over the frame (see TvScreen.occlude). 100% 100% keeps it on the frame's own corners.
+     The drunk filter goes on this same element, so the two compose: a masked cell is still masked,
+     and the filter's own spill is clipped by the `overflow: hidden` above, not over the bezel. */
   mask-size: 100% 100%; mask-repeat: no-repeat;
   -webkit-mask-size: 100% 100%; -webkit-mask-repeat: no-repeat;
+}
+/* The drinks reach the picture on the screen as well as the room: drunkframe.ts hangs an SVG
+   filter on the frame, the same effect world/drunk.ts puts on the canvas, and darkens the corners
+   the way the shader darkens the world's. A pseudo-element, so it lies over the picture and isn't
+   caught by the `> *` rule below. */
+#stream-layer .tv-frame::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: var(--drunk, 0);
+  background: radial-gradient(ellipse at center, transparent 20%, rgba(5,5,13,.55) 62%, rgba(5,5,13,1) 100%);
 }
 #stream-layer .tv-frame > * { display: block; width: 100%; height: 100%; border: 0; background: #000; }
 #stream-layer .tv-frame > video { object-fit: contain; }

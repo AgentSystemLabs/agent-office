@@ -5310,6 +5310,8 @@ if (faint.down || modalOpen() || telescope.active || hanger.active || mover.acti
   effect.render(scene, camera);
   pointToWaiting(now);
   // The TV's picture, projected onto its rectangle from this frame's camera (see tvscreen.ts).
+  // A few drinks in it goes with the rest of the office, on the same clock as the shader (see drunkframe.ts).
+  tvScreen.setDrunk(drunk, t, !reduceMotion.matches);
   tvScreen.update(camera, inOffice() && !upTop && !telescope.active, player.colliders, {
     x: player.pos.x,
     y: player.pos.y + EYE_HEIGHT,

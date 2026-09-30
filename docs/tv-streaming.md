@@ -10,6 +10,7 @@ same moment, controlled from the TV itself.
 - [What plays](#what-plays)
 - [Everyone stays in step](#everyone-stays-in-step)
 - [Why the picture is HTML, not a texture](#why-the-picture-is-html-not-a-texture)
+- [The drinks reach the picture too](#the-drinks-reach-the-picture-too)
 - [The state, and where it lives](#the-state-and-where-it-lives)
 - [What each file does](#what-each-file-does)
 - [Controls](#controls)
@@ -96,6 +97,42 @@ The alternative — CSS3DRenderer — was rejected: it wants scene units to be C
 measures in metres, and it draws over geometry regardless of depth. A single projected quad needs
 neither.
 
+## The drinks reach the picture too
+
+A few drinks from the [rooftop bar](features.md#the-rooftop-bar) put the world through a shader that
+doubles it, smears it, ripples it and darkens its edges (see `src/client/world/drunk.ts`). The TV's
+picture used to stay crisp through all of that, which gave the game away. It now goes with the rest
+of the office, and it has to be done a different way: the picture isn't on the canvas, so there's no
+shader to put it through.
+
+`src/client/drunkframe.ts` rebuilds the same effect as an **SVG filter** on the frame. `filter: url(#…)`
+only asks the browser to run a filter over what an element has already painted, so it needs no
+pixels of its own and reaches into a cross-origin `<iframe>` — the very thing that put the picture
+out of WebGL's reach in the first place. It also runs on the compositor, so the office's frame loop
+never waits for it.
+
+The chain is the shader's, step for step: a turbulence field and a displacement map for the ripple
+(`feTurbulence`, `feDisplacementMap`), a blur for the smear, an offset copy blended back in for the
+doubling — faded to an alpha rather than washed over, so it comes out as a `mix` and not a flat
+veil — red and blue offset against each other for the colour bleed, and one colour matrix for the
+saturation and the warm tint. The darkened corners are a `::after` gradient on the frame, because
+the shader's vignette is radial and no filter primitive is. `drunkStyle` works the numbers out on
+its own, each one read off the line of the shader it comes from, so the two can be compared and
+tested without a browser.
+
+Two things it deliberately does differently:
+
+- **The drift is a little stronger than the shader's.** Its 0.008 is a fraction of a whole screen;
+  the TV is a picture in a corner of one, so at the same fraction the two copies sit too close to
+  read as two.
+- **It costs nothing when you're sober.** Below 0.01 the filter is taken right off, which is the
+  same bargain `world/drunk.ts` strikes by drawing straight to the screen.
+
+With **reduced motion** on, the clock is held at zero, so the picture settles into one pose rather
+than swimming — as the world does. And because the filter sits on the same element as the occlusion
+mask, the two compose: a hole in the mask is still a hole, and the doubling never spills out over
+the bezel (the frame's own `overflow: hidden` takes it back off).
+
 ## The state, and where it lives
 
 Four messages, all floor-wide, all validated server-side (`src/server/tv.ts`):
@@ -121,11 +158,13 @@ The server answers every one of them with `{ t: 'tv', state }`, which the browse
 | `src/server/server.ts` | The `tv.*` cases in the message router, `tvChanged` to the floor, `tv:` in `floorView()` |
 | `src/shared/protocol.ts` | The four messages, `{ t: 'tv', state }` and `FloorView.tv` |
 | `src/client/state.ts` | The `tv` topic, `store.tv`, `enter()` and `apply()` |
-| `src/client/tvscreen.ts` | The layer: what to load for a link, keeping every player in step, the per-frame projection, and the mask of what's in front of it |
+| `src/client/tvscreen.ts` | The layer: what to load for a link, keeping every player in step, the per-frame projection, the mask of what's in front of it, and how drunk the picture is |
+| `src/client/drunkframe.ts` | The drunk effect for the picture, as an SVG filter — the same one `world/drunk.ts` puts on the canvas |
 | `src/client/world/office.ts` | The TV itself is unchanged; its glass panes are colliders marked `glass: true`, so they don't hide it |
-| `src/client/main.ts` | Wiring: **E** at the TV, the hint bar, painting the screen dark under the picture, the per-frame `update` |
+| `src/client/main.ts` | Wiring: **E** at the TV, the hint bar, painting the screen dark under the picture, the per-frame `update`, and how drunk the picture is |
 | `src/client/ui/tv.ts` | The TV window: what's on, ▶️/⏸️/⏹️, a scrubber, the link box, **Open in a tab ↗**, **Share screen** and your own sound (mute and volume) |
 | `tests/tv.test.ts` | Link parsing and validation, `positionAt`, and `class Tv` surviving a restart |
+| `tests/drunkframe.test.ts` | How much drink puts the filter on the picture, and the numbers the shader's own lines give |
 
 ## Controls
 
