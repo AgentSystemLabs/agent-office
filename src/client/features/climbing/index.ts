@@ -14,7 +14,7 @@ import { store } from '../../state';
 import { $, h, toast } from '../../ui/dom';
 
 export interface ClimbingDeps {
-  /** Through the ceiling up the ladder, or through the floor down one (see travel in main.ts). */
+  /** Through the ceiling up the ladder, or through the floor down one (see travel in core/travel.ts). */
   travel(floorId: string, how: Grip, at: Arrival): void;
   /** Up off whatever you're sitting on (see features/seating). */
   standUp(): void;

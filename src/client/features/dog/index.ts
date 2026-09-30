@@ -10,6 +10,8 @@ export function installDog(ctx: Ctx): Dog {
   const dog = new Dog(ctx.sound, (id) => (store.workers.get(id)?.viewers.length ?? 0) > 0);
   ctx.scene.add(dog.root);
   noOutline(dog.root);
+  // The dog walks about on its own, not on the building: it's there to aim at by itself.
+  ctx.usables.add({ usable: () => dog.interactables, pickable: () => dog.root });
   store.on('dog', () => {
     dog.sync(store.dog, store.dogStart);
     // The dog lives in the office: on a map of its own it stays home.

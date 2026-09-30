@@ -45,6 +45,9 @@ export function installBasketball(ctx: Ctx, deps: BasketballDeps) {
   let shooting = false;
   /** When you started winding up a shot (performance.now()), or 0. */
   let windFrom = 0;
+  // The ball's there to use (and to aim at: it's on the building); a window opening lets go of a wind-up.
+  ctx.usables.add({ usable: () => ball.interactables });
+  ctx.windowOpened.add(() => void (windFrom = 0));
 
   // With the ball in your hands, E winds up a shot (let go to shoot) and Q drops it.
   ctx.keys.add('activity', (e) => {

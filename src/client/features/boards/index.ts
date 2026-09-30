@@ -18,7 +18,7 @@ import { MeetingBoardTexture, MeetingSignTexture } from '../../world/meeting';
 import type { World } from '../../world/world';
 
 export interface BoardsDeps {
-  /** The note on the issues board you're pointing at, if any (see aimedNote in main.ts). */
+  /** The note on the issues board you're pointing at, if any (see aimedNote in input/pointer.ts). */
   aimedNote(): GhIssue | null;
   /** Takes an issue's card off the board, into your hands (see features/carrying). */
   pickUp(it: GhIssue): void;

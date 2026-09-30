@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { Activities, Interactions, Keys, Messages, TICK_PHASES, Ticks, View, type KeyPress } from '../src/client/core/registry.js';
+import { Activities, Hooks, Interactions, Keys, Messages, TICK_PHASES, Ticks, Usables, View, type KeyPress } from '../src/client/core/registry.js';
 
 type Msg = { t: 'hello'; n: number } | { t: 'bye' };
 
@@ -290,6 +290,51 @@ test('an effect taken out stops having a say', () => {
   off();
   assert.equal(view.fov(10), 10);
   assert.equal(view.covered(), false);
+});
+
+test('hooks run in the order they were added, and one taken out stops running', () => {
+  const log: string[] = [];
+  const hooks = new Hooks();
+  hooks.add(() => log.push('ball'));
+  const off = hooks.add(() => log.push('wheel'));
+  hooks.add(() => log.push('last'));
+  hooks.run();
+  assert.deepEqual(log, ['ball', 'wheel', 'last']);
+  log.length = 0;
+  off();
+  hooks.run();
+  assert.deepEqual(log, ['ball', 'last']);
+});
+
+test('a hook added while the hooks run runs from the next time on', () => {
+  const log: string[] = [];
+  const hooks = new Hooks();
+  hooks.add(() => {
+    log.push('first');
+    hooks.add(() => log.push('late'));
+  });
+  hooks.run();
+  assert.deepEqual(log, ['first']);
+  log.length = 0;
+  hooks.run();
+  assert.deepEqual(log, ['first', 'late']);
+});
+
+test('usables: each source a list, in the order they were added, read when asked, and only the pickables there are', () => {
+  const pictures = ['frame'];
+  let dogAt = 'kitchen';
+  const usables = new Usables<string, string>();
+  usables.add({ usable: () => pictures });
+  const offDog = usables.add({ usable: () => [`dog in the ${dogAt}`], pickable: () => 'dog' });
+  usables.add({ usable: () => ['ball'] });
+  assert.deepEqual(usables.lists(), [['frame'], ['dog in the kitchen'], ['ball']]);
+  assert.deepEqual(usables.pickables(), ['dog']);
+  pictures.push('poster');
+  dogAt = 'lounge';
+  assert.deepEqual(usables.lists(), [['frame', 'poster'], ['dog in the lounge'], ['ball']]);
+  offDog();
+  assert.deepEqual(usables.lists(), [['frame', 'poster'], ['ball']]);
+  assert.deepEqual(usables.pickables(), []);
 });
 
 type It = { kind: 'desk' | 'dog' | 'tv'; name?: string };
