@@ -1,7 +1,7 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { PlayerController } from '../src/client/player.js';
+import { PlayerController } from '../src/client/player/index.js';
 import { Driver } from '../src/client/driving.js';
 import { Fleet } from '../src/client/world/cars.js';
 import type { Collider, Interactable } from '../src/client/world/types.js';

@@ -1,7 +1,7 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { PlayerController } from '../src/client/player.js';
+import { PlayerController } from '../src/client/player/index.js';
 import type { Collider } from '../src/client/world/types.js';
 import { BALCONY, FLOOR, LOFT, SEATING_BY_ID, SLAB, STAIRS, seatAt, seatPlace } from '../src/shared/layout.js';
 
