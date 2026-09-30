@@ -2,64 +2,46 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, POLE, POLES, SLAB, STATION_AGENT, STOREY, WALL_HEIGHT, WALL_T, WING, WING_DESKS, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, seatPlace, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, POLE, SLAB, STATION_AGENT, STOREY, WALL_HEIGHT, WING, WING_DESKS, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type StationKind } from '../shared/layout';
 import { OFFICE_PLAN, seatOn, type MapPlan } from '../shared/maps';
 import { canLabel } from '../shared/floorplan';
 import { floorPalette } from '../shared/floors';
-import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
+import type { AgentEffort, AgentProvider, CarriedIssue, GhIssue, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
 import { MEETING_PATTERNS, meetingStage } from '../shared/meetings';
 import { isAsleep, isBusy, workerPr } from '../shared/status';
 import { Net } from './net';
-import { store, lastFloor, lastSpot, loadProfile, loadSettings, rememberSpot, saveSettings, workerForPull, type Profile, type Spot, type Topic } from './state';
+import { store, lastFloor, lastSpot, loadProfile, loadSettings, rememberSpot, saveSettings, type Profile, type Spot } from './state';
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
-import { Climber, gripOf, type Arrival, type Grip, type Way } from './climb';
-import { Driver } from './driving';
-import { Caffeine } from './caffeine';
+import { gripOf, type Arrival, type Grip } from './climb';
 import { buildOffice, type DeskView, type InteractKind, type Interactable } from './world/office';
 import { officeWorld, type World } from './world/world';
 import { BUILDERS } from './world/styles';
 import { Court } from './world/court';
-import { buildRooftop, type Rooftop } from './world/rooftop';
-import { DrunkVision } from './world/drunk';
-import { Booze, type Stage as Feeling } from './booze';
-import { djFrame, djTime } from './dnb';
-import { openBar } from './ui/bar';
-import { DRINK_BY_ID, ROOF, ROOF_NAME, type Drink, type DrinkId } from '../shared/rooftop';
-import { BACKSWING_TIME, IMPACT, Person, Worker, type Stage } from './world/character';
-import { GolfBalls, PIN_DISTANCE, TEE_BALL, fly, lieText, pinText, type Flight, type Hit, type Shot } from './world/golf';
-import { Golfer } from './golf';
-import { Thrower } from './throwing';
-import { ROUND, score, targetFrame, type BarGame, type Score, type Toss } from '../shared/bargames';
+import { djFrame } from './dnb';
+import { DRINK_BY_ID, ROOF, ROOF_NAME } from '../shared/rooftop';
+import { Person, Worker } from './world/character';
 import { Hands } from './world/hands';
-import { Basketball, IN_HANDS } from './world/hoop';
-import { HOOP, SWEET, idealSpeed, lookAtRim, meter, shotSpeed, throwPitch, tossSpeed, underCeiling } from '../shared/hoop';
-import { CARS, SEAT_HIPS, type CarSeat } from '../shared/garage';
-import { PLACES, placeAt as loopPlace } from '../shared/scenic';
-import { LapTimer, lapTime } from './laps';
+import { SEAT_HIPS } from '../shared/garage';
 import { Smoke } from './world/smoke';
 import { HAZE_MAX, Sky, describeSky } from './world/sky';
 import { Laptop } from './world/laptop';
-import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
-import { Gallery } from './world/gallery';
-import { Dog } from './world/dog';
 import { Holiday } from './world/holiday';
 import { Arrivals, Departures } from './world/leaving';
 import { Jail } from './world/jail';
 import { Sendoffs } from './world/sendhome';
-import { Confetti, type Area } from './world/confetti';
-import { Hanger } from './hanging';
+import { Confetti } from './world/confetti';
 import { disposeSprite, textSprite } from './world/toon';
 import { Voice } from './voice';
 import { OfficeSound } from './sound';
 import { DesktopNotifier, askNotifyPermission, notifyPermission, waitingOnSomeone } from './notify';
 import { NextUp, waitingInOrder, waitingLabel } from './nextup';
-import { $, h, clip, closeAllModals, doingNow, modalOpen, onDoingChange, onModalChange, openModal, readingNow, toast, STATUS_LABEL } from './ui/dom';
+import { $, h, clip, closeAllModals, doingNow, modalOpen, onDoingChange, onModalChange, readingNow, toast, STATUS_LABEL } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage, type TerminalFind } from './ui/terminal';
 import { openSearch } from './ui/search';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { openRepoPulls, workerRepos } from './ui/repos';
-import { openPrompt, confirmDialog, sendHomeDialog, lostWorktreeDialog, routeWorktreeMessage, worktreePref } from './ui/prompt';
-import { issuePrompt, openBoard } from './ui/boards';
+import { openPrompt, confirmDialog, sendHomeDialog, lostWorktreeDialog, routeWorktreeMessage } from './ui/prompt';
+import { openBoard } from './ui/boards';
 import { openIssue, openPull, routePullMessage } from './ui/pull';
 import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
@@ -78,33 +60,49 @@ import { openSettings, type SettingsPane } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 import { GARAGE, elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
 import { toggleFloorMenu } from './ui/floormenu';
-import { providerLabel, officeChoice, resolvedProvider, modelBadge } from './ui/provider';
-import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
+import { providerLabel, resolvedProvider, modelBadge } from './ui/provider';
+import { openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
 import { renderLimits } from './ui/limits';
-import { MachineTexture } from './world/machine';
 import { officeFull, pressureNote } from '../shared/machine';
 import { mountHud } from './ui/menu';
-import { openJukebox } from './ui/jukebox';
 import { openBookshelf } from './ui/bookshelf';
-import { Arcade } from './ui/arcade';
-import { Cabinet } from './ui/cabinet';
-import { trackTitle } from '../shared/jukebox';
-import { GAME, scoreText } from '../shared/cabinet';
-import { EMOTES, EMOTE_BY_ID, EmoteBucket, type EmoteId } from '../shared/emotes';
-import { EmoteWheel } from './ui/emotes';
 import { whereabouts } from './ui/whereabouts';
 import { wayTo } from './walkto';
 import { DESK_KEYS, interactionAvailable, type DeskKey } from './interaction';
-import { MeetingBoardTexture, MeetingSignTexture } from './world/meeting';
-import { issueMeeting, openMeeting, type MeetingPreset } from './ui/meeting';
-import { TelescopeView } from './telescope';
+import { openMeeting, type MeetingPreset } from './ui/meeting';
 import { onModelsProgress, preloadModels } from './world/models';
 import { loadingScreen } from './ui/loading';
 import { SlowFrames } from './framerate';
 import { offerLite, touchOnly } from './ui/litesuggest';
 import { openDeskLabel, openExpand } from './ui/floorplan';
-import { Activities, Interactions, Keys, Messages, Ticks, type Frame } from './core/registry';
+import { Activities, Interactions, Keys, Messages, Ticks, View, type Frame } from './core/registry';
 import type { Ctx, Hint, OfficeInteraction, StopWhy, Trip, TripKind } from './core/context';
+import { builtFloors, floorWings } from './core/floors';
+import { aside, hintTitle, key, onE } from './core/hint';
+import { noOutline } from './core/outline';
+import { installArcade } from './features/arcade';
+import { installBar } from './features/bar';
+import { installBarGames } from './features/bargames';
+import { installBasketball } from './features/basketball';
+import { installBoards } from './features/boards';
+import { installCabinet } from './features/cabinet';
+import { installCarrying } from './features/carrying';
+import { installCars } from './features/cars';
+import { installClimbing } from './features/climbing';
+import { installCoffee } from './features/coffee';
+import { installDog } from './features/dog';
+import { installEmotes } from './features/emotes';
+import { installGolf } from './features/golf';
+import { installGong } from './features/gong';
+import { installGallery, installHanging } from './features/hanging';
+import { installJukebox } from './features/jukebox';
+import { installRooftop } from './features/rooftop';
+import { installSeating } from './features/seating';
+import { installSmoke } from './features/smoke';
+import { installTelescope } from './features/telescope';
+import { installTv } from './features/tv';
+import { installVoice } from './features/voice';
+import { installWhiteboard } from './features/whiteboard';
 
 // The loading screen stays up until there's an office to see (see boot and whoami at the end).
 const loading = loadingScreen(onModelsProgress);
@@ -123,6 +121,10 @@ await preloadModels();
 let hintKey = '';
 /** How hard the view shakes (a landing off a pole, a bump in a car, a hiccup), easing off to 0. */
 let thud = 0;
+/** The issue card in your hands, taken off this floor's issues board (see features/carrying), or null. */
+let carrying: CarriedIssue | null = null;
+/** Where you are now: up on the roof (true), or on a floor of the office. */
+let upTop = false;
 /** What you can be in the middle of, in the order it gets keys, has the hint bar and stops in (see Activities). */
 const ACTIVITY_ORDER = ['hanger', 'climber', 'golf', 'thrower', 'driver'];
 // Built before the things it hands out, which are there by the time anything asks for them.
@@ -135,6 +137,9 @@ const ctx: Ctx = {
   },
   get renderer() {
     return renderer;
+  },
+  get canvas() {
+    return canvas;
   },
   get office() {
     return office;
@@ -181,10 +186,16 @@ const ctx: Ctx = {
   upTop: () => upTop,
   trip: () => trip,
   carrying: () => carrying,
-  holdingBall: () => holdingBall(),
+  holdingBall: () => hoops.holding(),
   hint: {
     // Not '': that reads as "no hint shown", and a hint still up (the golf one, say) would stay up.
     invalidate: () => void (hintKey = 'stale'),
+    draw: (el, k, parts) => {
+      if (k === hintKey) return;
+      hintKey = k;
+      el.replaceChildren(...parts());
+      el.classList.remove('hidden');
+    },
   },
   shake: (amount, replace = false) => {
     if (!reduceMotion.matches) thud = replace ? amount : Math.max(thud, amount);
@@ -194,26 +205,8 @@ const ctx: Ctx = {
   ticks: new Ticks(),
   activities: new Activities<StopWhy, KeyboardEvent, HTMLElement>(ACTIVITY_ORDER),
   interactions: new Interactions<OfficeInteraction>(),
+  view: new View<Grip>(),
 };
-
-// ---- The office's own parts of the key chain (see Keys, and the keydown listener under Input) --------
-// Registered before anything else's, so within a stage they come first.
-// Looking through the telescope, Esc, E or F takes you away from it, and no key does anything else.
-ctx.keys.add('guard', (e) => {
-  if (!telescope.active) return false;
-  if (e.code === 'Escape' || e.code === 'KeyE' || e.code === 'KeyF') telescope.exit();
-  e.preventDefault();
-  return true;
-});
-// A window's open or you're typing somewhere, or it's a shortcut: the key isn't the office's.
-ctx.keys.add('guard', (e) => modalOpen() || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey);
-// Closing the last window didn't give you the mouse back: any key but Esc takes it (see backToGame).
-ctx.keys.add('guard', (e) => {
-  if (relookOnKey && e.key !== 'Escape' && player.canLock) player.lock();
-  return false;
-});
-// Whatever you're in the middle of has first go (see each activity's key).
-ctx.keys.add('activity', (e) => ctx.activities.key(e));
 
 // ---- The office's own parts of each frame (see Ticks, and the Main loop at the end) -------------------
 // Registered before anything else's, so within a phase they come first.
@@ -242,7 +235,9 @@ scene.background = new THREE.Color('#bfe3ff');
 scene.fog = new THREE.Fog('#bfe3ff', 40, 90);
 /** How far the camera sees in the office: as far as the haze ever is, from the top floor. */
 const FAR = HAZE_MAX + 20;
-const camera = new THREE.PerspectiveCamera(55, 1, 0.1, FAR);
+/** How wide the camera sees (degrees), unless what you're doing has it otherwise (see ctx.view). */
+const FOV = 55;
+const camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, FAR);
 
 const hemi = new THREE.HemisphereLight('#fff5e6', '#c9a27a', 1.5);
 const ambient = new THREE.AmbientLight('#ffffff', 0.5);
@@ -278,15 +273,6 @@ store.on('sky', () => store.sky && sky.set(store.sky));
 const holiday = new Holiday(office);
 scene.add(holiday.group);
 
-const noOutline = (obj: THREE.Object3D) =>
-  obj.traverse((o) => {
-    const m = o as THREE.Mesh;
-    if (!m.isMesh) return;
-    const geo = m.geometry;
-    const flat = geo instanceof THREE.PlaneGeometry || geo instanceof THREE.CircleGeometry;
-    const mats = Array.isArray(m.material) ? m.material : [m.material];
-    for (const mat of mats) if (flat || mat instanceof THREE.MeshBasicMaterial) mat.userData.outlineParameters = { visible: false };
-  });
 noOutline(office.group);
 noOutline(holiday.group);
 
@@ -320,212 +306,24 @@ function idleAgentsIn(w: World): IdleAgent[] {
 /** The ones in the world you're in. */
 let idleAgents = idleAgentsIn(world);
 
-// Boards: each draws onto a canvas texture, redrawn whenever what it shows changes. The same
-// texture goes on that board in whichever world you're in (see dressBoards).
-function mountBoard(mesh: THREE.Mesh | undefined, texture: THREE.Texture, render: () => void, topics: Topic[]) {
-  if (mesh) showOn(mesh, texture);
-  for (const topic of topics) store.on(topic, render);
-  render();
-}
-function showOn(mesh: THREE.Mesh, texture: THREE.Texture) {
-  const mat = mesh.material as THREE.MeshBasicMaterial;
-  if (mat.map === texture) return;
-  mat.map = texture;
-  mat.needsUpdate = true;
-}
-/** The issue card in your hands, taken off this floor's issues board (see Carrying an issue card), or null. */
-let carrying: CarriedIssue | null = null;
-/** Issues whose cards someone on this floor is carrying around, so they're missing from the board. */
-function offBoard(): Set<number> {
-  const off = new Set<number>();
-  if (carrying) off.add(carrying.issue);
-  for (const p of store.peers.values()) if (p.carrying && p.id !== store.you && store.onMyFloor(p)) off.add(p.carrying.issue);
-  return off;
-}
-const issuesTex = new BoardTexture('issues');
-const renderIssuesBoard = () => {
-  const off = offBoard();
-  issuesTex.render(off.size ? { ...store.issues, items: store.issues.items.filter((i) => !off.has(i.number)) } : store.issues);
-};
-mountBoard(office.boardMeshes.issues, issuesTex.texture, renderIssuesBoard, ['issues']);
-let carriedOff = '';
-store.on('peers', () => {
-  const k = [...offBoard()].join(',');
-  if (k === carriedOff) return;
-  carriedOff = k;
-  renderIssuesBoard();
-});
-const pullsTex = new BoardTexture('pulls');
-const renderPullsBoard = () => pullsTex.render(store.pulls, store.workers);
-mountBoard(office.boardMeshes.pulls, pullsTex.texture, renderPullsBoard, ['pulls']);
-// PR notes name the desk they came from. Redraw when that changes, not on every worker update.
-let deskLinks = '';
-store.on('workers', () => {
-  const k = JSON.stringify([...store.workers.values()].filter((w) => w.worktree).map((w) => [w.worktree!.branch, w.pr?.number, w.name, w.color, w.deskId]));
-  if (k === deskLinks) return;
-  deskLinks = k;
-  renderPullsBoard();
-});
-const servicesTex = new ServicesBoardTexture();
-const renderServicesBoard = () => servicesTex.render(store.services.items, store.workers);
-mountBoard(office.boardMeshes.services, servicesTex.texture, renderServicesBoard, ['services', 'workers']);
-const queueTex = new QueueBoardTexture();
-const renderQueueBoard = () => queueTex.render(store.queue, store.workers);
-mountBoard(office.boardMeshes.queue, queueTex.texture, renderQueueBoard, ['queue', 'workers']);
-ctx.interactions.define('issues', {
-  reach: 9,
-  hint: () => {
-    if (aimedNote) return { k: String(aimedNote.number), parts: [hintTitle(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', 'Take it'), key('O', 'Read it')] };
-    return issuesTex.hasNotes ? { k: 'notes', parts: [hintTitle('📌 Issues board'), key('E', 'Open'), aside('or point at a note to take it')] } : boardHint('📌 Issues board');
-  },
-  use: (_it, key, note) => {
-    // A note on the issues board: E takes it straight off the cork, O opens it to read first.
-    if (note && key === 'E') return pickUp(note);
-    if (note && key === 'O') return openIssue(note, net, boardActions());
-    if (key === 'E') openBoard('issues', net, boardActions());
-  },
-});
-ctx.interactions.define('pulls', {
-  reach: 9,
-  hint: () => boardHint('🔀 Pull request board'),
-  use: onE(() => openBoard('pulls', net, boardActions())),
-});
-ctx.interactions.define('services', {
-  reach: 9,
-  hint: () => boardHint('🌐 Services board'),
-  use: onE(() => openServices()),
-});
-ctx.interactions.define('queue', {
-  reach: 9,
-  hint: () => {
-    const n = store.queue.tasks.filter((t) => t.status !== 'done').length;
-    return { k: String(n), parts: [hintTitle(`📋 Task queue${n ? ` · ${n}` : ''}`), key('E', 'Open')] };
-  },
-  use: onE(() => showQueue()),
-});
-// The machine monitor on the west wall.
-const machineTex = new MachineTexture();
-mountBoard(office.machineScreen, machineTex.texture, () => machineTex.render(store.machine), ['machine']);
-// The meeting room: its output as it's written on the back wall, and how it's going on the door.
-const meetingBoardTex = new MeetingBoardTexture();
-mountBoard(office.meetingBoard, meetingBoardTex.texture, () => meetingBoardTex.render(store.meeting), ['meeting']);
-const meetingSignTex = new MeetingSignTexture();
-mountBoard(office.meetingSign, meetingSignTex.texture, () => meetingSignTex.render(store.meeting), ['meeting']);
-/** Puts every board's texture up on `w`'s boards. */
-function dressBoards(w: World) {
-  showOn(w.boardMeshes.issues, issuesTex.texture);
-  showOn(w.boardMeshes.pulls, pullsTex.texture);
-  showOn(w.boardMeshes.services, servicesTex.texture);
-  showOn(w.boardMeshes.queue, queueTex.texture);
-  if (w.meetingBoard) showOn(w.meetingBoard, meetingBoardTex.texture);
-  if (w.meetingSign) showOn(w.meetingSign, meetingSignTex.texture);
-}
+// The boards on the walls (see features/boards).
+const boards = installBoards(ctx, { aimedNote: () => aimedNote, pickUp: (it) => cards.pickUp(it), boardActions, showQueue });
 
-// Pictures people hung on the walls
-const gallery = new Gallery();
-office.group.add(gallery.group);
-store.on('decor', () => gallery.sync(store.decor));
+const gallery = installGallery(ctx);
 
-// The whiteboard shows what everyone's drawn on it.
-mirrorWhiteboard(office.whiteboard.show, office.whiteboard.fit.width, office.whiteboard.fit.height);
-ctx.interactions.define('whiteboard', {
-  reach: 7,
-  hint: () => {
-    const names = store.drawing.flatMap((id) => (id === store.you ? [] : (store.peers.get(id)?.name ?? []))).join(', ');
-    return { k: names, parts: [hintTitle('📝 Whiteboard'), aside(names ? `✏️ ${clip(names, 40)} drawing` : 'draw together, live'), key('E', names ? 'Join in' : 'Draw')] };
-  },
-  use: onE(() => openWhiteboard(net)),
-});
+installWhiteboard(ctx);
 
 // Confetti for merges, landing on whatever it falls on
 // Onto whatever you're walking on: the office's floor and furniture, or the roof's.
 const confetti = new Confetti((x, z, y) => groundAt(player.colliders, x, z, y, false));
 scene.add(confetti.mesh);
 
-// TV
-const tvVideo = document.createElement('video');
-tvVideo.muted = true;
-tvVideo.playsInline = true;
-tvVideo.autoplay = true;
-const tvTexture = new THREE.VideoTexture(tvVideo);
-tvTexture.colorSpace = THREE.SRGBColorSpace;
-const tvIdle = (() => {
-  const c = document.createElement('canvas');
-  c.width = 1280;
-  c.height = 720;
-  const g = c.getContext('2d')!;
-  const grad = g.createLinearGradient(0, 0, 1280, 720);
-  grad.addColorStop(0, '#3a0ca3');
-  grad.addColorStop(1, '#4cc9f0');
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 1280, 720);
-  g.fillStyle = '#fff';
-  g.textAlign = 'center';
-  g.font = '900 88px Nunito, ui-rounded, system-ui, sans-serif';
-  g.fillText('📺 Office TV', 640, 330);
-  g.font = '700 44px Nunito, ui-rounded, system-ui, sans-serif';
-  g.fillText('Click “Share screen” to put something up here', 640, 420);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-})();
-const tvMat = office.tvScreen.material as THREE.MeshBasicMaterial;
-tvMat.color.set('#ffffff');
-tvMat.map = tvIdle;
-tvMat.toneMapped = false;
-ctx.interactions.define('tv', {
-  reach: 10,
-  hint: () => {
-    const any = currentShares().length > 0;
-    return { k: String(any), parts: [hintTitle('📺 Office TV'), key('E', any ? 'Watch full screen' : 'Share your screen')] };
-  },
-  use: onE(() => watchShare()),
-});
-// The boss's monitor upstairs: Minesweeper, from the boss's chair.
-const arcade = new Arcade(office.bossScreen);
-ctx.ticks.add('play', ({ dt }) => arcade.update(camera, dt));
+// The office TV: the screen someone's sharing (see features/tv and features/voice).
+const tv = installTv(ctx, { shares: () => talk.currentShares(), watch: () => talk.watchShare() });
+const arcade = installArcade(ctx);
 
 // ---- The rooftop bar ------------------------------------------------------------------------------
-/** Up on the roof: built the first time anyone goes up there. */
-let roof: Rooftop | null = null;
-function theRoof(): Rooftop {
-  if (!roof) {
-    roof = buildRooftop(office.night, roofFloors());
-    roof.setFloors(roofFloors(), floorWings(builtFloors()));
-    roof.group.visible = false;
-    roof.games.onDrop = (at) => sound.toss('drop', at);
-    scene.add(roof.group);
-    noOutline(roof.group);
-  }
-  return roof;
-}
-/** How many floors the roof stands on: every one that's built. */
-function roofFloors(): number {
-  return Math.max(1, builtFloors().length);
-}
-/** Floors come and go: the roof goes up or down with them, and the street's that much further down from it. */
-function syncRoof() {
-  if (!roof) return;
-  const floors = roofFloors();
-  roof.setFloors(floors, floorWings(builtFloors()));
-  if (upTop) sky.setRoof(true, roofDrop(floors));
-}
-store.on('floors', syncRoof);
-/** Where you are now: up on the roof (true), or on a floor of the office. */
-let upTop = false;
-/** How far into the DJ's set it is, on the office's clock, so everyone up there hears the same bar. */
-const djAt = () => djTime(store.officeNow());
-/** Drinks from the bar, and how they make the world look (see booze.ts, world/drunk.ts). */
-const booze = new Booze();
-const drunkVision = new DrunkVision(renderer);
-ctx.ticks.add('env', ({ dt, t }) => {
-  if (upTop && roof) {
-    // Everything up there moves to the DJ's set; strobes flash the whole roof as a drop lands.
-    const strobe = roof.update(t, dt, djFrame(djAt()), { dark: sky.lampsOn, motion: !reduceMotion.matches });
-    ambient.intensity += strobe * 1.5;
-    hemi.intensity += strobe * 0.8;
-  }
-});
+const rooftop = installRooftop(ctx, { ambient, hemi });
 
 // ---- Networking & state -------------------------------------------------------------------------
 const net = new Net(() => store.profile, whereNow);
@@ -537,48 +335,25 @@ scene.add(me.root);
 noOutline(me.root);
 const settings = loadSettings();
 const player = new PlayerController(camera, canvas, office.colliders);
-// Behind the wheel of one of the garage's cars (see "The cars in the garage" below). Up here, since placing you anywhere gets you out first.
-const driver = new Driver(player, office.cars, {
-  moved: (car, p) => net.send({ t: 'car.drive', car, x: p.x, z: p.z, rotY: p.rotY, speed: p.speed, steer: p.steer }),
-  bump: (at, speed) => {
-    sound.crash({ x: at.x, y: player.street + 0.5, z: at.z }, speed);
-    ctx.shake(Math.min(0.8, speed / 15));
-  },
+const telescope = installTelescope(ctx, { clearTarget: () => void (target = null), backToGame });
+
+// ---- The office's own parts of the key chain (see Keys, and the keydown listener under Input) --------
+// Right after the telescope's guard (looking through it, no key does anything else) and before
+// anything else's, so within a stage they come first.
+// A window's open or you're typing somewhere, or it's a shortcut: the key isn't the office's.
+ctx.keys.add('guard', (e) => modalOpen() || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey);
+// Closing the last window didn't give you the mouse back: any key but Esc takes it (see backToGame).
+ctx.keys.add('guard', (e) => {
+  if (relookOnKey && e.key !== 'Escape' && player.canLock) player.lock();
+  return false;
 });
-const telescope = new TelescopeView(
-  camera,
-  $('telescope-view'),
-  $('telescope-exit'),
-  window,
-  () => {
-    player.enabled = false;
-    player.clearKeys();
-    player.stopWalking();
-    player.yieldMouse();
-    document.body.classList.add('telescope-active');
-    $('telescope-view').setAttribute('aria-hidden', 'false');
-    target = null;
-    ctx.hint.invalidate();
-  },
-  () => {
-    document.body.classList.remove('telescope-active');
-    $('telescope-view').setAttribute('aria-hidden', 'true');
-    player.enabled = !modalOpen() && !trip;
-    player.clearKeys();
-    ctx.hint.invalidate();
-    if (!modalOpen()) setTimeout(backToGame, 0);
-  },
-);
-ctx.interactions.define('telescope', {
-  reach: 3.5,
-  hint: () => ({ k: '', parts: [hintTitle('🔭 Office telescope'), aside('overlooks the worker floor'), key('E', 'Look through')] }),
-  use: onE(() => telescope.enter()),
-});
+// Whatever you're in the middle of has first go (see each activity's key).
+ctx.keys.add('activity', (e) => ctx.activities.key(e));
+
 // Everyone arrives by elevator (the welcome says exactly where).
 placeInCar();
 player.view = settings.view;
 const hands = new Hands(store.profile.color, me.skinColor);
-const caffeine = new Caffeine();
 /** No shaking the view for the coffee jitters when the system asks for less motion. */
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 // Cigarette smoke, from anyone on a smoke break.
@@ -594,782 +369,27 @@ me.onSmoke = (kind, at, dir) => {
 };
 const sound = new OfficeSound();
 sound.setVolume(settings.volume, settings.muted);
-// The floor's dog. It goes quiet once someone has the terminal of the worker it's barking at open.
-const dog = new Dog(sound, (id) => (store.workers.get(id)?.viewers.length ?? 0) > 0);
-scene.add(dog.root);
-noOutline(dog.root);
-store.on('dog', () => {
-  dog.sync(store.dog, store.dogStart);
-  // The dog lives in the office: on a map of its own it stays home.
-  if (!inOffice()) dog.root.visible = false;
-});
-ctx.ticks.add('others', ({ dt }) => {
-  // The dog is the office's: on a map of its own it stays at home, quiet.
-  if (inOffice()) dog.update(dt);
-});
-ctx.interactions.define('dog', {
-  reach: 3.2,
-  hint: () => {
-    const doing = dog.doing(
-      (id) => store.workers.get(id)?.name,
-      (id) => (id === store.you ? 'you' : store.peers.get(id)?.name),
-    );
-    return { k: `${dog.name}|${doing}`, parts: [hintTitle(`🐶 ${dog.name}`), doing ? aside(doing) : '', key('E', 'Pet')] };
-  },
-  use: onE(() => net.send({ t: 'dog.pet' })),
-});
+const dog = installDog(ctx);
 sound.setMusicVolume(settings.music, settings.musicMuted);
 sound.onMusicError = (text) => toast(text, 'warn');
-// The jukebox on your floor: everyone there hears it from the same bar, and its lights say what's on.
-// It's the office's: on a map of its own there's none to hear.
-function playJukebox() {
-  const j = store.jukebox;
-  sound.setJukebox(j.on && inOffice() ? { track: j.track, url: j.url, startedAt: j.startedAt, since: j.since } : null);
-  office.jukebox.show(j.on, trackTitle(j));
-}
-store.on('jukebox', playJukebox);
-ctx.interactions.define('jukebox', {
-  reach: 4,
-  hint: () => {
-    const j = store.jukebox;
-    const what = j.on ? trackTitle(j) : '';
-    return { k: `${j.on}|${what}`, parts: [hintTitle('🎵 Jukebox'), aside(j.on ? `♪ ${clip(what, 40)}` : 'off'), key('E', j.on ? 'Change the song' : 'Put on a song')] };
-  },
-  use: onE(() => showJukebox()),
-});
-// The arcade cabinet next to it: BLOCKFALL up close, and on its screen for everyone else on the floor.
-const cabinet = new Cabinet(office.cabinet.screen, net, { openTerminal: (id) => openWorkerTerminal(id), sound: (kind, lines) => sound.arcade(kind, lines) });
-ctx.ticks.add('play', ({ dt }) => cabinet.update(camera, dt));
-ctx.interactions.define('cabinet', {
-  reach: 4,
-  hint: () => {
-    const c = store.cabinet;
-    const f = store.cabinetFrame;
-    if (c.player && c.player.id !== store.you) {
-      const who = c.player.name;
-      return { k: `${who}|${f?.score}`, parts: [hintTitle('🕹️ Arcade'), aside(`▶ ${clip(who, 24)} is playing${f ? ` · ${scoreText(f.score)}` : ''}`), key('E', 'Watch')] };
-    }
-    const left = cabinet.leftAt;
-    const best = c.scores[0];
-    const about = left !== null ? `your game's paused at ${scoreText(left)}` : best ? `🏆 ${clip(best.name, 24)} · ${scoreText(best.score)}` : 'no high score yet';
-    return { k: `${left}|${best?.name}|${best?.score}`, parts: [hintTitle(`🕹️ ${GAME}`), aside(about), key('E', left !== null ? 'Carry on' : 'Play')] };
-  },
-  use: onE(() => cabinet.play()),
-});
+const jukebox = installJukebox(ctx, { showSettings });
+const cabinet = installCabinet(ctx, { openTerminal: openWorkerTerminal });
 const notifier = new DesktopNotifier(() => settings.notify, (id) => openWorkerTerminal(id));
 
 // ---- Golf off the balcony --------------------------------------------------------------------------
-// Everyone's balls, in the air or lying where they stopped.
-const balls = new GolfBalls();
-scene.add(balls.group);
-/** Your closest shot to the pin so far (meters) and how many you've holed in one, kept in this browser. */
-const GOLF_KEY = 'agent-office.golf';
-function golfRecord(): { best: number | null; holes: number } {
-  try {
-    const r = JSON.parse(localStorage.getItem(GOLF_KEY) ?? '{}') as { best?: unknown; holes?: unknown };
-    return { best: typeof r.best === 'number' ? r.best : null, holes: typeof r.holes === 'number' ? r.holes : 0 };
-  } catch {
-    return { best: null, holes: 0 };
-  }
-}
-function saveGolfRecord(r: { best: number | null; holes: number }) {
-  try {
-    localStorage.setItem(GOLF_KEY, JSON.stringify(r));
-  } catch {
-    // private window: it's only for this visit then
-  }
-}
-/** Until when (performance.now()) the tee has no ball on it: someone just hit it, and is teeing up the next. */
-let teeEmptyUntil = 0;
-/** A shot off the tee on this floor, by you or someone else: where it goes is worked out the same way everywhere. */
-function shotHere(shot: Shot): Flight {
-  return fly(shot, player.street, office.stack.state.index);
-}
-const golf = new Golfer(player, me, camera, {
-  holding: (on) => net.send({ t: 'act', golf: on }),
-  hit: (shot) => {
-    net.send({ t: 'golf', ...shot });
-    balls.launch(shotHere(shot), store.profile.name, true);
-    sound.golf('hit');
-  },
-  ball: () => balls.mine,
-  street: () => player.street,
-  done: () => ctx.hint.invalidate(),
-});
-ctx.activities.add({
-  id: 'golf',
-  active: () => golf.active,
-  // The club goes back for anything but the office moving you off your floor (takenAway leaves it out).
-  stop: (why) => {
-    if (why !== 'taken') golf.stop();
-  },
-  // At the golf tee, E puts the club back (Space swings, see Golfer); nothing else is in reach, and no emotes mid-swing.
-  key: (e) => {
-    if (e.code !== 'KeyF' && e.code !== 'KeyG' && !(e.code in DESK_KEYS) && !/^(?:Digit|Numpad)[1-6]$/.test(e.code)) return false;
-    if (e.code === 'KeyE') golf.stop();
-    return true;
-  },
-  hint: (el) => renderGolfHint(el),
-  takesCamera: true,
-  hidesHands: true,
-});
-ctx.ticks.add('play', ({ dt }) => {
-  // Pulled away from the tee (sat down, off up the ladder, into the elevator): the club goes back.
-  if (golf.active && (trip || ctx.activities.running('hanger') || ctx.activities.running('climber') || player.seat || upTop)) golf.stop();
-  golf.update(dt);
-});
-// The balls in the air (none up on the roof, where the darts are), and the next one on the tee.
-ctx.ticks.add('play', ({ dt, now }) => {
-  balls.update(dt);
-  office.tee.ball.visible = golf.doing !== 'watch' && now > teeEmptyUntil;
-});
-balls.onHit = (hit: Hit, mine: boolean) => {
-  // Your own ball's heard wherever it lands (the camera's following it); anyone else's from where it is.
-  const at = mine ? undefined : hit.at;
-  if (hit.kind === 'cup') sound.golf('cup', at);
-  else if (hit.kind === 'bounce') sound.golf(hit.lie === 'sand' || hit.lie === 'rough' ? 'thud' : 'bounce', at, hit.speed);
-  else sound.golf(hit.kind, at, hit.speed);
-};
-balls.onRest = (f: Flight, who: string, mine: boolean) => {
-  if (f.holed) {
-    confetti.burst(GOLF_HOLE.x, player.street + 1.2, GOLF_HOLE.z, 260, 1.4);
-    sound.golf('cheer');
-  }
-  if (!mine) {
-    if (f.holed) toast(`🏆 ${who} got a hole in one!`);
-    return;
-  }
-  const rec = golfRecord();
-  if (f.holed) {
-    rec.holes++;
-    toast(rec.holes === 1 ? '🏆 HOLE IN ONE!' : `🏆 HOLE IN ONE! That's ${rec.holes}`);
-  } else if (Number.isFinite(f.fromPin) && (rec.best === null || f.fromPin < rec.best)) {
-    if (rec.best !== null) toast(`⛳ ${pinText(f.fromPin)} from the pin — your best yet!`);
-    rec.best = f.fromPin;
-  } else return;
-  saveGolfRecord(rec);
-};
+const golfing = installGolf(ctx, { standUp: () => seating.standUp(), stopWalking: stopWalkingTo, stopSmoking: () => smoking.stop(), personOf: (id) => remotes.get(id)?.person });
 
-/** Who's at the tee on this floor already, if anyone. */
-function teeTaken(): string | null {
-  for (const p of store.peers.values()) if (p.id !== store.you && p.golfing && store.onMyFloor(p)) return p.name;
-  return null;
-}
-
-/** E at the tee: take a club out and step up to the ball. */
-function teeOff() {
-  if (golf.active || trip || ctx.activities.running('climber')) return;
-  const other = teeTaken();
-  if (other) return toast(`🏌️ ${other} is on the tee — wait your turn`, 'warn');
-  if (carrying) return toast(`✋ Your hands are full: put #${carrying.issue} down first (Q)`, 'warn');
-  if (player.seat) standUp();
-  ctx.activities.stopAll('start');
-  if (walkingTo) stopWalking();
-  if (smokeBreakUntil) setSmoking(false);
-  golf.start();
-}
-
-ctx.interactions.define('golf', {
-  reach: 3.5,
-  hint: () => {
-    const other = teeTaken();
-    if (other) return { k: `taken|${other}`, parts: [hintTitle('⛳ Golf tee'), aside(`🏌️ ${clip(other, 24)} is teeing off`)] };
-    const { best, holes } = golfRecord();
-    const about = [holes ? `🏆 ${holes} hole${holes === 1 ? '' : 's'} in one` : '', best !== null ? `your best ${pinText(best)} from the pin` : `the pin's ${Math.round(PIN_DISTANCE)} m out`].filter(Boolean).join(' · ');
-    return { k: about, parts: [hintTitle('⛳ Golf tee'), aside(about), key('E', 'Tee off')] };
-  },
-  use: onE(() => teeOff()),
-});
-ctx.messages.on('golf', (msg) => theirShot(msg.id, { yaw: msg.yaw, loft: msg.loft, power: msg.power }));
-/** Someone else on the floor hit one: their swing, then their ball, off the same tee. */
-function theirShot(id: string, shot: Shot) {
-  const p = store.peers.get(id);
-  if (!p || !store.onMyFloor(p) || upTop) return;
-  remotes.get(id)?.person.golfSwing(shot.power);
-  const floor = store.floor;
-  setTimeout(() => {
-    if (store.floor !== floor || upTop) return;
-    balls.launch(shotHere(shot), p.name, false);
-    teeEmptyUntil = performance.now() + 1800;
-    sound.golf('hit', TEE_BALL);
-  }, (BACKSWING_TIME + IMPACT) * 1000);
-}
 // ---- Darts and axes at the rooftop bar ------------------------------------------------------------
-/** Your best round at each (points), kept in this browser. */
-const THROW_KEY = 'agent-office.bargames';
-const throwBests: Partial<Record<BarGame, number>> = (() => {
-  try {
-    const r = JSON.parse(localStorage.getItem(THROW_KEY) ?? '{}') as Record<string, unknown>;
-    const out: Partial<Record<BarGame, number>> = {};
-    for (const g of ['darts', 'axe'] as BarGame[]) if (typeof r[g] === 'number') out[g] = r[g] as number;
-    return out;
-  } catch {
-    return {};
-  }
-})();
-function saveThrowBests() {
-  try {
-    localStorage.setItem(THROW_KEY, JSON.stringify(throwBests));
-  } catch {
-    // private window: it's only for this visit then
-  }
-}
-/** The round being thrown at each game up here: whose, and what each throw of it has scored so far. */
-const rounds: Partial<Record<BarGame, { by: string; name: string; color: string; scores: Score[] }>> = {};
-const thrower = new Thrower(player, me, camera, canvas, {
-  holding: (game) => net.send({ t: 'act', throwing: game }),
-  toss: (toss, from, turn) => {
-    net.send({ t: 'toss', ...toss });
-    tossHere(store.you, toss, from, turn);
-  },
-  aim: (game, u, v) => roof?.games.aim(game, u, v),
-  done: () => ctx.hint.invalidate(),
-});
-ctx.activities.add({
-  id: 'thrower',
-  active: () => thrower.active,
-  // Back from the line for anything but the office moving you off your floor or the map changing (neither ever put the dart down).
-  stop: (why) => {
-    if (why !== 'taken' && why !== 'map') thrower.stop();
-  },
-  // At the dart board or the axe lane, E steps back (Space throws, see Thrower); nothing else is in reach, and no emotes mid-throw.
-  key: (e) => {
-    if (e.code !== 'KeyF' && e.code !== 'KeyG' && !(e.code in DESK_KEYS) && !/^(?:Digit|Numpad)[1-6]$/.test(e.code)) return false;
-    if (e.code === 'KeyE') thrower.stop();
-    return true;
-  },
-  hint: (el) => renderThrowHint(el),
-  takesCamera: true,
-  hidesHands: true,
-});
-
-ctx.ticks.add('play', ({ dt }) => {
-  // Pulled away from the line (sat down, into the elevator): the dart or axe goes back.
-  if (thrower.active && (trip || ctx.activities.running('hanger') || ctx.activities.running('climber') || player.seat || !upTop)) thrower.stop();
-  thrower.drunk = player.drunk;
-  thrower.update(dt);
-});
-
-/** Who's at a game's line up here already, if anyone. */
-function lineTaken(game: BarGame): string | null {
-  for (const p of store.peers.values()) if (p.id !== store.you && p.throwing === game && store.onMyFloor(p)) return p.name;
-  return null;
-}
-
-/** E at the dart board or the axe lane: step up to the line with a dart (or an axe) in hand. */
-function stepUp(game: BarGame) {
-  if (thrower.active || trip || ctx.activities.running('climber')) return;
-  const other = lineTaken(game);
-  if (other) return toast(`${game === 'darts' ? '🎯' : '🪓'} ${other} is throwing — wait your turn`, 'warn');
-  if (player.seat) standUp();
-  ctx.activities.stopAll('start');
-  if (walkingTo) stopWalking();
-  thrower.start(game);
-}
-
-/** At the dart board or the axe lane: who's throwing, or your best round, and E to step up. */
-function throwHint(game: BarGame): Hint {
-  const name = game === 'darts' ? '🎯 Darts' : '🪓 Axe throwing';
-  const other = lineTaken(game);
-  if (other) return { k: `taken|${other}`, parts: [hintTitle(name), aside(`${clip(other, 24)} is throwing`)] };
-  const best = throwBests[game];
-  const about = best !== undefined ? `your best round: ${best}` : game === 'darts' ? 'three darts a visit' : 'five axes a round';
-  return { k: about, parts: [hintTitle(name), aside(about), key('E', game === 'darts' ? 'Step up to the oche' : 'Step up to the line')] };
-}
-ctx.interactions.define('darts', {
-  reach: 4,
-  hint: () => throwHint('darts'),
-  use: onE(() => stepUp('darts')),
-});
-ctx.interactions.define('axe', {
-  reach: 5.5,
-  hint: () => throwHint('axe'),
-  use: onE(() => stepUp('axe')),
-});
-
-/** What a throw says over the target as it lands. */
-function tossPop(game: BarGame, s: Score): string {
-  if (game === 'darts') return s.points === 0 ? 'Miss' : s.label === 'Bull' ? 'BULL!' : s.label;
-  return s.label === 'Killshot' ? 'KILLSHOT!' : s.label === 'Bull' ? 'BULLSEYE!' : s.points === 0 ? (s.label === 'Drop' ? 'Clank!' : '0') : `+${s.points}`;
-}
-
-/** A throw at a game up here, by you or anyone else: it flies, lands, and goes up on the chalkboard. */
-function tossHere(by: string, toss: Toss, from: THREE.Vector3, turn: number) {
-  const r = roof;
-  if (!r || !upTop) return;
-  const { game } = toss;
-  const mine = by === store.you;
-  const peer = store.peers.get(by);
-  let round = rounds[game];
-  // A new round (or somebody else's): the last one's darts come out of the board first.
-  if (toss.n === 1 || !round || round.by !== by) {
-    r.games.clear(game);
-    round = rounds[game] = { by, name: mine ? store.profile.name : (peer?.name ?? 'Someone'), color: mine ? store.profile.color : (peer?.color ?? '#8ecae6'), scores: [] };
-    r.games.chalk(game, round);
-    if (mine) thrower.setInfo('');
-  }
-  const it = round;
-  sound.toss(game === 'darts' ? 'dart' : 'axe', from);
-  r.games.launch(toss, from, turn, it.color, () => {
-    const s = score(game, toss.u, toss.v, toss.stick);
-    const at = r.games.point(game, toss.u, toss.v, new THREE.Vector3());
-    sound.toss(game === 'darts' ? (s.label === 'Miss' ? 'wall' : 'board') : toss.stick ? 'thunk' : 'clank', at);
-    // Somebody's next round started while this was on its way: it's still on the board, but not on theirs.
-    if (rounds[game] !== it || it.scores.length >= ROUND[game]) return;
-    it.scores.push(s);
-    r.games.chalk(game, it);
-    r.games.pop(game, tossPop(game, s), it.color);
-    if (s.label === 'Killshot') {
-      const f = targetFrame(game);
-      sound.toss('cheer', at);
-      confetti.burst(at.x + f.out.x * 0.3, at.y, at.z + f.out.z * 0.3, 90, 0.5);
-    }
-    const total = it.scores.reduce((a, x) => a + x.points, 0);
-    const done = it.scores.length === ROUND[game];
-    if (mine) thrower.setInfo(`${it.scores.map((x) => x.label).join(' · ')}  =  ${total}`);
-    if (done) roundOver(game, it.name, mine, total);
-  });
-}
-
-/** The last throw of a round landed: how it went, and a cheer for a great one. */
-function roundOver(game: BarGame, name: string, mine: boolean, total: number) {
-  const great = game === 'darts' ? total === 180 : total >= 30;
-  if (great) {
-    const f = targetFrame(game);
-    sound.toss('cheer', f);
-    confetti.burst(f.x + f.out.x * 0.5, f.y + 0.4, f.z + f.out.z * 0.5, 200, 0.9);
-  }
-  const what = game === 'darts' ? (total === 180 ? 'ONE HUNDRED AND EIGHTY!' : `${total} with three darts`) : `${total} of 40 with five axes`;
-  const icon = game === 'darts' ? '🎯' : '🪓';
-  if (!mine) {
-    if (great) toast(`${icon} ${name}: ${what}`);
-    return;
-  }
-  const best = throwBests[game];
-  const beat = best === undefined || total > best;
-  if (beat) {
-    throwBests[game] = total;
-    saveThrowBests();
-  }
-  toast(`${icon} ${what}${beat && best !== undefined ? ' — your best yet!' : ''}`);
-}
-
-ctx.messages.on('toss', (msg) => theirToss(msg.id, { game: msg.game, u: msg.u, v: msg.v, stick: msg.stick, n: msg.n }));
-/** Someone else up here threw one: their arm goes, then it flies from their hand. */
-function theirToss(id: string, toss: Toss) {
-  const p = store.peers.get(id);
-  if (!p || !store.onMyFloor(p) || !upTop) return;
-  const person = remotes.get(id)?.person;
-  const release = (from: THREE.Vector3, turn: number) => tossHere(id, toss, from, turn);
-  if (person) person.tossAuto(release);
-  else release(new THREE.Vector3(p.x, p.y + 1.5, p.z), 0);
-}
+const bargames = installBarGames(ctx, { roof: rooftop.roof, standUp: () => seating.standUp(), stopWalking: stopWalkingTo, personOf: (id) => remotes.get(id)?.person });
 
 sky.onThunder = (delay, loud) => sound.thunder(delay, loud);
-const hanger = new Hanger(net, camera, canvas, player, office, gallery);
-scene.add(hanger.ghost.group);
-hanger.onChange = () => {
-  hud.refresh();
-  ctx.hint.invalidate();
-};
-ctx.activities.add({
-  id: 'hanger',
-  active: () => hanger.active,
-  // Put away for anything but walking over to someone, which you can do holding a picture up.
-  stop: (why) => {
-    if (why !== 'walk') hanger.cancel();
-  },
-  key: (e) => {
-    if (!hangingKey(e.code)) return false;
-    e.preventDefault();
-    return true;
-  },
-  hint: (el) => renderHangHint(el),
-});
-ctx.ticks.add('world', () => hanger.update());
-ctx.interactions.define('decor', {
-  reach: 9,
-  hint: (it) => {
-    const d = store.decor.find((x) => x.id === it.decorId);
-    return { k: `${d?.title}|${d?.by}`, parts: [hintTitle(`🖼️ ${d?.title || 'A picture'}`), d ? aside(`hung by ${d.by}`) : '', key('E', 'Look closer')] };
-  },
-  use: onE((it) => {
-    if (it.decorId) hanger.view(it.decorId);
-  }),
-});
+const hanging = installHanging(ctx, { gallery, reach });
 
 // ---- The ladder and the fire poles ----------------------------------------------------------------
-/** The floors of the building from the bottom up (not the ones still being cloned: nobody can go there yet). */
-function builtFloors(): FloorInfo[] {
-  return store.floors.filter((f) => !f.cloning);
-}
-/** The floor above yours (1) or below it (-1), if there is one. */
-function floorThere(way: Way): FloorInfo | undefined {
-  const floors = builtFloors();
-  const i = floors.findIndex((f) => f.id === store.floor);
-  return i < 0 ? undefined : floors[i + way];
-}
-const climber = new Climber(player, {
-  floorThere: (way) => floorThere(way)?.name,
-  travel: (way, how, at) => {
-    const f = floorThere(way);
-    if (f) travel(f.id, how, at);
-    else climber.abort();
-  },
-  sound: (kind, speed = 0) => {
-    if (kind === 'grab') sound.rung(true);
-    else if (kind === 'rung') sound.rung();
-    else if (kind === 'slide') sound.slide();
-    else if (kind === 'twirl') sound.twirl();
-    else if (kind === 'bonk') {
-      sound.bonk();
-      toast(`🔝 ${store.currentFloor()?.name ?? 'This'} is the top floor — the hatch won't budge`);
-    } else if (kind === 'land') {
-      sound.poleLanding(speed);
-      landed(speed);
-    }
-  },
-  done: () => ctx.hint.invalidate(),
-});
-ctx.activities.add({
-  id: 'climber',
-  active: () => climber.active,
-  // Off the ladder or the pole for anything but walking over to someone (that waits till you're off, see walkTick).
-  stop: (why) => {
-    if (why !== 'walk') climber.abort();
-  },
-  // On the ladder, E gets you off it (and nothing else is in reach); W, S and Space climb.
-  key: (e) => {
-    if (e.code !== 'KeyE' && e.code !== 'KeyF' && !(e.code in DESK_KEYS)) return false;
-    if (e.code === 'KeyE') climber.letGo();
-    return true;
-  },
-  hint: (el) => renderClimbHint(el),
-});
-/** Down the pole onto the mat: the view shakes, dust flies, and there's the floor you're on now. */
-function landed(speed: number) {
-  ctx.shake(Math.min(1, speed / 7), true);
-  const at = new THREE.Vector3();
-  const dir = new THREE.Vector3();
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2;
-    at.set(player.pos.x + Math.sin(a) * 0.3, player.pos.y + 0.08, player.pos.z + Math.cos(a) * 0.3);
-    smoke.exhale(at, dir.set(Math.sin(a), 0.15, Math.cos(a)).normalize());
-  }
-  const f = store.currentFloor();
-  toast(`🚒 Wheee! Down to ${f?.name ?? 'the floor below'}`);
-}
-office.stack.onHatch = (where, open) => sound.hatch({ x: LADDER.x + 0.3, y: where === 'floor' ? 0 : WALL_HEIGHT, z: LADDER.z }, open);
-// Speed lines round the edge of the screen, sliding down a pole.
-const whoosh = h('div', { id: 'whoosh' });
-$('app').append(whoosh);
-
-/** E at the ladder: onto it, facing the wall. */
-function grabLadder() {
-  if (trip || climber.active) return;
-  if (!floorThere(1) && !floorThere(-1)) return toast('No other floors yet — add a project in the elevator', 'warn');
-  if (player.seat) standUp();
-  ctx.activities.stopAll('start');
-  if (walkingTo) stopWalking();
-  climber.grabLadder();
-}
-
-/** E at a fire pole: down it, if there's a floor below; else (on the bottom floor) a spin round it. */
-function usePole(i: number) {
-  const spot = POLES[i];
-  if (trip || climber.active || !spot) return;
-  if (player.seat) standUp();
-  ctx.activities.stopAll('start');
-  if (walkingTo) stopWalking();
-  if (office.stack.polesGoDown()) climber.slide(spot);
-  else climber.twirl(spot);
-}
-// Before the cars get a go at you (see their 'moved' tick): a car only shoves you down at the street, never at a pole's hole up on a floor.
-ctx.ticks.add('moved', () => {
-  // Walked into a pole's hole: you grab the pole on your way down it.
-  const hole = inOffice() && office.stack.polesGoDown() ? office.stack.poles().find((s) => Math.hypot(player.pos.x - s.x, player.pos.z - s.z) < POLE.hole - 0.15) : undefined;
-  if (hole && !climber.active && !trip && !player.seat && player.enabled && player.pos.y > -1.35 && player.pos.y < 0.6) climber.slide(hole);
-});
-
-ctx.interactions.define('ladder', {
-  reach: 3,
-  hint: () => {
-    const up = floorThere(1)?.name;
-    const down = floorThere(-1)?.name;
-    const where = [up && `⬆ ${up}`, down && `⬇ ${down}`].filter(Boolean).join(' · ');
-    return { k: where, parts: [hintTitle('🪜 Ladder'), aside(where || 'no other floors yet'), key('E', 'Climb on')] };
-  },
-  use: onE(() => grabLadder()),
-});
-ctx.interactions.define('pole', {
-  reach: 4,
-  hint: () => {
-    if (office.stack.polesGoDown()) {
-      const down = floorThere(-1)?.name ?? 'the floor below';
-      return { k: `down|${down}`, parts: [hintTitle('🚒 Fire pole'), aside(`down to ${down}`), key('E', 'Slide down!')] };
-    }
-    const up = floorThere(1)?.name ?? 'upstairs';
-    return { k: `landing|${up}`, parts: [hintTitle('🚒 Fire pole'), aside(`comes down from ${up}`), key('E', 'Twirl')] };
-  },
-  use: onE((it) => {
-    if (it.pole !== undefined) usePole(it.pole);
-  }),
-});
+const climbing = installClimbing(ctx, { travel, standUp: () => seating.standUp(), stopWalking: stopWalkingTo });
 
 // ---- The cars in the garage ------------------------------------------------------------------------
-/** car.enter and car.leave of yours the office hasn't answered yet: until it has, you're where you say you are. */
-let carPending = 0;
-
-/** Where car `i` is, at about the height of its horn. */
-function carAt(i: number): { x: number; y: number; z: number } {
-  const p = office.cars.cars[i]?.pose ?? CARS[i];
-  return { x: p.x, y: player.street + 0.6, z: p.z };
-}
-
-/** E at a car: behind the wheel if nobody's driving it, else beside whoever is. */
-function getIn(i: number) {
-  const c = store.cars[i];
-  const def = CARS[i];
-  if (trip || ctx.activities.running('climber') || driver.active || !c || !def) return;
-  if (carrying) return toast('🗂️ Your hands are full: put the card back first (Q)', 'warn');
-  if (holdingBall()) return toast('🏀 Put the ball down first (Q)', 'warn');
-  const seat: CarSeat | null = !c.driver ? 'driver' : !c.passenger ? 'passenger' : null;
-  if (!seat) return toast(`🏎️ The ${def.name} is full`, 'warn');
-  if (player.seat) standUp();
-  ctx.activities.stopAll('start');
-  if (walkingTo) stopWalking();
-  driver.enter(i, seat);
-  me.sit(SEAT_HIPS);
-  carPending++;
-  net.send({ t: 'car.enter', car: i, seat });
-  sound.carDoor(carAt(i));
-  ctx.hint.invalidate();
-}
-
-ctx.interactions.define('car', {
-  reach: 4,
-  hint: (it) => {
-    const c = store.cars[it.car ?? -1];
-    const def = CARS[it.car ?? -1];
-    if (!c || !def) return { k: '', parts: [] };
-    const name = (id?: string) => (id ? clip(store.peers.get(id)?.name ?? 'Someone', 20) : '');
-    const [at, beside] = [name(c.driver), name(c.passenger)];
-    const k = `${it.car}|${at}|${beside}`;
-    if (!at) return { k, parts: [hintTitle(`🏎️ ${def.name}`), aside(beside ? `${beside} is waiting in it` : 'keys in the ignition'), key('E', 'Drive it')] };
-    if (!beside) return { k, parts: [hintTitle(`🏎️ ${def.name}`), aside(`${at} is driving`), key('E', 'Hop in')] };
-    return { k, parts: [hintTitle(`🏎️ ${def.name}`), aside(`${at} and ${beside} · full`)] };
-  },
-  use: onE((it) => {
-    if (it.car !== undefined) getIn(it.car);
-  }),
-});
-
-/** E in a car: out onto your feet beside it; `anyway`, even with no room there. False if you couldn't. */
-function getOut(anyway = false): boolean {
-  const i = driver.car;
-  if (i === null) return true;
-  if (!driver.leave(anyway)) {
-    toast('🚪 No room to open the door here', 'warn');
-    return false;
-  }
-  leftCar(i);
-  return true;
-}
-
-/** Out of the car wherever you are: something else is moving you (to another floor, a desk). */
-function dropCar() {
-  const i = driver.car;
-  if (i === null) return;
-  driver.drop();
-  leftCar(i);
-}
-
-function leftCar(i: number) {
-  me.sit(null);
-  carPending++;
-  net.send({ t: 'car.leave' });
-  sound.carDoor(carAt(i));
-  ctx.hint.invalidate();
-}
-
-ctx.activities.add({
-  id: 'driver',
-  active: () => driver.active,
-  // Out onto your feet for a trip to another floor, or let go of where you are for a desk. Walking over
-  // to someone gets you out first itself (it can't, with no room at the door), and nothing else does.
-  stop: (why) => {
-    if (why === 'trip') getOut(true);
-    else if (why === 'desk') dropCar();
-  },
-  // In a car, E gets you out and H honks (W A S D and Space drive, see Driver); nothing else is in reach.
-  key: (e) => {
-    if (e.code !== 'KeyE' && e.code !== 'KeyH' && e.code !== 'KeyF' && !(e.code in DESK_KEYS)) return false;
-    if (e.repeat) return true;
-    if (e.code === 'KeyE') getOut();
-    else if (e.code === 'KeyH') honk();
-    return true;
-  },
-  hint: (el) => renderDriveHint(el),
-  hidesHands: true,
-});
-
-/** H in a car: its horn, for everyone on the floor. */
-let honkedAt = 0;
-function honk() {
-  const i = driver.car;
-  const now = performance.now();
-  if (i === null || now - honkedAt < 300) return;
-  honkedAt = now;
-  sound.honk(carAt(i), CARS[i].kind === 'lambo');
-  net.send({ t: 'car.honk' });
-}
-
-/** Laps of the scenic loop you've driven (see LapTimer), and your fastest, kept in this browser. */
-const LAP_KEY = 'agent-office.bestLap';
-const laps = new LapTimer(
-  (() => {
-    try {
-      const best = Number(localStorage.getItem(LAP_KEY));
-      return best > 0 ? best : null;
-    } catch {
-      return null;
-    }
-  })(),
-);
-function lapDone(time: number) {
-  const done = laps.done;
-  if (done?.best) {
-    try {
-      localStorage.setItem(LAP_KEY, String(time));
-    } catch {
-      // private window: it's only for this visit then
-    }
-  }
-  if (done?.best) sound.golf('cheer');
-  else sound.arcade('clear');
-  toast(done?.best ? `🏁 Lap of the scenic loop: ${lapTime(time)}, your best yet!` : `🏁 Lap of the scenic loop: ${lapTime(time)} (best ${lapTime(laps.best ?? time)})`, 'info');
-}
-
-ctx.ticks.add('vehicles', ({ dt, now }) => {
-  // The cars first, so whoever's riding in one sits in it where it's got to.
-  office.cars.update(dt, store.cars, store.carsAt, now, driver.active ? { car: driver.car!, driving: driver.driving } : null, camera.position);
-});
-/** When a car last shoved you out of its way. */
-let shovedAt = 0;
-ctx.ticks.add('moved', ({ now }) => {
-  // Timing a lap of the scenic loop, behind the wheel.
-  if (driver.driving && driver.pose) {
-    const lap = laps.update(driver.pose.x, driver.pose.z, now / 1000);
-    if (lap !== null) lapDone(lap);
-  } else laps.reset();
-  // A car coming at you where you stand: out of its way, with a thump if it was going.
-  if (inOffice() && !driver.active && !upTop && !trip) {
-    const hit = office.cars.shove(player.pos, null);
-    if (hit > 1.5 && now - shovedAt > 600) {
-      shovedAt = now;
-      sound.crash({ x: player.pos.x, y: player.pos.y + 0.8, z: player.pos.z }, hit / 2);
-      ctx.shake(Math.min(0.7, hit / 12));
-    }
-  }
-});
-ctx.ticks.add('others', () => {
-  // The engines of the cars being driven on this floor, yours (by how hard you're on the gas) and theirs.
-  const engines: Parameters<typeof sound.setEngines>[0] = [];
-  if (!upTop && inOffice()) {
-    for (const [i, c] of store.cars.entries()) {
-      const mine = driver.car === i && driver.driving;
-      if (!c.driver && !mine) continue;
-      const pose = office.cars.cars[i]?.pose ?? c;
-      engines.push({ car: i, at: { x: pose.x, y: player.street + 0.5, z: pose.z }, speed: pose.speed, gas: mine ? driver.gas : Math.min(1, Math.abs(pose.speed) / 10) });
-    }
-  }
-  sound.setEngines(engines);
-});
-
-/**
- * The office said who's in which car (`answer`: answering a car.enter or car.leave of yours). Once
- * it has answered them all, where it has you is where you are: out, if someone got in first.
- */
-function carNews(answer: boolean) {
-  if (answer) carPending = Math.max(0, carPending - 1);
-  if (carPending > 0) return;
-  const mine = store.carOf(store.you);
-  if (driver.active) {
-    if (mine?.car === driver.car && mine.seat === driver.seat) return;
-    const who = store.cars[driver.car!]?.[driver.seat!];
-    getOut(true);
-    toast(`🏎️ ${(who && store.peers.get(who)?.name) || 'Someone'} got in there first`, 'warn');
-  } else if (mine) {
-    // You got out while it was answering something else of yours.
-    carPending++;
-    net.send({ t: 'car.leave' });
-  }
-}
-
-ctx.messages.on('cars', (msg) => carNews(!!msg.answer));
-ctx.messages.on('car.honk', (msg) => {
-  if (msg.car >= 0 && msg.car < CARS.length) sound.honk(carAt(msg.car), CARS[msg.car].kind === 'lambo');
-});
-// A floor's cars where they are before anything asks if there's room to stand beside one (see welcome):
-// right after the store has them, before any other message handler.
-ctx.messages.onAny((msg) => {
-  if (msg.t === 'welcome' || msg.t === 'floor.enter') office.cars.snap(store.cars);
-});
-
-/** Back after a reconnect, which let go of your seat for you: back into it if it's still free. */
-function carAgain() {
-  carPending = 0;
-  const i = driver.car;
-  const seat = driver.seat;
-  if (i === null || seat === null) return;
-  const c = store.cars[i];
-  if (!c || c[seat]) {
-    getOut(true);
-    return;
-  }
-  carPending++;
-  net.send({ t: 'car.enter', car: i, seat });
-  const p = driver.driving ? driver.pose : null;
-  if (p) net.send({ t: 'car.drive', car: i, x: p.x, z: p.z, rotY: p.rotY, speed: p.speed, steer: p.steer });
-}
-
-/** Where someone on your floor is sitting in a car, if they're in one. */
-function rideOf(id: string): { x: number; y: number; z: number; rotY: number } | undefined {
-  const at = store.carOf(id);
-  return at && office.cars.seatAt(at.car, at.seat);
-}
-
-/** In a car: how fast, who with, and the keys. */
-function renderDriveHint(el: HTMLElement) {
-  const i = driver.car!;
-  const c = store.cars[i];
-  const name = (id?: string) => (id && id !== store.you ? (store.peers.get(id)?.name ?? '') : '');
-  let hint: Hint;
-  // Where you are on the scenic loop, and how the lap's going.
-  const pose = office.cars.cars[i]?.pose;
-  const place = pose ? loopPlace(pose.x, pose.z) : null;
-  const where = place ? ` · ${PLACES[place].icon} ${PLACES[place].name}` : '';
-  if (driver.driving) {
-    const kmh = Math.round(Math.abs(driver.pose?.speed ?? 0) * 3.6);
-    const other = name(c?.passenger);
-    const now = performance.now() / 1000;
-    const done = laps.done && now - laps.done.at < 6 ? laps.done : null;
-    const running = laps.running(now);
-    const lap = done ? ` · 🏁 ${lapTime(done.time)}${done.best ? ' best!' : ''}` : running !== null ? ` · ⏱ ${lapTime(running)}` : '';
-    hint = {
-      k: `drive|${kmh}|${other}|${where}|${lap}`,
-      parts: [h('span.title', {}, `🏎️ ${CARS[i].name}`), aside(`${kmh} km/h${where}${lap}${other ? ` · with ${clip(other, 20)}` : ''}`), key('W A S D', 'Drive'), key('Space', 'Brake'), key('H', 'Honk'), key('E', 'Get out')],
-    };
-  } else {
-    const at = name(c?.driver);
-    hint = { k: `ride|${at}|${where}`, parts: [h('span.title', {}, `🏎️ ${CARS[i].name}`), aside(`${at ? `${clip(at, 24)} is driving` : 'nobody at the wheel'}${where}`), key('H', 'Honk'), key('E', 'Get out')] };
-  }
-  const k = `car|${hint.k}`;
-  if (k === hintKey) return;
-  hintKey = k;
-  el.replaceChildren(...hint.parts);
-  el.classList.remove('hidden');
-}
+const cars = installCars(ctx, { standUp: () => seating.standUp(), stopWalking: stopWalkingTo });
 
 /**
  * The ladder and the poles go where there are floors to go to from this one, and the building is as
@@ -1394,10 +414,6 @@ function syncStack() {
   wingsShown = wings.join();
   if (!same) office.stack.set({ index: Math.max(0, index), count, up, down });
   office.setLevel(Math.max(0, index), count, wings);
-}
-/** How far each floor's back office goes, for the building's outside (the one you're on as you see it). */
-function floorWings(floors: FloorInfo[]): number[] {
-  return floors.map((f) => (f.id === store.floor ? store.floorPlan.wing : (f.wing ?? 0)));
 }
 let wingsShown = '';
 store.on('floors', syncStack);
@@ -1543,7 +559,7 @@ ctx.messages.on('welcome', (msg) => {
   } else if (store.floor && store.floor !== wasOn) {
     // Back after the office restarted, but not on your floor: it went while the office was down.
     takenAway();
-    if (carrying) setCarrying(null);
+    if (carrying) cards.setCarrying(null);
     arrive();
     floorWentWhileAway(wasOn);
   } else if (!store.floor) arrive();
@@ -1551,12 +567,13 @@ ctx.messages.on('welcome', (msg) => {
   if (voice.inVoice || voice.sharing) net.send({ t: 'voice', voice: voice.inVoice, muted: voice.muted, sharing: voice.sharing });
   if (player.seat) net.send({ t: 'sit', seat: player.seat.key });
   if (carrying) net.send({ t: 'carry', issue: carrying.issue, title: carrying.title });
+  const shownDrink = bar.shownDrink();
   if (shownDrink) net.send({ t: 'act', drink: shownDrink });
-  if (golf.active) net.send({ t: 'act', golf: true });
-  if (thrower.playing) net.send({ t: 'act', throwing: thrower.playing });
+  if (golfing.golf.active) net.send({ t: 'act', golf: true });
+  if (bargames.thrower.playing) net.send({ t: 'act', throwing: bargames.thrower.playing });
   // The office let go of the ball for you while you were away, and of your seat in a car.
-  ballNews(false);
-  carAgain();
+  hoops.ballNews(false);
+  cars.carAgain();
   // After a reconnect the server has forgotten which terminal we had open, and what we're doing.
   sendDoing(true);
   const openId = openTerminalFor();
@@ -1577,11 +594,11 @@ ctx.messages.on('floor.enter', () => {
   // The card belongs to the board downstairs (or up): the office already put it back there.
   if (carrying) {
     toast(`📌 #${carrying.issue} stayed behind on the other floor's board`);
-    setCarrying(null);
+    cards.setCarrying(null);
   }
   // So does the ball: it's back under that floor's hoop.
-  if (holdingBall()) toast('🏀 The ball stayed behind, back under the other floor’s hoop');
-  ballNews(false);
+  if (hoops.holding()) toast('🏀 The ball stayed behind, back under the other floor’s hoop');
+  hoops.ballNews(false);
   arrive();
   // Down off a roof that isn't there any more, or the map changed on the way: where you come in on this map.
   if (offRoof || placeOnArrival) {
@@ -1675,8 +692,9 @@ function indoors(): boolean {
 
 /** On your feet at `at`, facing `rotY` and looking straight ahead. */
 function placeAt(at: { x: number; y: number; z: number; rotY: number }) {
-  if (player.seat) standUp();
-  dropCar();
+  if (player.seat) seating.standUp();
+  // Out of the car, wherever you are (none before the cars are there: nobody's in one yet).
+  ctx.activities.stop('driver', 'desk');
   player.pos.set(at.x, at.y, at.z);
   player.vy = 0;
   player.facing = at.rotY;
@@ -1694,9 +712,9 @@ function takenAway() {
 
 /** Where you're standing, to come back to (see lastSpot): nowhere while you're between floors, or climbing between them. */
 function spotHere(): Spot | null {
-  if (!store.floor || trip || climber.active) return null;
+  if (!store.floor || trip || climbing.climber.active) return null;
   // Sitting, it's where you'd get up to; in a car, where you'd get out.
-  const at = (driver.active ? driver.wayOut() : player.standingSpot()) ?? player.pos;
+  const at = (cars.driver.active ? cars.driver.wayOut() : player.standingSpot()) ?? player.pos;
   const name = store.floor === ROOF ? ROOF_NAME : (store.currentFloor()?.name ?? '');
   return { floor: store.floor, name, map: plan().id, x: at.x, y: at.y, z: at.z, facing: player.facing, ...(onThrone() ? { throne: true } : {}) };
 }
@@ -1714,6 +732,7 @@ function saveSpot() {
 window.addEventListener('pagehide', () => {
   saveSpot();
   // Mid-drive, the car stops right where you left it, not where the office last heard it was.
+  const { driver } = cars;
   const p = driver.driving ? driver.pose : null;
   if (p) net.send({ t: 'car.drive', car: driver.car!, x: p.x, z: p.z, rotY: p.rotY, speed: 0, steer: p.steer });
 });
@@ -1752,6 +771,7 @@ ctx.interactions.define('elevator', {
 /** The elevator where you are: the office's, its stop down in the garage, or the one up on the roof. None on a map of its own. */
 function lift() {
   if (!inOffice()) return null;
+  const roof = rooftop.roof();
   return upTop && roof ? roof.elevator : downstairs() ? office.garageLift : office.elevator;
 }
 
@@ -1865,7 +885,7 @@ function switchFloor(floorId: string, keepWalking = false): void {
   closeAllModals();
   stopForTrip();
   backToThrone = onThrone();
-  if (player.seat) standUp();
+  if (player.seat) seating.standUp();
   // The floor list isn't a window, so nothing else stops a walk over to someone on this floor.
   if (walkingTo && !keepWalking) stopWalking();
   trip = { floor: floorId, how: 'switch', timer: window.setTimeout(tripFailed, 10_000) };
@@ -1890,7 +910,7 @@ function tripFailed() {
   trip = null;
   fade(false);
   if (t.how === 'elevator') lift()?.setOpen(!!store.floor);
-  if (t.how === 'ladder' || t.how === 'pole') climber.abort();
+  if (t.how === 'ladder' || t.how === 'pole') climbing.climber.abort();
   player.enabled = !modalOpen();
   // The map changed on the way: back where it has you come in (or down off a roof it doesn't have).
   if (placeOnArrival && !upTop) {
@@ -1938,36 +958,31 @@ function setPlace() {
   const up = store.floor === ROOF;
   if (up === upTop) return;
   upTop = up;
-  const r = up ? theRoof() : roof;
+  const r = up ? rooftop.theRoof() : rooftop.roof();
   world.group.visible = !up;
   // The holiday decorations are dressed round the office and the street below it, not up here.
   holiday.group.visible = !up && inOffice();
   if (r) r.group.visible = up;
   player.colliders = up ? r!.colliders : world.colliders;
-  sky.setRoof(up, roofDrop(roofFloors()));
+  sky.setRoof(up, roofDrop(rooftop.roofFloors()));
   sound.setOutdoors(up);
-  sound.setDj(up ? djAt : null);
+  sound.setDj(up ? rooftop.djAt : null);
   // You can see the whole city from up there (and its clouds); from the top floors, as far as the haze.
   camera.far = up ? 700 : FAR;
   camera.updateProjectionMatrix();
   // Drinks stay at the bar (what you've had comes down with you).
-  if (!up) booze.putDown();
+  if (!up) bar.booze.putDown();
   // Whatever was thrown up there while you were away, you didn't see: the boards start clean.
-  if (up) {
-    for (const g of ['darts', 'axe'] as BarGame[]) {
-      r!.games.clear(g);
-      r!.games.chalk(g, null);
-      delete rounds[g];
-    }
-  }
-  if (hanger.active) hanger.cancel();
+  if (up) bargames.freshBoards(r!);
+  if (hanging.hanger.active) hanging.hanger.cancel();
   ctx.hint.invalidate();
 }
 
 /** What you can use where you are, and what's in the way of looking at it. */
 function usable(): Interactable[][] {
+  const roof = rooftop.roof();
   if (upTop && roof) return [roof.interactables];
-  return inOffice() ? [office.interactables, gallery.interactables, dog.interactables, ball.interactables] : [world.interactables, court?.interactables ?? []];
+  return inOffice() ? [office.interactables, gallery.interactables, dog.interactables, hoops.ball.interactables] : [world.interactables, court?.interactables ?? []];
 }
 
 /**
@@ -1976,7 +991,7 @@ function usable(): Interactable[][] {
  */
 function arrive(how: TripKind | 'back' = trip?.how ?? 'elevator') {
   // The balls lying about were this floor's.
-  balls.clear();
+  golfing.balls.clear();
   setPlace();
   paintFloor();
   renderProject();
@@ -2009,7 +1024,7 @@ function arrive(how: TripKind | 'back' = trip?.how ?? 'elevator') {
   if (how !== 'elevator') {
     player.enabled = !modalOpen();
     if (how === 'switch') unstick();
-    else climber.arrived();
+    else climbing.climber.arrived();
     if (how === 'switch' && backToThrone) sitOnThrone();
     backToThrone = false;
     return;
@@ -2070,9 +1085,9 @@ function applyMap() {
   telescope.exit();
   ctx.activities.stopAll('map');
   if (walkingTo) stopWalking();
-  if (smokeBreakUntil) setSmoking(false);
+  smoking.stop();
   // The office's things: the ball goes down (out of everyone's hands, since its sync is the office's), the games stop.
-  if (holdingBall()) dropBall();
+  if (hoops.holding()) hoops.dropBall();
   me.holdBall(false);
   hands.holdBall(false);
   for (const r of remotes.values()) r.person.holdBall(false);
@@ -2092,8 +1107,8 @@ function applyMap() {
   // The office's own: the holiday decorations round it and the street, the dog, the jukebox.
   holiday.group.visible = inOffice() && !upTop;
   dog.root.visible = inOffice() && !!store.dog;
-  playJukebox();
-  dressBoards(world);
+  jukebox.playJukebox();
+  boards.dressBoards(world);
   painted = -1;
   paintFloor();
   renderProject();
@@ -2106,9 +1121,9 @@ function applyMap() {
   seatedAlready = already;
   syncJail();
   // The boards name seats the way this map does.
-  renderPullsBoard();
-  renderServicesBoard();
-  renderQueueBoard();
+  boards.renderPullsBoard();
+  boards.renderServicesBoard();
+  boards.renderQueueBoard();
   if (store.floor && !upTop && !trip) {
     placeInCar();
     // Back in the office, in its elevator: the doors open onto it.
@@ -2135,7 +1150,7 @@ function placeAtSpawn() {
 
 /** Up onto the map's throne, if it has one and nobody's on it. */
 function sitOnThrone() {
-  const seat = plan().throne && freePlace(plan().throne!);
+  const seat = plan().throne && seating.freePlace(plan().throne!);
   if (!seat || upTop) return;
   if (player.seat) player.stand();
   player.sit(seat);
@@ -2231,7 +1246,7 @@ function syncPeers() {
     }
   }
   renderPeople(voice, editProfile, walkTo);
-  refreshShares();
+  talk.refreshShares();
 }
 store.on('peers', syncPeers);
 // Into a car or out of one: sitting in it, or back on their feet.
@@ -2242,7 +1257,7 @@ ctx.ticks.add('others', ({ dt, t, now }) => {
     const p = store.peers.get(id);
     if (!p) continue;
     // Sitting, they're wherever their seat puts them; in a car, right in it as it goes.
-    const ride = rideOf(id);
+    const ride = cars.rideOf(id);
     const sat = ride ?? (p.seat ? seatOn(plan(), p.seat) : undefined);
     const at = sat ?? p;
     r.target.set(at.x, at.y, at.z);
@@ -2367,8 +1382,8 @@ function walkTo(id: string) {
   if (!p || id === store.you) return;
   if (p.lite) return void toast(`📱 ${p.name} is on the 2D view, not anywhere in the office itself`);
   if (!store.onMyFloor(p) && !p.floor) return;
-  if (!getOut()) return;
-  if (player.seat) standUp();
+  if (!cars.getOut()) return;
+  if (player.seat) seating.standUp();
   ctx.activities.stopAll('walk');
   errand = null;
   walkingTo = { id, replanAt: 0 };
@@ -2384,9 +1399,14 @@ function stopWalking() {
   player.stopWalking();
 }
 
+/** Stops the walk over to someone, if you're on one: what starting anything else does first. */
+function stopWalkingTo() {
+  if (walkingTo) stopWalking();
+}
+
 /** Where they are, sitting or standing. */
 function whereIs(p: PeerInfo): { x: number; y: number; z: number } {
-  return rideOf(p.id) ?? ((p.seat && seatOn(plan(), p.seat)) || p);
+  return cars.rideOf(p.id) ?? ((p.seat && seatOn(plan(), p.seat)) || p);
 }
 
 /** There: stop, and turn to them. */
@@ -2399,7 +1419,7 @@ function arrivedAt(at: { x: number; z: number }) {
 
 /** Each frame: keep heading for them, looking again every so often in case they've moved on. */
 function walkTick(now: number) {
-  if (!walkingTo || trip || climber.active || driver.active || !player.enabled) return;
+  if (!walkingTo || trip || climbing.climber.active || cars.driver.active || !player.enabled) return;
   // Sitting down on the way is stopping there.
   if (player.seat) return stopWalking();
   const p = store.peers.get(walkingTo.id);
@@ -2445,7 +1465,7 @@ let errand: { at: { x: number; z: number }; what: string; face?: { x: number; z:
 function walkThen(at: { x: number; y?: number; z: number }, what: string, then: () => void, face?: { x: number; z: number }) {
   if (upTop || trip || ctx.activities.running('climber') || ctx.activities.running('driver')) return then();
   closeAllModals();
-  if (player.seat) standUp();
+  if (player.seat) seating.standUp();
   ctx.activities.stopAll('errand');
   if (walkingTo) stopWalking();
   errand = { at, what, face, then };
@@ -2718,7 +1738,7 @@ function syncPlan() {
   player.wing = sound.wing = level;
   sky.setWing(level);
   syncStack();
-  syncRoof();
+  rooftop.syncRoof();
   arrangeSeats();
   if (was.floor === store.floor && was.map === shownPlan.map && level > was.wing) {
     const at = { x: (WING.minX + WING.maxX) / 2, y: 1.2, z: wingRowZ(level) };
@@ -3028,9 +2048,9 @@ function goToDesk(deskId: string) {
 
 /** Behind the worker, looking over their shoulder at the laptop (or in front of a board agent's kiosk). */
 function standAt(desk: DeskDef) {
-  if (player.seat) standUp();
+  if (player.seat) seating.standUp();
   // The car first (the activities' own order has it last).
-  dropCar();
+  ctx.activities.stop('driver', 'desk');
   ctx.activities.stopAll('desk');
   if (walkingTo) stopWalking();
   // In line for the throne: in front of it, where it stands.
@@ -3038,7 +2058,7 @@ function standAt(desk: DeskDef) {
   const inLine = w && court ? court.spotOf(w.id) : -1;
   if (inLine >= 0) {
     // At the front: up on the throne, if it's free, where E is for them.
-    const throne = inLine === 0 && plan().throne ? freePlace(plan().throne!) : null;
+    const throne = inLine === 0 && plan().throne ? seating.freePlace(plan().throne!) : null;
     if (throne) {
       player.pos.set(throne.x, throne.y, throne.z);
       player.sit(throne);
@@ -3376,7 +2396,7 @@ function paletteEntries(): PaletteEntry[] {
   out.push({ icon: '⚙️', kind: 'Action', title: 'Settings', keywords: ['preferences', 'options'], open: () => showSettings() });
   if (store.invites) out.push({ icon: '👥', kind: 'Action', title: 'Invite teammates', keywords: ['team', 'add people'], open: () => openTeam(net) });
   else if (store.me.admin) out.push({ icon: '👥', kind: 'Action', title: 'Invite people', detail: 'Accounts', keywords: ['invite teammates', 'accounts', 'team'], open: () => openAccounts(net) });
-  out.push({ icon: '🖼️', kind: 'Action', title: 'Hang a picture', detail: 'On a wall of this floor', keywords: ['decorate', 'frame', 'art'], open: startHanging });
+  out.push({ icon: '🖼️', kind: 'Action', title: 'Hang a picture', detail: 'On a wall of this floor', keywords: ['decorate', 'frame', 'art'], open: hanging.startHanging });
   out.push({ icon: '🔎', kind: 'Action', title: 'Search the chat and every terminal', keywords: ['find'], open: showSearch });
 
   out.push(at('issues', 'the Issues board', { icon: '📌', kind: 'Board', title: 'Issues board', open: () => openBoard('issues', net, boardActions()) }));
@@ -3465,10 +2485,6 @@ ctx.interactions.define('meeting', {
   use: onE(() => showMeeting()),
 });
 
-function showJukebox() {
-  openJukebox(net, () => showSettings('sound'));
-}
-
 /** The project on GitHub, from the floor's origin remote, when that's where it is. */
 function githubUrl(remote?: string): string | undefined {
   const m = /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/.exec(remote ?? '');
@@ -3540,40 +2556,17 @@ function boardActions() {
     ask: (context: string, title: string) => sendToWorker(`✍️ ${title}`, { context }),
     meeting: (preset: MeetingPreset) => showMeeting(preset),
     goToDesk,
-    pickUp,
+    pickUp: cards.pickUp,
   };
-}
-
-function watchShare() {
-  const streams = currentShares();
-  if (!streams.length) {
-    void toggleShare();
-    return;
-  }
-  const video = h('video', { autoplay: true, playsinline: true, muted: true }) as HTMLVideoElement;
-  // What's on the TV: someone else's screen before your own.
-  const [who, stream] = streams.find(([name]) => name !== 'You') ?? streams[0];
-  video.srcObject = stream;
-  const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
-  const el = h('div.modal.viewer', { role: 'dialog', 'aria-label': 'Screen share' }, h('header', {}, h('h2', {}, `🖥️ ${who}'s screen`), close), video);
-  const modal = openModal(el, { doing: `🖥️ watching ${who}'s screen`, onClose: () => (video.srcObject = null) });
-  close.addEventListener('click', () => modal.close());
 }
 
 /** `note` is the issue note you're pointing at on the issues board, if any (see aimedNote). */
 function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   if (!target) return;
   if (target.kind !== 'issues') note = null;
-  if (key === 'E' && carrying && dropCard(target, carrying, note)) return;
+  if (key === 'E' && carrying && cards.dropCard(target, carrying, note)) return;
   // What each kind of thing does is defined with it (see ctx.interactions).
   ctx.interactions.use(target, key, note);
-}
-
-/** A use that's E only: every other key does nothing there. */
-function onE(fn: (it: Interactable) => void): (it: Interactable, key: DeskKey) => void {
-  return (it, key) => {
-    if (key === 'E') fn(it);
-  };
 }
 
 // On the throne: the herald beside you, whoever's in line.
@@ -3626,625 +2619,33 @@ ctx.interactions.define('herald', {
 });
 
 // ---- The rooftop bar ---------------------------------------------------------------------------------
-/** What the bartender says as they slide it over. */
-const CHEERS: Record<string, string> = {
-  beer: 'Cheers! 🍻',
-  wine: 'Salud!',
-  martini: 'Shaken, not stirred',
-  maitai: 'Aloha!',
-  shot: 'Salt, shot, lime… whoa',
-  mojito: 'Fresh and minty',
-  water: 'Good call. Stay hydrated',
-};
-
-/** E at the bar: the menu. */
-function showBar() {
-  openBar({ cutOff: booze.cutOff(performance.now() / 1000), order: orderDrink });
-}
-
-/** The bartender comes over and pours it (a water, if you've had enough), and slides it across to you. */
-function orderDrink(d: Drink) {
-  const r = roof;
-  if (!r || !upTop) return;
-  const cut = d.strength > 0 && booze.cutOff(performance.now() / 1000);
-  const drink = cut ? DRINK_BY_ID.get('water')! : d;
-  r.serve(player.pos.z);
-  sound.pour(r.pourAt);
-  if (cut) toast("🙅 The bartender slides you a water instead: you've had enough", 'warn');
-  setTimeout(() => {
-    if (!upTop) return;
-    booze.drink(drink, performance.now() / 1000);
-    reach();
-    if (player.view === 'first') hands.sip();
-    if (!cut) toast(`${drink.emoji} ${drink.name}. ${CHEERS[drink.id] ?? 'Enjoy!'}`);
-  }, 1500);
-}
-
-ctx.messages.on('horn', (msg) => {
-  if (!upTop) return;
-  sound.horn();
-  if (msg.by !== store.profile.name) toast(`📯 ${msg.by} blew the air horn!`);
-});
-let lastHorn = 0;
-/** E at the DJ booth: the air horn, for everyone on the roof. */
-function blowHorn() {
-  const now = performance.now();
-  if (now - lastHorn < 1500) return;
-  lastHorn = now;
-  net.send({ t: 'horn' });
-}
-
-ctx.interactions.define('bar', {
-  reach: 3.5,
-  hint: () => {
-    const cut = booze.cutOff(performance.now() / 1000);
-    return { k: String(cut), parts: [hintTitle('🍸 Sky Bar'), aside(cut ? "you've had enough" : 'drinks on the house'), key('E', cut ? 'Ask for water' : 'Order a drink')] };
-  },
-  use: onE(() => showBar()),
-});
-ctx.interactions.define('dj', {
-  reach: 6,
-  hint: () => {
-    const f = djFrame(djAt());
-    const what = f.part === 'drop' ? '🔥 the drop' : f.part === 'build' ? 'building up…' : f.part === 'breakdown' ? 'the breakdown' : 'mixing in the next track';
-    return { k: what, parts: [hintTitle('🎧 DJ Merge Conflict'), aside(`drum & bass · ${what}`), key('E', '📯 Air horn!')] };
-  },
-  use: onE(() => blowHorn()),
-});
-
-/** How it's going to your head, the last time it changed, and when the next hiccup comes. */
-let feeling: Feeling = 0;
-let nextHiccup = 0;
-let nextSip = 0;
-/** The drink in your hand everyone else was last told about. */
-let shownDrink: DrinkId | null = null;
-const FEELINGS = ['😌 You feel sober again', '🥴 You’re feeling a little tipsy', '🌀 Whoa… is the city spinning?', '🤪 You’re wasted. Maybe have some water'];
-
-/** Every frame: how drunk you are, the glass in your hand, hiccups and the odd sip. */
-function drinking(now: number) {
-  const secs = now / 1000;
-  const amount = booze.amount(secs);
-  player.drunk = reduceMotion.matches ? 0 : Math.min(1.3, amount);
-  const glass = booze.holding(secs);
-  me.holdDrink(glass);
-  hands.holdDrink(glass);
-  const id = glass?.id ?? null;
-  if (id !== shownDrink) {
-    shownDrink = id;
-    net.send({ t: 'act', drink: id });
-  }
-  if (glass && player.view === 'first' && now > nextSip) {
-    if (nextSip) hands.sip();
-    nextSip = now + 9000 + Math.random() * 9000;
-  }
-  const stage = booze.stage(secs);
-  if (stage !== feeling) {
-    if (stage > feeling || stage === 0) toast(FEELINGS[stage], stage >= 3 ? 'warn' : 'info');
-    feeling = stage;
-  }
-  if (amount > 0.5 && now > nextHiccup) {
-    if (nextHiccup) {
-      sound.hiccup();
-      ctx.shake(0.25);
-    }
-    nextHiccup = now + 5000 + Math.random() * 12000;
-  }
-  return amount;
-}
-/** How drunk you are this frame (see drinking), for the drunk vision the frame's drawn through. */
-let drunkNow = 0;
-ctx.ticks.add('pre', ({ now }) => {
-  // Drinks from the rooftop bar: a glass in hand, and the world swaying.
-  drunkNow = drinking(now);
-});
-
-/** A cup from the kitchen machine: a minute of quicker feet and higher jumps, and a mug in your hand. */
-function drinkCoffee() {
-  const jittery = caffeine.drink(performance.now() / 1000);
-  sound.coffee();
-  if (player.view === 'first') hands.sip();
-  if (jittery) toast('☕ One cup too many… you’ve got the jitters!', 'warn');
-  else if (caffeine.cups > 1) toast('☕ Another cup: back to a full minute of buzz');
-  else toast('☕ Fresh coffee! A minute of quicker feet and higher jumps');
-}
-
-ctx.interactions.define('coffee', {
-  reach: 3,
-  hint: (it) => {
-    const buzzed = caffeine.buzzed(performance.now() / 1000);
-    return { k: String(buzzed), parts: [hintTitle(it.label ?? '☕ Coffee machine'), key('E', buzzed ? 'Another cup' : 'Grab a cup')] };
-  },
-  use: onE(() => drinkCoffee()),
-});
+const bar = installBar(ctx, { roof: rooftop.roof, djAt: rooftop.djAt, reach });
+const coffee = installCoffee(ctx);
 
 // ---- Smoke breaks ------------------------------------------------------------------------------------
-/** When your smoke break ends by itself (performance.now()), or 0 when you're not on one. */
-let smokeBreakUntil = 0;
-const SMOKE_BREAK_MS = 90_000;
-
-function setSmoking(on: boolean) {
-  if (on === smokeBreakUntil > 0) return;
-  smokeBreakUntil = on ? performance.now() + SMOKE_BREAK_MS : 0;
-  me.setSmoking(on);
-  hands.setSmoking(on);
-  net.send({ t: 'act', smoke: on });
-}
-
-/** Out on the balcony (a little slack at the door), where smoking is allowed. */
-function onBalcony(): boolean {
-  const p = player.pos;
-  return inOffice() && p.y > -0.5 && p.y < 2 && p.x > BALCONY.minX - 0.5 && p.x < BALCONY.maxX + 0.5 && p.z > BALCONY.minZ - 0.8 && p.z < BALCONY.maxZ + 0.5;
-}
-
-/** Ends the break when the cigarette burns down, or when you take it back inside. */
-function checkSmokeBreak(now: number) {
-  if (!smokeBreakUntil) return;
-  if (!onBalcony()) {
-    setSmoking(false);
-    toast('🚭 No smoking inside, so you put it out');
-  } else if (now > smokeBreakUntil) {
-    setSmoking(false);
-    toast("That one's done. Back to work!");
-  }
-}
-ctx.ticks.add('world', ({ now }) => checkSmokeBreak(now));
-ctx.interactions.define('smoke', {
-  reach: 3,
-  hint: () => ({ k: String(smokeBreakUntil > 0), parts: [hintTitle('🚬 Ashtray'), key('E', smokeBreakUntil ? 'Stub it out' : 'Take a smoke break')] }),
-  use: onE(() => {
-    if (smokeBreakUntil) {
-      setSmoking(false);
-      toast('You stub it out in the ashtray');
-    } else {
-      setSmoking(true);
-      toast('🚬 Smoke break');
-    }
-  }),
-});
+const smoking = installSmoke(ctx);
 
 // ---- The basketball --------------------------------------------------------------------------------
-/** The floor's basketball, by the hoop on the west wall (see world/hoop.ts). */
-const ball = new Basketball(() => office.colliders);
-office.group.add(ball.group);
-/**
- * Ball messages of yours the office hasn't answered yet (it answers every one): until it has, what
- * you did stands, so picking it up and shooting quickly doesn't snap it back into your hands.
- */
-let ballPending = 0;
-/** The office said where the ball is; `answer` when it's answering one of yours (it may be someone else's news). */
-function ballNews(answer: boolean) {
-  if (!answer) ballPending = 0;
-  else if (ballPending > 0 && --ballPending > 0) return;
-  ball.set(store.ball, performance.now());
-  ctx.hint.invalidate();
-}
-ctx.messages.on('ball', () => ballNews(true));
-const holdingBall = () => ball.holder === store.you;
-/** Baskets of yours in a row, and whether your last throw was a shot at the hoop (a miss of a pass or a drop doesn't count). */
-let streak = 0;
-let shooting = false;
-/** When you started winding up a shot (performance.now()), or 0. */
-let windFrom = 0;
-
-// With the ball in your hands, E winds up a shot (let go to shoot) and Q drops it.
-ctx.keys.add('activity', (e) => {
-  if (!holdingBall() || (e.code !== 'KeyE' && e.code !== 'KeyQ')) return false;
-  if (e.repeat) return true;
-  if (e.code === 'KeyE') windUp();
-  else dropBall();
-  return true;
-});
-
-/** E at the ball: it's yours, if nobody beats you to it. */
-function takeBall() {
-  if (carrying) return toast('🗂️ Your hands are full: put the card back first (Q)', 'warn');
-  if (ball.holder) return;
-  reach();
-  sound.ball('bounce', ball.at, 1.5);
-  ball.takeNow(store.you);
-  ballPending++;
-  net.send({ t: 'ball.take' });
-  ctx.hint.invalidate();
-}
-
-ctx.interactions.define('ball', {
-  reach: 3.2,
-  hint: () => ({ k: String(ball.still), parts: [hintTitle('🏀 Basketball'), ball.still ? aside('shoot some hoops') : '', key('E', ball.still ? 'Pick it up' : 'Catch it!')] }),
-  use: onE(() => takeBall()),
-});
-
-/** How a shot of yours goes from where you are: out of your hands, which way (a heading), how steep, and how hard it takes to sink it (null: you're not shooting at the hoop). */
-function shotAim(): { from: THREE.Vector3; heading: number; pitch: number; ideal: number | null } {
-  const rim = HOOP.rim;
-  const first = player.view === 'first';
-  // First person, the ball goes where you look; third, from over your head the way you face.
-  const facing = first ? player.camYaw + Math.PI : player.facing;
-  const from = first ? camera.position.clone() : new THREE.Vector3(player.pos.x, player.pos.y + 1.95, player.pos.z);
-  from.x += Math.sin(facing) * 0.3;
-  from.z += Math.cos(facing) * 0.3;
-  const toRim = Math.atan2(rim.x - from.x, rim.z - from.z);
-  const off = Math.abs(Math.atan2(Math.sin(toRim - facing), Math.cos(toRim - facing)));
-  const far = Math.hypot(rim.x - from.x, rim.z - from.z);
-  const atHoop = off < (first ? 0.35 : 0.6) && far < 16 && far > 0.4;
-  if (first) {
-    const look = throwPitch(player.lookPitch);
-    const pitch = atHoop ? underCeiling(from, look) : look;
-    return { from, heading: facing, pitch, ideal: atHoop ? idealSpeed(from, pitch) : null };
-  }
-  // Facing about the right way, your character squares up to the hoop.
-  if (!atHoop) return { from, heading: facing, pitch: throwPitch(0.15), ideal: null };
-  const pitch = underCeiling(from, throwPitch(lookAtRim(from)));
-  return { from, heading: toRim, pitch, ideal: idealSpeed(from, pitch) };
-}
-
-/** Hold E (or the mouse) with the ball: the meter goes up and down until you let go. */
-function windUp() {
-  if (!holdingBall() || windFrom) return;
-  windFrom = performance.now();
-}
-
-/** Let go: it flies as hard as the meter says (right in the green, it drops in). */
-function letFly() {
-  if (!windFrom) return;
-  const power = meter((performance.now() - windFrom) / 1000);
-  windFrom = 0;
-  if (!holdingBall()) return;
-  const a = shotAim();
-  shooting = a.ideal !== null;
-  release(a.from, a.heading, a.pitch, shooting ? shotSpeed(a.ideal!, power) : tossSpeed(power));
-  if (player.view === 'first') hands.shoot();
-  else me.shoot();
-}
-
-/** Q with the ball: it drops out of your hands in front of you. */
-function dropBall() {
-  if (!holdingBall()) return;
-  windFrom = 0;
-  const f = player.view === 'first' ? player.camYaw + Math.PI : player.facing;
-  const from = handsOf(store.you, new THREE.Vector3()) ?? camera.localToWorld(new THREE.Vector3(0, -0.25, -0.45));
-  shooting = false;
-  release(from, f, 0, 0.25);
-}
-
-function release(from: THREE.Vector3, heading: number, pitch: number, speed: number) {
-  const c = Math.cos(pitch);
-  const s = { x: from.x, y: from.y, z: from.z, vx: Math.sin(heading) * c * speed, vy: Math.sin(pitch) * speed, vz: Math.cos(heading) * c * speed };
-  ball.throwNow({ ...s, by: store.you }, performance.now());
-  ballPending++;
-  net.send({ t: 'ball.throw', ...s });
-  ctx.hint.invalidate();
-}
-
-/** Where the ball is in `id`'s hands, or null when you can't see it there (your own, in first person, is in your view instead). */
-function handsOf(id: string, out: THREE.Vector3): THREE.Vector3 | null {
-  const who = id === store.you ? (player.view === 'first' ? null : me) : (remotes.get(id)?.person ?? null);
-  if (!who) return null;
-  who.root.updateMatrixWorld();
-  return who.root.localToWorld(out.copy(IN_HANDS));
-}
-
-ball.onHit = (hit, at) => {
-  if (hit.kind === 'score') {
-    office.hoop.swish();
-    sound.ball('score', HOOP.rim, hit.speed);
-  } else if (hit.speed > 0.6) sound.ball(hit.kind, at, hit.speed);
-};
-ball.onThrow = (by) => remotes.get(by)?.person.shoot();
-ball.onMiss = (by) => {
-  if (by === store.you && shooting) streak = 0;
-};
-ball.onBasket = (b) => {
-  const mine = b.by === store.you;
-  const points = b.three ? 3 : 2;
-  const peer = store.peers.get(b.by);
-  const how = b.swish ? 'SWISH! ' : b.bank ? 'BANK! ' : '';
-  popScore(mine ? `${how}+${points}` : `${clip(peer?.name ?? 'Someone', 16)} ${how}+${points}`, mine ? store.profile.color : (peer?.color ?? '#ff6b1a'));
-  if (mine) {
-    streak++;
-    const said = b.swish ? 'Swish!' : b.bank ? 'Off the glass!' : 'In off the rim!';
-    toast(`🏀 ${said} +${points} from ${b.distance.toFixed(1)} m${streak > 1 ? ` · 🔥 ${streak} in a row` : ''}`);
-  }
-  if (b.three || (mine && streak >= 3)) confetti.burst(HOOP.rim.x + 0.3, HOOP.rim.y, HOOP.rim.z, 140, 0.7);
-};
-
-/** Points floating up off the hoop, and fading. */
-const scorePops: { sprite: THREE.Sprite; t: number }[] = [];
-function popScore(text: string, bg: string) {
-  const sprite = textSprite(text, { bg, color: '#ffffff', size: 64, border: '#2b2d42' });
-  sprite.position.set(HOOP.rim.x + 0.4, HOOP.rim.y + 0.9, HOOP.rim.z);
-  office.group.add(sprite);
-  scorePops.push({ sprite, t: 0 });
-}
-function updateScorePops(dt: number) {
-  for (let i = scorePops.length - 1; i >= 0; i--) {
-    const p = scorePops[i];
-    p.t += dt;
-    p.sprite.position.y = HOOP.rim.y + 0.9 + p.t * 0.45;
-    p.sprite.material.opacity = Math.min(1, (2 - p.t) / 0.5);
-    if (p.t < 2) continue;
-    office.group.remove(p.sprite);
-    disposeSprite(p.sprite);
-    scorePops.splice(i, 1);
-  }
-}
-
-/** Every frame: the ball flies on (or goes wherever whoever has it goes), and your hands and everyone's arms hold it. */
-function updateBall(now: number, dt: number) {
-  ball.update(now, handsOf);
-  const mine = holdingBall();
-  if (!mine) windFrom = 0;
-  me.holdBall(mine);
-  hands.holdBall(mine);
-  hands.windUp(windFrom ? meter((now - windFrom) / 1000) : 0);
-  for (const [id, r] of remotes) r.person.holdBall(ball.holder === id);
-  updateScorePops(dt);
-  renderShotMeter(now);
-}
-ctx.ticks.add('others', ({ dt, now }) => {
-  if (!upTop && inOffice()) updateBall(now, dt);
-});
-
-/** The wind-up meter over the hint, while you hold E: a green band where the shot drops in, when you're shooting at the hoop. */
-let meterKey = '';
-function renderShotMeter(now: number) {
-  const on = windFrom > 0 && !modalOpen();
-  const at = on ? meter((now - windFrom) / 1000) : 0;
-  const sweet = on && shotAim().ideal !== null;
-  const k = `${on}|${sweet}|${at.toFixed(3)}`;
-  if (k === meterKey) return;
-  meterKey = k;
-  const el = $('shot-meter');
-  el.classList.toggle('hidden', !on);
-  el.classList.toggle('aimed', sweet);
-  el.style.setProperty('--at', String(at));
-  el.style.setProperty('--sweet', String(SWEET.at));
-  el.style.setProperty('--width', String(SWEET.width));
-}
-
-/** With the ball in your hands: how to shoot, and how to put it down. */
-function ballHint(): Hint {
-  const first = player.view === 'first';
-  return {
-    k: `${streak}|${first}|${!!windFrom}`,
-    parts: [
-      h('span.title', {}, '🏀 Ball in hand'),
-      streak > 1 ? aside(`🔥 ${streak} in a row`) : '',
-      windFrom ? aside('let go in the green!') : key(first ? 'E / Click' : 'E', 'Hold to shoot'),
-      key('Q', 'Drop it'),
-    ],
-  };
-}
-
-/** In first person, a ball at your feet is yours to pick up without looking right at it. */
-function ballAtFeet(): Interactable | null {
-  const it = ball.interactable;
-  if (it.off) return null;
-  const p = ball.at;
-  return Math.hypot(p.x - player.pos.x, p.z - player.pos.z) < 1.1 && p.y - player.pos.y < 1.2 && p.y - player.pos.y > -0.5 ? it : null;
-}
+const hoops = installBasketball(ctx, { remotes, reach });
 
 // ---- Carrying an issue card ------------------------------------------------------------------------
-function setCarrying(card: CarriedIssue | null) {
-  if ((card?.issue ?? 0) === (carrying?.issue ?? 0)) return;
-  carrying = card;
-  me.carry(card);
-  hands.carry(card);
-  net.send({ t: 'carry', issue: card?.issue, title: card?.title });
-  carriedOff = [...offBoard()].join(',');
-  renderIssuesBoard();
-  ctx.hint.invalidate();
-}
-
-/** ✋ in an issue's window, or E at its note on the board: its card comes off the board and into your hands. */
-function pickUp(it: GhIssue) {
-  closeAllModals();
-  dropBall();
-  if (carrying?.issue === it.number) return;
-  if (carrying) toast(`📌 #${carrying.issue} went back on the board`);
-  setCarrying({ issue: it.number, title: it.title });
-  sound.paper();
-  toast(`✋ You took #${it.number} off the board: take it to an empty desk, a worker or the 📋 queue and press E`);
-}
-
-/** Q, or E at the issues board: the card goes back where it came from. */
-function putBack() {
-  if (!carrying) return;
-  toast(`📌 #${carrying.issue} is back on the board`);
-  setCarrying(null);
-  sound.paper();
-}
-ctx.keys.bind({
-  code: 'KeyQ',
-  when: () => !!carrying,
-  run: () => {
-    reach();
-    putBack();
-  },
+const cards = installCarrying(ctx, {
+  hold: (card) => void (carrying = card),
+  boards,
+  aimedNote: () => aimedNote,
+  reach,
+  dropBall: hoops.dropBall,
+  hire,
+  heraldSeat,
+  heraldHires,
+  officeIsFull,
+  showMeeting,
 });
-
-/**
- * E with a card in your hands: an empty desk hires a worker for the issue (with the prompt 🤖 Hand
- * to a worker uses), an agent at a desk gets it as its next prompt, the queue board queues it, and
- * the issues board takes it back (or swaps it for the `note` you point at there). False when it's none
- * of those, so E does what it always does there.
- */
-function dropCard(it: Interactable, card: CarriedIssue, note: GhIssue | null): boolean {
-  if (it.kind === 'issues') {
-    if (note) pickUp(note);
-    else putBack();
-    return true;
-  }
-  const prompt = issuePrompt({ number: card.issue, title: card.title });
-  if (it.kind === 'queue') {
-    if (onQueue(card.issue)) toast(`#${card.issue} is already on the queue`, 'warn');
-    else {
-      const { provider, model, effort } = officeChoice(store.project);
-      net.send({ t: 'queue.add', prompt, title: `#${card.issue} ${card.title}`, issue: card.issue, provider, model, effort });
-      putDown();
-    }
-    return true;
-  }
-  // At the meeting room: a meeting about it, and the card goes back up on the board.
-  if (it.kind === 'meeting' || (it.kind === 'desk' && it.deskId && plan().byId.get(it.deskId)?.room && !store.workerAtDesk(it.deskId))) {
-    putBack();
-    showMeeting(issueMeeting(card.issue, card.title));
-    return true;
-  }
-  // To the herald: someone's sent out for it, to the first free seat.
-  if (it.kind === 'herald') {
-    const deskId = heraldSeat();
-    if (!deskId) toast('Every seat at the tables is taken', 'warn');
-    else if (hiringPaused()) toast('💸 Budget spent — hiring resumes tomorrow', 'warn');
-    else if (!officeIsFull()) {
-      const { provider, model, effort } = officeChoice(store.project);
-      heraldHires.set(deskId, { floor: store.floor, at: performance.now() });
-      hire(deskId, prompt, !!store.project?.branch && worktreePref(), provider, model, effort, card.issue, undefined, 'herald');
-      putDown();
-    }
-    return true;
-  }
-  if (it.kind !== 'desk' || !it.deskId) return false;
-  const w = store.workerAtDesk(it.deskId);
-  const why = w ? cantTakeCard(w) : hiringPaused() ? '💸 Budget spent — hiring resumes tomorrow' : '';
-  if (why) toast(why, 'warn');
-  else if (w) {
-    net.send({ t: 'worker.prompt', workerId: w.id, prompt, issue: card.issue });
-    putDown();
-  } else if (!officeIsFull()) {
-    const { provider, model, effort } = officeChoice(store.project);
-    hire(it.deskId, prompt, !!store.project?.branch && worktreePref(), provider, model, effort, card.issue);
-    putDown();
-  }
-  return true;
-}
-
-/** The card left your hands for a desk or the queue (the office says who took it). */
-function putDown() {
-  setCarrying(null);
-  sound.paper();
-}
-
-function onQueue(issue: number): boolean {
-  const t = store.taskForIssue(issue);
-  return !!t && t.status !== 'done';
-}
-
-/** Why the worker at a desk can't be handed an issue card right now, or '' when it can. */
-function cantTakeCard(w: WorkerInfo): string {
-  if (w.kind === 'shell') return `${w.name} is a shell, not an agent`;
-  if (w.lost) return `${w.name}'s worktree was deleted — press E at its desk to fix it`;
-  if (isAsleep(w.status)) return `${w.name} is asleep — press R to resume first`;
-  if (w.status === 'needs_input') return `${w.name} is waiting on an answer — open the terminal first`;
-  return '';
-}
 
 // ---- Sitting ----------------------------------------------------------------------------------------
-/** The free place on a seat nearest you, or null when everyone else on your floor has taken them all. */
-function freePlace(seat: SeatDef): SeatPlace | null {
-  const taken = new Set<string>();
-  for (const p of store.peers.values()) if (p.seat && p.id !== store.you && store.onMyFloor(p)) taken.add(p.seat);
-  let best: SeatPlace | null = null;
-  let bestD = Infinity;
-  for (let i = 0; i < seat.places.length; i++) {
-    const place = seatPlace(seat, i);
-    const d = Math.hypot(place.x - player.pos.x, place.z - player.pos.z);
-    if (!taken.has(place.key) && d < bestD) {
-      best = place;
-      bestD = d;
-    }
-  }
-  return best;
-}
-
-/** Someone else's screen is up on the TV. */
-function tvShowing(): boolean {
-  return currentShares().some(([who]) => who !== 'You');
-}
-
-/** E at a seat: sit down on it. Sitting there already, get up, or on the couch facing the TV, watch it. */
-function useSeat(seatId: string) {
-  const seat = plan().seatingById.get(seatId);
-  if (!seat) return;
-  if (player.seat?.seatId === seatId) {
-    if (seat.tv && tvShowing()) watchShare();
-    else if (seat.game) arcade.play();
-    else if (seat.bar) showBar();
-    else standUp();
-    return;
-  }
-  const place = freePlace(seat);
-  if (!place) {
-    toast(`No room on that ${seat.label.replace(/^\S+ /, '').toLowerCase()} right now`, 'warn');
-    return;
-  }
-  player.sit(place);
-  me.sit(place.hips);
-  net.send({ t: 'sit', seat: place.key });
-  // The couch in front of the TV is where you watch whoever's sharing.
-  if (seat.tv && tvShowing()) watchShare();
-}
-
-function standUp() {
-  player.stand();
-  gotUp();
-}
-ctx.messages.on('sit.refused', (msg) => {
-  // Somebody on the floor got there first: back on your feet, next to them.
-  if (player.seat?.key === msg.seat) {
-    player.stand();
-    // On your feet as far as everyone's concerned (the office still has you where you sat before).
-    gotUp();
-    toast(`${msg.by} got there first`, 'warn');
-  }
-});
-
-/** On your feet again, by E or by walking off. */
-function gotUp() {
-  me.sit(null);
-  net.send({ t: 'sit' });
-}
-player.onStand = gotUp;
-
-/** What you're sitting on, so it's what E is about unless you're looking at something else. */
-function mySeat(): Interactable | null {
-  const id = player.seat?.seatId;
-  return (id && usable()[0].find((it) => it.kind === 'seat' && it.seatId === id)) || null;
-}
-
-ctx.interactions.define('seat', {
-  reach: 3,
-  hint: (it) => {
-    const seat = plan().seatingById.get(it.seatId ?? '');
-    if (!seat) return { k: '', parts: [] };
-    if (player.seat?.seatId === seat.id) {
-      const tv = !!seat.tv && tvShowing();
-      const use = tv ? 'Watch the TV' : seat.game ? 'Play Minesweeper' : seat.bar ? 'Order a drink' : '';
-      return { k: `${seat.id}|sitting|${tv}`, parts: [hintTitle(seat.label), aside('sitting'), ...(use ? [key('E', use), key('W A S D', 'Get up')] : [key('E', 'Get up')])] };
-    }
-    const full = !freePlace(seat);
-    return { k: `${seat.id}|${full}`, parts: [hintTitle(seat.label), seat.game ? aside('💣 Minesweeper on the monitor') : '', full ? aside('no room') : key('E', 'Sit down')] };
-  },
-  use: onE((it) => {
-    if (it.seatId) useSeat(it.seatId);
-  }),
-});
+const seating = installSeating(ctx, { shares: () => talk.currentShares(), watchShare: () => talk.watchShare(), arcade, showBar: bar.showBar, usable });
 
 // ---- The gong -------------------------------------------------------------------------------------
-let lastHit = 0;
-/** E at the gong. The office rings it for everyone on the floor, you included (see gongRang). */
-function hitGong() {
-  const now = performance.now();
-  if (now - lastHit < 500) return;
-  lastHit = now;
-  net.send({ t: 'gong' });
-}
-
-ctx.interactions.define('gong', {
-  reach: 3.5,
-  hint: () => ({ k: '', parts: [hintTitle('🎉 Merge gong'), aside('rings when a PR merges'), key('E', 'Bang it')] }),
-  use: onE(() => hitGong()),
-});
-
 /** Where confetti comes from over a desk: above the worker's head. */
 function burstOver(deskId: string, n: number) {
   // Up and about in the castle: over wherever it is.
@@ -4258,71 +2659,7 @@ function burstOver(deskId: string, n: number) {
   if (d) confetti.burst(d.x, 2.3, d.z, n);
 }
 
-/** Where a worker at `desk` climbs up to dance, in the frame of whatever it sits or stands in. */
-function stageOf(desk: DeskView, model: Worker): Stage {
-  const seat = model.root.parent!;
-  seat.updateWorldMatrix(true, false);
-  desk.stage.updateWorldMatrix(true, false);
-  const m = seat.matrixWorld.clone().invert().multiply(desk.stage.matrixWorld);
-  const pos = new THREE.Vector3();
-  const turn = new THREE.Quaternion();
-  m.decompose(pos, turn, new THREE.Vector3());
-  const ahead = new THREE.Vector3(0, 0, 1).applyQuaternion(turn);
-  return { pos, yaw: Math.atan2(ahead.x, ahead.z) };
-}
-
-/** A pull request merged: every worker awake on the floor gets up on its desk and dances. */
-function danceParty() {
-  for (const [id, v] of workerViews) {
-    const desk = world.desks.get(v.deskId);
-    if (!desk || isAsleep(store.workers.get(id)?.status ?? 'offline')) continue;
-    // Up and about, away from its desk: a jump for joy where it stands.
-    if (court?.away(id)) v.model.cheer(4);
-    else v.model.dance(stageOf(desk, v.model));
-  }
-  // The board agents still waiting to be asked, too.
-  for (const a of idleAgents) if (a.view.vacancy.visible) a.model.dance(stageOf(a.view, a.model));
-}
-
-/** Confetti a square meter of floor gets when a pull request merges, and the most there is in all. */
-const CONFETTI_DENSITY = 3.5;
-const CONFETTI_MOST = 4000;
-const floorArea = (a: Area) => (a.maxX - a.minX) * (a.maxZ - a.minZ);
-
-ctx.messages.on('gong', (msg) => gongRang(msg.why, msg.pr));
-/** Someone hit the gong, a pull request merged (a dance party under a confetti rain), or the queue emptied (a party). */
-function gongRang(why: GongWhy, pr?: number) {
-  const gong = world.gong;
-  gong?.strike(why === 'hit' ? 0.7 : 1);
-  sound.gong(why);
-  // Where confetti bursts from: over the gong, or with no gong, over where you are.
-  const top = gong?.top ?? new THREE.Vector3(player.pos.x, player.pos.y + 3, player.pos.z);
-  if (why === 'merged') {
-    // Confetti rains down all over the floor, and pops over the desk the PR came from while its worker's still there.
-    const area = world.rain.reduce((n, r) => n + floorArea(r.area), 0);
-    const density = Math.min(CONFETTI_DENSITY, CONFETTI_MOST / Math.max(1, area));
-    for (const r of world.rain) confetti.rain(r.area, floorArea(r.area) * density, 3, r.top);
-    const it = store.pulls.items.find((p) => p.number === pr);
-    const w = pr === undefined ? undefined : workerForPull(store.workers.values(), it ?? { number: pr, headRefName: '' });
-    if (w && workerViews.has(w.id)) burstOver(w.deskId, 220);
-    else confetti.burst(top.x, top.y, top.z, 220);
-    danceParty();
-  } else if (why === 'queue') {
-    // Three strokes (sound.gong plays them): a burst at the gong, then every desk, then a cannon.
-    confetti.burst(top.x, top.y, top.z, 160);
-    setTimeout(() => {
-      gong?.strike(0.85);
-      for (const [id, v] of workerViews) {
-        burstOver(v.deskId, 120);
-        if (!isAsleep(store.workers.get(id)?.status ?? 'offline')) v.model.cheer(4);
-      }
-    }, 850);
-    setTimeout(() => {
-      gong?.strike(1.2);
-      confetti.burst(top.x, top.y, top.z, 450, 1.5);
-    }, 1700);
-  }
-}
+installGong(ctx, { burstOver, workerViews, court: () => court, idleAgents: () => idleAgents });
 
 // ---- Interaction targeting & hint -----------------------------------------------------------------
 let target: Interactable | null = null;
@@ -4349,31 +2686,12 @@ function pickTarget(): Interactable | null {
   return best;
 }
 
-function key(k: string, label: string) {
-  return h('span', {}, h('span.key', {}, k), label);
-}
-
-/** Secondary text in the hint bar. */
-function aside(text: string) {
-  return h('span', { style: 'opacity:.75;font-weight:600' }, text);
-}
-
-/** What the hint bar calls the thing you're facing. */
-function hintTitle(text: string) {
-  return h('span.title', {}, text);
-}
-
-/** A board you open with E. */
-function boardHint(name: string): Hint {
-  return { k: '', parts: [hintTitle(name), key('E', 'Open')] };
-}
-
 function renderHint() {
   const el = $('hint');
   // Whatever you're in the middle of has the hint bar to itself: the picture you're hanging, the ladder, the tee…
   const doing = modalOpen() ? undefined : ctx.activities.current((a) => !!a.hint);
   if (doing) return doing.hint!(el);
-  const withBall = holdingBall();
+  const withBall = hoops.holding();
   if ((!target && !carrying && !withBall) || modalOpen()) {
     // Still up after a redraw was asked for (hintKey cleared) just as you walked away from it, too.
     if (hintKey || !el.classList.contains('hidden')) {
@@ -4382,7 +2700,7 @@ function renderHint() {
     }
     return;
   }
-  const hint = withBall ? ballHint() : carrying ? carryHint(carrying, target) : ctx.interactions.hint(target!);
+  const hint = withBall ? hoops.ballHint() : carrying ? cards.carryHint(carrying, target) : ctx.interactions.hint(target!);
   // On the throne, whoever's in line: the herald's a key away, and how to get up.
   const throne = onThrone() && !carrying && !withBall;
   if (throne) {
@@ -4396,103 +2714,6 @@ function renderHint() {
   el.classList.remove('hidden');
 }
 
-
-/** With an issue card in your hands: what E does with it here, and how to put it back. */
-function carryHint(card: CarriedIssue, it: Interactable | null): Hint {
-  const parts = (...mid: (HTMLElement | string)[]) => [h('span.title', {}, `🗂️ #${card.issue} in hand`), ...mid, key('Q', 'Put it back')];
-  if (it?.kind === 'issues') return aimedNote ? { k: String(aimedNote.number), parts: parts(key('E', `Swap it for #${aimedNote.number}`)) } : { k: '', parts: parts(key('E', 'Pin it back up')) };
-  if (it?.kind === 'ball') return { k: 'ball', parts: parts(aside('🏀 hands full')) };
-  if (it?.kind === 'queue') {
-    const on = onQueue(card.issue);
-    return { k: String(on), parts: parts(on ? aside('already on the queue') : key('E', 'Put it on the queue')) };
-  }
-  if (it?.kind === 'herald') {
-    const paused = hiringPaused();
-    return { k: `herald|${paused}`, parts: parts(paused ? h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow') : key('E', 'Send someone out for it')) };
-  }
-  if (it?.kind === 'meeting' || (it?.kind === 'desk' && it.deskId && plan().byId.get(it.deskId)?.room && !store.workerAtDesk(it.deskId))) {
-    return { k: 'meeting', parts: parts(key('E', 'Call a meeting about it')) };
-  }
-  if (it?.kind === 'desk' && it.deskId) {
-    const w = store.workerAtDesk(it.deskId);
-    if (!w) {
-      const paused = hiringPaused();
-      return { k: String(paused), parts: parts(paused ? h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow') : key('E', 'Hire a worker for it')) };
-    }
-    const why = cantTakeCard(w);
-    return { k: w.id + w.status + why, parts: parts(why ? aside(why) : key('E', `Hand it to ${w.name}`)) };
-  }
-  // Anything else works as usual, card in hand.
-  if (it) {
-    const rest = ctx.interactions.hint(it);
-    return { k: rest.k, parts: parts(...rest.parts) };
-  }
-  return { k: '', parts: parts(aside('take it to an empty desk, a worker or the 📋 queue')) };
-}
-
-/** On the ladder: which way it goes from here, and how to get off. Down a pole: just hold on. */
-function renderClimbHint(el: HTMLElement) {
-  const title = (text: string) => h('span.title', {}, text);
-  const l = climber.ladder;
-  let k: string;
-  let parts: (HTMLElement | string)[];
-  if (l) {
-    const up = floorThere(1)?.name;
-    const down = floorThere(-1)?.name;
-    const atFloor = l.y < 0.4 && l.y > -0.05;
-    const busy = l.waiting || l.auto;
-    k = `ladder|${up}|${down}|${atFloor}|${busy}`;
-    parts = busy
-      ? [title('🪜 Climbing…')]
-      : [title('🪜 On the ladder'), up ? key('W', `Up to ${up}`) : aside('top floor'), key('S', down ? `Down to ${down}` : atFloor ? 'Step off' : 'Down'), key('E', atFloor ? 'Step off' : 'Let go')];
-  } else {
-    const how = climber.sliding;
-    k = `pole|${how}`;
-    parts = [title(how === 'twirl' ? '🚒 Wheee!' : '🚒 Wheeeeeee!')];
-  }
-  if (k === hintKey) return;
-  hintKey = k;
-  el.replaceChildren(...parts);
-  el.classList.remove('hidden');
-}
-
-/** At the dart board or the axe lane: how to aim and throw, and how to step back. */
-function renderThrowHint(el: HTMLElement) {
-  const stage = thrower.doing;
-  const k = `throw|${stage === 'wind'}`;
-  if (k === hintKey) return;
-  hintKey = k;
-  const parts = stage === 'wind' ? [h('span.title', {}, 'Let go in the green!')] : [key('Mouse', 'Aim'), key('Space', 'Hold to throw'), key('E', 'Step back')];
-  el.replaceChildren(...parts);
-  el.classList.remove('hidden');
-}
-
-/** At the golf tee: how to aim and swing, or how to get back to it while the ball's out there. */
-function renderGolfHint(el: HTMLElement) {
-  const title = (text: string) => h('span.title', {}, text);
-  const stage = golf.doing;
-  const k = `golf|${stage}`;
-  if (k === hintKey) return;
-  hintKey = k;
-  const parts =
-    stage === 'watch'
-      ? [title('⛳ Fore!'), key('Space', 'Back to the tee'), key('E', 'Done')]
-      : stage === 'charge' || stage === 'swing'
-        ? [title('⛳ Let go to hit it'), aside('the fuller the meter, the further it goes')]
-        : [key('Space', 'Hold to swing'), key('A D', 'Aim'), key('W S', 'Loft'), key('E', 'Done')];
-  el.replaceChildren(...parts);
-  el.classList.remove('hidden');
-}
-
-function renderHangHint(el: HTMLElement) {
-  const spot = hanger.spot;
-  const k = `hang|${hanger.moving}|${spot ? spot.ok : '-'}`;
-  if (k === hintKey) return;
-  hintKey = k;
-  const title = !spot ? '🖼️ Aim at a wall' : !spot.ok ? "🚫 Something's in the way" : hanger.moving ? '🖼️ Moving a picture' : '🖼️ Hanging a picture';
-  el.replaceChildren(h('span.title', {}, title), key('Click', 'Hang'), key('Scroll', 'Size'), key('Esc', 'Cancel'));
-  el.classList.remove('hidden');
-}
 
 let crossKey = '';
 const finePointer = window.matchMedia('(pointer: fine)').matches;
@@ -4523,55 +2744,7 @@ function reach() {
 }
 
 // ---- Emotes ---------------------------------------------------------------------------------------
-/** The same limit the server keeps, so an emote you see yourself do is one everyone else sees too. */
-const emoteLimit = new EmoteBucket();
-let emoteWarnedAt = 0;
-/** Plays an emote on your character and your hands, and shows it to everyone else on the floor. */
-function emote(id: EmoteId) {
-  const now = performance.now();
-  if (!emoteLimit.take(now)) {
-    if (now - emoteWarnedAt > 3000) {
-      emoteWarnedAt = now;
-      toast('Easy there, one emote at a time', 'warn');
-    }
-    return;
-  }
-  me.emote(id);
-  hands.emote(id);
-  if (player.view === 'first') popEmoji(id);
-  net.send({ t: 'emote', emote: id });
-}
-ctx.messages.on('peer.emote', (msg) => remotes.get(msg.id)?.person.emote(msg.emote));
-const emoteWheel = new EmoteWheel(emote, (open) => (player.mouseLook = !open));
-$('hud').append(emoteWheel.el);
-
-/** In first person you can't see the emoji over your head, so it pops up on the screen instead. */
-function popEmoji(id: EmoteId) {
-  const e = EMOTE_BY_ID.get(id)!;
-  document.querySelector('.emote-pop')?.remove();
-  const el = h('div.emote-pop', { style: `--secs:${e.seconds}s`, 'aria-hidden': 'true' }, e.emoji);
-  el.addEventListener('animationend', () => el.remove());
-  $('hud').append(el);
-}
-
-/** G opens the emote wheel (hold it and point, or tap it and click); 1–6 play one straight away. */
-function emoteKey(e: KeyboardEvent): boolean {
-  if (e.code === 'KeyG') {
-    if (!e.repeat) emoteWheel.press();
-    return true;
-  }
-  if (e.code === 'Escape' && emoteWheel.isOpen) {
-    emoteWheel.close();
-    return true;
-  }
-  const n = /^(?:Digit|Numpad)([1-6])$/.exec(e.code);
-  if (!n) return false;
-  emoteWheel.close();
-  emote(EMOTES[Number(n[1]) - 1].id);
-  return true;
-}
-
-ctx.keys.add('emote', emoteKey);
+const emotes = installEmotes(ctx, { personOf: (id) => remotes.get(id)?.person });
 
 /** Keys that use what you're facing: at a desk, each does something else (see interact). */
 function use(it: Interactable | null, key: DeskKey, note = aimedNote): boolean {
@@ -4590,13 +2763,13 @@ window.addEventListener('keydown', (e) => {
   if (ctx.keys.handle(e) === 'bound') player.clearKeys();
 });
 window.addEventListener('keyup', (e) => {
-  if (e.code === 'KeyG') emoteWheel.release();
-  if (e.code === 'KeyE') letFly();
+  if (e.code === 'KeyG') emotes.emoteWheel.release();
+  if (e.code === 'KeyE') hoops.letFly();
 });
-window.addEventListener('blur', () => (windFrom = 0));
+window.addEventListener('blur', () => hoops.stopWinding());
 // First person with the mouse captured, the button winds up a shot like E does (see player.onClick).
 window.addEventListener('pointerup', (e) => {
-  if (e.button === 0 && windFrom && player.locked) letFly();
+  if (e.button === 0 && hoops.winding() && player.locked) hoops.letFly();
 });
 // Letting go of V mutes you again, wherever the key comes up: a window or a terminal opened meanwhile,
 // or another app (the browser never says the key came up there).
@@ -4614,30 +2787,6 @@ ctx.keys.bind({
     return handled;
   },
 });
-
-/** Keys while hanging a picture. Walking, chat and voice work as usual. */
-function hangingKey(code: string): boolean {
-  switch (code) {
-    case 'Escape':
-    case 'KeyF':
-      hanger.cancel();
-      return true;
-    case 'KeyE':
-    case 'Enter':
-      reach();
-      hanger.place();
-      return true;
-    case 'BracketLeft':
-    case 'Minus':
-      hanger.resize(-1);
-      return true;
-    case 'BracketRight':
-    case 'Equal':
-      hanger.resize(1);
-      return true;
-  }
-  return false;
-}
 
 /** What you last told the office you have open (see PeerInfo.doing), and whether you're reading. */
 let doingSent: string | undefined;
@@ -4687,8 +2836,8 @@ onModalChange((open) => {
   // Opening something on the way over to someone is stopping there.
   if (open && walkingTo && !trip) stopWalking();
   if (open) {
-    windFrom = 0;
-    emoteWheel.close();
+    hoops.stopWinding();
+    emotes.emoteWheel.close();
     // A phone has no mouse to take back afterwards.
     if (finePointer) player.yieldMouse();
     else player.unlock();
@@ -4726,6 +2875,7 @@ function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boole
   raycaster.setFromCamera(ndc, camera);
   eye.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
   // (Workers standing in line in the castle carry their spot's interactable: see Court.)
+  const roof = rooftop.roof();
   for (const hit of raycaster.intersectObjects(upTop && roof ? roof.pickables : inOffice() ? [office.group, dog.root] : world.pickables, true)) {
     let it: Interactable | undefined;
     let shown = true;
@@ -4761,7 +2911,7 @@ function throneTarget(): Interactable | null {
 /** The issue whose note on the issues board an aim lands on, or null (bare cork, the frame, anything else). */
 function noteUnder(aim: { it: Interactable; hit: THREE.Intersection } | null): GhIssue | null {
   if (aim?.it.kind !== 'issues' || aim.hit.object !== world.boardMeshes.issues || !aim.hit.uv) return null;
-  const n = issuesTex.noteAt(aim.hit.uv);
+  const n = boards.issuesTex.noteAt(aim.hit.uv);
   return n === undefined ? null : (store.issues.items.find((i) => i.number === n) ?? null);
 }
 
@@ -4781,17 +2931,17 @@ ctx.ticks.add('aim', () => {
   if (modalOpen() || telescope.active || ctx.activities.busy()) target = null;
   else if (firstPerson) {
     const aim = aimedAt(CROSSHAIR);
-    target = aim?.near ? aim.it : (throneTarget() ?? mySeat() ?? (inOffice() ? ballAtFeet() : null));
+    target = aim?.near ? aim.it : (throneTarget() ?? seating.mySeat() ?? (inOffice() ? hoops.ballAtFeet() : null));
     if (aim?.near) aimedNote = noteUnder(aim);
   } else {
-    target = throneTarget() ?? mySeat() ?? pickTarget();
+    target = throneTarget() ?? seating.mySeat() ?? pickTarget();
     // By the issues board, the mouse points at the note you'd take.
     if (target?.kind === 'issues' && pointer) {
       const aim = aimedAt(pointer, 2.5);
       if (aim?.near) aimedNote = noteUnder(aim);
     }
   }
-  issuesTex.lift(aimedNote?.number ?? null);
+  boards.issuesTex.lift(aimedNote?.number ?? null);
   renderHint();
   renderCrosshair();
 });
@@ -4800,16 +2950,16 @@ player.onClick = (ndc) => {
   // At the tee, a click is you steadying the mouse to aim: nothing else is in reach.
   // At the dart board or the axe lane, the button throws (see Thrower).
   if (modalOpen() || ctx.activities.any('takesCamera')) return;
-  if (emoteWheel.isOpen) return emoteWheel.click();
+  if (emotes.emoteWheel.isOpen) return emotes.emoteWheel.click();
   // The ball in your hands: press to wind up, let go (or click again, with no mouse captured) to shoot.
-  if (holdingBall()) {
-    if (windFrom && !player.locked) letFly();
-    else windUp();
+  if (hoops.holding()) {
+    if (hoops.winding() && !player.locked) hoops.letFly();
+    else hoops.windUp();
     return;
   }
-  if (hanger.active) {
+  if (hanging.hanger.active) {
     reach();
-    hanger.place(ndc);
+    hanging.hanger.place(ndc);
     return;
   }
   if (player.view === 'first') {
@@ -4852,86 +3002,7 @@ chatInput.addEventListener('blur', () => $('chat').classList.remove('peek'));
 store.on('chat', renderChat);
 
 // ---- Voice & screen share ---------------------------------------------------------------------------
-async function toggleVoice() {
-  if (voice.inVoice) voice.leaveVoice();
-  else await joinVoice();
-}
-
-async function joinVoice() {
-  const err = await voice.joinVoice(settings.pushToTalk);
-  if (err) toast(err, 'warn');
-  else if (settings.pushToTalk && voice.inVoice) toast('🎙️ In voice, muted: hold V to talk');
-}
-ctx.keys.bind({
-  code: 'KeyV',
-  // Joins voice; in it, it's push to talk (let go and you're muted, see the keyup under Input).
-  repeat: false,
-  run: () => {
-    if (voice.inVoice) voice.startTalking();
-    else void joinVoice();
-  },
-});
-ctx.keys.bind({
-  code: 'KeyM',
-  run: () => {
-    voice.toggleMute();
-  },
-});
-
-async function toggleShare() {
-  if (voice.sharing) voice.stopShare();
-  else {
-    const err = await voice.startShare();
-    if (err) toast(err, 'warn');
-  }
-}
-
-function currentShares(): [string, MediaStream][] {
-  const out: [string, MediaStream][] = [];
-  const local = voice.localScreen;
-  if (local) out.push(['You', local]);
-  for (const [id, s] of voice.remoteScreens()) {
-    const peer = store.peers.get(id);
-    // A screen shared on another floor is on that floor's TV.
-    if (peer && !store.onMyFloor(peer)) continue;
-    out.push([peer?.name ?? 'Someone', s]);
-  }
-  return out;
-}
-
-let tvStream: MediaStream | null = null;
-function refreshShares() {
-  const shares = currentShares();
-  // Remote shares win the TV; your own share is what others see anyway.
-  const pick = shares.find(([who]) => who !== 'You') ?? shares[0];
-  const stream = pick?.[1] ?? null;
-  if (stream !== tvStream) {
-    tvStream = stream;
-    tvVideo.srcObject = stream;
-    if (stream) void tvVideo.play().catch(() => {});
-    tvMat.map = stream ? tvTexture : tvIdle;
-    tvMat.needsUpdate = true;
-  }
-  const box = $('shares');
-  box.replaceChildren(
-    ...shares
-      .filter(([who]) => who !== 'You')
-      .map(([who, s]) => {
-        const v = h('video', { autoplay: true, playsinline: true, muted: true }) as HTMLVideoElement;
-        v.srcObject = s;
-        return h('div.share-thumb', { onclick: () => watchShare(), title: 'Watch full screen' }, v, h('span.who', {}, `🖥️ ${who}`));
-      }),
-  );
-  ctx.hint.invalidate();
-}
-
-voice.onChange(() => {
-  hud.refresh();
-  refreshShares();
-});
-ctx.messages.on('peer.join', () => voice.syncPeers());
-ctx.messages.on('peer.leave', () => voice.syncPeers());
-ctx.messages.on('rtc', (msg) => void voice.handleSignal(msg.from, msg.data as never));
+const talk = installVoice(ctx, { tv });
 
 // Buttons must not keep focus, or Space (jump) would click them again.
 $('hud').addEventListener('click', (e) => {
@@ -4971,7 +3042,7 @@ const hud = mountHud(
     { id: 'elevator', icon: '🛗', label: () => (inOffice() ? 'Elevator' : 'Floors'), section: 'Open', count: () => store.floors.reduce((n, f) => n + (f.id === store.floor ? 0 : f.waiting), 0), title: () => (inOffice() ? 'Ride to another project' : 'Go to another project, or add one'), run: showElevator },
     { id: 'roof', icon: '🍸', label: 'Rooftop bar', section: 'Open', shown: () => !upTop && inOffice() && builtFloors().length > 0, title: () => 'Ride the elevator up to the roof: a DJ, drinks and the city', run: () => ride(ROOF) },
     // In voice, V is push to talk, so leaving is only from here.
-    { id: 'voice', icon: '🎙️', label: () => (voice.inVoice ? 'Leave voice' : 'Join voice'), section: 'Together', key: () => (voice.inVoice ? undefined : 'V'), on: () => voice.inVoice, blocked: noMedia, run: () => void toggleVoice() },
+    { id: 'voice', icon: '🎙️', label: () => (voice.inVoice ? 'Leave voice' : 'Join voice'), section: 'Together', key: () => (voice.inVoice ? undefined : 'V'), on: () => voice.inVoice, blocked: noMedia, run: () => void talk.toggleVoice() },
     // While you're in voice, the top bar keeps the mute button handy. Muted is the usual with push to talk, so it doesn't stand out then.
     {
       id: 'mute',
@@ -4986,8 +3057,8 @@ const hud = mountHud(
       title: () => (voice.muted ? 'Muted: hold V to talk, or M to unmute' : 'Mute (M) · hold V to talk'),
       run: () => voice.toggleMute(),
     },
-    { id: 'share', icon: '🖥️', label: () => (voice.sharing ? 'Stop sharing' : 'Share screen'), section: 'Together', on: () => voice.sharing, status: () => voice.sharing, chip: () => 'Sharing', blocked: noMedia, run: () => void toggleShare() },
-    { id: 'decor', icon: '🖼️', label: () => (hanger.active ? 'Stop hanging the picture' : 'Hang a picture'), section: 'Together', key: 'F', shown: () => inOffice(), on: () => hanger.active, status: () => hanger.active, run: () => (hanger.active ? hanger.cancel() : startHanging()) },
+    { id: 'share', icon: '🖥️', label: () => (voice.sharing ? 'Stop sharing' : 'Share screen'), section: 'Together', on: () => voice.sharing, status: () => voice.sharing, chip: () => 'Sharing', blocked: noMedia, run: () => void talk.toggleShare() },
+    { id: 'decor', icon: '🖼️', label: () => (hanging.hanger.active ? 'Stop hanging the picture' : 'Hang a picture'), section: 'Together', key: 'F', shown: () => inOffice(), on: () => hanging.hanger.active, status: () => hanging.hanger.active, run: () => (hanging.hanger.active ? hanging.hanger.cancel() : hanging.startHanging()) },
     { id: 'team', icon: '👥', label: 'Invite teammates', section: 'Together', shown: () => store.invites, run: () => openTeam(net) },
     { id: 'accounts', icon: '🔑', label: 'Accounts', section: 'Together', shown: () => store.me.admin, title: () => 'Invite people, see who has an account, revoke them', run: () => openAccounts(net) },
     { id: 'signins', icon: '🔐', label: 'Your sign-ins', section: 'Together', shown: () => !!store.me.account, tone: () => (needsSigningIn() ? 'danger' : undefined), status: needsSigningIn, chip: () => 'Sign in to Claude', title: () => 'The Claude plan and GitHub account your workers run on: your own', run: () => openSignIns(net) },
@@ -5042,15 +3113,9 @@ ctx.keys.bind({
 ctx.keys.bind({
   code: 'KeyF',
   run: () => {
-    startHanging();
+    hanging.startHanging();
   },
 });
-/** F: hang a picture on a wall of this floor. There are no walls for them up on the roof. */
-function startHanging() {
-  if (upTop) return toast('No walls to hang pictures on up here — take the elevator down to a floor', 'warn');
-  if (!inOffice()) return toast(`${plan().icon} ${plan().name}'s walls are hung already — pictures go up in the office`, 'warn');
-  hanger.start();
-}
 function showSettings(pane?: SettingsPane) {
   openSettings(
     net,
@@ -5110,8 +3175,6 @@ let stride = 0;
 let fallV = 0;
 const lookDir = new THREE.Vector3();
 const headPos = new THREE.Vector3();
-/** Last frame went through the drunk vision. */
-let drunkVisionOn = false;
 /** Frames coming too slowly for the 3D to be any fun: the 2D view is offered. */
 const slowFrames = new SlowFrames();
 
@@ -5132,14 +3195,15 @@ function watchFrameRate({ now, delta }: Frame) {
 /** Coffee, and the view's shake easing off. */
 function feelTheCoffee({ dt, now }: Frame) {
   // Coffee: quicker feet, higher jumps, a mug in hand, and maybe the jitters.
+  const { caffeine } = coffee;
   const secs = now / 1000;
   player.speedBoost = caffeine.speed(secs);
   player.jumpBoost = caffeine.jump(secs);
   thud = Math.max(0, thud - dt * 2.5);
   player.jitter = reduceMotion.matches ? 0 : Math.max(caffeine.jitter(secs), thud);
   const mug = caffeine.buzzed(secs);
-  // Both hands are on the club at the tee.
-  me.holdMug(mug && !ctx.activities.running('golf'));
+  // Not while both your hands are on something else (the club, at the tee).
+  me.holdMug(mug && !ctx.activities.any('bothHands'));
   hands.holdMug(mug);
   renderCaffeine(caffeine, secs);
 }
@@ -5149,7 +3213,8 @@ function moveMe({ dt, t }: Frame) {
   me.root.position.copy(player.pos);
   me.root.position.y += player.stepOffset;
   me.root.rotation.y = player.facing;
-  const grip = climber.grip;
+  // Holding on to the ladder or a pole (see ctx.view).
+  const grip = ctx.view.grip();
   me.setGrip(grip);
   me.update(dt, t, (player.moving && player.grounded) || (grip === 'ladder' && player.moving), !player.grounded && !grip && !ctx.activities.any('hidesHands'), player.speedBoost);
   me.setVoiceLevel(voice.inVoice ? voice.localLevel : 0);
@@ -5160,16 +3225,14 @@ function moveMe({ dt, t }: Frame) {
   me.root.visible = ctx.activities.any('takesCamera') || (!firstPerson && camera.position.distanceTo(headPos.set(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5);
   // In a car, your hands are on the wheel, out of sight.
   if (firstPerson && !ctx.activities.any('hidesHands')) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded, jitter: player.jitter, grip });
-  // Down a pole: the view widens and the edges streak past.
-  const rush = reduceMotion.matches ? 0 : climber.rush;
-  // At the oche or the line, the view narrows onto the target.
-  const fov = thrower.fov + rush * 16;
+  // What you're doing widens the view (down a pole) or narrows it (at the oche or the line), and once
+  // it's set, may take it over (the telescope) or streak its edges (down a pole): see ctx.view.
+  const fov = ctx.view.fov(FOV);
   if (Math.abs(camera.fov - fov) > 0.05) {
     camera.fov += (fov - camera.fov) * Math.min(1, dt * 8);
     camera.updateProjectionMatrix();
   }
-  telescope.update();
-  whoosh.style.opacity = rush > 0.02 ? String(rush * 0.85) : '0';
+  ctx.view.update();
 }
 
 /** What you hear, from where you are, and your footsteps. */
@@ -5208,7 +3271,7 @@ function updateWorld({ dt, t }: Frame) {
   if (!upTop) {
     world.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions(), ...sendoffs.positions(), ...arrivals.positions(), ...(court?.positions() ?? [])]);
     if (inOffice()) {
-      office.stack.update(dt, [{ x: player.pos.x, y: player.pos.y, z: player.pos.z, grip: climber.grip }, ...[...remotes.values()].map((r) => ({ x: r.person.root.position.x, y: r.person.root.position.y, z: r.person.root.position.z, grip: r.grip }))], camera.position);
+      office.stack.update(dt, [{ x: player.pos.x, y: player.pos.y, z: player.pos.z, grip: ctx.view.grip() }, ...[...remotes.values()].map((r) => ({ x: r.person.root.position.x, y: r.person.root.position.y, z: r.person.root.position.z, grip: r.grip }))], camera.position);
       office.jukebox.update(t, dt, sound.beat());
     }
   }
@@ -5233,17 +3296,17 @@ function updateSky({ dt, t }: Frame) {
   sound.setWeather(sky.rain, 1 - sky.daylight);
 }
 
-/** Draws the frame: the scene, then your hands on top of it. */
-function drawFrame({ t }: Frame) {
+/** Draws the frame, through whatever it's drawn through (a few drinks in, the drunk vision: see ctx.view). */
+function drawFrame(f: Frame) {
+  ctx.view.draw(f, drawScene);
+}
+
+/** The scene, then your hands on top of it. */
+function drawScene() {
   const firstPerson = player.view === 'first';
-  // A few drinks in, the frame goes to the screen through the drunk vision (see world/drunk.ts).
-  const blurry = drunkNow > 0.01;
-  if (blurry) drunkVision.begin();
-  else if (drunkVisionOn) drunkVision.release();
-  drunkVisionOn = blurry;
   effect.render(scene, camera);
-  // Not while the camera's up at the boss's monitor or the arcade, where they'd cover the screen.
-  if (firstPerson && !telescope.active && !arcade.zoomed && !cabinet.zoomed && !ctx.activities.any('hidesHands')) {
+  // Not while something has the screen to itself (the telescope, the boss's monitor or the arcade up close), where they'd cover it.
+  if (firstPerson && !ctx.view.covered() && !ctx.activities.any('hidesHands')) {
     // Hands go on top of everything, so they never clip into a desk you walk up to. They have
     // lights of their own, turned down to match wherever you're standing.
     renderer.clearDepth();
@@ -5252,7 +3315,6 @@ function drawFrame({ t }: Frame) {
     effect.render(hands.scene, hands.camera);
     sky.shading(true);
   }
-  if (blurry) drunkVision.end(drunkNow, t, !reduceMotion.matches);
 }
 
 // ---- Boot ------------------------------------------------------------------------------------------
@@ -5323,7 +3385,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { world: () => world, court: () => court, sendoffs, jail, plan, applyMap, roof: () => roof, booze, dj: () => djFrame(djAt()), store, player, caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, driver, getIn, getOut, golf, balls, thrower, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote, ball };
+(window as any).__office = { world: () => world, court: () => court, sendoffs, jail, plan, applyMap, roof: rooftop.roof, booze: bar.booze, dj: () => djFrame(rooftop.djAt()), store, player, caffeine: coffee.caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger: hanging.hanger, office, ride, switchFloor, climber: climbing.climber, driver: cars.driver, getIn: cars.getIn, getOut: cars.getOut, golf: golfing.golf, balls: golfing.balls, thrower: bargames.thrower, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel: emotes.emoteWheel, emote: emotes.emote, ball: hoops.ball };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;

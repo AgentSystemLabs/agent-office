@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { Activities, Interactions, Keys, Messages, TICK_PHASES, Ticks, type KeyPress } from '../src/client/core/registry.js';
+import { Activities, Interactions, Keys, Messages, TICK_PHASES, Ticks, View, type KeyPress } from '../src/client/core/registry.js';
 
 type Msg = { t: 'hello'; n: number } | { t: 'bye' };
 
@@ -202,6 +202,37 @@ test('stopAll stops what is going on in order, but what is excepted or does not 
   assert.equal(acts.current(), undefined);
 });
 
+test('stop stops one activity alone, only while it is going on, and it decides whether that stops it', () => {
+  const log: string[] = [];
+  const acts = new Activities<Why>(['hanger', 'driver']);
+  const hanger = activity('hanger', log, { on: true });
+  const driver = activity('driver', log, { stopsFor: ['trip'] });
+  acts.add(hanger);
+  acts.add(driver);
+  acts.stop('driver', 'trip');
+  assert.deepEqual(log, []);
+  driver.on = true;
+  acts.stop('driver', 'walk');
+  assert.deepEqual(log, []);
+  acts.stop('driver', 'trip');
+  assert.deepEqual(log, ['driver stops for trip']);
+  assert.equal(hanger.on, true);
+  // Nothing registered by that id: nothing happens.
+  acts.stop('golf', 'trip');
+  assert.deepEqual(log, ['driver stops for trip']);
+});
+
+test('an activity with both hands busy says so, only while it is going on', () => {
+  const acts = new Activities(['golf', 'driver']);
+  let golfing = false;
+  acts.add({ id: 'golf', active: () => golfing, stop: () => {}, bothHands: true, hidesHands: true });
+  acts.add({ id: 'driver', active: () => true, stop: () => {}, hidesHands: true });
+  assert.equal(acts.any('hidesHands'), true);
+  assert.equal(acts.any('bothHands'), false);
+  golfing = true;
+  assert.equal(acts.any('bothHands'), true);
+});
+
 test('an activity taken out is gone from the order', () => {
   const acts = new Activities(['a', 'b']);
   const off = acts.add({ id: 'a', active: () => true, stop: () => {} });
@@ -211,6 +242,54 @@ test('an activity taken out is gone from the order', () => {
     acts.all().map((a) => a.id),
     ['b'],
   );
+});
+
+test('view effects: the first grip that holds on, the field of view through each in order, updates, cover', () => {
+  const view = new View<'ladder' | 'pole'>();
+  const log: string[] = [];
+  let grip: 'ladder' | 'pole' | null = null;
+  let narrow = false;
+  let covered = false;
+  view.add({ fov: (f) => (narrow ? 24 : f), covers: () => covered, update: () => log.push('first') });
+  view.add({ grip: () => grip, fov: (f) => f + 0.5 * 16, update: () => log.push('second') });
+  view.add({ grip: () => 'pole' });
+  // The first effect holding on to something says what you hold.
+  assert.equal(view.grip(), 'pole');
+  grip = 'ladder';
+  assert.equal(view.grip(), 'ladder');
+  // Through each effect in the order they were added: the second widens what the first narrowed.
+  assert.equal(view.fov(55), 55 + 8);
+  narrow = true;
+  assert.equal(view.fov(55), 24 + 8);
+  view.update();
+  assert.deepEqual(log, ['first', 'second']);
+  assert.equal(view.covered(), false);
+  covered = true;
+  assert.equal(view.covered(), true);
+});
+
+test('view filters wrap the frame, the first outermost, and only those that are on', () => {
+  const view = new View();
+  const log: string[] = [];
+  const f = { delta: 0, dt: 0, t: 7, now: 0 };
+  let drunk = true;
+  view.add({ filter: { begin: () => (log.push('outer begin'), true), end: (x) => void log.push(`outer end ${x.t}`) } });
+  view.add({ filter: { begin: () => (log.push('drunk begin'), drunk), end: () => void log.push('drunk end') } });
+  view.draw(f, () => log.push('draw'));
+  assert.deepEqual(log, ['outer begin', 'drunk begin', 'draw', 'drunk end', 'outer end 7']);
+  log.length = 0;
+  drunk = false;
+  view.draw(f, () => log.push('draw'));
+  assert.deepEqual(log, ['outer begin', 'drunk begin', 'draw', 'outer end 7']);
+});
+
+test('an effect taken out stops having a say', () => {
+  const view = new View();
+  const off = view.add({ fov: (f) => f * 2, covers: () => true });
+  assert.equal(view.fov(10), 20);
+  off();
+  assert.equal(view.fov(10), 10);
+  assert.equal(view.covered(), false);
 });
 
 type It = { kind: 'desk' | 'dog' | 'tv'; name?: string };

@@ -21,7 +21,7 @@ import type { Interactable, Office } from '../world/office';
 import type { Sky } from '../world/sky';
 import type { Smoke } from '../world/smoke';
 import type { World } from '../world/world';
-import type { Activities, Interactions, Keys, Messages, Ticks } from './registry';
+import type { Activities, Interactions, Keys, Messages, Ticks, View } from './registry';
 
 /** What the hint bar says. */
 export interface Hint {
@@ -40,7 +40,8 @@ export interface Hint {
  * - map: the building changed maps
  * - walk: you're walking over to someone
  * - errand: you're walking over to something to use it (Shift+Enter in the palette)
- * - desk: you're put in front of a desk (the PR board's "Go to desk", N)
+ * - desk: you're put in front of a desk (the PR board's "Go to desk", N), or placed anywhere else
+ *   (only the car hears that: see placeAt in main.ts)
  */
 export type StopWhy = 'start' | 'taken' | 'trip' | 'map' | 'walk' | 'errand' | 'desk';
 
@@ -71,6 +72,8 @@ export interface Ctx {
   readonly scene: THREE.Scene;
   readonly camera: THREE.PerspectiveCamera;
   readonly renderer: THREE.WebGLRenderer;
+  /** What the office is drawn on (the renderer's canvas), where the mouse aims and clicks. */
+  readonly canvas: HTMLCanvasElement;
   /** The office building, whichever map is up (see world()). */
   readonly office: Office;
   readonly sky: Sky;
@@ -108,6 +111,11 @@ export interface Ctx {
   readonly hint: {
     /** Asks the hint bar to draw itself again, next frame. */
     invalidate(): void;
+    /**
+     * Draws `parts()` in the hint bar `el` (an activity's own hint), unless what it last drew was `k`
+     * already: `k` changes whenever the hint needs redrawing.
+     */
+    draw(el: HTMLElement, k: string, parts: () => (HTMLElement | string)[]): void;
   };
   /**
    * Shakes the view (a bump in a car, a hiccup), easing off by itself; a stronger shake going on
@@ -121,4 +129,6 @@ export interface Ctx {
   readonly ticks: Ticks;
   readonly activities: Activities<StopWhy, KeyboardEvent, HTMLElement>;
   readonly interactions: Interactions<OfficeInteraction>;
+  /** What what you're doing makes of you and your view each frame (see ViewEffect). */
+  readonly view: View<Grip>;
 }
