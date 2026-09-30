@@ -267,6 +267,7 @@ export class Floor {
           return workers.officeDefault;
         },
         list: () => this.workers.list(),
+        activeSince: (id, at) => this.workers.activeSince(id, at),
         seat: (deskId, by, prompt, provider, model, effort, meeting, owner) => this.workers.spawn(deskId, by, prompt, false, 'agent', provider, model, effort, meeting, owner),
         prompt: (id, text, by) => this.workers.prompt(id, text, by),
         write: (id, data, by) => this.workers.write(id, data, by),
