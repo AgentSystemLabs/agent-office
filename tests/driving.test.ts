@@ -1,14 +1,14 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { PlayerController } from '../src/client/player.js';
-import { Driver } from '../src/client/driving.js';
-import { Fleet } from '../src/client/world/cars.js';
-import type { Collider, Interactable } from '../src/client/world/office.js';
+import { PlayerController } from '../src/client/player/index.js';
+import { Driver } from '../src/client/features/cars/controller.js';
+import { Fleet } from '../src/client/features/cars/world.js';
+import type { Collider, Interactable } from '../src/client/world/types.js';
 import { CAR, SEATS, carPoint, onPavement, type CarPose } from '../src/shared/garage.js';
 import { ROAD, STREET_Y } from '../src/shared/layout.js';
 import { LOOP_LENGTH, STREET_END, nearLoop } from '../src/shared/scenic.js';
-import { LapTimer } from '../src/client/laps.js';
+import { LapTimer } from '../src/client/features/cars/laps.js';
 
 const G = STREET_Y;
 const ROAD_Z = (ROAD.minZ + ROAD.maxZ) / 2;

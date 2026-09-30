@@ -1,0 +1,55 @@
+/* Boards */
+.modal.board { width: min(1400px, 100%); height: min(860px, calc(100vh - 32px)); }
+.modal.board .body { flex: 1; display: flex; gap: 12px; padding: 12px; background: #d8a86a; background-image: radial-gradient(rgba(0,0,0,.08) 1px, transparent 1.5px); background-size: 9px 9px; }
+.column { flex: 1; min-width: 220px; display: flex; flex-direction: column; background: rgba(255, 250, 243, .55); border: 3px solid var(--ink); border-radius: 14px; overflow: hidden; }
+.column h4 { margin: 0; font-size: 14px; font-weight: 900; background: var(--paper); border-bottom: 3px solid var(--ink); }
+/* Click a column's header to filter it by label. */
+.col-head { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.col-head:hover, .col-head[aria-expanded="true"] { background: var(--paper-2); }
+.col-head:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
+.col-count { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.col-caret { font-size: 11px; color: var(--muted); }
+.col-head:hover .col-caret, .col-head[aria-expanded="true"] .col-caret { color: var(--ink); }
+.column.filtered h4 { background: var(--paper-2); }
+/* Each column's box for narrowing it by title. */
+.col-search { position: relative; flex-shrink: 0; background: var(--paper); border-bottom: 3px solid var(--ink); padding: 6px 8px; }
+/* The box itself is sized in styles/base.css, after the frame's text box rule. */
+.col-search-clear { position: absolute; top: 50%; right: 14px; transform: translateY(-50%); border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; font-weight: 900; cursor: pointer; padding: 0 2px; }
+.col-search-clear:hover { color: var(--ink); }
+.col-active, .col-filter { background: var(--paper); border-bottom: 3px solid var(--ink); padding: 7px 10px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.col-clear { margin-left: auto; border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; font-weight: 900; cursor: pointer; padding: 0 2px; }
+.col-clear:hover { color: var(--ink); }
+.col-filter { flex-direction: column; align-items: stretch; gap: 8px; max-height: 45%; flex-shrink: 0; }
+.col-labels { display: flex; flex-wrap: wrap; gap: 5px; overflow: auto; min-height: 0; }
+.col-labels > small { color: var(--muted); font-weight: 700; }
+.label-pick { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px 2px 2px; border: 2px solid transparent; border-radius: 999px; background: none; color: var(--muted); font: inherit; font-size: 11px; font-weight: 800; cursor: pointer; opacity: .55; }
+.label-pick:hover { opacity: 1; }
+.label-pick[aria-pressed="true"] { opacity: 1; border-color: var(--ink); background: #fff; color: var(--ink); }
+.label-pick:focus-visible { outline: none; opacity: 1; box-shadow: 0 0 0 2px var(--accent); }
+.col-filter-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; font-weight: 700; color: var(--muted); }
+.col-filter-foot .btn.small { padding: 2px 8px; font-size: 12px; border-width: 2px; border-radius: 9px; }
+.column ul { list-style: none; margin: 0; padding: 10px; display: flex; flex-direction: column; gap: 10px; overflow: auto; flex: 1; }
+.card { background: #fff7b0; border: 2px solid var(--ink); border-radius: 6px; padding: 10px 10px 8px; box-shadow: 0 3px 0 rgba(43,45,66,.6); cursor: pointer; position: relative; transform: rotate(var(--tilt, 0deg)); transition: transform .1s; }
+.card:hover { transform: rotate(0deg) scale(1.02); }
+.card::before { content: ''; position: absolute; top: -7px; left: 50%; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--pin, #ef476f); border: 2px solid var(--ink); }
+.card .num { font-size: 12px; font-weight: 900; color: var(--muted); }
+.card .ttl { font-weight: 800; font-size: 14px; line-height: 1.25; margin: 2px 0 6px; word-break: break-word; }
+.card .meta { display: flex; flex-wrap: wrap; gap: 4px; font-size: 11px; font-weight: 700; color: var(--muted); align-items: center; }
+/* The desk a PR came from, with a dot in the worker's color. */
+.desk-link { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border: 2px solid var(--ink); border-radius: 999px; background: #fff; color: var(--ink); font-weight: 800; white-space: nowrap; }
+.desk-link::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--dot, var(--accent)); border: 1px solid var(--ink); }
+/* A card's 🏷️ (the label picker) shows on hover or focus; touch screens always show it. */
+.card-labels { position: absolute; top: 5px; right: 5px; width: 26px; height: 26px; padding: 0; display: grid; place-items: center; font-size: 13px; background: var(--paper); border: 2px solid var(--ink); border-radius: 8px; box-shadow: 0 2px 0 var(--ink); cursor: pointer; opacity: 0; transition: opacity .1s; }
+.card:hover .card-labels, .card:focus-within .card-labels { opacity: 1; }
+.card-labels:hover { background: var(--paper-2); }
+@media (hover: none) { .card-labels { opacity: 1; } }
+.board-status { font-size: 12px; font-weight: 700; color: var(--muted); }
+.board-error { margin: auto; background: var(--paper); border: 3px solid var(--ink); border-radius: 14px; padding: 18px 22px; font-weight: 800; max-width: 520px; text-align: center; }
+.detail pre { white-space: pre-wrap; word-break: break-word; font: 13px/1.5 ui-monospace, Menlo, monospace; background: #fff; border: 2px solid var(--ink); border-radius: 10px; padding: 10px; max-height: 45vh; overflow: auto; margin: 10px 0 0; }
+.detail .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 13px; font-weight: 700; color: var(--muted); }
+.detail a { color: #1d6fd6; font-weight: 800; }
+
+/* A card's chip for the task queue: waiting, running or done. */
+.qchip { padding: 1px 6px; border-radius: 999px; border: 1.5px solid var(--ink); background: #e0f2fe; color: var(--ink); font-size: 10px; font-weight: 900; }
+.qchip.running { background: #d8f5e3; }
+.qchip.done { background: #fff1de; }

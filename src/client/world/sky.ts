@@ -903,7 +903,7 @@ class WetGlass {
   private spawn = 0;
 
   constructor(private mat: THREE.MeshBasicMaterial) {
-    // 90 cm of glass square (see wetPane in office.ts).
+    // 90 cm of glass square (see wetPane in world/office/shell.ts).
     this.canvas.width = this.canvas.height = 256;
     this.g = this.canvas.getContext('2d')!;
     this.tex = new THREE.CanvasTexture(this.canvas);

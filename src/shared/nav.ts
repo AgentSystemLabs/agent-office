@@ -41,7 +41,7 @@ export function deskPoint(d: DeskDef, t: number, s: number): Pt {
   return [d.x + Math.cos(d.rotY) * t + Math.sin(d.rotY) * s, d.z - Math.sin(d.rotY) * t + Math.cos(d.rotY) * s];
 }
 
-/** What's in the way on the office floor, built out `wing` rows. The lounge, kitchen and plants are where office.ts (and kitchen.ts) put them. */
+/** What's in the way on the office floor, built out `wing` rows. The lounge, kitchen and plants are where world/office/room.ts (and world/kitchen.ts) put them. */
 function obstacles(wing: number): Obstacles {
   const rects: Rect[] = [];
   const circles: Circle[] = [];
@@ -62,15 +62,15 @@ function obstacles(wing: number): Obstacles {
   for (const x of [LOFT.minX + 0.15, (LOFT.minX + LOFT.maxX) / 2]) circles.push([x, LOFT.minZ + 0.15, 0.14]);
   rects.push([STAIRS.fromX, STAIRS.toX, STAIRS.minZ - 0.1, STAIRS.maxZ]);
   rects.push([ELEVATOR.x - ELEVATOR.width / 2, ELEVATOR.x + ELEVATOR.width / 2, FLOOR.minZ, ELEVATOR_FRONT]);
-  // The gong's frame, as office.ts puts it.
+  // The gong's frame, as features/gong/world.ts puts it.
   rects.push([GONG.x - GONG.width / 2 - 0.12, GONG.x + GONG.width / 2 + 0.3, GONG.z - 0.3, GONG.z + 0.3]);
-  // The whiteboard on its wheels, as world/whiteboard.ts puts it.
+  // The whiteboard on its wheels, as features/whiteboard/world.ts puts it.
   rects.push([WHITEBOARD.x - WHITEBOARD.width / 2 - 0.2, WHITEBOARD.x + WHITEBOARD.width / 2 + 0.2, WHITEBOARD.z - 0.48, WHITEBOARD.z + 0.48]);
   // The jukebox, against the east wall.
   rects.push([JUKEBOX.x - JUKEBOX.depth / 2 - 0.05, FLOOR.maxX, JUKEBOX.z - JUKEBOX.width / 2 - 0.05, JUKEBOX.z + JUKEBOX.width / 2 + 0.05]);
-  // The arcade cabinet next to it, as world/cabinet.ts puts it (its control panel sticks out a little).
+  // The arcade cabinet next to it, as features/cabinet/world.ts puts it (its control panel sticks out a little).
   rects.push([CABINET.x - 0.45, FLOOR.maxX, CABINET.z - CABINET.width / 2 - 0.02, CABINET.z + CABINET.width / 2 + 0.02]);
-  // The bookshelf against the south wall, as world/bookshelf.ts puts it.
+  // The bookshelf against the south wall, as features/bookshelf/world.ts puts it.
   rects.push([BOOKSHELF.x - BOOKSHELF.width / 2 - 0.04, BOOKSHELF.x + BOOKSHELF.width / 2 + 0.04, BOOKSHELF.z - BOOKSHELF.depth / 2 - 0.03, FLOOR.maxZ]);
   // The ladder up the west wall, and the fire poles: a hole with a railing round it, or a landing mat.
   // Which spot has which changes floor by floor, so the dog keeps off both.
@@ -92,7 +92,7 @@ function obstacles(wing: number): Obstacles {
     rects.push([Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)]);
   }
   // The meeting room under the loft: its glass walls, with the doorway in the north one, and the
-  // table with its chairs, as office.ts puts them.
+  // table with its chairs, as world/office/meeting-room.ts puts them.
   const room = MEETING_ROOM;
   const G = 0.06;
   rects.push([room.minX - G, room.minX + G, room.minZ - G, room.maxZ]);

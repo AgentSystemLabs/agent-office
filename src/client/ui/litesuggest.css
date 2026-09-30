@@ -1,0 +1,5 @@
+/* Offering the 2D view on a phone, or where the 3D runs slowly (ui/litesuggest.ts): over the loading screen too. */
+.lite-offer { position: fixed; left: 12px; right: 12px; bottom: max(16px, env(safe-area-inset-bottom)); z-index: 110; max-width: 440px; margin: 0 auto; padding: 14px 16px; animation: toast-in .25s ease-out; }
+.lite-offer p { margin: 0 0 12px; font-weight: 800; font-size: 15px; line-height: 1.35; }
+.lite-offer-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.lite-offer-btns .btn { flex: 1; justify-content: center; min-height: 44px; text-decoration: none; }

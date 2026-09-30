@@ -1,0 +1,20 @@
+// The dog on every floor.
+import type { DogClientMsg } from '../../../shared/protocol.js';
+import { str } from '../../office/input.js';
+import { here } from './common.js';
+import type { HandlerMap, ViewPieces } from './types.js';
+
+export const dogView: ViewPieces['dog'] = (_ctx, floor) => floor?.dog.view() ?? null;
+
+export const dogHandlers = {
+  'dog.pet'(ctx, c) {
+    ctx.floorOf(c)?.dog.pet(c.peer);
+  },
+  'dog.name'(ctx, c, msg) {
+    const who = c.peer.name;
+    const floor = here(ctx, c);
+    if (!floor) return;
+    const name = floor.dog.rename(str(msg.name, 200));
+    ctx.toastFloor(floor, `🐶 ${who} named the dog ${name}`);
+  },
+} satisfies HandlerMap<DogClientMsg>;

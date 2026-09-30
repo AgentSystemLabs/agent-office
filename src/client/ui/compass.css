@@ -1,0 +1,10 @@
+/* Arrows at the edge of the screen pointing to the workers waiting on you (ui/compass.ts). */
+#compass { position: absolute; inset: 0; overflow: hidden; pointer-events: none !important; }
+.compass-mark { position: absolute; left: 0; top: 0; width: 0; height: 0; --mark: var(--bad); }
+.compass-mark.done { --mark: var(--good); }
+/* A pin whose point (its square corner) turns to face the worker, with the emoji upright on top. */
+.compass-arrow { position: absolute; left: -19px; top: -19px; width: 38px; height: 38px; border-radius: 50% 50% 50% 0; border: 3px solid var(--ink); background: var(--mark); }
+.compass-dial { position: absolute; left: -19px; top: -19px; width: 38px; height: 38px; display: grid; place-items: center; font-size: 17px; line-height: 1; }
+.compass-mark.needs_input .compass-dial { animation: pulse 1s infinite; }
+.compass-who { position: absolute; top: 24px; left: 0; transform: translateX(-50%); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 7px; border-radius: 8px; background: var(--ink); color: var(--paper); font-size: 11px; font-weight: 900; }
+@media (prefers-reduced-motion: reduce) { .compass-mark.needs_input .compass-dial { animation: none; } }

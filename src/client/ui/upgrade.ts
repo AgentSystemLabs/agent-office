@@ -1,3 +1,4 @@
+import './upgrade.css';
 import type { UpgradeState, VersionInfo } from '../../shared/protocol';
 import type { Net } from '../net';
 import { isAsleep } from '../../shared/status';

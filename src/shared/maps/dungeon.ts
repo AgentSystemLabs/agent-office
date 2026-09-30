@@ -14,7 +14,7 @@ import type { CellPlan, DungeonConfig, DungeonPlan, SendHomeConfig, SendHomePlac
  *
  * Everything here is worked out from plain numbers, so another map's dungeon, or its own way of
  * seeing workers off, is just other numbers and other steps (docs/maps.md). The client acts the
- * steps out (world/sendhome.ts); new kinds of step go in SEND_HOME_STEPS and there.
+ * steps out (features/workers/sendhome.ts); new kinds of step go in SEND_HOME_STEPS and there.
  */
 
 /** How thick the hall's floor is over the vault: its ceiling is this far under the hall's floor. */

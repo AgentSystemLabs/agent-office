@@ -1,7 +1,7 @@
 import { canLabel } from '../shared/floorplan';
 import type { GhIssue, WorkerInfo } from '../shared/protocol';
 import { isAsleep } from '../shared/status';
-import type { Interactable } from './world/office';
+import type { Interactable } from './world/types';
 
 export const DESK_KEYS = { KeyE: 'E', KeyP: 'P', KeyR: 'R', KeyX: 'X', KeyB: 'B', KeyC: 'C', KeyO: 'O', KeyL: 'L' } as const;
 export type DeskKey = (typeof DESK_KEYS)[keyof typeof DESK_KEYS];

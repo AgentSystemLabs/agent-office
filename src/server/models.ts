@@ -1,5 +1,5 @@
 import { execFile as nodeExecFile } from 'node:child_process';
-import { isValidGrokModel, isValidOpenCodeModel } from './agents.js';
+import { isValidGrokModel, isValidOpenCodeModel } from '../shared/providers.js';
 
 export const MODEL_COMMAND_TIMEOUT_MS = 10_000;
 export const MODEL_COMMAND_MAX_BUFFER = 1024 * 1024;
