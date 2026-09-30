@@ -1,4 +1,5 @@
 import { BUZZ_SECONDS, type Caffeine } from '../caffeine';
+import { ENERGY_DRAIN, HIGH_STRESS, LOW_ENERGY, STRESS_DRAIN, type Vitals } from '../vitals';
 import { ROOF, ROOF_NAME } from '../../shared/rooftop';
 import { store } from '../state';
 import type { Voice } from '../voice';
@@ -87,6 +88,23 @@ export function renderWorkers(onOpen: (id: string) => void) {
   $('worker-count').textContent = hired ? String(hired) : '';
 }
 
+let vitalsKey = '';
+/** Your energy and your stress: two bars under the project name, each easing across a second at a time. */
+export function renderVitals(vitals: Vitals, now: number) {
+  const energy = vitals.energyLeft(now);
+  const stress = vitals.strain(now);
+  // Both move so slowly that half a percent of the bar is under a pixel: only redraw it that often.
+  const k = `${Math.round(energy * 200)}|${Math.round(stress * 200)}`;
+  if (k === vitalsKey) return;
+  vitalsKey = k;
+  const el = $('vitals');
+  el.classList.toggle('low', energy <= LOW_ENERGY);
+  el.classList.toggle('wound', stress >= HIGH_STRESS);
+  // The bars ease over a second (see their CSS transition), so aim for where they'll be in one.
+  $('energy-fill').style.width = `${Math.max(0, energy - ENERGY_DRAIN) * 100}%`;
+  $('stress-fill').style.width = `${Math.min(1, stress + STRESS_DRAIN) * 100}%`;
+}
+
 let caffeineKey = '';
 /** The caffeine meter: a cup per coffee in a row, and a bar that drains over the buzz's minute. */
 export function renderCaffeine(caffeine: Caffeine, now: number) {
@@ -135,7 +153,8 @@ export function openHelp() {
   const rows: [string, string][] = [
     ['W A S D', 'Walk (hold Shift to run)'],
     ['Space', 'Jump'],
-    ['☕', 'Press E at the coffee machine in the kitchen for a minute of quicker walking and higher jumps. Three cups in a row gives you the jitters'],
+    ['☕', 'Press E at the coffee machine in the kitchen for a minute of quicker walking and higher jumps, and some energy back. Three cups in a row gives you the jitters'],
+    ['⚡😰', 'The two meters under the project name are your energy and your stress: they run down over three quarters of an hour. Low on energy your legs get heavy; wound up past half, your hands shake. Coffee puts energy back, and a drink from the rooftop bar takes the stress off'],
     ['Mouse', 'Look around in first person (click to capture the mouse, Esc to free it)'],
     ['Click / E', "Use what you look at: hire a worker, open its terminal, read a board, call a meeting in the meeting room, watch the TV, put a song on the jukebox, tee off from the balcony, sit on a couch, a beanbag, a chair or the balcony bench (walk off to get up)"],
     ['👥', 'Click someone under "In the office" to walk over to them (on another floor, you ride the elevator first). The line under their name says what they have open or where they are'],
@@ -147,7 +166,7 @@ export function openHelp() {
     ['N', "Next worker that needs you: go to whoever has waited longest (needs input, or done and nobody's looked), and again for the next one. Arrows at the edge of the screen point to the ones out of sight"],
     ['🏀', 'The hoop on the west wall, by the exit door: E at the ball picks it up. Hold E (or the mouse, in first person) and let go when the meter is in the green to sink it. In first person it goes where you look. Q drops it. Everyone on your floor sees your shot'],
     ['🏎️', "The Lambos and Ferraris in the garage: E at one gets you behind the wheel, or beside whoever's driving it. W is the gas, S brakes and reverses, A and D steer, Space brakes, H honks and E gets you out. Everyone on your floor sees you drive by"],
-    ['🍸', 'The elevator goes up to the rooftop bar: a DJ playing drum and bass under the lights, and the city all around. Press E at the bar for a drink (it goes to your head for a bit) and at the DJ booth for the air horn'],
+    ['🍸', 'The elevator goes up to the rooftop bar: a DJ playing drum and bass under the lights, and the city all around. Press E at the bar for a drink (it goes to your head for a bit, and takes a bit of the stress off) and at the DJ booth for the air horn'],
     ['🎯', 'Up on the roof, in the corner past the DJ: a dart board and an axe-throwing lane. E at either steps up to the line. The mouse (or the arrow keys) aims, and your hand wanders more after a few drinks. Hold Space (or the mouse button) and let go in the green: three darts a visit, five axes a round, chalked up for everyone up there. E steps back'],
     ['Drag / wheel', 'Orbit and zoom the camera in third person'],
     ['P', 'Prompt: give a task to a new or existing worker at the desk you face'],
