@@ -1,5 +1,5 @@
-import type { AudioCore } from './core';
-import { CABINET_AT } from './places';
+import type { AudioCore } from '../../sound/core';
+import { CABINET_AT } from '../../sound/places';
 
 // ---- The arcade -------------------------------------------------------------------------------
 

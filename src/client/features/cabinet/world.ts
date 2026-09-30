@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { CABINET, FLOOR } from '../../shared/layout';
-import { mesh, roundedBox, toon } from './toon';
-import type { Collider, Interactable } from './office';
-import type { Fixture } from './office/fixture';
+import { CABINET, FLOOR } from '../../../shared/layout';
+import { mesh, roundedBox, toon } from '../../world/toon';
+import type { Collider, Interactable } from '../../world/office';
+import type { Fixture } from '../../world/office/fixture';
 
 // The arcade cabinet in the lounge: an upright in blue side panels, a lit marquee on top, the screen
 // leaning back under it (ui/cabinet.ts paints the game on it), a joystick and buttons, and a coin door.
@@ -145,7 +145,7 @@ export function buildCabinet(): CabinetModel {
   return { group, collider, interactable, screen };
 }
 
-declare module './types' {
+declare module '../../world/types' {
   interface OfficeHandles {
     /** The arcade cabinet in the lounge, where BLOCKFALL plays (ui/cabinet.ts). */
     cabinet: CabinetModel;

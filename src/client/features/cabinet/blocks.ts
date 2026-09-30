@@ -1,4 +1,4 @@
-import { CLEAR_POINTS, GAME, WELL_COLS, WELL_ROWS, levelFor, scoreText, type CabinetFrame, type HighScore, type PlayState } from '../../shared/cabinet';
+import { CLEAR_POINTS, GAME, WELL_COLS, WELL_ROWS, levelFor, scoreText, type CabinetFrame, type HighScore, type PlayState } from '../../../shared/cabinet';
 
 /**
  * BLOCKFALL, the game on the arcade cabinet (ui/cabinet.ts): falling blocks with the usual rotation

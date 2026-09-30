@@ -12,7 +12,7 @@
 
 import * as THREE from 'three';
 import { DESKS } from '../../shared/layout';
-import { buildCabinet } from '../world/cabinet';
+import { buildCabinet } from '../features/cabinet/world';
 import { supercar } from '../features/cars/world';
 import { buildGong } from '../world/gong';
 import { buildJukebox } from '../features/jukebox/world';

@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Arcade, DROP_POINTS, GAME_BURST, GAME_EVERY, HighScores, PIECE_BURST, PIECES_PER_SECOND, RECORD_EVERY, clearPoints, type Player } from '../src/server/cabinet.js';
 import { SCORES_KEPT, WELL_COLS, WELL_ROWS, checkFrame, levelFor, type CabinetFrame } from '../src/shared/cabinet.js';
-import { Blocks } from '../src/client/ui/blocks.js';
-import { lostGame } from '../src/client/ui/cabinet.js';
+import { Blocks } from '../src/client/features/cabinet/blocks.js';
+import { lostGame } from '../src/client/features/cabinet/ui.js';
 
 const game = (n: number) => `game${String(n).padStart(8, '0')}`;
 const entry = (n: number, score: number, name = 'Ada') => ({ game: game(n), name, color: '#ef476f', score, lines: 1, level: 1 });

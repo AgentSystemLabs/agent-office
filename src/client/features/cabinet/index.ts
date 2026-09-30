@@ -2,7 +2,7 @@ import { GAME, scoreText } from '../../../shared/cabinet';
 import type { Ctx } from '../../core/context';
 import { aside, hintTitle, key, onE } from '../../core/hint';
 import { store } from '../../state';
-import { Cabinet } from '../../ui/cabinet';
+import { Cabinet } from './ui';
 import { clip } from '../../ui/dom';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).

@@ -9,7 +9,7 @@ import { elevator, garageLift } from '../elevator';
 import { gong } from '../gong';
 import { jukebox } from '../../features/jukebox/world';
 import { bookshelf } from '../bookshelf';
-import { cabinet } from '../cabinet';
+import { cabinet } from '../../features/cabinet/world';
 import { whiteboard } from '../whiteboard';
 import { green, tee } from '../../features/golf/world';
 import { stack } from '../stack';

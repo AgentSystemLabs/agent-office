@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { GAME, type CabinetFrame } from '../../shared/cabinet';
-import type { WorkerInfo } from '../../shared/protocol';
-import type { Net } from '../net';
-import { store } from '../state';
-import { h, openModal, toast, type Modal } from './dom';
-import { ScreenZoom } from './arcade';
+import { GAME, type CabinetFrame } from '../../../shared/cabinet';
+import type { WorkerInfo } from '../../../shared/protocol';
+import type { Net } from '../../net';
+import { store } from '../../state';
+import { h, openModal, toast, type Modal } from '../../ui/dom';
+import { ScreenZoom } from '../../ui/arcade';
 import { Blocks, H, W, paintScreen, type ScreenView } from './blocks';
 
 /** What the cabinet makes a noise about: a piece landing, lines clearing (how many), the game ending. */
