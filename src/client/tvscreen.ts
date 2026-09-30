@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { TV } from '../shared/layout';
 import { classify, embedUrl, positionAt, youtubeId, type TvKind, type TvState } from '../shared/tv';
+import { roomMediaGain } from './spatial-audio';
 import { store } from './state';
 import { h, toast } from './ui/dom';
 import type { Collider } from './world/office';
@@ -22,10 +23,6 @@ const MASK_W = 32;
 const MASK_H = 18;
 /** How often that's worked out (ms). People move slowly, and building the mask isn't free. */
 const MASK_TICK = 80;
-/** Match the jukebox's near-field volume and inverse-distance falloff. */
-const TV_REF = 2.5;
-const TV_ROLLOFF = 1.3;
-
 // ---- YouTube's IFrame API, which is how play, pause and seek reach a YouTube link ----------------
 
 interface YoutubePlayer {
@@ -164,6 +161,8 @@ export class TvScreen {
   volume = 1;
   muted = false;
   private soundDistance = Infinity;
+  /** False on the roof and on maps of their own, where the office's jukebox is silent too. */
+  private soundHere = false;
   /** Told when the sound changes here rather than in the window (the autoplay fallback does it). */
   onSound: (() => void) | null = null;
   private readonly corners = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
@@ -219,10 +218,11 @@ export class TvScreen {
   }
 
   /** Updates the listener used to make the TV quieter with distance, like the jukebox. */
-  setListener(position: ListenerPosition) {
+  setListener(position: ListenerPosition, here = true) {
     const distance = Math.hypot(position.x - TV.x, position.y - TV.y, position.z - TV.z);
-    if (Math.abs(distance - this.soundDistance) < 0.02) return;
+    if (here === this.soundHere && Math.abs(distance - this.soundDistance) < 0.02) return;
     this.soundDistance = distance;
+    this.soundHere = here;
     this.applySound(false);
   }
 
@@ -244,13 +244,12 @@ export class TvScreen {
     const youtube = this.kind === 'youtube' && this.yt && this.ready ? this.yt : null;
     if (!media && !youtube) return false;
     const off = this.muted || this.volume === 0;
-    const distance = Math.max(TV_REF, this.soundDistance === Infinity ? TV_REF : this.soundDistance);
-    const distanceGain = TV_REF / (TV_REF + TV_ROLLOFF * (distance - TV_REF));
+    const gain = roomMediaGain(this.volume, this.soundDistance, this.soundHere);
     if (media) {
-      media.volume = this.volume * distanceGain;
+      media.volume = gain;
       media.muted = off;
     } else if (youtube) {
-      youtube.setVolume(Math.round(this.volume * distanceGain * 100));
+      youtube.setVolume(Math.round(gain * 100));
       if (off) youtube.mute();
       else youtube.unMute();
     }
@@ -262,8 +261,8 @@ export class TvScreen {
    * Every frame: keep the picture where the floor says it should be, then put it on the TV's
    * rectangle — or take it away, if the TV isn't somewhere you can see it (call after rendering).
    */
-  update(camera: THREE.PerspectiveCamera, show: boolean, colliders: readonly Collider[], listener: ListenerPosition) {
-    this.setListener(listener);
+  update(camera: THREE.PerspectiveCamera, show: boolean, colliders: readonly Collider[], listener: ListenerPosition, soundHere = show) {
+    this.setListener(listener, soundHere);
     try {
       this.align(store.officeNow());
     } catch {

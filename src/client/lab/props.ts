@@ -21,6 +21,7 @@ import { buildJukebox } from '../world/jukebox';
 import { buildKitchen } from '../world/kitchen';
 import { preloadModels } from '../world/models';
 import { DESK_BOOKS, FLOOR_PLANTS, buildDesk, coffeeTable, deskBooks, deskMug, loungeCouch, plant, pouf } from '../world/office';
+import { basketPot, greenPlant, herbPot, plantStand, sillPothos, tablePlant, trailingPothos, windowBox } from '../world/plants';
 import { toon } from '../world/toon';
 import { ready, stage } from './stage';
 
@@ -67,6 +68,47 @@ const SHOW: Record<string, () => Shown> = {
     const at = [0, 1.15, 2.25, 3];
     [...FLOOR_PLANTS, 'succulent' as const].forEach((species, i) => {
       if (!q.has('plant') || q.get('plant') === species) object.add(plant(species).translateX(at[i]));
+    });
+    return { object };
+  },
+  greenery: () => {
+    // The code-built plants (world/plants.ts): the floor species, the little pots and the hanging
+    // basket, side by side. plant=<name> keeps just that one (a GreenKind, table, trailing, herbs,
+    // sill or hanging).
+    const parts: THREE.Object3D[] = [
+      greenPlant('areca_palm'),
+      greenPlant('fiddle_fig'),
+      greenPlant('peace_lily'),
+      plantStand().add(trailingPothos().translateY(0.49)),
+      tablePlant(),
+      herbPot('basil'),
+      herbPot('rosemary'),
+      sillPothos(),
+      basketPot(0.3, 0.4).add(greenPlant('peace_lily', 0.7).translateY(0.33)),
+      windowBox(1.6),
+    ];
+    const whose: Record<string, number[]> = {
+      areca_palm: [0],
+      fiddle_fig: [1],
+      peace_lily: [2],
+      stand: [3],
+      table: [4],
+      basil: [5],
+      rosemary: [6],
+      sill: [7],
+      basket: [8],
+      window_box: [9],
+    };
+    const keep = q.has('plant') ? (whose[q.get('plant')!] ?? []) : parts.map((_, i) => i);
+    const object = new THREE.Group();
+    let x = 0;
+    parts.forEach((p, i) => {
+      if (!keep.includes(i)) return;
+      const box = new THREE.Box3().setFromObject(p);
+      p.position.x += x - box.min.x;
+      p.position.z -= (box.min.z + box.max.z) / 2;
+      x += box.max.x - box.min.x + 0.6;
+      object.add(p);
     });
     return { object };
   },

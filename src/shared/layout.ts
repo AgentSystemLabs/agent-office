@@ -272,7 +272,11 @@ export const SPAWN = { x: 8, z: 7 } as const;
 /** The gong: on the north wall just past the elevator from the PR board, facing into the room. It rings when a PR merges. */
 export const GONG = { x: 11.8, z: FLOOR.minZ + 0.75, width: 1.9, height: 2.45 } as const;
 
-/** Potted plants around the room: where each stands, and how big it is. */
+/**
+ * Potted plants around the room: where each stands, and how big it is. The species take turns down
+ * the list (see floorPlant), and they hug the corners and the wall gaps between the windows and
+ * doors, out of the way of the desks, the boards and the way through to the back office.
+ */
 export const PLANTS: readonly (readonly [x: number, z: number, scale: number])[] = [
   [-17.2, -12.2, 1.4],
   [17.2, -12.2, 1.5],
@@ -282,6 +286,14 @@ export const PLANTS: readonly (readonly [x: number, z: number, scale: number])[]
   [-6, 0, 1],
   [3.5, 0, 0.9],
   [8.5, 5, 1.1],
+  // The north wall east of the Issues board, between the queue and the PR boards, and the west
+  // wall's window gaps: more greenery round the room without standing in a doorway.
+  [-14.2, -12.2, 1.2],
+  [-0.9, -12.25, 1.15],
+  [-17, -11, 1.05],
+  [-17, 4.8, 1.05],
+  // Out in the open floor between the desk pods, by the fire pole.
+  [3.9, -1.4, 0.95],
 ];
 
 /** A plant by the north wall east of the gong, in the way into the back office: put away once it's built. */
@@ -293,6 +305,52 @@ export function plantByWing([x, z]: readonly [number, number, number]): boolean 
 export function plantsAt(level: number): readonly (readonly [x: number, z: number, scale: number])[] {
   return level > 0 ? PLANTS.filter((p) => !plantByWing(p)) : PLANTS;
 }
+
+/**
+ * The potted greenery built in code (world/plants.ts) rather than modelled in Blender: the tall
+ * palms and figs and the peace lilies. A row of them takes turns with the species (see
+ * greenPlantKind), so no two neighbours match.
+ */
+export type GreenKind = 'areca_palm' | 'fiddle_fig' | 'peace_lily';
+export const GREEN_KINDS = ['areca_palm', 'fiddle_fig', 'peace_lily'] as const satisfies readonly GreenKind[];
+
+/** The code-built species for the `i`th of a row of them (see GREEN_PLANTS). */
+export function greenPlantKind(i: number): GreenKind {
+  return GREEN_KINDS[i % GREEN_KINDS.length];
+}
+
+/**
+ * The code-built plants standing on the office floor: where, and how big. They fill the gaps the
+ * Blender plants leave: the open floor by the desk clusters, the west wall towards the kitchen and
+ * the east wall between the Services board and the lounge TV.
+ */
+export const GREEN_PLANTS: readonly (readonly [x: number, z: number, scale: number])[] = [
+  [-14.0, 2.4, 1],
+  [3.6, 3.6, 0.95],
+  [10.4, 12.2, 0.95],
+  [16.6, -4.2, 1.1],
+];
+
+/**
+ * A little pot of greenery on the inner sill of a low window: which wall, where along it, and how
+ * far out from the window's middle. The sill is about 0.16 wide, so these are the smallest pots.
+ */
+export const SILL_PLANTS: readonly { wall: Side; u: number; offset: number }[] = [
+  { wall: 'south', u: -14, offset: 1.05 },
+  { wall: 'south', u: -9, offset: -1.05 },
+  { wall: 'south', u: 1, offset: 1.05 },
+  { wall: 'west', u: -9, offset: -1.05 },
+  { wall: 'west', u: -3, offset: 1.05 },
+  { wall: 'west', u: 3, offset: -1.05 },
+];
+
+/** A hanging basket: its hook's (x, z) on the ceiling, and how long its cord is. */
+export const HANGING_PLANTS: readonly (readonly [x: number, z: number, cord: number])[] = [
+  [-16.4, -12.2, 3.6],
+  [16.4, -12.2, 3.6],
+  [11.2, 3.6, 3.4],
+  [-14.5, 12.1, 3.4],
+];
 
 /**
  * The whiteboard on wheels everyone draws on together, out on the open floor between the desks and

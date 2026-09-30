@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, BOOKSHELF, CABINET, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, KIOSK, LADDER, LOFT, MACHINE_MONITOR, MEETING_BOARD, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PLANTS, SEATING_BY_ID, SLAB, STAIRS, STATIONS, STATION_AGENT, STOREY, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, WING, WING_DESKS, deskSeat, plantByWing, streetBelow, wingMinZ, wingRowZ, type DeskDef, type Opening, type Side, type StationKind } from '../../shared/layout';
+import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, BOOKSHELF, CABINET, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, GREEN_PLANTS, HANGING_PLANTS, KIOSK, LADDER, LOFT, MACHINE_MONITOR, MEETING_BOARD, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PLANTS, SEATING_BY_ID, SILL_PLANTS, SLAB, STAIRS, STATIONS, STATION_AGENT, STOREY, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, WING, WING_DESKS, deskSeat, greenPlantKind, plantByWing, streetBelow, wingMinZ, wingRowZ, type DeskDef, type Opening, type Side, type StationKind } from '../../shared/layout';
 import { wallFacing, type WallId, type WallRect } from '../../shared/decor';
 import { deskPoint } from '../../shared/nav';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
@@ -21,6 +21,7 @@ import { buildHoop, type HoopView } from './hoop';
 import { buildKitchen } from './kitchen';
 import type { Fridge } from './fridge';
 import { buildDeskSigns, type DeskSigns } from './desksigns';
+import { greenPlant, hangingPothos, plantStand, sillPothos, tablePlant, trailingPothos, windowBox } from './plants';
 import { HOOP } from '../../shared/hoop';
 
 export interface Collider {
@@ -377,6 +378,20 @@ function pendant(cord = 0.48): THREE.Group {
   return lamp;
 }
 
+/** A warm floor lamp at (x, z): a wooden pole on a round foot, a linen drum shade, and a bulb that glows at night. */
+function floorLamp(night: NightParts, x: number, z: number): THREE.Group {
+  const g = new THREE.Group();
+  g.position.set(x, 0, z);
+  g.add(mesh(new THREE.CylinderGeometry(0.17, 0.2, 0.035, 16), toon('#8a5a3b'), 0, 0.018, 0));
+  g.add(mesh(new THREE.CylinderGeometry(0.02, 0.022, 1.3, 8), toon(PALETTE.wood), 0, 0.68, 0));
+  g.add(mesh(new THREE.CylinderGeometry(0.2, 0.24, 0.3, 16, 1, true), toon('#f6e7c8', { transparent: true, opacity: 0.95 }), 0, 1.44, 0, false));
+  g.add(mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.02, 16), toon('#e9d5ae'), 0, 1.59, 0, false));
+  g.add(mesh(new THREE.SphereGeometry(0.09, 12, 10), bulb(night, '#ffd9a0', 0.35), 0, 1.44, 0, false));
+  night.halos.push({ at: new THREE.Vector3(x, 1.44, z), size: 1.5, color: '#ffd9a0' });
+  night.lamps.push({ x, y: 1.4, z, reach: 4.4, color: '#ffd9a0', power: 2 });
+  return g;
+}
+
 /** A window filling its hole in an outside wall: a frame lining the hole, a mullion, sills and real glass. */
 function windowIn(o: Opening): THREE.Group {
   const g = new THREE.Group();
@@ -654,6 +669,37 @@ function buildBalcony(group: THREE.Group, colliders: Collider[], interactables: 
     parts.add(p);
     const r = 0.3 * sc;
     colliders.push({ minX: px - r, maxX: px + r, minZ: pz - r, maxZ: pz + r, top: 0.5 * sc });
+  }
+  // A young palm on the deck and a peace lily by the doors: added to `group`, not `parts`, since
+  // they are merged by color and the parts are merged by material.
+  const deckPalm = greenPlant('areca_palm', 0.65);
+  deckPalm.position.set(minX + 3.7, 0, 14.6);
+  deckPalm.rotation.y = 0.6;
+  group.add(deckPalm);
+  colliders.push({ minX: minX + 3.5, maxX: minX + 3.9, minZ: 14.4, maxZ: 14.8, top: 0.33 });
+  const deckLily = greenPlant('peace_lily', 0.9);
+  deckLily.position.set(minX + 0.75, 0, 14.6);
+  deckLily.rotation.y = -0.4;
+  group.add(deckLily);
+  colliders.push({ minX: minX + 0.48, maxX: minX + 1.02, minZ: 14.33, maxZ: 14.87, top: 0.24 });
+
+  // Window boxes on the rail: the long planters on the front, a shorter one each side.
+  const boxY = railH + 0.05;
+  const front = windowBox(3.4);
+  front.position.set(cx, boxY, maxZ - 0.12);
+  group.add(front);
+  for (const sx of [-1, 1]) {
+    const sideBox = windowBox(2);
+    sideBox.position.set(sx < 0 ? minX + 0.12 : maxX - 0.12, boxY, minZ + 1.9);
+    sideBox.rotation.y = Math.PI / 2;
+    group.add(sideBox);
+  }
+  // Hanging baskets off the wall over the deck, spilling down between the string lights.
+  for (const [i, x] of [minX + 2.2, maxX - 2.2].entries()) {
+    const basket = hangingPothos(0.5);
+    basket.position.set(x, 3.2, minZ + 0.6);
+    basket.rotation.y = i * 1.6;
+    group.add(basket);
   }
 
   group.add(mergeByMaterial(parts));
@@ -1547,8 +1593,13 @@ export function buildOffice(): Office {
   table.position.set(13, 0, 0);
   group.add(table);
   colliders.push({ minX: 12.2, maxX: 13.8, minZ: -0.8, maxZ: 0.8, top: 0.46 });
-  const lounge = mesh(roundedBox(7, 0.02, 7, 1.2), toon('#ffc6ff'), 13.4, 0.011, 0, false);
-  group.add(lounge);
+  // A little pot of greenery on the coffee table.
+  const tableGreen = tablePlant();
+  tableGreen.position.set(13, 0.46, 0);
+  group.add(tableGreen);
+  // The lounge rug: warm woven jute with a paler border, under the couch and its table.
+  group.add(mesh(roundedBox(7, 0.02, 7, 1.2), toon('#c9a27a'), 13.4, 0.011, 0, false));
+  group.add(mesh(roundedBox(6.3, 0.022, 6.3, 1.1), toon('#e7d3ae'), 13.4, 0.012, 0, false));
 
   // A pouf either side of the lounge (the seats still called beanbags), turned to the TV like whoever sits on it.
   for (const [i, [color, x, z]] of (
@@ -1584,6 +1635,16 @@ export function buildOffice(): Office {
   colliders.push(shelf.collider);
   interactables.push(shelf.interactable);
   fixture('south', BOOKSHELF.x, (BOOKSHELF.height + 0.55) / 2, BOOKSHELF.width + 0.2, BOOKSHELF.height + 0.55);
+  // Greenery on the shelf's crown: a trailing pot that spills over the edge, and a little round one.
+  const shelfTop = BOOKSHELF.height + 0.07;
+  const spill = trailingPothos();
+  spill.position.set(BOOKSHELF.x - 0.5, shelfTop, BOOKSHELF.z - 0.26);
+  spill.rotation.y = Math.PI;
+  spill.scale.setScalar(1.15);
+  group.add(spill);
+  const shelfPot = tablePlant();
+  shelfPot.position.set(BOOKSHELF.x + 0.55, shelfTop, BOOKSHELF.z - 0.12);
+  group.add(shelfPot);
 
   // Kitchen corner: counter + coffee machine + fridge
   const kitchen = buildKitchen();
@@ -1610,6 +1671,45 @@ export function buildOffice(): Office {
     colliders.push(collider);
     if (plantByWing(spot)) plantsByWing.push({ group: p, collider });
   }
+
+  // The code-built greenery (world/plants.ts) filling the gaps between them, one on a wooden stool.
+  // They aren't in `plants`: Christmas stands a tree in the modelled pots, and these keep their leaves.
+  for (const [i, [x, z, s]] of GREEN_PLANTS.entries()) {
+    const onStand = i === 2;
+    if (onStand) {
+      const stand = plantStand();
+      stand.position.set(x, 0, z);
+      group.add(stand);
+    }
+    const p = greenPlant(greenPlantKind(i), s);
+    p.position.set(x, onStand ? 0.49 : 0, z);
+    p.rotation.y = i * 1.1;
+    group.add(p);
+    const r = 0.3 * s;
+    colliders.push({ minX: x - r, maxX: x + r, minZ: z - r, maxZ: z + r, top: (onStand ? 0.49 : 0) + 0.5 * s });
+  }
+
+  // A little greenery in the places nobody stands: on the window sills, hanging from the ceiling.
+  for (const spot of SILL_PLANTS) {
+    const window = WINDOWS.find((o) => o.wall === spot.wall && o.u === spot.u)!;
+    const along = spot.u + spot.offset;
+    const south = spot.wall === 'south';
+    const p = sillPothos();
+    p.scale.setScalar(0.6);
+    p.position.set(south ? along : FLOOR.minX + 0.08, window.y0, south ? FLOOR.maxZ - 0.08 : along);
+    p.rotation.y = south ? Math.PI : Math.PI / 2;
+    group.add(p);
+  }
+  for (const [i, [x, z, cord]] of HANGING_PLANTS.entries()) {
+    const p = hangingPothos(cord);
+    p.position.set(x, WALL_HEIGHT, z);
+    p.rotation.y = i * 1.3;
+    group.add(p);
+  }
+
+  // A warm floor lamp by the lounge seating, with the office's wood and a linen shade.
+  group.add(floorLamp(night, 15.7, 3.4));
+  colliders.push({ minX: 15.42, maxX: 15.98, minZ: 3.12, maxZ: 3.68, top: 1.55 });
 
   // Ceiling lamps (cartoon pendants), hung on long cords down from the high ceiling.
   const lampY = 4.05;
@@ -1865,6 +1965,15 @@ function buildMeetingRoom(group: THREE.Group, colliders: Collider[], interactabl
   table.position.set(top.x, 0, top.z);
   group.add(table);
   colliders.push({ minX: top.x - top.width / 2, maxX: top.x + top.width / 2, minZ: top.z - top.depth / 2, maxZ: top.z + top.depth / 2, top: top.height });
+  // A little pot of greenery in the middle of the table, clear of the laptops.
+  const tablePot = tablePlant();
+  tablePot.position.set(0, top.height, 0);
+  table.add(tablePot);
+  // A basket hanging from the room's ceiling, over the middle of the table.
+  const roomBasket = hangingPothos(0.35);
+  roomBasket.position.set(top.x, H, top.z);
+  group.add(roomBasket);
+
   const talk: Interactable = { kind: 'meeting', x: top.x, z: top.z, radius: 2.6 };
   interactables.push(talk);
   table.userData.interact = talk;
@@ -2049,6 +2158,13 @@ function buildLoft(group: THREE.Group, colliders: Collider[], interactables: Int
   screen.userData.interact = bossChair.userData.interact;
   desk.position.set(deskX, floorY, deskZ);
   group.add(desk);
+  // A little plant on the corner of the boss's desk, and a basket hanging from the loft's roof.
+  const deskPlant = tablePlant();
+  deskPlant.position.set(-0.95, 0.78, 0.28);
+  desk.add(deskPlant);
+  const loftBasket = hangingPothos(1.4);
+  loftBasket.position.set(maxX - 0.95, roofY, minZ + 1.0);
+  group.add(loftBasket);
   colliders.push({ minX: deskX - 1.3, maxX: deskX + 1.3, minZ: deskZ - 0.6, maxZ: deskZ + 0.6, bottom: floorY, top: floorY + 0.8 });
 
   const couch = new THREE.Group();

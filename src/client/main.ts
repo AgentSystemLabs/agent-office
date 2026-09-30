@@ -5262,7 +5262,7 @@ if (faint.down || modalOpen() || telescope.active || hanger.active || mover.acti
     x: player.pos.x,
     y: player.pos.y + EYE_HEIGHT,
     z: player.pos.z,
-  });
+  }, inOffice() && !upTop);
   // Not while the camera's up at the boss's monitor or the arcade, where they'd cover the screen.
   if (firstPerson && !telescope.active && !arcade.zoomed && !cabinet.zoomed && !golf.active && !thrower.active && !driver.active && !faint.down) {
     // Hands go on top of everything, so they never clip into a desk you walk up to. They have
