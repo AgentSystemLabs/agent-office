@@ -1,6 +1,6 @@
 import type { Ctx } from '../../core/context';
 import { store } from '../../state';
-import { Gallery } from '../../world/gallery';
+import { Gallery } from './world';
 
 /** The pictures people hung on the walls, as the office has them. */
 export function installGallery(ctx: Ctx): Gallery {

@@ -1,9 +1,9 @@
-import './decor.css';
-import { FRAMES, checkImageUrl, type Decoration } from '../../shared/decor';
-import { store } from '../state';
-import { holdPicture, loadPicture, type Picture } from '../world/gallery';
-import { h, openModal, timeAgo } from './dom';
-import { confirmDialog } from './prompt';
+import './ui.css';
+import { FRAMES, checkImageUrl, type Decoration } from '../../../shared/decor';
+import { store } from '../../state';
+import { holdPicture, loadPicture, type Picture } from './world';
+import { h, openModal, timeAgo } from '../../ui/dom';
+import { confirmDialog } from '../../ui/prompt';
 
 export interface HangChoice {
   picture: Picture;

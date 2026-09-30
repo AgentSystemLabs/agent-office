@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { FRAMES, FRAME_BORDER, WALLS, frameRect, wallPose, wallTop, type Decoration, type WallId, type WallRect } from '../../shared/decor';
-import { FLOOR, LOFT } from '../../shared/layout';
-import type { Interactable } from './office';
-import { toon } from './toon';
+import { FRAMES, FRAME_BORDER, WALLS, frameRect, wallPose, wallTop, type Decoration, type WallId, type WallRect } from '../../../shared/decor';
+import { FLOOR, LOFT } from '../../../shared/layout';
+import type { Interactable } from '../../world/office';
+import { toon } from '../../world/toon';
 
 // ---- Pictures -------------------------------------------------------------------------------------
 

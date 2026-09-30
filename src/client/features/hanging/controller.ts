@@ -1,12 +1,12 @@
 import * as THREE from 'three';
-import { PICTURE_MAX, PICTURE_MIN, clampToWall, frameRect, overlaps, pictureSize, type WallId } from '../shared/decor';
-import type { Net } from './net';
-import type { PlayerController } from './player';
-import { store } from './state';
-import { openHangDialog, openPicture, type HangChoice } from './ui/decor';
-import { toast } from './ui/dom';
-import { Ghost, aimAtWall, brokenTexture, holdPicture, loadPicture, type Gallery } from './world/gallery';
-import type { Office } from './world/office';
+import { PICTURE_MAX, PICTURE_MIN, clampToWall, frameRect, overlaps, pictureSize, type WallId } from '../../../shared/decor';
+import type { Net } from '../../net';
+import type { PlayerController } from '../../player';
+import { store } from '../../state';
+import { openHangDialog, openPicture, type HangChoice } from './ui';
+import { toast } from '../../ui/dom';
+import { Ghost, aimAtWall, brokenTexture, holdPicture, loadPicture, type Gallery } from './world';
+import type { Office } from '../../world/office';
 
 interface Hanging {
   url: string;
