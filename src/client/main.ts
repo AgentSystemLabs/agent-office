@@ -4640,6 +4640,9 @@ function refreshShares() {
   // Remote shares win the TV; your own share is what others see anyway.
   const pick = shares.find(([who]) => who !== 'You') ?? shares[0];
   const stream = pick?.[1] ?? null;
+  // A share takes the TV rather than sharing it: turn the link off, so the two are never on the
+  // screen at once. The link itself is kept, so Play puts it back on once the share ends.
+  if (stream && store.tv.on) net.send({ t: 'tv.stop' });
   if (stream !== tvStream) {
     tvStream = stream;
     tvVideo.srcObject = stream;

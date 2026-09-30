@@ -35,8 +35,11 @@ everyone. Links are checked on the way in (`checkTvUrl`, shared by the server an
 `http`/`https`, at most 2048 characters, and not your own office (a page of your own origin inside
 the TV would be able to reach out and touch the page it's framed in).
 
-Screen sharing still wins the TV while it's live — the share goes up, and the link comes back when
-the share ends. Nothing about sharing changes.
+Screen sharing still wins the TV while it's live, and it takes the TV rather than sharing it: the
+moment a share starts, the browser turns the link off with `tv.stop` (the link itself is kept, so
+**▶️ Play** puts it back on once the share ends). The two are never on the screen at once, so there
+is no picture to fight the share for the screen — and **E** at the TV watches the share full screen
+while it lasts, as before.
 
 ## Everyone stays in step
 
@@ -122,7 +125,8 @@ The server answers every one of them with `{ t: 'tv', state }`, which the browse
 - In the window: paste a link and **📺 Play**, pause and resume, drag to seek, **⏹️ Stop**, and
   **🔇 / 🔊** for your own speakers — that one is just yours, like the jukebox's volume (a player that
   won't take the order says so).
-- **🖥️ Share screen** is there too, because sharing used to be what **E** at the TV did.
+- **🖥️ Share screen** is there too, because sharing used to be what **E** at the TV did; starting one
+  turns the link off the screen (see above), and **▶️ Play** brings it back once the share ends.
 - The hint bar over the TV says what's on before you press anything.
 
 ## Limits, and what's deliberately left out
