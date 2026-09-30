@@ -584,10 +584,41 @@ export class WorkerManager {
     return (w?.pty || w?.dsh) && token && safeEq(token, w.hookToken) ? w.info : undefined;
   }
 
+  /**
+   * Holds a worker `offline` because the machine running its floor went away, rather than relaunching
+   * it. The terminal keeps the last screen, so whoever is watching sees what stopped, and **R** resumes
+   * it once the floor's host is back. Deliberately does not set an exit code: nothing exited.
+   */
+  private holdOffline(w: Worker, why: string, term: HeadlessTerminal) {
+    const info = w.info;
+    clockWork(info, 'exited');
+    info.status = 'offline';
+    info.exitCode = undefined;
+    const hint = info.kind === 'shell' ? ' — press R to restart' : info.sessionId ? ' — press R to resume' : '';
+    const msg = `\r\n\x1b[2m[${why}${hint}]\x1b[0m\r\n`;
+    term.write(msg);
+    if (w.viewers.size) this.events.data(info.id, msg, [...w.viewers.keys()]);
+    w.screenDirty = true;
+    w.unsaved = true;
+    this.emitUpdate(w);
+    this.persist();
+    this.events.toast(`${info.name}: ${why}${hint}`, 'warn');
+  }
+
   /** Starts every worker that isn't running: nobody should be found asleep at their desk. */
   wakeAll() {
     // A DeepSeek Harness worker has no PTY but is still running: only the ones that are gone wake up.
-    for (const w of this.workers.values()) if (!w.pty && !w.dsh) this.resume(w.info.id);
+    // A worker on a floor whose host is away stays asleep too, or the boot relaunches it and it
+    // refuses to seat, exits, and is relaunched again.
+    for (const w of this.workers.values()) if (!w.pty && !w.dsh && !this.remoteAbsent(w.info)) this.resume(w.info.id);
+  }
+
+  /**
+   * Whether this worker's floor runs on a machine that is not currently reachable. A no-op for an
+   * office-side floor, so the ordinary boot path is unchanged; set on the floor by a hosted one.
+   */
+  private remoteAbsent(_info: WorkerInfo): boolean {
+    return false;
   }
 
   /**
@@ -1890,7 +1921,7 @@ export class WorkerManager {
       w.unsaved = true;
       if (w.viewers.size) this.events.data(info.id, data, [...w.viewers.keys()]);
     });
-    proc.onExit(({ exitCode, error, lost }) => {
+    proc.onExit(({ exitCode, error, lost, gone }) => {
       if (w.pty !== proc || this.workers.get(info.id) !== w) return;
       w.pty = undefined;
       if (error) {
@@ -1901,6 +1932,14 @@ export class WorkerManager {
       if (lost && !this.closing) {
         if (midTurn(w)) w.interrupted = true;
         this.resume(info.id);
+        return;
+      }
+      // The far end walked and may come back (a floor host dropping its socket). Unlike a lost
+      // local host, this is not going to restart by itself, so relaunching would spin:
+      // relaunch, seat, refuse, exit. Hold the worker offline and asleep for **R** instead.
+      if (gone && !this.closing) {
+        if (midTurn(w)) w.interrupted = true;
+        this.holdOffline(w, 'The machine hosting this floor went away', term);
         return;
       }
       if (isCodex && !this.closing) this.scheduleScan(w);
