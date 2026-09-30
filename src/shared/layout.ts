@@ -302,6 +302,13 @@ export function plantsAt(level: number): readonly (readonly [x: number, z: numbe
 export const WHITEBOARD = { x: 5.4, z: -5.4, width: 4, height: 2.2, bottom: 0.5 } as const;
 
 /**
+ * Where the gong calls the office to dance a Fugdi (see shared/fugdi.ts): the open floor south of
+ * the desks, clear of the desk rugs (which end at z 6.3), the kitchen, the bookshelf, the balcony
+ * doors and the stairs. With several rings they stand in a row either side of here.
+ */
+export const FUGDI_HOME = { x: -3.4, z: 9.2 } as const;
+
+/**
  * The bottom floor of the building is its second storey: the street, and the open garage under the
  * office, are this far below its floor. Each floor stands one STOREY higher than the one below it,
  * so from floor `i` the street is `streetBelow(i)` down.

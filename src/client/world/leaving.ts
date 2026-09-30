@@ -486,6 +486,11 @@ export class Arrivals {
     this.walkers = this.walkers.filter((x) => x !== w);
   }
 
+  /** Whether `model` is still on its way in to a seat (see add), so a dance leaves it be. */
+  arriving(model: Worker): boolean {
+    return this.walkers.some((w) => w.model === model);
+  }
+
   /** Off to another floor: whoever is still on the way goes with the rest of that floor's workers. */
   clear() {
     for (const w of this.walkers) w.model.walking = false;
