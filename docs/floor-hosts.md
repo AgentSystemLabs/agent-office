@@ -109,11 +109,8 @@ Use `--floor "Display name"` to name the floor. If `--checkout` is omitted, the 
 `<host projects folder>/owner/repo`. Hosts report that folder on connection, including when they
 serve no floors; set it with `floor-host --projects <dir>` (default `~/work`, or `AGENT_OFFICE_PROJECTS`).
 
-The office decides *what* runs on a machine; the machine decides *whether to answer*. On the office:
-
-1. Add the floor to the building as usual, in the office's own project folder.
-2. Its `FloorDef` gains a `host` naming the paired machine, and its `dir` becomes the path **on that
-   machine**.
+The office decides *what* runs on a machine; the machine decides *whether to answer*. `add-floor`
+saves a `FloorDef` whose `host` names the paired machine and whose `dir` is the checkout path on it.
 
 The machine is told which floors the office wants when it connects, and serves the ones whose `dir`
 exists there. One that does not is skipped and said so, rather than pretended.
