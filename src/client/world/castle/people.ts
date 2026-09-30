@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { MapPlan } from '../../../shared/maps';
 import { Person } from '../character';
-import type { Interactable } from '../office';
+import type { Interactable } from '../types';
 import { mesh, toon } from '../toon';
 import type { World } from '../world';
 import type { Kit, Mats } from './kit';

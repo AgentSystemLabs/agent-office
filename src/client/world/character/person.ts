@@ -5,9 +5,9 @@ import type { CarriedIssue, Theme } from '../../../shared/protocol';
 import type { BarGame } from '../../../shared/bargames';
 import type { Drink } from '../../../shared/rooftop';
 import { HIPS, type PersonRig } from './rig';
-import { axeModel, dartModel } from '../bargames';
-import { OpenBook } from '../book';
-import { HeldCard } from '../card';
+import { axeModel, dartModel } from '../../features/bargames/world';
+import { OpenBook } from '../../features/bookshelf/book';
+import { HeldCard } from '../../features/carrying/card';
 import { UNDEAD_SKIN, santaHat, warlockHat } from '../costumes';
 import { disposeSprite, mesh, textSprite, toon, toonUnique } from '../toon';
 import { EXHALE_AT, REACH_TIME, SMOKE_CYCLE, dragCurve, reachCurve } from './curves';
@@ -72,7 +72,7 @@ export class Person {
   /** A book off the bookshelf, open in both hands while they read (see read). */
   private book: OpenBook | null = null;
   private bookHolder = new THREE.Group();
-  /** The basketball in both hands (the ball itself is the floor's, see world/hoop.ts), and seconds into a shot, or -1. */
+  /** The basketball in both hands (the ball itself is the floor's, see features/basketball/world.ts), and seconds into a shot, or -1. */
   private ball = false;
   private shootT = -1;
   pose: Pose = 'stand';

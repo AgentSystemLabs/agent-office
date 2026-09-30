@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { ELEVATOR, ELEVATOR_CAR, ELEVATOR_FRONT, FLOOR, SLAB, STREET_Y, WALL_HEIGHT, streetBelow } from '../../shared/layout';
 import { mesh, roundedBox, textPlane, toon } from './toon';
-import type { Collider, Interactable } from './office';
+import type { Collider, Interactable } from './types';
 import type { Fixture } from './office/fixture';
 
 // The elevator: a steel shaft against the north wall, doors facing into the room. Every floor has

@@ -1,0 +1,44 @@
+/* The bookshelf (ui.ts): the docs down the side, the one you're reading beside them */
+.modal.bookshelf { width: min(1240px, 100%); height: min(880px, calc(100vh - 32px)); }
+.modal.bookshelf .body { flex: 1; min-height: 0; display: grid; grid-template-columns: 300px minmax(0, 1fr); padding: 0; overflow: hidden; }
+.modal.bookshelf header .bs-project { color: var(--muted); font-weight: 800; }
+.modal.bookshelf header .bs-sound { padding: 4px 10px; font-size: 15px; }
+.bs-side { display: flex; flex-direction: column; min-height: 0; border-right: 3px solid var(--ink); background: var(--paper-2); }
+.bs-find { padding: 12px 12px 6px; }
+.modal .bs-find input[type=text] { font-size: 14px; padding: 8px 12px; }
+.bs-count { font-size: 12px; font-weight: 800; color: var(--muted); padding: 0 16px 6px; min-height: 20px; }
+.bs-list { list-style: none; margin: 0; padding: 0 8px 12px; overflow: auto; flex: 1; min-height: 0; }
+.bs-item { padding: 7px 10px; border-radius: 10px; cursor: pointer; border: 2px solid transparent; min-width: 0; }
+.bs-item + .bs-item { margin-top: 2px; }
+.bs-item:hover { background: rgba(255, 255, 255, .7); }
+.bs-item.sel { border-color: var(--accent); background: #fff; }
+.bs-item.open { background: var(--ink); color: #fff; border-color: var(--ink); }
+.bs-item.open .bs-path { color: rgba(255, 255, 255, .7); }
+.bs-item.open .bs-title::before { content: '📖 '; }
+.bs-title { font-weight: 800; font-size: 14px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bs-path { font: 11.5px/1.4 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bs-item mark { background: var(--warn); color: var(--ink); border-radius: 3px; padding: 0 1px; }
+.bs-none { padding: 10px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.bs-reader { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #fffdf8; }
+.bs-bar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 2px solid rgba(43, 45, 66, .12); min-height: 44px; }
+.bs-crumbs { flex: 1; min-width: 0; font-weight: 900; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bs-crumbs .dir { color: var(--muted); font-weight: 700; }
+.bs-meta { display: flex; gap: 10px; align-items: center; color: var(--muted); font-weight: 700; font-size: 12px; white-space: nowrap; }
+.bs-meta a { color: #1d6fd6; font-weight: 800; text-decoration: none; }
+.bs-meta a:hover { text-decoration: underline; }
+.bs-toc { font: inherit; font-size: 12.5px; font-weight: 800; color: var(--ink); border: 2px solid var(--ink); border-radius: 10px; padding: 4px 8px; max-width: 220px; background: #fff; cursor: pointer; }
+.bs-page { flex: 1; overflow: auto; min-height: 0; outline: none; }
+.bs-page .md { max-width: 860px; margin: 0 auto; padding: 28px 44px 72px; font-size: 15.5px; line-height: 1.7; }
+.bs-page .md h1 { font-size: 28px; }
+.bs-page .md h2 { font-size: 22px; margin-top: 30px; }
+.bs-page .md h3 { font-size: 18px; margin-top: 24px; }
+.bs-page .md [data-anchor] { scroll-margin-top: 14px; }
+.bs-page .md a:not([href]) { color: inherit; font-weight: 800; }
+.bs-page .md pre code, .bs-page .md code { font-size: 13px; }
+.bs-empty { display: flex; align-items: center; justify-content: center; gap: 10px; height: 100%; padding: 40px; text-align: center; color: var(--muted); font-weight: 700; }
+@media (max-width: 760px) {
+  .modal.bookshelf .body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 36%) minmax(0, 1fr); }
+  .bs-side { border-right: 0; border-bottom: 3px solid var(--ink); }
+  .bs-meta { display: none; }
+  .bs-page .md { padding: 18px 18px 48px; }
+}

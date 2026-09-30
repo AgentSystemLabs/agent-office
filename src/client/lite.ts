@@ -15,7 +15,8 @@ import { $, clip, closeAllModals, doingNow, h, onDoingChange, onModalChange, ope
 import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { lostWorktreeDialog, openPrompt, routeWorktreeMessage, sendHomeDialog } from './ui/prompt';
-import { openBoard, type BoardActions } from './ui/boards';
+import { openBoard } from './ui/boards';
+import type { BoardActions } from './ui/github/prompts';
 import { openPull, routePullMessage } from './ui/pull';
 import { openQueue } from './ui/queue';
 import { openAsk } from './ui/ask';

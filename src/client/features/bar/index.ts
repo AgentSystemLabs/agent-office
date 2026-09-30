@@ -3,15 +3,15 @@
  * world swaying and the frame drawn through the drunk vision), and the DJ's air horn.
  */
 import { DRINK_BY_ID, type Drink, type DrinkId } from '../../../shared/rooftop';
-import { Booze, type Stage as Feeling } from '../../booze';
+import { Booze, type Stage as Feeling } from './booze';
 import type { Ctx } from '../../core/context';
 import { aside, hintTitle, key, onE } from '../../core/hint';
 import { djFrame } from '../../dnb';
 import { store } from '../../state';
-import { openBar } from '../../ui/bar';
+import { openBar } from './ui';
 import { toast } from '../../ui/dom';
-import { DrunkVision } from '../../world/drunk';
-import type { Rooftop } from '../../world/rooftop';
+import { DrunkVision } from './drunk';
+import type { Rooftop } from '../rooftop/world';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {
@@ -31,7 +31,7 @@ export interface BarDeps {
 }
 
 export function installBar(ctx: Ctx, deps: BarDeps) {
-  /** Drinks from the bar, and how they make the world look (see booze.ts, world/drunk.ts). */
+  /** Drinks from the bar, and how they make the world look (see booze.ts, drunk.ts). */
   const booze = new Booze();
   /** What they do to you (see player/effects.ts): how drunk you are, as drinking has it each frame. */
   const tipsy = ctx.player.effects.add();
@@ -155,7 +155,7 @@ export function installBar(ctx: Ctx, deps: BarDeps) {
   let drunkVisionOn = false;
   ctx.view.add({
     filter: {
-      // A few drinks in, the frame goes to the screen through the drunk vision (see world/drunk.ts).
+      // A few drinks in, the frame goes to the screen through the drunk vision (see drunk.ts).
       begin: () => {
         const blurry = drunkNow > 0.01;
         if (blurry) drunkVision.begin();

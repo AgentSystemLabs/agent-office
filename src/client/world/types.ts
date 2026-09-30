@@ -4,8 +4,7 @@ import type { WallRect } from '../../shared/decor';
 import type { FloorPalette } from '../../shared/floors';
 
 // The world's shared types: what you bump into and what you can use, the seats workers sit in, and the
-// office floor as main.ts drives it (built in world/office/ from fixtures that each add what they give it,
-// and which re-exports these).
+// office floor as main.ts drives it (built in world/office/ from fixtures that each add what they give it).
 
 export interface Collider {
   minX: number;

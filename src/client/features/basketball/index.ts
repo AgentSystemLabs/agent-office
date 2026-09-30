@@ -9,8 +9,8 @@ import { aside, hintTitle, key, onE } from '../../core/hint';
 import { store } from '../../state';
 import { $, clip, h, modalOpen, toast } from '../../ui/dom';
 import type { Person } from '../../world/character';
-import { Basketball, IN_HANDS } from '../../world/hoop';
-import type { Interactable } from '../../world/office';
+import { Basketball, IN_HANDS } from './world';
+import type { Interactable } from '../../world/types';
 import { disposeSprite, textSprite } from '../../world/toon';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
@@ -30,7 +30,7 @@ export interface BasketballDeps {
 /** Registers a handler in the 'activity' key stage: install it after the activities' own. */
 export function installBasketball(ctx: Ctx, deps: BasketballDeps) {
   const { office } = ctx;
-  /** The floor's basketball, by the hoop on the west wall (see world/hoop.ts). */
+  /** The floor's basketball, by the hoop on the west wall (see world.ts). */
   const ball = new Basketball(() => office.colliders);
   office.group.add(ball.group);
   /**

@@ -1,6 +1,6 @@
 """The office's potted plants: a monstera, a snake plant and a bushy ficus that stand on the floor,
 and a little succulent for the desks. Modelled by this script and exported to
-src/client/models/plants.glb for src/client/world/office.ts, which clones a species wherever a
+src/client/models/plants.glb for src/client/world/office/, which clones a species wherever a
 plant stands. The shared helpers are in aokit.py and the conventions in blender/README.md.
 
 Headless, from the repo root (`-- --shots` also writes a review sheet per species and one of all
@@ -19,10 +19,10 @@ time):
 Each species is two objects. The pot with its soil is a root of its own, named after the species
 (`monstera`, `snake_plant`, `ficus`, `succulent`), standing on the floor at the origin and facing
 forward. Everything that grows out of it (leaves, stems, a trunk) is one object parented under
-the pot, `<species>_leaves`, its origin there too. office.ts clones the pot, which brings its
+the pot, `<species>_leaves`, its origin there too. world/office/props.ts clones the pot, which brings its
 leaves along; at Christmas world/holiday.ts hides every object whose name ends in `_leaves` and
 stands a little tree in the pot instead. The object and material names are a contract with
-office.ts and tests/plants-model.test.ts, so rename them in all three places.
+world/office/props.ts and tests/plants-model.test.ts, so rename them in all three places.
 
 The floor pots keep the old code-built pot's size (0.28 m round at the top, 0.22 at the base, 0.5
 tall) with their soil at 0.45, where the Christmas tree stands, so the plants' colliders and the
@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import aokit as ao
 from aokit import TAU
 
-# Preview colours only: office.ts paints every material by name with the same colours (the old
+# Preview colours only: world/office/props.ts paints every material by name with the same colours (the old
 # code-built plants' pot and greens, the Christmas tree's trunk brown for the soil, the street trees'
 # trunk brown for the ficus's, and the kitchen cupboards' blue for the snake plant's glazed pot).
 COLORS = {

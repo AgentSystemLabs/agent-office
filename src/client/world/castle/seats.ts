@@ -3,7 +3,8 @@ import { KIOSK, STATION_AGENT, deskSeat, type DeskDef, type StationKind } from '
 import { BENCH_OUT, COUNCIL, type MapPlan } from '../../../shared/maps';
 import { boxFootprint } from '../../../shared/maps/props';
 import { deskPoint } from '../../../shared/nav';
-import { vacancyMarker, type DeskView, type Interactable } from '../office';
+import { vacancyMarker } from '../office';
+import type { DeskView, Interactable } from '../types';
 import { mesh, roundedBox, textPlane, toon } from '../toon';
 import { flame } from './fire';
 import { BENCH_TOP, TABLE_TOP, collide, xz, type Kit } from './kit';

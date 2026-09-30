@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isValidGrokModel, isValidMuseModel, isValidOpenCodeModel } from '../src/server/agents.js';
+import { isValidGrokModel, isValidMuseModel, isValidOpenCodeModel } from '../src/shared/providers.js';
 import { createGrokModelCatalogue, createOpenCodeModelCatalogue, fetchGrokModels, fetchOpenCodeModels, type ModelCommandRunner } from '../src/server/models.js';
 
 test('OpenCode model ids require provider/model and reject whitespace or control characters', () => {

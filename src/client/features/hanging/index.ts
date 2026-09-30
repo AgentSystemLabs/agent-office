@@ -4,10 +4,10 @@
  */
 import type { Ctx } from '../../core/context';
 import { aside, hintTitle, key, onE } from '../../core/hint';
-import { Hanger } from '../../hanging';
+import { Hanger } from './controller';
 import { store } from '../../state';
 import { h, toast } from '../../ui/dom';
-import type { Gallery } from '../../world/gallery';
+import type { Gallery } from './world';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {

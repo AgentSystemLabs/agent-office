@@ -1,6 +1,6 @@
 // The floor's task queue: adding, moving and retrying tasks, and how many workers it keeps busy.
 import { isAgentEffort, isAgentProvider, type QueueClientMsg } from '../../../shared/protocol.js';
-import { OPEN_CODE_MODEL_MAX } from '../../agents.js';
+import { OPEN_CODE_MODEL_MAX } from '../../../shared/providers.js';
 import { num, str } from '../../office/input.js';
 import { here } from './common.js';
 import type { HandlerMap, ViewPieces } from './types.js';

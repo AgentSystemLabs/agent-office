@@ -4,7 +4,7 @@ import { Box3, Quaternion, Vector3 } from 'three';
 import { DESK_SIZE } from '../src/shared/layout';
 import { openModel } from './glb';
 
-// desk_props.glb (exported by blender/scripts/build_desk_props.py) against what world/office.ts counts on:
+// desk_props.glb (exported by blender/scripts/build_desk_props.py) against what world/office/props.ts counts on:
 // the mug and each arrangement of books by name, each a root of its own standing on the desk at its origin,
 // the materials it paints, and the old code-built knick-knacks' footprints, which keep them clear of the
 // laptop, the holiday present and whoever dances on the desk.
@@ -16,7 +16,7 @@ const BOOKS = ['books_upright', 'books_leaning', 'books_stack'];
 const PIECES = ['mug', ...BOOKS];
 const COVERS = ['CoverRed', 'CoverBlue', 'CoverOrange'];
 
-/** DESK_PROP_COLORS in office.ts, and the mug's body, which each desk paints in its chair's color. */
+/** DESK_PROP_COLORS in world/office/props.ts, and the mug's body, which each desk paints in its chair's color. */
 const PAINTED = ['CoverRed', 'CoverBlue', 'CoverOrange', 'Pages', 'Coffee', 'Mug'];
 
 /** Where buildDesk() puts them, in the desk's own frame (x along it, z out toward the chair). */
@@ -59,7 +59,7 @@ test('each piece is a root node of its own, at the origin and facing +z as model
   }
 });
 
-test('its materials are the ones office.ts paints, and only those, the mug\'s on the mug and the books\' on the books', () => {
+test('its materials are the ones world/office/props.ts paints, and only those, the mug\'s on the mug and the books\' on the books', () => {
   const names = props.materials();
   for (const m of PAINTED) assert.ok(names.includes(m), `a material called ${m}`);
   for (const m of names) assert.ok(PAINTED.includes(m), `${m} isn't a material the code knows (it would come out magenta)`);

@@ -10,7 +10,7 @@ import { builtFloors, floorWings } from '../../core/floors';
 import { noOutline } from '../../core/outline';
 import { djFrame, djTime } from '../../dnb';
 import { store } from '../../state';
-import { buildRooftop, type Rooftop } from '../../world/rooftop';
+import { buildRooftop, type Rooftop } from './world';
 
 export interface RooftopDeps {
   /** The office's lights, which the roof's strobes flash as a drop lands. */

@@ -10,7 +10,7 @@ import type { CoreState } from '../../core/ctx';
 import type { Parts } from '../../core/parts';
 import { store } from '../../state';
 import { closeAllModals, toast } from '../../ui/dom';
-import { wayTo } from '../../walkto';
+import { wayTo } from './walkto';
 
 /** Near enough to talk: where a walk over to someone ends. */
 const NEAR_ENOUGH = 1.6;

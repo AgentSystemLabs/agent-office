@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { ELEVATOR, ELEVATOR_FRONT, FLOOR, ROAD, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
 import { LOT, SIDE_LOT } from '../../shared/garage';
 import { STREET_END, shoreX } from '../../shared/scenic';
-import type { Collider } from './office';
+import type { Collider } from './types';
 import type { Fixture, StreetSite } from './office/fixture';
 import { canvasTexture } from './texture';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
@@ -133,7 +133,7 @@ function garageFloorTexture(): THREE.CanvasTexture {
 /**
  * Downstairs: the open garage under the office's floor slab (see world/stack.ts): concrete
  * walls at the back and on the west side, columns along the open front and east side, and strip
- * lights. The Lambos and Ferraris parked in it are world/cars.ts's.
+ * lights. The Lambos and Ferraris parked in it are features/cars/world.ts's.
  */
 export function buildGarage(group: THREE.Group, colliders: Collider[]) {
   const w = B.maxX - B.minX;

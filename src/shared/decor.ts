@@ -65,7 +65,7 @@ interface Zone {
   y1: number;
 }
 
-/** Underside of the loft's floor slab (see buildLoft in office.ts). */
+/** Underside of the loft's floor slab (see buildLoft in world/office/loft.ts). */
 const LOFT_UNDERSIDE = LOFT.y - 0.25;
 
 /**

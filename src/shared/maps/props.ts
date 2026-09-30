@@ -4,7 +4,7 @@ import type { PropConfig } from './types.js';
 /*
  * The pieces a config map can put up (MapConfig.props), and how much floor each takes: what walkers
  * go round (shared/nav.ts) and, in the builder, what you bump into. How each one looks is the
- * style's builder's (world/castle.ts).
+ * style's builder's (world/castle/).
  */
 
 export const PROP_KINDS = {

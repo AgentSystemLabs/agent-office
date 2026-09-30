@@ -5,7 +5,7 @@ import { DOWN, type PersonRig } from './rig';
 /** How far round the club goes, from pointing down at the ball: back over the right shoulder, and on through to the finish. */
 const BACKSWING = 2.4;
 const FOLLOW = 2.5;
-/** The swing's plane leans out from upright this far, down to the ball in front of the feet (world/golf.ts STANCE). */
+/** The swing's plane leans out from upright this far, down to the ball in front of the feet (features/golf/world.ts STANCE). */
 const SWING_LEAN = 0.5;
 /** Where the swing turns, high in the chest; the club's head is CLUB down from it. */
 const SWING_AT = new THREE.Vector3(0, 0.95, 0.06);

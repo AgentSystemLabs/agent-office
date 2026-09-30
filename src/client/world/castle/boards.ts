@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BOARD_KEYS, type BoardKey, type MapPlan } from '../../../shared/maps';
-import type { Interactable } from '../office';
+import type { Interactable } from '../types';
 import { mesh, textPlane } from '../toon';
 import type { Kit } from './kit';
 import { box } from './shapes';

@@ -1,11 +1,11 @@
 """The lounge's furniture: the sofa facing the TV, a throw pillow for it, a round floor pouf and the
 round coffee table. Modelled by this script and exported to src/client/models/lounge.glb for
-src/client/world/office.ts, which places each piece on its own (the pillow twice and the pouf twice,
+src/client/world/office/, which places each piece on its own (the pillow twice and the pouf twice,
 each copy in its own colour), so the office's editor can one day move them round one by one. The
 shared helpers are in aokit.py and the conventions in blender/README.md.
 
 Headless, from the repo root (`-- --shots` also writes a review sheet per piece and one of the
-lounge as office.ts lays it out):
+lounge as world/office/room.ts lays it out):
 
     blender --background --factory-startup --python blender/scripts/build_lounge.py [-- --shots]
 
@@ -19,10 +19,10 @@ time):
 
 Each piece is a root of its own, `sofa`, `pillow`, `pouf` and `coffee_table`, standing on the floor
 at the origin under its middle and facing forward (the pillow's origin is under its middle too, at
-its bottom edge). office.ts turns the sofa round to face the TV and leans a pillow on it either side
+its bottom edge). world/office/ turns the sofa round to face the TV and leans a pillow on it either side
 of the middle. The pieces keep the old code-built lounge's sizes, so its colliders, seats and the
 holiday pumpkin on the table fit as before. The roots' names and the material names are a contract
-with office.ts and tests/lounge-model.test.ts, so rename them in all three places.
+with world/office/props.ts and tests/lounge-model.test.ts, so rename them in all three places.
 
 The pieces are built the way build_furniture.py builds the office's desks and chairs, and use its
 material names where they're the same stuff (Wood, Frame, WoodDark, Cloth), so they sit next to
@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import aokit as ao
 from aokit import TAU
 
-# Preview colours only: office.ts paints every material by name with the colours the old lounge had.
+# Preview colours only: world/office/props.ts paints every material by name with the colours the old lounge had.
 # Sofa is the old couch's blue, Wood and Frame the coffee table's top and pedestal (the office's
 # wood and its desks' legs), WoodDark the sofa's feet. Cloth, a pillow's or a pouf's, is each copy's
 # own colour; the one here is only for the renders.
@@ -55,19 +55,19 @@ def material(name):
 
 # The sizes the office's code counts on. Blender can't read TypeScript, so they're copied here, and
 # tests/lounge-model.test.ts checks the model against them.
-# The couch in office.ts: 4.2 long and 1.0 deep, its collider's top on the seat cushions, and three
+# The couch in world/office/: 4.2 long and 1.0 deep, its collider's top on the seat cushions, and three
 # places on it 1.2 apart where a sitter's hips go 0.5 up and 0.05 back from its middle.
 SOFA = {"length": 4.2, "depth": 1.0}
 # The seat cushions' tops. A sitter's bottom is 0.1 under their hips, so they sink a little in.
 SEAT_TOP = 0.47
-# The coffee table in office.ts: a round top 0.9 round, its surface at 0.46 (the holiday pumpkin
+# The coffee table in world/office/: a round top 0.9 round, its surface at 0.46 (the holiday pumpkin
 # stands on it), inside a collider 0.8 either way of its middle.
 TABLE = {"radius": 0.9, "height": 0.46}
-# A floor pouf in office.ts: a collider 0.5 either way of its middle with its top on the pouf's, and
+# A floor pouf in world/office/: a collider 0.5 either way of its middle with its top on the pouf's, and
 # a sitter's hips 0.42 up and 0.1 back from its middle. Its top is a touch under their hips, so they sink a little in and their
 # legs lie along it.
 POUF = {"radius": 0.52, "height": 0.4}
-# Where office.ts leans the pillows, in the sofa's own axes: either side of its middle, halfway
+# Where world/office/props.ts leans the pillows, in the sofa's own axes: either side of its middle, halfway
 # between its places so they're clear of whoever sits there, standing on the seat and tipped back
 # against the back cushions. (Tucked against the arms they'd be in the side sitters' way: there's
 # only 0.17 m between a sitter's elbow and an arm.)
@@ -397,7 +397,7 @@ def only(*names, extra=None):
 
 
 def lounge_layout():
-    """The lounge the way office.ts lays it out, seen from the room: the sofa at (10.5, 0) facing the
+    """The lounge the way world/office/room.ts lays it out, seen from the room: the sofa at (10.5, 0) facing the
     TV (+x), its pillows, the table at (13, 0) and a pouf either side, turned to the TV. Moved so the
     table's middle is at the origin, and turned so the TV is off to -Y (the renders' front)."""
     # The pillow's second copy, only for the renders.

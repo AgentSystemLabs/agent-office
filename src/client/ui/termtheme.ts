@@ -1,4 +1,4 @@
-// The terminals' colors: in a terminal window (ui/terminal.ts), and on the laptops at the desks (world/laptop.ts).
+// The terminals' colors: in a terminal window (ui/terminal.ts), and on the laptops at the desks (features/workers/laptop.ts).
 
 export const TERM_THEME = {
   background: '#1e1f2e',

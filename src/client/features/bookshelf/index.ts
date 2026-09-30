@@ -2,7 +2,7 @@
 import type { Ctx } from '../../core/context';
 import { aside, hintTitle, key, onE } from '../../core/hint';
 import { saveSettings, store } from '../../state';
-import { openBookshelf } from '../../ui/bookshelf';
+import { openBookshelf } from './ui';
 import { clip, toast } from '../../ui/dom';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).

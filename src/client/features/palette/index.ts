@@ -19,8 +19,8 @@ import { openIssue, openPull } from '../../ui/pull';
 import { openServices, serviceUrl } from '../../ui/services';
 import { openTeam } from '../../ui/team';
 import { IS_MAC } from '../../ui/termkeys';
-import { openWhiteboard } from '../../ui/whiteboard';
-import type { InteractKind, Interactable } from '../../world/office';
+import { openWhiteboard } from '../whiteboard/ui';
+import type { InteractKind, Interactable } from '../../world/types';
 
 export type PaletteParts = Pick<Parts, 'walking' | 'waiting' | 'actions' | 'hud' | 'hanging' | 'meeting' | 'telescope'>;
 

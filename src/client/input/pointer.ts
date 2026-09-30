@@ -13,7 +13,7 @@ import { interactionAvailable, type DeskKey } from '../interaction';
 import { EYE_HEIGHT } from '../player';
 import { store } from '../state';
 import { modalOpen, toast } from '../ui/dom';
-import type { Interactable } from '../world/office';
+import type { Interactable } from '../world/types';
 
 export type PointerParts = Pick<Parts, 'worlds' | 'rooftop' | 'place' | 'you' | 'boards' | 'cards' | 'seating' | 'hoops' | 'emotes' | 'hanging' | 'telescope' | 'hintbar'>;
 

@@ -3,7 +3,7 @@ import type { Slice } from '../store';
 
 declare module '../store' {
   interface Store {
-    /** The basketball on this floor, as the office last said (see world/hoop.ts). */
+    /** The basketball on this floor, as the office last said (see features/basketball/world.ts). */
     ball: BallState;
   }
   interface Topics {

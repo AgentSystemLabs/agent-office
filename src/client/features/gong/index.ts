@@ -11,7 +11,7 @@ import { store, workerForPull } from '../../state';
 import type { Stage, Worker } from '../../world/character';
 import type { Area } from '../../world/confetti';
 import type { Court } from '../../world/court';
-import type { DeskView } from '../../world/office';
+import type { DeskView } from '../../world/types';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {

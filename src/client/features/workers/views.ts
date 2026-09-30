@@ -22,15 +22,15 @@ import { renderTitle } from '../../shared/title';
 import { store } from '../../state';
 import { $ } from '../../ui/dom';
 import { openExpand } from '../../ui/floorplan';
-import { renderWorkers } from '../../ui/hud';
+import { renderWorkers } from '../../ui/workers-panel';
 import { renderLimits } from '../../ui/limits';
 import { modelBadge, providerLabel } from '../../ui/provider';
 import { renderUsage } from '../../ui/usage';
 import { Worker } from '../../world/character';
-import { Jail } from '../../world/jail';
-import { Laptop } from '../../world/laptop';
-import { Arrivals, Departures } from '../../world/leaving';
-import { Sendoffs } from '../../world/sendhome';
+import { Jail } from './jail';
+import { Laptop } from './laptop';
+import { Arrivals, Departures } from './leaving';
+import { Sendoffs } from './sendhome';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {

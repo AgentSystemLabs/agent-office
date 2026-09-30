@@ -10,7 +10,7 @@ export interface Effect {
   jump: number;
   /** 0 (steady) to 1: how hard the view trembles. */
   jitter: number;
-  /** How drunk you are (see booze.ts): the view rolls and sways, and you stagger as you walk. */
+  /** How drunk you are (see features/bar/booze.ts): the view rolls and sways, and you stagger as you walk. */
   sway: number;
 }
 

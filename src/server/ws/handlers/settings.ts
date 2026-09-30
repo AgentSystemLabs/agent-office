@@ -1,7 +1,7 @@
 // ⚙️ Settings: team notifications, the worker limit, upgrades, the holiday theme, the building's map,
 // the office's prompts and default worker, and whether merged workers go home by themselves.
 import path from 'node:path';
-import { OPEN_CODE_MODEL_MAX } from '../../agents.js';
+import { OPEN_CODE_MODEL_MAX } from '../../../shared/providers.js';
 import { MAX_WORKER_LIMIT, parseWorkerLimit } from '../../machine.js';
 import { OFFICE_MAP } from '../../../shared/maps/index.js';
 import { isThemePick } from '../../../shared/theme.js';

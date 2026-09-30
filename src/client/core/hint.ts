@@ -4,7 +4,7 @@
  */
 import type { DeskKey } from '../interaction';
 import { h } from '../ui/dom';
-import type { Interactable } from '../world/office';
+import type { Interactable } from '../world/types';
 import type { Hint } from './context';
 
 export function key(k: string, label: string) {

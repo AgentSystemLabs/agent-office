@@ -8,13 +8,13 @@ import { isAsleep } from '../../../shared/status';
 import type { Ctx, Hint } from '../../core/context';
 import { aside, key } from '../../core/hint';
 import { store } from '../../state';
-import { issuePrompt } from '../../ui/boards';
+import { issuePrompt } from '../../ui/github/prompts';
 import { closeAllModals, h, toast } from '../../ui/dom';
 import { issueMeeting, type MeetingPreset } from '../../ui/meeting';
 import { worktreePref } from '../../ui/prompt';
 import { officeChoice } from '../../ui/provider';
 import { hiringPaused } from '../../ui/usage';
-import type { Interactable } from '../../world/office';
+import type { Interactable } from '../../world/types';
 
 export interface CarryingDeps {
   /** Puts `card` in your hands, or none: what ctx.carrying says from then on. */
