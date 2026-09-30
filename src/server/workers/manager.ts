@@ -7,7 +7,7 @@ import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
 import type { AgentChoice, AgentEffort, AgentProvider, Run, TerminalHit, WorkerInfo, WorkerKind, WorkerRepo, WorkerStatus, WorkerTask } from '../../shared/protocol.js';
 import { FAILS_TO_DESPAIR, outputFailed, toolAction } from '../../shared/actions.js';
-import { isAgentEffort, isClaudeModel } from '../../shared/protocol.js';
+import { isAgentProvider, savedEffort, savedModel, takesEffort, takesModel } from '../../shared/providers.js';
 import { WORKSPACE_FILES, WORKTREES_DIR, Worktrees, describeWork, workspaceOf, type WorktreeCleanup, type WorktreeRef, type WorktreeState } from '../worktrees.js';
 import { DESK_BY_ID, STATION_AGENT, deskBuilt } from '../../shared/layout.js';
 import { QUEUE_AGENT_DISALLOWED_TOOLS, stationBrief } from '../stations.js';
@@ -23,7 +23,7 @@ import { codexHookArgs, normalizeCodexHook, writeCodexHook } from '../codex.js';
 import { normalizeGrokHook, withoutGrokLaunchArgs, writeGrokHome } from '../grok.js';
 import { normalizeMuseHook, withoutMuseLaunchArgs, writeMuseHome } from '../muse.js';
 import { reportedUsage } from '../reported-usage.js';
-import { configuredProvider, isValidDshModel, isValidGrokModel, isValidMuseModel, isValidOpenCodeModel, validateWorkerEffort, validateWorkerModel } from '../agents.js';
+import { configuredProvider, validateWorkerEffort, validateWorkerModel } from '../agents.js';
 import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeStatusEvent } from '../opencode.js';
 import { MCP_READ_ONLY, codexMcpArgs, openCodeMcp, writeClaudeMcpConfig } from '../office-workers.js';
 import { ScrollbackStore, searchTerminal, terminalTail } from '../history.js';
@@ -419,8 +419,8 @@ export class WorkerManager {
       id,
       kind,
       provider: selectedProvider,
-      model: selectedProvider === 'opencode' || selectedProvider === 'claude' || selectedProvider === 'grok' || selectedProvider === 'muse' || selectedProvider === 'dsh' ? model : undefined,
-      effort: selectedProvider === 'claude' || selectedProvider === 'grok' || selectedProvider === 'muse' || selectedProvider === 'dsh' ? effort : undefined,
+      model: takesModel(selectedProvider) ? model : undefined,
+      effort: takesEffort(selectedProvider) ? effort : undefined,
       deskId,
       name: kind === 'shell' ? `${name} 🐚` : name,
       color: kind === 'shell' ? '#8d99ae' : agent ? agent.color : COLORS[Math.floor(Math.random() * COLORS.length)],
@@ -2203,7 +2203,7 @@ process.stdin.on('end', () => {
         const tracker = restoreTracker(s.tracker);
         const provider = s.kind === 'shell'
           ? undefined
-          : s.provider === 'claude' || s.provider === 'opencode' || s.provider === 'codex' || s.provider === 'grok' || s.provider === 'muse' || s.provider === 'dsh' || s.provider === 'custom'
+          : isAgentProvider(s.provider)
             ? s.provider
             : tracker.transcript
               ? 'claude'
@@ -2212,8 +2212,8 @@ process.stdin.on('end', () => {
           id: s.id,
           kind: s.kind === 'shell' ? 'shell' : 'agent',
           provider,
-          model: provider === 'opencode' && isValidOpenCodeModel(s.model) ? s.model : provider === 'claude' && isClaudeModel(s.model) ? s.model : provider === 'grok' && isValidGrokModel(s.model) ? s.model : provider === 'muse' && isValidMuseModel(s.model) ? s.model : provider === 'dsh' && isValidDshModel(s.model) ? s.model : undefined,
-          effort: (provider === 'claude' || provider === 'grok' || provider === 'muse' || provider === 'dsh') && isAgentEffort(s.effort) ? s.effort : undefined,
+          model: savedModel(provider, s.model),
+          effort: savedEffort(provider, s.effort),
           deskId: s.deskId,
           name: s.name ?? 'Worker',
           color: s.color ?? COLORS[0],
