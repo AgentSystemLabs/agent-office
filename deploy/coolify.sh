@@ -247,8 +247,8 @@ public_url() {
     -e 's#^(https?://)[^@/]+@#\1#' <<<"$1"
 }
 
-# How Coolify keeps a repository: one on github.com as owner/repo (it clones those through its GitHub
-# source), any other as its URL.
+# How Coolify keeps a repository once it has made the application: one on github.com as owner/repo
+# (it clones those through its GitHub source), any other as its URL. Updates take it as it is kept.
 coolify_repo() { sed -E 's#^https?://github\.com/([^/]+)/([^/]+).*$#\1/\2#' <<<"$REPO_URL"; }
 
 # Coolify can't take an upload: it clones a repository, without signing in, and checks a commit out.
@@ -471,7 +471,9 @@ ensure_project() {
   fi
   if [[ -z "$APP_UUID" ]]; then
     SERVER_UUID="$pick"
-    out=$(app_json create "$(coolify_repo)") || die "couldn't make the application's settings"
+    # Creating one takes the URL (Coolify checks it is one), and Coolify turns a github.com URL into
+    # owner/repo itself.
+    out=$(app_json create "$REPO_URL") || die "couldn't make the application's settings"
     out=$(api POST /applications/public "$out") || die "couldn't create the office's application"
     APP_UUID=$(json 'j.uuid' <<<"$out")
     [[ -n "$APP_UUID" ]] || die "Coolify made the application but didn't say its UUID: $out"
