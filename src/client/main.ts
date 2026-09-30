@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, POLE, POLES, SLAB, STATION_AGENT, STOREY, WALL_HEIGHT, WALL_T, WING, WING_DESKS, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, seatPlace, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, POLE, POLES, SLAB, STATION_AGENT, STOREY, WALL_HEIGHT, WING, WING_DESKS, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, seatPlace, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { OFFICE_PLAN, seatOn, type MapPlan } from '../shared/maps';
 import { canLabel } from '../shared/floorplan';
 import { floorPalette } from '../shared/floors';
@@ -26,7 +26,7 @@ import { djFrame, djTime } from './dnb';
 import { openBar } from './ui/bar';
 import { DRINK_BY_ID, ROOF, ROOF_NAME, type Drink, type DrinkId } from '../shared/rooftop';
 import { BACKSWING_TIME, IMPACT, Person, Worker, type Stage } from './world/character';
-import { GolfBalls, PIN_DISTANCE, TEE_BALL, fly, lieText, pinText, type Flight, type Hit, type Shot } from './world/golf';
+import { GolfBalls, PIN_DISTANCE, TEE_BALL, fly, pinText, type Flight, type Hit, type Shot } from './world/golf';
 import { Golfer } from './golf';
 import { Thrower } from './throwing';
 import { ROUND, score, targetFrame, type BarGame, type Score, type Toss } from '../shared/bargames';
@@ -103,7 +103,7 @@ import { loadingScreen } from './ui/loading';
 import { SlowFrames } from './framerate';
 import { offerLite, touchOnly } from './ui/litesuggest';
 import { openDeskLabel, openExpand } from './ui/floorplan';
-import { Activities, Interactions, Keys, Messages, Ticks, type Frame } from './core/registry';
+import { Activities, Interactions, Keys, Messages, Ticks, View, type Frame } from './core/registry';
 import type { Ctx, Hint, OfficeInteraction, StopWhy, Trip, TripKind } from './core/context';
 
 // The loading screen stays up until there's an office to see (see boot and whoami at the end).
@@ -135,6 +135,9 @@ const ctx: Ctx = {
   },
   get renderer() {
     return renderer;
+  },
+  get canvas() {
+    return canvas;
   },
   get office() {
     return office;
@@ -185,6 +188,12 @@ const ctx: Ctx = {
   hint: {
     // Not '': that reads as "no hint shown", and a hint still up (the golf one, say) would stay up.
     invalidate: () => void (hintKey = 'stale'),
+    draw: (el, k, parts) => {
+      if (k === hintKey) return;
+      hintKey = k;
+      el.replaceChildren(...parts());
+      el.classList.remove('hidden');
+    },
   },
   shake: (amount, replace = false) => {
     if (!reduceMotion.matches) thud = replace ? amount : Math.max(thud, amount);
@@ -194,6 +203,7 @@ const ctx: Ctx = {
   ticks: new Ticks(),
   activities: new Activities<StopWhy, KeyboardEvent, HTMLElement>(ACTIVITY_ORDER),
   interactions: new Interactions<OfficeInteraction>(),
+  view: new View<Grip>(),
 };
 
 // ---- The office's own parts of the key chain (see Keys, and the keydown listener under Input) --------

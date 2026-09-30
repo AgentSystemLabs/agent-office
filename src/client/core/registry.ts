@@ -223,10 +223,12 @@ export interface Activity<Why extends string = string, E = unknown, El = unknown
   readonly takesCamera?: boolean;
   /** Your hands are busy out of sight while it's active (on the club, a dart, the wheel): none drawn in first person. */
   readonly hidesHands?: boolean;
+  /** Both your hands are on it while it's active (the club): your character holds nothing else (the coffee mug). */
+  readonly bothHands?: boolean;
 }
 
 /** The flags an activity can have, for Activities.any. */
-export type ActivityFlag = 'takesCamera' | 'hidesHands';
+export type ActivityFlag = 'takesCamera' | 'hidesHands' | 'bothHands';
 
 /**
  * What you can be in the middle of. They're kept in a declared order (the constructor's `order`, then
@@ -287,9 +289,91 @@ export class Activities<Why extends string = string, E = unknown, El = unknown> 
     for (const a of this.list) if (!except.includes(a.id) && a.active()) a.stop(why);
   }
 
+  /** Stops the activity `id` alone, if it's going on, because of `why` (it decides whether that stops it). */
+  stop(id: string, why: Why): void {
+    const a = this.list.find((x) => x.id === id);
+    if (a?.active()) a.stop(why);
+  }
+
   /** Offers a key press to what's going on, in order: true when one took it. */
   key(e: E): boolean {
     return this.list.some((a) => !!a.key && a.active() && a.key(e));
+  }
+}
+
+// ---- Your view -------------------------------------------------------------------------------------
+
+/**
+ * A filter the frame's drawn through (the drunk vision): `begin` before the frame's drawn, true when
+ * it's on this frame, and then `end` once it's drawn.
+ */
+export interface FrameFilter {
+  begin(): boolean;
+  end(f: Frame): void;
+}
+
+/**
+ * What something you can do makes of you and your view while it's going on: holding on to the ladder,
+ * the view narrowing at the dart board or widening down a pole, the telescope or a game having the
+ * screen to itself, the drunk vision. The office's own ticks (moving you, the building, drawing the
+ * frame) ask each effect, in the order they were added. `G` is what you can hold on to.
+ */
+export interface ViewEffect<G = unknown> {
+  /** What you're holding on to (the ladder, a pole), or null. */
+  grip?(): G | null;
+  /** The field of view (degrees) as this has it, given what it is so far. */
+  fov?(fov: number): number;
+  /** Runs each frame once the view's field of view is set. */
+  update?(): void;
+  /** It has the screen to itself right now (the telescope, a game up close): your hands aren't drawn over it. */
+  covers?(): boolean;
+  /** Draws the frame through this. */
+  filter?: FrameFilter;
+}
+
+/** How what you're doing changes you and your view each frame (see ViewEffect). */
+export class View<G = unknown> {
+  private readonly effects = new List<ViewEffect<G>>();
+
+  add(e: ViewEffect<G>): Off {
+    return this.effects.add(e);
+  }
+
+  /** What you're holding on to: the first effect's that has you holding on to something, else null. */
+  grip(): G | null {
+    for (const e of this.effects.items) {
+      const g = e.grip?.() ?? null;
+      if (g !== null) return g;
+    }
+    return null;
+  }
+
+  /** The field of view, from `fov` through every effect's, in order. */
+  fov(fov: number): number {
+    for (const e of this.effects.items) if (e.fov) fov = e.fov(fov);
+    return fov;
+  }
+
+  update(): void {
+    for (const e of this.effects.items) e.update?.();
+  }
+
+  /** Whether anything has the screen to itself. */
+  covered(): boolean {
+    for (const e of this.effects.items) if (e.covers?.()) return true;
+    return false;
+  }
+
+  /** The filters that are on this frame (kept, so drawing one allocates nothing). */
+  private readonly on: FrameFilter[] = [];
+
+  /** Draws the frame (`draw`) through every filter that's on, the first one outermost. */
+  draw(f: Frame, draw: () => void): void {
+    const on = this.on;
+    on.length = 0;
+    for (const e of this.effects.items) if (e.filter?.begin()) on.push(e.filter);
+    draw();
+    for (let i = on.length - 1; i >= 0; i--) on[i].end(f);
   }
 }
 
