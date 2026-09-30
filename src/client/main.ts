@@ -15,6 +15,7 @@ import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
 import { Climber, gripOf, type Arrival, type Grip, type Way } from './climb';
 import { Driver } from './driving';
 import { Caffeine } from './caffeine';
+import { CUP, HIGH_STRESS, LOW_ENERGY, Vitals } from './vitals';
 import { buildOffice, type DeskView, type InteractKind, type Interactable } from './world/office';
 import { officeWorld, type World } from './world/world';
 import { BUILDERS } from './world/styles';
@@ -71,7 +72,7 @@ import { isPaletteKey } from '../shared/palette';
 import { IS_MAC } from './ui/termkeys';
 import { openQueue } from './ui/queue';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
-import { openHelp, renderCaffeine, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
+import { openHelp, renderCaffeine, renderChat, renderPeople, renderVitals, renderWorkers, updateSpeaking } from './ui/hud';
 import { Compass, type Bearing } from './ui/compass';
 import { openCharacter } from './ui/character';
 import { openSettings, type SettingsPane } from './ui/settings';
@@ -407,6 +408,8 @@ placeInCar();
 player.view = settings.view;
 const hands = new Hands(store.profile.color, me.skinColor);
 const caffeine = new Caffeine();
+/** Your own energy and stress, and what you drink to put them right (see vitals.ts). */
+const vitals = new Vitals();
 /** No shaking the view for the coffee jitters when the system asks for less motion. */
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 // Cigarette smoke, from anyone on a smoke break.
@@ -3015,10 +3018,14 @@ function orderDrink(d: Drink) {
   if (cut) toast("🙅 The bartender slides you a water instead: you've had enough", 'warn');
   setTimeout(() => {
     if (!upTop) return;
-    booze.drink(drink, performance.now() / 1000);
+    const secs = performance.now() / 1000;
+    // What it takes off the stress, if it was wound up enough for it to tell (see vitals.ts).
+    const wound = vitals.strain(secs) >= HIGH_STRESS && drink.calm >= 0.2;
+    booze.drink(drink, secs);
+    vitals.drink(drink, secs);
     reach();
     if (player.view === 'first') hands.sip();
-    if (!cut) toast(`${drink.emoji} ${drink.name}. ${CHEERS[drink.id] ?? 'Enjoy!'}`);
+    if (!cut) toast(`${drink.emoji} ${drink.name}. ${CHEERS[drink.id] ?? 'Enjoy!'}${wound ? ' 😰 That takes a good bit off' : ''}`);
   }, 1500);
 }
 
@@ -3071,14 +3078,37 @@ function drinking(now: number) {
   return amount;
 }
 
+/** Whether you're already past the lines where the office said something, so it only says it once. */
+let flagged: { low: boolean; wound: boolean } = { low: false, wound: false };
+
+/** Every frame: how your energy and stress are getting on, and a nudge when one of them runs out. */
+function vitalsTick(now: number) {
+  const secs = now / 1000;
+  const low = vitals.energyLeft(secs) <= LOW_ENERGY;
+  const wound = vitals.strain(secs) >= HIGH_STRESS;
+  if (low !== flagged.low) {
+    flagged.low = low;
+    if (low) toast('⚡ Your energy’s nearly gone — the coffee machine is in the kitchen', 'warn');
+  }
+  if (wound !== flagged.wound) {
+    flagged.wound = wound;
+    if (wound) toast('😰 You’re wound up — a drink from the rooftop bar will take it off', 'warn');
+  }
+}
+
 /** A cup from the kitchen machine: a minute of quicker feet and higher jumps, and a mug in your hand. */
 function drinkCoffee() {
-  const jittery = caffeine.drink(performance.now() / 1000);
+  const secs = performance.now() / 1000;
+  // Whether you were the one who needed it, so it's worth saying afterwards.
+  const starving = vitals.energyLeft(secs) <= LOW_ENERGY;
+  const jittery = caffeine.drink(secs);
+  vitals.drink(CUP, secs);
   sound.coffee();
   if (player.view === 'first') hands.sip();
   if (jittery) toast('☕ One cup too many… you’ve got the jitters!', 'warn');
   else if (caffeine.cups > 1) toast('☕ Another cup: back to a full minute of buzz');
   else toast('☕ Fresh coffee! A minute of quicker feet and higher jumps');
+  if (starving) toast('⚡ Some energy back in you');
 }
 
 // ---- Smoke breaks ------------------------------------------------------------------------------------
@@ -3669,8 +3699,11 @@ function hintFor(it: Interactable): Hint {
       return { k: String(any), parts: [title('📺 Office TV'), key('E', any ? 'Watch full screen' : 'Share your screen')] };
     }
     case 'coffee': {
-      const buzzed = caffeine.buzzed(performance.now() / 1000);
-      return { k: String(buzzed), parts: [title(it.label ?? '☕ Coffee machine'), key('E', buzzed ? 'Another cup' : 'Grab a cup')] };
+      const secs = performance.now() / 1000;
+      const buzzed = caffeine.buzzed(secs);
+      // Saying so when your energy is the thing that could do with a cup.
+      const need = vitals.energyLeft(secs) <= LOW_ENERGY;
+      return { k: `${buzzed}|${need}`, parts: [title(it.label ?? '☕ Coffee machine'), key('E', buzzed ? 'Another cup' : 'Grab a cup'), ...(need ? [aside('⚡ you could do with one')] : [])] };
     }
     case 'herald': {
       const hd = plan().herald;
@@ -3767,8 +3800,10 @@ function hintFor(it: Interactable): Hint {
       return { k: `landing|${up}`, parts: [title('🚒 Fire pole'), aside(`comes down from ${up}`), key('E', 'Twirl')] };
     }
     case 'bar': {
-      const cut = booze.cutOff(performance.now() / 1000);
-      return { k: String(cut), parts: [title('🍸 Sky Bar'), aside(cut ? "you've had enough" : 'drinks on the house'), key('E', cut ? 'Ask for water' : 'Order a drink')] };
+      const secs = performance.now() / 1000;
+      const cut = booze.cutOff(secs);
+      const need = vitals.strain(secs) >= HIGH_STRESS;
+      return { k: `${cut}|${need}`, parts: [title('🍸 Sky Bar'), aside(cut ? "you've had enough" : need ? '😰 something to take the edge off' : 'drinks on the house'), key('E', cut ? 'Ask for water' : 'Order a drink')] };
     }
     case 'dj': {
       const f = djFrame(djAt());
@@ -4657,15 +4692,18 @@ function frame(ts?: number) {
 
   // Coffee: quicker feet, higher jumps, a mug in hand, and maybe the jitters.
   const secs = now / 1000;
-  player.speedBoost = caffeine.speed(secs);
+  player.speedBoost = caffeine.speed(secs) * vitals.legs(secs);
   player.jumpBoost = caffeine.jump(secs);
   thud = Math.max(0, thud - dt * 2.5);
-  player.jitter = reduceMotion.matches ? 0 : Math.max(caffeine.jitter(secs), thud);
+  player.jitter = reduceMotion.matches ? 0 : Math.max(caffeine.jitter(secs), vitals.nerves(secs), thud);
   const mug = caffeine.buzzed(secs);
   // Both hands are on the club at the tee.
   me.holdMug(mug && !golf.active);
   hands.holdMug(mug);
   renderCaffeine(caffeine, secs);
+  // Your energy and stress: heavy legs when they're low, shaking hands when you're wound up.
+  vitalsTick(now);
+  renderVitals(vitals, secs);
   // Drinks from the rooftop bar: a glass in hand, and the world swaying.
   const drunk = drinking(now);
 
@@ -4988,7 +5026,7 @@ void whoami().then(() => {
 });
 
 // Debug handle for quick checks from the console / headless screenshots.
-(window as any).__office = { world: () => world, court: () => court, sendoffs, jail, plan, applyMap, roof: () => roof, booze, dj: () => djFrame(djAt()), store, player, caffeine, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, driver, getIn, getOut, golf, balls, thrower, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote, ball };
+(window as any).__office = { world: () => world, court: () => court, sendoffs, jail, plan, applyMap, roof: () => roof, booze, dj: () => djFrame(djAt()), store, player, caffeine, vitals, camera, arcade, cabinet, workerViews, departures, arrivals, scene, net, renderer, hands, me, remotes, settings, gallery, hanger, office, ride, switchFloor, climber, driver, getIn, getOut, golf, balls, thrower, elevatorPanelOpen, confetti, dog, sky, holiday, carried: () => carrying, emoteWheel, emote, ball };
 (window as any).__voice = voice;
 (window as any).__sound = sound;
 (window as any).__notify = notifier;
