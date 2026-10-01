@@ -85,7 +85,7 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
     // So is the camera over your shoulder at the dart board or the axe lane.
     // In first person your body's there below you (see FirstPersonBody), unless your hands are busy elsewhere (a car's wheel).
     const ownBody = firstPerson && !ctx.activities.any('takesCamera') && !ctx.activities.any('hidesHands');
-    (firstBody ??= new FirstPersonBody(me.rig)).set(ownBody);
+    (firstBody ??= new FirstPersonBody(me.rig)).set(ownBody, camera);
     me.root.visible = ownBody || ctx.activities.any('takesCamera') || (!firstPerson && camera.position.distanceTo(headPos.set(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5);
     // In a car, your hands are on the wheel, out of sight.
     if (firstPerson && !ctx.activities.any('hidesHands')) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded, jitter: player.effects.jitter, grip });
@@ -178,7 +178,9 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
     const { player, hands, sky, camera, renderer } = ctx;
     const { effect, scene } = parts.stage;
     const firstPerson = player.view === 'first';
+    const unhide = firstBody?.hideExtras();
     effect.render(scene, camera);
+    unhide?.();
     // Not while something has the screen to itself (the telescope, the boss's monitor or the arcade up close), where they'd cover it.
     if (firstPerson && !ctx.view.covered() && !ctx.activities.any('hidesHands')) {
       // Hands go on top of everything, so they never clip into a desk you walk up to. They have

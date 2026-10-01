@@ -1,4 +1,4 @@
-import type * as THREE from 'three';
+import * as THREE from 'three';
 import type { PersonRig } from './rig';
 
 /**
@@ -10,36 +10,57 @@ const BACK = 0.22;
 const SLIM = { x: 0.8, z: 0.6 };
 const LEGS = 0.08;
 
+const look = new THREE.Vector3();
+const UP = new THREE.Vector3(0, 1, 0);
+
 /**
  * You in first person: your own character with its head and arms off (your hands are drawn on their
  * own, see world/hands.ts) and whatever floats over it (name, bubbles, the mic), stood a little back,
  * so looking down you see your shirt, legs and feet walking, or your legs out in front sitting down.
  */
 export class FirstPersonBody {
-  /** What was showing before, to put back on the way out. */
-  private saved: Map<THREE.Object3D, boolean> | null = null;
+  private on = false;
 
   constructor(private rig: PersonRig) {}
 
-  set(on: boolean) {
-    if (on === !!this.saved) return;
-    const { root, body, legL, legR } = this.rig;
+  /** In first person or not, your body stood back from where `camera` looks (seated, you can look round). */
+  set(on: boolean, camera: THREE.Camera) {
+    const { root, body, torso, legL, legR } = this.rig;
     if (on) {
-      const saved = (this.saved = new Map());
-      // Of the body: the torso (its first part) and the legs; and nothing else hung off the root.
-      const keep = new Set<THREE.Object3D>([body.children[0], legL, legR]);
-      for (const o of body.children) if (!keep.has(o)) saved.set(o, o.visible);
-      for (const o of root.children) if (o !== body) saved.set(o, o.visible);
-      for (const o of saved.keys()) o.visible = false;
-      body.position.z = -BACK;
-      body.children[0].scale.set(SLIM.x, 1, SLIM.z);
-      for (const leg of [legL, legR]) leg.position.z = LEGS;
-    } else {
-      for (const [o, v] of this.saved!) o.visible = v;
-      this.saved = null;
-      body.position.z = 0;
-      body.children[0].scale.set(1, 1, 1);
-      for (const leg of [legL, legR]) leg.position.z = 0;
+      // The camera's heading, turned into the body's own frame.
+      camera.getWorldDirection(look).setY(0).normalize().applyAxisAngle(UP, -root.rotation.y);
+      body.position.set(-look.x * BACK, body.position.y, -look.z * BACK);
     }
+    if (on === this.on) return;
+    this.on = on;
+    if (!on) body.position.set(0, body.position.y, 0);
+    torso.scale.set(on ? SLIM.x : 1, 1, on ? SLIM.z : 1);
+    for (const leg of [legL, legR]) leg.position.z = on ? LEGS : 0;
+  }
+
+  /**
+   * For one drawing of the scene: hides all but the torso and legs (and whatever's hung on them),
+   * whatever the game's shown since (the mic as you talk, a bubble, a card), and keeps what's left from
+   * casting a shadow, which would have no head. Returns what puts it all back as it was.
+   */
+  hideExtras(): () => void {
+    if (!this.on) return () => {};
+    const { root, body, torso, legL, legR } = this.rig;
+    const keep = new Set<THREE.Object3D>([torso, legL, legR]);
+    const hidden: THREE.Object3D[] = [];
+    const shadows: THREE.Object3D[] = [];
+    for (const o of [...body.children.filter((c) => !keep.has(c)), ...root.children.filter((c) => c !== body)]) {
+      if (o.visible) hidden.push(o);
+      o.visible = false;
+    }
+    for (const k of keep)
+      k.traverse((o) => {
+        if (o.castShadow) shadows.push(o);
+        o.castShadow = false;
+      });
+    return () => {
+      for (const o of hidden) o.visible = true;
+      for (const o of shadows) o.castShadow = true;
+    };
   }
 }
