@@ -45,3 +45,5 @@ The prompt edits the way it does in your own terminal (iTerm2's *Natural Text Ed
 | ⌘ + ⌫ | Delete to the start of the line (Mac) |
 | ⌘ + ⌦ | Delete to the end of the line (Mac) |
 | ⌘ + ← / → | Jump to the start / end of the line (Mac) |
+
+With **Settings → Experiments → Maintenance chat** enabled, the Maintenance counter and its WORKERS terminal shortcut open the rich chat view. Enter sends, Shift+Enter adds a line, and Esc or the top-right ✕ closes it and returns to the office. Use **Open terminal** for approvals, **Review stack** for stacked changes, and **Current conversation** to leave a read-only archived session. The experiment is local to your browser; archived conversation history is shared and kept on the office server.

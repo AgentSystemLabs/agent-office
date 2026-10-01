@@ -1,3 +1,4 @@
+import type { MaintenanceChatMessage } from '../shared/protocol.js';
 import { PresentationArchive } from './presentations.js';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
@@ -57,6 +58,7 @@ export interface FloorContext {
   changes(state: ChangesState, clients: string[]): void;
   /** A worker on this floor changed, or left (then just its id). */
   workerChanged(floor: Floor, w: WorkerInfo | string): void;
+  maintenanceConversation?(worker: WorkerInfo, messages: MaintenanceChatMessage[]): void;
   /** How many people are on this floor right now. */
   people(floor: Floor): number;
   /** Who's on this floor, and where they stand. */
@@ -176,6 +178,7 @@ export class Floor {
       ctx.agentArgs,
       ctx.hook,
       {
+        conversation: (worker, messages) => ctx.maintenanceConversation?.(worker, messages),
         update: (worker) => {
           const links = worker.pr ? [{ label: 'PR #' + worker.pr.number, url: worker.pr.url }] : [];
           const task = this.queue?.state().tasks.find(t => t.workerId === worker.id && t.issue);

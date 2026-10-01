@@ -55,6 +55,8 @@ export const HUD_DEFAULTS: Record<HudPanel, boolean> = { workers: false, people:
 
 export interface Settings {
   view: ViewMode;
+  /** Experimental rich Maintenance conversation view, local to this browser. */
+  maintenanceChat: boolean;
   /** Office sounds, 0–1. */
   volume: number;
   muted: boolean;
@@ -133,9 +135,10 @@ export function rememberSpot(s: Spot) {
 }
 
 export function loadSettings(): Settings {
-  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, pageTurns: true, pushToTalk: false, notify: true, hud: { ...HUD_DEFAULTS }, pins: [] };
+  const s: Settings = { view: 'first', maintenanceChat: false, volume: 0.7, muted: false, music: 0.5, musicMuted: false, pageTurns: true, pushToTalk: false, notify: true, hud: { ...HUD_DEFAULTS }, pins: [] };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
+    if (typeof saved?.maintenanceChat === 'boolean') s.maintenanceChat = saved.maintenanceChat;
     if (saved?.view === 'first' || saved?.view === 'third') s.view = saved.view;
     if (typeof saved?.volume === 'number' && Number.isFinite(saved.volume)) s.volume = Math.max(0, Math.min(1, saved.volume));
     if (typeof saved?.muted === 'boolean') s.muted = saved.muted;

@@ -46,6 +46,7 @@ import { DROP_MAX_BYTES } from '../shared/drops.js';
 import { MAX_FLOORS } from '../shared/floors.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 import { MAX_QUESTION, askLaptop, laptopModel, maintenanceTree } from './maintenance.js';
+import { MaintenanceChatArchive } from './maintenance-chat.js';
 import { MaintenanceBoard } from './maintenance-board.js';
 import { MaintenanceStackKeeper, stackTree } from './maintenance-stack.js';
 import { Approvals } from './approvals.js';
@@ -633,7 +634,12 @@ export async function startServer(cfg: Config) {
     });
   };
 
+  const maintenanceHistory = new MaintenanceChatArchive(cfg.dataDir);
   const floorContext: FloorContext = {
+    maintenanceConversation: (worker, messages) => {
+      try { maintenanceHistory.capture(worker, messages); }
+      catch (err) { console.warn('agent-office: could not archive Maintenance conversation:', (err as Error).message); }
+    },
     agentCmd: cfg.agentCmd,
     agentArgs: cfg.agentArgs,
     dshProfile: cfg.dshProfile,
@@ -1100,6 +1106,16 @@ export async function startServer(cfg: Config) {
         try {
           if (p === '/api/maintenance/issue') return send(res, 200, await maintenanceBoard.issue(Number(url.searchParams.get('number')), session.account ? signins.githubLogin(session.account.id) : undefined));
           if (p === '/api/maintenance/change') return send(res, 200, await stack.review(url.searchParams.get('sha') ?? ''));
+          if (p === '/api/maintenance/chat') {
+            const agent = maintenanceAgent();
+            const id = url.searchParams.get('thread') ?? agent?.info.id;
+            return send(res, 200, {
+              conversations: maintenanceHistory.list(),
+              conversation: id ? maintenanceHistory.page(id, url.searchParams.get('before') ?? undefined) : undefined,
+              worker: agent?.info, floor: agent?.floor.def.id, floorName: agent?.floor.def.name,
+              richReplies: !agent || ['codex', 'claude', 'custom'].includes(agent.info.provider ?? ''),
+            });
+          }
           if (p === '/api/maintenance/agent') {
             const agent = maintenanceAgent();
             return send(res, 200, agent ? { worker: agent.info, floor: agent.floor.def.id, floorName: agent.floor.def.name } : {});
@@ -1860,18 +1876,27 @@ export async function startServer(cfg: Config) {
         }
         break;
       }
+      case 'maintenance.chat.send':
       case 'station.prompt': {
         const floor = here();
-        if (!floor) break;
-        const deskId = str(msg.deskId, 32);
+        const chatId = msg.t === 'maintenance.chat.send' ? str(msg.id, 64) : undefined;
+        const reply = (error?: string, workerId?: string) => {
+          if (chatId) sendTo(c, { t: 'maintenance.chat.sent', id: chatId, error, workerId });
+          else warn(c, error);
+        };
+        if (!floor) { reply('Take the elevator to a project floor first'); break; }
+        const deskId = msg.t === 'maintenance.chat.send' ? MAINTENANCE_DESK : str(msg.deskId, 32);
         // Nobody there yet: whoever asks first hires it, on their own sign-ins.
         const hires = !floor.workers.deskOccupied(deskId);
         const send = () =>
           withSignIn(c, hires ? claudeFor(floor.workers.officeDefault.provider) : undefined, () => {
             const r = floor.workers.station(deskId, who, str(msg.prompt, 20000), c.accountId);
-            if (typeof r === 'string') warn(c, r);
-            else if (r.hired) toastFloor(floor, `${who} asked the ${r.info.name} something`);
-          });
+            if (typeof r === 'string') reply(r);
+            else {
+              reply(undefined, r.info.id);
+              if (r.hired) toastFloor(floor, `${who} asked the ${r.info.name} something`);
+            }
+          }, (why) => reply(why));
         if (deskId !== MAINTENANCE_DESK) {
           send();
           break;
@@ -1879,19 +1904,23 @@ export async function startServer(cfg: Config) {
         // One Maintenance agent for the whole office, in his own worktree.
         const at = maintenanceAgent();
         if (at && at.floor !== floor) {
-          if (stack.state.phase === 'shipping') warn(c, 'The stack is being shipped: wait for the office to restart');
-          else warn(c, at.floor.workers.prompt(at.info.id, str(msg.prompt, 20000), who));
+          if (stack.state.phase === 'shipping') reply('The stack is being shipped: wait for the office to restart');
+          else {
+            const result = at.floor.workers.station(MAINTENANCE_DESK, who, str(msg.prompt, 20000), c.accountId);
+            if (typeof result === 'string') reply(result);
+            else reply(undefined, result.info.id);
+          }
           break;
         }
         if (stack.state.phase === 'shipping') {
-          warn(c, 'The stack is being shipped: the office restarts in a moment');
+          reply('The stack is being shipped: the office restarts in a moment');
           break;
         }
         void stack.prepare().then((why) => {
           maintenanceTree.dir = stack.dir;
-          if (why) warn(c, why);
+          if (why) reply(why);
           else send();
-        });
+        }).catch((err) => reply((err as Error).message));
         break;
       }
       case 'approvals.set':

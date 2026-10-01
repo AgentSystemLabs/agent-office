@@ -83,6 +83,33 @@ export interface WorkerTask {
 export interface Presentation { title: string; summary: string; html: string; at: number; links?: { label: string; url: string }[] }
 export interface ArchivedPresentation { id: string; workerId: string; name: string; presentation: Presentation }
 
+/** Public Maintenance dialogue. Tool output and private reasoning are excluded. */
+export interface MaintenanceChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  at: number;
+  by?: string;
+  phase?: string;
+  /** Accepted by the office but not yet matched to its transcript entry. */
+  pending?: boolean;
+}
+export interface MaintenanceConversation {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messages: MaintenanceChatMessage[];
+}
+export interface MaintenanceChatState {
+  conversations: (Omit<MaintenanceConversation, 'messages'> & { count: number })[];
+  conversation?: MaintenanceConversation & { hasOlder: boolean };
+  worker?: WorkerInfo;
+  floor?: string;
+  floorName?: string;
+  richReplies: boolean;
+}
+
 export interface WorkerInfo {
   presentation?: Presentation;
   id: string;
@@ -1187,6 +1214,7 @@ export type ClientMsg =
    * typed into its session, which is woken up first if it's asleep, or hired there when nobody is.
    */
   | { t: 'station.prompt'; deskId: string; prompt: string }
+  | { t: 'maintenance.chat.send'; id: string; prompt: string }
   /** A question for the maintenance closet's laptop (a small model that knows the office's source); `id` comes back on the `maintenance.answer`. */
   | { t: 'maintenance.ask'; id: string; question: string }
   /** The big button in the maintenance closet: commit what's stacked, check it, push, rebuild and restart the office. */
@@ -1420,6 +1448,7 @@ export type ServerMsg =
   | { t: 'maintenance.issues'; state: MaintenanceIssues }
   | { t: 'approvals'; state: ApprovalsState }
   /** The laptop's answer to your `maintenance.ask`: what the model said, or why it couldn't, and which model it was. */
+  | { t: 'maintenance.chat.sent'; id: string; workerId?: string; error?: string }
   | { t: 'maintenance.answer'; id: string; model: string; answer?: string; error?: string }
   | { t: 'screen'; workerId: string; cols: number; rows: number; lines: Record<number, Run[]>; full: boolean; cursor: [number, number] }
   | { t: 'term.snapshot'; workerId: string; data: string; cols: number; rows: number }

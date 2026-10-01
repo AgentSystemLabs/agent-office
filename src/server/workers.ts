@@ -5,6 +5,8 @@ import { execFile, execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { MaintenanceTranscriptReader } from './maintenance-chat.js';
+import type { MaintenanceChatMessage } from '../shared/protocol.js';
 import { CodexUsageReader } from './codex-usage.js';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
@@ -205,6 +207,7 @@ interface Worker {
 }
 
 export interface WorkerEvents {
+  conversation?(worker: WorkerInfo, messages: MaintenanceChatMessage[]): void;
   update(info: WorkerInfo): void;
   /** It's gone (sent home), and what it was as it went. */
   remove(workerId: string, info?: WorkerInfo): void;
@@ -215,6 +218,7 @@ export interface WorkerEvents {
 
 export class WorkerManager {
   private workers = new Map<string, Worker>();
+  private chatReaders = new WeakMap<Worker, MaintenanceTranscriptReader>();
   private statePath: string;
   private settingsPath: string;
   private trees: Worktrees;
@@ -578,6 +582,7 @@ export class WorkerManager {
     const w = [...this.workers.values()].find((x) => x.info.deskId === deskId);
     if (!w) {
       const info = this.spawn(deskId, by, clean, false, 'agent', undefined, undefined, undefined, undefined, owner);
+      if (typeof info !== 'string' && deskId === 'station-maintenance') this.events.conversation?.(info, [{ id: randomUUID(), role: 'user', content: clean, at: Date.now(), by, pending: true }]);
       return typeof info === 'string' ? info : { info, hired: true };
     }
     // Typed into the question it's asking, the prompt would answer it.
@@ -585,6 +590,7 @@ export class WorkerManager {
     const running = !!(w.pty || w.dsh);
     if (!running) w.info.lastInput = { by, at: Date.now() };
     const err = running ? this.prompt(w.info.id, clean, by) : this.resume(w.info.id, clean);
+    if (!err && !running) this.recordMaintenanceRequest(w, clean, by);
     return err ?? { info: w.info, hired: false };
   }
 
@@ -610,6 +616,7 @@ export class WorkerManager {
     const w = this.workers.get(id);
     if (!w) return {};
     this.clearPermissionWait(w);
+    this.scanMaintenanceChat(w);
     this.workers.delete(id);
     this.namer.forget(id);
     clearTimeout(w.scanTimer);
@@ -956,6 +963,7 @@ export class WorkerManager {
     if (w.dsh) {
       const clean = text.replace(/\r\n?/g, '\n').trim();
       if (!clean) return 'Empty prompt';
+      this.recordMaintenanceRequest(w, clean, by);
       w.dsh.prompt(clean + (w.info.kind === 'agent' ? '\n\n' + presentationBrief(id) : ''));
       w.info.activity = truncate(clean, 80);
       this.notePrompt(w, clean);
@@ -966,6 +974,7 @@ export class WorkerManager {
     if (!w.pty) return 'Worker is not running';
     const clean = text.replace(/\r\n?/g, '\n').trim();
     if (!clean) return 'Empty prompt';
+    this.recordMaintenanceRequest(w, clean, by);
     // Bracketed paste keeps multi-line prompts in one message, then Enter submits.
     const sent = clean + (w.info.kind === 'agent' ? '\n\n' + presentationBrief(id) : '');
     w.pty.write(`\x1b[200~${sent}\x1b[201~`);
@@ -2034,7 +2043,24 @@ export class WorkerManager {
   }
 
   /** Picks up what the session logged since last time and books the difference. */
+  private recordMaintenanceRequest(w: Worker, content: string, by?: string) {
+    if (w.info.deskId !== 'station-maintenance') return;
+    this.events.conversation?.(w.info, [{ id: randomUUID(), role: 'user', content, at: Date.now(), by, pending: true }]);
+  }
+
+  private scanMaintenanceChat(w: Worker) {
+    if (w.info.deskId !== 'station-maintenance' || !w.info.sessionId || !this.events.conversation) return;
+    const provider = w.info.provider;
+    const file = provider === 'codex' ? w.codexTranscript : (provider === 'claude' || provider === 'custom') ? w.tracker.transcript : undefined;
+    if (!file) return;
+    let reader = this.chatReaders.get(w);
+    if (!reader) { reader = new MaintenanceTranscriptReader(); this.chatReaders.set(w, reader); }
+    const messages = reader.read(file, w.info.sessionId, provider ?? 'claude', w.codexHome);
+    if (messages.length) this.events.conversation(w.info, messages);
+  }
+
   private scanUsage(w: Worker) {
+    this.scanMaintenanceChat(w);
     if (w.info.kind === 'agent' && w.info.provider === 'codex') {
       if (this.workers.get(w.info.id) !== w || !w.codexTranscript || !w.codexHome || !w.info.sessionId) return;
       const usage = w.codexUsage.read(w.codexTranscript, w.info.sessionId, w.codexHome);

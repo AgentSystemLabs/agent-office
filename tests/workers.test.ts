@@ -1710,3 +1710,44 @@ test('older hosted workers recover their actual approval mode without using the 
   assert.equal(launches(f).length, 1);
   after.handleHook(worker.id, call.env.hookToken!, 'PostToolUse', { session_id: 'old-review', tool_name: 'Bash' });
 });
+
+test('Maintenance requests and structured replies reach the archive even without the experimental view open', async (t) => {
+  const { MaintenanceChatArchive } = await import('../src/server/maintenance-chat.js');
+  const { stationBrief } = await import('../src/server/stations.js');
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const previousExit = process.env.FAKE_AGENT_EXIT_MS;
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_EXIT_MS = '1800';
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousExit === undefined) delete process.env.FAKE_AGENT_EXIT_MS; else process.env.FAKE_AGENT_EXIT_MS = previousExit;
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG; else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+  const archive = new MaintenanceChatArchive(f.data);
+  const workers = new WorkerManager(f.root, f.data, f.claude, [], { url: 'http://127.0.0.1:1', token: '' },
+    { ...events([]), conversation: (worker, messages) => archive.capture(worker, messages) }, ledger(f.data));
+  t.after(() => workers.shutdown());
+  const result = workers.station('station-maintenance', 'Alex', 'Build a rich chat view');
+  assert.equal(typeof result, 'object');
+  if (typeof result === 'string') return;
+  const invocation = (await waitFor(() => f.read(), records => records.some(r => r.kind === 'claude'))).find(r => r.kind === 'claude')!;
+  assert.equal(archive.page(result.info.id)?.messages[0].content, 'Build a rich chat view');
+  const file = path.join(f.root, 'chat-session.jsonl');
+  const at = new Date().toISOString();
+  writeFileSync(file, [
+    { type: 'user', sessionId: 'chat-session', timestamp: at, message: { role: 'user', content: `${stationBrief('maintenance')}\n\nBuild a rich chat view\n\n${presentationBrief(result.info.id)}` } },
+    { type: 'assistant', sessionId: 'chat-session', timestamp: at, message: { role: 'assistant', content: [{ type: 'text', text: '## Completed\n\nThe chat view is on the stack.' }] } },
+  ].map(row => JSON.stringify(row) + '\n').join(''));
+  assert.equal(workers.handleHook(result.info.id, invocation.env.hookToken!, 'SessionStart', { session_id: 'chat-session', transcript_path: file }), true);
+  await waitFor(() => archive.page(result.info.id), c => c?.messages.some(m => m.role === 'assistant') === true);
+  assert.equal(archive.page(result.info.id)?.messages.length, 2, 'request reconciled with the transcript');
+  assert.equal(archive.page(result.info.id)?.messages[0].by, 'Alex');
+  const follow = workers.station('station-maintenance', 'Sam', 'Make the archive searchable');
+  assert.equal(typeof follow, 'object');
+  assert.equal(archive.page(result.info.id)?.messages.at(-1)?.content, 'Make the archive searchable');
+  await workers.kill(result.info.id);
+  const restored = new MaintenanceChatArchive(f.data);
+  assert.equal(restored.page(result.info.id)?.messages.length, 3, 'worker departure does not delete the chat');
+});

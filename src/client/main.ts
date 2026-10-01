@@ -62,7 +62,8 @@ import { openPrompt, confirmDialog, sendHomeDialog, lostWorktreeDialog, routeWor
 import { issuePrompt, openBoard } from './ui/boards';
 import { openIssue, openPull, routePullMessage } from './ui/pull';
 import { openMaintenanceBoard, openMaintenanceIssue } from './ui/maintenance-board';
-import { onMaintenanceAnswer, openLaptop, openStack } from './ui/maintenance';
+import { openMaintenanceChat, onMaintenanceChatSent } from './ui/maintenance-chat';
+import { onMaintenanceAnswer, openLaptop, openStack, type MaintenanceActions } from './ui/maintenance';
 import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { openAccounts, routeAccountsMessage } from './ui/accounts';
@@ -1187,6 +1188,9 @@ net.onMessage((msg) => {
       break;
     case 'worker.worktree':
       routeWorktreeMessage(msg);
+      break;
+    case 'maintenance.chat.sent':
+      onMaintenanceChatSent(msg);
       break;
     case 'maintenance.answer':
       onMaintenanceAnswer(msg);
@@ -2429,9 +2433,9 @@ function killWorker(id: string) {
 }
 
 /** E at a board agent: type it a request. It's hired with it when nobody is there yet. */
-function maintenanceActions() {
+function maintenanceActions(): MaintenanceActions {
   return {
-    correct: (context?: string) => openPrompt({
+    correct: (context?: string) => settings.maintenanceChat ? openMaintenanceConversation(context) : openPrompt({
       title: '🛠️ Request / correct Maintenance',
       subtitle: 'Works on Agent Office itself. Follow-ups go to the same Maintenance session; while it is busy they wait in its input box. To answer a permission prompt, use its terminal.',
       initial: context ? `${context}
@@ -2442,12 +2446,12 @@ function maintenanceActions() {
       onSubmit: (text) => net.send({ t: 'station.prompt', deskId: MAINTENANCE_DESK, prompt: text }),
     }),
     watch: (worker: WorkerInfo, floor: string) => {
-      if (floor === store.floor) return openWorkerTerminal(worker.id);
+      if (floor === store.floor) return openWorkerTerminal(worker.id, undefined, true);
       toast('Taking you to Maintenance’s floor to open its terminal');
       const unsub = store.on('floor', () => {
         if (store.floor !== floor) return;
         unsub();
-        setTimeout(() => openWorkerTerminal(worker.id), 250);
+        setTimeout(() => openWorkerTerminal(worker.id, undefined, true), 250);
       });
       setTimeout(unsub, 15_000);
       switchFloor(floor);
@@ -2455,9 +2459,15 @@ function maintenanceActions() {
   };
 }
 
+function openMaintenanceConversation(context?: string): ReturnType<typeof openMaintenanceChat> {
+  return openMaintenanceChat((message) => net.send(message), maintenanceActions(),
+    () => openStack((message) => net.send(message), maintenanceActions()), context);
+}
+
 function askStation(deskId: string) {
   const kind = plan().byId.get(deskId)?.station;
   if (!kind) return;
+  if (kind === 'maintenance' && settings.maintenanceChat) return void openMaintenanceConversation();
   if (kind === 'maintenance') return void openStack((msg) => net.send(msg), maintenanceActions());
   const w = store.workerAtDesk(deskId);
   const name = STATION_AGENT[kind].name;
@@ -2688,9 +2698,10 @@ function pointToWaiting(now: number) {
 }
 
 /** Opening a sleeping worker's terminal wakes it, so there's nothing to press first. */
-function openWorkerTerminal(id: string, find?: TerminalFind) {
+function openWorkerTerminal(id: string, find?: TerminalFind, rawTerminal = false) {
   const w = store.workers.get(id);
   if (!w) return;
+  if (settings.maintenanceChat && w.deskId === MAINTENANCE_DESK && !find && !rawTerminal) return void openMaintenanceConversation();
   if (w.lost) return fixLostWorktree(w);
   if (isAsleep(w.status)) resumeWorker(w);
   openTerminal(net, id, () => openWorkerChanges(id), find);
