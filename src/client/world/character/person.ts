@@ -34,7 +34,7 @@ export class Person {
   readonly root = new THREE.Group();
   private body = new THREE.Group();
   /** Its moving parts, for what poses them from the other files here (a golf swing, a throw, an emote). */
-  private rig: PersonRig;
+  readonly rig: PersonRig;
   private legL: THREE.Object3D;
   private legR: THREE.Object3D;
   private armL: THREE.Object3D;

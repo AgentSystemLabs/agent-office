@@ -12,6 +12,7 @@ import type { CoreState } from './ctx';
 import type { Parts } from './parts';
 import type { Frame } from './registry';
 import { FOV } from './scene';
+import { FirstPersonBody } from '../world/character/person-first';
 
 export interface LoopDeps {
   /** Offers the 2D view (/lite), where the 3D is hard going (see main.ts). */
@@ -64,6 +65,9 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
     renderCaffeine(caffeine, secs);
   }
 
+  /** Your body below you in first person (made on the first frame, once you are). */
+  let firstBody: FirstPersonBody | null = null;
+
   /** You as everyone else sees you, your hands as you see them, and the camera's view. */
   function moveMe({ dt, t }: Frame) {
     const { player, me, hands, voice, camera } = ctx;
@@ -79,7 +83,10 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
     // In first person you are the camera; in third, hide yourself when it's zoomed in right behind your head.
     // At the tee the camera's behind the ball, and you're the one holding the club.
     // So is the camera over your shoulder at the dart board or the axe lane.
-    me.root.visible = ctx.activities.any('takesCamera') || (!firstPerson && camera.position.distanceTo(headPos.set(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5);
+    // In first person your body's there below you (see FirstPersonBody), unless your hands are busy elsewhere (a car's wheel).
+    const ownBody = firstPerson && !ctx.activities.any('takesCamera') && !ctx.activities.any('hidesHands');
+    (firstBody ??= new FirstPersonBody(me.rig)).set(ownBody);
+    me.root.visible = ownBody || ctx.activities.any('takesCamera') || (!firstPerson && camera.position.distanceTo(headPos.set(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5);
     // In a car, your hands are on the wheel, out of sight.
     if (firstPerson && !ctx.activities.any('hidesHands')) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded, jitter: player.effects.jitter, grip });
     // What you're doing widens the view (down a pole) or narrows it (at the oche or the line), and once
