@@ -15,6 +15,7 @@ import type { RooftopClientMsg, RooftopServerMsg } from './protocol/rooftop.js';
 import type { SettingsClientMsg, SettingsServerMsg } from './protocol/settings.js';
 import type { BallClientMsg, CabinetClientMsg, CarClientMsg, DecorClientMsg, DogClientMsg, JukeboxClientMsg, ToysServerMsg, WhiteboardClientMsg } from './protocol/toys.js';
 import type { UsageClientMsg, UsageServerMsg } from './protocol/usage.js';
+import type { VaultClientMsg, VaultServerMsg } from './protocol/vault.js';
 import type { WorkerClientMsg, WorkerServerMsg } from './protocol/workers.js';
 
 export * from './protocol/accounts.js';
@@ -29,6 +30,7 @@ export * from './protocol/rooftop.js';
 export * from './protocol/settings.js';
 export * from './protocol/toys.js';
 export * from './protocol/usage.js';
+export * from './protocol/vault.js';
 export * from './protocol/workers.js';
 
 export type ClientMsg =
@@ -52,7 +54,8 @@ export type ClientMsg =
   | WhiteboardClientMsg
   | BallClientMsg
   | CarClientMsg
-  | DogClientMsg;
+  | DogClientMsg
+  | VaultClientMsg;
 
 export type ServerMsg =
   | PresenceServerMsg
@@ -66,4 +69,5 @@ export type ServerMsg =
   | AccountsServerMsg
   | SettingsServerMsg
   | UsageServerMsg
-  | ToysServerMsg;
+  | ToysServerMsg
+  | VaultServerMsg;

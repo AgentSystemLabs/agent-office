@@ -4,6 +4,7 @@ import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { LostBranch, WorktreeState } from '../shared/protocol.js';
+import { copyEnvFiles } from './envfiles.js';
 
 export type { WorktreeCleanup, WorktreeState } from '../shared/protocol.js';
 
@@ -65,6 +66,7 @@ export class Worktrees {
       const rel = path.join(WORKTREES_DIR, slug, sub ?? '');
       const branch = `${BRANCH_PREFIX}${slug}`;
       this.gitSync(['worktree', 'add', '-b', branch, path.resolve(root, rel), base]);
+      copyEnvFiles(this.dir, path.resolve(root, rel));
       return { path: rel, branch, base, from, note };
     } catch (err) {
       return `Could not create a git worktree: ${gitError(err)}`;
@@ -217,6 +219,7 @@ export class Worktrees {
         const base = wt.base && (await this.git(['cat-file', '-e', `${wt.base}^{commit}`]).then(() => true, () => false)) ? wt.base : 'HEAD';
         await this.git(['worktree', 'add', '-b', wt.branch, abs, base]);
       }
+      copyEnvFiles(this.dir, abs);
       return { from };
     } catch (err) {
       return { error: gitError(err) };

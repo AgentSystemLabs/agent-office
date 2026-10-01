@@ -7,7 +7,7 @@ import { DESK_BY_ID } from '../shared/layout.js';
 import type { FloorDef } from './building.js';
 import { excludeFromGit } from './config.js';
 import { agentProviders, configuredProvider } from './agents.js';
-import { WorkerManager, workedMs, type HookEnv, type RunAs } from './workers.js';
+import { WorkerManager, addFloorEnv, workedMs, type HookEnv, type RunAs } from './workers.js';
 import { GitHub, MergeWatch } from './github.js';
 import type { GhAs } from './signins.js';
 import { TaskQueue } from './queue.js';
@@ -21,6 +21,7 @@ import { Jail } from './jail.js';
 import { Garage } from './garage.js';
 import { Jukebox } from './jukebox.js';
 import { Whiteboard } from './whiteboard.js';
+import { Vault } from './vault.js';
 import { MeetingRoom } from './meetings.js';
 import { Worktrees, type WorktreeCleanup } from './worktrees.js';
 import { landedWork, landedWorkers, type Landed } from './leave-on-merge.js';
@@ -126,6 +127,9 @@ export class Floor {
   readonly meetings: MeetingRoom;
   /** The bookshelf: the project's Markdown files (see docs.ts). */
   readonly docs: Docs;
+  /** The vault: environment variables its workers start with (see vault.ts). */
+  readonly vault: Vault;
+  private dropVaultEnv: () => void;
   /** Settles once the workers whose terminals outlived the last office are picked back up, and the rest woken. */
   readonly ready: Promise<void>;
   readonly dog: Dog;
@@ -157,6 +161,9 @@ export class Floor {
     // Before the workers and the dog: the back office's desks are only there once it's built.
     this.plan = new FloorPlanStore(dataDir);
     this.jail = new Jail(dataDir);
+    // Before the workers, which start with what's in it.
+    this.vault = new Vault(dataDir);
+    this.dropVaultEnv = addFloorEnv(def.dir, () => this.vault.env());
 
     // Before the workers, so it hears about the ones who wake up needing input.
     this.dog = new Dog(def.id, dataDir, {
@@ -418,5 +425,6 @@ export class Floor {
     this.changes.stop();
     this.whiteboard.flush();
     this.workers.shutdown(keep);
+    this.dropVaultEnv();
   }
 }

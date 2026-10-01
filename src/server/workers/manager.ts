@@ -667,7 +667,7 @@ export class WorkerManager {
     const plan: LaunchPlan = adapter ? adapter.launch({ h: this.handleOf(w), args: base, prompt, resumeSessionId, station, setup: this.setups[adapter.id] }) : { args: base };
     const { args } = plan;
     if (plan.rotateToken) w.hookToken = randomBytes(16).toString('hex');
-    const env = childEnv();
+    const env = childEnv(this.dir);
     Object.assign(env, {
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',

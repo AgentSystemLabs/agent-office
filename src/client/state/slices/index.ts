@@ -26,6 +26,7 @@ import { notify } from './notify';
 import { prompts } from './prompts';
 import { services } from './services';
 import { signins } from './signins';
+import { vault } from './vault';
 import { sky } from './sky';
 import { team } from './team';
 import { theme } from './theme';
@@ -61,4 +62,5 @@ export const SLICES: readonly Slice[] = [
   team,
   accounts,
   signins,
+  vault,
 ];
