@@ -446,6 +446,5 @@ export function installMinimap(ctx: Ctx, parts: Pick<Parts, 'worlds' | 'views' |
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, w, hgt);
     drawBlips(g, w, hgt, (now / 900) % 1);
-
   });
 }
