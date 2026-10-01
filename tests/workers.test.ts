@@ -1747,7 +1747,17 @@ test('Maintenance requests and structured replies reach the archive even without
   const follow = workers.station('station-maintenance', 'Sam', 'Make the archive searchable');
   assert.equal(typeof follow, 'object');
   assert.equal(archive.page(result.info.id)?.messages.at(-1)?.content, 'Make the archive searchable');
-  await workers.kill(result.info.id);
+  assert.match(workers.station('station-maintenance', 'Sam', 'Another issue', undefined, { newConversation: true }) as string, /still busy/);
+  workers.handleHook(result.info.id, invocation.env.hookToken!, 'Stop', {});
+  const fresh = workers.station('station-maintenance', 'Sam', 'Add a new room', undefined, { newConversation: true });
+  assert.equal(typeof fresh, 'object');
+  if (typeof fresh === 'string') return;
+  assert.notEqual(fresh.info.id, result.info.id);
+  assert.equal(fresh.hired, true);
+  assert.equal(fresh.info.sessionId, undefined, 'new issue does not resume the earlier agent session');
+  assert.equal(archive.page(fresh.info.id)?.messages[0].content, 'Add a new room');
+  assert.match(workers.station('station-maintenance', 'Alex', 'Late follow-up', undefined, { thread: result.info.id }) as string, /archived/);
+  await workers.kill(fresh.info.id);
   const restored = new MaintenanceChatArchive(f.data);
   assert.equal(restored.page(result.info.id)?.messages.length, 3, 'worker departure does not delete the chat');
 });

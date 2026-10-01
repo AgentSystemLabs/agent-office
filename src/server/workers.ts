@@ -575,11 +575,21 @@ export class WorkerManager {
    * up with it if it's asleep, or it's hired there with it when nobody is. Returns what went wrong, or
    * the agent and whether it was just hired.
    */
-  station(deskId: string, by: string, text: string, owner?: string): { info: WorkerInfo; hired: boolean } | string {
+  station(deskId: string, by: string, text: string, owner?: string, chat?: { newConversation?: boolean; thread?: string }): { info: WorkerInfo; hired: boolean } | string {
     if (!DESK_BY_ID.get(deskId)?.station) return 'There is no agent to ask there';
     const clean = text.replace(/\r\n?/g, '\n').trim();
     if (!clean) return 'Empty prompt';
-    const w = [...this.workers.values()].find((x) => x.info.deskId === deskId);
+    let w = [...this.workers.values()].find((x) => x.info.deskId === deskId);
+    if (chat && deskId === 'station-maintenance') {
+      if (chat.thread && chat.thread !== w?.info.id) return 'This conversation is archived. Start a new conversation for another issue.';
+      if (chat.newConversation && w) {
+        if (!['idle', 'done', 'exited'].includes(w.info.status)) return 'Maintenance is still busy. Wait for the current issue to finish before starting a new conversation.';
+        // Station workers share the stack directory and never own a disposable worktree.
+        if (w.info.worktree) return 'Cannot replace a Maintenance worker with a private worktree';
+        void this.kill(w.info.id);
+        w = undefined;
+      }
+    }
     if (!w) {
       const info = this.spawn(deskId, by, clean, false, 'agent', undefined, undefined, undefined, undefined, owner);
       if (typeof info !== 'string' && deskId === 'station-maintenance') this.events.conversation?.(info, [{ id: randomUUID(), role: 'user', content: clean, at: Date.now(), by, pending: true }]);
@@ -591,6 +601,7 @@ export class WorkerManager {
     if (!running) w.info.lastInput = { by, at: Date.now() };
     const err = running ? this.prompt(w.info.id, clean, by) : this.resume(w.info.id, clean);
     if (!err && !running) this.recordMaintenanceRequest(w, clean, by);
+    if (!err && running && deskId === 'station-maintenance' && ['idle', 'done'].includes(w.info.status)) this.setStatus(w, 'working');
     return err ?? { info: w.info, hired: false };
   }
 

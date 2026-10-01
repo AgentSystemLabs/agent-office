@@ -48,6 +48,7 @@ function bubble(message: MaintenanceChatMessage) {
 export function openMaintenanceChat(send: (message: ClientMsg) => void, actions: MaintenanceActions, reviewStack: () => void, initial = '') {
   let closed = false;
   let selected: string | undefined;
+  let newConversation = false;
   let state: MaintenanceChatState | undefined;
   let generation = 0;
   let messageKey = '';
@@ -68,7 +69,10 @@ export function openMaintenanceChat(send: (message: ClientMsg) => void, actions:
   const terminal = h('button', { type: 'button', onclick: () => {
     if (state?.worker && state.floor) { modal.close(); actions.watch(state.worker, state.floor); }
   } }, 'Open terminal');
-  const current = h('button.maintenance-current', { type: 'button', onclick: () => { selected = undefined; messageKey = ''; messages = []; void refresh(); } }, 'Current conversation');
+  const current = h('button.maintenance-current', { type: 'button', onclick: () => { newConversation = false; selected = undefined; messageKey = ''; messages = []; void refresh(); } }, 'Current conversation');
+  const create = h('button.maintenance-new', { type: 'button', onclick: () => {
+    newConversation = true; selected = undefined; messages = []; messageKey = ''; showError(''); void refresh().then(() => input.focus());
+  } }, '+ New conversation');
   const form = h('form.maintenance-chat-composer', {}, error, input,
     h('div.maintenance-composer-bottom', {}, note, submit));
   const close = h('button.close', { type: 'button', 'aria-label': 'Close Maintenance chat' }, '✕');
@@ -76,7 +80,7 @@ export function openMaintenanceChat(send: (message: ClientMsg) => void, actions:
     h('header', {}, h('div', {}, h('span.maintenance-experiment', {}, 'EXPERIMENT'), h('h2', {}, 'Maintenance'), status),
       h('div.maintenance-chat-tools', {}, h('button', { type: 'button', onclick: () => { modal.close(); reviewStack(); } }, 'Review stack'), terminal, close)),
     h('div.maintenance-chat-layout', {},
-      h('aside', {}, current, h('h3', {}, 'Conversation archive'), h('small', {}, 'Shared with the office · saved across restarts'), search, archive),
+      h('aside', {}, create, current, h('h3', {}, 'Conversation archive'), h('small', {}, 'Shared with the office · saved across restarts'), search, archive),
       h('section.maintenance-chat-main', {}, older, list, form)));
   const modal = openModal(el, { doing: 'chatting with Maintenance', onClose: () => {
     closed = true;
@@ -94,27 +98,29 @@ export function openMaintenanceChat(send: (message: ClientMsg) => void, actions:
     const q = search.value.trim().toLowerCase();
     const entries = state.conversations.filter(c => c.title.toLowerCase().includes(q));
     archive.replaceChildren(...entries.map(c => h('button.maintenance-conversation', {
-      type: 'button', class: (selected ?? state?.worker?.id) === c.id ? 'selected' : '',
-      'aria-pressed': String((selected ?? state?.worker?.id) === c.id),
-      onclick: () => { selected = c.id; messages = []; messageKey = ''; void refresh(); },
+      type: 'button', class: (newConversation ? undefined : selected ?? state?.worker?.id) === c.id ? 'selected' : '',
+      'aria-pressed': String((newConversation ? undefined : selected ?? state?.worker?.id) === c.id),
+      onclick: () => { newConversation = false; selected = c.id; messages = []; messageKey = ''; void refresh(); },
     }, h('b', {}, c.title), h('small', {}, `${new Date(c.updatedAt).toLocaleDateString()} · ${c.count} messages`))),
     ...(!entries.length ? [h('p.maintenance-archive-empty', {}, q ? 'No matching conversations' : 'Conversations appear here after your first request.')] : []));
   }
   search.addEventListener('input', drawArchive);
   function updateControls() {
     const worker = state?.worker;
-    const archived = !!selected && selected !== worker?.id;
+    const archived = !newConversation && !!selected && selected !== worker?.id;
     const waiting = worker?.status === 'needs_input';
     status.textContent = worker ? `${worker.status.replace(/_/g, ' ')}${state?.floorName ? ` · ${state.floorName}` : ''}` : 'Ready for your first request';
     terminal.disabled = !worker;
-    input.disabled = !!pending || archived || waiting || !state;
+    const busy = !!worker && !['idle', 'done', 'exited'].includes(worker.status);
+    create.disabled = !!pending;
+    input.disabled = !!pending || archived || waiting || !state || (newConversation && busy);
     submit.disabled = input.disabled;
-    note.textContent = archived ? 'Archived conversation · choose Current conversation to send a new request.'
+    note.textContent = newConversation ? (busy ? 'Wait for the current issue to finish before starting a new conversation.' : 'New issue · starts a fresh conversation and keeps the previous history.') : archived ? 'Archived conversation · choose Current conversation to send a new request.'
       : waiting ? 'Maintenance needs an answer or approval. Open the terminal to respond.'
       : state && !state.richReplies ? 'This provider uses the terminal for replies. Requests are still archived.'
       : worker?.status === 'working' ? 'Follow-ups wait in the agent’s input box · Shift+Enter for a new line'
       : 'Enter to send · Shift+Enter for a new line · shared office conversation';
-    current.setAttribute('aria-pressed', String(!archived));
+    current.setAttribute('aria-pressed', String(!newConversation && !archived));
   }
   async function refresh(before?: string) {
     const ticket = ++generation;
@@ -123,10 +129,11 @@ export function openMaintenanceChat(send: (message: ClientMsg) => void, actions:
       const params = new URLSearchParams();
       if (selected) params.set('thread', selected);
       if (before) params.set('before', before);
-      const next = await maintenanceJson<MaintenanceChatState>(`/api/maintenance/chat?${params}`);
+      let next = await maintenanceJson<MaintenanceChatState>(`/api/maintenance/chat?${params}`);
       if (closed || ticket !== generation || previousSelected !== selected) return;
       state = next;
       if (historyFailed) { showError(''); historyFailed = false; }
+      if (newConversation) next = { ...next, conversation: undefined };
       const incoming = next.conversation?.messages ?? [];
       const sameThread = list.dataset.thread === next.conversation?.id;
       const byId = new Map<string, MaintenanceChatMessage>();
@@ -153,7 +160,7 @@ export function openMaintenanceChat(send: (message: ClientMsg) => void, actions:
         else if (atBottom || !sameThread) list.scrollTop = list.scrollHeight;
       }
       if (before || !sameThread || messages.length === incoming.length) older.classList.toggle('hidden', !next.conversation?.hasOlder);
-      const aKey = JSON.stringify([next.conversations, selected, next.worker?.id]);
+      const aKey = JSON.stringify([next.conversations, selected, next.worker?.id, newConversation]);
       if (archiveKey !== aKey) { archiveKey = aKey; drawArchive(); }
       updateControls();
     } catch (err) {
@@ -167,7 +174,7 @@ export function openMaintenanceChat(send: (message: ClientMsg) => void, actions:
     const text = pending.text;
     pending = undefined;
     if (message.error) { input.value = text; showError(message.error); updateControls(); input.focus(); }
-    else { input.value = ''; selected = undefined; messageKey = ''; messages = []; void refresh().then(() => input.focus()); }
+    else { input.value = ''; newConversation = false; selected = message.workerId; messageKey = ''; messages = []; void refresh().then(() => input.focus()); }
   }
   receipts.add(receive);
   form.addEventListener('submit', (e) => {
@@ -182,7 +189,7 @@ export function openMaintenanceChat(send: (message: ClientMsg) => void, actions:
       showError('No acknowledgement yet. Check the terminal before sending again.');
     }, 30_000) };
     updateControls();
-    send({ t: 'maintenance.chat.send', id, prompt: text });
+    send({ t: 'maintenance.chat.send', id, prompt: text, ...(newConversation ? { newConversation: true } : { thread: selected ?? state?.worker?.id }) });
   });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }

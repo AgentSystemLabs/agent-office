@@ -1214,7 +1214,7 @@ export type ClientMsg =
    * typed into its session, which is woken up first if it's asleep, or hired there when nobody is.
    */
   | { t: 'station.prompt'; deskId: string; prompt: string }
-  | { t: 'maintenance.chat.send'; id: string; prompt: string }
+  | { t: 'maintenance.chat.send'; id: string; prompt: string; newConversation?: boolean; thread?: string }
   /** A question for the maintenance closet's laptop (a small model that knows the office's source); `id` comes back on the `maintenance.answer`. */
   | { t: 'maintenance.ask'; id: string; question: string }
   /** The big button in the maintenance closet: commit what's stacked, check it, push, rebuild and restart the office. */

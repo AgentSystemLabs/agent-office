@@ -74,6 +74,27 @@ if(await page.evaluate(()=>window.watches.length)!==1)throw Error('terminal unav
 if(await page.locator('.maintenance-chat').count())throw Error('terminal does not close chat');
 worker={...worker,status:'done'};
 await page.evaluate(()=>openChat());await page.waitForSelector('[data-message="a2"]');
+await page.getByRole('button',{name:'+ New conversation',exact:true}).click();
+await page.waitForSelector('.maintenance-chat-empty');
+if(await input.isDisabled())throw Error('new issue composer disabled after completion');
+await input.fill('Build a meeting room');await input.press('Enter');
+const newIssue=await page.evaluate(()=>window.sent.at(-1));
+if(!newIssue.newConversation||newIssue.thread)throw Error('new issue did not request a fresh session');
+threads.room={id:'room',title:'Build a meeting room',createdAt:2,updatedAt:1790856100000,hasOlder:false,messages:[msg('room1','user','Build a meeting room')]};
+worker={...worker,id:'room',status:'working'};
+await page.evaluate(id=>chat.onMaintenanceChatSent({t:'maintenance.chat.sent',id,workerId:'room'}),newIssue.id);
+await page.waitForSelector('[data-message="room1"]');
+if(await page.locator('[data-message="a2"]').count())throw Error('previous issue leaked into new conversation');
+await page.getByRole('button',{name:'+ New conversation',exact:true}).click();
+await page.waitForSelector('.maintenance-chat-empty');
+if(!await input.isDisabled())throw Error('new issue allowed while Maintenance works');
+await page.getByRole('button',{name:'Build a modern Maintenance chat view'}).click();
+await page.waitForSelector('[data-message="a2"]');
+if(!await input.isDisabled())throw Error('previous issue is not archived');
+await page.getByRole('button',{name:'Current conversation',exact:true}).click();
+await page.waitForSelector('[data-message="room1"]');
+await page.screenshot({path:'/tmp/maintenance-chat-threads.png',animations:'disabled'});
+
 await page.setViewportSize({width:390,height:844});await page.screenshot({path:'/tmp/maintenance-chat-mobile.png',animations:'disabled'});
 if(await page.locator('.maintenance-chat').evaluate(el=>el.scrollWidth>el.clientWidth || el.getBoundingClientRect().right>innerWidth || el.getBoundingClientRect().left<0))throw Error('mobile overflow');
 await page.keyboard.press('Escape');if(await page.locator('.maintenance-chat').count())throw Error('Escape fails');
@@ -92,5 +113,5 @@ await page.screenshot({path:'/tmp/maintenance-chat-settings.png',animations:'dis
 await page.getByRole('checkbox',{name:'Experimental Maintenance chat'}).uncheck();
 await page.keyboard.press('Escape');
 if(issues.length)throw Error('Browser errors: '+issues.join('; '));
-console.log('Passed: desktop/mobile, Markdown/HTML/code rendering and sanitization, archive search/read-only/reopen, request send/rejection/acknowledgement, approvals terminal, Escape close, opt-in settings persistence.');
+console.log('Passed: desktop/mobile, Markdown/HTML/code rendering and sanitization, archive search/read-only/reopen, request send/rejection/acknowledgement, approvals terminal, Escape close, opt-in settings persistence, fresh issue conversations, retained archive and busy guard.');
 await browser.close();

@@ -1887,10 +1887,11 @@ export async function startServer(cfg: Config) {
         if (!floor) { reply('Take the elevator to a project floor first'); break; }
         const deskId = msg.t === 'maintenance.chat.send' ? MAINTENANCE_DESK : str(msg.deskId, 32);
         // Nobody there yet: whoever asks first hires it, on their own sign-ins.
-        const hires = !floor.workers.deskOccupied(deskId);
+        const chat = msg.t === 'maintenance.chat.send' ? { newConversation: msg.newConversation === true, thread: str(msg.thread, 64) || undefined } : undefined;
+        const hires = chat?.newConversation || !floor.workers.deskOccupied(deskId);
         const send = () =>
           withSignIn(c, hires ? claudeFor(floor.workers.officeDefault.provider) : undefined, () => {
-            const r = floor.workers.station(deskId, who, str(msg.prompt, 20000), c.accountId);
+            const r = floor.workers.station(deskId, who, str(msg.prompt, 20000), c.accountId, chat);
             if (typeof r === 'string') reply(r);
             else {
               reply(undefined, r.info.id);
@@ -1906,9 +1907,11 @@ export async function startServer(cfg: Config) {
         if (at && at.floor !== floor) {
           if (stack.state.phase === 'shipping') reply('The stack is being shipped: wait for the office to restart');
           else {
-            const result = at.floor.workers.station(MAINTENANCE_DESK, who, str(msg.prompt, 20000), c.accountId);
-            if (typeof result === 'string') reply(result);
-            else reply(undefined, result.info.id);
+            withSignIn(c, chat?.newConversation ? claudeFor(at.floor.workers.officeDefault.provider) : undefined, () => {
+              const result = at.floor.workers.station(MAINTENANCE_DESK, who, str(msg.prompt, 20000), c.accountId, chat);
+              if (typeof result === 'string') reply(result);
+              else reply(undefined, result.info.id);
+            }, (why) => reply(why));
           }
           break;
         }
