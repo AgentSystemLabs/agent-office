@@ -321,6 +321,11 @@ export function buildMaintenanceCloset(
   const boardAt: Interactable = { kind: 'maintenanceIssues', x: M.minX + 0.2, z: 3.2, radius: 1.2 };
   board.userData.interact = boardAt;
   interactables.push(boardAt);
+  const boardLabel = textPlane('AGENT OFFICE · ISSUES', { bg: '#fffaf3', color: INK, size: 32, border: INK });
+  const labelWidth = boardLabel.geometry.parameters.width;
+  boardLabel.scale.setScalar(1.95 / labelWidth);
+  boardLabel.position.set(0, 0.62, 0.045);
+  board.add(boardLabel);
   group.add(board);
 
   // The rack in the north-west corner, facing the door.

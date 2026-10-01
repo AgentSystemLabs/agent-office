@@ -180,6 +180,16 @@ export class MaintenanceStackKeeper {
     }
   }
 
+  /** Read a commit that is still on this stack, never an arbitrary Git revision. */
+  async review(sha: string): Promise<{ diff: string; truncated: boolean }> {
+    if (!/^[a-f0-9]{7,40}$/.test(sha)) throw new Error('Bad commit');
+    await this.refresh();
+    if (!this.dir || !this.state.changes.some((c) => c.sha === sha)) throw new Error('That change is no longer on the stack');
+    const diff = await run('git', ['show', '--format=fuller', '--stat', '--patch', '--no-ext-diff', '--no-textconv', sha, '--'], this.tree);
+    const limit = 160_000;
+    return { diff: diff.slice(0, limit), truncated: diff.length > limit };
+  }
+
   /** Starts shipping the stack. Returns why it can't, if it can't. */
   async ship(by: string): Promise<string | undefined> {
     if (this.current.phase === 'shipping') return 'The stack is already being shipped';

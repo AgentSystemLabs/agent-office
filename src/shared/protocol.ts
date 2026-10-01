@@ -595,6 +595,11 @@ export interface GhState<T> {
   loading: boolean;
 }
 
+/** Agent Office's own repository, independent of the project floor. */
+export interface MaintenanceIssues extends GhState<GhIssue> {
+  repo?: string;
+}
+
 export type GhMergeMethod = 'squash' | 'merge' | 'rebase';
 
 /** Why an issue was closed, as GitHub records it. */
@@ -1186,6 +1191,7 @@ export type ClientMsg =
   | { t: 'approvals.set'; easy: boolean }
   /** Asks for the stack as it is now; answered with a `maintenance.stack`. */
   | { t: 'maintenance.stack' }
+  | { t: 'maintenance.issues' }
   /** Push a worktree worker's branch and open a pull request for it, drafted from its task. */
   | { t: 'worker.pr'; workerId: string }
   | { t: 'term.input'; workerId: string; data: string }
@@ -1368,6 +1374,7 @@ export type ServerMsg =
       machine: MachineState;
       /** The Maintenance agent's stack of changes. */
       maintenance: MaintenanceStack;
+      maintenanceIssues: MaintenanceIssues;
       /** The easy approvals lever. */
       approvals: ApprovalsState;
       /** Outside the windows: the same on every floor. */
@@ -1405,6 +1412,7 @@ export type ServerMsg =
   | { t: 'worker.worktree'; workerId: string; state: WorktreeState }
   /** The Maintenance agent's stack of changes moved (a commit, a shipment, a step of one). */
   | { t: 'maintenance.stack'; state: MaintenanceStack }
+  | { t: 'maintenance.issues'; state: MaintenanceIssues }
   | { t: 'approvals'; state: ApprovalsState }
   /** The laptop's answer to your `maintenance.ask`: what the model said, or why it couldn't, and which model it was. */
   | { t: 'maintenance.answer'; id: string; model: string; answer?: string; error?: string }

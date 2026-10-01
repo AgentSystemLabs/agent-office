@@ -1,8 +1,9 @@
-import type { ClientMsg, ServerMsg } from '../../shared/protocol';
+import type { ClientMsg, ServerMsg, WorkerInfo } from '../../shared/protocol';
 import { MAINTENANCE_MODEL } from '../../shared/layout';
 import { h, openModal } from './dom';
 import { markdown } from './markdown';
 import { store } from '../state';
+import { maintenanceJson, openMaintenanceBoard } from './maintenance-board';
 
 // The maintenance closet's laptop: ask a small model a question about Agent Office itself. It reads
 // the office's source and docs and answers; building the thing instead is the Maintenance agent's job.
@@ -69,16 +70,23 @@ export function openLaptop(send: (msg: ClientMsg) => void) {
  * The Maintenance agent's stack: what he's committed since the office last restarted, and the big button
  * that commits what's left, checks it all, pushes, rebuilds and restarts the office, once.
  */
-export function openStack(send: (msg: ClientMsg) => void) {
+export interface MaintenanceActions {
+  correct(context?: string): void;
+  watch(worker: WorkerInfo, floor: string): void;
+}
+
+export function openStack(send: (msg: ClientMsg) => void, actions?: MaintenanceActions) {
   const list = h('ol.stack-list');
   const status = h('div.stack-status', { 'aria-live': 'polite' });
   const big = h('button.btn.primary.stack-ship', { type: 'button' }, '🚀 Commit, push & rebuild');
   const note = h('p.stack-note', {}, 'Runs the typecheck and tests, pushes to the office’s repository, rebuilds and restarts the office once for everyone. Workers keep running through the restart.');
+  const agentStatus = h('p.setting-note', {}, 'Looking for Maintenance…');
+  const controls = h('div.maintenance-controls');
   const el = h(
     'div.modal.stack',
     { role: 'dialog', 'aria-label': 'Maintenance change stack' },
-    h('header', {}, h('h2', {}, '📚 Change stack')),
-    h('div.body', {}, h('p.laptop-note', {}, 'What the Maintenance agent has built since the office last restarted. Nothing is rebuilt until you press the button.'), list, status, big, note),
+    h('header', {}, h('h2', {}, '🛠️ Maintenance · Agent Office')),
+    h('div.body', {}, h('p.laptop-note', {}, 'Review what Maintenance has built, read the diffs, and send a correction before shipping. Nothing is rebuilt until you press the button.'), agentStatus, controls, list, status, big, note),
   );
   const modal = openModal(el, { onClose: () => void unsub() });
 
@@ -88,7 +96,8 @@ export function openStack(send: (msg: ClientMsg) => void) {
     const items: HTMLElement[] = [];
     if (s.dirty) items.push(h('li.stack-wip', {}, h('span', {}, '✏️ In the middle of a change'), h('small', {}, `${s.dirty} file${s.dirty === 1 ? '' : 's'} edited, not committed yet`)));
     // Newest on top, like a stack.
-    for (const c of [...s.changes].reverse()) items.push(h('li', {}, h('code', {}, c.sha), ' ', c.subject));
+    for (const c of [...s.changes].reverse()) items.push(h('li', {},
+      h('button.stack-change', { type: 'button', onclick: () => openStackChange(c, actions) }, h('code', {}, c.sha), ' ', c.subject, h('small', {}, 'Read change & diff →'))));
     list.replaceChildren(...(items.length ? items : [h('li.stack-empty', {}, 'Nothing waiting. Ask the Maintenance agent for something at his counter.')]));
     status.replaceChildren();
     if (s.unavailable) status.append(h('p.setting-note.bad', { role: 'alert' }, s.unavailable));
@@ -102,5 +111,27 @@ export function openStack(send: (msg: ClientMsg) => void) {
   big.addEventListener('click', () => send({ t: 'maintenance.ship' }));
   render();
   send({ t: 'maintenance.stack' });
+  if (actions) {
+    controls.append(
+      h('button.btn.primary', { type: 'button', onclick: () => { modal.close(); actions.correct(); } }, '✍️ Request / correct'),
+      h('button.btn', { type: 'button', onclick: () => openMaintenanceBoard(send, actions.correct) }, '📌 Agent Office issues'));
+    void maintenanceJson<{ worker?: WorkerInfo; floor?: string; floorName?: string }>('/api/maintenance/agent').then((agent) => {
+      agentStatus.textContent = agent.worker ? `Maintenance: ${agent.worker.status.replace('_', ' ')} · ${agent.floorName}` : 'Maintenance is ready for your first request.';
+      if (agent.worker && agent.floor) controls.append(h('button.btn', { type: 'button', onclick: () => { modal.close(); actions.watch(agent.worker!, agent.floor!); } }, '💻 Watch / answer in terminal'));
+    }).catch((error) => { agentStatus.textContent = String(error); });
+  } else agentStatus.remove();
+  return modal;
+}
+
+/** Inspect a stacked commit without any commit/discard/deploy actions. */
+function openStackChange(change: { sha: string; subject: string }, actions?: MaintenanceActions) {
+  const body = h('div.body', {}, h('p', {}, 'Loading change…'));
+  const modal = openModal(h('div.modal.maintenance-change', { role: 'dialog', 'aria-label': 'Maintenance change details' },
+    h('header', {}, h('h2', {}, change.subject)), body));
+  void maintenanceJson<{ diff: string; truncated: boolean }>(`/api/maintenance/change?sha=${encodeURIComponent(change.sha)}`).then((result) => {
+    body.replaceChildren(h('pre.maintenance-diff', {}, result.diff),
+      ...(result.truncated ? [h('p.setting-note', {}, 'Large diff: showing the first 160,000 characters. Ask Maintenance to explain the rest.')] : []),
+      ...(actions ? [h('button.btn.primary', { type: 'button', onclick: () => { modal.close(); actions.correct(`Please correct stacked change ${change.sha}: ${change.subject}`); } }, '✍️ Correct this change')] : []));
+  }).catch((error) => body.replaceChildren(h('p.setting-note.bad', { role: 'alert' }, String(error))));
   return modal;
 }

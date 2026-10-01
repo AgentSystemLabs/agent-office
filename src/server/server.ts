@@ -46,6 +46,7 @@ import { DROP_MAX_BYTES } from '../shared/drops.js';
 import { MAX_FLOORS } from '../shared/floors.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 import { MAX_QUESTION, askLaptop, laptopModel, maintenanceTree } from './maintenance.js';
+import { MaintenanceBoard } from './maintenance-board.js';
 import { MaintenanceStackKeeper, stackTree } from './maintenance-stack.js';
 import { Approvals } from './approvals.js';
 import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
@@ -814,6 +815,8 @@ export async function startServer(cfg: Config) {
     },
   });
   stack.start(() => clients.size > 0);
+  const maintenanceBoard = new MaintenanceBoard((state) => broadcast({ t: 'maintenance.issues', state }));
+  maintenanceBoard.start();
 
   // --- HTTP ------------------------------------------------------------------------------------
   const serveFile = (res: http.ServerResponse, file: string, cache: boolean) => {
@@ -1092,6 +1095,17 @@ export async function startServer(cfg: Config) {
         }
         return send(res, 404, { error: 'Not found' });
       }
+      if (p.startsWith('/api/maintenance/') && req.method === 'GET') {
+        try {
+          if (p === '/api/maintenance/issue') return send(res, 200, await maintenanceBoard.issue(Number(url.searchParams.get('number')), session.account ? signins.githubLogin(session.account.id) : undefined));
+          if (p === '/api/maintenance/change') return send(res, 200, await stack.review(url.searchParams.get('sha') ?? ''));
+          if (p === '/api/maintenance/agent') {
+            const agent = maintenanceAgent();
+            return send(res, 200, agent ? { worker: agent.info, floor: agent.floor.def.id, floorName: agent.floor.def.name } : {});
+          }
+        } catch (err) { return send(res, 400, { error: (err as Error).message }); }
+        return send(res, 404, { error: 'Not found' });
+      }
       if (p === '/api/search' && req.method === 'GET') return send(res, 200, search(url.searchParams.get('q') ?? '', floor));
       if (p.startsWith('/api/gh/') && req.method === 'GET') {
         // What the issue and PR windows show beyond the board cards (see github.ts).
@@ -1266,6 +1280,7 @@ export async function startServer(cfg: Config) {
       notify: webhook.state(),
       machine: machine.state(),
       maintenance: stack.state,
+      maintenanceIssues: maintenanceBoard.state,
       approvals: approvals.state(),
       sky: sky.state,
       theme: themes.state(),
@@ -1863,7 +1878,8 @@ export async function startServer(cfg: Config) {
         // One Maintenance agent for the whole office, in his own worktree.
         const at = maintenanceAgent();
         if (at && at.floor !== floor) {
-          warn(c, `The Maintenance agent is already at work on the ${at.floor.def.name} floor: ask him there, so his changes stay in one stack`);
+          if (stack.state.phase === 'shipping') warn(c, 'The stack is being shipped: wait for the office to restart');
+          else warn(c, at.floor.workers.prompt(at.info.id, str(msg.prompt, 20000), who));
           break;
         }
         if (stack.state.phase === 'shipping') {
@@ -1882,6 +1898,9 @@ export async function startServer(cfg: Config) {
           approvals.set(msg.easy, who);
           toastAll(msg.easy ? `${who} pulled the lever: workers hired or resumed from now on start in their agent's automatic mode` : `${who} put the lever back: workers hired or resumed from now on ask as usual`);
         }
+        break;
+      case 'maintenance.issues':
+        void maintenanceBoard.refresh().then(() => sendTo(c, { t: 'maintenance.issues', state: maintenanceBoard.state }));
         break;
       case 'maintenance.stack':
         void stack.refresh().then(() => sendTo(c, { t: 'maintenance.stack', state: stack.state }));
@@ -2605,6 +2624,7 @@ export async function startServer(cfg: Config) {
     webhook.stop();
     machine.stop();
     stack.stop();
+    maintenanceBoard.stop();
     sky.stop();
     themes.stop();
     for (const f of floors.values()) f.shutdown(keep);

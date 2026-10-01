@@ -226,3 +226,22 @@ test('a build that made no dist is not swapped in', () => {
   assert.throws(() => swapBuild(from, o.src), /didn't produce dist/);
   assert.equal(readFileSync(path.join(o.src, 'dist', 'public', 'built.txt'), 'utf8'), 'old');
 });
+
+test('review shows the stacked change and its reason, and refuses revisions outside the stack', async () => {
+  const o = office();
+  const { k } = keeper(o);
+  assert.equal(await k.prepare(), undefined);
+  writeFileSync(path.join(k.dir!, 'app.txt'), 'one\nreviewed change\n');
+  git(k.dir!, 'add', 'app.txt');
+  git(k.dir!, 'commit', '-m', 'Fix the closet board', '-m', 'Use the office repository rather than the project.');
+  await k.refresh();
+  const sha = k.state.changes[0].sha;
+  const result = await k.review(sha);
+  assert.match(result.diff, /Use the office repository rather than the project/);
+  assert.match(result.diff, /\+reviewed change/);
+  assert.equal(result.truncated, false);
+  await assert.rejects(k.review('HEAD'), /Bad commit/);
+  await assert.rejects(k.review('--help'), /Bad commit/);
+  await assert.rejects(k.review(git(o.src, 'rev-parse', '--short', 'HEAD')), /no longer on the stack/);
+  assert.equal(git(o.src, 'show', 'HEAD:app.txt'), 'one', 'reading a review leaves the running source untouched');
+});

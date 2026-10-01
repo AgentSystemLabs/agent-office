@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, POLE, POLES, SLAB, STATION_AGENT, STOREY, WALL_HEIGHT, WALL_T, WING, WING_DESKS, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, seatPlace, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, MAINTENANCE_DESK, POLE, POLES, SLAB, STATION_AGENT, STOREY, WALL_HEIGHT, WALL_T, WING, WING_DESKS, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, seatPlace, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { OFFICE_PLAN, seatOn, type MapPlan } from '../shared/maps';
 import { canLabel } from '../shared/floorplan';
 import { floorPalette } from '../shared/floors';
@@ -61,6 +61,7 @@ import { openRepoPulls, workerRepos } from './ui/repos';
 import { openPrompt, confirmDialog, sendHomeDialog, lostWorktreeDialog, routeWorktreeMessage, worktreePref } from './ui/prompt';
 import { issuePrompt, openBoard } from './ui/boards';
 import { openIssue, openPull, routePullMessage } from './ui/pull';
+import { openMaintenanceBoard, openMaintenanceIssue } from './ui/maintenance-board';
 import { onMaintenanceAnswer, openLaptop, openStack } from './ui/maintenance';
 import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
@@ -186,7 +187,7 @@ const STATION_INFO: Record<StationKind, { icon: string; offer: string; does: str
   issues: { icon: '📌', offer: 'Ask me about issues', does: 'I file, find, triage, label and close them', example: 'File an issue: the dog walks straight through the jukebox' },
   pulls: { icon: '🔀', offer: 'Ask me about PRs', does: 'I sum up, review, comment on and merge them', example: 'Review the newest PR and tell me if it’s ready to merge' },
   queue: { icon: '📋', offer: 'Ask me to queue work', does: 'I turn it into tasks for fresh workers', example: 'Queue every open bug issue, most important first' },
-  maintenance: { icon: '🛠️', offer: 'Ask me to change the office', does: 'I work on Agent Office itself and send you a pull request', example: 'Add a screen where workers can send artifacts that show their progress' },
+  maintenance: { icon: '🛠️', offer: 'Ask me to change the office', does: 'I work on Agent Office itself and stack changes for you to review', example: 'Add a screen where workers can send artifacts that show their progress' },
 };
 /** A board agent waiting by its board before anyone has asked it anything (see buildKiosk), and where. */
 interface IdleAgent {
@@ -241,7 +242,7 @@ const renderIssuesBoard = () => {
 };
 mountBoard(office.boardMeshes.issues, issuesTex.texture, renderIssuesBoard, ['issues']);
 const maintenanceIssuesTex = new BoardTexture('issues', true);
-mountBoard(office.closet.issueBoard, maintenanceIssuesTex.texture, () => maintenanceIssuesTex.render(store.issues), ['issues']);
+mountBoard(office.closet.issueBoard, maintenanceIssuesTex.texture, () => maintenanceIssuesTex.render(store.maintenanceIssues), ['maintenanceIssues']);
 let carriedOff = '';
 store.on('peers', () => {
   const k = [...offBoard()].join(',');
@@ -2426,9 +2427,36 @@ function killWorker(id: string) {
 }
 
 /** E at a board agent: type it a request. It's hired with it when nobody is there yet. */
+function maintenanceActions() {
+  return {
+    correct: (context?: string) => openPrompt({
+      title: '🛠️ Request / correct Maintenance',
+      subtitle: 'Works on Agent Office itself. Follow-ups go to the same Maintenance session; while it is busy they wait in its input box. To answer a permission prompt, use its terminal.',
+      initial: context ? `${context}
+
+` : '',
+      placeholder: 'Tell Maintenance what to change, explain, or correct…',
+      submitLabel: 'Send to Maintenance',
+      onSubmit: (text) => net.send({ t: 'station.prompt', deskId: MAINTENANCE_DESK, prompt: text }),
+    }),
+    watch: (worker: WorkerInfo, floor: string) => {
+      if (floor === store.floor) return openWorkerTerminal(worker.id);
+      toast('Taking you to Maintenance’s floor to open its terminal');
+      const unsub = store.on('floor', () => {
+        if (store.floor !== floor) return;
+        unsub();
+        setTimeout(() => openWorkerTerminal(worker.id), 250);
+      });
+      setTimeout(unsub, 15_000);
+      switchFloor(floor);
+    },
+  };
+}
+
 function askStation(deskId: string) {
   const kind = plan().byId.get(deskId)?.station;
   if (!kind) return;
+  if (kind === 'maintenance') return void openStack((msg) => net.send(msg), maintenanceActions());
   const w = store.workerAtDesk(deskId);
   const name = STATION_AGENT[kind].name;
   const info = STATION_INFO[kind];
@@ -2438,7 +2466,7 @@ function askStation(deskId: string) {
     return openWorkerTerminal(w.id);
   }
   // Nobody there yet: asking hires the agent (the Maintenance agent isn't one of the office's workers, so the limit isn't his).
-  if (!w && kind !== 'maintenance' && officeIsFull()) return;
+  if (!w && officeIsFull()) return;
   const subtitle = !w
     ? `${info.does}, in a terminal of my own: press O at the kiosk to watch.`
     : isAsleep(w.status)
@@ -2922,8 +2950,8 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   if (!target) return;
   if (target.kind === 'maintenanceIssues') {
     if (key === 'E') {
-      if (note) openIssue(note, net, boardActions());
-      else openBoard('issues', net, boardActions());
+      if (note) openMaintenanceIssue(note, maintenanceActions().correct);
+      else openMaintenanceBoard((msg) => net.send(msg), maintenanceActions().correct);
     }
     return;
   }
@@ -2952,7 +2980,7 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
     return;
   }
   if (target.kind === 'ship') {
-    if (key === 'E') openStack((m) => net.send(m));
+    if (key === 'E') openStack((m) => net.send(m), maintenanceActions());
     return;
   }
   if (target.kind === 'station' && target.deskId) {
@@ -3698,7 +3726,7 @@ function hintFor(it: Interactable): Hint {
     case 'station':
       return it.deskId ? stationHint(it.deskId) : { k: '', parts: [] };
     case 'maintenanceIssues':
-      return aimedNote ? { k: String(aimedNote.number), parts: [title(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', 'Read it')] } : board('📌 Maintenance issues · Kanban');
+      return aimedNote ? { k: String(aimedNote.number), parts: [title(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', 'Read it')] } : board('🛠️ Agent Office issues · Kanban');
     case 'issues':
       if (aimedNote) return { k: String(aimedNote.number), parts: [title(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', 'Take it'), key('O', 'Read it')] };
       return issuesTex.hasNotes ? { k: 'notes', parts: [title('📌 Issues board'), key('E', 'Open'), aside('or point at a note to take it')] } : board('📌 Issues board');
@@ -3975,7 +4003,7 @@ function stationHint(deskId: string): Hint {
       parts: [
         h('span.title', {}, `${info.icon} ${STATION_AGENT[kind].name}`),
         aside(info.offer.replace(/^Ask me /, '')),
-        full ? h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`) : key('E', 'Prompt'),
+        full ? h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`) : key('E', kind === 'maintenance' ? 'Review / request' : 'Prompt'),
       ],
     };
   }
@@ -3988,7 +4016,7 @@ function stationHint(deskId: string): Hint {
       h('span.title', {}, `${info.icon} ${w.name} · ${STATUS_LABEL[w.status]}`),
       doing ? aside(doing) : '',
       spent ? h('span.cost', { title: usageTitle(w.usage!, provider) }, spent) : '',
-      key('E', isAsleep(w.status) ? 'Wake with a prompt' : 'Prompt'),
+      key('E', kind === 'maintenance' ? 'Review / correct' : isAsleep(w.status) ? 'Wake with a prompt' : 'Prompt'),
       key('O', 'Terminal'),
       key('X', 'Send home'),
     ],
@@ -4412,7 +4440,7 @@ function throneTarget(): Interactable | null {
 function noteUnder(aim: { it: Interactable; hit: THREE.Intersection } | null): GhIssue | null {
   if (aim?.it.kind === 'maintenanceIssues' && aim.hit.object === office.closet.issueBoard && aim.hit.uv) {
     const n = maintenanceIssuesTex.noteAt(aim.hit.uv);
-    return store.issues.items.find((i) => i.number === n) ?? null;
+    return store.maintenanceIssues.items.find((i) => i.number === n) ?? null;
   }
   if (aim?.it.kind !== 'issues' || aim.hit.object !== world.boardMeshes.issues || !aim.hit.uv) return null;
   const n = issuesTex.noteAt(aim.hit.uv);
