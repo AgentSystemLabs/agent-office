@@ -19,16 +19,16 @@ worker**. The worker decides what to do about it. It never writes to the branch,
 and never sits down.
 
 You can open its terminal, read its thinking as it happens, and type into it — the same as any
-other worker. It stands at the desk while the work gets finished, and it leaves when the visit is
-over: you press **X**, or the worker's tests start passing again, or its pull request opens.
+other worker. It stands at the desk, reads what the worker is doing, tells the worker what it found,
+and leaves.
 
 ## What this is not
 
 Not mob programming, and not a second pair of hands. The distinction is what keeps it safe:
 
 - **A pair** co-drives one terminal. Two agents, one task, shared authorship. The work is divided.
-- **A helper** is a visitor with one job: say something useful, then leave when it's no longer
-  needed. The work isn't divided and the authorship never moves.
+- **A helper** is a visitor with one job: say something useful, then leave. The work isn't divided
+  and the authorship never moves.
 
 The helper has no seat, so it has no desk of its own, no queue task, no branch, no PR. That is what
 makes "it can't take the work over" a property of the design rather than a rule someone has to
@@ -136,26 +136,28 @@ This is the line, stated exactly:
 
 > The helper produces a question, a finding, or a verified fact. It never produces a decision.
 
-### Slice 5 — when it goes home (M)
+### Slice 5 — sending it home (S)
 
-A helper is not a one-shot delivery. It stands at the desk while the work is finished, and it leaves
-when the visit is over — by any of four ways, whichever comes first:
+A helper is a visit, not a colleague. It walks over, reads, reports, and **leaves as soon as it has
+reported** — on its own initiative, not waiting to be dismissed.
 
-| It goes home when | |
-| --- | --- |
-| You press **X** | always available, at any time |
-| The worker gets itself unstuck | its status returns to `working` and its `failStreak` resets — the same signal that summoned the helper, so the cure dismisses the cure |
-| The host opens its PR | `openPr()` resolves; the helper's job was to get the worker to this point |
-| You send it home from the Workers panel | same as `X`, for when you've lost track of it |
+That single rule is doing real work. It means:
 
-The middle two are worth spelling out, because they are the same signal used twice. The office
-already knows a worker is unstuck — `failStreak` resets on a passing test run
-(`src/server/workers.ts:1528`). Reusing it means the helper's departure needs no new concept, and it
-means a helper that failed to help quietly leaves rather than standing there for the rest of the
-session.
+- **The cost is bounded by the finding, not the task.** A helper that exits after reporting is a
+  short visit. One that stayed until the host's PR opened would be a second live agent for the whole
+  task, on a token that `--budget` may not even be counting. See
+  [Cost](#cost-and-the-one-guardrail-id-insist-on).
+- **There is nothing to forget.** No helper can be left standing at a desk holding an open terminal,
+  because the walk out is part of finishing the job, not a separate chore.
+- **The rule is one condition**, not a policy: reported → gone. Nothing to tune, nothing to get wrong.
 
-This also means the helper is **live for a long time**, which is the one real cost of the design. See
-[Cost](#cost-and-the-guardrail-id-insist-on).
+**X still works at any moment**, before it has reported, for when you sent the wrong thing or it has
+gone off the rails. That's the escape hatch, and it needs no design of its own — `X` already works
+on any worker, and a helper is one.
+
+If it turns out in testing that a helper's finding sometimes arrives too early to be useful — the
+worker wasn't ready to act on it — the fix is a *better prompt*, not a longer visit. That's the
+cheaper mistake to make, and it's the reason to start here.
 
 The send-home path already exists and already carries a character out of a seat, so the walk out is
 free. The PR stays the host's, the branch stays the host's, and the host's own send-home flow is
@@ -199,27 +201,30 @@ already do themselves.
 
 **A helper on a non-Claude provider is uncapped.** Per [agents.md](agents.md) and
 `docs/features.md:47`, `--budget` and `--budget-pause` track **Claude Code only**. OpenCode, Codex,
-Grok, Muse and DSH spend is metered in the panel but does not stop anything. Since a helper now
-lives for a whole task rather than one report, that is a wider hole than it looks, and it's worth
-knowing that "any provider" includes the uncapped ones.
+Grok, Muse and DSH spend is metered in the panel but does not stop anything. Worth knowing before you
+choose: "any provider" includes the five uncapped ones, and leaving on report is what keeps each
+visit short enough to be comfortable.
 
-## Cost, and the guardrail I'd insist on
+## Cost, and the one guardrail I'd insist on
 
-A helper is a second live agent on your token, for as long as its host is working. Metered against
-`--budget` on Claude, and against nothing at all on the other five providers.
+A helper is a second live agent on your token, metered against `--budget`. Per
+`docs/features.md:47` and [agents.md](agents.md) that budget tracks **Claude Code only** — it cannot
+cap OpenCode, Codex, Grok, Muse or DSH. So a helper on any of those five is uncapped, and a helper on
+Claude is capped only at the day.
 
-The guardrail that matters is not the budget — it's that **a helper should not outlive its
-usefulness**, and the office already knows when that is. `failStreak` resets when the host's tests
-pass (`workers.ts:1528`), and that is the moment the helper has done its job. Leaving on that signal
-means the common case costs one short visit rather than a whole task.
+Because a helper **leaves as soon as it has reported**, the exposure is one short visit rather than
+the host's whole task, and that is the main reason the rule is worth holding to. It's the difference
+between a bounded cost and an open-ended one.
 
-Two more, both cheap:
+The guardrail I'd still insist on:
 
 - **One helper per worker, ever at a time.** Not a technical limit — a signal. If a worker has had
   two helpers and is still stuck, the problem is the task, and the honest response is `X` and
-  re-scope.
-- **It counts against `--max-workers`.** Still an open question below, but a helper that doesn't
-  count is a way to double the office's real ceiling.
+  re-scope. A third helper is never the answer.
+
+Two notes on the ceiling, both still open below: whether a helper counts against `--max-workers` (a
+helper that doesn't count is a way to double the office's real ceiling), and whether one worker can
+have helpers at two desks at once (deferred — one is enough to test the idea).
 
 ## Verification
 
@@ -246,15 +251,20 @@ New tests, matching the existing ones:
 
 ## Open questions
 
-Answered and folded in above: **when it goes home** (four ways, `X` at any time), **the worker is
-told** (toast, an introduction in the helper's first prompt, a chip on the task card), and **which
-agent** (any provider, any model, office default preselected).
+Answered and folded in above: **the worker is told** (toast, an introduction in the helper's first
+prompt, a chip on the task card), and **which agent** (any provider, any model, office default
+preselected).
+
+**When it goes home** is settled by the plan rather than by discussion: it leaves as soon as it has
+reported. That was the original design and it is the better one — bounded cost, nothing to forget,
+one condition instead of a policy. `X` remains available throughout as the escape hatch. See
+[Slice 5](#slice-5--sending-it-home-s).
 
 Still open:
 
 1. **What is the helper for, when you press the key?** One role (diagnose only) or a small picker
    (diagnose / verify / second opinion)? This is the first prompt in slice 1, so it wants an answer
-   before that. It is now the only thing standing between the plan and a first commit.
+   before that. It is the only thing standing between this plan and a first commit.
 2. **Does the helper count against `--max-workers`?** It's a live agent, so arithmetically yes. But
    the ceiling is a safety valve, and a helper that refuses to spawn because the floor is full is
    useless exactly when you need it.
@@ -275,7 +285,7 @@ Still open:
 | 2 | The standing station (`helper:desk-N`) | S | |
 | 3 | The walk, on the dog's path model | S | |
 | 4 | Delivering the finding to the worker | S | |
-| 5 | When it goes home (four ways) | M | |
+| 5 | Sending it home — on reporting | S | |
 | 6 | The worker is told | S | |
 | | 3D, seat identity, walk, prompt plumbing | | questions 2–4 |
 
