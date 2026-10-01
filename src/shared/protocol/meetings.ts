@@ -95,6 +95,8 @@ export interface Meeting {
   review?: { url?: string; error?: string; posting?: boolean };
   /** Review panel: every reviewer's findings, merged, once the meeting is done. */
   findings?: ReviewFinding[];
+  /** Review panel: the indexes in `findings` someone trimmed before posting the review. */
+  dropped?: number[];
   /** Review panel: wait for someone to trim the findings in the meeting room before posting them. */
   hold?: boolean;
   /** The start of the output file as it gets written, for the board in the room. */

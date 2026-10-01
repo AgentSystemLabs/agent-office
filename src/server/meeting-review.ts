@@ -72,7 +72,8 @@ export class ReviewPanel {
   post(m: Meeting | null, drop: number[], by: string): string | undefined {
     if (!m || m.pattern !== 'review' || m.status !== 'done' || !m.findings) return 'No review panel has findings waiting';
     if (m.review?.url || m.review?.posting) return 'The panel’s review is already on the pull request';
-    const gone = new Set(drop.filter((i) => Number.isInteger(i)));
+    const gone = new Set(drop.filter((i) => Number.isInteger(i) && i >= 0 && i < m.findings!.length));
+    m.dropped = [...gone].sort((a, b) => a - b);
     this.deps.toast(`🔍 ${by} is posting the panel's review on PR #${m.pr}${gone.size ? ` (${gone.size} finding${gone.size === 1 ? '' : 's'} trimmed)` : ''}`, 'info');
     this.publish(m, m.findings.filter((_, i) => !gone.has(i)));
     return undefined;
@@ -130,7 +131,9 @@ export class ReviewPanel {
   private finalFindings(m: Meeting): ReviewFinding[] {
     try {
       const raw: unknown = JSON.parse(readFileSync(path.join(this.deps.cwd(m), m.notes, FINDINGS), 'utf8'));
-      if (Array.isArray(raw)) return mergeFindings([raw.map((x) => normalize(x)).filter((f): f is ReviewFinding => f !== null)]);
+      // Kept as the array it was, or wrapped in {"findings": [...]} as reviewers may write theirs.
+      const list = Array.isArray(raw) ? raw : (raw as { findings?: unknown } | null)?.findings;
+      if (Array.isArray(list)) return mergeFindings([list.map((x) => normalize(x)).filter((f): f is ReviewFinding => f !== null)]);
     } catch {
       // no merged file, or the head of the table broke it
     }

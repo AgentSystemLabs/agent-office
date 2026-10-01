@@ -265,6 +265,21 @@ test('a reviewer that can\'t be asked to rewrite its unreadable findings is left
   assert.deepEqual(merged.map((x: ReviewFinding) => x.lenses), [['Correctness']]);
 });
 
+test('the head of the table may leave the merged findings wrapped in {"findings": [...]}', async (t) => {
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({ pattern: 'review', prompt: 'Review it', pr: 5 }), undefined);
+  f.take(0, JSON.stringify([{ file: 'a.ts', line: 3, comment: 'Off by one in the loop bound' }]));
+  f.take(1, JSON.stringify([{ file: 'b.ts', line: 8, comment: 'Unused import of fs' }]));
+  f.take(2, '[]');
+  const m = f.room.state().current!;
+  const merged = path.join(f.cwd(), m.notes, 'findings.json');
+  const kept = JSON.parse(readFileSync(merged, 'utf8')).filter((x: ReviewFinding) => x.file === 'a.ts');
+  writeFileSync(merged, JSON.stringify({ findings: kept }));
+  f.take(0, 'One real problem.');
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(f.reviews[0].findings.map((x) => x.file), ['a.ts']);
+});
+
 test('a held review panel waits for its findings to be trimmed, then posts the rest', async (t) => {
   const f = fixture(); t.after(() => f.close());
   assert.equal(f.start({ pattern: 'review', prompt: 'Review it', pr: 9, hold: true }), undefined);
@@ -283,6 +298,8 @@ test('a held review panel waits for its findings to be trimmed, then posts the r
   assert.deepEqual(f.reviews[0].findings.map((x) => x.file), ['a.ts']);
   m = f.room.state().current!;
   assert.ok(m.review?.url);
+  // The window shows which ones were left out.
+  assert.deepEqual(m.dropped, [1]);
   assert.match(f.room.post([], 'Ada') ?? '', /already/);
 });
 

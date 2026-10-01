@@ -115,7 +115,7 @@ function renderStatus(m: Meeting, body: HTMLElement, foot: HTMLElement, net: Net
     h('div.meeting-budget', { title: `${m.tokens.toLocaleString()} of ${m.budget.toLocaleString()} tokens` }, h('div.meeting-bar', {}, h('i', { style: `width:${(f * 100).toFixed(1)}%;background:${f > 0.9 ? 'var(--bad)' : f > 0.7 ? 'var(--warn)' : 'var(--good)'}` })), h('span', {}, `${meetingSpend(m)} of ${fmtTokens(m.budget)} tokens`)),
     seats,
     h('div.meeting-out', {}, h('div.meeting-out-head', {}, h('b', {}, '📄 '), h('code', {}, m.output), where, review), h('pre.meeting-preview', {}, m.preview?.trim() ? m.preview : running ? 'Nothing written yet.' : 'Nothing was written.')),
-    m.findings ? findingsList(m.findings, canPost ? drop : undefined) : null,
+    m.findings ? findingsList(m.findings, canPost ? drop : undefined, m.review?.url ? m.dropped : undefined) : null,
     store.meeting.past.length
       ? h('details.meeting-past', {}, h('summary', {}, `Earlier meetings (${store.meeting.past.length})`), h('ul', {}, ...store.meeting.past.map((r) => h('li', { title: `Called by ${r.calledBy}` }, h('b', {}, r.title), h('div.muted', {}, r.summary)))))
       : null,
@@ -136,11 +136,11 @@ function renderStatus(m: Meeting, body: HTMLElement, foot: HTMLElement, net: Net
 
 /**
  * A review panel's merged findings, tagged by lens. With `drop`, each has a tick box: unticking one
- * leaves it out of the review that gets posted.
+ * leaves it out of the review that gets posted. Once it's posted, `dropped` are the ones left out.
  */
-function findingsList(findings: ReviewFinding[], drop?: Set<number>): HTMLElement {
+function findingsList(findings: ReviewFinding[], drop?: Set<number>, dropped?: number[]): HTMLElement {
   const count = h('span.muted');
-  const recount = () => (count.textContent = drop ? `${findings.length - drop.size} of ${findings.length} to post` : `${findings.length}`);
+  const recount = () => (count.textContent = drop ? `${findings.length - drop.size} of ${findings.length} to post` : dropped?.length ? `${findings.length - dropped.length} of ${findings.length} posted` : `${findings.length}`);
   recount();
   return h(
     'div.meeting-out.meeting-findings',
@@ -161,7 +161,7 @@ function findingsList(findings: ReviewFinding[], drop?: Set<number>): HTMLElemen
                 recount();
               });
             }
-            const li = h('li', { class: drop?.has(i) ? 'off' : '' }, h('label', {}, box, h('span', { title: f.severity }, SEVERITY_ICON[f.severity]), h('b', {}, lensTag(f).replace(/\*\*/g, '')), h('code', {}, findingWhere(f))), h('div', {}, f.comment));
+            const li = h('li', { class: drop?.has(i) || (!drop && dropped?.includes(i)) ? 'off' : '' }, h('label', {}, box, h('span', { title: f.severity }, SEVERITY_ICON[f.severity]), h('b', {}, lensTag(f).replace(/\*\*/g, '')), h('code', {}, findingWhere(f))), h('div', {}, f.comment));
             return li;
           }),
         )
