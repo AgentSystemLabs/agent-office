@@ -1888,16 +1888,28 @@ export async function startServer(cfg: Config) {
         const deskId = msg.t === 'maintenance.chat.send' ? MAINTENANCE_DESK : str(msg.deskId, 32);
         // Nobody there yet: whoever asks first hires it, on their own sign-ins.
         const chat = msg.t === 'maintenance.chat.send' ? { newConversation: msg.newConversation === true, thread: str(msg.thread, 64) || undefined } : undefined;
-        const hires = chat?.newConversation || !floor.workers.deskOccupied(deskId);
-        const send = () =>
-          withSignIn(c, hires ? claudeFor(floor.workers.officeDefault.provider) : undefined, () => {
-            const r = floor.workers.station(deskId, who, str(msg.prompt, 20000), c.accountId, chat);
+
+        const maintenanceIssue = msg.t === 'station.prompt' && deskId === MAINTENANCE_DESK ? issueNumber(msg.maintenanceIssue) : undefined;
+        const send = async () => {
+          let prompt = str(msg.prompt, 20000);
+          try {
+            if (maintenanceIssue) prompt = await maintenanceBoard.request(maintenanceIssue);
+          } catch (err) { reply((err as Error).message); return; }
+          if (deskId === MAINTENANCE_DESK && stack.state.phase === 'shipping') { reply('The stack is being shipped: wait for the office to restart'); return; }
+          const target = deskId === MAINTENANCE_DESK ? maintenanceAgent()?.floor ?? floor : floor;
+          const hires = chat?.newConversation || !target.workers.deskOccupied(deskId);
+          withSignIn(c, hires ? claudeFor(target.workers.officeDefault.provider) : undefined, () => {
+            const r = target.workers.station(deskId, who, prompt, c.accountId, chat);
             if (typeof r === 'string') reply(r);
             else {
               reply(undefined, r.info.id);
+              if (maintenanceIssue) withGitHub(c, (as) => void maintenanceBoard.claim(maintenanceIssue, as).then((error) => {
+                if (error) warn(c, `Maintenance started, but assigning the issue failed: ${error}`);
+              }).catch((err) => warn(c, (err as Error).message)));
               if (r.hired) toastFloor(floor, `${who} asked the ${r.info.name} something`);
             }
           }, (why) => reply(why));
+        };
         if (deskId !== MAINTENANCE_DESK) {
           send();
           break;
@@ -1907,11 +1919,7 @@ export async function startServer(cfg: Config) {
         if (at && at.floor !== floor) {
           if (stack.state.phase === 'shipping') reply('The stack is being shipped: wait for the office to restart');
           else {
-            withSignIn(c, chat?.newConversation ? claudeFor(at.floor.workers.officeDefault.provider) : undefined, () => {
-              const result = at.floor.workers.station(MAINTENANCE_DESK, who, str(msg.prompt, 20000), c.accountId, chat);
-              if (typeof result === 'string') reply(result);
-              else reply(undefined, result.info.id);
-            }, (why) => reply(why));
+            void send();
           }
           break;
         }

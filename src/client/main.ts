@@ -2963,7 +2963,7 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   if (!target) return;
   if (target.kind === 'maintenanceIssues') {
     if (key === 'E') {
-      if (note) openMaintenanceIssue(note, maintenanceActions().correct);
+      if (note) openMaintenanceIssue(note, maintenanceActions().correct, (msg) => net.send(msg));
       else openMaintenanceBoard((msg) => net.send(msg), maintenanceActions().correct);
     }
     return;

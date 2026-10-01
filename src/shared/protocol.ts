@@ -1213,7 +1213,7 @@ export type ClientMsg =
    * A prompt for the agent standing by a board (`deskId` is its kiosk, see STATIONS in layout). It's
    * typed into its session, which is woken up first if it's asleep, or hired there when nobody is.
    */
-  | { t: 'station.prompt'; deskId: string; prompt: string }
+  | { t: 'station.prompt'; deskId: string; prompt: string; maintenanceIssue?: number }
   | { t: 'maintenance.chat.send'; id: string; prompt: string; newConversation?: boolean; thread?: string }
   /** A question for the maintenance closet's laptop (a small model that knows the office's source); `id` comes back on the `maintenance.answer`. */
   | { t: 'maintenance.ask'; id: string; question: string }
