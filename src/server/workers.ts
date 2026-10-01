@@ -33,6 +33,7 @@ import { ScrollbackStore, searchTerminal, terminalTail } from './history.js';
 import { DSH_PROFILE_DEFAULT, DshSession, dshArgs, terminalSafe, writeDshPatch } from './dsh.js';
 import { DropStore } from './drops.js';
 import { maintenanceTree, officeSourceDir } from './maintenance.js';
+import { approvalArgs, easyApprovals } from './approvals.js';
 import { screenSnapshot } from './screen.js';
 import type { Capacity } from './machine.js';
 
@@ -1593,6 +1594,8 @@ export class WorkerManager {
       // A model/effort chosen for this worker overrides whatever --agent-args set office-wide.
       if (info.model) args.push('--model', info.model);
       if (info.effort) args.push('--effort', info.effort);
+      // The easy approvals lever (see approvals.ts): Claude Code's automatic permission mode.
+      args.push(...approvalArgs('claude', easyApprovals.on, args));
       // The queue agent only ever adds to the queue: without these it can't touch the checkout's files.
       if (station === 'queue') args.push('--disallowedTools', ...QUEUE_AGENT_DISALLOWED_TOOLS);
       if (resumeSessionId) args.push('--resume', resumeSessionId);
@@ -1605,6 +1608,8 @@ export class WorkerManager {
       if (prompt) args.push('--prompt', prompt);
     } else if (isCodex) {
       args.push(...codexHookArgs(this.codexHook), ...(this.mcpScript ? codexMcpArgs(this.mcpScript) : []), '--no-alt-screen');
+      // The easy approvals lever (see approvals.ts): Codex's automatic reviewer for what it would ask about.
+      args.push(...approvalArgs('codex', easyApprovals.on, args));
       if (resumeSessionId) args.push('resume', resumeSessionId);
       if (prompt) args.push('--', prompt);
     } else if (isGrok) {
@@ -2121,13 +2126,7 @@ process.stdin.on('end', () => {
   url.searchParams.set('worker', process.env.AGENT_OFFICE_WORKER_ID);
   url.searchParams.set('event', event);
   const send = (tries) => {
-    // A permission request's answer (the lever, see server/approvals.ts) goes back to Claude Code on stdout.
-    const req = http.request(url, { method: 'POST', timeout: 3000, headers: { authorization: 'Bearer ' + process.env.AGENT_OFFICE_HOOK_TOKEN, 'content-type': 'application/json' } }, (res) => {
-      if (event !== 'PermissionRequest') return res.resume();
-      let out = '';
-      res.on('data', (c) => (out += c));
-      res.on('end', () => process.stdout.write(out));
-    });
+    const req = http.request(url, { method: 'POST', timeout: 3000, headers: { authorization: 'Bearer ' + process.env.AGENT_OFFICE_HOOK_TOKEN, 'content-type': 'application/json' } }, (res) => res.resume());
     req.on('error', (err) => {
       if (err.code === 'ECONNREFUSED' && tries > 1) setTimeout(() => send(tries - 1), 1000);
     });
@@ -2144,12 +2143,10 @@ process.stdin.on('end', () => {
       const curl =
         `curl -sS -m 3 --retry ${HOOK_TRIES - 1} --retry-delay 1 --retry-connrefused -X POST -H "Authorization: Bearer $AGENT_OFFICE_HOOK_TOKEN" -H "Content-Type: application/json" ` +
         `--data-binary @- "$AGENT_OFFICE_HOOK_URL/hooks/claude?worker=$AGENT_OFFICE_WORKER_ID&event=${event}"`;
-      // The answer to a permission request is what the hook prints; every other event's is dropped.
-      const out = event === 'PermissionRequest' ? '2>/dev/null' : '>/dev/null 2>&1';
       const command =
         `if [ -z "$AGENT_OFFICE_WORKER_ID" ] || [ -z "$AGENT_OFFICE_HOOK_URL" ]; then exit 0; fi; ` +
-        `if command -v curl >/dev/null 2>&1; then ${curl} ${out}; ` +
-        `else ${shq(process.execPath)} ${shq(nodeHook)} ${event} ${out}; fi; true`;
+        `if command -v curl >/dev/null 2>&1; then ${curl} >/dev/null 2>&1; ` +
+        `else ${shq(process.execPath)} ${shq(nodeHook)} ${event} >/dev/null 2>&1; fi; true`;
       hooks[event] = [{ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command }] }];
     }
     // Looking at the office's workers doesn't need anyone's say-so; hiring and sending home still asks.

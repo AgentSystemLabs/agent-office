@@ -223,8 +223,8 @@ class Store {
   machine: MachineState = { cpu: 0, cores: 0, memUsed: 0, memTotal: 0, history: [], workers: 0 };
   /** The Maintenance agent's stack of changes, waiting for the big button. */
   maintenance: MaintenanceStack = { changes: [], dirty: 0, phase: 'idle' };
-  /** The easy approvals lever, and the requests waiting on a person. */
-  approvals: ApprovalsState = { easy: false, cards: [] };
+  /** The easy approvals lever. */
+  approvals: ApprovalsState = { easy: false };
   /** The dog on your floor, and when (performance.now()) the leg it's on began. */
   dog: DogState | null = null;
   dogStart = 0;

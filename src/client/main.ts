@@ -62,7 +62,6 @@ import { openPrompt, confirmDialog, sendHomeDialog, lostWorktreeDialog, routeWor
 import { issuePrompt, openBoard } from './ui/boards';
 import { openIssue, openPull, routePullMessage } from './ui/pull';
 import { onMaintenanceAnswer, openLaptop, openStack } from './ui/maintenance';
-import { mountApprovals } from './ui/approvals';
 import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { openAccounts, routeAccountsMessage } from './ui/accounts';
@@ -274,8 +273,6 @@ const showStack = () => {
 };
 store.on('maintenance', showStack);
 showStack();
-// Requests the lever left to a person: cards with a way to the worker's terminal.
-mountApprovals((id) => openWorkerTerminal(id));
 // …and the lever's up or down as everyone left it.
 const showLever = () => office.closet.setLever(store.approvals.easy);
 store.on('approvals', showLever);
@@ -3716,7 +3713,7 @@ function hintFor(it: Interactable): Hint {
       return { k: '', parts: [title('💻 Office laptop'), aside('ask a small model about how the office works'), key('E', 'Ask')] };
     case 'lever': {
       const on = store.approvals.easy;
-      return { k: String(on), parts: [title('⚡ Easy approvals'), aside(on ? 'up: workers aren’t asked about the obvious' : 'down: workers ask about everything'), key('E', on ? 'Put the lever back down' : 'Pull the lever up')] };
+      return { k: String(on), parts: [title('⚡ Easy approvals'), aside(on ? 'up: workers start in their agent’s automatic mode' : 'down: workers ask as usual'), key('E', on ? 'Put the lever back down' : 'Pull the lever up')] };
     }
     case 'ship': {
       const s = store.maintenance;

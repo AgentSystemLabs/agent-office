@@ -1032,30 +1032,13 @@ export interface MaintenanceStack {
 }
 
 /**
- * A request the lever (easy approvals, see server/approvals.ts) didn't answer by itself: a worker is
- * waiting in its terminal for a yes or no on something that isn't obviously fine, and this says what and why.
+ * The lever in the maintenance closet (see server/approvals.ts). Up, workers hired or resumed from then
+ * on start in their agent's own automatic permission mode.
  */
-export interface ApprovalCard {
-  workerId: string;
-  worker: string;
-  floor?: string;
-  tool: string;
-  /** The command it wants to run, when it is one. */
-  command?: string;
-  /** What the worker said it was for. */
-  description?: string;
-  /** Why the office didn't wave it through, in plain words. */
-  reasons: string[];
-  at: number;
-}
-
-/** The lever in the maintenance closet, and the requests waiting on a person. */
 export interface ApprovalsState {
-  /** Up: workers aren't asked about the obvious. */
   easy: boolean;
   by?: string;
   at?: number;
-  cards: ApprovalCard[];
 }
 
 export type Weather = 'clear' | 'cloudy' | 'rain' | 'storm' | 'snow' | 'fog';
@@ -1382,7 +1365,7 @@ export type ServerMsg =
       machine: MachineState;
       /** The Maintenance agent's stack of changes. */
       maintenance: MaintenanceStack;
-      /** The easy approvals lever, and what's waiting on a person. */
+      /** The easy approvals lever. */
       approvals: ApprovalsState;
       /** Outside the windows: the same on every floor. */
       sky: SkyState;

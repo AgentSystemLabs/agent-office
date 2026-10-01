@@ -149,16 +149,6 @@ process.stdin.on('end', async () => {
   if (toolUseId) body.tool_use_id = toolUseId;
   if (turn) body.turn_id = turn;
   if (transcript) body.transcript_path = transcript;
-  // A permission request also says what for, so the office can answer it (the lever, see server/approvals.ts).
-  if (event === 'PermissionRequest') {
-    const ti = input.tool_input && typeof input.tool_input === 'object' ? input.tool_input : {};
-    const command = typeof ti.command === 'string' ? ti.command.slice(0, 8000) : Array.isArray(ti.command) ? ti.command.map(String).join(' ').slice(0, 8000) : undefined;
-    const description = allowed(ti.description, 400);
-    const cwd = allowed(input.cwd, 4096);
-    if (command) body.command = command;
-    if (description) body.description = description;
-    if (cwd) body.cwd = cwd;
-  }
   const base = process.env.AGENT_OFFICE_HOOK_URL;
   const token = process.env.AGENT_OFFICE_HOOK_TOKEN;
   const worker = process.env.AGENT_OFFICE_WORKER_ID;
@@ -173,11 +163,6 @@ process.stdin.on('end', async () => {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(2000),
     });
-    // The office answers a permission request it's sure about; what it says goes back to Codex as is.
-    if (event === 'PermissionRequest' && response.ok) {
-      const answer = await response.json().catch(() => undefined);
-      if (answer && answer.hookSpecificOutput && answer.hookSpecificOutput.hookEventName === 'PermissionRequest') return void process.stdout.write(JSON.stringify(answer));
-    }
     finish(response.ok);
   } catch { finish(false); }
 });

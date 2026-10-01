@@ -323,24 +323,6 @@ export async function startServer(cfg: Config) {
     const workers = workerFloor(workerId)?.workers;
     if (!workers) return send(res, 401, {});
     const event = url.searchParams.get('event') ?? '';
-    // The lever (easy approvals): a permission request that's obviously fine is answered here, before the worker asks anyone.
-    if (event === 'PermissionRequest' && (url.pathname === '/hooks/codex' || url.pathname === '/hooks/claude') && approvals.on) {
-      const info = workers.authenticate(workerId, token);
-      const raw = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
-      if (info) {
-        const input = (raw.tool_input && typeof raw.tool_input === 'object' ? raw.tool_input : {}) as Record<string, unknown>;
-        const review = approvals.review({
-          workerId,
-          workerName: info.name,
-          floor: workerFloor(workerId)?.def.name,
-          tool: str(raw.tool_name, 80) || 'a tool',
-          command: str(raw.command, 8000) || str(input.command, 8000) || undefined,
-          description: str(raw.description, 400) || str(input.description, 400) || undefined,
-          cwd: str(raw.cwd, 4096) || undefined,
-        });
-        if (review.allow) return send(res, 200, { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } });
-      }
-    }
     const ok = url.pathname === '/hooks/opencode'
       ? workers.handleOpenCodeHook(workerId, token, payload)
       : url.pathname === '/hooks/codex'
@@ -624,7 +606,7 @@ export async function startServer(cfg: Config) {
     if (err) console.error(`agent-office: --webhook: ${err}`);
   }
 
-  // The lever in the maintenance closet: workers aren't asked about the obvious (see approvals.ts).
+  // The lever in the maintenance closet: workers start in their agent's automatic mode (see approvals.ts).
   const approvals = new Approvals(cfg.dataDir, (state) => broadcast({ t: 'approvals', state }));
 
   // The machine's CPU and memory, for the monitor on the wall and a warning before hiring, and the
@@ -680,13 +662,8 @@ export async function startServer(cfg: Config) {
     workerChanged: (floor, w) => {
       if (typeof w === 'string') {
         webhook.onWorkerGone(w);
-        approvals.clear(w);
         pumpQueues(floor);
-      } else {
-        webhook.onWorker(w);
-        // Answered (or never needed): the card for its request goes.
-        if (w.status !== 'needs_input') approvals.clear(w.id);
-      }
+      } else webhook.onWorker(w);
       machine.workersChanged();
       floorsChanged();
     },
@@ -1903,7 +1880,7 @@ export async function startServer(cfg: Config) {
       case 'approvals.set':
         if (typeof msg.easy === 'boolean' && msg.easy !== approvals.on) {
           approvals.set(msg.easy, who);
-          toastAll(msg.easy ? `${who} pulled the lever: workers aren't asked about the obvious any more` : `${who} put the lever back: workers ask about everything again`);
+          toastAll(msg.easy ? `${who} pulled the lever: workers hired or resumed from now on start in their agent's automatic mode` : `${who} put the lever back: workers hired or resumed from now on ask as usual`);
         }
         break;
       case 'maintenance.stack':
