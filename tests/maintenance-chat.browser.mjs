@@ -99,6 +99,15 @@ await page.setViewportSize({width:390,height:844});await page.screenshot({path:'
 if(await page.locator('.maintenance-chat').evaluate(el=>el.scrollWidth>el.clientWidth || el.getBoundingClientRect().right>innerWidth || el.getBoundingClientRect().left<0))throw Error('mobile overflow');
 await page.keyboard.press('Escape');if(await page.locator('.maintenance-chat').count())throw Error('Escape fails');
 await page.setViewportSize({width:1360,height:980});
+// Kiosk X opens a fresh draft without sending a kill or interrupting active work.
+await page.evaluate(()=>window.chatModal=chat.openMaintenanceChat(m=>window.sent.push(m),window.actions,()=>window.stackOpens++, '', true));
+await page.waitForSelector('.maintenance-chat-empty');
+if(!await input.isDisabled())throw Error('kiosk draft allowed while Maintenance works');
+if(await page.evaluate(()=>window.sent.some(m=>m.t==='worker.kill')))throw Error('draft stopped Maintenance');
+await page.screenshot({path:'/tmp/maintenance-chat-new-draft.png',animations:'disabled'});
+await page.getByRole('button',{name:'Current conversation',exact:true}).click();
+await page.waitForSelector('[data-message="room1"]');
+await page.keyboard.press('Escape');
 // The experiment is opt-in, persisted locally, and can be disabled without losing the archive.
 await page.evaluate(async()=>{
  const state=await import('/state.ts');localStorage.removeItem('agent-office.settings');

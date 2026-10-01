@@ -2404,6 +2404,13 @@ function hireAtDesk(deskId: string) {
 function killWorker(id: string) {
   const w = store.workers.get(id);
   if (!w) return;
+  if (w.deskId === MAINTENANCE_DESK) {
+    if (settings.maintenanceChat) return void openMaintenanceConversation(undefined, true);
+    confirmDialog('End Maintenance session?',
+      'Stops the current agent session for everyone, including any unfinished work. Saved conversation history, edited files and stacked commits remain. Your next request starts a fresh session. For a new issue without interrupting work, use Maintenance chat in Settings → Experiments.',
+      'End session', () => net.send({ t: 'worker.kill', workerId: id }));
+    return;
+  }
   const where = plan().byId.get(w.deskId)?.label ?? 'the desk';
   const session = w.kind === 'shell' ? 'shared shell' : `${providerLabel(w.provider, store.project)} session`;
   if (w.meeting) {
@@ -2459,9 +2466,9 @@ function maintenanceActions(): MaintenanceActions {
   };
 }
 
-function openMaintenanceConversation(context?: string): ReturnType<typeof openMaintenanceChat> {
+function openMaintenanceConversation(context?: string, startNew = false): ReturnType<typeof openMaintenanceChat> {
   return openMaintenanceChat((message) => net.send(message), maintenanceActions(),
-    () => openStack((message) => net.send(message), maintenanceActions()), context);
+    () => openStack((message) => net.send(message), maintenanceActions()), context, startNew);
 }
 
 function askStation(deskId: string) {
@@ -4012,11 +4019,11 @@ function stationHint(deskId: string): Hint {
     const m = store.machine;
     const full = kind !== 'maintenance' && officeFull(m);
     return {
-      k: `${full}|${m.workers}|${m.limit}`,
+      k: `${full}|${m.workers}|${m.limit}|${settings.maintenanceChat}`,
       parts: [
         h('span.title', {}, `${info.icon} ${STATION_AGENT[kind].name}`),
         aside(info.offer.replace(/^Ask me /, '')),
-        full ? h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`) : key('E', kind === 'maintenance' ? 'Review / request' : 'Prompt'),
+        full ? h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`) : key('E', kind === 'maintenance' ? settings.maintenanceChat ? 'Chat' : 'Review / request' : 'Prompt'),
       ],
     };
   }
@@ -4024,14 +4031,14 @@ function stationHint(deskId: string): Hint {
   const provider = resolvedProvider(w.provider, store.project);
   const spent = w.usage ? usageLabel(w.usage, provider) : '';
   return {
-    k: w.status + w.id + doing + spent,
+    k: w.status + w.id + doing + spent + settings.maintenanceChat,
     parts: [
       h('span.title', {}, `${info.icon} ${w.name} · ${STATUS_LABEL[w.status]}`),
       doing ? aside(doing) : '',
       spent ? h('span.cost', { title: usageTitle(w.usage!, provider) }, spent) : '',
-      key('E', kind === 'maintenance' ? 'Review / correct' : isAsleep(w.status) ? 'Wake with a prompt' : 'Prompt'),
+      key('E', kind === 'maintenance' ? settings.maintenanceChat ? 'Chat' : 'Review / correct' : isAsleep(w.status) ? 'Wake with a prompt' : 'Prompt'),
       key('O', 'Terminal'),
-      key('X', 'Send home'),
+      key('X', kind === 'maintenance' ? settings.maintenanceChat ? 'New conversation' : 'End session' : 'Send home'),
     ],
   };
 }

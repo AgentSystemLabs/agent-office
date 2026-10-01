@@ -45,10 +45,10 @@ function bubble(message: MaintenanceChatMessage) {
 }
 
 /** A view over the existing Maintenance worker; archived conversations are read-only. */
-export function openMaintenanceChat(send: (message: ClientMsg) => void, actions: MaintenanceActions, reviewStack: () => void, initial = '') {
+export function openMaintenanceChat(send: (message: ClientMsg) => void, actions: MaintenanceActions, reviewStack: () => void, initial = '', startNew = false) {
   let closed = false;
   let selected: string | undefined;
-  let newConversation = false;
+  let newConversation = startNew;
   let state: MaintenanceChatState | undefined;
   let generation = 0;
   let messageKey = '';
