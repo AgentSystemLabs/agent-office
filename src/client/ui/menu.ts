@@ -38,10 +38,11 @@ const PANELS: { id: HudPanel; icon: string; label: string; what: string }[] = [
   { id: 'limits', icon: '⏳', label: 'Claude limits', what: 'The plan’s 5-hour and week' },
   { id: 'chat', icon: '💬', label: 'Chat', what: 'T opens it either way' },
   { id: 'floor', icon: '🏢', label: 'Floor details', what: 'Branch, folder, default agent' },
+  { id: 'map', icon: '🗺️', label: 'Minimap', what: 'The floor from above (J opens it big)' },
 ];
 
 /** The element each panel is. */
-const PANEL_EL: Record<HudPanel, string> = { workers: 'workers-panel', people: 'people-panel', spend: 'spend', limits: 'limits', chat: 'chat', floor: 'project-meta' };
+const PANEL_EL: Record<HudPanel, string> = { workers: 'workers-panel', people: 'people-panel', spend: 'spend', limits: 'limits', chat: 'chat', floor: 'project-meta', map: 'minimap' };
 
 const PIN_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M16 9V4h1a1 1 0 0 0 0-2H7a1 1 0 0 0 0 2h1v5a3 3 0 0 1-3 3v2h5.97v7l1 1 1-1v-7H19v-2a3 3 0 0 1-3-3z"/></svg>';
 
