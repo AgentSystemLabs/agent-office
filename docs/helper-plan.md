@@ -2,8 +2,9 @@
 
 Bringing a second agent to a worker who is stuck, so you don't have to.
 
-Status: **proposal.** Nothing built. Open questions at the bottom — the first four change the
-design, so they're worth answering before any code.
+Status: **proposal.** Nothing built. Most of the design is settled; the open questions are at the
+bottom, and the first one — what the helper is *for* — is the only thing between this and a first
+commit.
 
 Back to the [README](../README.md) · [Ideas](ideas.md) · [Features](features.md)
 
@@ -18,15 +19,16 @@ worker**. The worker decides what to do about it. It never writes to the branch,
 and never sits down.
 
 You can open its terminal, read its thinking as it happens, and type into it — the same as any
-other worker.
+other worker. It stands at the desk while the work gets finished, and it leaves when the visit is
+over: you press **X**, or the worker's tests start passing again, or its pull request opens.
 
 ## What this is not
 
 Not mob programming, and not a second pair of hands. The distinction is what keeps it safe:
 
 - **A pair** co-drives one terminal. Two agents, one task, shared authorship. The work is divided.
-- **A helper** is a visitor with one job: say something useful, then leave. The work isn't divided
-  and the authorship never moves.
+- **A helper** is a visitor with one job: say something useful, then leave when it's no longer
+  needed. The work isn't divided and the authorship never moves.
 
 The helper has no seat, so it has no desk of its own, no queue task, no branch, no PR. That is what
 makes "it can't take the work over" a property of the design rather than a rule someone has to
@@ -134,27 +136,90 @@ This is the line, stated exactly:
 
 > The helper produces a question, a finding, or a verified fact. It never produces a decision.
 
-### Slice 5 — sending it home (S)
+### Slice 5 — when it goes home (M)
 
-A helper that finishes has nowhere to be dismissed to, so: it leaves once it has reported, on its own
-initiated. The send-home path already exists and already carries a character out of a seat. The PR
-stays the host's, the branch stays the host's, and the host keeps its own send-home flow intact.
+A helper is not a one-shot delivery. It stands at the desk while the work is finished, and it leaves
+when the visit is over — by any of four ways, whichever comes first:
+
+| It goes home when | |
+| --- | --- |
+| You press **X** | always available, at any time |
+| The worker gets itself unstuck | its status returns to `working` and its `failStreak` resets — the same signal that summoned the helper, so the cure dismisses the cure |
+| The host opens its PR | `openPr()` resolves; the helper's job was to get the worker to this point |
+| You send it home from the Workers panel | same as `X`, for when you've lost track of it |
+
+The middle two are worth spelling out, because they are the same signal used twice. The office
+already knows a worker is unstuck — `failStreak` resets on a passing test run
+(`src/server/workers.ts:1528`). Reusing it means the helper's departure needs no new concept, and it
+means a helper that failed to help quietly leaves rather than standing there for the rest of the
+session.
+
+This also means the helper is **live for a long time**, which is the one real cost of the design. See
+[Cost](#cost-and-the-guardrail-id-insist-on).
+
+The send-home path already exists and already carries a character out of a seat, so the walk out is
+free. The PR stays the host's, the branch stays the host's, and the host's own send-home flow is
+untouched.
+
+### Slice 6 — the worker knows (S)
+
+Decided: **the worker is told a helper arrived.** A stranger materialising at your desk and then
+telling you what to do is worse than useless — it reads as a hijack, and a worker that thinks its
+terminal is being driven by something else may stop trusting its own session.
+
+Three cheap touches, all reusing what exists:
+
+- A toast on the floor: `🆘 Sprocket is helping at Desk 3`. `toastFloor` is already how the office
+  announces hires and departures (`src/server/server.ts:283`), though it is a local closure there, so
+  this needs either a toast off the `Floor` or the same call reached from wherever the spawn is
+  handled.
+- A line in the helper's own first prompt, saying who it is and why it's there, so the finding
+  arrives with an explanation attached rather than out of nowhere.
+- The helper's name on the host's task card, so you can see at a glance that a desk has a helper
+  standing at it.
 
 ---
 
-## Cost, and the one guardrail I'd insist on
+## Which agent the helper is
 
-A helper is a second live agent on your token, metered against `--budget`. Per
-`docs/features.md:47` that budget tracks **Claude Code only** — it cannot cap OpenCode, Codex, Grok,
-Muse or DSH. So a helper on any of those five is uncapped, and a helper you forget about is an
-uncapped agent holding a terminal open.
+Decided: **any provider, any model** — the same picker the hire window uses, with the office default
+preselected. The helper is an ordinary worker in every respect except that it has no desk of its
+own, so it inherits the whole provider surface for free: status, hooks, cost, resume, `/office/*`
+MCP tools.
 
-Two cheap guards:
+Two things follow from that, worth knowing before you pick:
+
+**A second instance of the same model is a fresh context, not a second opinion.** The stuck worker's
+window is full of its own wrong assumptions; a helper with a clean one reads the same red test
+without that history in the way. That is genuinely valuable. What it is *not* is independent
+judgement — same weights, same blind spots. So the same model is the right pick when you want the
+work re-read, and a different model is the right pick when you want a judgement re-opened. The
+default should probably be a different model from the host's, since that is the case a human can't
+already do themselves.
+
+**A helper on a non-Claude provider is uncapped.** Per [agents.md](agents.md) and
+`docs/features.md:47`, `--budget` and `--budget-pause` track **Claude Code only**. OpenCode, Codex,
+Grok, Muse and DSH spend is metered in the panel but does not stop anything. Since a helper now
+lives for a whole task rather than one report, that is a wider hole than it looks, and it's worth
+knowing that "any provider" includes the uncapped ones.
+
+## Cost, and the guardrail I'd insist on
+
+A helper is a second live agent on your token, for as long as its host is working. Metered against
+`--budget` on Claude, and against nothing at all on the other five providers.
+
+The guardrail that matters is not the budget — it's that **a helper should not outlive its
+usefulness**, and the office already knows when that is. `failStreak` resets when the host's tests
+pass (`workers.ts:1528`), and that is the moment the helper has done its job. Leaving on that signal
+means the common case costs one short visit rather than a whole task.
+
+Two more, both cheap:
 
 - **One helper per worker, ever at a time.** Not a technical limit — a signal. If a worker has had
   two helpers and is still stuck, the problem is the task, and the honest response is `X` and
   re-scope.
-- **It leaves when it's done**, so there's nothing to forget.
+- **It counts against `--max-workers`.** Still an open question below, but a helper that doesn't
+  count is a way to double the office's real ceiling.
 
 ## Verification
 
@@ -173,32 +238,47 @@ New tests, matching the existing ones:
 - **No self-service.** A worker cannot ask for a helper. See [The trigger](#the-trigger).
 - **No multi-agent chains.** A helper cannot hire a helper. One host, one helper, one hop.
 - **No cross-floor.** A helper works on its host's floor, in its host's worktree.
-- **Not "which helper do I need".** The roles from an earlier pass — repeating itself / confidently
-  wrong / context exhausted / missing a fact — are a guess at what stuck means. You assign at the
-  desk while watching, so you know better than any list. The first version is one role, and the
-  prompt is editable.
+- **The helper doesn't become a colleague.** It has no seat, no sign, no desk of its own, and no
+  place in the queue. It is a visitor, and the office's own vocabulary already has a word for
+  someone who is leaving: everything else about a worker is a colleague.
 
 ---
 
 ## Open questions
 
-The first four change the design; the rest can be answered while building.
+Answered and folded in above: **when it goes home** (four ways, `X` at any time), **the worker is
+told** (toast, an introduction in the helper's first prompt, a chip on the task card), and **which
+agent** (any provider, any model, office default preselected).
+
+Still open:
 
 1. **What is the helper for, when you press the key?** One role (diagnose only) or a small picker
    (diagnose / verify / second opinion)? This is the first prompt in slice 1, so it wants an answer
-   before that.
-2. **Who leaves, and when?** It goes home the moment it reports, or stays until you press `X`? The
-   walk out is a good ending, but you may want to interrogate its terminal first.
-3. **Does the host's worker know?** Does the struggling worker get told a helper arrived (a toast, a
-   card), or does it just receive the finding with no explanation? Telling it costs a prompt; not
-   telling it leaves a strange stranger at its desk.
-4. **Same model or different?** Your original question. Note the finding: a second instance of the
-   *same* model is valuable for **independence of context** (the stuck worker's window is full of its
-   own wrong assumptions), not for independence of judgement. So the same model is genuinely useful
-   if the helper is given a fresh *reading* task — but a different model is better if you want a
-   real second opinion on a judgement.
-5. **Does the helper count against `--max-workers`?** It's a live agent, so arithmetically yes. But
+   before that. It is now the only thing standing between the plan and a first commit.
+2. **Does the helper count against `--max-workers`?** It's a live agent, so arithmetically yes. But
    the ceiling is a safety valve, and a helper that refuses to spawn because the floor is full is
    useless exactly when you need it.
-6. **Can you have two at once, at two different desks?** Deferred on the grounds that one is enough
+3. **Can you have two at once, at two different desks?** Deferred on the grounds that one is enough
    to test the idea, but it's a fair question.
+4. **Should the helper's own terminal be visible while it stands there?** In 3D, the laptop is small
+   and unreadable from a doorway, so seeing its thinking means pressing `E` at the desk. The Workers
+   panel and search already reach it. Worth deciding whether the desk card shows a live one-line
+   "what it's doing", which is what the worker's own card does.
+
+---
+
+## Slices at a glance
+
+| # | Slice | Size | Needs |
+| --- | --- | --- | --- |
+| 1 | The prompt alone | S | **question 1** — the role |
+| 2 | The standing station (`helper:desk-N`) | S | |
+| 3 | The walk, on the dog's path model | S | |
+| 4 | Delivering the finding to the worker | S | |
+| 5 | When it goes home (four ways) | M | |
+| 6 | The worker is told | S | |
+| | 3D, seat identity, walk, prompt plumbing | | questions 2–4 |
+
+Slice 1 is first on purpose: it needs no 3D, no walking and no new state, and it answers the only
+question that can kill the idea — whether a helper's finding is actually worth the tokens. If that
+works, everything after it is plumbing in code that already exists.
