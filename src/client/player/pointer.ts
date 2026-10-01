@@ -149,6 +149,9 @@ export abstract class PlayerInput {
       if (!this.locked) {
         this.letGo = this.letting;
         this.letting = false;
+        // Taken by the browser's own Esc from something else looking round with it (the telescope), which
+        // the page may not have seen go down: a lock asked for now waits for Esc to come up (see lock).
+        if (this.keepMouse && !this.letGo) this.escDownAt ||= performance.now();
         const again = this.lockAfter && this.enabled && this.canLock;
         this.lockAfter = false;
         if (again) this.lock();
