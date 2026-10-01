@@ -57,7 +57,7 @@ const VERSION_FORMAT = '--format=%h%x00%s%x00%cI';
  * provisioned before deploy/provision.sh set KillMode=process get it from a drop-in here; the
  * install's user has passwordless sudo. Best effort: without it, workers are resumed and carry on.
  */
-async function keepWorkersThroughRestart() {
+export async function keepWorkersThroughRestart() {
   if (process.platform !== 'linux') return;
   let cgroup: string;
   try {

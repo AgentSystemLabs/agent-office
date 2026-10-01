@@ -12,7 +12,7 @@ import { FAILS_TO_DESPAIR, outputFailed, toolAction } from '../shared/actions.js
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, isAgentEffort, isClaudeModel } from '../shared/protocol.js';
 import { WORKSPACE_FILES, WORKTREES_DIR, Worktrees, describeWork, workspaceOf, type WorktreeCleanup, type WorktreeRef, type WorktreeState } from './worktrees.js';
 import { normalizeRepo } from '../shared/floors.js';
-import { DESK_BY_ID, STATION_AGENT, deskBuilt } from '../shared/layout.js';
+import { DESK_BY_ID, MAINTENANCE_DESK, STATION_AGENT, deskBuilt } from '../shared/layout.js';
 import { QUEUE_AGENT_DISALLOWED_TOOLS, stationBrief } from './stations.js';
 import { officePrompt, type PromptSource } from './prompts.js';
 import { isBusy } from '../shared/status.js';
@@ -32,7 +32,7 @@ import { MCP_READ_ONLY, codexMcpArgs, openCodeMcp, writeClaudeMcpConfig } from '
 import { ScrollbackStore, searchTerminal, terminalTail } from './history.js';
 import { DSH_PROFILE_DEFAULT, DshSession, dshArgs, terminalSafe, writeDshPatch } from './dsh.js';
 import { DropStore } from './drops.js';
-import { officeSourceDir } from './maintenance.js';
+import { maintenanceTree, officeSourceDir } from './maintenance.js';
 import { screenSnapshot } from './screen.js';
 import type { Capacity } from './machine.js';
 
@@ -411,7 +411,8 @@ export class WorkerManager {
       if (paused) return paused;
     }
     if (owner && selectedProvider === 'claude' && this.runAs && !this.runAs.claudeReady(owner)) return this.runAs.why('claude');
-    const full = this.capacity?.full();
+    // The Maintenance agent looks after the office itself: the worker limit isn't his.
+    const full = seat.id === MAINTENANCE_DESK ? undefined : this.capacity?.full();
     if (full) return full;
     const used = new Set([...this.workers.values()].map((w) => w.info.name.replace(/ 🐚$/, '')));
     const agent = seat.station && STATION_AGENT[seat.station];
@@ -1957,11 +1958,10 @@ export class WorkerManager {
 
   /**
    * Where a worker works: its worktree, a workspace for a worker across repositories, or the project itself.
-   * The maintenance agent works in the office's own source instead (see maintenance.ts), where its brief
-   * and the checkout's CLAUDE.md tell it to keep to a worktree of its own.
+   * The maintenance agent works in a worktree of the office's own source instead (see maintenance-stack.ts).
    */
   private cwd(info: WorkerInfo): string {
-    if (DESK_BY_ID.get(info.deskId)?.station === 'maintenance') return officeSourceDir() ?? this.dir;
+    if (DESK_BY_ID.get(info.deskId)?.station === 'maintenance') return maintenanceTree.dir ?? officeSourceDir() ?? this.dir;
     const rel = workspaceOf(info);
     return rel ? path.join(this.dir, rel) : this.dir;
   }

@@ -2,6 +2,7 @@ import type { ClientMsg, ServerMsg } from '../../shared/protocol';
 import { MAINTENANCE_MODEL } from '../../shared/layout';
 import { h, openModal } from './dom';
 import { markdown } from './markdown';
+import { store } from '../state';
 
 // The maintenance closet's laptop: ask a small model a question about Agent Office itself. It reads
 // the office's source and docs and answers; building the thing instead is the Maintenance agent's job.
@@ -61,5 +62,45 @@ export function openLaptop(send: (msg: ClientMsg) => void) {
     }
   });
   setTimeout(() => ta.focus(), 30);
+  return modal;
+}
+
+/**
+ * The Maintenance agent's stack: what he's committed since the office last restarted, and the big button
+ * that commits what's left, checks it all, pushes, rebuilds and restarts the office, once.
+ */
+export function openStack(send: (msg: ClientMsg) => void) {
+  const list = h('ol.stack-list');
+  const status = h('div.stack-status', { 'aria-live': 'polite' });
+  const big = h('button.btn.primary.stack-ship', { type: 'button' }, '🚀 Commit, push & rebuild');
+  const note = h('p.stack-note', {}, 'Runs the typecheck and tests, pushes to the office’s repository, rebuilds and restarts the office once for everyone. Workers keep running through the restart.');
+  const el = h(
+    'div.modal.stack',
+    { role: 'dialog', 'aria-label': 'Maintenance change stack' },
+    h('header', {}, h('h2', {}, '📚 Change stack')),
+    h('div.body', {}, h('p.laptop-note', {}, 'What the Maintenance agent has built since the office last restarted. Nothing is rebuilt until you press the button.'), list, status, big, note),
+  );
+  const modal = openModal(el, { onClose: () => void unsub() });
+
+  const render = () => {
+    const s = store.maintenance;
+    const shipping = s.phase === 'shipping';
+    const items: HTMLElement[] = [];
+    if (s.dirty) items.push(h('li.stack-wip', {}, h('span', {}, '✏️ In the middle of a change'), h('small', {}, `${s.dirty} file${s.dirty === 1 ? '' : 's'} edited, not committed yet`)));
+    // Newest on top, like a stack.
+    for (const c of [...s.changes].reverse()) items.push(h('li', {}, h('code', {}, c.sha), ' ', c.subject));
+    list.replaceChildren(...(items.length ? items : [h('li.stack-empty', {}, 'Nothing waiting. Ask the Maintenance agent for something at his counter.')]));
+    status.replaceChildren();
+    if (s.unavailable) status.append(h('p.setting-note.bad', { role: 'alert' }, s.unavailable));
+    if (shipping) status.append(h('p.laptop-wait', {}, h('span.spinner'), ` ${s.step ?? 'Shipping'}…${s.by ? ` (started by ${s.by})` : ''}`));
+    if (s.phase === 'failed' && s.error) status.append(h('pre.upgrade-error', {}, s.error), h('button.btn', { type: 'button', onclick: () => send({ t: 'maintenance.stack' }) }, 'Look again'));
+    if (s.note) status.append(h('p.upgrade-status.ok', {}, s.note));
+    big.disabled = shipping || !!s.unavailable || (!s.changes.length && !s.dirty);
+    big.textContent = shipping ? '⏳ Shipping…' : `🚀 Commit, push & rebuild${s.changes.length + (s.dirty ? 1 : 0) > 1 ? ` (${s.changes.length + (s.dirty ? 1 : 0)} changes)` : ''}`;
+  };
+  const unsub = store.on('maintenance', render);
+  big.addEventListener('click', () => send({ t: 'maintenance.ship' }));
+  render();
+  send({ t: 'maintenance.stack' });
   return modal;
 }

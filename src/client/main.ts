@@ -61,7 +61,7 @@ import { openRepoPulls, workerRepos } from './ui/repos';
 import { openPrompt, confirmDialog, sendHomeDialog, lostWorktreeDialog, routeWorktreeMessage, worktreePref } from './ui/prompt';
 import { issuePrompt, openBoard } from './ui/boards';
 import { openIssue, openPull, routePullMessage } from './ui/pull';
-import { onMaintenanceAnswer, openLaptop } from './ui/maintenance';
+import { onMaintenanceAnswer, openLaptop, openStack } from './ui/maintenance';
 import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { openAccounts, routeAccountsMessage } from './ui/accounts';
@@ -266,6 +266,13 @@ const renderQueueBoard = () => queueTex.render(store.queue, store.workers);
 mountBoard(office.boardMeshes.queue, queueTex.texture, renderQueueBoard, ['queue', 'workers']);
 // The machine monitor on the west wall.
 const machineTex = new MachineTexture();
+// The closet's console counts the Maintenance agent's stack.
+const showStack = () => {
+  const s = store.maintenance;
+  office.closet.setStack({ waiting: s.changes.length, dirty: s.dirty, phase: s.phase, step: s.step });
+};
+store.on('maintenance', showStack);
+showStack();
 mountBoard(office.machineScreen, machineTex.texture, () => machineTex.render(store.machine), ['machine']);
 // The meeting room: its output as it's written on the back wall, and how it's going on the door.
 const meetingBoardTex = new MeetingBoardTexture();
@@ -2424,8 +2431,8 @@ function askStation(deskId: string) {
     toast(`The ${name} is waiting on an answer — here's its terminal`, 'warn');
     return openWorkerTerminal(w.id);
   }
-  // Nobody there yet: asking hires the agent.
-  if (!w && officeIsFull()) return;
+  // Nobody there yet: asking hires the agent (the Maintenance agent isn't one of the office's workers, so the limit isn't his).
+  if (!w && kind !== 'maintenance' && officeIsFull()) return;
   const subtitle = !w
     ? `${info.does}, in a terminal of my own: press O at the kiosk to watch.`
     : isAsleep(w.status)
@@ -2921,6 +2928,10 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   }
   if (target.kind === 'maintenance') {
     if (key === 'E') openLaptop((m) => net.send(m));
+    return;
+  }
+  if (target.kind === 'ship') {
+    if (key === 'E') openStack((m) => net.send(m));
     return;
   }
   if (target.kind === 'station' && target.deskId) {
@@ -3692,6 +3703,11 @@ function hintFor(it: Interactable): Hint {
     }
     case 'maintenance':
       return { k: '', parts: [title('💻 Office laptop'), aside('ask a small model about how the office works'), key('E', 'Ask')] };
+    case 'ship': {
+      const s = store.maintenance;
+      const n = s.changes.length + (s.dirty ? 1 : 0);
+      return { k: `${n}|${s.phase}`, parts: [title('🔴 Change stack'), aside(s.phase === 'shipping' ? 'shipping…' : n ? `${n} change${n === 1 ? '' : 's'} waiting` : 'nothing waiting'), key('E', 'Open the stack')] };
+    }
     case 'smoke':
       return { k: String(smokeBreakUntil > 0), parts: [title('🚬 Ashtray'), key('E', smokeBreakUntil ? 'Stub it out' : 'Take a smoke break')] };
     case 'gong':
@@ -3925,7 +3941,7 @@ function stationHint(deskId: string): Hint {
   const info = STATION_INFO[kind];
   if (!w) {
     const m = store.machine;
-    const full = officeFull(m);
+    const full = kind !== 'maintenance' && officeFull(m);
     return {
       k: `${full}|${m.workers}|${m.limit}`,
       parts: [
@@ -4325,7 +4341,7 @@ document.addEventListener('pointerlockchange', () => {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5, car: 4, expand: 8, herald: 5, maintenance: 3.5 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5, car: 4, expand: 8, herald: 5, maintenance: 3.5, ship: 3.5 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */

@@ -140,6 +140,9 @@ export type BoardKind = 'issues' | 'pulls' | 'queue';
 /** Every agent standing by in a kiosk: the board agents, and the maintenance closet's (see MAINTENANCE). */
 export type StationKind = BoardKind | 'maintenance';
 
+/** The Maintenance agent's seat: a kiosk in the maintenance closet (see MAINTENANCE). He isn't counted among the office's workers. */
+export const MAINTENANCE_DESK = 'station-maintenance';
+
 /**
  * The board agents: a worker standing behind a little kiosk just west of each of those boards (see
  * BOARDS), there for anyone to prompt about it. (x, z) is the kiosk. They face into the room, so at
@@ -153,7 +156,7 @@ export const STATIONS: DeskDef[] = [
   // Between the Issues board and the task queue.
   { id: 'station-queue', station: 'queue', x: -7.8, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'Task queue' },
   // In the maintenance closet (see MAINTENANCE), with his back to the west wall.
-  { id: 'station-maintenance', station: 'maintenance', x: -16.1, z: 3, rotY: -Math.PI / 2, label: 'Maintenance' },
+  { id: MAINTENANCE_DESK, station: 'maintenance', x: -16.1, z: 3, rotY: -Math.PI / 2, label: 'Maintenance' },
 ];
 /** A board agent's kiosk: its top, and how far behind its middle (toward the wall) the agent stands. */
 export const KIOSK = { width: 0.8, depth: 0.5, height: 0.55, stand: 0.55 } as const;

@@ -145,9 +145,63 @@ function hazard(len: number, depth: number): THREE.Group {
   return g;
 }
 
+/** What the console's screen says. */
+export interface StackView {
+  waiting: number;
+  dirty: number;
+  phase: 'idle' | 'shipping' | 'failed';
+  step?: string;
+}
+
+/**
+ * The console on the north wall: a screen that counts the Maintenance agent's stack of changes, and a
+ * big red button under it (E there opens the stack, whose own button ships it). The screen is a
+ * canvas, redrawn by set().
+ */
+function stackConsole(): { group: THREE.Group; set(v: StackView): void } {
+  const g = new THREE.Group();
+  g.add(mesh(roundedBox(0.62, 0.04, 0.9, 0.04), toon('#3d405b'), 0, 0, 0.03).rotateX(Math.PI / 2));
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 128;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.26), new THREE.MeshBasicMaterial({ map: tex }));
+  screen.position.set(0, 0.22, 0.055);
+  g.add(screen);
+  // The button: a red dome in a yellow collar, with a guard.
+  const collar = mesh(new THREE.CylinderGeometry(0.15, 0.17, 0.04, 20), toon('#ffd166'), 0, -0.2, 0.07, false);
+  collar.rotation.x = Math.PI / 2;
+  g.add(collar);
+  const dome = mesh(new THREE.SphereGeometry(0.12, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), toon('#e63946', { emissive: '#7a1020' }), 0, -0.2, 0.09, false);
+  dome.rotation.x = Math.PI / 2;
+  g.add(dome);
+  const draw = (v: StackView) => {
+    const c = canvas.getContext('2d')!;
+    c.fillStyle = '#10151f';
+    c.fillRect(0, 0, 256, 128);
+    c.textAlign = 'center';
+    c.font = '700 15px monospace';
+    c.fillStyle = '#f08c00';
+    c.fillText('CHANGE STACK', 128, 20);
+    c.font = '800 54px monospace';
+    c.fillStyle = v.phase === 'failed' ? '#ef476f' : v.waiting + v.dirty ? '#ffd166' : '#7ee787';
+    c.fillText(v.phase === 'shipping' ? '…' : String(v.waiting + (v.dirty && !v.waiting ? 1 : 0)), 128, 80);
+    c.font = '700 14px monospace';
+    c.fillStyle = '#c9d1d9';
+    const text = v.phase === 'shipping' ? v.step ?? 'shipping' : v.phase === 'failed' ? 'last shipment failed' : v.dirty ? `${v.waiting} ready · editing…` : v.waiting ? 'waiting for the button' : 'nothing waiting';
+    c.fillText(text.slice(0, 28), 128, 108);
+    tex.needsUpdate = true;
+  };
+  draw({ waiting: 0, dirty: 0, phase: 'idle' });
+  return { group: g, set: draw };
+}
+
 export interface Closet {
   /** The laptop's interactable: E there asks the office's small model something. */
   laptop: Interactable;
+  /** Shows the Maintenance agent's stack on the console's screen. */
+  setStack(v: StackView): void;
 }
 
 /**
@@ -217,11 +271,13 @@ export function buildMaintenanceCloset(
   const peg = pegboard();
   peg.position.set(-16.55, 1.5, M.minZ + T / 2 + 0.03);
   group.add(peg);
-  const plate = textPlane('uptime 99.9%', { bg: '#10151f', color: '#7ee787', size: 34, border: '#3d405b' });
-  plate.scale.multiplyScalar(0.55);
-  plate.position.set(-15.4, 1.0, M.minZ + T / 2 + 0.02);
-  plate.rotation.y = 0;
-  group.add(plate);
+  // Beside it, the console: a screen counting the stack, and the big red button that ships it.
+  const console_ = stackConsole();
+  console_.group.position.set(-15.2, 1.1, M.minZ + T / 2);
+  group.add(console_.group);
+  const shipAt: Interactable = { kind: 'ship', x: -15.2, z: M.minZ + 0.9, radius: 1.1 };
+  interactables.push(shipAt);
+  console_.group.userData.interact = shipAt;
 
   // The bench on the south wall, with the laptop on it, a mug and a cable spool.
   const B = M.bench;
@@ -249,5 +305,5 @@ export function buildMaintenanceCloset(
   const laptopAt: Interactable = { kind: 'maintenance', x: MAINTENANCE_LAPTOP.x, z: MAINTENANCE_LAPTOP.z, radius: 1 };
   interactables.push(laptopAt);
   bench.userData.interact = laptopAt;
-  return { laptop: laptopAt };
+  return { laptop: laptopAt, setStack: console_.set };
 }

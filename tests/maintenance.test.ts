@@ -45,14 +45,15 @@ test('you can walk in through the closet door to his counter and to the laptop',
   assert.ok(there && there.length >= 2, 'a way in to the laptop');
 });
 
-test("the maintenance agent's brief sends him to the office's own source in a worktree, never the running checkout or the queue", () => {
+test("the maintenance agent's brief sends him to commit on his own branch, never to push, merge or restart", () => {
   const brief = stationBrief('maintenance');
   assert.match(brief, /Maintenance agent/);
-  assert.match(brief, /CLAUDE\.md/);
-  assert.match(brief, /worktree/);
-  assert.match(brief, /never edit, switch branches, stash, reset or commit in it/);
-  assert.match(brief, /Never restart, stop or redeploy/);
-  assert.match(brief, /never merge your own pull request/);
+  assert.match(brief, /worktree of the office's own source on the branch maintenance\/stack/);
+  assert.match(brief, /never touch that one, and never restart, stop or redeploy the office/);
+  assert.match(brief, /one commit on your branch/);
+  assert.match(brief, /the big button/);
+  assert.match(brief, /do not push, open pull requests, merge/);
+  assert.match(brief, /npm run typecheck and npm test/);
   assert.doesNotMatch(brief, /office-queue/);
   assert.ok(brief.endsWith('The request:'));
   assert.ok(PROMPTS['station.maintenance'] && PROMPTS['station.maintenance'].group === 'stations');

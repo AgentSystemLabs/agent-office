@@ -19,7 +19,7 @@ import { buildStack, type Stack } from './stack';
 import { buildTower, wingWindows } from './tower';
 import { buildHoop, type HoopView } from './hoop';
 import { buildKitchen } from './kitchen';
-import { buildMaintenanceCloset } from './closet';
+import { buildMaintenanceCloset, type Closet } from './closet';
 import { buildDeskSigns, type DeskSigns } from './desksigns';
 import { HOOP } from '../../shared/hoop';
 
@@ -35,7 +35,7 @@ export interface Collider {
   fence?: boolean;
 }
 
-export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'cabinet' | 'ladder' | 'pole' | 'meeting' | 'bar' | 'dj' | 'golf' | 'ball' | 'bookshelf' | 'darts' | 'axe' | 'telescope' | 'car' | 'expand' | 'herald' | 'maintenance';
+export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'cabinet' | 'ladder' | 'pole' | 'meeting' | 'bar' | 'dj' | 'golf' | 'ball' | 'bookshelf' | 'darts' | 'axe' | 'telescope' | 'car' | 'expand' | 'herald' | 'maintenance' | 'ship';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -92,6 +92,8 @@ export interface Office {
   bossScreen: THREE.Mesh;
   /** The monitor on the west wall showing how busy the office's machine is (world/machine.ts). */
   machineScreen: THREE.Mesh;
+  /** The maintenance closet: its console shows the Maintenance agent's stack. */
+  closet: Closet;
   /** The meeting room's board, showing the meeting's output as it's written, and the sign by its door. */
   meetingBoard: THREE.Mesh;
   meetingSign: THREE.Mesh;
@@ -1448,7 +1450,7 @@ export function buildOffice(): Office {
     if (!west) fixture('north', def.x, 1.45, 1.4, 2.9);
   }
   // The closet he works in, where the west wall's third window was.
-  buildMaintenanceCloset(group, colliders, interactables, looks, fixture);
+  const closet = buildMaintenanceCloset(group, colliders, interactables, looks, fixture);
   const setBeanbags = (out: Set<string>) => {
     const appeared: Collider[] = [];
     for (const [id, b] of beanbags) {
@@ -1728,7 +1730,7 @@ export function buildOffice(): Office {
     hoop.update(dt);
   };
 
-  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, elevator, garageLift, cars, scenic, gong, jukebox, cabinet, whiteboard, tee, green, hoop, stack, wing, setWing, signs, setProjectName, setLook, setLevel, night, plants, update };
+  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, closet, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, elevator, garageLift, cars, scenic, gong, jukebox, cabinet, whiteboard, tee, green, hoop, stack, wing, setWing, signs, setProjectName, setLook, setLevel, night, plants, update };
 }
 
 /** A chair at the meeting table, with its laptop on the table in front of it. */

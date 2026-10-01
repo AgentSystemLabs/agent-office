@@ -1007,6 +1007,30 @@ export interface UpgradeState {
   error?: string;
 }
 
+/**
+ * The Maintenance agent's stack of changes: the commits he's made in his own worktree of the office's
+ * source that the running office doesn't have yet. The big button in the closet ships them all at
+ * once (see server/maintenance-stack.ts), instead of rebuilding on every change.
+ */
+export interface MaintenanceStack {
+  /** What's waiting, oldest first. */
+  changes: { sha: string; subject: string }[];
+  /** How many files he has edited that aren't committed yet: a change in the middle of being made. */
+  dirty: number;
+  /** The branch the stack would go on, the live checkout's. */
+  branch?: string;
+  /** Why there's no stack, when the office's source isn't something he can work on. */
+  unavailable?: string;
+  phase: 'idle' | 'shipping' | 'failed';
+  /** Where a shipment has got to. */
+  step?: string;
+  by?: string;
+  /** What went wrong, after a failed shipment: the end of the failing command's output. */
+  error?: string;
+  /** A shipment that went through, but the office wasn't restarted (nothing supervises it). */
+  note?: string;
+}
+
 export type Weather = 'clear' | 'cloudy' | 'rain' | 'storm' | 'snow' | 'fog';
 export const WEATHERS: readonly Weather[] = ['clear', 'cloudy', 'rain', 'storm', 'snow', 'fog'];
 
@@ -1143,6 +1167,10 @@ export type ClientMsg =
   | { t: 'station.prompt'; deskId: string; prompt: string }
   /** A question for the maintenance closet's laptop (a small model that knows the office's source); `id` comes back on the `maintenance.answer`. */
   | { t: 'maintenance.ask'; id: string; question: string }
+  /** The big button in the maintenance closet: commit what's stacked, check it, push, rebuild and restart the office. */
+  | { t: 'maintenance.ship' }
+  /** Asks for the stack as it is now; answered with a `maintenance.stack`. */
+  | { t: 'maintenance.stack' }
   /** Push a worktree worker's branch and open a pull request for it, drafted from its task. */
   | { t: 'worker.pr'; workerId: string }
   | { t: 'term.input'; workerId: string; data: string }
@@ -1323,6 +1351,8 @@ export type ServerMsg =
       me: Me;
       notify: NotifyState;
       machine: MachineState;
+      /** The Maintenance agent's stack of changes. */
+      maintenance: MaintenanceStack;
       /** Outside the windows: the same on every floor. */
       sky: SkyState;
       /** Halloween or Christmas decorations, all over the building, or none. */
@@ -1356,6 +1386,8 @@ export type ServerMsg =
   /** A worker's gone; `jail`, when it was sent home on a map that locks workers up (MapPlan.sendHome), with it in there now. */
   | { t: 'worker.remove'; workerId: string; jail?: JailState }
   | { t: 'worker.worktree'; workerId: string; state: WorktreeState }
+  /** The Maintenance agent's stack of changes moved (a commit, a shipment, a step of one). */
+  | { t: 'maintenance.stack'; state: MaintenanceStack }
   /** The laptop's answer to your `maintenance.ask`: what the model said, or why it couldn't, and which model it was. */
   | { t: 'maintenance.answer'; id: string; model: string; answer?: string; error?: string }
   | { t: 'screen'; workerId: string; cols: number; rows: number; lines: Record<number, Run[]>; full: boolean; cursor: [number, number] }

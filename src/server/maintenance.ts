@@ -27,6 +27,12 @@ export function officeSourceDir(env: NodeJS.ProcessEnv = process.env): string | 
   return undefined;
 }
 
+/**
+ * Where the Maintenance agent works: his own worktree of the office's source (see maintenance-stack.ts),
+ * set once it's been made. Workers starts him there rather than in the floor's project.
+ */
+export const maintenanceTree: { dir?: string } = {};
+
 /** What the laptop's model is told about its job, ahead of the question. */
 export const LAPTOP_BRIEF = [
   `You answer questions about Agent Office, the 3D multiplayer office this very question is typed into, from its source code and docs in the current folder (README.md, docs/, src/).`,

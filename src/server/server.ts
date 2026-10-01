@@ -15,7 +15,7 @@ import { agentProviders, configuredProvider, OPEN_CODE_MODEL_MAX } from './agent
 import { createGrokModelCatalogue, createOpenCodeModelCatalogue } from './models.js';
 import { Tailnet } from './tailnet.js';
 import { Team } from './team.js';
-import { Upgrader } from './upgrade.js';
+import { Upgrader, keepWorkersThroughRestart } from './upgrade.js';
 import { Services } from './services.js';
 import { ImageProxy } from './decor.js';
 import { Ledger } from './usage.js';
@@ -35,7 +35,7 @@ import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState, SignInKind, WorkerInfo } from '../shared/protocol.js';
 import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
-import { DESK_BY_ID, elevatorSpot, nextFreeSeat, streetBelow } from '../shared/layout.js';
+import { DESK_BY_ID, MAINTENANCE_DESK, elevatorSpot, nextFreeSeat, streetBelow } from '../shared/layout.js';
 import { OFFICE_MAP, seatHereOn } from '../shared/maps/index.js';
 import { EMPTY_PLAN } from '../shared/floorplan.js';
 import { JUKEBOX_TUNES, STREAM } from '../shared/jukebox.js';
@@ -45,7 +45,8 @@ import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
 import { DROP_MAX_BYTES } from '../shared/drops.js';
 import { MAX_FLOORS } from '../shared/floors.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
-import { MAX_QUESTION, askLaptop, laptopModel } from './maintenance.js';
+import { MAX_QUESTION, askLaptop, laptopModel, maintenanceTree } from './maintenance.js';
+import { MaintenanceStackKeeper, stackTree } from './maintenance-stack.js';
 import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
 import { isThemePick } from '../shared/theme.js';
 import { PROMPTS, PROMPT_MAX, isPromptId } from '../shared/prompts.js';
@@ -248,6 +249,8 @@ export async function startServer(cfg: Config) {
   const toastAll = (text: string, level: ToastLevel = 'info') => broadcast({ t: 'toast', text, level });
 
   // --- The building: a floor per project, each with its own workers, boards and queue -----------
+  // Where the Maintenance agent works, if he's been set up already: workers resumed below start there.
+  maintenanceTree.dir = existsSync(path.join(stackTree(cfg.dataDir), '.git')) ? stackTree(cfg.dataDir) : undefined;
   const building = new Building(cfg.dataDir, cfg.projectsDir);
   if (cfg.projects) {
     const err = building.setProjectsDir(cfg.projects, 'the command line');
@@ -609,7 +612,8 @@ export async function startServer(cfg: Config) {
     cfg.maxWorkers,
     () => {
       let n = 0;
-      for (const f of floors.values()) n += f.workers.list().length;
+      // The Maintenance agent looks after the office itself: he isn't one of the workers it's limited to.
+      for (const f of floors.values()) n += f.workers.list().filter((w) => w.deskId !== MAINTENANCE_DESK).length;
       return n;
     },
     (state) => broadcast({ t: 'machine', state }),
@@ -780,6 +784,32 @@ export async function startServer(cfg: Config) {
       process.kill(process.pid, 'SIGTERM');
     },
   );
+
+  // The Maintenance agent's stack of changes, and the big button that ships it (see maintenance-stack.ts).
+  /** Where he is now, if anywhere: he's one agent for the whole office, on whichever floor first asked him. */
+  const maintenanceAgent = () => {
+    for (const f of floors.values()) {
+      const w = f.workers.list().find((x) => x.deskId === MAINTENANCE_DESK);
+      if (w) return { floor: f, info: w };
+    }
+    return undefined;
+  };
+  const stack = new MaintenanceStackKeeper({
+    dataDir: cfg.dataDir,
+    emit: (state) => broadcast({ t: 'maintenance.stack', state }),
+    busy: () => {
+      const s = maintenanceAgent()?.info.status;
+      return s === 'working' || s === 'needs_input';
+    },
+    restart: async (by, state) => {
+      const latest = state.changes.at(-1);
+      broadcast({ t: 'upgrade', state: { ...upgrader.state, phase: 'restarting', by, latest: latest && { sha: latest.sha, subject: latest.subject, date: new Date().toISOString() } } });
+      await keepWorkersThroughRestart().catch((err) => console.warn(`agent-office: workers will be resumed after the restart, not kept running: ${(err as Error).message}`));
+      // cli.ts shuts down gracefully, leaving the workers running in their terminal host; systemd then starts the new build.
+      setTimeout(() => process.kill(process.pid, 'SIGTERM'), 1500);
+    },
+  });
+  stack.start(() => clients.size > 0);
 
   // --- HTTP ------------------------------------------------------------------------------------
   const serveFile = (res: http.ServerResponse, file: string, cache: boolean) => {
@@ -1231,6 +1261,7 @@ export async function startServer(cfg: Config) {
       me,
       notify: webhook.state(),
       machine: machine.state(),
+      maintenance: stack.state,
       sky: sky.state,
       theme: themes.state(),
       map: maps.state(),
@@ -1814,10 +1845,40 @@ export async function startServer(cfg: Config) {
         const deskId = str(msg.deskId, 32);
         // Nobody there yet: whoever asks first hires it, on their own sign-ins.
         const hires = !floor.workers.deskOccupied(deskId);
-        withSignIn(c, hires ? claudeFor(floor.workers.officeDefault.provider) : undefined, () => {
-          const r = floor.workers.station(deskId, who, str(msg.prompt, 20000), c.accountId);
-          if (typeof r === 'string') warn(c, r);
-          else if (r.hired) toastFloor(floor, `${who} asked the ${r.info.name} something`);
+        const send = () =>
+          withSignIn(c, hires ? claudeFor(floor.workers.officeDefault.provider) : undefined, () => {
+            const r = floor.workers.station(deskId, who, str(msg.prompt, 20000), c.accountId);
+            if (typeof r === 'string') warn(c, r);
+            else if (r.hired) toastFloor(floor, `${who} asked the ${r.info.name} something`);
+          });
+        if (deskId !== MAINTENANCE_DESK) {
+          send();
+          break;
+        }
+        // One Maintenance agent for the whole office, in his own worktree.
+        const at = maintenanceAgent();
+        if (at && at.floor !== floor) {
+          warn(c, `The Maintenance agent is already at work on the ${at.floor.def.name} floor: ask him there, so his changes stay in one stack`);
+          break;
+        }
+        if (stack.state.phase === 'shipping') {
+          warn(c, 'The stack is being shipped: the office restarts in a moment');
+          break;
+        }
+        void stack.prepare().then((why) => {
+          maintenanceTree.dir = stack.dir;
+          if (why) warn(c, why);
+          else send();
+        });
+        break;
+      }
+      case 'maintenance.stack':
+        void stack.refresh().then(() => sendTo(c, { t: 'maintenance.stack', state: stack.state }));
+        break;
+      case 'maintenance.ship': {
+        void stack.ship(who).then((err) => {
+          if (err) warn(c, err);
+          else toastAll(`${who} is shipping the Maintenance agent's stack — the office restarts when it's built`);
         });
         break;
       }
@@ -2532,6 +2593,7 @@ export async function startServer(cfg: Config) {
     tailnet.stop();
     webhook.stop();
     machine.stop();
+    stack.stop();
     sky.stop();
     themes.stop();
     for (const f of floors.values()) f.shutdown(keep);
