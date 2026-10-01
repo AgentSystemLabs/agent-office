@@ -4,6 +4,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
+import tty from 'node:tty';
 import { normalizeRepo, sameRepo } from '../shared/floors.js';
 import type { RepoChoice } from '../shared/protocol.js';
 import { Building, tildify } from './building.js';
@@ -41,9 +42,14 @@ Options:
   -h, --help              Show this help
 `;
 
-/** Someone's at a terminal to answer questions. */
+/**
+ * Someone's at a terminal to answer questions. Asks about the file descriptors, not process.stdin:
+ * on Windows, opening stdin when it's a pipe another process is reading (`npm run dev`, where tsx
+ * watch waits on it for Enter) blocks forever, and the office never opens. stdout goes first, so
+ * anything run with its output piped (concurrently, a service, CI) doesn't look at stdin at all.
+ */
 export function interactive(): boolean {
-  return !!process.stdin.isTTY && !!process.stdout.isTTY && !process.env.CI;
+  return tty.isatty(1) && tty.isatty(0) && !process.env.CI;
 }
 
 /**
