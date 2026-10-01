@@ -8,7 +8,8 @@ import { store } from '../state';
 import { Holiday } from '../world/holiday';
 import { buildOffice } from '../world/office';
 import type { Office } from '../world/types';
-import { HAZE_MAX, Sky } from '../world/sky';
+import { HAZE_MAX } from '../world/haze';
+import { Sky } from '../world/sky';
 import type { Ctx } from './context';
 import { noOutline } from './outline';
 

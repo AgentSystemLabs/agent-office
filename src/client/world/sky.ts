@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { FLOOR, SLAB, STREET_Y, WALL_HEIGHT, WALL_T, WING, wingMinZ } from '../../shared/layout';
 import type { SkyState, Theme, Weather } from '../../shared/protocol';
 import { guessPlace, skyTime, sunPosition } from '../../shared/sun';
+import { HAZE, HAZE_PARS, HAZE_PARS_VERTEX, HAZE_VERTEX } from './haze';
 import type { NightParts } from './outside';
 
 /*
@@ -19,25 +20,6 @@ import type { NightParts } from './outside';
 
 const MAX_LAMPS = 24;
 const DEG = Math.PI / 180;
-/**
- * The furthest off the haze ever is, however high up you are: past that nothing's built (the grass
- * and the road round the office end there, the city round the roof just past it), so it hides that.
- */
-export const HAZE_MAX = 300;
-/**
- * The haze thins out with height over the street: past HAZE_CLEAR meters up, every HAZE_ABOVE
- * meters more you see as far again as down on the street (from the roof of six floors, 3.4 times).
- */
-const HAZE_CLEAR = 6;
-const HAZE_ABOVE = 17.5;
-
-/**
- * How far off something's lost in the haze (with the fog's far edge down on the street at `far`),
- * seen from or standing `above` meters over the street, whichever's higher (see HAZE).
- */
-export function hazeReach(above: number, far: number): number {
-  return Math.min(HAZE_MAX, far * (1 + Math.max(0, above - HAZE_CLEAR) / HAZE_ABOVE));
-}
 /** The building, walls included: the office upstairs and the garage under it. */
 const B = { minX: FLOOR.minX - WALL_T, maxX: FLOOR.maxX + WALL_T, minZ: FLOOR.minZ - WALL_T, maxZ: FLOOR.maxZ + WALL_T } as const;
 
@@ -145,52 +127,14 @@ const WORLD = /* glsl */ `
 }
 `;
 
-/**
- * The haze, over three.js's own fog: it thins out with height over the street (see HAZE_ABOVE), as
- * thin as it is at your eye or at what you're looking at, whichever is higher. So from high up you
- * see further, the street below included, and from down on the street the top of the building is
- * as clear as the view from up there. Past HAZE_MAX there's nothing to see, whatever the height.
- */
-const HAZE_PARS_VERTEX = /* glsl */ `
-#ifdef USE_FOG
-  varying float vSkyFogY;
-#endif
-`;
-
-/** How high the vertex is: the view matrix undone (its rotation's transpose), from the camera. */
-const HAZE_VERTEX = /* glsl */ `
-#ifdef USE_FOG
-  vSkyFogY = dot( viewMatrix[ 1 ].xyz, mvPosition.xyz ) + cameraPosition.y;
-#endif
-`;
-
-const HAZE_PARS = /* glsl */ `
-#ifdef USE_FOG
-  varying float vSkyFogY;
-  uniform float skyStreet;
-#endif
-`;
-
-const HAZE = /* glsl */ `
-#ifdef USE_FOG
-  #ifdef FOG_EXP2
-    float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
-  #else
-    // How many times as far off the haze is as down on the street; and past HAZE_MAX, from 45% of
-    // the way there, as the haze on the roof always went.
-    float skyReach = 1.0 + max( max( cameraPosition.y, vSkyFogY ) - skyStreet - ${HAZE_CLEAR.toFixed(1)}, 0.0 ) / ${HAZE_ABOVE.toFixed(1)};
-    float fogFactor = max( smoothstep( fogNear, fogFar, vFogDepth / skyReach ), smoothstep( ${(HAZE_MAX * 0.45).toFixed(1)}, ${HAZE_MAX.toFixed(1)}, vFogDepth ) );
-  #endif
-  gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );
-#endif
-`;
-
 // Everything with fog gets the haze above; every lit material also gets the lines before that,
 // sharing one set of uniforms. Nothing else in the office uses onBeforeCompile, so this is its
 // default; unlit ones (glass, signs, outlines) only get the haze.
 THREE.Material.prototype.onBeforeCompile = function (shader) {
   if (shader.fragmentShader.includes('#include <fog_fragment>')) {
     shader.uniforms.skyStreet = uniforms.skyStreet;
+    shader.uniforms.skyHazeInside = uniforms.skyInside;
+    shader.uniforms.skyHazeWing = uniforms.skyWing;
     shader.vertexShader = shader.vertexShader.replace('#include <fog_pars_vertex>', `#include <fog_pars_vertex>\n${HAZE_PARS_VERTEX}`).replace('#include <fog_vertex>', `#include <fog_vertex>\n${HAZE_VERTEX}`);
     shader.fragmentShader = shader.fragmentShader.replace('#include <fog_pars_fragment>', `#include <fog_pars_fragment>\n${HAZE_PARS}`).replace('#include <fog_fragment>', HAZE);
   }
